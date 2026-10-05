@@ -2719,8 +2719,8 @@ await step('a code that is not a code is said out loud, not swallowed', async ()
   await page.fill('.join-code', '0'.repeat(32))
   await page.click('.screen .row.static .pill-btn')
 
-  await page.waitForSelector('.screen .form-error', { timeout: 15000 })
-  const said = (await page.textContent('.screen .form-error')) || ''
+  await page.waitForSelector('.screen .form-error, .dialog .form-error', { timeout: 15000 })
+  const said = (await page.textContent('.screen .form-error, .dialog .form-error')) || ''
   if (!said.trim()) throw new Error('a rejected invite code said nothing')
   // And it did not move them anywhere: still the same feed, still connected.
   await page.click('.screen .back')
@@ -2796,7 +2796,7 @@ await step('a link you have out can be found and revoked', async () => {
   await page.waitForSelector('.join-code', { timeout: 10000 })
   await page.fill('.join-code', doomed)
   await page.click('.screen .row.static .pill-btn')
-  await page.waitForSelector('.screen .form-error', { timeout: 15000 })
+  await page.waitForSelector('.screen .form-error, .dialog .form-error', { timeout: 15000 })
   await closeEverything()
 })
 
@@ -2967,7 +2967,7 @@ await step('GitHub is not claimed where it cannot run', async () => {
   await page.fill('.github-form input[aria-label="Repository"]', 'acme/ops')
   await page.fill('.github-form input[type="password"]', 'github_pat_not_a_real_token_at_all')
   await page.click('.github-form .pill-btn')
-  await page.waitForSelector('.screen .form-error', { timeout: 30000 })
+  await page.waitForSelector('.screen .form-error, .dialog .form-error', { timeout: 30000 })
     .catch(() => { throw new Error('a token GitHub will not take was accepted silently') })
   await shot('27b-github-connect')
   await page.keyboard.press('Escape')
