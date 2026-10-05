@@ -201,6 +201,8 @@ export interface ChannelMessage {
   /// Who reacted, by member ref. `mine` is only set on a message fetched
   /// by this person; a live event is shared, so the refs decide.
   reactions?: Array<{ emoji: string; count: number; refs: string[]; mine: boolean }>
+  /// Reactions pressed here and not yet confirmed by the server (#221).
+  reactionsPending?: string[]
   files?: FileRef[]
   /// Who wrote it, when an agent did: its name and face.
   agent?: { id: string; handle: string; name: string; emoji: string | null; avatarUrl?: string | null } | null

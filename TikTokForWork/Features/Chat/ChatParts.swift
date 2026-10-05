@@ -140,19 +140,49 @@ final class ChatTranslations: ObservableObject {
 
     func store(_ id: String, from: String, text: String) { texts[id] = (from, text) }
     func shown(_ m: ChatMessage) -> (text: String, translated: Bool) {
-        if let t = texts[m.id], t.from == m.body, t.text.trimmingCharacters(in: .whitespacesAndNewlines) != m.body.trimmingCharacters(in: .whitespacesAndNewlines), !originals.contains(m.id) { return (t.text, true) }
+        if let t = texts[m.id], t.from == m.body, !Self.sameWords(t.text, m.body), !originals.contains(m.id) { return (t.text, true) }
         return (m.body, false)
     }
     func hasTranslation(_ m: ChatMessage) -> Bool {
         guard let t = texts[m.id], t.from == m.body else { return false }
-        return t.text.trimmingCharacters(in: .whitespacesAndNewlines) != m.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !Self.sameWords(t.text, m.body)
+    }
+    /// The same words, give or take case, spacing and punctuation.
+    static func sameWords(_ a: String, _ b: String) -> Bool {
+        func plain(_ x: String) -> String {
+            String(x.precomposedStringWithCompatibilityMapping.lowercased().unicodeScalars.filter {
+                !CharacterSet.punctuationCharacters.contains($0) && !CharacterSet.symbols.contains($0) && !CharacterSet.whitespacesAndNewlines.contains($0)
+            })
+        }
+        return plain(a) == plain(b)
     }
     func toggle(_ id: String) { if originals.contains(id) { originals.remove(id) } else { originals.insert(id) } }
+    private static let latinReaders: Set<String> = ["en", "es", "fr", "de", "it", "pt", "nl", "sv", "da", "no", "nb", "fi", "pl", "cs", "ro", "hu", "tr", "id", "ms", "vi", "tl", "sw"]
+    /// The Worker's rule (translate.js, #220): not the reader's language,
+    /// and not too short or too plain to need it — Latin letters too few to
+    /// name the language ("ok thanks"), or a few characters of kanji alone.
+    static func worthTranslating(_ lang: String?, reader: String, body: String) -> Bool {
+        let to = String(reader.prefix(2)).lowercased()
+        guard let lang, lang != to else { return false }
+        if lang == "latn" {
+            if latinReaders.contains(to) { return false }
+            let words = body.split(whereSeparator: { $0.isWhitespace }).filter { w in
+                !w.hasPrefix("http") && !w.hasPrefix("@") && w.contains(where: { $0.isLetter })
+            }
+            return words.count > 3
+        }
+        if (lang == "zh" && to == "ja") || (lang == "ja" && to == "zh") {
+            let letters = body.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+            let hanOnly = !letters.isEmpty && letters.allSatisfy { $0.properties.isIdeographic }
+            if hanOnly && letters.count <= 12 { return false }
+        }
+        return true
+    }
     /// The ones still to ask for, marked as asked.
     func wanted(_ list: [ChatMessage], reader: String) -> [ChatMessage] {
         guard !off else { return [] }
         let out = list.filter { m in
-            guard m.deleted != true, let lang = m.lang, lang != reader, texts[m.id]?.from != m.body else { return false }
+            guard m.deleted != true, Self.worthTranslating(m.lang, reader: reader, body: m.body), texts[m.id]?.from != m.body else { return false }
             return !asked.contains("\(m.id):\(m.body)")
         }
         for m in out { asked.insert("\(m.id):\(m.body)") }

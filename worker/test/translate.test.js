@@ -33,12 +33,32 @@ test("a message says the language it is in; names, links and emoji alone say non
   expect(messageLanguage("Autumn menu launches on the 1st")).toBe("en");
   expect(messageLanguage("ポスターの方向性をください")).toBe("ja");
   expect(messageLanguage("@hayao https://x.com/a 👍")).toBe(null);
-  // Too short to name: translated into whatever language the reader set.
+  // Too short to name its language: left as it is (#220) — for a reader
+  // who reads Latin letters, and for anyone when it is a word or three.
   expect(messageLanguage("hello!")).toBe("latn");
-  expect(wantsTranslation("latn", "ja")).toBe(true);
-  expect(wantsTranslation("latn", "es")).toBe(true);
+  expect(wantsTranslation("latn", "es", "hello!")).toBe(false);
+  expect(wantsTranslation("latn", "en", "ok thanks")).toBe(false);
+  expect(wantsTranslation("latn", "ja", "LGTM")).toBe(false);
+  expect(wantsTranslation("latn", "ja", "ok see you at the station tomorrow")).toBe(true);
+  // A few characters of kanji alone are as much Japanese as Chinese.
+  expect(wantsTranslation("zh", "ja", "了解")).toBe(false);
+  expect(wantsTranslation("zh", "ja", "确认一下这个文件的最新版本有没有问题，然后告诉我")).toBe(true);
   expect(wantsTranslation("ja", "ja-JP")).toBe(false);
-  expect(wantsTranslation("en", "ja")).toBe(true);
+  expect(wantsTranslation("en", "ja", "Autumn menu launches on the 1st")).toBe(true);
+});
+
+test("a translation that is the message itself, give or take punctuation, is kept as the message (#220)", async () => {
+  const { sameWords } = await import("../src/translate.js");
+  expect(sameWords("OK, thanks!", "ok thanks")).toBe(true);
+  expect(sameWords("Ｍｅｅｔ　ａｔ　３", "Meet at 3")).toBe(true);
+  expect(sameWords("Meet at 3", "Meet at 4")).toBe(false);
+  const said = (await (await post("/channels/messages", toru, { orgId: ORG, channel: "b:cafe", body: "Autumn menu launches on the first of the month" })).json()).message;
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(200, () => ({
+    choices: [{ message: { content: JSON.stringify({ items: [{ id: said.id, text: "Autumn menu launches on the first of the month." }] }) } }],
+  }));
+  // Read in Japanese, the model gave it back unchanged but for a full stop.
+  const out = await (await post("/channels/translate", mika, { orgId: ORG, channel: "b:cafe", ids: [said.id], locale: "ja" })).json();
+  expect(out.translations[said.id]).toBe("Autumn menu launches on the first of the month");
 });
 
 test("a push, a preview: one message in each person's language, kept", async () => {
@@ -58,8 +78,8 @@ test("a push, a preview: one message in each person's language, kept", async () 
 });
 
 test("the language the reader's screen is set to wins over the profile's", async () => {
-  const said = (await (await post("/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "hello!" })).json()).message;
-  expect(said.lang).toBe("latn");
+  const said = (await (await post("/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "秋メニューは1日から" })).json()).message;
+  expect(said.lang).toBe("ja");
   let asked;
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(200, (opts) => {
     asked = JSON.parse(opts.body);

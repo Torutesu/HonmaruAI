@@ -674,6 +674,8 @@
 }
 .classic.slk.slk .slk-reaction:hover { border-color: var(--slk-dim); }
 .classic.slk.slk .slk-reaction.mine { background: rgba(29, 155, 209, .12); border-color: var(--slk-accent); color: var(--slk-accent); }
+/* Pressed here, not yet confirmed by the server (#221): drawn at once, a little faded. */
+.classic.slk.slk .slk-reaction.pending { opacity: .6; transition: opacity 200ms; }
 .classic.slk.slk .slk-reaction-emoji { font-size: 14px; line-height: 1; }
 .classic.slk.slk .slk-reaction-count { font-weight: 700; }
 .classic.slk.slk .slk-reaction.add { color: var(--slk-dim); opacity: 0; transition: opacity .12s; }
