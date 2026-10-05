@@ -1,4 +1,5 @@
 import { channelMessageCache, mergeLatestMessages } from '../utils/channelMessageCache'
+import { ReadGuard } from '../utils/readGuard'
 import { ChannelCanvas } from './ChannelCanvas'
 import { AgentAvatar } from './AgentAvatar'
 import { BookmarksBar } from './BookmarksBar'
@@ -351,6 +352,9 @@ export const ClassicList: React.FC<Props> = ({
   /// by what the server says behind it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const views = useMemo(() => channelMessageCache(api).views, [api.httpBase, api.orgId, api.sessionToken])
+  /// What this device has marked read, held against lists fetched before it
+  /// (#217): an older answer never brings the unread back.
+  const readGuard = useRef(new ReadGuard()).current
   // Your daily report's draft, waiting in the channel it is for.
   const dailyDrafts = useMemo(() => pending.filter((c) => c.dailyReport && awaitsPost(c) && c.dailyReport.status === 'draft'), [pending])
   const draftsFor = (view: string) => dailyDrafts.filter((c) => c.dailyReport!.channel === view)
@@ -737,9 +741,14 @@ export const ClassicList: React.FC<Props> = ({
   const [threadItems, setThreadItems] = useState<ThreadItem[] | null>(() => views.get<ThreadItem[]>('threads') ?? null)
   useEffect(() => { if (threadItems) views.set('threads', threadItems, { read: false }) }, [threadItems, views])
   const loadThreads = useCallback(() => {
+    const ticket = readGuard.ask('threads')
     return fetch(`${api.httpBase}/channels/threads?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (data) { views.set('threads', data.threads || []); setThreadItems(data.threads || []) } })
+      .then((data) => {
+        if (!data || !readGuard.fresh('threads', ticket)) return
+        const list = readGuard.threadList<ThreadItem>(data.threads || [])
+        views.set('threads', list); setThreadItems(list)
+      })
       .catch(() => { /* the list stays as it was */ })
   }, [api.httpBase, api.orgId, authHeaders, views])
   useEffect(() => { void loadThreads() }, [loadThreads])
@@ -748,6 +757,7 @@ export const ClassicList: React.FC<Props> = ({
   /// newest reply is no later is no longer new.
   const threadsReadTo = useCallback((read: Array<{ thread: string; lastReadAt: string }>) => {
     const upTo = new Map(read.map((r) => [r.thread, r.lastReadAt]))
+    for (const r of read) readGuard.readThread(r.thread, r.lastReadAt)
     setThreadItems((prev) => prev && prev.map((x) => {
       const at = upTo.get(x.parent.id)
       return x.unread && at && x.lastReplyAt <= at ? { ...x, unread: false } : x
@@ -763,12 +773,17 @@ export const ClassicList: React.FC<Props> = ({
   // What the Unread tab showed when you came to it stays in the list while
   // you are there, however many of them you have looked at since.
   const [unreadShown, setUnreadShown] = useState<Set<string>>(() => new Set())
-  const [activityTab, setActivityTab] = useState<'all' | 'unread'>('all')
+  const [activityTab, setActivityTab] = useState<'all' | 'unread' | 'mentions'>('all')
   const [activityPick, setActivityPick] = useState<string | null>(null)
   const loadActivity = useCallback(() => {
+    const ticket = readGuard.ask('activity')
     return fetch(`${api.httpBase}/channels/activity?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (data) { views.set('activity', data.items || []); setActivityItems(data.items || []) } })
+      .then((data) => {
+        if (!data || !readGuard.fresh('activity', ticket)) return
+        const list = readGuard.activity<ActivityItem>(data.items || [], activityKey)
+        views.set('activity', list); setActivityItems(list)
+      })
       .catch(() => { /* nothing new is the same as nothing loaded */ })
   }, [api.httpBase, api.orgId, authHeaders, views])
   useEffect(() => { void loadActivity() }, [loadActivity])
@@ -779,6 +794,7 @@ export const ClassicList: React.FC<Props> = ({
   const markActivitySeen = useCallback((keys: string[]) => {
     const fresh = new Set(keys)
     if (!fresh.size) return
+    readGuard.readItems(fresh)
     setActivityItems((prev) => prev && prev.map((i) => (i.unread && fresh.has(activityKey(i)) ? { ...i, unread: false } : i)))
     const serverKeys = keys.filter((k) => /^(m|r):/.test(k))
     if (!serverKeys.length) return
@@ -798,6 +814,7 @@ export const ClassicList: React.FC<Props> = ({
   const markAllActivityRead = () => {
     const keys = (activityItems || []).filter((i) => i.unread).map(activityKey)
     if (!keys.length) return
+    readGuard.readItems(keys)
     setActivityItems((prev) => prev && prev.map((i) => (i.unread ? { ...i, unread: false } : i)))
     closeMessageNotifications(messageIdsOf(keys))
     void fetch(`${api.httpBase}/channels/read`, {
@@ -1252,6 +1269,13 @@ export const ClassicList: React.FC<Props> = ({
           {thread.unread === 0 && thread.fresh && !on && <span className="cl-fresh" aria-label={t('New messages')} />}
           {!on && thread.view && (drafts[thread.view] || hasDraft) && <span className={`cl-draft${hasDraft ? ' daily' : ''}`} title={hasDraft ? t('Your daily report is waiting to be posted') : t('Draft')} aria-label={t('Draft')} data-has-daily={hasDraft ? '1' : undefined}><Icon name="edit" size={12} /></span>}
         </button>
+        {thread.view && isFresh(thread) && (
+          // The @ or the dot, cleared from the list itself: hover or focus
+          // the row, and it is one press (#213).
+          <button type="button" className="cl-clear" onClick={() => markViewRead(thread.view!)} title={t('Mark as read')} aria-label={t('Mark {name} as read', { name: thread.name })} data-clear={thread.view}>
+            <Icon name="check" size={13} />
+          </button>
+        )}
       </li>
     )
   }
@@ -1530,6 +1554,7 @@ export const ClassicList: React.FC<Props> = ({
   /// conversation's count goes, its notifications close, and what was said
   /// in it is no longer new in Activity (a reply waits for its thread).
   const readOnServer = (v: string, now: string) => {
+    readGuard.readChannel(v, now)
     fetch(`${api.httpBase}/channels/read`, {
       method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
       body: JSON.stringify({ orgId: api.orgId, channel: v, at: now }),
@@ -1544,7 +1569,13 @@ export const ClassicList: React.FC<Props> = ({
     return now
   }
   /// "Mark as read" from the sidebar, without opening it.
-  const markViewRead = (v: string) => { readOnServer(v, readHere(v)) }
+  /// Its @ goes with it: every unread mention of you in it, its threads'
+  /// included — and nothing of any other conversation (#213).
+  const markViewRead = (v: string) => {
+    readOnServer(v, readHere(v))
+    const mentions = (activityItems || []).filter((i) => i.unread && i.type === 'mention' && i.message.channel === v).map(activityKey)
+    if (mentions.length) markActivitySeen(mentions)
+  }
   /// A dot or an @ waiting in it.
   const isFresh = (th: Thread) => Boolean(th.view && (th.fresh || (mentionsIn[th.view] || 0) > 0))
   /// Where ⌥⇧↑/⌥⇧↓ stop: a dot or an @, or cards waiting on you, which
@@ -2224,7 +2255,10 @@ export const ClassicList: React.FC<Props> = ({
   // whose + was pressed is the one that opens it, not both at once.
   const [pickerFor, setPickerFor] = useState<string | null>(null)
   const pickerKey = (m: ChannelMessage, inThread: boolean) => `${inThread ? 'thread:' : ''}${m.id}`
-  const [thread, setThread] = useState<{ channel: string; parent: ChannelMessage; replies: ChannelMessage[] } | null>(null)
+  // `loading` while its replies are being read (the count the conversation
+  // showed stands meanwhile, never a "0 replies"); `failed` when they could
+  // not be (#216).
+  const [thread, setThread] = useState<{ channel: string; parent: ChannelMessage; replies: ChannelMessage[]; loading?: boolean; failed?: boolean } | null>(null)
   // The thread as it stands — replies sent, edited, arrived live — kept for
   // the next time it is opened.
   useEffect(() => {
@@ -2697,9 +2731,10 @@ export const ClassicList: React.FC<Props> = ({
     setProfile(null)
     // The replies read last time, at once; the server's, when they come.
     const kept = views.get<ChannelMessage[]>(`thread:${channel}:${m.id}`) || []
-    setThread((prev) => ({ channel, parent: m, replies: prev && prev.parent.id === m.id ? keepTemps(kept, prev.replies) : kept }))
+    setThread((prev) => ({ channel, parent: m, replies: prev && prev.parent.id === m.id ? keepTemps(kept, prev.replies) : kept, loading: true }))
     const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(m.id)}`, { headers: authHeaders }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) : null
+    if (!data) setThread((prev) => (prev && prev.parent.id === m.id ? { ...prev, loading: false, failed: true } : prev))
     // Replies of yours still on their way, or that did not go — sent while
     // it was open before, or before this page loaded — back in it.
     const back = data ? heldFor(channel, m.id, data.replies || []) : []
@@ -3967,7 +4002,10 @@ export const ClassicList: React.FC<Props> = ({
     const whoOf = (i: ActivityItem) => (i.type === 'reaction' ? (i.by || t('a teammate')) : i.message.kind === 'ai' ? t('Your AI') : (i.message.authorName || t('a teammate')))
     // A reply is in a thread, or inline to what you wrote.
     const verb = (i: ActivityItem) => (i.type === 'reaction' ? t('reacted') : i.type === 'reply' ? (i.message.parentId ? t('replied in a thread') : t('replied to you')) : i.type === 'keyword' ? t('said “{word}”', { word: i.keyword || '' }) : t('mentioned you'))
-    const items = (activityItems || []).filter((i) => activityTab === 'all' || i.unread || unreadShown.has(keyOf(i)))
+    const items = (activityItems || []).filter((i) => (activityTab === 'mentions' ? i.type === 'mention' : activityTab === 'all' || i.unread || unreadShown.has(keyOf(i))))
+    // Mentions: every @ of you, where it came from, and a way to clear them
+    // all at once without opening each conversation (#213).
+    const mentionsUnread = (activityItems || []).filter((i) => i.unread && i.type === 'mention')
     const picked = (activityItems || []).find((i) => keyOf(i) === activityPick) || null
     const open = (i: ActivityItem) => {
       markActivitySeen([keyOf(i)])
@@ -3995,15 +4033,20 @@ export const ClassicList: React.FC<Props> = ({
               <button type="button" role="tab" aria-selected={activityTab === 'unread'} onClick={() => { setUnreadShown(new Set((activityItems || []).filter((i) => i.unread).map(keyOf))); setActivityTab('unread') }} data-unread-tab="1">
                 {t('Unread')}{(activityItems || []).some((i) => i.unread) ? <span className="slk-inbox-count">{(activityItems || []).filter((i) => i.unread).length}</span> : null}
               </button>
+              <button type="button" role="tab" aria-selected={activityTab === 'mentions'} onClick={() => setActivityTab('mentions')} data-mentions-tab="1">
+                {t('Mentions')}{mentionsUnread.length ? <span className="slk-inbox-count">{mentionsUnread.length}</span> : null}
+              </button>
             </div>
-            {activityUnread > 0 && <button type="button" className="cl-nudge slk-mark-all" onClick={markAllActivityRead} data-mark-all="activity">{t('Mark all as read')}</button>}
+            {activityTab === 'mentions'
+              ? mentionsUnread.length > 0 && <button type="button" className="cl-nudge slk-mark-all" onClick={() => markActivitySeen(mentionsUnread.map(keyOf))} data-mark-all="mentions">{t('Mark mentions as read')}</button>
+              : activityUnread > 0 && <button type="button" className="cl-nudge slk-mark-all" onClick={markAllActivityRead} data-mark-all="activity">{t('Mark all as read')}</button>}
           </header>
           <div className="slk-inbox-rows slk-activity" ref={activityRows}>
             {activityItems === null && <p className="slk-empty">{t('Loading…')}</p>}
             {activityItems && items.length === 0 && (
               <div className="slk-start">
                 <span className="cl-lead cl-app sz-head" aria-hidden="true"><Icon name="bell" size={18} /></span>
-                <h2>{activityTab === 'unread' ? t('All caught up') : t('Nothing for you yet')}</h2>
+                <h2>{activityTab === 'unread' ? t('All caught up') : activityTab === 'mentions' ? t('No mentions') : t('Nothing for you yet')}</h2>
                 <p>{t('When somebody writes @ your name, replies in a thread you are part of, or reacts to what you wrote, it shows up here.')}</p>
               </div>
             )}
@@ -4093,7 +4136,26 @@ export const ClassicList: React.FC<Props> = ({
 
   /// A thread's messages and the box to answer in: in the pane beside a
   /// conversation, and in Activity when what you picked is part of one.
-  const threadBody = (thread: { channel: string; parent: ChannelMessage; replies: ChannelMessage[] }) => (
+  /// The thread's count as the line under its first message says it: what
+  /// is drawn — or, while the replies are still being read, the count the
+  /// conversation already showed, with "Loading…" (#216). An empty thread
+  /// says so only once it is known to be empty.
+  const threadCount = (thread: { channel: string; parent: ChannelMessage; replies: ChannelMessage[]; loading?: boolean; failed?: boolean }) => {
+    const drawn = thread.replies.length
+    const known = Math.max(drawn, thread.parent.replyCount || 0)
+    const n = thread.loading || thread.failed ? known : drawn
+    const words = n === 1 ? t('1 reply') : t('{n} replies', { n })
+    if (thread.loading && drawn < known) return <span aria-busy="true">{words} · {t('Loading…')}</span>
+    if (thread.failed) {
+      return (
+        <span>{words} · {t("Couldn't load the replies.")}{' '}
+          <button type="button" className="slk-link-button" onClick={() => void openThread(thread.channel, thread.parent)}>{t('Try again')}</button>
+        </span>
+      )
+    }
+    return <span>{words}</span>
+  }
+  const threadBody = (thread: { channel: string; parent: ChannelMessage; replies: ChannelMessage[]; loading?: boolean; failed?: boolean }) => (
     <>
           <div className="slk-thread-log" tabIndex={0} role="region" aria-label={t('Messages')}
             onKeyDown={logKeys(thread.channel, [thread.parent, ...thread.replies], threadComposer, true)} onMouseDown={unpick} onFocus={pickLog}>
@@ -4116,7 +4178,7 @@ export const ClassicList: React.FC<Props> = ({
                 ))}
                 {i === 0 && (
                   <div className="slk-thread-count" role="separator">
-                    <span>{thread.replies.length === 1 ? t('1 reply') : t('{n} replies', { n: thread.replies.length })}</span>
+                    {threadCount(thread)}
                   </div>
                 )}
               </React.Fragment>

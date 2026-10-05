@@ -930,6 +930,19 @@
 .classic.slk.slk .cl-muted { font-size: 11px; opacity: .7; flex: none; }
 .classic.slk.slk .cl-thread.muted .cl-title { opacity: .6; }
 .classic.slk.slk .cl-badge.mention { background: var(--slk-accent); }
+/* Mark as read, on the row: shown on hover or focus, over the badge it
+   clears (#213). */
+.classic.slk.slk .cl-thread { position: relative; }
+.classic.slk.slk .cl-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 24px; height: 24px; border-radius: 6px; border: none; padding: 0;
+  display: grid; place-items: center; cursor: pointer;
+  background: var(--slk-side-hover, rgba(255, 255, 255, .16)); color: inherit;
+  opacity: 0; pointer-events: none; transition: opacity 120ms;
+}
+.classic.slk.slk .cl-thread:hover .cl-clear, .classic.slk.slk .cl-clear:focus-visible { opacity: 1; pointer-events: auto; }
+.classic.slk.slk .cl-thread:hover:has(.cl-clear) .cl-open > :is(.cl-badge, .cl-fresh), .classic.slk.slk .cl-thread:has(.cl-clear:focus-visible) .cl-open > :is(.cl-badge, .cl-fresh) { visibility: hidden; }
+@media (hover: none) { .classic.slk.slk .cl-clear { display: none; } }
 .classic.slk.slk .cl-pref { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-right: 8px; }
 .classic.slk.slk .cl-pref-label { font-size: 12px; color: var(--slk-dim); margin-right: 2px; }
 .classic.slk.slk .cl-nudge.on { background: var(--slk-accent); color: #fff; border-color: var(--slk-accent); }
