@@ -1993,6 +1993,9 @@ const table: Record<string, string> = {
   'Set by {name}': 'Fijado por {name}',
   'AI suggested {level}': 'La IA sugirió {level}',
   "Couldn't load this profile.": 'No se pudo cargar este perfil.',
+  'Start on its own': 'Empezar por su cuenta',
+  'Start on issues and reports posted in channels': 'Empezar con issues e informes publicados en los canales',
+  "When a GitHub issue from these repositories is linked in a channel, or someone reports a bug or asks for a feature there, @{handle} starts on it in that message's thread and posts the pull request there. Each issue is started once.": "Cuando se enlaza en un canal un issue de GitHub de estos repositorios, o alguien informa de un error o pide una función allí, @{handle} empieza en el hilo de ese mensaje y publica allí el pull request. Cada issue se empieza una sola vez.",
 }
 
 export default table

@@ -75,6 +75,7 @@ export async function loadTeammate(db, orgId, provider) {
     instructions: row.instructions || "", channels: parse(row.channels, null),
     monthlyLimitCents: row.monthly_limit_cents == null ? null : Number(row.monthly_limit_cents),
     tools: parse(row.tools, []), remote: parse(row.remote, {}), agentId: row.agent_id || null,
+    autoBuild: row.auto_build == null ? true : Boolean(row.auto_build),
     updatedBy: row.updated_by || null, updatedAt: row.updated_at || null,
   };
 }
@@ -102,6 +103,7 @@ export function toClientTeammate(t, provider, spentCents = 0) {
     account: t?.remote?.account || "",
     repos: t?.repos || [], model: t?.model || p.defaultModel || "", instructions: t?.instructions || "",
     channels: t?.channels ?? null,
+    autoBuild: t ? t.autoBuild !== false : true,
     monthlyLimit: t ? (t.monthlyLimitCents == null ? null : t.monthlyLimitCents / 100) : p.defaultLimit / 100,
     spentThisMonth: spentCents / 100,
     tools: (t?.tools || []).map((x) => ({ name: x.name, secretName: x.secretName, host: x.host })),
@@ -170,6 +172,7 @@ function cleanInput(input, current, provider) {
     out.tools = tools;
   }
   if (input.enabled !== undefined) out.enabled = Boolean(input.enabled);
+  if (input.autoBuild !== undefined) out.autoBuild = Boolean(input.autoBuild);
   return { out };
 }
 
@@ -564,6 +567,7 @@ export async function saveTeammate(env, orgId, provider, input, { login, workspa
     repos: current?.repos || [], model: current?.model || p.defaultModel, instructions: current?.instructions || "",
     channels: current ? current.channels : null, monthlyLimitCents: current ? current.monthlyLimitCents : p.defaultLimit,
     tools: current?.tools || [], remote: current?.remote || {}, agentId: current?.agentId || null,
+    autoBuild: current ? current.autoBuild !== false : true,
     ...Object.fromEntries(Object.entries(out).filter(([k]) => k !== "tools" && k !== "account")),
   };
   if (out.account !== undefined) next.remote = { ...next.remote, account: out.account };
@@ -597,17 +601,17 @@ export async function saveTeammate(env, orgId, provider, input, { login, workspa
   }
   next.agentId = await ensureAgentRow(env.DB, orgId, provider, login, next.enabled, next.agentId, members);
   await env.DB.prepare(
-    `INSERT INTO ai_teammates (org_id, provider, enabled, api_key, github_token, repos, model, instructions, channels, monthly_limit_cents, tools, remote, agent_id, updated_by, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+    `INSERT INTO ai_teammates (org_id, provider, enabled, api_key, github_token, repos, model, instructions, channels, monthly_limit_cents, tools, remote, agent_id, updated_by, updated_at, auto_build)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
      ON CONFLICT(org_id, provider) DO UPDATE SET enabled = excluded.enabled, api_key = excluded.api_key, github_token = excluded.github_token,
        repos = excluded.repos, model = excluded.model, instructions = excluded.instructions, channels = excluded.channels,
        monthly_limit_cents = excluded.monthly_limit_cents, tools = excluded.tools, remote = excluded.remote, agent_id = excluded.agent_id,
-       updated_by = excluded.updated_by, updated_at = excluded.updated_at`
+       updated_by = excluded.updated_by, updated_at = excluded.updated_at, auto_build = excluded.auto_build`
   ).bind(
     orgId, provider, next.enabled ? 1 : 0,
     await sealField(next.apiKey, aad.teammate(orgId, provider, "api_key")), await sealField(next.githubToken, aad.teammate(orgId, provider, "github_token")), JSON.stringify(next.repos), next.model, next.instructions,
     next.channels === null ? null : JSON.stringify(next.channels), next.monthlyLimitCents, JSON.stringify(next.tools), JSON.stringify(next.remote),
-    next.agentId, login, new Date().toISOString(),
+    next.agentId, login, new Date().toISOString(), next.autoBuild ? 1 : 0,
   ).run();
   return { teammate: await loadTeammate(env.DB, orgId, provider) };
 }

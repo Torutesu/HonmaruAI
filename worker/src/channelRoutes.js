@@ -13,7 +13,8 @@ import { listMembers } from "./team.js";
 import { allowed } from "./permissions.js";
 import { resolveMentions } from "./threads.js";
 import { teammateForAgent, startTeammateRun, loadTeammate, readRun, settleRun, openRuns, canSignIn } from "./teammates.js";
-import { answerAsProxies, proxyTeammateAnswer, getProxy, saveProxy } from "./proxy.js";
+import { answerAsProxies, proxyTeammateAnswer, getProxy, saveProxy, mentionedPeople } from "./proxy.js";
+import { autoBuild } from "./autoBuild.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards, announceEvents, announceTo } from "./announce.js";
 import { localizeForRecipient } from "./localize.js";
@@ -1004,6 +1005,15 @@ export async function handleChannels(request, env, url, { route, after }) {
       // The people it names who let their agent answer for them.
       await answerAsProxies(env, { orgId, resolved, row: out.row, members, locale })
         .catch((err) => console.error("proxies failed", safe(err?.message)));
+      // An issue link or a bug report: Claude starts on it on its own —
+      // unless the message is already an agent's, the AI's or a person's
+      // to answer.
+      const named = mentionedPeople(out.row.body, members, who.user.login).length > 0;
+      await autoBuild(env, {
+        orgId, resolved, row: out.row, user: who.user, members, locale,
+        skip: toAgent || wantsDecision || wantsAnswer || named,
+        deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000),
+      }).catch((err) => console.error("auto-build failed", safe(err?.message)));
     });
     // What you said, you have read.
     if (!parentId || alsoChannel) await markRead(env.DB, orgId, who.user.login, resolved.key, out.row.created_at);

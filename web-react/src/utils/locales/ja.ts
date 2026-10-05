@@ -2117,6 +2117,9 @@ const table: Record<string, string> = {
   'Set by {name}': '{name} が設定',
   'AI suggested {level}': 'AI の提案は{level}',
   "Couldn't load this profile.": 'このプロフィールを読み込めませんでした。',
+  'Start on its own': '自動で着手',
+  'Start on issues and reports posted in channels': 'チャンネルに投稿された Issue や不具合報告に自動で着手する',
+  "When a GitHub issue from these repositories is linked in a channel, or someone reports a bug or asks for a feature there, @{handle} starts on it in that message's thread and posts the pull request there. Each issue is started once.": "これらのリポジトリの GitHub Issue がチャンネルに貼られたとき、または不具合の報告や機能の要望が投稿されたとき、@{handle} がそのメッセージのスレッドで自動で着手し、プルリクエストをそこに投稿します。同じ Issue に着手するのは一度だけです。",
 }
 
 export default table

@@ -907,7 +907,21 @@ CREATE TABLE IF NOT EXISTS ai_teammates (
   agent_id            TEXT,
   updated_by          TEXT,
   updated_at          TEXT NOT NULL,
+  /* An issue link or a bug report posted in a channel starts it on its own
+     (autoBuild.js). On unless turned off. */
+  auto_build          INTEGER NOT NULL DEFAULT 1,
   PRIMARY KEY (org_id, provider)
+);
+
+/* What was started on its own (autoBuild.js), once each: an issue by
+   owner/name#number, a report by its message. */
+CREATE TABLE IF NOT EXISTS auto_builds (
+  org_id     TEXT NOT NULL,
+  key        TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  run_id     TEXT,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, key)
 );
 
 /* One piece of work a teammate took on in a thread: its session there,
