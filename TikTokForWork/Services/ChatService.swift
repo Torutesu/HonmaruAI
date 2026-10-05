@@ -634,8 +634,15 @@ enum ChatService {
         let scheduled: ChatScheduled?
     }
 
-    static func send(orgId: String, channel: String, body: String, decide: Bool = false, parentId: String? = nil, alsoChannel: Bool = false, sendAt: Date? = nil, files: [String] = [], acknowledged: Bool = false, base: URL) async throws -> Sent {
+    /// A send's own id (`tmp-…`): sent again — a retry after a timeout, a
+    /// second tap — the server returns the message it already has instead
+    /// of posting it twice.
+    static func newClientId() -> String { "tmp-" + UUID().uuidString.lowercased() }
+
+    static func send(orgId: String, channel: String, body: String, decide: Bool = false, parentId: String? = nil, alsoChannel: Bool = false, sendAt: Date? = nil, files: [String] = [], acknowledged: Bool = false, clientId: String? = nil, base: URL) async throws -> Sent {
         var b: [String: Any] = ["orgId": orgId, "channel": channel, "body": body, "decide": decide]
+        // Scheduled sends are kept by the server under their own id.
+        if let clientId, sendAt == nil { b["clientId"] = clientId }
         // Seen the data rule's warning, and sending anyway.
         if acknowledged { b["dlpAck"] = true }
         if let parentId {

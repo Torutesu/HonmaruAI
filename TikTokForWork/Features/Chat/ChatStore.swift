@@ -505,6 +505,7 @@ final class ChatStore: ObservableObject {
         let decide: Bool
         let parentId: String?
         var alsoChannel = false
+        var clientId: String? = nil
         let at: Date?
         let files: [ChatFile]
         let rules: [String]
@@ -514,10 +515,10 @@ final class ChatStore: ObservableObject {
     @Published var dataBlocked: String?
 
     @discardableResult
-    func send(_ view: String, text: String, decide: Bool = false, parentId: String? = nil, alsoChannel: Bool = false, at: Date? = nil, files: [ChatFile] = [], acknowledged: Bool = false) async -> Bool {
+    func send(_ view: String, text: String, decide: Bool = false, parentId: String? = nil, alsoChannel: Bool = false, at: Date? = nil, files: [ChatFile] = [], acknowledged: Bool = false, clientId: String? = nil) async -> Bool {
         guard let orgId, let base else { return false }
         do {
-            let sent = try await ChatService.send(orgId: orgId, channel: view, body: text, decide: decide, parentId: parentId, alsoChannel: alsoChannel, sendAt: at, files: files.map(\.id), acknowledged: acknowledged, base: base)
+            let sent = try await ChatService.send(orgId: orgId, channel: view, body: text, decide: decide, parentId: parentId, alsoChannel: alsoChannel, sendAt: at, files: files.map(\.id), acknowledged: acknowledged, clientId: clientId, base: base)
             if let s = sent.scheduled { scheduled.append(s); scheduled.sort { $0.sendAt < $1.sendAt } }
             if let m = sent.message { upsert(m) }
             if sent.deciding == true { thinking[view] = "reading" }
@@ -528,7 +529,7 @@ final class ChatStore: ObservableObject {
             if blocked {
                 dataBlocked = String(localized: "This can't be sent here: it looks like it contains \(what). Take it out and try again.")
             } else {
-                dataWarning = DataRuleWarning(view: view, text: text, decide: decide, parentId: parentId, alsoChannel: alsoChannel, at: at, files: files, rules: rules)
+                dataWarning = DataRuleWarning(view: view, text: text, decide: decide, parentId: parentId, alsoChannel: alsoChannel, clientId: clientId, at: at, files: files, rules: rules)
             }
             return false
         } catch { self.error = error.localizedDescription; return false }
@@ -537,7 +538,7 @@ final class ChatStore: ObservableObject {
     /// The warned-about message, sent after all.
     func sendAnyway(_ w: DataRuleWarning) async -> Bool {
         dataWarning = nil
-        return await send(w.view, text: w.text, decide: w.decide, parentId: w.parentId, alsoChannel: w.alsoChannel, at: w.at, files: w.files, acknowledged: true)
+        return await send(w.view, text: w.text, decide: w.decide, parentId: w.parentId, alsoChannel: w.alsoChannel, at: w.at, files: w.files, acknowledged: true, clientId: w.clientId)
     }
 
     /// A picture or a file for the message about to be sent, uploaded now.

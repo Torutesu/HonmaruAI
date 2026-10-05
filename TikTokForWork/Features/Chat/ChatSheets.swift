@@ -9,6 +9,9 @@ struct ChatThreadSheet: View {
     @State private var draft = ""
     /// "Also send to the conversation": for the next reply only.
     @State private var alsoChannel = false
+    /// A reply on its way: the box is empty and Send off until it lands.
+    @State private var sending = false
+    @State private var unsent: (text: String, clientId: String)?
     @State private var reactingTo: ChatMessage?
     @FocusState private var focused: Bool
 
@@ -50,18 +53,27 @@ struct ChatThreadSheet: View {
                         Button {
                             guard let t = store.thread else { return }
                             let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !sending, !text.isEmpty else { return }
                             let both = alsoChannel
+                            let clientId = unsent?.text == text ? unsent!.clientId : ChatService.newClientId()
+                            // Out of the box at once, so one tap is one reply.
+                            sending = true
+                            draft = ""
+                            alsoChannel = false
                             Task {
-                                if await store.send(t.parent.channel, text: text, parentId: t.parent.id, alsoChannel: both) {
-                                    if draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { draft = "" }
-                                    alsoChannel = false
+                                let went = await store.send(t.parent.channel, text: text, parentId: t.parent.id, alsoChannel: both, clientId: clientId)
+                                sending = false
+                                if went { unsent = nil }
+                                else {
+                                    unsent = (text, clientId)
+                                    if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { draft = text; alsoChannel = both }
                                 }
                             }
                         } label: {
                             Image(systemName: "arrow.up").font(.system(size: 17, weight: .bold)).foregroundStyle(.white)
                                 .frame(width: 44, height: 44).glassCircle(tint: Theme.Colors.accent)
                         }
-                        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityLabel("Send")
                     }.padding(.horizontal, 12)
                 }.padding(.vertical, 8)
