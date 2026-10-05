@@ -38,7 +38,7 @@
   display: grid; place-items: center; border: none; background: none; color: var(--dlg-dim); cursor: pointer;
 }
 .dialog-close:hover { background: var(--dlg-hover); color: var(--dlg-ink); }
-.dialog-body { padding: 10px 20px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.dialog-body { padding: 10px 20px 16px; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
 .dialog-foot {
   display: flex; align-items: center; gap: 8px; justify-content: flex-end;
   padding: 12px 16px; border-top: 1px solid var(--dlg-line);
@@ -94,7 +94,9 @@
 .dlg-picklist { border: 1px solid var(--dlg-line); border-radius: 10px; overflow: hidden; }
 .dlg-picklist-search { display: flex; align-items: center; gap: 8px; padding: 0 10px; height: 34px; border-bottom: 1px solid var(--dlg-line); color: var(--dlg-faint); }
 .dlg-picklist-search input { flex: 1; border: none; background: none; font: inherit; font-size: 13px; color: var(--dlg-ink); outline: none; }
-.dlg-picklist ul { list-style: none; margin: 0; padding: 0; max-height: 196px; overflow-y: auto; }
+/* As tall as the window allows, scrolling inside itself: on a short
+   window the dialog's buttons stay in view, and no row is cut in half. */
+.dlg-picklist ul { list-style: none; margin: 0; padding: 0; max-height: clamp(120px, calc(100vh - 460px), 280px); overflow-y: auto; overscroll-behavior: contain; }
 .dlg-picklist li + li { border-top: 1px solid var(--dlg-line); }
 .dlg-picklist label { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 13px; cursor: pointer; }
 .dlg-picklist label:hover { background: var(--dlg-hover); }

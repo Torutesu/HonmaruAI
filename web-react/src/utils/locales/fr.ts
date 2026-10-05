@@ -1999,6 +1999,10 @@ const table: Record<string, string> = {
   'Start on its own': 'Démarrer de lui-même',
   'Start on issues and reports posted in channels': 'Démarrer sur les issues et signalements publiés dans les canaux',
   "When a GitHub issue from these repositories is linked in a channel, or someone reports a bug or asks for a feature there, @{handle} starts on it in that message's thread and posts the pull request there. Each issue is started once.": "Quand une issue GitHub de ces dépôts est liée dans un canal, ou que quelqu’un y signale un bug ou demande une fonctionnalité, @{handle} s’y met dans le fil de ce message et y publie la pull request. Chaque issue n’est démarrée qu’une fois.",
+  "Mark mentions as read": "Marquer les mentions comme lues",
+  "No mentions": "Aucune mention",
+  "Mark {name} as read": "Marquer {name} comme lu",
+  "Couldn't load the replies.": "Impossible de charger les réponses.",
 }
 
 export default table
