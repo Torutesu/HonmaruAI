@@ -9,8 +9,6 @@ struct ChatThreadSheet: View {
     @State private var draft = ""
     /// "Also send to the conversation": for the next reply only.
     @State private var alsoChannel = false
-    /// A reply on its way: the box is empty and Send off until it lands.
-    @State private var sending = false
     @State private var unsent: (text: String, clientId: String)?
     @State private var reactingTo: ChatMessage?
     @FocusState private var focused: Bool
@@ -53,17 +51,16 @@ struct ChatThreadSheet: View {
                         Button {
                             guard let t = store.thread else { return }
                             let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !sending, !text.isEmpty else { return }
+                            guard !text.isEmpty else { return }
                             let both = alsoChannel
                             let clientId = unsent?.text == text ? unsent!.clientId : ChatService.newClientId()
-                            // Out of the box at once, so one tap is one reply.
-                            sending = true
+                            // Out of the box at once and into the thread, faded
+                            // until the server has it: one tap is one reply.
                             draft = ""
                             alsoChannel = false
                             Task {
                                 let went = await store.send(t.parent.channel, text: text, parentId: t.parent.id, alsoChannel: both, clientId: clientId)
-                                sending = false
-                                if went { unsent = nil }
+                                if went || store.isHeld(clientId) { unsent = nil }
                                 else {
                                     unsent = (text, clientId)
                                     if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { draft = text; alsoChannel = both }
@@ -73,7 +70,7 @@ struct ChatThreadSheet: View {
                             Image(systemName: "arrow.up").font(.system(size: 17, weight: .bold)).foregroundStyle(.white)
                                 .frame(width: 44, height: 44).glassCircle(tint: Theme.Colors.accent)
                         }
-                        .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityLabel("Send")
                     }.padding(.horizontal, 12)
                 }.padding(.vertical, 8)
@@ -113,8 +110,9 @@ struct ChatThreadSheet: View {
                        onReact: { e in Task { await store.react(m, e) } },
                        onAddReaction: { reactingTo = m },
                        onOpenThread: {}, onOpenCard: onOpenCard, onProfile: { _ in })
+            .modifier(ChatSendState(message: m))
             .contextMenu {
-                if !m.isDeleted {
+                if !m.isDeleted && !m.id.hasPrefix("tmp-") {
                     Button { reactingTo = m } label: { Label("Add reaction", systemImage: "face.smiling") }
                     Button { UIPasteboard.general.string = m.body } label: { Label("Copy text", systemImage: "doc.on.doc") }
                     Button {
@@ -135,6 +133,8 @@ struct ChatProfileSheet: View {
     var onMessage: ((String) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var profile: ChatProfile?
+    /// Nothing kept and nothing read: said so, with a way to try again.
+    @State private var failed = false
 
     var body: some View {
         NavigationStack {
@@ -175,16 +175,28 @@ struct ChatProfileSheet: View {
                             }.buttonStyle(.borderedProminent).tint(Theme.Colors.accent).padding(.horizontal, 20)
                         }
                     }
+                } else if failed {
+                    VStack(spacing: 12) {
+                        Text("Couldn't load this profile.").foregroundStyle(Theme.Colors.textSecondary)
+                        Button("Try again") { Task { await load() } }
+                    }.padding(60)
                 } else {
                     ProgressView().padding(60)
                 }
             }
             .navigationTitle("Profile").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
-            .task { profile = await store.profile(ref) }
+            .task { await load() }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    /// What was read before, at once; the server's, when it answers.
+    private func load() async {
+        failed = false
+        if profile == nil { profile = store.cachedProfile(ref) }
+        if let fresh = await store.profile(ref) { profile = fresh } else if profile == nil { failed = true }
     }
 
     private func stat(_ label: LocalizedStringKey, _ value: String) -> some View {

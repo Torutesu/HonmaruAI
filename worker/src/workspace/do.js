@@ -56,6 +56,12 @@ const SCHEMA = [
   [
     "ALTER TABLE messages ADD COLUMN also_channel INTEGER NOT NULL DEFAULT 0",
   ],
+  // v3: a send's own id (#212): the same send again — a retry after a lost
+  // answer — is the message already posted, not a second one.
+  [
+    "ALTER TABLE messages ADD COLUMN client_id TEXT",
+    "CREATE UNIQUE INDEX messages_by_client ON messages (channel_id, author, client_id) WHERE client_id IS NOT NULL",
+  ],
 ];
 
 const READ_FLUSH_MS = 3000;
@@ -120,8 +126,12 @@ export class WorkspaceDO extends DurableObject {
   }
 
   /// A new message in a channel. The caller has already been let in.
-  post({ channel, author, body, parentId = null, alsoChannel = false, now = Date.now() }) {
+  post({ channel, author, body, parentId = null, alsoChannel = false, clientId = null, now = Date.now() }) {
     return this.ctx.storage.transactionSync(() => this.measure((exec) => {
+      if (clientId) {
+        const [held] = exec("SELECT * FROM messages WHERE channel_id = ? AND author = ? AND client_id = ?", channel, author, clientId).toArray();
+        if (held) return { message: toMessage(held), again: true };
+      }
       const seq = this.nextSeq(exec, channel);
       const row = {
         id: uuidv7(now), channel_id: channel, seq, author, kind: "message", body: String(body),
@@ -129,8 +139,8 @@ export class WorkspaceDO extends DurableObject {
         also_channel: parentId && alsoChannel ? 1 : 0,
       };
       exec(
-        `INSERT INTO messages (id, channel_id, seq, author, kind, body, parent_id, created_at, also_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        row.id, row.channel_id, row.seq, row.author, row.kind, row.body, row.parent_id, row.created_at, row.also_channel
+        `INSERT INTO messages (id, channel_id, seq, author, kind, body, parent_id, created_at, also_channel, client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.id, row.channel_id, row.seq, row.author, row.kind, row.body, row.parent_id, row.created_at, row.also_channel, clientId || null
       );
       return { message: toMessage(row) };
     }));

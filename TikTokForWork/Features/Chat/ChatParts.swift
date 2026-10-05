@@ -119,6 +119,24 @@ final class ChatTranslations: ObservableObject {
     @Published var originals: Set<String> = []
     var off = false
     private var asked: Set<String> = []
+    /// Asked for and not back yet ("Translating…"), and asked for and not
+    /// had ("Couldn't translate · Try again"): by id and the words asked about.
+    @Published private(set) var pending: Set<String> = []
+    @Published private(set) var failed: Set<String> = []
+    /// Asks again for one that failed (set by the store that asks).
+    var retry: ((ChatMessage) -> Void)?
+
+    private static func key(_ m: ChatMessage) -> String { "\(m.id):\(m.body)" }
+    func isPending(_ m: ChatMessage) -> Bool { !off && pending.contains(Self.key(m)) }
+    func hasFailed(_ m: ChatMessage) -> Bool { !off && failed.contains(Self.key(m)) }
+    func asking(_ list: [ChatMessage]) { for m in list { pending.insert(Self.key(m)); failed.remove(Self.key(m)) } }
+    /// Back: the ones not reached are marked failed and may be asked for again.
+    func answered(_ list: [ChatMessage], reached: Bool) {
+        for m in list {
+            pending.remove(Self.key(m))
+            if !reached { failed.insert(Self.key(m)); asked.remove(Self.key(m)) }
+        }
+    }
 
     func store(_ id: String, from: String, text: String) { texts[id] = (from, text) }
     func shown(_ m: ChatMessage) -> (text: String, translated: Bool) {
@@ -139,6 +157,79 @@ final class ChatTranslations: ObservableObject {
         }
         for m in out { asked.insert("\(m.id):\(m.body)") }
         return out
+    }
+}
+
+/// "Translating…" under a message while its translation is on its way:
+/// the same small line the translation's note takes, so nothing moves when
+/// it lands. Pulses unless motion is reduced.
+struct ChatTranslatingLabel: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+    var body: some View {
+        Text("Translating…").font(.caption2).foregroundStyle(Theme.Colors.textTertiary)
+            .opacity(dim ? 0.35 : 1)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { dim = true }
+            }
+            .accessibilityAddTraits(.updatesFrequently)
+    }
+}
+
+/// Messages of yours not yet confirmed by the server (#212): on their way
+/// (faded) or failed (faded, with why and Try again). A message is marked
+/// sent only when the server says it has it, never because it was drawn;
+/// then it fades up to full over a moment.
+final class ChatSends: ObservableObject {
+    static let shared = ChatSends()
+    enum State: Equatable { case pending, failed(String) }
+    @Published var states: [String: State] = [:]
+    /// Just confirmed: drawn from faded to full once.
+    @Published var landing: Set<String> = []
+    var retry: ((String) -> Void)?
+    var discard: ((String) -> Void)?
+
+    func landed(_ id: String) {
+        landing.insert(id)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            self.landing.remove(id)
+        }
+    }
+}
+
+/// How a message of yours is drawn while it is on its way, failed, or just
+/// confirmed.
+struct ChatSendState: ViewModifier {
+    let message: ChatMessage
+    @ObservedObject private var sends = ChatSends.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown = false
+    func body(content: Content) -> some View {
+        let state = sends.states[message.id]
+        let landing = sends.landing.contains(message.id)
+        VStack(alignment: .leading, spacing: 4) {
+            content
+                .opacity(state != nil ? 0.5 : (landing && !shown ? 0.5 : 1))
+                .onAppear {
+                    guard landing else { return }
+                    if reduceMotion { shown = true } else { withAnimation(.easeOut(duration: 0.26)) { shown = true } }
+                }
+            switch state {
+            case .pending:
+                Text("Sending…").font(.caption2).foregroundStyle(Theme.Colors.textTertiary).padding(.leading, 44)
+            case .failed(let why):
+                HStack(spacing: 12) {
+                    Text("Not sent · \(why)").font(.caption2).foregroundStyle(Theme.Colors.reject).lineLimit(2)
+                    Button("Try again") { sends.retry?(message.id) }.font(.caption2.weight(.semibold))
+                    Button("Delete", role: .destructive) { sends.discard?(message.id) }.font(.caption2.weight(.semibold))
+                }.buttonStyle(.plain).padding(.leading, 44)
+            case nil:
+                EmptyView()
+            }
+        }
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -620,7 +711,13 @@ struct ChatMessageRow: View {
                         HStack(spacing: 4) { ForEach(Array(big.enumerated()), id: \.offset) { _, e in ChatEmojiGlyph(emoji: e, size: 34) } }
                     } else if !message.body.isEmpty {
                         ChatRichText(text: translations.shown(message).text)
-                        if translations.hasTranslation(message) {
+                        if translations.isPending(message) {
+                            ChatTranslatingLabel()
+                        } else if translations.hasFailed(message) {
+                            Button { translations.retry?(message) } label: {
+                                Text("Couldn't translate · Try again").font(.caption2).foregroundStyle(Theme.Colors.reject)
+                            }.buttonStyle(.plain)
+                        } else if translations.hasTranslation(message) {
                             Button { translations.toggle(message.id) } label: {
                                 Text(translations.shown(message).translated ? LocalizedStringKey("Translated · Show original") : LocalizedStringKey("Show translation"))
                                     .font(.caption2).foregroundStyle(Theme.Colors.textTertiary)

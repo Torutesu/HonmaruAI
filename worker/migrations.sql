@@ -129,3 +129,5 @@ ALTER TABLE scheduled_messages ADD COLUMN also_channel INTEGER NOT NULL DEFAULT 
 /* Proxies: an agent's words for a person who was mentioned (schema.sql). */
 ALTER TABLE channel_messages ADD COLUMN on_behalf_of TEXT;
 ALTER TABLE ai_teammate_runs ADD COLUMN on_behalf_of TEXT;
+/* Auto-build: an issue or a report posted in a channel starts the teammate (schema.sql). */
+ALTER TABLE ai_teammates ADD COLUMN auto_build INTEGER NOT NULL DEFAULT 1;

@@ -101,6 +101,18 @@
 .legend.on.p-medium i { background: #f59e0b; }
 .legend.on.p-high i { background: #ef4444; }
 .legend.on.urgent { color: #d64545; }
+/* Changeable: the word is a menu, drawn as the word. */
+.legend-pick { position: relative; cursor: pointer; border-radius: 6px; padding: 1px 2px; }
+.legend-pick:hover, .legend-pick:focus-within { background: rgba(127, 127, 127, 0.12); }
+.legend-pick select {
+  appearance: none; -webkit-appearance: none; border: 0; background: none; padding: 0 12px 0 0; margin: 0; field-sizing: content;
+  font: inherit; font-size: inherit; font-weight: inherit; color: inherit; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 4px center, right 1px center; background-size: 3px 3px, 3px 3px; background-repeat: no-repeat;
+}
+.legend-pick select:focus { outline: none; }
+.legend-pick:focus-within { outline: 2px solid var(--focus, #6647f0); outline-offset: 1px; }
+.legend-ai { font-size: 9px; font-weight: 700; letter-spacing: .04em; color: #6647f0; opacity: .8; }
 
 /* Not yet: the feed before the relay has answered. */
 .loading-mark {

@@ -228,6 +228,8 @@ const table: Record<string, string> = {
   'Connected by {name}': '{name}さんが接続',
   'Connected tool': '接続されたツール',
   'Translated · Show original': '翻訳 · 原文を表示',
+  'Translating…': '翻訳中…',
+  "Couldn't translate · Try again": '翻訳できませんでした · 再試行',
   'Show translation': '翻訳を表示',
   'Translate messages': 'メッセージを翻訳',
   'Messages in another language are shown in yours. Show original is one tap away.': 'ほかの言語のメッセージを、あなたの言語で表示します。原文もワンタップで見られます。',
@@ -2111,6 +2113,13 @@ const table: Record<string, string> = {
   "The repository Codex works in (the first one listed), and a GitHub token that can push to it and open pull requests.": "Codexが作業するリポジトリ（リストの最初のもの）と、そこにプッシュしてプルリクエストを作れるGitHubトークン。",
   "Codex runs on your ChatGPT plan, so its limit here is a number of tasks: each request and follow-up is one.": "CodexはChatGPTプランで動くため、ここでの上限はタスク数で決めます。依頼1件、追加の依頼1件がそれぞれ1タスクです。",
   "Spoiler, press to reveal": "ネタバレ。押すと表示します",
+  'Suggested by AI': 'AI の提案',
+  'Set by {name}': '{name} が設定',
+  'AI suggested {level}': 'AI の提案は{level}',
+  "Couldn't load this profile.": 'このプロフィールを読み込めませんでした。',
+  'Start on its own': '自動で着手',
+  'Start on issues and reports posted in channels': 'チャンネルに投稿された Issue や不具合報告に自動で着手する',
+  "When a GitHub issue from these repositories is linked in a channel, or someone reports a bug or asks for a feature there, @{handle} starts on it in that message's thread and posts the pull request there. Each issue is started once.": "これらのリポジトリの GitHub Issue がチャンネルに貼られたとき、または不具合の報告や機能の要望が投稿されたとき、@{handle} がそのメッセージのスレッドで自動で着手し、プルリクエストをそこに投稿します。同じ Issue に着手するのは一度だけです。",
 }
 
 export default table

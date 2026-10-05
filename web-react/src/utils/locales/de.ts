@@ -380,6 +380,8 @@ const table: Record<string, string> = {
   'Connected by {name}': 'Verbunden von {name}',
   'Connected tool': 'Verbundenes Tool',
   'Translated · Show original': 'Übersetzt · Original anzeigen',
+  'Translating…': 'Übersetzung läuft…',
+  "Couldn't translate · Try again": 'Übersetzung fehlgeschlagen · Erneut versuchen',
   'Show translation': 'Übersetzung anzeigen',
   'Translate messages': 'Nachrichten übersetzen',
   'Messages in another language are shown in yours. Show original is one tap away.': 'Nachrichten in einer anderen Sprache werden in deiner angezeigt. Das Original ist einen Tipp entfernt.',
@@ -1990,6 +1992,13 @@ const table: Record<string, string> = {
   "The repository Codex works in (the first one listed), and a GitHub token that can push to it and open pull requests.": "Das Repository, in dem Codex arbeitet (das erste in der Liste), und ein GitHub-Token, das darauf pushen und Pull Requests öffnen kann.",
   "Codex runs on your ChatGPT plan, so its limit here is a number of tasks: each request and follow-up is one.": "Codex läuft über euren ChatGPT-Plan, daher ist sein Limit hier eine Anzahl von Aufgaben: Jede Anfrage und jede Nachfrage zählt als eine.",
   "Spoiler, press to reveal": "Spoiler, drücken zum Anzeigen",
+  'Suggested by AI': 'Von der KI vorgeschlagen',
+  'Set by {name}': 'Festgelegt von {name}',
+  'AI suggested {level}': 'KI schlug {level} vor',
+  "Couldn't load this profile.": 'Dieses Profil konnte nicht geladen werden.',
+  'Start on its own': 'Selbst anfangen',
+  'Start on issues and reports posted in channels': 'Mit Issues und Meldungen aus Kanälen selbst anfangen',
+  "When a GitHub issue from these repositories is linked in a channel, or someone reports a bug or asks for a feature there, @{handle} starts on it in that message's thread and posts the pull request there. Each issue is started once.": "Wird ein GitHub-Issue aus diesen Repositorys in einem Kanal verlinkt, oder meldet dort jemand einen Fehler oder wünscht sich eine Funktion, fängt @{handle} im Thread dieser Nachricht an und postet dort den Pull Request. Jedes Issue wird nur einmal begonnen.",
 }
 
 export default table

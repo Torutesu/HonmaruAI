@@ -87,6 +87,22 @@ test("a thread reply can go to the conversation too; only a thread reply can", a
     .toEqual([["menu for Monday?", "top", false], ["soup", "reply", true], ["bread", "reply", false], ["hi", "top", false]]);
 });
 
+test("the same send again — a retry after a lost answer — is the message already posted (#212)", async () => {
+  const post = (body) => call(`${chan("b:cafe")}/messages`, { method: "POST", token: member, body });
+  const first = await (await post({ body: "on a slow train", clientId: "tmp-abc-1" })).json();
+  const again = await (await post({ body: "on a slow train", clientId: "tmp-abc-1" })).json();
+  expect(again.message.id).toBe(first.message.id);
+  expect(again.message.seq).toBe(first.message.seq);
+  // Another send, or one without an id, is another message.
+  const other = await (await post({ body: "on a slow train", clientId: "tmp-abc-2" })).json();
+  expect(other.message.id).not.toBe(first.message.id);
+  // An id that is not a send's own is ignored, not trusted.
+  const odd = await (await post({ body: "x", clientId: "DROP TABLE" })).json();
+  expect(odd.message.body).toBe("x");
+  const page = await (await call(`${chan("b:cafe")}/messages`, { token: owner })).json();
+  expect(page.messages.map((m) => m.body)).toEqual(["on a slow train", "on a slow train", "x"]);
+});
+
 test("a client catching up asks for what came after the last seq it saw", async () => {
   for (const t of ["one", "two", "three", "four"]) await say(owner, "b:cafe", t);
   const after = await (await call(`${chan("b:cafe")}/messages?after=2`, { token: member })).json();

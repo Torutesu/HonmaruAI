@@ -121,6 +121,8 @@ enum OutboundEvent {
     /// the asker is the card's sender and notifies the person it is waiting
     /// on — through whichever channel actually reaches them.
     case nudge(cardID: String)
+    /// A card's importance, changed by hand by either party to it.
+    case setPriority(cardID: String, priority: CardPriority)
     case contextUpdated(text: String)
     case toolResult(card: DecisionCard, decision: Decision, toolCallId: String?)
     /// An envelope replayed from the outbox. It was built by one of the cases
@@ -157,6 +159,8 @@ enum OutboundEvent {
             return ["type": "rollback", "payload": ["cardId": cardID]]
         case .nudge(let cardID):
             return ["type": "nudge", "payload": ["cardId": cardID]]
+        case .setPriority(let cardID, let priority):
+            return ["type": "set_priority", "payload": ["cardId": cardID, "priority": priority.rawValue]]
         case .contextUpdated(let text):
             return ["type": "context_updated", "payload": ["context": ["text": text]]]
         case .toolResult(let card, let decision, let toolCallId):
@@ -399,6 +403,12 @@ final class WebSocketService: ObservableObject {
     func nudge(cardID: String) async {
         guard state == .connected else { return }
         try? await send(.nudge(cardID: cardID))
+    }
+
+    /// The relay keeps it and sends the card back to everyone on it.
+    func setPriority(cardID: String, priority: CardPriority) async {
+        guard state == .connected else { return }
+        try? await send(.setPriority(cardID: cardID, priority: priority))
     }
 
     func publishContext(_ text: String) async {

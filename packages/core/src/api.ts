@@ -80,9 +80,11 @@ export class Api {
   history(orgId: string, channel: string, query: HistoryQuery = {}) {
     return this.request<HistoryResponse>(v2Paths.messages(orgId, channel), { query: { ...query } })
   }
-  post(orgId: string, channel: string, body: string, parentId?: string, alsoChannel = false) {
+  /// `clientId` (`tmp-…`): the send's own id — the same send again is the
+  /// message already posted, not a second one.
+  post(orgId: string, channel: string, body: string, parentId?: string, alsoChannel = false, clientId?: string) {
     return this.request<PostResponse>(v2Paths.messages(orgId, channel), {
-      method: 'POST', body: { body, ...(parentId ? { parentId, ...(alsoChannel ? { alsoChannel: true } : {}) } : {}) },
+      method: 'POST', body: { body, ...(parentId ? { parentId, ...(alsoChannel ? { alsoChannel: true } : {}) } : {}), ...(clientId ? { clientId } : {}) },
     })
   }
   markRead(orgId: string, channel: string, seq: number) {

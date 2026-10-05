@@ -716,6 +716,11 @@
    red wash with the reason and what to do under the words. The red is mixed
    toward the ink so the reason reads on both themes. */
 .classic.slk.slk .slk-msg.pending:not(.editing) .slk-body > :not(.slk-meta):not(.slk-unsent) { opacity: .55; }
+/* Confirmed by the server: up to full over a moment, not at once (#212).
+   The row is the same element from the press of Enter to the server's copy
+   (drawnAs), so only the opacity changes. */
+.classic.slk.slk .slk-msg .slk-body > :not(.slk-meta):not(.slk-unsent) { transition: opacity 260ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .classic.slk.slk .slk-msg .slk-body > * { transition: none; } }
 .classic.slk.slk .slk-msg.failed,
 .classic.slk.slk .slk-msg.failed:hover { background: color-mix(in srgb, var(--slk-red) 7%, transparent); }
 .classic.slk.slk .slk-unsent {
@@ -1660,6 +1665,17 @@
 /* A message shown in the reader's language, and the way back to its own. */
 .classic.slk.slk .slk-translated { display: inline-block; margin-top: 2px; padding: 0; border: none; background: none; font: inherit; font-size: 11.5px; color: var(--slk-dim); cursor: pointer; }
 .classic.slk.slk .slk-translated:hover { color: var(--slk-accent); text-decoration: underline; }
+.classic.slk.slk .slk-translate-failed { color: var(--slk-danger, #d93025); }
+/* Asked for and on its way: a quiet shimmer where "Translated" will be, the
+   same height, so nothing below it moves when the translation lands. */
+.classic.slk.slk .slk-translating {
+  display: inline-block; margin-top: 2px; font-size: 11.5px; color: var(--slk-dim);
+  background: linear-gradient(90deg, var(--slk-dim) 0%, var(--slk-accent) 50%, var(--slk-dim) 100%);
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  animation: slk-translating 1.4s linear infinite;
+}
+@keyframes slk-translating { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .classic.slk.slk .slk-translating { animation: none; -webkit-text-fill-color: currentColor; } }
 
 /* A link's card under the message that shares it. */
 .classic.slk.slk .link-cards { display: grid; gap: 8px; margin: 6px 0 2px; max-width: 520px; }

@@ -18,18 +18,21 @@ interface Teammate {
   enabled: boolean; hasKey: boolean; hasApiKey: boolean; hasGithubToken: boolean; account: string
   repos: string[]; model: string; instructions: string; channels: string[] | null
   monthlyLimit: number | null; spentThisMonth: number; tools: Tool[]; ready: boolean
+  /// Claude: an issue link or a bug report posted in a channel starts it.
+  autoBuild?: boolean
 }
 interface Channel { slug: string; name: string }
 
 interface Draft {
   apiKey: string; githubToken: string; account: string; model: string; instructions: string; repos: string
-  everywhere: boolean; channels: Set<string>; limit: string; tools: Tool[]
+  everywhere: boolean; channels: Set<string>; limit: string; tools: Tool[]; autoBuild: boolean
 }
 
 const draftOf = (tm: Teammate): Draft => ({
   apiKey: '', githubToken: '', account: tm.account, model: tm.model, instructions: tm.instructions, repos: tm.repos.join('\n'),
   everywhere: tm.channels === null, channels: new Set((tm.channels || []).filter((c) => c.startsWith('b:')).map((c) => c.slice(2))),
   limit: tm.monthlyLimit === null ? '' : String(tm.monthlyLimit), tools: tm.tools.map((x) => ({ ...x, secretValue: '' })),
+  autoBuild: tm.autoBuild !== false,
 })
 
 export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionToken: string }> = ({ httpBase, orgId, sessionToken }) => {
@@ -77,6 +80,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
       channels: draft.everywhere ? null : [...draft.channels].map((s) => `b:${s}`),
       monthlyLimit: draft.limit.trim() ? Number(draft.limit) : null,
     }
+    if (tm.provider === 'claude') body.autoBuild = draft.autoBuild
     if (tm.models.length || tm.freeModel) body.model = draft.model
     if (tm.needs.account) body.account = draft.account
     if (tm.needs.tools) body.tools = draft.tools.map((x) => ({ name: x.name, secretName: x.secretName, host: x.host, ...(x.secretValue?.trim() ? { secretValue: x.secretValue.trim() } : {}) }))
@@ -229,6 +233,14 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
             ))}
             {!channels.length && <li className="row-sub">{t('No channels yet.')}</li>}
           </ul>
+        )}
+        {tm.provider === 'claude' && (
+          <>
+            <div className="studio-section-head"><div><h2>{t('Start on its own')}</h2><p>{t('When a GitHub issue from these repositories is linked in a channel, or someone reports a bug or asks for a feature there, @{handle} starts on it in that message\'s thread and posts the pull request there. Each issue is started once.', { handle: tm.handle })}</p></div></div>
+            <div className="teammate-where">
+              <label><input type="checkbox" disabled={off} checked={draft.autoBuild} onChange={() => set({ autoBuild: !draft.autoBuild })} data-teammate-autobuild /> {t('Start on issues and reports posted in channels')}</label>
+            </div>
+          </>
         )}
 
         {canEdit

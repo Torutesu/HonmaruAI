@@ -10,7 +10,7 @@
 // While this is a PoC nothing here writes D1, and the D1 routes do not write
 // here: a workspace is copied with /backfill and compared with /checksum.
 //
-//   POST /v2/w/:org/channels/:channel/messages   {body, parentId?}
+//   POST /v2/w/:org/channels/:channel/messages   {body, parentId?, clientId?}
 //   GET  /v2/w/:org/channels/:channel/messages   ?before=seq | ?after=seq, &limit
 //   POST /v2/w/:org/channels/:channel/read       {seq}
 //   POST /v2/w/:org/unread                       {channels: [...]}
@@ -21,7 +21,7 @@
 
 import { caller, inChannel } from "../channelRoutes.js";
 import { listMembers } from "../team.js";
-import { resolveChannel, MAX_MESSAGE_CHARS } from "../channels.js";
+import { resolveChannel, MAX_MESSAGE_CHARS, clientIdOk } from "../channels.js";
 import { digest, digestFields } from "./do.js";
 
 const CORS = {
@@ -68,7 +68,9 @@ export async function handleV2(request, env, url) {
       if (text.length > MAX_MESSAGE_CHARS) return json({ message: "That message is too long." }, 413);
       const parentId = typeof body.parentId === "string" && body.parentId ? body.parentId : null;
       // A thread reply can go to the conversation as well.
-      const out = await stub.post({ channel: key, author: got.who.user.login, body: text, parentId, alsoChannel: Boolean(parentId) && body.alsoChannel === true });
+      // A send's own id: the same send again is the message already posted.
+      const clientId = typeof body.clientId === "string" && clientIdOk(body.clientId) ? body.clientId : null;
+      const out = await stub.post({ channel: key, author: got.who.user.login, body: text, parentId, alsoChannel: Boolean(parentId) && body.alsoChannel === true, clientId });
       return json({ message: out.message }, 201, usageHeaders(out.usage));
     }
     if (ch[2] === "messages" && request.method === "GET") {
