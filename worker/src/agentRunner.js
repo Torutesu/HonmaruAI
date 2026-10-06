@@ -9,7 +9,7 @@
 import { getSession, getUserByGithubId } from "./db.js";
 import { getMessage, resolveChannel, viewOf } from "./channels.js";
 import { listMembers } from "./team.js";
-import { agentsHere, agentsCalled, listAgents, MAX_CALLED } from "./customAgents.js";
+import { respondingAgents } from "./customAgents.js";
 import { runAgents } from "./channelRoutes.js";
 import { runProxy } from "./proxy.js";
 import { useSecretKey } from "./secrets.js";
@@ -66,11 +66,7 @@ export async function runQueuedAgents(env, { orgId, token, rowId, locale }) {
   const view = viewOf(row.channel, user.login, members);
   const resolved = view ? await resolveChannel(env.DB, orgId, { ...user, github_id: session.github_id }, view, members) : null;
   if (!resolved || resolved.key !== row.channel) return 0;
-  let agents = agentsCalled(row.body, await agentsHere(env.DB, orgId, user.login, resolved.key));
-  if (resolved.kind === "agent" && !agents.some((a) => a.id === resolved.agent.id)) {
-    const own = (await listAgents(env.DB, orgId, user.login)).find((a) => a.id === resolved.agent.id);
-    if (own) agents = [own, ...agents].slice(0, MAX_CALLED);
-  }
+  const agents = await respondingAgents(env.DB, { orgId, login: user.login, resolved, row });
   if (!agents.length) return 0;
   return runAgents(env, { orgId, session, user: { ...user, github_id: session.github_id }, resolved, row, members, locale, agents });
 }

@@ -551,6 +551,7 @@ export async function transcriptUpTo(db, orgId, key, createdAt, { limit = 24, sk
   const { results } = await db
     .prepare(
       `SELECT m.id, m.parent_id, m.kind, m.body, m.created_at, m.reply_to_id, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name, m.author_login,
+              (SELECT ca.handle FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login) AS agent_handle,
               (SELECT group_concat(f.name, ', ') FROM message_files f WHERE f.org_id = m.org_id AND f.message_id = m.id) AS file_names
          FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
@@ -575,7 +576,9 @@ export async function transcriptUpTo(db, orgId, key, createdAt, { limit = 24, sk
     return ` (replying to ${o.kind === "ai" ? "AI" : (o.author_name || "someone")}: "${said.length > max ? `${said.slice(0, max)}…` : said}")`;
   };
   return kept.reverse().sort((a, b) => a.id === threadId ? -1 : b.id === threadId ? 1 : 0).map((r, i, all) => {
-    const who = r.kind === "ai" ? "AI" : (r.author_name || "someone");
+    // An agent says so, with its handle: an agent reading the thread tells
+    // its own earlier answers from another agent's, and both from people.
+    const who = r.kind === "ai" ? "AI" : r.agent_handle ? `${r.author_name || r.agent_handle} (agent @${r.agent_handle})` : (r.author_name || "someone");
     const attached = r.file_names ? ` [attached: ${String(r.file_names).slice(0, 200)}]` : "";
     // The newest line is the one that asks: what it answers comes as long
     // as a line of its own would. The rest carry the short quote people see.

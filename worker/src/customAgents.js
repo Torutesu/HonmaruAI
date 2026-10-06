@@ -13,7 +13,7 @@
 // it does not act. What needs deciding still goes to @AI and a card.
 
 import { mentionTokens, MENTION_BEFORE } from "./threads.js";
-import { transcriptUpTo } from "./channels.js";
+import { transcriptUpTo, getMessage } from "./channels.js";
 import { relevantMemories, playbookBlock } from "./memory.js";
 import { noteUsage } from "./ledger.js";
 import { research as researchLoop, canResearch, readResponse } from "./agentResearch.js";
@@ -311,6 +311,15 @@ export async function agentTalkFilter(db, orgId) {
     || (all.length > 0 && agentsCalled(row?.body, all).length > 0);
 }
 
+/// The words of a message that can call anyone: its own lines — not a
+/// quoted message ("> …") or code, where an @name is only being shown.
+export function callingText(text) {
+  return String(text || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`\n]*`/g, " ")
+    .split("\n").filter((line) => !/^\s*>/.test(line)).join("\n");
+}
+
 export function agentsCalled(text, agents) {
   const byHandle = new Map();
   // Your own agent first, where yours and the team's could share a name.
@@ -318,7 +327,7 @@ export function agentsCalled(text, agents) {
     if (!byHandle.has(a.handle)) byHandle.set(a.handle, a);
   }
   const out = [];
-  for (const token of mentionTokens(text)) {
+  for (const token of mentionTokens(callingText(text))) {
     // "@hayaoに…": the particle goes with the name, as with @AI.
     const want = fold(token).replace(/[にへ]$/u, "");
     // "@hayaoに頼む": the name, a particle, then the rest of the sentence.
@@ -341,7 +350,8 @@ export function requestFor(text, agent) {
 const RULES = `You are an agent in a team's chat, called by name by a teammate. The team wrote your instructions; follow them.
 
 Always:
-- The supplied conversation is your conversation scope. A thread contains only its parent and replies; never infer unrelated channel history or import other conversations as context.
+- The supplied conversation is your whole scope. A thread contains only its parent and replies; never infer unrelated channel history or import other conversations as context. When the request refers to something that is not in it, ask for it in one line instead of guessing.
+- Lines marked "(agent @yourhandle)" are your own earlier answers: build on them, never repeat them. Lines from other agents are theirs: do not answer for them, and do not comment on or redo their answers unless the request asks you to.
 - Answer the request addressed to you, in the language it is written in unless your instructions say otherwise.
 - Write for a chat: short paragraphs, bullets with "-", *bold* with single asterisks for what matters, \`code\` for code. No Markdown headings (#) and no **double** asterisks. No preamble like "Sure!".
 - You cannot act outside this chat — you do not send email, change files or spend money. Write the draft and say who should act.
@@ -440,10 +450,69 @@ export function forChat(text) {
     .trim();
 }
 
+/// Which agents answer a message — at most the ones it calls, and never
+/// one nobody called:
+/// - the agents it names (@hayao), on lines of its own — not in a quote
+///   or code;
+/// - in a conversation with an agent, that agent;
+/// - in a thread an agent answered, the same agent again when the person
+///   who called it there writes on without naming anyone: the
+///   conversation goes on with whoever they were talking to. Anyone else's
+///   reply in that thread is between people.
+export async function respondingAgents(db, { orgId, login, resolved, row }) {
+  const here = await agentsHere(db, orgId, login, resolved.key);
+  let agents = agentsCalled(row.body, here);
+  if (resolved.kind === "agent" && !agents.some((a) => a.id === resolved.agent.id)) {
+    const own = (await listAgents(db, orgId, login)).find((a) => a.id === resolved.agent.id);
+    if (own) agents = [own, ...agents].slice(0, MAX_CALLED);
+  }
+  if (!agents.length && row.parent_id && resolved.kind !== "agent" && !mentionTokens(callingText(row.body)).length) {
+    const going = await continuingAgent(db, { orgId, key: resolved.key, row, login, here });
+    if (going) agents = [going];
+  }
+  return agents;
+}
+
+/// The agent a thread is talking with, for this person: the one that
+/// answered last there, when the last person to speak before that answer
+/// — the one who called it — is this person.
+async function continuingAgent(db, { orgId, key, row, login, here }) {
+  const { results } = await db.prepare(
+    `SELECT id, author_login, kind FROM channel_messages
+      WHERE org_id = ?1 AND channel = ?2 AND (id = ?3 OR parent_id = ?3) AND id != ?4 AND deleted_at IS NULL AND created_at <= ?5
+      ORDER BY created_at ASC, rowid ASC`
+  ).bind(orgId, key, row.parent_id, row.id, row.created_at).all().catch(() => ({ results: [] }));
+  const list = results || [];
+  const isAgent = (m) => String(m.author_login || "").startsWith("agent:");
+  let last = -1;
+  for (let i = list.length - 1; i >= 0; i -= 1) if (isAgent(list[i])) { last = i; break; }
+  if (last < 0) return null;
+  let caller = null;
+  for (let i = last - 1; i >= 0; i -= 1) {
+    if (!isAgent(list[i]) && list[i].author_login && list[i].kind === "message") { caller = list[i].author_login; break; }
+  }
+  if (caller !== login) return null;
+  return here.find((a) => `agent:${a.id}` === list[last].author_login) || null;
+}
+
 /// The conversation an agent reads: what was said up to the message that
-/// called it. Inside a thread, only its root and replies belong to it.
-export async function contextFor(db, orgId, key, row) {
-  const transcript = await transcriptUpTo(db, orgId, key, row.created_at, { limit: 30, threadId: row.parent_id || null, throughId: row.id });
+/// called it — in its own scope and nothing else.
+/// - In a thread: the thread's first message and its replies.
+/// - Called from the conversation itself: that message — and the one it
+///   answers, when it answers one — and nothing else of the channel: what
+///   the channel was saying about something else is not the question.
+///   The answer starts a thread, and that thread is its scope from then.
+/// - In a conversation with an agent (`whole`): that conversation.
+export async function contextFor(db, orgId, key, row, { whole = false } = {}) {
+  const threadId = row.parent_id || (whole ? null : row.id);
+  const transcript = await transcriptUpTo(db, orgId, key, row.created_at, { limit: 30, threadId, throughId: row.id });
+  if (!row.parent_id && !whole && row.reply_to_id) {
+    const o = await getMessage(db, orgId, row.reply_to_id).catch(() => null);
+    if (o && !o.deleted_at && o.channel === key && o.created_at <= row.created_at) {
+      const who = o.kind === "ai" ? "AI" : (o.author_name || "someone");
+      transcript.unshift(`${String(o.created_at).slice(5, 16).replace("T", " ")} ${who} (the message this one answers): ${String(o.body || "").replace(/\s+/g, " ").slice(0, 800)}`);
+    }
+  }
   let joined = transcript.join("\n");
   if (joined.length > 6000) {
     const root = row.parent_id ? transcript[0] + "\n" : "";
