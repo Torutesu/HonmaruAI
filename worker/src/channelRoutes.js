@@ -44,7 +44,7 @@ import { audit, person } from "./audit.js";
 import { getCanvas, toClientCanvas, listRevisions, getRevision, saveCanvas, draftCanvas } from "./canvas.js";
 import { listBookmarks, toClientBookmark, addBookmark, editBookmark, removeBookmark } from "./bookmarks.js";
 import {
-  listAgents, saveAgent, deleteAgent, toClientAgent, agentsHere, channelAgents, agentChannels, agentTalkFilter, addChannelAgent, removeChannelAgent, presetsFor, agentsCalled, requestFor, askAgent, contextFor, playbookFor, setAgentAvatar, MAX_CALLED,
+  listAgents, saveAgent, deleteAgent, toClientAgent, agentsHere, channelAgents, agentChannels, agentTalkFilter, addChannelAgent, removeChannelAgent, presetsFor, agentsCalled, requestFor, askAgent, contextFor, respondingAgents, playbookFor, setAgentAvatar, MAX_CALLED,
 } from "./customAgents.js";
 import { readImage } from "./userAvatar.js";
 import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
@@ -306,7 +306,10 @@ export async function answerAsAI(env, { orgId, session, user, resolved, row, mem
     const allowance = provider ? await allowanceFor(env, orgId, { githubId: String(session.github_id) }) : null;
     if (!provider) { await say(serverText(locale, "agent.noModel")); return false; }
     if (!allowance.allowed) { await say(serverText(locale, "agent.quota")); return false; }
-    const [transcript, playbook] = await Promise.all([contextFor(env.DB, orgId, resolved.key, row), row.parent_id ? [] : playbookFor(env.DB, orgId, row.body)]);
+    // @AI is the workspace's own assistant: called from the conversation,
+    // it reads what the conversation was just saying ("@AI 今の話を要約して").
+    // A thread is still only its thread.
+    const [transcript, playbook] = await Promise.all([contextFor(env.DB, orgId, resolved.key, row, { whole: true }), row.parent_id ? [] : playbookFor(env.DB, orgId, row.body)]);
     let links = "";
     try {
       const urls = linksIn(row.body).length ? linksIn(row.body) : linksIn(transcript.slice(-6).join("\n"));
@@ -362,17 +365,11 @@ async function callableAgents(db, orgId, login, members) {
   return out;
 }
 
-export async function answerAsAgents(env, { orgId, session, user, resolved, row, members, locale }) {
-  let agents;
+export async function answerAsAgents(env, { orgId, session, user, resolved, row, members, locale, agents = null }) {
   try {
-    // Their own agents, and the ones added to this channel.
-    agents = agentsCalled(row.body, await agentsHere(env.DB, orgId, user.login, resolved.key));
-    // In a conversation with an agent, everything said is said to it: it
-    // answers without being named, in the conversation, not a thread.
-    if (resolved.kind === "agent" && !agents.some((a) => a.id === resolved.agent.id)) {
-      const own = (await listAgents(env.DB, orgId, user.login)).find((a) => a.id === resolved.agent.id);
-      if (own) agents = [own, ...agents].slice(0, MAX_CALLED);
-    }
+    // Who answers (respondingAgents): the agents named, the one this
+    // conversation or thread is with — worked out once, by the caller.
+    agents = agents || await respondingAgents(env.DB, { orgId, login: user.login, resolved, row });
   } catch (err) {
     console.error("agents lookup failed", safe(err?.message));
     return 0;
@@ -423,7 +420,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   const provider = await providerFor(env, orgId);
   const allowance = provider ? await allowanceFor(env, orgId, { githubId: String(session.github_id) }) : null;
   const [transcript, playbook] = provider && allowance?.allowed
-    ? await Promise.all([contextFor(env.DB, orgId, resolved.key, row), row.parent_id ? [] : playbookFor(env.DB, orgId, row.body)])
+    ? await Promise.all([contextFor(env.DB, orgId, resolved.key, row, { whole: resolved.kind === "agent" }), row.parent_id ? [] : playbookFor(env.DB, orgId, row.body)])
     : [[], []];
   // Research, in a conversation with the agent only: past decisions and
   // what this person's connected tools hold are theirs to read, and would
@@ -552,7 +549,7 @@ async function runTeammate(env, { orgId, user, resolved, row, members, locale, a
   if (!t) return say("teammate.off");
   let started;
   try {
-    const transcript = await contextFor(env.DB, orgId, resolved.key, row).catch(() => []);
+    const transcript = await contextFor(env.DB, orgId, resolved.key, row, { whole: resolved.kind === "agent" }).catch(() => []);
     const where = resolved.kind === "business" ? `the #${resolved.slug} channel` : resolved.kind === "agent" ? "a direct conversation with you" : "a direct conversation";
     started = await startTeammateRun(env, {
       orgId, t, key: resolved.key, threadId: parentId || "-", where, askedBy: user.name || "a teammate",
@@ -982,8 +979,13 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (withFiles) await attachFiles(env.DB, { orgId, key: resolved.key, login: who.user.login, messageId: out.row.id, ids: fileIds });
     // A message to an agent is the agent's to do: it never becomes a card
     // for a person, whatever else it says.
-    const toAgent = resolved.kind === "agent"
-      || agentsCalled(out.row.body, await agentsHere(env.DB, orgId, who.user.login, resolved.key).catch(() => [])).length > 0;
+    //
+    // One kind of answer to a message, never several at once: the agents
+    // it names (or the one its thread is talking with) — else @AI — else
+    // the agents of the people it names — else Claude on an issue or a
+    // report. Nothing answers that nobody called.
+    const responders = await respondingAgents(env.DB, { orgId, login: who.user.login, resolved, row: out.row }).catch(() => []);
+    const toAgent = resolved.kind === "agent" || responders.length > 0;
     // A card only when asked for one: sent as a decision, or "@AI" asked,
     // in words, for an approval or a card. Any other "@AI" is a question,
     // and the AI answers it in the thread.
@@ -1001,10 +1003,13 @@ export async function handleChannels(request, env, url, { route, after }) {
         await decideFromMessage(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, route, locale });
       }
       if (wantsAnswer) await answerAsAI(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, locale });
-      await answerAsAgents(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, locale });
-      // The people it names who let their agent answer for them.
-      await answerAsProxies(env, { orgId, resolved, row: out.row, members, locale })
-        .catch((err) => console.error("proxies failed", safe(err?.message)));
+      if (responders.length) await answerAsAgents(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, locale, agents: responders });
+      // The people it names who let their agent answer for them — when no
+      // agent and no @AI is answering it already.
+      if (!toAgent && !wantsDecision && !wantsAnswer) {
+        await answerAsProxies(env, { orgId, resolved, row: out.row, members, locale })
+          .catch((err) => console.error("proxies failed", safe(err?.message)));
+      }
       // An issue link or a bug report: Claude starts on it on its own —
       // unless the message is already an agent's, the AI's or a person's
       // to answer.
