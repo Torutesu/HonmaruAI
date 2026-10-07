@@ -67,7 +67,7 @@ struct TikTokForWorkApp: App {
                     .environmentObject(SubscriptionService.shared)
                     .environment(\.locale, appState.language.locale ?? Locale.autoupdatingCurrent)
                     .preferredColorScheme(appState.appearance.colorScheme)
-                if splashing {
+                if splashing && !appState.isAwaitingAIConsent {
                     SplashView(ready: !appState.isBootstrapping) { splashing = false }
                         .zIndex(1)
                 }

@@ -157,6 +157,8 @@ final class AppState: ObservableObject {
 
     let relayURL = AppConfig.relayURL
     private var sessionGeneration = UUID()
+    @Published private(set) var isAwaitingAIConsent = false
+    private var consentContinuation: CheckedContinuation<Bool, Never>?
     private let accountSession: URLSession
     private let accountToken: () -> String?
     var activeSessionID: UUID { sessionGeneration }
@@ -187,6 +189,24 @@ final class AppState: ObservableObject {
         }
         if startServices { Task { await bootstrapBackend() } }
         else { isBootstrapping = false }
+    }
+
+    /// Replace onboarding with the disclosure before creating any workspace UI.
+    /// This also works during cold-launch session restoration, without depending
+    /// on a UIKit modal presenter or on the sign-in sheet's dismissal animation.
+    private func requestAIConsent() async -> Bool {
+        resolveAIConsent(false)
+        return await withCheckedContinuation { continuation in
+            consentContinuation = continuation
+            isAwaitingAIConsent = true
+        }
+    }
+
+    func resolveAIConsent(_ allowed: Bool) {
+        let continuation = consentContinuation
+        consentContinuation = nil
+        isAwaitingAIConsent = false
+        continuation?.resume(returning: allowed)
     }
 
     func bootstrapBackend() async {
@@ -310,6 +330,10 @@ final class AppState: ObservableObject {
         sessionGeneration = UUID()
         let generation = sessionGeneration
         webSocketService.disconnect()
+        guard await requestAIConsent(), generation == sessionGeneration else {
+            if generation == sessionGeneration { signOut() }
+            return
+        }
         if currentUser?.id != login { webSocketService.clearPendingEvents() }
         // The code verification just issued this token. Clearing the old
         // GitHub identity must preserve it, while cancelling old OAuth work.
@@ -350,6 +374,11 @@ final class AppState: ObservableObject {
     func activateGitHubSession(connection: GitHubConnection) async {
         sessionGeneration = UUID()
         let generation = sessionGeneration
+        webSocketService.disconnect()
+        guard await requestAIConsent(), generation == sessionGeneration else {
+            if generation == sessionGeneration { signOut() }
+            return
+        }
         isGuest = false
         membersLoading = false
         workspaceMembers = []
@@ -424,6 +453,7 @@ final class AppState: ObservableObject {
 
     func signOut() {
         sessionGeneration = UUID()
+        resolveAIConsent(false)
         let generation = sessionGeneration
         let sessionToken = SessionStore.sessionToken
         Task {
