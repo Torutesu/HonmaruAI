@@ -9,7 +9,7 @@
 
 import Constants from 'expo-constants'
 import * as SecureStore from 'expo-secure-store'
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { AppState } from 'react-native'
 import { Api, sessionEnded } from '@honmaru/core'
 import type { Me } from '@honmaru/protocol'
@@ -48,9 +48,19 @@ interface SessionValue {
 
 const SessionContext = createContext<SessionValue | null>(null)
 
+// Keep the request-time credential behind a stable client, outside render.
+function createSessionClient() {
+  let currentToken: string | null = null
+  return {
+    api: new Api({ base: API_BASE, token: () => currentToken }),
+    getToken: () => currentToken,
+    setToken: (next: string | null) => { currentToken = next },
+  }
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const tokenRef = useRef<string | null>(null)
-  const api = useMemo(() => new Api({ base: API_BASE, token: () => tokenRef.current }), [])
+  const [client] = useState(createSessionClient)
+  const api = client.api
   const [ready, setReady] = useState(false)
   const [token, setToken] = useState<string | null>(null)
   const [me, setMe] = useState<Me | null>(null)
@@ -63,15 +73,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     retryTimer.current = null
   }
 
-  const load = useCallback(async (next: string | null) => {
+  const load = useCallback(async function loadSession(next: string | null) {
     stopRetrying()
-    tokenRef.current = next
+    client.setToken(next)
     setToken(next)
     if (!next) { setMe(null); return }
     const stored = await SecureStore.getItemAsync(ORG_KEY)
     try {
       const who = await within(api.me(), ME_TIMEOUT_MS)
-      if (tokenRef.current !== next) return
+      if (client.getToken() !== next) return
       retries.current = 0
       setMe(who)
       const orgs = who.orgs || []
@@ -80,10 +90,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // pushes for them. Not awaited — the channels need not wait on a prompt.
       void registerForPush(api)
     } catch (err) {
-      if (tokenRef.current !== next) return
+      if (client.getToken() !== next) return
       if (sessionEnded(err)) {
         // The server no longer knows this session: signed out.
-        tokenRef.current = null
+        client.setToken(null)
         setToken(null); setMe(null); setOrgId(null)
         await SecureStore.deleteItemAsync(TOKEN_KEY)
         return
@@ -93,23 +103,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setOrgId((current) => current || stored)
       const wait = RETRY_MS[Math.min(retries.current, RETRY_MS.length - 1)]
       retries.current += 1
-      retryTimer.current = setTimeout(() => { if (tokenRef.current === next) void loadRef.current(next) }, wait)
+      retryTimer.current = setTimeout(() => { if (client.getToken() === next) void loadSession(next) }, wait)
     }
-  }, [api])
-  const loadRef = useRef(load)
-  loadRef.current = load
+  }, [api, client])
 
   // Back in the foreground with the session not yet confirmed: look now
   // rather than wait out the timer.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active' && tokenRef.current && retryTimer.current) {
+      const saved = client.getToken()
+      if (state === 'active' && saved && retryTimer.current) {
         retries.current = 0
-        void loadRef.current(tokenRef.current)
+        void load(saved)
       }
     })
     return () => { sub.remove(); stopRetrying() }
-  }, [])
+  }, [client, load])
 
   // Ready as soon as the saved session is read: the screens show at once,
   // signed in, while the server confirms it (or cannot yet be reached).
@@ -135,7 +144,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await SecureStore.deleteItemAsync(TOKEN_KEY)
       await SecureStore.deleteItemAsync(ORG_KEY)
       await clearDrafts()
-      tokenRef.current = null
+      client.setToken(null)
       setToken(null); setMe(null); setOrgId(null)
     },
     chooseOrg: async (next) => { await SecureStore.setItemAsync(ORG_KEY, next); setOrgId(next) },

@@ -41,7 +41,6 @@ export default function Channel() {
   const draftFor = useRef<string | null>(null)
   useEffect(() => {
     draftFor.current = null
-    setAlsoChannel(false)
     if (!here) return
     const at = `${here}|${box}`
     let live = true
@@ -49,6 +48,7 @@ export default function Channel() {
       if (!live) return
       draftFor.current = at
       setDraft(kept)
+      setAlsoChannel(false)
     })
     return () => { live = false }
   }, [here, box])
@@ -143,7 +143,7 @@ function Row({ message, inThread = false, replies, parent, onOpenThread, onRetry
   // On its way: faded until the server says it has it, then up to full
   // over a moment (#212). Failed: faded, with why and a way to send again.
   const state = message.sending?.state
-  const opacity = useRef(new Animated.Value(state ? 0.5 : 1)).current
+  const [opacity] = useState(() => new Animated.Value(state ? 0.5 : 1))
   useEffect(() => {
     Animated.timing(opacity, { toValue: state ? 0.5 : 1, duration: state ? 0 : 260, useNativeDriver: true }).start()
   }, [state, opacity])
