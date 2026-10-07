@@ -1030,3 +1030,5 @@ a.plat:active { transform:translateY(0) scale(.99); transition-duration:100ms; }
 @media (prefers-reduced-motion:reduce) {
   .hero-text .ctas > a:hover, .hero-text .ctas > a:active { transform:none; }
 }
+
+.release-note { max-width: 680px; margin: 20px auto; font-size: 14px; line-height: 1.7; color: var(--ink-2); }
