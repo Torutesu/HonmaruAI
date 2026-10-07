@@ -12,6 +12,7 @@ describe('in-tab notification', () => {
     class FakeNotification {
       static permission = 'granted'
       constructor(title: string, options: { body: string }) { shown.push({ title, body: options.body }) }
+      close() {}
     }
     vi.stubGlobal('Notification', FakeNotification)
     vi.stubGlobal('document', { visibilityState: 'hidden', documentElement: {} })

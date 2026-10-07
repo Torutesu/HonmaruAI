@@ -26,6 +26,7 @@ interface Props {
   at: { x: number; y: number }
   entries: MenuEntry[]
   label: string
+  anchor?: HTMLElement
   onClose: () => void
 }
 
@@ -146,7 +147,7 @@ function List({ entries, onClose, onBack, level, label }: { entries: MenuEntry[]
   )
 }
 
-export const RowMenu: React.FC<Props> = ({ at, entries, label, onClose }) => {
+export const RowMenu: React.FC<Props> = ({ at, entries, label, anchor, onClose }) => {
   const ref = useRef<HTMLDivElement>(null)
   const [place, setPlace] = useState<{ left: number; top: number }>({ left: at.x, top: at.y })
   // Kept on screen: a menu opened near the bottom or the right edge moves in.
@@ -164,23 +165,30 @@ export const RowMenu: React.FC<Props> = ({ at, entries, label, onClose }) => {
     return () => { if (focusGoesBack(before, document.activeElement, document.body, box)) before!.focus({ preventScroll: true }) }
   }, [])
   useEffect(() => {
-    items(ref.current?.querySelector('ul') as HTMLElement | null)[0]?.focus()
+    items(ref.current?.querySelector('ul') as HTMLElement | null)[0]?.focus({ preventScroll: true })
     const away = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) onClose() }
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape' && !composing(e)) { e.preventDefault(); onClose() } }
     const gone = () => onClose()
+    // Only scrolling the surface that owns the anchor moves this menu away
+    // from its row. A conversation's auto-scroll must not close a sidebar menu.
+    const scrolled = (e: Event) => {
+      const target = e.target
+      if (target instanceof Node && ref.current?.contains(target)) return
+      if (!anchor || target === document || (target instanceof Element && target.contains(anchor))) onClose()
+    }
     document.addEventListener('mousedown', away, true)
     document.addEventListener('keydown', key)
     window.addEventListener('blur', gone)
     window.addEventListener('resize', gone)
-    document.addEventListener('scroll', gone, true)
+    document.addEventListener('scroll', scrolled, true)
     return () => {
       document.removeEventListener('mousedown', away, true)
       document.removeEventListener('keydown', key)
       window.removeEventListener('blur', gone)
       window.removeEventListener('resize', gone)
-      document.removeEventListener('scroll', gone, true)
+      document.removeEventListener('scroll', scrolled, true)
     }
-  }, [onClose])
+  }, [onClose, anchor])
   return (
     <div ref={ref} className="row-menu" style={place} onContextMenu={(e) => e.preventDefault()}>
       {/* The name goes on the menu itself: on a plain box a screen reader says nothing of it. */}

@@ -133,9 +133,10 @@ test("a handle that means someone else, an agent already, or nothing is refused;
   expect((await send("POST", "/channels/usergroups", toru, { orgId: ORG, handle: "hayao", refs: [] })).status).toBe(409);
 });
 
-test("@hayao answers in the thread under the message, as itself, from its instructions and the conversation", async () => {
+test("@hayao answers in the thread under the message, as itself, from its instructions and the message it was called with", async () => {
   await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
-  await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", body: "Autumn menu launches on the 1st" });
+  const launch = (await (await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", body: "Autumn menu launches on the 1st" })).json()).message;
+  await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", body: "UNRELATED: the hotel budget" });
   let prompt;
   // A model that cannot search: the ordinary answer.
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(400, { error: { message: "web_search not supported" } }).times(2);
@@ -143,7 +144,7 @@ test("@hayao answers in the thread under the message, as itself, from its instru
     prompt = JSON.parse(opts.body);
     return { choices: [{ message: { content: "Warm amber and chestnut brown, hand-drawn type." } }], usage: { prompt_tokens: 10, completion_tokens: 8 } };
   });
-  const sent = await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@hayao ポスターの方向性をください" }, { OPENAI_API_KEY: "sk-test" });
+  const sent = await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@hayao ポスターの方向性をください", replyTo: launch.id }, { OPENAI_API_KEY: "sk-test" });
   expect(sent.status).toBe(201);
   const asked = (await sent.json()).message;
 
@@ -151,7 +152,9 @@ test("@hayao answers in the thread under the message, as itself, from its instru
   const user = prompt.messages.find((m) => m.role === "user").content;
   expect(system).toContain("You are the cafe's art director");
   expect(system).toContain("🎨 Hayao (@hayao)");
+  // What it answers, and nothing else the channel was saying.
   expect(user).toContain("Autumn menu launches on the 1st");
+  expect(user).not.toContain("UNRELATED");
   expect(user).toContain("Request to you (@hayao): ポスターの方向性をください");
   expect(user).toContain("Asked by: Mika");
 
@@ -471,7 +474,7 @@ test("talk with the agents is left out of what a decision reads: calling one, an
   const all = await transcriptUpTo(env.DB, ORG, "b:cafe", now);
   const kept = await transcriptUpTo(env.DB, ORG, "b:cafe", now, { skip });
   expect(all.some((l) => l.includes("@hayao poster ideas?"))).toBe(true);
-  expect(all.some((l) => l.includes("Hayao: "))).toBe(true);
+  expect(all.some((l) => l.includes("Hayao (agent @hayao): "))).toBe(true);
   expect(kept.some((l) => l.includes("Autumn menu launches on the 1st"))).toBe(true);
   expect(kept.some((l) => l.includes("hayao") || l.includes("Hayao"))).toBe(false);
   expect(skip({ kind: "message", channel: "b:cafe", body: "@hayaoに 調べて" })).toBe(true);
@@ -545,4 +548,91 @@ test("an agent can wear a picture instead of its emoji: set by whoever may chang
   expect((await worker.fetch(new Request(next), env)).status).toBe(404);
   const { results } = await env.DB.prepare("SELECT action FROM audit_events WHERE org_id = ?1 ORDER BY seq").bind(ORG).all();
   expect(results.map((r) => r.action).filter((a) => a === "agent.updated").length).toBe(3);
+});
+
+test("thread context keeps its old root and only replies through the invocation", async () => {
+  const { contextFor } = await import("../src/customAgents.js");
+  const insert = async (id, body, parent = null, at = "2026-10-01T10:00:00.000Z", replyTo = null, channel = "b:cafe", deleted = null) => {
+    await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at, parent_id, reply_to_id, deleted_at) VALUES (?1, ?2, ?3, 'toru', 'message', ?4, ?5, ?6, ?7, ?8)")
+      .bind(id, ORG, channel, body, at, parent, replyTo, deleted).run();
+  };
+  await insert("root", "ROOT REQUIREMENT", null, "2026-09-01T00:00:00.000Z");
+  await insert("outside", "UNRELATED https://unrelated.example.com");
+  await insert("sibling", "SIBLING SECRET", "outside");
+  for (let i = 0; i < 40; i++) await insert(`reply-${i}`, `OUR REPLY ${i} ` + "x".repeat(490), "root");
+  await insert("deleted", "DELETED SECRET", "root", undefined, null, undefined, "2026-10-01");
+  await insert("other-channel", "OTHER CHANNEL SECRET", "root", undefined, null, "b:other");
+  await insert("call", "CURRENT REQUEST", "root", undefined, "outside");
+  await insert("future", "FUTURE SECRET SAME TIMESTAMP", "root");
+  const result = (await contextFor(env.DB, ORG, "b:cafe", { id: "call", parent_id: "root", created_at: "2026-10-01T10:00:00.000Z" })).join("\n");
+  expect(result).toContain("ROOT REQUIREMENT");
+  expect(result).toContain("OUR REPLY 39");
+  expect(result).toContain("CURRENT REQUEST");
+  expect(result).not.toMatch(/UNRELATED|SIBLING|DELETED|OTHER CHANNEL|FUTURE/);
+  expect(result.length).toBeLessThanOrEqual(6000);
+});
+
+test("a thread invocation sends only that thread to the model", async () => {
+  await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
+  const root = (await (await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", body: "THREAD ROOT: autumn poster" })).json()).message;
+  await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", body: "UNRELATED: hotel budget" });
+  await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", body: "THREAD REPLY: use amber", parentId: root.id });
+  let prompt;
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(400, { error: { message: "web_search not supported" } }).times(2);
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(200, (opts) => {
+    prompt = JSON.parse(opts.body);
+    return { choices: [{ message: { content: "Use amber for the autumn poster." } }] };
+  });
+  const result = await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", parentId: root.id, body: "@hayao summarise this thread" }, { OPENAI_API_KEY: "sk-test" });
+  expect(result.status).toBe(201);
+  const content = prompt.messages.find((m) => m.role === "user").content;
+  expect(content).toContain("THREAD ROOT");
+  expect(content).toContain("THREAD REPLY");
+  expect(content).not.toContain("UNRELATED");
+});
+
+test("a mention inside a quote or code calls nobody", () => {
+  const agents = [{ id: "3", handle: "hayao", name: "Hayao", scope: "team" }];
+  expect(agentsCalled("> @hayao said this yesterday\nwhat do you all think?", agents)).toEqual([]);
+  expect(agentsCalled("type `@hayao` to call it", agents)).toEqual([]);
+  expect(agentsCalled("```\n@hayao run\n```", agents)).toEqual([]);
+  expect(agentsCalled("> quoted\n@hayao your view?", agents).map((a) => a.id)).toEqual(["3"]);
+});
+
+test("an agent's lines in what it reads carry its handle", async () => {
+  const { contextFor } = await import("../src/customAgents.js");
+  await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
+  const id = (await env.DB.prepare("SELECT id FROM custom_agents WHERE org_id = ?1").bind(ORG).first()).id;
+  const insert = (mid, author, kind, body, parent, at) => env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at, parent_id) VALUES (?1, ?2, 'b:cafe', ?3, ?4, ?5, ?6, ?7)")
+    .bind(mid, ORG, author, kind, body, at, parent).run();
+  await insert("r", "toru", "message", "@hayao a sign colour?", null, "2026-10-01T10:00:00.000Z");
+  await insert("a", `agent:${id}`, "agent", "Amber.", "r", "2026-10-01T10:01:00.000Z");
+  await insert("c", "toru", "message", "and the font?", "r", "2026-10-01T10:02:00.000Z");
+  const lines = (await contextFor(env.DB, ORG, "b:cafe", { id: "c", parent_id: "r", created_at: "2026-10-01T10:02:00.000Z" })).join("\n");
+  expect(lines).toContain("Hayao (agent @hayao): Amber.");
+});
+
+test("in a thread an agent answered, the person who called it goes on without naming it; anyone else is talking to people", async () => {
+  await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
+  const answers = [];
+  const model = (text) => {
+    fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(400, { error: { message: "web_search not supported" } }).times(2);
+    fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(200, (opts) => {
+      answers.push(JSON.parse(opts.body).messages.find((m) => m.role === "user").content);
+      return { choices: [{ message: { content: text } }] };
+    });
+  };
+  model("Amber.");
+  const asked = (await (await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@hayao a colour for the sign?" }, { OPENAI_API_KEY: "sk-test" })).json()).message;
+  model("A rounded serif.");
+  await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", parentId: asked.id, body: "and the font?" }, { OPENAI_API_KEY: "sk-test" });
+  expect(answers).toHaveLength(2);
+  expect(answers[1]).toContain("Hayao (agent @hayao): Amber.");
+  // Kenji's reply is to the people in the thread: nobody's model is called
+  // (an interceptor left over would fail the test).
+  await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", parentId: asked.id, body: "I like it" }, { OPENAI_API_KEY: "sk-test" });
+  // Mika naming a person in the thread is not talking to the agent either.
+  await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", parentId: asked.id, body: "@kenji thoughts?" }, { OPENAI_API_KEY: "sk-test" });
+  const thread = await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:cafe", messageId: asked.id })}`, mika)).json();
+  expect(thread.replies.filter((r) => r.kind === "agent").map((r) => r.body)).toEqual(["Amber.", "A rounded serif."]);
 });

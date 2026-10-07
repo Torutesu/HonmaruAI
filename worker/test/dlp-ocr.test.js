@@ -22,9 +22,10 @@ const call = async (path, token, { method = "GET", body } = {}) => {
   return res;
 };
 const post = (token, text, extra = {}) => call("/channels/messages", token, { method: "POST", body: { orgId: ORG, channel: "b:cafe", body: text, ...extra } });
+const lengthOf = (bytes) => (typeof bytes === "string" ? new TextEncoder().encode(bytes).byteLength : bytes.byteLength);
 const upload = async (token, bytes, type, name) => {
   const res = await worker.fetch(new Request(`https://example.com/channels/files?orgId=${encodeURIComponent(ORG)}&channel=b:cafe&name=${encodeURIComponent(name)}`, {
-    method: "POST", headers: { "content-type": type, "x-session-token": token }, body: bytes,
+    method: "POST", headers: { "content-type": type, "x-session-token": token, "content-length": String(lengthOf(bytes)) }, body: bytes,
   }), AI, ctx);
   while (pending.length) await pending.shift();
   expect(res.status).toBe(201);

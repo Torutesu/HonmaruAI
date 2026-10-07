@@ -15,6 +15,13 @@
     set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
   };
 
+  // Suppress decorative transitions for keyboard input without losing focus styles.
+  document.addEventListener('keydown', function () { doc.dataset.input = 'keyboard'; }, true);
+  document.addEventListener('pointerdown', function () { doc.dataset.input = 'pointer'; }, true);
+  document.addEventListener('pointermove', function () {
+    if (doc.dataset.input === 'keyboard') doc.dataset.input = 'pointer';
+  }, { passive: true });
+
   /* ============ language ============ */
   var LANGS = ['en', 'ja', 'es', 'fr', 'de'];
   // The published site has a page per language (/ja/, /en/ …); the root sends
@@ -207,6 +214,9 @@
       var so = p >= .1 ? 1 : 0;
       story.style.opacity = so;
       story.style.visibility = so <= 0 ? 'hidden' : 'visible';
+      story.inert = so <= 0;
+      story.style.pointerEvents = so <= 0 ? 'none' : '';
+      story.setAttribute('aria-hidden', so <= 0 ? 'true' : 'false');
 
       var x = lerp(m.x0, m.x1, h), y = lerp(m.y0, m.y1, h), s = lerp(m.s0, m.s1, h);
       device.style.transform = 'translate3d(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px,0) scale(' + s.toFixed(4) + ') rotate(' + (reduce ? 0 : -7 * (1 - h)).toFixed(2) + 'deg)';
@@ -226,7 +236,7 @@
         // Keep one complete, opaque caption visible throughout each chapter.
         c.style.opacity = i === active ? '1' : '0';
         c.style.transform = 'none';
-        c.style.visibility = i === active ? 'visible' : 'hidden';
+        c.style.visibility = so > 0 && i === active ? 'visible' : 'hidden';
       });
 
       var g = 1 - clamp((p - .29) / .06, 0, 1);
@@ -621,9 +631,9 @@
     }
     $('.rows').classList.add('explorer');
     rows.forEach(function(row, index) {
-      $('.feature-toggle', row).addEventListener('click', function() {
+      $('.feature-toggle', row).addEventListener('click', function(event) {
         select(index);
-        if (innerWidth <= 700) requestAnimationFrame(function() { row.scrollIntoView({block:'start', behavior:reduce ? 'instant' : 'smooth'}); });
+        if (innerWidth <= 700) requestAnimationFrame(function() { row.scrollIntoView({block:'start', behavior:reduce || event.detail === 0 ? 'instant' : 'smooth'}); });
       });
     });
     select(0);

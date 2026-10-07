@@ -21,17 +21,19 @@ import { syncCardToGitHub, getWorkspaceGitHub } from "./githubWorkspace.js";
 import { allowanceFor } from "./gate.js";
 import { ANNOUNCE_PATH, EVICT_PATH, EVENTS_PATH } from "./announce.js";
 import { emitCard } from "./webhooks.js";
-import { validateIncomingCard, MAX_CONTEXT_BYTES } from "./agui/validate.js";
+import { validateIncomingCard, MAX_CONTEXT_BYTES, PRIORITIES } from "./agui/validate.js";
 import { applyAutoRule } from "./autorules.js";
 import { redirectIfAway } from "./people.js";
 import { listMembers } from "./team.js";
 import { isGuest, isPersonal } from "./access.js";
 import { learnFromDecision } from "./memory.js";
 import { settleProposal } from "./proposals.js";
+import { settleProxyAction } from "./proxy.js";
 import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor } from "./jam.js";
 import { TYPING_TYPES, TYPING_BUDGET, handleTyping } from "./typing.js";
 import { useSecretKey } from "./secrets.js";
 import { useMirrorEnv } from "./store/mirror.js";
+import { useMediaEnv } from "./mediaToken.js";
 
 /// Said to a client that tries to put an unposted daily report away.
 const DRAFT_MUST_POST = "This daily report is a draft: check it and post it to finish it.";
@@ -54,6 +56,7 @@ export class OrgRelay {
   constructor(state, env) {
     useSecretKey(env);
     useMirrorEnv(env);
+    useMediaEnv(env);
     this.state = state;
     this.env = env;
     this.db = env.DB;
@@ -464,6 +467,10 @@ export class OrgRelay {
           }
           return;
         }
+        // Importance set by hand is set afterwards, through set_priority —
+        // not claimed by whoever made the card.
+        delete card.prioritySetBy;
+        delete card.aiPriority;
         // And a new card arrives undecided. A decision is the recipient's to
         // make, over `tool_result` or `card_updated`, after the card exists.
         if (card.decision !== undefined || (card.status !== undefined && card.status !== "pending")) {
@@ -582,7 +589,17 @@ export class OrgRelay {
             ws.send(JSON.stringify(runError(DRAFT_MUST_POST)));
             return;
           }
-          for (const field of ["business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal", "reminder", "autoApproved", "coveringFor"]) {
+          // Importance someone set by hand stays theirs: a client's older
+          // copy, or anything else republishing the card, does not undo it.
+          if (existing.prioritySetBy) {
+            card.priority = existing.priority;
+            card.prioritySetBy = existing.prioritySetBy;
+            if (existing.aiPriority !== undefined) card.aiPriority = existing.aiPriority;
+          } else {
+            delete card.prioritySetBy;
+            delete card.aiPriority;
+          }
+          for (const field of ["business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal", "proxyAction", "reminder", "autoApproved", "coveringFor"]) {
             if (card[field] === undefined && existing[field] !== undefined) card[field] = existing[field];
           }
         }
@@ -667,6 +684,35 @@ export class OrgRelay {
       await saveCard(this.db, orgId, updated);
       await this.log(orgId, {
         cardId: card.id, type: "filed", action: business || null, actorUserId: att.userId, snapshot: updated,
+      });
+      const { forEveryone } = upsertEvents(updated, { isNew: false });
+      for (const ev of forEveryone) this.broadcastCard(orgId, updated, ev);
+      return;
+    }
+
+    if (type === "set_priority") {
+      // The AI's importance is a first guess. Either party to the card may
+      // put it right — the recipient who has to weigh it, the sender who
+      // knows how much it matters — and the choice is theirs from then on:
+      // `prioritySetBy` keeps it through every later update (below), until
+      // somebody sets it again.
+      const card = await getCard(this.db, orgId, payload.cardId);
+      if (!card) return;
+      if (card.senderUserID !== att.userId && card.recipientUserID !== att.userId) {
+        ws.send(JSON.stringify(runError("Only the sender or the recipient can change this decision's importance.")));
+        return;
+      }
+      if (!PRIORITIES.has(payload.priority)) {
+        ws.send(JSON.stringify(runError("That is not an importance a card can have.")));
+        return;
+      }
+      if (card.priority === payload.priority && card.prioritySetBy) return;
+      const updated = { ...card, priority: payload.priority, prioritySetBy: att.userId };
+      // What the AI first said, kept once, so a client can say "AI: High".
+      if (!card.prioritySetBy) updated.aiPriority = card.priority;
+      await saveCard(this.db, orgId, updated);
+      await this.log(orgId, {
+        cardId: card.id, type: "reprioritized", action: payload.priority, actorUserId: att.userId, snapshot: updated,
       });
       const { forEveryone } = upsertEvents(updated, { isNew: false });
       for (const ev of forEveryone) this.broadcastCard(orgId, updated, ev);
@@ -872,6 +918,8 @@ export class OrgRelay {
   async afterDecision(orgId, card, actorLogin, actorGithubId) {
     try {
       if (card?.proposal) await settleProposal(this.env, orgId, card);
+      // An agent's proposal to act outside the chat for its person.
+      else if (card?.proxyAction) await settleProxyAction(this.env, orgId, card);
       // A personal card's reasons are its person's, not the team's rules.
       else if (!isPersonal(card)) await learnFromDecision(this.env, { orgId, card, actorLogin, actorGithubId });
     } catch (err) {

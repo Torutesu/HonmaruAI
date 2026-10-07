@@ -117,7 +117,21 @@ export const CardThread: React.FC<Props> = ({ httpBase, orgId, sessionToken, car
   const [reactions, setReactions] = useState<Reaction[]>([])
   const [available, setAvailable] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [draft, setDraft] = useState('')
+  // A comment half-written under this card is kept in this browser until
+  // it is sent, as a message's draft is.
+  const commentKey = `card-draft:${orgId}:${cardId}`
+  const [draft, setDraft] = useState(() => { try { return localStorage.getItem(commentKey) || '' } catch { return '' } })
+  // Another card in the same place: its own comment, not this one's.
+  const draftOf = useRef(commentKey)
+  useEffect(() => {
+    if (draftOf.current === commentKey) return
+    draftOf.current = commentKey
+    try { setDraft(localStorage.getItem(commentKey) || '') } catch { setDraft('') }
+  }, [commentKey])
+  useEffect(() => {
+    if (draftOf.current !== commentKey) return
+    try { if (draft) localStorage.setItem(commentKey, draft); else localStorage.removeItem(commentKey) } catch { /* not kept */ }
+  }, [draft, commentKey])
   const [sending, setSending] = useState(false)
   const [picking, setPicking] = useState(false)
   const box = useRef<HTMLTextAreaElement>(null)
@@ -189,7 +203,8 @@ export const CardThread: React.FC<Props> = ({ httpBase, orgId, sessionToken, car
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setError(data.message || t('That did not send.')); return }
       setComments((prev) => (prev && !prev.some((c) => c.id === data.comment.id) ? [...prev, data.comment] : prev))
-      setDraft('')
+      // More written while it went stays.
+      setDraft((now) => (now.trim() === body ? '' : now))
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

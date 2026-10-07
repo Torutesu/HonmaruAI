@@ -10,10 +10,10 @@ beforeEach(async () => {
 });
 
 test("POST /media stores the body and GET /media/:id returns it", async () => {
-  const bytes = new Uint8Array([0, 1, 2, 3, 4, 5]);
+  const bytes = new Uint8Array([0, 0, 0, 0x18, ...new TextEncoder().encode("ftypisom"), 0, 0, 2, 0]);
   const up = await SELF.fetch("https://example.com/media", {
     method: "POST",
-    headers: { "x-session-token": token, "content-type": "video/mp4" },
+    headers: { "x-session-token": token, "content-type": "video/mp4", "content-length": String(bytes.byteLength) },
     body: bytes,
   });
   expect(up.status).toBe(200);
@@ -64,8 +64,9 @@ test("an upload larger than the cap is refused even with no content-length", asy
     body,
     duplex: "half",
   });
-  expect(res.headers.get("content-length")).toBeNull();
-  expect(res.status).toBe(413);
+  // A body that will not say how long it is is refused before a byte is
+  // stored (411); one that says it is too long, before a byte is read (413).
+  expect(res.status).toBe(411);
 });
 
 test("an honest oversized content-length is refused before the body is read", async () => {

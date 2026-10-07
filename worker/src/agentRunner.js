@@ -9,10 +9,12 @@
 import { getSession, getUserByGithubId } from "./db.js";
 import { getMessage, resolveChannel, viewOf } from "./channels.js";
 import { listMembers } from "./team.js";
-import { agentsHere, agentsCalled, listAgents, MAX_CALLED } from "./customAgents.js";
+import { respondingAgents } from "./customAgents.js";
 import { runAgents } from "./channelRoutes.js";
+import { runProxy } from "./proxy.js";
 import { useSecretKey } from "./secrets.js";
 import { useMirrorEnv } from "./store/mirror.js";
+import { useMediaEnv } from "./mediaToken.js";
 
 const MAX_JOBS = 50;
 
@@ -20,6 +22,7 @@ export class AgentRunner {
   constructor(state, env) {
     useSecretKey(env);
     useMirrorEnv(env);
+    useMediaEnv(env);
     this.state = state;
     this.env = env;
   }
@@ -28,10 +31,12 @@ export class AgentRunner {
     const url = new URL(request.url);
     if (request.method !== "POST" || url.pathname !== "/enqueue") return new Response("Not found", { status: 404 });
     const job = await request.json().catch(() => null);
-    if (!job?.orgId || !job?.token || !job?.rowId) return new Response("Bad job", { status: 400 });
+    // A proxy's job carries whose agent it is, not a session: it works for
+    // the person mentioned, not the person who wrote.
+    if (!job?.orgId || !job?.rowId || (job.kind === "proxy" ? !job.owner : !job.token)) return new Response("Bad job", { status: 400 });
     const waiting = await this.state.storage.list({ prefix: "job:", limit: MAX_JOBS + 1 });
     if (waiting.size >= MAX_JOBS) return new Response("Busy", { status: 503 });
-    await this.state.storage.put(`job:${Date.now()}:${job.rowId}`, { ...job, queuedAt: Date.now() });
+    await this.state.storage.put(`job:${Date.now()}:${job.rowId}${job.kind === "proxy" ? `:${job.owner}` : ""}`, { ...job, queuedAt: Date.now() });
     if (!(await this.state.storage.getAlarm())) await this.state.storage.setAlarm(Date.now());
     return new Response("Queued", { status: 202 });
   }
@@ -41,7 +46,7 @@ export class AgentRunner {
     // Off the list first: an alarm that fails is retried, and an answer
     // posted twice is worse than one that never came.
     await this.state.storage.delete([...jobs.keys()]);
-    await Promise.allSettled([...jobs.values()].map((job) => runQueuedAgents(this.env, job).catch((err) => {
+    await Promise.allSettled([...jobs.values()].map((job) => (job.kind === "proxy" ? runProxy(this.env, job) : runQueuedAgents(this.env, job)).catch((err) => {
       console.error("queued agent failed", err?.message || err);
     })));
     const more = await this.state.storage.list({ prefix: "job:", limit: 1 });
@@ -61,11 +66,7 @@ export async function runQueuedAgents(env, { orgId, token, rowId, locale }) {
   const view = viewOf(row.channel, user.login, members);
   const resolved = view ? await resolveChannel(env.DB, orgId, { ...user, github_id: session.github_id }, view, members) : null;
   if (!resolved || resolved.key !== row.channel) return 0;
-  let agents = agentsCalled(row.body, await agentsHere(env.DB, orgId, user.login, resolved.key));
-  if (resolved.kind === "agent" && !agents.some((a) => a.id === resolved.agent.id)) {
-    const own = (await listAgents(env.DB, orgId, user.login)).find((a) => a.id === resolved.agent.id);
-    if (own) agents = [own, ...agents].slice(0, MAX_CALLED);
-  }
+  const agents = await respondingAgents(env.DB, { orgId, login: user.login, resolved, row });
   if (!agents.length) return 0;
   return runAgents(env, { orgId, session, user: { ...user, github_id: session.github_id }, resolved, row, members, locale, agents });
 }

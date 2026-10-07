@@ -3,7 +3,11 @@ import Foundation
 /// Owned by the shell, so a request survives sheet dismissal and tab changes.
 @MainActor
 final class FeedViewModel: ObservableObject {
-    @Published var sourceText = ""
+    /// What is being asked of the AI, kept on this device as it is written:
+    /// leaving it — or the app — never loses it.
+    @Published var sourceText = "" { didSet { keepSource() } }
+    /// Where the words being written are kept; nil for a guest.
+    private var sourceKey: String?
     @Published var title = ""
     @Published var summary = ""
     @Published var context = ""
@@ -43,7 +47,22 @@ final class FeedViewModel: ObservableObject {
 
     func bind(to appState: AppState) {
         let scope = "\(appState.currentUser?.id ?? "")|\(appState.currentUser?.teamID ?? "")|\(appState.isGuest)|\(appState.activeSessionID)"
-        if boundScope != scope { reset(); boundScope = scope }
+        guard boundScope != scope else { return }
+        // The last account's words stay where they were kept, for it.
+        sourceKey = nil
+        reset()
+        boundScope = scope
+        if !appState.isGuest, let user = appState.currentUser {
+            // "chat.draft." so signing out takes it away with the others.
+            sourceKey = "chat.draft.ai.\(user.id)|\(user.teamID ?? "")"
+            sourceText = sourceKey.flatMap { UserDefaults.standard.string(forKey: $0) } ?? ""
+        }
+    }
+
+    private func keepSource() {
+        guard let sourceKey else { return }
+        if sourceText.isEmpty { UserDefaults.standard.removeObject(forKey: sourceKey) }
+        else { UserDefaults.standard.set(sourceText, forKey: sourceKey) }
     }
 
     func reset() {
@@ -127,7 +146,7 @@ final class FeedViewModel: ObservableObject {
                     guard let base = appState.backendBaseURL else { throw CardServiceError.notConnected }
                     let compressed = await MediaStore.compress(attachmentURL)
                     guard generation == operation, appState.activeSessionID == session, appState.currentUser == user else { throw CancellationError() }
-                    videoURL = try await MediaUploader.upload(compressed, to: base)
+                    videoURL = try await MediaUploader.upload(compressed, to: base, orgID: user.teamID)
                     guard generation == operation, appState.activeSessionID == session, appState.currentUser == user else { throw CancellationError() }
                 }
             }

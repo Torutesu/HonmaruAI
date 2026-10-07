@@ -12,8 +12,10 @@ struct ChatReaction: Codable, Hashable {
     var mine: Bool
 }
 
-/// A file or a picture on a message. `url` is a signed path on the Worker,
-/// good for a day or two; it is resolved against the API's base.
+/// A file or a picture on a message. `url` is a signed address — on the
+/// media origin, or a path on the API resolved against its base — good
+/// until `expiresAt` (ms). A file is kept by `id`; ChatMediaURLs renews its
+/// address before it runs out.
 struct ChatFile: Codable, Identifiable, Hashable {
     let id: String
     let name: String
@@ -22,6 +24,7 @@ struct ChatFile: Codable, Identifiable, Hashable {
     let width: Int?
     let height: Int?
     let url: String
+    var expiresAt: Double? = nil
 
     var isPicture: Bool { ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"].contains(type) }
     func address(base: URL) -> URL? { URL(string: url, relativeTo: base)?.absoluteURL }
@@ -69,12 +72,37 @@ struct ChatMessage: Codable, Identifiable, Hashable {
     var files: [ChatFile]?
     /// Set when one of the team's agents wrote it: its name and face.
     var agent: ChatAgentFace?
+    /// A thread reply sent to the conversation as well: read in its thread
+    /// and in the conversation.
+    var alsoChannel: Bool?
+    /// With `alsoChannel`, in the conversation: how the thread it answers
+    /// begins, as that message is now.
+    var threadParent: ChatQuote?
+    /// Said by an agent for a person who was mentioned: whose agent it is.
+    var onBehalfOf: ChatOnBehalfOf?
 
     var isAI: Bool { kind == "ai" }
     /// Written by an agent the team made ("@hayao"), not by a person.
     var isAgent: Bool { kind == "agent" }
     var isDeleted: Bool { deleted == true }
     var date: Date { ChatDates.parse(createdAt) ?? .distantPast }
+}
+
+/// The person an agent's message was said for.
+struct ChatOnBehalfOf: Codable, Hashable {
+    let name: String?
+    let ref: String?
+}
+
+/// What a message shows of another one it points at: who said it and how
+/// it began, or only that it is gone.
+struct ChatQuote: Codable, Hashable {
+    let id: String
+    let kind: String?
+    let authorName: String?
+    let authorRef: String?
+    let excerpt: String
+    let deleted: Bool
 }
 
 struct ChatMemberStatus: Codable, Hashable {
@@ -392,6 +420,20 @@ enum ChatService {
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// Where to play a card's video from, signed for the person asking.
+    static func cardVideoURL(orgId: String, cardId: String, base: URL) async throws -> URL? {
+        struct R: Decodable { let url: String }
+        let got = try await call("POST", "/media/video", base: base, body: ["orgId": orgId, "cardId": cardId], as: R.self)
+        return URL(string: got.url, relativeTo: base)?.absoluteURL
+    }
+
+    /// New addresses for files whose addresses are running out, by id.
+    struct FreshFile: Decodable { let url: String; let expiresAt: Double }
+    static func freshFileURLs(orgId: String, ids: [String], base: URL) async throws -> [String: FreshFile] {
+        struct R: Decodable { let files: [String: FreshFile] }
+        return try await call("POST", "/media/urls", base: base, body: ["orgId": orgId, "ids": ids], as: R.self).files
+    }
+
     static func call<T: Decodable>(_ method: String, _ path: String, base: URL, query: [String: String] = [:], body: [String: Any]? = nil, timeout: TimeInterval = 20, as type: T.Type) async throws -> T {
         guard let token = SessionStore.sessionToken else { throw Failure.notSignedIn }
         var components = URLComponents(url: base, resolvingAgainstBaseURL: true)
@@ -436,7 +478,8 @@ enum ChatService {
 
     /// Messages in this reader's language: `translations` by id, from what
     /// is kept or written now; `off` when the reader turned it off.
-    struct Translations: Decodable { let translations: [String: String]; let off: Bool? }
+    /// `failed`: why the Worker left a message out ("no_provider", "quota", "provider", "unreadable").
+    struct Translations: Decodable { let translations: [String: String]; let off: Bool?; let failed: [String: String]? }
     static func translate(orgId: String, channel: String, ids: [String], locale: String, base: URL) async throws -> Translations {
         try await call("POST", "/channels/translate", base: base, body: ["orgId": orgId, "channel": channel, "ids": ids, "locale": locale], timeout: 60, as: Translations.self)
     }
@@ -592,11 +635,22 @@ enum ChatService {
         let scheduled: ChatScheduled?
     }
 
-    static func send(orgId: String, channel: String, body: String, decide: Bool = false, parentId: String? = nil, sendAt: Date? = nil, files: [String] = [], acknowledged: Bool = false, base: URL) async throws -> Sent {
+    /// A send's own id (`tmp-…`): sent again — a retry after a timeout, a
+    /// second tap — the server returns the message it already has instead
+    /// of posting it twice.
+    static func newClientId() -> String { "tmp-" + UUID().uuidString.lowercased() }
+
+    static func send(orgId: String, channel: String, body: String, decide: Bool = false, parentId: String? = nil, alsoChannel: Bool = false, sendAt: Date? = nil, files: [String] = [], acknowledged: Bool = false, clientId: String? = nil, base: URL) async throws -> Sent {
         var b: [String: Any] = ["orgId": orgId, "channel": channel, "body": body, "decide": decide]
+        // Scheduled sends are kept by the server under their own id.
+        if let clientId, sendAt == nil { b["clientId"] = clientId }
         // Seen the data rule's warning, and sending anyway.
         if acknowledged { b["dlpAck"] = true }
-        if let parentId { b["parentId"] = parentId }
+        if let parentId {
+            b["parentId"] = parentId
+            // "Also send to the conversation": a thread reply read in both.
+            if alsoChannel { b["alsoChannel"] = true }
+        }
         if !files.isEmpty { b["files"] = files }
         if let sendAt { b["sendAt"] = ChatDates.string(sendAt) }
         return try await call("POST", "/channels/messages", base: base, body: b, as: Sent.self)
@@ -724,6 +778,23 @@ enum ChatService {
     static func setPref(orgId: String, channel: String, level: String, base: URL) async throws {
         struct R: Decodable { let ok: Bool? }
         _ = try await call("PUT", "/channels/prefs", base: base, body: ["orgId": orgId, "channel": channel, "level": level], as: R.self)
+    }
+
+    /// Your agent answering for you when you are mentioned.
+    struct ChatProxy: Codable, Hashable {
+        var enabled: Bool
+        var agentId: String?
+        var useTeammate: Bool
+    }
+
+    static func proxy(orgId: String, base: URL) async throws -> ChatProxy {
+        struct R: Decodable { let proxy: ChatProxy }
+        return try await call("GET", "/channels/proxy", base: base, query: ["orgId": orgId], as: R.self).proxy
+    }
+
+    static func setProxy(orgId: String, enabled: Bool, useTeammate: Bool, base: URL) async throws -> ChatProxy {
+        struct R: Decodable { let proxy: ChatProxy }
+        return try await call("PUT", "/channels/proxy", base: base, body: ["orgId": orgId, "enabled": enabled, "useTeammate": useTeammate], as: R.self).proxy
     }
 
     static func setStatus(orgId: String, emoji: String?, text: String?, until: Date?, awayUntil: Date?, delegateRef: String?, base: URL) async throws {

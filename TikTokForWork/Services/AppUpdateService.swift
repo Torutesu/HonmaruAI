@@ -39,6 +39,10 @@ final class AppUpdateService: ObservableObject {
 
     /// On launch and on coming back: at most every few hours, unless forced.
     func check(backend: URL?, force: Bool = false) async {
+        // UI tests launch with `-disableUpdateCheck YES`: what the App Store
+        // has (1.2.1 the day it shipped) must not put a sheet over the
+        // screens a test of this build is driving.
+        if defaults.bool(forKey: "disableUpdateCheck") { return }
         if !force, let at = checkedAt, Date().timeIntervalSince(at) < 4 * 3600 { return }
         checkedAt = Date()
         async let policy = Self.policy(backend: backend)

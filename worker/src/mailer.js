@@ -39,7 +39,7 @@ export function mailFrom(env) {
 /// than a shrug. The usual causes — a wrong key, an unverified From domain, a
 /// recipient the shared sender may not reach — are indistinguishable from
 /// outside, and every one of them is a sentence in the response body.
-export async function sendMail(env, { to, subject, text }) {
+export async function sendMail(env, { to, subject, text, idempotencyKey }) {
   if (!isMailConfigured(env)) return { ok: false, status: 0, skipped: "mail not configured" };
   try {
     // Configurable for the same reason every API base is: something other than
@@ -52,6 +52,7 @@ export async function sendMail(env, { to, subject, text }) {
       headers: {
         authorization: `Bearer ${env.RESEND_API_KEY}`,
         "content-type": "application/json",
+        ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
       },
       body: JSON.stringify({ from: mailFrom(env), to: [to], subject, text }),
       // Mail that never answers must not hold a sign-in open forever.

@@ -161,9 +161,17 @@ struct CardDetailSheet: View {
         .presentationBackground(Theme.Colors.surface)
         .presentationDragIndicator(.visible)
         .task { await loadThread() }
+        // A comment half-written under this card is kept until it is sent.
+        .onAppear { comment = UserDefaults.standard.string(forKey: commentKey) ?? "" }
+        .onChange(of: comment) { _, text in
+            if text.isEmpty { UserDefaults.standard.removeObject(forKey: commentKey) }
+            else { UserDefaults.standard.set(text, forKey: commentKey) }
+        }
     }
 
     private var orgIdForThread: String { appState.currentUser?.teamID ?? SessionStore.orgId ?? "" }
+    /// "chat.draft." so signing out takes it away with the other drafts.
+    private var commentKey: String { "chat.draft.card.\(orgIdForThread).\(card.id)" }
 
     @ViewBuilder private var threadBlock: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
@@ -258,7 +266,7 @@ struct CardDetailSheet: View {
                 let posted = try await ThreadService.post(cardId: card.id, orgId: orgIdForThread, body: text, backendBaseURL: base)
                 let current = thread ?? ThreadService.Thread(comments: [], reactions: [], available: [])
                 thread = ThreadService.Thread(comments: current.comments + [posted], reactions: current.reactions, available: current.available)
-                comment = ""
+                if comment.trimmingCharacters(in: .whitespacesAndNewlines) == text { comment = "" }
                 threadError = nil
             } catch {
                 threadError = error.localizedDescription

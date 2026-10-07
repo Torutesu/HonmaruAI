@@ -129,6 +129,7 @@
 		C14C2ACA5652A41F1C4A7BA3 /* Outbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69B5345A61A32B333C0FD4DC /* Outbox.swift */; };
 		C20A83E795245954E6860C72 /* ChatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7102BE7FCC986C8181BBCB81 /* ChatTests.swift */; };
 		C37488AD9FD227B172B3F68F /* InsightsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D9242140B89D882241956C9 /* InsightsService.swift */; };
+		C3CA6E2A8CFC5E93D7BA00CD /* ChatFilePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EA4A46FAEB1971C2269A62B /* ChatFilePreview.swift */; };
 		C5441FBAB2065DE8FEE863BD /* ConnectorsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B33B38EE581FB742F9D87CD /* ConnectorsView.swift */; };
 		C71E74CC3B1C4D5BC359256A /* HistoryThread.swift in Sources */ = {isa = PBXBuildFile; fileRef = 208D1CA395A7DE2EB254F620 /* HistoryThread.swift */; };
 		CBCE9EA9EC35BD41FF32D4D2 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B02EAAD1FAC6FF8A245C1A32 /* Localizable.xcstrings */; };
@@ -262,6 +263,7 @@
 		7A83468C4EB6963E5C1FFEB5 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		7BFF89D04DFAAFE20441432B /* CardCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardCacheTests.swift; sourceTree = "<group>"; };
 		7E20E71BDCF8D85D17A57B2D /* OnboardingSwipeDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingSwipeDemo.swift; sourceTree = "<group>"; };
+		7EA4A46FAEB1971C2269A62B /* ChatFilePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFilePreview.swift; sourceTree = "<group>"; };
 		7EBD5BBFE95D3A28660521C4 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		7F9B186DB13C6DF6B271810B /* ChatJamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatJamView.swift; sourceTree = "<group>"; };
 		8171F16548E8076EFA5A6BB7 /* AskService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskService.swift; sourceTree = "<group>"; };
@@ -589,6 +591,7 @@
 				A4603836AD504EC4BDDFA6D2 /* ChannelRecordSheet.swift */,
 				931AEB5A4CDE4467E7E6E036 /* ChatBookmarks.swift */,
 				86F0965E1CCCB00653CBE878 /* ChatCanvas.swift */,
+				7EA4A46FAEB1971C2269A62B /* ChatFilePreview.swift */,
 				B7ADD6BC9AFCBBEE4BC64EB1 /* ChatFormat.swift */,
 				D6881F421418885691691928 /* ChatHomeView.swift */,
 				7F9B186DB13C6DF6B271810B /* ChatJamView.swift */,
@@ -892,6 +895,7 @@
 				293AAC6C51EF3EF33763985E /* ChannelRecordSheet.swift in Sources */,
 				B879166479D714367BEA3686 /* ChatBookmarks.swift in Sources */,
 				044229F453E50CA649369C45 /* ChatCanvas.swift in Sources */,
+				C3CA6E2A8CFC5E93D7BA00CD /* ChatFilePreview.swift in Sources */,
 				04F66FA6E13EBC1C24B9BF29 /* ChatFormat.swift in Sources */,
 				3393C513D3353DFAB89F017D /* ChatHomeView.swift in Sources */,
 				BB088918F2C5CCD96F8D8BBE /* ChatJamView.swift in Sources */,

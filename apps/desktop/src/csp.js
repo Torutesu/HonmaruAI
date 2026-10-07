@@ -19,6 +19,10 @@ export const INLINE_SCRIPT_HASHES = ['sha256-ZSOmNCOL3UyoUvUboFoN0uT1gY4hkv1Ljc7
 /// Where the web app embeds a player for a YouTube link (MessageParts.tsx).
 const FRAME_ORIGINS = ['https://www.youtube-nocookie.com']
 
+/// Where files are served from (worker/wrangler.media.toml): pictures and
+/// video in a message are fetched from there, not from the API.
+export const MEDIA_ORIGINS = ['https://media.honmaruai.com']
+
 /// The socket's address for an API origin: the relay is the same host over
 /// wss (ws for a local dev server).
 const socketOrigin = (origin) => origin.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:')
@@ -39,8 +43,9 @@ const socketOrigin = (origin) => origin.replace(/^https:/, 'wss:').replace(/^htt
 ///
 /// `dev` (an unpackaged app pointed at the Vite dev server) adds what Vite's
 /// hot reload needs: inline scripts and styles, and http/ws on localhost.
-export function buildCsp({ apiOrigins = [], scriptHashes = INLINE_SCRIPT_HASHES, dev = false }) {
+export function buildCsp({ apiOrigins = [], mediaOrigins = MEDIA_ORIGINS, scriptHashes = INLINE_SCRIPT_HASHES, dev = false }) {
   const api = [...new Set(apiOrigins)]
+  const media = [...new Set(mediaOrigins)]
   const hashes = scriptHashes.map((hash) => `'${hash}'`)
   const local = dev ? ['http://localhost:*', 'ws://localhost:*', 'http://127.0.0.1:*', 'ws://127.0.0.1:*'] : []
   const directives = [
@@ -49,7 +54,7 @@ export function buildCsp({ apiOrigins = [], scriptHashes = INLINE_SCRIPT_HASHES,
     ['style-src', ["'self'", ...(dev ? ["'unsafe-inline'"] : [])]],
     ['connect-src', ["'self'", ...api, ...api.map(socketOrigin), ...local]],
     ['img-src', ["'self'", ...api, 'data:', 'blob:', 'https:', ...local]],
-    ['media-src', ["'self'", ...api, 'blob:', ...local]],
+    ['media-src', ["'self'", ...api, ...media, 'blob:', ...local]],
     ['font-src', ["'self'", 'data:']],
     ['frame-src', [...FRAME_ORIGINS]],
     ['worker-src', ["'self'"]],

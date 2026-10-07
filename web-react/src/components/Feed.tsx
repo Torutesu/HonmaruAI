@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { DecisionCard, Business } from '../types/card'
+import type { DecisionCard, Business, CardPriority } from '../types/card'
 import { getLocale } from '../utils/locale'
 import './Feed.css'
 import { displayName } from '../utils/names'
@@ -37,6 +37,9 @@ interface Props {
   /// Delete a card: its recipient any time, its sender while it waits.
   /// Absent where deleting is not offered.
   onDelete?: (cardId: string) => void
+  /// Change a card's importance (either party to it). Absent where it is
+  /// shown and not offered.
+  onSetPriority?: (cardId: string, priority: CardPriority) => void
   /// The Worker, for what a card carries beyond the relay's snapshot: its
   /// thread, and the reply draft. Absent in tests that have no Worker.
   api?: { httpBase: string; orgId: string; sessionToken: string }
@@ -93,12 +96,55 @@ function segments(context: string): Array<{ label: string; detail: string }> {
 /// A card that asks nothing — a report, an FYI — is read and put away, not
 /// approved or declined: one button, "Got it", and a swipe right. Approving
 /// a report was a decision nobody had been asked for.
+const PRIORITY_LEVELS: CardPriority[] = ['low', 'medium', 'high', 'urgent']
+// English keys, translated where read.
+const PRIORITY_WORD: Record<string, string> = { low: 'Low', medium: 'Medium', high: 'High', urgent: 'Urgent' }
+
+/// Which card is being read: the one across a line two fifths down the feed.
+function pageAt(feed: HTMLElement): number {
+  const pages = feed.querySelectorAll(':scope > .page')
+  const box = feed.getBoundingClientRect()
+  const line = box.top + box.height * 0.4
+  for (let i = 0; i < pages.length; i++) if (pages[i].getBoundingClientRect().bottom > line) return i
+  return Math.max(0, pages.length - 1)
+}
+
+/// What scrolls the card on screen, and how far it can still go each way:
+/// the card itself (a phone, where it scrolls within the page), the page,
+/// or the feed (a laptop, where the cards stack) — then only as far as this
+/// card's own edge, so ↓ still reaches the next one.
+function readingScroller(feed: HTMLElement | null, index: number): { room: (dir: 1 | -1) => number; by: (dy: number) => void; view: number } | null {
+  if (!feed) return null
+  const page = (feed.querySelectorAll(':scope > .page')[index] as HTMLElement | undefined)
+  const scrolls = (el: Element | null | undefined): el is HTMLElement =>
+    Boolean(el) && el!.scrollHeight > el!.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(el!).overflowY)
+  const card = page?.querySelector('.card')
+  const inner = scrolls(card) ? card : scrolls(page) ? page : null
+  if (inner) {
+    return {
+      view: inner.clientHeight,
+      room: (dir) => (dir > 0 ? inner.scrollHeight - inner.clientHeight - inner.scrollTop : inner.scrollTop),
+      by: (dy) => inner.scrollBy({ top: dy, behavior: 'smooth' }),
+    }
+  }
+  if (!page || !scrolls(feed)) return null
+  const box = feed.getBoundingClientRect()
+  return {
+    view: feed.clientHeight,
+    room: (dir) => {
+      const r = page.getBoundingClientRect()
+      return Math.max(0, dir > 0 ? Math.min(r.bottom - box.bottom, feed.scrollHeight - feed.clientHeight - feed.scrollTop) : Math.min(box.top - r.top, feed.scrollTop))
+    },
+    by: (dy) => feed.scrollBy({ top: dy, behavior: 'smooth' }),
+  }
+}
+
 const isFyi = (card: DecisionCard) => Boolean(card.report) || card.format === 'fyi'
 
 /// One decision per screen. Scroll for the next; swipe right to approve, left
 /// to decline; or use the two buttons. The keyboard works too: ↑ ↓ to move,
 /// A to approve, D to decline.
-export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, ready, active, onDecide, onAsk, onFlag, answers, onUndo, onDelete, api, layout = 'phone' }) => {
+export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, ready, active, onDecide, onAsk, onFlag, answers, onUndo, onDelete, onSetPriority, api, layout = 'phone' }) => {
   const t = useT()
   const container = useRef<HTMLDivElement>(null)
   const [index, setIndex] = useState(0)
@@ -119,7 +165,12 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
   useEffect(() => {
     const el = container.current
     if (!el) return
-    const onScroll = () => setIndex(Math.round(el.scrollTop / el.clientHeight))
+    // The card under the reading line, wherever the cards are: a screen
+    // each on a phone, stacked at their own heights on a laptop, one long
+    // card filling the pane. Dividing by the screen's height was only right
+    // for the first — on a laptop, reading down one long card made the next
+    // "↓" (and A, D) count it as the card after it (#206).
+    const onScroll = () => setIndex(pageAt(el))
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => el.removeEventListener('scroll', onScroll)
   }, [])
@@ -127,8 +178,14 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
   const scrollTo = useCallback((i: number) => {
     const el = container.current
     if (!el) return
-    const clamped = Math.max(0, Math.min(i, Math.max(cards.length - 1, 0)))
-    el.scrollTo({ top: clamped * el.clientHeight, behavior: 'smooth' })
+    // Past the last card (or before the first) there is nowhere to go: ↓ at
+    // the foot of the last one stays there, not back at its top.
+    if (i < 0 || i > cards.length - 1) return
+    const clamped = i
+    // To where that card starts: a screen down per card only on a phone.
+    const page = el.querySelectorAll(':scope > .page')[clamped]
+    const top = page ? el.scrollTop + page.getBoundingClientRect().top - el.getBoundingClientRect().top : clamped * el.clientHeight
+    el.scrollTo({ top, behavior: 'smooth' })
   }, [cards.length])
 
   useEffect(() => {
@@ -144,8 +201,31 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
       const target = e.target as HTMLElement | null
       if (target && target.closest('input, textarea, select, [contenteditable]')) return
       const card = cards[index]
-      if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); scrollTo(index + 1) }
-      else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); scrollTo(index - 1) }
+      // A card taller than the screen is read to its end before ↓ moves on:
+      // the keys scroll whatever holds it, and only at its edge go to the
+      // next card. PageDown, Space, Home and End scroll it too — nothing
+      // holding focus, the page itself has nothing to scroll (#206). A key
+      // pressed in something else on the screen (the conversation beside a
+      // card) is left to it.
+      const inFeed = !target || target === document.body || Boolean(container.current?.contains(target))
+      const read = inFeed ? readingScroller(container.current, index) : null
+      const down = e.key === 'ArrowDown' || e.key === 'j'
+      const up = e.key === 'ArrowUp' || e.key === 'k'
+      if (read && (down || up) && read.room(down ? 1 : -1) > 1) {
+        e.preventDefault()
+        read.by((down ? 1 : -1) * Math.min(read.room(down ? 1 : -1), read.view * 0.8))
+        return
+      }
+      const pressesButton = e.key === ' ' && Boolean(target?.closest('button, a, summary, [role="button"]'))
+      if (read && !pressesButton && (e.key === 'PageDown' || e.key === 'PageUp' || e.key === ' ' || e.key === 'Home' || e.key === 'End')) {
+        const dir = e.key === 'PageUp' || e.key === 'Home' || (e.key === ' ' && e.shiftKey) ? -1 : 1
+        e.preventDefault()
+        read.by(dir * (e.key === 'Home' || e.key === 'End' ? read.room(dir) : Math.min(read.room(dir), read.view * 0.9)))
+        return
+      }
+      if (!inFeed && (down || up)) return
+      if (down) { e.preventDefault(); scrollTo(index + 1) }
+      else if (up) { e.preventDefault(); scrollTo(index - 1) }
       // A daily report's draft is posted, not put away: A does nothing to it.
       else if (card && card.status === 'pending' && !awaitsPost(card) && (e.key === 'a' || e.key === 'A' || e.key === 'ArrowRight')) { e.preventDefault(); fling(card, isFyi(card) ? 'acknowledge' : 'approve') }
       else if (card && card.status === 'pending' && !isFyi(card) && (e.key === 'd' || e.key === 'D' || e.key === 'ArrowLeft')) { e.preventDefault(); fling(card, 'decline') }
@@ -182,6 +262,7 @@ export const Feed: React.FC<Props> = ({ cards, userId, businesses, focusCardId, 
           answer={answers[card.id]}
           onUndo={onUndo}
           onDelete={onDelete}
+          onSetPriority={onSetPriority}
           api={api}
           layout={layout}
           flingers={flingers.current}
@@ -204,6 +285,7 @@ interface PageProps {
   answer?: Answer
   onUndo: Props['onUndo']
   onDelete?: Props['onDelete']
+  onSetPriority?: Props['onSetPriority']
   api?: Props['api']
   layout: 'phone' | 'desk'
   flingers: Map<string, (action: string) => void>
@@ -216,7 +298,7 @@ const DONE_WORD: Record<string, string> = {
   delegate: 'Delegated', later: 'Deferred',
 }
 
-const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, onAsk, onFlag, answer, onUndo, onDelete, api, layout, flingers }) => {
+const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, onAsk, onFlag, answer, onUndo, onDelete, onSetPriority, api, layout, flingers }) => {
   const t = useT()
   // Deleting asks once, in place: the button becomes "Delete this card?".
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -248,6 +330,11 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
   // buttons were, with the way back and the reply that follows it.
   const decided = card.status !== 'pending' || Boolean(card.decision)
   const onThisCard = card.recipientUserID === userId || card.senderUserID === userId
+  // Whose importance this is: the AI's guess, or somebody's call on it.
+  const priorityWho = card.prioritySetBy
+    ? t('Set by {name}', { name: card.prioritySetBy === userId ? t('you') : displayName(card.prioritySetBy) })
+      + (card.aiPriority && card.aiPriority !== card.priority ? ` · ${t('AI suggested {level}', { level: t(PRIORITY_WORD[card.aiPriority]) })}` : '')
+    : t('Suggested by AI')
   // Whoever it was for may clear it away; whoever asked may take the ask
   // back while nobody has answered it.
   const canDelete = Boolean(onDelete) && (card.recipientUserID === userId || (card.senderUserID === userId && !decided))
@@ -359,11 +446,22 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
             <span className="card-top-end">
               {/* This card's priority, and only it: a scale of three with two
                   of them dark said less than one word. */}
-              {level && (
-                <span className={`legend on p-${level}${card.priority === 'urgent' ? ' urgent' : ''}`} aria-label={t('Priority')}>
-                  <i /> {card.priority === 'urgent' ? t('Urgent') : t(level[0].toUpperCase() + level.slice(1))}
+              {level && (onSetPriority && onThisCard && !decided ? (
+                // The AI's guess, which either party may change: the word is
+                // a menu. "AI" beside it until somebody has.
+                <label className={`legend on legend-pick p-${level}${card.priority === 'urgent' ? ' urgent' : ''}`} title={priorityWho}>
+                  <i />
+                  <select aria-label={t('Priority')} value={card.priority}
+                    onChange={(e) => onSetPriority(card.id, e.target.value as CardPriority)}>
+                    {PRIORITY_LEVELS.map((p) => <option key={p} value={p}>{t(PRIORITY_WORD[p])}</option>)}
+                  </select>
+                  {!card.prioritySetBy && <span className="legend-ai">{t('AI')}</span>}
+                </label>
+              ) : (
+                <span className={`legend on p-${level}${card.priority === 'urgent' ? ' urgent' : ''}`} aria-label={t('Priority')} title={priorityWho}>
+                  <i /> {t(PRIORITY_WORD[card.priority] || 'Medium')}
                 </span>
-              )}
+              ))}
               {canDelete && (
                 confirmDelete ? (
                   <span className="card-delete-ask" role="group" aria-label={t('Delete this card?')}>

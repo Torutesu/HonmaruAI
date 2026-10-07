@@ -435,6 +435,13 @@
 .classic.slk.slk .slk-input::placeholder { color: var(--slk-faint); }
 .classic.slk.slk .slk-composer-bar { display: flex; align-items: center; gap: 8px; padding: 4px 6px 6px 14px; }
 .classic.slk.slk .slk-composer-hint { flex: 1; min-width: 0; font-size: 11.5px; color: var(--slk-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.classic.slk.slk .slk-also-channel {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 auto;
+  font-size: 12.5px; color: var(--slk-muted, var(--slk-faint)); cursor: pointer; user-select: none;
+}
+.classic.slk.slk .slk-also-channel > input { margin: 0; flex: none; accent-color: #007a5a; }
+.classic.slk.slk .slk-also-channel > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.classic.slk.slk .slk-also-sent { margin-top: 2px; font-size: 12px; color: var(--slk-faint); }
 .classic.slk.slk .slk-send {
   flex: none; height: 30px; min-width: 34px; padding: 0 10px; border-radius: 6px; border: none; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -667,6 +674,8 @@
 }
 .classic.slk.slk .slk-reaction:hover { border-color: var(--slk-dim); }
 .classic.slk.slk .slk-reaction.mine { background: rgba(29, 155, 209, .12); border-color: var(--slk-accent); color: var(--slk-accent); }
+/* Pressed here, not yet confirmed by the server (#221): drawn at once, a little faded. */
+.classic.slk.slk .slk-reaction.pending { opacity: .6; transition: opacity 200ms; }
 .classic.slk.slk .slk-reaction-emoji { font-size: 14px; line-height: 1; }
 .classic.slk.slk .slk-reaction-count { font-weight: 700; }
 .classic.slk.slk .slk-reaction.add { color: var(--slk-dim); opacity: 0; transition: opacity .12s; }
@@ -709,6 +718,11 @@
    red wash with the reason and what to do under the words. The red is mixed
    toward the ink so the reason reads on both themes. */
 .classic.slk.slk .slk-msg.pending:not(.editing) .slk-body > :not(.slk-meta):not(.slk-unsent) { opacity: .55; }
+/* Confirmed by the server: up to full over a moment, not at once (#212).
+   The row is the same element from the press of Enter to the server's copy
+   (drawnAs), so only the opacity changes. */
+.classic.slk.slk .slk-msg .slk-body > :not(.slk-meta):not(.slk-unsent) { transition: opacity 260ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .classic.slk.slk .slk-msg .slk-body > * { transition: none; } }
 .classic.slk.slk .slk-msg.failed,
 .classic.slk.slk .slk-msg.failed:hover { background: color-mix(in srgb, var(--slk-red) 7%, transparent); }
 .classic.slk.slk .slk-unsent {
@@ -918,6 +932,19 @@
 .classic.slk.slk .cl-muted { font-size: 11px; opacity: .7; flex: none; }
 .classic.slk.slk .cl-thread.muted .cl-title { opacity: .6; }
 .classic.slk.slk .cl-badge.mention { background: var(--slk-accent); }
+/* Mark as read, on the row: shown on hover or focus, over the badge it
+   clears (#213). */
+.classic.slk.slk .cl-thread { position: relative; }
+.classic.slk.slk .cl-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 24px; height: 24px; border-radius: 6px; border: none; padding: 0;
+  display: grid; place-items: center; cursor: pointer;
+  background: var(--slk-side-hover, rgba(255, 255, 255, .16)); color: inherit;
+  opacity: 0; pointer-events: none; transition: opacity 120ms;
+}
+.classic.slk.slk .cl-thread:hover .cl-clear, .classic.slk.slk .cl-clear:focus-visible { opacity: 1; pointer-events: auto; }
+.classic.slk.slk .cl-thread:hover:has(.cl-clear) .cl-open > :is(.cl-badge, .cl-fresh), .classic.slk.slk .cl-thread:has(.cl-clear:focus-visible) .cl-open > :is(.cl-badge, .cl-fresh) { visibility: hidden; }
+@media (hover: none) { .classic.slk.slk .cl-clear { display: none; } }
 .classic.slk.slk .cl-pref { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-right: 8px; }
 .classic.slk.slk .cl-pref-label { font-size: 12px; color: var(--slk-dim); margin-right: 2px; }
 .classic.slk.slk .cl-nudge.on { background: var(--slk-accent); color: #fff; border-color: var(--slk-accent); }
@@ -1653,6 +1680,18 @@
 /* A message shown in the reader's language, and the way back to its own. */
 .classic.slk.slk .slk-translated { display: inline-block; margin-top: 2px; padding: 0; border: none; background: none; font: inherit; font-size: 11.5px; color: var(--slk-dim); cursor: pointer; }
 .classic.slk.slk .slk-translated:hover { color: var(--slk-accent); text-decoration: underline; }
+.classic.slk.slk .slk-translate-failed { color: var(--slk-danger, #d93025); }
+.classic.slk.slk .slk-translate-why { opacity: 0.8; }
+/* Asked for and on its way: a quiet shimmer where "Translated" will be, the
+   same height, so nothing below it moves when the translation lands. */
+.classic.slk.slk .slk-translating {
+  display: inline-block; margin-top: 2px; font-size: 11.5px; color: var(--slk-dim);
+  background: linear-gradient(90deg, var(--slk-dim) 0%, var(--slk-accent) 50%, var(--slk-dim) 100%);
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  animation: slk-translating 1.4s linear infinite;
+}
+@keyframes slk-translating { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .classic.slk.slk .slk-translating { animation: none; -webkit-text-fill-color: currentColor; } }
 
 /* A link's card under the message that shares it. */
 .classic.slk.slk .link-cards { display: grid; gap: 8px; margin: 6px 0 2px; max-width: 520px; }

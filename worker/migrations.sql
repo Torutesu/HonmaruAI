@@ -119,3 +119,15 @@ ALTER TABLE channel_messages ADD COLUMN reply_to_id TEXT;
 /* A retried send names the message it already posted, and gets that one back. */
 ALTER TABLE channel_messages ADD COLUMN client_id TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_messages_client ON channel_messages(org_id, author_login, client_id) WHERE client_id IS NOT NULL;
+
+ALTER TABLE push_queue ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE push_queue ADD COLUMN lease_until TEXT;
+ALTER TABLE push_queue ADD COLUMN last_error TEXT;
+/* A thread reply sent to the conversation as well (schema.sql says why). */
+ALTER TABLE channel_messages ADD COLUMN also_channel INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE scheduled_messages ADD COLUMN also_channel INTEGER NOT NULL DEFAULT 0;
+/* Proxies: an agent's words for a person who was mentioned (schema.sql). */
+ALTER TABLE channel_messages ADD COLUMN on_behalf_of TEXT;
+ALTER TABLE ai_teammate_runs ADD COLUMN on_behalf_of TEXT;
+/* Auto-build: an issue or a report posted in a channel starts the teammate (schema.sql). */
+ALTER TABLE ai_teammates ADD COLUMN auto_build INTEGER NOT NULL DEFAULT 1;

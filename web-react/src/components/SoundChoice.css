@@ -1,0 +1,6 @@
+.sound-choice { margin: 24px 0; padding: 20px; border: 1px solid var(--cloud); border-radius: 16px; }
+.sound-choice h2 { font-size: 18px; margin: 0 0 10px; }
+.sound-choice p { line-height: 1.6; }
+.sound-choice .quiet-choices { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.sound-choice button[aria-pressed="true"] { box-shadow: 0 0 0 2px currentColor; font-weight: 600; }
+.sound-choice .hint { margin-bottom: 0; }

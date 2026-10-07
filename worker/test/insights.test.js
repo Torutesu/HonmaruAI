@@ -25,7 +25,11 @@ beforeEach(async () => {
   bob = await createSession(env.DB, "8102", "gho_bob");
   outsider = await createSession(env.DB, "8103", "gho_out");
 
-  const hoursAgo = (h) => new Date(Date.now() - h * 3600000).toISOString();
+  // One clock reading for every card: each call reading its own put a
+  // millisecond between a card's asking and its deciding, now and then, and
+  // a 2h wait came out as 120.0000167 minutes.
+  const now = Date.now();
+  const hoursAgo = (h) => new Date(now - h * 3600000).toISOString();
   // Three decided (two approved, one declined), two pending, one from Gmail.
   await saveCard(env.DB, ORG, {
     id: "i-1", recipientUserID: "bob", senderUserID: "alice", type: "approval", title: "Approve the spring menu",

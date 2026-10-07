@@ -250,7 +250,7 @@ export const Reactions: React.FC<{
         <button
           key={r.emoji}
           type="button"
-          className={`slk-reaction${r.mine ? ' mine' : ''}`}
+          className={`slk-reaction${r.mine ? ' mine' : ''}${message.reactionsPending?.includes(r.emoji) ? ' pending' : ''}`}
           aria-pressed={r.mine}
           aria-label={t('{names} reacted', { names: reactorNames(r.refs.map(nameOf), getLocale(), (n) => t('{n} others', { n })) })}
           onMouseEnter={open(r.emoji)}
@@ -415,6 +415,27 @@ export const ReplyQuoteLine: React.FC<{ quote: ReplyQuote; name: string; onJump:
       <Icon name="reply" size={12} />
       <span className="sr-only">{t('In reply to')} </span>
       <b className="slk-reply-who">{name}</b>
+      <span className="slk-reply-excerpt"><QuoteWords excerpt={quote.excerpt} /></span>
+    </button>
+  )
+}
+
+/// Above a thread reply that was sent to the conversation too: that it
+/// answers a thread, and how the thread began — pressed, the thread opens.
+export const ThreadReplyLine: React.FC<{ quote: ReplyQuote; onOpen: () => void }> = ({ quote, onOpen }) => {
+  const t = useT()
+  if (quote.deleted) {
+    return (
+      <div className="slk-reply-quote gone" data-thread-reply={quote.id}>
+        <Icon name="message" size={12} />
+        <span className="slk-reply-excerpt">{t('Replied to a thread that was deleted')}</span>
+      </div>
+    )
+  }
+  return (
+    <button type="button" className="slk-reply-quote" onClick={onOpen} title={t('View thread')} data-thread-reply={quote.id}>
+      <Icon name="message" size={12} />
+      <span className="slk-reply-who">{t('Replied to a thread:')}</span>
       <span className="slk-reply-excerpt"><QuoteWords excerpt={quote.excerpt} /></span>
     </button>
   )

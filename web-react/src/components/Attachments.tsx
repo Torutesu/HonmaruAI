@@ -6,6 +6,7 @@ import { mediaKind, videoBox, downloadUrl, firstFrameUrl, type MediaKind } from 
 import { Icon, type IconName } from './Icon'
 import './Attachments.css'
 import { composing } from '../utils/keys'
+import { fileSrc, useFileUrls } from '../utils/mediaUrls'
 
 // Files and pictures: going up from the composer, and shown in a message.
 //
@@ -128,7 +129,7 @@ export function useUploads(api: { httpBase: string; orgId: string; sessionToken:
     if (files.length > room) onProblem(t('Up to {n} files in one message.', { n: MAX_FILES }))
     const back = files.slice(0, Math.max(0, room)).map((f): Upload => ({
       key: `${Date.now()}-${Math.random().toString(36).slice(2)}`, name: f.name, type: f.type, size: f.size,
-      preview: mediaKind(f.type, f.name) === 'image' ? `${api.httpBase}${f.url}` : null, state: 'done', file: f,
+      preview: mediaKind(f.type, f.name) === 'image' ? fileSrc(api.httpBase, f.url) : null, state: 'done', file: f,
     }))
     if (back.length) setItems((prev) => [...prev, ...back])
   }, [api.httpBase, onProblem, t])
@@ -173,10 +174,12 @@ export const PendingUploads: React.FC<{ items: Upload[]; onRemove: (key: string)
 export const MessageFiles: React.FC<{ files?: FileRef[]; base: string }> = ({ files, base }) => {
   const t = useT()
   const [open, setOpen] = useState<number | null>(null)
+  // Kept by id; each address renewed before it runs out.
+  const addr = useFileUrls(base, files)
   if (!files?.length) return null
   const pictures = files.filter((f) => mediaKind(f.type, f.name) === 'image')
   const others = files.filter((f) => mediaKind(f.type, f.name) !== 'image')
-  const url = (f: FileRef) => `${base}${f.url}`
+  const url = addr.src
   return (
     <div className="att-files">
       {pictures.length > 0 && (
@@ -186,7 +189,7 @@ export const MessageFiles: React.FC<{ files?: FileRef[]; base: string }> = ({ fi
             return (
               <button key={f.id} type="button" className="att-pic" onClick={() => setOpen(i)} aria-label={t('Open {name}', { name: f.name })}
                 style={pictures.length === 1 ? { aspectRatio: String(Math.max(0.5, Math.min(2.4, ratio))), width: `min(100%, ${Math.round(Math.min(360, 280 * Math.max(0.5, Math.min(2.4, ratio))))}px)` } : undefined}>
-                <img src={url(f)} alt={f.name} loading="lazy" referrerPolicy="no-referrer" />
+                <img src={url(f)} alt={f.name} loading="lazy" referrerPolicy="no-referrer" onError={() => addr.stale(f)} />
               </button>
             )
           })}
@@ -195,14 +198,14 @@ export const MessageFiles: React.FC<{ files?: FileRef[]; base: string }> = ({ fi
       {others.map((f) => {
         const kind = mediaKind(f.type, f.name)
         return kind === 'video' || kind === 'audio'
-          ? <Player key={f.id} file={f} kind={kind} src={url(f)} />
+          ? <Player key={f.id} file={f} kind={kind} src={url(f)} onStale={() => addr.stale(f)} />
           : <FileCard key={f.id} file={f} href={url(f)} />
       })}
       {open !== null && pictures[open] && (
         <Lightbox
           files={pictures}
           at={open}
-          base={base}
+          src={url}
           onMove={setOpen}
           onClose={() => setOpen(null)}
         />
@@ -244,7 +247,7 @@ const UNPLAYABLE = 4
 /// stays, as one that loads nothing until it is played again (asked for at
 /// once, with no connection, the browser would call the file unplayable),
 /// and then goes on from where it had got to.
-const Player: React.FC<{ file: FileRef; kind: 'video' | 'audio'; src: string }> = ({ file, kind, src }) => {
+const Player: React.FC<{ file: FileRef; kind: 'video' | 'audio'; src: string; onStale?: () => void }> = ({ file, kind, src, onStale }) => {
   const t = useT()
   const [broken, setBroken] = useState(false)
   const [from, setFrom] = useState(src)
@@ -252,6 +255,16 @@ const Player: React.FC<{ file: FileRef; kind: 'video' | 'audio'; src: string }> 
   const [drops, setDrops] = useState(0)
   /// Where it had got to when it stopped, in seconds.
   const reached = useRef(0)
+  /// Its address ran out under it: a new one is on its way, and it goes on
+  /// from there when it comes.
+  const waiting = useRef(false)
+  useEffect(() => {
+    if (!waiting.current || src === from) return
+    waiting.current = false
+    setFrom(src)
+    setDrops((d) => d + 1)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src])
   const failed = (e: React.SyntheticEvent<HTMLMediaElement>) => {
     const code = e.currentTarget.error?.code
     if (e.currentTarget.currentTime > 0) reached.current = e.currentTarget.currentTime
@@ -259,6 +272,7 @@ const Player: React.FC<{ file: FileRef; kind: 'video' | 'audio'; src: string }> 
     // play, so after one, "unplayable" means the address was not reached.
     if (code === DROPPED || (code === UNPLAYABLE && drops > 0)) { setFrom(src); setDrops(drops + 1) }
     else if (src !== from) setFrom(src)
+    else if (onStale && file.expiresAt && file.expiresAt - 60_000 <= Date.now() && !waiting.current) { waiting.current = true; onStale() }
     else if (code === UNREADABLE || code === UNPLAYABLE) setBroken(true)
   }
   const resume = (e: React.SyntheticEvent<HTMLMediaElement>) => {
@@ -294,7 +308,7 @@ const Player: React.FC<{ file: FileRef; kind: 'video' | 'audio'; src: string }> 
 }
 
 /// One picture at a time, the whole screen, with the others a swipe away.
-const Lightbox: React.FC<{ files: FileRef[]; at: number; base: string; onMove: (i: number) => void; onClose: () => void }> = ({ files, at, base, onMove, onClose }) => {
+const Lightbox: React.FC<{ files: FileRef[]; at: number; src: (f: FileRef) => string; onMove: (i: number) => void; onClose: () => void }> = ({ files, at, src, onMove, onClose }) => {
   const t = useT()
   const startX = useRef<number | null>(null)
   const startY = useRef<number | null>(null)
@@ -320,10 +334,10 @@ const Lightbox: React.FC<{ files: FileRef[]; at: number; base: string; onMove: (
       }}>
       <header className="att-light-head" onClick={(e) => e.stopPropagation()}>
         <span>{f.name}{files.length > 1 && <small> · {at + 1} / {files.length}</small>}</span>
-        <a href={`${base}${f.url}`} target="_blank" rel="noopener noreferrer" aria-label={t('Download')}><Icon name="download" size={18} /></a>
+        <a href={src(f)} target="_blank" rel="noopener noreferrer" aria-label={t('Download')}><Icon name="download" size={18} /></a>
         <button type="button" onClick={onClose} aria-label={t('Close')}><Icon name="x" size={20} /></button>
       </header>
-      <img src={`${base}${f.url}`} alt={f.name} onClick={(e) => e.stopPropagation()} />
+      <img src={src(f)} alt={f.name} onClick={(e) => e.stopPropagation()} />
     </div>,
     document.body,
   )

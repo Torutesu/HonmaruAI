@@ -23,8 +23,24 @@ const call = async (path, init) => {
 const q = (o) => new URLSearchParams(o).toString();
 const auth = (token, extra = {}) => ({ "x-session-token": token, ...extra });
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
-const upload = (token, channel, { name = "photo.png", type = "image/png", bytes = PNG, width = 640, height = 480 } = {}) =>
-  call(`/channels/files?${q({ orgId: ORG, channel, name, width, height })}`, { method: "POST", headers: auth(token, { "content-type": type }), body: bytes });
+// The first bytes of each kind, as a real file of it starts: an upload is
+// only shown as what it says it is when its first bytes agree.
+const enc = (text) => new TextEncoder().encode(text);
+const MP4 = new Uint8Array([0, 0, 0, 0x18, ...enc("ftypisom"), 0, 0, 2, 0, ...enc("isomiso2")]);
+const SAMPLE = {
+  "video/mp4": MP4, "video/quicktime": new Uint8Array([0, 0, 0, 0x14, ...enc("ftypqt  "), 0, 0, 0, 0, ...enc("qt  ")]),
+  "video/webm": new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3]),
+  "audio/mpeg": new Uint8Array([...enc("ID3"), 4, 0, 0, 0, 0, 0, 0]),
+  "audio/x-m4a": new Uint8Array([0, 0, 0, 0x1c, ...enc("ftypM4A "), 0, 0, 0, 0]),
+  "audio/aac": new Uint8Array([0xff, 0xf1, 0x50, 0x80, 1, 2]),
+  "audio/flac": new Uint8Array([...enc("fLaC"), 0, 0, 0, 0x22]),
+  "audio/x-wav": new Uint8Array([...enc("RIFF"), 36, 0, 0, 0, ...enc("WAVEfmt ")]),
+  "text/plain": enc("notes for the week"),
+};
+const upload = (token, channel, { name = "photo.png", type = "image/png", bytes = SAMPLE[type] || PNG, width = 640, height = 480 } = {}) =>
+  call(`/channels/files?${q({ orgId: ORG, channel, name, width, height })}`, {
+    method: "POST", headers: auth(token, { "content-type": type, "content-length": String(bytes.byteLength ?? enc(bytes).byteLength) }), body: bytes,
+  });
 const say = async (token, channel, body, files) => call("/channels/messages", {
   method: "POST", headers: auth(token, { "content-type": "application/json" }), body: JSON.stringify({ orgId: ORG, channel, body, files }),
 });
@@ -161,6 +177,7 @@ test("bytes are kept under the workspace, and files stored before that still ope
 
 test("a video is answered in parts, the way a player asks for it", async () => {
   const bytes = Uint8Array.from({ length: 100 }, (_, i) => i);
+  bytes.set(enc("ftypisom"), 4);
   const { file } = await (await upload(mika, "b:cafe", { name: "clip.mp4", type: "video/mp4", bytes })).json();
   const get = (range, extra = {}) => call(file.url, { headers: { range, ...extra } });
   const body = async (res) => [...new Uint8Array(await res.arrayBuffer())];
@@ -286,4 +303,46 @@ test("a Range header reads as one span of the file, or is ignored", () => {
   for (const h of [null, "", "bytes=", "bytes=-", "bytes=0-1,5-6", "items=0-1", "bytes=5-2", "bytes=a-b", "bytes=1.5-2"]) {
     expect(byteRange(h, 100)).toBeNull();
   }
+});
+
+test("a page calling itself a picture is kept, but as bytes to download, never shown", async () => {
+  const page = enc("<html><script>alert(document.domain)</script></html>");
+  const { file } = await (await upload(mika, "b:cafe", { name: "cat.png", type: "image/png", bytes: page })).json();
+  expect(file.type).toBe("application/octet-stream");
+  const got = await call(file.url, {});
+  expect(got.headers.get("content-type")).toBe("application/octet-stream");
+  expect(got.headers.get("content-disposition")).toMatch(/^attachment;/);
+});
+
+test("an upload that will not say how long it is is refused before it is stored", async () => {
+  const body = new ReadableStream({ start(c) { c.enqueue(PNG); c.close(); } });
+  const res = await call(`/channels/files?${q({ orgId: ORG, channel: "b:cafe", name: "p.png" })}`, {
+    method: "POST", headers: auth(mika, { "content-type": "image/png" }), body, duplex: "half",
+  });
+  expect(res.status).toBe(411);
+  const { results } = await env.DB.prepare("SELECT id FROM message_files").all();
+  expect(results).toHaveLength(0);
+});
+
+test("a delete R2 refuses is written down and tried again until it goes", async () => {
+  const { deleteMediaKeys, retryMediaDeletions } = await import("../src/files.js");
+  let refusing = true;
+  const deleted = [];
+  const flaky = { DB: env.DB, MEDIA: { delete: async (key) => { if (refusing) throw new Error("R2 is down"); deleted.push(key); } } };
+  expect(await deleteMediaKeys(flaky, ORG, ["org/x/files/f_1", "file-f_1"])).toBe(2);
+  const kept = await env.DB.prepare("SELECT key, attempts FROM media_deletions ORDER BY key").all();
+  expect(kept.results.map((r) => r.key)).toEqual(["file-f_1", "org/x/files/f_1"]);
+
+  // Still refused: tried, and put off for longer.
+  expect(await retryMediaDeletions(flaky)).toEqual({ deleted: 0, failed: 2 });
+  const later = await env.DB.prepare("SELECT attempts, next_at FROM media_deletions").all();
+  expect(later.results.every((r) => r.attempts === 1 && Date.parse(r.next_at) > Date.now())).toBe(true);
+  // Not due yet: left alone.
+  expect(await retryMediaDeletions(flaky)).toEqual({ deleted: 0, failed: 0 });
+
+  // R2 is back, and the time has come.
+  refusing = false;
+  expect(await retryMediaDeletions(flaky, Date.now() + 86_400_000)).toEqual({ deleted: 2, failed: 0 });
+  expect(deleted.sort()).toEqual(["file-f_1", "org/x/files/f_1"]);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM media_deletions").first()).n).toBe(0);
 });

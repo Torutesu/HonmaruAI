@@ -28,6 +28,7 @@ function Screens() {
   return (
     <Stack>
       <Stack.Protected guard={Boolean(token)}>
+        <Stack.Screen name="workspace" options={{ title: 'Workspace' }} />
         <Stack.Screen name="index" options={{ title: 'Channels' }} />
         <Stack.Screen name="c/[channel]" options={{ title: '' }} />
       </Stack.Protected>

@@ -10,10 +10,14 @@ enum MediaUploader {
     /// Uploads the file and leaves it alone. The clip is kept by `MediaStore`
     /// so playback works with the relay unreachable; deleting it here would make
     /// a failed upload cost you the recording.
-    static func upload(_ file: URL, to backendBaseURL: URL) async throws -> String {
-        guard let endpoint = URL(string: "/media", relativeTo: backendBaseURL) else {
+    /// `orgID` is the workspace the card is for: the Worker keeps the clip
+    /// under it (and checks the caller belongs to it).
+    static func upload(_ file: URL, to backendBaseURL: URL, orgID: String? = nil) async throws -> String {
+        guard var components = URLComponents(url: URL(string: "/media", relativeTo: backendBaseURL)?.absoluteURL ?? backendBaseURL, resolvingAgainstBaseURL: true) else {
             throw URLError(.badURL)
         }
+        if let orgID, !orgID.isEmpty { components.queryItems = [URLQueryItem(name: "orgId", value: orgID)] }
+        guard let endpoint = components.url else { throw URLError(.badURL) }
 
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"

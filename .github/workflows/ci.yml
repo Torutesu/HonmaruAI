@@ -237,5 +237,19 @@ jobs:
             -scheme TikTokForWork \
             -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
             -skipPackagePluginValidation \
+            -resultBundlePath "$RUNNER_TEMP/ios.xcresult" \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
-            | xcbeautify
+            2>&1 | tee "$RUNNER_TEMP/xcodebuild.log" | xcbeautify
+      # xcbeautify keeps only a failure's first line: what a UI test printed
+      # about the screen it saw (ReviewFlowUITests' tapShowingTheScreen) is in the
+      # raw log, and the screenshots are in the result bundle.
+      - name: What the UI tests saw
+        if: failure()
+        run: grep -n -A150 "tapShowingTheScreen:" "$RUNNER_TEMP/xcodebuild.log" | head -600 || echo "no UI test printed the screen"
+      - name: Test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-test-results
+          path: ${{ runner.temp }}/ios.xcresult
+          if-no-files-found: ignore

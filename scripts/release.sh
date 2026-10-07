@@ -157,7 +157,7 @@ cmd_doctor() {
 # with an already-uploaded build.
 next_build_number() {
   local out
-  if out="$(asc builds next-build-number --app "$ASC_APP_ID" --output json 2>/dev/null)"; then
+  if out="$(asc builds next-build-number --app "$ASC_APP_ID" --platform IOS --output json 2>/dev/null)"; then
     # Read the field by name. Taking the first integer in the payload instead
     # picks up latestProcessedBuildNumber, which is the number already used —
     # so the upload is rejected for reusing a bundle version.

@@ -1,3 +1,8 @@
+import { channelMessageCache, mergeLatestMessages } from '../utils/channelMessageCache'
+import { ReadGuard } from '../utils/readGuard'
+import { toggleReaction } from '../utils/reactions'
+import { sameWords, wantsTranslation } from '../utils/translationRule'
+import { FAILURE_LABEL, failureOf, keepTranslations, keptTranslation, type TranslateFailure } from '../utils/translationCache'
 import { ChannelCanvas } from './ChannelCanvas'
 import { AgentAvatar } from './AgentAvatar'
 import { BookmarksBar } from './BookmarksBar'
@@ -32,7 +37,7 @@ import { useCustomEmoji, loadCustomEmoji, customEmojiUrl } from '../utils/custom
 import { messageContextEntries, messageMenuTriggers, type MessageMenuActions } from '../utils/messageMenu'
 import { rememberEmoji, useQuickReactions } from '../utils/emojiSearch'
 import { DailyReportDraft } from './DailyReport'
-import { MessageActions, CardActions, Reactions, EmojiPicker, EmojiPickerAt, EmojiGlyph, FormatBar, continueBlock, renderRich, LinkCards, SlashMenu, SchedulePicker, parseScheduleCommand, TypingLine, ReplyQuoteLine, ReplyingBar, UnsentNote } from './MessageParts'
+import { MessageActions, CardActions, Reactions, EmojiPicker, EmojiPickerAt, EmojiGlyph, FormatBar, continueBlock, renderRich, LinkCards, SlashMenu, SchedulePicker, parseScheduleCommand, TypingLine, ReplyQuoteLine, ThreadReplyLine, ReplyingBar, UnsentNote } from './MessageParts'
 import { heard as heardTyping, said, expire, nextExpiry as nextTypingExpiry, typistsIn, typedIn, stoppedIn, sendTyping } from '../utils/typing'
 import type { Typist, TypingEvent, Outgoing as TypingOut, Place, Signal } from '../utils/typing'
 import { quoteOf, refreshQuotes } from '../utils/replies'
@@ -47,6 +52,7 @@ import { ProfileCard } from './ProfileCard'
 import { isOnline, statusShown, awayShown, nextExpiry, localTime } from '../utils/people'
 import { Sheet, SheetRow, MessageSheet, PeoplePicker, ForwardSheet, longPress } from './Sheet'
 import { useUploads, PendingUploads, MessageFiles } from './Attachments'
+import { configureMediaUrls } from '../utils/mediaUrls'
 import { playSound, setOpenView, rememberLevels, rememberLevel, startRing, stopRing } from '../utils/sound'
 import { closeMessageNotifications } from '../utils/notifications'
 import { hasOlder } from '../utils/historyPage'
@@ -288,6 +294,8 @@ export const ClassicList: React.FC<Props> = ({
   onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, workspaceMenu,
   onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen, onPlaces, onStatus, statusOpen, active = true,
 }) => {
+  // Files' addresses are renewed for the workspace open now (mediaUrls).
+  useEffect(() => { configureMediaUrls(api) }, [api.httpBase, api.orgId, api.sessionToken])
   const t = useT()
   // Cozy or compact, as chosen on You: the stylesheet does the rest.
   const { density } = useAppearance()
@@ -342,6 +350,14 @@ export const ClassicList: React.FC<Props> = ({
   const [serverReads, setServerReads] = useState<Record<string, string>>({})
   const readAt = (v: string) => [seenAt(api.orgId, v), serverReads[v] || ''].sort().pop() || ''
   const authHeaders = useMemo(() => ({ 'x-session-token': api.sessionToken }), [api.sessionToken])
+  /// What was last shown, for this account and workspace (#209): drawn at
+  /// once when a list, a thread or a profile is opened again, and replaced
+  /// by what the server says behind it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const views = useMemo(() => channelMessageCache(api).views, [api.httpBase, api.orgId, api.sessionToken])
+  /// What this device has marked read, held against lists fetched before it
+  /// (#217): an older answer never brings the unread back.
+  const readGuard = useRef(new ReadGuard()).current
   // Your daily report's draft, waiting in the channel it is for.
   const dailyDrafts = useMemo(() => pending.filter((c) => c.dailyReport && awaitsPost(c) && c.dailyReport.status === 'draft'), [pending])
   const draftsFor = (view: string) => dailyDrafts.filter((c) => c.dailyReport!.channel === view)
@@ -717,26 +733,34 @@ export const ClassicList: React.FC<Props> = ({
   // Drafts & sent: what you are still writing, and what you said.
   const [sentOpen, setSentOpen] = useState(false)
   const [sentTab, setSentTab] = useState<'drafts' | 'sent'>('drafts')
-  const [sentItems, setSentItems] = useState<ChannelMessage[] | null>(null)
+  const [sentItems, setSentItems] = useState<ChannelMessage[] | null>(() => views.get<ChannelMessage[]>('sent') ?? null)
+  useEffect(() => { if (sentItems) views.set('sent', sentItems, { read: false }) }, [sentItems, views])
   const loadSent = useCallback(() => {
     return fetch(`${api.httpBase}/channels/sent?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (data) setSentItems(data.items || []) })
+      .then((data) => { if (data) { views.set('sent', data.items || []); setSentItems(data.items || []) } })
       .catch(() => { /* the list stays as it was */ })
-  }, [api.httpBase, api.orgId, authHeaders])
-  const [threadItems, setThreadItems] = useState<ThreadItem[] | null>(null)
+  }, [api.httpBase, api.orgId, authHeaders, views])
+  const [threadItems, setThreadItems] = useState<ThreadItem[] | null>(() => views.get<ThreadItem[]>('threads') ?? null)
+  useEffect(() => { if (threadItems) views.set('threads', threadItems, { read: false }) }, [threadItems, views])
   const loadThreads = useCallback(() => {
+    const ticket = readGuard.ask('threads')
     return fetch(`${api.httpBase}/channels/threads?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (data) setThreadItems(data.threads || []) })
+      .then((data) => {
+        if (!data || !readGuard.fresh('threads', ticket)) return
+        const list = readGuard.threadList<ThreadItem>(data.threads || [])
+        views.set('threads', list); setThreadItems(list)
+      })
       .catch(() => { /* the list stays as it was */ })
-  }, [api.httpBase, api.orgId, authHeaders])
+  }, [api.httpBase, api.orgId, authHeaders, views])
   useEffect(() => { void loadThreads() }, [loadThreads])
   const threadsUnread = (threadItems || []).filter((x) => x.unread).length
   /// Threads read up to a point, wherever that was done: each one whose
   /// newest reply is no later is no longer new.
   const threadsReadTo = useCallback((read: Array<{ thread: string; lastReadAt: string }>) => {
     const upTo = new Map(read.map((r) => [r.thread, r.lastReadAt]))
+    for (const r of read) readGuard.readThread(r.thread, r.lastReadAt)
     setThreadItems((prev) => prev && prev.map((x) => {
       const at = upTo.get(x.parent.id)
       return x.unread && at && x.lastReplyAt <= at ? { ...x, unread: false } : x
@@ -747,18 +771,24 @@ export const ClassicList: React.FC<Props> = ({
       return i.unread && at && (i.at || i.message.createdAt) <= at ? { ...i, unread: false } : i
     }))
   }, [])
-  const [activityItems, setActivityItems] = useState<ActivityItem[] | null>(null)
+  const [activityItems, setActivityItems] = useState<ActivityItem[] | null>(() => views.get<ActivityItem[]>('activity') ?? null)
+  useEffect(() => { if (activityItems) views.set('activity', activityItems, { read: false }) }, [activityItems, views])
   // What the Unread tab showed when you came to it stays in the list while
   // you are there, however many of them you have looked at since.
   const [unreadShown, setUnreadShown] = useState<Set<string>>(() => new Set())
-  const [activityTab, setActivityTab] = useState<'all' | 'unread'>('all')
+  const [activityTab, setActivityTab] = useState<'all' | 'unread' | 'mentions'>('all')
   const [activityPick, setActivityPick] = useState<string | null>(null)
   const loadActivity = useCallback(() => {
+    const ticket = readGuard.ask('activity')
     return fetch(`${api.httpBase}/channels/activity?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (data) setActivityItems(data.items || []) })
+      .then((data) => {
+        if (!data || !readGuard.fresh('activity', ticket)) return
+        const list = readGuard.activity<ActivityItem>(data.items || [], activityKey)
+        views.set('activity', list); setActivityItems(list)
+      })
       .catch(() => { /* nothing new is the same as nothing loaded */ })
-  }, [api.httpBase, api.orgId, authHeaders])
+  }, [api.httpBase, api.orgId, authHeaders, views])
   useEffect(() => { void loadActivity() }, [loadActivity])
   const stillNew = (i: ActivityItem) => i.unread
   const activityKey = (i: ActivityItem) => i.key || `${i.type}-${i.message.id}-${i.emoji || ''}-${i.at || ''}`
@@ -767,6 +797,7 @@ export const ClassicList: React.FC<Props> = ({
   const markActivitySeen = useCallback((keys: string[]) => {
     const fresh = new Set(keys)
     if (!fresh.size) return
+    readGuard.readItems(fresh)
     setActivityItems((prev) => prev && prev.map((i) => (i.unread && fresh.has(activityKey(i)) ? { ...i, unread: false } : i)))
     const serverKeys = keys.filter((k) => /^(m|r):/.test(k))
     if (!serverKeys.length) return
@@ -786,6 +817,7 @@ export const ClassicList: React.FC<Props> = ({
   const markAllActivityRead = () => {
     const keys = (activityItems || []).filter((i) => i.unread).map(activityKey)
     if (!keys.length) return
+    readGuard.readItems(keys)
     setActivityItems((prev) => prev && prev.map((i) => (i.unread ? { ...i, unread: false } : i)))
     closeMessageNotifications(messageIdsOf(keys))
     void fetch(`${api.httpBase}/channels/read`, {
@@ -944,7 +976,7 @@ export const ClassicList: React.FC<Props> = ({
   // offers there — its details, copying its name or link, a star, a
   // section, how much it notifies you, and for a channel renaming it or
   // leaving. The same things as its settings and the phone's long press.
-  const [rowMenu, setRowMenu] = useState<null | { thread: Thread; x: number; y: number }>(null)
+  const [rowMenu, setRowMenu] = useState<null | { thread: Thread; x: number; y: number; anchor: HTMLElement }>(null)
   const closeRowMenu = useCallback(() => setRowMenu(null), [])
   const [renameDialog, setRenameDialog] = useState<null | { slug: string; name: string; error?: string | null; busy?: boolean }>(null)
   // Archiving asks first, and says where to bring the channel back from.
@@ -1042,17 +1074,26 @@ export const ClassicList: React.FC<Props> = ({
   }
 
   // A teammate's profile, beside the conversation.
-  const [profile, setProfile] = useState<null | { ref: string; data?: ProfileData }>(null)
+  const [profile, setProfile] = useState<null | { ref: string; data?: ProfileData; failed?: boolean }>(null)
   const readProfile = useCallback(async (ref: string): Promise<ProfileData | null> => {
     const res = await fetch(`${api.httpBase}/channels/member?orgId=${encodeURIComponent(api.orgId)}&ref=${encodeURIComponent(ref)}`, { headers: authHeaders }).catch(() => null)
     const d = res?.ok ? await res.json().catch(() => null) : null
+    if (d?.member) views.set(`profile:${ref}`, d.member)
     return d?.member || null
-  }, [api.httpBase, api.orgId, authHeaders])
+  }, [api.httpBase, api.orgId, authHeaders, views])
+  /// A profile opened again is drawn from what was read before, and read
+  /// again behind it when that is more than half a minute old. Nothing kept
+  /// and nothing read: said so, with a way to try again — never a
+  /// "Loading…" that stays.
+  const PROFILE_FRESH_MS = 30_000
+  const cachedProfile = (ref: string) => views.get<ProfileData>(`profile:${ref}`)
   const openProfile = async (ref: string) => {
     setDetailId(null); setThread(null)
-    setProfile({ ref })
+    const kept = cachedProfile(ref)
+    setProfile({ ref, data: kept })
+    if (kept && views.fresh(`profile:${ref}`, PROFILE_FRESH_MS)) return
     const data = await readProfile(ref)
-    if (data) setProfile((prev) => (prev && prev.ref === ref ? { ref, data } : prev))
+    setProfile((prev) => (prev && prev.ref === ref ? (data ? { ref, data } : prev.data ? prev : { ref, failed: true }) : prev))
   }
   // Their card, popped out beside the face, name or @mention it was opened
   // from: what the member list knows at once, their clock once the same read
@@ -1061,7 +1102,9 @@ export const ClassicList: React.FC<Props> = ({
   const [popout, setPopout] = useState<null | { ref: string; anchor: HTMLElement; name?: string; data?: ProfileData }>(null)
   const openPopout = (ref: string, anchor: HTMLElement, name?: string) => {
     if (popout && popout.ref === ref && popout.anchor === anchor) { setPopout(null); return }
-    setPopout({ ref, anchor, name })
+    const kept = cachedProfile(ref)
+    setPopout({ ref, anchor, name, data: kept })
+    if (kept && views.fresh(`profile:${ref}`, PROFILE_FRESH_MS)) return
     void readProfile(ref).then((data) => { if (data) setPopout((prev) => (prev && prev.ref === ref && prev.anchor === anchor ? { ...prev, data } : prev)) })
   }
   /// Every @mention of a person presses like a button (MessageParts); this
@@ -1091,11 +1134,13 @@ export const ClassicList: React.FC<Props> = ({
   // the sidebar is.
   const profileRef = profile?.ref
   useEffect(() => {
-    if (!profileRef) return
+    const stale = () => views.stale('profile:')
+    window.addEventListener('honmaru:members-changed', stale)
+    if (!profileRef) return () => window.removeEventListener('honmaru:members-changed', stale)
     const on = () => { void readProfile(profileRef).then((data) => { if (data) setProfile((prev) => (prev && prev.ref === profileRef ? { ref: profileRef, data } : prev)) }) }
     window.addEventListener('honmaru:members-changed', on)
-    return () => window.removeEventListener('honmaru:members-changed', on)
-  }, [profileRef, readProfile])
+    return () => { window.removeEventListener('honmaru:members-changed', on); window.removeEventListener('honmaru:members-changed', stale) }
+  }, [profileRef, readProfile, views])
 
   // Keys a chat client has: ⌥↑/⌥↓ between conversations in the order the
   // sidebar shows them (a folded group's are out of sight, and skipped),
@@ -1210,7 +1255,7 @@ export const ClassicList: React.FC<Props> = ({
       onDragEnd: () => { setDragging(null); setDropAt(null) },
     } : {}
     return (
-      <li key={thread.key} data-view={thread.view} {...drag} onContextMenu={wide && view ? (e) => { e.preventDefault(); setRowMenu({ thread, x: e.clientX, y: e.clientY }) } : undefined} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}${thread.view && prefs[thread.view] === 'mute' ? ' muted' : ''}${dragging === view ? ' dragging' : ''}${drop}`}>
+      <li key={thread.key} data-view={thread.view} {...drag} onContextMenu={wide && view ? (e) => { e.preventDefault(); setRowMenu({ thread, x: e.clientX, y: e.clientY, anchor: e.currentTarget }) } : undefined} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}${thread.view && prefs[thread.view] === 'mute' ? ' muted' : ''}${dragging === view ? ' dragging' : ''}${drop}`}>
         <button className="cl-open" onClick={() => choose(thread.key)} aria-current={on ? 'true' : undefined}>
           {lead(thread, 'row')}
           <span className="cl-title">{thread.name}</span>
@@ -1227,6 +1272,13 @@ export const ClassicList: React.FC<Props> = ({
           {thread.unread === 0 && thread.fresh && !on && <span className="cl-fresh" aria-label={t('New messages')} />}
           {!on && thread.view && (drafts[thread.view] || hasDraft) && <span className={`cl-draft${hasDraft ? ' daily' : ''}`} title={hasDraft ? t('Your daily report is waiting to be posted') : t('Draft')} aria-label={t('Draft')} data-has-daily={hasDraft ? '1' : undefined}><Icon name="edit" size={12} /></span>}
         </button>
+        {thread.view && isFresh(thread) && (
+          // The @ or the dot, cleared from the list itself: hover or focus
+          // the row, and it is one press (#213).
+          <button type="button" className="cl-clear" onClick={() => markViewRead(thread.view!)} title={t('Mark as read')} aria-label={t('Mark {name} as read', { name: thread.name })} data-clear={thread.view}>
+            <Icon name="check" size={13} />
+          </button>
+        )}
       </li>
     )
   }
@@ -1337,7 +1389,10 @@ export const ClassicList: React.FC<Props> = ({
     for (const c of [...pending, ...sent, ...decided]) map.set(c.id, c)
     return map
   }, [pending, sent, decided])
-  const [messages, setMessages] = useState<Record<string, ChannelMessage[]>>({})
+  const messageCache = useMemo(() => channelMessageCache(api), [api.httpBase, api.orgId, api.sessionToken])
+  const cacheScope = useRef<typeof messageCache | null>(messageCache)
+  cacheScope.current = messageCache
+  const [messages, setMessages] = useState<Record<string, ChannelMessage[]>>(() => ({ ...messageCache.messages }))
   /// A message sent from here stays drawn under its temporary id's key once
   /// the server's copy has taken its place (server id → temp id): the same
   /// element carries on, so nothing is redrawn and a picture in it is not
@@ -1352,6 +1407,7 @@ export const ClassicList: React.FC<Props> = ({
   const uploads = useUploads(api, setProblem)
   const threadUploads = useUploads(api, setProblem)
   const [dropping, setDropping] = useState(false)
+  const [threadDropping, setThreadDropping] = useState(false)
   const attachInput = useRef<HTMLInputElement>(null)
   const threadAttachInput = useRef<HTMLInputElement>(null)
   // Conversations where the AI is writing a card right now.
@@ -1375,29 +1431,43 @@ export const ClassicList: React.FC<Props> = ({
   }, [current?.view, current?.name, openKey, onViewChange])
   // Whether there is more above what is loaded, per conversation: the
   // Worker's `more`, or, from one that does not say, a full page of PAGE.
-  const [more, setMore] = useState<Record<string, boolean>>({})
+  const [more, setMore] = useState<Record<string, boolean>>(() => ({ ...messageCache.more }))
+  useEffect(() => {
+    cacheScope.current = messageCache
+    // Events are not received by this component while it is unmounted.
+    return () => { cacheScope.current = null; messageCache.invalidate() }
+  }, [messageCache])
+  useEffect(() => { messageCache.remember(messages, more) }, [messageCache, messages, more])
   const PAGE = 150
   /// The newest page, laid over what is loaded rather than in place of it:
   /// it is read again on every answer from the AI and after a reconnect, and
   /// replacing took away the older pages somebody had scrolled up to read.
   /// Whether there is more above stays loadOlder's to say once those are
   /// loaded; only a hole too big to join starts again from the page.
-  const loadMessages = useCallback((channel: string) => {
+  const loadMessages = useCallback((channel: string, force = true) => messageCache.load(channel, async (isCurrent) => {
+    const before = messagesRef.current[channel] || []
     return fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}`, { headers: authHeaders })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        if ([401, 403, 404].includes(r.status) && isCurrent() && cacheScope.current === messageCache) {
+          messageCache.forget(channel)
+          setMessages((prev) => { const next = { ...prev }; delete next[channel]; return next })
+        }
+        return r.ok ? r.json() : null
+      })
       .then((data) => {
-        if (!data) return
+        if (!data || !isCurrent() || cacheScope.current !== messageCache) return false
         // What is still on its way, or did not go, is only here: kept —
         // and what did not go before this page loaded, back where it was.
         const page = (data.messages || []) as ChannelMessage[]
         const had = messagesRef.current[channel]
         const back = heldFor(channel, undefined, page)
-        setMessages((prev) => ({ ...prev, [channel]: withHeld(keepTemps(leavesGap(prev[channel], page, PAGE) ? page : mergeById(prev[channel], page), prev[channel]), back) }))
-        if (leavesGap(had, page, PAGE) || !reachesPast(had, page)) setMore((prev) => ({ ...prev, [channel]: hasOlder(data, PAGE) }))
+        setMessages((prev) => ({ ...prev, [channel]: withHeld(mergeLatestMessages(prev[channel] || [], page, before, leavesGap(prev[channel], page, PAGE), !hasOlder(data, PAGE)), back) }))
+        if (!hasOlder(data, PAGE) || leavesGap(had, page, PAGE) || !reachesPast(had, page)) setMore((prev) => ({ ...prev, [channel]: hasOlder(data, PAGE) }))
         maybeNewEmoji(page.map((m) => `${m.body || ''} ${(m.reactions || []).map((r) => r.emoji).join(' ')}`).join(' '))
+        return true
       })
-      .catch(() => { /* the decisions still show */ })
-  }, [api.httpBase, api.orgId, authHeaders, maybeNewEmoji])
+      .catch(() => false) // Keep cached messages visible offline; failed loads may retry.
+  }, force), [api.httpBase, api.orgId, authHeaders, maybeNewEmoji, messageCache])
   // Scrolled to the top: the page before, kept in place as it arrives.
   const loadingOlder = useRef(false)
   const keepScroll = useRef<number | null>(null)
@@ -1426,7 +1496,7 @@ export const ClassicList: React.FC<Props> = ({
       loadingOlder.current = false
     }
   }, [api.httpBase, api.orgId, authHeaders, more])
-  useEffect(() => { if (view) void loadMessages(view) }, [view, loadMessages])
+  useEffect(() => { if (view) void loadMessages(view, false) }, [view, loadMessages])
   // Where you were up to when you opened it: the red "New" line goes there.
   const [newSince, setNewSince] = useState<{ view: string; at: string } | null>(null)
   useEffect(() => {
@@ -1488,6 +1558,7 @@ export const ClassicList: React.FC<Props> = ({
   /// conversation's count goes, its notifications close, and what was said
   /// in it is no longer new in Activity (a reply waits for its thread).
   const readOnServer = (v: string, now: string) => {
+    readGuard.readChannel(v, now)
     fetch(`${api.httpBase}/channels/read`, {
       method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
       body: JSON.stringify({ orgId: api.orgId, channel: v, at: now }),
@@ -1502,7 +1573,13 @@ export const ClassicList: React.FC<Props> = ({
     return now
   }
   /// "Mark as read" from the sidebar, without opening it.
-  const markViewRead = (v: string) => { readOnServer(v, readHere(v)) }
+  /// Its @ goes with it: every unread mention of you in it, its threads'
+  /// included — and nothing of any other conversation (#213).
+  const markViewRead = (v: string) => {
+    readOnServer(v, readHere(v))
+    const mentions = (activityItems || []).filter((i) => i.unread && i.type === 'mention' && i.message.channel === v).map(activityKey)
+    if (mentions.length) markActivitySeen(mentions)
+  }
   /// A dot or an @ waiting in it.
   const isFresh = (th: Thread) => Boolean(th.view && (th.fresh || (mentionsIn[th.view] || 0) > 0))
   /// Where ⌥⇧↑/⌥⇧↓ stop: a dot or an @, or cards waiting on you, which
@@ -1580,6 +1657,8 @@ export const ClassicList: React.FC<Props> = ({
           if (held?.failed) queueMicrotask(() => settle(held.id))
           return { ...prev, replies: arrive(prev.replies, msg) }
         })
+        // Sent to the conversation too: there as well.
+        if (m.alsoChannel) inConversationToo(m.channel, msg)
         if (m.kind === 'ai') setThinking((prev) => ({ ...prev, [m.channel]: false }))
         if (m.kind === 'agent') agentDone(m.channel, m.agent?.id)
         return
@@ -1815,12 +1894,12 @@ export const ClassicList: React.FC<Props> = ({
       const res = await fetch(`${api.httpBase}/channels/messages`, {
         method: 'POST',
         headers: { ...authHeaders, 'content-type': 'application/json' },
-        body: JSON.stringify({ orgId: api.orgId, channel, body, decide, ...(parentId ? { parentId } : {}), sendAt }),
+        body: JSON.stringify({ orgId: api.orgId, channel, body, decide, ...(parentId ? { parentId, ...(threadAlso ? { alsoChannel: true } : {}) } : {}), sendAt }),
       }).catch(() => null)
       const data = res ? await res.json().catch(() => ({})) : {}
       scheduling.current.delete(key)
       if (!res?.ok || !data.scheduled) { setProblem(res && !res.ok ? refusal(data) : t('That did not send. Try again.')); return }
-      if (parentId) setThreadDraft(''); else clearDraftOf(channel)
+      if (parentId) { setThreadDraft(''); setThreadAlso(false) } else clearDraftOf(channel)
       setScheduled((prev) => [...prev, data.scheduled].sort((a, b) => a.sendAt.localeCompare(b.sendAt)))
       note(channel, t('Scheduled for {when}.', { when: new Date(data.scheduled.sendAt).toLocaleString(locale, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) }))
       return
@@ -1830,12 +1909,13 @@ export const ClassicList: React.FC<Props> = ({
     // The conversation's own box answers the message it is replying to: the
     // quote rides on the copy shown at once, and on a retry or a reload.
     const quoting = !parentId && replyingTo?.view === channel ? replyingTo.quote : null
-    const temp = { ...tempMessage({ channel, body, parentId, files }, { name: myName || null, ref: myRef || null, avatar: myAvatar }, sendTime(parentId ? undefined : messagesRef.current[channel])), ...(quoting ? { replyTo: quoting } : {}) }
+    const temp = { ...tempMessage({ channel, body, parentId, files }, { name: myName || null, ref: myRef || null, avatar: myAvatar }, sendTime(parentId ? undefined : messagesRef.current[channel])), ...(quoting ? { replyTo: quoting } : {}), ...(parentId && threadAlso ? { alsoChannel: true } : {}) }
     if (quoting) setReplyingTo(null)
     // Sent: nobody is typing in this box any more.
     stoppedTyping({ channel, parentId: parentId || null })
     if (parentId) {
       setThreadDraft('')
+      setThreadAlso(false)
       setThread((prev) => (prev && prev.parent.id === parentId ? { ...prev, replies: [...prev.replies, temp] } : prev))
     } else {
       clearDraftOf(channel)
@@ -1871,7 +1951,7 @@ export const ClassicList: React.FC<Props> = ({
     const res = await fetch(`${api.httpBase}/channels/messages`, {
       method: 'POST',
       headers: { ...authHeaders, 'content-type': 'application/json' },
-      body: JSON.stringify({ orgId: api.orgId, channel, body, decide, clientId: tempId, ...(parentId ? { parentId } : {}), ...(out.said.replyTo?.id ? { replyTo: out.said.replyTo.id } : {}), ...(files.length ? { files: files.map((f) => f.id) } : {}) }),
+      body: JSON.stringify({ orgId: api.orgId, channel, body, decide, clientId: tempId, ...(parentId ? { parentId, ...(out.said.alsoChannel ? { alsoChannel: true } : {}) } : {}), ...(out.said.replyTo?.id ? { replyTo: out.said.replyTo.id } : {}), ...(files.length ? { files: files.map((f) => f.id) } : {}) }),
       signal: ctrl.signal,
     }).catch(() => null)
     const data = res ? await res.json().catch(() => ({})) : {}
@@ -1907,6 +1987,7 @@ export const ClassicList: React.FC<Props> = ({
       setMessages((prev) => ({ ...prev, [channel]: (prev[channel] || []).map((x) => (x.id !== parentId ? x
         : parent ? { ...x, replyCount: Math.max(parent.replyCount || 0, x.replyCount || 0), lastReplyAt: parent.lastReplyAt || msg.createdAt, replyRefs: parent.replyRefs || x.replyRefs }
           : { ...x, replyCount: (x.replyCount || 0) + 1, lastReplyAt: msg.createdAt })) }))
+      if (msg.alsoChannel) inConversationToo(channel, msg)
       if (data.deciding) setThinking((prev) => ({ ...prev, [channel]: 'reading' }))
       return msg
     }
@@ -1969,7 +2050,8 @@ export const ClassicList: React.FC<Props> = ({
     const real = landedCopy(m, fresh)
     if (real && !m.refused) {
       if (m.parentId) setThread((prev) => (prev && prev.parent.id === m.parentId ? { ...prev, replies: reconcile(prev.replies, m.id, real) } : prev))
-      else setMessages((prev) => (prev[m.channel] ? { ...prev, [m.channel]: reconcile(prev[m.channel], m.id, real) } : prev))
+      if (m.parentId && real.alsoChannel) inConversationToo(m.channel, real)
+      else if (!m.parentId) setMessages((prev) => (prev[m.channel] ? { ...prev, [m.channel]: reconcile(prev[m.channel], m.id, real) } : prev))
       settle(m.id)
       return
     }
@@ -1997,6 +2079,7 @@ export const ClassicList: React.FC<Props> = ({
     outbox.current.delete(tempId)
     keepOutbox(tempId)
     if (parentId) setThread((prev) => (prev && prev.parent.id === parentId ? { ...prev, replies: prev.replies.filter((x) => x.id !== tempId) } : prev))
+    if (parentId) setMessages((prev) => (prev[channel]?.some((x) => x.id === tempId) ? { ...prev, [channel]: prev[channel].filter((x) => x.id !== tempId) } : prev))
     else setMessages((prev) => (prev[channel] ? { ...prev, [channel]: prev[channel].filter((x) => x.id !== tempId) } : prev))
   }
   /// Delete: it was only ever here, so it just goes — still on its way, it
@@ -2014,21 +2097,27 @@ export const ClassicList: React.FC<Props> = ({
     try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i) || ''; if (k.startsWith(`draft:${api.orgId}:`) && localStorage.getItem(k)) out[k.slice(`draft:${api.orgId}:`.length)] = true } } catch { /* none kept */ }
     return out
   })
-  const draftCount = Object.keys(drafts).filter((v) => drafts[v] && everything.some((x) => x.view === v)).length
+  // Where a draft is kept: the conversation's channel, or — for Your AI,
+  // which has a box but no channel — its row (`app:ai`). Without that, what
+  // was written to your AI was never kept, and went the moment you looked
+  // somewhere else.
+  const draftId = current?.view || (current?.app === 'ai' ? current.key : undefined)
+  const isDraftOf = (x: Thread, v: string) => x.view === v || (x.app === 'ai' && x.key === v)
+  const draftCount = Object.keys(drafts).filter((v) => drafts[v] && everything.some((x) => isDraftOf(x, v))).length
   const draftView = useRef<string | undefined>(undefined)
   // Before paint, so a conversation never shows an empty box first.
   useLayoutEffect(() => {
     // Leaving a conversation keeps what was being written there; arriving
     // brings back what was being written here.
-    draftView.current = view
+    draftView.current = draftId
     let kept = ''
-    try { kept = view ? localStorage.getItem(draftKey(view)) || '' : '' } catch {}
+    try { kept = draftId ? localStorage.getItem(draftKey(draftId)) || '' : '' } catch {}
     setDraft(kept)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view])
+  }, [draftId])
   useEffect(() => {
     const v = draftView.current
-    if (!v || v !== view) return
+    if (!v || v !== draftId) return
     try { if (draft) localStorage.setItem(draftKey(v), draft); else localStorage.removeItem(draftKey(v)) } catch {}
     setDrafts((prev) => (Boolean(prev[v]) === Boolean(draft) ? prev : { ...prev, [v]: Boolean(draft) }))
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2170,37 +2259,99 @@ export const ClassicList: React.FC<Props> = ({
   // whose + was pressed is the one that opens it, not both at once.
   const [pickerFor, setPickerFor] = useState<string | null>(null)
   const pickerKey = (m: ChannelMessage, inThread: boolean) => `${inThread ? 'thread:' : ''}${m.id}`
-  const [thread, setThread] = useState<{ channel: string; parent: ChannelMessage; replies: ChannelMessage[] } | null>(null)
+  // `loading` while its replies are being read (the count the conversation
+  // showed stands meanwhile, never a "0 replies"); `failed` when they could
+  // not be (#216).
+  const [thread, setThread] = useState<{ channel: string; parent: ChannelMessage; replies: ChannelMessage[]; loading?: boolean; failed?: boolean } | null>(null)
+  // The thread as it stands — replies sent, edited, arrived live — kept for
+  // the next time it is opened.
+  useEffect(() => {
+    if (thread) views.set(`thread:${thread.channel}:${thread.parent.id}`, thread.replies.filter((r) => !isTemp(r)), { read: false })
+  }, [thread, views])
 
   // Messages in another language, in yours: translated once on the server
   // and kept; the words they were translated from, so an edit asks again.
   // "Show original" per message. Off when the person turned it off.
   const readerLang = locale.slice(0, 2).toLowerCase()
-  const [translations, setTranslations] = useState<Record<string, { from: string; text: string }>>({})
+  // Each with the language it was put into: a reader who changes theirs is
+  // not shown one made for the old one (#220).
+  const [translations, setTranslations] = useState<Record<string, { from: string; text: string; lang: string }>>({})
   const [originals, setOriginals] = useState<Set<string>>(new Set())
   const [translateOff, setTranslateOff] = useState(false)
   const asking = useRef<Set<string>>(new Set())
-  // Anything not in the language you set is translated into it — "latn"
-  // (Latin letters too few to name the language) included.
-  const needsTranslation = (m: ChannelMessage) => !translateOff && !m.deleted && Boolean(m.lang) && m.lang !== readerLang
-    && translations[m.id]?.from !== m.body && !asking.current.has(`${m.id}:${m.body}`)
+  // Asked for and not back yet — "Translating…" under the message — and
+  // asked for and not had: "Couldn't translate (why) · Try again". Each by
+  // the words asked about, so an edit starts over.
+  const [translating, setTranslating] = useState<Record<string, string>>({})
+  const [untranslated, setUntranslated] = useState<Record<string, { from: string; why: TranslateFailure }>>({})
+  // The translation known for a message as it now reads, in the reader's
+  // language: had on this screen, or kept in this browser from before
+  // (translationCache, #225) — so a remount, a reload or a failed request
+  // never turns a translated message back into its original.
+  const knownTranslation = (m: ChannelMessage): string | null => {
+    const tr = translations[m.id]
+    if (tr && tr.from === m.body && tr.lang === readerLang) return tr.text
+    return api.orgId ? keptTranslation(api.orgId, m.id, readerLang, m.body) : null
+  }
+  // Anything not in the language you set is translated into it — but not
+  // what is too short or too plain to need it (wantsTranslation, the
+  // Worker's own rule, #220).
+  const hasTranslation = (m: ChannelMessage) => knownTranslation(m) !== null
+  const needsTranslation = (m: ChannelMessage) => !translateOff && !m.deleted && wantsTranslation(m.lang, readerLang, m.body)
+    && !hasTranslation(m) && !asking.current.has(`${m.id}:${m.body}:${readerLang}`)
   const translate = useCallback(async (channel: string, list: ChannelMessage[]) => {
     const want = list.filter(needsTranslation).slice(0, 60)
     if (!want.length) return
-    for (const m of want) asking.current.add(`${m.id}:${m.body}`)
+    for (const m of want) asking.current.add(`${m.id}:${m.body}:${readerLang}`)
+    setTranslating((prev) => {
+      const next = { ...prev }
+      for (const m of want) next[m.id] = m.body
+      return next
+    })
+    setUntranslated((prev) => {
+      const next = { ...prev }
+      for (const m of want) delete next[m.id]
+      return next
+    })
     const res = await fetch(`${api.httpBase}/channels/translate`, {
       method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
       body: JSON.stringify({ orgId: api.orgId, channel, ids: want.map((m) => m.id), locale: readerLang }),
     }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) : null
-    if (data?.off) { setTranslateOff(true); return }
-    if (data?.translations) {
+    setTranslating((prev) => {
+      const next = { ...prev }
+      for (const m of want) delete next[m.id]
+      return next
+    })
+    // Not reached, refused or unreadable: said so, with why and a way to
+    // ask again — and each may be asked about again later.
+    const failed = (why: (m: ChannelMessage) => TranslateFailure | null) => {
+      const out: Record<string, { from: string; why: TranslateFailure }> = {}
+      for (const m of want) {
+        const w = why(m)
+        if (!w) continue
+        asking.current.delete(`${m.id}:${m.body}:${readerLang}`)
+        out[m.id] = { from: m.body, why: w }
+      }
+      if (Object.keys(out).length) setUntranslated((prev) => ({ ...prev, ...out }))
+    }
+    if (!data) {
+      failed(() => failureOf(res ? res.status : null))
+      return
+    }
+    if (data.off) { setTranslateOff(true); return }
+    const got = want.filter((m) => typeof data.translations?.[m.id] === 'string')
+    if (got.length) {
       setTranslations((prev) => {
         const next = { ...prev }
-        for (const m of want) if (data.translations[m.id]) next[m.id] = { from: m.body, text: data.translations[m.id] }
+        for (const m of got) next[m.id] = { from: m.body, text: data.translations[m.id], lang: readerLang }
         return next
       })
+      if (api.orgId) keepTranslations(api.orgId, readerLang, got.map((m) => ({ id: m.id, from: m.body, text: data.translations[m.id] })))
     }
+    // One the Worker left out says why; one with no translator at all
+    // (no_provider) is no failure — none exists, and it reads as written.
+    failed((m) => typeof data.translations?.[m.id] === 'string' ? null : failureOf(200, data.failed?.[m.id] || 'no_provider'))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api.httpBase, api.orgId, authHeaders, translations, translateOff, readerLang])
   // Whatever is on screen: the open conversation, and the thread beside it.
@@ -2239,13 +2390,30 @@ export const ClassicList: React.FC<Props> = ({
   }, [activity, translateOff])
   /// What to show for a message: its translation, unless asked for the original.
   const shownBody = (m: ChannelMessage) => {
-    const tr = translations[m.id]
-    // A "translation" that is the message itself was yours already.
-    return tr && tr.from === m.body && tr.text.trim() !== m.body.trim() && !originals.has(m.id) ? { text: tr.text, translated: true } : { text: m.body, translated: false }
+    const tr = knownTranslation(m)
+    // A "translation" that is the message itself — give or take
+    // punctuation — was yours already.
+    return tr !== null && !sameWords(tr, m.body) && !originals.has(m.id) ? { text: tr, translated: true } : { text: m.body, translated: false }
   }
   const translationNote = (m: ChannelMessage) => {
-    const tr = translations[m.id]
-    if (!tr || tr.from !== m.body || tr.text.trim() === m.body.trim()) return null
+    if (translateOff || m.deleted) return null
+    if (translating[m.id] === m.body) {
+      return <span className="slk-translating" role="status">{t('Translating…')}</span>
+    }
+    const tr = knownTranslation(m)
+    const miss = untranslated[m.id]
+    // Failed, and no translation known for it: say why, and offer again.
+    // One already known stays shown — a failed refresh never takes it away.
+    if (miss && miss.from === m.body && tr === null) {
+      return (
+        <button type="button" className="slk-translated slk-translate-failed" data-why={miss.why}
+          title={t(FAILURE_LABEL[miss.why])}
+          onClick={() => void translate(m.channel, [m])}>
+          {t("Couldn't translate · Try again")} <span className="slk-translate-why">({t(FAILURE_LABEL[miss.why])})</span>
+        </button>
+      )
+    }
+    if (tr === null || sameWords(tr, m.body)) return null
     const showing = !originals.has(m.id)
     return (
       <button type="button" className="slk-translated" data-translated={showing ? '1' : '0'}
@@ -2257,7 +2425,40 @@ export const ClassicList: React.FC<Props> = ({
   /// The thread open beside the conversation, whose agents write there.
   const threadOpenParent = thread?.parent.id || null
   const [threadDraft, setThreadDraft] = useState('')
+  /// "Also send to #channel" under the thread's box: for the next reply only.
+  const [threadAlso, setThreadAlso] = useState(false)
+  /// A thread reply sent to the conversation too, put there as well — or,
+  /// unsent, taken from there — when the conversation is loaded.
+  const inConversationToo = (channel: string, msg: ChannelMessage) => {
+    setMessages((prev) => {
+      const list = prev[channel]
+      if (!list) return prev
+      if (msg.deleted) return list.some((x) => x.id === msg.id) ? { ...prev, [channel]: list.filter((x) => x.id !== msg.id) } : prev
+      return { ...prev, [channel]: arrive(list, msg) }
+    })
+  }
   const threadComposer = useRef<HTMLTextAreaElement>(null)
+  // A reply being written in a thread is kept too, per thread: it used to
+  // start empty every time the thread was opened, so a half-written reply
+  // was gone the moment you looked at something else.
+  const threadDraftKey = (parentId: string) => draftKey(`thread:${parentId}`)
+  const threadDraftOf = useRef<string | null>(null)
+  const threadParentId = thread?.parent.id || null
+  useLayoutEffect(() => {
+    if (threadDraftOf.current === threadParentId) return
+    threadDraftOf.current = threadParentId
+    let kept = ''
+    try { kept = threadParentId ? localStorage.getItem(threadDraftKey(threadParentId)) || '' : '' } catch { /* none kept */ }
+    setThreadDraft(kept)
+    setThreadAlso(false)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadParentId])
+  useEffect(() => {
+    const id = threadDraftOf.current
+    if (!id || id !== threadParentId) return
+    try { if (threadDraft) localStorage.setItem(threadDraftKey(id), threadDraft); else localStorage.removeItem(threadDraftKey(id)) } catch { /* not kept */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadDraft])
   // A thread's box grows with what is written, as the channel's does: it stayed one line tall and scrolled from the
   // second line on.
   useEffect(() => {
@@ -2387,6 +2588,7 @@ export const ClassicList: React.FC<Props> = ({
       setThread((prev) => (prev && prev.parent.id === msg.parentId
         ? { ...prev, replies: msg.deleted ? prev.replies.filter((x) => x.id !== msg.id) : prev.replies.map((x) => (x.id === msg.id ? msg : x)) }
         : prev))
+      if (msg.alsoChannel) inConversationToo(channel, msg)
       return
     }
     setMessages((prev) => {
@@ -2415,10 +2617,31 @@ export const ClassicList: React.FC<Props> = ({
       return null
     }
   }
+  /// A message changed here, wherever it is drawn: in the conversation, or
+  /// in the thread open beside it.
+  const patchMessage = (channel: string, id: string, fn: (m: ChannelMessage) => ChannelMessage) => {
+    setThread((prev) => (prev ? { ...prev, parent: prev.parent.id === id ? fn(prev.parent) : prev.parent, replies: prev.replies.map((x) => (x.id === id ? fn(x) : x)) } : prev))
+    setMessages((prev) => (prev[channel]?.some((x) => x.id === id) ? { ...prev, [channel]: prev[channel].map((x) => (x.id === id ? fn(x) : x)) } : prev))
+  }
+  /// Reactions on their way: one press of a pill is one toggle, however
+  /// often it is pressed while it goes.
+  const reacting = useRef(new Set<string>())
+  /// A reaction shows the moment it is pressed — faded until the server has
+  /// it — and is put back as it was, with why, if the server does not (#221).
   const react = (channel: string, m: ChannelMessage, emoji: string) => {
+    const key = `${m.id}|${emoji}`
+    if (reacting.current.has(key) || isTemp(m)) return
+    reacting.current.add(key)
     // Adding one (not taking yours back) makes it a recent one.
     if (!m.reactions?.some((r) => r.emoji === emoji && r.mine)) rememberEmoji(emoji)
-    void act('POST', '/channels/reactions', channel, { messageId: m.id, emoji })
+    const me = members.find((x) => x.mine)?.ref
+    const pending = (x: ChannelMessage, on: boolean) => ({ ...x, reactionsPending: on ? [...new Set([...(x.reactionsPending || []), emoji])] : (x.reactionsPending || []).filter((e) => e !== emoji) })
+    patchMessage(channel, m.id, (x) => pending({ ...x, reactions: toggleReaction(x.reactions, emoji, me) }, true))
+    void act('POST', '/channels/reactions', channel, { messageId: m.id, emoji }).then((done) => {
+      reacting.current.delete(key)
+      // The server's copy is drawn already (act); if it did not go, back.
+      if (!done) patchMessage(channel, m.id, (x) => pending({ ...x, reactions: toggleReaction(x.reactions, emoji, me) }, false))
+    })
   }
   const saveEdit = async (channel: string) => {
     if (!editing) return
@@ -2497,6 +2720,7 @@ export const ClassicList: React.FC<Props> = ({
     if (!res?.ok) return { gone: false, error: (typeof data.message === 'string' && data.message) || t('That did not work. Try again.') }
     if (data.message && typeof data.message === 'object') replaceMessage(channel, data.message as ChannelMessage)
     // Gone here at once, and its thread with it.
+    if (m.alsoChannel) setMessages((prev) => (prev[channel] ? { ...prev, [channel]: prev[channel].filter((x) => x.id !== m.id) } : prev))
     if (!m.parentId) {
       setMessages((prev) => (prev[channel] ? { ...prev, [channel]: prev[channel].filter((x) => x.id !== m.id) } : prev))
       setThread((prev) => (prev && prev.parent.id === m.id ? null : prev))
@@ -2560,13 +2784,20 @@ export const ClassicList: React.FC<Props> = ({
     }
   })
   const togglePin = (channel: string, m: ChannelMessage) => void act('POST', '/channels/pins', channel, { messageId: m.id, pinned: !m.pinned })
-  const openThread = async (channel: string, m: ChannelMessage) => {
+  const openThread = async (channel: string, m: ChannelMessage): Promise<void> => {
+    // A reply shown in the conversation opens the thread it is in.
+    if (m.parentId) {
+      const head = (messagesRef.current[channel] || []).find((x) => x.id === m.parentId)
+      return openThread(channel, head || { id: m.parentId, channel, kind: m.threadParent?.kind || 'message', body: m.threadParent?.excerpt || '', authorName: m.threadParent?.authorName || null, authorRef: m.threadParent?.authorRef || null, createdAt: m.createdAt } as ChannelMessage)
+    }
     setDetailId(null)
     setProfile(null)
-    setThread((prev) => ({ channel, parent: m, replies: prev && prev.parent.id === m.id ? prev.replies.filter(isTemp) : [] }))
-    setThreadDraft('')
+    // The replies read last time, at once; the server's, when they come.
+    const kept = views.get<ChannelMessage[]>(`thread:${channel}:${m.id}`) || []
+    setThread((prev) => ({ channel, parent: m, replies: prev && prev.parent.id === m.id ? keepTemps(kept, prev.replies) : kept, loading: true }))
     const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(m.id)}`, { headers: authHeaders }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) : null
+    if (!data) setThread((prev) => (prev && prev.parent.id === m.id ? { ...prev, loading: false, failed: true } : prev))
     // Replies of yours still on their way, or that did not go — sent while
     // it was open before, or before this page loaded — back in it.
     const back = data ? heldFor(channel, m.id, data.replies || []) : []
@@ -2587,7 +2818,6 @@ export const ClassicList: React.FC<Props> = ({
     const data = res?.ok ? await res.json().catch(() => null) : null
     if (!data?.parent) { setThread(null); return }
     threadInActivity.current = true
-    setThreadDraft('')
     const back = heldFor(channel, parentId, data.replies || [])
     setThread((prev) => ({ channel, parent: data.parent, replies: withHeld(keepTemps(data.replies || [], prev && prev.parent.id === parentId ? prev.replies : undefined), back) }))
     markThreadRead(channel, parentId)
@@ -2655,6 +2885,7 @@ export const ClassicList: React.FC<Props> = ({
   // signals at once; a moment's wait makes them one.
   const resyncNow = useRef<() => void>(() => {})
   resyncNow.current = () => {
+    messageCache.invalidate()
     setChannelsTick((n) => n + 1)
     if (view) void loadMessages(view)
     if (thread) {
@@ -3751,14 +3982,14 @@ export const ClassicList: React.FC<Props> = ({
   /// Drafts & sent: what you started writing and left, each where it
   /// waits, and what you said, newest first — as a chat client keeps them.
   const draftList = () => Object.keys(drafts).filter((v) => drafts[v]).flatMap((v) => {
-    const th = everything.find((x) => x.view === v)
+    const th = everything.find((x) => isDraftOf(x, v))
     let text = ''
     try { text = localStorage.getItem(draftKey(v)) || '' } catch { /* none kept */ }
     return th && text ? [{ view: v, th, text }] : []
   })
   const discardDraft = (v: string) => {
     try { localStorage.removeItem(draftKey(v)) } catch { /* nothing kept */ }
-    if (current?.view === v) setDraft('')
+    if (draftId === v) setDraft('')
     setDrafts((prev) => { const next = { ...prev }; delete next[v]; return next })
   }
   const sentView = () => {
@@ -3834,7 +4065,10 @@ export const ClassicList: React.FC<Props> = ({
     const whoOf = (i: ActivityItem) => (i.type === 'reaction' ? (i.by || t('a teammate')) : i.message.kind === 'ai' ? t('Your AI') : (i.message.authorName || t('a teammate')))
     // A reply is in a thread, or inline to what you wrote.
     const verb = (i: ActivityItem) => (i.type === 'reaction' ? t('reacted') : i.type === 'reply' ? (i.message.parentId ? t('replied in a thread') : t('replied to you')) : i.type === 'keyword' ? t('said “{word}”', { word: i.keyword || '' }) : t('mentioned you'))
-    const items = (activityItems || []).filter((i) => activityTab === 'all' || i.unread || unreadShown.has(keyOf(i)))
+    const items = (activityItems || []).filter((i) => (activityTab === 'mentions' ? i.type === 'mention' : activityTab === 'all' || i.unread || unreadShown.has(keyOf(i))))
+    // Mentions: every @ of you, where it came from, and a way to clear them
+    // all at once without opening each conversation (#213).
+    const mentionsUnread = (activityItems || []).filter((i) => i.unread && i.type === 'mention')
     const picked = (activityItems || []).find((i) => keyOf(i) === activityPick) || null
     const open = (i: ActivityItem) => {
       markActivitySeen([keyOf(i)])
@@ -3862,15 +4096,20 @@ export const ClassicList: React.FC<Props> = ({
               <button type="button" role="tab" aria-selected={activityTab === 'unread'} onClick={() => { setUnreadShown(new Set((activityItems || []).filter((i) => i.unread).map(keyOf))); setActivityTab('unread') }} data-unread-tab="1">
                 {t('Unread')}{(activityItems || []).some((i) => i.unread) ? <span className="slk-inbox-count">{(activityItems || []).filter((i) => i.unread).length}</span> : null}
               </button>
+              <button type="button" role="tab" aria-selected={activityTab === 'mentions'} onClick={() => setActivityTab('mentions')} data-mentions-tab="1">
+                {t('Mentions')}{mentionsUnread.length ? <span className="slk-inbox-count">{mentionsUnread.length}</span> : null}
+              </button>
             </div>
-            {activityUnread > 0 && <button type="button" className="cl-nudge slk-mark-all" onClick={markAllActivityRead} data-mark-all="activity">{t('Mark all as read')}</button>}
+            {activityTab === 'mentions'
+              ? mentionsUnread.length > 0 && <button type="button" className="cl-nudge slk-mark-all" onClick={() => markActivitySeen(mentionsUnread.map(keyOf))} data-mark-all="mentions">{t('Mark mentions as read')}</button>
+              : activityUnread > 0 && <button type="button" className="cl-nudge slk-mark-all" onClick={markAllActivityRead} data-mark-all="activity">{t('Mark all as read')}</button>}
           </header>
           <div className="slk-inbox-rows slk-activity" ref={activityRows}>
             {activityItems === null && <p className="slk-empty">{t('Loading…')}</p>}
             {activityItems && items.length === 0 && (
               <div className="slk-start">
                 <span className="cl-lead cl-app sz-head" aria-hidden="true"><Icon name="bell" size={18} /></span>
-                <h2>{activityTab === 'unread' ? t('All caught up') : t('Nothing for you yet')}</h2>
+                <h2>{activityTab === 'unread' ? t('All caught up') : activityTab === 'mentions' ? t('No mentions') : t('Nothing for you yet')}</h2>
                 <p>{t('When somebody writes @ your name, replies in a thread you are part of, or reacts to what you wrote, it shows up here.')}</p>
               </div>
             )}
@@ -3960,14 +4199,33 @@ export const ClassicList: React.FC<Props> = ({
 
   /// A thread's messages and the box to answer in: in the pane beside a
   /// conversation, and in Activity when what you picked is part of one.
-  const threadBody = (thread: { channel: string; parent: ChannelMessage; replies: ChannelMessage[] }) => (
+  /// The thread's count as the line under its first message says it: what
+  /// is drawn — or, while the replies are still being read, the count the
+  /// conversation already showed, with "Loading…" (#216). An empty thread
+  /// says so only once it is known to be empty.
+  const threadCount = (thread: { channel: string; parent: ChannelMessage; replies: ChannelMessage[]; loading?: boolean; failed?: boolean }) => {
+    const drawn = thread.replies.length
+    const known = Math.max(drawn, thread.parent.replyCount || 0)
+    const n = thread.loading || thread.failed ? known : drawn
+    const words = n === 1 ? t('1 reply') : t('{n} replies', { n })
+    if (thread.loading && drawn < known) return <span aria-busy="true">{words} · {t('Loading…')}</span>
+    if (thread.failed) {
+      return (
+        <span>{words} · {t("Couldn't load the replies.")}{' '}
+          <button type="button" className="slk-link-button" onClick={() => void openThread(thread.channel, thread.parent)}>{t('Try again')}</button>
+        </span>
+      )
+    }
+    return <span>{words}</span>
+  }
+  const threadBody = (thread: { channel: string; parent: ChannelMessage; replies: ChannelMessage[]; loading?: boolean; failed?: boolean }) => (
     <>
           <div className="slk-thread-log" tabIndex={0} role="region" aria-label={t('Messages')}
             onKeyDown={logKeys(thread.channel, [thread.parent, ...thread.replies], threadComposer, true)} onMouseDown={unpick} onFocus={pickLog}>
             {[thread.parent, ...thread.replies].map((m, i) => (
               <React.Fragment key={keyOf(m)}>
                 {block(keyOf(m), {
-                  joined: false, at: m.createdAt, app: m.kind === 'ai' ? 'ai' : '', badge: m.kind === 'ai' ? t('AI') : m.kind === 'agent' ? t('Agent') : undefined,
+                  joined: false, at: m.createdAt, app: m.kind === 'ai' ? 'ai' : '', badge: m.kind === 'ai' ? t('AI') : m.kind === 'agent' ? (m.onBehalfOf?.name ? t("{name}'s agent", { name: m.onBehalfOf.name }) : t('Agent')) : undefined,
                   name: whoSaid(m),
                   face: m.kind !== 'ai' ? faceOfMessage(m) : null,
                   authorRef: m.mine ? null : m.authorRef,
@@ -3976,13 +4234,14 @@ export const ClassicList: React.FC<Props> = ({
                 }, (
                   <>
                     {words(thread.channel, m)}
+                    {i > 0 && m.alsoChannel && <div className="slk-also-sent" data-also-sent={m.id}>{t('Also sent to the conversation')}</div>}
                     {m.cardId && cardsById.get(m.cardId) && attachment(cardsById.get(m.cardId)!)}
                     {underneath(thread.channel, m, true)}
                   </>
                 ))}
                 {i === 0 && (
                   <div className="slk-thread-count" role="separator">
-                    <span>{thread.replies.length === 1 ? t('1 reply') : t('{n} replies', { n: thread.replies.length })}</span>
+                    {threadCount(thread)}
                   </div>
                 )}
               </React.Fragment>
@@ -4015,9 +4274,16 @@ export const ClassicList: React.FC<Props> = ({
             />
             {threadMention.menu}
             <div className="slk-composer-bar">
-              <button type="button" className="slk-attach" onClick={() => threadAttachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>
+              <button type="button" className="slk-attach-btn" onClick={() => threadAttachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>
               <input ref={threadAttachInput} type="file" multiple hidden onChange={(e) => { const files = [...(e.target.files || [])]; e.target.value = ''; if (files.length) threadUploads.add(files, thread.channel) }} />
               <FormatBar target={threadComposer} value={threadDraft} set={setThreadDraft} />
+              <label className="slk-also-channel" data-also-channel="1">
+                <input type="checkbox" checked={threadAlso} onChange={(e) => setThreadAlso(e.target.checked)} />
+                <span>{(() => {
+                  const where = everything.find((x) => x.view === thread.channel)
+                  return where?.kind === 'channel' ? t('Also send to {where}', { where: `#${where.name}` }) : t('Also send to the conversation')
+                })()}</span>
+              </label>
               <span className="slk-composer-hint" />
               <button type="submit" className="slk-send" disabled={threadUploads.busy || (!threadDraft.trim() && !threadUploads.ids.length)} aria-label={t('Send')}>
                 <Icon name="send" size={16} />
@@ -4143,10 +4409,13 @@ export const ClassicList: React.FC<Props> = ({
           const name = whoSaid(m)
           // A reply always shows whose it is, under the line it quotes.
           const quote = m.replyTo && !m.deleted ? m.replyTo : null
+          // A thread reply sent here too says which thread it answers.
+          const fromThread = !quote && m.parentId && m.alsoChannel && m.threadParent && !m.deleted ? m.threadParent : null
           out.push(block(keyOf(m), {
-            joined: joined && !m.pinned && !quote, at: m.createdAt, app: '', name, face: faceOfMessage(m), badge: m.kind === 'agent' ? t('Agent') : undefined, msgId: m.id, pinned: m.pinned, authorRef: m.mine ? null : m.authorRef,
+            joined: joined && !m.pinned && !quote && !fromThread, at: m.createdAt, app: '', name, face: faceOfMessage(m), badge: m.kind === 'agent' ? (m.onBehalfOf?.name ? t("{name}'s agent", { name: m.onBehalfOf.name }) : t('Agent')) : undefined, msgId: m.id, pinned: m.pinned, authorRef: m.mine ? null : m.authorRef,
             mentionsMe: callsMe(m), tools: toolsFor(thread.view!, m), onHold: holdFor(thread.view!, m), onMenu: menuFor(thread.view!, m), state: tempState(m),
-            quote: quote && <ReplyQuoteLine quote={quote} name={quoteName(quote)} onJump={() => void goToQuoted(thread.view!, quote.id)} />,
+            quote: quote ? <ReplyQuoteLine quote={quote} name={quoteName(quote)} onJump={() => void goToQuoted(thread.view!, quote.id)} />
+              : fromThread ? <ThreadReplyLine quote={fromThread} onOpen={() => void openThread(thread.view!, m)} /> : undefined,
           }, (
             <>
               {words(thread.view!, m)}
@@ -4575,7 +4844,7 @@ export const ClassicList: React.FC<Props> = ({
             {mention.menu}
             <SlashMenu draft={draft} onPick={(name) => { setDraft(`/${name} `); composer.current?.focus() }} />
             <div className="slk-composer-bar">
-              <button type="button" className="slk-attach" onClick={() => attachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>
+              <button type="button" className="slk-attach-btn" onClick={() => attachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>
               <input ref={attachInput} type="file" multiple hidden data-attach="1" onChange={(e) => { const files = [...(e.target.files || [])]; e.target.value = ''; if (files.length) uploads.add(files, thread.view!) }} />
               <FormatBar target={composer} value={draft} set={setDraft} />
               <span className="slk-composer-hint">{t('Enter to send · @AI to ask · ✦ makes it a decision · / for commands')}</span>
@@ -4943,7 +5212,7 @@ export const ClassicList: React.FC<Props> = ({
         )
       })()}
       {rowMenu && rowMenu.thread.view && (
-        <RowMenu at={{ x: rowMenu.x, y: rowMenu.y }} label={rowMenu.thread.name} entries={rowMenuEntries(rowMenu.thread)} onClose={closeRowMenu} />
+        <RowMenu anchor={rowMenu.anchor} at={{ x: rowMenu.x, y: rowMenu.y }} label={rowMenu.thread.name} entries={rowMenuEntries(rowMenu.thread)} onClose={closeRowMenu} />
       )}
       {msgMenu && (() => {
         const { channel, m, inThread, x, y, anchor } = msgMenu
@@ -5098,7 +5367,9 @@ export const ClassicList: React.FC<Props> = ({
             <h2>{t('Profile')}</h2>
             <button className="slk-pane-close" onClick={() => setProfile(null)} aria-label={t('Close')}><Icon name="x" size={16} /></button>
           </header>
-          {!profile.data ? <p className="slk-empty">{t('Loading…')}</p> : (() => {
+          {!profile.data ? (profile.failed
+            ? <p className="slk-empty">{t("Couldn't load this profile.")} <button type="button" className="slk-link-button" onClick={() => void openProfile(profile.ref)}>{t('Try again')}</button></p>
+            : <p className="slk-empty">{t('Loading…')}</p>) : (() => {
             const p = profile.data
             const local = localTime(p.timezone, Date.now(), locale)
             const status = statusShown(p.status, Date.now())
@@ -5164,7 +5435,11 @@ export const ClassicList: React.FC<Props> = ({
           )
       )}
       {!detail && thread && !(activityOpen && wide) && (
-        <aside className="slk-pane slk-thread-pane" aria-label={t('Thread')}>
+        <aside className={`slk-pane slk-thread-pane${threadDropping ? ' slk-dropping' : ''}`} aria-label={t('Thread')}
+          // Files dropped on the thread are the reply's, not the conversation's.
+          onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.stopPropagation(); setThreadDropping(true) } }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setThreadDropping(false) }}
+          onDrop={(e) => { setThreadDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); e.stopPropagation(); threadUploads.add([...e.dataTransfer.files], thread.channel) } }}>
           <header className="slk-pane-head">
             <button className="slk-back pane" onClick={() => setThread(null)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
             <h2>{t('Thread')}</h2>

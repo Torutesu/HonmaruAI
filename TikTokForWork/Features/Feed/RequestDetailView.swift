@@ -61,7 +61,12 @@ struct RequestDetailView: View {
                             }
                         }
                         if let original = card.sourceInstruction, !original.isEmpty, original != card.summary { section("Original request", text: original) }
-                        if let videoURL = card.videoURL { CardVideoView(urlString: videoURL) }
+                        if let videoURL = card.videoURL {
+                            CardVideoView(urlString: videoURL) {
+                                guard let base = appState.backendBaseURL, let orgId = appState.currentUser?.teamID else { return nil }
+                                return try? await ChatService.cardVideoURL(orgId: orgId, cardId: card.id, base: base)
+                            }
+                        }
                         if service.awaitingDeliveryIDs.contains(card.id) {
                             Label("Waiting for workspace sync", systemImage: "arrow.triangle.2.circlepath").font(.subheadline).foregroundStyle(Theme.Colors.textSecondary)
                         }
