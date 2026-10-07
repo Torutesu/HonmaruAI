@@ -24,7 +24,9 @@ function server(start = 0) {
     }
     if (url.pathname.endsWith('/messages') && init?.method === 'POST') {
       const body = JSON.parse(String(init.body))
-      return new Response(JSON.stringify({ message: add(body.body) }), { status: 201 })
+      const m = add(body.body)
+      if (body.parentId) { m.parentId = body.parentId; if (body.alsoChannel) m.alsoChannel = true }
+      return new Response(JSON.stringify({ message: m }), { status: 201 })
     }
     if (url.pathname.endsWith('/messages')) {
       const after = url.searchParams.get('after'); const before = url.searchParams.get('before')
@@ -77,12 +79,65 @@ describe('ChannelSync', () => {
     const sync = new ChannelSync(new Api({ base: 'https://api.test', token: () => 'tok', fetch: s.fetchFn }), 'team:a', 'b:cafe')
     await sync.open()
     const seen: string[][] = []
-    sync.subscribe((st) => seen.push(st.messages.map((m) => (m.id.startsWith('pending:') ? 'pending' : m.id))))
+    sync.subscribe((st) => seen.push(st.messages.map((m) => (m.id.startsWith('tmp-') ? `pending:${m.sending?.state}` : m.id))))
     await sync.send('hello', 'aya')
-    expect(seen).toContainEqual(['m1', 'pending'])
+    expect(seen).toContainEqual(['m1', 'pending:pending'])
     expect(sync.snapshot.messages.map((m) => m.id)).toEqual(['m1', 'm2'])
+    // Drawn under the same key it was sent under, so the row carries on.
+    const sent = sync.snapshot.messages[1]
+    expect(sent.key).toMatch(/^tmp-[0-9a-z-]+$/)
+    expect(sent.sending).toBeUndefined()
     await sync.markRead()
     expect(s.reads).toEqual([2])
+  })
+
+  test('a send that does not reach the server stays, failed, and is sent again under the same id (#212)', async () => {
+    const s = server(1)
+    let down = true
+    const bodies: Array<{ clientId?: string }> = []
+    const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST' && String(input).endsWith('/messages')) {
+        bodies.push(JSON.parse(String(init.body)))
+        if (down) throw new TypeError('Network request failed')
+      }
+      return s.fetchFn(input, init)
+    }) as typeof fetch
+    const sync = new ChannelSync(new Api({ base: 'https://api.test', token: () => 'tok', fetch: fetchFn }), 'team:a', 'b:cafe')
+    await sync.open()
+    const err = await sync.send('on a train', 'aya').catch((e) => e)
+    expect(err.held).toBe(true)
+    const failed = sync.snapshot.messages[1]
+    expect(failed.sending).toMatchObject({ state: 'failed' })
+    expect(failed.body).toBe('on a train')
+    // Sent again: the same id, so a send that in fact landed is not posted twice.
+    down = false
+    const second = sync.send('then this', 'aya')
+    await sync.retry(err.clientId)
+    await second
+    expect(bodies[2].clientId).toBe(bodies[0].clientId)
+    expect(bodies[1].clientId).not.toBe(bodies[0].clientId)
+    expect(sync.snapshot.messages.map((m) => m.body)).toEqual(['m1', 'then this', 'on a train'])
+    expect(sync.snapshot.messages.every((m) => !m.sending)).toBe(true)
+  })
+
+  test('a failed send can be thrown away; one still on its way stays below the confirmed ones', async () => {
+    const s = server(0)
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    let first = true
+    const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST' && first) { first = false; await gate; throw new TypeError('offline') }
+      return s.fetchFn(input, init)
+    }) as typeof fetch
+    const sync = new ChannelSync(new Api({ base: 'https://api.test', token: () => 'tok', fetch: fetchFn }), 'team:a', 'b:cafe')
+    const slow = sync.send('slow', 'aya').catch((e) => e)
+    await sync.send('fast', 'aya')
+    // The later one is confirmed; the earlier one, still going, is below it, faded.
+    expect(sync.snapshot.messages.map((m) => [m.body, m.sending?.state || 'sent'])).toEqual([['fast', 'sent'], ['slow', 'pending']])
+    release()
+    const err = await slow
+    sync.discard(err.clientId)
+    expect(sync.snapshot.messages.map((m) => m.body)).toEqual(['fast'])
   })
 
   test('a send the server refuses is taken back and says why', async () => {
@@ -103,5 +158,21 @@ describe('Api', () => {
     const err = await api.me().catch((e) => e)
     expect(err).toBeInstanceOf(ApiError)
     expect(err).toMatchObject({ status: 429, message: 'Slow down.', retryAfter: 30 })
+  })
+
+  test('a thread reply is sent under its parent, to the conversation too when asked, and threads are read from the channel', async () => {
+    const { inConversation, replyStats, threadOf } = await import('../src/threads')
+    const s = server(1)
+    const sync = new ChannelSync(new Api({ base: 'https://api.test', token: () => 'tok', fetch: s.fetchFn }), 'team:a', 'b:cafe')
+    await sync.open()
+    const parent = sync.snapshot.messages[0]
+    await sync.send('in the thread', 'aya', { parentId: parent.id })
+    await sync.send('in both', 'aya', { parentId: parent.id, alsoChannel: true })
+    await sync.send('top level', 'aya')
+    const all = sync.snapshot.messages
+    expect(inConversation(all).map((m) => m.body)).toEqual(['m1', 'in both', 'top level'])
+    expect(replyStats(all).get(parent.id)?.count).toBe(2)
+    expect(threadOf(all, parent.id)?.replies.map((m) => m.body)).toEqual(['in the thread', 'in both'])
+    expect(threadOf(all, 'nope')).toBeNull()
   })
 })

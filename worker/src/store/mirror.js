@@ -30,7 +30,7 @@ export function dualWriting(orgId, e = env) {
 }
 
 const stub = (e, orgId) => e.WORKSPACE.get(e.WORKSPACE.idFromName(orgId));
-const COLUMNS = "id, channel, author_login, kind, body, parent_id, created_at, edited_at, deleted_at";
+const COLUMNS = "id, channel, author_login, kind, body, parent_id, created_at, edited_at, deleted_at, also_channel";
 
 /// These messages, as D1 has them now, into the workspace's object.
 export async function mirrorIds(db, orgId, ids, e = env) {

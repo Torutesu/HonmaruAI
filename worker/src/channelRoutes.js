@@ -13,6 +13,8 @@ import { listMembers } from "./team.js";
 import { allowed } from "./permissions.js";
 import { resolveMentions } from "./threads.js";
 import { teammateForAgent, startTeammateRun, loadTeammate, readRun, settleRun, openRuns, canSignIn } from "./teammates.js";
+import { answerAsProxies, proxyTeammateAnswer, getProxy, saveProxy, mentionedPeople } from "./proxy.js";
+import { autoBuild } from "./autoBuild.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards, announceEvents, announceTo } from "./announce.js";
 import { localizeForRecipient } from "./localize.js";
@@ -42,7 +44,7 @@ import { audit, person } from "./audit.js";
 import { getCanvas, toClientCanvas, listRevisions, getRevision, saveCanvas, draftCanvas } from "./canvas.js";
 import { listBookmarks, toClientBookmark, addBookmark, editBookmark, removeBookmark } from "./bookmarks.js";
 import {
-  listAgents, saveAgent, deleteAgent, toClientAgent, agentsHere, channelAgents, agentChannels, agentTalkFilter, addChannelAgent, removeChannelAgent, presetsFor, agentsCalled, requestFor, askAgent, contextFor, playbookFor, setAgentAvatar, MAX_CALLED,
+  listAgents, saveAgent, deleteAgent, toClientAgent, agentsHere, channelAgents, agentChannels, agentTalkFilter, addChannelAgent, removeChannelAgent, presetsFor, agentsCalled, requestFor, askAgent, contextFor, respondingAgents, playbookFor, setAgentAvatar, MAX_CALLED,
 } from "./customAgents.js";
 import { readImage } from "./userAvatar.js";
 import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
@@ -172,10 +174,13 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
       // Talk with the agents is not part of it: calling @hayao, and what
       // it answered, is research, not what the team is deciding.
       const skip = await agentTalkFilter(env.DB, orgId);
-      const transcript = await transcriptUpTo(env.DB, orgId, resolved.key, row.created_at, { skip: (r) => r.created_at !== row.created_at && skip(r) });
+      const transcript = await transcriptUpTo(env.DB, orgId, resolved.key, row.created_at, { threadId: row.parent_id || null, throughId: row.id, skip: (r) => r.id !== row.id && r.id !== row.parent_id && skip(r) });
       context = `Conversation in ${where} leading to this request (oldest first):\n${transcript.join("\n")}`;
     }
-    if (context.length > 3800) context = `…${context.slice(context.length - 3800)}`;
+    if (context.length > 3800) {
+      const root = row.parent_id && !clipped ? context.split("\n").slice(0, 2).join("\n") + "\n" : "";
+      context = `${root}…${context.slice(context.length - (3799 - root.length))}`;
+    }
 
     // Whoever the message names decides; in a direct conversation with
     // nobody named, the other person does.
@@ -301,7 +306,10 @@ export async function answerAsAI(env, { orgId, session, user, resolved, row, mem
     const allowance = provider ? await allowanceFor(env, orgId, { githubId: String(session.github_id) }) : null;
     if (!provider) { await say(serverText(locale, "agent.noModel")); return false; }
     if (!allowance.allowed) { await say(serverText(locale, "agent.quota")); return false; }
-    const [transcript, playbook] = await Promise.all([contextFor(env.DB, orgId, resolved.key, row), playbookFor(env.DB, orgId, row.body)]);
+    // @AI is the workspace's own assistant: called from the conversation,
+    // it reads what the conversation was just saying ("@AI 今の話を要約して").
+    // A thread is still only its thread.
+    const [transcript, playbook] = await Promise.all([contextFor(env.DB, orgId, resolved.key, row, { whole: true }), row.parent_id ? [] : playbookFor(env.DB, orgId, row.body)]);
     let links = "";
     try {
       const urls = linksIn(row.body).length ? linksIn(row.body) : linksIn(transcript.slice(-6).join("\n"));
@@ -357,17 +365,11 @@ async function callableAgents(db, orgId, login, members) {
   return out;
 }
 
-export async function answerAsAgents(env, { orgId, session, user, resolved, row, members, locale }) {
-  let agents;
+export async function answerAsAgents(env, { orgId, session, user, resolved, row, members, locale, agents = null }) {
   try {
-    // Their own agents, and the ones added to this channel.
-    agents = agentsCalled(row.body, await agentsHere(env.DB, orgId, user.login, resolved.key));
-    // In a conversation with an agent, everything said is said to it: it
-    // answers without being named, in the conversation, not a thread.
-    if (resolved.kind === "agent" && !agents.some((a) => a.id === resolved.agent.id)) {
-      const own = (await listAgents(env.DB, orgId, user.login)).find((a) => a.id === resolved.agent.id);
-      if (own) agents = [own, ...agents].slice(0, MAX_CALLED);
-    }
+    // Who answers (respondingAgents): the agents named, the one this
+    // conversation or thread is with — worked out once, by the caller.
+    agents = agents || await respondingAgents(env.DB, { orgId, login: user.login, resolved, row });
   } catch (err) {
     console.error("agents lookup failed", safe(err?.message));
     return 0;
@@ -392,6 +394,14 @@ export async function answerAsAgents(env, { orgId, session, user, resolved, row,
   return runAgents(env, { orgId, session, user, resolved, row, members, locale, agents });
 }
 
+/// Whether every agent called is one the person wrote themselves. Agents
+/// come from listAgents as `ownerLogin`; this read `owner_login`, which they
+/// never carry, so no agent was ever anyone's own and an app's writing
+/// tools were never offered — not even to your own agent.
+export function allOwnAgents(agents, login) {
+  return Boolean(login) && agents.length > 0 && agents.every((a) => (a.ownerLogin ?? a.owner_login) === login);
+}
+
 /// The agents' answers, side by side: each reads the conversation,
 /// researches with its tools, and answers as itself when it is ready.
 export async function runAgents(env, { orgId, session, user, resolved, row, members, locale, agents }) {
@@ -410,13 +420,13 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   const provider = await providerFor(env, orgId);
   const allowance = provider ? await allowanceFor(env, orgId, { githubId: String(session.github_id) }) : null;
   const [transcript, playbook] = provider && allowance?.allowed
-    ? await Promise.all([contextFor(env.DB, orgId, resolved.key, row), playbookFor(env.DB, orgId, row.body)])
+    ? await Promise.all([contextFor(env.DB, orgId, resolved.key, row, { whole: resolved.kind === "agent" }), row.parent_id ? [] : playbookFor(env.DB, orgId, row.body)])
     : [[], []];
   // Research, in a conversation with the agent only: past decisions and
   // what this person's connected tools hold are theirs to read, and would
   // be somebody else's to read if the answer went into a shared channel.
   let research = "";
-  if (resolved.kind === "agent" && provider && allowance?.allowed) {
+  if (!row.parent_id && resolved.kind === "agent" && provider && allowance?.allowed) {
     try {
       const terms = searchTermsFor(row.body, null);
       const available = await connectedSources(env, session, orgId);
@@ -449,10 +459,10 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   // conversation, the team's decisions and this person's tools too.
   const tools = provider && allowance?.allowed
     ? await agentTools(env, {
-      orgId, session, language: locale, personal: resolved.kind === "agent",
+      orgId, session, language: locale, personal: resolved.kind === "agent" && !row.parent_id,
       // An app that may write does so only for agents the person wrote
       // themselves: a teammate's agent's instructions never steer it.
-      ownAgentsOnly: agents.every((a) => a.owner_login === user.login),
+      ownAgentsOnly: allOwnAgents(agents, user.login),
     }).catch(() => ({}))
     : {};
   let answered = 0;
@@ -539,7 +549,7 @@ async function runTeammate(env, { orgId, user, resolved, row, members, locale, a
   if (!t) return say("teammate.off");
   let started;
   try {
-    const transcript = await contextFor(env.DB, orgId, resolved.key, row).catch(() => []);
+    const transcript = await contextFor(env.DB, orgId, resolved.key, row, { whole: resolved.kind === "agent" }).catch(() => []);
     const where = resolved.kind === "business" ? `the #${resolved.slug} channel` : resolved.kind === "agent" ? "a direct conversation with you" : "a direct conversation";
     started = await startTeammateRun(env, {
       orgId, t, key: resolved.key, threadId: parentId || "-", where, askedBy: user.name || "a teammate",
@@ -588,9 +598,15 @@ async function postTeammateResult(env, run, t, read, status) {
   else body = words || (read.error ? serverText(locale, "teammate.stopped") : serverText(locale, "teammate.done"));
   const agentId = t?.agentId;
   if (!agentId) return;
+  // Working for a person who was mentioned: what it would post outside the
+  // chat waits on that person (proxy.js), and the answer reads as theirs.
+  if (run.on_behalf_of) {
+    body = await proxyTeammateAnswer(env, { orgId: run.org_id, run, body, agentLogin: `agent:${agentId}` })
+      .catch((err) => { console.error("proxy answer failed", safe(err?.message)); return body; });
+  }
   const out = await postMessage(env.DB, {
     orgId: run.org_id, key: run.channel, authorLogin: `agent:${agentId}`, body: body.length > MAX_MESSAGE_CHARS ? `${body.slice(0, MAX_MESSAGE_CHARS - 1)}…` : body, kind: "agent",
-    parentId: run.thread_id === "-" ? null : run.thread_id,
+    parentId: run.thread_id === "-" ? null : run.thread_id, onBehalfOf: run.on_behalf_of || null,
   });
   if (out.row) await broadcastStored(env, run.org_id, run.channel, out.row);
 }
@@ -932,6 +948,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     // An inline reply: the message it answers (postMessage checks it is here).
     const replyTo = typeof body.replyTo === "string" && body.replyTo ? body.replyTo : null;
     if (replyTo && body.sendAt) return json({ message: "A scheduled message cannot be a reply yet." }, 400);
+    // A thread reply can go to the conversation as well; anything else is
+    // in the conversation already.
+    const alsoChannel = Boolean(parentId) && body.alsoChannel === true;
     // The workspace's data rules read it before it is kept, sent now or later.
     const attached = Array.isArray(body.files) && body.files.length
       ? await attachedTexts(env, { orgId, key: resolved.key, login: who.user.login, ids: body.files, githubId: who.session.github_id }).catch(() => [])
@@ -940,7 +959,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (stopped) return stopped;
     // Written now, sent later.
     if (body.sendAt) {
-      const sched = await scheduleMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: body.body, parentId, sendAt: body.sendAt });
+      const sched = await scheduleMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: body.body, parentId, sendAt: body.sendAt, alsoChannel });
       if (sched.error) return json({ message: sched.error }, 400);
       return json({ scheduled: { ...sched.scheduled, channel: view } }, 201);
     }
@@ -951,7 +970,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       return json({ message: "That send cannot be tried again." }, 400);
     }
     const clientId = typeof body.clientId === "string" && body.clientId ? body.clientId : null;
-    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId, replyTo, withFiles, clientId });
+    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId, replyTo, withFiles, clientId, alsoChannel });
     if (out.error) return json({ message: out.error, ...(out.code ? { code: out.code } : {}) }, out.status || 400);
     if (out.replay) {
       const [message] = await present(env.DB, orgId, [out.row], who.user.login, view, members);
@@ -960,8 +979,13 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (withFiles) await attachFiles(env.DB, { orgId, key: resolved.key, login: who.user.login, messageId: out.row.id, ids: fileIds });
     // A message to an agent is the agent's to do: it never becomes a card
     // for a person, whatever else it says.
-    const toAgent = resolved.kind === "agent"
-      || agentsCalled(out.row.body, await agentsHere(env.DB, orgId, who.user.login, resolved.key).catch(() => [])).length > 0;
+    //
+    // One kind of answer to a message, never several at once: the agents
+    // it names (or the one its thread is talking with) — else @AI — else
+    // the agents of the people it names — else Claude on an issue or a
+    // report. Nothing answers that nobody called.
+    const responders = await respondingAgents(env.DB, { orgId, login: who.user.login, resolved, row: out.row }).catch(() => []);
+    const toAgent = resolved.kind === "agent" || responders.length > 0;
     // A card only when asked for one: sent as a decision, or "@AI" asked,
     // in words, for an approval or a card. Any other "@AI" is a question,
     // and the AI answers it in the thread.
@@ -979,10 +1003,25 @@ export async function handleChannels(request, env, url, { route, after }) {
         await decideFromMessage(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, route, locale });
       }
       if (wantsAnswer) await answerAsAI(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, locale });
-      await answerAsAgents(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, locale });
+      if (responders.length) await answerAsAgents(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, locale, agents: responders });
+      // The people it names who let their agent answer for them — when no
+      // agent and no @AI is answering it already.
+      if (!toAgent && !wantsDecision && !wantsAnswer) {
+        await answerAsProxies(env, { orgId, resolved, row: out.row, members, locale })
+          .catch((err) => console.error("proxies failed", safe(err?.message)));
+      }
+      // An issue link or a bug report: Claude starts on it on its own —
+      // unless the message is already an agent's, the AI's or a person's
+      // to answer.
+      const named = mentionedPeople(out.row.body, members, who.user.login).length > 0;
+      await autoBuild(env, {
+        orgId, resolved, row: out.row, user: who.user, members, locale,
+        skip: toAgent || wantsDecision || wantsAnswer || named,
+        deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000),
+      }).catch((err) => console.error("auto-build failed", safe(err?.message)));
     });
     // What you said, you have read.
-    if (!parentId) await markRead(env.DB, orgId, who.user.login, resolved.key, out.row.created_at);
+    if (!parentId || alsoChannel) await markRead(env.DB, orgId, who.user.login, resolved.key, out.row.created_at);
     const [message] = await present(env.DB, orgId, [out.row], who.user.login, view, members);
     // A reply comes back with its parent as it now stands — its count said
     // outright, so a client never adds one to a number the live event may
@@ -1206,9 +1245,17 @@ export async function handleChannels(request, env, url, { route, after }) {
     const rows = (await Promise.all(ids.map((id) => getMessage(env.DB, body.orgId, id)))).filter((r) => r && r.channel === ctx.resolved.key);
     const provider = await providerFor(env, body.orgId);
     const allowance = provider ? await allowanceFor(env, body.orgId, { githubId: String(ctx.who.session.github_id) }) : null;
-    const { byId } = await translateMessages(env.DB, body.orgId, rows, { locale, provider, allowance });
-    if (provider) await settleUsage(env.DB, provider, { orgId: body.orgId, githubId: ctx.who.session.github_id });
-    return json({ translations: byId, locale });
+    // What could not be translated says why (translateMessages), so the
+    // reader's screen tells "no translator here" from "it failed, try again".
+    let out;
+    try {
+      out = await translateMessages(env.DB, body.orgId, rows, { locale, provider, allowance });
+    } catch (err) {
+      console.error("translate failed", safe(err?.message));
+      return json({ message: "Translation failed on the server.", code: "translate_failed" }, 502);
+    }
+    if (provider) await settleUsage(env.DB, provider, { orgId: body.orgId, githubId: ctx.who.session.github_id }).catch(() => {});
+    return json({ translations: out.byId, failed: out.failed || {}, locale });
   }
 
   // An agent brought into a channel or a group, or taken out of it. Anyone
@@ -1312,19 +1359,28 @@ export async function handleChannels(request, env, url, { route, after }) {
 
   // A reaction, on or off.
   if (path === "/channels/reactions" && request.method === "POST") {
+    // Timed by phase and said in Server-Timing (#221): a reaction reported
+    // to take ten seconds shows, in the browser's network panel, whether
+    // it was the sign-in, the channel, the write or the answer.
+    const t0 = Date.now();
     const limited = await enforce(env, request, "chat");
     if (limited) return limited;
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object" || typeof body.messageId !== "string") return json({ message: "Invalid JSON body." }, 400);
     const ctx = await inChannel(env, request, body);
     if (ctx.denied) return ctx.denied;
+    const tAuth = Date.now();
     const current = await getMessage(env.DB, body.orgId, body.messageId);
     if (!current || current.channel !== ctx.resolved.key) return json({ message: "No such message." }, 404);
-    const out = await toggleReaction(env.DB, { orgId: body.orgId, id: body.messageId, login: ctx.who.user.login, emoji: body.emoji });
+    const out = await toggleReaction(env.DB, { orgId: body.orgId, id: body.messageId, login: ctx.who.user.login, emoji: body.emoji, row: current });
     if (out.error) return json({ message: out.error }, out.status || 400);
+    const tWrite = Date.now();
     after(() => broadcast(env, body.orgId, ctx.resolved, out.row, ctx.members));
     const [message] = await present(env.DB, body.orgId, [out.row], ctx.who.user.login, ctx.view, ctx.members);
-    return json({ message });
+    const tDone = Date.now();
+    const res = json({ message });
+    res.headers.set("server-timing", `auth;dur=${tAuth - t0}, write;dur=${tWrite - tAuth}, present;dur=${tDone - tWrite}, total;dur=${tDone - t0}`);
+    return res;
   }
 
   // The canvas: one shared document per conversation.
@@ -1465,6 +1521,19 @@ export async function handleChannels(request, env, url, { route, after }) {
     const locale = who.user.locale || "en";
     after(() => decideFromMessage(env, { orgId: body.orgId, session: who.session, user: who.user, resolved, row, members, route, locale }));
     return json({ deciding: true }, 202);
+  }
+  // Your agent, answering for you when you are mentioned (proxy.js).
+  if (path === "/channels/proxy" && (request.method === "GET" || request.method === "PUT")) {
+    const body = request.method === "GET" ? { orgId: url.searchParams.get("orgId") } : await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+    const who = await caller(env, request, body.orgId);
+    if (who.denied) return who.denied;
+    if (request.method === "GET") return json({ proxy: await getProxy(env.DB, body.orgId, who.user.login) });
+    if (await isGuest(env.DB, body.orgId, who.session.github_id)) return json({ message: "A guest cannot have an agent answer for them." }, 403);
+    const members = await listMembers(env.DB, body.orgId, who.session.github_id);
+    const out = await saveProxy(env.DB, body.orgId, who.user, body, members);
+    if (out.error) return json({ message: out.error }, out.status || 400);
+    return json(out);
   }
   // Your status, and being away with somebody deciding for you.
   if (path === "/channels/status" && request.method === "PUT") {

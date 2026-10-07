@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UIKit
 
 /// A thread, as a sheet over the conversation: the message, its replies,
 /// and a composer that answers under it.
@@ -7,7 +9,15 @@ struct ChatThreadSheet: View {
     let onOpenCard: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var draft = ""
+    /// "Also send to the conversation": for the next reply only.
+    @State private var alsoChannel = false
+    @State private var unsent: (text: String, clientId: String)?
     @State private var reactingTo: ChatMessage?
+    /// Photos for the next reply: uploaded as soon as they are picked, as
+    /// in the conversation.
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var attached: [ChatFile] = []
+    @State private var uploading = 0
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -33,27 +43,79 @@ struct ChatThreadSheet: View {
             }
             .defaultScrollAnchor(.bottom)
             .safeAreaInset(edge: .bottom) {
-                HStack(alignment: .bottom, spacing: 8) {
-                    TextField("Reply… — @AI to ask the AI", text: $draft, axis: .vertical)
-                        .lineLimit(1...5).focused($focused)
-                        .padding(.horizontal, 16).padding(.vertical, 11)
-                        .glassPanel(cornerRadius: 22, interactive: true)
-                    Button {
-                        guard let t = store.thread else { return }
-                        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                        Task { if await store.send(t.parent.channel, text: text, parentId: t.parent.id) { draft = "" } }
-                    } label: {
-                        Image(systemName: "arrow.up").font(.system(size: 17, weight: .bold)).foregroundStyle(.white)
-                            .frame(width: 44, height: 44).glassCircle(tint: Theme.Colors.accent)
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(isOn: $alsoChannel) {
+                        Text(alsoChannelLabel).font(.footnote).foregroundStyle(Theme.Colors.textSecondary)
                     }
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityLabel("Send")
-                }.padding(.horizontal, 12).padding(.vertical, 8)
+                    .tint(Theme.Colors.accent).controlSize(.small)
+                    .padding(.horizontal, 16)
+                    .accessibilityIdentifier("alsoSendToChannel")
+                    if !attached.isEmpty || uploading > 0 {
+                        ChatAttachedStrip(store: store, attached: $attached, uploading: uploading).padding(.horizontal, 12)
+                    }
+                    HStack(alignment: .bottom, spacing: 8) {
+                        PhotosPicker(selection: $photoItems, maxSelectionCount: 10, matching: .images) {
+                            Image(systemName: "plus").font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(Theme.Colors.textSecondary)
+                                .frame(width: 44, height: 44).glassCircle()
+                        }
+                        .accessibilityLabel("Add photos")
+                        .onChange(of: photoItems) { _, items in
+                            guard !items.isEmpty, let channel = store.thread?.parent.channel else { return }
+                            photoItems = []
+                            Task {
+                                uploading += items.count
+                                for file in await ChatPhotos.upload(items, to: channel, store: store) { attached.append(file) }
+                                uploading -= items.count
+                            }
+                        }
+                        TextField("Reply… — @AI to ask the AI", text: $draft, axis: .vertical)
+                            .lineLimit(1...5).focused($focused)
+                            .padding(.horizontal, 16).padding(.vertical, 11)
+                            .glassPanel(cornerRadius: 22, interactive: true)
+                        Button {
+                            guard let t = store.thread else { return }
+                            let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let files = attached
+                            guard !text.isEmpty || !files.isEmpty, uploading == 0 else { return }
+                            let both = alsoChannel
+                            let clientId = unsent?.text == text ? unsent!.clientId : ChatService.newClientId()
+                            // Out of the box at once and into the thread, faded
+                            // until the server has it: one tap is one reply.
+                            draft = ""
+                            alsoChannel = false
+                            attached = []
+                            Task {
+                                let went = await store.send(t.parent.channel, text: text, parentId: t.parent.id, alsoChannel: both, files: files, clientId: clientId)
+                                if went || store.isHeld(clientId) { unsent = nil }
+                                else {
+                                    unsent = (text, clientId)
+                                    if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { draft = text; alsoChannel = both }
+                                    if attached.isEmpty { attached = files }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "arrow.up").font(.system(size: 17, weight: .bold)).foregroundStyle(.white)
+                                .frame(width: 44, height: 44).glassCircle(tint: Theme.Colors.accent)
+                        }
+                        .disabled(uploading > 0 || (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attached.isEmpty))
+                        .accessibilityLabel("Send")
+                    }.padding(.horizontal, 12)
+                }.padding(.vertical, 8)
             }
             .navigationTitle("Thread").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
             // Its message deleted, the thread went with it: nothing left to show.
-            .onChange(of: store.thread?.parent.id) { old, new in if old != nil && new == nil { dismiss() } }
+            .onChange(of: store.thread?.parent.id, initial: true) { old, new in
+                alsoChannel = false
+                // A reply half-written in a thread is kept, per thread, and
+                // is there again when the thread is opened again.
+                draft = new.map { store.draft("thread:\($0)") } ?? ""
+                if old != nil && new == nil { dismiss() }
+            }
+            .onChange(of: draft) { _, text in
+                if let id = store.thread?.parent.id { store.setDraft("thread:\(id)", text) }
+            }
             .sheet(item: $reactingTo) { m in ChatEmojiPicker { e in Task { await store.react(m, e) } } }
         }
         // Everyone's photos and the workspace's emoji, however the sheet was opened.
@@ -62,13 +124,23 @@ struct ChatThreadSheet: View {
         .presentationDragIndicator(.visible)
     }
 
+    /// "Also send to #name" in a channel; elsewhere, to the conversation.
+    private var alsoChannelLabel: String {
+        guard let view = store.thread?.parent.channel else { return String(localized: "Also send to the conversation") }
+        if view.hasPrefix("b:"), let c = store.businesses.first(where: { "b:\($0.slug)" == view }) {
+            return String(localized: "Also send to #\(c.name)")
+        }
+        return String(localized: "Also send to the conversation")
+    }
+
     private func row(_ m: ChatMessage) -> some View {
         ChatMessageRow(message: m, inThread: true, nameOf: store.nameOf(ref:),
                        onReact: { e in Task { await store.react(m, e) } },
                        onAddReaction: { reactingTo = m },
                        onOpenThread: {}, onOpenCard: onOpenCard, onProfile: { _ in })
+            .modifier(ChatSendState(message: m))
             .contextMenu {
-                if !m.isDeleted {
+                if !m.isDeleted && !m.id.hasPrefix("tmp-") {
                     Button { reactingTo = m } label: { Label("Add reaction", systemImage: "face.smiling") }
                     Button { UIPasteboard.general.string = m.body } label: { Label("Copy text", systemImage: "doc.on.doc") }
                     Button {
@@ -89,6 +161,8 @@ struct ChatProfileSheet: View {
     var onMessage: ((String) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var profile: ChatProfile?
+    /// Nothing kept and nothing read: said so, with a way to try again.
+    @State private var failed = false
 
     var body: some View {
         NavigationStack {
@@ -129,16 +203,28 @@ struct ChatProfileSheet: View {
                             }.buttonStyle(.borderedProminent).tint(Theme.Colors.accent).padding(.horizontal, 20)
                         }
                     }
+                } else if failed {
+                    VStack(spacing: 12) {
+                        Text("Couldn't load this profile.").foregroundStyle(Theme.Colors.textSecondary)
+                        Button("Try again") { Task { await load() } }
+                    }.padding(60)
                 } else {
                     ProgressView().padding(60)
                 }
             }
             .navigationTitle("Profile").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
-            .task { profile = await store.profile(ref) }
+            .task { await load() }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    /// What was read before, at once; the server's, when it answers.
+    private func load() async {
+        failed = false
+        if profile == nil { profile = store.cachedProfile(ref) }
+        if let fresh = await store.profile(ref) { profile = fresh } else if profile == nil { failed = true }
     }
 
     private func stat(_ label: LocalizedStringKey, _ value: String) -> some View {
@@ -277,6 +363,10 @@ struct ChatStatusEditor: View {
     @State private var away = false
     @State private var awayUntil = Date().addingTimeInterval(86400 * 3)
     @State private var delegate = ""
+    /// Your agent answering for you when you are mentioned.
+    @State private var proxyOn = false
+    @State private var proxyTeammate = true
+    @State private var proxyLoaded: ChatService.ChatProxy?
     @State private var saving = false
     @State private var problem: String?
 
@@ -315,6 +405,17 @@ struct ChatStatusEditor: View {
                         }
                     }
                 } footer: { Text("While you are away, new decisions for you go to the person you pick, and say they are covering for you.") }
+                if proxyLoaded != nil {
+                    Section {
+                        Toggle("My agent answers when I am mentioned", isOn: $proxyOn.animation())
+                            .accessibilityIdentifier("proxyToggle")
+                        if proxyOn {
+                            Toggle("Code work goes to the AI teammate (Claude)", isOn: $proxyTeammate)
+                        }
+                    } footer: {
+                        Text("When someone mentions you and asks for something, your agent does it and answers in the thread as your agent. Anything it would post outside the chat, such as a comment on GitHub, waits for your approval.")
+                    }
+                }
                 if let problem { Section { Text(problem).foregroundStyle(.red) } }
             }
             .navigationTitle("You").navigationBarTitleDisplayMode(.inline)
@@ -331,6 +432,9 @@ struct ChatStatusEditor: View {
         if let me = try? await ChatService.me(base: base) { name = me.name ?? ""; handle = me.handle ?? "" }
         if let s = store.mine?.status { emoji = s.emoji ?? ""; text = s.text ?? "" }
         if let a = ChatDates.parse(store.mine?.awayUntil) { away = true; awayUntil = a; delegate = store.mine?.delegateRef ?? "" }
+        if let orgId = appState.currentUser?.teamID, let p = try? await ChatService.proxy(orgId: orgId, base: base) {
+            proxyLoaded = p; proxyOn = p.enabled; proxyTeammate = p.useTeammate
+        }
     }
 
     private func save() async {
@@ -350,6 +454,9 @@ struct ChatStatusEditor: View {
             let end = away ? Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: awayUntil) : nil
             try await ChatService.setStatus(orgId: orgId, emoji: hasStatus ? emoji : nil, text: hasStatus ? text : nil, until: hasStatus ? until : nil,
                                             awayUntil: end, delegateRef: away && !delegate.isEmpty ? delegate : nil, base: base)
+            if let p = proxyLoaded, p.enabled != proxyOn || p.useTeammate != proxyTeammate {
+                proxyLoaded = try await ChatService.setProxy(orgId: orgId, enabled: proxyOn, useTeammate: proxyTeammate, base: base)
+            }
             Haptics.success()
             await store.refresh()
             dismiss()
@@ -822,3 +929,49 @@ struct ChatCatchUpView: View {
     }
 }
 
+/// Pictures picked from the camera roll, made JPEGs (a HEIC would not show
+/// everywhere) and uploaded to the conversation they are for.
+enum ChatPhotos {
+    @MainActor
+    static func upload(_ items: [PhotosPickerItem], to view: String, store: ChatStore) async -> [ChatFile] {
+        var out: [ChatFile] = []
+        for (i, item) in items.enumerated() {
+            guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data),
+                  let jpeg = image.jpegData(compressionQuality: 0.85) else { continue }
+            let w = Int(image.size.width * image.scale), h = Int(image.size.height * image.scale)
+            let name = "photo-\(Int(Date().timeIntervalSince1970))-\(i + 1).jpg"
+            if let file = await store.upload(view, data: jpeg, type: "image/jpeg", name: name, width: w, height: h) { out.append(file) }
+        }
+        return out
+    }
+}
+
+/// What is attached to the reply about to be sent: each with a way to take
+/// it off, and a spinner while more are on their way up.
+struct ChatAttachedStrip: View {
+    @ObservedObject var store: ChatStore
+    @Binding var attached: [ChatFile]
+    let uploading: Int
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(attached) { f in
+                    ZStack(alignment: .topTrailing) {
+                        if f.isPicture, let url = store.baseURL.flatMap({ f.address(base: $0) }) {
+                            AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Theme.Colors.surfaceRaised }
+                                .frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        } else {
+                            Image(systemName: "doc").frame(width: 56, height: 56)
+                                .background(Theme.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }
+                        Button { attached.removeAll { $0.id == f.id } } label: {
+                            Image(systemName: "xmark.circle.fill").font(.system(size: 18)).symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, .black.opacity(0.6))
+                        }.offset(x: 6, y: -6).accessibilityLabel(Text("Remove \(f.name)"))
+                    }
+                }
+                if uploading > 0 { ProgressView().frame(width: 56, height: 56) }
+            }.padding(.horizontal, 4).padding(.top, 6)
+        }
+    }
+}

@@ -21,6 +21,10 @@ export interface DecisionCard {
   context: string
   status: CardStatus
   priority: CardPriority
+  /// Who set the priority by hand (#207); absent while it is the AI's.
+  prioritySetBy?: string
+  /// What the AI first said, kept once somebody changed it.
+  aiPriority?: CardPriority
   createdAt: string
   githubIssueNumber?: number
   githubIssueURL?: string
@@ -155,7 +159,10 @@ export interface FileRef {
   size: number
   width?: number | null
   height?: number | null
+  /// Where to fetch it, signed for a while: renewed by id (utils/mediaUrls).
   url: string
+  /// Until when `url` opens (ms); absent from older servers.
+  expiresAt?: number
 }
 
 export interface ChannelMessage {
@@ -194,6 +201,8 @@ export interface ChannelMessage {
   /// Who reacted, by member ref. `mine` is only set on a message fetched
   /// by this person; a live event is shared, so the refs decide.
   reactions?: Array<{ emoji: string; count: number; refs: string[]; mine: boolean }>
+  /// Reactions pressed here and not yet confirmed by the server (#221).
+  reactionsPending?: string[]
   files?: FileRef[]
   /// Who wrote it, when an agent did: its name and face.
   agent?: { id: string; handle: string; name: string; emoji: string | null; avatarUrl?: string | null } | null
@@ -210,6 +219,14 @@ export interface ChannelMessage {
   /// An inline reply (Discord's, not a thread): the message it answers, as
   /// that message is now.
   replyTo?: ReplyQuote | null
+  /// A thread reply sent to the conversation as well ("Also send to
+  /// #channel"): read in its thread and in the conversation.
+  alsoChannel?: boolean
+  /// With `alsoChannel`, in the conversation: the message the thread hangs
+  /// off, as it is now.
+  threadParent?: ReplyQuote | null
+  /// Said by an agent for a person who was mentioned: whose agent it is.
+  onBehalfOf?: { name: string | null; ref: string | null } | null
 }
 
 /// What a reply shows of the message it answers: who, and how it began —

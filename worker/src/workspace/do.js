@@ -52,6 +52,16 @@ const SCHEMA = [
        INSERT INTO messages_fts (rowid, body) VALUES (new.rowid, new.body);
      END`,
   ],
+  // v2: a thread reply sent to the conversation too ("Also send to #channel").
+  [
+    "ALTER TABLE messages ADD COLUMN also_channel INTEGER NOT NULL DEFAULT 0",
+  ],
+  // v3: a send's own id (#212): the same send again — a retry after a lost
+  // answer — is the message already posted, not a second one.
+  [
+    "ALTER TABLE messages ADD COLUMN client_id TEXT",
+    "CREATE UNIQUE INDEX messages_by_client ON messages (channel_id, author, client_id) WHERE client_id IS NOT NULL",
+  ],
 ];
 
 const READ_FLUSH_MS = 3000;
@@ -72,6 +82,7 @@ export function uuidv7(now = Date.now()) {
 const toMessage = (r) => ({
   id: r.id, channel: r.channel_id, seq: r.seq, author: r.author, kind: r.kind,
   body: r.deleted_at ? "" : r.body, parentId: r.parent_id || null,
+  ...(r.parent_id && r.also_channel ? { alsoChannel: true } : {}),
   createdAt: r.created_at, editedAt: r.edited_at || null, deletedAt: r.deleted_at || null,
 });
 
@@ -115,16 +126,21 @@ export class WorkspaceDO extends DurableObject {
   }
 
   /// A new message in a channel. The caller has already been let in.
-  post({ channel, author, body, parentId = null, now = Date.now() }) {
+  post({ channel, author, body, parentId = null, alsoChannel = false, clientId = null, now = Date.now() }) {
     return this.ctx.storage.transactionSync(() => this.measure((exec) => {
+      if (clientId) {
+        const [held] = exec("SELECT * FROM messages WHERE channel_id = ? AND author = ? AND client_id = ?", channel, author, clientId).toArray();
+        if (held) return { message: toMessage(held), again: true };
+      }
       const seq = this.nextSeq(exec, channel);
       const row = {
         id: uuidv7(now), channel_id: channel, seq, author, kind: "message", body: String(body),
         parent_id: parentId, created_at: new Date(now).toISOString(), edited_at: null, deleted_at: null,
+        also_channel: parentId && alsoChannel ? 1 : 0,
       };
       exec(
-        `INSERT INTO messages (id, channel_id, seq, author, kind, body, parent_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        row.id, row.channel_id, row.seq, row.author, row.kind, row.body, row.parent_id, row.created_at
+        `INSERT INTO messages (id, channel_id, seq, author, kind, body, parent_id, created_at, also_channel, client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.id, row.channel_id, row.seq, row.author, row.kind, row.body, row.parent_id, row.created_at, row.also_channel, clientId || null
       );
       return { message: toMessage(row) };
     }));
@@ -248,10 +264,10 @@ export class WorkspaceDO extends DurableObject {
         if (exists) continue;
         const seq = this.nextSeq(exec, r.channel);
         exec(
-          `INSERT INTO messages (id, channel_id, seq, author, kind, body, parent_id, created_at, edited_at, deleted_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO messages (id, channel_id, seq, author, kind, body, parent_id, created_at, edited_at, deleted_at, also_channel)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           r.id, r.channel, seq, r.author_login ?? null, r.kind || "message", r.body ?? "", r.parent_id ?? null,
-          r.created_at, r.edited_at ?? null, r.deleted_at ?? null
+          r.created_at, r.edited_at ?? null, r.deleted_at ?? null, r.also_channel ? 1 : 0
         );
         copied += 1;
       }
@@ -266,25 +282,26 @@ export class WorkspaceDO extends DurableObject {
     return this.ctx.storage.transactionSync(() => this.measure((exec) => {
       let written = 0;
       for (const r of upserts) {
-        const known = exec("SELECT body, edited_at, deleted_at, parent_id, author, kind FROM messages WHERE id = ?", r.id).toArray()[0];
+        const known = exec("SELECT body, edited_at, deleted_at, parent_id, author, kind, also_channel FROM messages WHERE id = ?", r.id).toArray()[0];
         if (!known) {
           const seq = this.nextSeq(exec, r.channel);
           exec(
-            `INSERT INTO messages (id, channel_id, seq, author, kind, body, parent_id, created_at, edited_at, deleted_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO messages (id, channel_id, seq, author, kind, body, parent_id, created_at, edited_at, deleted_at, also_channel)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             r.id, r.channel, seq, r.author_login ?? null, r.kind || "message", r.body ?? "", r.parent_id ?? null,
-            r.created_at, r.edited_at ?? null, r.deleted_at ?? null
+            r.created_at, r.edited_at ?? null, r.deleted_at ?? null, r.also_channel ? 1 : 0
           );
           written += 1;
           continue;
         }
         const same = known.body === (r.body ?? "") && (known.edited_at ?? null) === (r.edited_at ?? null)
           && (known.deleted_at ?? null) === (r.deleted_at ?? null) && (known.parent_id ?? null) === (r.parent_id ?? null)
-          && (known.author ?? null) === (r.author_login ?? null) && known.kind === (r.kind || "message");
+          && (known.author ?? null) === (r.author_login ?? null) && known.kind === (r.kind || "message")
+          && Number(known.also_channel || 0) === (r.also_channel ? 1 : 0);
         if (same) continue;
         exec(
-          "UPDATE messages SET body = ?, edited_at = ?, deleted_at = ?, parent_id = ?, author = ?, kind = ? WHERE id = ?",
-          r.body ?? "", r.edited_at ?? null, r.deleted_at ?? null, r.parent_id ?? null, r.author_login ?? null, r.kind || "message", r.id
+          "UPDATE messages SET body = ?, edited_at = ?, deleted_at = ?, parent_id = ?, author = ?, kind = ?, also_channel = ? WHERE id = ?",
+          r.body ?? "", r.edited_at ?? null, r.deleted_at ?? null, r.parent_id ?? null, r.author_login ?? null, r.kind || "message", r.also_channel ? 1 : 0, r.id
         );
         written += 1;
       }

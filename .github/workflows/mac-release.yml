@@ -1,0 +1,99 @@
+name: Mac signed release
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the release once it is built and verified (offers the update to every installed Mac app)"
+        type: boolean
+        default: false
+permissions:
+  contents: write
+concurrency:
+  group: mac-signed-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm test
+      - name: Prepare notarization key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          umask 077
+          printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+      - name: Prepare signing keychain
+        env:
+          CERTIFICATE: ${{ secrets.MAC_CSC_LINK }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+        run: |
+          umask 077
+          keychain="$RUNNER_TEMP/honmaru-signing.keychain-db"
+          keypass=$(openssl rand -hex 24)
+          echo "::add-mask::$keypass"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$keypass" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keypass" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keypass" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+          echo "CSC_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          rm -f "$RUNNER_TEMP/certificate.p12"
+      # One draft for this version before anything is uploaded. electron-builder
+      # uploads its files in parallel, and each upload that finds no release
+      # makes its own: 0.1.3 came out as three drafts of one file each, and
+      # without the zip and latest-mac.yml the update could not be offered.
+      # Drafts of this version left by an earlier run go first.
+      - name: One draft release for this version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          if gh release view "v$version" --json isDraft --jq '.isDraft' 2>/dev/null | grep -q false; then
+            echo "v$version is already published; bump apps/desktop/package.json first." >&2
+            exit 1
+          fi
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.draft and .tag_name == \"v$version\") | .id"); do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
+          done
+          gh release create "v$version" --draft --target "$GITHUB_SHA" --title "$version" --notes "Honmaru AI $version for Mac."
+      - name: Build signed and notarized universal Mac release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_NAME: "toru tano (BAF4U6PT5S)"
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: npm run release -- --mac --universal -c.forceCodeSigning=true
+      - name: Verify notarized app
+        run: |
+          codesign --verify --deep --strict 'dist/mac-universal/Honmaru AI.app'
+          spctl --assess --type execute --verbose=2 'dist/mac-universal/Honmaru AI.app'
+      - name: Remove notarization key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"
+      - name: Check the draft holds the update
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          assets=$(gh release view "v$VERSION" --json assets --jq '[.assets[].name] | join(" ")')
+          echo "v$VERSION: $assets"
+          for want in latest-mac.yml universal-mac.zip universal.dmg; do
+            case "$assets" in *"$want"*) ;; *) echo "missing $want" >&2; exit 1 ;; esac
+          done
+      - name: Publish
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "v$VERSION" --draft=false --latest

@@ -13,6 +13,14 @@ export class ApiError extends Error {
   }
 }
 
+/// Whether a failed call means the session itself is over: the server no
+/// longer knows it (401), or its account is gone (409). Anything else — no
+/// network yet after a restart, a timeout, the server having a bad moment —
+/// says nothing about the session, and must never sign anyone out.
+export function sessionEnded(err: unknown): boolean {
+  return err instanceof ApiError && (err.status === 401 || err.status === 409)
+}
+
 export interface ApiOptions {
   base: string
   /// The session token, read on every call so signing in or out takes effect at once.
@@ -73,8 +81,12 @@ export class Api {
   history(orgId: string, channel: string, query: HistoryQuery = {}) {
     return this.request<HistoryResponse>(v2Paths.messages(orgId, channel), { query: { ...query } })
   }
-  post(orgId: string, channel: string, body: string, parentId?: string) {
-    return this.request<PostResponse>(v2Paths.messages(orgId, channel), { method: 'POST', body: { body, ...(parentId ? { parentId } : {}) } })
+  /// `clientId` (`tmp-…`): the send's own id — the same send again is the
+  /// message already posted, not a second one.
+  post(orgId: string, channel: string, body: string, parentId?: string, alsoChannel = false, clientId?: string) {
+    return this.request<PostResponse>(v2Paths.messages(orgId, channel), {
+      method: 'POST', body: { body, ...(parentId ? { parentId, ...(alsoChannel ? { alsoChannel: true } : {}) } : {}), ...(clientId ? { clientId } : {}) },
+    })
   }
   markRead(orgId: string, channel: string, seq: number) {
     return this.request<{ ok: true }>(v2Paths.read(orgId, channel), { method: 'POST', body: { seq } })

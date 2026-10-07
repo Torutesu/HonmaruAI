@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useT } from '../utils/i18n'
 import { Icon } from './Icon'
 import './Dialog.css'
@@ -41,7 +42,11 @@ export const Dialog: React.FC<Props> = ({ title, lede, describedBy, art, onClose
     return () => { document.removeEventListener('keydown', onKey, true); before?.focus?.() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  return (
+  // Drawn at the top of the page, not inside whatever opened it: a fixed
+  // container (the list is one) is a stacking context of its own, and a
+  // dialog inside it, however high its z-index, went under the top bar —
+  // its title and close button behind the search field (#215).
+  return createPortal(
     <div className="dialog-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div ref={box} className={`dialog${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-label={title} aria-describedby={described || undefined}>
         <div className="dialog-head">
@@ -55,6 +60,7 @@ export const Dialog: React.FC<Props> = ({ title, lede, describedBy, art, onClose
         <div className="dialog-body">{children}</div>
         {footer && <div className="dialog-foot">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

@@ -156,12 +156,11 @@ export const WorkspaceSwitcher: React.FC<Props> = ({ workspaces, currentId, onSw
             </>
           )}
           <div className="ws-menu-sep" />
+          <button type="button" role="menuitem" className="ws-action" onClick={() => go(onSettings)}>{t('Workspace settings')}</button>
+          <div className="ws-menu-sep" />
           <button type="button" role="menuitem" className="ws-action ws-add" onClick={() => go(() => (api ? setAdding(true) : onCreate()))} data-add-workspace="1">
-            <span className="ws-add-plus" aria-hidden="true"><Icon name="plus" size={18} /></span>
             {t('Add a workspace')}
           </button>
-          <div className="ws-menu-sep" />
-          <button type="button" role="menuitem" className="ws-action" onClick={() => go(onSettings)}>{t('Workspace settings')}</button>
           <button type="button" role="menuitem" className="ws-action ws-quiet" onClick={() => go(onLogout)}>{t('Sign out')}</button>
         </div>
       )}

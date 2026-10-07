@@ -1,0 +1,21 @@
+.ob-step { font-size: 13px; color: inherit; white-space: nowrap; }
+.ob-notifications .display { font-size: clamp(26px, 3vw, 34px); line-height: 1.25; }
+.ob-notification-icon { margin-bottom: 20px; }
+.ob-permission-card { border: 1px solid var(--cloud); border-radius: 16px; padding: 20px; margin: 24px 0 16px; }
+.ob-permission-card h2 { font-size: 18px; margin: 0 0 10px; }
+.ob-permission-card p { line-height: 1.6; }
+.ob-permission-card .pill-btn { margin: 8px 8px 0 0; }
+.ob-notification-status { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.ob-notification-status svg { flex-shrink: 0; }
+.ob-notification-help { border-left: 3px solid currentColor; padding-left: 12px; margin-top: 16px; }
+.ob-confirm { padding-top: 12px; }
+.ob-notifications .screen-foot .hint { margin: 0 0 12px; }
+.ob-setup h1:focus { outline: none; }
+@media (max-width: 480px) { .ob-permission-card { padding: 16px; } }
+
+/* Keep the header and completion action reachable even on a short Mac window. */
+.screen.ob-setup:not(.shell .screen) .screen-body { min-height: 0; overflow-y: auto; }
+.screen.ob-setup:not(.shell .screen) .screen-head,
+.screen.ob-setup:not(.shell .screen) .screen-foot { flex-shrink: 0; }
+.ob-permission-card, .sound-choice { border-color: var(--ash); }
+.ob-setup .form-error { color: inherit; border-color: #a95c70; }

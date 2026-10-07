@@ -273,7 +273,9 @@ await step('onboarding runs to the end and saves', async () => {
   const name = await page.$eval('.ob-daily input[aria-label="New channel name"]', (el) => el.value)
   if (name !== 'daily-reports') throw new Error(`onboarding does not propose a channel for it: ${name}`)
   await shot('06b-onboarding-daily')
-  await page.click('text=Open my feed')
+  await page.click('text=Keep these times and continue')
+  await page.waitForSelector('[data-onboarding="notifications"]')
+  await page.click('.screen-foot .btn-primary')
   await page.waitForSelector('.tabbar', { timeout: 20000 })
   await shot('07-feed-empty')
 })
@@ -808,6 +810,9 @@ await step('the app is usable on a laptop', async () => {
     throw new Error(`the composer is cramped on a laptop: ${JSON.stringify(composer)}`)
   }
   await d.screenshot({ path: `${SHOTS}/20-desktop-compose.png` })
+  // What the phone left half-written there came across with its storage,
+  // and is kept as a draft: emptied here, to press Send on nothing.
+  await d.fill('.create-decision textarea', '')
   // Send is never greyed out: pressed empty, it says what goes in the box.
   await d.click('.create-decision button:not(.mic)')
   await d.waitForSelector('.create-empty', { timeout: 5000 })
@@ -983,6 +988,13 @@ await step('a card has a thread: a comment with an @mention, and a reaction', as
   await d.waitForSelector('.workbench .reaction.mine', { timeout: 10000 })
     .catch(() => { throw new Error('the reaction did not stick') })
   await d.screenshot({ path: `${SHOTS}/34-thread.png` })
+  // A comment half-written under the card is still there after a reload.
+  await d.fill('.workbench .thread-box', 'half-written comment')
+  await d.reload()
+  await d.waitForSelector('.workbench .thread-box', { timeout: 15000 })
+  await d.waitForFunction(() => document.querySelector('.workbench .thread-box')?.value === 'half-written comment', null, { timeout: 5000 })
+    .catch(() => { throw new Error('a comment being written under a card was gone after a reload') })
+  await d.fill('.workbench .thread-box', '')
   // And the card's own count caught up, through the relay, so every list
   // can say "1 reply" without asking.
   await d.waitForFunction(() => /1 repl/.test(document.querySelector('.inbox')?.innerText || '') || true, null, { timeout: 5000 })
@@ -1722,6 +1734,31 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     await d.click('.row-menu [data-row-menu="react:✅"]')
     await d.waitForSelector(`${reply} .slk-reaction.mine`, { timeout: 10000 })
       .catch(() => { throw new Error('a reaction from the right-click menu did not land') })
+    // A reply half-written in the thread is still there when it is opened again.
+    await d.fill('.slk-thread-pane textarea', 'half-written reply')
+    await d.click('.slk-thread-pane .slk-pane-close')
+    await d.hover(msg)
+    await d.click(`${msg} .slk-tools [aria-label="Reply in thread"]`)
+    await d.waitForFunction(() => document.querySelector('.slk-thread-pane textarea')?.value === 'half-written reply', null, { timeout: 5000 })
+      .catch(() => { throw new Error('a reply being written in a thread was gone when the thread was opened again') })
+    await d.fill('.slk-thread-pane textarea', '')
+    // "Also send to #channel": the reply is in the thread and in the
+    // channel, saying which thread it answers; the box is plain again after.
+    await d.check('.slk-thread-pane [data-also-channel] input')
+    await d.fill('.slk-thread-pane textarea', '2pm confirmed for everyone')
+    await d.keyboard.press('Enter')
+    await d.waitForSelector('.slk-thread-pane .slk-msg:has-text("2pm confirmed") [data-also-sent]', { timeout: 10000 })
+      .catch(() => { throw new Error('a reply sent to the channel too does not say so in its thread') })
+    const both = '.slk-main .slk-msg:has-text("2pm confirmed")'
+    await d.waitForSelector(`${both} [data-thread-reply]:has-text("Check-in")`, { timeout: 10000 })
+      .catch(() => { throw new Error('a reply sent to the channel too is not in the channel, under the thread it answers') })
+    if (await d.isChecked('.slk-thread-pane [data-also-channel] input')) throw new Error('"Also send to the channel" stayed on for the next reply')
+    await d.screenshot({ path: `${SHOTS}/39g-also-channel.png` })
+    await d.click('.slk-thread-pane .slk-pane-close')
+    // Its line opens the thread it is in.
+    await d.click(`${both} [data-thread-reply]`)
+    await d.waitForSelector('.slk-thread-pane .slk-msg:has-text("Housekeeping")', { timeout: 10000 })
+      .catch(() => { throw new Error('the thread line on a reply in the channel did not open its thread') })
     await d.click('.slk-thread-pane .slk-pane-close')
     // Pinned, and listed under the pin.
     await d.hover(msg)
@@ -1974,6 +2011,13 @@ await step('right-clicking a channel in the sidebar offers what a desktop chat a
       await d.waitForSelector('.row-menu', { timeout: 5000 }).catch(() => { throw new Error(`right-clicking #${name} opened no menu`) })
     }
     await menu('Front desk')
+    // A late history response scrolls the conversation while a person uses
+    // the sidebar menu. It must stay open; scrolling its own sidebar closes it.
+    await d.locator('.slk-log').first().evaluate((el) => el.dispatchEvent(new Event('scroll')))
+    await d.waitForSelector('.row-menu [data-row-menu="details"]', { timeout: 1000 })
+    await d.locator('.slk-side').evaluate((el) => el.dispatchEvent(new Event('scroll')))
+    await d.waitForSelector('.row-menu', { state: 'detached', timeout: 1000 })
+    await menu('Front desk')
     await d.screenshot({ path: `${SHOTS}/39c-row-menu.png` })
     for (const item of ['details', 'copy', 'star', 'move', 'notify-all', 'notify-mentions', 'notify-mute', 'rename']) {
       if (!(await d.$(`.row-menu [data-row-menu="${item}"]`))) throw new Error(`the right-click menu has no "${item}"`)
@@ -2161,6 +2205,12 @@ await step('people talk in a channel, and @AI turns what was said into a decisio
     await d.click('.cl-thread:has(.cl-own-mark) .cl-open')
     await d.waitForSelector('.slk-head h1:has-text("Your AI")', { timeout: 10000 })
     const aiCount = await d.$$eval('.slk-msg', (els) => els.length)
+    // What is half-written to your AI waits for you, as in any conversation.
+    await d.fill('.slk-input', 'half-written ask for my AI')
+    await d.click('[data-activity="1"]')
+    await d.click('.cl-thread:has(.cl-own-mark) .cl-open')
+    await d.waitForFunction(() => document.querySelector('.slk-input')?.value === 'half-written ask for my AI', null, { timeout: 5000 })
+      .catch(() => { throw new Error('what was being written to Your AI was gone when it was opened again') })
     await d.fill('.slk-input', 'Approve the new aprons for the kitchen staff')
     await d.keyboard.press('Enter')
     await d.waitForFunction((n) => document.querySelectorAll('.slk-msg').length > n && !document.querySelector('.sheet-compose'), aiCount, { timeout: 25000 })
@@ -2530,7 +2580,9 @@ await step('a second person joins by invite and the card reaches them', async ()
   // channel is offered, not a second one beside it.
   const offered = await b.$eval('.ob-daily select[aria-label="Post to"]', (el) => el.value)
   if (offered !== 'b:daily-reports') throw new Error(`a teammate is not offered the team's daily-report channel: ${offered}`)
-  await b.click('text=Open my feed')
+  await b.click('text=Keep these times and continue')
+  await b.waitForSelector('[data-onboarding="notifications"]')
+  await b.click('.screen-foot .btn-primary')
   await b.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
 
   // A tells their AI something meant for the engineer.
@@ -2609,7 +2661,9 @@ await step('an invite reaches someone who already has an account', async () => {
   await c.click('text=Next'); await c.waitForSelector('.ob-demo')
   await c.click('text=Set me up'); await c.waitForSelector('.radio')
   await c.click('.screen-foot .btn-primary:has-text("Next")'); await c.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
-  await c.click('text=Open my feed')
+  await c.click('text=Keep these times and continue')
+  await c.waitForSelector('[data-onboarding="notifications"]')
+  await c.click('.screen-foot .btn-primary')
   await c.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
 
   // Now they are handed a code. They are already signed in, so the place to
@@ -2665,8 +2719,8 @@ await step('a code that is not a code is said out loud, not swallowed', async ()
   await page.fill('.join-code', '0'.repeat(32))
   await page.click('.screen .row.static .pill-btn')
 
-  await page.waitForSelector('.screen .form-error', { timeout: 15000 })
-  const said = (await page.textContent('.screen .form-error')) || ''
+  await page.waitForSelector('.screen .form-error, .dialog .form-error', { timeout: 15000 })
+  const said = (await page.textContent('.screen .form-error, .dialog .form-error')) || ''
   if (!said.trim()) throw new Error('a rejected invite code said nothing')
   // And it did not move them anywhere: still the same feed, still connected.
   await page.click('.screen .back')
@@ -2742,7 +2796,7 @@ await step('a link you have out can be found and revoked', async () => {
   await page.waitForSelector('.join-code', { timeout: 10000 })
   await page.fill('.join-code', doomed)
   await page.click('.screen .row.static .pill-btn')
-  await page.waitForSelector('.screen .form-error', { timeout: 15000 })
+  await page.waitForSelector('.screen .form-error, .dialog .form-error', { timeout: 15000 })
   await closeEverything()
 })
 
@@ -2767,7 +2821,9 @@ async function freshAccount(name, email, { start } = {}) {
   await p.click('text=Next'); await p.waitForSelector('.ob-demo')
   await p.click('text=Set me up'); await p.waitForSelector('.radio')
   await p.click('.screen-foot .btn-primary:has-text("Next")'); await p.waitForSelector('.ob-daily input[type="time"]', { timeout: 15000 })
-  await p.click('text=Open my feed')
+  await p.click('text=Keep these times and continue')
+  await p.waitForSelector('[data-onboarding="notifications"]')
+  await p.click('.screen-foot .btn-primary')
   await p.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
   return p
 }
@@ -2911,7 +2967,7 @@ await step('GitHub is not claimed where it cannot run', async () => {
   await page.fill('.github-form input[aria-label="Repository"]', 'acme/ops')
   await page.fill('.github-form input[type="password"]', 'github_pat_not_a_real_token_at_all')
   await page.click('.github-form .pill-btn')
-  await page.waitForSelector('.screen .form-error', { timeout: 30000 })
+  await page.waitForSelector('.screen .form-error, .dialog .form-error', { timeout: 30000 })
     .catch(() => { throw new Error('a token GitHub will not take was accepted silently') })
   await shot('27b-github-connect')
   await page.keyboard.press('Escape')
@@ -3133,6 +3189,26 @@ await step('a status set from the avatar on a laptop shows in a teammate’s sid
     const now = await kdesk.textContent('[data-status-popover] [data-status-now]')
     if (!now.includes('🎧')) throw new Error(`the popover says the status is: ${now}`)
     await kdesk.screenshot({ path: `${SHOTS}/76-status-popover.png` })
+    // His agent answering for him: on, an agent of his own is made and
+    // offered, and it is still on after a reload. Saved as it is changed.
+    await kdesk.waitForSelector('[data-status-popover] [data-proxy-toggle]', { timeout: 10000 })
+      .catch(() => { throw new Error('the popover has no switch for your agent to answer for you') })
+    const proxySaved = () => kdesk.waitForResponse((r) => r.url().includes('/channels/proxy') && r.request().method() === 'PUT', { timeout: 10000 })
+    let saving = proxySaved()
+    await kdesk.click('[data-status-popover] [data-proxy-toggle]')
+    let res = await saving.catch(() => null)
+    if (!res?.ok()) throw new Error(`turning your agent on did not save: ${res ? res.status() : 'no request'}`)
+    await kdesk.waitForSelector('[data-status-popover] [data-proxy-agent] option', { state: 'attached', timeout: 10000 })
+      .catch(() => { throw new Error('turning your agent on offered no agent') })
+    await kdesk.screenshot({ path: `${SHOTS}/76a-proxy-on.png` })
+    await kdesk.reload({ waitUntil: 'load' })
+    await kdesk.click('nav [data-tab="you"]')
+    await kdesk.waitForSelector('[data-status-popover] [data-proxy-toggle]:checked', { timeout: 15000 })
+      .catch(() => { throw new Error('your agent answering for you was not kept') })
+    saving = proxySaved()
+    await kdesk.click('[data-status-popover] [data-proxy-toggle]')
+    res = await saving.catch(() => null)
+    if (!res?.ok()) throw new Error(`turning your agent off did not save: ${res ? res.status() : 'no request'}`)
     await kdesk.keyboard.press('Escape')
     await kdesk.waitForSelector('[data-status-popover]', { state: 'detached', timeout: 5000 })
       .catch(() => { throw new Error('Escape did not close your status') })

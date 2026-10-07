@@ -29,7 +29,17 @@ interface Props {
 
 export const CreateDecision: React.FC<Props> = ({ relayHttpUrl, orgId, userId, sessionToken, onSendCard, onLog, onDone, autoFocus, initialText, autoSend }) => {
   const t = useT()
-  const [text, setText] = useState(initialText || '')
+  // What is being asked, kept in this browser as it is written, so closing
+  // the sheet loses nothing. Words handed in from elsewhere are not a draft.
+  const askKey = initialText ? null : `ask-draft:${orgId}`
+  const [text, setText] = useState(() => {
+    if (initialText) return initialText
+    try { return (askKey && localStorage.getItem(askKey)) || '' } catch { return '' }
+  })
+  useEffect(() => {
+    if (!askKey) return
+    try { if (text) localStorage.setItem(askKey, text); else localStorage.removeItem(askKey) } catch { /* not kept */ }
+  }, [text, askKey])
   const box = useRef<HTMLTextAreaElement>(null)
   // "@" offers the team's names; whoever you name is who it is for.
   const members = useMembers(relayHttpUrl, orgId, sessionToken)

@@ -37,7 +37,7 @@ describe('the policy on the app\'s pages', () => {
   it('shows pictures from the API, pasted ones, and https sites; media from the API and blobs; frames only YouTube\'s player', () => {
     expect(csp['img-src']).toEqual(["'self'", API, 'data:', 'blob:', 'https:'])
     expect(csp['img-src']).not.toContain('http:')
-    expect(csp['media-src']).toEqual(["'self'", API, 'blob:'])
+    expect(csp['media-src']).toEqual(["'self'", API, 'https://media.honmaruai.com', 'blob:'])
     expect(csp['frame-src']).toEqual(['https://www.youtube-nocookie.com'])
   })
 

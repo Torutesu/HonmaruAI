@@ -41,3 +41,17 @@ it('delivers replies only after opt-in and closes a withdrawn request on the des
  notifyNewDecision('Request','Colleague','request-test','org-test')
  closeCardNotifications(['request-test']);expect(close).toHaveBeenCalledOnce()
 })
+
+it('keeps desktop banners but silences them when sound is off', async () => {
+ const {notifyNewDecision} = await import('./notifications')
+ const {saveSoundSettings, DEFAULT_SOUNDS} = await import('./sound')
+ vi.stubGlobal('document', {visibilityState:'hidden', documentElement:{}})
+ setDesktopNotificationsEnabled(true)
+ saveSoundSettings({...DEFAULT_SOUNDS, enabled:false})
+ notifyNewDecision('Request','Colleague','silent-request','org-test')
+ expect(shown).toHaveBeenCalledOnce()
+ expect(shown.mock.calls[0][1]).toMatchObject({silent:true,data:{cardId:'silent-request'}})
+ shown.mockClear()
+ testDesktopNotification()
+ expect(shown.mock.calls[0][1]).toMatchObject({silent:true})
+})

@@ -8,6 +8,9 @@ import SwiftUI
 /// supposed to be an alternative to.
 struct CardVideoView: View {
     let urlString: String
+    /// Asks for an address to play the card's video from, signed for the
+    /// person looking (POST /media/video). Nil plays `urlString` as it is.
+    var resolve: (() async -> URL?)? = nil
 
     @State private var player: AVPlayer?
     @State private var failed = false
@@ -29,14 +32,20 @@ struct CardVideoView: View {
 
     private var poster: some View {
         Button {
-            guard let url = MediaStore.playableURL(from: urlString) else {
-                failed = true
-                return
+            Task { @MainActor in
+                // A video on this phone plays from where it is; one on the
+                // server from an address made for whoever is looking.
+                let local = MediaStore.playableURL(from: urlString)
+                let remote = local?.isFileURL == false ? await resolve?() : nil
+                guard let url = remote ?? local else {
+                    failed = true
+                    return
+                }
+                let player = AVPlayer(url: url)
+                player.isMuted = false
+                self.player = player
+                player.play()
             }
-            let player = AVPlayer(url: url)
-            player.isMuted = false
-            self.player = player
-            player.play()
         } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: Theme.Radius.image)

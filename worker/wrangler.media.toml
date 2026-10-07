@@ -1,0 +1,23 @@
+# The media origin (docs/architecture/media-delivery.md §5, phase 1): files
+# by signed address, from the same bucket the API writes to. No database.
+#
+# Before the first deploy:
+#   1. The domain: media.honmaruai.com, below, as a Custom Domain (the zone
+#      honmaruai.com must be on this Cloudflare account).
+#   2. The signing keys, on this Worker and on the API:
+#        wrangler secret put MEDIA_SIGNING_KEYS -c wrangler.media.toml
+#        wrangler secret put MEDIA_SIGNING_KEYS
+#      as JSON, e.g. {"k1":"<64 random hex characters>"}.
+#   3. Then on the API: MEDIA_ORIGIN = "https://media.honmaruai.com".
+# Until 3, the API keeps handing out its own /files addresses.
+name = "honmaru-media"
+main = "src/mediaWorker.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+routes = [{ pattern = "media.honmaruai.com", custom_domain = true }]
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "tiktokforwork-media"

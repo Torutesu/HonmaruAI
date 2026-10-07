@@ -110,35 +110,266 @@ enum ChatText {
     }
 }
 
-/// Messages in another language, in the reader's: kept per message with the
-/// words they were translated from (an edit asks again), and which ones the
-/// reader turned back to the original.
+/// Why a translation could not be had — enough to say what to do about it,
+/// nothing the server or the provider said (#225).
+enum ChatTranslateFailure: String {
+    case offline, auth, rateLimit, server, provider, quota
+    var label: LocalizedStringKey {
+        switch self {
+        case .offline: "No connection"
+        case .auth: "Sign in again"
+        case .rateLimit: "Too many requests"
+        case .server: "Server error"
+        case .provider: "Translator error"
+        case .quota: "AI allowance used up"
+        }
+    }
+    /// The failure a request that did not come back stands for.
+    static func of(_ error: Error) -> ChatTranslateFailure {
+        if let f = error as? ChatService.Failure {
+            switch f {
+            case .notSignedIn: return .auth
+            case .server(let status, _):
+                if status == 401 || status == 403 { return .auth }
+                if status == 429 { return .rateLimit }
+                return .server
+            case .dataRule: return .server
+            }
+        }
+        if error is URLError { return .offline }
+        return .server
+    }
+    /// The reason the Worker gave for one message it left out; none for
+    /// "no translator here", where no translation exists to show.
+    static func of(reason: String?) -> ChatTranslateFailure? {
+        guard let reason, reason != "no_provider" else { return nil }
+        return reason == "quota" ? .quota : .provider
+    }
+}
+
+/// Messages in another language, in the reader's: kept per message and
+/// language with the words they were translated from (an edit asks again),
+/// and which ones the reader turned back to the original. Kept on the
+/// device too (#225), per account and workspace: a message translated this
+/// morning is still shown translated after a relaunch — at once, and even
+/// when the next request fails. Cleared on sign-out.
 final class ChatTranslations: ObservableObject {
-    static let shared = ChatTranslations()
-    @Published private(set) var texts: [String: (from: String, text: String)] = [:]
+    static let shared = ChatTranslations(persisted: true)
+    struct Kept: Codable { let from: String; let text: String; let at: Double }
+    /// By "id:language".
+    @Published private(set) var texts: [String: Kept] = [:]
     @Published var originals: Set<String> = []
     var off = false
+    /// The reader's language, as last asked for.
+    private(set) var reader = "en"
     private var asked: Set<String> = []
+    /// Asked for and not back yet ("Translating…"), and asked for and not
+    /// had ("Couldn't translate (why) · Try again"): by id and the words
+    /// asked about.
+    @Published private(set) var pending: Set<String> = []
+    @Published private(set) var failed: [String: ChatTranslateFailure] = [:]
+    /// Asks again for one that failed (set by the store that asks).
+    var retry: ((ChatMessage) -> Void)?
+    /// Whose translations these are ("login|workspace"), and where they are
+    /// kept; nil keeps them in memory only (tests, before sign-in).
+    private var scope: String?
+    private let fileURL: URL?
+    private static let maxKept = 800
 
-    func store(_ id: String, from: String, text: String) { texts[id] = (from, text) }
+    init(persisted: Bool = false) {
+        if persisted, let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let directory = base.appendingPathComponent("Honmaru", isDirectory: true)
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            fileURL = directory.appendingPathComponent("translations.json")
+        } else {
+            fileURL = nil
+        }
+    }
+
+    private struct Envelope: Codable { let scope: String; let texts: [String: Kept] }
+    /// The account and workspace now reading: what was kept for them comes
+    /// back; another's is never shown.
+    func use(scope: String) {
+        guard scope != self.scope else { return }
+        self.scope = scope
+        texts = [:]; failed = [:]; pending = []; asked = []; originals = []
+        guard let fileURL, let data = try? Data(contentsOf: fileURL),
+              let env = try? JSONDecoder().decode(Envelope.self, from: data), env.scope == scope else { return }
+        texts = env.texts
+    }
+    /// Signed out: nothing of this account's stays on the phone.
+    func forgetAll() {
+        scope = nil
+        texts = [:]; failed = [:]; pending = []; asked = []; originals = []
+        off = false
+        if let fileURL { try? FileManager.default.removeItem(at: fileURL) }
+    }
+    private func save() {
+        guard let fileURL, let scope else { return }
+        if texts.count > Self.maxKept {
+            texts = Dictionary(uniqueKeysWithValues: texts.sorted { $0.value.at > $1.value.at }.prefix(Self.maxKept).map { ($0.key, $0.value) })
+        }
+        if let data = try? JSONEncoder().encode(Envelope(scope: scope, texts: texts)) { try? data.write(to: fileURL, options: .atomic) }
+    }
+
+    private static func key(_ m: ChatMessage) -> String { "\(m.id):\(m.body)" }
+    /// The translation known for a message as it now reads, in the reader's language.
+    func known(_ m: ChatMessage) -> String? {
+        guard let t = texts["\(m.id):\(reader)"], t.from == m.body else { return nil }
+        return t.text
+    }
+    func isPending(_ m: ChatMessage) -> Bool { !off && pending.contains(Self.key(m)) }
+    /// Failed, and no translation known to show instead: a failed refresh
+    /// never takes a known one away.
+    func failure(_ m: ChatMessage) -> ChatTranslateFailure? {
+        guard !off, known(m) == nil else { return nil }
+        return failed[Self.key(m)]
+    }
+    func hasFailed(_ m: ChatMessage) -> Bool { failure(m) != nil }
+    func asking(_ list: [ChatMessage]) { for m in list { pending.insert(Self.key(m)); failed.removeValue(forKey: Self.key(m)) } }
+    /// Back: those not had are marked failed, with why, and may be asked
+    /// for again. `error` for a request that did not come back at all;
+    /// `reasons` for the ones the Worker left out.
+    func answered(_ list: [ChatMessage], error: ChatTranslateFailure?, reasons: [String: String] = [:]) {
+        for m in list {
+            pending.remove(Self.key(m))
+            let why = error ?? (known(m) == nil ? ChatTranslateFailure.of(reason: reasons[m.id] ?? "no_provider") : nil)
+            if let why { failed[Self.key(m)] = why; asked.remove(Self.key(m)) }
+        }
+    }
+    /// Kept as the old call read: a request that was or was not reached.
+    func answered(_ list: [ChatMessage], reached: Bool) {
+        answered(list, error: reached ? nil : .offline)
+    }
+
+    func store(_ id: String, from: String, text: String, lang: String? = nil) {
+        texts["\(id):\(lang ?? reader)"] = Kept(from: from, text: text, at: Date().timeIntervalSince1970)
+        save()
+    }
     func shown(_ m: ChatMessage) -> (text: String, translated: Bool) {
-        if let t = texts[m.id], t.from == m.body, t.text.trimmingCharacters(in: .whitespacesAndNewlines) != m.body.trimmingCharacters(in: .whitespacesAndNewlines), !originals.contains(m.id) { return (t.text, true) }
+        if let t = known(m), !Self.sameWords(t, m.body), !originals.contains(m.id) { return (t, true) }
         return (m.body, false)
     }
     func hasTranslation(_ m: ChatMessage) -> Bool {
-        guard let t = texts[m.id], t.from == m.body else { return false }
-        return t.text.trimmingCharacters(in: .whitespacesAndNewlines) != m.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let t = known(m) else { return false }
+        return !Self.sameWords(t, m.body)
+    }
+    /// The same words, give or take case, spacing and punctuation.
+    static func sameWords(_ a: String, _ b: String) -> Bool {
+        func plain(_ x: String) -> String {
+            String(x.precomposedStringWithCompatibilityMapping.lowercased().unicodeScalars.filter {
+                !CharacterSet.punctuationCharacters.contains($0) && !CharacterSet.symbols.contains($0) && !CharacterSet.whitespacesAndNewlines.contains($0)
+            })
+        }
+        return plain(a) == plain(b)
     }
     func toggle(_ id: String) { if originals.contains(id) { originals.remove(id) } else { originals.insert(id) } }
-    /// The ones still to ask for, marked as asked.
+    private static let latinReaders: Set<String> = ["en", "es", "fr", "de", "it", "pt", "nl", "sv", "da", "no", "nb", "fi", "pl", "cs", "ro", "hu", "tr", "id", "ms", "vi", "tl", "sw"]
+    /// The Worker's rule (translate.js, #220): not the reader's language,
+    /// and not too short or too plain to need it — Latin letters too few to
+    /// name the language ("ok thanks"), or a few characters of kanji alone.
+    static func worthTranslating(_ lang: String?, reader: String, body: String) -> Bool {
+        let to = String(reader.prefix(2)).lowercased()
+        guard let lang, lang != to else { return false }
+        if lang == "latn" {
+            if latinReaders.contains(to) { return false }
+            let words = body.split(whereSeparator: { $0.isWhitespace }).filter { w in
+                !w.hasPrefix("http") && !w.hasPrefix("@") && w.contains(where: { $0.isLetter })
+            }
+            return words.count > 3
+        }
+        if (lang == "zh" && to == "ja") || (lang == "ja" && to == "zh") {
+            let letters = body.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+            let hanOnly = !letters.isEmpty && letters.allSatisfy { $0.properties.isIdeographic }
+            if hanOnly && letters.count <= 12 { return false }
+        }
+        return true
+    }
+    /// The ones still to ask for, marked as asked: none known already, in
+    /// this reader's language.
     func wanted(_ list: [ChatMessage], reader: String) -> [ChatMessage] {
+        let to = String(reader.prefix(2)).lowercased()
+        if to != self.reader { self.reader = to; asked = [] }
         guard !off else { return [] }
         let out = list.filter { m in
-            guard m.deleted != true, let lang = m.lang, lang != reader, texts[m.id]?.from != m.body else { return false }
+            guard m.deleted != true, Self.worthTranslating(m.lang, reader: to, body: m.body), known(m) == nil else { return false }
             return !asked.contains("\(m.id):\(m.body)")
         }
         for m in out { asked.insert("\(m.id):\(m.body)") }
         return out
+    }
+}
+
+/// "Translating…" under a message while its translation is on its way:
+/// the same small line the translation's note takes, so nothing moves when
+/// it lands. Pulses unless motion is reduced.
+struct ChatTranslatingLabel: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+    var body: some View {
+        Text("Translating…").font(.caption2).foregroundStyle(Theme.Colors.textTertiary)
+            .opacity(dim ? 0.35 : 1)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { dim = true }
+            }
+            .accessibilityAddTraits(.updatesFrequently)
+    }
+}
+
+/// Messages of yours not yet confirmed by the server (#212): on their way
+/// (faded) or failed (faded, with why and Try again). A message is marked
+/// sent only when the server says it has it, never because it was drawn;
+/// then it fades up to full over a moment.
+final class ChatSends: ObservableObject {
+    static let shared = ChatSends()
+    enum State: Equatable { case pending, failed(String) }
+    @Published var states: [String: State] = [:]
+    /// Just confirmed: drawn from faded to full once.
+    @Published var landing: Set<String> = []
+    var retry: ((String) -> Void)?
+    var discard: ((String) -> Void)?
+
+    func landed(_ id: String) {
+        landing.insert(id)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            self.landing.remove(id)
+        }
+    }
+}
+
+/// How a message of yours is drawn while it is on its way, failed, or just
+/// confirmed.
+struct ChatSendState: ViewModifier {
+    let message: ChatMessage
+    @ObservedObject private var sends = ChatSends.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown = false
+    func body(content: Content) -> some View {
+        let state = sends.states[message.id]
+        let landing = sends.landing.contains(message.id)
+        VStack(alignment: .leading, spacing: 4) {
+            content
+                .opacity(state != nil ? 0.5 : (landing && !shown ? 0.5 : 1))
+                .onAppear {
+                    guard landing else { return }
+                    if reduceMotion { shown = true } else { withAnimation(.easeOut(duration: 0.26)) { shown = true } }
+                }
+            switch state {
+            case .pending:
+                Text("Sending…").font(.caption2).foregroundStyle(Theme.Colors.textTertiary).padding(.leading, 44)
+            case .failed(let why):
+                HStack(spacing: 12) {
+                    Text("Not sent · \(why)").font(.caption2).foregroundStyle(Theme.Colors.reject).lineLimit(2)
+                    Button("Try again") { sends.retry?(message.id) }.font(.caption2.weight(.semibold))
+                    Button("Delete", role: .destructive) { sends.discard?(message.id) }.font(.caption2.weight(.semibold))
+                }.buttonStyle(.plain).padding(.leading, 44)
+            case nil:
+                EmptyView()
+            }
+        }
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -284,16 +515,63 @@ struct ChatEmojiGlyph: View {
     }
 }
 
+/// Files' addresses kept fresh: each file is kept by its id, and a minute
+/// before its address runs out a new one is asked for (POST /media/urls),
+/// with the others due about then.
+@MainActor
+final class ChatMediaURLs: ObservableObject {
+    static let shared = ChatMediaURLs()
+    @Published private(set) var fresh: [String: ChatService.FreshFile] = [:]
+    private var asked: [String: Date] = [:]
+    private var orgId: String?
+
+    /// The best address known for a file.
+    func address(_ f: ChatFile, base: URL) -> URL? {
+        if let got = fresh[f.id], got.expiresAt > (f.expiresAt ?? 0) { return URL(string: got.url, relativeTo: base)?.absoluteURL }
+        return f.address(base: base)
+    }
+
+    private func expiry(_ f: ChatFile) -> Double? {
+        max(fresh[f.id]?.expiresAt ?? 0, f.expiresAt ?? 0).nonZero
+    }
+
+    /// Renews the ones due within a minute; returns how long until the next
+    /// one is, in seconds.
+    func renewDue(_ files: [ChatFile], base: URL) async -> TimeInterval? {
+        let now = Date().timeIntervalSince1970 * 1000
+        let org = SessionStore.orgId
+        if org != orgId { fresh = [:]; orgId = org }
+        let due = files.filter { f in
+            guard let at = expiry(f) else { return false }
+            return at - 60_000 <= now && Date().timeIntervalSince(asked[f.id] ?? .distantPast) > 10
+        }
+        if let org, !due.isEmpty {
+            for f in due { asked[f.id] = Date() }
+            if let got = try? await ChatService.freshFileURLs(orgId: org, ids: due.map(\.id), base: base) {
+                for (id, f) in got { fresh[id] = f }
+            }
+        }
+        let next = files.compactMap { expiry($0) }.map { ($0 - 60_000 - Date().timeIntervalSince1970 * 1000) / 1000 }.filter { $0 > 0 }.min()
+        return next
+    }
+}
+
+private extension Double {
+    var nonZero: Double? { self > 0 ? self : nil }
+}
+
 /// The files on a message: pictures at their own shape, the rest as a row
-/// with its name and size. Either opens where the phone shows it.
+/// with its name and size. Preview stays inside the app.
 struct ChatAttachments: View {
     let files: [ChatFile]
+    @State private var preview: ChatFile?
     @Environment(\.chatAssets) private var assets
+    @ObservedObject private var media = ChatMediaURLs.shared
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(files) { f in
-                if let url = assets.base.flatMap({ f.address(base: $0) }) {
-                    Link(destination: url) {
+                if let url = assets.base.flatMap({ media.address(f, base: $0) }) {
+                    Button { preview = f } label: {
                         if f.isPicture {
                             AsyncImage(url: url) { image in
                                 image.resizable().scaledToFit()
@@ -312,7 +590,7 @@ struct ChatAttachments: View {
                                     Text(ByteCountFormatter.string(fromByteCount: Int64(f.size), countStyle: .file)).font(.caption).foregroundStyle(Theme.Colors.textSecondary)
                                 }
                                 Spacer(minLength: 0)
-                                Image(systemName: "arrow.down.circle").foregroundStyle(Theme.Colors.textSecondary)
+                                Image(systemName: "eye").foregroundStyle(Theme.Colors.textSecondary)
                             }
                             .padding(10)
                             .frame(maxWidth: 280)
@@ -320,7 +598,21 @@ struct ChatAttachments: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(Text(verbatim: f.name))
                 }
+            }
+        }
+        // Renewed while it is on screen, a minute before each runs out.
+        .task(id: files.map(\.id)) {
+            guard let base = assets.base else { return }
+            while !Task.isCancelled {
+                guard let wait = await media.renewDue(files, base: base) else { return }
+                try? await Task.sleep(for: .seconds(max(wait, 5)))
+            }
+        }
+        .sheet(item: $preview) { file in
+            if let url = assets.base.flatMap({ media.address(file, base: $0) }) {
+                ChatFilePreview(file: file, url: url)
             }
         }
     }
@@ -517,6 +809,24 @@ struct ChatMessageRow: View {
                 if message.pinned == true {
                     Label("Pinned", systemImage: "pin.fill").font(.caption2.weight(.semibold)).foregroundStyle(.orange)
                 }
+                // A thread reply sent to the conversation too: which thread
+                // it answers, and pressed, that thread.
+                if !inThread, message.alsoChannel == true, let quote = message.threadParent, !message.isDeleted {
+                    Button(action: onOpenThread) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "bubble.left.and.bubble.right").font(.caption2)
+                            if quote.deleted {
+                                Text("Replied to a thread that was deleted").font(.caption.italic())
+                            } else {
+                                Text("Replied to a thread:").font(.caption.weight(.semibold))
+                                Text(verbatim: quote.excerpt).font(.caption).lineLimit(1)
+                            }
+                        }
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                    }
+                    .buttonStyle(.plain).disabled(quote.deleted)
+                    .accessibilityIdentifier("threadReplyLine")
+                }
                 if !joined {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(author).font(.subheadline.weight(.bold)).foregroundStyle(Theme.Colors.textPrimary)
@@ -525,7 +835,7 @@ struct ChatMessageRow: View {
                                 .background(Theme.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 4)).foregroundStyle(Theme.Colors.textSecondary)
                         }
                         if message.isAgent {
-                            Text("Agent").font(.caption2.weight(.heavy)).padding(.horizontal, 5).padding(.vertical, 1)
+                            Text(message.onBehalfOf?.name.map { String(localized: "\($0)'s agent") } ?? String(localized: "Agent")).font(.caption2.weight(.heavy)).padding(.horizontal, 5).padding(.vertical, 1)
                                 .background(Theme.Colors.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 4)).foregroundStyle(Theme.Colors.accent)
                             if let handle = message.agent?.handle, !handle.isEmpty {
                                 Text(verbatim: "@\(handle)").font(.caption).foregroundStyle(Theme.Colors.textTertiary).lineLimit(1)
@@ -541,7 +851,14 @@ struct ChatMessageRow: View {
                         HStack(spacing: 4) { ForEach(Array(big.enumerated()), id: \.offset) { _, e in ChatEmojiGlyph(emoji: e, size: 34) } }
                     } else if !message.body.isEmpty {
                         ChatRichText(text: translations.shown(message).text)
-                        if translations.hasTranslation(message) {
+                        if translations.isPending(message) {
+                            ChatTranslatingLabel()
+                        } else if let why = translations.failure(message) {
+                            Button { translations.retry?(message) } label: {
+                                (Text("Couldn't translate · Try again") + Text(verbatim: " (") + Text(why.label) + Text(verbatim: ")"))
+                                    .font(.caption2).foregroundStyle(Theme.Colors.reject)
+                            }.buttonStyle(.plain)
+                        } else if translations.hasTranslation(message) {
                             Button { translations.toggle(message.id) } label: {
                                 Text(translations.shown(message).translated ? LocalizedStringKey("Translated · Show original") : LocalizedStringKey("Show translation"))
                                     .font(.caption2).foregroundStyle(Theme.Colors.textTertiary)
@@ -552,6 +869,9 @@ struct ChatMessageRow: View {
                     if message.kind == "message", message.previewsHidden != true, let link = ChatLinkMetadata.firstLink(in: message.body) { ChatLinkPreview(url: link) }
                     if message.editedAt != nil {
                         Text("(edited)").font(.caption2).foregroundStyle(Theme.Colors.textTertiary)
+                    }
+                    if inThread, message.alsoChannel == true {
+                        Text("Also sent to the conversation").font(.caption2).foregroundStyle(Theme.Colors.textTertiary)
                     }
                 }
                 if let card = message.cardId, !message.isDeleted {

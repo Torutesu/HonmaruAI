@@ -3,6 +3,7 @@ import { getLocale, primary } from './locale'
 import { desktopNotificationsEnabled } from './desktopNotifications'
 import { desktopApp, bringForward } from './desktop'
 import { isQuiet } from './quiet'
+import { nativeNotificationSilent } from './sound'
 
 // The tab's own notifications, for while the app is open but not in front:
 // a decision for you, a direct message, an @mention. Web Push (utils/push.ts)
@@ -196,7 +197,8 @@ interface Shown { tag: string; body: string; data: Record<string, unknown>; reno
 /// Show one, through the service worker when there is one, else directly —
 /// with a click that brings this tab forward.
 function show(title: string, { tag, body, data, renotify = false, timestamp = Date.now() }: Shown): void {
-  const options = { body, tag, data, icon: ICON, badge: BADGE, renotify, timestamp } as NotificationOptions
+  const silent = desktopApp() ? nativeNotificationSilent(data.kind === 'created' ? 'decision' : data.kind === 'decided' ? 'reply' : 'mention') : undefined
+  const options = { body, tag, data, silent, icon: ICON, badge: BADGE, renotify, timestamp } as NotificationOptions
   const direct = () => {
     try {
       directNotifications.get(tag)?.notification.close()

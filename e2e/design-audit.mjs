@@ -79,7 +79,9 @@ await page.click('text=Set me up'); await page.waitForSelector('.radio')
 await shot(page, `1440-06-onboarding-4`)
 await page.click('.screen-foot .btn-primary:has-text("Next")'); await page.waitForSelector('.ob-daily input[type="time"]')
 await shot(page, `1440-06b-onboarding-daily`)
-await page.click('text=Open my feed')
+await page.click('text=Keep these times and continue')
+  await page.waitForSelector('[data-onboarding="notifications"]')
+  await page.click('.screen-foot .btn-primary')
 await page.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
 
 // A few cards, so the feed has something to show.

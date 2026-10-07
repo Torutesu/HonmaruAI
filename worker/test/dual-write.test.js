@@ -53,6 +53,14 @@ test("posting, editing and unsending in D1 reach the workspace's object", async 
   expect(rows[1].deleted_at).not.toBeNull();
 });
 
+test("a thread reply sent to the conversation too reaches the object as one", async () => {
+  const parent = await post("menu?");
+  const reply = await post("soup", { parentId: parent.id, alsoChannel: true });
+  const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ORG));
+  const row = await runInDurableObject(stub, (_, state) => state.storage.sql.exec("SELECT parent_id, also_channel FROM messages WHERE id = ?", reply.id).toArray()[0]);
+  expect(row).toEqual({ parent_id: parent.id, also_channel: 1 });
+});
+
 test("a workspace not named is left alone", async () => {
   const res = await call("/channels/messages", { method: "POST", token: aya, body: { orgId: "team:single", channel: "b:cafe", body: "only D1" } });
   expect(res.status).toBe(201);

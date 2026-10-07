@@ -1,0 +1,77 @@
+name: Deploy Media
+
+# The media origin (docs/architecture/media-delivery.md §5, phase 1): files
+# by signed address from media.honmaruai.com, a Worker of its own
+# (worker/wrangler.media.toml). By hand only, in this order:
+#
+#   1. Run with "make_keys" ticked: a new signing key, made here and put on
+#      both Workers as MEDIA_SIGNING_KEYS. It is never printed. Making a new
+#      one later stops addresses already out (at most twenty minutes old);
+#      the apps ask for new ones when that happens.
+#   2. The deploy makes media.honmaruai.com (a Custom Domain — the zone must
+#      be on this Cloudflare account).
+#   3. Run again with "turn_on" ticked: the API starts handing out media
+#      origin addresses (MEDIA_ORIGIN). Untick to take it back to its own
+#      /files addresses — "turn_off" does that.
+#
+# Uses the same repository secrets as Deploy Worker.
+on:
+  workflow_dispatch:
+    inputs:
+      make_keys:
+        description: "Make a new signing key and put it on both Workers"
+        type: boolean
+        default: false
+      turn_on:
+        description: "Serve files from the media origin (sets MEDIA_ORIGIN on the API)"
+        type: boolean
+        default: false
+      turn_off:
+        description: "Back to the API's own /files addresses (MEDIA_ORIGIN_V2=off)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-media
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy the media Worker
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the secrets are there
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (see deploy-worker.yml)."; exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci
+      - name: Deploy
+        run: npx wrangler deploy -c wrangler.media.toml
+      - name: Make the signing key
+        if: inputs.make_keys
+        run: |
+          KEY=$(openssl rand -hex 32)
+          echo "::add-mask::$KEY"
+          printf '{"k1":"%s"}' "$KEY" | npx wrangler secret put MEDIA_SIGNING_KEYS -c wrangler.media.toml
+          printf '{"k1":"%s"}' "$KEY" | npx wrangler secret put MEDIA_SIGNING_KEYS
+      - name: Turn the media origin on
+        if: inputs.turn_on
+        run: |
+          printf 'https://media.honmaruai.com' | npx wrangler secret put MEDIA_ORIGIN
+          printf 'on' | npx wrangler secret put MEDIA_ORIGIN_V2
+      - name: Turn the media origin off
+        if: inputs.turn_off
+        run: printf 'off' | npx wrangler secret put MEDIA_ORIGIN_V2
