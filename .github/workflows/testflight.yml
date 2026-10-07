@@ -30,8 +30,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Marketing version, e.g. 1.0.1"
-        required: true
+        description: "Marketing version; leave empty for the one in VERSION"
+        required: false
         type: string
       group:
         description: "TestFlight tester group"
@@ -117,6 +117,12 @@ jobs:
           # altool looks in ~/.private_keys; asc looks in ~/.appstoreconnect.
           cp ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 ~/.private_keys/
 
+      - name: Marketing version
+        id: version
+        env:
+          ASKED: ${{ inputs.version }}
+        run: echo "value=${ASKED:-$(tr -d '[:space:]' < VERSION)}" >> "$GITHUB_OUTPUT"
+
       - name: Generate the project
         run: xcodegen generate
 
@@ -153,7 +159,7 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath build/TikTokForWork.xcarchive \
             -allowProvisioningUpdates \
-            MARKETING_VERSION="${{ inputs.version }}" \
+            MARKETING_VERSION="${{ steps.version.outputs.value }}" \
             CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.value }}" \
             DEVELOPMENT_TEAM="${{ secrets.DEVELOPMENT_TEAM }}" \
             CODE_SIGN_STYLE=Manual \
@@ -196,7 +202,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: honmaru-${{ inputs.version }}-${{ steps.build_number.outputs.value }}
+          name: honmaru-${{ steps.version.outputs.value }}-${{ steps.build_number.outputs.value }}
           path: |
             build/export/*.ipa
             build/TikTokForWork.xcarchive

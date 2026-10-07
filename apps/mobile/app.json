@@ -2,7 +2,7 @@
   "expo": {
     "name": "Honmaru",
     "slug": "honmaru",
-    "version": "1.0.0",
+    "version": "1.3.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
