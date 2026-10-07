@@ -122,3 +122,27 @@ test("a message in another language is translated for its reader, once; edited, 
   const me = await (await call("/me", { headers: headers(mika) })).json();
   expect(me.translateMessages).toBe(false);
 });
+
+test("what could not be translated says why: no translator, or the translator failed (#225)", async () => {
+  const said = (await (await post("/channels/messages", toru, { orgId: ORG, channel: "b:cafe", body: "秋メニューは1日から" })).json()).message;
+  // No translator here: nothing exists to show, and the answer says so.
+  const none = await (await post("/channels/translate", mika, { orgId: ORG, channel: "b:cafe", ids: [said.id] }, { OPENAI_API_KEY: undefined })).json();
+  expect(none).toMatchObject({ translations: {}, failed: { [said.id]: "no_provider" } });
+  // The provider down: "provider", with nothing it said passed on.
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(500, { error: { message: "sk-secret leaked" } });
+  const down = await post("/channels/translate", mika, { orgId: ORG, channel: "b:cafe", ids: [said.id] });
+  const text = await down.text();
+  expect(down.status).toBe(200);
+  expect(JSON.parse(text)).toMatchObject({ translations: {}, failed: { [said.id]: "provider" } });
+  expect(text).not.toContain("sk-secret");
+  // Back up: translated, and kept; nothing failed.
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(200, () => ({
+    choices: [{ message: { content: JSON.stringify({ items: [{ id: said.id, text: "Autumn menu from the 1st" }] }) } }],
+  }));
+  const ok = await (await post("/channels/translate", mika, { orgId: ORG, channel: "b:cafe", ids: [said.id] })).json();
+  expect(ok).toMatchObject({ translations: { [said.id]: "Autumn menu from the 1st" }, failed: {} });
+  // Kept on the server: the next ask is answered from it, even with the
+  // translator gone again.
+  const kept = await (await post("/channels/translate", mika, { orgId: ORG, channel: "b:cafe", ids: [said.id] }, { OPENAI_API_KEY: undefined })).json();
+  expect(kept).toMatchObject({ translations: { [said.id]: "Autumn menu from the 1st" }, failed: {} });
+});

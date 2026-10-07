@@ -84,13 +84,18 @@ const SYSTEM = `You translate chat messages for a team, into the reader's langua
 Reply with JSON only: {"items":[{"id":"...","text":"..."}]} — one item for every message, same ids.`;
 
 /// Translate messages for one reader. `rows` are channel_messages rows the
-/// reader may read. Returns { byId: { id: text }, called } — cached ones
-/// without asking the model; new ones in batches of twenty.
+/// reader may read. Returns { byId: { id: text }, called, failed } — cached
+/// ones without asking the model; new ones in batches of twenty. `failed`
+/// says, per message wanted and not translated, why: "no_provider" (no
+/// translator here — nothing exists to show), "quota" (the AI allowance is
+/// used up), "provider" (the model could not be reached or refused),
+/// "unreadable" (it answered with something that was not the translation).
 export async function translateMessages(db, orgId, rows, { locale, provider, allowance = null }) {
   const lang = String(locale || "en").slice(0, 2).toLowerCase();
   const byId = {};
   const wanted = rows.filter((r) => r && !r.deleted_at && r.body && wantsTranslation(messageLanguage(r.body), lang, r.body));
-  if (!wanted.length) return { byId, called: false };
+  const failed = {};
+  if (!wanted.length) return { byId, called: false, failed };
   const ids = wanted.map((r) => r.id);
   const { results: kept } = await db.prepare(
     `SELECT message_id, source_hash, body FROM message_translations WHERE org_id = ?1 AND locale = ?2 AND message_id IN (${ids.map((_, i) => `?${i + 3}`).join(", ")})`
@@ -102,7 +107,11 @@ export async function translateMessages(db, orgId, rows, { locale, provider, all
     if (hit && hit.source_hash === sourceHash(r.body)) byId[r.id] = hit.body;
     else missing.push(r);
   }
-  if (!missing.length || !provider || (allowance && !allowance.allowed)) return { byId, called: false };
+  if (!missing.length) return { byId, called: false, failed };
+  if (!provider || (allowance && !allowance.allowed)) {
+    for (const r of missing) failed[r.id] = provider ? "quota" : "no_provider";
+    return { byId, called: false, failed };
+  }
 
   let called = false;
   const now = new Date().toISOString();
@@ -112,7 +121,7 @@ export async function translateMessages(db, orgId, rows, { locale, provider, all
     called = called || out.called;
     for (const r of batch) {
       const text = out.texts[r.id];
-      if (typeof text !== "string" || !text.trim()) continue;
+      if (typeof text !== "string" || !text.trim()) { failed[r.id] = out.error || "unreadable"; continue; }
       // Already the reader's, near enough: kept as the message itself, so
       // it is never shown as "Translated" and never asked about again.
       byId[r.id] = sameWords(text, r.body) ? String(r.body) : text.trim().slice(0, MAX_TEXT);
@@ -123,7 +132,7 @@ export async function translateMessages(db, orgId, rows, { locale, provider, all
     }
   }
   if (called && allowance?.metered) await allowance.consume().catch(() => {});
-  return { byId, called };
+  return { byId, called, failed };
 }
 
 async function callModel(provider, batch, lang) {
@@ -144,15 +153,21 @@ async function callModel(provider, batch, lang) {
         ],
       }),
     });
-    if (!res.ok) return { called: false, texts: {} };
+    // Why, for the reader's "Couldn't translate" — the status, never
+    // what the provider said (it may echo the key or the request).
+    if (!res.ok) {
+      console.error("translate provider failed", res.status);
+      return { called: false, texts: {}, error: "provider" };
+    }
     data = await res.json();
     noteUsage(provider, "translate", data);
-  } catch {
-    return { called: false, texts: {} };
+  } catch (err) {
+    console.error("translate provider unreachable", err?.name || "error");
+    return { called: false, texts: {}, error: "provider" };
   }
   const content = data?.choices?.[0]?.message?.content;
   let parsed;
-  try { parsed = JSON.parse(String(content || "").replace(/^```(?:json)?\s*|\s*```$/g, "")); } catch { return { called: true, texts: {} }; }
+  try { parsed = JSON.parse(String(content || "").replace(/^```(?:json)?\s*|\s*```$/g, "")); } catch { return { called: true, texts: {}, error: "unreadable" }; }
   const texts = {};
   for (const item of Array.isArray(parsed?.items) ? parsed.items : []) {
     if (item && typeof item.id === "string" && typeof item.text === "string") texts[item.id] = item.text;
