@@ -2,6 +2,7 @@ import { channelMessageCache, mergeLatestMessages } from '../utils/channelMessag
 import { ReadGuard } from '../utils/readGuard'
 import { toggleReaction } from '../utils/reactions'
 import { sameWords, wantsTranslation } from '../utils/translationRule'
+import { FAILURE_LABEL, failureOf, keepTranslations, keptTranslation, type TranslateFailure } from '../utils/translationCache'
 import { ChannelCanvas } from './ChannelCanvas'
 import { AgentAvatar } from './AgentAvatar'
 import { BookmarksBar } from './BookmarksBar'
@@ -2279,49 +2280,78 @@ export const ClassicList: React.FC<Props> = ({
   const [translateOff, setTranslateOff] = useState(false)
   const asking = useRef<Set<string>>(new Set())
   // Asked for and not back yet — "Translating…" under the message — and
-  // asked for and not had: "Couldn't translate · Try again". Each by the
-  // words asked about, so an edit starts over.
+  // asked for and not had: "Couldn't translate (why) · Try again". Each by
+  // the words asked about, so an edit starts over.
   const [translating, setTranslating] = useState<Record<string, string>>({})
-  const [untranslated, setUntranslated] = useState<Record<string, string>>({})
+  const [untranslated, setUntranslated] = useState<Record<string, { from: string; why: TranslateFailure }>>({})
+  // The translation known for a message as it now reads, in the reader's
+  // language: had on this screen, or kept in this browser from before
+  // (translationCache, #225) — so a remount, a reload or a failed request
+  // never turns a translated message back into its original.
+  const knownTranslation = (m: ChannelMessage): string | null => {
+    const tr = translations[m.id]
+    if (tr && tr.from === m.body && tr.lang === readerLang) return tr.text
+    return api.orgId ? keptTranslation(api.orgId, m.id, readerLang, m.body) : null
+  }
   // Anything not in the language you set is translated into it — but not
   // what is too short or too plain to need it (wantsTranslation, the
   // Worker's own rule, #220).
-  const hasTranslation = (m: ChannelMessage) => translations[m.id]?.from === m.body && translations[m.id]?.lang === readerLang
+  const hasTranslation = (m: ChannelMessage) => knownTranslation(m) !== null
   const needsTranslation = (m: ChannelMessage) => !translateOff && !m.deleted && wantsTranslation(m.lang, readerLang, m.body)
     && !hasTranslation(m) && !asking.current.has(`${m.id}:${m.body}:${readerLang}`)
   const translate = useCallback(async (channel: string, list: ChannelMessage[]) => {
     const want = list.filter(needsTranslation).slice(0, 60)
     if (!want.length) return
     for (const m of want) asking.current.add(`${m.id}:${m.body}:${readerLang}`)
-    const mark = (set: typeof setTranslating, on: boolean) => set((prev) => {
+    setTranslating((prev) => {
       const next = { ...prev }
-      for (const m of want) { if (on) next[m.id] = m.body; else delete next[m.id] }
+      for (const m of want) next[m.id] = m.body
       return next
     })
-    mark(setTranslating, true)
-    mark(setUntranslated, false)
+    setUntranslated((prev) => {
+      const next = { ...prev }
+      for (const m of want) delete next[m.id]
+      return next
+    })
     const res = await fetch(`${api.httpBase}/channels/translate`, {
       method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
       body: JSON.stringify({ orgId: api.orgId, channel, ids: want.map((m) => m.id), locale: readerLang }),
     }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) : null
-    mark(setTranslating, false)
-    // Not reached, or the answer unreadable: said so, with a way to ask
-    // again. An answer that leaves a message out (no translator here,
-    // nothing to change) is no failure — the message just stays as it is.
+    setTranslating((prev) => {
+      const next = { ...prev }
+      for (const m of want) delete next[m.id]
+      return next
+    })
+    // Not reached, refused or unreadable: said so, with why and a way to
+    // ask again — and each may be asked about again later.
+    const failed = (why: (m: ChannelMessage) => TranslateFailure | null) => {
+      const out: Record<string, { from: string; why: TranslateFailure }> = {}
+      for (const m of want) {
+        const w = why(m)
+        if (!w) continue
+        asking.current.delete(`${m.id}:${m.body}:${readerLang}`)
+        out[m.id] = { from: m.body, why: w }
+      }
+      if (Object.keys(out).length) setUntranslated((prev) => ({ ...prev, ...out }))
+    }
     if (!data) {
-      for (const m of want) asking.current.delete(`${m.id}:${m.body}:${readerLang}`)
-      mark(setUntranslated, true)
+      failed(() => failureOf(res ? res.status : null))
       return
     }
-    if (data?.off) { setTranslateOff(true); return }
-    if (data?.translations) {
+    if (data.off) { setTranslateOff(true); return }
+    const got = want.filter((m) => typeof data.translations?.[m.id] === 'string')
+    if (got.length) {
       setTranslations((prev) => {
         const next = { ...prev }
-        for (const m of want) if (data.translations[m.id]) next[m.id] = { from: m.body, text: data.translations[m.id], lang: readerLang }
+        for (const m of got) next[m.id] = { from: m.body, text: data.translations[m.id], lang: readerLang }
         return next
       })
+      if (api.orgId) keepTranslations(api.orgId, readerLang, got.map((m) => ({ id: m.id, from: m.body, text: data.translations[m.id] })))
     }
+    // One the Worker left out says why; one with no translator at all
+    // (no_provider) is no failure — none exists, and it reads as written.
+    failed((m) => typeof data.translations?.[m.id] === 'string' ? null : failureOf(200, data.failed?.[m.id] || 'no_provider'))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api.httpBase, api.orgId, authHeaders, translations, translateOff, readerLang])
   // Whatever is on screen: the open conversation, and the thread beside it.
@@ -2360,26 +2390,30 @@ export const ClassicList: React.FC<Props> = ({
   }, [activity, translateOff])
   /// What to show for a message: its translation, unless asked for the original.
   const shownBody = (m: ChannelMessage) => {
-    const tr = translations[m.id]
+    const tr = knownTranslation(m)
     // A "translation" that is the message itself — give or take
     // punctuation — was yours already.
-    return tr && hasTranslation(m) && !sameWords(tr.text, m.body) && !originals.has(m.id) ? { text: tr.text, translated: true } : { text: m.body, translated: false }
+    return tr !== null && !sameWords(tr, m.body) && !originals.has(m.id) ? { text: tr, translated: true } : { text: m.body, translated: false }
   }
   const translationNote = (m: ChannelMessage) => {
     if (translateOff || m.deleted) return null
     if (translating[m.id] === m.body) {
       return <span className="slk-translating" role="status">{t('Translating…')}</span>
     }
-    if (untranslated[m.id] === m.body) {
+    const tr = knownTranslation(m)
+    const miss = untranslated[m.id]
+    // Failed, and no translation known for it: say why, and offer again.
+    // One already known stays shown — a failed refresh never takes it away.
+    if (miss && miss.from === m.body && tr === null) {
       return (
-        <button type="button" className="slk-translated slk-translate-failed"
+        <button type="button" className="slk-translated slk-translate-failed" data-why={miss.why}
+          title={t(FAILURE_LABEL[miss.why])}
           onClick={() => void translate(m.channel, [m])}>
-          {t("Couldn't translate · Try again")}
+          {t("Couldn't translate · Try again")} <span className="slk-translate-why">({t(FAILURE_LABEL[miss.why])})</span>
         </button>
       )
     }
-    const tr = translations[m.id]
-    if (!tr || !hasTranslation(m) || sameWords(tr.text, m.body)) return null
+    if (tr === null || sameWords(tr, m.body)) return null
     const showing = !originals.has(m.id)
     return (
       <button type="button" className="slk-translated" data-translated={showing ? '1' : '0'}

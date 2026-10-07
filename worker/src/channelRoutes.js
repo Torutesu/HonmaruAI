@@ -1245,9 +1245,17 @@ export async function handleChannels(request, env, url, { route, after }) {
     const rows = (await Promise.all(ids.map((id) => getMessage(env.DB, body.orgId, id)))).filter((r) => r && r.channel === ctx.resolved.key);
     const provider = await providerFor(env, body.orgId);
     const allowance = provider ? await allowanceFor(env, body.orgId, { githubId: String(ctx.who.session.github_id) }) : null;
-    const { byId } = await translateMessages(env.DB, body.orgId, rows, { locale, provider, allowance });
-    if (provider) await settleUsage(env.DB, provider, { orgId: body.orgId, githubId: ctx.who.session.github_id });
-    return json({ translations: byId, locale });
+    // What could not be translated says why (translateMessages), so the
+    // reader's screen tells "no translator here" from "it failed, try again".
+    let out;
+    try {
+      out = await translateMessages(env.DB, body.orgId, rows, { locale, provider, allowance });
+    } catch (err) {
+      console.error("translate failed", safe(err?.message));
+      return json({ message: "Translation failed on the server.", code: "translate_failed" }, 502);
+    }
+    if (provider) await settleUsage(env.DB, provider, { orgId: body.orgId, githubId: ctx.who.session.github_id }).catch(() => {});
+    return json({ translations: out.byId, failed: out.failed || {}, locale });
   }
 
   // An agent brought into a channel or a group, or taken out of it. Anyone
