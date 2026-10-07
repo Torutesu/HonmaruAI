@@ -1,0 +1,78 @@
+name: Windows Store package
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/windows-store-submission]
+    paths: ['apps/desktop/**', '.github/workflows/windows-store-package.yml']
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - name: Preserve source line endings
+        working-directory: ${{ runner.temp }}
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - name: Create Store tile assets from the application icon
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          New-Item -ItemType Directory -Force resources/appx | Out-Null
+          $source = [System.Drawing.Image]::FromFile((Resolve-Path resources/icon.png))
+          try {
+            foreach ($tile in @(@('StoreLogo',50,50), @('Square44x44Logo',44,44), @('Square150x150Logo',150,150), @('Wide310x150Logo',310,150))) {
+              $bitmap = [System.Drawing.Bitmap]::new([int]$tile[1], [int]$tile[2])
+              $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+              try {
+                $graphics.Clear([System.Drawing.Color]::Transparent)
+                $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                $size = [Math]::Min([int]$tile[1], [int]$tile[2])
+                $graphics.DrawImage($source, [int](($tile[1]-$size)/2), [int](($tile[2]-$size)/2), $size, $size)
+                $bitmap.Save((Join-Path $PWD "resources/appx/$($tile[0]).png"), [System.Drawing.Imaging.ImageFormat]::Png)
+              } finally { $graphics.Dispose(); $bitmap.Dispose() }
+            }
+          } finally { $source.Dispose() }
+      - name: Build package for Microsoft Store signing
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --config electron-builder.store.yml --win appx --x64 --publish never
+      - name: Verify package identity and startup
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $package = @(Get-ChildItem dist -Filter '*-store.appx')
+          if ($package.Count -ne 1) { throw 'Expected one Store package.' }
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($package[0].FullName)
+          try {
+            $reader = [System.IO.StreamReader]::new($zip.GetEntry('AppxManifest.xml').Open())
+            try { [xml]$manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            if ($manifest.Package.Identity.Name -ne 'Selectinc.HonmaruAI') { throw 'Wrong Store identity' }
+            if ($manifest.Package.Identity.Publisher -ne 'CN=7CDC932B-05F3-4A36-884F-635FD02769E0') { throw 'Wrong publisher' }
+            $manifest.Save((Join-Path $PWD 'dist/Store-AppxManifest.xml'))
+          } finally { $zip.Dispose() }
+          $app = Start-Process 'dist/win-unpacked/Honmaru AI.exe' -PassThru
+          try {
+            if ($app.WaitForExit(20000)) { throw 'App exited during startup' }
+            'Windows x64 startup passed for 20 seconds. Store installation and signed-in workflows require further verification.' | Set-Content dist/startup-result.txt
+          } finally { taskkill /PID $app.Id /T /F 2>$null }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Honmaru-AI-Windows-Store
+          path: |
+            apps/desktop/dist/*-store.appx
+            apps/desktop/dist/Store-AppxManifest.xml
+            apps/desktop/dist/startup-result.txt
+          if-no-files-found: error
+          retention-days: 14
