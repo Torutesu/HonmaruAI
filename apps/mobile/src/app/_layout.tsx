@@ -21,8 +21,7 @@ function Screens() {
         router.push({ pathname: '/c/[channel]', params: { channel: target.channel } })
       })()
     })
-    // chooseOrg is a fresh function each render; the rest say when to listen.
-  }, [ready, token, me, orgId])
+  }, [ready, token, me, orgId, chooseOrg])
 
   if (!ready) return null
   return (

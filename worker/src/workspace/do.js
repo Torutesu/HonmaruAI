@@ -164,6 +164,27 @@ export class WorkspaceDO extends DurableObject {
     });
   }
 
+  /// Apply the account-deletion policy to messages and read positions.
+  forgetAccount({ login }) {
+    if (typeof login !== "string" || !login) throw new Error("login required");
+    this.ctx.storage.transactionSync(() => {
+      // Match DM participants literally; usernames may contain SQL wildcards.
+      const ownDM = "substr(channel_id, 1, 3) = 'dm:' AND (substr(channel_id, 4, length(?) + 1) = ? || '|' OR substr(channel_id, -(length(?) + 1)) = '|' || ?)";
+      this.sql.exec(`DELETE FROM messages WHERE ${ownDM}`, login, login, login, login);
+      this.sql.exec(`DELETE FROM reads WHERE login = ? OR (${ownDM})`, login, login, login, login, login);
+      this.sql.exec(`DELETE FROM channel_seq WHERE ${ownDM}`, login, login, login, login);
+      this.sql.exec("UPDATE messages SET author = NULL WHERE author = ?", login);
+    });
+    // An already scheduled alarm must not recreate the deleted read positions.
+    for (const key of this.pendingReads.keys()) {
+      const [reader, channel] = key.split("\n");
+      if (reader === login || (channel.startsWith("dm:") && channel.slice(3).split("|").includes(login))) {
+        this.pendingReads.delete(key);
+      }
+    }
+    return { ok: true };
+  }
+
   /// How far someone has read, noted now and written shortly.
   async markRead({ login, channel, seq }) {
     const k = `${login}\n${channel}`;

@@ -61,6 +61,7 @@ export class Api {
   }
 
   // ---- Signing in ----
+  signInWithPassword(body: { email: string; password: string; inviteCode?: string }) { return this.request<SignedIn>('/auth/login', { method: 'POST', body }) }
   requestCode(body: OtpRequest) { return this.request<{ ok?: boolean }>('/auth/otp/request', { method: 'POST', body }) }
   verifyCode(body: OtpVerify) { return this.request<SignedIn>('/auth/otp/verify', { method: 'POST', body }) }
   signInWithApple(body: AppleSignIn) { return this.request<SignedIn>('/auth/apple', { method: 'POST', body }) }
