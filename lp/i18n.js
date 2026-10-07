@@ -3,6 +3,7 @@
 // In keep.text, *asterisks* mark the words painted violet.
 window.I18N = {
   "en": {
+    "release.ios130": "October 8, 2026 — iOS 1.3.0 submitted for App Store review, adding explicit permission before workspace data is shared with AI.",
     "preview.search": "Search decisions",
     "preview.waiting": "Waiting on you",
     "preview.decided": "Decided",
@@ -183,6 +184,7 @@ window.I18N = {
     "try.declinedCopy": "This time, it’s a no. In the app, that decision reaches the person who asked."
   },
   "ja": {
+    "release.ios130": "2026年10月8日：iOS 1.3.0をApp Storeの審査に提出しました。ワークスペースのデータをAIへ共有する前に、内容と送信先を確認して許可する画面を追加しています。",
     "preview.search": "判断を検索",
     "preview.waiting": "あなたの判断待ち",
     "preview.decided": "判断済み",
@@ -363,6 +365,7 @@ window.I18N = {
     "try.declinedCopy": "今回は、見送り。実際のアプリでは、その判断が相手に伝わります。"
   },
   "es": {
+    "release.ios130": "8 de octubre de 2026: iOS 1.3.0 enviado a revisión del App Store. Añade un permiso explícito antes de compartir datos del espacio de trabajo con la IA.",
     "preview.search": "Buscar decisiones",
     "preview.waiting": "Pendiente de ti",
     "preview.decided": "Decidido",
@@ -543,6 +546,7 @@ window.I18N = {
     "try.declinedCopy": "Rechazaste el ejemplo. El solicitante recibe una respuesta clara."
   },
   "fr": {
+    "release.ios130": "8 octobre 2026 : iOS 1.3.0 soumis à la validation de l’App Store, avec une autorisation explicite avant de partager les données de l’espace de travail avec l’IA.",
     "preview.search": "Rechercher des décisions",
     "preview.waiting": "En attente de vous",
     "preview.decided": "Décidé",
@@ -723,6 +727,7 @@ window.I18N = {
     "try.declinedCopy": "Vous avez refusé l’exemple. Le demandeur reçoit une réponse claire."
   },
   "de": {
+    "release.ios130": "8. Oktober 2026: iOS 1.3.0 zur App-Store-Prüfung eingereicht. Die Version fragt ausdrücklich um Erlaubnis, bevor Arbeitsbereichsdaten mit KI geteilt werden.",
     "preview.search": "Entscheidungen suchen",
     "preview.waiting": "Wartet auf dich",
     "preview.decided": "Entschieden",
