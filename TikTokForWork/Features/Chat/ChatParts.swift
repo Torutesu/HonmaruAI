@@ -110,42 +110,149 @@ enum ChatText {
     }
 }
 
-/// Messages in another language, in the reader's: kept per message with the
-/// words they were translated from (an edit asks again), and which ones the
-/// reader turned back to the original.
+/// Why a translation could not be had — enough to say what to do about it,
+/// nothing the server or the provider said (#225).
+enum ChatTranslateFailure: String {
+    case offline, auth, rateLimit, server, provider, quota
+    var label: LocalizedStringKey {
+        switch self {
+        case .offline: "No connection"
+        case .auth: "Sign in again"
+        case .rateLimit: "Too many requests"
+        case .server: "Server error"
+        case .provider: "Translator error"
+        case .quota: "AI allowance used up"
+        }
+    }
+    /// The failure a request that did not come back stands for.
+    static func of(_ error: Error) -> ChatTranslateFailure {
+        if let f = error as? ChatService.Failure {
+            switch f {
+            case .notSignedIn: return .auth
+            case .server(let status, _):
+                if status == 401 || status == 403 { return .auth }
+                if status == 429 { return .rateLimit }
+                return .server
+            case .dataRule: return .server
+            }
+        }
+        if error is URLError { return .offline }
+        return .server
+    }
+    /// The reason the Worker gave for one message it left out; none for
+    /// "no translator here", where no translation exists to show.
+    static func of(reason: String?) -> ChatTranslateFailure? {
+        guard let reason, reason != "no_provider" else { return nil }
+        return reason == "quota" ? .quota : .provider
+    }
+}
+
+/// Messages in another language, in the reader's: kept per message and
+/// language with the words they were translated from (an edit asks again),
+/// and which ones the reader turned back to the original. Kept on the
+/// device too (#225), per account and workspace: a message translated this
+/// morning is still shown translated after a relaunch — at once, and even
+/// when the next request fails. Cleared on sign-out.
 final class ChatTranslations: ObservableObject {
-    static let shared = ChatTranslations()
-    @Published private(set) var texts: [String: (from: String, text: String)] = [:]
+    static let shared = ChatTranslations(persisted: true)
+    struct Kept: Codable { let from: String; let text: String; let at: Double }
+    /// By "id:language".
+    @Published private(set) var texts: [String: Kept] = [:]
     @Published var originals: Set<String> = []
     var off = false
+    /// The reader's language, as last asked for.
+    private(set) var reader = "en"
     private var asked: Set<String> = []
     /// Asked for and not back yet ("Translating…"), and asked for and not
-    /// had ("Couldn't translate · Try again"): by id and the words asked about.
+    /// had ("Couldn't translate (why) · Try again"): by id and the words
+    /// asked about.
     @Published private(set) var pending: Set<String> = []
-    @Published private(set) var failed: Set<String> = []
+    @Published private(set) var failed: [String: ChatTranslateFailure] = [:]
     /// Asks again for one that failed (set by the store that asks).
     var retry: ((ChatMessage) -> Void)?
+    /// Whose translations these are ("login|workspace"), and where they are
+    /// kept; nil keeps them in memory only (tests, before sign-in).
+    private var scope: String?
+    private let fileURL: URL?
+    private static let maxKept = 800
 
-    private static func key(_ m: ChatMessage) -> String { "\(m.id):\(m.body)" }
-    func isPending(_ m: ChatMessage) -> Bool { !off && pending.contains(Self.key(m)) }
-    func hasFailed(_ m: ChatMessage) -> Bool { !off && failed.contains(Self.key(m)) }
-    func asking(_ list: [ChatMessage]) { for m in list { pending.insert(Self.key(m)); failed.remove(Self.key(m)) } }
-    /// Back: the ones not reached are marked failed and may be asked for again.
-    func answered(_ list: [ChatMessage], reached: Bool) {
-        for m in list {
-            pending.remove(Self.key(m))
-            if !reached { failed.insert(Self.key(m)); asked.remove(Self.key(m)) }
+    init(persisted: Bool = false) {
+        if persisted, let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let directory = base.appendingPathComponent("Honmaru", isDirectory: true)
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            fileURL = directory.appendingPathComponent("translations.json")
+        } else {
+            fileURL = nil
         }
     }
 
-    func store(_ id: String, from: String, text: String) { texts[id] = (from, text) }
+    private struct Envelope: Codable { let scope: String; let texts: [String: Kept] }
+    /// The account and workspace now reading: what was kept for them comes
+    /// back; another's is never shown.
+    func use(scope: String) {
+        guard scope != self.scope else { return }
+        self.scope = scope
+        texts = [:]; failed = [:]; pending = []; asked = []; originals = []
+        guard let fileURL, let data = try? Data(contentsOf: fileURL),
+              let env = try? JSONDecoder().decode(Envelope.self, from: data), env.scope == scope else { return }
+        texts = env.texts
+    }
+    /// Signed out: nothing of this account's stays on the phone.
+    func forgetAll() {
+        scope = nil
+        texts = [:]; failed = [:]; pending = []; asked = []; originals = []
+        off = false
+        if let fileURL { try? FileManager.default.removeItem(at: fileURL) }
+    }
+    private func save() {
+        guard let fileURL, let scope else { return }
+        if texts.count > Self.maxKept {
+            texts = Dictionary(uniqueKeysWithValues: texts.sorted { $0.value.at > $1.value.at }.prefix(Self.maxKept).map { ($0.key, $0.value) })
+        }
+        if let data = try? JSONEncoder().encode(Envelope(scope: scope, texts: texts)) { try? data.write(to: fileURL, options: .atomic) }
+    }
+
+    private static func key(_ m: ChatMessage) -> String { "\(m.id):\(m.body)" }
+    /// The translation known for a message as it now reads, in the reader's language.
+    func known(_ m: ChatMessage) -> String? {
+        guard let t = texts["\(m.id):\(reader)"], t.from == m.body else { return nil }
+        return t.text
+    }
+    func isPending(_ m: ChatMessage) -> Bool { !off && pending.contains(Self.key(m)) }
+    /// Failed, and no translation known to show instead: a failed refresh
+    /// never takes a known one away.
+    func failure(_ m: ChatMessage) -> ChatTranslateFailure? {
+        guard !off, known(m) == nil else { return nil }
+        return failed[Self.key(m)]
+    }
+    func hasFailed(_ m: ChatMessage) -> Bool { failure(m) != nil }
+    func asking(_ list: [ChatMessage]) { for m in list { pending.insert(Self.key(m)); failed.removeValue(forKey: Self.key(m)) } }
+    /// Back: those not had are marked failed, with why, and may be asked
+    /// for again. `error` for a request that did not come back at all;
+    /// `reasons` for the ones the Worker left out.
+    func answered(_ list: [ChatMessage], error: ChatTranslateFailure?, reasons: [String: String] = [:]) {
+        for m in list {
+            pending.remove(Self.key(m))
+            let why = error ?? (known(m) == nil ? ChatTranslateFailure.of(reason: reasons[m.id] ?? "no_provider") : nil)
+            if let why { failed[Self.key(m)] = why; asked.remove(Self.key(m)) }
+        }
+    }
+    /// Kept as the old call read: a request that was or was not reached.
+    func answered(_ list: [ChatMessage], reached: Bool) {
+        answered(list, error: reached ? nil : .offline)
+    }
+
+    func store(_ id: String, from: String, text: String, lang: String? = nil) {
+        texts["\(id):\(lang ?? reader)"] = Kept(from: from, text: text, at: Date().timeIntervalSince1970)
+        save()
+    }
     func shown(_ m: ChatMessage) -> (text: String, translated: Bool) {
-        if let t = texts[m.id], t.from == m.body, !Self.sameWords(t.text, m.body), !originals.contains(m.id) { return (t.text, true) }
+        if let t = known(m), !Self.sameWords(t, m.body), !originals.contains(m.id) { return (t, true) }
         return (m.body, false)
     }
     func hasTranslation(_ m: ChatMessage) -> Bool {
-        guard let t = texts[m.id], t.from == m.body else { return false }
-        return !Self.sameWords(t.text, m.body)
+        guard let t = known(m) else { return false }
+        return !Self.sameWords(t, m.body)
     }
     /// The same words, give or take case, spacing and punctuation.
     static func sameWords(_ a: String, _ b: String) -> Bool {
@@ -178,11 +285,14 @@ final class ChatTranslations: ObservableObject {
         }
         return true
     }
-    /// The ones still to ask for, marked as asked.
+    /// The ones still to ask for, marked as asked: none known already, in
+    /// this reader's language.
     func wanted(_ list: [ChatMessage], reader: String) -> [ChatMessage] {
+        let to = String(reader.prefix(2)).lowercased()
+        if to != self.reader { self.reader = to; asked = [] }
         guard !off else { return [] }
         let out = list.filter { m in
-            guard m.deleted != true, Self.worthTranslating(m.lang, reader: reader, body: m.body), texts[m.id]?.from != m.body else { return false }
+            guard m.deleted != true, Self.worthTranslating(m.lang, reader: to, body: m.body), known(m) == nil else { return false }
             return !asked.contains("\(m.id):\(m.body)")
         }
         for m in out { asked.insert("\(m.id):\(m.body)") }
@@ -743,9 +853,10 @@ struct ChatMessageRow: View {
                         ChatRichText(text: translations.shown(message).text)
                         if translations.isPending(message) {
                             ChatTranslatingLabel()
-                        } else if translations.hasFailed(message) {
+                        } else if let why = translations.failure(message) {
                             Button { translations.retry?(message) } label: {
-                                Text("Couldn't translate · Try again").font(.caption2).foregroundStyle(Theme.Colors.reject)
+                                (Text("Couldn't translate · Try again") + Text(verbatim: " (") + Text(why.label) + Text(verbatim: ")"))
+                                    .font(.caption2).foregroundStyle(Theme.Colors.reject)
                             }.buttonStyle(.plain)
                         } else if translations.hasTranslation(message) {
                             Button { translations.toggle(message.id) } label: {

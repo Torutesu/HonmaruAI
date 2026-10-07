@@ -408,17 +408,25 @@ final class ChatStore: ObservableObject {
     func translate(_ channel: String, _ list: [ChatMessage]) async {
         guard let orgId, let base else { return }
         let reader = String((appState?.readerLanguageCode ?? "en").prefix(2)).lowercased()
-        let want = ChatTranslations.shared.wanted(list, reader: reader)
+        let tr = ChatTranslations.shared
+        // This account's, in this workspace: what was kept on the phone
+        // comes back before anything is asked for (#225).
+        if let me = appState?.currentUser?.id { tr.use(scope: "\(me)|\(orgId)") }
+        let want = tr.wanted(list, reader: reader)
         guard !want.isEmpty else { return }
         let asked = Array(want.prefix(60))
-        let tr = ChatTranslations.shared
         tr.retry = { [weak self] m in Task { await self?.translate(m.channel, [m]) } }
         tr.asking(asked)
-        let got = try? await ChatService.translate(orgId: orgId, channel: channel, ids: asked.map(\.id), locale: reader, base: base)
-        tr.answered(asked, reached: got != nil)
-        guard let got else { return }
-        if got.off == true { ChatTranslations.shared.off = true; return }
-        for m in want { if let text = got.translations[m.id] { ChatTranslations.shared.store(m.id, from: m.body, text: text) } }
+        let got: ChatService.Translations
+        do {
+            got = try await ChatService.translate(orgId: orgId, channel: channel, ids: asked.map(\.id), locale: reader, base: base)
+        } catch {
+            tr.answered(asked, error: ChatTranslateFailure.of(error))
+            return
+        }
+        if got.off == true { tr.off = true; tr.answered(asked, error: nil, reasons: [:]); return }
+        for m in asked { if let text = got.translations[m.id] { tr.store(m.id, from: m.body, text: text, lang: reader) } }
+        tr.answered(asked, error: nil, reasons: got.failed ?? [:])
     }
 
     func markRead(_ view: String) async {
