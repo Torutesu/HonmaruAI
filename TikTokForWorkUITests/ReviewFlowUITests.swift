@@ -65,7 +65,8 @@ final class ReviewFlowUITests: XCTestCase {
             XCTAssertTrue([200, 401].contains((response as? HTTPURLResponse)?.statusCode ?? 0), "Delete the disposable UI account or confirm its session was revoked")
         }
         let app = XCUIApplication()
-        app.launchArguments = ["-disableUpdateCheck", "YES", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-appLanguage", "en"]
+        app.launchArguments = ["-disableUpdateCheck", "YES", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-appLanguage", "en", "-home.list", "NO",
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"]
         app.launch()
         XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 20))
         app.buttons["Get started"].tap()
@@ -88,6 +89,10 @@ final class ReviewFlowUITests: XCTestCase {
         let reachedShell = app.buttons["New request"].waitForExistence(timeout: 25)
         XCTAssertTrue(reachedShell, "Actual sign-in callback must reach the app shell")
         guard reachedShell else { return }
+        // A prior UI test may have selected the list layout; launch arguments
+        // reset that preference. Dismiss new-account setup on either launch.
+        let initialLater = app.navigationBars.buttons["Later"]
+        if initialLater.waitForExistence(timeout: 5) { initialLater.tap() }
         let joinedWorkspace = app.staticTexts["You're all caught up"].waitForExistence(timeout: 25)
         XCTAssertTrue(joinedWorkspace, "Authenticated workspace must join, not show No access")
         guard joinedWorkspace else { return }
@@ -138,7 +143,8 @@ final class ReviewFlowUITests: XCTestCase {
     func testFirstLaunchEmailAndTextDraftWithoutPermissions() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-disableUpdateCheck", "YES", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-appLanguage", "en"]
+        app.launchArguments = ["-disableUpdateCheck", "YES", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-appLanguage", "en", "-home.list", "NO",
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"]
         app.launch()
         XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 20))
         app.buttons["Get started"].tap()
