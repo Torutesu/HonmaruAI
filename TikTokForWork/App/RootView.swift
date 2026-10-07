@@ -8,7 +8,9 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if appState.isBootstrapping {
+            if appState.isAwaitingAIConsent {
+                AIDataConsentView { appState.resolveAIConsent($0) }
+            } else if appState.isBootstrapping {
                 VStack(spacing: Theme.Spacing.md) {
                     ProgressView()
                         .tint(Theme.Colors.accent)

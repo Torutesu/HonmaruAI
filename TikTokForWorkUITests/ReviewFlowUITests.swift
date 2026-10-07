@@ -86,6 +86,15 @@ final class ReviewFlowUITests: XCTestCase {
         passwordField.typeText(password)
         app.swipeUp()
         app.buttons["Sign in"].tap()
+        let consent = app.buttons["aiConsent.allow"]
+        XCTAssertTrue(consent.waitForExistence(timeout: 15), "Sharing must be explained before workspace access")
+        XCTAssertFalse(app.buttons["New request"].exists)
+        let disclosure = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        disclosure.name = "AI data disclosure before workspace access"
+        disclosure.lifetime = .keepAlways
+        add(disclosure)
+        for _ in 0..<6 where !consent.isHittable { app.swipeUp() }
+        consent.tapShowingTheScreen(in: app)
         let reachedShell = app.buttons["New request"].waitForExistence(timeout: 25)
         XCTAssertTrue(reachedShell, "Actual sign-in callback must reach the app shell")
         guard reachedShell else { return }
@@ -103,7 +112,10 @@ final class ReviewFlowUITests: XCTestCase {
         add(screenshot)
         app.terminate()
         app.launch()
-        XCTAssertTrue(app.buttons["New request"].waitForExistence(timeout: 25), "Saved session must survive relaunch")
+        XCTAssertTrue(consent.waitForExistence(timeout: 25), "Restored sessions must ask before reconnecting the workspace")
+        for _ in 0..<6 where !consent.isHittable { app.swipeUp() }
+        consent.tapShowingTheScreen(in: app)
+        XCTAssertTrue(app.buttons["New request"].waitForExistence(timeout: 25), "Saved session must survive relaunch after consent")
         // New accounts are offered daily-report setup after the workspace
         // finishes loading, including when that finishes on the next launch.
         let later = app.navigationBars.buttons["Later"]
