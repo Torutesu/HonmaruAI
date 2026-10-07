@@ -1,0 +1,18 @@
+# Microsoft Store submission only. Microsoft signs this package on certification.
+# Direct-download installers retain their separate signing requirements.
+extends: ./electron-builder.yml
+publish: null
+extraMetadata:
+  honmaruUpdates: false
+win:
+  target: appx
+appx:
+  identityName: Selectinc.HonmaruAI
+  publisher: CN=7CDC932B-05F3-4A36-884F-635FD02769E0
+  publisherDisplayName: Select inc
+  applicationId: HonmaruAI
+  displayName: Honmaru AI
+  languages: [en-US, ja-JP]
+  capabilities: [runFullTrust, internetClient, microphone, webcam]
+  minVersion: 10.0.19041.0
+  artifactName: Honmaru-AI-${version}-${arch}-store.${ext}
