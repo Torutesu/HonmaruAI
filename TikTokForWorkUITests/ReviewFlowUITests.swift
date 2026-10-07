@@ -62,7 +62,7 @@ final class ReviewFlowUITests: XCTestCase {
             request.timeoutInterval = 30
             request.setValue(token, forHTTPHeaderField: "x-session-token")
             let (_, response) = try await URLSession.shared.data(for: request)
-            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200, "Delete the disposable UI account")
+            XCTAssertTrue([200, 401].contains((response as? HTTPURLResponse)?.statusCode ?? 0), "Delete the disposable UI account or confirm its session was revoked")
         }
         let app = XCUIApplication()
         app.launchArguments = ["-disableUpdateCheck", "YES", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-appLanguage", "en"]
@@ -104,6 +104,33 @@ final class ReviewFlowUITests: XCTestCase {
         let later = app.navigationBars.buttons["Later"]
         if later.waitForExistence(timeout: 5) { later.tap() }
         XCTAssertTrue(app.staticTexts["You're all caught up"].waitForExistence(timeout: 25))
+        app.buttons.matching(identifier: "You").firstMatch.tapShowingTheScreen(in: app)
+        let deletion = app.buttons["profile.deleteAccount"]
+        XCTAssertTrue(deletion.waitForExistence(timeout: 5))
+        XCTAssertTrue(deletion.isHittable, "Account deletion must be directly visible on the profile")
+        let profile = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        profile.name = "Account deletion is directly visible on the profile"
+        profile.lifetime = .keepAlways
+        add(profile)
+        deletion.tap()
+        let confirmation = app.textFields["account.deleteConfirmation"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        let submit = app.buttons["account.deleteSubmit"]
+        XCTAssertFalse(submit.isEnabled, "Opening the screen must not delete the account")
+        confirmation.tap()
+        confirmation.typeText("DELETE")
+        app.swipeUp()
+        XCTAssertTrue(submit.isEnabled)
+        let deletionScreen = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        deletionScreen.name = "In-app account deletion confirmation"
+        deletionScreen.lifetime = .keepAlways
+        add(deletionScreen)
+        submit.tapShowingTheScreen(in: app)
+        XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 25), "Deleting the account returns to signed-out onboarding")
+        var me = URLRequest(url: base.appendingPathComponent("me"))
+        me.setValue(token, forHTTPHeaderField: "x-session-token")
+        let (_, deletedResponse) = try await URLSession.shared.data(for: me)
+        XCTAssertEqual((deletedResponse as? HTTPURLResponse)?.statusCode, 401, "Deletion revokes the server session")
         app.terminate()
     }
 

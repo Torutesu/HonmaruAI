@@ -29,6 +29,14 @@ struct YouView: View {
             ScrollView {
                 VStack(spacing: 14) {
                     identityCard
+                    if !appState.isGuest {
+                        group {
+                            NavigationLink { DeleteAccountView().environmentObject(appState) } label: {
+                                row("Delete account", icon: "person.crop.circle.badge.minus")
+                            }
+                            .accessibilityIdentifier("profile.deleteAccount")
+                        }
+                    }
                     if let chat, !appState.isGuest {
                         group {
                             Button { editingIdentity = true } label: { row("Name, username and status", icon: "at", value: statusLine(chat)) }
