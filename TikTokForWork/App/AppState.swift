@@ -456,6 +456,8 @@ final class AppState: ObservableObject {
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("chat.draft.") || key.hasPrefix("daily-draft:") {
             defaults.removeObject(forKey: key)
         }
+        // The translations it was given, kept on the phone (#225).
+        ChatTranslations.shared.forgetAll()
         isGuest = false
         isAuthenticated = false
         currentUser = nil

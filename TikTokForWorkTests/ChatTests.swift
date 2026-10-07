@@ -283,6 +283,47 @@ final class ChatTranslationTests: XCTestCase {
         XCTAssertEqual(t.wanted([edited], reader: "ja").map(\.id), ["a"])
     }
 
+    func testAKnownTranslationSurvivesAFailedRequestAndARelaunch() throws {
+        func msg(_ id: String, _ body: String, _ lang: String?) throws -> ChatMessage {
+            let json: [String: Any] = ["id": id, "channel": "b:cafe", "kind": "message", "body": body, "mine": false, "createdAt": "2026-09-27T00:00:00Z", "lang": lang as Any]
+            return try JSONDecoder().decode(ChatMessage.self, from: JSONSerialization.data(withJSONObject: json.compactMapValues { $0 is NSNull ? nil : $0 }))
+        }
+        let ja = try msg("m1", "秋メニューは1日から", "ja")
+        let t = ChatTranslations()
+        XCTAssertEqual(t.wanted([ja], reader: "en").map(\.id), ["m1"])
+        t.store("m1", from: ja.body, text: "Autumn menu from the 1st")
+        // A later request that fails does not turn it back into the original.
+        t.asking([ja])
+        t.answered([ja], error: .offline)
+        XCTAssertNil(t.failure(ja))
+        XCTAssertEqual(t.shown(ja).text, "Autumn menu from the 1st")
+        // Read in another language: not this one, and asked for again.
+        XCTAssertEqual(t.wanted([ja], reader: "fr").map(\.id), ["m1"])
+        XCTAssertFalse(t.hasTranslation(ja))
+        XCTAssertEqual(t.wanted([ja], reader: "en").map(\.id), [])
+        XCTAssertTrue(t.hasTranslation(ja))
+    }
+
+    func testAFailureSaysWhyAndNoTranslatorIsNoFailure() throws {
+        let json: [String: Any] = ["id": "m2", "channel": "b:cafe", "kind": "message", "body": "月曜から", "mine": false, "createdAt": "2026-09-27T00:00:00Z", "lang": "ja"]
+        let m = try JSONDecoder().decode(ChatMessage.self, from: JSONSerialization.data(withJSONObject: json))
+        let t = ChatTranslations()
+        _ = t.wanted([m], reader: "en")
+        t.asking([m]); t.answered([m], error: nil, reasons: ["m2": "no_provider"])
+        XCTAssertNil(t.failure(m))
+        t.asking([m]); t.answered([m], error: nil, reasons: ["m2": "quota"])
+        XCTAssertEqual(t.failure(m), .quota)
+        t.asking([m]); t.answered([m], error: nil, reasons: ["m2": "provider"])
+        XCTAssertEqual(t.failure(m), .provider)
+        t.asking([m]); t.answered([m], error: ChatTranslateFailure.of(ChatService.Failure.server(429, nil)))
+        XCTAssertEqual(t.failure(m), .rateLimit)
+        XCTAssertEqual(ChatTranslateFailure.of(ChatService.Failure.notSignedIn), .auth)
+        XCTAssertEqual(ChatTranslateFailure.of(URLError(.notConnectedToInternet)), .offline)
+        XCTAssertEqual(ChatTranslateFailure.of(ChatService.Failure.server(502, nil)), .server)
+        // Failed, it may be asked for again.
+        XCTAssertEqual(t.wanted([m], reader: "en").map(\.id), ["m2"])
+    }
+
     func testFormatMarksToggleSwapAndContinue() {
         XCTAssertEqual(ChatFormat.toggleLine("hello", mark: "> "), "> hello")
         XCTAssertEqual(ChatFormat.toggleLine("> hello", mark: "> "), "hello")

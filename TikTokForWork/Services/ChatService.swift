@@ -478,7 +478,8 @@ enum ChatService {
 
     /// Messages in this reader's language: `translations` by id, from what
     /// is kept or written now; `off` when the reader turned it off.
-    struct Translations: Decodable { let translations: [String: String]; let off: Bool? }
+    /// `failed`: why the Worker left a message out ("no_provider", "quota", "provider", "unreadable").
+    struct Translations: Decodable { let translations: [String: String]; let off: Bool?; let failed: [String: String]? }
     static func translate(orgId: String, channel: String, ids: [String], locale: String, base: URL) async throws -> Translations {
         try await call("POST", "/channels/translate", base: base, body: ["orgId": orgId, "channel": channel, "ids": ids, "locale": locale], timeout: 60, as: Translations.self)
     }
