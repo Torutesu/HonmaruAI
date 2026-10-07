@@ -37,3 +37,9 @@ describe('account scoped onboarding', () => {
     expect(readOnboardingDraft(storage, key)).toEqual({ page: 4 })
   })
 })
+
+it('resumes notification setup with daily reports explicitly deferred', () => {
+  const key = onboardingKey('api', 'new')
+  storage.setItem(`${key}:draft`, JSON.stringify({ page: 5, dailyDeferred: true }))
+  expect(readOnboardingDraft(storage, key)).toEqual({ page: 5, dailyDeferred: true })
+})

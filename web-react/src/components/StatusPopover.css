@@ -90,6 +90,8 @@
 .status-pop-preset .status-pop-dim { flex: none; font-size: 12.5px; }
 
 .status-pop-away { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid var(--dlg-line); }
+.status-pop-proxy { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--dlg-line); }
+.status-pop-proxy-fields { display: flex; flex-direction: column; gap: 10px; }
 .status-pop-away .dlg-hint { margin: 0; }
 .status-pop-away-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
 @media (max-width: 380px) { .status-pop-away-fields { grid-template-columns: 1fr; } }

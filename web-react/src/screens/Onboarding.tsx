@@ -7,6 +7,8 @@ import { defaultDailySetup, dailyWanted, NEW_CHANNEL, type DailySetup } from '..
 import { localTimeZone, parseTime, timeValue } from '../utils/automation'
 import type { Business } from '../types/card'
 import { Icon } from '../components/Icon'
+import { OnboardingNotifications } from '../components/OnboardingNotifications'
+import './OnboardingSetup.css'
 
 interface Props {
   httpBase: string
@@ -39,6 +41,12 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, pro
   const t = useT()
   const [saved] = useState(() => readOnboardingDraft(localStorage, progressKey))
   const [page, setPage] = useState(saved.page || 0)
+  const [dailyDeferred, setDailyDeferred] = useState(saved.dailyDeferred || false)
+  useEffect(() => {
+    const heading = document.querySelector<HTMLElement>('.screen h1')
+    heading?.setAttribute('tabindex', '-1'); heading?.focus({ preventScroll: true })
+    document.querySelector('.screen-body')?.scrollTo?.(0, 0)
+  }, [page])
   const [role, setRole] = useState(saved.role || 'founder')
   // The browser's language, whichever it is: a reader of a language the
   // screens are not translated into still reads their cards and
@@ -65,14 +73,14 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, pro
 
   const request = useRef<AbortController | null>(null)
   useEffect(() => () => request.current?.abort(), [])
-  useEffect(() => { try { localStorage.setItem(`${progressKey}:draft`, JSON.stringify({ page, role, locale, ...(daily ? { daily } : {}) })) } catch { /* In-memory progress still works. */ } }, [progressKey, page, role, locale, daily])
+  useEffect(() => { try { localStorage.setItem(`${progressKey}:draft`, JSON.stringify({ page, role, locale, dailyDeferred, ...(daily ? { daily } : {}) })) } catch { /* In-memory progress still works. */ } }, [progressKey, page, role, locale, daily, dailyDeferred])
 
   const headers = { 'content-type': 'application/json', 'x-session-token': sessionToken }
   /// The daily report, made: its channel if it is new, then the morning and
   /// evening routines this person does not already have — so finishing
   /// onboarding a second time, on another browser, does not make two of each.
   const setUpDaily = async (signal: AbortSignal) => {
-    if (!daily || !dailyWanted(daily)) return
+    if (dailyDeferred || !daily || !dailyWanted(daily)) return
     let channel = daily.channel
     if (channel === NEW_CHANNEL) {
       const res = await fetch(`${httpBase}/businesses`, { method: 'POST', signal, headers, body: JSON.stringify({ orgId, name: daily.newName.trim() }) })
@@ -86,9 +94,11 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, pro
       } else {
         if (!res.ok || !data.business?.slug) throw new Error(data.message || t('We could not save that.'))
         channel = `b:${data.business.slug}`
+        setDaily((current) => current ? { ...current, channel } : current)
       }
     }
     const list = await fetch(`${httpBase}/routines?orgId=${encodeURIComponent(orgId)}`, { signal, headers })
+    if (!list.ok) throw new Error(t('We could not save that.'))
     const have = new Set<string>(((await list.json().catch(() => ({}))).routines || []).map((r: { kind: string }) => r.kind))
     const wanted = [
       ...(daily.morning.on && !have.has('daily_plan') ? [{ kind: 'daily_plan', ...daily.morning }] : []),
@@ -163,7 +173,7 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, pro
   if (page < pages.length) {
     const p = pages[page]
     return (
-      <div className="screen">
+      <div className="screen ob-setup">
         <div className="screen-head">
           {page > 0 && <button className="back" onClick={() => setPage(page - 1)} aria-label={t('Back')}>‹</button>}
           <span className="spacer" />
@@ -174,6 +184,7 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, pro
           <h1 className="display" style={{ fontSize: 30 }}>{p.title}</h1>
           <p className="lede">{p.body}</p>
           {p.extra}
+          {page === 2 && <p className="hint">{t('This is practice. No message is sent to anyone.')}</p>}
         </div>
         <div className="screen-foot bare">
           <div className="dots">{pages.map((q, i) => <i key={q.key} className={i === page ? 'on' : ''} />)}</div>
@@ -185,7 +196,11 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, pro
     )
   }
 
-  if (page > pages.length) {
+  if (page === pages.length + 2) return <OnboardingNotifications
+    httpBase={httpBase} sessionToken={sessionToken} busy={busy} error={error}
+    onBack={() => setPage(pages.length + 1)} onDone={finish} />
+
+  if (page === pages.length + 1) {
     const slotRow = (key: 'morning' | 'evening', label: string, sub: string) => {
       const value = daily ? daily[key] : null
       if (!daily || !value) return null
@@ -208,10 +223,10 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, pro
     }
     const zone = localTimeZone()
     return (
-      <div className="screen">
+      <div className="screen ob-setup">
         <div className="screen-head">
           <button className="back" disabled={busy} onClick={() => setPage(pages.length)} aria-label={t('Back')}>‹</button>
-          <span className="head-title">{t('Daily report')}</span>
+          <span className="head-title">{t('Daily report')}</span><span className="spacer" /><span className="ob-step">{t('Optional')}</span>
         </div>
         <div className="screen-body ob-daily">
           <h1 className="display" style={{ fontSize: 28 }}>{t('When should your AI draft your daily report?')}</h1>
@@ -249,16 +264,17 @@ export const Onboarding: React.FC<Props> = ({ httpBase, orgId, sessionToken, pro
           <div style={{ height: 8 }} />
         </div>
         <div className="screen-foot bare">
-          <button className="btn btn-primary" onClick={finish} disabled={busy || !daily}>
-            {busy ? t('Saving…') : t('Open my feed')}
+          <button className="btn btn-primary" onClick={() => { setDailyDeferred(false); setPage(pages.length + 2) }} disabled={busy || !daily || (dailyWanted(daily) && daily.channel === NEW_CHANNEL && !daily.newName.trim())}>
+            {t('Keep these times and continue')}
           </button>
+          <button className="btn btn-quiet" disabled={busy} onClick={() => { setDailyDeferred(true); setPage(pages.length + 2) }}>{t('Set up daily reports later')}</button>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="screen">
+    <div className="screen ob-setup">
       <div className="screen-head">
         <button className="back" disabled={busy} onClick={() => setPage(pages.length - 1)} aria-label={t('Back')}>‹</button>
         <span className="head-title">{t('Two questions')}</span>

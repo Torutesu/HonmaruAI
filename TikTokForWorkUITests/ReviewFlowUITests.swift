@@ -5,7 +5,7 @@ final class ReviewFlowUITests: XCTestCase {
     func testJapaneseChatShortcutsRemainReadable() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-AppleLanguages", "(ja)", "-AppleLocale", "ja_JP", "-appLanguage", "ja",
+        app.launchArguments = ["-disableUpdateCheck", "YES", "-AppleLanguages", "(ja)", "-AppleLocale", "ja_JP", "-appLanguage", "ja",
                                "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"]
         app.launch()
         let demo = app.buttons["デモを試す"]
@@ -20,7 +20,7 @@ final class ReviewFlowUITests: XCTestCase {
         // Home as a list is Slack's sidebar: the cards along the top.
         let list = app.buttons["リスト"].firstMatch
         XCTAssertTrue(list.waitForExistence(timeout: 10))
-        list.tap()
+        list.tapShowingTheScreen(in: app)
         for title in ["スレッド", "後で"] {
             let card = app.buttons[title].firstMatch
             XCTAssertTrue(card.waitForExistence(timeout: 5), title)
@@ -35,7 +35,7 @@ final class ReviewFlowUITests: XCTestCase {
         screenshot.name = "Japanese Slack-style home fits the phone"
         screenshot.lifetime = .keepAlways
         add(screenshot)
-        app.buttons["スレッド"].firstMatch.tap()
+        app.buttons["スレッド"].firstMatch.tapShowingTheScreen(in: app)
         XCTAssertTrue(app.navigationBars["スレッド"].waitForExistence(timeout: 5))
         app.terminate()
     }
@@ -62,10 +62,11 @@ final class ReviewFlowUITests: XCTestCase {
             request.timeoutInterval = 30
             request.setValue(token, forHTTPHeaderField: "x-session-token")
             let (_, response) = try await URLSession.shared.data(for: request)
-            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200, "Delete the disposable UI account")
+            XCTAssertTrue([200, 401].contains((response as? HTTPURLResponse)?.statusCode ?? 0), "Delete the disposable UI account or confirm its session was revoked")
         }
         let app = XCUIApplication()
-        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-appLanguage", "en"]
+        app.launchArguments = ["-disableUpdateCheck", "YES", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-appLanguage", "en", "-home.list", "NO",
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"]
         app.launch()
         XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 20))
         app.buttons["Get started"].tap()
@@ -88,6 +89,10 @@ final class ReviewFlowUITests: XCTestCase {
         let reachedShell = app.buttons["New request"].waitForExistence(timeout: 25)
         XCTAssertTrue(reachedShell, "Actual sign-in callback must reach the app shell")
         guard reachedShell else { return }
+        // A prior UI test may have selected the list layout; launch arguments
+        // reset that preference. Dismiss new-account setup on either launch.
+        let initialLater = app.navigationBars.buttons["Later"]
+        if initialLater.waitForExistence(timeout: 5) { initialLater.tap() }
         let joinedWorkspace = app.staticTexts["You're all caught up"].waitForExistence(timeout: 25)
         XCTAssertTrue(joinedWorkspace, "Authenticated workspace must join, not show No access")
         guard joinedWorkspace else { return }
@@ -104,6 +109,33 @@ final class ReviewFlowUITests: XCTestCase {
         let later = app.navigationBars.buttons["Later"]
         if later.waitForExistence(timeout: 5) { later.tap() }
         XCTAssertTrue(app.staticTexts["You're all caught up"].waitForExistence(timeout: 25))
+        app.buttons.matching(identifier: "You").firstMatch.tapShowingTheScreen(in: app)
+        let deletion = app.buttons["profile.deleteAccount"]
+        XCTAssertTrue(deletion.waitForExistence(timeout: 5))
+        XCTAssertTrue(deletion.isHittable, "Account deletion must be directly visible on the profile")
+        let profile = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        profile.name = "Account deletion is directly visible on the profile"
+        profile.lifetime = .keepAlways
+        add(profile)
+        deletion.tap()
+        let confirmation = app.textFields["account.deleteConfirmation"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        let submit = app.buttons["account.deleteSubmit"]
+        XCTAssertFalse(submit.isEnabled, "Opening the screen must not delete the account")
+        confirmation.tap()
+        confirmation.typeText("DELETE")
+        app.swipeUp()
+        XCTAssertTrue(submit.isEnabled)
+        let deletionScreen = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        deletionScreen.name = "In-app account deletion confirmation"
+        deletionScreen.lifetime = .keepAlways
+        add(deletionScreen)
+        submit.tapShowingTheScreen(in: app)
+        XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 25), "Deleting the account returns to signed-out onboarding")
+        var me = URLRequest(url: base.appendingPathComponent("me"))
+        me.setValue(token, forHTTPHeaderField: "x-session-token")
+        let (_, deletedResponse) = try await URLSession.shared.data(for: me)
+        XCTAssertEqual((deletedResponse as? HTTPURLResponse)?.statusCode, 401, "Deletion revokes the server session")
         app.terminate()
     }
 
@@ -111,7 +143,8 @@ final class ReviewFlowUITests: XCTestCase {
     func testFirstLaunchEmailAndTextDraftWithoutPermissions() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-appLanguage", "en"]
+        app.launchArguments = ["-disableUpdateCheck", "YES", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-appLanguage", "en", "-home.list", "NO",
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"]
         app.launch()
         XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 20))
         app.buttons["Get started"].tap()
@@ -127,8 +160,8 @@ final class ReviewFlowUITests: XCTestCase {
         home.name = "Integrated Figma home from the actual application"
         home.lifetime = .keepAlways
         add(home)
-        app.buttons["New request"].tap()
-        app.buttons["Write"].tap()
+        app.buttons["New request"].tapShowingTheScreen(in: app)
+        app.buttons["Write"].tapShowingTheScreen(in: app)
         let editor = app.textViews.firstMatch
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         editor.tap()
@@ -140,13 +173,13 @@ final class ReviewFlowUITests: XCTestCase {
         draftButton.tap()
         XCTAssertTrue(app.navigationBars["Review request"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Review the release checklist"].firstMatch.exists)
-        app.buttons["request.recipient"].tap()
-        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Mika Tanaka")).firstMatch.tap()
+        app.buttons["request.recipient"].tapShowingTheScreen(in: app)
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Mika Tanaka")).firstMatch.tapShowingTheScreen(in: app)
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = "Editable draft without microphone or AI permission"
         attachment.lifetime = .keepAlways
         add(attachment)
-        app.buttons["request.primary"].tap()
+        app.buttons["request.primary"].tapShowingTheScreen(in: app)
         XCTAssertTrue(app.alerts["Demo request created"].waitForExistence(timeout: 8))
         app.alerts.buttons["View history"].tap()
         XCTAssertTrue(app.navigationBars["History"].waitForExistence(timeout: 5))
@@ -155,12 +188,12 @@ final class ReviewFlowUITests: XCTestCase {
         history.name = "Sent request is visible in actual History"
         history.lifetime = .keepAlways
         add(history)
-        app.navigationBars.buttons["Close"].tap()
-        app.buttons.matching(identifier: "You").firstMatch.tap()
+        app.navigationBars.buttons["Close"].tapShowingTheScreen(in: app)
+        app.buttons.matching(identifier: "You").firstMatch.tapShowingTheScreen(in: app)
         let plan = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Plan and usage")).firstMatch
         XCTAssertTrue(plan.waitForExistence(timeout: 5))
         app.swipeUp()
-        plan.tap()
+        plan.tapShowingTheScreen(in: app)
         let terms = app.buttons["Terms of Use"]
         XCTAssertTrue(terms.waitForExistence(timeout: 5) || app.links["Terms of Use"].exists)
         XCTAssertTrue(app.buttons["Privacy Policy"].exists || app.links["Privacy Policy"].exists)
@@ -168,5 +201,16 @@ final class ReviewFlowUITests: XCTestCase {
         legal.name = "Legal links remain available on the plan screen"
         legal.lifetime = .keepAlways
         add(legal)
+    }
+}
+
+extension XCUIElement {
+    /// A tap that, when the element is not hittable, first prints the
+    /// screen's tree to the log — so whatever covers it shows in CI's "What
+    /// the UI tests saw" step. (It found the App Store's update sheet over
+    /// the home screen once 1.2.1 shipped.)
+    func tapShowingTheScreen(in app: XCUIApplication) {
+        if !isHittable { print("tapShowingTheScreen: not hittable: \(self)\n\(app.debugDescription)") }
+        tap()
     }
 }

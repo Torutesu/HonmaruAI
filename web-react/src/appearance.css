@@ -1,0 +1,41 @@
+.otp-screen, .desktop-notification-settings, .desktop-notification-prompt {
+  --surface: #fff; --surface-raised: #eee; --text-primary: #202020; --text-secondary: #646464; --border-subtle: #d4d4d4; --blue: #245ec7;
+}
+@media (prefers-color-scheme: dark) {
+  :where(:root:not([data-theme="light"])) :is(.otp-screen, .desktop-notification-settings, .desktop-notification-prompt) {
+    --surface: #1a1a1a; --surface-raised: #2a2a2a; --text-primary: #f2f2f2; --text-secondary: #b7bbc5; --border-subtle: #555; --blue: #9ac6ff;
+  }
+}
+:where(:root[data-theme="dark"]) :is(.otp-screen, .desktop-notification-settings, .desktop-notification-prompt) {
+  --surface: #1a1a1a; --surface-raised: #2a2a2a; --text-primary: #f2f2f2; --text-secondary: #b7bbc5; --border-subtle: #555; --blue: #9ac6ff;
+}
+
+.desktop-notification-settings { padding: 12px; border: 1px solid var(--border-subtle); border-radius: 14px; background: var(--surface); }
+.desktop-notification-settings .pill-btn { margin: 6px 8px 6px 0; }
+.desktop-notification-note { font-size: 13px; color: var(--text-secondary); }
+.desktop-notification-prompt { position: relative; }
+.desktop-notification-prompt .desktop-notification-note { position: absolute; top: 100%; right: 0; width: min(280px, 80vw); padding: 12px; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: 10px; }
+
+/* Code entry must stay legible even while Continue/resend are unavailable. */
+.otp-screen .lede { color: var(--text-secondary); overflow-wrap: anywhere; }
+.otp-screen .lede b { color: var(--text-primary); }
+.otp-screen .otp-box {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  border: 2px solid #858585;
+  caret-color: var(--blue);
+}
+.otp-screen .otp-box:focus {
+  background: var(--surface);
+  border-color: var(--blue);
+  outline: 3px solid var(--blue);
+  outline-offset: 3px;
+}
+.otp-screen .otp-box:disabled { opacity: 1; -webkit-text-fill-color: var(--text-primary); }
+.otp-screen .btn-primary:disabled {
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  opacity: 1;
+}
+.otp-screen .btn-quiet:disabled { color: var(--text-secondary); opacity: 1; }
+

@@ -19,18 +19,26 @@ function bucket() {
   const put = [];
   return {
     put,
-    env: { MEDIA: { put: async (id, bytes, opts) => { put.push({ id, opts }); } } },
+    // Drains what it is given, as R2 would.
+    env: { MEDIA: { put: async (id, body, opts) => { await new Response(body).arrayBuffer(); put.push({ id, opts }); } } },
   };
 }
 
-function post(contentType, body = "abc") {
-  // A string body makes Request set `text/plain` for you, which is not the
-  // same thing as sending no type at all — bytes are how you actually send
-  // none, and how an older client that set no header did.
-  const payload = contentType === null ? new Uint8Array([1, 2, 3]) : body;
+// The first bytes of a real camera file of each kind: the route believes the
+// header only when the bytes agree.
+const enc = (text) => new TextEncoder().encode(text);
+const HEADS = {
+  "video/mp4": new Uint8Array([0, 0, 0, 0x18, ...enc("ftypisom"), 0, 0, 2, 0]),
+  "video/quicktime": new Uint8Array([0, 0, 0, 0x14, ...enc("ftypqt  "), 0, 0, 0, 0]),
+  "video/webm": new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3]),
+};
+
+function post(contentType, body) {
+  const bare = (contentType || "video/mp4").split(";")[0];
+  const payload = body === undefined ? (HEADS[bare] || HEADS["video/mp4"]) : (typeof body === "string" ? enc(body) : body);
   return new Request("https://example.com/media", {
     method: "POST",
-    headers: contentType ? { "content-type": contentType } : {},
+    headers: { ...(contentType ? { "content-type": contentType } : {}), "content-length": String(payload.byteLength) },
     body: payload,
   });
 }
@@ -77,6 +85,7 @@ test("an object stored before this was fussy is not served as a document", async
   // decides what a browser does with those bytes is this one.
   const stored = (contentType) => ({
     MEDIA: {
+      head: async () => ({ size: 3, httpEtag: '"e"', httpMetadata: { contentType } }),
       get: async () => ({ body: new Uint8Array([1, 2, 3]), httpMetadata: { contentType } }),
     },
   });
@@ -94,13 +103,60 @@ test("an object stored before this was fussy is not served as a document", async
 });
 
 test("a missing object is still a 404", async () => {
-  const res = await serveMedia("gone", { MEDIA: { get: async () => null } });
+  const res = await serveMedia("0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b", { MEDIA: { head: async () => null, get: async () => null } });
   expect(res.status).toBe(404);
 });
 
 test("only a video this route stored is served: a file, an export or an avatar in the same bucket is not", async () => {
-  const every = { MEDIA: { get: async () => ({ body: new Uint8Array([1]), httpMetadata: { contentType: "application/gzip" } }) } };
+  const every = { MEDIA: { head: async () => ({ size: 1, httpEtag: '"e"', httpMetadata: { contentType: "application/gzip" } }), get: async () => ({ body: new Uint8Array([1]), httpMetadata: { contentType: "application/gzip" } }) } };
   for (const key of ["compliance-export-0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b", "file-f_abc123", "jam/0f8e2c1a", "user-avatar-x", "../x"]) {
     expect((await serveMedia(key, every)).status).toBe(404);
   }
+});
+
+test("a file that only says it is a video is turned away", async () => {
+  // The header is the uploader's word; the first bytes are what it is.
+  for (const body of ["<html><script>alert(1)</script>", new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])]) {
+    const store = bucket();
+    const res = await uploadMedia(post("video/mp4", body), store.env, url);
+    expect(res.status).toBe(415);
+    expect(store.put).toHaveLength(0);
+  }
+});
+
+test("an upload must say how long it is, and is held to it", async () => {
+  const store = bucket();
+  const unsaid = new Request("https://example.com/media", { method: "POST", headers: { "content-type": "video/mp4" }, body: HEADS["video/mp4"] });
+  expect((await uploadMedia(unsaid, store.env, url)).status).toBe(411);
+  expect(store.put).toHaveLength(0);
+});
+
+test("a video named for a workspace is kept under it, and its address says so", async () => {
+  const store = bucket();
+  const res = await uploadMedia(post("video/mp4"), store.env, url, { orgId: "personal:toru" });
+  expect(res.status).toBe(200);
+  const { id, url: where } = await res.json();
+  expect(store.put[0].id).toBe(`org/${encodeURIComponent("personal:toru")}/media/${id}`);
+  expect(new URL(where).searchParams.get("o")).toBe("personal:toru");
+});
+
+test("a video is served in parts, privately, never cached by anything shared", async () => {
+  const bytes = Uint8Array.from({ length: 20 }, (_, i) => i);
+  const env = {
+    MEDIA: {
+      head: async () => ({ size: 20, httpEtag: '"v1"', httpMetadata: { contentType: "video/mp4" } }),
+      get: async (_key, opts) => ({ body: opts?.range ? bytes.slice(opts.range.offset, opts.range.offset + opts.range.length) : bytes }),
+    },
+  };
+  const id = "0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b";
+  const ask = (headers) => serveMedia(id, env, new Request(`https://example.com/media/${id}`, { headers }), new URL(`https://example.com/media/${id}`));
+  const part = await ask({ range: "bytes=0-1" });
+  expect(part.status).toBe(206);
+  expect(part.headers.get("content-range")).toBe("bytes 0-1/20");
+  expect([...new Uint8Array(await part.arrayBuffer())]).toEqual([0, 1]);
+  expect(part.headers.get("cache-control")).toBe("private, max-age=3600");
+  expect(part.headers.get("referrer-policy")).toBe("no-referrer");
+  expect((await ask({ range: "bytes=40-" })).status).toBe(416);
+  // An If-Range for another version gets the whole file.
+  expect((await ask({ range: "bytes=0-1", "if-range": '"old"' })).status).toBe(200);
 });

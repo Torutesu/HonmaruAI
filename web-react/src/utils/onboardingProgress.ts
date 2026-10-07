@@ -17,10 +17,10 @@ export function completeOnboarding(storage: StorageAccess, api: string, user: st
     storage.removeItem(`${key}:draft`)
   } catch { /* In-memory completion can still proceed. */ }
 }
-/// The last page: the three about the product, the two questions, then the daily report.
-export const LAST_ONBOARDING_PAGE = 4
+/// Product introduction, role/language, optional daily reports, then notifications.
+export const LAST_ONBOARDING_PAGE = 5
 
-export function readOnboardingDraft(storage: StorageAccess, key: string): { page?: number; role?: string; locale?: string; daily?: DailySetup } {
+export function readOnboardingDraft(storage: StorageAccess, key: string): { page?: number; role?: string; locale?: string; daily?: DailySetup; dailyDeferred?: boolean } {
   try {
     const value = JSON.parse(storage.getItem(`${key}:draft`) || '{}')
     if (!value || typeof value !== 'object') return {}
@@ -31,6 +31,7 @@ export function readOnboardingDraft(storage: StorageAccess, key: string): { page
       // Any language a person reads, not only the screens' five.
       ...(typeof value.locale === 'string' && /^[a-z]{2,3}$/.test(value.locale) ? { locale: value.locale } : {}),
       ...(daily ? { daily } : {}),
+      ...(typeof value.dailyDeferred === 'boolean' ? { dailyDeferred: value.dailyDeferred } : {}),
     }
   } catch { return {} }
 }

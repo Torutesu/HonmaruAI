@@ -115,7 +115,7 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
   }
 
   return (
-    <div className="screen">
+    <div className="screen otp-screen">
       <div className="screen-head">
         <button className="back" onClick={onBack} aria-label={t('Back')}>‹</button>
         <span className="head-title">{t('Check your email')}</span>
@@ -123,7 +123,7 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
       <div className="screen-body">
         <h1 className="display" style={{ fontSize: 28 }}>{t('Enter the code.')}</h1>
         <p className="lede">
-          {t('We sent six digits to')} <b style={{ color: 'var(--ink-black)' }}>{email}</b>{t('. It is good for ten minutes, once.')}
+          {t('We sent six digits to')} <b>{email}</b>{t('. It is good for ten minutes, once.')}
         </p>
 
         <div className="otp-boxes">

@@ -18,7 +18,9 @@
 // bytes, with a sandbox around it: this origin is the API's, and a file
 // somebody uploaded must never run as a page on it.
 
-import { readCapped } from "./media.js";
+import { promisedLength, peek, putExactly, looksLike, sniffing, HEAD_BYTES } from "./upload.js";
+import { mediaEnv, mediaOriginOn, signFileUrl } from "./mediaToken.js";
+import { accessFor, mayRead } from "./access.js";
 
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 export const MAX_FILES_PER_MESSAGE = 10;
@@ -33,6 +35,9 @@ const SHOWN = new Set([
   "audio/x-m4a", "audio/aac", "audio/flac", "audio/x-wav",
   "text/plain",
 ]);
+/// Whether a file of this type is shown where it is opened, rather than
+/// saved: the media origin's Worker asks the same question.
+export const isShown = (type) => SHOWN.has(type);
 export const isPicture = (type) => /^image\/(png|jpeg|gif|webp|avif)$/.test(type);
 const isVideo = (type) => /^video\/(mp4|webm|quicktime)$/.test(type);
 
@@ -92,8 +97,21 @@ function sameText(a, b) {
 
 // ---- Rows ----
 
-/// A file as a browser sees it.
+/// Where a reader fetches a file, and until when (ms): on the media
+/// origin when it is on (mediaToken.js), else this API's own /files.
+export async function fileAddress(db, row, now = Date.now(), env = mediaEnv()) {
+  if (mediaOriginOn(env)) {
+    const signed = await signFileUrl(env, { orgId: row.org_id, id: row.id, type: row.type, name: row.name }, now);
+    if (signed) return signed;
+  }
+  return { url: await signedPath(db, row.id, now), expiresAt: validUntil(now) * 1000 };
+}
+
+/// A file as a browser sees it. `url` changes as it is renewed; `id` does
+/// not, and is what a client keeps it by. `expiresAt` says when to ask for
+/// a new address (POST /media/urls).
 export async function toFile(db, row, now = Date.now()) {
+  const { url, expiresAt } = await fileAddress(db, row, now);
   return {
     id: row.id,
     name: row.name,
@@ -101,8 +119,28 @@ export async function toFile(db, row, now = Date.now()) {
     size: row.size,
     width: row.width || null,
     height: row.height || null,
-    url: await signedPath(db, row.id, now),
+    url,
+    expiresAt,
   };
+}
+
+/// POST /media/urls — new addresses for files a client already shows, for
+/// one whose address ran out. Only for files the caller could read now: in
+/// a conversation they are in, sent, or theirs not yet sent.
+export async function freshFileUrls(env, { orgId, login, ids }, now = Date.now()) {
+  const wanted = [...new Set((Array.isArray(ids) ? ids : []).filter((id) => typeof id === "string" && ID.test(id)))].slice(0, 100);
+  const out = {};
+  if (!wanted.length) return out;
+  const { results = [] } = await env.DB.prepare(
+    `SELECT * FROM message_files WHERE org_id = ?1 AND id IN (${wanted.map((_, i) => `?${i + 2}`).join(", ")})`
+  ).bind(orgId, ...wanted).all();
+  const access = await accessFor(env.DB, orgId, login);
+  for (const row of results) {
+    if (!mayRead(row.channel, access)) continue;
+    if (!row.message_id && row.uploader !== login) continue;
+    out[row.id] = await fileAddress(env.DB, row, now, env);
+  }
+  return out;
 }
 
 /// The files on a page of messages, by message id.
@@ -164,7 +202,65 @@ export async function getFileObject(env, orgId, id, options) {
 
 export async function deleteFileObject(env, orgId, id) {
   if (!env.MEDIA) return;
-  await Promise.all([fileKey(orgId, id), legacyFileKey(id)].map((k) => env.MEDIA.delete(k).catch(() => {})));
+  await deleteMediaKeys(env, orgId, [fileKey(orgId, id), legacyFileKey(id)]);
+}
+
+// ---- Deleting that does not lose track ----
+//
+// A delete R2 refuses used to be swallowed, and the row went anyway: the
+// bytes stayed in the bucket with nothing pointing at them — a file the
+// person removed, kept and billed for, and never looked at again. Now a key
+// whose delete failed is written down, and the cron tries it again with
+// backoff until it goes (a key that is already gone deletes fine).
+
+const DELETE_RETRY_MAX = 12;
+
+/// Delete these keys; any R2 refuses is kept in `media_deletions` for later.
+export async function deleteMediaKeys(env, orgId, keys) {
+  const failed = [];
+  await Promise.all(keys.map(async (key) => {
+    try { await env.MEDIA.delete(key); } catch (err) { failed.push([key, String(err?.message || err).slice(0, 200)]); }
+  }));
+  for (const [key, error] of failed) {
+    const now = new Date().toISOString();
+    await env.DB
+      .prepare(`INSERT INTO media_deletions (key, org_id, attempts, last_error, created_at, next_at)
+                VALUES (?1, ?2, 0, ?3, ?4, ?4)
+                ON CONFLICT(key) DO UPDATE SET last_error = excluded.last_error`)
+      .bind(key, orgId || null, error, now)
+      .run();
+  }
+  return failed.length;
+}
+
+/// The cron's pass over deletes that failed: due ones tried again, each
+/// waiting twice as long as the last (1 minute up to a day). One that still
+/// fails after DELETE_RETRY_MAX tries is logged as an error to be looked at.
+export async function retryMediaDeletions(env, now = Date.now()) {
+  if (!env.MEDIA) return { deleted: 0, failed: 0 };
+  const { results } = await env.DB
+    .prepare("SELECT key, attempts FROM media_deletions WHERE next_at <= ?1 ORDER BY next_at LIMIT 100")
+    .bind(new Date(now).toISOString())
+    .all();
+  let deleted = 0;
+  let failed = 0;
+  for (const r of results || []) {
+    try {
+      await env.MEDIA.delete(r.key);
+      await env.DB.prepare("DELETE FROM media_deletions WHERE key = ?1").bind(r.key).run();
+      deleted += 1;
+    } catch (err) {
+      failed += 1;
+      const attempts = r.attempts + 1;
+      const wait = Math.min(60_000 * 2 ** attempts, 86_400_000);
+      await env.DB
+        .prepare("UPDATE media_deletions SET attempts = ?2, last_error = ?3, next_at = ?4 WHERE key = ?1")
+        .bind(r.key, attempts, String(err?.message || err).slice(0, 200), new Date(now + wait).toISOString())
+        .run();
+      if (attempts >= DELETE_RETRY_MAX) console.error(JSON.stringify({ event: "media.delete_stuck", key: r.key, attempts }));
+    }
+  }
+  return { deleted, failed };
 }
 
 /// A message unsent: its files go with it, bytes and all.
@@ -219,24 +315,32 @@ const json = (body, status = 200) => new Response(JSON.stringify(body), {
 /// already been let into (`resolved` is from resolveChannel).
 export async function uploadFile(request, env, url, { orgId, resolved, login }) {
   if (!env.MEDIA) return json({ message: "File storage is not set up here." }, 503);
-  const type = bareType(request.headers.get("content-type"));
-  const claimed = Number(request.headers.get("content-length") || 0);
-  if (claimed > MAX_FILE_BYTES) return json({ message: "That file is larger than 25 MB." }, 413);
+  const declared = bareType(request.headers.get("content-type"));
+  const promised = promisedLength(request, MAX_FILE_BYTES);
+  if (promised.status === 413) return json({ message: "That file is larger than 25 MB." }, 413);
+  if (promised.status) return json({ message: promised.message }, promised.status);
   if (!request.body) return json({ message: "No file in the request." }, 400);
-  const bytes = await readCapped(request.body, MAX_FILE_BYTES);
-  if (!bytes) return json({ message: "That file is larger than 25 MB." }, 413);
-  if (!bytes.byteLength) return json({ message: "That file is empty." }, 400);
+  // What it says it is, believed only when its first bytes agree: a page
+  // calling itself a picture is kept, but as bytes to download, never shown.
+  const { head, stream } = await peek(request.body, HEAD_BYTES);
+  const type = sniffing(env) && SHOWN.has(declared) && !looksLike(declared, head) ? "application/octet-stream" : declared;
   const id = `f_${[...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
   const name = cleanName(url.searchParams.get("name"));
   const dim = (k) => { const n = Number(url.searchParams.get(k)); return Number.isInteger(n) && n > 0 && n < 100000 ? n : null; };
   // A picture's or a video's shape, as the uploader measured it, so the
   // message is drawn at that shape before the bytes arrive.
   const shaped = isPicture(type) || isVideo(type);
-  await env.MEDIA.put(fileKey(orgId, id), bytes, { httpMetadata: { contentType: type } });
+  try {
+    // Streamed, held to the length it promised: nothing is kept of a body
+    // that ends early or runs on.
+    await putExactly(env, fileKey(orgId, id), stream, promised.length, { contentType: type });
+  } catch {
+    return json({ message: "The file did not arrive whole. Try again." }, 400);
+  }
   await env.DB
     .prepare(`INSERT INTO message_files (id, org_id, channel, message_id, uploader, name, type, size, width, height, created_at)
               VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`)
-    .bind(id, orgId, resolved.key, login, name, type, bytes.byteLength, shaped ? dim("width") : null, shaped ? dim("height") : null, new Date().toISOString())
+    .bind(id, orgId, resolved.key, login, name, type, promised.length, shaped ? dim("width") : null, shaped ? dim("height") : null, new Date().toISOString())
     .run();
   const row = await env.DB.prepare("SELECT * FROM message_files WHERE id = ?1").bind(id).first();
   return json({ file: await toFile(env.DB, row) }, 201);

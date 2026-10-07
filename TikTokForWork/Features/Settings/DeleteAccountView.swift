@@ -56,6 +56,7 @@ struct DeleteAccountView: View {
                         .background(Theme.Colors.surfaceRaised)
                         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.image))
                         .accessibilityLabel(Text("Confirmation"))
+                        .accessibilityIdentifier("account.deleteConfirmation")
                 }
 
                 if let errorMessage {
@@ -84,6 +85,7 @@ struct DeleteAccountView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!canDelete || isDeleting)
+                .accessibilityIdentifier("account.deleteSubmit")
             }
             .padding(.horizontal, Theme.Spacing.md)
             .padding(.vertical, Theme.Spacing.lg)

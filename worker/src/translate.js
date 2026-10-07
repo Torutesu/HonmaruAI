@@ -29,13 +29,39 @@ export function messageLanguage(body) {
   return lang && lang !== "und" ? lang : null;
 }
 
-/// Whether a reader of `reader` gets a message in `lang` translated: any
-/// message not in their language — "latn" (too short to name) included; a
-/// message that turns out to be theirs already comes back unchanged and is
-/// shown as it was.
-export function wantsTranslation(lang, reader) {
+/// Readers whose own language is written in Latin letters.
+const LATIN_READERS = new Set(["en", "es", "fr", "de", "it", "pt", "nl", "sv", "da", "no", "nb", "fi", "pl", "cs", "ro", "hu", "tr", "id", "ms", "vi", "tl", "sw"]);
+
+/// Whether a reader of `reader` gets a message in `lang` translated: a
+/// message not in their language — but not one too short or too plain to
+/// need it (#220):
+/// - "latn" (Latin letters too few to name the language: "ok thanks",
+///   "LGTM", a product name) is left as it is for a reader who reads Latin
+///   letters, and for anyone when it is a word or three;
+/// - a few characters of kanji alone ("了解", "確認済み" without its kana)
+///   are as much Japanese as Chinese, and left as they are for either.
+export function wantsTranslation(lang, reader, body = "") {
   const to = String(reader || "en").slice(0, 2).toLowerCase();
-  return Boolean(lang) && lang !== to;
+  if (!lang || lang === to) return false;
+  const text = String(body || "");
+  if (lang === "latn") {
+    if (LATIN_READERS.has(to)) return false;
+    const words = text.replace(/https?:\/\/\S+|[@＠]\S+/g, " ").match(/\p{L}+/gu) || [];
+    return words.length > 3;
+  }
+  if ((lang === "zh" && to === "ja") || (lang === "ja" && to === "zh")) {
+    const letters = text.replace(/[^\p{L}]/gu, "");
+    const hanOnly = letters.length > 0 && /^\p{Script=Han}+$/u.test(letters);
+    if (hanOnly && letters.length <= 12) return false;
+  }
+  return true;
+}
+
+/// The same words, give or take case, spacing and punctuation: a
+/// "translation" that is the message itself (#220).
+export function sameWords(a, b) {
+  const plain = (x) => String(x || "").normalize("NFKC").toLowerCase().replace(/[\p{P}\p{S}\s]+/gu, "");
+  return plain(a) === plain(b);
 }
 
 export function sourceHash(text) {
@@ -58,13 +84,18 @@ const SYSTEM = `You translate chat messages for a team, into the reader's langua
 Reply with JSON only: {"items":[{"id":"...","text":"..."}]} — one item for every message, same ids.`;
 
 /// Translate messages for one reader. `rows` are channel_messages rows the
-/// reader may read. Returns { byId: { id: text }, called } — cached ones
-/// without asking the model; new ones in batches of twenty.
+/// reader may read. Returns { byId: { id: text }, called, failed } — cached
+/// ones without asking the model; new ones in batches of twenty. `failed`
+/// says, per message wanted and not translated, why: "no_provider" (no
+/// translator here — nothing exists to show), "quota" (the AI allowance is
+/// used up), "provider" (the model could not be reached or refused),
+/// "unreadable" (it answered with something that was not the translation).
 export async function translateMessages(db, orgId, rows, { locale, provider, allowance = null }) {
   const lang = String(locale || "en").slice(0, 2).toLowerCase();
   const byId = {};
-  const wanted = rows.filter((r) => r && !r.deleted_at && r.body && wantsTranslation(messageLanguage(r.body), lang));
-  if (!wanted.length) return { byId, called: false };
+  const wanted = rows.filter((r) => r && !r.deleted_at && r.body && wantsTranslation(messageLanguage(r.body), lang, r.body));
+  const failed = {};
+  if (!wanted.length) return { byId, called: false, failed };
   const ids = wanted.map((r) => r.id);
   const { results: kept } = await db.prepare(
     `SELECT message_id, source_hash, body FROM message_translations WHERE org_id = ?1 AND locale = ?2 AND message_id IN (${ids.map((_, i) => `?${i + 3}`).join(", ")})`
@@ -76,7 +107,11 @@ export async function translateMessages(db, orgId, rows, { locale, provider, all
     if (hit && hit.source_hash === sourceHash(r.body)) byId[r.id] = hit.body;
     else missing.push(r);
   }
-  if (!missing.length || !provider || (allowance && !allowance.allowed)) return { byId, called: false };
+  if (!missing.length) return { byId, called: false, failed };
+  if (!provider || (allowance && !allowance.allowed)) {
+    for (const r of missing) failed[r.id] = provider ? "quota" : "no_provider";
+    return { byId, called: false, failed };
+  }
 
   let called = false;
   const now = new Date().toISOString();
@@ -86,8 +121,10 @@ export async function translateMessages(db, orgId, rows, { locale, provider, all
     called = called || out.called;
     for (const r of batch) {
       const text = out.texts[r.id];
-      if (typeof text !== "string" || !text.trim()) continue;
-      byId[r.id] = text.trim().slice(0, MAX_TEXT);
+      if (typeof text !== "string" || !text.trim()) { failed[r.id] = out.error || "unreadable"; continue; }
+      // Already the reader's, near enough: kept as the message itself, so
+      // it is never shown as "Translated" and never asked about again.
+      byId[r.id] = sameWords(text, r.body) ? String(r.body) : text.trim().slice(0, MAX_TEXT);
       await db.prepare(
         `INSERT INTO message_translations (org_id, message_id, locale, source_hash, body, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
          ON CONFLICT(org_id, message_id, locale) DO UPDATE SET source_hash = excluded.source_hash, body = excluded.body, created_at = excluded.created_at`
@@ -95,7 +132,7 @@ export async function translateMessages(db, orgId, rows, { locale, provider, all
     }
   }
   if (called && allowance?.metered) await allowance.consume().catch(() => {});
-  return { byId, called };
+  return { byId, called, failed };
 }
 
 async function callModel(provider, batch, lang) {
@@ -116,15 +153,21 @@ async function callModel(provider, batch, lang) {
         ],
       }),
     });
-    if (!res.ok) return { called: false, texts: {} };
+    // Why, for the reader's "Couldn't translate" — the status, never
+    // what the provider said (it may echo the key or the request).
+    if (!res.ok) {
+      console.error("translate provider failed", res.status);
+      return { called: false, texts: {}, error: "provider" };
+    }
     data = await res.json();
     noteUsage(provider, "translate", data);
-  } catch {
-    return { called: false, texts: {} };
+  } catch (err) {
+    console.error("translate provider unreachable", err?.name || "error");
+    return { called: false, texts: {}, error: "provider" };
   }
   const content = data?.choices?.[0]?.message?.content;
   let parsed;
-  try { parsed = JSON.parse(String(content || "").replace(/^```(?:json)?\s*|\s*```$/g, "")); } catch { return { called: true, texts: {} }; }
+  try { parsed = JSON.parse(String(content || "").replace(/^```(?:json)?\s*|\s*```$/g, "")); } catch { return { called: true, texts: {}, error: "unreadable" }; }
   const texts = {};
   for (const item of Array.isArray(parsed?.items) ? parsed.items : []) {
     if (item && typeof item.id === "string" && typeof item.text === "string") texts[item.id] = item.text;

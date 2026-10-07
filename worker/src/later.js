@@ -18,7 +18,7 @@ function when(raw) {
   return Number.isFinite(t) ? t : NaN;
 }
 
-export async function scheduleMessage(db, { orgId, key, authorLogin, body, parentId, sendAt }) {
+export async function scheduleMessage(db, { orgId, key, authorLogin, body, parentId, sendAt, alsoChannel = false }) {
   const at = when(sendAt);
   if (!Number.isFinite(at)) return { error: "That time is not a time." };
   if (at < Date.now() + 30000) return { error: "Pick a time at least a minute from now." };
@@ -28,10 +28,10 @@ export async function scheduleMessage(db, { orgId, key, authorLogin, body, paren
   if (text.length > 4000) return { error: "That is longer than 4000 characters." };
   const id = crypto.randomUUID();
   await db.prepare(
-    `INSERT INTO scheduled_messages (id, org_id, channel, author_login, body, parent_id, send_at, created_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
-  ).bind(id, orgId, key, authorLogin, text, parentId || null, new Date(at).toISOString(), new Date().toISOString()).run();
-  return { scheduled: { id, body: text, sendAt: new Date(at).toISOString(), parentId: parentId || null } };
+    `INSERT INTO scheduled_messages (id, org_id, channel, author_login, body, parent_id, send_at, created_at, also_channel)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
+  ).bind(id, orgId, key, authorLogin, text, parentId || null, new Date(at).toISOString(), new Date().toISOString(), parentId && alsoChannel ? 1 : 0).run();
+  return { scheduled: { id, body: text, sendAt: new Date(at).toISOString(), parentId: parentId || null, ...(parentId && alsoChannel ? { alsoChannel: true } : {}) } };
 }
 
 export async function listScheduled(db, orgId, login, key) {
@@ -123,7 +123,7 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
       if (!member) continue;
       // Nor into a private channel or group they are no longer in.
       if (!mayRead(row.channel, await accessFor(db, row.org_id, row.author_login))) continue;
-      const out = await postMessage(db, { orgId: row.org_id, key: row.channel, authorLogin: row.author_login, body: row.body, parentId: row.parent_id });
+      const out = await postMessage(db, { orgId: row.org_id, key: row.channel, authorLogin: row.author_login, body: row.body, parentId: row.parent_id, alsoChannel: Boolean(row.also_channel) });
       if (out.row) { sent += 1; if (broadcast) await broadcast(row.org_id, row.channel, out.row).catch(() => {}); }
     } catch (err) {
       console.error("scheduled send failed", err?.message || err);

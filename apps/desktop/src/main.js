@@ -164,6 +164,15 @@ function guard(contents, { child = false } = {}) {
   })
 }
 
+/// The page keeps its sign-in in localStorage, which Chromium writes to disk
+/// lazily. An app that ended before the write — the computer restarting
+/// (Windows sends no before-quit then), an update relaunching it — lost the
+/// session, and asked for a sign-in on the next start. So it is written out
+/// on every way out, and whenever the window goes to the background.
+function flushStorage() {
+  try { session.defaultSession.flushStorageData() } catch { /* nothing to write, or already gone */ }
+}
+
 function webPreferences() {
   return {
     preload: path.join(here, 'preload.cjs'),
@@ -264,6 +273,7 @@ function createWindow() {
     })
   })
   win.on('focus', () => win?.flashFrame(false))
+  win.on('blur', flushStorage)
 
   let saveTimer = null
   const remember = () => {
@@ -282,6 +292,7 @@ function createWindow() {
   // arriving. Quit from the tray or the menu ends it.
   win.on('close', (event) => {
     if (win) saveWindowState(stateFile, { bounds: win.isMaximized() ? win.getNormalBounds() : win.getBounds(), maximized: win.isMaximized() })
+    flushStorage()
     if (quitting) return
     event.preventDefault()
     win?.hide()
@@ -289,8 +300,8 @@ function createWindow() {
   win.on('closed', () => { win = null; appLoaded = false })
   // Windows logging off, restarting or shutting down: the window has to close
   // rather than hide, or it holds up the session ending.
-  win.on('query-session-end', () => { quitting = true })
-  win.on('session-end', () => { quitting = true; app.quit() })
+  win.on('query-session-end', () => { quitting = true; flushStorage() })
+  win.on('session-end', () => { quitting = true; flushStorage(); app.quit() })
 
   const first = pendingLink ? deepLinkToUrl(pendingLink, APP_URL) : null
   pendingLink = null
@@ -299,12 +310,13 @@ function createWindow() {
 
 /// Updates to the shell, in an installed app built by the signed release
 /// scripts only (src/updates.js). They mark the packaged package.json.
+let updateService
 function checkForUpdates() {
   if (process.mas) return // Mac App Store owns updates for sandboxed builds.
   let metadata = {}
   try { metadata = JSON.parse(readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8')) } catch { /* no marker, no updates */ }
   if (!updatesEnabled({ packaged: PACKAGED, metadata })) return
-  startUpdates({ appName: APP_NAME, getWindow: () => win, beforeRestart: () => { quitting = true } })
+  return startUpdates({ appName: APP_NAME, getWindow: () => win, beforeRestart: () => { quitting = true; flushStorage() }, version: app.getVersion(), japanese: app.getLocale().startsWith('ja') })
     .catch((error) => console.warn('Updates are off:', error?.message || error))
 }
 
@@ -335,7 +347,18 @@ function createMenu() {
     { role: 'togglefullscreen' },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    ...(isMac ? [{ role: 'appMenu' }] : [{ label: 'File', submenu: [{ label: 'Quit', accelerator: 'Ctrl+Q', click: () => { quitting = true; app.quit() } }] }]),
+    ...(isMac ? [{ label: APP_NAME, submenu: [
+      { role: 'about' },
+      { label: `${app.getLocale().startsWith('ja') ? 'バージョン' : 'Version'} ${app.getVersion()}`, enabled: false },
+      { label: app.getLocale().startsWith('ja') ? 'アップデートを確認…' : 'Check for Updates…', click: async () => {
+        const service = await updateService
+        if (service) await service.check(true)
+        else await dialog.showMessageBox({ type: 'info', message: app.getLocale().startsWith('ja') ? 'このビルドでは自動更新を利用できません' : 'Updates are unavailable in this build' })
+      } },
+      { type: 'separator' }, { role: 'services' }, { type: 'separator' },
+      { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
+      { type: 'separator' }, { role: 'quit' },
+    ] }] : [{ label: 'File', submenu: [{ label: 'Quit', accelerator: 'Ctrl+Q', click: () => { quitting = true; app.quit() } }] }]),
     { role: 'editMenu' },
     { label: 'View', submenu: view },
     { role: 'windowMenu' },
@@ -347,6 +370,13 @@ function createMenu() {
 ipcMain.on('honmaru:show', (event) => {
   // Only the app's own page may bring the window forward.
   if (win && event.sender === win.webContents && new URL(event.senderFrame?.url || win.webContents.getURL()).origin === APP_ORIGIN) showWindow()
+})
+
+ipcMain.on('honmaru:notification-settings', (event) => {
+  if (!win || event.sender !== win.webContents) return
+  try { if (new URL(event.senderFrame?.url || '').origin !== APP_ORIGIN) return } catch { return }
+  if (process.platform === 'darwin') void shell.openExternal('x-apple.systempreferences:com.apple.Notifications-Settings.extension')
+  else if (process.platform === 'win32') void shell.openExternal('ms-settings:notifications')
 })
 
 // ---- One app, however many times it is started ----
@@ -369,7 +399,7 @@ if (!process.mas && !app.requestSingleInstanceLock()) {
   app.on('web-contents-created', (_event, contents) => {
     contents.on('will-attach-webview', (e) => e.preventDefault())
   })
-  app.on('before-quit', () => { quitting = true })
+  app.on('before-quit', () => { quitting = true; flushStorage() })
   app.on('activate', () => { if (win) showWindow(); else createWindow() })
   app.on('window-all-closed', () => {
     // Only when quitting: closing the window hides it.
@@ -378,12 +408,12 @@ if (!process.mas && !app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     // macOS and Linux shutting down: the same, through the power monitor
     // (which can only be used once the app is ready).
-    powerMonitor.on('shutdown', () => { quitting = true; app.quit() })
+    powerMonitor.on('shutdown', () => { quitting = true; flushStorage(); app.quit() })
     enforceCsp()
     lockPermissions()
     createMenu()
     createWindow()
     createTray()
-    checkForUpdates()
+    updateService = checkForUpdates()
   })
 }

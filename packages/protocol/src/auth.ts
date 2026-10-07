@@ -24,7 +24,7 @@ export interface Me {
   avatarUrl: string | null
   locale: string
   /// Every workspace this person is in.
-  orgs?: Array<{ id: string; name: string | null; icon?: string | null }>
+  orgs?: Array<{ id: string; name: string | null; icon?: string | null; role?: string; memberCount?: number }>
 }
 
 /// A workspace's channel (GET /businesses): `b:<slug>` is its key.

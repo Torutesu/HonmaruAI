@@ -125,6 +125,11 @@ struct DecisionCard: Identifiable, Codable, Hashable {
     var context: String
     var status: CardStatus
     var priority: CardPriority
+    /// Who changed the priority by hand (issue #207); nil while it is the
+    /// AI's first guess.
+    var prioritySetBy: String?
+    /// What the AI first said, kept once somebody changed it.
+    var aiPriority: CardPriority?
     var createdAt: Date
     var githubIssueNumber: Int?
     var githubIssueURL: String?

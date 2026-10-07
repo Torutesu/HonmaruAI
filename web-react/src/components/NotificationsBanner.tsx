@@ -1,3 +1,4 @@
+import { DesktopNotificationSettings } from './DesktopNotificationSettings'
 import React, { useEffect, useState } from 'react'
 import { pushSupport, currentSubscription, enableWebPush, prefetchVapidKey, resyncWebPush, type PushSupport } from '../utils/push'
 import { useT } from '../utils/i18n'
@@ -57,7 +58,9 @@ export const NotificationsButton: React.FC<Props> = ({ httpBase, sessionToken })
     return () => clearTimeout(t)
   }, [note])
 
-  if (state === 'on' || state === 'unknown' || support === 'unsupported' || support === 'desktop') return null
+  if (support === 'desktop') return <DesktopNotificationSettings compact />
+
+  if (state === 'on' || state === 'unknown' || support === 'unsupported') return null
 
   const click = async () => {
     if (support === 'needs-install') {

@@ -1,3 +1,5 @@
+import { drainCardNotifications } from './notificationJobs.js';
+import { notifyCardNow } from './notify.js';
 import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
 import { signup, login, createInvite, acceptInvite, isGitHubSession, inviteLink, peekInvite } from "./auth.js";
@@ -35,7 +37,7 @@ import { createTeam, renameTeam, teamName, canRename } from "./orgs.js";
 import { settleUsage, jevEntry } from "./ledger.js";
 import { runScheduledSync, runAutomations } from "./scheduled.js";
 import { handleAutomation } from "./automation.js";
-import { handleChannels, broadcastStored, watchTeammateRuns } from "./channelRoutes.js";
+import { handleChannels, broadcastStored, watchTeammateRuns, caller } from "./channelRoutes.js";
 import { handleAudit, audit, auditEverywhere, person, migrateLegacyAudit } from "./audit.js";
 import { shredPerson } from "./auditCrypto.js";
 import { allowed, ensureOwner, soleOwnerships } from "./permissions.js";
@@ -59,7 +61,8 @@ import { handleSuggestions } from "./suggest.js";
 import { handleWebhooks } from "./webhooks.js";
 import { handleAgentInvites } from "./agentInvites.js";
 import { handleUserAvatar } from "./userAvatar.js";
-import { serveFile } from "./files.js";
+import { serveFile, freshFileUrls } from "./files.js";
+import { useMediaEnv, mediaOriginOn, signVideoUrl } from "./mediaToken.js";
 import { addMembers, membersOf, isPrivate, mayRead, mayReadCard, accessFor, isGuest, hasGuests } from "./access.js";
 import { runMinuteJobs } from "./later.js";
 import { recentBusinessTalk } from "./channels.js";
@@ -197,9 +200,11 @@ export default {
   async scheduled(event, env, ctx) {
     useSecretKey(env);
     useMirrorEnv(env);
+    useMediaEnv(env);
     // Every minute: scheduled messages and Later reminders, which a person
     // set to a minute and would notice fifteen late.
     if (event?.cron === "* * * * *") {
+      ctx.waitUntil(drainCardNotifications(env, notifyCardNow).catch(() => console.error("notification retry drain failed")));
       ctx.waitUntil(runMinuteJobs(env, { now: new Date(event?.scheduledTime || Date.now()), broadcast: (orgId, key, row) => broadcastStored(env, orgId, key, row) })
         .catch((err) => console.error("minute jobs failed", err?.message || err)));
       // AI teammates at work: whatever they have finished, posted back.
@@ -262,6 +267,7 @@ export default {
   async fetch(request, env, ctx) {
     useSecretKey(env);
     useMirrorEnv(env);
+    useMediaEnv(env);
     // Every response carries the id its log line was written under, so a user
     // reporting "it failed" hands over something that finds the line.
     const requestId = crypto.randomUUID();
@@ -1194,11 +1200,32 @@ async function handle(request, env, url, ctx) {
       if (!session) return json({ message: "invalid session" }, 401);
       const limited = await enforce(env, request, "media");
       if (limited) return limited;
-      return uploadMedia(request, env, url);
+      // A workspace named is one the caller belongs to; the video is then
+      // kept under it. An app that names none gets the bare id, as before.
+      const orgId = url.searchParams.get("orgId") || null;
+      if (orgId && !(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      return uploadMedia(request, env, url, { orgId });
+    }
+    // A card's video, by a signed address for someone who may read the card.
+    if (url.pathname === "/media/video" && request.method === "POST") {
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object" || typeof body.cardId !== "string") return json({ message: "Invalid JSON body." }, 400);
+      const who = await caller(env, request, body.orgId);
+      if (who.denied) return who.denied;
+      const out = await cardVideoUrl(env, { orgId: body.orgId, login: who.user.login, cardId: body.cardId });
+      return out ? json(out) : json({ message: "No such video." }, 404);
+    }
+    // New addresses for files whose addresses ran out (mediaToken.js).
+    if (url.pathname === "/media/urls" && request.method === "POST") {
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+      const who = await caller(env, request, body.orgId);
+      if (who.denied) return who.denied;
+      return json({ files: await freshFileUrls(env, { orgId: body.orgId, login: who.user.login, ids: body.ids }) });
     }
     const mediaMatch = url.pathname.match(/^\/media\/([^/]+)$/);
-    if (mediaMatch && request.method === "GET") {
-      return serveMedia(mediaMatch[1], env);
+    if (mediaMatch && (request.method === "GET" || request.method === "HEAD")) {
+      return serveMedia(mediaMatch[1], env, request, url);
     }
     // The businesses an organization runs. Read by the feed for its filter
     // chips and by the router for its enum; written when someone names a new
@@ -2632,6 +2659,20 @@ export const CORS_HEADERS = Object.freeze({
   "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
   "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
 });
+
+/// Where to play a card's video from, for someone who may read the card:
+/// a signed address on the media origin when it is on, else the address
+/// the card was saved with. Only the video the card itself names.
+async function cardVideoUrl(env, { orgId, login, cardId }) {
+  const card = await getCard(env.DB, orgId, cardId);
+  if (!card?.videoURL || !mayReadCard(card, await accessFor(env.DB, orgId, login))) return null;
+  const m = /\/media\/([0-9a-fA-F-]{36})(?:\?o=([^&#]+))?/.exec(String(card.videoURL));
+  if (!m) return { url: card.videoURL, expiresAt: null };
+  const stored = m[2] ? decodeURIComponent(m[2]) : null;
+  if (stored && stored !== orgId) return null;
+  if (!mediaOriginOn(env)) return { url: card.videoURL, expiresAt: null };
+  return (await signVideoUrl(env, { orgId: stored, id: m[1] })) || { url: card.videoURL, expiresAt: null };
+}
 
 export function json(body, status = 200, extraHeaders) {
   return new Response(JSON.stringify(body), {

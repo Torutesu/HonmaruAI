@@ -9,6 +9,7 @@ export interface DesktopBridge {
   isDesktop: true
   platform: string
   show: () => void
+  openNotificationSettings?: () => void
 }
 
 /// The bridge, when this page is running in the desktop app.
