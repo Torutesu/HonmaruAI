@@ -163,6 +163,13 @@ struct WorkspaceSwitcherSheet: View {
                     Divider().padding(.vertical, 8)
                     Button { adding = true } label: { menuLabel("Add a workspace") }
                         .buttonStyle(.plain)
+                    if !appState.isGuest {
+                        NavigationLink { DeleteAccountView().environmentObject(appState) } label: {
+                            menuLabel("Delete account")
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("workspace.deleteAccount")
+                    }
                     Button { dismiss(); appState.signOut() } label: { menuLabel("Sign out") }
                         .buttonStyle(.plain)
                     if let error { Text(error).foregroundStyle(Theme.Colors.reject).padding(24) }
