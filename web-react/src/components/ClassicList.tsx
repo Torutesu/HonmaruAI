@@ -3353,7 +3353,11 @@ export const ClassicList: React.FC<Props> = ({
   // one just opened, and a newest message later than the newest then just
   // arrived (not one left newest by a deletion).
   const followed = useRef<{ el: HTMLDivElement | null; key?: string; newestAt: string }>({ el: null, newestAt: '' })
-  useEffect(() => {
+  // Before the browser paints: an earlier page put back in place after it
+  // was drawn showed for one frame at the wrong place, a jump the reader
+  // saw on every scroll up, and a conversation just opened showed its top
+  // for a frame before going to the bottom.
+  useLayoutEffect(() => {
     const el = logRef.current
     if (!el) return
     const list = messages[current?.view || ''] || []
