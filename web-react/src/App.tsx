@@ -44,7 +44,11 @@ type Stage = 'welcome' | 'auth' | 'otp' | 'onboarding' | 'repo' | 'app'
 function App() {
   const [stage, setStage] = useState<Stage>('welcome')
   const [restoring, setRestoring] = useState(true)
-  const [restoreError, setRestoreError] = useState(false)
+  // Why the saved session could not be checked: the network (nothing came
+  // back), or the server (it answered, with an error). Told apart so a
+  // failure on our side is not reported as the person's connection, and
+  // carries the request id that finds it in the Worker's log.
+  const [restoreError, setRestoreError] = useState<{ server: boolean; requestId: string | null } | null>(null)
   const [restoreAttempt, setRestoreAttempt] = useState(0)
   const [mode, setMode] = useState<'signup' | 'login'>('signup')
   const [userId, setUserId] = useState<string | null>(null)
@@ -116,7 +120,7 @@ function App() {
     const savedOrg = localStorage.getItem('orgId')
     const savedHost = localStorage.getItem('host') || DEFAULT_HOST
     setHost(savedHost)
-    setRestoreError(false)
+    setRestoreError(null)
     if (!savedToken || !savedUser) { setRestoring(false); return () => controller.abort() }
     setRestoring(true)
     fetch(`${httpBase(savedHost)}/me`, { headers: { 'x-session-token': savedToken }, signal: controller.signal })
@@ -132,25 +136,34 @@ function App() {
           setUserId(null); setSessionToken(''); setOrgId(''); setStage('welcome'); setRestoring(false)
           return
         }
-        if (!response.ok) throw new Error('Session unavailable')
+        if (!response.ok) {
+          console.error('Session check failed', response.status, response.headers.get('x-request-id'))
+          setRestoreError({ server: true, requestId: response.headers.get('x-request-id') })
+          return
+        }
         const me = await response.json()
         if (controller.signal.aborted) return
-        if (typeof me.login !== 'string' || !Array.isArray(me.orgs)) throw new Error('Invalid session response')
+        if (typeof me.login !== 'string' || !Array.isArray(me.orgs)) {
+          console.error('Session check returned an unexpected body')
+          setRestoreError({ server: true, requestId: response.headers.get('x-request-id') })
+          return
+        }
         const workspace = me.orgs.some((org: { id: string }) => org.id === savedOrg) ? savedOrg! : me.orgs[0]?.id || ''
         setSessionToken(savedToken); setUserId(me.login); setOrgId(workspace)
         localStorage.setItem('userId', me.login); localStorage.setItem('orgId', workspace)
         setStage(needsOnboarding(localStorage, httpBase(savedHost), me.login) ? 'onboarding' : 'app')
         setRestoring(false)
       })
-      .catch(() => {
+      .catch((err) => {
         if (controller.signal.aborted) return
+        console.error('Session check did not reach the server', err)
         if (navigator.onLine === false) {
           // Preserve this browser's existing offline workspace. Server calls
           // remain authenticated; reconnect revalidates before fetching data.
           setSessionToken(savedToken); setUserId(savedUser); setOrgId(savedOrg || '')
           setStage(needsOnboarding(localStorage, httpBase(savedHost), savedUser) ? 'onboarding' : 'app')
           setRestoring(false)
-        } else setRestoreError(true)
+        } else setRestoreError({ server: false, requestId: null })
       })
     const revalidate = () => setRestoreAttempt((value) => value + 1)
     window.addEventListener('online', revalidate)
@@ -386,7 +399,8 @@ function App() {
   })
 
   if (restoring) return <div className="screen"><div className="screen-body">
-    <p role={restoreError ? 'alert' : 'status'}>{t(restoreError ? 'Could not reach the relay.' : 'Loading…')}</p>
+    <p role={restoreError ? 'alert' : 'status'}>{t(!restoreError ? 'Loading…' : restoreError.server ? 'The server ran into a problem. Try again shortly.' : 'Could not reach the relay.')}</p>
+    {restoreError?.requestId && <p className="meta-label" data-request-id>{t('Request ID')}: {restoreError.requestId}</p>}
     {restoreError && <button className="btn btn-primary" onClick={() => setRestoreAttempt((value) => value + 1)}>{t('Try again')}</button>}
   </div></div>
 

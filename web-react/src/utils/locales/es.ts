@@ -2006,6 +2006,8 @@ const table: Record<string, string> = {
   "No mentions": "Sin menciones",
   "Mark {name} as read": "Marcar {name} como leído",
   "Couldn't load the replies.": "No se pudieron cargar las respuestas.",
+  "The server ran into a problem. Try again shortly.": "El servidor tuvo un problema. Inténtalo de nuevo en un momento.",
+  "Request ID": "ID de solicitud",
 }
 
 export default table

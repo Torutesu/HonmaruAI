@@ -283,15 +283,24 @@ export default {
       if (response.status === 101 || response.webSocket) return response;
       const headers = new Headers(response.headers);
       headers.set("x-request-id", requestId);
+      // Readable from the web app too, so an error it shows can name the line.
+      // Added to whatever a route already exposes (MCP's session id).
+      if (headers.has("access-control-allow-origin")) {
+        const exposed = headers.get("access-control-expose-headers");
+        headers.set("access-control-expose-headers", exposed ? `${exposed}, x-request-id` : "x-request-id");
+      }
       return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
     } catch (err) {
       // An unhandled throw used to become a raw Workers 500 with a stack trace
       // in it. A malformed JSON body was enough.
       logJSON({ requestId, route, status: 500, ms: Date.now() - startedAt, error: safe(err?.message) });
       alert(ctx, env, "unhandled", `${route} ${requestId} ${safe(err?.message)}`);
+      // With the CORS headers, like every other answer: without them the web
+      // app cannot read this one at all, and a failure on our side reaches the
+      // person as "could not reach the server", with no id to find it by.
       return new Response(
         JSON.stringify({ message: "Something went wrong on our side.", requestId }),
-        { status: 500, headers: { "content-type": "application/json", "x-request-id": requestId } }
+        { status: 500, headers: { ...CORS_HEADERS, "access-control-expose-headers": "x-request-id", "content-type": "application/json", "x-request-id": requestId } }
       );
     }
   },
@@ -2658,7 +2667,7 @@ async function handle(request, env, url, ctx) {
       const stub = env.ORG_RELAY.get(id);
       return stub.fetch(request);
     }
-    return new Response("not found", { status: 404 });
+    return new Response("not found", { status: 404, headers: CORS_HEADERS });
 }
 
 // Allow browser clients (the web app) to call this API. Native apps are not

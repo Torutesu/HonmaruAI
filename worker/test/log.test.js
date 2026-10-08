@@ -61,3 +61,28 @@ test("a server-side failure is a clean 500 carrying the request id", async () =>
   const body = await res.json();
   expect(JSON.stringify(body)).not.toMatch(/at |\.js:/);
 });
+
+test("a 500 is readable by the web app: CORS headers and the request id", async () => {
+  // Without the CORS headers the browser refuses to hand a 500 to the page,
+  // so the app's restore on launch saw a network error and said "could not
+  // reach the server" for what was a failure on our side.
+  await env.DB.exec("DROP TABLE sessions");
+  const res = await SELF.fetch("https://example.com/me", { headers: { "x-session-token": "any" } });
+  expect(res.status).toBe(500);
+  expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  expect(res.headers.get("access-control-expose-headers")).toMatch(/x-request-id/);
+  const body = await res.json();
+  expect(body.requestId).toBe(res.headers.get("x-request-id"));
+});
+
+test("an unknown path answers with the CORS headers too", async () => {
+  const res = await SELF.fetch("https://example.com/no-such-route");
+  expect(res.status).toBe(404);
+  expect(res.headers.get("access-control-allow-origin")).toBe("*");
+});
+
+test("the request id is readable by the web app on an ordinary answer", async () => {
+  const res = await SELF.fetch("https://example.com/me", { headers: { "x-session-token": "not-a-session" } });
+  expect(res.status).toBe(401);
+  expect(res.headers.get("access-control-expose-headers")).toMatch(/x-request-id/);
+});

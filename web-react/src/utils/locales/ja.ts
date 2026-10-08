@@ -2130,6 +2130,8 @@ const table: Record<string, string> = {
   "No mentions": "メンションはありません",
   "Mark {name} as read": "{name} を既読にする",
   "Couldn't load the replies.": "返信を読み込めませんでした。",
+  "The server ran into a problem. Try again shortly.": "サーバーで問題が発生しました。しばらくしてからもう一度お試しください。",
+  "Request ID": "リクエストID",
 }
 
 export default table
