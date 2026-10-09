@@ -194,8 +194,16 @@ final class AppState: ObservableObject {
     /// Replace onboarding with the disclosure before creating any workspace UI.
     /// This also works during cold-launch session restoration, without depending
     /// on a UIKit modal presenter or on the sign-in sheet's dismissal animation.
-    private func requestAIConsent() async -> Bool {
+    ///
+    /// Asked once per sign-in. Asking on every cold launch, with "Not now"
+    /// signing out — which takes the phone off push — left people who
+    /// declined a repeated prompt with no notifications at all.
+    private func requestAIConsent(sessionToken: String?) async -> Bool {
         resolveAIConsent(false)
+        if let sessionToken, !sessionToken.isEmpty,
+           SessionStore.aiConsentSession == SessionStore.consentMark(forSessionToken: sessionToken) {
+            return true
+        }
         return await withCheckedContinuation { continuation in
             consentContinuation = continuation
             isAwaitingAIConsent = true
@@ -330,10 +338,13 @@ final class AppState: ObservableObject {
         sessionGeneration = UUID()
         let generation = sessionGeneration
         webSocketService.disconnect()
-        guard await requestAIConsent(), generation == sessionGeneration else {
+        guard await requestAIConsent(sessionToken: token), generation == sessionGeneration else {
             if generation == sessionGeneration { signOut() }
             return
         }
+        // Kept only once this sign-in is still the current one: a sign-out
+        // while the question was open must not leave a grant behind.
+        SessionStore.aiConsentSession = SessionStore.consentMark(forSessionToken: token)
         if currentUser?.id != login { webSocketService.clearPendingEvents() }
         // The code verification just issued this token. Clearing the old
         // GitHub identity must preserve it, while cancelling old OAuth work.
@@ -375,9 +386,13 @@ final class AppState: ObservableObject {
         sessionGeneration = UUID()
         let generation = sessionGeneration
         webSocketService.disconnect()
-        guard await requestAIConsent(), generation == sessionGeneration else {
+        let sessionToken = SessionStore.sessionToken
+        guard await requestAIConsent(sessionToken: sessionToken), generation == sessionGeneration else {
             if generation == sessionGeneration { signOut() }
             return
+        }
+        if let sessionToken, !sessionToken.isEmpty {
+            SessionStore.aiConsentSession = SessionStore.consentMark(forSessionToken: sessionToken)
         }
         isGuest = false
         membersLoading = false

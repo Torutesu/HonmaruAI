@@ -284,13 +284,22 @@ export async function setUserLocale(db, githubId, locale) {
 export async function setUserEmail(db, githubId, email) {
   const id = String(githubId);
   if (id.startsWith("email:")) return { error: "This account signs in with its email address." };
+  // An account made by a company's identity provider or directory answers to
+  // the address the company gave it.
+  if (id.startsWith("sso:") || id.startsWith("scim:")) return { error: "Your company manages this address." };
   const value = typeof email === "string" ? email.trim().toLowerCase() : "";
   if (value && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) return { error: "Please enter a valid email." };
   if (value) {
     const taken = await db.prepare("SELECT github_id FROM users WHERE email = ?1 AND github_id != ?2").bind(value, id).first();
     if (taken) return { error: "That address belongs to another account." };
   }
-  await db.prepare("UPDATE users SET email = ?2 WHERE github_id = ?1").bind(id, value || null).run();
+  // A new address is not a proved one. Keeping email_verified_at across the
+  // change let anyone who had once proved some address type in another —
+  // newhire@corp.example — and pass every check that trusts a proved one:
+  // invites limited to the company's domains, joining by domain, linking by
+  // SSO.
+  await db.prepare("UPDATE users SET email = ?2, email_verified_at = CASE WHEN email IS ?2 THEN email_verified_at ELSE NULL END WHERE github_id = ?1")
+    .bind(id, value || null).run();
   return { ok: true };
 }
 

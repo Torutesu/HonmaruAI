@@ -72,7 +72,17 @@ function deepLink(env, card) {
 export async function notifyCard(env, input) {
   const recipient = input.toLogin || recipientFor(input.card, input.kind);
   if (!recipient || recipient === input.excludeLogin || recipient === 'deleted-user' || !anyChannelConfigured(env)) return notifyCardNow(env, input);
-  const id = await enqueueCardNotification(env, input);
+  // Queued first, so a failed delivery is tried again. A queue that cannot
+  // be written to (D1 refusing writes past its daily limit) used to lose the
+  // notification outright — every caller only logs the throw — so then it is
+  // sent once, now, without the retries.
+  let id;
+  try {
+    id = await enqueueCardNotification(env, input);
+  } catch (err) {
+    console.error("notification queue unavailable; sending directly", err?.message || err);
+    return notifyCardNow(env, input);
+  }
   const result = await runCardNotification(env, id, notifyCardNow);
   const {retry, ...publicResult} = result;
   return publicResult;

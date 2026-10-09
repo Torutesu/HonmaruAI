@@ -17,11 +17,14 @@ export async function deliverOnce(db, jobId, channel, target, send) {
   const prior = await db.prepare('SELECT accepted FROM notification_deliveries WHERE id = ?1').bind(id).first();
   if (prior?.accepted) return { ok: true, status: 200, cached: true };
   const result = await send();
+  // Sent is sent: failing to note it down (D1 refusing writes) must not turn
+  // a delivery into an exception, which the job would retry as a failure.
   await db.prepare(`INSERT INTO notification_deliveries (id, job_id, channel, accepted, status_code, attempts, updated_at)
     VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)
     ON CONFLICT(id) DO UPDATE SET accepted = excluded.accepted, status_code = excluded.status_code,
       attempts = notification_deliveries.attempts + 1, updated_at = excluded.updated_at`)
-    .bind(id, jobId, channel, result.ok ? 1 : 0, result.status || 0, new Date().toISOString()).run();
+    .bind(id, jobId, channel, result.ok ? 1 : 0, result.status || 0, new Date().toISOString()).run()
+    .catch((err) => console.error("delivery record failed", err?.message || err));
   return result;
 }
 

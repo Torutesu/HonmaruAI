@@ -4,6 +4,7 @@ import { getLocale } from '../utils/locale'
 import { displayName } from '../utils/names'
 import { useT } from '../utils/i18n'
 import { ReplyDraft } from '../components/ReplyDraft'
+import { safeHref } from '../utils/markdown'
 
 interface Props {
   decided: DecisionCard[]
@@ -113,8 +114,8 @@ export const History: React.FC<Props> = ({ decided, sent, businesses, userId, on
       {summary && <p className="hist-summary">{summary}</p>}
       {card.decision?.replyText && <blockquote className="hist-quote">“{card.decision.replyText}”</blockquote>}
       {card.decision?.note && <p className="hist-note">{card.decision.note}</p>}
-      {card.githubIssueURL && (
-        <a className="hist-link" href={card.githubIssueURL} target="_blank" rel="noopener noreferrer">
+      {card.githubIssueURL && safeHref(card.githubIssueURL) && (
+        <a className="hist-link" href={safeHref(card.githubIssueURL)!} target="_blank" rel="noopener noreferrer">
           {t('GitHub issue #{n}', { n: card.githubIssueNumber ?? '' })} ›
         </a>
       )}

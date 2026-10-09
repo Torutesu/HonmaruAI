@@ -108,9 +108,11 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
   const db = env.DB;
   const at = now.toISOString();
   let sent = 0; let reminded = 0;
+  // Not finding the scheduled messages must not stop the rest of the
+  // minute: the message pushes below run from here too.
   const { results: due } = await db.prepare(
     "SELECT * FROM scheduled_messages WHERE sent_at IS NULL AND send_at <= ?1 ORDER BY send_at LIMIT 50"
-  ).bind(at).all();
+  ).bind(at).all().catch((err) => { console.error("scheduled messages unavailable", err?.message || err); return { results: [] }; });
   for (const row of due || []) {
     try {
       const claim = await db.prepare("UPDATE scheduled_messages SET sent_at = ?2 WHERE id = ?1 AND sent_at IS NULL").bind(row.id, at).run();

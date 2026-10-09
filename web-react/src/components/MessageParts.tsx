@@ -12,6 +12,7 @@ import { messageMenuEntries, type MessageMenuActions } from '../utils/messageMen
 import { keepOnScreen, focusGoesBack } from './RowMenu'
 import { emojiDataState, gridStep, isEmojiOnly, loadEmojiData, pickerSections, rememberEmoji, useEmojiData, useEmojiDataState, useQuickReactions, useRecentEmoji } from '../utils/emojiSearch'
 import { composing } from '../utils/keys'
+import { safeHref } from '../utils/markdown'
 
 // The pieces of a message a chat client has and a plain log does not:
 // formatting, reactions, the emoji picker, and the bar of things you can do
@@ -940,7 +941,7 @@ const LinkCardView: React.FC<{ url: string; httpBase: string; orgId: string; tok
         {card.icon && <img className="link-card-icon" src={card.icon} alt="" width={14} height={14} onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />}
         <span>{card.site}</span>
       </div>
-      <a className="link-card-title" href={url} target="_blank" rel="noopener noreferrer">{card.title}</a>
+      <a className="link-card-title" href={safeHref(url) ?? undefined} target="_blank" rel="noopener noreferrer">{card.title}</a>
       {card.description && <div className="link-card-desc">{card.description}</div>}
       {video && playing ? (
         <div className="link-card-player">
@@ -958,7 +959,7 @@ const LinkCardView: React.FC<{ url: string; httpBase: string; orgId: string; tok
             <span className="link-card-play" aria-hidden="true" />
           </button>
         ) : (
-          <a className="link-card-thumb" href={url} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
+          <a className="link-card-thumb" href={safeHref(url) ?? undefined} target="_blank" rel="noopener noreferrer" tabIndex={-1}>
             <img src={card.image} alt="" loading="lazy" onError={() => setImageOk(false)} />
           </a>
         )

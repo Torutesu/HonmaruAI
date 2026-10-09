@@ -12,6 +12,7 @@ import {
   toolCallSequence,
 } from "./events.js";
 import { ACTION_STATUS } from "./tools.js";
+import { isWebUrl } from "./validate.js";
 
 // legacy store shape: { [recipientUserID]: card[] } → AG-UI state.
 // `contexts` is the per-user curated context ("profile.md" behind the UI):
@@ -133,7 +134,7 @@ export function applyDecision(store, content) {
     found.context = [found.context, `Revision: ${content.note}`].filter(Boolean).join("\n");
   }
   if (content.githubIssueNumber !== undefined) found.githubIssueNumber = content.githubIssueNumber;
-  if (content.githubIssueURL !== undefined) found.githubIssueURL = content.githubIssueURL;
+  if (content.githubIssueURL !== undefined && (content.githubIssueURL === null || isWebUrl(content.githubIssueURL))) found.githubIssueURL = content.githubIssueURL;
   if (content.githubRepository !== undefined) found.githubRepository = content.githubRepository;
 
   return { card: found, removed: false };

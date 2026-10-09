@@ -12,7 +12,7 @@
 
 import {
   hashPassword, newSaltHex, safeEqual, validEmail,
-  signup, acceptInvite, EMAIL_AUTH_TOKEN,
+  signup, acceptInvite, settleProvedAddress, EMAIL_AUTH_TOKEN,
 } from "./auth.js";
 import { createSession, primaryOrgId } from "./db.js";
 import { isMailConfigured, sendMail } from "./mailer.js";
@@ -119,12 +119,15 @@ export async function verifyCode(env, { email, code, name, inviteCode, locale })
   const markProved = () => env.DB.prepare("UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?2) WHERE email = ?1")
     .bind(address, new Date().toISOString()).run().catch(() => {});
 
+  // Proved here, so an account that only claimed this address loses it
+  // (settleProvedAddress) before this person is signed into anything.
+  await settleProvedAddress(env, address);
   const user = await env.DB
     .prepare("SELECT github_id, login FROM users WHERE email = ?1")
     .bind(address)
     .first();
   if (!user) {
-    const created = await signup(env, { email: address, name, inviteCode, locale, passwordless: true });
+    const created = await signup(env, { email: address, name, inviteCode, locale, passwordless: true, emailProved: true });
     if (created.error) return { error: created.error, status: 400 };
     await markProved();
     return { ...created, created: true };

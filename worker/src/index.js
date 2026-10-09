@@ -424,7 +424,13 @@ async function handle(request, env, url, ctx) {
       const limited = await enforce(env, request, "oauth/token");
       if (limited) return limited;
       const body = await request.json().catch(() => ({}));
-      const result = await signup(env, { ...body, locale: body.locale || localeFromRequest(request) });
+      // Named fields only. Spreading the body let a caller send
+      // `passwordless: true` (or `emailProved`) and get an account, and a
+      // session, for an address it never proved and with no password.
+      const result = await signup(env, {
+        email: body.email, password: body.password, name: body.name, inviteCode: body.inviteCode,
+        locale: body.locale || localeFromRequest(request),
+      });
       if (result.error) return json({ message: result.error }, 400);
       await signedIn(env, request, result.token, result.userId, "password");
       return json(result);
@@ -1623,7 +1629,19 @@ async function handle(request, env, url, ctx) {
       }
       // Where email falls back to. A GitHub account has none unless it says
       // so here; an email account's address is its login and cannot change.
-      if (body.email !== undefined) {
+      const current = body.email !== undefined ? await getUserByGithubId(env.DB, session.github_id) : null;
+      const unchanged = typeof body.email === "string" && body.email.trim().toLowerCase() === String(current?.email || "");
+      if (body.email !== undefined && !unchanged) {
+        // Whether a workspace requires its SSO of someone is read from their
+        // address. An address one of their workspaces holds to SSO stays put:
+        // moving it elsewhere and signing in with a code there was a way
+        // round the requirement, and past the company switching them off.
+        const { ssoRequiredFor } = await import("./sso.js");
+        for (const org of await listUserOrgs(env.DB, session.github_id)) {
+          if (await ssoRequiredFor(env.DB, org.id, session.github_id)) {
+            return json({ message: "Your company manages this address through its single sign-on." }, 403);
+          }
+        }
         const result = await setUserEmail(env.DB, session.github_id, body.email);
         if (result.error) return json({ message: result.error }, 400);
       }

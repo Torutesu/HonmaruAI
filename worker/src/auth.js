@@ -108,7 +108,9 @@ export function validEmail(email) {
 export const MAX_NAME_CHARS = 120;
 export const MAX_EMAIL_CHARS = 254;
 
-export async function signup(env, { email, password, name, inviteCode, locale, passwordless }) {
+/// `emailProved`: the caller has just seen the address answer (an emailed
+/// code, Apple), so the account starts proved and the invite's rules see it so.
+export async function signup(env, { email, password, name, inviteCode, locale, passwordless, emailProved }) {
   if (!validEmail(email) || email.length > MAX_EMAIL_CHARS) return { error: "Please enter a valid email." };
   // The name lands on every card this account creates, in every member's
   // join snapshot, and in `/members`. Text, and not a page of it.
@@ -141,32 +143,52 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
   const login = `u:${normalizedEmail}`;
   const displayName = (name || "").trim().slice(0, MAX_NAME_CHARS) || normalizedEmail.split("@")[0];
 
+  await upsertUser(env.DB, { githubId: userId, login, name: displayName, avatarUrl: null, locale: locale || undefined });
+  await env.DB
+    .prepare("UPDATE users SET email = ?1, password_hash = ?2, password_salt = ?3, email_verified_at = ?5 WHERE github_id = ?4")
+    .bind(normalizedEmail, hash, salt, userId, emailProved ? new Date().toISOString() : null)
+    .run();
+
   // A caller-supplied orgId is not authorization. Signup may only place a user
   // in an org a valid invite names, or in a fresh org of their own. Trusting
   // body.orgId let anyone write a membership row for a private org, and
   // authorizeOrgAccess treats that row as proof of access.
   //
-  // Settled before the account is written, so a mistyped code cannot leave a
-  // real account behind with no org at all.
+  // An invite here answers to the same rule as one redeemed later
+  // (acceptInvite → inviteGate): a workspace that takes only its company's
+  // addresses, or wants an admin to approve, gets that from a sign-up too.
+  // It used to be spent with no gate at all, so a forwarded link let anyone
+  // straight in. Settled once the account exists, because the gate reads it.
   //
-  // A code that does not work no longer refuses the sign-up, though. It used
-  // to, and the emailed six digits have already been spent by the time this
-  // runs — so one wrong character cost the account *and* the credential, and
-  // the only way on was to start over and ask for another code. They get the
-  // workspace they would have got with no code at all, `inviteError` says what
-  // did not happen, and You → Join a team takes another attempt at it.
+  // A code that does not work, or that the gate holds back, never refuses the
+  // sign-up: the emailed six digits have already been spent by the time this
+  // runs. They get a workspace of their own, `inviteError` (or
+  // `invitePending`) says what did not happen, and You → Join a team takes
+  // another attempt at it.
   let org;
   let joinRole = "member";
   let inviteError;
+  let invitePending;
   let joinedBy = null;
   if (inviteCode?.trim()) {
     const invite = await readInvite(env.DB, inviteCode.trim());
-    if (invite && (await spendInvite(env.DB, inviteCode.trim()))) {
-      org = invite.org_id;
-      joinRole = invite.role || "member";
-      joinedBy = invite;
-    } else {
+    if (!invite) {
       inviteError = "That invitation is not valid, or it has expired.";
+    } else {
+      const role = String(invite.role || "member").toLowerCase();
+      const { inviteGate } = await import("./governance.js");
+      const gate = await inviteGate(env, invite.org_id, userId, role);
+      if (gate.error) inviteError = gate.error;
+      else if (gate.pending) {
+        await askToJoin(env, invite.org_id, userId, gate.email, role);
+        invitePending = { orgId: invite.org_id, role };
+      } else if (await spendInvite(env.DB, inviteCode.trim())) {
+        org = invite.org_id;
+        joinRole = role;
+        joinedBy = invite;
+      } else {
+        inviteError = "That invitation is not valid, or it has expired.";
+      }
     }
   }
   if (!org) {
@@ -177,11 +199,6 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
     joinRole = "owner";
   }
 
-  await upsertUser(env.DB, { githubId: userId, login, name: displayName, avatarUrl: null, locale: locale || undefined });
-  await env.DB
-    .prepare("UPDATE users SET email = ?1, password_hash = ?2, password_salt = ?3 WHERE github_id = ?4")
-    .bind(normalizedEmail, hash, salt, userId)
-    .run();
   await upsertMembership(env.DB, org, userId, joinRole, joinedBy ? "invite" : "created");
   // Joined by an invitation that names channels: introduced there.
   if (joinedBy?.channels) {
@@ -191,7 +208,7 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
   }
   if (joinedBy) await joinedByInvite(env, org, userId, joinRole);
   const token = await createSession(env.DB, userId, EMAIL_AUTH_TOKEN);
-  return { token, userId, login, orgId: org, ...(inviteError ? { inviteError } : {}) };
+  return { token, userId, login, orgId: org, ...(inviteError ? { inviteError } : {}), ...(invitePending ? { invitePending } : {}) };
 }
 
 // Log in: look up by email, verify the password, return a session token.
@@ -392,6 +409,54 @@ export async function peekInvite(env, code) {
   };
 }
 
+/// Someone has just proved this address: by an emailed code, or through the
+/// identity provider or directory of the company whose domain it is. An
+/// account that only claimed the address, never proving it, loses its hold:
+///
+/// - an email account (the address is its login) stays, for the person who
+///   proved it, but every session it has ends and its password goes. Whoever
+///   registered it first may not have been them, and a password set by
+///   someone else, or a session they kept, would be a way back in.
+/// - any other account (GitHub, SSO, SCIM) that typed the address in stops
+///   naming it.
+///
+/// Returns the account that now answers to the address, or null for none.
+/// Without this, registering newhire@corp.example before the real person
+/// arrived was enough to be handed their sign-in, their company's SSO link
+/// and their SCIM provisioning.
+///
+/// `orgId`: the workspace whose identity provider or directory proved it. An
+/// account at the address that is already one of its members is linked as it
+/// is: the workspace let it in already, so linking gives it nothing new.
+export async function settleProvedAddress(env, email, { orgId } = {}) {
+  if (orgId) {
+    const member = await env.DB.prepare(
+      "SELECT u.github_id FROM users u JOIN memberships m ON m.user_github_id = u.github_id AND m.org_id = ?2 WHERE u.email = ?1"
+    ).bind(email, orgId).first();
+    if (member) return { githubId: String(member.github_id) };
+  }
+  const row = await env.DB.prepare("SELECT github_id, email_verified_at FROM users WHERE email = ?1").bind(email).first();
+  if (!row) return null;
+  const id = String(row.github_id);
+  if (row.email_verified_at) return { githubId: id };
+  if (id.startsWith("email:")) {
+    await env.DB.prepare("UPDATE users SET password_hash = NULL, password_salt = NULL WHERE github_id = ?1").bind(id).run();
+    const { endSessions } = await import("./sessions.js");
+    await endSessions(env.DB, id);
+    return { githubId: id, reclaimed: true };
+  }
+  await env.DB.prepare("UPDATE users SET email = NULL WHERE github_id = ?1 AND email_verified_at IS NULL").bind(id).run();
+  return null;
+}
+
+/// An invitation the workspace wants an admin to approve: kept for them.
+async function askToJoin(env, orgId, userId, email, role) {
+  await env.DB.prepare(
+    `INSERT INTO join_requests (org_id, user_github_id, email, requested_at, role, via) VALUES (?1, ?2, ?3, ?4, ?5, 'invite')
+     ON CONFLICT(org_id, user_github_id) DO UPDATE SET requested_at = excluded.requested_at, role = excluded.role, via = 'invite', decided_by = NULL, decided_at = NULL, outcome = NULL`
+  ).bind(orgId, String(userId), email || "", new Date().toISOString(), role).run();
+}
+
 // Redeem an invite code: look it up, add the user to that org.
 export async function acceptInvite(env, { code, userId }) {
   if (!code || !userId) return { error: "Missing code." };
@@ -421,10 +486,7 @@ export async function acceptInvite(env, { code, userId }) {
     const gate = await inviteGate(env, row.org_id, userId, offered);
     if (gate.error) return { error: gate.error, orgId: row.org_id };
     if (gate.pending) {
-      await env.DB.prepare(
-        `INSERT INTO join_requests (org_id, user_github_id, email, requested_at, role, via) VALUES (?1, ?2, ?3, ?4, ?5, 'invite')
-         ON CONFLICT(org_id, user_github_id) DO UPDATE SET requested_at = excluded.requested_at, role = excluded.role, via = 'invite', decided_by = NULL, decided_at = NULL, outcome = NULL`
-      ).bind(row.org_id, String(userId), gate.email || "", new Date().toISOString(), offered).run();
+      await askToJoin(env, row.org_id, userId, gate.email, offered);
       return { orgId: row.org_id, pending: true, role: offered };
     }
   }

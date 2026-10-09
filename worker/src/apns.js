@@ -158,6 +158,11 @@ export async function sendPush(env, { deviceToken, device = null, payload, colla
     } catch {
       reason = "";
     }
+    // Apple's own words, where the logs can find them. Only the status was
+    // kept before, so a misconfiguration (BadDeviceToken from the wrong
+    // gateway, InvalidProviderToken, TopicDisallowed) read the same as a
+    // phone that simply had no app any more. No token: it identifies a phone.
+    console.error("apns refused", JSON.stringify({ status: res.status, reason, host: target.host, topic: target.topic }));
     return { ok: false, status: res.status, reason };
   } catch (err) {
     console.error("apns send failed", err?.message || err);
