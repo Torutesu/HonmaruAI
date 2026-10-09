@@ -353,4 +353,31 @@ final class ChatTranslationTests: XCTestCase {
         let out = ChatConversation.inOrder([c("b:a"), c("b:b"), c("b:c"), c("b:d")], ["b:c", "b:a"])
         XCTAssertEqual(out.map(\.view), ["b:c", "b:a", "b:b", "b:d"])
     }
+
+    /// An inline reply (#237): the quote the Worker hands out with it, and
+    /// the one drawn under a reply on its way, before the server has it.
+    func testAnInlineReplyDecodesItsQuoteAndQuotesAMessageAsTheWorkerDoes() throws {
+        let reply = try JSONDecoder().decode(ChatMessage.self, from: #"{"id":"m2","channel":"b:cafe","kind":"message","body":"Yes, Kyoto","mine":false,"createdAt":"2026-10-09T01:05:00.000Z","replyTo":{"id":"m1","kind":"message","authorName":"Mika","authorRef":"r1","excerpt":"Which supplier?","deleted":false}}"#.data(using: .utf8)!)
+        XCTAssertEqual(reply.replyTo?.id, "m1")
+        XCTAssertEqual(reply.replyTo?.authorName, "Mika")
+        XCTAssertEqual(reply.replyTo?.excerpt, "Which supplier?")
+        let gone = try JSONDecoder().decode(ChatMessage.self, from: #"{"id":"m3","channel":"b:cafe","kind":"message","body":"ok","mine":true,"createdAt":"2026-10-09T01:06:00.000Z","replyTo":{"id":"m1","kind":null,"authorName":null,"authorRef":null,"excerpt":"","deleted":true}}"#.data(using: .utf8)!)
+        XCTAssertEqual(gone.replyTo?.deleted, true)
+
+        let said = ChatMessage(id: "m1", channel: "b:cafe", kind: "message", body: "Which   supplier\nfor the beans?", authorName: "Mika", authorRef: "r1", mine: false, createdAt: "2026-10-09T01:00:00.000Z")
+        let quote = ChatQuote(of: said)
+        XCTAssertEqual(quote.id, "m1")
+        XCTAssertEqual(quote.excerpt, "Which supplier for the beans?")
+        XCTAssertEqual(quote.authorName, "Mika")
+        XCTAssertFalse(quote.deleted)
+        let long = ChatQuote(of: ChatMessage(id: "m4", channel: "b:cafe", kind: "message", body: String(repeating: "a", count: 300), mine: true, createdAt: "2026-10-09T01:00:00.000Z"))
+        XCTAssertEqual(long.excerpt.count, 120)
+        XCTAssertTrue(long.excerpt.hasSuffix("…"))
+        let ai = ChatQuote(of: ChatMessage(id: "m5", channel: "b:cafe", kind: "ai", body: "Done.", authorName: "AI", mine: false, createdAt: "2026-10-09T01:00:00.000Z"))
+        XCTAssertNil(ai.authorName)
+        XCTAssertEqual(ai.kind, "ai")
+        var unsent = said
+        unsent.deleted = true
+        XCTAssertTrue(ChatQuote(of: unsent).deleted)
+    }
 }

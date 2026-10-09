@@ -3315,6 +3315,78 @@ await step('threads you are in, a message marked unread, and one forwarded as a 
   }
 })
 
+// A thread open beside the conversation keeps up with what is said in it
+// (#235): at its newest reply it follows a new one; scrolled up to read,
+// it keeps the place and says what waits below, and the pill goes there.
+await step('an open thread follows new replies, and keeps the place of one scrolled up', async () => {
+  await closeEverything()
+  if (!mate) throw new Error('the teammate this step needs is not here')
+  const kenji = mate.pages()[0] || await mate.newPage()
+  const desk = await phone.newPage()
+  await desk.setViewportSize({ width: 1280, height: 820 })
+  // Kenji answers through the API: a reply the owner did not write.
+  const reply = (parentId, channel, body) => kenji.evaluate(async ({ host, parentId, channel, body }) => {
+    const r = await fetch(`${host}/channels/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') },
+      body: JSON.stringify({ orgId: localStorage.getItem('orgId'), channel, body, parentId }),
+    })
+    if (!r.ok) throw new Error(`a reply was refused: ${r.status}`)
+  }, { host: API, parentId, channel, body })
+  const where = () => desk.$eval('.slk-thread-pane .slk-thread-log', (el) => ({ top: el.scrollTop, gap: el.scrollHeight - el.scrollTop - el.clientHeight }))
+  try {
+    await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await desk.waitForSelector('.slk-side .cl-thread[data-view^="g:"]', { timeout: 20000 })
+    await desk.click('.slk-side .cl-thread[data-view^="g:"] .cl-open')
+    const ask = `who has the keys? ${Date.now()}`
+    await desk.fill('.slk-composer .slk-input', ask)
+    await desk.keyboard.press('Enter')
+    const msg = desk.locator('.slk-main .slk-msg[id^="msg-"]:not(.pending):not(.failed)', { hasText: ask }).last()
+    await msg.waitFor({ timeout: 10000 })
+    const parentId = (await msg.getAttribute('id')).slice(4)
+    const channel = await desk.getAttribute('.slk-side .cl-thread[data-view^="g:"]', 'data-view')
+    await msg.hover()
+    await msg.locator('.slk-tools [aria-label="Reply in thread"]').click()
+    await desk.waitForSelector('.slk-thread-pane .slk-thread-log', { timeout: 10000 })
+
+    // Enough replies to scroll, each arriving while the thread is open.
+    const long = (n) => `reply ${n}: ${'the spare set is in the drawer by the door. '.repeat(6)}`
+    for (let n = 1; n <= 10; n++) await reply(parentId, channel, long(n))
+    await desk.waitForSelector('.slk-thread-pane .slk-msg:has-text("reply 10:")', { timeout: 15000 })
+      .catch(() => { throw new Error('replies from a teammate did not reach the open thread') })
+    await desk.waitForTimeout(300)
+    const followed = await where()
+    if (followed.top <= 0) throw new Error('ten replies did not make the thread scroll; the check proves nothing')
+    if (followed.gap > 48) throw new Error(`the thread did not follow new replies: ${followed.gap}px short of the newest`)
+    if (await desk.$('.slk-thread-pane .slk-present')) throw new Error('"Jump to present" shows at the newest reply')
+
+    // Up to the first replies; one more arrives and the place is kept.
+    await desk.$eval('.slk-thread-pane .slk-thread-log', (el) => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
+    // The pill's holder has no height (it sits on the log's foot); its button is what shows.
+    await desk.waitForSelector('.slk-thread-pane .slk-present button', { timeout: 5000 })
+      .catch(() => { throw new Error('scrolled up in a thread, there is no way back to the newest reply') })
+    await reply(parentId, channel, long(11))
+    await desk.waitForSelector('.slk-thread-pane .slk-msg:has-text("reply 11:")', { state: 'attached', timeout: 15000 })
+    await desk.waitForTimeout(300)
+    const kept = await where()
+    if (kept.top > 4) throw new Error(`a new reply pulled a reader away from the earlier ones (scrolled to ${kept.top})`)
+    await desk.waitForSelector('.slk-thread-pane .slk-present b:has-text("1 new message")', { timeout: 5000 })
+      .catch(() => { throw new Error('the reply that arrived above the fold is not counted') })
+    await desk.screenshot({ path: `${SHOTS}/57b-thread-new-below.png` })
+
+    // The pill goes down to it, and goes away there.
+    await desk.click('.slk-thread-pane .slk-present button')
+    await desk.waitForSelector('.slk-thread-pane .slk-present', { state: 'detached', timeout: 5000 })
+      .catch(() => { throw new Error('"Jump to present" stays after going to the newest reply') })
+    if ((await where()).gap > 48) throw new Error('"Jump to present" did not reach the newest reply')
+  } catch (err) {
+    await desk.screenshot({ path: `${SHOTS}/fail-${Date.now()}-thread-follow.png` }).catch(() => {})
+    throw err
+  } finally {
+    await desk.close()
+  }
+})
+
 await step('a star, a section of your own, and a user group one mention reaches', async () => {
   await closeEverything()
   if (!mate) throw new Error('the teammate this step needs is not here')

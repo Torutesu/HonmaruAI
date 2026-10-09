@@ -533,6 +533,7 @@ final class ChatStore: ObservableObject {
         let parentId: String?
         var alsoChannel = false
         var clientId: String? = nil
+        var replyTo: ChatQuote? = nil
         let at: Date?
         let files: [ChatFile]
         let rules: [String]
@@ -542,7 +543,7 @@ final class ChatStore: ObservableObject {
     @Published var dataBlocked: String?
 
     /// What a message on its way was sent with, to send it again (#212).
-    private struct HeldSend { let view: String; let text: String; let decide: Bool; let parentId: String?; let alsoChannel: Bool; let files: [ChatFile] }
+    private struct HeldSend { let view: String; let text: String; let decide: Bool; let parentId: String?; let alsoChannel: Bool; let files: [ChatFile]; let replyTo: ChatQuote? }
     private var heldSends: [String: HeldSend] = [:]
 
     /// Whether a send that did not go is kept in the conversation, failed,
@@ -554,7 +555,7 @@ final class ChatStore: ObservableObject {
 
     /// Yours, drawn the moment it is sent: faded, under the send's own id,
     /// until the server's copy takes its place.
-    private func drawSending(_ clientId: String, view: String, text: String, parentId: String?, alsoChannel: Bool, files: [ChatFile]) {
+    private func drawSending(_ clientId: String, view: String, text: String, parentId: String?, alsoChannel: Bool, files: [ChatFile], replyTo: ChatQuote?) {
         let sends = ChatSends.shared
         sends.states[clientId] = .pending
         sends.retry = { [weak self] id in Task { await self?.sendAgain(id) } }
@@ -562,7 +563,7 @@ final class ChatStore: ObservableObject {
         let me = members.first { $0.mine }
         let m = ChatMessage(id: clientId, channel: view, kind: "message", body: text, authorName: me?.name, authorRef: me?.ref, mine: true,
                             createdAt: ISO8601DateFormatter().string(from: Date()), parentId: parentId, files: files.isEmpty ? nil : files,
-                            alsoChannel: parentId != nil && alsoChannel ? true : nil)
+                            alsoChannel: parentId != nil && alsoChannel ? true : nil, replyTo: replyTo)
         if let parentId, thread?.parent.id == parentId, !(thread?.replies.contains { $0.id == clientId } ?? false) { thread?.replies.append(m) }
         if parentId == nil || alsoChannel, messages[view] != nil, !(messages[view]?.contains { $0.id == clientId } ?? false) { messages[view]?.append(m) }
     }
@@ -595,26 +596,31 @@ final class ChatStore: ObservableObject {
     /// landed comes back as the message already posted.
     func sendAgain(_ clientId: String) async {
         guard let h = heldSends[clientId] else { return }
-        _ = await send(h.view, text: h.text, decide: h.decide, parentId: h.parentId, alsoChannel: h.alsoChannel, files: h.files, clientId: clientId)
+        _ = await send(h.view, text: h.text, decide: h.decide, parentId: h.parentId, alsoChannel: h.alsoChannel, replyTo: h.replyTo, files: h.files, clientId: clientId)
     }
     /// A failed one, thrown away.
     func throwAway(_ clientId: String) { if isHeld(clientId) { takeBack(clientId) } }
 
     @discardableResult
-    func send(_ view: String, text: String, decide: Bool = false, parentId: String? = nil, alsoChannel: Bool = false, at: Date? = nil, files: [ChatFile] = [], acknowledged: Bool = false, clientId: String? = nil) async -> Bool {
+    func send(_ view: String, text: String, decide: Bool = false, parentId: String? = nil, alsoChannel: Bool = false, replyTo: ChatQuote? = nil, at: Date? = nil, files: [ChatFile] = [], acknowledged: Bool = false, clientId: String? = nil) async -> Bool {
         guard let orgId, let base else { return false }
+        // A reply is to something said now; one written for later is not.
+        let replyTo = at == nil ? replyTo : nil
         // A scheduled one is not in the conversation until its time.
         let drawn = at == nil ? clientId : nil
         if let drawn {
-            heldSends[drawn] = HeldSend(view: view, text: text, decide: decide, parentId: parentId, alsoChannel: alsoChannel, files: files)
-            drawSending(drawn, view: view, text: text, parentId: parentId, alsoChannel: alsoChannel, files: files)
+            heldSends[drawn] = HeldSend(view: view, text: text, decide: decide, parentId: parentId, alsoChannel: alsoChannel, files: files, replyTo: replyTo)
+            drawSending(drawn, view: view, text: text, parentId: parentId, alsoChannel: alsoChannel, files: files, replyTo: replyTo)
         }
         do {
-            let sent = try await ChatService.send(orgId: orgId, channel: view, body: text, decide: decide, parentId: parentId, alsoChannel: alsoChannel, sendAt: at, files: files.map(\.id), acknowledged: acknowledged, clientId: clientId, base: base)
+            let sent = try await ChatService.send(orgId: orgId, channel: view, body: text, decide: decide, parentId: parentId, alsoChannel: alsoChannel, replyTo: replyTo?.id, sendAt: at, files: files.map(\.id), acknowledged: acknowledged, clientId: clientId, base: base)
             if let s = sent.scheduled { scheduled.append(s); scheduled.sort { $0.sendAt < $1.sendAt } }
             if let m = sent.message { if let drawn { landed(drawn, as: m) } else { upsert(m) } } else if let drawn { takeBack(drawn) }
             if sent.deciding == true { thinking[view] = "reading" }
             Haptics.success()
+            // Said something: an answer is now worth being told about, so
+            // this is when iOS is asked, once (#236).
+            if at == nil { Task { await PushService.shared.requestAuthorizationIfEarned() } }
             return true
         } catch ChatService.Failure.dataRule(let blocked, let rules, _) {
             if let drawn { takeBack(drawn) }
@@ -622,7 +628,7 @@ final class ChatStore: ObservableObject {
             if blocked {
                 dataBlocked = String(localized: "This can't be sent here: it looks like it contains \(what). Take it out and try again.")
             } else {
-                dataWarning = DataRuleWarning(view: view, text: text, decide: decide, parentId: parentId, alsoChannel: alsoChannel, clientId: clientId, at: at, files: files, rules: rules)
+                dataWarning = DataRuleWarning(view: view, text: text, decide: decide, parentId: parentId, alsoChannel: alsoChannel, clientId: clientId, replyTo: replyTo, at: at, files: files, rules: rules)
             }
             return false
         } catch {
@@ -647,7 +653,7 @@ final class ChatStore: ObservableObject {
     /// The warned-about message, sent after all.
     func sendAnyway(_ w: DataRuleWarning) async -> Bool {
         dataWarning = nil
-        return await send(w.view, text: w.text, decide: w.decide, parentId: w.parentId, alsoChannel: w.alsoChannel, at: w.at, files: w.files, acknowledged: true, clientId: w.clientId)
+        return await send(w.view, text: w.text, decide: w.decide, parentId: w.parentId, alsoChannel: w.alsoChannel, replyTo: w.replyTo, at: w.at, files: w.files, acknowledged: true, clientId: w.clientId)
     }
 
     /// A picture or a file for the message about to be sent, uploaded now.

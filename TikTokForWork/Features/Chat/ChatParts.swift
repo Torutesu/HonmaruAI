@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// What an @name reaches: the AI, a person, a user group or an agent.
 enum ChatMentionKind: Equatable { case ai, person, group, agent
@@ -779,6 +780,8 @@ struct ChatMessageRow: View {
     let onOpenThread: () -> Void
     let onOpenCard: (String) -> Void
     let onProfile: (String) -> Void
+    /// The message an inline reply quotes, pressed: shown where it is.
+    var onOpenQuote: ((String) -> Void)? = nil
 
     @Environment(\.chatAssets) private var assets
     @ObservedObject private var translations = ChatTranslations.shared
@@ -826,6 +829,10 @@ struct ChatMessageRow: View {
                     }
                     .buttonStyle(.plain).disabled(quote.deleted)
                     .accessibilityIdentifier("threadReplyLine")
+                }
+                // An inline reply: the line it answers, above whose it is.
+                if let quote = message.replyTo, !message.isDeleted {
+                    ChatReplyQuoteLine(quote: quote, nameOf: nameOf) { onOpenQuote?(quote.id) }
                 }
                 if !joined {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -954,5 +961,221 @@ struct ChatNewLine: View {
             Rectangle().fill(Color.red).frame(height: 1)
             Text("New").font(.caption2.weight(.heavy)).foregroundStyle(.red)
         }.padding(.horizontal, 16).padding(.vertical, 4).accessibilityLabel("New messages")
+    }
+}
+
+/// Whether a chat's newest line is in view, kept in `atBottom`: measured
+/// from the scroll position on iOS 18 and later, and before that from a
+/// `ChatBottomMarker` after the last line coming into view and leaving it.
+struct ChatTracksBottom: ViewModifier {
+    @Binding var atBottom: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: Bool.self) { g in
+                // The bottom inset is the composer: the end of what is said
+                // sits right above it.
+                g.contentOffset.y + g.containerSize.height - g.contentInsets.bottom >= g.contentSize.height - 48
+            } action: { _, now in
+                if atBottom != now { atBottom = now }
+            }
+        } else {
+            content
+        }
+    }
+}
+
+/// The end of a chat, for scrolling to, and on iOS 17 for telling whether
+/// it is in view: a lazy stack draws it only when it comes near.
+struct ChatBottomMarker: View {
+    @Binding var atBottom: Bool
+
+    var body: some View {
+        Color.clear.frame(height: 1)
+            .onAppear { if #unavailable(iOS 18.0) { atBottom = true } }
+            .onDisappear { if #unavailable(iOS 18.0) { atBottom = false } }
+            .accessibilityHidden(true)
+    }
+}
+
+/// Who a quote is of, in words: the AI, a person by name, or a teammate.
+private func quoteAuthor(_ quote: ChatQuote, nameOf: (String) -> String) -> String {
+    if quote.kind == "ai" { return String(localized: "Your AI") }
+    if let name = quote.authorName, !name.isEmpty { return name }
+    if let ref = quote.authorRef { return nameOf(ref) }
+    return String(localized: "a teammate")
+}
+
+/// The line an inline reply shows above its author: who said what it
+/// answers, and how that began. Pressed, that message — or, when it is
+/// gone, only that it is.
+struct ChatReplyQuoteLine: View {
+    let quote: ChatQuote
+    let nameOf: (String) -> String
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(spacing: 4) {
+                Image(systemName: "arrowshape.turn.up.left").font(.caption2)
+                if quote.deleted {
+                    Text("Original message was deleted").font(.caption.italic())
+                } else {
+                    Text(verbatim: quoteAuthor(quote, nameOf: nameOf)).font(.caption.weight(.semibold))
+                    Text(verbatim: quote.excerpt).font(.caption).lineLimit(1)
+                }
+            }
+            .foregroundStyle(Theme.Colors.textSecondary)
+        }
+        .buttonStyle(.plain).disabled(quote.deleted)
+        .accessibilityHint(Text("Go to the message"))
+        .accessibilityIdentifier("replyQuoteLine")
+    }
+}
+
+/// Over the box while a reply is being written: who it answers, how that
+/// began, and a way to stop replying.
+struct ChatReplyingBar: View {
+    let quote: ChatQuote
+    let nameOf: (String) -> String
+    let onCancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrowshape.turn.up.left.fill").font(.caption).foregroundStyle(Theme.Colors.accent)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Replying to \(quoteAuthor(quote, nameOf: nameOf))").font(.caption.weight(.semibold))
+                if quote.deleted {
+                    Text("Original message was deleted").font(.caption.italic()).foregroundStyle(Theme.Colors.textSecondary)
+                } else if !quote.excerpt.isEmpty {
+                    Text(verbatim: quote.excerpt).font(.caption).lineLimit(1).foregroundStyle(Theme.Colors.textSecondary)
+                }
+            }
+            Spacer(minLength: 4)
+            Button(action: onCancel) {
+                Image(systemName: "xmark.circle.fill").font(.system(size: 18)).foregroundStyle(Theme.Colors.textTertiary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Cancel reply"))
+        }
+        .padding(.horizontal, 14).padding(.vertical, 6)
+        .accessibilityIdentifier("replyingBar")
+    }
+}
+
+/// Swipe a message to the left to answer it, as in Discord: the row
+/// follows the finger, an arrow comes in behind it, and past the line a
+/// tap of the haptics says letting go will reply. A swipe that starts up
+/// or down is the conversation's scroll, not this. VoiceOver has it as
+/// the row's "Reply" action.
+struct ChatSwipeToReply: ViewModifier {
+    let enabled: Bool
+    let onReply: () -> Void
+    @State private var offset: CGFloat = 0
+    @State private var armed = false
+    /// iOS 17: whether the drag under way is this (sideways) or a scroll.
+    @State private var sideways: Bool?
+
+    private static let line: CGFloat = 64
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .offset(x: offset)
+                .background(alignment: .trailing) {
+                    Image(systemName: "arrowshape.turn.up.left.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(armed ? Color.white : Theme.Colors.textSecondary)
+                        .frame(width: 32, height: 32)
+                        .background(armed ? Theme.Colors.accent : Theme.Colors.surfaceRaised, in: Circle())
+                        .scaleEffect(armed ? 1.1 : 0.6 + 0.4 * min(1, -offset / Self.line))
+                        .opacity(min(1, -offset / (Self.line * 0.5)))
+                        .padding(.trailing, 14)
+                        .accessibilityHidden(true)
+                }
+                .modifier(ChatReplyDrag(moved: moved, ended: ended, sideways: $sideways))
+                .accessibilityAction(named: Text("Reply"), onReply)
+        } else {
+            content
+        }
+    }
+
+    /// The finger has gone `dx` sideways (leftward is negative).
+    private func moved(_ dx: CGFloat) {
+        let pull = max(0, -dx)
+        // Past the line it drags, the way a pulled list does.
+        let shown = pull <= Self.line ? pull : Self.line + (pull - Self.line) * 0.3
+        offset = -min(shown, Self.line * 1.6)
+        let now = pull >= Self.line
+        if now != armed {
+            armed = now
+            if now { Haptics.light() }
+        }
+    }
+
+    private func ended() {
+        if armed { onReply() }
+        armed = false
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { offset = 0 }
+    }
+}
+
+/// The sideways drag itself. On iOS 18 and later a UIKit pan that only
+/// begins for a leftward, mostly sideways movement, so the scroll keeps
+/// every vertical one; before that a SwiftUI drag that decides at its
+/// first movement which of the two it is.
+private struct ChatReplyDrag: ViewModifier {
+    let moved: (CGFloat) -> Void
+    let ended: () -> Void
+    @Binding var sideways: Bool?
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.gesture(ChatReplyPan(moved: moved, ended: ended))
+        } else {
+            content.simultaneousGesture(
+                DragGesture(minimumDistance: 16)
+                    .onChanged { v in
+                        if sideways == nil {
+                            sideways = v.translation.width < 0 && abs(v.translation.width) > abs(v.translation.height) * 1.5
+                        }
+                        if sideways == true { moved(v.translation.width) }
+                    }
+                    .onEnded { _ in
+                        if sideways == true { ended() }
+                        sideways = nil
+                    }
+            )
+        }
+    }
+}
+
+@available(iOS 18.0, *)
+private struct ChatReplyPan: UIGestureRecognizerRepresentable {
+    let moved: (CGFloat) -> Void
+    let ended: () -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let pan = UIPanGestureRecognizer()
+        pan.delegate = context.coordinator
+        return pan
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        switch recognizer.state {
+        case .began, .changed: moved(recognizer.translation(in: recognizer.view).x)
+        case .ended, .cancelled, .failed: ended()
+        default: break
+        }
+    }
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = recognizer as? UIPanGestureRecognizer else { return false }
+            let v = pan.velocity(in: pan.view)
+            return v.x < 0 && abs(v.x) > abs(v.y) * 1.5
+        }
     }
 }

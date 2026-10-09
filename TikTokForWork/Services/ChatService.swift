@@ -80,6 +80,8 @@ struct ChatMessage: Codable, Identifiable, Hashable {
     var threadParent: ChatQuote?
     /// Said by an agent for a person who was mentioned: whose agent it is.
     var onBehalfOf: ChatOnBehalfOf?
+    /// An inline reply: the message it answers, as that message is now.
+    var replyTo: ChatQuote?
 
     var isAI: Bool { kind == "ai" }
     /// Written by an agent the team made ("@hayao"), not by a person.
@@ -103,6 +105,22 @@ struct ChatQuote: Codable, Hashable {
     let authorRef: String?
     let excerpt: String
     let deleted: Bool
+}
+
+extension ChatQuote {
+    /// The quote of a message on screen, as a reply to it carries it until
+    /// the server's copy arrives — the Worker's quoteOf: one line of its
+    /// words, cut at 120 characters, or the file it carries.
+    init(of m: ChatMessage) {
+        if m.isDeleted {
+            self.init(id: m.id, kind: nil, authorName: nil, authorRef: nil, excerpt: "", deleted: true)
+            return
+        }
+        let words = m.body.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let text = words.isEmpty ? (m.files?.first.map { "📎 \($0.name)" } ?? "") : words
+        let excerpt = text.count > 120 ? String(text.prefix(119)).trimmingCharacters(in: .whitespaces) + "…" : text
+        self.init(id: m.id, kind: m.kind, authorName: m.isAI ? nil : m.authorName, authorRef: m.isAI ? nil : m.authorRef, excerpt: excerpt, deleted: false)
+    }
 }
 
 struct ChatMemberStatus: Codable, Hashable {
@@ -640,8 +658,11 @@ enum ChatService {
     /// of posting it twice.
     static func newClientId() -> String { "tmp-" + UUID().uuidString.lowercased() }
 
-    static func send(orgId: String, channel: String, body: String, decide: Bool = false, parentId: String? = nil, alsoChannel: Bool = false, sendAt: Date? = nil, files: [String] = [], acknowledged: Bool = false, clientId: String? = nil, base: URL) async throws -> Sent {
+    static func send(orgId: String, channel: String, body: String, decide: Bool = false, parentId: String? = nil, alsoChannel: Bool = false, replyTo: String? = nil, sendAt: Date? = nil, files: [String] = [], acknowledged: Bool = false, clientId: String? = nil, base: URL) async throws -> Sent {
         var b: [String: Any] = ["orgId": orgId, "channel": channel, "body": body, "decide": decide]
+        // An inline reply: the message it answers. Not for one written for
+        // later, which the server refuses.
+        if let replyTo, sendAt == nil { b["replyTo"] = replyTo }
         // Scheduled sends are kept by the server under their own id.
         if let clientId, sendAt == nil { b["clientId"] = clientId }
         // Seen the data rule's warning, and sending anyway.

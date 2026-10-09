@@ -44,8 +44,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
         // Not fatal, and not worth an alert: the user simply is not told about
-        // decisions until the next launch tries again. The feed still works.
+        // decisions until the next launch tries again. The feed still works,
+        // and Notifications in You says what went wrong.
         print("APNs registration failed: \(error.localizedDescription)")
+        Task { @MainActor in PushService.shared.registrationFailed(error) }
     }
 }
 

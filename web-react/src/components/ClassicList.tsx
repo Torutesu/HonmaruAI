@@ -28,6 +28,7 @@ import { BrandLogo, isBrand } from './BrandLogo'
 import { useBackStack } from '../utils/backStack'
 import { countNewBelow, isAtBottom, isLooking, isNewSince, leavesGap, mergeById, reachesPast, shouldFollow, waitToSay } from '../utils/chatScroll'
 import { JumpToPresent, newBelowLabel } from './JumpToPresent'
+import { FollowingLog } from './FollowingLog'
 import { useT } from '../utils/i18n'
 import { useMembers, agentMentionables, agentsIn, mentionKind, mentionTarget } from '../utils/mentions'
 import type { AgentFace } from '../utils/mentions'
@@ -63,6 +64,7 @@ import { useAppearance } from '../utils/appearance'
 import { visibleOrder, step, foldedHome } from '../utils/sidebarOrder'
 import type { SidebarGroup } from '../utils/sidebarOrder'
 import { isMacPlatform, formatCombo, hasPrimaryMod, composing, enterKey } from '../utils/keys'
+import { formatDate } from '../utils/dateFormat'
 import './ClassicList.css'
 
 /// What was done, as a word rather than the verb the API uses — the same
@@ -262,7 +264,7 @@ const isWide = () => typeof window !== 'undefined' && typeof window.matchMedia =
 function clock(iso?: string): string {
   const t = iso ? Date.parse(iso) : NaN
   if (!Number.isFinite(t)) return ''
-  return new Date(t).toLocaleTimeString(getLocale(), { hour: 'numeric', minute: '2-digit' })
+  return formatDate(t, getLocale(), { hour: 'numeric', minute: '2-digit' })
 }
 
 /// The newest activity on a row, as a chat client shows it: the time today,
@@ -273,7 +275,7 @@ function when(iso?: string): string {
   const d = new Date(t)
   return d.toDateString() === new Date().toDateString()
     ? clock(iso)
-    : d.toLocaleDateString(getLocale(), { month: 'short', day: 'numeric' })
+    : formatDate(d, getLocale(), { month: 'short', day: 'numeric' })
 }
 
 /// The workspace laid out the way a chat client lays it out — and the one
@@ -1400,6 +1402,16 @@ export const ClassicList: React.FC<Props> = ({
   const drawnAs = useRef(new Map<string, string>())
   const keyOf = (m: ChannelMessage) => drawnAs.current.get(m.id) || m.id
   const [draft, setDraft] = useState('')
+  // Set by the boxes' own handlers, and gone by the end of the same event
+  // (a microtask): the render it causes changes only what is being
+  // written, so the conversation's rows are the ones already drawn. Set
+  // last in a handler: React's render of what the handler set is queued
+  // by its first update, so it runs before the flag's reset does.
+  const typingOnly = useRef(false)
+  const typingRender = typingOnly.current
+  typingOnly.current = false
+  const writing = () => { typingOnly.current = true; queueMicrotask(() => { typingOnly.current = false }) }
+  const rowsKept = useRef<{ view?: string; said: ChannelMessage[]; cards: DecisionCard[]; since: string; out: React.ReactNode[] } | null>(null)
   // An inline reply being written (Discord's Reply, not a thread): the
   // message the next one answers, in the conversation it was started in.
   const [replyingTo, setReplyingTo] = useState<{ view: string; quote: ReplyQuote } | null>(null)
@@ -2119,7 +2131,9 @@ export const ClassicList: React.FC<Props> = ({
     const v = draftView.current
     if (!v || v !== draftId) return
     try { if (draft) localStorage.setItem(draftKey(v), draft); else localStorage.removeItem(draftKey(v)) } catch {}
-    setDrafts((prev) => (Boolean(prev[v]) === Boolean(draft) ? prev : { ...prev, [v]: Boolean(draft) }))
+    // Asked only when it changes: a same-value update still ran the whole
+    // list once more before React saw nothing had changed, on every key.
+    if (Boolean(drafts[v]) !== Boolean(draft)) setDrafts((prev) => (Boolean(prev[v]) === Boolean(draft) ? prev : { ...prev, [v]: Boolean(draft) }))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft])
   /// What was sent leaves the box it was written in. Moved on to another
@@ -3353,7 +3367,11 @@ export const ClassicList: React.FC<Props> = ({
   // one just opened, and a newest message later than the newest then just
   // arrived (not one left newest by a deletion).
   const followed = useRef<{ el: HTMLDivElement | null; key?: string; newestAt: string }>({ el: null, newestAt: '' })
-  useEffect(() => {
+  // Before the browser paints: an earlier page put back in place after it
+  // was drawn showed for one frame at the wrong place, a jump the reader
+  // saw on every scroll up, and a conversation just opened showed its top
+  // for a frame before going to the bottom.
+  useLayoutEffect(() => {
     const el = logRef.current
     if (!el) return
     const list = messages[current?.view || ''] || []
@@ -3504,7 +3522,7 @@ export const ClassicList: React.FC<Props> = ({
     const yesterday = new Date(today.getTime() - 86400000)
     if (d.toDateString() === today.toDateString()) return t('Today')
     if (d.toDateString() === yesterday.toDateString()) return t('Yesterday')
-    return d.toLocaleDateString(locale, { weekday: 'long', month: 'long', day: 'numeric' })
+    return formatDate(d, locale, { weekday: 'long', month: 'long', day: 'numeric' })
   }
 
   /// A decision as a chat app's attachment: what, where it stands, and the
@@ -4220,7 +4238,8 @@ export const ClassicList: React.FC<Props> = ({
   }
   const threadBody = (thread: { channel: string; parent: ChannelMessage; replies: ChannelMessage[]; loading?: boolean; failed?: boolean }) => (
     <>
-          <div className="slk-thread-log" tabIndex={0} role="region" aria-label={t('Messages')}
+          <FollowingLog className="slk-thread-log" tabIndex={0} role="region" aria-label={t('Messages')}
+            openKey={thread.parent.id} said={thread.replies} onHandOn={() => threadComposer.current?.focus({ preventScroll: true })}
             onKeyDown={logKeys(thread.channel, [thread.parent, ...thread.replies], threadComposer, true)} onMouseDown={unpick} onFocus={pickLog}>
             {[thread.parent, ...thread.replies].map((m, i) => (
               <React.Fragment key={keyOf(m)}>
@@ -4248,7 +4267,7 @@ export const ClassicList: React.FC<Props> = ({
             ))}
             {aiSteps(thinking[thread.channel])}
             {agentLines(thread.channel, { parentId: thread.parent.id })}
-          </div>
+          </FollowingLog>
           <TypingLine names={typingHere(thread.channel, thread.parent.id)} />
           <form className="slk-composer thread" onSubmit={(e) => { e.preventDefault(); void send(thread.channel, false, thread.parent.id) }}>
             <PendingUploads items={threadUploads.items} onRemove={threadUploads.remove} />
@@ -4262,7 +4281,7 @@ export const ClassicList: React.FC<Props> = ({
               maxLength={4000}
               placeholder={t('Reply… — @AI to ask the AI')}
               aria-label={t('Reply in thread')}
-              onChange={(e) => { setThreadDraft(e.target.value); threadMention.track(); typed({ channel: thread.channel, parentId: thread.parent.id }, e.target.value) }}
+              onChange={(e) => { setThreadDraft(e.target.value); threadMention.track(); typed({ channel: thread.channel, parentId: thread.parent.id }, e.target.value); writing() }}
               onBlur={() => stoppedTyping({ channel: thread.channel, parentId: thread.parent.id })}
               onKeyUp={threadMention.track}
               onClick={threadMention.track}
@@ -4339,95 +4358,104 @@ export const ClassicList: React.FC<Props> = ({
 
   const conversation = (thread: Thread) => {
     const said = thread.view ? (messages[thread.view] || []) : []
-    // A card the AI announced sits under its announcement, not twice.
-    const announced = new Set(said.filter((m) => m.kind === 'ai' && m.cardId).map((m) => m.cardId!))
-    const items: Item[] = [
-      ...thread.cards.filter((c) => !announced.has(c.id)).map((card) => ({ at: card.createdAt, kind: 'card' as const, card })),
-      ...said.map((msg) => ({ at: msg.createdAt, kind: 'msg' as const, msg })),
-    ].sort((a, b) => a.at.localeCompare(b.at))
-
-    const out: React.ReactNode[] = []
-    let day = ''
     // The red line: the first thing somebody else said since you last read.
     const since = newSince && newSince.view === thread.view ? newSince.at : ''
-    let lined = !since
-    let prevWho = ''
-    let prevAt = 0
-    for (const item of items) {
-      const d = new Date(Date.parse(item.at)).toDateString()
-      if (d !== day) {
-        day = d
-        prevWho = ''
-        out.push(<div key={`day-${d}`} className="slk-day" role="separator"><span>{dayLabel(item.at)}</span></div>)
-      }
-      const at = Date.parse(item.at)
-      if (!lined && item.kind === 'msg' && isNewSince(item.msg, since)) {
-        lined = true
-        out.push(<div key="new-line" className="slk-new-line" role="separator"><span>{t('New')}</span></div>)
-      }
-      if (item.kind === 'card') {
-        const c = item.card
-        const who = author(c)
-        const joined = prevWho === `card:${who.name}` && at - prevAt < 5 * 60000
-        const to = c.senderUserID === userId && c.recipientUserID !== userId ? nameOfRecipient(c) : ''
-        const from = !who.app && c.senderUserID !== userId ? memberOfLogin(c.senderUserID)?.ref : null
-        out.push(block(c.id, { joined, at: c.createdAt, app: who.app, name: who.name, face: who.face, to, unread: isUnread(c), msgId: c.id, authorRef: from, tools: cardTools(c) }, (
-          <>
-            {attachment(c)}
-            {cardReactions(c)}
-          </>
-        )))
-        prevWho = `card:${who.name}`
-      } else {
-        const m = item.msg
-        if (m.kind === 'joined') {
-          // Somebody new came into the workspace: one quiet line, in your words.
-          out.push(
-            <div key={m.id} className="slk-joined" data-joined={m.id}>
-              <span className="slk-joined-face" aria-hidden="true">{m.authorAvatar ? <img src={m.authorAvatar} alt="" /> : '👋'}</span>
-              <span className="slk-joined-text">{t('{name} joined the workspace. Say hello!', { name: m.authorName || t('Someone') })}</span>
-              <time className="slk-joined-time" dateTime={m.createdAt}>{new Date(Date.parse(m.createdAt)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
-            </div>,
-          )
+    // Only the words in a box changed: the rows drawn last time are these
+    // rows, so they are used again rather than drawn and compared anew —
+    // every key typed used to redraw the whole conversation (typingOnly).
+    const kept = typingRender ? rowsKept.current : null
+    const reuse = Boolean(kept && kept.view === thread.view && kept.said === said && kept.cards === thread.cards && kept.since === since)
+    let out: React.ReactNode[] = []
+    if (reuse) out = kept!.out
+    else {
+      // A card the AI announced sits under its announcement, not twice.
+      const announced = new Set(said.filter((m) => m.kind === 'ai' && m.cardId).map((m) => m.cardId!))
+      const items: Item[] = [
+        ...thread.cards.filter((c) => !announced.has(c.id)).map((card) => ({ at: card.createdAt, kind: 'card' as const, card })),
+        ...said.map((msg) => ({ at: msg.createdAt, kind: 'msg' as const, msg })),
+      ].sort((a, b) => a.at.localeCompare(b.at))
+
+      let day = ''
+      let lined = !since
+      let prevWho = ''
+      let prevAt = 0
+      for (const item of items) {
+        const d = new Date(Date.parse(item.at)).toDateString()
+        if (d !== day) {
+          day = d
           prevWho = ''
-          continue
+          out.push(<div key={`day-${d}`} className="slk-day" role="separator"><span>{dayLabel(item.at)}</span></div>)
         }
-        if (m.kind === 'ai') {
-          const card = m.cardId ? cardsById.get(m.cardId) : undefined
-          out.push(block(m.id, { joined: false, at: m.createdAt, app: 'ai', name: t('Your AI'), badge: t('AI'), msgId: m.id, pinned: m.pinned, mentionsMe: callsMe(m), tools: toolsFor(thread.view!, m), onHold: holdFor(thread.view!, m), onMenu: menuFor(thread.view!, m) },
+        const at = Date.parse(item.at)
+        if (!lined && item.kind === 'msg' && isNewSince(item.msg, since)) {
+          lined = true
+          out.push(<div key="new-line" className="slk-new-line" role="separator"><span>{t('New')}</span></div>)
+        }
+        if (item.kind === 'card') {
+          const c = item.card
+          const who = author(c)
+          const joined = prevWho === `card:${who.name}` && at - prevAt < 5 * 60000
+          const to = c.senderUserID === userId && c.recipientUserID !== userId ? nameOfRecipient(c) : ''
+          const from = !who.app && c.senderUserID !== userId ? memberOfLogin(c.senderUserID)?.ref : null
+          out.push(block(c.id, { joined, at: c.createdAt, app: who.app, name: who.name, face: who.face, to, unread: isUnread(c), msgId: c.id, authorRef: from, tools: cardTools(c) }, (
             <>
-              <div className="slk-text">{rich(shownBody(m).text)}</div>
-              {translationNote(m)}
-              {card && attachment(card)}
-              {jams[thread.view!]?.messageId === m.id && jamCard(thread.view!, jams[thread.view!])}
-              {underneath(thread.view!, m)}
-            </>))
-          prevWho = 'ai'
-        } else {
-          const whoKey = `msg:${m.authorRef || m.authorName}`
-          const joined = prevWho === whoKey && at - prevAt < 5 * 60000
-          const name = whoSaid(m)
-          // A reply always shows whose it is, under the line it quotes.
-          const quote = m.replyTo && !m.deleted ? m.replyTo : null
-          // A thread reply sent here too says which thread it answers.
-          const fromThread = !quote && m.parentId && m.alsoChannel && m.threadParent && !m.deleted ? m.threadParent : null
-          out.push(block(keyOf(m), {
-            joined: joined && !m.pinned && !quote && !fromThread, at: m.createdAt, app: '', name, face: faceOfMessage(m), badge: m.kind === 'agent' ? (m.onBehalfOf?.name ? t("{name}'s agent", { name: m.onBehalfOf.name }) : t('Agent')) : undefined, msgId: m.id, pinned: m.pinned, authorRef: m.mine ? null : m.authorRef,
-            mentionsMe: callsMe(m), tools: toolsFor(thread.view!, m), onHold: holdFor(thread.view!, m), onMenu: menuFor(thread.view!, m), state: tempState(m),
-            quote: quote ? <ReplyQuoteLine quote={quote} name={quoteName(quote)} onJump={() => void goToQuoted(thread.view!, quote.id)} />
-              : fromThread ? <ThreadReplyLine quote={fromThread} onOpen={() => void openThread(thread.view!, m)} /> : undefined,
-          }, (
-            <>
-              {words(thread.view!, m)}
-              {m.cardId && <button className="slk-made" onClick={() => openCard(m.cardId!)}>{t('→ Decision')}</button>}
-              {underneath(thread.view!, m)}
+              {attachment(c)}
+              {cardReactions(c)}
             </>
           )))
-          prevWho = whoKey
+          prevWho = `card:${who.name}`
+        } else {
+          const m = item.msg
+          if (m.kind === 'joined') {
+            // Somebody new came into the workspace: one quiet line, in your words.
+            out.push(
+              <div key={m.id} className="slk-joined" data-joined={m.id}>
+                <span className="slk-joined-face" aria-hidden="true">{m.authorAvatar ? <img src={m.authorAvatar} alt="" /> : '👋'}</span>
+                <span className="slk-joined-text">{t('{name} joined the workspace. Say hello!', { name: m.authorName || t('Someone') })}</span>
+                <time className="slk-joined-time" dateTime={m.createdAt}>{formatDate(Date.parse(m.createdAt), [], { hour: '2-digit', minute: '2-digit' })}</time>
+              </div>,
+            )
+            prevWho = ''
+            continue
+          }
+          if (m.kind === 'ai') {
+            const card = m.cardId ? cardsById.get(m.cardId) : undefined
+            out.push(block(m.id, { joined: false, at: m.createdAt, app: 'ai', name: t('Your AI'), badge: t('AI'), msgId: m.id, pinned: m.pinned, mentionsMe: callsMe(m), tools: toolsFor(thread.view!, m), onHold: holdFor(thread.view!, m), onMenu: menuFor(thread.view!, m) },
+              <>
+                <div className="slk-text">{rich(shownBody(m).text)}</div>
+                {translationNote(m)}
+                {card && attachment(card)}
+                {jams[thread.view!]?.messageId === m.id && jamCard(thread.view!, jams[thread.view!])}
+                {underneath(thread.view!, m)}
+              </>))
+            prevWho = 'ai'
+          } else {
+            const whoKey = `msg:${m.authorRef || m.authorName}`
+            const joined = prevWho === whoKey && at - prevAt < 5 * 60000
+            const name = whoSaid(m)
+            // A reply always shows whose it is, under the line it quotes.
+            const quote = m.replyTo && !m.deleted ? m.replyTo : null
+            // A thread reply sent here too says which thread it answers.
+            const fromThread = !quote && m.parentId && m.alsoChannel && m.threadParent && !m.deleted ? m.threadParent : null
+            out.push(block(keyOf(m), {
+              joined: joined && !m.pinned && !quote && !fromThread, at: m.createdAt, app: '', name, face: faceOfMessage(m), badge: m.kind === 'agent' ? (m.onBehalfOf?.name ? t("{name}'s agent", { name: m.onBehalfOf.name }) : t('Agent')) : undefined, msgId: m.id, pinned: m.pinned, authorRef: m.mine ? null : m.authorRef,
+              mentionsMe: callsMe(m), tools: toolsFor(thread.view!, m), onHold: holdFor(thread.view!, m), onMenu: menuFor(thread.view!, m), state: tempState(m),
+              quote: quote ? <ReplyQuoteLine quote={quote} name={quoteName(quote)} onJump={() => void goToQuoted(thread.view!, quote.id)} />
+                : fromThread ? <ThreadReplyLine quote={fromThread} onOpen={() => void openThread(thread.view!, m)} /> : undefined,
+            }, (
+              <>
+                {words(thread.view!, m)}
+                {m.cardId && <button className="slk-made" onClick={() => openCard(m.cardId!)}>{t('→ Decision')}</button>}
+                {underneath(thread.view!, m)}
+              </>
+            )))
+            prevWho = whoKey
+          }
         }
+        prevAt = at
       }
-      prevAt = at
     }
+    rowsKept.current = { view: thread.view, said, cards: thread.cards, since, out }
     const waitingHere = thread.cards.filter(isUnread).length
     const placeholder = thread.kind === 'channel'
       ? t('Message #{name} — @AI to ask the AI', { name: thread.name })
@@ -4804,7 +4832,7 @@ export const ClassicList: React.FC<Props> = ({
               placeholder={placeholder}
               aria-label={placeholder}
               aria-describedby={replying ? 'slk-replying-text' : undefined}
-              onChange={(e) => { setDraft(e.target.value); mention.track(); typed({ channel: thread.view!, parentId: null }, e.target.value) }}
+              onChange={(e) => { setDraft(e.target.value); mention.track(); typed({ channel: thread.view!, parentId: null }, e.target.value); writing() }}
               onBlur={() => stoppedTyping({ channel: thread.view!, parentId: null })}
               onKeyUp={mention.track}
               onClick={mention.track}
