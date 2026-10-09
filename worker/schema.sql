@@ -659,6 +659,9 @@ CREATE TABLE IF NOT EXISTS saved_items (
   created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_saved_items ON saved_items(org_id, login);
+/* The minute cron's question: reminders that are due. Partial, so only the
+   items still waiting on a reminder are in it. */
+CREATE INDEX IF NOT EXISTS idx_saved_items_remind ON saved_items(remind_at) WHERE done_at IS NULL AND reminded_at IS NULL AND remind_at IS NOT NULL;
 
 /* "Approve these automatically": a person's standing yes to one kind of
    request from one sender, optionally in one business. The relay applies it
@@ -1281,6 +1284,8 @@ CREATE TABLE IF NOT EXISTS audit_seals (
   sealed_at     TEXT NOT NULL,
   PRIMARY KEY (org_id, hour)
 );
+/* The last sealed row of a workspace, read once an hour (sealPending). */
+CREATE INDEX IF NOT EXISTS idx_audit_seals_seq ON audit_seals(org_id, to_seq);
 
 /* A workspace whose sealing keeps failing, and since when. */
 CREATE TABLE IF NOT EXISTS audit_seal_failures (
@@ -1524,6 +1529,9 @@ CREATE TABLE IF NOT EXISTS app_connection_tombstones (
 CREATE INDEX IF NOT EXISTS idx_sessions_github ON sessions(github_id);
 CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_github_id);
 CREATE INDEX IF NOT EXISTS idx_cards_org_created ON cards(org_id, created_at);
+/* Daily report drafts, which the 15-minute cron looks for (dailyReport.js).
+   Partial, so a card that is not a draft costs nothing here. */
+CREATE INDEX IF NOT EXISTS idx_cards_daily_draft ON cards(created_at) WHERE json_extract(data, '$.dailyReport.status') = 'draft';
 CREATE INDEX IF NOT EXISTS idx_channel_messages_author ON channel_messages(org_id, author_login, created_at);
 CREATE INDEX IF NOT EXISTS idx_push_queue_created ON push_queue(created_at);
 CREATE INDEX IF NOT EXISTS idx_activity_reads_read ON activity_reads(read_at);

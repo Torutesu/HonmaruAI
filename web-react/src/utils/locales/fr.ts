@@ -2009,6 +2009,7 @@ const table: Record<string, string> = {
   "No mentions": "Aucune mention",
   "Mark {name} as read": "Marquer {name} comme lu",
   "Couldn't load the replies.": "Impossible de charger les réponses.",
+  "Honmaru AI is having trouble on its side. Try again in a little while.": "Honmaru AI rencontre un problème de son côté. Réessayez dans un moment.",
 }
 
 export default table

@@ -287,11 +287,22 @@ export default {
     } catch (err) {
       // An unhandled throw used to become a raw Workers 500 with a stack trace
       // in it. A malformed JSON body was enough.
-      logJSON({ requestId, route, status: 500, ms: Date.now() - startedAt, error: safe(err?.message) });
-      alert(ctx, env, "unhandled", `${route} ${requestId} ${safe(err?.message)}`);
+      //
+      // D1 refusing queries past the free tier's daily rows is an outage, not
+      // a bug in the request: 503, named as such, so a client can say the
+      // service is down rather than that the network is.
+      const outage = isDatabaseLimit(err);
+      const status = outage ? 503 : 500;
+      logJSON({ requestId, route, status, ms: Date.now() - startedAt, error: safe(err?.message) });
+      alert(ctx, env, outage ? "d1-limit" : "unhandled", `${route} ${requestId} ${safe(err?.message)}`);
       return new Response(
-        JSON.stringify({ message: "Something went wrong on our side.", requestId }),
-        { status: 500, headers: { "content-type": "application/json", "x-request-id": requestId } }
+        JSON.stringify(outage
+          ? { message: "The service is temporarily unavailable. Try again later.", code: "service-unavailable", requestId }
+          : { message: "Something went wrong on our side.", requestId }),
+        // With the CORS headers every other answer has. Without them the
+        // browser hides the response, and the web app could only report it
+        // as "could not reach the server".
+        { status, headers: { "cache-control": "no-store", "content-type": "application/json", ...CORS_HEADERS, "x-request-id": requestId } }
       );
     }
   },
@@ -2671,6 +2682,12 @@ export const CORS_HEADERS = Object.freeze({
   "access-control-allow-headers": "content-type, x-session-token, x-ai-key",
   "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
 });
+
+/// D1's refusal once the account is past its free tier's daily row reads or
+/// writes ("Your account has exceeded D1's free tier daily row read limit…").
+export function isDatabaseLimit(err) {
+  return /exceeded D1's free tier daily row/i.test(String(err?.message || err || ""));
+}
 
 /// Where to play a card's video from, for someone who may read the card:
 /// a signed address on the media origin when it is on, else the address

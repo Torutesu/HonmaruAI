@@ -44,7 +44,9 @@ type Stage = 'welcome' | 'auth' | 'otp' | 'onboarding' | 'repo' | 'app'
 function App() {
   const [stage, setStage] = useState<Stage>('welcome')
   const [restoring, setRestoring] = useState(true)
-  const [restoreError, setRestoreError] = useState(false)
+  // Why the session could not be checked: the server did not answer at all,
+  // or it answered with an error of its own (an outage on its side).
+  const [restoreError, setRestoreError] = useState<false | 'unreachable' | 'server'>(false)
   const [restoreAttempt, setRestoreAttempt] = useState(0)
   const [mode, setMode] = useState<'signup' | 'login'>('signup')
   const [userId, setUserId] = useState<string | null>(null)
@@ -119,9 +121,11 @@ function App() {
     setRestoreError(false)
     if (!savedToken || !savedUser) { setRestoring(false); return () => controller.abort() }
     setRestoring(true)
+    let answered = false
     fetch(`${httpBase(savedHost)}/me`, { headers: { 'x-session-token': savedToken }, signal: controller.signal })
       .then(async (response) => {
         if (controller.signal.aborted) return
+        answered = true
         if (response.status === 401 || response.status === 409) {
           // The session is over: this browser stops taking its pushes too.
           // The Worker refuses the dead token, but the endpoint, unsubscribed
@@ -150,7 +154,11 @@ function App() {
           setSessionToken(savedToken); setUserId(savedUser); setOrgId(savedOrg || '')
           setStage(needsOnboarding(localStorage, httpBase(savedHost), savedUser) ? 'onboarding' : 'app')
           setRestoring(false)
-        } else setRestoreError(true)
+        } else {
+          // The server answered, so the network is fine, and saying it could
+          // not be reached sends people to check the wrong thing.
+          setRestoreError(answered ? 'server' : 'unreachable')
+        }
       })
     const revalidate = () => setRestoreAttempt((value) => value + 1)
     window.addEventListener('online', revalidate)
@@ -386,7 +394,9 @@ function App() {
   })
 
   if (restoring) return <div className="screen"><div className="screen-body">
-    <p role={restoreError ? 'alert' : 'status'}>{t(restoreError ? 'Could not reach the relay.' : 'Loading…')}</p>
+    <p role={restoreError ? 'alert' : 'status'}>{t(restoreError === 'server'
+      ? 'Honmaru AI is having trouble on its side. Try again in a little while.'
+      : restoreError ? 'Could not reach the relay.' : 'Loading…')}</p>
     {restoreError && <button className="btn btn-primary" onClick={() => setRestoreAttempt((value) => value + 1)}>{t('Try again')}</button>}
   </div></div>
 

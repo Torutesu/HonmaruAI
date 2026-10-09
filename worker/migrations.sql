@@ -68,6 +68,10 @@ ALTER TABLE sessions ADD COLUMN last_seen_at TEXT;
 ALTER TABLE api_tokens ADD COLUMN scopes TEXT;
 ALTER TABLE users ADD COLUMN notify_keywords TEXT;
 ALTER TABLE audit_events ADD COLUMN enc INTEGER NOT NULL DEFAULT 0;
+-- The phase 1 rows still to move (migrateLegacyAudit, every 15 minutes):
+-- without it each run read the whole audit log to find there were none.
+-- Here and not in schema.sql, which runs before the column above exists.
+CREATE INDEX IF NOT EXISTS idx_audit_legacy ON audit_events(org_id) WHERE enc = 0;
 ALTER TABLE sessions ADD COLUMN reauth_at TEXT;
 ALTER TABLE sessions ADD COLUMN auth_method TEXT;
 ALTER TABLE sessions ADD COLUMN longest_idle_ms INTEGER;
