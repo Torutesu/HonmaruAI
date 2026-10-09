@@ -19,6 +19,18 @@ final class PushService: NSObject, ObservableObject {
 
     @Published private(set) var authorization: UNAuthorizationStatus = .notDetermined
 
+    /// Whether this iPhone is known to the server as somewhere to send
+    /// notifications. Allowed but never registered is the quiet failure:
+    /// nothing arrives and nothing says why (#236).
+    enum Registration: Equatable { case unregistered, registering, registered, failed(String) }
+    @Published private(set) var registration: Registration = .unregistered
+
+    /// How iOS shows what arrives, when it is allowed: banners off means a
+    /// notification goes to Notification Center without a sound or a look;
+    /// in the Scheduled Summary it arrives later, in a batch.
+    @Published private(set) var bannersOff = false
+    @Published private(set) var inScheduledSummary = false
+
     /// Set when a notification is tapped, so the feed can scroll to that card.
     @Published var pendingCardID: String?
 
@@ -36,7 +48,10 @@ final class PushService: NSObject, ObservableObject {
     }
 
     func refreshAuthorization() async {
-        authorization = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        authorization = settings.authorizationStatus
+        bannersOff = settings.alertSetting == .disabled
+        inScheduledSummary = settings.scheduledDeliverySetting == .enabled
         guard PushService.isEnabledInThisBuild else { return }
         // Already granted on a previous launch: re-register without prompting.
         // APNs reissues tokens, and a stale one is a silent no-op — the user
@@ -67,11 +82,34 @@ final class PushService: NSObject, ObservableObject {
         }
     }
 
+    /// Turned on from Notifications in You: asked when iOS has not been
+    /// asked yet (the person chose to, so no moment is waited for), and
+    /// otherwise registered again — a stale or failed registration is the
+    /// other reason nothing arrives.
+    func turnOn() async {
+        guard PushService.isEnabledInThisBuild else { return }
+        if authorization == .notDetermined {
+            didRequestThisLaunch = true
+            let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+            await refreshAuthorization()
+            if granted { registration = .registering; UIApplication.shared.registerForRemoteNotifications() }
+        } else if authorization == .authorized || authorization == .provisional || authorization == .ephemeral {
+            registration = .registering
+            UIApplication.shared.registerForRemoteNotifications()
+        }
+    }
+
     /// Called from the app delegate with the raw token Apple handed us.
     func register(deviceToken data: Data, sessionToken: String?) {
         let token = data.map { String(format: "%02x", $0) }.joined()
         deviceToken = token
         Task { await upload(token: token, sessionToken: sessionToken) }
+    }
+
+    /// Apple would not give this iPhone a token: said in Notifications,
+    /// rather than only in a log nobody reads.
+    func registrationFailed(_ error: Error) {
+        registration = .failed(error.localizedDescription)
     }
 
     /// Re-registered on every sign-in too: the token is bound to a person on the
@@ -88,6 +126,7 @@ final class PushService: NSObject, ObservableObject {
         }
         _ = try? await URLSession.shared.data(for: request)
         self.deviceToken = nil
+        registration = .unregistered
     }
 
     /// Read somewhere — on this phone or another device — so what this phone
@@ -129,10 +168,20 @@ final class PushService: NSObject, ObservableObject {
     }
 
     private func upload(token: String, sessionToken: String?) async {
+        // Signed out: registered on the next sign-in (registerExistingToken).
         guard let request = makeRequest(method: "POST", token: token, sessionToken: sessionToken) else { return }
-        // A failure here means notifications quietly do not arrive, which is
-        // annoying rather than broken — and the next launch re-registers.
-        _ = try? await URLSession.shared.data(for: request)
+        registration = .registering
+        // A failure here means notifications quietly do not arrive. The next
+        // launch re-registers, and Notifications says so meanwhile.
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            registration = (200...299).contains(status)
+                ? .registered
+                : .failed(String(localized: "The server answered \(status)."))
+        } catch {
+            registration = .failed(error.localizedDescription)
+        }
     }
 
     private func makeRequest(method: String, token: String, sessionToken: String?) -> URLRequest? {

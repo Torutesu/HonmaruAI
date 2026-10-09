@@ -41549,6 +41549,846 @@
           }
         }
       }
+    },
+    "Jump to latest reply": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新の返信へ移動"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ir a la última respuesta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aller à la dernière réponse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zur neuesten Antwort"
+          }
+        }
+      }
+    },
+    "1 new reply": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい返信 1 件"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 respuesta nueva"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 nouvelle réponse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 neue Antwort"
+          }
+        }
+      }
+    },
+    "%lld new replies": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい返信 %lld 件"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld respuestas nuevas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld nouvelles réponses"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld neue Antworten"
+          }
+        }
+      }
+    },
+    "Original message was deleted": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のメッセージは削除されました"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El mensaje original fue eliminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le message d’origine a été supprimé"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ursprüngliche Nachricht wurde gelöscht"
+          }
+        }
+      }
+    },
+    "Go to the message": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージへ移動"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ir al mensaje"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aller au message"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zur Nachricht"
+          }
+        }
+      }
+    },
+    "Replying to %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に返信"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Respondiendo a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réponse à %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort an %@"
+          }
+        }
+      }
+    },
+    "Cancel reply": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信をやめる"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar respuesta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler la réponse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort abbrechen"
+          }
+        }
+      }
+    },
+    "The server answered %lld.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーの応答: %lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servidor respondió %lld."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le serveur a répondu %lld."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Server antwortete mit %lld."
+          }
+        }
+      }
+    },
+    "Turn on notifications": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知をオンにする"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activar las notificaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer les notifications"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitteilungen einschalten"
+          }
+        }
+      }
+    },
+    "Open iOS Settings": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS の設定を開く"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes de iOS"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les Réglages iOS"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS-Einstellungen öffnen"
+          }
+        }
+      }
+    },
+    "On this iPhone": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この iPhone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En este iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur cet iPhone"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem iPhone"
+          }
+        }
+      }
+    },
+    "Push to my phone while I use a computer": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PC を使っている間もスマホに通知する"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisar al móvil mientras uso el ordenador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifier mon téléphone pendant que j’utilise un ordinateur"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auch aufs Handy, während ich am Computer bin"
+          }
+        }
+      }
+    },
+    "Off: while you are using HonmaruAI somewhere, your phone stays quiet, and a message you have not read reaches it after a minute.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフの場合: どこかで HonmaruAI を使っている間はスマホを鳴らさず、読んでいないメッセージだけを 1 分後に届けます。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado: mientras usas HonmaruAI en algún sitio, el móvil no suena; lo que no hayas leído le llega al cabo de un minuto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé : tant que vous utilisez HonmaruAI quelque part, le téléphone reste silencieux ; ce que vous n’avez pas lu lui arrive au bout d’une minute."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus: Solange du HonmaruAI irgendwo nutzt, bleibt das Handy still; Ungelesenes erreicht es nach einer Minute."
+          }
+        }
+      }
+    },
+    "Email as the fallback": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予備の連絡先としてのメール"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El email como respaldo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’e-mail en recours"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "E-Mail als Fallback"
+          }
+        }
+      }
+    },
+    "Only when no device of yours can be reached. Never a duplicate.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どの端末にも届かなかったときだけ。重複して届くことはありません。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo cuando ningún dispositivo tuyo responde. Nunca un duplicado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seulement quand aucun de vos appareils n’est joignable. Jamais en double."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur wenn keines deiner Geräte erreichbar ist. Nie doppelt."
+          }
+        }
+      }
+    },
+    "Not turned on yet": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだオンにしていません"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no activadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore activées"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nicht eingeschaltet"
+          }
+        }
+      }
+    },
+    "Off in iOS Settings": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS の設定でオフ"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivadas en Ajustes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivées dans Réglages"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In den Einstellungen aus"
+          }
+        }
+      }
+    },
+    "Delivered quietly": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目立たない形で配信"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrega silenciosa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distribution discrète"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ohne Hinweis zugestellt"
+          }
+        }
+      }
+    },
+    "Turn them on to be told when a decision needs you, someone writes to you, or someone answers you.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると、あなたの判断が必要なとき、誰かからメッセージが届いたとき、返信があったときにお知らせします。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actívalas para saber cuándo una decisión te necesita, alguien te escribe o alguien te responde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez-les pour être prévenu quand une décision vous attend, que quelqu’un vous écrit ou vous répond."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schalte sie ein, um zu erfahren, wenn eine Entscheidung auf dich wartet, dir jemand schreibt oder dir antwortet."
+          }
+        }
+      }
+    },
+    "Notifications for Honmaru AI are turned off in iOS Settings. Open Settings, tap Notifications, and turn on Allow Notifications.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Honmaru AI の通知は iOS の設定でオフになっています。設定を開き、「通知」をタップして「通知を許可」をオンにしてください。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las notificaciones de Honmaru AI están desactivadas en Ajustes de iOS. Abre Ajustes, toca Notificaciones y activa Permitir notificaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les notifications de Honmaru AI sont désactivées dans les Réglages iOS. Ouvrez Réglages, touchez Notifications et activez Autoriser les notifications."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitteilungen für Honmaru AI sind in den iOS-Einstellungen aus. Öffne die Einstellungen, tippe auf Mitteilungen und schalte „Mitteilungen erlauben“ ein."
+          }
+        }
+      }
+    },
+    "Notifications arrive quietly in Notification Center. To see them as they come, choose Immediate Delivery in iOS Settings.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知は通知センターに目立たない形で届いています。届いたときに表示するには、iOS の設定で「即時配信」を選んでください。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las notificaciones llegan sin avisar al Centro de notificaciones. Para verlas al momento, elige Entrega inmediata en Ajustes de iOS."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les notifications arrivent discrètement dans le Centre de notifications. Pour les voir dès leur arrivée, choisissez Distribution immédiate dans les Réglages iOS."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitteilungen landen ohne Hinweis in der Mitteilungszentrale. Um sie sofort zu sehen, wähle in den iOS-Einstellungen „Sofort zustellen“."
+          }
+        }
+      }
+    },
+    "Banners are off for Honmaru AI, so notifications go to Notification Center without showing. Turn banners on in iOS Settings.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Honmaru AI のバナーがオフのため、通知は表示されずに通知センターに入ります。iOS の設定でバナーをオンにしてください。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los banners de Honmaru AI están desactivados, así que las notificaciones van al Centro de notificaciones sin mostrarse. Activa los banners en Ajustes de iOS."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les bannières de Honmaru AI sont désactivées : les notifications vont dans le Centre de notifications sans s’afficher. Activez les bannières dans les Réglages iOS."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banner sind für Honmaru AI aus, deshalb landen Mitteilungen ohne Anzeige in der Mitteilungszentrale. Schalte Banner in den iOS-Einstellungen ein."
+          }
+        }
+      }
+    },
+    "Honmaru AI is in your Scheduled Summary, so notifications arrive later, in a batch. Take it out in iOS Settings to be told right away.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Honmaru AI が「時刻指定要約」に入っているため、通知はあとでまとめて届きます。すぐに知らせてほしい場合は、iOS の設定で要約から外してください。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Honmaru AI está en tu Resumen programado, así que las notificaciones llegan más tarde y juntas. Quítala en Ajustes de iOS para enterarte al momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Honmaru AI fait partie de votre Résumé programmé : les notifications arrivent plus tard, groupées. Retirez-la dans les Réglages iOS pour être prévenu tout de suite."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Honmaru AI ist in deiner geplanten Zusammenfassung, deshalb kommen Mitteilungen später gesammelt. Nimm die App in den iOS-Einstellungen heraus, um sofort Bescheid zu bekommen."
+          }
+        }
+      }
+    },
+    "If a Focus is on, notifications can be held until it ends.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "集中モードがオンのときは、終わるまで通知が保留されることがあります。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si un modo de concentración está activado, las notificaciones pueden esperar hasta que termine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si un mode de concentration est activé, les notifications peuvent attendre qu’il se termine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ist ein Fokus aktiv, können Mitteilungen bis zu seinem Ende zurückgehalten werden."
+          }
+        }
+      }
+    },
+    "This iPhone is registered": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この iPhone は通知先として登録済みです"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este iPhone está registrado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet iPhone est enregistré"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses iPhone ist registriert"
+          }
+        }
+      }
+    },
+    "Registering this iPhone…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この iPhone を登録しています…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrando este iPhone…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrement de cet iPhone…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses iPhone wird registriert …"
+          }
+        }
+      }
+    },
+    "Register this iPhone": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この iPhone を登録"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrar este iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer cet iPhone"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses iPhone registrieren"
+          }
+        }
+      }
+    },
+    "This iPhone could not be registered for notifications. %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この iPhone を通知先として登録できませんでした。%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo registrar este iPhone para las notificaciones. %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’enregistrer cet iPhone pour les notifications. %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses iPhone konnte nicht für Mitteilungen registriert werden. %@"
+          }
+        }
+      }
+    },
+    "Could not read your settings.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を読み込めませんでした。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron leer tus ajustes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire vos réglages."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Einstellungen konnten nicht gelesen werden."
+          }
+        }
+      }
+    },
+    "Not registered": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未登録"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin registrar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non enregistré"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht registriert"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

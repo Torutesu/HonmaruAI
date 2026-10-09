@@ -39,6 +39,10 @@ struct ConversationView: View {
     @State private var unsent: (text: String, clientId: String)?
     @FocusState private var focused: Bool
     @State private var editing: ChatMessage?
+    /// The message the next one answers, inline (swiped, or Reply).
+    @State private var replyingTo: ChatMessage?
+    /// A reply's quote pressed: the message it quotes, to scroll to.
+    @State private var quoteJump: String?
     @State private var confirmDelete: ChatMessage?
     @State private var reactingTo: ChatMessage?
     @State private var showThread = false
@@ -111,7 +115,19 @@ struct ConversationView: View {
             .onChange(of: list.count) { _, _ in if jump == nil { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
             .onChange(of: store.thinking[view]) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: store.agentTyping[view]) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: quoteJump) { _, id in
+                guard let id else { return }
+                quoteJump = nil
+                guard list.contains(where: { $0.id == id }) else { return }
+                highlight = id
+                withAnimation { proxy.scrollTo(id, anchor: .center) }
+                Task {
+                    try? await Task.sleep(for: .seconds(1.6))
+                    if highlight == id { withAnimation { highlight = nil } }
+                }
+            }
             .task(id: view) {
+                replyingTo = nil
                 newSince = store.reads[view]
                 draft = store.draft(view)
                 await store.open(view)
@@ -224,7 +240,8 @@ struct ConversationView: View {
             if m.kind == "joined" {
                 ChatJoinedRow(message: m).id(m.id)
             } else {
-            let joined = previous.map { $0.authorRef == m.authorRef && $0.kind == m.kind && m.date.timeIntervalSince($0.date) < 300 && Calendar.current.isDate($0.date, inSameDayAs: m.date) && m.pinned != true } ?? false
+            // A reply always shows whose it is, under the line it quotes.
+            let joined = previous.map { $0.authorRef == m.authorRef && $0.kind == m.kind && m.date.timeIntervalSince($0.date) < 300 && Calendar.current.isDate($0.date, inSameDayAs: m.date) && m.pinned != true && m.replyTo == nil } ?? false
             ChatMessageRow(
                 message: m, joined: joined, highlighted: highlight == m.id,
                 nameOf: store.nameOf(ref:),
@@ -232,9 +249,12 @@ struct ConversationView: View {
                 onAddReaction: { reactingTo = m },
                 onOpenThread: { Task { await store.openThread(m) }; showThread = true },
                 onOpenCard: open(card:),
-                onProfile: { profileRef = $0 }
+                onProfile: { profileRef = $0 },
+                onOpenQuote: { quoteJump = $0 }
             )
             .modifier(ChatSendState(message: m))
+            // Swiped to the left: answered, as in Discord (#237).
+            .modifier(ChatSwipeToReply(enabled: !m.isDeleted && !m.id.hasPrefix("tmp-")) { startReply(m) })
             .id(m.id)
             .overlay(alignment: .topTrailing) {
                 if clip.contains(where: { $0.id == m.id }) {
@@ -255,6 +275,7 @@ struct ConversationView: View {
             }
             Button { reactingTo = m } label: { Image(systemName: "face.smiling") }
         }
+        Button { startReply(m) } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
         Button { Task { await store.openThread(m) }; showThread = true } label: { Label("Reply in thread", systemImage: "bubble.left.and.bubble.right") }
         if m.mine && m.kind == "message" {
             Button { beginEdit(m) } label: { Label("Edit message", systemImage: "pencil") }
@@ -336,6 +357,8 @@ struct ConversationView: View {
                     Spacer()
                     Button("Cancel") { endEdit() }.font(.caption)
                 }.padding(.horizontal, 14)
+            } else if let quote = replyQuote {
+                ChatReplyingBar(quote: quote, nameOf: store.nameOf(ref:)) { replyingTo = nil }
             }
             slashSuggestions
             mentionSuggestions
@@ -696,7 +719,8 @@ struct ConversationView: View {
         // can be written and sent while it goes.
         draft = ""
         attached = []
-        let went = await store.send(view, text: text, decide: decide, at: at, files: files, clientId: clientId)
+        let went = await store.send(view, text: text, decide: decide, replyTo: replyQuote, at: at, files: files, clientId: clientId)
+        if went || store.isHeld(clientId) { replyingTo = nil }
         if went {
             unsent = nil
             if let at { notes.append(String(localized: "Scheduled for \(at.formatted(date: .abbreviated, time: .shortened)).")) }
@@ -718,7 +742,22 @@ struct ConversationView: View {
         if draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { draft = "" }
     }
 
+    /// Answer this one: its quote over the box, and the box ready.
+    private func startReply(_ m: ChatMessage) {
+        if editing != nil { endEdit() }
+        replyingTo = m
+        focused = true
+    }
+
+    /// The quote the next message carries: of the message as it is now,
+    /// so one edited or unsent meanwhile is quoted as it stands.
+    private var replyQuote: ChatQuote? {
+        guard let r = replyingTo else { return nil }
+        return ChatQuote(of: list.first { $0.id == r.id } ?? r)
+    }
+
     private func beginEdit(_ m: ChatMessage) {
+        replyingTo = nil
         if editing == nil { keptDraft = draft }
         editing = m
         draft = m.body

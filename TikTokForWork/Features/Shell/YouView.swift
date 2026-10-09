@@ -76,7 +76,11 @@ struct YouView: View {
                             if let base = appState.backendBaseURL, let on = await ProfileService.translateMessages(backendBaseURL: base) { translateMessages = on }
                         }
                         separator
-                        Button(action: openNotifications) { row("Notifications", icon: "bell", value: notificationStatus) }.disabled(!PushService.isEnabledInThisBuild || appState.isGuest)
+                        // Whether notifications reach this iPhone, what is in
+                        // the way when they do not, and how they come (#236).
+                        NavigationLink { NotificationSettingsView().environmentObject(appState).environmentObject(push) } label: { row("Notifications", icon: "bell", value: notificationStatus) }
+                            .disabled(!PushService.isEnabledInThisBuild || appState.isGuest)
+                            .accessibilityIdentifier("notificationsRow")
                         separator
                         // Pause notifications, and the hours they may come.
                         NavigationLink { QuietTimeView().environmentObject(appState) } label: { row("Pause and hours", icon: "bell.slash") }.disabled(appState.isGuest)
@@ -307,12 +311,13 @@ struct YouView: View {
     }
     private var notificationStatus: String {
         guard PushService.isEnabledInThisBuild, !appState.isGuest else { return String(localized: "Unavailable") }
-        return (push.authorization == .authorized || push.authorization == .provisional) ? String(localized: "On") : String(localized: "Off")
-    }
-    private func openNotifications() {
-        guard PushService.isEnabledInThisBuild, !appState.isGuest else { return }
-        if push.authorization == .notDetermined { Task { await push.requestAuthorizationIfEarned() } }
-        else if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+        switch push.authorization {
+        case .authorized, .provisional, .ephemeral:
+            if case .failed = push.registration { return String(localized: "Not registered") }
+            return String(localized: "On")
+        case .denied: return String(localized: "Off")
+        default: return String(localized: "Not turned on yet")
+        }
     }
     private var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0" }
 }

@@ -276,6 +276,9 @@ private struct CardHomeContent: View {
                 lastDecision = try await service.resolve(cardID: card.id, action: action, actorUserID: userID, revisionNote: action == .requestRevision ? text : nil, replyText: action == .reply ? text : nil, githubService: appState.githubService)
                 Haptics.success()
                 noteStreak(card, action: action)
+                // The moment "we will tell you when the next one arrives"
+                // means something: once the first decision has landed.
+                if !appState.isGuest { await PushService.shared.requestAuthorizationIfEarned() }
             } catch { self.error = error.localizedDescription }
             isWorking = false
         }

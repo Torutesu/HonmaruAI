@@ -19,9 +19,19 @@ struct ChatThreadSheet: View {
     @State private var attached: [ChatFile] = []
     @State private var uploading = 0
     @FocusState private var focused: Bool
+    /// Whether the newest reply is in view. There, what arrives is scrolled
+    /// to; up in the earlier replies, the place is kept and what arrived is
+    /// counted on the way back down.
+    @State private var atBottom = true
+    @State private var unseen = 0
+    /// The reply the next one answers, inline (swiped, or Reply).
+    @State private var replyingTo: ChatMessage?
+    /// A quote pressed: the reply it quotes, to scroll to.
+    @State private var quoteJump: String?
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             ScrollView {
                 if let t = store.thread {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -36,14 +46,55 @@ struct ChatThreadSheet: View {
                         ForEach((store.agentTyping[t.parent.channel] ?? []).filter { $0.parentId == nil || $0.parentId == t.parent.id }, id: \.agent.id) { typing in
                             ChatAgentTypingRow(agent: typing.agent).padding(.vertical, 6)
                         }
+                        ChatBottomMarker(atBottom: $atBottom).id(Self.bottom)
                     }
                 } else {
                     ProgressView().padding(40)
                 }
             }
             .defaultScrollAnchor(.bottom)
+            .modifier(ChatTracksBottom(atBottom: $atBottom))
+            // A reply arriving: followed when the newest was in view, or when
+            // it is your own; otherwise left below and counted.
+            .onChange(of: store.thread?.replies.count ?? 0) { old, new in
+                guard new > old, let t = store.thread else { return }
+                if atBottom || t.replies.last?.mine == true {
+                    withAnimation { proxy.scrollTo(Self.bottom, anchor: .bottom) }
+                } else {
+                    unseen += new - old
+                }
+            }
+            .onChange(of: store.thread.map { store.thinking[$0.parent.channel] != nil } ?? false) { _, _ in
+                if atBottom { withAnimation { proxy.scrollTo(Self.bottom, anchor: .bottom) } }
+            }
+            .onChange(of: atBottom) { _, now in if now { unseen = 0 } }
+            .onChange(of: quoteJump) { _, id in
+                guard let id else { return }
+                quoteJump = nil
+                withAnimation { proxy.scrollTo(id, anchor: .center) }
+            }
+            .overlay(alignment: .bottom) {
+                if !atBottom && store.thread != nil {
+                    Button {
+                        withAnimation { proxy.scrollTo(Self.bottom, anchor: .bottom) }
+                    } label: {
+                        Label(unseen == 0 ? String(localized: "Jump to latest reply") : (unseen == 1 ? String(localized: "1 new reply") : String(localized: "\(unseen) new replies")),
+                              systemImage: "arrow.down")
+                            .font(.footnote.weight(.semibold))
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .glassPanel(cornerRadius: 18, interactive: true)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 8)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("threadJumpToLatest")
+                }
+            }
             .safeAreaInset(edge: .bottom) {
                 VStack(alignment: .leading, spacing: 4) {
+                    if let quote = replyQuote {
+                        ChatReplyingBar(quote: quote, nameOf: store.nameOf(ref:)) { replyingTo = nil }
+                    }
                     Toggle(isOn: $alsoChannel) {
                         Text(alsoChannelLabel).font(.footnote).foregroundStyle(Theme.Colors.textSecondary)
                     }
@@ -79,6 +130,7 @@ struct ChatThreadSheet: View {
                             let files = attached
                             guard !text.isEmpty || !files.isEmpty, uploading == 0 else { return }
                             let both = alsoChannel
+                            let quote = replyQuote
                             let clientId = unsent?.text == text ? unsent!.clientId : ChatService.newClientId()
                             // Out of the box at once and into the thread, faded
                             // until the server has it: one tap is one reply.
@@ -86,8 +138,11 @@ struct ChatThreadSheet: View {
                             alsoChannel = false
                             attached = []
                             Task {
-                                let went = await store.send(t.parent.channel, text: text, parentId: t.parent.id, alsoChannel: both, files: files, clientId: clientId)
-                                if went || store.isHeld(clientId) { unsent = nil }
+                                let went = await store.send(t.parent.channel, text: text, parentId: t.parent.id, alsoChannel: both, replyTo: quote, files: files, clientId: clientId)
+                                if went || store.isHeld(clientId) {
+                                    unsent = nil
+                                    if replyingTo?.id == quote?.id { replyingTo = nil }
+                                }
                                 else {
                                     unsent = (text, clientId)
                                     if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { draft = text; alsoChannel = both }
@@ -108,6 +163,9 @@ struct ChatThreadSheet: View {
             // Its message deleted, the thread went with it: nothing left to show.
             .onChange(of: store.thread?.parent.id, initial: true) { old, new in
                 alsoChannel = false
+                atBottom = true
+                unseen = 0
+                replyingTo = nil
                 // A reply half-written in a thread is kept, per thread, and
                 // is there again when the thread is opened again.
                 draft = new.map { store.draft("thread:\($0)") } ?? ""
@@ -117,12 +175,15 @@ struct ChatThreadSheet: View {
                 if let id = store.thread?.parent.id { store.setDraft("thread:\(id)", text) }
             }
             .sheet(item: $reactingTo) { m in ChatEmojiPicker { e in Task { await store.react(m, e) } } }
+            }
         }
         // Everyone's photos and the workspace's emoji, however the sheet was opened.
         .environment(\.chatAssets, store.assets)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
+
+    private static let bottom = "threadBottom"
 
     /// "Also send to #name" in a channel; elsewhere, to the conversation.
     private var alsoChannelLabel: String {
@@ -133,14 +194,32 @@ struct ChatThreadSheet: View {
         return String(localized: "Also send to the conversation")
     }
 
+    /// The quote the next reply carries, of that reply as it is now.
+    private var replyQuote: ChatQuote? {
+        guard let r = replyingTo else { return nil }
+        return ChatQuote(of: store.thread?.replies.first { $0.id == r.id } ?? r)
+    }
+
+    /// Answer this one. Every reply here answers the thread's first message
+    /// already, so answering that one is just the box; a reply is quoted.
+    private func startReply(_ m: ChatMessage) {
+        replyingTo = m.id == store.thread?.parent.id ? nil : m
+        focused = true
+    }
+
     private func row(_ m: ChatMessage) -> some View {
         ChatMessageRow(message: m, inThread: true, nameOf: store.nameOf(ref:),
                        onReact: { e in Task { await store.react(m, e) } },
                        onAddReaction: { reactingTo = m },
-                       onOpenThread: {}, onOpenCard: onOpenCard, onProfile: { _ in })
+                       onOpenThread: {}, onOpenCard: onOpenCard, onProfile: { _ in },
+                       onOpenQuote: { quoteJump = $0 })
             .modifier(ChatSendState(message: m))
+            // Swiped to the left: answered, as in the conversation (#237).
+            .modifier(ChatSwipeToReply(enabled: !m.isDeleted && !m.id.hasPrefix("tmp-")) { startReply(m) })
+            .id(m.id)
             .contextMenu {
                 if !m.isDeleted && !m.id.hasPrefix("tmp-") {
+                    Button { startReply(m) } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
                     Button { reactingTo = m } label: { Label("Add reaction", systemImage: "face.smiling") }
                     Button { UIPasteboard.general.string = m.body } label: { Label("Copy text", systemImage: "doc.on.doc") }
                     Button {
