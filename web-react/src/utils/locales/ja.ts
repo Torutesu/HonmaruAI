@@ -2130,6 +2130,7 @@ const table: Record<string, string> = {
   "No mentions": "メンションはありません",
   "Mark {name} as read": "{name} を既読にする",
   "Couldn't load the replies.": "返信を読み込めませんでした。",
+  'Honmaru AI is having trouble on its side. Try again in a little while.': 'Honmaru AI のサーバーで問題が起きています。しばらくしてからもう一度お試しください。',
 }
 
 export default table

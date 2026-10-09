@@ -79,9 +79,9 @@ export async function drainCardNotifications(env, send, now = Date.now()) {
     .bind(new Date(now - 86400000).toISOString(), MAX_ATTEMPTS, at).run();
   const {results} = await env.DB.prepare("SELECT id FROM notification_jobs WHERE state = 'pending' AND due_at <= ?1 AND (lease_until IS NULL OR lease_until <= ?1) ORDER BY due_at LIMIT 25").bind(at).all();
   for (const job of results || []) await runCardNotification(env, job.id, send, now);
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM notification_deliveries WHERE updated_at < ?1').bind(new Date(now - 7*86400000).toISOString()),
-    env.DB.prepare("DELETE FROM notification_jobs WHERE state != 'pending' AND updated_at < ?1").bind(new Date(now - 7*86400000).toISOString()),
-  ]);
+  // Finished jobs and their deliveries past a week are trimmed by the daily
+  // pruneGrowth (retention.js). Here, every minute, the same two deletes
+  // read both tables end to end 1,440 times a day, against D1's daily row
+  // reads.
   return {processed:results?.length || 0};
 }

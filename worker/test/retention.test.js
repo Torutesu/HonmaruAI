@@ -12,7 +12,7 @@ const count = async (table) => (await env.DB.prepare(`SELECT COUNT(*) AS n FROM 
 
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
-  await env.DB.exec("DELETE FROM ai_calls; DELETE FROM message_translations; DELETE FROM channel_journal; DELETE FROM ai_suggestions; DELETE FROM card_events;");
+  await env.DB.exec("DELETE FROM ai_calls; DELETE FROM message_translations; DELETE FROM channel_journal; DELETE FROM ai_suggestions; DELETE FROM card_events; DELETE FROM notification_jobs; DELETE FROM notification_deliveries;");
 });
 
 test("rows past each window go, rows inside it stay", async () => {
@@ -38,7 +38,7 @@ test("rows past each window go, rows inside it stay", async () => {
 
   const out = await pruneGrowth(env.DB, { now: NOW });
 
-  expect(out).toEqual({ ai_calls: 1, message_translations: 1, channel_journal: 1, ai_suggestions: 1 });
+  expect(out).toEqual({ ai_calls: 1, message_translations: 1, channel_journal: 1, ai_suggestions: 1, notification_jobs: 0, notification_deliveries: 0 });
   expect(await count("ai_calls")).toBe(2);
   expect(await count("message_translations")).toBe(1);
   expect(await count("channel_journal")).toBe(1);
@@ -57,4 +57,23 @@ test("a large backlog goes in batches", async () => {
   const out = await pruneGrowth(env.DB, { now: NOW, batch: 10 });
   expect(out.ai_suggestions).toBe(25);
   expect(await count("ai_suggestions")).toBe(0);
+});
+
+test("finished notification jobs and their deliveries go after a week; a pending job stays", async () => {
+  const job = (id, state, at) => env.DB.prepare(
+    "INSERT INTO notification_jobs (id, org_id, login, card_id, kind, payload, state, due_at, created_at, updated_at) VALUES (?1, 'o', 'l', 'c', 'created', '{}', ?2, ?3, ?3, ?3)"
+  ).bind(id, state, at).run();
+  await job("old-sent", "sent", ago(8)); await job("old-pending", "pending", ago(8)); await job("new-sent", "sent", ago(1));
+  const delivery = (id, at) => env.DB.prepare(
+    "INSERT INTO notification_deliveries (id, job_id, channel, updated_at) VALUES (?1, 'j', 'push', ?2)"
+  ).bind(id, at).run();
+  await delivery("old", ago(8)); await delivery("new", ago(1));
+
+  const out = await pruneGrowth(env.DB, { now: NOW });
+
+  expect(out.notification_jobs).toBe(1);
+  expect(out.notification_deliveries).toBe(1);
+  const ids = (await env.DB.prepare("SELECT id FROM notification_jobs ORDER BY id").all()).results.map((r) => r.id);
+  expect(ids).toEqual(["new-sent", "old-pending"]);
+  expect(await count("notification_deliveries")).toBe(1);
 });

@@ -162,3 +162,23 @@ test("a stream sends what is new, in order and signed; a failure backs off; Splu
   expect(dd.url).toBe("https://http-intake.logs.datadoghq.eu/api/v2/logs");
   expect(JSON.parse(dd.body)[0]).toMatchObject({ ddsource: "honmaru", service: "audit" });
 });
+
+test("each workspace is sealed on its own: the ones with a finished hour, not the ones already sealed or still in their hour", async () => {
+  const writeTo = async (orgId, at) => {
+    await audit(env, null, { orgId, action: "emoji.added", actor: { type: "user", id: "u:toru@x.jp", name: "Toru" }, entity: { type: "emoji", id: "e", name: ":e:" } });
+    await env.DB.prepare("UPDATE audit_events SET created_at = ?2 WHERE org_id = ?1 AND created_at > ?2").bind(orgId, Math.floor(at / 1000)).run();
+  };
+  await writeTo("team:a", T0 + 5 * 60_000);
+  await writeTo("team:b", T0 + 5 * 60_000);
+  const first = await sealPending(env, { now: T0 + HOUR + 60_000 });
+  expect(first.map((s) => s.orgId).sort()).toEqual(["team:a", "team:b"]);
+
+  // New rows in the hour that is still running: nothing to seal yet.
+  await writeTo("team:a", T0 + HOUR + 2 * 60_000);
+  await writeTo("team:c", T0 + HOUR + 2 * 60_000);
+  expect(await sealPending(env, { now: T0 + HOUR + 3 * 60_000 })).toEqual([]);
+
+  // That hour over: the two with new rows, and not the one already sealed.
+  const second = await sealPending(env, { now: T0 + 2 * HOUR + 60_000 });
+  expect(second.map((s) => s.orgId).sort()).toEqual(["team:a", "team:c"]);
+});

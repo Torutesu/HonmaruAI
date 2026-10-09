@@ -144,10 +144,25 @@ async function hoursToSeal(env, orgId, before) {
 export async function sealPending(env, { now = Date.now(), orgLimit = 20 } = {}) {
   if (!archiveReady(env)) return [];
   const currentHour = Math.floor(now / HOUR) * HOUR;
+  // The workspaces with an audit log, one primary-key step each, and for
+  // each one only the rows after its last seal. This used to run the
+  // MAX(to_seq) subquery once per audit row over the whole table, so the
+  // rows read every hour grew with the log times its seals.
   const { results } = await env.DB.prepare(
-    `SELECT e.org_id FROM audit_events e
-      WHERE e.created_at < ?1 AND e.seq > COALESCE((SELECT MAX(s.to_seq) FROM audit_seals s WHERE s.org_id = e.org_id), 0)
-      GROUP BY e.org_id LIMIT ?2`
+    `WITH RECURSIVE orgs(id) AS (
+       SELECT (SELECT MIN(org_id) FROM audit_events)
+       UNION ALL
+       SELECT (SELECT MIN(org_id) FROM audit_events WHERE org_id > orgs.id) FROM orgs WHERE orgs.id IS NOT NULL
+     )
+     SELECT id AS org_id FROM orgs
+      WHERE id IS NOT NULL AND (
+        -- "+ 0": MIN(created_at) alone walks idx_audit_time from the oldest
+        -- row; this way it is the primary key, from the last seal on.
+        SELECT MIN(e.created_at + 0) FROM audit_events e
+         WHERE e.org_id = orgs.id
+           AND e.seq > COALESCE((SELECT MAX(s.to_seq) FROM audit_seals s WHERE s.org_id = orgs.id), 0)
+      ) < ?1
+      LIMIT ?2`
   ).bind(Math.floor(currentHour / 1000), orgLimit).all();
   const sealed = [];
   for (const r of results || []) {
