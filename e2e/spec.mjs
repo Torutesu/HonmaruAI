@@ -3362,7 +3362,8 @@ await step('an open thread follows new replies, and keeps the place of one scrol
 
     // Up to the first replies; one more arrives and the place is kept.
     await desk.$eval('.slk-thread-pane .slk-thread-log', (el) => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
-    await desk.waitForSelector('.slk-thread-pane .slk-present', { timeout: 5000 })
+    // The pill's holder has no height (it sits on the log's foot); its button is what shows.
+    await desk.waitForSelector('.slk-thread-pane .slk-present button', { timeout: 5000 })
       .catch(() => { throw new Error('scrolled up in a thread, there is no way back to the newest reply') })
     await reply(parentId, channel, long(11))
     await desk.waitForSelector('.slk-thread-pane .slk-msg:has-text("reply 11:")', { state: 'attached', timeout: 15000 })
