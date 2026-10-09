@@ -28,6 +28,7 @@ import { BrandLogo, isBrand } from './BrandLogo'
 import { useBackStack } from '../utils/backStack'
 import { countNewBelow, isAtBottom, isLooking, isNewSince, leavesGap, mergeById, reachesPast, shouldFollow, waitToSay } from '../utils/chatScroll'
 import { JumpToPresent, newBelowLabel } from './JumpToPresent'
+import { FollowingLog } from './FollowingLog'
 import { useT } from '../utils/i18n'
 import { useMembers, agentMentionables, agentsIn, mentionKind, mentionTarget } from '../utils/mentions'
 import type { AgentFace } from '../utils/mentions'
@@ -4224,7 +4225,8 @@ export const ClassicList: React.FC<Props> = ({
   }
   const threadBody = (thread: { channel: string; parent: ChannelMessage; replies: ChannelMessage[]; loading?: boolean; failed?: boolean }) => (
     <>
-          <div className="slk-thread-log" tabIndex={0} role="region" aria-label={t('Messages')}
+          <FollowingLog className="slk-thread-log" tabIndex={0} role="region" aria-label={t('Messages')}
+            openKey={thread.parent.id} said={thread.replies} onHandOn={() => threadComposer.current?.focus({ preventScroll: true })}
             onKeyDown={logKeys(thread.channel, [thread.parent, ...thread.replies], threadComposer, true)} onMouseDown={unpick} onFocus={pickLog}>
             {[thread.parent, ...thread.replies].map((m, i) => (
               <React.Fragment key={keyOf(m)}>
@@ -4252,7 +4254,7 @@ export const ClassicList: React.FC<Props> = ({
             ))}
             {aiSteps(thinking[thread.channel])}
             {agentLines(thread.channel, { parentId: thread.parent.id })}
-          </div>
+          </FollowingLog>
           <TypingLine names={typingHere(thread.channel, thread.parent.id)} />
           <form className="slk-composer thread" onSubmit={(e) => { e.preventDefault(); void send(thread.channel, false, thread.parent.id) }}>
             <PendingUploads items={threadUploads.items} onRemove={threadUploads.remove} />
