@@ -35,6 +35,19 @@ const SOURCE_FIELDS = ["connector", "id", "threadId", "from", "channel", "ts"];
 // bigger than a card — but not unbounded, and it goes straight into D1.
 export const MAX_CONTEXT_BYTES = 64 * 1024;
 
+/// Whether a link on a card is a web address. Each one is rendered as an
+/// <a href>, and every member receives every card: a `javascript:` URL
+/// there ran in whoever clicked it, with their session.
+export function isWebUrl(value) {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 /// Returns an error message, or null when the card may be stored.
 ///
 /// Rejecting is deliberate rather than trimming: a card silently shortened is a
@@ -77,6 +90,12 @@ export function validateIncomingCard(card) {
       if (value === undefined || value === null) continue;
       if (typeof value !== "string") return `requestedBy.${field} must be text.`;
       if (value.length > max) return `requestedBy.${field} is longer than ${max} characters.`;
+    }
+    if (who.sourceUrl && !isWebUrl(who.sourceUrl)) return "requestedBy.sourceUrl must be an http(s) address.";
+  }
+  if (card.githubIssueURL !== undefined && card.githubIssueURL !== null) {
+    if (typeof card.githubIssueURL !== "string" || card.githubIssueURL.length > 500 || !isWebUrl(card.githubIssueURL)) {
+      return "githubIssueURL must be an http(s) address.";
     }
   }
   if (card.source !== undefined) {

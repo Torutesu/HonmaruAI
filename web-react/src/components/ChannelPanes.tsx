@@ -8,6 +8,7 @@ import { Avatar } from './Avatar'
 import { renderRich } from './MessageParts'
 import { byPresence, statusShown } from '../utils/people'
 import { composing } from '../utils/keys'
+import { safeHref } from '../utils/markdown'
 
 // What a channel's header opens, left to right: its journal (the context
 // someone new or back from a week away reads first), its details (members,
@@ -169,7 +170,7 @@ export function ChannelJournal({ api, headers, view, title, locale, onCite, onCl
                     >{n + 1}</button>
                   ))}
                   {item.links.map((l) => (
-                    <a key={l.url} className="slk-jlink" href={l.url} target="_blank" rel="noopener noreferrer" title={l.url}>
+                    <a key={l.url} className="slk-jlink" href={safeHref(l.url) ?? undefined} target="_blank" rel="noopener noreferrer" title={l.url}>
                       <Icon name="external" size={11} /> {l.host}
                     </a>
                   ))}
@@ -433,7 +434,7 @@ export function ChannelDetails({
                   <li key={`${a.messageId}-${a.url}`} className="slk-attachment">
                     <span className="slk-attachment-mark" aria-hidden="true">{a.host.charAt(0).toUpperCase()}</span>
                     <span className="slk-member-main">
-                      <a className="slk-member-name" href={a.url} target="_blank" rel="noopener noreferrer" title={a.url}>{a.url.replace(/^https?:\/\/(www\.)?/, '')}</a>
+                      <a className="slk-member-name" href={safeHref(a.url) ?? undefined} target="_blank" rel="noopener noreferrer" title={a.url}>{a.url.replace(/^https?:\/\/(www\.)?/, '')}</a>
                       <span className="slk-member-title">
                         {a.authorName || t('Your AI')} · {new Date(a.at).toLocaleDateString(locale, { month: 'short', day: 'numeric' })}
                         {' · '}<button type="button" className="slk-link-button" onClick={() => onJump(a.messageId)}>{t('Go to the message')}</button>

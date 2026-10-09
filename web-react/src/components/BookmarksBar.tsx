@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from './Icon'
+import { safeHref } from '../utils/markdown'
 
 // Bookmarks: links kept at the top of a conversation — the shared sheet,
 // the dashboard, the spec — as in Slack. Anyone in the conversation sees
@@ -62,7 +63,7 @@ export const BookmarksBar: React.FC<Props> = ({ httpBase, orgId, headers, view }
     <div className="slk-bookmarks" data-bookmarks={view}>
       {items.map((b) => (
         <span key={b.id} className="slk-bookmark" data-bookmark={b.id}>
-          <a href={b.url} target="_blank" rel="noopener noreferrer" title={`${b.title} — ${host(b.url)}${b.addedBy ? ` · ${t('added by {name}', { name: b.addedBy })}` : ''}`}>
+          <a href={safeHref(b.url) ?? undefined} target="_blank" rel="noopener noreferrer" title={`${b.title} — ${host(b.url)}${b.addedBy ? ` · ${t('added by {name}', { name: b.addedBy })}` : ''}`}>
             <Icon name="link" size={12} />
             <span>{b.title}</span>
           </a>

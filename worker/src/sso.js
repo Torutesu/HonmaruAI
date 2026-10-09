@@ -13,7 +13,7 @@
 // for a minute does, and the client trades it for the session.
 
 import { getSession, getUserByGithubId, createSession, upsertUser, upsertMembership } from "./db.js";
-import { sha256Hex, EMAIL_AUTH_TOKEN } from "./auth.js";
+import { sha256Hex, EMAIL_AUTH_TOKEN, settleProvedAddress } from "./auth.js";
 import { audit, person, auditEverywhere } from "./audit.js";
 import { allowed, ownersOf } from "./permissions.js";
 import { memberGate, reauthDenial } from "./policy.js";
@@ -377,14 +377,23 @@ async function accountFor(env, conn, identity) {
   // issuer must never reach an identity linked here.
   const linked = await env.DB.prepare("SELECT user_github_id FROM sso_identities WHERE org_id = ?1 AND issuer = ?2 AND subject = ?3").bind(conn.org_id, conn.issuer, identity.subject).first();
   if (linked) return { githubId: String(linked.user_github_id), linked: true };
-  const byEmail = await env.DB.prepare("SELECT github_id, email_verified_at FROM users WHERE email = ?1").bind(identity.email).first();
-  // The same address is the same person only where it was proved, or the
-  // domain is the workspace's own (§6.3): an address somebody typed at
-  // sign-up and never received mail at is not enough.
+  // The same address is the same person only where it was proved: by a code
+  // the person received, or by this workspace's own identity provider for an
+  // address at its own domain (§6.3). Where the provider speaks for the
+  // domain, an account that merely typed the address in — at a password
+  // sign-up, or into a profile — loses its hold first (settleProvedAddress).
+  // Linking to it as it stood handed whoever registered
+  // newhire@corp.example first the new hire's workspace.
   const domainProved = await env.DB.prepare("SELECT 1 FROM org_domains WHERE org_id = ?1 AND domain = ?2 AND verified_at IS NOT NULL").bind(conn.org_id, domainOf(identity.email)).first()
     || covers(conn, identity.email);
-  if (byEmail && (byEmail.email_verified_at || domainProved)) return { githubId: String(byEmail.github_id), linked: false };
-  if (byEmail) throw new Error("An account with this address exists but has not proved it. Sign in with an email code once, then try again.");
+  if (domainProved) {
+    const owner = await settleProvedAddress(env, identity.email, { orgId: conn.org_id });
+    if (owner) return { githubId: owner.githubId, linked: false };
+  } else {
+    const byEmail = await env.DB.prepare("SELECT github_id, email_verified_at FROM users WHERE email = ?1").bind(identity.email).first();
+    if (byEmail?.email_verified_at) return { githubId: String(byEmail.github_id), linked: false };
+    if (byEmail) throw new Error("An account with this address exists but has not proved it. Sign in with an email code once, then try again.");
+  }
   const githubId = `sso:${conn.org_id}:${(await sha256Hex(`${conn.issuer}\u0000${identity.subject}`)).slice(0, 24)}`;
   await upsertUser(env.DB, { githubId, login: `u:${identity.email}`, name: identity.name || identity.email.split("@")[0], avatarUrl: null, locale: "en" });
   await env.DB.prepare("UPDATE users SET email = ?2 WHERE github_id = ?1").bind(githubId, identity.email).run();

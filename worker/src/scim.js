@@ -10,7 +10,7 @@
 
 import { getUserByGithubId, upsertUser, upsertMembership } from "./db.js";
 import { audit } from "./audit.js";
-import { sha256Hex } from "./auth.js";
+import { sha256Hex, settleProvedAddress } from "./auth.js";
 import { removeMember } from "./team.js";
 import { endSessions } from "./sessions.js";
 import { enforceSubject } from "./ratelimit.js";
@@ -96,9 +96,14 @@ async function presentUser(env, base, row) {
 /// The account an address is: someone already here with it, or a new one.
 /// The domain is the workspace's own, so the address is the company's to
 /// speak for — the same rule single sign-on links accounts by.
+///
+/// Only an account that proved the address is that person. One that merely
+/// typed it in loses its hold first (settleProvedAddress): linking to it as
+/// it stood made whoever registered the address before the company
+/// provisioned it a member of the company's workspace.
 async function accountFor(env, orgId, email, name) {
-  const existing = await env.DB.prepare("SELECT github_id FROM users WHERE email = ?1").bind(email).first();
-  if (existing) return { githubId: String(existing.github_id), created: false };
+  const existing = await settleProvedAddress(env, email, { orgId });
+  if (existing) return { githubId: existing.githubId, created: false };
   const githubId = `scim:${orgId}:${(await sha256Hex(`scim\u0000${orgId}\u0000${email}`)).slice(0, 24)}`;
   await upsertUser(env.DB, { githubId, login: `u:${email}`, name: name || email.split("@")[0], avatarUrl: null, locale: "en" });
   await env.DB.prepare("UPDATE users SET email = ?2 WHERE github_id = ?1").bind(githubId, email).run();

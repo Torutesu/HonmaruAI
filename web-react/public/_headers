@@ -1,0 +1,19 @@
+# Response headers for every page Cloudflare Pages serves for the web app.
+#
+# The session token lives in localStorage, so a script injected into this page
+# is a signed-in account in someone else's hands. The policy lets only this
+# origin's scripts run, plus the one inline script in index.html (the theme,
+# set before first paint), by its hash: change that script and its hash here
+# together (src/securityHeaders.test.ts fails otherwise).
+#
+# connect-src is any https/wss host because the API host is chosen at build
+# time (VITE_API_HOST); img-src and media-src take https for avatars, link
+# previews and signed media URLs. frame-src is the YouTube player only.
+# frame-ancestors keeps the app out of other sites' frames (approve and role
+# screens are one click away from someone else's page otherwise).
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-ZSOmNCOL3UyoUvUboFoN0uT1gY4hkv1Ljc7lCwv+8pY='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https: wss:; frame-src https://www.youtube-nocookie.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(self), microphone=(self), geolocation=(), payment=()

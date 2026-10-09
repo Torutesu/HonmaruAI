@@ -13,6 +13,7 @@ import { ago } from '../utils/ago'
 import { sourceLabel } from '../utils/automation'
 import { Icon } from './Icon'
 import { Avatar } from './Avatar'
+import { safeHref } from '../utils/markdown'
 
 interface Props {
   cards: DecisionCard[]            // pending, for me, in the order to show
@@ -522,8 +523,8 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
                 </div>
               </div>
               {quote && <blockquote className="rb-quote">“{quote}”</blockquote>}
-              {who?.sourceUrl && (
-                <a className="rb-link" href={who.sourceUrl} target="_blank" rel="noopener noreferrer">
+              {who?.sourceUrl && safeHref(who.sourceUrl) && (
+                <a className="rb-link" href={safeHref(who.sourceUrl)!} target="_blank" rel="noopener noreferrer">
                   {card.sourceApp ? t('View original in {app}', { app: card.sourceApp }) : t('View original')} ›
                 </a>
               )}
@@ -603,7 +604,7 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
                 {answer.sources!.map((r) => (
                   <li key={`${r.app}-${r.title}`}>
                     <span className="answer-when">{r.app}</span>
-                    {r.url ? <a href={r.url} target="_blank" rel="noopener noreferrer">{r.title}</a> : r.title}
+                    {r.url && safeHref(r.url) ? <a href={safeHref(r.url)!} target="_blank" rel="noopener noreferrer">{r.title}</a> : r.title}
                   </li>
                 ))}
               </ul>

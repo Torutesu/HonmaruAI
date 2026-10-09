@@ -124,7 +124,7 @@ export async function signInWithApple(env, { identityToken, nonce, name, inviteC
       return { error: "Apple did not share an email address with us. Sign in with Apple again and share one (Hide My Email works), or use an email code.", status: 400 };
     }
     const displayName = typeof name === "string" ? name.trim().slice(0, MAX_NAME_CHARS) : undefined;
-    const created = await signup(env, { email, name: displayName || undefined, inviteCode, locale, passwordless: true });
+    const created = await signup(env, { email, name: displayName || undefined, inviteCode, locale, passwordless: true, emailProved: true });
     if (created.error) return { error: created.error, status: 400 };
     // Apple proved the address, as a code would have.
     await env.DB.prepare("UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?2) WHERE github_id = ?1")
