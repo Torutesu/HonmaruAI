@@ -10,8 +10,9 @@ beforeEach(()=>{
  vi.stubGlobal('Notification',N)
 })
 afterEach(()=>vi.unstubAllGlobals())
-it('starts off, persists the explicit choice, and can be switched off',async()=>{
- expect(desktopNotificationsEnabled()).toBe(false)
+it('starts on, persists the explicit choice, and can be switched off',async()=>{
+ expect(desktopNotificationsEnabled()).toBe(true)
+ setDesktopNotificationsEnabled(false);expect(desktopNotificationsEnabled()).toBe(false)
  expect(await enableDesktopNotifications()).toBe(true)
  expect(desktopNotificationsEnabled()).toBe(true)
  setDesktopNotificationsEnabled(false);expect(desktopNotificationsEnabled()).toBe(false)
@@ -20,20 +21,23 @@ it('does not call a request accepted by the OS a delivered notification',()=>{
  setDesktopNotificationsEnabled(true);testDesktopNotification();expect(shown).toHaveBeenCalledOnce()
 })
 it('does not enable notifications when permission is denied',async()=>{
+ setDesktopNotificationsEnabled(false)
  Object.defineProperty(Notification,'permission',{value:'denied'})
  vi.mocked(Notification.requestPermission).mockResolvedValue('denied')
  expect(await enableDesktopNotifications()).toBe(false);expect(desktopNotificationsEnabled()).toBe(false)
 })
 it('does not send a test while notifications are off',()=>{
+ setDesktopNotificationsEnabled(false)
  expect(()=>testDesktopNotification()).toThrow();expect(shown).not.toHaveBeenCalled()
 })
 
-it('delivers replies only after opt-in and closes a withdrawn request on the desktop', async () => {
+it('delivers replies unless switched off, and closes a withdrawn request on the desktop', async () => {
  const {notifyDecisionReply, notifyNewDecision, closeCardNotifications} = await import('./notifications')
  vi.stubGlobal('document', {visibilityState:'hidden', documentElement:{}})
  const close=vi.fn()
  class N {static permission='granted';onclick=null;onclose=null;constructor(...args:unknown[]){shown(...args)}close=close}
  vi.stubGlobal('Notification',N)
+ setDesktopNotificationsEnabled(false)
  notifyDecisionReply('Budget','reply-test','org-test');expect(shown).not.toHaveBeenCalled()
  setDesktopNotificationsEnabled(true)
  notifyDecisionReply('Budget','reply-test','org-test');expect(shown).toHaveBeenCalledOnce()

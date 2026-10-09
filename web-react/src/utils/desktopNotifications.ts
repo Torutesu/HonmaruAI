@@ -4,8 +4,13 @@ import { t } from './i18n'
 
 const KEY = 'honmaru.desktop-notifications'
 export const DESKTOP_NOTIFICATION_CHANGE = 'honmaru-desktop-notifications'
+/// On unless the person switched it off. It used to be off until switched
+/// on, so anyone who never found the switch — or whose app storage started
+/// over, as the sandboxed Mac build's does — heard nothing on the desktop,
+/// while the server, seeing them active there, held back their phone's push
+/// too. The system's own permission still has to be granted.
 export function desktopNotificationsEnabled(): boolean {
-  try { return localStorage.getItem(KEY) === 'on' } catch { return false }
+  try { return localStorage.getItem(KEY) !== 'off' } catch { return true }
 }
 export function setDesktopNotificationsEnabled(enabled: boolean): void {
   localStorage.setItem(KEY, enabled ? 'on' : 'off')

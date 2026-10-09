@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Security
 
@@ -14,6 +15,7 @@ enum SessionStore {
         static let orgId = "orgId"
         static let accountID = "accountID"
         static let apiKey = "apiKey"
+        static let aiConsentSession = "aiConsentSession"
     }
 
     static var githubRepository: String? {
@@ -65,6 +67,19 @@ enum SessionStore {
     static var apiKey: String? {
         get { read(Key.apiKey) }
         set { write(newValue, key: Key.apiKey) }
+    }
+
+    /// The sign-in whose sharing with AI was allowed, as a hash of its session
+    /// token. Permission lasts for the sign-in (the disclosure says so), so a
+    /// relaunch that restores the same session does not ask again; a new
+    /// sign-in has a new token, and signing out forgets it.
+    static var aiConsentSession: String? {
+        get { read(Key.aiConsentSession) }
+        set { write(newValue, key: Key.aiConsentSession) }
+    }
+
+    static func consentMark(forSessionToken token: String) -> String {
+        SHA256.hash(data: Data(token.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     /// A GitHub access token is never stored, because it is never received.
@@ -130,6 +145,7 @@ enum SessionStore {
     static let clearedKeys = [
         Key.githubRepository, Key.githubUsername, Key.githubUserId,
         Key.githubRepositoryURL, Key.currentUserID, Key.sessionToken, Key.orgId, Key.accountID,
+        Key.aiConsentSession,
     ]
 
     static func clear() {
