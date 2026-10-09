@@ -136,9 +136,19 @@ export async function queueMessagePushes(env, orgId, row, { members = null, now 
   if (!to.length) return 0;
   const due = new Date(now + PUSH_DELAY_MS).toISOString();
   const at = new Date(now).toISOString();
-  await env.DB.batch(to.map(({ login, reason }) => env.DB.prepare(
-    `INSERT OR IGNORE INTO push_queue (org_id, login, message_id, reason, created_at, due_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
-  ).bind(orgId, login, row.id, reason, at, due)));
+  try {
+    await env.DB.batch(to.map(({ login, reason }) => env.DB.prepare(
+      `INSERT OR IGNORE INTO push_queue (org_id, login, message_id, reason, created_at, due_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+    ).bind(orgId, login, row.id, reason, at, due)));
+  } catch (err) {
+    // A queue that cannot be written to (D1 refusing writes past its daily
+    // limit) used to lose these pushes: the callers only log the throw. Then
+    // they go now, without the minute's wait to see whether it was read.
+    console.error("push queue unavailable; pushing directly", err?.message || err);
+    const membersOf = new Map([[orgId, list]]);
+    await Promise.all(to.map(({ login }) => deliverMessagePush(env, { org_id: orgId, login, message_id: row.id }, { now, membersOf })
+      .catch((e) => console.error("direct push failed", e?.message || e))));
+  }
   return to.length;
 }
 
@@ -164,6 +174,46 @@ export function pushWords(written, translated) {
   return spoilers(translated) === spoilers(written) ? translated : written;
 }
 
+/// One message's push to one person, if it should still go: not read yet,
+/// not paused, not at the app since it arrived, still in the workspace.
+/// `{ skipped: true }` when it should not; otherwise what delivery said.
+async function deliverMessagePush(env, job, { now = Date.now(), membersOf = new Map(), deliveryJobId } = {}) {
+  const db = env.DB;
+  const msg = await db.prepare(
+    "SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2"
+  ).bind(job.org_id, job.message_id).first();
+  if (!msg || msg.deleted_at) return { skipped: true };
+  // Read it already, here or anywhere: in its conversation, in its
+  // thread, or looked at in Activity.
+  if (await readAlready(db, job.org_id, job.login, msg)) return { skipped: true };
+  // At the app since it arrived: they saw it come in, and heard it there.
+  // Paused, or outside the hours they set.
+  if (await quietFor(db, job.login, new Date(now))) return { skipped: true };
+  if (!(await pushesWhileActive(db, job.login))) {
+    const active = await lastActive(db, job.org_id, job.login);
+    if (active && active >= msg.created_at) return { skipped: true };
+  }
+  if (!membersOf.has(job.org_id)) membersOf.set(job.org_id, await listMembers(db, job.org_id, null));
+  const members = membersOf.get(job.org_id);
+  // Out of the workspace in the minute since it was queued: a channel's
+  // key is the same for everyone, so nothing below would stop it.
+  if (!members.some((m) => m.login === job.login)) return { skipped: true };
+  const view = viewOf(msg.channel, job.login, members);
+  if (!view) return { skipped: true };
+  const where = msg.channel.startsWith("b:")
+    ? `#${(await db.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(job.org_id, msg.channel.slice(2)).first().catch(() => null))?.name || msg.channel.slice(2)}`
+    : null;
+  const who = msg.author_name || "Someone";
+  const title = where ? `${who} · ${where}` : who;
+  const files = msg.body ? "" : "📎";
+  // In the language they set.
+  const { textFor } = await import("./translate.js");
+  const translated = msg.body ? await textFor(env, job.org_id, msg, job.login).catch(() => msg.body) : "";
+  const said = pushWords(msg.body, translated);
+  const body = said ? pushPreview(said) : files;
+  return pushMessage(env, job.login, { deliveryJobId, title, body, orgId: job.org_id, channel: view, messageId: msg.id, parentId: msg.parent_id || null, at: msg.created_at });
+}
+
 /// Send what is due. Each row is claimed first, so two overlapping runs
 /// never push one message twice.
 export async function sendDuePushes(env, now = Date.now()) {
@@ -181,39 +231,8 @@ export async function sendDuePushes(env, now = Date.now()) {
     let retry = false;
     let error = null;
     try {
-      const msg = await db.prepare(
-        "SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2"
-      ).bind(job.org_id, job.message_id).first();
-      if (!msg || msg.deleted_at) { skipped += 1; continue; }
-      // Read it already, here or anywhere: in its conversation, in its
-      // thread, or looked at in Activity.
-      if (await readAlready(db, job.org_id, job.login, msg)) { skipped += 1; continue; }
-      // At the app since it arrived: they saw it come in, and heard it there.
-      // Paused, or outside the hours they set.
-      if (await quietFor(db, job.login, new Date(now))) { skipped += 1; continue; }
-      if (!(await pushesWhileActive(db, job.login))) {
-        const active = await lastActive(db, job.org_id, job.login);
-        if (active && active >= msg.created_at) { skipped += 1; continue; }
-      }
-      if (!membersOf.has(job.org_id)) membersOf.set(job.org_id, await listMembers(db, job.org_id, null));
-      const members = membersOf.get(job.org_id);
-      // Out of the workspace in the minute since it was queued: a channel's
-      // key is the same for everyone, so nothing below would stop it.
-      if (!members.some((m) => m.login === job.login)) { skipped += 1; continue; }
-      const view = viewOf(msg.channel, job.login, members);
-      if (!view) { skipped += 1; continue; }
-      const where = msg.channel.startsWith("b:")
-        ? `#${(await db.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(job.org_id, msg.channel.slice(2)).first().catch(() => null))?.name || msg.channel.slice(2)}`
-        : null;
-      const who = msg.author_name || "Someone";
-      const title = where ? `${who} · ${where}` : who;
-      const files = msg.body ? "" : "📎";
-      // In the language they set.
-      const { textFor } = await import("./translate.js");
-      const translated = msg.body ? await textFor(env, job.org_id, msg, job.login).catch(() => msg.body) : "";
-      const said = pushWords(msg.body, translated);
-      const body = said ? pushPreview(said) : files;
-      const result = await pushMessage(env, job.login, { deliveryJobId: `message:${job.id}`, title, body, orgId: job.org_id, channel: view, messageId: msg.id, parentId: msg.parent_id || null, at: msg.created_at });
+      const result = await deliverMessagePush(env, job, { now, membersOf, deliveryJobId: `message:${job.id}` });
+      if (result.skipped) { skipped += 1; continue; }
       retry = result.retry;
       if (result.delivered) sent += 1; else skipped += 1;
       error = retry ? "transient delivery failure" : result.delivered ? null : "no accepted delivery";
