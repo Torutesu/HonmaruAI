@@ -288,6 +288,21 @@ export const QuickReactions: React.FC<{ onReact: (emoji: string) => void }> = ({
   )
 }
 
+/// Tells its owner when a message's picker or menu opens or closes — only
+/// then. It used to tell on every draw, because the owner hands a new
+/// function each time: every row of a conversation set the list's state
+/// once per draw, and that drew the whole list a second time, every time.
+function useOpenChange(open: boolean, onOpenChange: (open: boolean) => void) {
+  const latest = useRef(onOpenChange)
+  latest.current = onOpenChange
+  const told = useRef(false)
+  useEffect(() => {
+    if (open === told.current) return
+    told.current = open
+    latest.current(open)
+  }, [open])
+}
+
 /// Everything you can do to one message, on hover — reactions, a reply, a
 /// thread, a pin, and behind ⋯ the rest: edit, delete, copy, make it a
 /// decision. What is behind ⋯ is the one list the right-click menu and a
@@ -302,7 +317,7 @@ export const MessageActions: React.FC<MessageMenuActions & {
   const [picker, setPicker] = useState(false)
   const [menu, setMenu] = useState(false)
   const menuBox = useRef<HTMLDivElement>(null)
-  useEffect(() => { onOpenChange(picker || menu) }, [picker, menu, onOpenChange])
+  useOpenChange(picker || menu, onOpenChange)
   useEffect(() => {
     if (!menu) return
     const down = (e: MouseEvent) => { if (menuBox.current && !menuBox.current.contains(e.target as Node)) setMenu(false) }
@@ -355,7 +370,7 @@ export const CardActions: React.FC<{
   const [picker, setPicker] = useState(false)
   const [menu, setMenu] = useState(false)
   const menuBox = useRef<HTMLDivElement>(null)
-  useEffect(() => { onOpenChange(picker || menu) }, [picker, menu, onOpenChange])
+  useOpenChange(picker || menu, onOpenChange)
   useEffect(() => {
     if (!menu) return
     const down = (e: MouseEvent) => { if (menuBox.current && !menuBox.current.contains(e.target as Node)) setMenu(false) }

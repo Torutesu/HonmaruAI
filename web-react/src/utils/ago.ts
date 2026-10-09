@@ -1,4 +1,5 @@
 import { t } from './i18n'
+import { formatDate } from './dateFormat'
 
 /// "12m ago", the way the design writes it. Anything past a week is a date,
 /// because "63d ago" is not something anyone reads as a duration.
@@ -21,5 +22,5 @@ export function ago(iso: string): string {
 export function fullTime(iso: string, locale?: string): string {
   const then = Date.parse(iso)
   if (!Number.isFinite(then)) return ''
-  return new Date(then).toLocaleString(locale, { dateStyle: 'full', timeStyle: 'short' })
+  return formatDate(then, locale, { dateStyle: 'full', timeStyle: 'short' })
 }

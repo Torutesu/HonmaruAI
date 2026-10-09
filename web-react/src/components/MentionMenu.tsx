@@ -95,9 +95,18 @@ export function useMentionMenu(
 
   useEffect(() => { setIndex(0) }, [query?.query, query?.start])
 
+  // Only a caret that moved is set: track runs on every key's release and
+  // every click too, and a set to the same place still re-ran the whole
+  // conversation around the box before React found nothing had changed.
+  const caretNow = useRef(caret)
+  caretNow.current = caret
   const track = () => {
     const el = box.current
-    if (el) setCaret(el.selectionStart ?? el.value.length)
+    if (!el) return
+    const at = el.selectionStart ?? el.value.length
+    if (at === caretNow.current) return
+    caretNow.current = at
+    setCaret(at)
   }
   // Where the caret goes once the picked name is in the box. Placed as soon
   // as the new text is on screen, before any key after it: placed a frame
