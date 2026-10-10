@@ -96,7 +96,7 @@ test("someone already here is linked, not duplicated", async () => {
   expect(role.role).toBe("member");
 });
 
-test("deactivated: out of the workspace and every session ended at once; active again brings them back", async () => {
+test("deactivated: out of the workspace and every session signed out of it at once; active again brings them back", async () => {
   const key = await makeKey();
   const user = await (await provision(key, "aya@acme.jp")).json();
   const { createSession } = await import("../src/db.js");
@@ -107,7 +107,10 @@ test("deactivated: out of the workspace and every session ended at once; active 
   expect(off.status).toBe(200);
   expect((await off.json()).active).toBe(false);
   expect(await isMember("8602")).toBe(false);
-  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM sessions WHERE github_id = '8602'").first()).n).toBe(0);
+  // Out of this workspace on every device; not out of anyone else's.
+  const ended = await env.DB.prepare("SELECT COUNT(*) AS n FROM session_workspaces w JOIN sessions s ON s.token = w.token WHERE s.github_id = '8602' AND w.org_id = ?1 AND w.ended_at IS NOT NULL").bind(ORG).first();
+  expect(ended.n).toBe(2);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM sessions WHERE github_id = '8602'").first()).n).toBe(2);
   const logged = await env.DB.prepare("SELECT severity FROM audit_events WHERE org_id = ?1 AND action = 'scim.user_deactivated'").bind(ORG).first();
   expect(logged.severity).toBe("warning");
   // Entra's way: {value: {active: true}}.

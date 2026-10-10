@@ -154,3 +154,15 @@ test("a key used from somewhere new is noted in the log", async () => {
   const seen = await env.DB.prepare("SELECT severity FROM audit_events WHERE org_id = ?1 AND action = 'org_key.used_from_new_ip'").bind(ORG).first();
   expect(seen?.severity).toBe("warning");
 });
+
+test("a workspace's key signs a person out of that workspace, not out of every other one they are in", async () => {
+  const { key } = await makeKey();
+  const { createSession, upsertMembership } = await import("../src/db.js");
+  // Aya also works in someone else's workspace.
+  await upsertMembership(env.DB, "team:other", "7603", "member");
+  const aya = await createSession(env.DB, "7603", "x");
+  const aRef = await memberRef(ORG, "7603");
+  expect((await call(`/admin/v1/members/${aRef}/sign-out`, { key, method: "POST" })).status).toBe(200);
+  expect((await call(`/businesses?orgId=${encodeURIComponent(ORG)}`, { token: aya })).status).toBe(401);
+  expect((await call(`/businesses?orgId=${encodeURIComponent("team:other")}`, { token: aya })).status).toBe(200);
+});
