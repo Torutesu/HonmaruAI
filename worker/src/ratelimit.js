@@ -69,6 +69,10 @@ export const LIMITS = {
   "auth/discover": { max: 30, windowSeconds: 60 },
   sso: { max: 20, windowSeconds: 60 },
   "mcp/request_decision": { max: 30, windowSeconds: 3600 },
+  // Wrong passwords and wrong sign-in codes, per account rather than per
+  // address: the per-IP budgets above stop one machine, not a guesser
+  // spread across many. Ten an hour is far past anyone's typos.
+  "auth/failures": { max: 10, windowSeconds: 3600 },
 };
 
 /// Who this request counts against, given a token already known to be real.
@@ -165,6 +169,26 @@ export async function enforceSubject(env, bucket, subject) {
       },
     }
   );
+}
+
+/// Guessing a credential for one account: `locked` before checking a guess,
+/// `failed` after a wrong one. Only wrong guesses count, so the person who
+/// gets it right is never charged. Like the limiter, an outage here lets the
+/// guess through rather than locking everyone out.
+export async function credentialLocked(env, subject) {
+  const limit = LIMITS["auth/failures"];
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    const row = await env.DB.prepare("SELECT count FROM rate_limits WHERE bucket = 'auth/failures' AND subject = ?1 AND window_start = ?2")
+      .bind(subject, now - (now % limit.windowSeconds)).first();
+    const scale = Math.min(100, Math.max(1, Number(env?.RATE_LIMIT_SCALE) || 1));
+    return Number(row?.count || 0) >= limit.max * scale;
+  } catch {
+    return false;
+  }
+}
+export async function credentialFailed(env, subject) {
+  await enforceSubject(env, "auth/failures", subject);
 }
 
 /// Windows older than an hour can never be consulted again. Called from the

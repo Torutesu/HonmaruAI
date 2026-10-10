@@ -504,7 +504,7 @@ async function handle(request, env, url, ctx) {
       if (limited) return limited;
       const body = await request.json().catch(() => ({}));
       const result = await login(env, { email: body.email, password: body.password, inviteCode: body.inviteCode });
-      if (result.error) return json({ message: result.error }, 401);
+      if (result.error) return json({ message: result.error }, result.status || 401);
       await signedIn(env, request, result.token, result.userId, "password");
       return json(result);
     }

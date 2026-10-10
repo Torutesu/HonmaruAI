@@ -206,8 +206,16 @@ export async function handlePolicy(request, env, url) {
       if (spent.error) return json({ message: spent.error }, spent.status || 400);
       ok = true;
     } else if (typeof body.password === "string" && row?.password_hash) {
+      // The same per-account count as signing in: a stolen session is not a
+      // way to guess the password behind it.
+      const { credentialLocked, credentialFailed } = await import("./ratelimit.js");
+      const { PASSWORD_LOCKED } = await import("./auth.js");
+      if (await credentialLocked(env, `pw:${session.github_id}`)) return json({ message: PASSWORD_LOCKED }, 429);
       ok = safeEqual(await hashPassword(body.password, row.password_salt), row.password_hash);
-      if (!ok) return json({ message: "That password is not right." }, 400);
+      if (!ok) {
+        await credentialFailed(env, `pw:${session.github_id}`);
+        return json({ message: "That password is not right." }, 400);
+      }
     }
     if (!ok) return json({ message: "Enter the code from your email, or your password." }, 400);
     await env.DB.prepare("UPDATE sessions SET reauth_at = ?2 WHERE token = ?1").bind(token, new Date().toISOString()).run();
