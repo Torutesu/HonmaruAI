@@ -48,13 +48,25 @@ const register = (body) => SELF.fetch("https://example.com/devices", {
 test("each phone is sent under its own app's topic, through its own gateway", () => {
   const e = pushEnv();
   expect(targetFor(e, null)).toEqual({ topic: "com.honmaru.ai", host: "https://api.push.apple.com" });
-  // Registered before phones said which app: the deployment's topic, as always.
-  expect(targetFor(e, { app_id: null, environment: "sandbox" })).toEqual({ topic: "com.honmaru.ai", host: "https://api.push.apple.com" });
+  // The App Store app names no app: the deployment's topic, through the
+  // gateway its token is from — an Xcode build's token is a sandbox token.
+  expect(targetFor(e, { app_id: null, environment: "sandbox" })).toEqual({ topic: "com.honmaru.ai", host: "https://api.sandbox.push.apple.com" });
+  expect(targetFor(e, { app_id: null, environment: "production" })).toEqual({ topic: "com.honmaru.ai", host: "https://api.push.apple.com" });
   expect(targetFor(e, { app_id: "com.honmaru.ai.poc", environment: "sandbox" })).toEqual({ topic: "com.honmaru.ai.poc", host: "https://api.sandbox.push.apple.com" });
   expect(targetFor(e, { app_id: "com.honmaru.ai.poc", environment: "production" })).toEqual({ topic: "com.honmaru.ai.poc", host: "https://api.push.apple.com" });
   // An app this deployment does not send for falls back rather than being used.
   expect(targetFor(e, { app_id: "com.evil.app", environment: "production" }).topic).toBe("com.honmaru.ai");
   expect(allowedAppIds({ APNS_APP_IDS: "a.b", APNS_TOPIC: "c.d" })).toEqual(["a.b", "c.d"]);
+});
+
+test("an App Store phone reaches production whatever the deployment's APNS_ENVIRONMENT says", () => {
+  // Unset, the deployment's setting means the sandbox — where every App
+  // Store token is refused as BadDeviceToken and the phone then forgotten.
+  const unset = { ...pushEnv(), APNS_ENVIRONMENT: undefined };
+  expect(targetFor(unset, { app_id: null, environment: "production" }).host).toBe("https://api.push.apple.com");
+  expect(targetFor({ ...pushEnv(), APNS_ENVIRONMENT: "sandbox" }, { app_id: null, environment: "production" }).host).toBe("https://api.push.apple.com");
+  // Only a device that cannot say falls back to the deployment's choice.
+  expect(targetFor(unset, null).host).toBe("https://api.sandbox.push.apple.com");
 });
 
 test("a phone says which app and gateway it is; anything else is refused", async () => {

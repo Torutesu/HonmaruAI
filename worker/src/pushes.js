@@ -24,6 +24,8 @@ import { resolveMentions, mentionTokens, broadcastOf } from "./threads.js";
 import { viewOf } from "./channels.js";
 import { listMembers } from "./team.js";
 import { quietFor, keywordsIn, keywordHit } from "./quiet.js";
+import { announceTo } from "./announce.js";
+import { custom as customEvent } from "./agui/events.js";
 
 export const PUSH_DELAY_MS = 60_000;
 /// How recent "at the app" has to be for a card not to be pushed.
@@ -134,6 +136,12 @@ export async function queueMessagePushes(env, orgId, row, { members = null, now 
   const list = members || await listMembers(env.DB, orgId, null);
   const to = await recipientsOf(env.DB, orgId, row, list);
   if (!to.length) return 0;
+  // The same decision, told to each of these people's open apps at once: a
+  // desktop app has no push service, and shows a notification for exactly
+  // what the phone will be told (web-react utils/forYou.ts) — a group
+  // message, a reply to you, a keyword, a thread you wrote in — rather than
+  // guessing from the message alone.
+  await announceTo(env, orgId, to.map(({ login, reason }) => ({ to: login, event: customEvent("message_for_you", { id: row.id, reason }) })));
   const due = new Date(now + PUSH_DELAY_MS).toISOString();
   const at = new Date(now).toISOString();
   try {
@@ -175,7 +183,8 @@ export function pushWords(written, translated) {
 }
 
 /// One message's push to one person, if it should still go: not read yet,
-/// not paused, not at the app since it arrived, still in the workspace.
+/// not paused, still in the workspace. Being at the app elsewhere does not
+/// count as having seen it — only reading the conversation does.
 /// `{ skipped: true }` when it should not; otherwise what delivery said.
 async function deliverMessagePush(env, job, { now = Date.now(), membersOf = new Map(), deliveryJobId } = {}) {
   const db = env.DB;
@@ -186,13 +195,15 @@ async function deliverMessagePush(env, job, { now = Date.now(), membersOf = new 
   // Read it already, here or anywhere: in its conversation, in its
   // thread, or looked at in Activity.
   if (await readAlready(db, job.org_id, job.login, msg)) return { skipped: true };
-  // At the app since it arrived: they saw it come in, and heard it there.
   // Paused, or outside the hours they set.
   if (await quietFor(db, job.login, new Date(now))) return { skipped: true };
-  if (!(await pushesWhileActive(db, job.login))) {
-    const active = await lastActive(db, job.org_id, job.login);
-    if (active && active >= msg.created_at) return { skipped: true };
-  }
+  // Being at the app is not having seen it. A message in a conversation
+  // they had open in front of them is read by the time this runs (the
+  // client reads what it shows), and stops above; one somewhere else is
+  // not, and reaches the phone after its minute — as Notifications says.
+  // This used to stop on any use of the app at all since the message: a
+  // person working on a laptop, in another conversation or another window,
+  // got neither the laptop's banner (it was in front) nor the phone's.
   if (!membersOf.has(job.org_id)) membersOf.set(job.org_id, await listMembers(db, job.org_id, null));
   const members = membersOf.get(job.org_id);
   // Out of the workspace in the minute since it was queued: a channel's

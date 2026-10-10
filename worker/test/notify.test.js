@@ -35,8 +35,8 @@ beforeEach(async () => {
   await upsertUser(env.DB, { githubId: "8002", login: "alice", name: "Alice", avatarUrl: null, locale: "en" });
   await upsertUser(env.DB, { githubId: "email:kenji@example.com", login: "u:kenji@example.com", name: "Kenji", avatarUrl: null, locale: "ja" });
   await env.DB.prepare("UPDATE users SET email = 'kenji@example.com' WHERE github_id = 'email:kenji@example.com'").run();
-  await registerDevice(env.DB, { deviceToken: "tok-taro", githubId: "8001", login: "taro" });
-  await registerDevice(env.DB, { deviceToken: "tok-alice", githubId: "8002", login: "alice" });
+  await registerDevice(env.DB, { deviceToken: "tok-taro", githubId: "8001", login: "taro", environment: "sandbox" });
+  await registerDevice(env.DB, { deviceToken: "tok-alice", githubId: "8002", login: "alice", environment: "sandbox" });
 });
 
 beforeEach(() => { resetProviderToken(); fetchMock.activate(); });

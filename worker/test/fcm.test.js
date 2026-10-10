@@ -244,7 +244,7 @@ test("an Android phone registers with its platform; an iPhone still needs to say
 test("a mention reaches the Android phone through FCM and the iPhone through APNs", async () => {
   const { registerDevice } = await import("../src/db.js");
   await registerDevice(env.DB, { deviceToken: ANDROID, githubId: "9902", login: "mika", platform: "android" });
-  await registerDevice(env.DB, { deviceToken: IPHONE, githubId: "9902", login: "mika" });
+  await registerDevice(env.DB, { deviceToken: IPHONE, githubId: "9902", login: "mika", environment: "sandbox" });
   const res = await call("/channels/messages", toru, { method: "POST", body: { orgId: ORG, channel: "b:cafe", body: "@Mika the order?" } });
   const { message } = await res.json();
 
@@ -305,7 +305,7 @@ test("an uninstalled app's token is deleted after FCM says so", async () => {
 test("the silent read-clearing push goes to iPhones only", async () => {
   const { registerDevice } = await import("../src/db.js");
   await registerDevice(env.DB, { deviceToken: ANDROID, githubId: "9902", login: "mika", platform: "android" });
-  await registerDevice(env.DB, { deviceToken: IPHONE, githubId: "9902", login: "mika" });
+  await registerDevice(env.DB, { deviceToken: IPHONE, githubId: "9902", login: "mika", environment: "sandbox" });
   const now = new Date().toISOString();
   await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at) VALUES ('m-clear', ?1, 'b:cafe', 'toru', 'message', 'hi', ?2)").bind(ORG, now).run();
   await env.DB.prepare("INSERT INTO push_queue (org_id, login, message_id, reason, created_at, due_at, sent_at) VALUES (?1, 'mika', 'm-clear', 'mention', ?2, ?2, ?2)").bind(ORG, now).run();
