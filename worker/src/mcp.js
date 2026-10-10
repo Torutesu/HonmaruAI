@@ -10,7 +10,7 @@ import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { enforceSubject } from "./ratelimit.js";
 import { listMemories } from "./memory.js";
 import { safe } from "./log.js";
-import { isGuest } from "./access.js";
+import { isGuest, accessFor } from "./access.js";
 
 // Any agent can ask a person for a decision.
 //
@@ -309,7 +309,7 @@ async function callTool(env, agent, name, args, request, ctx = null) {
     case "search_decisions": {
       const query = clip(args.query, 200);
       if (!query) return toolError("query is required.");
-      const hits = await searchDecisions(db, agent.orgId, query, { limit: 10 });
+      const hits = await searchDecisions(db, agent.orgId, query, { limit: 10, access: await accessFor(db, agent.orgId, agent.login) });
       return text({ decisions: hits.map((d) => ({ title: d.title, status: d.status, decidedAt: d.decidedAt, decidedBy: d.recipient, note: d.note || null, business: d.business || null })) });
     }
     case "list_members": {

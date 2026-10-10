@@ -1029,11 +1029,10 @@ async function handle(request, env, url, ctx) {
         // What the sender could open themselves, and nothing of the team's for
         // a guest.
         const routeAccess = await cardAccess(env, request, routeOrgId);
-        const routeVisible = (h) => mayReadCard({ recipientUserID: h.recipient, senderUserID: h.sender, business: h.business }, routeAccess);
         try {
           const [load, recent, playbook] = routeAccess.guest ? [[], [], []] : await Promise.all([
             recipientLoad(env.DB, routeOrgId),
-            recentDecisions(env.DB, routeOrgId).then((hits) => hits.filter(routeVisible)),
+            recentDecisions(env.DB, routeOrgId, { access: routeAccess }),
             // The rules this team has set, the ones that bear on this
             // instruction first.
             relevantMemories(env.DB, routeOrgId, body.text),
@@ -1045,7 +1044,7 @@ async function handle(request, env, url, ctx) {
         // And the one thing the model may look up before it writes: what
         // this team already decided about the same thing.
         const lookupOrg = routeOrgId;
-        lookups = { searchDecisions: async (query) => (await searchDecisions(env.DB, lookupOrg, query)).filter(routeVisible) };
+        lookups = { searchDecisions: (query) => searchDecisions(env.DB, lookupOrg, query, { access: routeAccess }) };
         // And the person's own connected tools, when they have them.
         try {
           const routeSession = await getSession(env.DB, request.headers.get("x-session-token"));
@@ -2191,9 +2190,12 @@ async function handle(request, env, url, ctx) {
       try {
         const terms = searchTermsFor(question, card);
         const available = await connectedSources(env, session, orgId);
+        // Only what the asker could open themselves: a guest's own cards, a
+        // private channel's to its members.
+        const access = await cardAccess(env, request, orgId);
         const [decisionsHit, recentHit, notionHit, githubHit, playbookHit, talkHit] = await Promise.all([
-          getUserByGithubId(env.DB, session.github_id).then((me) => searchDecisions(env.DB, orgId, terms, { viewer: me?.login || null })),
-          recentDecisions(env.DB, orgId, { limit: 8 }),
+          searchDecisions(env.DB, orgId, terms, { viewer: access.login || null, access }),
+          recentDecisions(env.DB, orgId, { limit: 8, access }),
           available.notion ? searchNotion(env, session.github_id, terms).catch((err) => { console.error("notion search failed", err?.message || err); return []; }) : [],
           available.github ? searchGithubIssues(session, orgId, terms, env).catch((err) => { console.error("github search failed", err?.message || err); return []; }) : [],
           relevantMemories(env.DB, orgId, `${card.title || ""} ${question}`),
@@ -2201,9 +2203,6 @@ async function handle(request, env, url, ctx) {
           // decision came out of is often the answer.
           card.business ? recentBusinessTalk(env.DB, orgId, [card.business], { limit: 12 }).catch(() => []) : [],
         ]);
-        // Only what the asker could open themselves: a guest's own cards, a
-        // private channel's to its members.
-        const access = await cardAccess(env, request, orgId);
         const visible = (h) => mayReadCard({ recipientUserID: h.recipient, senderUserID: h.sender, business: h.business }, access);
         talk = card.business && mayRead(`b:${card.business}`, access) ? talkHit : [];
         playbook = access.guest ? [] : playbookHit;
@@ -2330,7 +2329,7 @@ async function handle(request, env, url, ctx) {
       const denied = await requireMember(env, request, orgId);
       if (denied) return denied;
       const access = await cardAccess(env, request, orgId);
-      const found = q ? await searchDecisions(env.DB, orgId, q, { limit: 20, viewer: access.login || null }) : [];
+      const found = q ? await searchDecisions(env.DB, orgId, q, { limit: 20, viewer: access.login || null, access }) : [];
       const hits = found.filter((h) => mayReadCard({ recipientUserID: h.recipient, senderUserID: h.sender, business: h.business }, access)).slice(0, 12);
       return json({ hits });
     }

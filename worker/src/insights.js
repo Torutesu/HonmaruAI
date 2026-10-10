@@ -1,5 +1,14 @@
-import { NOT_PERSONAL_SQL, visibleToSql } from "./access.js";
+import { NOT_PERSONAL_SQL, visibleToSql, mayReadCard } from "./access.js";
 import { aiSpend } from "./ledger.js";
+
+/// A card filed in a private channel, kept out. For a caller that cannot say
+/// whose eyes the result is for — an AI answer posted to a channel, a report,
+/// an export — the safe answer is none of a private channel's decisions.
+const notPrivateSql = (alias = "cards") =>
+  `COALESCE(json_extract(${alias}.data, '$.business'), '') NOT IN (SELECT slug FROM businesses WHERE org_id = ${alias}.org_id AND private = 1)`;
+/// For a caller that can: exactly what that person may open (mayReadCard).
+const readableBy = (access) => (h) => mayReadCard({ recipientUserID: h.recipient, senderUserID: h.sender, business: h.business }, access);
+
 // What the team can learn from its own decisions, and what the router can
 // learn from the team.
 //
@@ -154,16 +163,19 @@ export async function recipientLoad(db, orgId) {
 /// The team's last few decisions, as one line each. Enough for the router to
 /// notice "this was decided last week" and for a recommendation to lean on
 /// what the person actually does rather than on the instruction alone.
-export async function recentDecisions(db, orgId, { limit = 12 } = {}) {
+/// `access` (accessFor): the person the result is for, who also sees the
+/// private channels they are in. Without it, no private channel's cards.
+export async function recentDecisions(db, orgId, { limit = 12, access = null } = {}) {
+  const n = Math.max(1, Math.min(Number(limit) || 12, 30));
   const { results } = await db
     .prepare(
       `SELECT recipient_user_id, sender_user_id, decided_at, data
-         FROM cards WHERE org_id = ?1 AND decided_at IS NOT NULL AND ${NOT_PERSONAL_SQL}
+         FROM cards WHERE org_id = ?1 AND decided_at IS NOT NULL AND ${NOT_PERSONAL_SQL}${access ? "" : ` AND ${notPrivateSql()}`}
         ORDER BY decided_at DESC LIMIT ?2`
     )
-    .bind(orgId, Math.max(1, Math.min(Number(limit) || 12, 30)))
+    .bind(orgId, access ? n * 3 : n)
     .all();
-  return (results || []).map((row) => {
+  const hits = (results || []).map((row) => {
     const card = parseCard(row) || {};
     return {
       recipient: row.recipient_user_id,
@@ -175,6 +187,7 @@ export async function recentDecisions(db, orgId, { limit = 12 } = {}) {
       decidedAt: row.decided_at,
     };
   });
+  return (access ? hits.filter(readableBy(access)) : hits).slice(0, n);
 }
 
 /// Real cards, with what people said about them, in the golden-set shape the
@@ -190,7 +203,7 @@ export async function exportGolden(db, orgId, { limit = 200 } = {}) {
               f.verdict, f.reason, f.note
          FROM cards c
          LEFT JOIN card_feedback f ON f.org_id = c.org_id AND f.card_id = c.card_id
-        WHERE c.org_id = ?1 AND ${NOT_PERSONAL_SQL}
+        WHERE c.org_id = ?1 AND ${NOT_PERSONAL_SQL} AND ${notPrivateSql("c")}
         ORDER BY c.created_at DESC LIMIT ?2`
     )
     .bind(orgId, Math.max(1, Math.min(Number(limit) || 200, 1000)))
@@ -225,23 +238,26 @@ export async function exportGolden(db, orgId, { limit = 200 } = {}) {
 /// LIKE over the card JSON is crude and fast, and a team of ten has hundreds
 /// of cards, not millions.
 /// `viewer`, when given, finds their own personal cards too; nobody else's.
-export async function searchDecisions(db, orgId, query, { limit = 8, viewer = null } = {}) {
+/// `access` (accessFor): the person the result is for, who also finds the
+/// private channels they are in. Without it, no private channel's cards.
+export async function searchDecisions(db, orgId, query, { limit = 8, viewer = null, access = null } = {}) {
   const words = String(query || "")
     .split(/[\s,、。・]+/u)
     .map((w) => w.trim())
     .filter((w) => w.length >= 2)
     .slice(0, 4);
   if (!words.length) return [];
+  const n = Math.max(1, Math.min(Number(limit) || 8, 20));
   const clauses = words.map((_, i) => `data LIKE ?${i + 2}`).join(" OR ");
   const { results } = await db
     .prepare(
       `SELECT recipient_user_id, decided_at, data FROM cards
-        WHERE org_id = ?1 AND (${clauses}) AND ${viewer ? visibleToSql(words.length + 3) : NOT_PERSONAL_SQL}
+        WHERE org_id = ?1 AND (${clauses}) AND ${viewer ? visibleToSql(words.length + 3) : NOT_PERSONAL_SQL}${access ? "" : ` AND ${notPrivateSql()}`}
         ORDER BY COALESCE(decided_at, created_at) DESC LIMIT ?${words.length + 2}`
     )
-    .bind(orgId, ...words.map((w) => `%${w}%`), Math.max(1, Math.min(Number(limit) || 8, 20)), ...(viewer ? [viewer] : []))
+    .bind(orgId, ...words.map((w) => `%${w}%`), access ? n * 3 : n, ...(viewer ? [viewer] : []))
     .all();
-  return (results || []).map((row) => {
+  const hits = (results || []).map((row) => {
     const card = parseCard(row) || {};
     return {
       id: card.id || null,
@@ -254,4 +270,5 @@ export async function searchDecisions(db, orgId, query, { limit = 8, viewer = nu
       business: card.business || null,
     };
   });
+  return (access ? hits.filter(readableBy(access)) : hits).slice(0, n);
 }
