@@ -3387,6 +3387,77 @@ await step('an open thread follows new replies, and keeps the place of one scrol
   }
 })
 
+// The thread pane's edge is dragged to make it wider or narrower; the
+// width is kept for the next visit, the arrow keys move it too, the
+// conversation keeps room to be read, and a double click puts it back.
+await step('the thread pane is resized by dragging its edge, and keeps its width', async () => {
+  await closeEverything()
+  const desk = await phone.newPage()
+  await desk.setViewportSize({ width: 1280, height: 820 })
+  const openThread = async (text) => {
+    await desk.waitForSelector('.slk-side .cl-thread[data-view^="g:"]', { timeout: 20000 })
+    await desk.click('.slk-side .cl-thread[data-view^="g:"] .cl-open')
+    const msg = desk.locator('.slk-main .slk-msg[id^="msg-"]:not(.pending):not(.failed)', { hasText: text }).last()
+    await msg.waitFor({ timeout: 10000 })
+    await msg.hover()
+    await msg.locator('.slk-tools [aria-label="Reply in thread"]').click()
+    await desk.waitForSelector('.slk-thread-pane [data-pane-resize]', { timeout: 10000 })
+      .catch(() => { throw new Error('the thread pane has no edge to drag') })
+  }
+  const width = (sel) => desk.$eval(sel, (el) => Math.round(el.getBoundingClientRect().width))
+  try {
+    await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await desk.evaluate(() => localStorage.removeItem('honmaru:threadWidth'))
+    await desk.reload({ waitUntil: 'load' })
+    await desk.waitForSelector('.slk-side .cl-thread[data-view^="g:"]', { timeout: 20000 })
+    await desk.click('.slk-side .cl-thread[data-view^="g:"] .cl-open')
+    const ask = `how wide? ${Date.now()}`
+    await desk.fill('.slk-composer .slk-input', ask)
+    await desk.keyboard.press('Enter')
+    await openThread(ask)
+    const before = await width('.slk-thread-pane')
+
+    // Dragged 200px to the left: wider, by as much as the room allows.
+    const edge = await desk.$eval('.slk-thread-pane [data-pane-resize]', (el) => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })
+    await desk.mouse.move(edge.x, edge.y)
+    await desk.mouse.down()
+    await desk.mouse.move(edge.x - 100, edge.y, { steps: 5 })
+    await desk.mouse.move(edge.x - 200, edge.y, { steps: 5 })
+    await desk.mouse.up()
+    const dragged = await width('.slk-thread-pane')
+    if (dragged < before + 100) throw new Error(`dragging the edge 200px left took the pane from ${before}px to ${dragged}px`)
+    const conversation = await width('.slk-main')
+    if (conversation < 360) throw new Error(`the conversation was squeezed to ${conversation}px`)
+    const kept = await desk.evaluate(() => localStorage.getItem('honmaru:threadWidth'))
+    if (Number(kept) !== dragged) throw new Error(`the width kept is ${kept}, not the ${dragged}px dragged to`)
+    await desk.screenshot({ path: `${SHOTS}/57c-thread-resized.png` })
+
+    // Back another time: the same width.
+    await desk.reload({ waitUntil: 'load' })
+    await openThread(ask)
+    const again = await width('.slk-thread-pane')
+    if (Math.abs(again - dragged) > 1) throw new Error(`the thread opened at ${again}px, not the ${dragged}px it was left at`)
+
+    // → narrows it a step, from the keyboard.
+    await desk.focus('.slk-thread-pane [data-pane-resize]')
+    await desk.keyboard.press('ArrowRight')
+    const stepped = await width('.slk-thread-pane')
+    if (Math.abs(stepped - (again - 24)) > 1) throw new Error(`→ on the edge took the pane from ${again}px to ${stepped}px`)
+
+    // A double click: the layout's own width, and nothing kept.
+    await desk.dblclick('.slk-thread-pane [data-pane-resize]')
+    const reset = await width('.slk-thread-pane')
+    if (Math.abs(reset - before) > 1) throw new Error(`a double click left the pane at ${reset}px, not ${before}px`)
+    if (await desk.evaluate(() => localStorage.getItem('honmaru:threadWidth'))) throw new Error('a double click did not forget the kept width')
+  } catch (err) {
+    await desk.screenshot({ path: `${SHOTS}/fail-${Date.now()}-thread-resize.png` }).catch(() => {})
+    throw err
+  } finally {
+    await desk.evaluate(() => localStorage.removeItem('honmaru:threadWidth')).catch(() => {})
+    await desk.close()
+  }
+})
+
 await step('a star, a section of your own, and a user group one mention reaches', async () => {
   await closeEverything()
   if (!mate) throw new Error('the teammate this step needs is not here')

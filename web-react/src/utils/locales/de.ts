@@ -2010,6 +2010,8 @@ const table: Record<string, string> = {
   "Mark {name} as read": "{name} als gelesen markieren",
   "Couldn't load the replies.": "Die Antworten konnten nicht geladen werden.",
   "Honmaru AI is having trouble on its side. Try again in a little while.": "Bei Honmaru AI gibt es gerade ein Problem. Versuche es in Kürze noch einmal.",
+  "Resize thread": "Thread-Breite ändern",
+  "Drag to resize · double-click to reset": "Ziehen zum Ändern · Doppelklick zum Zurücksetzen",
 }
 
 export default table

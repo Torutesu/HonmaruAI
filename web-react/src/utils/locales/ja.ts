@@ -2131,6 +2131,8 @@ const table: Record<string, string> = {
   "Mark {name} as read": "{name} を既読にする",
   "Couldn't load the replies.": "返信を読み込めませんでした。",
   'Honmaru AI is having trouble on its side. Try again in a little while.': 'Honmaru AI のサーバーで問題が起きています。しばらくしてからもう一度お試しください。',
+  "Resize thread": "スレッドの幅を変える",
+  "Drag to resize · double-click to reset": "ドラッグで幅を変更 · ダブルクリックで元に戻す",
 }
 
 export default table

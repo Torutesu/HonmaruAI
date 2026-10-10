@@ -2007,6 +2007,8 @@ const table: Record<string, string> = {
   "Mark {name} as read": "Marcar {name} como leído",
   "Couldn't load the replies.": "No se pudieron cargar las respuestas.",
   "Honmaru AI is having trouble on its side. Try again in a little while.": "Honmaru AI tiene un problema en este momento. Inténtalo de nuevo en un rato.",
+  "Resize thread": "Cambiar el ancho del hilo",
+  "Drag to resize · double-click to reset": "Arrastra para cambiar el ancho · doble clic para restablecer",
 }
 
 export default table

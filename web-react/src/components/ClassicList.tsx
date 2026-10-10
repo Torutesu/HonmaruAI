@@ -29,6 +29,7 @@ import { useBackStack } from '../utils/backStack'
 import { countNewBelow, isAtBottom, isLooking, isNewSince, leavesGap, mergeById, reachesPast, shouldFollow, waitToSay } from '../utils/chatScroll'
 import { JumpToPresent, newBelowLabel } from './JumpToPresent'
 import { FollowingLog } from './FollowingLog'
+import { PaneResizer, PANE_MIN } from './PaneResizer'
 import { useT } from '../utils/i18n'
 import { useMembers, agentMentionables, agentsIn, mentionKind, mentionTarget } from '../utils/mentions'
 import type { AgentFace } from '../utils/mentions'
@@ -259,6 +260,8 @@ function seenAt(orgId: string, view: string): string {
 const isMac = isMacPlatform()
 
 const WIDE = '(min-width: 720px)'
+/// Where the thread pane's dragged width is kept, for every workspace.
+const THREAD_WIDTH_KEY = 'honmaru:threadWidth'
 const isWide = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(WIDE).matches
 
 function clock(iso?: string): string {
@@ -656,6 +659,19 @@ export const ClassicList: React.FC<Props> = ({
     try { return sessionStorage.getItem('list.open') } catch { return null }
   })
   const [wide, setWide] = useState(isWide)
+  // The thread pane's width, as the reader dragged it: kept in this
+  // browser, and the layout's own width until it is dragged.
+  const threadPane = useRef<HTMLElement>(null)
+  const [threadWidth, setThreadWidth] = useState<number | null>(() => {
+    try {
+      const n = Number(localStorage.getItem(THREAD_WIDTH_KEY))
+      return Number.isFinite(n) && n >= PANE_MIN ? n : null
+    } catch { return null }
+  })
+  const keepThreadWidth = (w: number | null) => {
+    setThreadWidth(w)
+    try { if (w === null) localStorage.removeItem(THREAD_WIDTH_KEY); else localStorage.setItem(THREAD_WIDTH_KEY, String(w)) } catch { /* kept for this visit only */ }
+  }
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return
     const mq = window.matchMedia(WIDE)
@@ -5463,11 +5479,13 @@ export const ClassicList: React.FC<Props> = ({
           )
       )}
       {!detail && thread && !(activityOpen && wide) && (
-        <aside className={`slk-pane slk-thread-pane${threadDropping ? ' slk-dropping' : ''}`} aria-label={t('Thread')}
+        <aside ref={threadPane} className={`slk-pane slk-thread-pane${threadDropping ? ' slk-dropping' : ''}`} aria-label={t('Thread')}
+          style={wide && threadWidth ? { width: threadWidth } : undefined}
           // Files dropped on the thread are the reply's, not the conversation's.
           onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.stopPropagation(); setThreadDropping(true) } }}
           onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setThreadDropping(false) }}
           onDrop={(e) => { setThreadDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); e.stopPropagation(); threadUploads.add([...e.dataTransfer.files], thread.channel) } }}>
+          {wide && <PaneResizer pane={threadPane} label={t('Resize thread')} title={t('Drag to resize · double-click to reset')} onWidth={keepThreadWidth} onReset={() => keepThreadWidth(null)} />}
           <header className="slk-pane-head">
             <button className="slk-back pane" onClick={() => setThread(null)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
             <h2>{t('Thread')}</h2>
