@@ -19,7 +19,7 @@ beforeEach(async()=>{
   await upsertUser(env.DB,{githubId:login,login,name:login,avatarUrl:null});
   await upsertMembership(env.DB,'retry-org',login,'member');
  }
- for(const token of ['device-a','device-b']) await registerDevice(env.DB,{deviceToken:token,githubId:'reader',login:'reader'});
+ for(const token of ['device-a','device-b']) await registerDevice(env.DB,{deviceToken:token,githubId:'reader',login:'reader',environment:'sandbox'});
  const at=new Date(now-120000).toISOString();
  await env.DB.prepare("INSERT INTO channel_messages (id,org_id,channel,author_login,body,kind,created_at) VALUES ('retry-message','retry-org','dm:reader|sender','sender','Test request','message',?1)").bind(at).run();
  await env.DB.prepare("INSERT INTO push_queue (org_id,login,message_id,reason,created_at,due_at) VALUES ('retry-org','reader','retry-message','direct',?1,?1)").bind(at).run();

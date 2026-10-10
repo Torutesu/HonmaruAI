@@ -34,6 +34,7 @@ import type { Place } from '../utils/places'
 import { isMacPlatform, formatCombo, hasPrimaryMod, composing } from '../utils/keys'
 import { tabWithin, TAB_STOPS } from '../utils/focusTrap'
 import type { ChannelMessage } from '../types/card'
+import { ForYou } from '../utils/forYou'
 
 // The screens a person opens now and then load when they are opened: the
 // first page is the conversation, not the settings behind it.
@@ -91,6 +92,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // carries edits, reactions and pins; only a message new to this tab and
   // written in the last minute is news.
   const heard = useRef<Set<string>>(new Set())
+  // What the server said is for this person, paired with the message
+  // (forYou.ts): the desktop's notifications follow the phone's pushes.
+  const forYou = useRef(new ForYou<ChannelMessage>())
   const soundFor = async (message: ChannelMessage) => {
     // Unsent: whatever this browser showed of it comes off the screen.
     if (message?.id && message.deleted) { closeMessageNotifications([message.id]); return }
@@ -105,19 +109,28 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     const open = getOpenView() === message.channel && document.visibilityState === 'visible' && document.hasFocus()
     const kind = soundForMessage({ mine, channel: message.channel, mentionsMe, kind: message.kind, parentId: message.parentId }, { level: levelOf(orgId, message.channel), open })
     if (kind) playSound(kind)
-    // A direct message or an @mention while nobody is looking at this
-    // workspace: on the screen now, rather than a push's delay later. Only
-    // what the Worker would push too (a person's message or an agent's
-    // answer — not the AI's own notes), and one tab decides (notifications.ts).
-    if (kind === 'mention' && (message.kind === 'message' || message.kind === 'agent')) {
-      const business = message.channel.startsWith('b:') ? businessesRef.current.find((b) => `b:${b.slug}` === message.channel) : undefined
-      notifyMessage({
-        id: message.id, orgId, channel: message.channel,
-        author: message.authorName || message.agent?.name || t('a teammate'),
-        where: business ? `#${business.name}` : null,
-        body: message.body || '', hasFiles: Boolean(message.files?.length), createdAt: message.createdAt,
-      })
-    }
+    // A direct message or an @mention, seen here: shown at once. Whatever
+    // else the server says is for this person arrives as its own word and
+    // is shown the same way (banner).
+    if (kind === 'mention') banner(message)
+  }
+  // On the screen now, rather than a push's delay later, while nobody is
+  // looking at this workspace. Only a person's message or an agent's answer
+  // (not the AI's own notes), not yours, not a muted conversation's, and
+  // once; one tab decides (notifications.ts).
+  const banner = (message: ChannelMessage) => {
+    if (message.deleted || message.mine) return
+    if (message.kind !== 'message' && message.kind !== 'agent') return
+    if (Date.now() - Date.parse(message.createdAt) > 60_000) return
+    if (levelOf(orgId, message.channel) === 'mute') return
+    if (!forYou.current.take(message.id)) return
+    const business = message.channel.startsWith('b:') ? businessesRef.current.find((b) => `b:${b.slug}` === message.channel) : undefined
+    notifyMessage({
+      id: message.id, orgId, channel: message.channel,
+      author: message.authorName || message.agent?.name || t('a teammate'),
+      where: business ? `#${business.name}` : null,
+      body: message.body || '', hasFiles: Boolean(message.files?.length), createdAt: message.createdAt,
+    })
   }
   // The relay has sent its snapshot at least once. Before that the feed says
   // it is opening, not that it is empty — "All clear" on a cold start, half a
@@ -340,7 +353,16 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     wsClient.onChannelMessage = (message) => {
       if (ignore) return
       window.dispatchEvent(new CustomEvent('honmaru:channel-message', { detail: message }))
+      if (message?.id && !message.deleted) {
+        const ready = forYou.current.message(message)
+        if (ready) banner(ready)
+      }
       void soundFor(message)
+    }
+    wsClient.onMessageForYou = ({ id, reason }) => {
+      if (ignore) return
+      const ready = forYou.current.flag(id, reason)
+      if (ready) banner(ready)
     }
     wsClient.onChannelProgress = (progress) => {
       if (ignore) return

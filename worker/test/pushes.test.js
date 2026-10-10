@@ -4,9 +4,16 @@ import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { recipientsOf, queueMessagePushes, sendDuePushes, noteActivity, isActive, PUSH_DELAY_MS, pushPreview, pushWords } from "../src/pushes.js";
 import { listMembers } from "../src/team.js";
+import { fetchMock } from "./helpers/fetch-mock.js";
 
-// A message reaches a phone only when its person is not already at the
-// app: after a minute, unless they read it or were using HonmaruAI.
+// A message reaches a phone after a minute, unless its person read it in
+// that time — being at the app somewhere else is not having seen it.
+
+const TEST_P8 = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgevZzL1gdAFr88hb2
+OF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r
+1RTwjmYSi9R/zpBnuQ4EiMnCqfMPWiZqB4QdbAd0E7oH50VpuZ1P087G
+-----END PRIVATE KEY-----`;
 
 const ORG = "personal:push";
 let toru; let refs;
@@ -75,24 +82,76 @@ test("a mention through the API is queued, and sent after a minute", async () =>
   expect(await sendDuePushes(env, later)).toEqual({ sent: 0, skipped: 0 });
 });
 
-test("read it, or at the app since, and the phone stays still", async () => {
+test("at the app but not read: the phone is told; read: it stays still", async () => {
   const members = await listMembers(env.DB, ORG, null);
-  const t0 = Date.now();
-  const at = new Date(t0).toISOString();
-  const row = { id: "m1", kind: "message", channel: "dm:mika|toru", author_login: "toru", body: "lunch?", created_at: at };
-  await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, body, kind, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 'message', ?6)")
-    .bind(row.id, ORG, row.channel, row.author_login, row.body, at).run();
-  await queueMessagePushes(env, ORG, row, { members, now: t0 });
-  await noteActivity(env.DB, ORG, "mika", "web", t0 + 5000);
-  expect(await isActive(env.DB, ORG, "mika", t0 + 10_000)).toBe(true);
-  // At this workspace's app is not at another's.
-  expect(await isActive(env.DB, "team:another", "mika", t0 + 10_000)).toBe(false);
-  expect(await isActive(env.DB, ORG, "mika", t0 + 10 * 60_000)).toBe(false);
-  expect(await sendDuePushes(env, t0 + PUSH_DELAY_MS + 1000)).toEqual({ sent: 0, skipped: 1 });
+  const { registerDevice } = await import("../src/db.js");
+  await registerDevice(env.DB, { deviceToken: "a".repeat(64), githubId: "8802", login: "mika", environment: "production", platform: "ios" });
+  const pushed = [];
+  fetchMock.activate();
+  fetchMock.get("https://api.push.apple.com")
+    .intercept({ path: `/3/device/${"a".repeat(64)}`, method: "POST" })
+    .reply((opts) => { pushed.push(JSON.parse(opts.body)); return { statusCode: 200, data: "" }; })
+    .persist();
+  const penv = { ...env, APNS_KEY_ID: "ABC1234567", APNS_TEAM_ID: "TEAM123456", APNS_TOPIC: "com.honmaru.ai", APNS_PRIVATE_KEY: TEST_P8 };
+  const say = async (id, body, t) => {
+    const at = new Date(t).toISOString();
+    const row = { id, kind: "message", channel: "dm:mika|toru", author_login: "toru", body, created_at: at };
+    await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, body, kind, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 'message', ?6)")
+      .bind(row.id, ORG, row.channel, row.author_login, row.body, at).run();
+    await queueMessagePushes(penv, ORG, row, { members, now: t });
+  };
+  try {
+    // Mika is at the app on her laptop, somewhere else, the whole minute.
+    const t0 = Date.now();
+    await say("m1", "lunch?", t0);
+    await noteActivity(env.DB, ORG, "mika", "web", t0 + 5000);
+    await noteActivity(env.DB, ORG, "mika", "web", t0 + 50_000);
+    expect(await isActive(env.DB, ORG, "mika", t0 + 55_000)).toBe(true);
+    expect(await sendDuePushes(penv, t0 + PUSH_DELAY_MS + 1000)).toEqual({ sent: 1, skipped: 0 });
+    expect(pushed).toHaveLength(1);
 
-  // Asking for pushes anyway turns "at the app" off.
+    // Read where it was said, at the laptop: the phone is not told.
+    const t1 = t0 + 2 * PUSH_DELAY_MS;
+    await say("m2", "1pm?", t1);
+    await env.DB.prepare("INSERT INTO channel_reads (org_id, login, channel, last_read_at) VALUES (?1, 'mika', 'dm:mika|toru', ?2)")
+      .bind(ORG, new Date(t1 + 3000).toISOString()).run();
+    expect(await sendDuePushes(penv, t1 + PUSH_DELAY_MS + 1000)).toEqual({ sent: 0, skipped: 1 });
+    expect(pushed).toHaveLength(1);
+  } finally {
+    fetchMock.deactivate();
+  }
+
+  // "At the app" still means something for cards, and asking for pushes anyway turns it off.
+  const t2 = Date.now();
+  await noteActivity(env.DB, "team:elsewhere", "mika", "web", t2);
+  expect(await isActive(env.DB, "team:elsewhere", "mika", t2 + 10_000)).toBe(true);
+  expect(await isActive(env.DB, "team:another", "mika", t2 + 10_000)).toBe(false);
   await env.DB.prepare("UPDATE users SET push_while_active = 1 WHERE login = 'mika'").run();
-  expect(await isActive(env.DB, ORG, "mika", t0 + 10_000)).toBe(false);
+  expect(await isActive(env.DB, "team:elsewhere", "mika", t2 + 10_000)).toBe(false);
+});
+
+test("each person a message is for hears it at once in their open apps, with why", async () => {
+  const members = await listMembers(env.DB, ORG, null);
+  const told = [];
+  const relay = { idFromName: (n) => n, get: () => ({ fetch: async (_url, init) => { told.push(...JSON.parse(init.body).deliveries); return new Response("{}"); } }) };
+  const fenv = { ...env, ORG_RELAY: relay };
+  const at = new Date().toISOString();
+  // A group message is for everyone in it but its author.
+  for (const login of ["toru", "mika", "kenji"]) {
+    await env.DB.prepare("INSERT INTO conversation_members (org_id, channel, login, added_at) VALUES (?1, 'g:abc', ?2, ?3)").bind(ORG, login, at).run();
+  }
+  await queueMessagePushes(fenv, ORG, { id: "g1", kind: "message", channel: "g:abc", author_login: "toru", body: "lunch?", created_at: at }, { members });
+  // An @mention in a channel is for the person named.
+  await queueMessagePushes(fenv, ORG, { id: "c1", kind: "message", channel: "b:cafe", author_login: "toru", body: "@Kenji look", created_at: at }, { members });
+  const byMessage = (id) => told.filter((d) => d.event.value.id === id).map((d) => [d.to, d.event.value.reason]).sort();
+  expect(told.every((d) => d.event.name === "message_for_you")).toBe(true);
+  expect(byMessage("g1")).toEqual([["kenji", "direct"], ["mika", "direct"]]);
+  expect(byMessage("c1")).toEqual([["kenji", "mention"]]);
+  expect(told.some((d) => d.to === "toru")).toBe(false);
+  // Nobody it is for: nothing said to anyone.
+  told.length = 0;
+  await queueMessagePushes(fenv, ORG, { id: "c2", kind: "message", channel: "b:cafe", author_login: "toru", body: "morning all", created_at: at }, { members });
+  expect(told).toEqual([]);
 });
 
 test("a muted conversation is nobody's push", async () => {

@@ -1745,8 +1745,9 @@ async function handle(request, env, url, ctx) {
       // Which app the token is for, and from which APNs environment: the
       // Expo build is a different bundle id from the App Store app, and a
       // development build's token only works against the sandbox. Only apps
-      // this deployment sends for; an iPhone that says nothing keeps the
-      // deployment's topic (apns.js targetFor).
+      // this deployment sends for; an iPhone that names no app keeps the
+      // deployment's topic, and goes through the gateway it says its token
+      // is from (apns.js targetFor).
       const { allowedAppIds } = await import("./apns.js");
       const appId = typeof body.appId === "string" && body.appId ? body.appId : null;
       if (appId && platform === "ios" && !allowedAppIds(env).includes(appId)) {

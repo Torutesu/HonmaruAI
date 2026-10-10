@@ -42,7 +42,7 @@ beforeEach(async () => {
     await upsertUser(env.DB, { githubId: id, login, name: login, avatarUrl: null, locale: "en" });
     await upsertMembership(env.DB, "queue-down", id, "member");
   }
-  await registerDevice(env.DB, { deviceToken: "tok-reader", githubId: "9002", login: "reader" });
+  await registerDevice(env.DB, { deviceToken: "tok-reader", githubId: "9002", login: "reader", environment: "sandbox" });
   resetProviderToken();
   fetchMock.activate();
 });

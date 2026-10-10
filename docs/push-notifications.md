@@ -112,7 +112,7 @@ npx wrangler secret put APNS_KEY_ID       # e.g. ABC1234567
 npx wrangler secret put APNS_TEAM_ID      # your 10-character team id
 npx wrangler secret put APNS_TOPIC        # com.honmaru.ai — the bundle id, not the app name
 npx wrangler secret put APNS_PRIVATE_KEY  # paste the whole .p8, BEGIN/END lines included
-npx wrangler secret put APNS_ENVIRONMENT  # "production" for TestFlight and the App Store
+npx wrangler secret put APNS_ENVIRONMENT  # optional: the gateway for a phone that does not say
 ```
 
 `APNS_PRIVATE_KEY` survives a shell that turns newlines into a literal `\n` —
@@ -126,17 +126,19 @@ errors, no failed decisions, just no notifications. `GET /health` reports
 
 ### 4. Environments
 
-`APNS_ENVIRONMENT` decides which Apple host the Worker talks to, and the *app*
-tells the server which kind of token it registered:
+The *app* tells the server which kind of token it registered, and each phone
+is sent through the gateway its token is from:
 
-| Build | Token registered as | Needs |
-|-------|---------------------|-------|
-| From Xcode (Debug) | `sandbox` | `APNS_ENVIRONMENT=sandbox` |
-| TestFlight / App Store | `production` | `APNS_ENVIRONMENT=production` |
+| Build | Token registered as | Sent through |
+|-------|---------------------|--------------|
+| From Xcode (Debug) | `sandbox` | `api.sandbox.push.apple.com` |
+| TestFlight / App Store | `production` | `api.push.apple.com` |
 
-Sending a sandbox token to the production host fails with `BadDeviceToken`,
-which looks exactly like a bug in the code. If notifications work on a
-development build and stop on TestFlight, this is why.
+`APNS_ENVIRONMENT` is only the fallback for a device row that says neither.
+It used to decide for every phone that named no app — which, unset, meant the
+sandbox: every App Store token came back `BadDeviceToken` and the phone was
+forgotten. Sending a token to the other host still fails that way, which looks
+exactly like a bug in the code.
 
 The entitlement (`TikTokForWork/HonmaruAI.entitlements`) says `development` on
 purpose. Apple rewrites it to production when it re-signs for distribution, and
@@ -197,8 +199,7 @@ change.
 | The app never asks for permission | `PushService.isEnabledInThisBuild` is still false |
 | `Provisioning profile … doesn't include the aps-environment entitlement` | Step 1 was skipped, or the reissued profile was not downloaded |
 | `/health` says `push: false` | One of the four secrets is missing |
-| Works in Xcode, silent on TestFlight | `APNS_ENVIRONMENT` still `sandbox` |
-| `BadDeviceToken` in the logs | Environment mismatch, either direction |
+| `BadDeviceToken` in the logs | The token was registered with the wrong `environment` (or none, and `APNS_ENVIRONMENT` points the other way) |
 | `TooManyProviderTokenUpdates` | Apple throttles a provider token refreshed more than once per 20 minutes. The token is cached for 45 — if you see this, something is calling `resetProviderToken` |
 | Registered but nothing arrives | `device_tokens` has no row: check the app got past the permission prompt, and that `x-session-token` was set when it registered |
 | Notifications stop after a reinstall | Expected. APNs reissues the token; the app re-registers on next launch, and the old one is deleted the first time Apple answers 410 |

@@ -32,7 +32,7 @@ beforeEach(async () => {
   const { upsertUser, registerDevice } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "9101", login: "linh", name: "Linh", avatarUrl: null, locale: "vi" });
   await upsertUser(env.DB, { githubId: "9102", login: "alice", name: "Alice", avatarUrl: null, locale: "en" });
-  await registerDevice(env.DB, { deviceToken: "tok-linh", githubId: "9101", login: "linh" });
+  await registerDevice(env.DB, { deviceToken: "tok-linh", githubId: "9101", login: "linh", environment: "sandbox" });
   forgetLearnedCopy();
   resetProviderToken();
   fetchMock.activate();

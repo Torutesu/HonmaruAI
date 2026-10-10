@@ -49,6 +49,8 @@ export class WebSocketClient {
   /// own counts arrive as a card update; these carry the words.
   /// Something said in a channel this person can see, in their own terms.
   onChannelMessage?: (message: ChannelMessage) => void
+  /// The server's word that a message is for this person: what a phone is pushed for.
+  onMessageForYou?: (v: { id: string; reason: string }) => void
   /// What the AI is doing with a message it was asked to make a decision of.
   onChannelProgress?: (progress: { channel: string; parentId: string | null; messageId: string; step: string; cardId?: string; recipientName?: string | null; agent?: { id: string; handle: string; name: string; emoji: string | null; avatarUrl?: string | null } }) => void
   onComment?: (cardId: string, comment: { id: string; author: string; authorName?: string | null; body: string; mentions: string[]; createdAt: string }) => void
@@ -383,6 +385,8 @@ export class WebSocketClient {
       this.onChannelGroup?.({ view: String(event.value.view), refs: Array.isArray(event.value.refs) ? event.value.refs : [] })
     } else if (event.name === 'channel_message' && event.value?.message) {
       this.onChannelMessage?.(event.value.message)
+    } else if (event.name === 'message_for_you' && typeof event.value?.id === 'string') {
+      this.onMessageForYou?.({ id: event.value.id, reason: String(event.value.reason || '') })
     } else if (event.name === 'channel_ai_progress' && event.value?.channel) {
       this.onChannelProgress?.(event.value)
     } else if (event.name === 'typing' && event.value?.channel && event.value?.who) {

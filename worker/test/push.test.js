@@ -29,8 +29,8 @@ beforeEach(async () => {
   const { upsertUser, registerDevice, createSession } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "5001", login: "alice", name: null, avatarUrl: null, locale: "en" });
   await upsertUser(env.DB, { githubId: "5002", login: "bob", name: null, avatarUrl: null, locale: "en" });
-  await registerDevice(env.DB, { deviceToken: "tok-alice-phone", githubId: "5001", login: "alice" });
-  await registerDevice(env.DB, { deviceToken: "tok-alice-ipad", githubId: "5001", login: "alice" });
+  await registerDevice(env.DB, { deviceToken: "tok-alice-phone", githubId: "5001", login: "alice", environment: "sandbox" });
+  await registerDevice(env.DB, { deviceToken: "tok-alice-ipad", githubId: "5001", login: "alice", environment: "sandbox" });
   globalThis.__aliceSession = await createSession(env.DB, "5001", "gho_alice");
 });
 
@@ -114,7 +114,7 @@ test("a decision notifies the person who asked for it", async () => {
 
 test("a dead token is dropped rather than retried forever", async () => {
   const { registerDevice, devicesForLogin } = await import("../src/db.js");
-  await registerDevice(env.DB, { deviceToken: "tok-uninstalled", githubId: "5002", login: "bob" });
+  await registerDevice(env.DB, { deviceToken: "tok-uninstalled", githubId: "5002", login: "bob", environment: "sandbox" });
 
   fetchMock.get("https://api.sandbox.push.apple.com")
     .intercept({ path: "/3/device/tok-uninstalled", method: "POST" })
@@ -176,8 +176,8 @@ test("registering a device needs a session", async () => {
 
 test("a token reissued to a different account moves with it", async () => {
   const { registerDevice } = await import("../src/db.js");
-  await registerDevice(env.DB, { deviceToken: "tok-shared", githubId: "5001", login: "alice" });
-  await registerDevice(env.DB, { deviceToken: "tok-shared", githubId: "5002", login: "bob" });
+  await registerDevice(env.DB, { deviceToken: "tok-shared", githubId: "5001", login: "alice", environment: "sandbox" });
+  await registerDevice(env.DB, { deviceToken: "tok-shared", githubId: "5002", login: "bob", environment: "sandbox" });
 
   const row = await env.DB
     .prepare("SELECT login FROM device_tokens WHERE device_token = 'tok-shared'")

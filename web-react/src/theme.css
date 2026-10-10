@@ -63,6 +63,17 @@
   margin: 0 auto;
   padding: 0 24px;
 }
+/* While a saved sign-in is checked: the one line, and its Try again, in
+   the middle of the screen rather than at its top edge (#243). */
+.screen-body.boot-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  text-align: center;
+}
+.screen-body.boot-body p { margin: 0; }
 .screen-foot {
   width: 100%;
   max-width: 430px;
@@ -483,6 +494,13 @@
     border-radius: 24px 24px 0 0;
     padding-top: 36px;
     padding-bottom: 8px;
+  }
+  /* A card with nothing under it — the loading screen, a lone message —
+     closes itself instead of stopping at an open bottom edge (#243). */
+  .screen:not(.shell .screen) .screen-body:last-child {
+    border-bottom: 1px solid var(--bone);
+    border-radius: 24px;
+    padding-bottom: 36px;
   }
   .screen:not(.shell .screen) .screen-body.welcome-body,
   .screen:not(.shell .screen) .screen-body.ob-body { justify-content: flex-start; }

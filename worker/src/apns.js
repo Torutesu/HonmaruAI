@@ -87,16 +87,22 @@ export function allowedAppIds(env) {
   return list;
 }
 
-/// Where one phone's notification goes. A device that said which app it is
-/// and which APNs environment its token is from (a development build's
-/// token is a sandbox token) is sent exactly there. One registered before
-/// devices said so — the App Store app — keeps the deployment's topic and
-/// environment, as it always had.
+/// Where one phone's notification goes: under the topic of the app it said
+/// it is (the deployment's own topic when it said none, as the App Store app
+/// does), through the gateway its token is from. A token only works on the
+/// gateway that issued it — a Release build's at production, an Xcode
+/// build's at the sandbox — and every iPhone app says which when it
+/// registers (a row from before that is production, the column's default).
+/// The deployment's APNS_ENVIRONMENT used to decide for the App Store app;
+/// left unset it meant the sandbox, every App Store token came back
+/// BadDeviceToken, and the phone was forgotten on each push. It is only the
+/// fallback now, for a device that cannot say.
 export function targetFor(env, device) {
   const app = device?.app_id && allowedAppIds(env).includes(device.app_id) ? device.app_id : null;
-  if (!app) return { topic: env.APNS_TOPIC, host: apnsHost(env) };
-  const host = device.environment === "sandbox" ? "https://api.sandbox.push.apple.com" : "https://api.push.apple.com";
-  return { topic: app, host };
+  const host = device?.environment === "sandbox" ? "https://api.sandbox.push.apple.com"
+    : device?.environment === "production" ? "https://api.push.apple.com"
+      : apnsHost(env);
+  return { topic: app || env.APNS_TOPIC, host };
 }
 
 /// An APNs device token is hexadecimal. Sixty-four characters is the usual
