@@ -10,7 +10,7 @@
 import { getUserByGithubId, upsertBusiness, businessSlug } from "./db.js";
 import { audit } from "./audit.js";
 import { listMembers, removeMember, changeRole, inviteRef, memberRef } from "./team.js";
-import { endSessions } from "./sessions.js";
+import { endAccountHere } from "./sessions.js";
 import { enforceSubject } from "./ratelimit.js";
 import { resolveOrgKey, keyActor, actingOwner, apiError } from "./orgKeys.js";
 import openapi from "../../docs/admin-api.openapi.json";
@@ -84,8 +84,10 @@ async function route(request, env, url, key) {
     if (denied) return denied;
     if (target.role === "owner") return apiError(403, "owner_protected", "A workspace key cannot change or remove an owner.");
     if (memberMatch[2] && request.method === "POST") {
-      const ended = await endSessions(env.DB, target.userId);
-      await audit(env, request, { orgId, action: "auth.session_revoked", actor, entity, details: { count: ended, everywhere: true } });
+      // Out of this workspace. A workspace's key used to sign the person out
+      // of every workspace they belong to — anyone's, not only this one.
+      const ended = await endAccountHere(env.DB, orgId, target.userId);
+      await audit(env, request, { orgId, action: "auth.session_revoked", actor, entity, details: { count: ended, everywhere: false } });
       return json({ data: { ended } });
     }
     if (request.method === "PATCH") {
@@ -105,7 +107,7 @@ async function route(request, env, url, key) {
       if (!owner) return apiError(409, "no_owner", "This workspace has no owner to act for.");
       const out = await removeMember(env, { orgId, actorId: owner, targetId: target.userId });
       if (out.error) return apiError(out.status || 400, "invalid_request", out.error);
-      const ended = await endSessions(env.DB, target.userId);
+      const ended = await endAccountHere(env.DB, orgId, target.userId);
       const { evictMember } = await import("./announce.js");
       await evictMember(env, orgId, target.login).catch(() => {});
       await audit(env, request, { orgId, action: "member.removed", actor, entity, details: { sessions_ended: ended } });

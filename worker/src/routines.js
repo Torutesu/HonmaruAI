@@ -1,4 +1,4 @@
-import { NOT_PERSONAL_SQL } from "./access.js";
+import { NOT_PERSONAL_SQL, accessFor, mayRead, mayReadCard } from "./access.js";
 import { CADENCES, isTimeZone, nextRunAt, describeSchedule } from "./schedule.js";
 import { saveCard, getUserByLogin, isMember, businessSlug } from "./db.js";
 import { searchDecisions } from "./insights.js";
@@ -302,9 +302,16 @@ export async function gatherMaterial(db, orgId, routine, { now = new Date() } = 
   // People by name, never by login: a login is `u:<email address>` for
   // everyone who signed in with one, and a report is read, forwarded,
   // downloaded and printed — and, written by a model, sent to one.
-  const decided = (decidedRows.results || []).map(card).filter(isWork);
-  const waiting = (waitingRows.results || []).map(card).filter(isWork);
-  const stuck = (stuckRows.results || []).map(card).filter(isWork);
+  // A private channel's decisions stay its members'. A report its owner
+  // keeps for themselves may hold the ones they are in; one sent to someone
+  // else or said in a channel is read further than any one channel, so it
+  // holds none.
+  const owner = await accessFor(db, orgId, routine.owner_login || "");
+  const forOwnerOnly = !routine.channel && routine.recipient_login === routine.owner_login;
+  const readable = (c) => (forOwnerOnly ? mayReadCard(c, owner) : !(c.business && owner.closed.has(`b:${c.business}`)));
+  const decided = (decidedRows.results || []).map(card).filter(isWork).filter(readable);
+  const waiting = (waitingRows.results || []).map(card).filter(isWork).filter(readable);
+  const stuck = (stuckRows.results || []).map(card).filter(isWork).filter(readable);
   const names = await namesFor(db, [...decided, ...waiting, ...stuck].flatMap((c) => [c.recipientUserID, c.senderUserID, c.decision?.actorUserID]));
   const nameOf = (login) => (login ? names.get(login) || plainName(login) : null);
   const line = (c) => ({
@@ -509,12 +516,21 @@ export async function runRoutine(env, routine, { now = new Date(), manual = fals
 
   // Somebody who left the workspace does not keep sending it reports, and
   // nobody receives a report in a workspace they are no longer in.
+  // Nor does a guest, who sees only the decisions they are on, send or
+  // receive a report on the team's (their own daily report is theirs); and
+  // a report is said only in a channel its owner can still read.
   const ownerStill = await isMember(db, routine.org_id, routine.owner_github_id);
   const recipient = await getUserByLogin(db, routine.recipient_login);
   const recipientStill = recipient ? await isMember(db, routine.org_id, recipient.github_id) : false;
-  if (!ownerStill || !recipientStill) {
+  const ownerSees = ownerStill ? await accessFor(db, routine.org_id, routine.owner_login || "") : null;
+  const recipientGuest = recipientStill ? (await accessFor(db, routine.org_id, routine.recipient_login)).guest : false;
+  const guestReport = !DAILY_KINDS.includes(routine.kind) && (ownerSees?.guest || recipientGuest);
+  const roomStill = !routine.channel || (ownerSees && mayRead(routine.channel, ownerSees));
+  if (!ownerStill || !recipientStill || guestReport || !roomStill) {
     await db.prepare("UPDATE routines SET enabled = 0, next_run_at = NULL, last_error = ?3, updated_at = ?4 WHERE org_id = ?1 AND id = ?2")
-      .bind(routine.org_id, routine.id, "Paused: the owner or the recipient is no longer in this workspace.", now.toISOString())
+      .bind(routine.org_id, routine.id, !ownerStill || !recipientStill
+        ? "Paused: the owner or the recipient is no longer in this workspace."
+        : "Paused: a guest cannot send or receive a report, nor post one to a channel its owner is not in.", now.toISOString())
       .run();
     return { error: "not a member" };
   }

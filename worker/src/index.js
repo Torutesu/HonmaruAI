@@ -141,11 +141,15 @@ function after(ctx, work) {
   else return work();
 }
 
-/// A channel somebody may rename or delete: any public one, a private one
-/// only from inside.
+/// A channel somebody may rename, delete or archive: any public one, a
+/// private one only from inside — and never a guest's to touch, who is let
+/// into a channel to talk in it, not to take it away from the team.
 async function canTouchChannel(db, orgId, slug, login) {
+  if (!login) return false;
+  const access = await accessFor(db, orgId, login);
+  if (access.guest) return false;
   if (!(await isPrivate(db, orgId, slug))) return true;
-  return Boolean(login) && mayRead(`b:${slug}`, await accessFor(db, orgId, login));
+  return mayRead(`b:${slug}`, access);
 }
 
 /// Tell each of these people their own list of channels again — after a
@@ -500,7 +504,7 @@ async function handle(request, env, url, ctx) {
       if (limited) return limited;
       const body = await request.json().catch(() => ({}));
       const result = await login(env, { email: body.email, password: body.password, inviteCode: body.inviteCode });
-      if (result.error) return json({ message: result.error }, 401);
+      if (result.error) return json({ message: result.error }, result.status || 401);
       await signedIn(env, request, result.token, result.userId, "password");
       return json(result);
     }
@@ -1029,11 +1033,10 @@ async function handle(request, env, url, ctx) {
         // What the sender could open themselves, and nothing of the team's for
         // a guest.
         const routeAccess = await cardAccess(env, request, routeOrgId);
-        const routeVisible = (h) => mayReadCard({ recipientUserID: h.recipient, senderUserID: h.sender, business: h.business }, routeAccess);
         try {
           const [load, recent, playbook] = routeAccess.guest ? [[], [], []] : await Promise.all([
             recipientLoad(env.DB, routeOrgId),
-            recentDecisions(env.DB, routeOrgId).then((hits) => hits.filter(routeVisible)),
+            recentDecisions(env.DB, routeOrgId, { access: routeAccess }),
             // The rules this team has set, the ones that bear on this
             // instruction first.
             relevantMemories(env.DB, routeOrgId, body.text),
@@ -1045,7 +1048,7 @@ async function handle(request, env, url, ctx) {
         // And the one thing the model may look up before it writes: what
         // this team already decided about the same thing.
         const lookupOrg = routeOrgId;
-        lookups = { searchDecisions: async (query) => (await searchDecisions(env.DB, lookupOrg, query)).filter(routeVisible) };
+        lookups = { searchDecisions: (query) => searchDecisions(env.DB, lookupOrg, query, { access: routeAccess }) };
         // And the person's own connected tools, when they have them.
         try {
           const routeSession = await getSession(env.DB, request.headers.get("x-session-token"));
@@ -1317,8 +1320,14 @@ async function handle(request, env, url, ctx) {
       // A private channel is its members' to rename; to anybody else it is
       // not there.
       if (!(await canTouchChannel(env.DB, body.orgId, String(body.slug), who))) return json({ message: "A channel needs a name, and this one must exist." }, 400);
+      const before = await env.DB.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, String(body.slug)).first();
       const renamed = await renameBusiness(env.DB, body.orgId, String(body.slug), body.name);
       if (!renamed) return json({ message: "A channel needs a name, and this one must exist." }, 400);
+      if (before?.name !== renamed.name) {
+        const session = await getSession(env.DB, request.headers.get("x-session-token"));
+        const me = await getUserByGithubId(env.DB, session.github_id);
+        await audit(env, request, { orgId: body.orgId, action: "channel.renamed", actor: person(me), entity: { type: "channel", id: renamed.slug, name: `#${renamed.name}` }, details: { from: before?.name || null } });
+      }
       await tellRoom(body.orgId);
       return json({ business: renamed, businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }) });
     }
@@ -1331,6 +1340,9 @@ async function handle(request, env, url, ctx) {
       if (!orgId) return json({ message: "orgId is required" }, 400);
       const denied = await requireMember(env, request, orgId);
       if (denied) return denied;
+      // The candidates to delete, for someone who may delete them: not a guest.
+      const guest = await guestRefused(env, request, orgId);
+      if (guest) return guest;
       const who = await viewerLogin();
       const visible = (await listBusinesses(env.DB, orgId, { viewer: who })).filter((b) => !b.private);
       const unused = [];
@@ -1416,6 +1428,7 @@ async function handle(request, env, url, ctx) {
       if (denied) return denied;
       const who = await viewerLogin();
       if (!(await canTouchChannel(env.DB, body.orgId, String(body.slug), who))) return json({ businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }), unfiled: 0 });
+      const gone = await env.DB.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, String(body.slug)).first();
       const wasPrivate = await isPrivate(env.DB, body.orgId, String(body.slug));
       const insiders = wasPrivate ? await membersOf(env.DB, body.orgId, `b:${body.slug}`) : [];
       // Deleting a channel empties it: its cards are unfiled (the decisions
@@ -1424,6 +1437,11 @@ async function handle(request, env, url, ctx) {
       await removeBusiness(env.DB, body.orgId, body.slug);
       await env.DB.prepare("DELETE FROM conversation_members WHERE org_id = ?1 AND channel = ?2").bind(body.orgId, `b:${body.slug}`).run();
       const unfiled = await unfileBusiness(env.DB, body.orgId, String(body.slug));
+      if (gone) {
+        const session = await getSession(env.DB, request.headers.get("x-session-token"));
+        const me = await getUserByGithubId(env.DB, session.github_id);
+        await audit(env, request, { orgId: body.orgId, action: "channel.deleted", actor: person(me), entity: { type: "channel", id: String(body.slug), name: `#${gone.name}` }, details: { private: wasPrivate, unfiled: unfiled.length } });
+      }
       await tellRoom(body.orgId);
       if (wasPrivate) await tellMembers(env, body.orgId, insiders);
       if (unfiled.length) await announceCards(env, body.orgId, unfiled, { isNew: false });
@@ -2191,9 +2209,12 @@ async function handle(request, env, url, ctx) {
       try {
         const terms = searchTermsFor(question, card);
         const available = await connectedSources(env, session, orgId);
+        // Only what the asker could open themselves: a guest's own cards, a
+        // private channel's to its members.
+        const access = await cardAccess(env, request, orgId);
         const [decisionsHit, recentHit, notionHit, githubHit, playbookHit, talkHit] = await Promise.all([
-          getUserByGithubId(env.DB, session.github_id).then((me) => searchDecisions(env.DB, orgId, terms, { viewer: me?.login || null })),
-          recentDecisions(env.DB, orgId, { limit: 8 }),
+          searchDecisions(env.DB, orgId, terms, { viewer: access.login || null, access }),
+          recentDecisions(env.DB, orgId, { limit: 8, access }),
           available.notion ? searchNotion(env, session.github_id, terms).catch((err) => { console.error("notion search failed", err?.message || err); return []; }) : [],
           available.github ? searchGithubIssues(session, orgId, terms, env).catch((err) => { console.error("github search failed", err?.message || err); return []; }) : [],
           relevantMemories(env.DB, orgId, `${card.title || ""} ${question}`),
@@ -2201,9 +2222,6 @@ async function handle(request, env, url, ctx) {
           // decision came out of is often the answer.
           card.business ? recentBusinessTalk(env.DB, orgId, [card.business], { limit: 12 }).catch(() => []) : [],
         ]);
-        // Only what the asker could open themselves: a guest's own cards, a
-        // private channel's to its members.
-        const access = await cardAccess(env, request, orgId);
         const visible = (h) => mayReadCard({ recipientUserID: h.recipient, senderUserID: h.sender, business: h.business }, access);
         talk = card.business && mayRead(`b:${card.business}`, access) ? talkHit : [];
         playbook = access.guest ? [] : playbookHit;
@@ -2330,7 +2348,7 @@ async function handle(request, env, url, ctx) {
       const denied = await requireMember(env, request, orgId);
       if (denied) return denied;
       const access = await cardAccess(env, request, orgId);
-      const found = q ? await searchDecisions(env.DB, orgId, q, { limit: 20, viewer: access.login || null }) : [];
+      const found = q ? await searchDecisions(env.DB, orgId, q, { limit: 20, viewer: access.login || null, access }) : [];
       const hits = found.filter((h) => mayReadCard({ recipientUserID: h.recipient, senderUserID: h.sender, business: h.business }, access)).slice(0, 12);
       return json({ hits });
     }

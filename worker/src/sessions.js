@@ -128,6 +128,14 @@ export async function endHere(db, orgId, tokens) {
   return list.length;
 }
 
+/// Sign one account out of one workspace, on every device — what a
+/// workspace's admin, API key or identity provider may do. Their other
+/// workspaces are not that workspace's to end.
+export async function endAccountHere(db, orgId, githubId) {
+  const { results } = await db.prepare("SELECT token FROM sessions WHERE github_id = ?1").bind(String(githubId)).all();
+  return endHere(db, orgId, (results || []).map((r) => r.token));
+}
+
 /// Every live session of one account, the one asking first — or, for a
 /// workspace's admin (`orgId`), only those used in that workspace and not
 /// signed out of it.
@@ -240,8 +248,7 @@ export async function handleSessions(request, env, url) {
       let ended;
       if (self) ended = await endSessions(env.DB, target.userId, { keep: token });
       else {
-        const { results } = await env.DB.prepare("SELECT token FROM sessions WHERE github_id = ?1").bind(String(target.userId)).all();
-        ended = await endHere(env.DB, orgId, (results || []).map((r) => r.token));
+        ended = await endAccountHere(env.DB, orgId, target.userId);
       }
       await audit(env, request, { orgId, action: "auth.session_revoked", actor: person(user), entity: { type: "user", id: target.login, name: target.name }, details: { count: ended, everywhere: self } });
       // And, if asked, their link to this workspace's identity provider:

@@ -12,7 +12,7 @@ import { getUserByGithubId, upsertUser, upsertMembership } from "./db.js";
 import { audit } from "./audit.js";
 import { sha256Hex, settleProvedAddress } from "./auth.js";
 import { removeMember } from "./team.js";
-import { endSessions } from "./sessions.js";
+import { endAccountHere } from "./sessions.js";
 import { enforceSubject } from "./ratelimit.js";
 import { resolveOrgKey, keyActor, actingOwner } from "./orgKeys.js";
 import { domainOf, domainMatches } from "./domains.js";
@@ -134,7 +134,9 @@ async function setActive(env, request, key, row, active) {
   if (!owner) return scimError(409, "This workspace has no owner to act for.");
   const out = await removeMember(env, { orgId, actorId: owner, targetId: row.user_github_id });
   if (out.error && out.status !== 404) return scimError(out.status || 400, out.error);
-  const ended = await endSessions(env.DB, row.user_github_id);
+  // Signed out here; a deactivation in one company's directory does not
+  // sign the person out of the other workspaces they are in.
+  const ended = await endAccountHere(env.DB, orgId, row.user_github_id);
   if (user?.login) {
     const { evictMember } = await import("./announce.js");
     await evictMember(env, orgId, user.login).catch(() => {});

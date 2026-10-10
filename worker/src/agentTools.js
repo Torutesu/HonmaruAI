@@ -11,6 +11,8 @@
 import { readLink, isPublicUrl, linksBlock } from "./links.js";
 import { readerEnvFor } from "./orgAI.js";
 import { searchDecisions } from "./insights.js";
+import { accessFor } from "./access.js";
+import { getUserByGithubId } from "./db.js";
 import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
 
 const query = (what) => ({
@@ -49,7 +51,11 @@ export async function agentTools(env, { orgId, session, language = "en", persona
     description: "Search this team's own past decisions (what was asked, who decided, approved or rejected, when). Use it whenever the request touches something the team may already have decided, before searching the web.",
     parameters: query("Two to four key words, in the language the team writes in."),
     run: async ({ query: q }) => {
-      const found = await searchDecisions(env.DB, orgId, String(q || "")).catch(() => []);
+      // The person this conversation is with, and what they may open: their
+      // own personal cards, the private channels they are in. Nobody else's.
+      const me = session ? await getUserByGithubId(env.DB, session.github_id).catch(() => null) : null;
+      const access = await accessFor(env.DB, orgId, me?.login || "");
+      const found = await searchDecisions(env.DB, orgId, String(q || ""), { viewer: me?.login || null, access }).catch(() => []);
       if (!found.length) return "No past decisions match.";
       return found.slice(0, 10).map((d) => `- ${d.decidedAt ? String(d.decidedAt).slice(0, 10) : "pending"}${d.recipient ? ` ${d.recipient}` : ""} ${d.status || ""}: ${String(d.title || "").slice(0, 160)}`).join("\n");
     },

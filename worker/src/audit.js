@@ -68,6 +68,8 @@ export const AUDIT_ACTIONS = {
   "workspace.ai_settings_changed": { category: "workspace", severity: "warning", text: "{actor} changed the workspace AI settings" },
   "workspace.teammate_changed": { category: "workspace", severity: "warning", text: "{actor} changed the AI teammate {entity}" },
   "channel.created": { category: "channel", severity: "notice", text: "{actor} created {entity}" },
+  "channel.renamed": { category: "channel", severity: "notice", text: "{actor} renamed a channel to {entity}" },
+  "channel.deleted": { category: "channel", severity: "warning", text: "{actor} deleted {entity}" },
   "channel.archived": { category: "channel", severity: "notice", text: "{actor} archived {entity}" },
   "channel.unarchived": { category: "channel", severity: "notice", text: "{actor} restored {entity}" },
   "channel.member_added": { category: "channel", severity: "notice", text: "{actor} added {entity} to a channel" },

@@ -3,6 +3,7 @@
 // simple; stronger token handling is a later concern.
 
 import { createSession, upsertUser, upsertMembership, primaryOrgId } from "./db.js";
+import { credentialLocked, credentialFailed } from "./ratelimit.js";
 
 const ENC = new TextEncoder();
 
@@ -212,6 +213,8 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
 }
 
 // Log in: look up by email, verify the password, return a session token.
+export const PASSWORD_LOCKED = "Too many wrong passwords for this account. Try again in an hour, or sign in with a code sent to your email.";
+
 export async function login(env, { email, password, inviteCode }) {
   if (!validEmail(email) || typeof password !== "string") {
     return { error: "Invalid email or password." };
@@ -223,8 +226,14 @@ export async function login(env, { email, password, inviteCode }) {
     .first();
   if (!row || !row.password_hash) return { error: "Invalid email or password." };
 
+  // Per account, whatever address the guesses come from. The code sent to
+  // the address still works: a guesser cannot lock its owner out of that.
+  if (await credentialLocked(env, `pw:${row.github_id}`)) return { error: PASSWORD_LOCKED, status: 429 };
   const attempt = await hashPassword(password, row.password_salt);
-  if (!safeEqual(attempt, row.password_hash)) return { error: "Invalid email or password." };
+  if (!safeEqual(attempt, row.password_hash)) {
+    await credentialFailed(env, `pw:${row.github_id}`);
+    return { error: "Invalid email or password." };
+  }
 
   const token = await createSession(env.DB, row.github_id, EMAIL_AUTH_TOKEN);
   // An invite means the same thing on both ways in. A wrong one does not cost

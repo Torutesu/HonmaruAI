@@ -18,6 +18,7 @@ import { createSession, primaryOrgId } from "./db.js";
 import { isMailConfigured, sendMail } from "./mailer.js";
 import { composeCodeEmail } from "./notifyCopy.js";
 import { loadCopy } from "./copy.js";
+import { credentialLocked, credentialFailed } from "./ratelimit.js";
 
 // Long enough to switch to a mail app and back, short enough that a code read
 // over someone's shoulder is worth little by the time they type it.
@@ -177,6 +178,12 @@ export async function consumeCode(env, address, code) {
   // One message for missing, expired and exhausted. Which of those it is only
   // ever tells a guesser how close they are.
   const dead = { error: "That code is not valid. Ask for a new one.", status: 400 };
+  // Five guesses a code, and a new code a minute, was three hundred guesses
+  // an hour at a six-digit code. Wrong codes are now counted per address
+  // across every code it is sent.
+  if (await credentialLocked(env, `otp:${address}`)) {
+    return { error: "Too many wrong codes for this address. Try again in an hour.", status: 429 };
+  }
   // The guess is charged before it is checked, in the same statement that
   // reads the code: `attempts` is spent by the UPDATE, and a row that has no
   // attempts left does not come back at all. It used to be read, compared
@@ -199,6 +206,7 @@ export async function consumeCode(env, address, code) {
 
   const attempt = await hashPassword(String(code).trim(), row.code_salt);
   if (!safeEqual(attempt, row.code_hash)) {
+    await credentialFailed(env, `otp:${address}`);
     const left = MAX_ATTEMPTS - row.attempts;
     if (left <= 0) {
       await env.DB.prepare("DELETE FROM login_codes WHERE email = ?1").bind(address).run();
