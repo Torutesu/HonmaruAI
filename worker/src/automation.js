@@ -46,6 +46,21 @@ async function caller(env, request, orgId) {
   return { session, user };
 }
 
+/// The team's routines and playbook are the team's: a guest, who sees only
+/// the decisions they are on, neither reads them nor writes to them. A rule
+/// in the playbook is read into every answer the team's AI gives.
+async function guestRefused(env, orgId, who, what) {
+  const { isGuest } = await import("./access.js");
+  return (await isGuest(env.DB, orgId, who.session.github_id)) ? json({ message: `A guest cannot use ${what}.` }, 403) : null;
+}
+
+/// A channel a routine says its report in is one its owner can read.
+async function channelRefused(env, orgId, who, channel) {
+  if (!channel) return null;
+  const { accessFor, mayRead } = await import("./access.js");
+  return mayRead(channel, await accessFor(env.DB, orgId, who.user.login)) ? null : json({ message: "No such channel." }, 400);
+}
+
 /// A recipient a client named — "member:<ref>", their own login, or
 /// nothing — to a member's login. Undefined when it names nobody here.
 async function resolveRecipient(env, orgId, user, value) {
@@ -109,6 +124,8 @@ export async function handleAutomation(request, env, url, ctx = null) {
     const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
+    const guest = await guestRefused(env, orgId, who, "routines");
+    if (guest) return guest;
     const locale = await loadCopy(env, who.user.locale || "en", { orgId });
     if (request.method === "GET") {
       const rows = await listRoutines(env.DB, orgId, who.session.github_id);
@@ -128,6 +145,8 @@ export async function handleAutomation(request, env, url, ctx = null) {
     }
     const checked = validateRoutineInput(body, { locale });
     if (checked.error) return json({ message: checked.error }, 400);
+    const room = await channelRefused(env, orgId, who, checked.value.channel);
+    if (room) return room;
     // A daily report is a draft of your own day: it only ever comes to you.
     const recipientLogin = DAILY_KINDS.includes(checked.value.kind)
       ? who.user.login
@@ -149,6 +168,8 @@ export async function handleAutomation(request, env, url, ctx = null) {
     const orgId = request.method === "DELETE" ? url.searchParams.get("orgId") : body?.orgId;
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
+    const guest = await guestRefused(env, orgId, who, "routines");
+    if (guest) return guest;
     const locale = await loadCopy(env, who.user.locale || "en", { orgId });
     const current = await getRoutine(env.DB, orgId, id);
     // Somebody else's routine does not exist, as far as this caller knows.
@@ -169,6 +190,8 @@ export async function handleAutomation(request, env, url, ctx = null) {
     if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
     const checked = validateRoutineInput(body, { partial: true, locale });
     if (checked.error) return json({ message: checked.error }, 400);
+    const room = await channelRefused(env, orgId, who, checked.value.channel);
+    if (room) return room;
     let recipientLogin;
     if (body.recipient !== undefined) {
       recipientLogin = await resolveRecipient(env, orgId, who.user, body.recipient);
@@ -187,6 +210,8 @@ export async function handleAutomation(request, env, url, ctx = null) {
     const orgId = request.method === "POST" ? body.orgId : url.searchParams.get("orgId");
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
+    const guest = await guestRefused(env, orgId, who, "the playbook");
+    if (guest) return guest;
     const admin = await isAdmin(env.DB, orgId, who.session.github_id);
     if (request.method === "GET") {
       const memories = await listMemories(env.DB, orgId);
@@ -212,6 +237,8 @@ export async function handleAutomation(request, env, url, ctx = null) {
     const orgId = request.method === "PUT" ? body?.orgId : url.searchParams.get("orgId");
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
+    const guest = await guestRefused(env, orgId, who, "the playbook");
+    if (guest) return guest;
     const memory = await getMemory(env.DB, orgId, id);
     if (!memory) return json({ message: "no such rule" }, 404);
     // A rule is the team's; changing it is for whoever wrote it — or whose
