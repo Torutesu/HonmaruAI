@@ -393,7 +393,7 @@ function App() {
     return () => window.removeEventListener('honmaru:session-policy', on)
   })
 
-  if (restoring) return <div className="screen"><div className="screen-body">
+  if (restoring) return <div className="screen"><div className="screen-body boot-body">
     <p role={restoreError ? 'alert' : 'status'}>{t(restoreError === 'server'
       ? 'Honmaru AI is having trouble on its side. Try again in a little while.'
       : restoreError ? 'Could not reach the relay.' : 'Loading…')}</p>

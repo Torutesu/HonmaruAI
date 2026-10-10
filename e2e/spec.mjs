@@ -3416,6 +3416,14 @@ await step('the thread pane is resized by dragging its edge, and keeps its width
     await desk.keyboard.press('Enter')
     await openThread(ask)
     const before = await width('.slk-thread-pane')
+    // The pane sits under the top bar and ends at the window's foot, so its
+    // reply box is whole (#246).
+    const fit = await desk.evaluate(() => {
+      const pane = document.querySelector('.slk-thread-pane').getBoundingClientRect()
+      const box = document.querySelector('.slk-thread-pane .slk-composer').getBoundingClientRect()
+      return { pane: Math.round(pane.bottom), box: Math.round(box.bottom), vh: innerHeight }
+    })
+    if (fit.pane > fit.vh || fit.box > fit.vh) throw new Error(`the thread pane runs past the window: pane ends at ${fit.pane}, reply box at ${fit.box}, window ${fit.vh}`)
 
     // Dragged 200px to the left: wider, by as much as the room allows.
     const edge = await desk.$eval('.slk-thread-pane [data-pane-resize]', (el) => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })
