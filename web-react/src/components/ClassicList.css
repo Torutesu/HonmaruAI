@@ -564,6 +564,36 @@
   .classic.slk.slk .slk-pane { width: 500px; }
 }
 
+/* The thread pane's edge, dragged to make the pane wider or narrower
+   (PaneResizer). A phone gives the thread the whole screen: no edge there.
+   Whatever width was kept, the pane never covers more than the window
+   allows: over the conversation it leaves a strip of it showing, beside
+   the conversation it leaves the conversation room to be read. */
+.classic.slk.slk .slk-pane-resize { display: none; }
+@media (min-width: 720px) {
+  .classic.slk.slk .slk-thread-pane { min-width: 320px; max-width: calc(100vw - 80px); }
+  .classic.slk.slk .slk-pane-resize {
+    display: block; position: absolute; top: 0; bottom: 0; left: -4px; width: 8px; z-index: 6;
+    cursor: col-resize; touch-action: none;
+  }
+  .classic.slk.slk .slk-pane-resize::after {
+    content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px;
+    background: transparent; transition: background-color 120ms ease-out;
+  }
+  .classic.slk.slk .slk-pane-resize:hover::after,
+  .classic.slk.slk .slk-pane-resize:focus-visible::after,
+  body.slk-resizing .classic.slk.slk .slk-pane-resize::after { background: var(--slk-accent); }
+  .classic.slk.slk .slk-pane-resize:focus-visible { outline: none; }
+}
+@media (min-width: 1180px) {
+  .classic.slk.slk .slk-thread-pane { position: relative; max-width: calc(100vw - 620px); }
+}
+@media (prefers-reduced-motion: reduce) { .classic.slk.slk .slk-pane-resize::after { transition: none; } }
+/* While the edge is dragged: no text is selected on the way, and the
+   pointer says what is happening wherever it goes. */
+body.slk-resizing { cursor: col-resize; user-select: none; -webkit-user-select: none; }
+body.slk-resizing iframe { pointer-events: none; }
+
 /* ---- A phone gives the conversation the screen ---- */
 @media (max-width: 719px) {
   .shell.immersive .topbar, .shell.immersive .tabbar { display: none; }
