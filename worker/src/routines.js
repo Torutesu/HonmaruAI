@@ -517,15 +517,16 @@ export async function runRoutine(env, routine, { now = new Date(), manual = fals
   // Somebody who left the workspace does not keep sending it reports, and
   // nobody receives a report in a workspace they are no longer in.
   // Nor does a guest, who sees only the decisions they are on, send or
-  // receive a report on the team's; and a report is said only in a channel
-  // its owner can still read.
+  // receive a report on the team's (their own daily report is theirs); and
+  // a report is said only in a channel its owner can still read.
   const ownerStill = await isMember(db, routine.org_id, routine.owner_github_id);
   const recipient = await getUserByLogin(db, routine.recipient_login);
   const recipientStill = recipient ? await isMember(db, routine.org_id, recipient.github_id) : false;
   const ownerSees = ownerStill ? await accessFor(db, routine.org_id, routine.owner_login || "") : null;
   const recipientGuest = recipientStill ? (await accessFor(db, routine.org_id, routine.recipient_login)).guest : false;
+  const guestReport = !DAILY_KINDS.includes(routine.kind) && (ownerSees?.guest || recipientGuest);
   const roomStill = !routine.channel || (ownerSees && mayRead(routine.channel, ownerSees));
-  if (!ownerStill || !recipientStill || ownerSees.guest || recipientGuest || !roomStill) {
+  if (!ownerStill || !recipientStill || guestReport || !roomStill) {
     await db.prepare("UPDATE routines SET enabled = 0, next_run_at = NULL, last_error = ?3, updated_at = ?4 WHERE org_id = ?1 AND id = ?2")
       .bind(routine.org_id, routine.id, !ownerStill || !recipientStill
         ? "Paused: the owner or the recipient is no longer in this workspace."

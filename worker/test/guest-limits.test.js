@@ -73,9 +73,13 @@ test("a guest neither reads nor writes the team's playbook", async () => {
   expect(results.map((r) => r.text)).toEqual(["Budgets over 1M go to the CFO."]);
 });
 
-test("a guest cannot set up a routine on the team's decisions", async () => {
-  expect((await call(q("/routines"), guest)).status).toBe(403);
+test("a guest cannot set up a report on the team's decisions, but keeps a daily report of their own", async () => {
   expect((await call("/routines", guest, { method: "POST", body: { orgId: ORG, instruction: "Summarise every decision this week", cadence: "weekly", hour: 9 } })).status).toBe(403);
+  // Their own day, posted where they were let in (what onboarding sets up).
+  expect((await call("/routines", guest, { method: "POST", body: { orgId: ORG, kind: "daily_report", cadence: "weekdays", hour: 18, channel: "b:general" } })).status).toBe(201);
+  expect((await call("/routines", guest, { method: "POST", body: { orgId: ORG, kind: "daily_plan", cadence: "weekdays", hour: 9, channel: "b:board" } })).status).toBe(400);
+  const listed = await (await call(q("/routines"), guest)).json();
+  expect(listed.routines.map((r) => r.kind)).toEqual(["daily_report"]);
 });
 
 test("a routine is said only in a channel its owner can read", async () => {

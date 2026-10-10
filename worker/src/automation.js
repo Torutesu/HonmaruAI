@@ -46,7 +46,7 @@ async function caller(env, request, orgId) {
   return { session, user };
 }
 
-/// The team's routines and playbook are the team's: a guest, who sees only
+/// The team's playbook and reports are the team's: a guest, who sees only
 /// the decisions they are on, neither reads them nor writes to them. A rule
 /// in the playbook is read into every answer the team's AI gives.
 async function guestRefused(env, orgId, who, what) {
@@ -124,8 +124,6 @@ export async function handleAutomation(request, env, url, ctx = null) {
     const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
-    const guest = await guestRefused(env, orgId, who, "routines");
-    if (guest) return guest;
     const locale = await loadCopy(env, who.user.locale || "en", { orgId });
     if (request.method === "GET") {
       const rows = await listRoutines(env.DB, orgId, who.session.github_id);
@@ -145,6 +143,11 @@ export async function handleAutomation(request, env, url, ctx = null) {
     }
     const checked = validateRoutineInput(body, { locale });
     if (checked.error) return json({ message: checked.error }, 400);
+    // A guest's own daily report, yes; a report on the team's decisions, no.
+    if (!DAILY_KINDS.includes(checked.value.kind)) {
+      const guest = await guestRefused(env, orgId, who, "team reports");
+      if (guest) return guest;
+    }
     const room = await channelRefused(env, orgId, who, checked.value.channel);
     if (room) return room;
     // A daily report is a draft of your own day: it only ever comes to you.
@@ -168,12 +171,16 @@ export async function handleAutomation(request, env, url, ctx = null) {
     const orgId = request.method === "DELETE" ? url.searchParams.get("orgId") : body?.orgId;
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
-    const guest = await guestRefused(env, orgId, who, "routines");
-    if (guest) return guest;
     const locale = await loadCopy(env, who.user.locale || "en", { orgId });
     const current = await getRoutine(env.DB, orgId, id);
     // Somebody else's routine does not exist, as far as this caller knows.
     if (!current || current.owner_github_id !== String(who.session.github_id)) return json({ message: "no such routine" }, 404);
+    // A guest keeps their daily report; a team report from before they were
+    // a guest they may only delete.
+    if (request.method !== "DELETE" && (!DAILY_KINDS.includes(current.kind) || (body?.kind !== undefined && !DAILY_KINDS.includes(body.kind)))) {
+      const guest = await guestRefused(env, orgId, who, "team reports");
+      if (guest) return guest;
+    }
 
     if (request.method === "DELETE") {
       await deleteRoutine(env.DB, orgId, id);
