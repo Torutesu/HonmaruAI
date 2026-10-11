@@ -12,6 +12,10 @@ questions the product owner asked:
 It ends with a PoC whose acceptance criteria decide go / no-go before any large
 migration starts.
 
+The path from today's system to this one — scale targets per stage, and the
+security and scale gaps to close before selling to other companies — is in
+[security-and-scale-hardening.md](security-and-scale-hardening.md).
+
 ---
 
 ## 1. Decision summary

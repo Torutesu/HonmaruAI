@@ -8,6 +8,13 @@
 //   ai_suggestions        fresh for six hours; a week is plenty
 //   notification_jobs     a finished job is only looked up while it retries; a week
 //   notification_deliveries  each delivery's outcome, read by its job; a week
+//   sessions              a day past its expiry: nothing signs in with it again,
+//                         and three jobs every fifteen minutes read every row
+//                         ever made (one without an expiry is kept)
+//
+// None of these columns is indexed, on purpose: an index is a row written
+// with every insert, a thousand times the price of a row read, and these
+// deletes run once a day.
 //
 // card_events are not here on purpose: they are the record of who decided
 // what (account.js keeps them even after an account is deleted).
@@ -24,6 +31,7 @@ export const RETENTION = [
   // A pending job is still owed to someone, however old.
   { table: "notification_jobs", column: "updated_at", days: 7, where: "state != 'pending'" },
   { table: "notification_deliveries", column: "updated_at", days: 7 },
+  { table: "sessions", column: "expires_at", days: 1 },
 ];
 
 /// Rows past each table's window, deleted a batch at a time so one run never

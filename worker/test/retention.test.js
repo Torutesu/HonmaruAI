@@ -38,7 +38,7 @@ test("rows past each window go, rows inside it stay", async () => {
 
   const out = await pruneGrowth(env.DB, { now: NOW });
 
-  expect(out).toEqual({ ai_calls: 1, message_translations: 1, channel_journal: 1, ai_suggestions: 1, notification_jobs: 0, notification_deliveries: 0 });
+  expect(out).toEqual({ ai_calls: 1, message_translations: 1, channel_journal: 1, ai_suggestions: 1, notification_jobs: 0, notification_deliveries: 0, sessions: 0 });
   expect(await count("ai_calls")).toBe(2);
   expect(await count("message_translations")).toBe(1);
   expect(await count("channel_journal")).toBe(1);

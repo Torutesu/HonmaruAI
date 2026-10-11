@@ -78,10 +78,15 @@ const NOT_SECRET = new Set(["email-auth"]);
 
 /// Rows written before sealing, sealed — a batch per table per run, until
 /// none are left. Nothing happens without a key.
-export async function sealLegacySecrets(env, { limit = 200 } = {}) {
+export async function sealLegacySecrets(env, { limit = 200, now = Date.now() } = {}) {
   useSecretKey(env);
   if (!keyPromise) return { sealed: 0 };
   const db = env.DB;
+  // Once a run finds nothing left, once a day is enough: every value is
+  // sealed as it is written, so only rows from before the key can be plain,
+  // and the "NOT LIKE 'enc:%'" below reads five tables end to end.
+  const clean = await db.prepare("SELECT value FROM kv WHERE key = 'secrets:all-sealed'").first().catch(() => null);
+  if (clean && now - Date.parse(clean.value) < 86_400_000) return { sealed: 0, skipped: true };
   let sealed = 0;
   const plain = (column) => `${column} IS NOT NULL AND ${column} <> '' AND ${column} NOT LIKE 'enc:%'`;
 
@@ -133,6 +138,10 @@ export async function sealLegacySecrets(env, { limit = 200 } = {}) {
     await db.prepare("UPDATE org_webhooks SET secret = ?2 WHERE id = ?1 AND secret = ?3")
       .bind(r.id, await sealField(r.secret, aad.webhook(r.id)), r.secret).run();
     sealed += 1;
+  }
+  if (!sealed) {
+    await db.prepare("INSERT INTO kv (key, value, updated_at) VALUES ('secrets:all-sealed', ?1, ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+      .bind(new Date(now).toISOString()).run().catch(() => {});
   }
   return { sealed };
 }

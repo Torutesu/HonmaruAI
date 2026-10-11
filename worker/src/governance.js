@@ -10,6 +10,7 @@
 // were — for the export, never for anyone's screen.
 
 import { audit, person } from "./audit.js";
+import { orgsInTurn } from "./orgCursor.js";
 import { allowed } from "./permissions.js";
 import { getSession, getUserByGithubId } from "./db.js";
 import { ipAllowed, parseCidr } from "./orgKeys.js";
@@ -148,13 +149,13 @@ const kindOfKey = (key, privates) => (key.startsWith("b:") ? (privates.has(key) 
 
 /// Messages and files past the workspace's retention, deleted — never what
 /// a hold covers, and never a message whose thread is still being kept.
-export async function pruneMessages(env, { now = Date.now(), orgLimit = 50 } = {}) {
-  const { results: orgs } = await env.DB.prepare(
-    `SELECT * FROM org_governance WHERE retention_public_days IS NOT NULL OR retention_private_days IS NOT NULL
-       OR retention_dm_days IS NOT NULL OR retention_files_days IS NOT NULL LIMIT ?1`
-  ).bind(orgLimit).all().catch(() => ({ results: [] }));
+export async function pruneMessages(env, { now = Date.now(), perRun = 500 } = {}) {
+  const orgs = await orgsInTurn(env.DB, "pruneMessages", (after, limit) => env.DB.prepare(
+    `SELECT * FROM org_governance WHERE org_id > ?1 AND (retention_public_days IS NOT NULL OR retention_private_days IS NOT NULL
+       OR retention_dm_days IS NOT NULL OR retention_files_days IS NOT NULL) ORDER BY org_id LIMIT ?2`
+  ).bind(after, limit), { perRun }).catch(() => []);
   const out = [];
-  for (const g of orgs || []) {
+  for (const g of orgs) {
     const orgId = g.org_id;
     const holds = await holdsOf(env.DB, orgId);
     const privates = await privateSlugs(env.DB, orgId);
