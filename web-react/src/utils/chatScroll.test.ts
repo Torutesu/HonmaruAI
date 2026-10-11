@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { countNewBelow, focusAfterJump, isAtBottom, isLooking, isNewSince, leavesGap, mergeById, reachesPast, shouldFollow, waitToSay } from './chatScroll'
+import { countNewBelow, focusAfterJump, holdDelta, isAtBottom, isLooking, isNewSince, leavesGap, mergeById, reachesPast, shouldFollow, waitToSay } from './chatScroll'
 
 /// A message said `i` minutes into the day, by a teammate unless it is yours.
 const at = (i: number) => new Date(Date.UTC(2026, 8, 30, 0, i)).toISOString()
@@ -184,5 +184,22 @@ describe('older pages, and a hole', () => {
   it('joins a page that reaches no further back than what is loaded', () => {
     // Only a live message loaded, older than nothing on the page: no hole.
     expect(leavesGap([msg(30)], range(26, 30), 5)).toBe(false)
+  })
+})
+
+describe('a message held in place while the log narrows (#249)', () => {
+  it('scrolls by as much as the lines above it grew', () => {
+    // Was 300px down the log; the wider lines above now wrap, pushing it to 380.
+    expect(holdDelta({ was: 300, top: 380, bottom: 420, height: 800 })).toBe(80)
+  })
+  it('does nothing when nothing moved', () => {
+    expect(holdDelta({ was: 300, top: 300, bottom: 340, height: 800 })).toBe(0)
+  })
+  it('keeps the foot of a message at the bottom in view, rather than its top', () => {
+    // The newest message, itself taller now: its top held would hide its foot.
+    expect(holdDelta({ was: 700, top: 700, bottom: 830, height: 800 })).toBe(30)
+  })
+  it('never moves the top of a tall message out of sight to show its foot', () => {
+    expect(holdDelta({ was: 100, top: 100, bottom: 1400, height: 800 })).toBe(100)
   })
 })

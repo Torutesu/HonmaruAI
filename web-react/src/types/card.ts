@@ -203,6 +203,9 @@ export interface ChannelMessage {
   reactions?: Array<{ emoji: string; count: number; refs: string[]; mine: boolean }>
   /// Reactions pressed here and not yet confirmed by the server (#221).
   reactionsPending?: string[]
+  /// Only on this device: an edit saved here that the server has not
+  /// confirmed yet, drawn faded (#248).
+  editPending?: boolean
   files?: FileRef[]
   /// Who wrote it, when an agent did: its name and face.
   agent?: { id: string; handle: string; name: string; emoji: string | null; avatarUrl?: string | null } | null

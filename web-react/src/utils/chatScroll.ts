@@ -106,3 +106,16 @@ export function leavesGap<T extends Said>(prev: readonly T[] | undefined, page: 
   const first = page[0]
   return prev.some((m) => m.createdAt < first.createdAt) && !prev.some((m) => m.id === first.id)
 }
+
+/// How far to scroll the log so a message stays where it was on the screen
+/// while the log changes width under it — a thread pane opening beside it
+/// re-wraps every line above (#249). `was` is the message's top, from the
+/// log's top, before; `top` and `bottom` are its edges now, and `height`
+/// the log's, all from the log's top. Its top stays put, unless that would
+/// leave its foot below the log's: then its foot is kept in view instead.
+export function holdDelta({ was, top, bottom, height }: { was: number; top: number; bottom: number; height: number }): number {
+  let delta = top - was
+  const over = bottom - delta - height
+  if (over > 0) delta += Math.min(over, top - delta)
+  return Math.round(delta)
+}
