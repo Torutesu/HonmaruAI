@@ -8,6 +8,7 @@
 // an owner cannot shorten what the contract or the law says to keep.
 
 import { audit } from "./audit.js";
+import { orgsInTurn } from "./orgCursor.js";
 import { principalOf } from "./auditCrypto.js";
 
 /// The retention a workspace gets when nobody has said otherwise. Plans are
@@ -30,12 +31,12 @@ export async function auditSettings(db, orgId) {
 
 /// Take sealed rows past their retention out of D1. The only place this app
 /// deletes from the audit log (test/audit-immutable.test.js keeps it so).
-export async function pruneAudit(env, { now = Date.now(), orgLimit = 50 } = {}) {
-  const { results } = await env.DB.prepare(
-    "SELECT org_id, MAX(to_seq) AS sealed FROM audit_seals GROUP BY org_id LIMIT ?1"
-  ).bind(orgLimit).all();
+export async function pruneAudit(env, { now = Date.now(), perRun = 500 } = {}) {
+  const results = await orgsInTurn(env.DB, "pruneAudit", (after, limit) => env.DB.prepare(
+    "SELECT org_id, MAX(to_seq) AS sealed FROM audit_seals WHERE org_id > ?1 GROUP BY org_id ORDER BY org_id LIMIT ?2"
+  ).bind(after, limit), { perRun });
   const pruned = [];
-  for (const r of results || []) {
+  for (const r of results) {
     const settings = await auditSettings(env.DB, r.org_id);
     if (settings.legalHold) continue;
     const cutoff = Math.floor((now - settings.retentionDays * DAY) / 1000);

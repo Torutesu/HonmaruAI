@@ -8,6 +8,7 @@
 // the files can check nothing was removed or changed, without asking us.
 
 import { sha256Hex } from "./auth.js";
+import { orgsInTurn } from "./orgCursor.js";
 import { audit } from "./audit.js";
 import { safe } from "./log.js";
 
@@ -141,16 +142,19 @@ async function hoursToSeal(env, orgId, before) {
 /// From the 15-minute cron, once an hour: seal what the last hours left,
 /// a few workspaces at a time. After three hours of failing for one
 /// workspace, that is recorded as critical and the operators are told.
-export async function sealPending(env, { now = Date.now(), orgLimit = 20 } = {}) {
+export async function sealPending(env, { now = Date.now(), perRun = 50 } = {}) {
   if (!archiveReady(env)) return [];
   const currentHour = Math.floor(now / HOUR) * HOUR;
   // The workspaces with an audit log, one primary-key step each, and for
   // each one only the rows after its last seal. This used to run the
   // MAX(to_seq) subquery once per audit row over the whole table, so the
   // rows read every hour grew with the log times its seals.
-  const { results } = await env.DB.prepare(
+  // From where the last run stopped (orgsInTurn): starting at the first
+  // workspace every hour, more than a run's worth of busy ones meant the
+  // later ones were never sealed, and so never pruned.
+  const results = await orgsInTurn(env.DB, "sealPending", (after, limit) => env.DB.prepare(
     `WITH RECURSIVE orgs(id) AS (
-       SELECT (SELECT MIN(org_id) FROM audit_events)
+       SELECT (SELECT MIN(org_id) FROM audit_events WHERE org_id > ?3)
        UNION ALL
        SELECT (SELECT MIN(org_id) FROM audit_events WHERE org_id > orgs.id) FROM orgs WHERE orgs.id IS NOT NULL
      )
@@ -162,10 +166,10 @@ export async function sealPending(env, { now = Date.now(), orgLimit = 20 } = {})
          WHERE e.org_id = orgs.id
            AND e.seq > COALESCE((SELECT MAX(s.to_seq) FROM audit_seals s WHERE s.org_id = orgs.id), 0)
       ) < ?1
-      LIMIT ?2`
-  ).bind(Math.floor(currentHour / 1000), orgLimit).all();
+      ORDER BY org_id LIMIT ?2`
+  ).bind(Math.floor(currentHour / 1000), limit, after), { perRun });
   const sealed = [];
-  for (const r of results || []) {
+  for (const r of results) {
     try {
       for (const hour of await hoursToSeal(env, r.org_id, currentHour)) {
         const d = await sealHour(env, r.org_id, hour);
@@ -228,11 +232,13 @@ export async function verifyArchive(env, orgId, { fromHour = 0, toHour = Date.no
 
 /// Every workspace's last eight days, weekly. A failure is critical, and
 /// every owner is told.
-export async function weeklyVerify(env, { now = Date.now(), orgLimit = 50 } = {}) {
+export async function weeklyVerify(env, { now = Date.now(), perRun = 500 } = {}) {
   if (!archiveReady(env)) return [];
-  const { results } = await env.DB.prepare("SELECT DISTINCT org_id FROM audit_seals LIMIT ?1").bind(orgLimit).all();
+  const results = await orgsInTurn(env.DB, "weeklyVerify", (after, limit) => env.DB.prepare(
+    "SELECT DISTINCT org_id FROM audit_seals WHERE org_id > ?1 ORDER BY org_id LIMIT ?2"
+  ).bind(after, limit), { perRun });
   const problems = [];
-  for (const r of results || []) {
+  for (const r of results) {
     const out = await verifyArchive(env, r.org_id, { fromHour: now - 8 * 24 * HOUR, toHour: now }).catch((err) => ({ ok: false, first_problem: { kind: "error", message: safe(err?.message) } }));
     if (out.ok) continue;
     problems.push({ orgId: r.org_id, ...out.first_problem });
