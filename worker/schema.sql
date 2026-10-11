@@ -1527,6 +1527,9 @@ CREATE TABLE IF NOT EXISTS app_connection_tombstones (
 /* Lookups by person across workspaces, and the sweeps that run every
    minute, without reading whole tables as the data grows. */
 CREATE INDEX IF NOT EXISTS idx_sessions_github ON sessions(github_id);
+/* The SSO sign-ins checked with their provider every fifteen minutes (sso.js
+   checkSsoGrants): only those rows, so other sessions write no index row. */
+CREATE INDEX IF NOT EXISTS idx_sessions_sso_check ON sessions(sso_checked_at) WHERE auth_method = 'sso' AND sso_refresh IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_github_id);
 CREATE INDEX IF NOT EXISTS idx_cards_org_created ON cards(org_id, created_at);
 /* Daily report drafts, which the 15-minute cron looks for (dailyReport.js).

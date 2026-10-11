@@ -38,12 +38,15 @@ const MAX_USERS_PER_RUN = 50;
 export async function candidates(db) {
   const { results } = await db
     .prepare(
+      // From the few people with a connector, to their sessions by the
+      // github_id index — not every session there is, every fifteen minutes.
+      // CROSS JOIN fixes that order: SQLite's planner otherwise walks sessions.
       `SELECT s.token, s.github_id, s.github_access_token, u.login, u.locale
-       FROM sessions s
+       FROM (SELECT DISTINCT user_github_id AS gid FROM connector_config) c
+       CROSS JOIN sessions s ON s.github_id = c.gid
        JOIN users u ON u.github_id = s.github_id
        LEFT JOIN connector_sync_state st ON st.user_github_id = s.github_id
        WHERE (s.expires_at IS NULL OR s.expires_at > ?1)
-         AND EXISTS (SELECT 1 FROM connector_config c WHERE c.user_github_id = s.github_id)
        GROUP BY s.github_id
        ORDER BY st.synced_at ASC NULLS FIRST
        LIMIT ?2`

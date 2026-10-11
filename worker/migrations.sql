@@ -135,3 +135,6 @@ ALTER TABLE channel_messages ADD COLUMN on_behalf_of TEXT;
 ALTER TABLE ai_teammate_runs ADD COLUMN on_behalf_of TEXT;
 /* Auto-build: an issue or a report posted in a channel starts the teammate (schema.sql). */
 ALTER TABLE ai_teammates ADD COLUMN auto_build INTEGER NOT NULL DEFAULT 1;
+/* The SSO sign-ins checked with their provider every fifteen minutes (sso.js
+   checkSsoGrants): only those rows, so other sessions write no index row. */
+CREATE INDEX IF NOT EXISTS idx_sessions_sso_check ON sessions(sso_checked_at) WHERE auth_method = 'sso' AND sso_refresh IS NOT NULL;
