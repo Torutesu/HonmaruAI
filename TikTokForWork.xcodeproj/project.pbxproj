@@ -137,7 +137,6 @@
 		CBCE9EA9EC35BD41FF32D4D2 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B02EAAD1FAC6FF8A245C1A32 /* Localizable.xcstrings */; };
 		CDD13BBA6D4743532DCFE8F3 /* Glass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87930F4FD757FE5157DCA1C6 /* Glass.swift */; };
 		CF21E65BAFE8DAA74C391B13 /* QuietTimeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16B47D0CCEF7B98E50ED9D28 /* QuietTimeView.swift */; };
-		7D05093333307A34AC4DB325 /* NotificationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78F73993BC22F6BE671550C6 /* NotificationSettingsView.swift */; };
 		CFAAE202A471A7575DB287E6 /* EmailSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 683357448491DB612509CFCE /* EmailSessionTests.swift */; };
 		D08C9B1AED098D7E582352BE /* RequestComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF176D9AEA9F94454E6CFD58 /* RequestComposerView.swift */; };
 		D0E32BD4DAFFBDD20AA2AD2C /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF594002A7A3A2A7FA072712 /* FeedView.swift */; };
@@ -170,6 +169,7 @@
 		F5A9DA5AC7C4E5F5EE7EAFFE /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2589D42E0E778318D5E0400 /* Haptics.swift */; };
 		F695C1E907F7BDCE3F7C4A40 /* ProcessingOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615243E6A7993EE5EC3D4569 /* ProcessingOverlay.swift */; };
 		F7C96F0533DE1C7C7E6BAB42 /* EmailSignInSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7450D18ED76C5843047AAF72 /* EmailSignInSheet.swift */; };
+		F8C2224FA8382B5308E442C2 /* NotificationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0B95B386D4F381C6652A7F /* NotificationSettingsView.swift */; };
 		FB7D4EDE45C17FA2EA9D3CB8 /* ConicRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8DF77ED1645CDC9CBE8C83A /* ConicRing.swift */; };
 /* End PBXBuildFile section */
 
@@ -199,7 +199,6 @@
 		0B33B38EE581FB742F9D87CD /* ConnectorsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorsView.swift; sourceTree = "<group>"; };
 		1597A807E85A7A11BD5B0DB7 /* EmailAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmailAuthService.swift; sourceTree = "<group>"; };
 		16B47D0CCEF7B98E50ED9D28 /* QuietTimeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuietTimeView.swift; sourceTree = "<group>"; };
-		78F73993BC22F6BE671550C6 /* NotificationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsView.swift; sourceTree = "<group>"; };
 		16D2A1DDBDF90FDCE8C42002 /* AppUpdateService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateService.swift; sourceTree = "<group>"; };
 		1881DFB86CF4DEC3531EF99B /* InsightsServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightsServiceTests.swift; sourceTree = "<group>"; };
 		1C01877884A9F2C0648A7B31 /* DemoWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoWorkspaceTests.swift; sourceTree = "<group>"; };
@@ -357,6 +356,7 @@
 		F7ECEBFF02ADE4C8BDC137AD /* DailyReportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyReportTests.swift; sourceTree = "<group>"; };
 		F9886A04FEAB6F8715C6F353 /* ThreadServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadServiceTests.swift; sourceTree = "<group>"; };
 		F9D52191615B6250B63E923B /* OfflineSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineSyncTests.swift; sourceTree = "<group>"; };
+		FB0B95B386D4F381C6652A7F /* NotificationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsView.swift; sourceTree = "<group>"; };
 		FF176D9AEA9F94454E6CFD58 /* RequestComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestComposerView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -393,7 +393,7 @@
 				8809E61F75031670AB52EEDC /* DeleteAccountView.swift */,
 				CD16C3A78AF733A527188E4F /* HistoryView.swift */,
 				D7947A23005D027F5943D113 /* InsightsView.swift */,
-				78F73993BC22F6BE671550C6 /* NotificationSettingsView.swift */,
+				FB0B95B386D4F381C6652A7F /* NotificationSettingsView.swift */,
 				16B47D0CCEF7B98E50ED9D28 /* QuietTimeView.swift */,
 				432DC6AE0492D80C82898D76 /* SignedInView.swift */,
 				7521A2BF4604DCA9C4AFB3EC /* SmitheryAppsSection.swift */,
@@ -952,6 +952,7 @@
 				AB8AE800981008789E312BED /* MediaStore.swift in Sources */,
 				57B781F9B017D938F898C6FC /* MediaUploader.swift in Sources */,
 				6623DC0F2F2C3DFC172C40C7 /* NetworkMonitor.swift in Sources */,
+				F8C2224FA8382B5308E442C2 /* NotificationSettingsView.swift in Sources */,
 				1FC24E0AC0C5F74BEBDA5F01 /* OfflineRouter.swift in Sources */,
 				B5366DC8771C647880F5F221 /* OnboardingSwipeDemo.swift in Sources */,
 				26ED53260B410867CAEF8292 /* OnboardingView.swift in Sources */,
@@ -964,7 +965,6 @@
 				704CEA636E1A66666B9B8E69 /* ProfileService.swift in Sources */,
 				37C57AE19EEEB61B808BB47A /* PushService.swift in Sources */,
 				CF21E65BAFE8DAA74C391B13 /* QuietTimeView.swift in Sources */,
-				7D05093333307A34AC4DB325 /* NotificationSettingsView.swift in Sources */,
 				4F56FC646B3C3CC9D326B3AA /* Reauth.swift in Sources */,
 				500E7A1491196103BEB03045 /* RelayDecoder.swift in Sources */,
 				D08C9B1AED098D7E582352BE /* RequestComposerView.swift in Sources */,
@@ -1114,7 +1114,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3.0;
+				MARKETING_VERSION = 1.3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.honmaru.ai;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -1142,7 +1142,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3.0;
+				MARKETING_VERSION = 1.3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.honmaru.ai;
 				PROVISIONING_PROFILE_SPECIFIER = "HonmaruAI AppStore";
 				SDKROOT = iphoneos;
