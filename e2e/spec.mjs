@@ -1742,6 +1742,14 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     await d.waitForFunction(() => document.querySelector('.slk-thread-pane textarea')?.value === 'half-written reply', null, { timeout: 5000 })
       .catch(() => { throw new Error('a reply being written in a thread was gone when the thread was opened again') })
     await d.fill('.slk-thread-pane textarea', '')
+    // ↑ in the empty thread box edits the latest reply there, as the
+    // conversation's box does (#250); Escape leaves it as it was.
+    await d.click('.slk-thread-pane .slk-composer textarea')
+    await d.keyboard.press('ArrowUp')
+    await d.waitForFunction(() => document.querySelector('.slk-thread-pane .slk-edit textarea')?.value === 'Housekeeping is fine with 2pm', null, { timeout: 5000 })
+      .catch(() => { throw new Error('↑ in an empty thread box did not open the latest reply for editing') })
+    await d.keyboard.press('Escape')
+    await d.waitForSelector('.slk-thread-pane .slk-edit', { state: 'detached', timeout: 3000 })
     // "Also send to #channel": the reply is in the thread and in the
     // channel, saying which thread it answers; the box is plain again after.
     await d.check('.slk-thread-pane [data-also-channel] input')
@@ -3403,6 +3411,9 @@ await step('the thread pane is resized by dragging its edge, and keeps its width
     await msg.locator('.slk-tools [aria-label="Reply in thread"]').click()
     await desk.waitForSelector('.slk-thread-pane [data-pane-resize]', { timeout: 10000 })
       .catch(() => { throw new Error('the thread pane has no edge to drag') })
+    // The thread hands the focus to its reply box once its replies are in;
+    // focusing the edge before that has it taken away again.
+    await desk.waitForFunction(() => document.activeElement?.closest('.slk-thread-pane .slk-composer'), null, { timeout: 10000 })
   }
   const width = (sel) => desk.$eval(sel, (el) => Math.round(el.getBoundingClientRect().width))
   try {

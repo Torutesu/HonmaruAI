@@ -26,7 +26,7 @@ import { displayName, properName } from '../utils/names'
 import { Icon } from './Icon'
 import { BrandLogo, isBrand } from './BrandLogo'
 import { useBackStack } from '../utils/backStack'
-import { countNewBelow, isAtBottom, isLooking, isNewSince, leavesGap, mergeById, reachesPast, shouldFollow, waitToSay } from '../utils/chatScroll'
+import { countNewBelow, holdDelta, isAtBottom, isLooking, isNewSince, leavesGap, mergeById, reachesPast, shouldFollow, waitToSay } from '../utils/chatScroll'
 import { JumpToPresent, newBelowLabel } from './JumpToPresent'
 import { FollowingLog } from './FollowingLog'
 import { PaneResizer, PANE_MIN } from './PaneResizer'
@@ -2673,16 +2673,30 @@ export const ClassicList: React.FC<Props> = ({
       if (!done) patchMessage(channel, m.id, (x) => pending({ ...x, reactions: toggleReaction(x.reactions, emoji, me) }, false))
     })
   }
+  /// An edit shows the moment Save is pressed — faded until the server has
+  /// it — and is put back as it was, with why, if the server does not (#248).
   const saveEdit = async (channel: string) => {
     if (!editing) return
     const text = editing.text.trim()
     if (!text) return
+    const drawn = [...(messagesRef.current[channel] || []), ...(thread ? [thread.parent, ...thread.replies] : [])]
+      .find((x) => x.id === editing.id || drawnAs.current.get(x.id) === editing.id)
+    setEditing(null)
+    if (drawn && drawn.body === text) return
+    const was = drawn ? { body: drawn.body, editedAt: drawn.editedAt } : null
+    const show = (id: string, on: boolean) => patchMessage(channel, id, (x) => (on
+      ? { ...x, body: text, editedAt: x.editedAt || new Date().toISOString(), editPending: true }
+      : { ...x, ...(was || {}), editPending: false }))
+    if (drawn) show(drawn.id, true)
     // Begun while it was on its way: saved to the server's copy once it has
     // landed — not at all if it did not go.
     const id = isTemp(editing) ? await landedId(editing.id) : editing.id
-    if (!id) { setProblem(t('That did not save.')); return }
+    if (!id) { if (drawn) show(drawn.id, false); setProblem(t('That did not save.')); return }
+    // The server's copy may have taken the temporary one's place meanwhile.
+    if (drawn && id !== drawn.id) show(id, true)
+    // Saved: act draws the server's copy, which is not pending.
     const done = await act('PUT', '/channels/messages', channel, { messageId: id, body: text })
-    if (done) setEditing(null)
+    if (!done && drawn) show(id, false)
   }
   /// The message an edit is open on. Begun on one of yours still on its way,
   /// it stays open on the server's copy that took its place.
@@ -2822,6 +2836,7 @@ export const ClassicList: React.FC<Props> = ({
     }
     setDetailId(null)
     setProfile(null)
+    if (thread?.parent.id !== m.id) holdFrom(m.id)
     // The replies read last time, at once; the server's, when they come.
     const kept = views.get<ChannelMessage[]>(`thread:${channel}:${m.id}`) || []
     setThread((prev) => ({ channel, parent: m, replies: prev && prev.parent.id === m.id ? keepTemps(kept, prev.replies) : kept, loading: true }))
@@ -3407,24 +3422,53 @@ export const ClassicList: React.FC<Props> = ({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [logEl, current?.key, current?.cards.length, messages[current?.view || '']?.length, thinking[current?.view || '']])
+  // The message a thread was opened from stays where it was on the screen
+  // while the pane opening beside the log narrows it and every line above
+  // re-wraps (#249) — rather than the log holding its bottom and the
+  // message riding up. Briefly: until the pane has settled, or the reader
+  // scrolls.
+  const held = useRef<{ id: string; was: number; until: number } | null>(null)
+  const holdFrom = (id: string) => {
+    const el = logRef.current
+    const row = el?.querySelector(`#${CSS.escape(`msg-${id}`)}`)
+    held.current = el && row ? { id, was: row.getBoundingClientRect().top - el.getBoundingClientRect().top, until: performance.now() + 700 } : null
+  }
+  const keepHeld = (el: HTMLDivElement) => {
+    const h = held.current
+    if (!h) return false
+    const row = performance.now() < h.until ? el.querySelector(`#${CSS.escape(`msg-${h.id}`)}`) : null
+    if (!row) { held.current = null; return false }
+    const box = el.getBoundingClientRect(), r = row.getBoundingClientRect()
+    const delta = holdDelta({ was: h.was, top: r.top - box.top, bottom: r.bottom - box.top, height: el.clientHeight })
+    if (delta) el.scrollTop += delta
+    pinned.current = isAtBottom(el)
+    return true
+  }
+  useLayoutEffect(() => { if (logRef.current) keepHeld(logRef.current) }, [thread?.parent.id])
   useEffect(() => {
     const el = logEl
     if (!el) return
-    const settle = () => { if (pinned.current && keepScroll.current === null) el.scrollTop = el.scrollHeight }
+    const settle = () => { if (keepHeld(el)) return; if (pinned.current && keepScroll.current === null) el.scrollTop = el.scrollHeight }
     const onScroll = () => { pinned.current = isAtBottom(el) }
+    const letGo = () => { held.current = null }
     const changed = new MutationObserver(settle)
     changed.observe(el, { childList: true, subtree: true, characterData: true })
     const sized = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(settle) : null
     sized?.observe(el)
     el.addEventListener('scroll', onScroll, { passive: true })
+    el.addEventListener('wheel', letGo, { passive: true })
+    el.addEventListener('touchstart', letGo, { passive: true })
     // A picture's load does not bubble; caught on the way down.
     el.addEventListener('load', settle, true)
     return () => {
       changed.disconnect()
       sized?.disconnect()
       el.removeEventListener('scroll', onScroll)
+      el.removeEventListener('wheel', letGo)
+      el.removeEventListener('touchstart', letGo)
       el.removeEventListener('load', settle, true)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [logEl])
   /// "Jump to present": down to the newest, which reads it on arriving.
   /// Smoothly, unless the reader asked for less motion. The focus goes on to
@@ -3729,7 +3773,7 @@ export const ClassicList: React.FC<Props> = ({
     return (
       <>
         {(m.body || m.editedAt) && (
-          <div className="slk-text">
+          <div className={`slk-text${m.editPending ? ' edit-pending' : ''}`} aria-busy={m.editPending || undefined}>
             {rich(shownBody(m).text)}
             {m.editedAt && <span className="slk-edited" title={new Date(m.editedAt).toLocaleString(locale)}> {t('(edited)')}</span>}
           </div>
@@ -4303,6 +4347,13 @@ export const ClassicList: React.FC<Props> = ({
               onClick={threadMention.track}
               onKeyDown={(e) => {
                 if (threadMention.onKeyDown(e)) return
+                // ↑ in an empty box edits what you last said in this thread,
+                // as the conversation's own box does (#250).
+                if (e.key === 'ArrowUp' && !threadDraft && !composing(e)) {
+                  const last = [...thread.replies].reverse().concat(thread.parent).find((m) => m.mine && m.kind === 'message' && !m.deleted)
+                  if (last && !last.failed) { e.preventDefault(); setEditing({ id: last.id, text: last.body }) }
+                  return
+                }
                 if (enterKey(e) && !e.metaKey && !e.ctrlKey && (e.shiftKey || !wide) && continueBlock(e.currentTarget, threadDraft, setThreadDraft)) { e.preventDefault(); return }
                 if (enterKey(e) && !e.shiftKey && wide) { e.preventDefault(); void send(thread.channel, false, thread.parent.id) }
               }}
