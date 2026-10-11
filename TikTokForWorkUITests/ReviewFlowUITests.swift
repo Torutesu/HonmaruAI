@@ -112,10 +112,8 @@ final class ReviewFlowUITests: XCTestCase {
         add(screenshot)
         app.terminate()
         app.launch()
-        XCTAssertTrue(consent.waitForExistence(timeout: 25), "Restored sessions must ask before reconnecting the workspace")
-        for _ in 0..<6 where !consent.isHittable { app.swipeUp() }
-        consent.tapShowingTheScreen(in: app)
-        XCTAssertTrue(app.buttons["New request"].waitForExistence(timeout: 25), "Saved session must survive relaunch after consent")
+        XCTAssertTrue(app.buttons["New request"].waitForExistence(timeout: 25), "The same saved session must restore the workspace with its existing consent")
+        XCTAssertFalse(consent.exists, "An already permitted sign-in must not ask again on relaunch")
         // New accounts are offered daily-report setup after the workspace
         // finishes loading, including when that finishes on the next launch.
         let later = app.navigationBars.buttons["Later"]
