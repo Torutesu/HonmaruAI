@@ -89,7 +89,11 @@ test("a block stops the message and logs which rule, never the number", async ()
   expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id = ?1").bind(ORG).first()).n).toBe(0);
   const { results } = await env.DB.prepare("SELECT * FROM audit_events WHERE org_id = ?1 AND action = 'dlp.blocked'").bind(ORG).all();
   expect(results).toHaveLength(2);
-  expect(JSON.stringify(results)).not.toContain("4111");
+  // The number in any form it was typed — not a bare "4111", which a
+  // random hash or ciphertext in the row can contain by chance.
+  const logged = JSON.stringify(results);
+  expect(logged).not.toContain("4111 1111");
+  expect(logged).not.toContain("4111111111111111");
   // A message without it goes as ever.
   expect((await post(mika, "lunch at noon?")).status).toBe(201);
 });

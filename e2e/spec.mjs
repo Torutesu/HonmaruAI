@@ -3411,6 +3411,9 @@ await step('the thread pane is resized by dragging its edge, and keeps its width
     await msg.locator('.slk-tools [aria-label="Reply in thread"]').click()
     await desk.waitForSelector('.slk-thread-pane [data-pane-resize]', { timeout: 10000 })
       .catch(() => { throw new Error('the thread pane has no edge to drag') })
+    // The thread hands the focus to its reply box once its replies are in;
+    // focusing the edge before that has it taken away again.
+    await desk.waitForFunction(() => document.activeElement?.closest('.slk-thread-pane .slk-composer'), null, { timeout: 10000 })
   }
   const width = (sel) => desk.$eval(sel, (el) => Math.round(el.getBoundingClientRect().width))
   try {
