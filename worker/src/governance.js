@@ -425,7 +425,10 @@ export async function handleGovernance(request, env, url) {
     if (!row?.object_key || row.status !== "ready" || row.expires_at < new Date().toISOString()) return json({ message: "That export has expired or is not ready." }, 404);
     const obj = await env.MEDIA.get(row.object_key);
     if (!obj) return json({ message: "That export has expired." }, 404);
-    await audit(env, request, { orgId, action: "compliance.downloaded", actor, details: { export: row.id } });
+    // Recorded before a byte goes, or not handed out at all.
+    if (!(await audit(env, request, { orgId, action: "compliance.downloaded", actor, details: { export: row.id } }))) {
+      return json({ message: "The audit log could not be written, so nothing was exported. Try again shortly.", code: "audit-unavailable" }, 503);
+    }
     return new Response(obj.body, { headers: { "content-type": "application/gzip", "content-disposition": `attachment; filename="export-${row.id.slice(0, 8)}.jsonl.gz"`, "cache-control": "no-store", ...CORS } });
   }
   return json({ message: "not found" }, 404);

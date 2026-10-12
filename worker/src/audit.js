@@ -180,7 +180,18 @@ async function tellTeamChanged(env, orgId) {
   } catch { /* a screen still finds them on its next look */ }
 }
 
+/// Severities whose entry is never silently lost: when the log cannot be
+/// written, the entry is kept in the archive bucket (undelivered/) for an
+/// operator to put back, and the failure is logged as such.
+const KEPT_ON_FAILURE = new Set(["critical", "warning"]);
+
+/// The answer to an export whose own entry could not be written.
+const UNRECORDED = () => json({ message: "The audit log could not be written, so nothing was exported. Try again shortly.", code: "audit-unavailable" }, 503);
+
+/// Write one entry. Returns its id, or null when it could not be written:
+/// a caller handing data out (an export) refuses on null — it fails closed.
 export async function audit(env, request, { orgId, action, actor, entity = null, details = null, outcome = "success", severity = null }) {
+  let pending = null;
   try {
     if (!env?.DB || !orgId || !action) return null;
     // Whoever joined, left or was let in: every open screen reads the team
@@ -206,6 +217,7 @@ export async function audit(env, request, { orgId, action, actor, entity = null,
       context: contextOf(request),
       details,
     };
+    pending = body;
     // People go in under their own keys, when this deployment has them.
     let stored = body;
     let actorId = body.actor.id || null;
@@ -236,9 +248,11 @@ export async function audit(env, request, { orgId, action, actor, entity = null,
         if (!/UNIQUE|PRIMARY KEY|constraint/i.test(String(err?.message))) throw err;
       }
     }
+    await keepUndelivered(env, orgId, pending, "contention");
     return null;
   } catch (err) {
     console.error("audit failed", action, safe(err?.message));
+    await keepUndelivered(env, orgId, pending, safe(err?.message));
     return null;
   }
 }
@@ -247,6 +261,16 @@ export async function audit(env, request, { orgId, action, actor, entity = null,
 export function person(user, type = "user") {
   if (!user) return null;
   return { type, id: user.login || null, name: user.name || user.login || null };
+}
+
+async function keepUndelivered(env, orgId, body, reason) {
+  if (!body || !KEPT_ON_FAILURE.has(body.severity)) return;
+  console.error("audit entry undelivered", body.action, body.severity, orgId);
+  try {
+    await env.AUDIT_ARCHIVE?.put(`undelivered/${encodeURIComponent(orgId)}/${body.id}.json`, JSON.stringify({ orgId, reason, body }));
+  } catch (err) {
+    console.error("audit entry lost", body.action, safe(err?.message));
+  }
 }
 
 /// The same event in every workspace this person is in — a sign-in, a
@@ -258,9 +282,14 @@ export function person(user, type = "user") {
 export async function auditEverywhere(env, request, githubId, event, { home = null } = {}) {
   try {
     const { results } = await env.DB.prepare("SELECT org_id FROM memberships WHERE user_github_id = ?1").bind(String(githubId)).all();
-    for (const r of results || []) await audit(env, r.org_id === home ? request : null, { ...event, orgId: r.org_id });
+    let whole = true;
+    for (const r of results || []) {
+      if (!(await audit(env, r.org_id === home ? request : null, { ...event, orgId: r.org_id }))) whole = false;
+    }
+    return whole;
   } catch (err) {
     console.error("audit everywhere failed", safe(err?.message));
+    return false;
   }
 }
 
@@ -492,7 +521,7 @@ export async function handleAudit(request, env, url) {
   // Reading the log is itself on it: once an hour per reader, every export.
   const actor = { ...person(who.user), ...(who.via.type === "api_token" ? { via: who.via } : {}) };
   if (exporting) {
-    await audit(env, request, { orgId, action: "audit.exported", actor, details: { format, count: entries.length } });
+    if (!(await audit(env, request, { orgId, action: "audit.exported", actor, details: { format, count: entries.length } }))) return UNRECORDED();
   } else {
     const hourAgo = Math.floor(Date.now() / 1000) - 3600;
     const self = auditCryptoReady(env) ? await principalOf(env, orgId, who.user.login) : who.user.login;

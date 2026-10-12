@@ -231,7 +231,9 @@ async function route(request, env, url, key) {
     const keys = new Map();
     const entries = [];
     for (const e of out.entries) entries.push(await presentEntry(await decryptBody(env, orgId, e, keys), orgId, ids, refs));
-    await audit(env, request, { orgId, action: "audit.exported", actor, details: { format: "api", count: entries.length } });
+    if (!(await audit(env, request, { orgId, action: "audit.exported", actor, details: { format: "api", count: entries.length } }))) {
+      return apiError(503, "audit_unavailable", "The audit log could not be written, so nothing was exported. Try again shortly.");
+    }
     return json({ data: entries, next_cursor: out.next || null });
   }
   return apiError(404, "not_found", "No such endpoint.");

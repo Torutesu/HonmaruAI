@@ -1806,7 +1806,9 @@ async function handle(request, env, url, ctx) {
         }
         data.withheld = withheld;
       }
-      await auditEverywhere(env, request, session.github_id, { action: "data.account_exported", actor: person(user) });
+      if (!(await auditEverywhere(env, request, session.github_id, { action: "data.account_exported", actor: person(user) }))) {
+        return json({ message: "The audit log could not be written, so nothing was exported. Try again shortly.", code: "audit-unavailable" }, 503);
+      }
       return new Response(JSON.stringify(data, null, 2), {
         status: 200,
         headers: {
