@@ -1957,7 +1957,12 @@ async function handle(request, env, url, ctx) {
         return json({ message: err.message }, 502);
       }
       const graph = buildOrgGraph(collaborators, { owner, repo });
+      // With GitHub's door closed by an owner, the list only updates the
+      // members already in; it brings nobody new.
+      const { governanceOf, githubAutoJoin } = await import("./governance.js");
+      const opens = githubAutoJoin(await governanceOf(env.DB, orgId));
       for (const c of collaborators) {
+        if (!opens && !(await isMember(env.DB, orgId, c.id))) continue;
         // No locale: the graph knows who is on the team, not what they read.
         await upsertUser(env.DB, { githubId: c.id, login: c.login, name: c.login, avatarUrl: c.avatar_url });
         await upsertMembership(env.DB, orgId, c.id, roleName(c.permissions));

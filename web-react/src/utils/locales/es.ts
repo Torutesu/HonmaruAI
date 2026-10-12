@@ -2014,6 +2014,7 @@ const table: Record<string, string> = {
   "Keep the workspace": "Conservar el espacio",
   "Everything in it is deleted 30 days after you ask. Until then you can take it back.": "Todo lo que contiene se elimina 30 días después de pedirlo. Hasta entonces puedes deshacerlo.",
   "Type the workspace name to confirm": "Escribe el nombre del espacio para confirmar",
+  "Anyone with write access to the repository comes in by themselves": "Quien tenga permiso de escritura en el repositorio entra por sí mismo",
 }
 
 export default table

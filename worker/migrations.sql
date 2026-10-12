@@ -145,3 +145,6 @@ CREATE INDEX IF NOT EXISTS idx_sessions_sso_check ON sessions(sso_checked_at) WH
 ALTER TABLE api_tokens ADD COLUMN expires_at TEXT;
 ALTER TABLE api_tokens ADD COLUMN sso_backed INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE agent_invites ADD COLUMN sso_backed INTEGER NOT NULL DEFAULT 0;
+/* Whether a repository's workspace lets in everyone with write access on
+   GitHub by themselves (governance.js). */
+ALTER TABLE org_governance ADD COLUMN github_auto_join INTEGER;

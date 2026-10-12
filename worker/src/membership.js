@@ -34,6 +34,11 @@ export async function authorizeOrgAccess(env, session, orgId) {
     return { ok: true, login: known.login };
   }
 
+  // An owner may have closed the door GitHub opens: then only an invitation
+  // brings someone in.
+  const { governanceOf, githubAutoJoin } = await import("./governance.js");
+  if (!githubAutoJoin(await governanceOf(env.DB, orgId))) return { ok: false, login: null };
+
   const [owner, repo, ...rest] = String(orgId).split("/");
   // Anything that is not "owner/repo" has no authority to appeal to. The legacy
   // "core-team" org id lands here, which is the point: it is not a real org.

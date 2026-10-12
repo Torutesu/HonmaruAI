@@ -1457,6 +1457,10 @@ CREATE TABLE IF NOT EXISTS org_governance (
   ip_allowlist            TEXT,
   invite_policy           TEXT NOT NULL DEFAULT 'open',
   invite_guests_exempt    INTEGER,
+  /* A repository's workspace: whoever has write access on GitHub comes in
+     by themselves. NULL is on (as before); 0, an owner turned it off, and
+     only an invitation brings someone in. */
+  github_auto_join        INTEGER,
   updated_by              TEXT NOT NULL,
   updated_at              TEXT NOT NULL
 );

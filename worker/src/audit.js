@@ -124,6 +124,7 @@ export const AUDIT_ACTIONS = {
   "governance.retention_changed": { category: "workspace", severity: "critical", text: "{actor} changed how long messages and files are kept" },
   "governance.ip_allowlist_changed": { category: "security", severity: "critical", text: "{actor} changed the networks the workspace can be used from" },
   "governance.invite_policy_changed": { category: "workspace", severity: "warning", text: "{actor} changed who may be invited" },
+  "governance.github_join_changed": { category: "workspace", severity: "critical", text: "{actor} changed whether GitHub write access lets people in" },
   "retention.pruned": { category: "workspace", severity: "notice", text: "Messages and files past their retention were deleted" },
   "hold.placed": { category: "audit", severity: "critical", text: "{actor} placed a legal hold on {entity}" },
   "hold.released": { category: "audit", severity: "critical", text: "{actor} released a legal hold" },
