@@ -51,6 +51,7 @@ import { handleDomains, recheckDomains } from "./domains.js";
 import { handleSso, checkSsoGrants } from "./sso.js";
 import { handleApps, sweepAppConnections, forgetAppConnections } from "./smitheryApps.js";
 import { requestContext } from "./requestContext.js";
+import { settleCors } from "./cors.js";
 import { handleGovernance, pruneMessages, expireExports } from "./governance.js";
 import { sealPending, weeklyVerify } from "./auditArchive.js";
 import { pruneAudit, handleOps } from "./auditRetention.js";
@@ -287,6 +288,7 @@ export default {
       if (response.status === 101 || response.webSocket) return response;
       const headers = new Headers(response.headers);
       headers.set("x-request-id", requestId);
+      settleCors(request, url, env, headers);
       return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
     } catch (err) {
       // An unhandled throw used to become a raw Workers 500 with a stack trace
@@ -306,7 +308,7 @@ export default {
         // With the CORS headers every other answer has. Without them the
         // browser hides the response, and the web app could only report it
         // as "could not reach the server".
-        { status, headers: { "cache-control": "no-store", "content-type": "application/json", ...CORS_HEADERS, "x-request-id": requestId } }
+        { status, headers: (() => { const h = new Headers({ "cache-control": "no-store", "content-type": "application/json", ...CORS_HEADERS, "x-request-id": requestId }); settleCors(request, url, env, h); return h; })() }
       );
     }
   },
