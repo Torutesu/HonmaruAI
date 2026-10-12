@@ -1223,7 +1223,11 @@ async function handle(request, env, url, ctx) {
       // A workspace named is one the caller belongs to; the video is then
       // kept under it. An app that names none gets the bare id, as before.
       const orgId = url.searchParams.get("orgId") || null;
-      if (orgId && !(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      if (orgId) {
+        const { memberGate } = await import("./policy.js");
+        const refused = await memberGate(env, session, orgId);
+        if (refused) return refused;
+      }
       return uploadMedia(request, env, url, { orgId });
     }
     // A card's video, by a signed address for someone who may read the card.
@@ -1668,6 +1672,9 @@ async function handle(request, env, url, ctx) {
       let role;
       if (body.role !== undefined) {
         if (!body.orgId) return json({ message: "orgId is required to set a role" }, 400);
+        const { memberGate } = await import("./policy.js");
+        const refused = await memberGate(env, session, body.orgId);
+        if (refused) return refused;
         const result = await setOwnTitle(env.DB, body.orgId, session.github_id, body.role);
         if (result.error) return json({ message: result.error }, 400);
         role = result.role;
@@ -1783,6 +1790,22 @@ async function handle(request, env, url, ctx) {
       if (!session) return json({ message: "invalid session" }, 401);
       const user = await getUserByGithubId(env.DB, session.github_id);
       const data = await exportAccount(env.DB, session.github_id, user?.login || null);
+      // What was said in a workspace whose rules refuse this request — from
+      // outside its networks, or without its SSO — stays in the workspace;
+      // the export says which were left out and why.
+      const { policyDenial } = await import("./policy.js");
+      const withheld = [];
+      for (const m of data.memberships || []) {
+        const held = await policyDenial(env, session, m.org_id);
+        if (held) withheld.push({ orgId: m.org_id, code: held.body?.code || "session-policy" });
+      }
+      if (withheld.length) {
+        const out = new Set(withheld.map((w) => w.orgId));
+        for (const [key, rows] of Object.entries(data)) {
+          if (Array.isArray(rows)) data[key] = rows.filter((r) => !r || typeof r !== "object" || !out.has(r.org_id));
+        }
+        data.withheld = withheld;
+      }
       await auditEverywhere(env, request, session.github_id, { action: "data.account_exported", actor: person(user) });
       return new Response(JSON.stringify(data, null, 2), {
         status: 200,
