@@ -162,19 +162,13 @@ jobs:
             npx -y wrangler@4 r2 bucket lock add "$bucket" --name audit-400d --prefix audit/ --retention-days 400 --force || echo "::warning::Could not add the bucket lock; add it by hand (docs/setup-secrets.md)."
           fi
 
-      - name: Deploy
-        if: ${{ !inputs.migrate_only }}
-        # --keep-vars preserves dashboard-managed non-secret runtime variables
-        # as well as secrets; the flag picks the environment.
-        run: npx -y wrangler@4 deploy --keep-vars ${{ steps.target.outputs.flag }}
-
       # Keys the Worker makes once and must never lose: the audit log's key
       # wrapper and pseudonym key (docs/audit-log-phase2.md §2). Created here
       # the first time, when the Worker has none — never replaced, because
       # replacing one would make every entry written under it unreadable.
       # If the list cannot be read, nothing is generated: a failed read must
-      # never look like "none set". Until they exist the Worker writes the
-      # log in the clear, as phase 1 did, and moves those rows over later.
+      # never look like "none set". Made before the deploy: production
+      # refuses to serve without them (REQUIRE_ENCRYPTION).
       - name: Generated secrets
         if: ${{ !inputs.migrate_only }}
         run: |
@@ -198,6 +192,14 @@ jobs:
             node -e "const c=require('crypto');process.stdout.write(c.generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'der'}).toString('base64'))" | npx -y wrangler@4 secret put AUDIT_SIGNING_KEY ${{ steps.target.outputs.flag }}
           fi
 
+      - name: Deploy
+        if: ${{ !inputs.migrate_only }}
+        # --keep-vars preserves dashboard-managed non-secret runtime variables
+        # as well as secrets; the flag picks the environment.
+        # Production refuses to serve without its encryption keys
+        # (REQUIRE_ENCRYPTION), and the check after the deploy fails on it.
+        run: npx -y wrangler@4 deploy --keep-vars ${{ steps.target.outputs.flag }} ${{ env.TARGET == 'production' && '--var REQUIRE_ENCRYPTION:1' || '' }}
+
       - name: Verify
         if: ${{ !inputs.migrate_only }}
         run: |
@@ -207,7 +209,14 @@ jobs:
             body="$(curl -fsS ${{ steps.target.outputs.health }} || true)"
             if [ -n "$body" ]; then
               echo "$body"
-              echo "$body" | grep -q '"ok":true' && exit 0
+              if echo "$body" | grep -q '"ok":true'; then
+                # Production: data, the audit log and SSO secrets sealed.
+                if [ "$TARGET" = "production" ] && ! echo "$body" | grep -q '"all":true'; then
+                  echo "::error::Production is running without its encryption keys (DATA_KEY, AUDIT_*, SSO_SECRET_KEY)."
+                  exit 1
+                fi
+                exit 0
+              fi
             fi
             sleep 5
           done

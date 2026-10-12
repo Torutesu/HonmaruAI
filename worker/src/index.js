@@ -319,7 +319,23 @@ export default {
   },
 };
 
+/// Whether the keys that keep data and the audit log sealed are set.
+/// Without DATA_KEY secrets are stored as they are; without the audit keys
+/// the log is written in the clear.
+export function encryptionReady(env) {
+  const data = Boolean(env.DATA_KEY);
+  const audit = Boolean(env.AUDIT_MASTER_KEY && env.AUDIT_PSEUDONYM_KEY && env.AUDIT_SIGNING_KEY);
+  const sso = Boolean(env.SSO_SECRET_KEY);
+  return { data, audit, sso, all: data && audit && sso };
+}
+const requiresEncryption = (env) => String(env.REQUIRE_ENCRYPTION || "") === "1";
+
 async function handle(request, env, url, ctx) {
+    // A production Worker without its keys answers nothing but /health,
+    // rather than storing what it should seal in the clear.
+    if (requiresEncryption(env) && url.pathname !== "/health" && !encryptionReady(env).all) {
+      return json({ message: "The service is not fully configured. Try again shortly.", code: "service-unavailable" }, 503);
+    }
     // Browsers send a preflight OPTIONS before a cross-origin POST with custom
     // headers. Answer it with the CORS headers and no body.
     if (request.method === "OPTIONS") {
@@ -952,8 +968,12 @@ async function handle(request, env, url, ctx) {
     }
 
     if (url.pathname === "/health" && request.method === "GET") {
+      const sealed = encryptionReady(env);
       return json({
-        ok: true,
+        // Where encryption is required (production), not ok without it: the
+        // deploy's check fails rather than serving plaintext.
+        ok: sealed.all || !requiresEncryption(env),
+        encryption: sealed,
         githubOAuth: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
         githubOAuthWeb: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET && env.GITHUB_WEB_REDIRECT_URI),
         aiRouting: Boolean(env.OPENAI_API_KEY || env.OPENROUTER_API_KEY),
