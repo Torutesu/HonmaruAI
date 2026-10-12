@@ -974,7 +974,9 @@ body.slk-resizing iframe { pointer-events: none; }
   position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
   width: 24px; height: 24px; border-radius: 6px; border: none; padding: 0;
   display: grid; place-items: center; cursor: pointer;
-  background: var(--slk-side-hover, rgba(255, 255, 255, .16)); color: inherit;
+  /* The list's own colours, not inherited ones: the check was white on the
+     picked row's light bar, and all but invisible there (#253). */
+  background: var(--slk-field); color: var(--slk-ink);
   opacity: 0; pointer-events: none; transition: opacity 120ms;
 }
 .classic.slk.slk .cl-thread:hover .cl-clear, .classic.slk.slk .cl-clear:focus-visible { opacity: 1; pointer-events: auto; }
