@@ -77,7 +77,7 @@ these were growing with total data rather than with active use.
 
 | # | Gap | Where | Fix |
 | --- | --- | --- | --- |
-| 1 | **Session tokens are stored in plaintext**, as the D1 primary key. A D1 read means takeover of any account. | `db.js` `createSession` | Store `sha256(token)`; look up by hash. Old rows are hashed on first use. |
+| 1 | ~~**Session tokens are stored in plaintext**, as the D1 primary key. A D1 read means takeover of any account.~~ **Done** | `db.js` `createSession`, `sessionKey` | The table keeps `h1:` + sha256(token); a session from before moves to its hash on first use. |
 | 2 | **30-day sliding bearer token in `localStorage`, CORS `*`.** Any XSS, or any site holding a stolen token, has full access for a month. | `web-react`, `CORS_HEADERS` in `index.js` and ~15 modules | CORS allowlist (app origins plus native clients, which send no Origin). Then short-lived access tokens with refresh (plan §3.1). |
 | 3 | **Unauthenticated media.** `GET /media/:uuid` and `/jam/:uuid` serve anything to anyone who has the UUID. | `media.js:142`, `jam.js:451` | Serve only through signed media URLs (`mediaToken.js`, already used for new uploads); turn the legacy route off (`MEDIA_LEGACY_VIDEO=off`) once clients are on signed URLs. |
 | 4 | **File links outlive access.** `/files/:id` URLs are valid ~48 h, are bound to no org or person, and are signed with a key kept in D1 `kv`. | `files.js:61–74, 352` | Sign with a Worker secret; bind the org in the MAC; shorten to minutes, as media is. |
