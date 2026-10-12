@@ -75,7 +75,10 @@ test("a conversation can be muted or set to mentions, per person", async () => {
   expect((await put("/channels/prefs", mika, { orgId: ORG, channel: "b:cafe", level: "loud" })).status).toBe(400);
   expect((await (await get(`/channels?${q({ orgId: ORG })}`, mika)).json()).prefs).toEqual({ "b:cafe": "mute" });
   expect((await (await get(`/channels?${q({ orgId: ORG })}`, toru)).json()).prefs).toEqual({});
+  // Every post is a choice of its own now; no setting is "default".
   await put("/channels/prefs", mika, { orgId: ORG, channel: "b:cafe", level: "all" });
+  expect((await (await get(`/channels?${q({ orgId: ORG })}`, mika)).json()).prefs).toEqual({ "b:cafe": "all" });
+  await put("/channels/prefs", mika, { orgId: ORG, channel: "b:cafe", level: "default" });
   expect((await (await get(`/channels?${q({ orgId: ORG })}`, mika)).json()).prefs).toEqual({});
 });
 

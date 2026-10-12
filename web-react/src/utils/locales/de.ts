@@ -2018,6 +2018,8 @@ const table: Record<string, string> = {
   "Everything in it is deleted 30 days after you ask. Until then you can take it back.": "Alles darin wird 30 Tage nach deiner Anfrage gelöscht. Bis dahin kannst du sie zurücknehmen.",
   "Type the workspace name to confirm": "Zum Bestätigen den Namen des Workspace eingeben",
   "Anyone with write access to the repository comes in by themselves": "Wer Schreibzugriff auf das Repository hat, kommt von selbst herein",
+  "Mentions, replies and a sound for posts": "Erwähnungen, Antworten und ein Ton für Beiträge",
+  "Every post, on the phone too": "Jeder Beitrag, auch aufs Telefon",
 }
 
 export default table

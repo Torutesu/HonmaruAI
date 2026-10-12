@@ -4,7 +4,11 @@
 
 import { nextRunAt } from "./schedule.js";
 
-const LEVELS = new Set(["all", "mentions", "mute"]);
+/// "all": every new post, to the phone as well. "default": no setting —
+/// the app's sound for a post, the phone for mentions, replies and direct
+/// messages. "all" used to be stored as no setting, so choosing it changed
+/// nothing a phone could notice.
+const LEVELS = new Set(["all", "default", "mentions", "mute"]);
 
 export async function setStatus(db, { orgId, githubId, emoji, text, until, awayUntil, delegateLogin }) {
   const clean = (v, n) => (typeof v === "string" && v.trim() ? v.trim().slice(0, n) : null);
@@ -63,8 +67,8 @@ export async function redirectIfAway(members, card) {
 }
 
 export async function setChannelPref(db, { orgId, login, key, level }) {
-  if (!LEVELS.has(level)) return { error: "Level is all, mentions or mute." };
-  if (level === "all") {
+  if (!LEVELS.has(level)) return { error: "Level is all, default, mentions or mute." };
+  if (level === "default") {
     await db.prepare("DELETE FROM channel_prefs WHERE org_id = ?1 AND login = ?2 AND channel = ?3").bind(orgId, login, key).run();
   } else {
     await db.prepare(

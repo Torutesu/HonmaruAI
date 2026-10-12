@@ -14,7 +14,7 @@ export interface SectionRow {
 
 /// How loud each conversation may be, as the prefs route keeps it; a
 /// conversation not named is 'all'.
-export type Levels = Record<string, 'mentions' | 'mute'>
+export type Levels = Record<string, 'all' | 'mentions' | 'mute'>
 
 export interface FoldContext {
   /// Unread mentions of you, by conversation.

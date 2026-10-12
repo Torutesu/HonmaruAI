@@ -113,6 +113,14 @@ export async function recipientsOf(db, orgId, row, members, { askedBy = null } =
     ).bind(orgId, row.parent_id).all();
     for (const r of results || []) add(r.author_login, "thread");
   }
+  // Whoever asked for every new post in this channel: a post in it, or a
+  // reply also sent to it — not a reply that stays in its thread.
+  if (key.startsWith("b:") && (!row.parent_id || row.also_channel)) {
+    const { results: every } = await db.prepare(
+      "SELECT login FROM channel_prefs WHERE org_id = ?1 AND channel = ?2 AND level = 'all'"
+    ).bind(orgId, key).all();
+    for (const r of every || []) add(r.login, "channel");
+  }
   // What somebody wrote stays when they leave, and can still be answered
   // or have its thread carried on; what is said after they left is not
   // theirs to be told.

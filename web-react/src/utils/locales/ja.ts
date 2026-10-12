@@ -2139,6 +2139,8 @@ const table: Record<string, string> = {
   "Everything in it is deleted 30 days after you ask. Until then you can take it back.": "依頼から30日後に、中身はすべて削除されます。それまでは取り消せます。",
   "Type the workspace name to confirm": "確認のためワークスペース名を入力",
   "Anyone with write access to the repository comes in by themselves": "リポジトリへの書き込み権限がある人は誰でも自動で参加できる",
+  "Mentions, replies and a sound for posts": "メンション・返信（投稿は音のみ）",
+  "Every post, on the phone too": "すべての投稿（スマホにも通知）",
 }
 
 export default table
