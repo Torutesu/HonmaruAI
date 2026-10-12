@@ -4721,9 +4721,9 @@ export const ClassicList: React.FC<Props> = ({
               <>
                 <span className="cl-pref" role="group" aria-label={t('Notifications')}>
                   <span className="cl-pref-label">{t('Notify me about')}</span>
-                  {(['all', 'mentions', 'mute'] as const).map((lv) => (
-                    <button key={lv} type="button" className={`cl-nudge${(prefs[thread.view!] || 'all') === lv ? ' on' : ''}`} aria-pressed={(prefs[thread.view!] || 'all') === lv} onClick={() => void setPref(thread.view!, lv)}>
-                      {lv === 'all' ? t('Everything') : lv === 'mentions' ? t('Mentions only') : t('Nothing (mute)')}
+                  {(['default', 'all', 'mentions', 'mute'] as const).map((lv) => (
+                    <button key={lv} type="button" className={`cl-nudge${(prefs[thread.view!] || 'default') === lv ? ' on' : ''}`} aria-pressed={(prefs[thread.view!] || 'default') === lv} onClick={() => void setPref(thread.view!, lv)} data-notify-level={lv}>
+                      {lv === 'default' ? t('Mentions, replies and a sound for posts') : lv === 'all' ? t('Every post, on the phone too') : lv === 'mentions' ? t('Mentions only') : t('Nothing (mute)')}
                     </button>
                   ))}
                 </span>

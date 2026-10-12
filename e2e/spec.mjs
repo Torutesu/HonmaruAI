@@ -1892,7 +1892,7 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     await d.click('.slk-more')
     await d.click('.cl-pref button:has-text("Nothing (mute)")')
     await d.waitForSelector('.cl-thread:has-text("Front desk") .cl-muted', { timeout: 10000 }).catch(() => { throw new Error('muting did not mark the channel') })
-    await d.click('.cl-pref button:has-text("Everything")')
+    await d.click('.cl-pref button[data-notify-level="default"]')
     // ⌘/ lists the keys.
     await d.keyboard.press(process.platform === 'darwin' ? 'Meta+/' : 'Control+/')
     await d.waitForSelector('.shortcuts-sheet', { timeout: 5000 }).catch(() => { throw new Error('⌘/ did not open the shortcuts') })
@@ -2027,7 +2027,7 @@ await step('right-clicking a channel in the sidebar offers what a desktop chat a
     await d.waitForSelector('.row-menu', { state: 'detached', timeout: 1000 })
     await menu('Front desk')
     await d.screenshot({ path: `${SHOTS}/39c-row-menu.png` })
-    for (const item of ['details', 'copy', 'star', 'move', 'notify-all', 'notify-mentions', 'notify-mute', 'rename']) {
+    for (const item of ['details', 'copy', 'star', 'move', 'notify-default', 'notify-all', 'notify-mentions', 'notify-mute', 'rename']) {
       if (!(await d.$(`.row-menu [data-row-menu="${item}"]`))) throw new Error(`the right-click menu has no "${item}"`)
     }
     // Copy ▸ Copy link: the channel's own address.
@@ -2056,7 +2056,7 @@ await step('right-clicking a channel in the sidebar offers what a desktop chat a
       .catch(() => { throw new Error('choosing "Just mentions" in the menu did not take') })
     await Promise.all([
       d.waitForResponse((r) => r.url().includes('/channels/prefs') && r.request().method() === 'PUT', { timeout: 10000 }),
-      d.click('.row-menu [data-row-menu="notify-all"]'),
+      d.click('.row-menu [data-row-menu="notify-default"]'),
     ])
     // Rename, and back again: the sidebar follows at once.
     await menu('Front desk')
