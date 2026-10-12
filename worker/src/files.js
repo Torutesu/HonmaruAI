@@ -55,10 +55,41 @@ function bareType(header) {
 }
 
 // ---- Signing ----
+//
+// An address is signed with a key derived from the Worker's DATA_KEY secret
+// (FILE_SIGNING_KEY when set), never one stored in the database: a copy of
+// the database is not a way to mint addresses. The workspace is signed in
+// with the file, and an address lasts ten to twenty minutes, as the media
+// origin's do (mediaToken.js): someone who leaves a conversation can fetch
+// nothing new from it soon after. Clients keep files by id and ask for new
+// addresses as theirs run out (POST /media/urls).
 
+export const FILE_WINDOW_SECONDS = 600;
+const hexOf = (buf, n) => [...new Uint8Array(buf)].slice(0, n).map((b) => b.toString(16).padStart(2, "0")).join("");
+
+const derived = new Map(); // secret -> CryptoKey
+async function secretKey(env) {
+  const secret = env?.FILE_SIGNING_KEY || env?.DATA_KEY;
+  if (!secret) return null;
+  let key = derived.get(secret);
+  if (!key) {
+    const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), "HKDF", false, ["deriveKey"]);
+    key = await crypto.subtle.deriveKey(
+      { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: new TextEncoder().encode("honmaru/file-urls/v2") },
+      base, { name: "HMAC", hash: "SHA-256", length: 256 }, false, ["sign"]
+    );
+    derived.set(secret, key);
+  }
+  return key;
+}
+
+// Before: one key kept in `kv`, an address good to the end of tomorrow and
+// bound to no workspace. Without a secret in the env (a development Worker)
+// it is still what signs; with one, an address from before is honoured only
+// until it runs out — two days at most — and never made again.
 const KEY_NAME = "file-signing-key";
 let cachedKey = null;
-async function signingKey(db) {
+async function storedKey(db) {
   if (cachedKey) return cachedKey;
   let row = await db.prepare("SELECT value FROM kv WHERE key = ?1").bind(KEY_NAME).first();
   if (!row) {
@@ -71,21 +102,46 @@ async function signingKey(db) {
   return cachedKey;
 }
 
-async function mac(db, id, until) {
-  const sig = await crypto.subtle.sign("HMAC", await signingKey(db), new TextEncoder().encode(`${id}.${until}`));
-  return [...new Uint8Array(sig)].slice(0, 16).map((b) => b.toString(16).padStart(2, "0")).join("");
+async function legacyMac(db, id, until) {
+  return hexOf(await crypto.subtle.sign("HMAC", await storedKey(db), new TextEncoder().encode(`${id}.${until}`)), 16);
 }
 
-/// Until when an address made now is good: the end of tomorrow, UTC, so it
-/// is the same address all day.
+async function mac(env, orgId, id, until) {
+  const key = await secretKey(env);
+  if (!key) return null;
+  return hexOf(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`f2\n${orgId}\n${id}\n${until}`)), 16);
+}
+
+/// Until when an address made now is good (seconds): the end of the next
+/// ten-minute window, so it is the same address all through this one.
 export function validUntil(now = Date.now()) {
-  return (Math.floor(now / 86400000) + 2) * 86400;
+  return (Math.floor(now / 1000 / FILE_WINDOW_SECONDS) + 2) * FILE_WINDOW_SECONDS;
 }
 
-/// The address a reader is given, relative to the API.
-export async function signedPath(db, id, now = Date.now()) {
-  const until = validUntil(now);
-  return `/files/${id}?e=${until}&s=${await mac(db, id, until)}`;
+/// Until when, by the old rule: the end of tomorrow, UTC.
+const legacyUntil = (now) => (Math.floor(now / 86400000) + 2) * 86400;
+
+/// The address a reader is given, relative to the API, and until when (s).
+export async function signedPath(env, row, now = Date.now()) {
+  const signed = await mac(env, row.org_id, row.id, validUntil(now));
+  if (signed) return { path: `/files/${row.id}?v=2&e=${validUntil(now)}&s=${signed}`, until: validUntil(now) };
+  const until = legacyUntil(now);
+  return { path: `/files/${row.id}?e=${until}&s=${await legacyMac(env.DB, row.id, until)}`, until };
+}
+
+/// Whether a request's address is one this Worker signed for this file and
+/// is still good.
+async function addressHolds(env, url, row, nowSeconds) {
+  const until = Number(url.searchParams.get("e"));
+  const sig = String(url.searchParams.get("s") || "");
+  if (!Number.isInteger(until) || until < nowSeconds) return false;
+  if (url.searchParams.get("v") === "2") {
+    if (until > nowSeconds + 2 * FILE_WINDOW_SECONDS) return false;
+    const want = await mac(env, row.org_id, row.id, until);
+    return Boolean(want) && sameText(sig, want);
+  }
+  if (until > nowSeconds + 3 * 86400) return false;
+  return sameText(sig, await legacyMac(env.DB, row.id, until));
 }
 
 function sameText(a, b) {
@@ -104,7 +160,8 @@ export async function fileAddress(db, row, now = Date.now(), env = mediaEnv()) {
     const signed = await signFileUrl(env, { orgId: row.org_id, id: row.id, type: row.type, name: row.name }, now);
     if (signed) return signed;
   }
-  return { url: await signedPath(db, row.id, now), expiresAt: validUntil(now) * 1000 };
+  const { path, until } = await signedPath({ ...(env || {}), DB: db }, row, now);
+  return { url: path, expiresAt: until * 1000 };
 }
 
 /// A file as a browser sees it. `url` changes as it is renewed; `id` does
@@ -353,14 +410,10 @@ export async function serveFile(request, env, url) {
   const m = url.pathname.match(/^\/files\/(f_[0-9a-f]{24})$/);
   if (!m) return null;
   const id = m[1];
-  const until = Number(url.searchParams.get("e"));
-  const sig = String(url.searchParams.get("s") || "");
   const now = Math.floor(Date.now() / 1000);
-  if (!Number.isInteger(until) || until < now || until > now + 3 * 86400 || !sameText(sig, await mac(env.DB, id, until))) {
-    return new Response("Not found", { status: 404 });
-  }
+  const until = Number(url.searchParams.get("e"));
   const row = await env.DB.prepare("SELECT * FROM message_files WHERE id = ?1").bind(id).first();
-  if (!row) return new Response("Not found", { status: 404 });
+  if (!row || !(await addressHolds(env, url, row, now))) return new Response("Not found", { status: 404 });
   const guard = {
     "x-content-type-options": "nosniff",
     "content-security-policy": "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox",
