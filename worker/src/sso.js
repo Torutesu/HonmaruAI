@@ -57,18 +57,28 @@ async function secretKey(env) {
   if (!env.SSO_SECRET_KEY) return null;
   return crypto.subtle.importKey("raw", unb64(env.SSO_SECRET_KEY), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
-export async function sealSecret(env, plain) {
+/// Seal a secret for where it is kept. `context` names that place — the
+/// workspace, and the session or stream it belongs to — and is bound into
+/// the seal (AES-GCM associated data), so a sealed value copied to another
+/// row or workspace does not open there. "v1:" values, sealed before, have
+/// no context and still open; each is sealed as v2 the next time it is
+/// written.
+export async function sealSecret(env, plain, context = null) {
   const key = await secretKey(env);
   if (!key) throw new Error("SSO is not set up on this deployment (SSO_SECRET_KEY).");
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  return `v1:${b64(iv)}:${b64(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(plain)))}`;
+  if (!context) return `v1:${b64(iv)}:${b64(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(plain)))}`;
+  return `v2:${b64(iv)}:${b64(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: enc.encode(context) }, key, enc.encode(plain)))}`;
 }
-async function openSecret(env, sealed) {
+export async function openSecret(env, sealed, context = null) {
   const key = await secretKey(env);
-  const [, iv, ct] = String(sealed || "").split(":");
+  const [version, iv, ct] = String(sealed || "").split(":");
   if (!key || !iv || !ct) return null;
-  return dec.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(iv) }, key, unb64(ct)));
+  const params = version === "v2" ? { name: "AES-GCM", iv: unb64(iv), additionalData: enc.encode(String(context || "")) } : { name: "AES-GCM", iv: unb64(iv) };
+  return dec.decode(await crypto.subtle.decrypt(params, key, unb64(ct)));
 }
+export const clientSecretContext = (orgId) => `sso-client\n${orgId}`;
+const refreshContext = (orgId, sessionKey) => `sso-refresh\n${orgId}\n${sessionKey}`;
 
 // ---- The provider's documents ----
 
@@ -452,7 +462,7 @@ async function finishSignIn(env, request, row, conn, identity, grant = {}) {
   }
   const token = await createSession(env.DB, account.githubId, EMAIL_AUTH_TOKEN, { client: client === "ios" ? "ios" : "web" });
   const key = await sessionKey(token);
-  const refresh = grant.refresh ? await sealSecret(env, grant.refresh) : null;
+  const refresh = grant.refresh ? await sealSecret(env, grant.refresh, refreshContext(conn.org_id, key)) : null;
   const mark = () => env.DB.prepare(
     "UPDATE sessions SET auth_method = 'sso', sso_org_id = ?2, sso_connection_id = ?3, sso_subject = ?4, sso_sid = ?5, sso_refresh = ?6, sso_checked_at = ?7 WHERE token = ?1"
   ).bind(key, conn.org_id, conn.id, grant.sub || identity.subject, grant.sid || null, refresh, now).run();
@@ -478,7 +488,7 @@ export async function callback(env, request, url) {
   let grant = {};
   try {
     const discovery = await discover(conn.issuer);
-    const secret = await openSecret(env, conn.client_secret);
+    const secret = await openSecret(env, conn.client_secret, clientSecretContext(conn.org_id));
     const form = new URLSearchParams({
       grant_type: "authorization_code", code: url.searchParams.get("code") || "", redirect_uri: callbackUrl(env, url),
       client_id: conn.client_id, code_verifier: row.code_verifier, ...(secret ? { client_secret: secret } : {}),
@@ -646,7 +656,7 @@ async function connectionFields(env, orgId, body, current) {
   if (!issuer || !clientId) return { error: "The issuer and client ID are required." };
   if (!body.clientSecret && !current?.client_secret) return { error: "The client secret is required." };
   try { await discover(issuer); } catch (err) { return { error: `Could not read the provider: ${err?.message || err}` }; }
-  const secret = body.clientSecret ? await sealSecret(env, String(body.clientSecret)) : current.client_secret;
+  const secret = body.clientSecret ? await sealSecret(env, String(body.clientSecret), clientSecretContext(orgId)) : current.client_secret;
   // A new provider or application has to be tested again.
   const retest = !current || current.issuer !== issuer || current.client_id !== clientId || Boolean(body.clientSecret);
   return {
@@ -740,7 +750,7 @@ export async function checkSsoGrants(env, { now = Date.now(), limit = 50 } = {})
       let secret = null;
       if (conn) {
         discovery = await discover(conn.issuer).catch(() => null);
-        secret = await openSecret(env, conn.client_secret).catch(() => null);
+        secret = await openSecret(env, conn.client_secret, clientSecretContext(conn.org_id)).catch(() => null);
       }
       conns.set(s.sso_connection_id, { conn, discovery, secret });
     }
@@ -757,7 +767,7 @@ export async function checkSsoGrants(env, { now = Date.now(), limit = 50 } = {})
     if (!discovery) { await touch(); continue; }
     let res; let body;
     try {
-      const refreshToken = await openSecret(env, s.sso_refresh);
+      const refreshToken = await openSecret(env, s.sso_refresh, refreshContext(s.sso_org_id, s.token));
       if (!refreshToken) { await touch(); continue; }
       const form = new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: conn.client_id, ...(secret ? { client_secret: secret } : {}) });
       res = await fetch(discovery.token_endpoint, { method: "POST", redirect: "manual", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body: form, signal: AbortSignal.timeout(10_000) });
@@ -767,7 +777,7 @@ export async function checkSsoGrants(env, { now = Date.now(), limit = 50 } = {})
       continue;
     }
     if (res.ok) {
-      await touch(typeof body.refresh_token === "string" ? await sealSecret(env, body.refresh_token) : null);
+      await touch(typeof body.refresh_token === "string" ? await sealSecret(env, body.refresh_token, refreshContext(s.sso_org_id, s.token)) : null);
     } else if (res.status >= 400 && res.status < 500 && body.error === "invalid_grant") {
       await ending("idp-refused");
     } else {

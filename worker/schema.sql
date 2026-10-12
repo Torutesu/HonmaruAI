@@ -79,6 +79,15 @@ CREATE TABLE IF NOT EXISTS workspace_deletions (
   requested_at  TEXT NOT NULL
 );
 
+/* Each workspace's own data key, random, wrapped under DATA_KEY
+   (secrets.js). Deleted with the workspace: what was sealed under it then
+   opens nowhere, a backup included. */
+CREATE TABLE IF NOT EXISTS workspace_keys (
+  org_id        TEXT PRIMARY KEY,
+  wrapped       TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+
 /* What is left of a deleted workspace: when, and at whose request. */
 CREATE TABLE IF NOT EXISTS workspace_tombstones (
   org_id        TEXT PRIMARY KEY,

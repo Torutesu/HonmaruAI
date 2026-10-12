@@ -191,7 +191,7 @@ export async function connectWorkspaceGitHub(env, { orgId, repo, token, byGithub
        ON CONFLICT(org_id) DO UPDATE SET repo = excluded.repo, token = excluded.token, composio_user = NULL,
          connected_by = excluded.connected_by, updated_at = excluded.updated_at`
     )
-    .bind(orgId, checked.repo, await sealField(token.trim(), aad.githubWorkspace(orgId)), String(byGithubId), new Date().toISOString())
+    .bind(orgId, checked.repo, await sealField(token.trim(), aad.githubWorkspace(orgId), orgId), String(byGithubId), new Date().toISOString())
     .run();
   return { ok: true, repo: checked.repo, url: checked.url };
 }

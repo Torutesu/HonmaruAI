@@ -92,7 +92,7 @@ these were growing with total data rather than with active use.
 | --- | --- | --- |
 | 9 | 838 hand-written queries, 478 `org_id = ?` predicates, nothing enforcing them | Plan M0: `WorkspaceStore` interface; workspace tables reachable only through it; lint bans `env.DB` on workspace tables |
 | 10 | ~~Encryption is optional~~ **Done** | `REQUIRE_ENCRYPTION=1` in production: 503 without the keys; the deploy fails |
-| 11 | One key for every tenant; `SSO_SECRET_KEY` seals without associated data | Per-workspace data keys wrapped by a master key (plan §8.2); add associated data on the next write |
+| 11 | ~~One key for every tenant; SSO sealing without associated data~~ **Done** | `workspace_keys`: a random key per workspace wrapped under `DATA_KEY`, deleted with the workspace (`enc:v2:`); SSO and audit-stream secrets bound to their workspace and row (`v2:`). Values sealed before still open. |
 | 12 | Audit writes fail open; one shared `OPS_TOKEN` compared with `!==` | **Done:** exports refuse when their entry cannot be written; critical/warning entries kept in `undelivered/`; `OPS_TOKENS` per operator, hashed compare. Role and SSO changes still write after the change. |
 | 13 | ~~Repo-linked workspaces auto-join anyone with push access~~ **Done** | Owner setting in Compliance; on by default, as before |
 | 14 | Connected apps (Gmail, Notion) are per person, shared by every workspace they are in | Key Composio by `orgId:githubId` for new connections; show which workspace an app is connected in |
