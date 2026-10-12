@@ -255,6 +255,11 @@ export default {
       ctx.waitUntil(pruneMessages(env, { now: at.getTime() }).catch((err) => console.error("message retention failed", err?.message || err)));
       ctx.waitUntil(expireExports(env, { now: at.getTime() }).catch((err) => console.error("export expiry failed", err?.message || err)));
     }
+    // Once a day: workspaces whose thirty days are up, deleted.
+    if (at.getUTCHours() === 6 && at.getUTCMinutes() < 15) {
+      ctx.waitUntil(import("./workspaceDeletion.js").then(({ purgeDueWorkspaces }) => purgeDueWorkspaces(env, { now: at.getTime() }))
+        .catch((err) => console.error("workspace deletion failed", err?.message || err)));
+    }
     // Once a day: sealed rows past their retention leave D1.
     if (at.getUTCHours() === 4 && at.getUTCMinutes() < 15) {
       ctx.waitUntil(pruneAudit(env, { now: at.getTime() }).catch((err) => console.error("audit pruning failed", err?.message || err)));
@@ -747,12 +752,47 @@ async function handle(request, env, url, ctx) {
       await audit(env, request, { orgId, action: "emoji.removed", actor: person(user), entity: { type: "emoji", id: name, name: `:${name}:` } });
       return json({ orgId, ...result });
     }
+    // Deleting the workspace: an owner, signed in within the hour, typing its
+    // name. Thirty days to take it back (workspaceDeletion.js).
+    if ((url.pathname === "/orgs/delete" && (request.method === "POST" || request.method === "GET")) || (url.pathname === "/orgs/delete/cancel" && request.method === "POST")) {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = request.method === "GET" ? { orgId: url.searchParams.get("orgId") } : await request.json().catch(() => ({}));
+      const orgId = typeof body.orgId === "string" ? body.orgId : "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const { memberGate, reauthDenial } = await import("./policy.js");
+      const refused = await memberGate(env, session, orgId);
+      if (refused) return refused;
+      if (!(await allowed(env.DB, orgId, session.github_id, "workspace.delete"))) return json({ message: "Only an owner can delete the workspace." }, 403);
+      if (request.method === "GET") {
+        const { deletionDue } = await import("./workspaceDeletion.js");
+        return json({ dueAt: await deletionDue(env.DB, orgId) });
+      }
+      const stale = await reauthDenial(env, session, orgId, { owner: true });
+      if (stale) return json(stale.body, stale.status);
+      const { scheduleDeletion, cancelDeletion, GRACE_DAYS } = await import("./workspaceDeletion.js");
+      const actor = await actorOf(env, session);
+      if (url.pathname === "/orgs/delete/cancel") {
+        return (await cancelDeletion(env, request, { orgId, actor })) ? json({ cancelled: true }) : json({ message: "This workspace is not being deleted." }, 409);
+      }
+      const name = (await env.DB.prepare("SELECT name FROM orgs WHERE id = ?1").bind(orgId).first().catch(() => null))?.name || orgId;
+      if (String(body.confirm || "").trim() !== name) return json({ message: `Type the workspace's name, ${name}, to delete it.`, code: "confirm-name", name }, 400);
+      const dueAt = await scheduleDeletion(env, request, { orgId, by: session.github_id, actor });
+      return json({ dueAt, graceDays: GRACE_DAYS }, 202);
+    }
     if (url.pathname === "/orgs/name" && request.method === "PUT") {
       const limited = await enforce(env, request, "team");
       if (limited) return limited;
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "Please sign in." }, 401);
       const body = await request.json().catch(() => ({}));
+      if (body.orgId) {
+        const { memberGate } = await import("./policy.js");
+        const refused = await memberGate(env, session, body.orgId);
+        if (refused) return refused;
+      }
       const result = await renameTeam(env.DB, { orgId: body.orgId, actorId: session.github_id, name: body.name });
       if (result.error) return json({ message: result.error }, result.status || 400);
       await audit(env, request, { orgId: body.orgId, action: "workspace.renamed", actor: await actorOf(env, session), entity: { type: "workspace", id: body.orgId, name: result.name || null } });

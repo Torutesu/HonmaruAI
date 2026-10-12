@@ -70,6 +70,22 @@ CREATE TABLE IF NOT EXISTS orgs (
   created_at    TEXT NOT NULL
 );
 
+/* A workspace an owner asked to delete (workspaceDeletion.js): closed to all
+   but its owners until due_at, then deleted by the daily job. */
+CREATE TABLE IF NOT EXISTS workspace_deletions (
+  org_id        TEXT PRIMARY KEY,
+  due_at        TEXT NOT NULL,
+  requested_by  TEXT NOT NULL,
+  requested_at  TEXT NOT NULL
+);
+
+/* What is left of a deleted workspace: when, and at whose request. */
+CREATE TABLE IF NOT EXISTS workspace_tombstones (
+  org_id        TEXT PRIMARY KEY,
+  deleted_at    TEXT NOT NULL,
+  requested_by  TEXT
+);
+
 /* `role` is standing — who may invite whom, who may act for the org. It is
    granted by an invite or by GitHub, never claimed.
 

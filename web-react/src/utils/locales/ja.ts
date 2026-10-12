@@ -2133,6 +2133,11 @@ const table: Record<string, string> = {
   'Honmaru AI is having trouble on its side. Try again in a little while.': 'Honmaru AI のサーバーで問題が起きています。しばらくしてからもう一度お試しください。',
   "Resize thread": "スレッドの幅を変える",
   "Drag to resize · double-click to reset": "ドラッグで幅を変更 · ダブルクリックで元に戻す",
+  "Delete the workspace": "ワークスペースを削除",
+  "It will be deleted on {date}. Until then only owners can open it.": "{date}に削除されます。それまではオーナーだけが開けます。",
+  "Keep the workspace": "削除を取り消す",
+  "Everything in it is deleted 30 days after you ask. Until then you can take it back.": "依頼から30日後に、中身はすべて削除されます。それまでは取り消せます。",
+  "Type the workspace name to confirm": "確認のためワークスペース名を入力",
 }
 
 export default table

@@ -36,6 +36,8 @@ async function victimRows() {
     const { results } = await env.DB.prepare(`SELECT * FROM ${name} WHERE org_id = ?1`).bind(VICTIM).all();
     out[name] = JSON.stringify(results);
   }
+  // Its name, and whether it is being deleted, are keyed by its id.
+  out.orgs = JSON.stringify(await env.DB.prepare("SELECT * FROM orgs WHERE id = ?1").bind(VICTIM).first());
   return out;
 }
 
@@ -54,6 +56,7 @@ beforeEach(async () => {
   await saveCard(env.DB, VICTIM, { id: "vcard", recipientUserID: "vic", senderUserID: "vic", type: "approval", title: `Acquire ${MARK}`, status: "pending", createdAt: now });
   await env.DB.prepare("INSERT INTO businesses (org_id, slug, name, created_by, created_at) VALUES (?1, 'general', ?2, '9601', ?3)").bind(VICTIM, `General ${MARK}`, now).run();
   await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, body, kind, created_at) VALUES ('vmsg', ?1, 'b:general', 'vic', ?2, 'message', ?3)").bind(VICTIM, `Q3 numbers ${MARK}`, now).run();
+  await env.DB.prepare("INSERT INTO orgs (id, name, created_at) VALUES (?1, 'Victim Co', ?2)").bind(VICTIM, now).run();
   await env.DB.prepare("INSERT INTO memories (id, org_id, text, origin, created_by, created_at, updated_at) VALUES ('vmem', ?1, ?2, 'told', '9601', ?3, ?3)").bind(VICTIM, `Rule ${MARK}`, now).run();
   mal = await createSession(env.DB, "9602", "gho_mal");
   fetchMock.activate();
