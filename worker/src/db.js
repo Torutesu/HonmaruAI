@@ -139,8 +139,6 @@ export async function sessionKey(token) {
   return `h1:${[...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
-/// A token from before sessions were stored hashed: a bare UUID.
-const LEGACY_TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /// `meta` is what "Where you're signed in" shows: the client, its user
 /// agent and the place (sessions.js's sessionMeta, from the request).
@@ -163,10 +161,10 @@ export async function createSession(db, githubId, accessToken, meta = {}) {
 /// A session stored before hashing, moved to its hash the first time its
 /// token comes back: nobody is signed out, and the plain token leaves the
 /// table. Its GitHub token was sealed for the old row and is sealed again
-/// for the new one. Only a bare UUID is looked for, so a stored hash sent as
-/// if it were a token never matches a row.
+/// for the new one. A value shaped like a stored hash is never looked for, so
+/// a hash read out of the table is not a way in.
 async function upgradeLegacySession(db, token, key) {
-  if (!LEGACY_TOKEN.test(token)) return null;
+  if (token.startsWith("h1:")) return null;
   const legacy = await db.prepare("SELECT token, github_access_token FROM sessions WHERE token = ?1").bind(token).first();
   if (!legacy) return null;
   const opened = await openSessionToken(legacy);
