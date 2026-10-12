@@ -218,7 +218,7 @@ export async function handlePolicy(request, env, url) {
       }
     }
     if (!ok) return json({ message: "Enter the code from your email, or your password." }, 400);
-    await env.DB.prepare("UPDATE sessions SET reauth_at = ?2 WHERE token = ?1").bind(token, new Date().toISOString()).run();
+    await env.DB.prepare("UPDATE sessions SET reauth_at = ?2 WHERE token = ?1").bind(session.token, new Date().toISOString()).run();
     return json({ ok: true });
   }
 
