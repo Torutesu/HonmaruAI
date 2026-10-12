@@ -35,7 +35,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             return
         }
         let parentId = (userInfo["parentId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        PushService.clearDelivered(channel: channel, parentId: parentId, orgId: userInfo["orgId"] as? String)
+        let readUpTo = (userInfo["lastReadAt"] as? String).flatMap(PushService.parseDate)
+        PushService.clearDelivered(channel: channel, parentId: parentId, orgId: userInfo["orgId"] as? String, readUpTo: readUpTo)
         completionHandler(.newData)
     }
 

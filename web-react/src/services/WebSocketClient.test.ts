@@ -22,7 +22,8 @@ class FakeWebSocket {
   }
 
   send(data: string) {
-    this.sent.push(JSON.parse(data))
+    // The heartbeat is a bare "ping"; everything else is JSON.
+    this.sent.push(data === 'ping' ? data : JSON.parse(data))
   }
 
   close() {
@@ -153,6 +154,22 @@ describe('WebSocketClient', () => {
     // Explicit disconnect() -> must NOT reconnect.
     client.disconnect()
     await vi.advanceTimersByTimeAsync(5000)
+    expect(FakeWebSocket.instances.length).toBe(2)
+  })
+
+  it('drops a socket that stopped answering — asleep, or after a network switch — and dials again', async () => {
+    vi.useFakeTimers()
+    const { socket } = await connectedClient()
+    // Asked every 25 s; the relay answers "pong" itself.
+    await vi.advanceTimersByTimeAsync(25_000)
+    expect(socket.sent).toContain('ping')
+    socket.onmessage?.({ data: 'pong' } as MessageEvent)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(FakeWebSocket.instances.length).toBe(1)
+    // Next time nothing comes back: it is dead though it never closed.
+    await vi.advanceTimersByTimeAsync(25_000 + 10_000)
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED)
+    await vi.advanceTimersByTimeAsync(2_100)
     expect(FakeWebSocket.instances.length).toBe(2)
   })
 

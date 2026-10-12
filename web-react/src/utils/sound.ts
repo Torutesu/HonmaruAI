@@ -23,7 +23,7 @@
 // knock), in localStorage.
 
 import { isQuiet } from './quiet'
-import { desktopApp } from './desktop'
+import { desktopApp, pageShowing } from './desktop'
 
 export type SoundKind = 'mention' | 'message' | 'inConversation' | 'sent' | 'decision' | 'reply' | 'jamJoin' | 'jamLeave' | 'ring'
 
@@ -83,17 +83,13 @@ export function allowedBy(s: SoundSettings, kind: SoundKind): boolean {
 
 // ---- One tab plays ----
 //
-// The tab that holds a Web Lock is the one that plays; the others stay
-// quiet. When it closes the lock passes to another. Browsers without Web
-// Locks play in every tab, which is the old behaviour and no worse.
-let leader = typeof navigator === 'undefined' || !('locks' in navigator)
-if (!leader && typeof navigator !== 'undefined') {
-  try {
-    void (navigator as Navigator & { locks: { request: (n: string, cb: () => Promise<void>) => Promise<void> } }).locks
-      .request('honmaru-sound', () => { leader = true; return new Promise<void>(() => { /* held while the tab lives */ }) })
-      .catch(() => { leader = true })
-  } catch { leader = true }
-}
+// For each workspace, the tab that shows its notifications plays its sounds
+// (notifications.ts, a Web Lock per workspace); the others stay quiet. It
+// used to be one lock for the whole browser: with two tabs on two
+// workspaces, one workspace's sounds were never played at all.
+let leads: () => boolean = () => true
+/// Who decides whether this tab plays: set by notifications.ts.
+export function soundLeadBy(decide: () => boolean): void { leads = decide }
 
 // ---- The audio context, woken by the first touch ----
 //
@@ -242,24 +238,33 @@ export function playSound(kind: SoundKind, { preview = false }: { preview?: bool
     // Background desktop alerts use the OS sound, respecting Focus and
     // system volume. Never play Web Audio on top of that notification.
     if (desktopApp() && ['mention', 'decision', 'reply', 'message'].includes(kind) &&
-      (document.visibilityState !== 'visible' || !document.hasFocus())) return false
+      (!pageShowing() || !document.hasFocus())) return false
     // Notifications paused, or outside the person's hours: no sound either,
     // except for what they did themselves (sent, joined, left).
     if (isQuiet() && !PERSONAL.includes(kind)) return false
-    if (!leader && !PERSONAL.includes(kind)) return false
+    if (!PERSONAL.includes(kind) && !leads()) return false
     const now = Date.now()
     if (!PERSONAL.includes(kind)) {
       if (now - lastAt < QUIET_MS && priority(kind) <= lastPriority) return false
     }
   }
   const ac = audio()
-  if (!ac || ac.state !== 'running') return false
+  if (!ac) return false
   if (!preview && !PERSONAL.includes(kind)) { lastAt = Date.now(); lastPriority = priority(kind) }
-  const master = ac.createGain()
-  master.gain.value = Math.max(0, Math.min(1, preview && settings.volume === 0 ? DEFAULT_SOUNDS.volume : settings.volume)) * 0.5
-  master.connect(ac.destination)
-  render(kind, ac, master)
-  setTimeout(() => { try { master.disconnect() } catch { /* already gone */ } }, 2400)
+  const play = () => {
+    const master = ac.createGain()
+    master.gain.value = Math.max(0, Math.min(1, preview && settings.volume === 0 ? DEFAULT_SOUNDS.volume : settings.volume)) * 0.5
+    master.connect(ac.destination)
+    render(kind, ac, master)
+    setTimeout(() => { try { master.disconnect() } catch { /* already gone */ } }, 2400)
+  }
+  if (ac.state === 'running') { play(); return true }
+  // Suspended — after sleep, or by a browser that pauses idle audio — and
+  // resumable without a touch where the page is allowed to play (the
+  // desktop app, a page touched before). It used to give up here, and the
+  // sound was simply lost. Late by more than a moment, it is not played.
+  const asked = Date.now()
+  void ac.resume().then(() => { if (ac.state === 'running' && Date.now() - asked < 1500) play() }).catch(() => {})
   return true
 }
 

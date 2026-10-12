@@ -156,6 +156,8 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
   const say = async (body, cardId = null) => {
     const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: null, body, kind: "ai", cardId, parentId: row.parent_id || null });
     if (out.row) {
+      // Whoever asked hears that it answered, wherever they are by then.
+      await queueMessagePushes(env, orgId, out.row, { members, askedBy: row.author_login }).catch((err) => console.error("push queue failed", safe(err?.message)));
       await broadcastWithParent(env, orgId, resolved, out.row, members);
       await emitMessage(env, orgId, out.row);
     }
@@ -296,6 +298,8 @@ export async function answerAsAI(env, { orgId, session, user, resolved, row, mem
   const say = async (body) => {
     const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: null, body, kind: "ai", parentId });
     if (out.row) {
+      // Whoever asked hears that it answered, wherever they are by then.
+      await queueMessagePushes(env, orgId, out.row, { members, askedBy: row.author_login }).catch((err) => console.error("push queue failed", safe(err?.message)));
       await broadcastWithParent(env, orgId, resolved, out.row, members);
       await emitMessage(env, orgId, out.row);
     }

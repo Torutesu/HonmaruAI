@@ -4,6 +4,7 @@ import { getMessage, postMessage } from "./channels.js";
 import { saveCard } from "./db.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
+import { notifyCard } from "./notify.js";
 import { localizeForRecipient } from "./localize.js";
 import { loadCopy } from "./copy.js";
 import { serverText } from "./serverCopy.js";
@@ -163,7 +164,13 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
       await saveCard(db, r.org_id, card);
       await appendCardEvent(db, r.org_id, { cardId: card.id, type: "created", actorUserId: r.login, note: "reminder", snapshot: card });
       // The saved message may be a colleague's, in their language.
-      await announceCards(env, r.org_id, [await localizeForRecipient(env, r.org_id, card)]);
+      const shown = await localizeForRecipient(env, r.org_id, card);
+      await announceCards(env, r.org_id, [shown]);
+      // And to the phone: a reminder only shown to an open app is no
+      // reminder. Its sender is its reader, so no one is left out as "who
+      // did it".
+      await notifyCard(env, { card: shown, kind: "created", excludeLogin: null, orgId: r.org_id })
+        .catch((err) => console.error("reminder push failed", err?.message || err));
       reminded += 1;
     } catch (err) {
       console.error("reminder failed", err?.message || err);

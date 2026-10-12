@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
-import { createSession, getSession } from "../src/db.js";
+import { createSession, getSession, sessionKey } from "../src/db.js";
 
 // A fixed 30-day window signed out someone who used the app every single
 // morning, on day 31, with no warning and nothing to distinguish it from a bug.
@@ -15,11 +15,11 @@ const daysFromNow = (days) =>
   new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 
 async function setExpiry(token, iso) {
-  await env.DB.prepare("UPDATE sessions SET expires_at = ?1 WHERE token = ?2").bind(iso, token).run();
+  await env.DB.prepare("UPDATE sessions SET expires_at = ?1 WHERE token = ?2").bind(iso, await sessionKey(token)).run();
 }
 
 async function expiryOf(token) {
-  const row = await env.DB.prepare("SELECT expires_at FROM sessions WHERE token = ?1").bind(token).first();
+  const row = await env.DB.prepare("SELECT expires_at FROM sessions WHERE token = ?1").bind(await sessionKey(token)).first();
   return row?.expires_at ?? null;
 }
 

@@ -10,6 +10,7 @@
 // other link sent to the browser.
 
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, powerMonitor, screen, session, shell } from 'electron'
+import { isAway } from './attention.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -55,8 +56,9 @@ let pendingLink = linkFromArgv(process.argv)
 let appLoaded = false
 
 // Windows shows a notification only for an app with an identity, and groups
-// the taskbar under it.
-if (process.platform === 'win32') app.setAppUserModelId(APP_ID)
+// the taskbar under it. The Microsoft Store build has one already, from its
+// package; setting another there sends its notifications nowhere.
+if (process.platform === 'win32' && !process.windowsStore) app.setAppUserModelId(APP_ID)
 app.setName(APP_NAME)
 
 // honmaru:// opens this app. While developing (`electron .`) the command
@@ -65,6 +67,38 @@ if (process.defaultApp && process.argv.length >= 2) {
   app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])])
 } else {
   app.setAsDefaultProtocolClient(PROTOCOL)
+}
+
+// ---- Whether anybody is at the window (src/attention.js) ----
+
+const screenState = { locked: false, suspended: false }
+let away = null
+
+/// Tell the page when it changes — or, once loaded, what it is.
+function tellAttention(always = false) {
+  if (!win || win.isDestroyed()) return
+  if (away === null || always) judgeAttention(true)
+  else win.webContents.send('honmaru:attention', away)
+}
+
+function judgeAttention(force = false) {
+  if (!win || win.isDestroyed()) return
+  let idleSeconds = 0
+  try { idleSeconds = powerMonitor.getSystemIdleTime() } catch { /* not ready yet */ }
+  const next = isAway({ visible: win.isVisible(), minimized: win.isMinimized(), ...screenState, idleSeconds })
+  if (next === away && !force) return
+  away = next
+  win.webContents.send('honmaru:attention', away)
+}
+
+function watchAttention() {
+  const set = (key, value) => () => { screenState[key] = value; judgeAttention() }
+  powerMonitor.on('lock-screen', set('locked', true))
+  powerMonitor.on('unlock-screen', set('locked', false))
+  powerMonitor.on('suspend', set('suspended', true))
+  powerMonitor.on('resume', set('suspended', false))
+  // Idle has no event: asked every few seconds, which costs nothing.
+  setInterval(() => judgeAttention(), 5000).unref?.()
 }
 
 function showWindow() {
@@ -182,8 +216,13 @@ function webPreferences() {
     webSecurity: true,
     spellcheck: true,
     // Hidden in the tray, the socket and its timers keep running: that is
-    // what lets a message arrive as a notification.
+    // what lets a message arrive as a notification. It also leaves the page
+    // believing it is always visible, so whether anyone is there comes
+    // from here instead (src/attention.js).
     backgroundThrottling: false,
+    // A notification's sound is played by the page. Without this, a page
+    // reloaded after a crash or an update stays silent until clicked.
+    autoplayPolicy: 'no-user-gesture-required',
   }
 }
 
@@ -241,7 +280,7 @@ function createWindow() {
   win.webContents.on('did-start-navigation', (details) => {
     if (details.isMainFrame && !details.isSameDocument) appLoaded = false
   })
-  win.webContents.on('did-finish-load', () => { appLoaded = onAppPage() })
+  win.webContents.on('did-finish-load', () => { appLoaded = onAppPage(); tellAttention(true) })
   // A navigation the guard stopped reports as aborted (-3) while the app is
   // still there; anything else means it did not load.
   win.webContents.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => {
@@ -273,6 +312,7 @@ function createWindow() {
     })
   })
   win.on('focus', () => win?.flashFrame(false))
+  for (const event of ['show', 'hide', 'minimize', 'restore', 'focus', 'blur']) win.on(event, () => judgeAttention())
   win.on('blur', flushStorage)
 
   let saveTimer = null
@@ -409,6 +449,7 @@ if (!process.mas && !app.requestSingleInstanceLock()) {
     // macOS and Linux shutting down: the same, through the power monitor
     // (which can only be used once the app is ready).
     powerMonitor.on('shutdown', () => { quitting = true; flushStorage(); app.quit() })
+    watchAttention()
     enforceCsp()
     lockPermissions()
     createMenu()

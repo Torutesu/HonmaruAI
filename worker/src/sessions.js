@@ -6,7 +6,7 @@
 // short), never by the token: the list is read in a browser, and a token in
 // it would be a way in.
 
-import { getSession, isMember, getUserByGithubId, primaryOrgId } from "./db.js";
+import { getSession, isMember, getUserByGithubId, primaryOrgId, sessionKey } from "./db.js";
 import { ROLE_RANK, sha256Hex } from "./auth.js";
 import { audit, auditEverywhere, clientOf, person } from "./audit.js";
 import { listMembers } from "./team.js";
@@ -76,9 +76,11 @@ export function describeDevice(ua, client) {
 /// the audit log of every workspace the person is in.
 export async function signedIn(env, request, token, githubId, method) {
   if (!token) return;
+  // The token just handed out; the row is kept under its hash.
+  const key = await sessionKey(token);
   const meta = sessionMeta(request);
   await env.DB.prepare("UPDATE sessions SET client = ?1, user_agent = ?2, place = ?3, last_seen_at = ?4, auth_method = ?6 WHERE token = ?5")
-    .bind(meta.client || null, meta.userAgent || null, meta.place || null, new Date().toISOString(), token, method || null).run().catch(() => {});
+    .bind(meta.client || null, meta.userAgent || null, meta.place || null, new Date().toISOString(), key, method || null).run().catch(() => {});
   const user = await getUserByGithubId(env.DB, String(githubId)).catch(() => null);
   // A proved address at a company's domain: its workspace may let them in.
   if (method === "email_code" || method === "sso") {
@@ -88,7 +90,7 @@ export async function signedIn(env, request, token, githubId, method) {
   // Where from (IP, device) only in the workspace the sign-in opens — its
   // identity provider's, or the one a sign-in lands in; the others learn
   // that it happened.
-  const row = await env.DB.prepare("SELECT sso_org_id FROM sessions WHERE token = ?1").bind(token).first().catch(() => null);
+  const row = await env.DB.prepare("SELECT sso_org_id FROM sessions WHERE token = ?1").bind(key).first().catch(() => null);
   const home = row?.sso_org_id || (await primaryOrgId(env.DB, githubId).catch(() => null));
   await auditEverywhere(env, request, githubId, { action: "auth.login", actor: person(user), details: { method } }, { home });
 }
@@ -190,9 +192,10 @@ const rank = (role) => ROLE_RANK.get(role) ?? 0;
 export async function handleSessions(request, env, url) {
   const path = url.pathname;
   if (!["/sessions", "/auth/logout", "/members/sessions"].includes(path)) return null;
-  const token = request.headers.get("x-session-token");
-  const session = await getSession(env.DB, token);
+  const session = await getSession(env.DB, request.headers.get("x-session-token"));
   if (!session) return json({ message: "Please sign in." }, 401);
+  // This session as the table knows it (its hash), for "this device".
+  const token = session.token;
   const user = await getUserByGithubId(env.DB, session.github_id);
 
   if (path === "/auth/logout" && request.method === "POST") {

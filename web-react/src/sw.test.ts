@@ -109,12 +109,17 @@ describe('a push, shown', () => {
     expect(w.shown[0].options.data).toMatchObject({ at: '2026-01-01T00:00:02.000Z' })
   })
 
-  it('does not ring again for a card being updated, and always has a tag', async () => {
-    const w = worker()
-    await w.push({ title: 'New decision', body: 'Budget', kind: 'created', cardId: 'c1' })
-    expect(w.shown[0].options).toMatchObject({ tag: 'c1', renotify: false })
-    await w.push({ title: 'Plain' })
-    expect(w.shown[1].options.tag).toBe('honmaru')
+  it('rings for something new on a card already on screen, not for the same thing again, and always has a tag', async () => {
+    // A comment on a card whose request is still on screen used to replace
+    // it without a sound: it looked as if the comment never came.
+    const comment = worker({ existing: [{ data: { cardId: 'c1', kind: 'created' } }] })
+    await comment.push({ title: 'Mika commented', body: 'Can we wait?', kind: 'commented', cardId: 'c1' })
+    expect(comment.shown[0].options).toMatchObject({ tag: 'c1', renotify: true })
+    const again = worker({ existing: [{ data: { cardId: 'c1', kind: 'created' } }] })
+    await again.push({ title: 'New decision', body: 'Budget', kind: 'created', cardId: 'c1' })
+    expect(again.shown[0].options).toMatchObject({ tag: 'c1', renotify: false })
+    await again.push({ title: 'Plain' })
+    expect(again.shown[1].options.tag).toBe('honmaru')
   })
 })
 

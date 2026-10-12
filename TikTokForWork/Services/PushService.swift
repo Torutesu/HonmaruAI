@@ -35,8 +35,15 @@ final class PushService: NSObject, ObservableObject {
     @Published var pendingCardID: String?
 
     private var backendBaseURL: URL?
+    /// This iPhone's APNs token. It belongs to the phone, not to whoever is
+    /// signed in, so signing out keeps it: forgetting it meant signing in
+    /// again registered nothing until the next time the app came forward.
     private var deviceToken: String?
     private var didRequestThisLaunch = false
+    /// Registrations and removals, one after another. A sign-out's DELETE
+    /// that reached the server after the next sign-in's POST removed the
+    /// phone it had just registered — the same token, the same account.
+    private var serverWork: Task<Void, Never>?
 
     func configure(backendBaseURL: URL?) {
         self.backendBaseURL = backendBaseURL
@@ -56,7 +63,7 @@ final class PushService: NSObject, ObservableObject {
         // Already granted on a previous launch: re-register without prompting.
         // APNs reissues tokens, and a stale one is a silent no-op — the user
         // simply stops being told anything and never finds out why.
-        if authorization == .authorized {
+        if authorization == .authorized || authorization == .provisional || authorization == .ephemeral {
             UIApplication.shared.registerForRemoteNotifications()
         }
     }
@@ -103,7 +110,16 @@ final class PushService: NSObject, ObservableObject {
     func register(deviceToken data: Data, sessionToken: String?) {
         let token = data.map { String(format: "%02x", $0) }.joined()
         deviceToken = token
-        Task { await upload(token: token, sessionToken: sessionToken) }
+        inOrder { await self.upload(token: token, sessionToken: sessionToken) }
+    }
+
+    /// After whatever this service already asked the server to do.
+    private func inOrder(_ work: @escaping @MainActor () async -> Void) {
+        let before = serverWork
+        serverWork = Task { @MainActor in
+            await before?.value
+            await work()
+        }
     }
 
     /// Apple would not give this iPhone a token: said in Notifications,
@@ -116,17 +132,24 @@ final class PushService: NSObject, ObservableObject {
     /// server, and a device that changes hands must stop receiving the previous
     /// account's decisions.
     func registerExistingToken(sessionToken: String?) {
-        guard PushService.isEnabledInThisBuild, let deviceToken else { return }
-        Task { await upload(token: deviceToken, sessionToken: sessionToken) }
+        guard PushService.isEnabledInThisBuild else { return }
+        guard let deviceToken else {
+            // No token yet this launch: ask Apple, and register() uploads it.
+            Task { await refreshAuthorization() }
+            return
+        }
+        inOrder { await self.upload(token: deviceToken, sessionToken: sessionToken) }
     }
 
     func unregister(sessionToken: String?) async {
         guard let deviceToken, let request = makeRequest(method: "DELETE", token: deviceToken, sessionToken: sessionToken) else {
             return
         }
-        _ = try? await URLSession.shared.data(for: request)
-        self.deviceToken = nil
-        registration = .unregistered
+        inOrder {
+            _ = try? await URLSession.shared.data(for: request)
+            self.registration = .unregistered
+        }
+        await serverWork?.value
     }
 
     /// Read somewhere — on this phone or another device — so what this phone
@@ -149,18 +172,33 @@ final class PushService: NSObject, ObservableObject {
 
     /// A conversation read elsewhere: its notifications, in that workspace
     /// only — two teams' #general are different conversations.
-    nonisolated static func clearDelivered(channel: String, parentId: String?, orgId: String? = nil) {
+    ///
+    /// `readUpTo`, when the read came from elsewhere: only what was said up to
+    /// it. A "read" push can arrive late — Apple delays background pushes —
+    /// and taking down everything in the conversation then took down
+    /// messages newer than the read, which looked like they never arrived.
+    nonisolated static func clearDelivered(channel: String, parentId: String?, orgId: String? = nil, readUpTo: Date? = nil) {
         let center = UNUserNotificationCenter.current()
         center.getDeliveredNotifications { list in
             let ids = list.filter { n in
                 let info = n.request.content.userInfo
                 guard info["kind"] as? String == "message", (info["channel"] as? String) == channel else { return false }
                 if let orgId, let theirs = info["orgId"] as? String, theirs != orgId { return false }
+                if let readUpTo {
+                    let said = (info["at"] as? String).flatMap(PushService.parseDate) ?? n.date
+                    if said > readUpTo { return false }
+                }
                 let reply = info["parentId"] as? String
                 return parentId == nil ? (reply == nil || reply?.isEmpty == true) : reply == parentId
             }.map(\.request.identifier)
             if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
         }
+    }
+
+    nonisolated static func parseDate(_ text: String) -> Date? {
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return withFraction.date(from: text) ?? ISO8601DateFormatter().date(from: text)
     }
 
     func setBadge(_ count: Int) {
@@ -219,7 +257,10 @@ extension PushService: UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound, .badge])
+        // .list too: shown in the foreground, it is still kept in
+        // Notification Center for later, as one that arrived in the
+        // background would be.
+        completionHandler([.banner, .list, .sound, .badge])
     }
 
     nonisolated func userNotificationCenter(

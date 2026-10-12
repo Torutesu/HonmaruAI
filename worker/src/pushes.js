@@ -78,13 +78,17 @@ export async function isActive(db, orgId, login, now = Date.now()) {
 /// the workspace any more (`members` is everyone who is); never somebody
 /// who muted the conversation, and in one set to mentions only, only for a
 /// mention, an inline reply to them, or a DM.
-export async function recipientsOf(db, orgId, row, members) {
+export async function recipientsOf(db, orgId, row, members, { askedBy = null } = {}) {
   // An agent's answer reaches whoever called it the way a teammate's reply
-  // would: through the thread it answers in.
-  if (!row?.id || row.deleted_at || (row.kind !== "message" && row.kind !== "agent")) return [];
+  // would: through the thread it answers in. The AI's own answer (kind
+  // "ai") reaches whoever asked it — it used to reach nobody, so asking
+  // and switching away meant never hearing that it had answered.
+  if (!row?.id || row.deleted_at) return [];
+  if (row.kind !== "message" && row.kind !== "agent" && !(row.kind === "ai" && askedBy)) return [];
   const author = row.author_login;
   const out = new Map();
   const add = (login, reason) => { if (login && login !== author && !String(login).startsWith("agent:") && !out.has(login)) out.set(login, reason); };
+  if (row.kind === "ai") add(askedBy, "reply");
   const key = String(row.channel || "");
   if (key.startsWith("dm:") || key.startsWith("g:") || key.startsWith("ag:")) {
     for (const login of (await audienceOf(db, orgId, key)) || []) add(login, "direct");
@@ -131,10 +135,10 @@ export async function recipientsOf(db, orgId, row, members) {
 
 /// Queue the pushes for a message just said. Cheap: one query when nobody
 /// is for it.
-export async function queueMessagePushes(env, orgId, row, { members = null, now = Date.now() } = {}) {
+export async function queueMessagePushes(env, orgId, row, { members = null, now = Date.now(), askedBy = null } = {}) {
   if (!env?.DB || !row?.id) return 0;
   const list = members || await listMembers(env.DB, orgId, null);
-  const to = await recipientsOf(env.DB, orgId, row, list);
+  const to = await recipientsOf(env.DB, orgId, row, list, { askedBy });
   if (!to.length) return 0;
   // The same decision, told to each of these people's open apps at once: a
   // desktop app has no push service, and shows a notification for exactly
@@ -214,7 +218,7 @@ async function deliverMessagePush(env, job, { now = Date.now(), membersOf = new 
   const where = msg.channel.startsWith("b:")
     ? `#${(await db.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(job.org_id, msg.channel.slice(2)).first().catch(() => null))?.name || msg.channel.slice(2)}`
     : null;
-  const who = msg.author_name || "Someone";
+  const who = msg.author_name || (msg.kind === "ai" ? "AI" : "Someone");
   const title = where ? `${who} · ${where}` : who;
   const files = msg.body ? "" : "📎";
   // In the language they set.
@@ -225,25 +229,32 @@ async function deliverMessagePush(env, job, { now = Date.now(), membersOf = new 
   return pushMessage(env, job.login, { deliveryJobId, title, body, orgId: job.org_id, channel: view, messageId: msg.id, parentId: msg.parent_id || null, at: msg.created_at });
 }
 
+const PUSH_CONCURRENCY = 5;
+
 /// Send what is due. Each row is claimed first, so two overlapping runs
 /// never push one message twice.
 export async function sendDuePushes(env, now = Date.now()) {
   const db = env.DB;
   const at = new Date(now).toISOString();
   const { results: due } = await db.prepare(
-    "SELECT * FROM push_queue WHERE sent_at IS NULL AND due_at <= ?1 AND (lease_until IS NULL OR lease_until <= ?1) AND attempts < 5 ORDER BY due_at LIMIT 25"
+    "SELECT * FROM push_queue WHERE sent_at IS NULL AND due_at <= ?1 AND (lease_until IS NULL OR lease_until <= ?1) AND attempts < 5 ORDER BY due_at LIMIT 100"
   ).bind(at).all();
   let sent = 0; let skipped = 0;
   const membersOf = new Map();
-  for (const job of due || []) {
+  // A few at a time. One by one, each waiting on a translation and on
+  // Apple, an @channel to a hundred people took minutes to reach the last
+  // of them, and the queue behind it waited too.
+  const one = async (job) => {
     const lease = new Date(now + 5 * 60_000).toISOString();
     const claim = await db.prepare("UPDATE push_queue SET lease_until = ?2, attempts = attempts + 1 WHERE id = ?1 AND sent_at IS NULL AND (lease_until IS NULL OR lease_until <= ?3) AND attempts < 5").bind(job.id, lease, at).run();
-    if (!(claim?.meta?.changes > 0)) continue;
+    if (!(claim?.meta?.changes > 0)) return;
     let retry = false;
     let error = null;
     try {
       const result = await deliverMessagePush(env, job, { now, membersOf, deliveryJobId: `message:${job.id}` });
-      if (result.skipped) { skipped += 1; continue; }
+      // Not pushed: marked done, but not as sent — clearDelivered sends a
+      // phone a "read" for what was pushed to it, and nothing was.
+      if (result.skipped) { skipped += 1; error = "skipped"; return; }
       retry = result.retry;
       if (result.delivered) sent += 1; else skipped += 1;
       error = retry ? "transient delivery failure" : result.delivered ? null : "no accepted delivery";
@@ -254,6 +265,10 @@ export async function sendDuePushes(env, now = Date.now()) {
       await db.prepare('UPDATE push_queue SET sent_at = ?2, due_at = ?3, lease_until = NULL, last_error = ?4 WHERE id = ?1 AND lease_until = ?5')
         .bind(job.id, again ? null : at, new Date(now + retryDelay(job.attempts + 1)).toISOString(), error, lease).run();
     }
+  };
+  const list = due || [];
+  for (let i = 0; i < list.length; i += PUSH_CONCURRENCY) {
+    await Promise.all(list.slice(i, i + PUSH_CONCURRENCY).map((job) => one(job).catch((err) => console.error("push failed", err?.message || err))));
   }
   // Kept a day for looking into, then gone; what Activity was looked at,
   // as long as Activity looks back.
@@ -265,7 +280,13 @@ export async function sendDuePushes(env, now = Date.now()) {
 /// Seen already, on some device: read up to it where it was said (its
 /// thread, for a reply), or opened from Activity.
 export async function readAlready(db, orgId, login, msg) {
-  const keys = [msg.channel, ...(msg.parent_id ? [`t:${msg.parent_id}`] : [])];
+  // A reply in a thread is read in its thread. Reading (or writing in) the
+  // channel it hangs off said nothing about it, and used to cancel the push
+  // for replies and @mentions in threads the person had never opened. One
+  // also sent to the channel is read either way.
+  const keys = msg.parent_id
+    ? [`t:${msg.parent_id}`, ...(msg.also_channel ? [msg.channel] : [])]
+    : [msg.channel];
   const { results } = await db.prepare(
     `SELECT channel, last_read_at FROM channel_reads WHERE org_id = ?1 AND login = ?2 AND channel IN (${keys.map((_, i) => `?${i + 3}`).join(", ")})`
   ).bind(orgId, login, ...keys).all().catch(() => ({ results: [] }));
@@ -289,7 +310,7 @@ export async function clearDelivered(env, orgId, login, { key, view, thread, las
   const since = new Date(Date.now() - 86400000).toISOString();
   const hit = await env.DB.prepare(
     `SELECT 1 AS hit FROM push_queue q JOIN channel_messages m ON m.org_id = q.org_id AND m.id = q.message_id
-      WHERE q.org_id = ?1 AND q.login = ?2 AND q.sent_at IS NOT NULL AND q.sent_at >= ?3
+      WHERE q.org_id = ?1 AND q.login = ?2 AND q.sent_at IS NOT NULL AND q.sent_at >= ?3 AND q.last_error IS NULL
         AND m.channel = ?4 AND m.created_at <= ?5 AND ${thread ? "m.parent_id = ?6" : "m.parent_id IS NULL"}
       LIMIT 1`
   ).bind(orgId, login, since, key, lastReadAt || new Date().toISOString(), ...(thread ? [thread] : [])).first().catch(() => null);
@@ -320,7 +341,7 @@ export async function clearDeliveredMessages(env, orgId, login, messageIds) {
   const since = new Date(Date.now() - 86400000).toISOString();
   const marks = ids.map((_, i) => `?${i + 4}`).join(", ");
   const hit = await env.DB.prepare(
-    `SELECT 1 AS hit FROM push_queue WHERE org_id = ?1 AND login = ?2 AND sent_at IS NOT NULL AND sent_at >= ?3 AND message_id IN (${marks}) LIMIT 1`
+    `SELECT 1 AS hit FROM push_queue WHERE org_id = ?1 AND login = ?2 AND sent_at IS NOT NULL AND sent_at >= ?3 AND last_error IS NULL AND message_id IN (${marks}) LIMIT 1`
   ).bind(orgId, login, since, ...ids).first().catch(() => null);
   if (!hit) return 0;
   let sent = 0;
@@ -363,7 +384,9 @@ async function pushMessage(env, login, { title, body, orgId, channel, messageId,
         deviceToken: device.device_token, device,
         collapseId: messageId,
         // Grouped by workspace and conversation: two teams' #general are not one thread.
-        payload: { aps: { alert: { title, body }, sound: "default", "thread-id": `${orgId}|${channel}` }, kind: "message", orgId, channel, messageId, parentId },
+        // `at`: when it was said, so a late "read" push takes down only what
+        // was read (TikTokForWork PushService.clearDelivered), not newer ones.
+        payload: { aps: { alert: { title, body }, sound: "default", "thread-id": `${orgId}|${channel}` }, kind: "message", orgId, channel, messageId, parentId, ...(at ? { at } : {}) },
       }));
       retry ||= retryable(result);
       if (result.ok) delivered += 1;

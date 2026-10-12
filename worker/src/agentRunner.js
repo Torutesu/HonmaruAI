@@ -6,7 +6,7 @@
 /// minutes. A job is taken off the list before it runs, so a failure never
 /// answers twice.
 
-import { getSession, getUserByGithubId } from "./db.js";
+import { getSession, getUserByGithubId, sessionByKey } from "./db.js";
 import { getMessage, resolveChannel, viewOf } from "./channels.js";
 import { listMembers } from "./team.js";
 import { respondingAgents } from "./customAgents.js";
@@ -57,7 +57,9 @@ export class AgentRunner {
 /// One job: the message, who wrote it and where, found again from what was
 /// kept — then the agents it calls answer.
 export async function runQueuedAgents(env, { orgId, token, rowId, locale }) {
-  const session = await getSession(env.DB, token);
+  // The session's stored key (channelRoutes.js); a job queued before
+  // sessions were stored hashed carries the token itself.
+  const session = String(token || "").startsWith("h1:") ? await sessionByKey(env.DB, token) : await getSession(env.DB, token);
   if (!session) return 0;
   const user = await getUserByGithubId(env.DB, session.github_id);
   const row = await getMessage(env.DB, orgId, rowId);

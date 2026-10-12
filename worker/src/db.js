@@ -128,10 +128,24 @@ export async function saveContext(db, orgId, userId, context) {
 
 const SESSION_DAYS = 30;
 
+/// A session token as it is stored: its SHA-256, never the token. Whoever
+/// could read the sessions table — a leaked backup, an export, a query bug —
+/// could otherwise sign in as anyone. The row's `token` column holds this,
+/// and everything that refers to a session (session_workspaces, the sealed
+/// GitHub token's context, the rate limiter) uses it; only the client ever
+/// holds the token itself.
+export async function sessionKey(token) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(token)));
+  return `h1:${[...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+
 /// `meta` is what "Where you're signed in" shows: the client, its user
 /// agent and the place (sessions.js's sessionMeta, from the request).
+/// Returns the token, for the client; the table keeps only its hash.
 export async function createSession(db, githubId, accessToken, meta = {}) {
   const token = crypto.randomUUID();
+  const key = await sessionKey(token);
   const now = new Date();
   const expires = new Date(now.getTime() + SESSION_DAYS * 24 * 60 * 60 * 1000);
   await db
@@ -139,9 +153,27 @@ export async function createSession(db, githubId, accessToken, meta = {}) {
       `INSERT INTO sessions (token, github_id, github_access_token, created_at, expires_at, client, user_agent, place, last_seen_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?4)`
     )
-    .bind(token, githubId, await sealSessionToken(token, accessToken), now.toISOString(), expires.toISOString(), meta.client || null, meta.userAgent || null, meta.place || null)
+    .bind(key, githubId, await sealSessionToken(key, accessToken), now.toISOString(), expires.toISOString(), meta.client || null, meta.userAgent || null, meta.place || null)
     .run();
   return token;
+}
+
+/// A session stored before hashing, moved to its hash the first time its
+/// token comes back: nobody is signed out, and the plain token leaves the
+/// table. Its GitHub token was sealed for the old row and is sealed again
+/// for the new one. A value shaped like a stored hash is never looked for, so
+/// a hash read out of the table is not a way in.
+async function upgradeLegacySession(db, token, key) {
+  if (token.startsWith("h1:")) return null;
+  const legacy = await db.prepare("SELECT token, github_access_token FROM sessions WHERE token = ?1").bind(token).first();
+  if (!legacy) return null;
+  const opened = await openSessionToken(legacy);
+  await db.batch([
+    db.prepare("UPDATE sessions SET token = ?2, github_access_token = ?3 WHERE token = ?1")
+      .bind(token, key, await sealSessionToken(key, opened.github_access_token)),
+    db.prepare("UPDATE session_workspaces SET token = ?2 WHERE token = ?1").bind(token, key),
+  ]).catch((err) => console.error("session upgrade failed", err?.message || err));
+  return true;
 }
 
 // How stale "last used" may get before a request writes it again.
@@ -152,15 +184,31 @@ const SESSION_SEEN_EVERY_MS = 10 * 60 * 1000;
 // deadline that is still weeks away.
 const SESSION_SLIDE_AFTER_DAYS = 15;
 
+/// A session by the key it is stored under, for work the Worker hands to
+/// itself (a queued agent run): never for a value a client sent, which is
+/// a token and goes through getSession. Unexpired, and not slid.
+export async function sessionByKey(db, key) {
+  if (typeof key !== "string" || !key.startsWith("h1:")) return null;
+  const row = await db.prepare("SELECT token, github_id, github_access_token, expires_at, auth_method, sso_org_id, sso_connection_id FROM sessions WHERE token = ?1")
+    .bind(key).first().then(openSessionToken);
+  if (!row || (row.expires_at && row.expires_at <= new Date().toISOString())) return null;
+  return row;
+}
+
+/// The session a client's token opens, or null. The row's `token` is the
+/// stored key (sessionKey), which is what anything after this refers to it by.
 export async function getSession(db, token) {
-  if (!token) return null;
-  const row = await db
+  if (!token || typeof token !== "string") return null;
+  const key = await sessionKey(token);
+  const find = () => db
     .prepare(
       "SELECT token, github_id, github_access_token, created_at, expires_at, last_seen_at, client, reauth_at, auth_method, longest_idle_ms, sso_org_id, sso_connection_id FROM sessions WHERE token = ?1"
     )
-    .bind(token)
+    .bind(key)
     .first()
     .then(openSessionToken);
+  let row = await find();
+  if (!row && await upgradeLegacySession(db, token, key)) row = await find();
   if (!row) return null;
   const now = new Date();
   // A NULL expiry is a session minted before expiry existed — still valid, so
@@ -179,7 +227,7 @@ export async function getSession(db, token) {
     // next request, after "last used" has become now.
     const gap = now.getTime() - (Date.parse(row.last_seen_at || row.created_at || "") || now.getTime());
     try {
-      await db.prepare("UPDATE sessions SET last_seen_at = ?1, longest_idle_ms = MAX(COALESCE(longest_idle_ms, 0), ?3) WHERE token = ?2").bind(now.toISOString(), token, gap).run();
+      await db.prepare("UPDATE sessions SET last_seen_at = ?1, longest_idle_ms = MAX(COALESCE(longest_idle_ms, 0), ?3) WHERE token = ?2").bind(now.toISOString(), key, gap).run();
       row.last_seen_at = now.toISOString();
       row.longest_idle_ms = Math.max(Number(row.longest_idle_ms) || 0, gap);
     } catch {
@@ -191,7 +239,7 @@ export async function getSession(db, token) {
     try {
       await db
         .prepare("UPDATE sessions SET expires_at = ?1 WHERE token = ?2")
-        .bind(extended, token)
+        .bind(extended, key)
         .run();
       row.expires_at = extended;
     } catch (err) {

@@ -92,9 +92,12 @@ function notificationFor(data) {
       tag,
       // A second message in a conversation replaces the first (one entry per
       // conversation, as Discord and Slack do) — and must still make a sound
-      // and show, or every message after the first arrives in silence.
+      // and show, or every message after the first arrives in silence. The
+      // same for a card: a comment, a mention or its answer replaced what was
+      // on screen for it without a sound. Only a repeat of the very same
+      // event is quiet (alreadyShown, below).
       // `renotify` without a tag throws in Chrome; the tag is always set.
-      renotify: data.kind === 'nudged' || data.kind === 'message',
+      renotify: true,
       timestamp: Number.isFinite(at) ? at : Date.now(),
       data: {
         cardId: data.cardId || null,

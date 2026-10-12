@@ -6,6 +6,13 @@ import type { TypingEvent } from '../utils/typing'
 
 const RECONNECT_MIN_MS = 2000
 const RECONNECT_MAX_MS = 30000
+/// A socket can die without closing — a laptop asleep, a Wi-Fi switch — and
+/// then looks connected while nothing arrives: no message, no notification,
+/// no sound, until TCP gives up minutes later. So it is asked every so often
+/// (the relay answers "pong" itself, worker/src/relay.js), and one that
+/// stays silent past the deadline is dropped and dialled again.
+const HEARTBEAT_MS = 25_000
+const SILENT_DEADLINE_MS = 10_000
 
 export class WebSocketClient {
   private ws: WebSocket | null = null
@@ -23,6 +30,13 @@ export class WebSocketClient {
   // Grows on each failed retry (2s → 4s → 8s … capped) so a server that is
   // down is not hammered every 2s, and resets to the minimum on a success.
   private reconnectDelay = RECONNECT_MIN_MS
+  /// How far this machine's clock is from the relay's, from the server's
+  /// time on each event. A computer a minute fast or slow otherwise judged
+  /// every message "old" and stayed silent (Dashboard.tsx).
+  private clockOffset = 0
+  private heartbeat: ReturnType<typeof setInterval> | null = null
+  private deadline: ReturnType<typeof setTimeout> | null = null
+  private wakeListening = false
   // Set when the relay closes with 1008. It means "you are not allowed in",
   // not "the network died", and reconnecting to it is a loop that can only
   // ever end the same way.
@@ -106,6 +120,7 @@ export class WebSocketClient {
         this.ws = ws
 
         ws.onopen = () => {
+          this.startHeartbeat(ws)
           try {
             const joinPayload = {
               type: 'join',
@@ -125,6 +140,9 @@ export class WebSocketClient {
         }
 
         ws.onmessage = (event) => {
+          // Anything heard means the socket is alive.
+          this.heard()
+          if (event.data === 'pong') return
           try {
             const json = JSON.parse(event.data)
             this.handleEvent(json)
@@ -143,6 +161,7 @@ export class WebSocketClient {
         // throws on a missing argument turns a disconnect into an unhandled
         // error instead of a reconnect.
         ws.onclose = (event?: { code?: number; reason?: string }) => {
+          this.stopHeartbeat()
           this.ws = null
           this.joined = false
           this.onConnectionChange?.(false)
@@ -165,6 +184,56 @@ export class WebSocketClient {
     })
   }
 
+  private startHeartbeat(ws: WebSocket): void {
+    this.stopHeartbeat()
+    this.listenForWake()
+    this.heartbeat = setInterval(() => this.probe(ws), HEARTBEAT_MS)
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeat) { clearInterval(this.heartbeat); this.heartbeat = null }
+    if (this.deadline) { clearTimeout(this.deadline); this.deadline = null }
+  }
+
+  private heard(): void {
+    if (this.deadline) { clearTimeout(this.deadline); this.deadline = null }
+  }
+
+  /// Ask; no answer in time and the socket is dead, whatever it says.
+  private probe(ws: WebSocket): void {
+    if (this.ws !== ws || ws.readyState !== WebSocket.OPEN || this.deadline) return
+    try { ws.send('ping') } catch { /* closing already */ }
+    this.deadline = setTimeout(() => {
+      this.deadline = null
+      if (this.ws !== ws) return
+      this.reconnectDelay = RECONNECT_MIN_MS
+      try { ws.close() } catch { /* already gone */ }
+      // A socket that never got as far as closing still gets a new one.
+      if (this.ws === ws) { this.ws = null; this.joined = false; this.onConnectionChange?.(false); this.scheduleReconnect() }
+    }, SILENT_DEADLINE_MS)
+  }
+
+  /// Back online, or back at the machine: find out now rather than at the
+  /// next heartbeat, and dial at once if there is no socket at all.
+  checkConnection(): void {
+    if (this.refused || this.intentionalDisconnect || !this.lastConnectParams) return
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) { this.probe(this.ws); return }
+    if (!this.ws) {
+      if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
+      this.reconnectDelay = 0
+      this.scheduleReconnect()
+    }
+  }
+
+  private listenForWake(): void {
+    if (this.wakeListening || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
+    this.wakeListening = true
+    const check = () => this.checkConnection()
+    window.addEventListener('online', check)
+    // Dashboard.tsx: back after a while away (a closed lid, a locked screen).
+    window.addEventListener('honmaru:resync', check)
+  }
+
   private scheduleReconnect(): void {
     if (this.refused) return
     if (this.intentionalDisconnect || !this.lastConnectParams || !this.currentUserId) return
@@ -174,7 +243,7 @@ export class WebSocketClient {
     const userId = this.currentUserId
     const delay = this.reconnectDelay
     // Next attempt waits longer, up to the cap.
-    this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS)
+    this.reconnectDelay = Math.min(Math.max(this.reconnectDelay * 2, RECONNECT_MIN_MS), RECONNECT_MAX_MS)
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       this.connect(url, userId, orgId, sessionToken).catch(() => {
@@ -186,6 +255,7 @@ export class WebSocketClient {
 
   disconnect(): void {
     this.intentionalDisconnect = true
+    this.stopHeartbeat()
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
@@ -196,7 +266,13 @@ export class WebSocketClient {
     }
   }
 
+  /// Now, by the relay's clock.
+  serverNow(): number {
+    return Date.now() - this.clockOffset
+  }
+
   private handleEvent(json: any): void {
+    if (typeof json?.timestamp === 'number' && Number.isFinite(json.timestamp)) this.clockOffset = Date.now() - json.timestamp
     const type = json.type as string
 
     switch (type) {

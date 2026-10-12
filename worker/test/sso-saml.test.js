@@ -9,6 +9,7 @@ import idpCert from "./fixtures/saml-idp.crt?raw";
 import idpKeyBody from "./fixtures/saml-idp.key.b64?raw";
 import otherCert from "./fixtures/saml-other.crt?raw";
 import otherKeyBody from "./fixtures/saml-other.key.b64?raw";
+import { sessionKey } from "../src/db.js";
 
 // SAML 2.0, and a workspace with more than one identity provider
 // (docs/sso-and-domain-join.md §11): a pretend IdP signs real assertions
@@ -133,7 +134,7 @@ test("a SAML sign-in: our metadata, the AuthnRequest by redirect, the signed ass
   expect(code, back.headers.get("location")).toBeTruthy();
   const session = await (await call("/sso/exchange", null, { method: "POST", body: { code, client: "web" } })).json();
   expect(session.userId).toBe("8101");
-  const row = await env.DB.prepare("SELECT auth_method, sso_org_id, sso_connection_id FROM sessions WHERE token = ?1").bind(session.token).first();
+  const row = await env.DB.prepare("SELECT auth_method, sso_org_id, sso_connection_id FROM sessions WHERE token = ?1").bind(await sessionKey(session.token)).first();
   expect(row).toEqual({ auth_method: "sso", sso_org_id: ORG, sso_connection_id: conn.id });
   // The same response again: its state is spent.
   const replay = await call(`/sso/saml/${conn.id}/acs`, null, { method: "POST", form: { SAMLResponse: encode(samlResponse({ requestId, sp: conn.sp })), RelayState: relay } });
@@ -298,7 +299,7 @@ test("single logout by post: signed by the IdP, one sign-in or all of them, once
   await activate(conn.id);
   const a = await samlSession(conn, "_s1");
   const b = await samlSession(conn, "_s2");
-  expect(await env.DB.prepare("SELECT sso_subject, sso_sid FROM sessions WHERE token = ?1").bind(a).first()).toEqual({ sso_subject: "toru@acme.co.jp", sso_sid: "_s1" });
+  expect(await env.DB.prepare("SELECT sso_subject, sso_sid FROM sessions WHERE token = ?1").bind(await sessionKey(a)).first()).toEqual({ sso_subject: "toru@acme.co.jp", sso_sid: "_s1" });
 
   // Refused: unsigned, another key, another IdP, another address, stale.
   for (const xml of [

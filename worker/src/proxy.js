@@ -12,6 +12,7 @@
 /// as a card for Toru to approve before it is posted with his GitHub.
 
 import { getUserByLogin, saveCard } from "./db.js";
+import { openSessionToken } from "./secrets.js";
 import { getMessage, postMessage, resolveChannel, viewOf, MAX_MESSAGE_CHARS } from "./channels.js";
 import { resolveMentions } from "./threads.js";
 import { listAgents, saveAgent, askAgent, contextFor, cleanAgentHandle } from "./customAgents.js";
@@ -209,11 +210,13 @@ export async function githubTokenFor(env, orgId, login) {
   const user = await getUserByLogin(env.DB, login);
   if (user?.github_id) {
     const row = await env.DB.prepare(
-      `SELECT github_access_token AS token FROM sessions
+      `SELECT token, github_access_token FROM sessions
         WHERE github_id = ?1 AND github_access_token IS NOT NULL AND github_access_token != ?2 AND github_access_token != '' AND expires_at > ?3
         ORDER BY created_at DESC LIMIT 1`
     ).bind(String(user.github_id), EMAIL_AUTH_TOKEN, new Date().toISOString()).first().catch(() => null);
-    if (row?.token) return row.token;
+    // Stored sealed (secrets.js): opened, not handed to GitHub as it lies.
+    const opened = row ? await openSessionToken(row).catch(() => null) : null;
+    if (opened?.github_access_token) return opened.github_access_token;
   }
   const workspace = await getWorkspaceGitHub(env.DB, orgId).catch(() => null);
   return workspace?.token || null;

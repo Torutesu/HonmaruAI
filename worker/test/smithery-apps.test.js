@@ -5,6 +5,7 @@ import worker from "../src/index.js";
 import { appTools, readsOnly, sweepAppConnections, tagsFor } from "../src/smitheryApps.js";
 import { agentTools } from "../src/agentTools.js";
 import { forgetPolicies } from "../src/policy.js";
+import { sessionKey } from "../src/db.js";
 
 // Apps through Smithery Connect (docs/smithery-apps.md). The pretend
 // Smithery below enforces what the real one promises for a scoped token: it
@@ -124,7 +125,7 @@ async function connect(token, secret, orgId = ORG) {
   fake.connections.get(id).secret = secret;
   return { res, answer, id };
 }
-const sessionOf = async (token) => env.DB.prepare("SELECT * FROM sessions WHERE token = ?1").bind(token).first();
+const sessionOf = async (token) => env.DB.prepare("SELECT * FROM sessions WHERE token = ?1").bind(await sessionKey(token)).first();
 
 test("none by default; only an owner allows an app, and only one that runs as a service", async () => {
   expect(await (await call(`/orgs/apps?${q}`, mika)).json()).toMatchObject({ configured: true, apps: [], canConnect: true, canManage: false });

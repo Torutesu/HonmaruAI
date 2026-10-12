@@ -12,7 +12,7 @@
 // domains. The session token never travels in a URL — a one-time code good
 // for a minute does, and the client trades it for the session.
 
-import { getSession, getUserByGithubId, createSession, upsertUser, upsertMembership } from "./db.js";
+import { getSession, getUserByGithubId, createSession, upsertUser, upsertMembership, sessionKey } from "./db.js";
 import { sha256Hex, EMAIL_AUTH_TOKEN, settleProvedAddress } from "./auth.js";
 import { audit, person, auditEverywhere } from "./audit.js";
 import { allowed, ownersOf } from "./permissions.js";
@@ -445,10 +445,11 @@ async function finishSignIn(env, request, row, conn, identity, grant = {}) {
     await audit(env, request, { orgId: conn.org_id, action: "member.joined", actor: person(joiner), details: { via: "sso", role: "member" } });
   }
   const token = await createSession(env.DB, account.githubId, EMAIL_AUTH_TOKEN, { client: client === "ios" ? "ios" : "web" });
+  const key = await sessionKey(token);
   const refresh = grant.refresh ? await sealSecret(env, grant.refresh) : null;
   const mark = () => env.DB.prepare(
     "UPDATE sessions SET auth_method = 'sso', sso_org_id = ?2, sso_connection_id = ?3, sso_subject = ?4, sso_sid = ?5, sso_refresh = ?6, sso_checked_at = ?7 WHERE token = ?1"
-  ).bind(token, conn.org_id, conn.id, grant.sub || identity.subject, grant.sid || null, refresh, now).run();
+  ).bind(key, conn.org_id, conn.id, grant.sub || identity.subject, grant.sid || null, refresh, now).run();
   await mark();
   const { signedIn } = await import("./sessions.js");
   await signedIn(env, request, token, account.githubId, "sso");
@@ -568,7 +569,7 @@ export async function exchange(env, { code, client }) {
   const row = await env.DB.prepare("DELETE FROM sso_handoffs WHERE code = ?1 AND (CASE WHEN client = 'ios' THEN 'ios' ELSE 'web' END) = ?2 RETURNING *")
     .bind(await sha256Hex(String(code || "")), kind).first().catch(() => null);
   if (!row || row.expires_at <= new Date().toISOString()) return { error: "That sign-in code has expired, or is for a different app. Start again.", status: 400 };
-  const session = await env.DB.prepare("SELECT github_id FROM sessions WHERE token = ?1").bind(row.token).first();
+  const session = await env.DB.prepare("SELECT github_id FROM sessions WHERE token = ?1").bind(await sessionKey(row.token)).first();
   if (!session) return { error: "That sign-in has ended.", status: 400 };
   const user = await getUserByGithubId(env.DB, session.github_id);
   return { token: row.token, userId: String(session.github_id), login: user?.login || null, orgId: row.org_id };

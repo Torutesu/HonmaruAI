@@ -100,11 +100,15 @@ export function subjectFor(request, verifiedToken) {
 async function verifySessionToken(env, token) {
   if (!token) return null;
   try {
+    // By its hash, as the table keeps it (db.js sessionKey); a session not
+    // yet moved to its hash counts against the IP until its first use does.
+    const { sessionKey } = await import("./db.js");
+    const key = await sessionKey(token);
     const row = await env.DB
       .prepare("SELECT token FROM sessions WHERE token = ?1 AND (expires_at IS NULL OR expires_at > ?2)")
-      .bind(token, new Date().toISOString())
+      .bind(key, new Date().toISOString())
       .first();
-    return row ? token : null;
+    return row ? key : null;
   } catch {
     // Same rule as the limiter itself: an outage must not become an outage for
     // the product. Unverified means "count this against the IP", never "let it
