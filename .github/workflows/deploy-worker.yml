@@ -182,6 +182,12 @@ jobs:
               openssl rand -base64 32 | tr -d '\n' | npx -y wrangler@4 secret put "$name" ${{ steps.target.outputs.flag }}
             fi
           done
+          # The account, for the spend brake's analytics query (spendGuard.js).
+          # Its token (CF_ANALYTICS_TOKEN, Account Analytics: Read) is made by
+          # a person in the dashboard; without it the brake does nothing.
+          if ! printf '%s' "$have" | grep -q '"CF_ACCOUNT_ID"'; then
+            printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | npx -y wrangler@4 secret put CF_ACCOUNT_ID ${{ steps.target.outputs.flag }}
+          fi
           # The archive's signing key: Ed25519, as PKCS8. Its public half is
           # served at /audit/public-key; a replaced key is listed there only if
           # AUDIT_PAST_PUBLIC_KEYS names it, so this too is made once.

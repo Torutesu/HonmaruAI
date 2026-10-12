@@ -218,6 +218,15 @@ export default {
       ctx.waitUntil(deliverStreams(env, { now: event?.scheduledTime || Date.now() }).catch((err) => console.error("audit streams failed", err?.message || err)));
       return;
     }
+    // The bill: today's D1 rows against the warning and stop lines. Past
+    // the stop line, the work below that nobody is waiting on waits for
+    // tomorrow (spendGuard.js); what people do keeps working.
+    const { checkSpend, braked } = await import("./spendGuard.js");
+    await checkSpend(env, ctx, { now: event?.scheduledTime || Date.now() }).catch((err) => console.error("spend check failed", err?.message || err));
+    if (await braked(env)) {
+      console.error("spend brake on: background work paused until 00:00 UTC");
+      return;
+    }
     ctx.waitUntil(runScheduledSync(env, ctx));
     // App connections whose person left or whose app was taken away, ended.
     ctx.waitUntil(sweepAppConnections(env).catch((err) => console.error("app sweep failed", err?.message || err)));
