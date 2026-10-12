@@ -51,6 +51,7 @@ import { handleDomains, recheckDomains } from "./domains.js";
 import { handleSso, checkSsoGrants } from "./sso.js";
 import { handleApps, sweepAppConnections, forgetAppConnections } from "./smitheryApps.js";
 import { requestContext } from "./requestContext.js";
+import { settleCors } from "./cors.js";
 import { handleGovernance, pruneMessages, expireExports } from "./governance.js";
 import { sealPending, weeklyVerify } from "./auditArchive.js";
 import { pruneAudit, handleOps } from "./auditRetention.js";
@@ -217,6 +218,15 @@ export default {
       ctx.waitUntil(deliverStreams(env, { now: event?.scheduledTime || Date.now() }).catch((err) => console.error("audit streams failed", err?.message || err)));
       return;
     }
+    // The bill: today's D1 rows against the warning and stop lines. Past
+    // the stop line, the work below that nobody is waiting on waits for
+    // tomorrow (spendGuard.js); what people do keeps working.
+    const { checkSpend, braked } = await import("./spendGuard.js");
+    await checkSpend(env, ctx, { now: event?.scheduledTime || Date.now() }).catch((err) => console.error("spend check failed", err?.message || err));
+    if (await braked(env)) {
+      console.error("spend brake on: background work paused until 00:00 UTC");
+      return;
+    }
     ctx.waitUntil(runScheduledSync(env, ctx));
     // App connections whose person left or whose app was taken away, ended.
     ctx.waitUntil(sweepAppConnections(env).catch((err) => console.error("app sweep failed", err?.message || err)));
@@ -254,6 +264,11 @@ export default {
       ctx.waitUntil(pruneMessages(env, { now: at.getTime() }).catch((err) => console.error("message retention failed", err?.message || err)));
       ctx.waitUntil(expireExports(env, { now: at.getTime() }).catch((err) => console.error("export expiry failed", err?.message || err)));
     }
+    // Once a day: workspaces whose thirty days are up, deleted.
+    if (at.getUTCHours() === 6 && at.getUTCMinutes() < 15) {
+      ctx.waitUntil(import("./workspaceDeletion.js").then(({ purgeDueWorkspaces }) => purgeDueWorkspaces(env, { now: at.getTime() }))
+        .catch((err) => console.error("workspace deletion failed", err?.message || err)));
+    }
     // Once a day: sealed rows past their retention leave D1.
     if (at.getUTCHours() === 4 && at.getUTCMinutes() < 15) {
       ctx.waitUntil(pruneAudit(env, { now: at.getTime() }).catch((err) => console.error("audit pruning failed", err?.message || err)));
@@ -287,6 +302,7 @@ export default {
       if (response.status === 101 || response.webSocket) return response;
       const headers = new Headers(response.headers);
       headers.set("x-request-id", requestId);
+      settleCors(request, url, env, headers);
       return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
     } catch (err) {
       // An unhandled throw used to become a raw Workers 500 with a stack trace
@@ -306,13 +322,29 @@ export default {
         // With the CORS headers every other answer has. Without them the
         // browser hides the response, and the web app could only report it
         // as "could not reach the server".
-        { status, headers: { "cache-control": "no-store", "content-type": "application/json", ...CORS_HEADERS, "x-request-id": requestId } }
+        { status, headers: (() => { const h = new Headers({ "cache-control": "no-store", "content-type": "application/json", ...CORS_HEADERS, "x-request-id": requestId }); settleCors(request, url, env, h); return h; })() }
       );
     }
   },
 };
 
+/// Whether the keys that keep data and the audit log sealed are set.
+/// Without DATA_KEY secrets are stored as they are; without the audit keys
+/// the log is written in the clear.
+export function encryptionReady(env) {
+  const data = Boolean(env.DATA_KEY);
+  const audit = Boolean(env.AUDIT_MASTER_KEY && env.AUDIT_PSEUDONYM_KEY && env.AUDIT_SIGNING_KEY);
+  const sso = Boolean(env.SSO_SECRET_KEY);
+  return { data, audit, sso, all: data && audit && sso };
+}
+const requiresEncryption = (env) => String(env.REQUIRE_ENCRYPTION || "") === "1";
+
 async function handle(request, env, url, ctx) {
+    // A production Worker without its keys answers nothing but /health,
+    // rather than storing what it should seal in the clear.
+    if (requiresEncryption(env) && url.pathname !== "/health" && !encryptionReady(env).all) {
+      return json({ message: "The service is not fully configured. Try again shortly.", code: "service-unavailable" }, 503);
+    }
     // Browsers send a preflight OPTIONS before a cross-origin POST with custom
     // headers. Answer it with the CORS headers and no body.
     if (request.method === "OPTIONS") {
@@ -745,12 +777,47 @@ async function handle(request, env, url, ctx) {
       await audit(env, request, { orgId, action: "emoji.removed", actor: person(user), entity: { type: "emoji", id: name, name: `:${name}:` } });
       return json({ orgId, ...result });
     }
+    // Deleting the workspace: an owner, signed in within the hour, typing its
+    // name. Thirty days to take it back (workspaceDeletion.js).
+    if ((url.pathname === "/orgs/delete" && (request.method === "POST" || request.method === "GET")) || (url.pathname === "/orgs/delete/cancel" && request.method === "POST")) {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = request.method === "GET" ? { orgId: url.searchParams.get("orgId") } : await request.json().catch(() => ({}));
+      const orgId = typeof body.orgId === "string" ? body.orgId : "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const { memberGate, reauthDenial } = await import("./policy.js");
+      const refused = await memberGate(env, session, orgId);
+      if (refused) return refused;
+      if (!(await allowed(env.DB, orgId, session.github_id, "workspace.delete"))) return json({ message: "Only an owner can delete the workspace." }, 403);
+      if (request.method === "GET") {
+        const { deletionDue } = await import("./workspaceDeletion.js");
+        return json({ dueAt: await deletionDue(env.DB, orgId) });
+      }
+      const stale = await reauthDenial(env, session, orgId, { owner: true });
+      if (stale) return json(stale.body, stale.status);
+      const { scheduleDeletion, cancelDeletion, GRACE_DAYS } = await import("./workspaceDeletion.js");
+      const actor = await actorOf(env, session);
+      if (url.pathname === "/orgs/delete/cancel") {
+        return (await cancelDeletion(env, request, { orgId, actor })) ? json({ cancelled: true }) : json({ message: "This workspace is not being deleted." }, 409);
+      }
+      const name = (await env.DB.prepare("SELECT name FROM orgs WHERE id = ?1").bind(orgId).first().catch(() => null))?.name || orgId;
+      if (String(body.confirm || "").trim() !== name) return json({ message: `Type the workspace's name, ${name}, to delete it.`, code: "confirm-name", name }, 400);
+      const dueAt = await scheduleDeletion(env, request, { orgId, by: session.github_id, actor });
+      return json({ dueAt, graceDays: GRACE_DAYS }, 202);
+    }
     if (url.pathname === "/orgs/name" && request.method === "PUT") {
       const limited = await enforce(env, request, "team");
       if (limited) return limited;
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       if (!session) return json({ message: "Please sign in." }, 401);
       const body = await request.json().catch(() => ({}));
+      if (body.orgId) {
+        const { memberGate } = await import("./policy.js");
+        const refused = await memberGate(env, session, body.orgId);
+        if (refused) return refused;
+      }
       const result = await renameTeam(env.DB, { orgId: body.orgId, actorId: session.github_id, name: body.name });
       if (result.error) return json({ message: result.error }, result.status || 400);
       await audit(env, request, { orgId: body.orgId, action: "workspace.renamed", actor: await actorOf(env, session), entity: { type: "workspace", id: body.orgId, name: result.name || null } });
@@ -910,8 +977,12 @@ async function handle(request, env, url, ctx) {
     }
 
     if (url.pathname === "/health" && request.method === "GET") {
+      const sealed = encryptionReady(env);
       return json({
-        ok: true,
+        // Where encryption is required (production), not ok without it: the
+        // deploy's check fails rather than serving plaintext.
+        ok: sealed.all || !requiresEncryption(env),
+        encryption: sealed,
         githubOAuth: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
         githubOAuthWeb: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET && env.GITHUB_WEB_REDIRECT_URI),
         aiRouting: Boolean(env.OPENAI_API_KEY || env.OPENROUTER_API_KEY),
@@ -1223,7 +1294,11 @@ async function handle(request, env, url, ctx) {
       // A workspace named is one the caller belongs to; the video is then
       // kept under it. An app that names none gets the bare id, as before.
       const orgId = url.searchParams.get("orgId") || null;
-      if (orgId && !(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      if (orgId) {
+        const { memberGate } = await import("./policy.js");
+        const refused = await memberGate(env, session, orgId);
+        if (refused) return refused;
+      }
       return uploadMedia(request, env, url, { orgId });
     }
     // A card's video, by a signed address for someone who may read the card.
@@ -1668,6 +1743,9 @@ async function handle(request, env, url, ctx) {
       let role;
       if (body.role !== undefined) {
         if (!body.orgId) return json({ message: "orgId is required to set a role" }, 400);
+        const { memberGate } = await import("./policy.js");
+        const refused = await memberGate(env, session, body.orgId);
+        if (refused) return refused;
         const result = await setOwnTitle(env.DB, body.orgId, session.github_id, body.role);
         if (result.error) return json({ message: result.error }, 400);
         role = result.role;
@@ -1783,7 +1861,25 @@ async function handle(request, env, url, ctx) {
       if (!session) return json({ message: "invalid session" }, 401);
       const user = await getUserByGithubId(env.DB, session.github_id);
       const data = await exportAccount(env.DB, session.github_id, user?.login || null);
-      await auditEverywhere(env, request, session.github_id, { action: "data.account_exported", actor: person(user) });
+      // What was said in a workspace whose rules refuse this request — from
+      // outside its networks, or without its SSO — stays in the workspace;
+      // the export says which were left out and why.
+      const { policyDenial } = await import("./policy.js");
+      const withheld = [];
+      for (const m of data.memberships || []) {
+        const held = await policyDenial(env, session, m.org_id);
+        if (held) withheld.push({ orgId: m.org_id, code: held.body?.code || "session-policy" });
+      }
+      if (withheld.length) {
+        const out = new Set(withheld.map((w) => w.orgId));
+        for (const [key, rows] of Object.entries(data)) {
+          if (Array.isArray(rows)) data[key] = rows.filter((r) => !r || typeof r !== "object" || !out.has(r.org_id));
+        }
+        data.withheld = withheld;
+      }
+      if (!(await auditEverywhere(env, request, session.github_id, { action: "data.account_exported", actor: person(user) }))) {
+        return json({ message: "The audit log could not be written, so nothing was exported. Try again shortly.", code: "audit-unavailable" }, 503);
+      }
       return new Response(JSON.stringify(data, null, 2), {
         status: 200,
         headers: {
@@ -1870,7 +1966,12 @@ async function handle(request, env, url, ctx) {
         return json({ message: err.message }, 502);
       }
       const graph = buildOrgGraph(collaborators, { owner, repo });
+      // With GitHub's door closed by an owner, the list only updates the
+      // members already in; it brings nobody new.
+      const { governanceOf, githubAutoJoin } = await import("./governance.js");
+      const opens = githubAutoJoin(await governanceOf(env.DB, orgId));
       for (const c of collaborators) {
+        if (!opens && !(await isMember(env.DB, orgId, c.id))) continue;
         // No locale: the graph knows who is on the team, not what they read.
         await upsertUser(env.DB, { githubId: c.id, login: c.login, name: c.login, avatarUrl: c.avatar_url });
         await upsertMembership(env.DB, orgId, c.id, roleName(c.permissions));
@@ -2736,8 +2837,18 @@ async function cardVideoUrl(env, { orgId, login, cardId }) {
   if (!m) return { url: card.videoURL, expiresAt: null };
   const stored = m[2] ? decodeURIComponent(m[2]) : null;
   if (stored && stored !== orgId) return null;
-  if (!mediaOriginOn(env)) return { url: card.videoURL, expiresAt: null };
-  return (await signVideoUrl(env, { orgId: stored, id: m[1] })) || { url: card.videoURL, expiresAt: null };
+  if (mediaOriginOn(env)) {
+    const signed = await signVideoUrl(env, { orgId: stored, id: m[1] });
+    if (signed) return signed;
+  }
+  // Without the media origin, an address the API signs, so the bare one can
+  // be retired either way (MEDIA_LEGACY_VIDEO = "off").
+  const { signedQuery } = await import("./addressSigning.js");
+  const signed = await signedQuery(env, "v1", stored || "", m[1]);
+  if (!signed) return { url: card.videoURL, expiresAt: null };
+  const where = new URL(card.videoURL);
+  where.search = `${stored ? `o=${encodeURIComponent(stored)}&` : ""}${signed.query}`;
+  return { url: where.toString(), expiresAt: signed.until * 1000 };
 }
 
 export function json(body, status = 200, extraHeaders) {

@@ -31,9 +31,9 @@ export async function loadAISettings(db, orgId) {
   if (!row) return {};
   return {
     model: row.model || null,
-    openaiKey: (await openField(row.openai_key, aad.aiKey(orgId, "openai_key"))) || null,
-    typesafeKey: (await openField(row.typesafe_key, aad.aiKey(orgId, "typesafe_key"))) || null,
-    geminiKey: (await openField(row.gemini_key, aad.aiKey(orgId, "gemini_key"))) || null,
+    openaiKey: (await openField(row.openai_key, aad.aiKey(orgId, "openai_key"), orgId)) || null,
+    typesafeKey: (await openField(row.typesafe_key, aad.aiKey(orgId, "typesafe_key"), orgId)) || null,
+    geminiKey: (await openField(row.gemini_key, aad.aiKey(orgId, "gemini_key"), orgId)) || null,
     updatedBy: row.updated_by || null,
     updatedAt: row.updated_at || null,
   };
@@ -80,9 +80,9 @@ export async function saveAISettings(db, orgId, { model, openaiKey, typesafeKey,
     )
     .bind(
       orgId, nextModel,
-      await sealField(nextOpenai, aad.aiKey(orgId, "openai_key")),
-      await sealField(nextTypesafe, aad.aiKey(orgId, "typesafe_key")),
-      await sealField(nextGemini, aad.aiKey(orgId, "gemini_key")), String(byGithubId), new Date().toISOString())
+      await sealField(nextOpenai, aad.aiKey(orgId, "openai_key"), orgId),
+      await sealField(nextTypesafe, aad.aiKey(orgId, "typesafe_key"), orgId),
+      await sealField(nextGemini, aad.aiKey(orgId, "gemini_key"), orgId), String(byGithubId), new Date().toISOString())
     .run();
   return { ok: true };
 }

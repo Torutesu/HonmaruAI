@@ -22,7 +22,10 @@ interface JournalItem { text: string; messageIds: string[]; cites: JournalCite[]
 interface JournalDay { day: string; count: number; firstAt: string | null; byModel: boolean; items: JournalItem[] }
 
 export type DetailsTab = 'members' | 'attachments' | 'automations'
-export type NotifyLevel = 'all' | 'mentions' | 'mute'
+/// 'default' is no setting: a sound here for a post, the phone for
+/// mentions, replies and direct messages. 'all' sends every post to the
+/// phone as well.
+export type NotifyLevel = 'all' | 'default' | 'mentions' | 'mute'
 
 interface Details {
   channel: { key: string; view: string; kind: 'channel' | 'dm' | 'group'; private?: boolean; name: string; slug: string | null; description: string | null; createdAt: string | null; createdBy: string | null }
@@ -338,7 +341,8 @@ export function ChannelDetails({
           <span className="sr-only">{t('Default notifications')}</span>
           <Icon name="bell" size={14} />
           <select value={level} onChange={(e) => onLevel(e.target.value as NotifyLevel)} aria-label={t('Default notifications')}>
-            <option value="all">{t('Everything')}</option>
+            <option value="default">{t('Mentions, replies and a sound for posts')}</option>
+            <option value="all">{t('Every post, on the phone too')}</option>
             <option value="mentions">{t('Mentions only')}</option>
             <option value="mute">{t('Nothing (mute)')}</option>
           </select>

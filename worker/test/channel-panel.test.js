@@ -292,3 +292,22 @@ test("the message a recording leaves stays within a message, link and all", () =
   expect(long.endsWith("Recording: https://example.com/channels/jam/audio/abc")).toBe(true);
   expect(recordingMessage("ja", { minutes: 3, people: "A", notes: null, url: null })).toBe("*Jamのメモ · 3分 · A*\nJamを録音しましたが、メモにできるほど声を聞き取れませんでした。");
 });
+
+// A recording played to anyone holding its link, in the channel or not, for
+// as long as it was kept.
+test("with the Worker's key, a recording plays only by an address signed for someone in its conversation", async () => {
+  const KEYED = { DATA_KEY: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))) };
+  const res = await call(`/channels/jam/recording?${q({ orgId: ORG, channel: "b:cafe", mode: "full" })}`,
+    { method: "POST", headers: { "x-session-token": mika, "content-type": "audio/webm" }, body: new Uint8Array(4096).fill(3) }, { ...QUIET, ...KEYED });
+  const { id, url } = await res.json();
+  // The link in the message opens nothing by itself.
+  expect((await call(new URL(url).pathname, {}, KEYED)).status).toBe(404);
+  const asked = await post("/channels/jam/audio-url", mika, { orgId: ORG, id }, KEYED);
+  expect(asked.status).toBe(200);
+  const signed = await asked.json();
+  expect(signed.expiresAt - Date.now()).toBeLessThanOrEqual(1200_000);
+  const u = new URL(signed.url);
+  expect((await call(`${u.pathname}${u.search}`, {}, KEYED)).status).toBe(200);
+  // Someone outside the workspace is given no address.
+  expect((await post("/channels/jam/audio-url", outsider, { orgId: ORG, id }, KEYED)).status).toBe(403);
+});

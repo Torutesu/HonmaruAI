@@ -66,8 +66,17 @@ function randomToken() {
   return TOKEN_PREFIX + [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export async function createApiToken(db, { orgId, githubId, name, scopes }) {
+/// Days a token lasts unless asked otherwise, and at most.
+export const TOKEN_DAYS = 90;
+export const MAX_TOKEN_DAYS = 365;
+const DAY_MS = 86_400_000;
+
+/// `ssoBacked`: made from a sign-in through this workspace's SSO, so it is
+/// still let in once the workspace requires SSO.
+export async function createApiToken(db, { orgId, githubId, name, scopes, expiresInDays, ssoBacked = false }) {
   const clean = String(name || "").replace(/\s+/g, " ").trim().slice(0, 60) || "Agent";
+  const days = expiresInDays === undefined || expiresInDays === null ? TOKEN_DAYS : Number(expiresInDays);
+  if (!Number.isInteger(days) || days < 1 || days > MAX_TOKEN_DAYS) return { error: `A token lasts from 1 to ${MAX_TOKEN_DAYS} days.` };
   const count = await db
     .prepare("SELECT COUNT(*) AS n FROM api_tokens WHERE github_id = ?1 AND org_id = ?2")
     .bind(String(githubId), orgId)
@@ -76,26 +85,27 @@ export async function createApiToken(db, { orgId, githubId, name, scopes }) {
   const token = randomToken();
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + days * DAY_MS).toISOString();
   const granted = cleanScopes(scopes);
   await db
     .prepare(
-      `INSERT INTO api_tokens (id, token_hash, org_id, github_id, name, prefix, created_at, scopes)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+      `INSERT INTO api_tokens (id, token_hash, org_id, github_id, name, prefix, created_at, scopes, expires_at, sso_backed)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
     )
-    .bind(id, await sha256Hex(token), orgId, String(githubId), clean, token.slice(0, 10), now, JSON.stringify(granted))
+    .bind(id, await sha256Hex(token), orgId, String(githubId), clean, token.slice(0, 10), now, JSON.stringify(granted), expiresAt, ssoBacked ? 1 : 0)
     .run();
-  return { token, id, name: clean, prefix: token.slice(0, 10), createdAt: now, scopes: granted };
+  return { token, id, name: clean, prefix: token.slice(0, 10), createdAt: now, expiresAt, scopes: granted };
 }
 
 export async function listApiTokens(db, { orgId, githubId }) {
   const { results } = await db
     .prepare(
-      `SELECT id, name, prefix, created_at, last_used_at, scopes FROM api_tokens
+      `SELECT id, name, prefix, created_at, last_used_at, scopes, expires_at FROM api_tokens
         WHERE github_id = ?1 AND org_id = ?2 ORDER BY created_at ASC`
     )
     .bind(String(githubId), orgId)
     .all();
-  return (results || []).map((r) => ({ id: r.id, name: r.name, prefix: r.prefix, createdAt: r.created_at, lastUsedAt: r.last_used_at || null, scopes: parseScopes(r.scopes) }));
+  return (results || []).map((r) => ({ id: r.id, name: r.name, prefix: r.prefix, createdAt: r.created_at, lastUsedAt: r.last_used_at || null, expiresAt: r.expires_at || null, scopes: parseScopes(r.scopes) }));
 }
 
 /// Revoke one of your own. Returns what it was, for the audit log, or null.
@@ -110,28 +120,53 @@ export async function revokeApiToken(db, { orgId, githubId, id }) {
 }
 
 /// Who a bearer token speaks for, or null. A token outlives nothing: its
-/// owner must still be in the workspace it was made for.
-export async function resolveApiToken(db, header) {
+/// owner must still be in the workspace it was made for, and it stops on the
+/// day it was made to.
+export async function resolveApiToken(db, header, { now = Date.now() } = {}) {
   const match = /^Bearer\s+(\S+)$/i.exec(String(header || "").trim());
   if (!match || !match[1].startsWith(TOKEN_PREFIX)) return null;
   const row = await db
-    .prepare("SELECT id, org_id, github_id, name, last_used_at, scopes FROM api_tokens WHERE token_hash = ?1")
+    .prepare("SELECT id, org_id, github_id, name, last_used_at, scopes, expires_at, sso_backed FROM api_tokens WHERE token_hash = ?1")
     .bind(await sha256Hex(match[1]))
     .first();
   if (!row) return null;
+  if (row.expires_at && Date.parse(row.expires_at) <= now) return null;
   if (!(await isMember(db, row.org_id, row.github_id))) return null;
   // A token outlives a change of role: made by a member later made a guest,
   // it stops.
   if (await isGuest(db, row.org_id, row.github_id)) return null;
   const user = await getUserByGithubId(db, row.github_id);
   if (!user?.login) return null;
+  // A token from before tokens expired is given the same ninety days, from
+  // now, rather than stopped without warning.
+  if (!row.expires_at) {
+    await db.prepare("UPDATE api_tokens SET expires_at = ?2 WHERE id = ?1 AND expires_at IS NULL")
+      .bind(row.id, new Date(now + TOKEN_DAYS * DAY_MS).toISOString()).run().catch(() => {});
+  }
   // Written at most every five minutes: "last used" is for a person
   // deciding which token to revoke, not an audit log.
-  const now = Date.now();
   if (!row.last_used_at || now - Date.parse(row.last_used_at) > 300000) {
     await db.prepare("UPDATE api_tokens SET last_used_at = ?2 WHERE id = ?1").bind(row.id, new Date(now).toISOString()).run().catch(() => {});
   }
-  return { tokenId: row.id, agentName: row.name, orgId: row.org_id, githubId: String(row.github_id), login: user.login, name: user.name || user.login, scopes: parseScopes(row.scopes) };
+  return { tokenId: row.id, agentName: row.name, orgId: row.org_id, githubId: String(row.github_id), login: user.login, name: user.name || user.login, scopes: parseScopes(row.scopes), ssoBacked: Boolean(row.sso_backed) };
+}
+
+/// The workspace's rules, as they apply to a token: the networks it may be
+/// used from, and its single sign-on. A token is not a sign-in, so it cannot
+/// be sent to SSO; one made without SSO stops once the workspace requires it.
+/// Returns { status, body } or null.
+export async function agentDenial(env, agent) {
+  const { currentIp } = await import("./requestContext.js");
+  const { ipDenial } = await import("./governance.js");
+  const offNetwork = await ipDenial(env, agent.orgId, currentIp());
+  if (offNetwork) return offNetwork;
+  if (!agent.ssoBacked) {
+    const { ssoRequiredFor } = await import("./sso.js");
+    if (await ssoRequiredFor(env.DB, agent.orgId, agent.githubId)) {
+      return { status: 403, body: { message: "This workspace requires single sign-on. Make a new token after signing in with it.", code: "sso-required", orgId: agent.orgId } };
+    }
+  }
+  return null;
 }
 
 // ---- Tools -------------------------------------------------------------------
@@ -414,6 +449,10 @@ export async function handleMcp(request, env, ctx = null) {
       status: 401,
       headers: { ...MCP_HEADERS, "www-authenticate": 'Bearer realm="honmaru"' },
     });
+  }
+  const held = await agentDenial(env, agent);
+  if (held) {
+    return new Response(JSON.stringify(rpcError(null, -32001, held.body.message)), { status: held.status, headers: MCP_HEADERS });
   }
   const limited = await enforceSubject(env, "mcp", `t:${agent.tokenId}`);
   if (limited) return limited;

@@ -101,7 +101,7 @@ interface AIStatus {
 /// A personal token an agent uses to reach this workspace over MCP. The
 /// secret itself is shown once, when it is made; after that only its first
 /// characters, so a person can tell two apart.
-interface AgentToken { id: string; name: string; prefix: string; createdAt: string; lastUsedAt: string | null; scopes?: string[] }
+interface AgentToken { id: string; name: string; prefix: string; createdAt: string; lastUsedAt: string | null; expiresAt?: string | null; scopes?: string[] }
 
 interface Props {
   httpBase: string
@@ -294,7 +294,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
       if (!res.ok) { setAgentError(data.message || t('That did not save.')); return }
       setMinted({ token: data.token, name: data.name, endpoint: data.endpoint || agents?.endpoint || '' })
       setAgents((a) => ({
-        tokens: [{ id: data.id, name: data.name, prefix: data.prefix, createdAt: data.createdAt, lastUsedAt: null, scopes: data.scopes }, ...(a?.tokens || [])],
+        tokens: [{ id: data.id, name: data.name, prefix: data.prefix, createdAt: data.createdAt, lastUsedAt: null, expiresAt: data.expiresAt, scopes: data.scopes }, ...(a?.tokens || [])],
         endpoint: data.endpoint || a?.endpoint || '',
         tools: a?.tools || [],
       }))
@@ -887,7 +887,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
           <div className="studio-tr agent-token" role="row" key={tok.id} data-token={tok.id}>
             <span className="studio-td-name"><b>{tok.name}</b><code className="agent-prefix">{tok.prefix}…</code></span>
             <span className="studio-chips key-scopes">{(tok.scopes || ['read', 'write']).map((sc) => <i key={sc} data-scope={sc}>{t(SCOPE_CHIP[sc] || sc)}</i>)}</span>
-            <span className="studio-td-dim">{day(tok.createdAt)}</span>
+            <span className="studio-td-dim" title={tok.expiresAt ? `${t('Expires')} ${day(tok.expiresAt)}` : undefined}>{day(tok.createdAt)}{tok.expiresAt ? ` → ${day(tok.expiresAt)}` : ''}</span>
             <span className="studio-td-dim">{tok.lastUsedAt ? t('last used {when}', { when: ago(tok.lastUsedAt) }) : t('never used')}</span>
             <span className="studio-td-end studio-menu-wrap">
               {revoking === tok.id ? (

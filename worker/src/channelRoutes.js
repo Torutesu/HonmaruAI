@@ -52,7 +52,7 @@ import { searchTermsFor } from "./ask.js";
 import { searchDecisions } from "./insights.js";
 import { accessFor, audienceOf, groupFor, groupsOf, addMembers, removeMember, membersOf, MAX_GROUP, isPrivate, isGuest } from "./access.js";
 import {
-  MAX_RECORDING_BYTES, recordingType, transcribe, jamNotes, recordingMessage, serveRecording, minutesBetween,
+  MAX_RECORDING_BYTES, recordingType, transcribe, jamNotes, recordingMessage, serveRecording, recordingUrl, minutesBetween,
 } from "./jam.js";
 
 // The routes for talking in a channel, and for turning what was said into
@@ -1221,7 +1221,10 @@ export async function handleChannels(request, env, url, { route, after }) {
     const session = await getSession(env.DB, request.headers.get("x-session-token"));
     if (!session) return json({ message: "Please sign in." }, 401);
     const orgId = url.searchParams.get("orgId") || "";
-    if (!orgId || !(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+    if (!orgId) return json({ message: "orgId is required" }, 400);
+    const { memberGate } = await import("./policy.js");
+    const refused = await memberGate(env, session, orgId);
+    if (refused) return refused;
     const target = String(url.searchParams.get("url") || "").slice(0, 2000);
     const { cachedPreview } = await import("./preview.js");
     const out = await cachedPreview(target);
@@ -1667,7 +1670,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     let id = null;
     if (mode === "full") {
       id = crypto.randomUUID();
-      await env.MEDIA.put(`jam/${id}`, bytes, { httpMetadata: { contentType } });
+      // Whose it is, so an address for it is given only to who may read the
+      // conversation it was posted in (POST /channels/jam/audio-url).
+      await env.MEDIA.put(`jam/${id}`, bytes, { httpMetadata: { contentType }, customMetadata: { orgId, channel: ctx.resolved.key } });
       recordingUrl = `${url.origin}/channels/jam/audio/${id}`;
     }
     const locale = await loadCopy(env, ctx.who.user.locale || "en", { orgId });
@@ -1699,7 +1704,17 @@ export async function handleChannels(request, env, url, { route, after }) {
 
   const audio = path.match(/^\/channels\/jam\/audio\/([^/]+)$/);
   if (audio && request.method === "GET") {
-    return serveRecording(env, audio[1]);
+    return serveRecording(env, audio[1], url);
+  }
+  // An address to play a recording from, signed for ten to twenty minutes,
+  // for someone who may read the conversation it was posted in.
+  if (path === "/channels/jam/audio-url" && request.method === "POST") {
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object" || typeof body.id !== "string") return json({ message: "Invalid JSON body." }, 400);
+    const who = await caller(env, request, body.orgId);
+    if (who.denied) return who.denied;
+    const out = await recordingUrl(env, { orgId: body.orgId, login: who.user.login, id: body.id, origin: url.origin });
+    return out ? json(out) : json({ message: "No such recording." }, 404);
   }
 
   // How loudly one conversation may call for you.

@@ -22,7 +22,7 @@ const ago = (ms) => new Date(Date.now() - ms).toISOString();
 
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
-  await env.DB.exec("DELETE FROM channel_messages; DELETE FROM channel_reads; DELETE FROM push_queue; DELETE FROM saved_items; DELETE FROM device_tokens; DELETE FROM memberships; DELETE FROM users; DELETE FROM cards; DELETE FROM notification_jobs; DELETE FROM user_activity;");
+  await env.DB.exec("DELETE FROM channel_messages; DELETE FROM channel_reads; DELETE FROM push_queue; DELETE FROM saved_items; DELETE FROM device_tokens; DELETE FROM memberships; DELETE FROM users; DELETE FROM cards; DELETE FROM notification_jobs; DELETE FROM user_activity; DELETE FROM channel_prefs;");
   const { upsertUser, upsertMembership, registerDevice } = await import("../src/db.js");
   for (const [id, login] of [["9901", "ann"], ["9902", "ben"]]) {
     await upsertUser(env.DB, { githubId: id, login, name: login, avatarUrl: null, locale: "en" });
@@ -72,4 +72,41 @@ test("a reminder reaches the phone, not only an open app", async () => {
   fetchMock.get("https://api.push.apple.com").intercept({ path: `/3/device/${"a".repeat(64)}`, method: "POST" }).reply(200, {});
   const out = await runMinuteJobs(withApns);
   expect(out.reminded).toBe(1);
+});
+
+// "All new posts" was stored as no setting at all, so choosing it changed
+// nothing the phone could notice: a plain post in the channel reached nobody.
+test("every post reaches whoever asked for every post, and nobody else; a reply in its thread does not", async () => {
+  const { setChannelPref } = await import("../src/people.js");
+  const members = await listMembers(env.DB, ORG, null);
+  await say("plain", { author: "ben" });
+  const plain = await env.DB.prepare("SELECT * FROM channel_messages WHERE id = 'plain'").first();
+  expect(await recipientsOf(env.DB, ORG, plain, members)).toEqual([]);
+  await setChannelPref(env.DB, { orgId: ORG, login: "ann", key: "b:general", level: "all" });
+  expect(await recipientsOf(env.DB, ORG, plain, members)).toEqual([{ login: "ann", reason: "channel" }]);
+  await say("inthread", { author: "ben", parent: "plain" });
+  const reply = await env.DB.prepare("SELECT * FROM channel_messages WHERE id = 'inthread'").first();
+  expect((await recipientsOf(env.DB, ORG, reply, members)).filter((r) => r.reason === "channel")).toEqual([]);
+  // Back to no setting.
+  await setChannelPref(env.DB, { orgId: ORG, login: "ann", key: "b:general", level: "default" });
+  expect(await recipientsOf(env.DB, ORG, plain, members)).toEqual([]);
+});
+
+// A message said during quiet time was dropped for good: it never reached
+// the phone, not even once the hours it waited for had come.
+test("a push held by a pause goes when the pause ends, and only the latest few of a pile", async () => {
+  const until = new Date(Date.now() + 30 * 60_000).toISOString();
+  await env.DB.prepare("UPDATE users SET notify_paused_until = ?1 WHERE login = 'ann'").bind(until).run();
+  for (const id of ["q1", "q2", "q3", "q4"]) {
+    await say(id, { channel: "dm:ann|ben" });
+    await env.DB.prepare("INSERT INTO push_queue (org_id, login, message_id, reason, created_at, due_at) VALUES (?1, 'ann', ?2, 'direct', ?3, ?3)").bind(ORG, id, ago(60_000)).run();
+  }
+  expect(await sendDuePushes(withApns)).toEqual({ sent: 0, skipped: 0 });
+  const rows = (await env.DB.prepare("SELECT due_at, last_error, attempts, sent_at FROM push_queue ORDER BY id").all()).results;
+  expect(rows.every((r) => r.last_error === "held" && r.due_at === until && r.attempts === 0 && r.sent_at === null)).toBe(true);
+
+  // The pause over: the three latest go, the first is let go.
+  const later = Date.parse(until) + 60_000;
+  fetchMock.get("https://api.push.apple.com").intercept({ path: `/3/device/${"a".repeat(64)}`, method: "POST" }).reply(200, {}).times(3);
+  expect(await sendDuePushes(withApns, later)).toEqual({ sent: 3, skipped: 1 });
 });

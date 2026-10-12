@@ -222,7 +222,7 @@ final class ChatStore: ObservableObject {
 
     /// Said since you last read, and not muted.
     func isFresh(_ view: String) -> Bool {
-        guard prefs[view] == nil, let a = activity[view], a.lastBy != "me" else { return false }
+        guard prefs[view] == nil || prefs[view] == "all", let a = activity[view], a.lastBy != "me" else { return false }
         return a.lastAt > (reads[view] ?? "")
     }
     var unreadInbox: Int { inbox.filter(\.unread).count }
@@ -722,7 +722,8 @@ final class ChatStore: ObservableObject {
     }
     func setPref(_ view: String, level: String) async {
         guard let orgId, let base else { return }
-        if level == "all" { prefs[view] = nil } else { prefs[view] = level }
+        // "default" is no setting; "all" is every post, to the phone too.
+        if level == "default" { prefs[view] = nil } else { prefs[view] = level }
         try? await ChatService.setPref(orgId: orgId, channel: view, level: level, base: base)
     }
     func openThread(_ m: ChatMessage) async {

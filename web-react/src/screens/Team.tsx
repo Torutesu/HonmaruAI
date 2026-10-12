@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { DeleteWorkspace } from '../components/DeleteWorkspace'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import { InviteTeammate } from '../components/InviteTeammate'
@@ -492,6 +493,8 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
             </div>
           </>
         )}
+
+        {editable && isOwner && <DeleteWorkspace httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} name={teamName || orgId} />}
 
         <div className="rows-title">{t('Always on')}</div>
         <div className="rows">

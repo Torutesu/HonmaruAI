@@ -4,7 +4,7 @@
 /// from their oEmbed; a post on X from FxTwitter. Kept a day in the cache,
 /// so a link said in a busy channel is read once.
 
-import { isPublicUrl, classifyLink } from "./links.js";
+import { isPublicUrl, classifyLink, publicFetch } from "./links.js";
 
 const TIMEOUT_MS = 6000;
 const MAX_HTML = 400_000;
@@ -54,15 +54,15 @@ const absolute = (value, base) => {
 
 async function pageCard(url) {
   let res;
+  let finalUrl;
   try {
-    res = await fetch(url, { headers: { "User-Agent": UA, Accept: "text/html,application/xhtml+xml" }, redirect: "follow", signal: AbortSignal.timeout(TIMEOUT_MS) });
+    ({ res, url: finalUrl } = await publicFetch(url, { headers: { "User-Agent": UA, Accept: "text/html,application/xhtml+xml" }, signal: AbortSignal.timeout(TIMEOUT_MS) }));
   } catch { return null; }
   if (!res.ok || !/html/i.test(res.headers.get("content-type") || "")) return null;
   const html = (await res.text()).slice(0, MAX_HTML);
   const m = metaOf(html);
   const title = m["og:title"] || m["twitter:title"] || m.__title;
   if (!title) return null;
-  const finalUrl = res.url || url;
   return {
     kind: "page",
     title: clip(title, 140),

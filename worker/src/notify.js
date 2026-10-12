@@ -18,7 +18,7 @@ import { enqueueCardNotification, runCardNotification, deliverOnce, retryable } 
 // that a notification that fails is a notification nobody got, not a decision
 // nobody made.
 
-import { quietFor } from "./quiet.js";
+import { quietFor, quietEnds } from "./quiet.js";
 import {
   devicesForLogin, removeDevice, subscriptionsForLogin, removeSubscription, getUserByLogin,
 } from "./db.js";
@@ -106,7 +106,13 @@ export async function notifyCardNow(env, { card, kind = "created", excludeLogin,
   // Paused, or outside the hours they set: it waits in the feed and Activity.
   if (kind !== "digest") {
     const quiet = await quietFor(env.DB, recipient);
-    if (quiet) return { sent: 0, skipped: `quiet:${quiet.reason}`, channels };
+    if (quiet) {
+      // Held until it ends, when that is soon enough (quiet.js); the job
+      // runs again then and finds out whether it is still news.
+      const ends = deliveryJobId ? await quietEnds(env.DB, recipient) : null;
+      if (ends) return { sent: 0, deferUntil: ends.getTime(), channels };
+      return { sent: 0, skipped: `quiet:${quiet.reason}`, channels };
+    }
   }
 
   const user = await getUserByLogin(env.DB, recipient);

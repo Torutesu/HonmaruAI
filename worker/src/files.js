@@ -21,6 +21,9 @@
 import { promisedLength, peek, putExactly, looksLike, sniffing, HEAD_BYTES } from "./upload.js";
 import { mediaEnv, mediaOriginOn, signFileUrl } from "./mediaToken.js";
 import { accessFor, mayRead } from "./access.js";
+import { addressHolds, signedQuery, validUntil } from "./addressSigning.js";
+
+const hexOf = (buf, n) => [...new Uint8Array(buf)].slice(0, n).map((b) => b.toString(16).padStart(2, "0")).join("");
 
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 export const MAX_FILES_PER_MESSAGE = 10;
@@ -55,10 +58,20 @@ function bareType(header) {
 }
 
 // ---- Signing ----
+//
+// Signed by the API (addressSigning.js): the workspace is in the MAC, and an
+// address lasts ten to twenty minutes, as the media origin's do — someone
+// who leaves a conversation can fetch nothing new from it soon after.
+// Clients keep files by id and ask for new addresses as theirs run out
+// (POST /media/urls).
 
+// Before: one key kept in `kv`, an address good to the end of tomorrow and
+// bound to no workspace. Without a secret in the env (a development Worker)
+// it is still what signs; with one, an address from before is honoured only
+// until it runs out — two days at most — and never made again.
 const KEY_NAME = "file-signing-key";
 let cachedKey = null;
-async function signingKey(db) {
+async function storedKey(db) {
   if (cachedKey) return cachedKey;
   let row = await db.prepare("SELECT value FROM kv WHERE key = ?1").bind(KEY_NAME).first();
   if (!row) {
@@ -71,21 +84,31 @@ async function signingKey(db) {
   return cachedKey;
 }
 
-async function mac(db, id, until) {
-  const sig = await crypto.subtle.sign("HMAC", await signingKey(db), new TextEncoder().encode(`${id}.${until}`));
-  return [...new Uint8Array(sig)].slice(0, 16).map((b) => b.toString(16).padStart(2, "0")).join("");
+async function legacyMac(db, id, until) {
+  return hexOf(await crypto.subtle.sign("HMAC", await storedKey(db), new TextEncoder().encode(`${id}.${until}`)), 16);
 }
 
-/// Until when an address made now is good: the end of tomorrow, UTC, so it
-/// is the same address all day.
-export function validUntil(now = Date.now()) {
-  return (Math.floor(now / 86400000) + 2) * 86400;
+export { validUntil };
+
+/// Until when, by the old rule: the end of tomorrow, UTC.
+const legacyUntil = (now) => (Math.floor(now / 86400000) + 2) * 86400;
+
+/// The address a reader is given, relative to the API, and until when (s).
+export async function signedPath(env, row, now = Date.now()) {
+  const signed = await signedQuery(env, "f2", row.org_id, row.id, now);
+  if (signed) return { path: `/files/${row.id}?${signed.query}`, until: signed.until };
+  const until = legacyUntil(now);
+  return { path: `/files/${row.id}?e=${until}&s=${await legacyMac(env.DB, row.id, until)}`, until };
 }
 
-/// The address a reader is given, relative to the API.
-export async function signedPath(db, id, now = Date.now()) {
-  const until = validUntil(now);
-  return `/files/${id}?e=${until}&s=${await mac(db, id, until)}`;
+/// Whether a request's address is one this Worker signed for this file and
+/// is still good.
+async function fileAddressHolds(env, url, row, nowSeconds) {
+  if (url.searchParams.get("v") === "2") return addressHolds(env, url, "f2", row.org_id, row.id, nowSeconds);
+  const until = Number(url.searchParams.get("e"));
+  const sig = String(url.searchParams.get("s") || "");
+  if (!Number.isInteger(until) || until < nowSeconds || until > nowSeconds + 3 * 86400) return false;
+  return sameText(sig, await legacyMac(env.DB, row.id, until));
 }
 
 function sameText(a, b) {
@@ -104,7 +127,8 @@ export async function fileAddress(db, row, now = Date.now(), env = mediaEnv()) {
     const signed = await signFileUrl(env, { orgId: row.org_id, id: row.id, type: row.type, name: row.name }, now);
     if (signed) return signed;
   }
-  return { url: await signedPath(db, row.id, now), expiresAt: validUntil(now) * 1000 };
+  const { path, until } = await signedPath({ ...(env || {}), DB: db }, row, now);
+  return { url: path, expiresAt: until * 1000 };
 }
 
 /// A file as a browser sees it. `url` changes as it is renewed; `id` does
@@ -353,14 +377,10 @@ export async function serveFile(request, env, url) {
   const m = url.pathname.match(/^\/files\/(f_[0-9a-f]{24})$/);
   if (!m) return null;
   const id = m[1];
-  const until = Number(url.searchParams.get("e"));
-  const sig = String(url.searchParams.get("s") || "");
   const now = Math.floor(Date.now() / 1000);
-  if (!Number.isInteger(until) || until < now || until > now + 3 * 86400 || !sameText(sig, await mac(env.DB, id, until))) {
-    return new Response("Not found", { status: 404 });
-  }
+  const until = Number(url.searchParams.get("e"));
   const row = await env.DB.prepare("SELECT * FROM message_files WHERE id = ?1").bind(id).first();
-  if (!row) return new Response("Not found", { status: 404 });
+  if (!row || !(await fileAddressHolds(env, url, row, now))) return new Response("Not found", { status: 404 });
   const guard = {
     "x-content-type-options": "nosniff",
     "content-security-policy": "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox",

@@ -414,8 +414,9 @@ struct ChatHomeView: View {
         } label: { Label("Move to a section", systemImage: "folder") }
         .disabled(store.sidebar.sections.isEmpty)
         Menu {
-            Picker("Notify me about", selection: Binding(get: { store.prefs[c.view] ?? "all" }, set: { v in Task { await store.setPref(c.view, level: v) } })) {
-                Text("All new posts").tag("all")
+            Picker("Notify me about", selection: Binding(get: { store.prefs[c.view] ?? "default" }, set: { v in Task { await store.setPref(c.view, level: v) } })) {
+                Text("Mentions, replies and a sound for posts").tag("default")
+                Text("Every post, on the phone too").tag("all")
                 Text("Just mentions").tag("mentions")
                 Text("Mute").tag("mute")
             }

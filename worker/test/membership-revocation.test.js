@@ -60,3 +60,22 @@ test("an empty collaborator list never empties an organization", async () => {
   await retainMemberships(env.DB, "acme/api", []);
   expect(await isMember(env.DB, "acme/api", "1")).toBe(true);
 });
+
+// Anyone with write access to the repository came in by themselves, and an
+// owner could not stop it.
+test("with GitHub's door closed by an owner, write access lets nobody new in, and the list adds no one", async () => {
+  const { forgetGovernance } = await import("../src/governance.js");
+  await upsertMembership(env.DB, "acme/shut", "1", "Admin");
+  await env.DB.prepare("INSERT INTO org_governance (org_id, github_auto_join, updated_by, updated_at) VALUES ('acme/shut', 0, '1', ?1)").bind(new Date().toISOString()).run();
+  forgetGovernance();
+  // Write access on GitHub, asked nothing: refused before GitHub is asked.
+  const access = await authorizeOrgAccess(env, { github_id: "2", github_access_token: "gho_leaver" }, "acme/shut");
+  expect(access.ok).toBe(false);
+
+  fetchMock.get("https://api.github.com")
+    .intercept({ path: "/repos/acme/shut/collaborators?per_page=100", method: "GET" })
+    .reply(200, [{ id: 1, login: "stayer", avatar_url: "", permissions: { admin: true } }, { id: 2, login: "leaver", avatar_url: "", permissions: { push: true } }]);
+  expect((await SELF.fetch("https://example.com/orgs/acme/shut/graph", { headers: { "x-session-token": token } })).status).toBe(200);
+  expect(await isMember(env.DB, "acme/shut", "1")).toBe(true);
+  expect(await isMember(env.DB, "acme/shut", "2")).toBe(false);
+});

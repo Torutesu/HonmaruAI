@@ -68,6 +68,13 @@ export async function runCardNotification(env, id, send, now = Date.now()) {
     }
     result ||= await send(env, {...input, deliveryJobId:id});
   } catch { result = {sent:0, retry:true, failure:'delivery exception'}; }
+  // Held through the person's quiet time: pending again, from when it ends.
+  // Run again, it checks the card is still news (attempts > 1, above).
+  if (result.deferUntil) {
+    await env.DB.prepare(`UPDATE notification_jobs SET due_at = ?2, lease_until = NULL, last_error = 'held', updated_at = ?3 WHERE id = ?1 AND lease_until = ?4`)
+      .bind(id, new Date(result.deferUntil).toISOString(), at, lease).run();
+    return result;
+  }
   const retry = result.retry && job.attempts < MAX_ATTEMPTS;
   const state = retry ? 'pending' : result.retry ? 'failed' : result.skipped ? 'skipped' : result.sent ? 'sent' : 'failed';
   await env.DB.prepare(`UPDATE notification_jobs SET state = ?2, due_at = ?3, lease_until = NULL,

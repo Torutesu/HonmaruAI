@@ -32,12 +32,10 @@ function json(body, status = 200) {
   });
 }
 
-async function openSecret(env, sealed) {
-  const [, iv, ct] = String(sealed || "").split(":");
-  if (!env.SSO_SECRET_KEY || !iv || !ct) return null;
-  const unb64 = (t) => Uint8Array.from(atob(t), (c) => c.charCodeAt(0));
-  const key = await crypto.subtle.importKey("raw", unb64(env.SSO_SECRET_KEY), { name: "AES-GCM" }, false, ["decrypt"]);
-  return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(iv) }, key, unb64(ct)));
+const streamContext = (orgId, id) => `audit-stream\n${orgId}\n${id}`;
+async function openStreamSecret(env, stream) {
+  const { openSecret } = await import("./sso.js");
+  return openSecret(env, stream.secret, streamContext(stream.org_id, stream.id));
 }
 
 function present(row) {
@@ -70,7 +68,7 @@ async function send(stream, secret, events) {
     const t = Math.floor(Date.now() / 1000);
     headers["honmaru-signature"] = `t=${t},v1=${await sign(secret, t, req.body)}`;
   }
-  const res = await fetch(req.url, { method: "POST", headers, body: req.body, signal: AbortSignal.timeout(20_000) });
+  const res = await fetch(req.url, { method: "POST", headers, body: req.body, redirect: "manual", signal: AbortSignal.timeout(20_000) });
   if (!res.ok) throw new Error(`${new URL(req.url).host} answered ${res.status}`);
 }
 
@@ -108,7 +106,7 @@ export async function deliverStreams(env, { now = Date.now(), limit = 20 } = {})
     const { events, lastSeq } = await nextEvents(env, stream, members);
     if (lastSeq === stream.delivered_seq) continue;
     try {
-      const secret = await openSecret(env, stream.secret);
+      const secret = await openStreamSecret(env, stream);
       if (events.length) await send(stream, secret, events);
       await env.DB.prepare("UPDATE audit_streams SET delivered_seq = ?2, failures = 0, next_try_at = NULL, last_error = NULL, failing_since = NULL, last_sent_at = ?3 WHERE id = ?1")
         .bind(stream.id, lastSeq, new Date(now).toISOString()).run();
@@ -182,7 +180,7 @@ export async function handleStreams(request, env, url) {
     await env.DB.prepare(
       `INSERT INTO audit_streams (id, org_id, kind, endpoint, secret, region, min_severity, categories, delivered_seq, status, failures, created_by, created_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'active', 0, ?10, ?11)`
-    ).bind(id, orgId, s.kind, s.endpoint, await sealSecret(env, String(body.secret)), s.region, s.minSeverity, s.categories, Number(start?.s || 0), String(session.github_id), new Date().toISOString()).run();
+    ).bind(id, orgId, s.kind, s.endpoint, await sealSecret(env, String(body.secret), streamContext(orgId, id)), s.region, s.minSeverity, s.categories, Number(start?.s || 0), String(session.github_id), new Date().toISOString()).run();
     await audit(env, request, { orgId, action: "workspace.audit_stream_changed", actor: person(user), entity: { type: "audit_stream", id, name: s.kind }, details: { change: "created", kind: s.kind, host: new URL(s.endpoint).hostname } });
     return json({ streams: await list() }, 201);
   }
@@ -191,7 +189,7 @@ export async function handleStreams(request, env, url) {
   const entity = { type: "audit_stream", id: stream.id, name: stream.kind };
 
   if (m[2] === "/test" && request.method === "POST") {
-    const secret = await openSecret(env, stream.secret);
+    const secret = await openStreamSecret(env, stream);
     const event = { id: `test_${Date.now()}`, action: "audit.stream_test", category: "audit", severity: "info", outcome: "success", date_create: Math.floor(Date.now() / 1000), actor: person(user) && { type: "user", name: user?.name || null }, entity: null, context: {}, details: { stream: stream.id }, text: "A test from Honmaru", seq: 0, org_id: orgId };
     try {
       await send(stream, secret, [event]);
@@ -210,7 +208,7 @@ export async function handleStreams(request, env, url) {
     const s = settings({ kind: stream.kind, endpoint: stream.endpoint, region: stream.region, minSeverity: stream.min_severity, ...body });
     if (s.error) return json({ message: s.error }, 400);
     const status = body.paused === true ? "paused" : body.paused === false ? "active" : stream.status;
-    const secret = body.secret ? await sealSecret(env, String(body.secret)) : stream.secret;
+    const secret = body.secret ? await sealSecret(env, String(body.secret), streamContext(stream.org_id, stream.id)) : stream.secret;
     await env.DB.prepare("UPDATE audit_streams SET endpoint = ?2, region = ?3, min_severity = ?4, categories = ?5, secret = ?6, status = ?7, failures = 0, next_try_at = NULL WHERE id = ?1")
       .bind(stream.id, s.endpoint, s.region, s.minSeverity, s.categories, secret, status).run();
     await audit(env, request, { orgId, action: "workspace.audit_stream_changed", actor: person(user), entity, details: { change: "updated", status, secret: body.secret ? "replaced" : "kept" } });

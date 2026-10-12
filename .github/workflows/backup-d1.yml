@@ -1,0 +1,118 @@
+# A copy of the database, every night, kept apart from it.
+#
+# D1's Time Travel restores the database to any minute of the last 30 days,
+# but only inside the same database, and only while the account and the
+# database exist. This keeps a full SQL export in R2 (the honmaru-backups
+# bucket), for 35 days, so a deleted database or a mistake found later can
+# still be undone (docs/architecture/security-and-scale-hardening.md P1 #8).
+#
+# Once a month the newest copy is restored into a scratch database and its
+# tables counted: a backup nobody has restored is a hope, not a backup.
+#
+# An export holds the database for as long as it runs, so it runs at 03:17
+# JST, the quietest hour.
+#
+# Secrets: CLOUDFLARE_API_TOKEN (Workers, D1 and R2 edit), CLOUDFLARE_ACCOUNT_ID.
+name: Back up the database
+
+on:
+  schedule:
+    - cron: "17 18 * * *"   # nightly export
+    - cron: "41 19 3 * *"   # monthly restore drill
+  workflow_dispatch:
+    inputs:
+      drill:
+        description: "Also restore the newest copy into a scratch database"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-d1
+  cancel-in-progress: false
+
+jobs:
+  export:
+    if: github.event.schedule != '41 19 3 * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: worker
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DB: tiktokforwork
+      BUCKET: honmaru-backups
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Made once; kept 35 days.
+      - name: The backup bucket
+        run: |
+          npx -y wrangler@4 r2 bucket create "$BUCKET" 2>&1 | tee /tmp/bucket.log || grep -qi "already exists" /tmp/bucket.log
+          npx -y wrangler@4 r2 bucket lifecycle add "$BUCKET" expire-backups d1/ --expire-days 35 --force 2>&1 | tee /tmp/lifecycle.log \
+            || grep -qi "already exists\|duplicate" /tmp/lifecycle.log
+
+      - name: Export
+        run: |
+          npx -y wrangler@4 d1 export "$DB" --remote --output /tmp/backup.sql
+          test -s /tmp/backup.sql
+          gzip -9 /tmp/backup.sql
+          echo "SIZE=$(stat -c %s /tmp/backup.sql.gz)" >> "$GITHUB_ENV"
+
+      - name: Keep it
+        run: |
+          key="d1/$DB/$(date -u +%Y-%m-%d).sql.gz"
+          npx -y wrangler@4 r2 object put "$BUCKET/$key" --file /tmp/backup.sql.gz --content-type application/gzip --remote
+          echo "Kept $key ($SIZE bytes)" >> "$GITHUB_STEP_SUMMARY"
+
+  drill:
+    if: github.event.schedule == '41 19 3 * *' || inputs.drill
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: worker
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DB: tiktokforwork
+      BUCKET: honmaru-backups
+      SCRATCH: honmaru-restore-drill
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: The newest copy
+        run: |
+          for back in 0 1 2 3; do
+            key="d1/$DB/$(date -u -d "-$back day" +%Y-%m-%d).sql.gz"
+            if npx -y wrangler@4 r2 object get "$BUCKET/$key" --file /tmp/backup.sql.gz --remote; then
+              echo "KEY=$key" >> "$GITHUB_ENV"; break
+            fi
+          done
+          test -s /tmp/backup.sql.gz || { echo "::error::No backup from the last four days."; exit 1; }
+          gunzip /tmp/backup.sql.gz
+
+      - name: Restore into a scratch database, and count
+        run: |
+          npx -y wrangler@4 d1 delete "$SCRATCH" -y >/dev/null 2>&1 || true
+          npx -y wrangler@4 d1 create "$SCRATCH"
+          npx -y wrangler@4 d1 execute "$SCRATCH" --remote --file /tmp/backup.sql --yes
+          for table in orgs memberships users cards channel_messages audit_events; do
+            n=$(npx -y wrangler@4 d1 execute "$SCRATCH" --remote --json --command "SELECT COUNT(*) AS n FROM $table" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s)[0].results[0].n))')
+            echo "$table: $n" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          echo "Restored $KEY" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the scratch database
+        if: always()
+        run: npx -y wrangler@4 d1 delete "$SCRATCH" -y || true

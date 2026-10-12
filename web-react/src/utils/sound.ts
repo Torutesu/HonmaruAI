@@ -305,13 +305,13 @@ export function rememberLevels(orgId: string, prefs: Record<string, string>): vo
 export function rememberLevel(orgId: string, view: string, level: string): void {
   try {
     const levels = JSON.parse(localStorage.getItem(prefsKey(orgId)) || '{}') || {}
-    if (level === 'all') delete levels[view]
+    if (level === 'default') delete levels[view]
     else levels[view] = level
     localStorage.setItem(prefsKey(orgId), JSON.stringify(levels))
   } catch { /* next load */ }
 }
 export function levelOf(orgId: string, view: string): string {
-  try { return (JSON.parse(localStorage.getItem(prefsKey(orgId)) || '{}') || {})[view] || 'all' } catch { return 'all' }
+  try { return (JSON.parse(localStorage.getItem(prefsKey(orgId)) || '{}') || {})[view] || 'default' } catch { return 'default' }
 }
 
 /// The sound for a message that just arrived, or null for none. Pure, so the

@@ -70,6 +70,31 @@ CREATE TABLE IF NOT EXISTS orgs (
   created_at    TEXT NOT NULL
 );
 
+/* A workspace an owner asked to delete (workspaceDeletion.js): closed to all
+   but its owners until due_at, then deleted by the daily job. */
+CREATE TABLE IF NOT EXISTS workspace_deletions (
+  org_id        TEXT PRIMARY KEY,
+  due_at        TEXT NOT NULL,
+  requested_by  TEXT NOT NULL,
+  requested_at  TEXT NOT NULL
+);
+
+/* Each workspace's own data key, random, wrapped under DATA_KEY
+   (secrets.js). Deleted with the workspace: what was sealed under it then
+   opens nowhere, a backup included. */
+CREATE TABLE IF NOT EXISTS workspace_keys (
+  org_id        TEXT PRIMARY KEY,
+  wrapped       TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+
+/* What is left of a deleted workspace: when, and at whose request. */
+CREATE TABLE IF NOT EXISTS workspace_tombstones (
+  org_id        TEXT PRIMARY KEY,
+  deleted_at    TEXT NOT NULL,
+  requested_by  TEXT
+);
+
 /* `role` is standing — who may invite whom, who may act for the org. It is
    granted by an invite or by GitHub, never claimed.
 
@@ -533,7 +558,12 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   last_used_at   TEXT,
   /* What the token may do, as a JSON array: read, write, audit:read.
      NULL is a token made before scopes, and means read and write. */
-  scopes         TEXT
+  scopes         TEXT,
+  /* When it stops. NULL: made before tokens expired; set on its next use. */
+  expires_at     TEXT,
+  /* Made from a sign-in through the workspace's SSO: it keeps working in a
+     workspace that requires SSO. */
+  sso_backed     INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_api_tokens_owner ON api_tokens(github_id, org_id);
 
@@ -749,7 +779,8 @@ CREATE TABLE IF NOT EXISTS agent_invites (
   channels       TEXT,
   created_at     TEXT NOT NULL,
   expires_at     TEXT NOT NULL,
-  used_at        TEXT
+  used_at        TEXT,
+  sso_backed     INTEGER NOT NULL DEFAULT 0
 );
 
 /* A file or a picture in a conversation. Uploaded before the message that
@@ -1435,6 +1466,10 @@ CREATE TABLE IF NOT EXISTS org_governance (
   ip_allowlist            TEXT,
   invite_policy           TEXT NOT NULL DEFAULT 'open',
   invite_guests_exempt    INTEGER,
+  /* A repository's workspace: whoever has write access on GitHub comes in
+     by themselves. NULL is on (as before); 0, an owner turned it off, and
+     only an invitation brings someone in. */
+  github_auto_join        INTEGER,
   updated_by              TEXT NOT NULL,
   updated_at              TEXT NOT NULL
 );

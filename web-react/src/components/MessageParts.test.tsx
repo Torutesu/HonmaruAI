@@ -130,9 +130,10 @@ describe('a mention', () => {
 })
 
 describe('a Jam recording in a message', () => {
-  it('plays where it was posted; any other link stays a link', () => {
+  it('plays where it was posted, from an address asked for then; any other link stays a link', () => {
     const url = 'https://api.example.com/channels/jam/audio/0f8b3c3e-1111-4222-8333-944455556666'
-    expect(html(`Recording: ${url}`)).toBe(`Recording: <audio class="slk-jam-audio" controls="" preload="none" src="${url}"></audio>`)
+    // The link alone opens nothing: the player waits for a signed address.
+    expect(html(`Recording: ${url}`)).toBe('Recording: <audio class="slk-jam-audio" controls="" preload="none"></audio>')
     expect(html('see https://example.com/channels/jam/audio/nope')).toContain('<a href="https://example.com/channels/jam/audio/nope"')
   })
 })

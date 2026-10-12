@@ -1,4 +1,5 @@
 import { audienceOf, isPersonal } from "./access.js";
+import { isPublicUrl } from "./links.js";
 import { getSession, isMember, getUserByGithubId } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { allowed } from "./permissions.js";
@@ -63,14 +64,13 @@ export async function sign(secret, timestamp, body) {
   return hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${timestamp}.${body}`)));
 }
 
-/// An address a delivery may go to: https, a real host, no credentials in it.
+/// An address a delivery may go to: https, a public host, no credentials in
+/// it, and no address literal.
 export function validEndpoint(raw) {
   let url;
   try { url = new URL(String(raw || "").trim()); } catch { return null; }
-  if (url.protocol !== "https:" || url.username || url.password) return null;
-  const host = url.hostname.toLowerCase();
-  if (!host.includes(".") || host === "localhost" || host.endsWith(".local") || host.endsWith(".internal")) return null;
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.startsWith("[")) return null;
+  if (url.protocol !== "https:" || !isPublicUrl(url.toString())) return null;
+  if (/^\d+\.\d+\.\d+\.\d+\.?$/.test(url.hostname)) return null;
   return url.toString().slice(0, 500);
 }
 
@@ -117,8 +117,12 @@ async function deliver(env, hook, event, { redelivery = false } = {}) {
   let status = null;
   let error = null;
   try {
+    // A redirect is answered as it is, never followed: a POST re-sent to
+    // wherever a 307 points could be sent anywhere.
+    if (!validEndpoint(hook.url)) throw new Error("The address is not a public https:// host.");
     const res = await fetch(hook.url, {
       method: "POST",
+      redirect: "manual",
       signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: {
         "content-type": "application/json",
@@ -366,7 +370,7 @@ export async function handleWebhooks(request, env, url) {
     await env.DB.prepare(
       `INSERT INTO org_webhooks (id, org_id, created_by, name, url, events, include_dms, secret, created_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
-    ).bind(row.id, row.org_id, row.created_by, row.name, row.url, row.events, row.include_dms, await sealField(row.secret, aad.webhook(row.id)), row.created_at).run();
+    ).bind(row.id, row.org_id, row.created_by, row.name, row.url, row.events, row.include_dms, await sealField(row.secret, aad.webhook(row.id), row.org_id), row.created_at).run();
     const names = new Map([[who.user.login, who.user.name || null]]);
     const { audit, person } = await import("./audit.js");
     await audit(env, request, { orgId: body.orgId, action: "webhook.created", actor: person(who.user), entity: { type: "webhook", id: row.id, name: row.name || new URL(endpoint).hostname }, details: { host: new URL(endpoint).hostname, events, includeDms: Boolean(row.include_dms) } });
@@ -427,7 +431,7 @@ export async function handleWebhooks(request, env, url) {
   if (action === "rotate" && request.method === "POST") {
     if (!mayManage) return json({ message: "Only whoever made this webhook, or an admin, can replace its secret." }, 403);
     const secret = newSecret();
-    await env.DB.prepare("UPDATE org_webhooks SET secret = ?1 WHERE id = ?2").bind(await sealField(secret, aad.webhook(id)), id).run();
+    await env.DB.prepare("UPDATE org_webhooks SET secret = ?1 WHERE id = ?2").bind(await sealField(secret, aad.webhook(id), orgId), id).run();
     await audit(env, request, { orgId, action: "webhook.secret_rotated", actor: person(who.user), entity });
     return json({ secret });
   }

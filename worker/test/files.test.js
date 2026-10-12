@@ -105,7 +105,39 @@ test("an address that is unsigned, tampered with or stale fetches nothing", asyn
   expect((await call(`${path}?e=${Number(p.get("e")) + 86400}&s=${p.get("s")}`, {})).status).toBe(404);
   const stale = Math.floor(Date.now() / 1000) - 10;
   expect((await call(`${path}?e=${stale}&s=${p.get("s")}`, {})).status).toBe(404);
-  expect(validUntil(Date.UTC(2026, 0, 1, 23, 0)) - Date.UTC(2026, 0, 1) / 1000).toBe(2 * 86400);
+  expect(validUntil(Date.UTC(2026, 0, 1, 23, 0)) - Date.UTC(2026, 0, 1, 23, 0) / 1000).toBe(1200);
+});
+
+// An address was good to the end of tomorrow, bound to no workspace, and
+// signed with a key kept in the database: a copy of the database, or one
+// address kept, opened a file for two days.
+test("with the Worker's secret, an address lasts minutes, names its workspace, and a database copy cannot make one", async () => {
+  const keyed = { ...env, DATA_KEY: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))) };
+  const callKeyed = async (path, init) => {
+    const res = await worker.fetch(new Request("https://example.com" + path, init), keyed, ctx);
+    await settle();
+    return res;
+  };
+  const made = await callKeyed(`/channels/files?${q({ orgId: ORG, channel: "b:cafe", name: "a.png", width: 1, height: 1 })}`, {
+    method: "POST", headers: auth(mika, { "content-type": "image/png", "content-length": String(PNG.byteLength) }), body: PNG,
+  });
+  const { file } = await made.json();
+  expect(file.url).toContain("v=2");
+  expect(file.expiresAt - Date.now()).toBeLessThanOrEqual(1200_000);
+  expect((await callKeyed(file.url, {})).status).toBe(200);
+  // The same address, checked without the secret: it does not open.
+  expect((await call(file.url, {})).status).toBe(404);
+  // Nor does one signed with the key the database holds.
+  const [path, query] = file.url.split("?");
+  const p = new URLSearchParams(query);
+  const kv = await env.DB.prepare("SELECT value FROM kv WHERE key = 'file-signing-key'").first();
+  if (kv) {
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(kv.value), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const forged = [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${file.id}.${p.get("e")}`)))].slice(0, 16).map((b) => b.toString(16).padStart(2, "0")).join("");
+    expect((await callKeyed(`${path}?v=2&e=${p.get("e")}&s=${forged}`, {})).status).toBe(404);
+  }
+  // Stretched past twenty minutes: refused, however it is signed.
+  expect((await callKeyed(`${path}?v=2&e=${Number(p.get("e")) + 86400}&s=${p.get("s")}`, {})).status).toBe(404);
 });
 
 test("a file in a DM is for the two people in it, and only its uploader can send it", async () => {

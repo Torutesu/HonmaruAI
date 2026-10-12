@@ -41,6 +41,9 @@ describe('conversation levels, as this browser remembers them', () => {
     rememberLevel('org', 'b:c', 'mute')
     rememberLevel('org', 'b:a', 'all')
     expect(levelOf('org', 'b:a')).toBe('all')
+    // Back to no setting.
+    rememberLevel('org', 'b:a', 'default')
+    expect(levelOf('org', 'b:a')).toBe('default')
     expect(levelOf('org', 'b:b')).toBe('mentions')
     expect(levelOf('org', 'b:c')).toBe('mute')
   })

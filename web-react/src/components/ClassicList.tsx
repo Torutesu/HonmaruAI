@@ -44,7 +44,7 @@ import { heard as heardTyping, said, expire, nextExpiry as nextTypingExpiry, typ
 import type { Typist, TypingEvent, Outgoing as TypingOut, Place, Signal } from '../utils/typing'
 import { quoteOf, refreshQuotes } from '../utils/replies'
 import { ChannelJournal, ChannelDetails, JamButton, JamBar } from './ChannelPanes'
-import type { DetailsTab, JournalCite } from './ChannelPanes'
+import type { DetailsTab, JournalCite, NotifyLevel } from './ChannelPanes'
 import { JamCall } from '../utils/jam'
 import { JamPanel } from './JamPanel'
 import type { JamMode, JamState } from '../utils/jam'
@@ -328,7 +328,7 @@ export const ClassicList: React.FC<Props> = ({
   const [activity, setActivity] = useState<Record<string, Activity>>({})
   const [seenTick, setSeenTick] = useState(0)
   // How loud each conversation may be: all (the default), mentions, mute.
-  const [prefs, setPrefs] = useState<Record<string, 'mentions' | 'mute'>>({})
+  const [prefs, setPrefs] = useState<Record<string, 'all' | 'mentions' | 'mute'>>({})
   // The sound for a message is decided where the socket is; it needs to
   // know what you muted and what you are looking at. Written down only once
   // the server has said what they are for this workspace: until then the
@@ -970,13 +970,13 @@ export const ClassicList: React.FC<Props> = ({
   }
 
 
-  const setPref = async (v: string, level: 'all' | 'mentions' | 'mute') => {
+  const setPref = async (v: string, level: NotifyLevel) => {
     const res = await fetch(`${api.httpBase}/channels/prefs`, { method: 'PUT', headers: { ...authHeaders, 'content-type': 'application/json' }, body: JSON.stringify({ orgId: api.orgId, channel: v, level }) }).catch(() => null)
     if (!res?.ok) { setProblem(t('That did not save.')); return }
     // For the sound and the notification decided at the socket, at once —
     // also when the list's own load has not come back (or failed).
     rememberLevel(api.orgId, v, level)
-    setPrefs((prev) => { const next = { ...prev }; if (level === 'all') delete next[v]; else next[v] = level; return next })
+    setPrefs((prev) => { const next = { ...prev }; if (level === 'default') delete next[v]; else next[v] = level; return next })
   }
   /// A routine that writes this channel up for you every evening.
   const dailySummary = async (thread: Thread) => {
@@ -1010,7 +1010,7 @@ export const ClassicList: React.FC<Props> = ({
   const rowMenuEntries = (th: Thread): MenuEntry[] => {
     const v = th.view!
     const isChannel = th.kind === 'channel'
-    const level = (prefs[v] || 'all') as 'all' | 'mentions' | 'mute'
+    const level = (prefs[v] || 'default') as NotifyLevel
     const here = sectionOf(v)
     const shown = isChannel && !th.private ? `#${th.name}` : th.name
     const out: MenuEntry[] = []
@@ -1047,7 +1047,8 @@ export const ClassicList: React.FC<Props> = ({
     }
     out.push({ kind: 'sep' }, { kind: 'head', label: t('Notify you about…') })
     out.push(
-      { kind: 'item', label: t('All new posts'), checked: level === 'all', onSelect: () => void setPref(v, 'all'), data: 'notify-all' },
+      { kind: 'item', label: t('Mentions, replies and a sound for posts'), checked: level === 'default', onSelect: () => void setPref(v, 'default'), data: 'notify-default' },
+      { kind: 'item', label: t('Every post, on the phone too'), checked: level === 'all', onSelect: () => void setPref(v, 'all'), data: 'notify-all' },
       { kind: 'item', label: t('Just mentions'), checked: level === 'mentions', onSelect: () => void setPref(v, 'mentions'), data: 'notify-mentions' },
       { kind: 'item', label: t('Mute'), checked: level === 'mute', onSelect: () => void setPref(v, 'mute'), data: 'notify-mute' },
     )
@@ -4720,9 +4721,9 @@ export const ClassicList: React.FC<Props> = ({
               <>
                 <span className="cl-pref" role="group" aria-label={t('Notifications')}>
                   <span className="cl-pref-label">{t('Notify me about')}</span>
-                  {(['all', 'mentions', 'mute'] as const).map((lv) => (
-                    <button key={lv} type="button" className={`cl-nudge${(prefs[thread.view!] || 'all') === lv ? ' on' : ''}`} aria-pressed={(prefs[thread.view!] || 'all') === lv} onClick={() => void setPref(thread.view!, lv)}>
-                      {lv === 'all' ? t('Everything') : lv === 'mentions' ? t('Mentions only') : t('Nothing (mute)')}
+                  {(['default', 'all', 'mentions', 'mute'] as const).map((lv) => (
+                    <button key={lv} type="button" className={`cl-nudge${(prefs[thread.view!] || 'default') === lv ? ' on' : ''}`} aria-pressed={(prefs[thread.view!] || 'default') === lv} onClick={() => void setPref(thread.view!, lv)} data-notify-level={lv}>
+                      {lv === 'default' ? t('Mentions, replies and a sound for posts') : lv === 'all' ? t('Every post, on the phone too') : lv === 'mentions' ? t('Mentions only') : t('Nothing (mute)')}
                     </button>
                   ))}
                 </span>
@@ -5517,7 +5518,7 @@ export const ClassicList: React.FC<Props> = ({
               api={api} headers={authHeaders} view={current.view} locale={locale}
               tab={side.tab}
               onTab={(tab) => setSide({ kind: 'details', tab })}
-              level={prefs[current.view] || 'all'}
+              level={(prefs[current.view] || 'default') as NotifyLevel}
               onLevel={(lv) => void setPref(current.view!, lv)}
               onSettings={current.kind === 'channel' && current.slug ? () => { forgetWanted(); setSettings(true); setRenaming(null) } : null}
               onInvite={() => (current.private ? setAddingTo(current.view!) : setInviting('people'))}

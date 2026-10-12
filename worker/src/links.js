@@ -34,20 +34,48 @@ export function linksIn(text, limit = MAX_LINKS) {
 }
 
 /// Only the open web: no credentials in the URL, no local names, no
-/// private or loopback addresses.
+/// private, loopback, link-local or reserved addresses.
 export function isPublicUrl(value) {
   let u;
   try { u = new URL(value); } catch { return false; }
   if (u.protocol !== "https:" && u.protocol !== "http:") return false;
   if (u.username || u.password) return false;
-  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (!host.includes(".") || host.endsWith(".local") || host.endsWith(".internal") || host === "localhost") return false;
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
-    const [a, b] = host.split(".").map(Number);
-    if (a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127)) return false;
-  }
+  // "127.0.0.1." and "localhost." are the same hosts as without the dot.
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
+  if (!host.includes(".") || host === "localhost") return false;
+  if ([".local", ".localhost", ".internal", ".home.arpa", ".lan"].some((end) => host.endsWith(end))) return false;
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return publicIpv4(host);
   if (host.includes(":")) return false; // IPv6 literals: not worth the risk
   return true;
+}
+
+function publicIpv4(host) {
+  const [a, b, c] = host.split(".").map(Number);
+  if (a === 0 || a === 10 || a === 127 || a >= 224) return false; // this network, private, loopback, multicast and reserved
+  if (a === 169 && b === 254) return false; // link-local, and cloud metadata
+  if (a === 172 && b >= 16 && b <= 31) return false;
+  if (a === 192 && b === 168) return false;
+  if (a === 100 && b >= 64 && b <= 127) return false; // carrier-grade NAT
+  if (a === 192 && b === 0 && c === 0) return false;
+  if (a === 198 && (b === 18 || b === 19)) return false; // benchmarking
+  return true;
+}
+
+/// fetch, for an address somebody else chose. Redirects are followed by
+/// hand, each hop checked as the first was: a public page cannot send the
+/// request on to a private one. Returns { res, url } with the address that
+/// answered; throws on a refused hop or too many.
+export async function publicFetch(url, init = {}, { hops = 5 } = {}) {
+  let current = String(url);
+  for (let hop = 0; hop <= hops; hop++) {
+    if (!isPublicUrl(current)) throw new Error("Only public http(s) addresses can be fetched.");
+    const res = await fetch(current, { ...init, redirect: "manual" });
+    const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+    if (!location) return { res, url: current };
+    await res.body?.cancel().catch(() => {});
+    current = new URL(location, current).toString();
+  }
+  throw new Error("Too many redirects.");
 }
 
 /// Which reader a link needs, and the ids it carries.
@@ -344,7 +372,7 @@ async function readPage(url) {
     // The page itself, below.
   }
   try {
-    const res = await get(url, { headers: { Accept: "text/html,*/*;q=0.5" } });
+    const { res } = await publicFetch(url, { headers: { "User-Agent": UA, Accept: "text/html,*/*;q=0.5" }, signal: AbortSignal.timeout(TIMEOUT_MS) });
     if (!res.ok || !/text\/html|text\/plain/.test(res.headers.get("content-type") || "")) return null;
     const html = (await res.text()).slice(0, 400000);
     const meta = (name) => decodeEntities((html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]*content=["']([^"']*)`, "i")) || [])[1] || "");

@@ -23,7 +23,7 @@ import { audienceOf } from "./access.js";
 import { resolveMentions, mentionTokens, broadcastOf } from "./threads.js";
 import { viewOf } from "./channels.js";
 import { listMembers } from "./team.js";
-import { quietFor, keywordsIn, keywordHit } from "./quiet.js";
+import { quietFor, quietEnds, HOLD_MAX_MS, keywordsIn, keywordHit } from "./quiet.js";
 import { announceTo } from "./announce.js";
 import { custom as customEvent } from "./agui/events.js";
 
@@ -113,6 +113,14 @@ export async function recipientsOf(db, orgId, row, members, { askedBy = null } =
     ).bind(orgId, row.parent_id).all();
     for (const r of results || []) add(r.author_login, "thread");
   }
+  // Whoever asked for every new post in this channel: a post in it, or a
+  // reply also sent to it — not a reply that stays in its thread.
+  if (key.startsWith("b:") && (!row.parent_id || row.also_channel)) {
+    const { results: every } = await db.prepare(
+      "SELECT login FROM channel_prefs WHERE org_id = ?1 AND channel = ?2 AND level = 'all'"
+    ).bind(orgId, key).all();
+    for (const r of every || []) add(r.login, "channel");
+  }
   // What somebody wrote stays when they leave, and can still be answered
   // or have its thread carried on; what is said after they left is not
   // theirs to be told.
@@ -199,8 +207,20 @@ async function deliverMessagePush(env, job, { now = Date.now(), membersOf = new 
   // Read it already, here or anywhere: in its conversation, in its
   // thread, or looked at in Activity.
   if (await readAlready(db, job.org_id, job.login, msg)) return { skipped: true };
-  // Paused, or outside the hours they set.
-  if (await quietFor(db, job.login, new Date(now))) return { skipped: true };
+  // Paused, or outside the hours they set: held until they end, if that is
+  // soon enough to still be news (quiet.js), rather than dropped.
+  if (await quietFor(db, job.login, new Date(now))) {
+    const ends = await quietEnds(db, job.login, new Date(now));
+    return ends ? { deferUntil: ends.getTime() } : { skipped: true };
+  }
+  // Held through quiet time with others: only the latest few go, not a
+  // morning's worth of buzzing.
+  if (job.last_error === "held") {
+    const newer = await db.prepare(
+      "SELECT COUNT(*) AS n FROM push_queue WHERE login = ?1 AND sent_at IS NULL AND last_error = 'held' AND id > ?2"
+    ).bind(job.login, job.id).first();
+    if ((newer?.n || 0) >= HELD_SENT) return { skipped: true };
+  }
   // Being at the app is not having seen it. A message in a conversation
   // they had open in front of them is read by the time this runs (the
   // client reads what it shows), and stops above; one somewhere else is
@@ -230,6 +250,8 @@ async function deliverMessagePush(env, job, { now = Date.now(), membersOf = new 
 }
 
 const PUSH_CONCURRENCY = 5;
+/// Of the pushes held through quiet time, how many go when it ends: the latest.
+const HELD_SENT = 3;
 
 /// Send what is due. Each row is claimed first, so two overlapping runs
 /// never push one message twice.
@@ -250,17 +272,25 @@ export async function sendDuePushes(env, now = Date.now()) {
     if (!(claim?.meta?.changes > 0)) return;
     let retry = false;
     let error = null;
+    let held = null;
     try {
       const result = await deliverMessagePush(env, job, { now, membersOf, deliveryJobId: `message:${job.id}` });
       // Not pushed: marked done, but not as sent — clearDelivered sends a
       // phone a "read" for what was pushed to it, and nothing was.
       if (result.skipped) { skipped += 1; error = "skipped"; return; }
+      if (result.deferUntil) { held = result.deferUntil; return; }
       retry = result.retry;
       if (result.delivered) sent += 1; else skipped += 1;
       error = retry ? "transient delivery failure" : result.delivered ? null : "no accepted delivery";
     } catch (err) {
       retry = true; error = 'delivery exception';
     } finally {
+      if (held) {
+        // Waits, unspent, for the quiet time to end.
+        await db.prepare("UPDATE push_queue SET due_at = ?2, lease_until = NULL, attempts = attempts - 1, last_error = 'held' WHERE id = ?1 AND lease_until = ?3")
+          .bind(job.id, new Date(held).toISOString(), lease).run();
+        return;
+      }
       const again = retry && job.attempts + 1 < MAX_ATTEMPTS;
       await db.prepare('UPDATE push_queue SET sent_at = ?2, due_at = ?3, lease_until = NULL, last_error = ?4 WHERE id = ?1 AND lease_until = ?5')
         .bind(job.id, again ? null : at, new Date(now + retryDelay(job.attempts + 1)).toISOString(), error, lease).run();
@@ -272,7 +302,7 @@ export async function sendDuePushes(env, now = Date.now()) {
   }
   // Kept a day for looking into, then gone; what Activity was looked at,
   // as long as Activity looks back.
-  await db.prepare("DELETE FROM push_queue WHERE created_at < ?1").bind(new Date(now - 86400000).toISOString()).run().catch(() => {});
+  await db.prepare("DELETE FROM push_queue WHERE created_at < ?1").bind(new Date(now - 86400000 - HOLD_MAX_MS).toISOString()).run().catch(() => {});
   await db.prepare("DELETE FROM activity_reads WHERE read_at < ?1").bind(new Date(now - 35 * 86400000).toISOString()).run().catch(() => {});
   return { sent, skipped };
 }

@@ -10,6 +10,7 @@ interface Gov {
   retention: { publicDays: number | null; privateDays: number | null; dmDays: number | null; filesDays: number | null }
   network: { enforce: boolean; allowlist: string[] }
   invites: { policy: 'open' | 'company' | 'approval'; guestsExempt: boolean }
+  github?: { autoJoin: boolean }
   canEdit: boolean
   yourIp: string | null
   retentionChoices: Array<number | null>
@@ -189,6 +190,11 @@ export const Governance: React.FC<{ httpBase: string; orgId: string; sessionToke
         </label>
         <label className="dlg-check"><input type="checkbox" checked={gov.invites.guestsExempt} disabled={!edit || busy || gov.invites.policy === 'open'}
           onChange={(e) => void send('/orgs/governance', 'PUT', { invites: { guestsExempt: e.target.checked } }, t('Saved.'))} /> {t('Guests from outside may still be invited')}</label>
+        {/* A repository's workspace: GitHub write access was a way in by itself. */}
+        {orgId.includes('/') && gov.github && (
+          <label className="dlg-check"><input type="checkbox" checked={gov.github.autoJoin} disabled={!edit || busy} data-github-auto-join
+            onChange={(e) => void send('/orgs/governance', 'PUT', { github: { autoJoin: e.target.checked } }, t('Saved.'))} /> {t('Anyone with write access to the repository comes in by themselves')}</label>
+        )}
       </div>
       {!edit && <p className="form-note">{t('An owner of this workspace can change these.')}</p>}
     </section>

@@ -69,8 +69,8 @@ export async function loadTeammate(db, orgId, provider) {
   if (!row) return null;
   return {
     orgId: row.org_id, provider: row.provider, enabled: Boolean(row.enabled),
-    apiKey: (await openField(row.api_key, aad.teammate(orgId, provider, "api_key"))) || null,
-    githubToken: (await openField(row.github_token, aad.teammate(orgId, provider, "github_token"))) || null,
+    apiKey: (await openField(row.api_key, aad.teammate(orgId, provider, "api_key"), orgId)) || null,
+    githubToken: (await openField(row.github_token, aad.teammate(orgId, provider, "github_token"), orgId)) || null,
     repos: parse(row.repos, []), model: row.model || PROVIDERS[provider]?.defaultModel || null,
     instructions: row.instructions || "", channels: parse(row.channels, null),
     monthlyLimitCents: row.monthly_limit_cents == null ? null : Number(row.monthly_limit_cents),
@@ -609,7 +609,7 @@ export async function saveTeammate(env, orgId, provider, input, { login, workspa
        updated_by = excluded.updated_by, updated_at = excluded.updated_at, auto_build = excluded.auto_build`
   ).bind(
     orgId, provider, next.enabled ? 1 : 0,
-    await sealField(next.apiKey, aad.teammate(orgId, provider, "api_key")), await sealField(next.githubToken, aad.teammate(orgId, provider, "github_token")), JSON.stringify(next.repos), next.model, next.instructions,
+    await sealField(next.apiKey, aad.teammate(orgId, provider, "api_key"), orgId), await sealField(next.githubToken, aad.teammate(orgId, provider, "github_token"), orgId), JSON.stringify(next.repos), next.model, next.instructions,
     next.channels === null ? null : JSON.stringify(next.channels), next.monthlyLimitCents, JSON.stringify(next.tools), JSON.stringify(next.remote),
     next.agentId, login, new Date().toISOString(), next.autoBuild ? 1 : 0,
   ).run();

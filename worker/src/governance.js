@@ -58,8 +58,13 @@ export function presentGovernance(row) {
     },
     network: { enforce: Boolean(row?.ip_enforce), allowlist: JSON.parse(row?.ip_allowlist || "[]") },
     invites: { policy: row?.invite_policy || "open", guestsExempt: row?.invite_guests_exempt === null || row?.invite_guests_exempt === undefined ? true : Boolean(row.invite_guests_exempt) },
+    github: { autoJoin: githubAutoJoin(row) },
   };
 }
+
+/// Whether a repository's workspace lets in, by themselves, the people with
+/// write access to the repository on GitHub. On unless an owner turned it off.
+export const githubAutoJoin = (row) => row?.github_auto_join === null || row?.github_auto_join === undefined ? true : Boolean(row.github_auto_join);
 
 async function saveGovernance(db, orgId, fields, updatedBy) {
   const now = new Date().toISOString();
@@ -333,12 +338,14 @@ export async function handleGovernance(request, env, url) {
       fields.invite_policy = policy;
       fields.invite_guests_exempt = (body.invites.guestsExempt ?? before.invites.guestsExempt) ? 1 : 0;
     }
+    if (body.github && typeof body.github.autoJoin === "boolean") fields.github_auto_join = body.github.autoJoin ? 1 : 0;
     if (!Object.keys(fields).length) return json({ message: "Nothing to change." }, 400);
     await saveGovernance(env.DB, orgId, fields, userId);
     const after = presentGovernance(await governanceOf(env.DB, orgId));
     if (JSON.stringify(before.retention) !== JSON.stringify(after.retention)) await audit(env, request, { orgId, action: "governance.retention_changed", actor, details: { from: before.retention, to: after.retention } });
     if (JSON.stringify(before.network) !== JSON.stringify(after.network)) await audit(env, request, { orgId, action: "governance.ip_allowlist_changed", actor, details: { enforce: after.network.enforce, ranges: after.network.allowlist.length } });
     if (JSON.stringify(before.invites) !== JSON.stringify(after.invites)) await audit(env, request, { orgId, action: "governance.invite_policy_changed", actor, details: after.invites });
+    if (before.github.autoJoin !== after.github.autoJoin) await audit(env, request, { orgId, action: "governance.github_join_changed", actor, details: after.github });
     const { mailOwners } = await import("./owners.js");
     await mailOwners(env, orgId, { subject: "Workspace rules were changed", text: `${user?.name || "An owner"} changed how long things are kept, where the workspace can be used from, or who may be invited. The audit log has the details.` }).catch(() => {});
     return json({ ...after, canEdit: owner });
@@ -425,7 +432,10 @@ export async function handleGovernance(request, env, url) {
     if (!row?.object_key || row.status !== "ready" || row.expires_at < new Date().toISOString()) return json({ message: "That export has expired or is not ready." }, 404);
     const obj = await env.MEDIA.get(row.object_key);
     if (!obj) return json({ message: "That export has expired." }, 404);
-    await audit(env, request, { orgId, action: "compliance.downloaded", actor, details: { export: row.id } });
+    // Recorded before a byte goes, or not handed out at all.
+    if (!(await audit(env, request, { orgId, action: "compliance.downloaded", actor, details: { export: row.id } }))) {
+      return json({ message: "The audit log could not be written, so nothing was exported. Try again shortly.", code: "audit-unavailable" }, 503);
+    }
     return new Response(obj.body, { headers: { "content-type": "application/gzip", "content-disposition": `attachment; filename="export-${row.id.slice(0, 8)}.jsonl.gz"`, "cache-control": "no-store", ...CORS } });
   }
   return json({ message: "not found" }, 404);

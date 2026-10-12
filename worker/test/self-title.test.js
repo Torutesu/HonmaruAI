@@ -71,7 +71,8 @@ test("nobody can promote themselves", async () => {
 
 test("a title cannot be set in an org you are not in", async () => {
   const res = await put(member.token, { orgId: admin.orgId, role: "engineer" });
-  expect(res.status).toBe(400);
+  // Refused at the door, as every workspace route refuses a non-member.
+  expect(res.status).toBe(403);
   const row = await env.DB.prepare("SELECT title FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
     .bind(admin.orgId, member.userId).first();
   expect(row).toBeNull();

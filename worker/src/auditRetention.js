@@ -8,6 +8,7 @@
 // an owner cannot shorten what the contract or the law says to keep.
 
 import { audit } from "./audit.js";
+import { safeEqual, sha256Hex } from "./auth.js";
 import { orgsInTurn } from "./orgCursor.js";
 import { principalOf } from "./auditCrypto.js";
 
@@ -51,21 +52,44 @@ export async function pruneAudit(env, { now = Date.now(), perRun = 500 } = {}) {
   return pruned;
 }
 
+/// Who is at the operator's door, or null. OPS_TOKENS names each operator,
+/// {"aiko":"<token>", …}, so the audit log says which one acted and one can
+/// be cut off alone; OPS_TOKEN is the shared one, "ops". Compared as hashes,
+/// so neither a token's length nor where it first differs shows in the time
+/// taken.
+export async function operatorOf(env, token) {
+  if (!token) return null;
+  const tokens = [];
+  try {
+    for (const [name, value] of Object.entries(JSON.parse(env.OPS_TOKENS || "{}"))) tokens.push([name, value]);
+  } catch {
+    // Not JSON: no named operators.
+  }
+  if (env.OPS_TOKEN) tokens.push(["ops", env.OPS_TOKEN]);
+  const given = await sha256Hex(token);
+  let who = null;
+  for (const [name, value] of tokens) {
+    if (typeof value !== "string" || !value || !/^[\w.-]{1,40}$/.test(name)) continue;
+    if (safeEqual(given, await sha256Hex(value)) && !who) who = name;
+  }
+  return who;
+}
+
 /// The operator's door: retention, and holds, on a customer's request.
 /// POST /ops/audit/settings {orgId, retentionDays?, legalHold?, reason}
 /// POST /ops/audit/principal-hold {orgId, login | principal, hold, reason}
 /// Both need the OPS_TOKEN secret, and both are recorded as critical.
 export async function handleOps(request, env, url) {
   if (!url.pathname.startsWith("/ops/audit/")) return null;
-  const token = request.headers.get("x-ops-token") || "";
-  if (!env.OPS_TOKEN || token.length !== env.OPS_TOKEN.length || token !== env.OPS_TOKEN) return json({ message: "not found" }, 404);
+  const who = await operatorOf(env, request.headers.get("x-ops-token") || "");
+  if (!who) return json({ message: "not found" }, 404);
   if (request.method !== "POST") return json({ message: "not found" }, 404);
   const body = await request.json().catch(() => ({}));
   const orgId = String(body.orgId || "");
   if (!orgId) return json({ message: "orgId is required" }, 400);
   const reason = String(body.reason || "").trim().slice(0, 500);
   if (!reason) return json({ message: "Say why." }, 400);
-  const operator = { type: "operator", id: "ops", name: "Honmaru operations" };
+  const operator = { type: "operator", id: who, name: who === "ops" ? "Honmaru operations" : `Honmaru operations (${who})` };
 
   if (url.pathname === "/ops/audit/settings") {
     const before = await auditSettings(env.DB, orgId);

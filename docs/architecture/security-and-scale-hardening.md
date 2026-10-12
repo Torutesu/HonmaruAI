@@ -1,6 +1,6 @@
 # Security and scale hardening: what has to be true before we sell to other companies
 
-Status: **In progress** · Owner: platform · Last updated: 2026-10-11
+Status: **In progress** · Owner: platform · Last updated: 2026-10-12
 
 [The platform plan](discord-model-platform-plan.md) fixes the long-term shape:
 one Durable Object per workspace, D1 for global data only. This document is
@@ -78,24 +78,24 @@ these were growing with total data rather than with active use.
 | # | Gap | Where | Fix |
 | --- | --- | --- | --- |
 | 1 | ~~**Session tokens are stored in plaintext**, as the D1 primary key. A D1 read means takeover of any account.~~ **Done** | `db.js` `createSession`, `sessionKey` | The table keeps `h1:` + sha256(token); a session from before moves to its hash on first use. |
-| 2 | **30-day sliding bearer token in `localStorage`, CORS `*`.** Any XSS, or any site holding a stolen token, has full access for a month. | `web-react`, `CORS_HEADERS` in `index.js` and ~15 modules | CORS allowlist (app origins plus native clients, which send no Origin). Then short-lived access tokens with refresh (plan §3.1). |
-| 3 | **Unauthenticated media.** `GET /media/:uuid` and `/jam/:uuid` serve anything to anyone who has the UUID. | `media.js:142`, `jam.js:451` | Serve only through signed media URLs (`mediaToken.js`, already used for new uploads); turn the legacy route off (`MEDIA_LEGACY_VIDEO=off`) once clients are on signed URLs. |
-| 4 | **File links outlive access.** `/files/:id` URLs are valid ~48 h, are bound to no org or person, and are signed with a key kept in D1 `kv`. | `files.js:61–74, 352` | Sign with a Worker secret; bind the org in the MAC; shorten to minutes, as media is. |
-| 5 | **MCP agent tokens never expire** and skip `policyDenial`: the SSO requirement, IP allowlist and session rules do not apply to them. | `mcp.js:63–135` | Expiry (default 90 days, like org keys). Apply the workspace IP allowlist. Re-check the creator against SSO policy. |
-| 6 | **Outbound fetch checks only the hostname**, follows redirects, and OIDC discovery is unchecked. | `links.js:38`, `preview.js:58`, `sso.js:76` | Re-check every redirect hop with `redirect: "manual"`; refuse non-public results; check the issuer URL. |
-| 7 | **The membership gate is copied into ~6 modules;** two routes skip `policyDenial` (`POST /media`, `/channels/link-preview`). | `index.js`, `channelRoutes.js`, `automation.js`, `webhooks.js`, `audit.js` | One `requireWorkspace(env, request, orgId)` used everywhere; a test that walks every route with a foreign `orgId` and expects 403 (plan §12 isolation criterion). |
-| 8 | **No workspace deletion; backups only on paper.** | `permissions.js:15` (`workspace.delete` unused); plan §9.2 | Owner-initiated deletion with a 30-day grace (D1 rows + R2 `org/<id>/` prefix + registry tombstone). Nightly D1 export to R2 and a monthly restore drill. |
+| 2 | **30-day sliding bearer token in `localStorage`, CORS `*`.** Any XSS, or any site holding a stolen token, has full access for a month. | `web-react`, `CORS_HEADERS` in `index.js` and ~15 modules | ~~CORS allowlist~~ **Done** (`cors.js`, settled once on the way out; `CORS_ENFORCE=off` reverts). Next: short-lived access tokens with refresh (plan §3.1). |
+| 3 | **Unauthenticated media.** `GET /media/:uuid` and `/jam/:uuid` serve anything to anyone who has the UUID. | `media.js`, `jam.js` | **Done for new recordings** (signed per reader). Card videos get an API-signed address without the media origin. **To do:** set `MEDIA_LEGACY_VIDEO=off` once iOS ≥ 1.3.0 is what people use. |
+| 4 | ~~**File links outlive access.**~~ **Done** | `files.js`, `addressSigning.js` | Signed with a key derived from `DATA_KEY`, the org in the MAC, 10–20 minutes. |
+| 5 | ~~**MCP agent tokens never expire**~~ **Done** | `mcp.js` `agentDenial` | 90 days by default (365 at most); IP allowlist applies; a token made without SSO stops once SSO is required. |
+| 6 | ~~**Outbound fetch follows redirects unchecked**~~ **Done** | `links.js` `publicFetch` | Every hop checked; webhooks, audit streams and SSO token calls follow no redirects; issuer and endpoints must be public. |
+| 7 | **The membership gate is copied into ~6 modules.** | `test/tenant-isolation.test.js` | **Done: the route walk.** Every path, every method, as an outsider and as a member off the allowed network: nothing comes back, nothing changes. It found and closed 5 gaps. The single gate is folded into P2 #9. |
+| 8 | ~~**No workspace deletion; backups only on paper.**~~ **Done** | `workspaceDeletion.js`, `.github/workflows/backup-d1.yml` | Deletion with a 30-day grace; nightly export to R2 (35 days) and a monthly restore drill. |
 
 ### P2: tenant isolation by construction (2–3 weeks)
 
 | # | Gap | Fix |
 | --- | --- | --- |
-| 9 | 838 hand-written queries, 478 `org_id = ?` predicates, nothing enforcing them | Plan M0: `WorkspaceStore` interface; workspace tables reachable only through it; lint bans `env.DB` on workspace tables |
-| 10 | Encryption is optional: no `DATA_KEY` means plaintext, no audit keys means a clear-text audit log | Fail the deploy (and refuse to start) without them in production |
-| 11 | One key for every tenant; `SSO_SECRET_KEY` seals without associated data | Per-workspace data keys wrapped by a master key (plan §8.2); add associated data on the next write |
-| 12 | Audit writes fail open; ops endpoints share one `OPS_TOKEN`, compared with `!==` | Fail closed for security-relevant actions (role, SSO, keys, exports); constant-time compare; per-operator tokens |
-| 13 | Repo-linked workspaces auto-join anyone with push access on GitHub | Owner setting: "GitHub push access joins automatically" (default off for team workspaces) |
-| 14 | Connected apps (Gmail, Notion) are per person, shared by every workspace they are in | Key Composio by `orgId:githubId` for new connections; show which workspace an app is connected in |
+| 9 | 838 hand-written queries, 478 `org_id = ?` predicates, nothing enforcing them | **Ratchet in place:** `test/workspace-queries.test.js` counts queries on workspace tables that do not name `org_id` (124 today, per file); a new one fails CI until it is looked at. Messages already write through `channels.js` (plan M0). Next: bring the 124 down, then the `WorkspaceStore` interface. |
+| 10 | ~~Encryption is optional~~ **Done** | `REQUIRE_ENCRYPTION=1` in production: 503 without the keys; the deploy fails |
+| 11 | ~~One key for every tenant; SSO sealing without associated data~~ **Done** | `workspace_keys`: a random key per workspace wrapped under `DATA_KEY`, deleted with the workspace (`enc:v2:`); SSO and audit-stream secrets bound to their workspace and row (`v2:`). Values sealed before still open. |
+| 12 | Audit writes fail open; one shared `OPS_TOKEN` compared with `!==` | **Done:** exports refuse when their entry cannot be written; critical/warning entries kept in `undelivered/`; `OPS_TOKENS` per operator, hashed compare. Role and SSO changes still write after the change. |
+| 13 | ~~Repo-linked workspaces auto-join anyone with push access~~ **Done** | Owner setting in Compliance; on by default, as before |
+| 14 | ~~Connected apps shared by every workspace a person is in~~ **Done** (before this review) | `ingestWorkspaceOf`: a person's apps are pulled into, and read from, one workspace only; `GET /connectors` names it (`pullsInto`). |
 
 ### P3: physical isolation (1–3 months)
 

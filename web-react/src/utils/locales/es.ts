@@ -2009,6 +2009,14 @@ const table: Record<string, string> = {
   "Honmaru AI is having trouble on its side. Try again in a little while.": "Honmaru AI tiene un problema en este momento. Inténtalo de nuevo en un rato.",
   "Resize thread": "Cambiar el ancho del hilo",
   "Drag to resize · double-click to reset": "Arrastra para cambiar el ancho · doble clic para restablecer",
+  "Delete the workspace": "Eliminar el espacio",
+  "It will be deleted on {date}. Until then only owners can open it.": "Se eliminará el {date}. Hasta entonces solo los propietarios pueden abrirlo.",
+  "Keep the workspace": "Conservar el espacio",
+  "Everything in it is deleted 30 days after you ask. Until then you can take it back.": "Todo lo que contiene se elimina 30 días después de pedirlo. Hasta entonces puedes deshacerlo.",
+  "Type the workspace name to confirm": "Escribe el nombre del espacio para confirmar",
+  "Anyone with write access to the repository comes in by themselves": "Quien tenga permiso de escritura en el repositorio entra por sí mismo",
+  "Mentions, replies and a sound for posts": "Menciones, respuestas y un sonido por publicación",
+  "Every post, on the phone too": "Cada publicación, también en el teléfono",
 }
 
 export default table

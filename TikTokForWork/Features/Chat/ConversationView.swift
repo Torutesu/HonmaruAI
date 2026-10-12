@@ -829,8 +829,9 @@ struct ConversationView: View {
                     }
                     Button("New section…") { askingSectionName = true }
                 } label: { Label("Move to a section", systemImage: "folder") }
-                Picker("Notify me about", selection: Binding(get: { store.prefs[view] ?? "all" }, set: { v in Task { await store.setPref(view, level: v) } })) {
-                    Text("Everything").tag("all")
+                Picker("Notify me about", selection: Binding(get: { store.prefs[view] ?? "default" }, set: { v in Task { await store.setPref(view, level: v) } })) {
+                    Text("Mentions, replies and a sound for posts").tag("default")
+                    Text("Every post, on the phone too").tag("all")
                     Text("Mentions only").tag("mentions")
                     Text("Nothing (mute)").tag("mute")
                 }

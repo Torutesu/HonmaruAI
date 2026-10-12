@@ -182,3 +182,18 @@ test("each workspace is sealed on its own: the ones with a finished hour, not th
   const second = await sealPending(env, { now: T0 + 2 * HOUR + 60_000 });
   expect(second.map((s) => s.orgId).sort()).toEqual(["team:a", "team:c"]);
 });
+
+// One shared OPS_TOKEN compared with !==: every operator was "ops" in the
+// audit log, and none could be cut off alone.
+test("each operator has their own token, and the log says which one acted", async () => {
+  const { operatorOf } = await import("../src/auditRetention.js");
+  const ops = { ...env, OPS_TOKEN: "ops-secret", OPS_TOKENS: JSON.stringify({ aiko: "aiko-secret-1", ren: "ren-secret-22" }) };
+  expect(await operatorOf(ops, "aiko-secret-1")).toBe("aiko");
+  expect(await operatorOf(ops, "ops-secret")).toBe("ops");
+  expect(await operatorOf(ops, "aiko-secret-")).toBeNull();
+  expect(await operatorOf(ops, "")).toBeNull();
+  expect(await operatorOf({ ...env, OPS_TOKENS: "not json" }, "x")).toBeNull();
+  expect((await call("/ops/audit/settings", null, { method: "POST", body: { orgId: ORG, legalHold: true, reason: "Case 9" }, headers: { "x-ops-token": "ren-secret-22" }, withEnv: ops })).status).toBe(200);
+  const row = await env.DB.prepare("SELECT * FROM audit_events WHERE org_id = ?1 AND action = 'audit.legal_hold_changed'").bind(ORG).first();
+  expect(JSON.stringify(row)).toContain("ren");
+});

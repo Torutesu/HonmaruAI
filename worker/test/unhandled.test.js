@@ -9,7 +9,7 @@ import worker from "../src/index.js";
 
 const failing = (message) => ({ ...env, DB: { prepare() { throw new Error(message); } } });
 const me = (e) => worker.fetch(
-  new Request("https://example.com/me", { headers: { "x-session-token": "t", origin: "https://app.example.com" } }),
+  new Request("https://example.com/me", { headers: { "x-session-token": "t", origin: "https://app.honmaruai.com" } }),
   e,
   { waitUntil() {} },
 );
@@ -17,7 +17,7 @@ const me = (e) => worker.fetch(
 test("an unexpected error is a 500 the browser can read", async () => {
   const res = await me(failing("something broke"));
   expect(res.status).toBe(500);
-  expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  expect(res.headers.get("access-control-allow-origin")).toBe("https://app.honmaruai.com");
   expect(res.headers.get("x-request-id")).toBeTruthy();
   expect(await res.json()).toMatchObject({ message: "Something went wrong on our side." });
 });
@@ -25,6 +25,6 @@ test("an unexpected error is a 500 the browser can read", async () => {
 test("D1 past its free tier's daily rows is a 503 that says the service is unavailable", async () => {
   const res = await me(failing("D1_ERROR: Your account has exceeded D1's free tier daily row read limit. Upgrade to a paid plan or wait until tomorrow (midnight UTC) to continue."));
   expect(res.status).toBe(503);
-  expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  expect(res.headers.get("access-control-allow-origin")).toBe("https://app.honmaruai.com");
   expect(await res.json()).toMatchObject({ code: "service-unavailable" });
 });

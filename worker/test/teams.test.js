@@ -74,7 +74,8 @@ test("an admin renames the team; a member and a repository are refused", async (
 
   expect((await put("/orgs/name", mika, { orgId, name: "Mine now" })).status).toBe(403);
   expect((await put("/orgs/name", outsider, { orgId, name: "Mine now" })).status).toBe(403);
-  expect((await put("/orgs/name", toru, { orgId: "acme/widgets", name: "Widgets" })).status).toBe(400);
+  // A repository's workspace he is not in: refused at the door.
+  expect((await put("/orgs/name", toru, { orgId: "acme/widgets", name: "Widgets" })).status).toBe(403);
   expect((await put("/orgs/name", toru, { orgId, name: "" })).status).toBe(400);
   // The personal workspace can be named too: it is a team the moment
   // somebody else joins it.

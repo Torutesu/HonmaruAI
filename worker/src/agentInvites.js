@@ -50,8 +50,9 @@ export async function handleAgentInvites(request, env, url) {
     const expires = new Date(now.getTime() + AGENT_LINK_MINUTES * 60_000);
     const channels = await channelsOf(env.DB, body.orgId, body.channels, session.github_id);
     await env.DB.prepare(
-      "INSERT INTO agent_invites (code_hash, org_id, created_by, channels, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
-    ).bind(await sha256Hex(code), body.orgId, String(session.github_id), channels.length ? JSON.stringify(channels) : null, now.toISOString(), expires.toISOString()).run();
+      "INSERT INTO agent_invites (code_hash, org_id, created_by, channels, created_at, expires_at, sso_backed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
+    ).bind(await sha256Hex(code), body.orgId, String(session.github_id), channels.length ? JSON.stringify(channels) : null, now.toISOString(), expires.toISOString(),
+      session.auth_method === "sso" && session.sso_org_id === body.orgId ? 1 : 0).run();
     return json({ url: `${url.origin}/agents/join/${code}`, expiresAt: expires.toISOString(), channels }, 201);
   }
 
@@ -69,14 +70,14 @@ export async function handleAgentInvites(request, env, url) {
     if (!(claimed?.meta?.changes > 0)) {
       return json({ message: "This link has been used or has expired. Ask for a new one." }, 410);
     }
-    const row = await env.DB.prepare("SELECT org_id, created_by, channels FROM agent_invites WHERE code_hash = ?1").bind(hash).first();
+    const row = await env.DB.prepare("SELECT org_id, created_by, channels, sso_backed FROM agent_invites WHERE code_hash = ?1").bind(hash).first();
     // Whoever made the link must still be in, and not as a guest, when it is used.
     if (!(await isMember(env.DB, row.org_id, row.created_by)) || await isGuest(env.DB, row.org_id, row.created_by)) {
       return json({ message: "This link has been used or has expired. Ask for a new one." }, 410);
     }
     const asked = request.method === "POST" ? await request.json().catch(() => ({})) : {};
     const name = String(asked.name || url.searchParams.get("name") || "Agent").replace(/\s+/g, " ").trim().slice(0, 60) || "Agent";
-    const minted = await createApiToken(env.DB, { orgId: row.org_id, githubId: row.created_by, name });
+    const minted = await createApiToken(env.DB, { orgId: row.org_id, githubId: row.created_by, name, ssoBacked: Boolean(row.sso_backed) });
     if (minted.error) {
       // Nothing was given: the link may be tried again once there is room.
       await env.DB.prepare("UPDATE agent_invites SET used_at = NULL WHERE code_hash = ?1").bind(hash).run();

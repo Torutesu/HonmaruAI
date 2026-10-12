@@ -221,8 +221,16 @@ test("the provider signs one sign-in out (sid), once; a bad logout token ends no
   }
   const stored = await env.DB.prepare("SELECT sso_sid, sso_subject, sso_refresh FROM sessions WHERE token = ?1").bind(await sessionKey(sessions[0])).first();
   expect(stored).toMatchObject({ sso_sid: "sid-A", sso_subject: "okta-aya" });
-  expect(stored.sso_refresh).toMatch(/^v1:/);
+  // Sealed for this session in this workspace: copied to another row, it
+  // does not open.
+  expect(stored.sso_refresh).toMatch(/^v2:/);
   expect(stored.sso_refresh).not.toContain("rt-aya");
+  {
+    const { openSecret } = await import("../src/sso.js");
+    const key = await sessionKey(sessions[0]);
+    expect(await openSecret(env, stored.sso_refresh, `sso-refresh\n${ORG}\n${key}`)).toBe("rt-aya");
+    await expect(openSecret(env, stored.sso_refresh, `sso-refresh\n${ORG}\nh1:other`)).rejects.toThrow();
+  }
 
   // Refused: another audience, a nonce, no event, too old, unsigned.
   const now = Math.floor(Date.now() / 1000);
