@@ -2763,8 +2763,18 @@ async function cardVideoUrl(env, { orgId, login, cardId }) {
   if (!m) return { url: card.videoURL, expiresAt: null };
   const stored = m[2] ? decodeURIComponent(m[2]) : null;
   if (stored && stored !== orgId) return null;
-  if (!mediaOriginOn(env)) return { url: card.videoURL, expiresAt: null };
-  return (await signVideoUrl(env, { orgId: stored, id: m[1] })) || { url: card.videoURL, expiresAt: null };
+  if (mediaOriginOn(env)) {
+    const signed = await signVideoUrl(env, { orgId: stored, id: m[1] });
+    if (signed) return signed;
+  }
+  // Without the media origin, an address the API signs, so the bare one can
+  // be retired either way (MEDIA_LEGACY_VIDEO = "off").
+  const { signedQuery } = await import("./addressSigning.js");
+  const signed = await signedQuery(env, "v1", stored || "", m[1]);
+  if (!signed) return { url: card.videoURL, expiresAt: null };
+  const where = new URL(card.videoURL);
+  where.search = `${stored ? `o=${encodeURIComponent(stored)}&` : ""}${signed.query}`;
+  return { url: where.toString(), expiresAt: signed.until * 1000 };
 }
 
 export function json(body, status = 200, extraHeaders) {

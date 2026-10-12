@@ -21,6 +21,9 @@
 import { promisedLength, peek, putExactly, looksLike, sniffing, HEAD_BYTES } from "./upload.js";
 import { mediaEnv, mediaOriginOn, signFileUrl } from "./mediaToken.js";
 import { accessFor, mayRead } from "./access.js";
+import { addressHolds, signedQuery, validUntil } from "./addressSigning.js";
+
+const hexOf = (buf, n) => [...new Uint8Array(buf)].slice(0, n).map((b) => b.toString(16).padStart(2, "0")).join("");
 
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 export const MAX_FILES_PER_MESSAGE = 10;
@@ -56,32 +59,11 @@ function bareType(header) {
 
 // ---- Signing ----
 //
-// An address is signed with a key derived from the Worker's DATA_KEY secret
-// (FILE_SIGNING_KEY when set), never one stored in the database: a copy of
-// the database is not a way to mint addresses. The workspace is signed in
-// with the file, and an address lasts ten to twenty minutes, as the media
-// origin's do (mediaToken.js): someone who leaves a conversation can fetch
-// nothing new from it soon after. Clients keep files by id and ask for new
-// addresses as theirs run out (POST /media/urls).
-
-export const FILE_WINDOW_SECONDS = 600;
-const hexOf = (buf, n) => [...new Uint8Array(buf)].slice(0, n).map((b) => b.toString(16).padStart(2, "0")).join("");
-
-const derived = new Map(); // secret -> CryptoKey
-async function secretKey(env) {
-  const secret = env?.FILE_SIGNING_KEY || env?.DATA_KEY;
-  if (!secret) return null;
-  let key = derived.get(secret);
-  if (!key) {
-    const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), "HKDF", false, ["deriveKey"]);
-    key = await crypto.subtle.deriveKey(
-      { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: new TextEncoder().encode("honmaru/file-urls/v2") },
-      base, { name: "HMAC", hash: "SHA-256", length: 256 }, false, ["sign"]
-    );
-    derived.set(secret, key);
-  }
-  return key;
-}
+// Signed by the API (addressSigning.js): the workspace is in the MAC, and an
+// address lasts ten to twenty minutes, as the media origin's do — someone
+// who leaves a conversation can fetch nothing new from it soon after.
+// Clients keep files by id and ask for new addresses as theirs run out
+// (POST /media/urls).
 
 // Before: one key kept in `kv`, an address good to the end of tomorrow and
 // bound to no workspace. Without a secret in the env (a development Worker)
@@ -106,41 +88,26 @@ async function legacyMac(db, id, until) {
   return hexOf(await crypto.subtle.sign("HMAC", await storedKey(db), new TextEncoder().encode(`${id}.${until}`)), 16);
 }
 
-async function mac(env, orgId, id, until) {
-  const key = await secretKey(env);
-  if (!key) return null;
-  return hexOf(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`f2\n${orgId}\n${id}\n${until}`)), 16);
-}
-
-/// Until when an address made now is good (seconds): the end of the next
-/// ten-minute window, so it is the same address all through this one.
-export function validUntil(now = Date.now()) {
-  return (Math.floor(now / 1000 / FILE_WINDOW_SECONDS) + 2) * FILE_WINDOW_SECONDS;
-}
+export { validUntil };
 
 /// Until when, by the old rule: the end of tomorrow, UTC.
 const legacyUntil = (now) => (Math.floor(now / 86400000) + 2) * 86400;
 
 /// The address a reader is given, relative to the API, and until when (s).
 export async function signedPath(env, row, now = Date.now()) {
-  const signed = await mac(env, row.org_id, row.id, validUntil(now));
-  if (signed) return { path: `/files/${row.id}?v=2&e=${validUntil(now)}&s=${signed}`, until: validUntil(now) };
+  const signed = await signedQuery(env, "f2", row.org_id, row.id, now);
+  if (signed) return { path: `/files/${row.id}?${signed.query}`, until: signed.until };
   const until = legacyUntil(now);
   return { path: `/files/${row.id}?e=${until}&s=${await legacyMac(env.DB, row.id, until)}`, until };
 }
 
 /// Whether a request's address is one this Worker signed for this file and
 /// is still good.
-async function addressHolds(env, url, row, nowSeconds) {
+async function fileAddressHolds(env, url, row, nowSeconds) {
+  if (url.searchParams.get("v") === "2") return addressHolds(env, url, "f2", row.org_id, row.id, nowSeconds);
   const until = Number(url.searchParams.get("e"));
   const sig = String(url.searchParams.get("s") || "");
-  if (!Number.isInteger(until) || until < nowSeconds) return false;
-  if (url.searchParams.get("v") === "2") {
-    if (until > nowSeconds + 2 * FILE_WINDOW_SECONDS) return false;
-    const want = await mac(env, row.org_id, row.id, until);
-    return Boolean(want) && sameText(sig, want);
-  }
-  if (until > nowSeconds + 3 * 86400) return false;
+  if (!Number.isInteger(until) || until < nowSeconds || until > nowSeconds + 3 * 86400) return false;
   return sameText(sig, await legacyMac(env.DB, row.id, until));
 }
 
@@ -413,7 +380,7 @@ export async function serveFile(request, env, url) {
   const now = Math.floor(Date.now() / 1000);
   const until = Number(url.searchParams.get("e"));
   const row = await env.DB.prepare("SELECT * FROM message_files WHERE id = ?1").bind(id).first();
-  if (!row || !(await addressHolds(env, url, row, now))) return new Response("Not found", { status: 404 });
+  if (!row || !(await fileAddressHolds(env, url, row, now))) return new Response("Not found", { status: 404 });
   const guard = {
     "x-content-type-options": "nosniff",
     "content-security-policy": "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox",

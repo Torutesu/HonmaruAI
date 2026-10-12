@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { addressOf, configureMediaUrls, fileSrc, renew } from './mediaUrls'
+import { addressOf, configureMediaUrls, fileSrc, recordingAddress, renew } from './mediaUrls'
 
 const file = (over = {}) => ({ id: 'f_aaaaaaaaaaaaaaaaaaaaaaaa', name: 'p.png', type: 'image/png', size: 1, url: '/files/f_a?e=1&s=x', expiresAt: 1000, ...over })
 
@@ -28,5 +28,18 @@ describe('file addresses', () => {
     expect(addressOf(file()).url).toBe('https://media.test/new')
     // One that came with a later address keeps its own.
     expect(addressOf(file({ url: 'own', expiresAt: 99_999_999_999_999 })).url).toBe('own')
+  })
+
+  it('plays a recording from the address the API signs for this reader, or its link when there is none', async () => {
+    const link = 'https://api.test/channels/jam/audio/0f8b3c3e-1111-4222-8333-944455556666'
+    let asked: unknown = null
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      asked = { url, body: JSON.parse(String(init.body)) }
+      return new Response(JSON.stringify({ url: `${link}?v=2&e=1&s=x`, expiresAt: 1 }))
+    }))
+    expect(await recordingAddress(link)).toBe(link)
+    configureMediaUrls({ httpBase: 'https://api.test', orgId: 'team:a', sessionToken: 'tok' })
+    expect(await recordingAddress(link)).toBe(`${link}?v=2&e=1&s=x`)
+    expect(asked).toEqual({ url: 'https://api.test/channels/jam/audio-url', body: { orgId: 'team:a', id: '0f8b3c3e-1111-4222-8333-944455556666' } })
   })
 })

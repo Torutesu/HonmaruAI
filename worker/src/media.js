@@ -135,23 +135,26 @@ export async function uploadMedia(request, env, url, { orgId = null } = {}) {
 /// GET /media/:id[?o=…] — a card's video, whole or the one span a Range asks
 /// for (Safari plays nothing from a server that never answers in part).
 ///
-/// Still reachable by its unguessable address alone: signed, expiring
-/// addresses need the card's readers to be given one when the card is read,
-/// which is phase 1 of docs/architecture/media-delivery.md. Until then it is
-/// at least never cached by anything shared, and only for an hour.
+/// A reader of the card is given a signed address (POST /media/video): on
+/// the media origin when it is on, else here, with v=2. The bare address
+/// opens too until it is retired — MEDIA_LEGACY_VIDEO = "off" once the apps
+/// that ask for signed addresses (iOS 1.3.0 on) are what people use
+/// (docs/architecture/media-delivery.md §9). Never cached by anything shared.
 export async function serveMedia(id, env, request = null, url = null) {
-  // Thirty days after card videos moved to signed addresses on the media
-  // origin (POST /media/video), the bare address is retired: set
-  // MEDIA_LEGACY_VIDEO = "off" (docs/architecture/media-delivery.md §9).
-  if (String(env.MEDIA_LEGACY_VIDEO || "").toLowerCase() === "off") {
-    return new Response("This address has been retired. Open the card again to play its video.", { status: 410, headers: { "cache-control": "no-store" } });
-  }
   // Only what this route stored: a video's bare UUID. The same bucket holds
   // message files, compliance exports, avatars and Jam recordings, each
   // served by its own route with its own checks — never by guessing a key
   // here.
   if (!UUID.test(String(id || ""))) return new Response("not found", { status: 404 });
   const org = url?.searchParams.get("o") || null;
+  // An address the API signed for a reader of the card (POST /media/video)
+  // opens; a bare one, until it is retired.
+  if (url?.searchParams.get("v") === "2") {
+    const { addressHolds } = await import("./addressSigning.js");
+    if (!(await addressHolds(env, url, "v1", org || "", id))) return new Response("not found", { status: 404 });
+  } else if (String(env.MEDIA_LEGACY_VIDEO || "").toLowerCase() === "off") {
+    return new Response("This address has been retired. Open the card again to play its video.", { status: 410, headers: { "cache-control": "no-store" } });
+  }
   const key = org ? mediaKey(org, id) : id;
   const head = await env.MEDIA.head(key);
   if (!head) return new Response("not found", { status: 404 });

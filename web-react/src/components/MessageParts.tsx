@@ -10,6 +10,7 @@ import type { Announced } from '../utils/typing'
 import { excerptParts } from '../utils/replies'
 import { messageMenuEntries, type MessageMenuActions } from '../utils/messageMenu'
 import { keepOnScreen, focusGoesBack } from './RowMenu'
+import { recordingAddress } from '../utils/mediaUrls'
 import { emojiDataState, gridStep, isEmojiOnly, loadEmojiData, pickerSections, rememberEmoji, useEmojiData, useEmojiDataState, useQuickReactions, useRecentEmoji } from '../utils/emojiSearch'
 import { composing } from '../utils/keys'
 import { safeHref } from '../utils/markdown'
@@ -723,6 +724,17 @@ const Spoiler: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
 const JAM_AUDIO = /^https?:\/\/[^\s]+\/channels\/jam\/audio\/[0-9a-f-]{36}$/
 
+/// A Jam's recording, played from an address signed for whoever is looking.
+function JamAudio({ link }: { link: string }) {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    void recordingAddress(link).then((url) => { if (live) setSrc(url) })
+    return () => { live = false }
+  }, [link])
+  return <audio className="slk-jam-audio" controls preload="none" src={src || undefined} />
+}
+
 /// `nested`: the words inside a *bold* or an _italic_, which are never a
 /// line of their own however few emoji they are.
 function inline(line: string, mentionClass: (name: string) => MentionLook, nested = false): React.ReactNode[] {
@@ -741,7 +753,7 @@ function inline(line: string, mentionClass: (name: string) => MentionLook, neste
       return <React.Fragment key={i}>{part}</React.Fragment>
     }
     // A Jam's recording plays where it was posted.
-    if (JAM_AUDIO.test(part)) return <audio key={i} className="slk-jam-audio" controls preload="none" src={part} />
+    if (JAM_AUDIO.test(part)) return <JamAudio key={i} link={part} />
     if (/^https?:\/\//.test(part)) return <a key={i} href={part} target="_blank" rel="noopener noreferrer">{part}</a>
     if (/^[@＠]/.test(part)) {
       const look = mentionClass(part)

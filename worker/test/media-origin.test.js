@@ -191,3 +191,23 @@ test("the bare video address can be retired", async () => {
   const retired = await worker.fetch(new Request(`https://example.com/media/${id}`), { ...env, MEDIA_LEGACY_VIDEO: "off" }, ctx);
   expect(retired.status).toBe(410);
 });
+
+// Without the media origin, the card's bare address was the only one, so it
+// could never be retired.
+test("without the media origin, the API signs a card's video itself, and the bare address can be retired", async () => {
+  const { saveCard } = await import("../src/db.js");
+  const id = "0b9a1d6e-3c2f-4a51-9e7d-2f6b8c1a4d01";
+  await env.MEDIA.put(`org/${encodeURIComponent(ORG)}/media/${id}`, MP4, { httpMetadata: { contentType: "video/mp4" } });
+  await saveCard(env.DB, ORG, {
+    id: "card-v2", recipientUserID: "kenji", senderUserID: "mika", type: "approval", title: "Menu", summary: "", status: "pending",
+    createdAt: new Date().toISOString(), videoURL: `https://example.com/media/${id}?o=${encodeURIComponent(ORG)}`, visibility: "personal",
+  });
+  const API = { ...env, DATA_KEY: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))), MEDIA_LEGACY_VIDEO: "off" };
+  const at = async (path, init) => worker.fetch(new Request("https://example.com" + path, init), API, ctx);
+  const got = await (await at("/media/video", { method: "POST", headers: auth(kenji, { "content-type": "application/json" }), body: JSON.stringify({ orgId: ORG, cardId: "card-v2" }) })).json();
+  const u = new URL(got.url);
+  expect(u.searchParams.get("v")).toBe("2");
+  expect((await at(`${u.pathname}${u.search}`, { headers: { range: "bytes=0-7" } })).status).toBe(206);
+  expect((await at(`/media/${id}?o=${encodeURIComponent(ORG)}`)).status).toBe(410);
+  expect((await at(`${u.pathname}${u.search.replace(/s=[^&]+/, "s=00")}`)).status).toBe(404);
+});

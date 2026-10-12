@@ -446,10 +446,21 @@ export function recordingType(header) {
   return AUDIO_TYPES.has(type) ? type : null;
 }
 
-/// A kept recording, by its unguessable id — as a card's video is. The
-/// link is only ever posted in the channel it was recorded in.
-export async function serveRecording(env, id) {
+/// A kept recording. One kept with its workspace is served only by a signed
+/// address (recordingUrl); one from before, by its unguessable id alone,
+/// until MEDIA_LEGACY_VIDEO is "off".
+export async function serveRecording(env, id, url = null) {
   if (!/^[0-9a-f-]{36}$/.test(id)) return new Response("not found", { status: 404 });
+  const head = await env.MEDIA.head(`jam/${id}`);
+  if (!head) return new Response("not found", { status: 404 });
+  const { addressHolds, canSign } = await import("./addressSigning.js");
+  // Without a key to sign with (a development Worker), nothing could play.
+  const owner = canSign(env) ? head.customMetadata?.orgId : null;
+  if (owner) {
+    if (!url || !(await addressHolds(env, url, "a1", owner, id))) return new Response("not found", { status: 404 });
+  } else if (String(env.MEDIA_LEGACY_VIDEO || "").toLowerCase() === "off") {
+    return new Response("This address has been retired.", { status: 410, headers: { "cache-control": "no-store" } });
+  }
   const object = await env.MEDIA.get(`jam/${id}`);
   if (!object) return new Response("not found", { status: 404 });
   const stored = bareType(object.httpMetadata?.contentType);
@@ -458,8 +469,26 @@ export async function serveRecording(env, id) {
     headers: {
       "content-type": AUDIO_TYPES.has(stored) ? stored : "application/octet-stream",
       "x-content-type-options": "nosniff",
-      "cache-control": "private, max-age=86400",
+      "cache-control": owner ? "private, max-age=600" : "private, max-age=86400",
       "access-control-allow-origin": "*",
     },
   });
+}
+
+/// A signed address for a recording, for someone who may read the
+/// conversation it was posted in; a recording from before, which names no
+/// conversation, keeps its bare address. Null when it is not theirs to hear.
+export async function recordingUrl(env, { orgId, login, id, origin }) {
+  if (!/^[0-9a-f-]{36}$/.test(String(id || ""))) return null;
+  const head = await env.MEDIA.head(`jam/${id}`);
+  if (!head) return null;
+  const meta = head.customMetadata || {};
+  const bare = `${origin}/channels/jam/audio/${id}`;
+  if (meta.orgId && meta.orgId !== orgId) return null;
+  const { signedQuery, canSign } = await import("./addressSigning.js");
+  if (!meta.orgId || !canSign(env)) return { url: bare, expiresAt: null };
+  const { accessFor, mayRead } = await import("./access.js");
+  if (!mayRead(meta.channel, await accessFor(env.DB, orgId, login))) return null;
+  const signed = await signedQuery(env, "a1", orgId, id);
+  return signed ? { url: `${bare}?${signed.query}`, expiresAt: signed.until * 1000 } : null;
 }
