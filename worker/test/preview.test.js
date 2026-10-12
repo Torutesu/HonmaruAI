@@ -47,3 +47,8 @@ test("members only, and never a private address", async () => {
 test("meta tags in any order and quoting", () => {
   expect(metaOf(`<meta content='Hi' name='description'><title>T</title>`)).toMatchObject({ description: "Hi", __title: "T" });
 });
+
+test("a page that redirects to a private address makes no card", async () => {
+  fetchMock.get("https://short.example.com").intercept({ path: "/x", method: "GET" }).reply(302, "", { headers: { location: "http://10.0.0.5/admin" } });
+  expect(await previewOf("https://short.example.com/x")).toBeNull();
+});

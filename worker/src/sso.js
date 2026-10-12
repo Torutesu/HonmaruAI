@@ -76,7 +76,11 @@ const docs = new Map(); // url -> { value, at }
 async function fetchJson(url, { fresh = false } = {}) {
   const hit = docs.get(url);
   if (!fresh && hit && Date.now() - hit.at < 3_600_000) return hit.value;
-  const res = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+  // The address came from whoever set up the connection: a public host, and
+  // every redirect checked the same.
+  const { publicFetch } = await import("./links.js");
+  const { res } = await publicFetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(10_000) }, { hops: 2 })
+    .catch((err) => { throw new Error(`${new URL(url).host}: ${err.message}`); });
   if (!res.ok) throw new Error(`${new URL(url).host} answered ${res.status}`);
   const value = await res.json();
   docs.set(url, { value, at: Date.now() });
@@ -87,10 +91,12 @@ async function fetchJson(url, { fresh = false } = {}) {
 export async function discover(issuer) {
   const base = String(issuer || "").replace(/\/$/, "");
   if (!/^https:\/\//.test(base)) throw new Error("The issuer must be an https:// address.");
+  const { isPublicUrl } = await import("./links.js");
+  if (!isPublicUrl(base)) throw new Error("The issuer must be on a public host.");
   const doc = await fetchJson(`${base}/.well-known/openid-configuration`);
   if (String(doc.issuer || "").replace(/\/$/, "") !== base) throw new Error("The provider says it is a different issuer.");
   for (const f of ["authorization_endpoint", "token_endpoint", "jwks_uri"]) {
-    if (!/^https:\/\//.test(String(doc[f] || ""))) throw new Error(`The provider has no ${f}.`);
+    if (!/^https:\/\//.test(String(doc[f] || "")) || !isPublicUrl(doc[f])) throw new Error(`The provider has no ${f}.`);
   }
   return doc;
 }
@@ -477,7 +483,7 @@ export async function callback(env, request, url) {
       grant_type: "authorization_code", code: url.searchParams.get("code") || "", redirect_uri: callbackUrl(env, url),
       client_id: conn.client_id, code_verifier: row.code_verifier, ...(secret ? { client_secret: secret } : {}),
     });
-    const res = await fetch(discovery.token_endpoint, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body: form, signal: AbortSignal.timeout(15_000) });
+    const res = await fetch(discovery.token_endpoint, { method: "POST", redirect: "manual", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body: form, signal: AbortSignal.timeout(15_000) });
     const tokens = await res.json().catch(() => ({}));
     if (!res.ok || !tokens.id_token) throw new Error(`Your identity provider refused: ${tokens.error_description || tokens.error || res.status}`);
     const claims = await verifyIdToken(tokens.id_token, { discovery, clientId: conn.client_id, nonce: row.nonce });
@@ -754,7 +760,7 @@ export async function checkSsoGrants(env, { now = Date.now(), limit = 50 } = {})
       const refreshToken = await openSecret(env, s.sso_refresh);
       if (!refreshToken) { await touch(); continue; }
       const form = new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: conn.client_id, ...(secret ? { client_secret: secret } : {}) });
-      res = await fetch(discovery.token_endpoint, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body: form, signal: AbortSignal.timeout(10_000) });
+      res = await fetch(discovery.token_endpoint, { method: "POST", redirect: "manual", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body: form, signal: AbortSignal.timeout(10_000) });
       body = await res.json().catch(() => ({}));
     } catch {
       await touch();

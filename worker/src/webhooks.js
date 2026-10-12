@@ -1,4 +1,5 @@
 import { audienceOf, isPersonal } from "./access.js";
+import { isPublicUrl } from "./links.js";
 import { getSession, isMember, getUserByGithubId } from "./db.js";
 import { enforce } from "./ratelimit.js";
 import { allowed } from "./permissions.js";
@@ -63,14 +64,13 @@ export async function sign(secret, timestamp, body) {
   return hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${timestamp}.${body}`)));
 }
 
-/// An address a delivery may go to: https, a real host, no credentials in it.
+/// An address a delivery may go to: https, a public host, no credentials in
+/// it, and no address literal.
 export function validEndpoint(raw) {
   let url;
   try { url = new URL(String(raw || "").trim()); } catch { return null; }
-  if (url.protocol !== "https:" || url.username || url.password) return null;
-  const host = url.hostname.toLowerCase();
-  if (!host.includes(".") || host === "localhost" || host.endsWith(".local") || host.endsWith(".internal")) return null;
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.startsWith("[")) return null;
+  if (url.protocol !== "https:" || !isPublicUrl(url.toString())) return null;
+  if (/^\d+\.\d+\.\d+\.\d+\.?$/.test(url.hostname)) return null;
   return url.toString().slice(0, 500);
 }
 
@@ -117,8 +117,12 @@ async function deliver(env, hook, event, { redelivery = false } = {}) {
   let status = null;
   let error = null;
   try {
+    // A redirect is answered as it is, never followed: a POST re-sent to
+    // wherever a 307 points could be sent anywhere.
+    if (!validEndpoint(hook.url)) throw new Error("The address is not a public https:// host.");
     const res = await fetch(hook.url, {
       method: "POST",
+      redirect: "manual",
       signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: {
         "content-type": "application/json",

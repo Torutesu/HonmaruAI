@@ -70,7 +70,7 @@ async function send(stream, secret, events) {
     const t = Math.floor(Date.now() / 1000);
     headers["honmaru-signature"] = `t=${t},v1=${await sign(secret, t, req.body)}`;
   }
-  const res = await fetch(req.url, { method: "POST", headers, body: req.body, signal: AbortSignal.timeout(20_000) });
+  const res = await fetch(req.url, { method: "POST", headers, body: req.body, redirect: "manual", signal: AbortSignal.timeout(20_000) });
   if (!res.ok) throw new Error(`${new URL(req.url).host} answered ${res.status}`);
 }
 

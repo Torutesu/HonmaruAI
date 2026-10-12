@@ -147,3 +147,24 @@ test("without Supadata, Gemini watches a YouTube video and writes down what it s
   expect(read).toMatchObject({ transcript: "[00:00] Grind fresh.", transcriptSource: "gemini" });
   expect(linksBlock([read])).toContain("written down by a model that watched the video");
 });
+
+// A public page could answer with a redirect to a private address, and the
+// Worker followed it; "127.0.0.1." with a trailing dot was let through.
+test("addresses that are not the open web are refused, however they are written", () => {
+  for (const bad of ["http://127.0.0.1./", "http://localhost./x", "http://169.254.169.254/latest/meta-data", "http://0.0.0.0/", "http://2130706433/",
+    "http://printer.lan/", "http://router.home.arpa/", "http://224.0.0.1/", "http://198.18.0.1/", "http://[::1]/"]) {
+    expect(isPublicUrl(bad), bad).toBe(false);
+  }
+  expect(isPublicUrl("https://93.184.216.34/")).toBe(true);
+});
+
+test("a redirect to a private address is not followed", async () => {
+  const { publicFetch } = await import("../src/links.js");
+  fetchMock.get("https://public.example.com").intercept({ path: "/go", method: "GET" }).reply(302, "", { headers: { location: "http://169.254.169.254/latest/meta-data" } });
+  await expect(publicFetch("https://public.example.com/go")).rejects.toThrow(/public/);
+  fetchMock.get("https://public.example.com").intercept({ path: "/hop", method: "GET" }).reply(301, "", { headers: { location: "/there" } });
+  fetchMock.get("https://public.example.com").intercept({ path: "/there", method: "GET" }).reply(200, "ok");
+  const { res, url } = await publicFetch("https://public.example.com/hop");
+  expect(res.status).toBe(200);
+  expect(url).toBe("https://public.example.com/there");
+});
