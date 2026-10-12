@@ -1700,7 +1700,9 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     // A reaction from the hover bar, and its pill toggles.
     await d.hover(msg)
     await d.click(`${msg} .slk-tools .slk-tool.emoji >> nth=0`)
-    await d.waitForSelector(`${msg} .slk-reaction.mine`, { timeout: 10000 }).catch(() => { throw new Error('a reaction did not land') })
+    // Landed: drawn at once, faded, then the server has it. A press while it
+    // is still on its way is one toggle already, and is not counted again.
+    await d.waitForSelector(`${msg} .slk-reaction.mine:not(.pending)`, { timeout: 10000 }).catch(() => { throw new Error('a reaction did not land') })
     await d.click(`${msg} .slk-reaction.mine`)
     await d.waitForSelector(`${msg} .slk-reaction.mine`, { state: 'detached', timeout: 10000 })
       .catch(() => { throw new Error('clicking your reaction did not take it back') })
@@ -2480,6 +2482,8 @@ await step('the channel header opens its context, its automations, its members, 
     await e.click('[data-jam-leave]')
     await d.waitForSelector('.slk-msg:has-text("Jam ended")', { timeout: 20000 }).catch(() => { throw new Error('the channel was not told the Jam ended') })
     await d.waitForSelector('.slk-msg .slk-jam-audio', { timeout: 30000 }).catch(() => { throw new Error('the recording did not come back as something to play') })
+    // Its address is asked for when the player is drawn (signed per reader).
+    await d.waitForSelector('.slk-msg .slk-jam-audio[src]', { timeout: 10000 }).catch(() => { throw new Error('the recording was given no address to play from') })
     const src = await d.$eval('.slk-msg .slk-jam-audio', (el) => el.getAttribute('src'))
     const played = await d.evaluate(async (u) => { const r = await fetch(u); return { ok: r.ok, type: r.headers.get('content-type'), size: (await r.arrayBuffer()).byteLength } }, src)
     if (!played.ok || !/^audio\//.test(played.type) || played.size < 1024) throw new Error(`the recording does not play back: ${JSON.stringify(played)}`)
