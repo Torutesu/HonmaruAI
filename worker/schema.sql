@@ -533,7 +533,12 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   last_used_at   TEXT,
   /* What the token may do, as a JSON array: read, write, audit:read.
      NULL is a token made before scopes, and means read and write. */
-  scopes         TEXT
+  scopes         TEXT,
+  /* When it stops. NULL: made before tokens expired; set on its next use. */
+  expires_at     TEXT,
+  /* Made from a sign-in through the workspace's SSO: it keeps working in a
+     workspace that requires SSO. */
+  sso_backed     INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_api_tokens_owner ON api_tokens(github_id, org_id);
 
@@ -749,7 +754,8 @@ CREATE TABLE IF NOT EXISTS agent_invites (
   channels       TEXT,
   created_at     TEXT NOT NULL,
   expires_at     TEXT NOT NULL,
-  used_at        TEXT
+  used_at        TEXT,
+  sso_backed     INTEGER NOT NULL DEFAULT 0
 );
 
 /* A file or a picture in a conversation. Uploaded before the message that

@@ -46,6 +46,10 @@ async function caller(env, request, orgId) {
   return { session, user };
 }
 
+/// Whether a session came through this workspace's SSO: a token made from it
+/// keeps working where SSO is required.
+export const ssoBacked = (session, orgId) => session?.auth_method === "sso" && session?.sso_org_id === orgId;
+
 /// The team's playbook and reports are the team's: a guest, who sees only
 /// the decisions they are on, neither reads them nor writes to them. A rule
 /// in the playbook is read into every answer the team's AI gives.
@@ -276,10 +280,10 @@ export async function handleAutomation(request, env, url, ctx = null) {
     }
     const { isGuest } = await import("./access.js");
     if (await isGuest(env.DB, orgId, who.session.github_id)) return json({ message: "A guest cannot make API keys." }, 403);
-    const out = await createApiToken(env.DB, { orgId, githubId: who.session.github_id, name: body.name, scopes: body.scopes });
+    const out = await createApiToken(env.DB, { orgId, githubId: who.session.github_id, name: body.name, scopes: body.scopes, expiresInDays: body.expiresInDays, ssoBacked: ssoBacked(who.session, orgId) });
     if (out.error) return json({ message: out.error }, 409);
     const { audit, person } = await import("./audit.js");
-    await audit(env, request, { orgId, action: "api_token.created", actor: person(who.user), entity: { type: "api_token", id: out.prefix, name: out.name }, details: { scopes: out.scopes } });
+    await audit(env, request, { orgId, action: "api_token.created", actor: person(who.user), entity: { type: "api_token", id: out.prefix, name: out.name }, details: { scopes: out.scopes, expires_at: out.expiresAt } });
     return json({ ...out, endpoint }, 201);
   }
   const tokenMatch = path.match(/^\/tokens\/([^/]+)$/);

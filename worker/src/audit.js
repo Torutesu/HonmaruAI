@@ -412,9 +412,11 @@ async function reader(env, request, orgId) {
   if (!orgId) return { denied: json({ message: "orgId is required" }, 400) };
   const bearer = request.headers.get("authorization");
   if (bearer) {
-    const { resolveApiToken, hasScope } = await import("./mcp.js");
+    const { resolveApiToken, hasScope, agentDenial } = await import("./mcp.js");
     const agent = await resolveApiToken(env.DB, bearer);
     if (!agent || agent.orgId !== orgId) return { denied: json({ message: "That key does not open this workspace." }, 401) };
+    const held = await agentDenial(env, agent);
+    if (held) return { denied: json(held.body, held.status) };
     if (!hasScope(agent.scopes, "audit:read")) return { denied: json({ message: "This key needs the audit:read scope." }, 403) };
     if (!(await isAdmin(env.DB, orgId, agent.githubId))) return { denied: json({ message: "Only an admin's key can read the audit log." }, 403) };
     return { user: { login: agent.login, name: agent.name }, via: { type: "api_token", id: agent.tokenId } };
