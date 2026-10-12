@@ -4,6 +4,7 @@ import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { forgetProviderDocs } from "../src/sso.js";
 import { forgetPolicies } from "../src/policy.js";
+import { sessionKey } from "../src/db.js";
 
 // Single sign-on against a pretend identity provider that signs real ID
 // tokens (docs/sso-and-domain-join.md §6–7, §10): the round trip, every
@@ -122,7 +123,7 @@ test("the round trip: a new person is made, joins by SSO, and trades a one-time 
   // Once.
   expect((await call("/sso/exchange", null, { method: "POST", body: { code, client: "web" } })).status).toBe(400);
   expect((await call(`/members?orgId=${ORG}`, session.token)).status).toBe(200);
-  const joined = await env.DB.prepare("SELECT m.joined_via, s.auth_method, s.sso_org_id FROM memberships m JOIN sessions s ON s.github_id = m.user_github_id WHERE m.org_id = ?1 AND s.token = ?2").bind(ORG, session.token).first();
+  const joined = await env.DB.prepare("SELECT m.joined_via, s.auth_method, s.sso_org_id FROM memberships m JOIN sessions s ON s.github_id = m.user_github_id WHERE m.org_id = ?1 AND s.token = ?2").bind(ORG, await sessionKey(session.token)).first();
   expect(joined).toEqual({ joined_via: "sso", auth_method: "sso", sso_org_id: ORG });
   // An existing, proved account is the same person, not a second one.
   const mika = await signIn({ sub: "okta-mika", email: "mika@acme.co.jp", name: "Mika" });
@@ -171,7 +172,7 @@ test("required: only after the owner came through it; then an email-code sign-in
   expect(await on.json()).toMatchObject({ breakGlass: 1 });
   // Mika's code-based session was signed out of this workspace when it was
   // required — not out of the others the account is in.
-  expect(await env.DB.prepare("SELECT 1 FROM session_workspaces WHERE token = ?1 AND org_id = ?2 AND ended_at IS NOT NULL").bind(mikaOld, ORG).first()).toBeTruthy();
+  expect(await env.DB.prepare("SELECT 1 FROM session_workspaces WHERE token = ?1 AND org_id = ?2 AND ended_at IS NOT NULL").bind(await sessionKey(mikaOld), ORG).first()).toBeTruthy();
   expect((await call(`/members?orgId=${ORG}`, mikaOld)).status).toBe(403);
   const mikaNew = await createSession(env.DB, "7803", "x");
   const refused = await call(`/members?orgId=${ORG}`, mikaNew);
@@ -182,7 +183,7 @@ test("required: only after the owner came through it; then an email-code sign-in
   expect((await call(`/members?orgId=${ORG}`, root)).status).toBe(200);
   expect((await call(`/members?orgId=${ORG}`, viaSso)).status).toBe(200);
   // And an SSO sign-in lasts only its hours.
-  await env.DB.prepare("UPDATE sessions SET created_at = ?2 WHERE token = ?1").bind(viaSso, new Date(Date.now() - 25 * 3_600_000).toISOString()).run();
+  await env.DB.prepare("UPDATE sessions SET created_at = ?2 WHERE token = ?1").bind(await sessionKey(viaSso), new Date(Date.now() - 25 * 3_600_000).toISOString()).run();
   const stale = await call(`/members?orgId=${ORG}`, viaSso);
   expect(stale.status).toBe(401);
   expect((await stale.json()).code).toBe("sso-reauth");
@@ -218,7 +219,7 @@ test("the provider signs one sign-in out (sid), once; a bad logout token ends no
     const back = await call(`/sso/callback?code=abc&state=${at.searchParams.get("state")}`);
     sessions.push((await (await call("/sso/exchange", null, { method: "POST", body: { code: hashParams(back).get("code"), client: "web" } })).json()).token);
   }
-  const stored = await env.DB.prepare("SELECT sso_sid, sso_subject, sso_refresh FROM sessions WHERE token = ?1").bind(sessions[0]).first();
+  const stored = await env.DB.prepare("SELECT sso_sid, sso_subject, sso_refresh FROM sessions WHERE token = ?1").bind(await sessionKey(sessions[0])).first();
   expect(stored).toMatchObject({ sso_sid: "sid-A", sso_subject: "okta-aya" });
   expect(stored.sso_refresh).toMatch(/^v1:/);
   expect(stored.sso_refresh).not.toContain("rt-aya");

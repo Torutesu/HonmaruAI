@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import worker from "../src/index.js";
 import { forgetProviderDocs } from "../src/sso.js";
 import { sha256Hex } from "../src/auth.js";
+import { sessionKey } from "../src/db.js";
 
 // Sign in with Apple (src/apple.js) against a pretend Apple that signs real
 // identity tokens: every check on the token, the keys fetched once and again
@@ -70,7 +71,7 @@ test("a new person gets an account, a workspace, and a proved address", async ()
   expect(user.password_hash).toBeNull();
   const linked = await env.DB.prepare("SELECT user_github_id FROM apple_identities WHERE subject = ?1").bind("001234.abcdef.0001").first();
   expect(linked.user_github_id).toBe(r.body.userId);
-  const session = await env.DB.prepare("SELECT auth_method FROM sessions WHERE token = ?1").bind(r.body.token).first();
+  const session = await env.DB.prepare("SELECT auth_method FROM sessions WHERE token = ?1").bind(await sessionKey(r.body.token)).first();
   expect(session.auth_method).toBe("apple");
   // The session works.
   const me = await worker.fetch(new Request("https://api.example.com/me", { headers: { "x-session-token": r.body.token } }), env, ctx);

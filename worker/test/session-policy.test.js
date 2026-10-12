@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { beforeEach, expect, test } from "vitest";
+import { sessionKey } from "../src/db.js";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { brokenRule, sessionDeadline, forgetPolicies } from "../src/policy.js";
@@ -25,7 +26,7 @@ const call = async (path, token, { method = "GET", body } = {}) => {
   return res;
 };
 const hoursAgo = (h) => new Date(Date.now() - h * 3_600_000).toISOString();
-const age = (token, h, { seen = h, reauth = null } = {}) => env.DB.prepare("UPDATE sessions SET created_at = ?2, last_seen_at = ?3, reauth_at = ?4 WHERE token = ?1").bind(token, hoursAgo(h), hoursAgo(seen), reauth).run();
+const age = async (token, h, { seen = h, reauth = null } = {}) => env.DB.prepare("UPDATE sessions SET created_at = ?2, last_seen_at = ?3, reauth_at = ?4 WHERE token = ?1").bind(await sessionKey(token), hoursAgo(h), hoursAgo(seen), reauth).run();
 
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
@@ -101,9 +102,9 @@ test("'apply now' signs out, at once, every session the rules no longer allow", 
   expect((await res.json()).ended).toBe(1);
   // Signed out here: refused in this workspace, the account's session kept
   // for workspaces whose rules are not these.
-  expect(await env.DB.prepare("SELECT 1 FROM session_workspaces WHERE token = ?1 AND org_id = ?2 AND ended_at IS NOT NULL").bind(mika, ORG).first()).toBeTruthy();
-  expect(await env.DB.prepare("SELECT 1 FROM sessions WHERE token = ?1").bind(mika).first()).toBeTruthy();
-  expect(await env.DB.prepare("SELECT 1 FROM session_workspaces WHERE token = ?1 AND ended_at IS NOT NULL").bind(mikaOld).first()).toBe(null);
+  expect(await env.DB.prepare("SELECT 1 FROM session_workspaces WHERE token = ?1 AND org_id = ?2 AND ended_at IS NOT NULL").bind(await sessionKey(mika), ORG).first()).toBeTruthy();
+  expect(await env.DB.prepare("SELECT 1 FROM sessions WHERE token = ?1").bind(await sessionKey(mika)).first()).toBeTruthy();
+  expect(await env.DB.prepare("SELECT 1 FROM session_workspaces WHERE token = ?1 AND ended_at IS NOT NULL").bind(await sessionKey(mikaOld)).first()).toBe(null);
 });
 
 test("an owner's action wants a sign-in within the hour; a password proves it without signing out", async () => {
