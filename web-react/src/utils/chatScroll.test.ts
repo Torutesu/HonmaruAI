@@ -32,6 +32,23 @@ describe('somebody looking', () => {
     expect(isLooking(doc('hidden', false))).toBe(false)
     expect(isLooking(doc('visible', false))).toBe(false)
   })
+
+  it('is not a desktop window nobody is at, though it reports itself visible', () => {
+    // The desktop app runs its page unthrottled, so a hidden window, a
+    // locked screen or an idle machine still says "visible": the app says
+    // whether anyone is there (apps/desktop/src/attention.js).
+    const w = globalThis as unknown as { window?: { honmaruDesktop?: unknown } }
+    const had = w.window
+    let away = true
+    w.window = { honmaruDesktop: { isDesktop: true, platform: 'darwin', show: () => {}, away: () => away } }
+    try {
+      expect(isLooking(doc('visible', true))).toBe(false)
+      away = false
+      expect(isLooking(doc('visible', true))).toBe(true)
+    } finally {
+      w.window = had
+    }
+  })
 })
 
 describe('following what arrives', () => {

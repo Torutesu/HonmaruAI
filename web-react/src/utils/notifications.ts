@@ -1,9 +1,9 @@
 import { t } from './i18n'
 import { getLocale, primary } from './locale'
 import { desktopNotificationsEnabled } from './desktopNotifications'
-import { desktopApp, bringForward } from './desktop'
+import { desktopApp, bringForward, pageShowing } from './desktop'
 import { isQuiet } from './quiet'
-import { nativeNotificationSilent } from './sound'
+import { nativeNotificationSilent, soundLeadBy } from './sound'
 
 // The tab's own notifications, for while the app is open but not in front:
 // a decision for you, a direct message, an @mention. Web Push (utils/push.ts)
@@ -49,7 +49,7 @@ function permitted(): boolean {
 /// The person is looking at this tab, in a window that has focus.
 export function lookingHere(): boolean {
   if (typeof document === 'undefined') return false
-  if (document.visibilityState !== 'visible') return false
+  if (!pageShowing(document)) return false
   return typeof document.hasFocus === 'function' ? document.hasFocus() : true
 }
 
@@ -70,6 +70,8 @@ const tabId = Math.random().toString(36).slice(2)
 const lookers = new Map<string, string>()
 let watching: string | null = null
 let lead = true
+// The tab that shows a workspace's notifications plays its sounds too.
+soundLeadBy(() => lead)
 const channel: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('honmaru-looking') : null
 // Node (the tests) keeps a process alive for an open channel; a page does not care.
 ;(channel as unknown as { unref?: () => void } | null)?.unref?.()

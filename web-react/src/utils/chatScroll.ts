@@ -3,6 +3,8 @@
 // them. Discord's rules: at the bottom you are reading along and it keeps up;
 // scrolled up you are reading history and nothing pulls you away from it.
 
+import { pageShowing } from './desktop'
+
 /// A log's scroll, as the DOM gives it.
 export interface ScrollBox { scrollHeight: number; scrollTop: number; clientHeight: number }
 
@@ -19,7 +21,7 @@ export function isAtBottom(el: ScrollBox, slack = 48): boolean {
 /// arrives is read only then — a tab in the background catching up after a
 /// dropped connection would otherwise read a whole outage nobody saw.
 export function isLooking(doc: { visibilityState: string; hasFocus(): boolean }): boolean {
-  return doc.visibilityState === 'visible' && doc.hasFocus()
+  return pageShowing(doc) && doc.hasFocus()
 }
 
 /// Whether the log goes to its newest line after a change. A conversation

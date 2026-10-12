@@ -60,6 +60,10 @@ export class OrgRelay {
     this.state = state;
     this.env = env;
     this.db = env.DB;
+    // A heartbeat the runtime answers itself, without waking the object: a
+    // client that hears no "pong" knows its socket died with the network
+    // (sleep, a Wi-Fi switch) though it never closed, and dials again.
+    try { state.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong")); } catch { /* not in this runtime */ }
   }
 
   async fetch(request) {

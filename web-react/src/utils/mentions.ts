@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from 'react'
 import type { Mentionable } from '@honmaru/core/mentions'
+import { pageShowing } from './desktop'
 
 export * from '@honmaru/core/mentions'
 
@@ -44,7 +45,7 @@ export function useMembers(httpBase: string, orgId: string, sessionToken: string
       void read()
     }
     const back = () => {
-      if (document.visibilityState !== 'visible') return
+      if (!pageShowing()) return
       const at = loadedAt.get(`${httpBase}|${orgId}`) || 0
       if (Date.now() - at > STALE_MS) again()
     }

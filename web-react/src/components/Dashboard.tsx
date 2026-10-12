@@ -20,7 +20,7 @@ import './Dashboard.css'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { displayName } from '../utils/names'
-import { bringForward } from '../utils/desktop'
+import { bringForward, pageShowing } from '../utils/desktop'
 import { useRoute, useDesktop, useMinWidth, hashForCard, hashForMode, hashForScreen, hashForView } from '../utils/route'
 import { loadCardCache, saveCardCache } from '../utils/cardCache'
 import { reconnectWatch, wakeWatch } from '../utils/resync'
@@ -95,18 +95,21 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // What the server said is for this person, paired with the message
   // (forYou.ts): the desktop's notifications follow the phone's pushes.
   const forYou = useRef(new ForYou<ChannelMessage>())
+  // By the relay's clock, not this machine's: one a minute off judged every
+  // message too old to announce.
+  const serverNow = () => wsClientRef.current?.serverNow() ?? Date.now()
   const soundFor = async (message: ChannelMessage) => {
     // Unsent: whatever this browser showed of it comes off the screen.
     if (message?.id && message.deleted) { closeMessageNotifications([message.id]); return }
     if (!message?.id || heard.current.has(message.id)) return
     heard.current.add(message.id)
-    if (Date.now() - Date.parse(message.createdAt) > 60_000) return
+    if (serverNow() - Date.parse(message.createdAt) > 60_000) return
     const people = await loadMembers(relayUrl.replace(/^ws/, 'http'), orgId, sessionToken).catch(() => [])
     const me = people.find((p) => p.mine)
     const mine = message.mine || Boolean(me && message.authorRef === me.ref)
     // Named, or everyone called with @channel / @all / @here.
     const mentionsMe = Boolean(me) && (mentionedRefs(message.body || '', people).includes(me!.ref) || mentionsEveryone(message.body || ''))
-    const open = getOpenView() === message.channel && document.visibilityState === 'visible' && document.hasFocus()
+    const open = getOpenView() === message.channel && pageShowing() && document.hasFocus()
     const kind = soundForMessage({ mine, channel: message.channel, mentionsMe, kind: message.kind, parentId: message.parentId }, { level: levelOf(orgId, message.channel), open })
     if (kind) playSound(kind)
     // A direct message or an @mention, seen here: shown at once. Whatever
@@ -120,8 +123,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // once; one tab decides (notifications.ts).
   const banner = (message: ChannelMessage) => {
     if (message.deleted || message.mine) return
-    if (message.kind !== 'message' && message.kind !== 'agent') return
-    if (Date.now() - Date.parse(message.createdAt) > 60_000) return
+    // The AI's answer too: it is pushed to whoever asked (pushes.js).
+    if (message.kind !== 'message' && message.kind !== 'agent' && message.kind !== 'ai') return
+    if (serverNow() - Date.parse(message.createdAt) > 60_000) return
     if (levelOf(orgId, message.channel) === 'mute') return
     if (!forYou.current.take(message.id)) return
     const business = message.channel.startsWith('b:') ? businessesRef.current.find((b) => `b:${b.slug}` === message.channel) : undefined
@@ -297,13 +301,15 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (previousCards) for (const card of Object.values(newState.cardsById || {})) {
         const prior = previousCards[card.id]
         const title = card.localized?.[getLocale()]?.title || card.title
-        if (!prior && card.recipientUserID === userId && card.senderUserID !== userId && card.status === 'pending') {
+        // A reminder is addressed to yourself, and is still news.
+        const reminder = Boolean((card as { reminder?: unknown }).reminder)
+        if (!prior && card.recipientUserID === userId && (card.senderUserID !== userId || reminder) && card.status === 'pending') {
           notifyNewDecision(title, card.requestedBy?.name || displayName(card.senderUserID), card.id, orgId)
         }
         if (card.senderUserID === userId && card.decision && card.decision.actorUserID !== userId &&
           card.decision.decidedAt !== prior?.decision?.decidedAt) {
           notifyDecisionReply(title, card.id, orgId)
-          if (Date.now() - Date.parse(card.decision.decidedAt) < 60_000) playSound('reply')
+          if (serverNow() - Date.parse(card.decision.decidedAt) < 60_000) playSound('reply')
         }
       }
       previousCards = newState.cardsById
@@ -323,8 +329,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (ignore) return
       addDebugLog(`Card created: ${card.id}`)
       if (card.recipientUserID === userId && card.status === 'pending') {
-        // Your own note to yourself does not need announcing to you.
-        if (card.senderUserID !== userId) playSound('decision')
+        // Your own note to yourself does not need announcing to you — but a
+        // reminder you asked for does.
+        if (card.senderUserID !== userId || (card as { reminder?: unknown }).reminder) playSound('decision')
       }
     }
     wsClient.onCardUpdated = (card) => { if (!ignore) addDebugLog(`Card updated: ${card.id}`) }
@@ -443,7 +450,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   useEffect(() => {
     let last = 0
     const seen = () => {
-      if (document.visibilityState !== 'visible') return
+      if (!pageShowing()) return
       const now = Date.now()
       if (now - last < 30_000) return
       if (wsClientRef.current?.sendJam('activity', { client: 'web' })) last = now
@@ -461,7 +468,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // it again, as after a reconnect.
   useEffect(() => {
     const woke = wakeWatch()
-    const on = () => { if (woke(document.visibilityState === 'visible', Date.now())) window.dispatchEvent(new Event('honmaru:resync')) }
+    const on = () => { if (woke(pageShowing(), Date.now())) window.dispatchEvent(new Event('honmaru:resync')) }
     document.addEventListener('visibilitychange', on)
     return () => document.removeEventListener('visibilitychange', on)
   }, [])

@@ -115,7 +115,10 @@ export async function notifyCardNow(env, { card, kind = "created", excludeLogin,
     card = await localizeStored(env, orgId, card, { locale, payerGithubId, announce });
   }
   const alert = composeAlert({ card, kind, locale, count, comment });
-  const collapseId = card.id;
+  // One per card and kind of news: a comment, a mention or the answer used
+  // to replace the request's notification (the same collapse id), quietly
+  // or not at all. A second nudge still replaces the first.
+  const collapseId = `${card.id}-${kind}`;
   let devices = [];
   let subscriptions = [];
 
