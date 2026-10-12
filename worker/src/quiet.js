@@ -59,6 +59,37 @@ export async function quietFor(db, login, now = new Date()) {
   return null;
 }
 
+/// How long a notification held by quiet time waits, at most. Past that it
+/// is not news any more; it is in the conversation and in Activity.
+export const HOLD_MAX_MS = 16 * 3_600_000;
+
+/// When the person's quiet time ends, if it ends within HOLD_MAX_MS: the end
+/// of a pause, or the next minute their hours allow. Null when they are not
+/// quiet, or will not hear anything for longer than that.
+export async function quietEnds(db, login, now = new Date()) {
+  const row = await db.prepare("SELECT notify_paused_until, notify_schedule, timezone FROM users WHERE login = ?1").bind(login).first().catch(() => null);
+  if (!row) return null;
+  const limit = now.getTime() + HOLD_MAX_MS;
+  const schedule = parseSchedule(row.notify_schedule);
+  let at = now.getTime();
+  const paused = row.notify_paused_until ? Date.parse(row.notify_paused_until) : 0;
+  if (paused > at) at = paused;
+  // Step through the schedule a quarter-hour at a time, then to the minute.
+  if (outsideSchedule(schedule, row.timezone, new Date(at))) {
+    let open = null;
+    for (let t = at; t <= limit; t += 15 * 60_000) {
+      if (!outsideSchedule(schedule, row.timezone, new Date(t))) { open = t; break; }
+    }
+    if (open === null) return null;
+    for (let t = Math.max(at, open - 15 * 60_000); t <= open; t += 60_000) {
+      if (!outsideSchedule(schedule, row.timezone, new Date(t))) { open = t; break; }
+    }
+    at = open;
+  }
+  if (at <= now.getTime() || at > limit) return null;
+  return new Date(at);
+}
+
 /// "Pause for" — minutes from now, or an exact time; null resumes.
 export function pauseUntil(input, now = new Date()) {
   if (input === null || input === false || input === 0) return null;

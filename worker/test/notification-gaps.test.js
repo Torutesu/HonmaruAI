@@ -91,3 +91,22 @@ test("every post reaches whoever asked for every post, and nobody else; a reply 
   await setChannelPref(env.DB, { orgId: ORG, login: "ann", key: "b:general", level: "default" });
   expect(await recipientsOf(env.DB, ORG, plain, members)).toEqual([]);
 });
+
+// A message said during quiet time was dropped for good: it never reached
+// the phone, not even once the hours it waited for had come.
+test("a push held by a pause goes when the pause ends, and only the latest few of a pile", async () => {
+  const until = new Date(Date.now() + 30 * 60_000).toISOString();
+  await env.DB.prepare("UPDATE users SET notify_paused_until = ?1 WHERE login = 'ann'").bind(until).run();
+  for (const id of ["q1", "q2", "q3", "q4"]) {
+    await say(id, { channel: "dm:ann|ben" });
+    await env.DB.prepare("INSERT INTO push_queue (org_id, login, message_id, reason, created_at, due_at) VALUES (?1, 'ann', ?2, 'direct', ?3, ?3)").bind(ORG, id, ago(60_000)).run();
+  }
+  expect(await sendDuePushes(withApns)).toEqual({ sent: 0, skipped: 0 });
+  const rows = (await env.DB.prepare("SELECT due_at, last_error, attempts, sent_at FROM push_queue ORDER BY id").all()).results;
+  expect(rows.every((r) => r.last_error === "held" && r.due_at === until && r.attempts === 0 && r.sent_at === null)).toBe(true);
+
+  // The pause over: the three latest go, the first is let go.
+  const later = Date.parse(until) + 60_000;
+  fetchMock.get("https://api.push.apple.com").intercept({ path: `/3/device/${"a".repeat(64)}`, method: "POST" }).reply(200, {}).times(3);
+  expect(await sendDuePushes(withApns, later)).toEqual({ sent: 3, skipped: 1 });
+});
