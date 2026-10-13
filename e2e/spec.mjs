@@ -3439,6 +3439,13 @@ await step('the thread pane is resized by dragging its edge, and keeps its width
       return { pane: Math.round(pane.bottom), box: Math.round(box.bottom), vh: innerHeight }
     })
     if (fit.pane > fit.vh || fit.box > fit.vh) throw new Error(`the thread pane runs past the window: pane ends at ${fit.pane}, reply box at ${fit.box}, window ${fit.vh}`)
+    // Its close button is in the pane's top-right corner, not after the title.
+    const corner = await desk.evaluate(() => {
+      const pane = document.querySelector('.slk-thread-pane').getBoundingClientRect()
+      const x = document.querySelector('.slk-thread-pane .slk-pane-close').getBoundingClientRect()
+      return Math.round(pane.right - x.right)
+    })
+    if (corner > 24) throw new Error(`the thread's close button sits ${corner}px in from the pane's right edge`)
 
     // Dragged 200px to the left: wider, by as much as the room allows.
     const edge = await desk.$eval('.slk-thread-pane [data-pane-resize]', (el) => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })
