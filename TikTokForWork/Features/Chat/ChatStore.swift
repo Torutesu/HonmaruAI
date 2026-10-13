@@ -925,6 +925,9 @@ final class ChatStore: ObservableObject {
         if !m.mine && (m.parentId != nil || m.body.contains("@") || m.body.contains("＠")) {
             Task { await loadInbox() }
         }
+        // A reply is new in Threads as well as in Activity: both are asked
+        // again, so reading it in either finds the other already holding it.
+        if !m.mine && m.parentId != nil { Task { await loadThreads() } }
     }
 
     private func receiveProgress(_ data: Data?) {

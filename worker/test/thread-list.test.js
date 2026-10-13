@@ -150,3 +150,43 @@ test("Mark all as read, in Activity or in Threads, clears both; a thread read cl
   await read(toru, { channel: "b:cafe", thread: ask.id });
   expect((await activity(toru)).find((i) => i.message.id === ask.id).unread).toBe(false);
 });
+
+// Named in somebody else's thread is being in it, in Activity as in Threads:
+// the replies after the name come to Activity too, so seeing them there
+// reads the thread — nobody has to open both.
+test("named in a thread, its later replies are in Activity, and seeing them there reads it in Threads", async () => {
+  const activity = async (token) => (await (await call(`/channels/activity?orgId=${encodeURIComponent(ORG)}`, token)).json()).items;
+  const seenAll = async (token) => {
+    const keys = (await activity(token)).filter((i) => i.unread).map((i) => i.key);
+    return (await call("/channels/read", token, { method: "POST", body: { orgId: ORG, channel: "activity", items: keys } })).json();
+  };
+
+  // Named in a reply.
+  const topic = await say(mika, "Mika's topic");
+  await pause();
+  await say(kenji, "before anyone named Toru", topic.id);
+  await pause();
+  await say(kenji, "@Toru what do you think", topic.id);
+  await pause();
+  await say(kenji, "and one more", topic.id);
+  const items = (await activity(toru)).filter((i) => i.unread).map((i) => `${i.type}:${i.message.body}`);
+  expect(items).toEqual(["reply:and one more", "mention:@Toru what do you think"]);
+  expect((await threads(toru)).find((t) => t.parent.id === topic.id).unread).toBe(true);
+  await seenAll(toru);
+  expect((await threads(toru)).find((t) => t.parent.id === topic.id).unread).toBe(false);
+
+  // Named in the first message.
+  await pause();
+  const ask = await say(mika, "@Toru look at this");
+  await pause();
+  await say(kenji, "reply under it", ask.id);
+  expect((await activity(toru)).filter((i) => i.unread).map((i) => `${i.type}:${i.message.body}`)).toEqual(["reply:reply under it", "mention:@Toru look at this"]);
+  await seenAll(toru);
+  expect((await threads(toru)).find((t) => t.parent.id === ask.id).unread).toBe(false);
+
+  // A thread nobody named you in stays out of your Activity.
+  await pause();
+  const other = await say(mika, "not for Toru");
+  await say(kenji, "nor this", other.id);
+  expect((await activity(toru)).some((i) => i.message.body === "nor this")).toBe(false);
+});
