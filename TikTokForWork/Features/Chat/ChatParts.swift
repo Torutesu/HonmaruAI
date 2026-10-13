@@ -907,7 +907,7 @@ struct ChatMessageRow: View {
                             Text(n == 1 ? String(localized: "1 reply") : String(localized: "\(n) replies"))
                                 .font(.footnote.weight(.bold)).foregroundStyle(Theme.Colors.interactive)
                             if let last = ChatDates.parse(message.lastReplyAt) {
-                                Text(last, style: .relative).font(.caption).foregroundStyle(Theme.Colors.textTertiary)
+                                TimeAgo(date: last).font(.caption).foregroundStyle(Theme.Colors.textTertiary)
                             }
                             Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.Colors.textTertiary)
                         }

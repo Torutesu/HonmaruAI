@@ -341,7 +341,7 @@ struct ChatActivityView: View {
                             Text(label(item))
                                 .font(.caption).foregroundStyle(Theme.Colors.textSecondary)
                             Spacer()
-                            Text(item.message.date, style: .relative).font(.caption2).foregroundStyle(Theme.Colors.textTertiary)
+                            TimeAgo(date: item.message.date).font(.caption2).foregroundStyle(Theme.Colors.textTertiary)
                         }
                         Text(item.message.isAI ? String(localized: "Your AI") : (item.message.authorName ?? "")).font(.subheadline.weight(.semibold))
                         Text(translations.shown(item.message).text).font(.subheadline).lineLimit(3).foregroundStyle(Theme.Colors.textPrimary)
