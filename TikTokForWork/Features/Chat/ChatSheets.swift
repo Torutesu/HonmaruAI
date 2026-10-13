@@ -23,7 +23,6 @@ struct ChatThreadSheet: View {
     /// to; up in the earlier replies, the place is kept and what arrived is
     /// counted on the way back down.
     @State private var atBottom = true
-    @Environment(\.scenePhase) private var scenePhase
     @State private var unseen = 0
     /// The reply the next one answers, inline (swiped, or Reply).
     @State private var replyingTo: ChatMessage?
@@ -61,8 +60,6 @@ struct ChatThreadSheet: View {
                 guard new > old, let t = store.thread else { return }
                 if atBottom || t.replies.last?.mine == true {
                     withAnimation { proxy.scrollTo(Self.bottom, anchor: .bottom) }
-                    // Seen as it arrived: read, here and everywhere.
-                    if scenePhase == .active { Task { await store.readOpenThread() } }
                 } else {
                     unseen += new - old
                 }
@@ -70,13 +67,9 @@ struct ChatThreadSheet: View {
             .onChange(of: store.thread.map { store.thinking[$0.parent.channel] != nil } ?? false) { _, _ in
                 if atBottom { withAnimation { proxy.scrollTo(Self.bottom, anchor: .bottom) } }
             }
-            .onChange(of: atBottom) { _, now in
-                if now { unseen = 0; Task { await store.readOpenThread() } }
-            }
-            // Back to the app with the thread open: what came meanwhile is read.
-            .onChange(of: scenePhase) { _, phase in
-                if phase == .active && atBottom { Task { await store.readOpenThread() } }
-            }
+            .onChange(of: atBottom) { _, now in if now { unseen = 0 } }
+            // What arrives while the newest reply is in view is read.
+            .modifier(ReadsOpenThread(store: store, atBottom: atBottom))
             .onChange(of: quoteJump) { _, id in
                 guard let id else { return }
                 quoteJump = nil
@@ -1061,5 +1054,27 @@ struct ChatAttachedStrip: View {
                 if uploading > 0 { ProgressView().frame(width: 56, height: 56) }
             }.padding(.horizontal, 4).padding(.top, 6)
         }
+    }
+}
+
+/// The open thread, read as it is seen: a reply arriving while the newest
+/// is in view, coming back down to the newest, and coming back to the app
+/// with the thread open (ChatStore.readOpenThread). Apart from the sheet's
+/// body, which is already as much as the compiler will check at once.
+private struct ReadsOpenThread: ViewModifier {
+    @ObservedObject var store: ChatStore
+    let atBottom: Bool
+    @Environment(\.scenePhase) private var scenePhase
+
+    private func read() {
+        guard atBottom, scenePhase == .active else { return }
+        Task { await store.readOpenThread() }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: store.thread?.replies.count ?? 0) { _, _ in read() }
+            .onChange(of: atBottom) { _, _ in read() }
+            .onChange(of: scenePhase) { _, _ in read() }
     }
 }
