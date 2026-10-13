@@ -101,6 +101,9 @@ final class ChatStore: ObservableObject {
     /// thread's replies and a teammate's profile, drawn at once when opened
     /// again and replaced by what the server says behind them.
     private var threadReplies: [String: [ChatMessage]] = [:]
+    /// How far each thread was last read here, so a reply arriving while it
+    /// is open is read once.
+    private var threadReadTo: [String: String] = [:]
     private var profiles: [String: (profile: ChatProfile, at: Date)] = [:]
     private func viewKey(_ id: String) -> String? {
         guard let orgId, let me = appState?.currentUser?.id else { return nil }
@@ -741,8 +744,23 @@ final class ChatStore: ObservableObject {
         // calling its replies new.
         inbox = inbox.map { var i = $0; if i.unread && i.message.parentId == m.id { i.unread = false }; return i }
         if let i = threads.firstIndex(where: { $0.parent.id == m.id }) { threads[i].unread = false }
+        threadReadTo[m.id] = thread?.replies.map(\.createdAt).max() ?? ChatDates.string(.now)
         PushService.clearDelivered(channel: m.channel, parentId: m.id, orgId: orgId)
         await ChatService.markThreadRead(orgId: orgId, channel: m.channel, parentId: m.id, base: base)
+    }
+    /// The open thread, read up to its newest reply: one that came while it
+    /// was in front of you. Opening it was the only read before, so a reply
+    /// watched as it arrived stayed new, its notification stayed on the lock
+    /// screen, and the other devices kept calling it unread.
+    func readOpenThread() async {
+        guard let orgId, let base, let t = thread else { return }
+        let newest = t.replies.filter { !$0.mine && !$0.id.hasPrefix("tmp-") }.map(\.createdAt).max() ?? ""
+        guard !newest.isEmpty, newest > (threadReadTo[t.parent.id] ?? "") else { return }
+        threadReadTo[t.parent.id] = newest
+        inbox = inbox.map { var i = $0; if i.unread && i.message.parentId == t.parent.id { i.unread = false }; return i }
+        if let i = threads.firstIndex(where: { $0.parent.id == t.parent.id }) { threads[i].unread = false }
+        PushService.clearDelivered(channel: t.parent.channel, parentId: t.parent.id, orgId: orgId)
+        await ChatService.markThreadRead(orgId: orgId, channel: t.parent.channel, parentId: t.parent.id, base: base)
     }
     func pins(_ view: String) async -> [ChatMessage] {
         guard let orgId, let base else { return [] }

@@ -23,6 +23,7 @@ struct ChatThreadSheet: View {
     /// to; up in the earlier replies, the place is kept and what arrived is
     /// counted on the way back down.
     @State private var atBottom = true
+    @Environment(\.scenePhase) private var scenePhase
     @State private var unseen = 0
     /// The reply the next one answers, inline (swiped, or Reply).
     @State private var replyingTo: ChatMessage?
@@ -60,6 +61,8 @@ struct ChatThreadSheet: View {
                 guard new > old, let t = store.thread else { return }
                 if atBottom || t.replies.last?.mine == true {
                     withAnimation { proxy.scrollTo(Self.bottom, anchor: .bottom) }
+                    // Seen as it arrived: read, here and everywhere.
+                    if scenePhase == .active { Task { await store.readOpenThread() } }
                 } else {
                     unseen += new - old
                 }
@@ -67,7 +70,13 @@ struct ChatThreadSheet: View {
             .onChange(of: store.thread.map { store.thinking[$0.parent.channel] != nil } ?? false) { _, _ in
                 if atBottom { withAnimation { proxy.scrollTo(Self.bottom, anchor: .bottom) } }
             }
-            .onChange(of: atBottom) { _, now in if now { unseen = 0 } }
+            .onChange(of: atBottom) { _, now in
+                if now { unseen = 0; Task { await store.readOpenThread() } }
+            }
+            // Back to the app with the thread open: what came meanwhile is read.
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active && atBottom { Task { await store.readOpenThread() } }
+            }
             .onChange(of: quoteJump) { _, id in
                 guard let id else { return }
                 quoteJump = nil

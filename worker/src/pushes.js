@@ -430,7 +430,8 @@ async function pushMessage(env, login, { title, body, orgId, channel, messageId,
         subscription, topic: messageId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32),
         // `at`: when it was written, so a browser that already shows a later
         // message in this conversation keeps that one (web-react/public/sw.js).
-        payload: { title, body, kind: "message", tag: `${orgId}|${channel}`, orgId, channel, messageId, ...(at ? { at } : {}), ...(base ? { url: `${base}/#/m/${encodeURIComponent(messageId)}/${encodeURIComponent(orgId)}` } : {}) },
+        // The thread it is in, so reading the thread takes it down.
+        payload: { title, body, kind: "message", tag: `${orgId}|${channel}`, orgId, channel, messageId, ...(parentId ? { parentId } : {}), ...(at ? { at } : {}), ...(base ? { url: `${base}/#/m/${encodeURIComponent(messageId)}/${encodeURIComponent(orgId)}` } : {}) },
       }));
       retry ||= retryable(result);
       if (result.ok) delivered += 1;

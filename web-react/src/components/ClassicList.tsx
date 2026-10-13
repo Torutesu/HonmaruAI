@@ -56,7 +56,7 @@ import { Sheet, SheetRow, MessageSheet, PeoplePicker, ForwardSheet, longPress } 
 import { useUploads, PendingUploads, MessageFiles } from './Attachments'
 import { configureMediaUrls } from '../utils/mediaUrls'
 import { playSound, setOpenView, rememberLevels, rememberLevel, startRing, stopRing } from '../utils/sound'
-import { closeMessageNotifications } from '../utils/notifications'
+import { closeMessageNotifications, closeThreadNotifications } from '../utils/notifications'
 import { hasOlder } from '../utils/historyPage'
 import { foldedRows, sectionBadge, visibleRows, stepRow, readFolds, writeFolds, withSectionFolds, withFold, unplacedAgents } from '../utils/sidebarSections'
 import { placesFrom } from '../utils/places'
@@ -2875,10 +2875,13 @@ export const ClassicList: React.FC<Props> = ({
   }
   /// Read this thread, here and on every other device: Threads stops
   /// calling it unread.
-  const markThreadRead = (channel: string, parentId: string) => {
+  const markThreadRead = (channel: string, parentId: string, upTo?: string) => {
     // Read up to the newest reply on screen, not the server's now: one that
     // lands while this is on its way stays new.
-    const seenUpTo = threadItems?.find((x) => x.parent.id === parentId)?.lastReplyAt || new Date().toISOString()
+    const seenUpTo = upTo || threadItems?.find((x) => x.parent.id === parentId)?.lastReplyAt || new Date().toISOString()
+    threadReadTo.current = { parentId, at: seenUpTo }
+    // Its notifications on this computer come down with it.
+    closeThreadNotifications(parentId, thread?.parent.id === parentId ? thread.replies.map((r) => r.id) : [])
     setThreadItems((prev) => prev && prev.map((x) => (x.parent.id === parentId ? { ...x, unread: false } : x)))
     // Its replies, and its first message where it named you, in Activity too.
     setActivityItems((prev) => prev && prev.map((i) => (i.unread && (i.message.parentId === parentId || (i.message.id === parentId && i.type !== 'reaction')) ? { ...i, unread: false } : i)))
@@ -2887,6 +2890,24 @@ export const ClassicList: React.FC<Props> = ({
       body: JSON.stringify({ orgId: api.orgId, channel, thread: parentId, at: seenUpTo }),
     }).catch(() => {})
   }
+  /// How far the open thread was last read, so a reply arriving while it
+  /// is in front of you is read once, not on every redraw.
+  const threadReadTo = useRef<{ parentId: string; at: string } | null>(null)
+  // A thread open in front of you is read as things arrive in it, and again
+  // the moment you come back to it — as a conversation is. Opening it was
+  // the only read before: a reply that came while you watched stayed new,
+  // its notification stayed up, and the phone was told a minute later.
+  useEffect(() => {
+    if (!thread || !looking) return
+    const parentId = thread.parent.id
+    const newest = thread.replies.reduce((max, r) => (!r.mine && r.createdAt > max ? r.createdAt : max), '')
+    if (!newest) return
+    const done = threadReadTo.current
+    if (done && done.parentId === parentId && done.at >= newest) return
+    const timer = setTimeout(() => markThreadRead(thread.channel, parentId, newest), 600)
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thread?.parent.id, thread?.replies.length, looking])
   // Read on another device (or another tab): the same here, at once —
   // the conversation, the thread, the Activity items — and this browser's
   // notifications for it come down.
@@ -2906,6 +2927,7 @@ export const ClassicList: React.FC<Props> = ({
       if (d.thread) {
         const parentId = d.thread
         if (d.unread) { void loadThreads(); return }
+        closeThreadNotifications(parentId)
         setThreadItems((prev) => prev && prev.map((x) => (x.parent.id === parentId ? { ...x, unread: false } : x)))
         setActivityItems((prev) => prev && prev.map((i) => (i.unread && i.message.parentId === parentId && (i.at || i.message.createdAt) <= at ? { ...i, unread: false } : i)))
         return
