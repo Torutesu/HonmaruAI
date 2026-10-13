@@ -529,6 +529,11 @@
   font-size: 22px; line-height: 1; color: var(--slk-dim); cursor: pointer;
 }
 .classic.slk.slk .slk-pane-close:hover { background: var(--slk-hover); color: var(--slk-ink); }
+/* The close button sits in the pane's top-right corner, as in any chat
+   client, not right after the title and where it is. A control before it
+   that already takes the free space (Open in Cards) keeps it beside it. */
+.classic.slk.slk .slk-pane-head > .slk-pane-close { margin-left: auto; }
+.classic.slk.slk .slk-pane-head > .slk-pane-feed + .slk-pane-close { margin-left: 0; }
 .classic.slk.slk .slk-back.pane { display: grid; }
 .classic.slk.slk .slk-pane-body { flex: 1; min-height: 0; overflow: hidden; display: flex; }
 /* The feed's card, at home in a pane: no fixed viewport, no snap, no
