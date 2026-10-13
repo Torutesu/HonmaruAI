@@ -36,4 +36,31 @@ final class AppLocalizationTests: XCTestCase {
         XCTAssertEqual(app.workspaceMembers.first { $0.id == "demo-sarah" }?.role, "Marketing Manager")
         XCTAssertEqual(app.currentUser?.name, "You")
     }
+
+    /// Lists say how long ago to the minute — "10分前", "2時間38分前" — not
+    /// the seconds ticking by ("10分50秒") that `Text(_, style: .relative)` drew.
+    @MainActor
+    func testTimeAgoIsMinutesAndHoursNeverSeconds() {
+        let previous = UserDefaults.standard.string(forKey: "appLanguage")
+        defer { Bundle.setAppLanguage(AppLanguage(rawValue: previous ?? "system")?.locale?.identifier) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let ago = { (seconds: TimeInterval, locale: String) in
+            DateFormatting.ago(now.addingTimeInterval(-seconds), now: now, locale: Locale(identifier: locale))
+        }
+
+        Bundle.setAppLanguage("ja")
+        let tenMinutes = ago(10 * 60 + 50, "ja")
+        XCTAssertTrue(tenMinutes.contains("10") && tenMinutes.hasSuffix("前"), tenMinutes)
+        XCTAssertFalse(tenMinutes.contains("秒") || tenMinutes.contains("50"), tenMinutes)
+        let hoursAndMinutes = ago(2 * 3600 + 38 * 60 + 12, "ja")
+        XCTAssertTrue(hoursAndMinutes.contains("2") && hoursAndMinutes.contains("38") && hoursAndMinutes.hasSuffix("前"), hoursAndMinutes)
+        XCTAssertFalse(hoursAndMinutes.contains("秒") || hoursAndMinutes.contains("12"), hoursAndMinutes)
+        XCTAssertFalse(ago(20, "ja").contains("20"), ago(20, "ja"))
+
+        Bundle.setAppLanguage("en")
+        let english = ago(2 * 3600 + 38 * 60, "en")
+        XCTAssertTrue(english.contains("2") && english.contains("38") && english.hasSuffix("ago"), english)
+        XCTAssertFalse(english.contains("sec"), english)
+        XCTAssertTrue(ago(3 * 86_400, "en").contains("3"), ago(3 * 86_400, "en"))
+    }
 }

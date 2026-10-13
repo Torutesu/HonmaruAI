@@ -44,7 +44,7 @@ struct ChatThreadsView: View {
                 Text(verbatim: place(item.parent.channel)).font(.caption.weight(.bold)).foregroundStyle(Theme.Colors.textSecondary)
                 if item.unread { Circle().fill(Theme.Colors.interactive).frame(width: 8, height: 8).accessibilityLabel("New replies") }
                 Spacer()
-                if let at = ChatDates.parse(item.lastReplyAt) { Text(at, style: .relative).font(.caption2).foregroundStyle(Theme.Colors.textTertiary) }
+                if let at = ChatDates.parse(item.lastReplyAt) { TimeAgo(date: at).font(.caption2).foregroundStyle(Theme.Colors.textTertiary) }
             }
             line(item.parent, first: true)
             ForEach(item.replies) { line($0, first: false) }
