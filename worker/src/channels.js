@@ -762,13 +762,25 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
   ]);
   const threads = new Set((mine.results || []).map((r) => r.thread));
   const keywords = parseKeywords(kw?.notify_keywords);
+  // "@here" was for whoever was at the app then — a push, not a later
+  // entry in Activity; "@channel" is for everyone.
+  const names = new Map((recent.results || []).map((r) => [r.id, Boolean(r.body) && resolveMentions(r.body, members, { online: NOBODY }).some((m) => m.login === login)]));
+  // Named in a thread — in its first message or in a reply — is being in
+  // it, as Threads has it: the replies after that are yours here too. Left
+  // out, Threads kept such a thread new after its mention was seen here,
+  // and both had to be opened.
+  const namedAt = new Map();
+  for (const r of recent.results || []) {
+    if (!names.get(r.id)) continue;
+    const thread = r.parent_id || r.id;
+    if (!namedAt.has(thread) || r.created_at < namedAt.get(thread)) namedAt.set(thread, r.created_at);
+  }
   const picked = [];
   for (const r of recent.results || []) {
-    // "@here" was for whoever was at the app then — a push, not a later
-    // entry in Activity; "@channel" is for everyone.
-    const mention = r.body && resolveMentions(r.body, members, { online: NOBODY }).some((m) => m.login === login);
+    const mention = names.get(r.id);
     // A reply: in a thread you are in, or inline to what you wrote.
-    const reply = (r.parent_id && threads.has(r.parent_id)) || r.reply_to_login === login;
+    const inThread = r.parent_id && (threads.has(r.parent_id) || (namedAt.has(r.parent_id) && r.created_at > namedAt.get(r.parent_id)));
+    const reply = inThread || r.reply_to_login === login;
     const keyword = !mention && !reply ? keywordHit(r.body, keywords) : null;
     if (!mention && !reply && !keyword) continue;
     picked.push({ row: r, type: mention ? "mention" : reply ? "reply" : "keyword", keyword });
