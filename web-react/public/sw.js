@@ -102,6 +102,8 @@ function notificationFor(data) {
       data: {
         cardId: data.cardId || null,
         messageId: data.messageId || null,
+        // A reply's thread: reading the thread takes it down.
+        thread: data.parentId || null,
         orgId: data.orgId || null,
         channel: data.channel || null,
         url: data.url || null,

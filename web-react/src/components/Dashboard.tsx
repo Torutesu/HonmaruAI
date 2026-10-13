@@ -134,6 +134,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       author: message.authorName || message.agent?.name || t('a teammate'),
       where: business ? `#${business.name}` : null,
       body: message.body || '', hasFiles: Boolean(message.files?.length), createdAt: message.createdAt,
+      thread: message.parentId || null,
     })
   }
   // The relay has sent its snapshot at least once. Before that the feed says

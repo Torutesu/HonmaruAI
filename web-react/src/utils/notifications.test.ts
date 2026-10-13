@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { notifyNewDecision, notifyMessage, notificationText, badgeCount, badgeLabel, markSeen, setTabBadge, setNotificationCopy, watchWorkspace } from './notifications'
+import { notifyNewDecision, notifyMessage, closeThreadNotifications, notificationText, badgeCount, badgeLabel, markSeen, setTabBadge, setNotificationCopy, watchWorkspace } from './notifications'
 import { changeLocale, localeReady } from './i18n'
 import { setQuietState } from './quiet'
 
@@ -95,6 +95,25 @@ describe('in-tab message notification', () => {
     expect(doc.title).toBe('(2) Honmaru AI')
     setTabBadge(0)
     expect(doc.title).toBe('Honmaru AI')
+  })
+
+  // Reading a thread left its replies' notifications up: only reading the
+  // whole conversation took them down.
+  it('a reply\'s notification says its thread, and reading the thread takes it down', () => {
+    const closed: string[] = []
+    class Closing {
+      static permission = 'granted'
+      onclick: (() => void) | null = null
+      constructor(public title: string, public options: NotificationOptions) { shown.push({ title, options }) }
+      close() { closed.push(String((this.options.data as { messageId?: string }).messageId)) }
+    }
+    vi.stubGlobal('Notification', Closing)
+    notifyMessage({ ...message, id: 'r1', channel: 'b:cafe', thread: 'p1' })
+    expect(shown[0].options.data).toMatchObject({ messageId: 'r1', thread: 'p1' })
+    closeThreadNotifications('p2')
+    expect(closed).toEqual([])
+    closeThreadNotifications('p1')
+    expect(closed).toEqual(['r1'])
   })
 
   it('carries the server\'s time for the message, so an older push never replaces it', () => {

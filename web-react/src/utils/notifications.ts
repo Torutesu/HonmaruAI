@@ -282,7 +282,7 @@ let pending = 0
 /// A direct message or an @mention, while the tab is not in front. The
 /// caller has decided it deserves one (utils/sound.ts soundForMessage says
 /// "mention" — not muted, not yours, not a quiet channel message).
-export function notifyMessage(m: { id: string; orgId: string; channel: string; author: string; where?: string | null; body: string; hasFiles?: boolean; createdAt?: string }): void {
+export function notifyMessage(m: { id: string; orgId: string; channel: string; author: string; where?: string | null; body: string; hasFiles?: boolean; createdAt?: string; thread?: string | null }): void {
   if (!permitted() || !mayNotify(m.orgId) || isQuiet()) return
   away += 1
   paintBadge()
@@ -297,7 +297,7 @@ export function notifyMessage(m: { id: string; orgId: string; channel: string; a
     // `at` is the server's time for the message: the Worker's push carries
     // the same, so the service worker can tell an older push from a newer
     // notification already on screen (sw.js showPush).
-    data: { messageId: m.id, orgId: m.orgId, channel: m.channel, kind: 'message', at: m.createdAt || null, hash: `#/m/${encodeURIComponent(m.id)}/${encodeURIComponent(m.orgId)}` },
+    data: { messageId: m.id, thread: m.thread || null, orgId: m.orgId, channel: m.channel, kind: 'message', at: m.createdAt || null, hash: `#/m/${encodeURIComponent(m.id)}/${encodeURIComponent(m.orgId)}` },
   })
 }
 
@@ -312,6 +312,21 @@ export function closeMessageNotifications(ids: string[]): void {
   sw.getRegistration('/')
     .then((reg) => reg?.getNotifications())
     .then((list) => { for (const n of list || []) if (wanted.has((n.data as { messageId?: string } | null)?.messageId || '')) n.close() })
+    .catch(() => { /* nothing shown, nothing to take down */ })
+}
+
+/// A thread read, here or on another device: its replies' notifications
+/// come down — the ones that say which thread they are in, and any of
+/// `ids` (replies known to be in it) that do not.
+export function closeThreadNotifications(parentId: string, ids: string[] = []): void {
+  const owned = (d: { thread?: unknown; messageId?: unknown } | null | undefined) =>
+    Boolean(d) && (d!.thread === parentId || ids.includes(String(d!.messageId || '')))
+  for (const [tag, item] of directNotifications) if (owned(item.data as { thread?: unknown; messageId?: unknown })) { item.notification.close(); directNotifications.delete(tag) }
+  const sw = typeof navigator !== 'undefined' ? navigator.serviceWorker : undefined
+  if (!sw || !parentId) return
+  sw.getRegistration('/')
+    .then((reg) => reg?.getNotifications())
+    .then((list) => { for (const n of list || []) if (owned(n.data as { thread?: unknown; messageId?: unknown } | null)) n.close() })
     .catch(() => { /* nothing shown, nothing to take down */ })
 }
 
