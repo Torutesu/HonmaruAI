@@ -42,12 +42,16 @@ final class AppLocalizationTests: XCTestCase {
     @MainActor
     func testTimeAgoIsMinutesAndHoursNeverSeconds() {
         let previous = UserDefaults.standard.string(forKey: "appLanguage")
-        defer { Bundle.setAppLanguage(AppLanguage(rawValue: previous ?? "system")?.locale?.identifier) }
+        defer {
+            UserDefaults.standard.set(previous, forKey: "appLanguage")
+            Bundle.setAppLanguage(AppLanguage(rawValue: previous ?? "system")?.locale?.identifier)
+        }
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let ago = { (seconds: TimeInterval, locale: String) in
             DateFormatting.ago(now.addingTimeInterval(-seconds), now: now, locale: Locale(identifier: locale))
         }
 
+        UserDefaults.standard.set("ja", forKey: "appLanguage")
         Bundle.setAppLanguage("ja")
         let tenMinutes = ago(10 * 60 + 50, "ja")
         XCTAssertTrue(tenMinutes.contains("10") && tenMinutes.hasSuffix("前"), tenMinutes)
@@ -57,6 +61,7 @@ final class AppLocalizationTests: XCTestCase {
         XCTAssertFalse(hoursAndMinutes.contains("秒") || hoursAndMinutes.contains("12"), hoursAndMinutes)
         XCTAssertFalse(ago(20, "ja").contains("20"), ago(20, "ja"))
 
+        UserDefaults.standard.set("en", forKey: "appLanguage")
         Bundle.setAppLanguage("en")
         let english = ago(2 * 3600 + 38 * 60, "en")
         XCTAssertTrue(english.contains("2") && english.contains("38") && english.hasSuffix("ago"), english)
