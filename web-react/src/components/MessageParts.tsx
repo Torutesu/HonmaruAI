@@ -555,7 +555,9 @@ export function prefixLines(el: HTMLTextAreaElement | null, value: string, set: 
   const end = endRaw === -1 ? value.length : endRaw
   const lines = value.slice(start, end).split('\n')
   const numbered = mark === '1. '
-  const has = (l: string) => (numbered ? /^\d+\.\s/.test(l) : l.startsWith(mark))
+  // A bullet typed as "- " before the bar wrote "• " is the same bullet.
+  const bullet = mark === BULLET
+  const has = (l: string) => (numbered ? /^\d+\.\s/.test(l) : bullet ? /^[-•] /.test(l) : l.startsWith(mark))
   const strip = (l: string) => (numbered ? l.replace(/^\d+\.\s/, '') : l.slice(mark.length))
   // Any other mark comes off first: a quoted line becomes a list, not both.
   const bare = (l: string) => l.replace(/^(> ?|[-•] |\d+\.\s)/, '')
@@ -606,10 +608,48 @@ export function continueBlock(el: HTMLTextAreaElement, value: string, set: (v: s
   return true
 }
 
+/// What a bulleted line starts with in the composer: the dot it is drawn
+/// with once sent, not a hyphen to imagine it from.
+export const BULLET = '• '
+
+/// "- " or "* " typed at the start of a line becomes a bullet, as in Slack.
+/// Given the composer's change, the draft to keep.
+export function bulletOnSpace(e: React.ChangeEvent<HTMLTextAreaElement>): string {
+  const el = e.target
+  const value = el.value
+  const input = e.nativeEvent as InputEvent
+  if (input.inputType !== 'insertText' || input.data !== ' ') return value
+  const caret = el.selectionStart ?? value.length
+  const lineStart = value.lastIndexOf('\n', caret - 1) + 1
+  if (!/^[-*] $/.test(value.slice(lineStart, caret))) return value
+  const next = value.slice(0, lineStart) + BULLET + value.slice(caret)
+  requestAnimationFrame(() => el.setSelectionRange(lineStart + BULLET.length, lineStart + BULLET.length))
+  return next
+}
+
+/// Which mark the line under the caret has — so the bar can show that list
+/// or quote as on, as editors do.
+export function lineMark(value: string, caret: number): 'quote' | 'bullet' | 'numbered' | null {
+  const line = value.slice(value.lastIndexOf('\n', caret - 1) + 1).split('\n')[0]
+  if (/^\s*[-•] /.test(line)) return 'bullet'
+  if (/^\s*\d+\.\s/.test(line)) return 'numbered'
+  if (/^>/.test(line)) return 'quote'
+  return null
+}
+
 export const FormatBar: React.FC<{ target: React.RefObject<HTMLTextAreaElement>; value: string; set: (v: string) => void }> = ({ target, value, set }) => {
   const t = useT()
-  const b = (label: React.ReactNode, title: string, act: () => void, cls = '') => (
-    <button type="button" className={`slk-fmt ${cls}`} title={title} aria-label={title} onMouseDown={(e) => e.preventDefault()} onClick={act}>{label}</button>
+  // The caret moves without the draft changing (arrows, a click), so the
+  // bar listens for where it is, not only for what was typed.
+  const [caret, setCaret] = useState<number | null>(null)
+  useEffect(() => {
+    const seen = () => { const el = target.current; setCaret(el && document.activeElement === el ? el.selectionStart : null) }
+    document.addEventListener('selectionchange', seen)
+    return () => document.removeEventListener('selectionchange', seen)
+  }, [target])
+  const on = caret == null ? null : lineMark(value, Math.min(caret, value.length))
+  const b = (label: React.ReactNode, title: string, act: () => void, cls = '', pressed?: boolean) => (
+    <button type="button" className={`slk-fmt ${cls}${pressed ? ' on' : ''}`} title={title} aria-label={title} aria-pressed={pressed} onMouseDown={(e) => e.preventDefault()} onClick={act}>{label}</button>
   )
   return (
     <div className="slk-format" role="toolbar" aria-label={t('Formatting')}>
@@ -617,9 +657,9 @@ export const FormatBar: React.FC<{ target: React.RefObject<HTMLTextAreaElement>;
       {b('I', t('Italic'), () => wrapSelection(target.current, value, set, '_'), 'italic')}
       {b('S', t('Strikethrough'), () => wrapSelection(target.current, value, set, '~'), 'strike')}
       {b(<Icon name="code" size={14} />, t('Code'), () => wrapSelection(target.current, value, set, '`'), 'code')}
-      {b(<Icon name="quote" size={13} />, t('Quote'), () => prefixLines(target.current, value, set, '> '))}
-      {b(<Icon name="list" size={14} />, t('Bulleted list'), () => prefixLines(target.current, value, set, '- '))}
-      {b(<Icon name="list-ordered" size={14} />, t('Numbered list'), () => prefixLines(target.current, value, set, '1. '))}
+      {b(<Icon name="quote" size={13} />, t('Quote'), () => prefixLines(target.current, value, set, '> '), '', on === 'quote')}
+      {b(<Icon name="list" size={14} />, t('Bulleted list'), () => prefixLines(target.current, value, set, BULLET), '', on === 'bullet')}
+      {b(<Icon name="list-ordered" size={14} />, t('Numbered list'), () => prefixLines(target.current, value, set, '1. '), '', on === 'numbered')}
     </div>
   )
 }

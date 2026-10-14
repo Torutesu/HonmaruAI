@@ -328,6 +328,9 @@ final class ChatTranslationTests: XCTestCase {
         XCTAssertEqual(ChatFormat.toggleLine("hello", mark: "> "), "> hello")
         XCTAssertEqual(ChatFormat.toggleLine("> hello", mark: "> "), "hello")
         XCTAssertEqual(ChatFormat.toggleLine("> hello", mark: "- "), "- hello")
+        // The bullet button writes the dot it is drawn with, and takes an old "- " off.
+        XCTAssertEqual(ChatFormat.toggleLine("milk", mark: "• "), "• milk")
+        XCTAssertEqual(ChatFormat.toggleLine("- milk", mark: "• "), "milk")
         XCTAssertEqual(ChatFormat.toggleLine("a\n3. b", mark: "1. "), "a\nb")
         XCTAssertEqual(ChatFormat.wrapLast("make this bold", "*"), "make this *bold*")
         XCTAssertEqual(ChatFormat.wrapLast("", "_"), "__")
