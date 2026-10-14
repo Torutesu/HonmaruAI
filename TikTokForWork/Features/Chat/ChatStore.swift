@@ -104,6 +104,10 @@ final class ChatStore: ObservableObject {
     /// thread's replies and a teammate's profile, drawn at once when opened
     /// again and replaced by what the server says behind them.
     private var threadReplies: [String: [ChatMessage]] = [:]
+    /// The open thread's replies still being read, or not read: said in the
+    /// sheet rather than shown as a thread with nothing in it.
+    @Published private(set) var threadLoading = false
+    @Published private(set) var threadFailed = false
     /// How far each thread was last read here, so a reply arriving while it
     /// is open is read once.
     private var threadReadTo: [String: String] = [:]
@@ -305,6 +309,28 @@ final class ChatStore: ObservableObject {
     func loadThreads() async {
         guard let orgId, let base else { return }
         if let list = try? await ChatService.threads(orgId: orgId, base: base) { threads = list }
+        // Behind, so what waits on the list does not wait on this too.
+        Task { await readAhead() }
+    }
+
+    /// A thread, read once more a moment later when the first read fails —
+    /// a phone's connection drops for a second often enough.
+    private func readThread(channel: String, parentId: String) async -> ChatThread? {
+        guard let orgId, let base else { return nil }
+        if let t = try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, base: base) { return t }
+        try? await Task.sleep(for: .seconds(1))
+        return try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, base: base)
+    }
+
+    /// The unread threads, read before they are opened (#273): opening one
+    /// then shows all of it at once. Kept in memory only, as the rest is.
+    private func readAhead() async {
+        for item in threads.filter(\.unread).prefix(3) {
+            guard let key = viewKey(item.parent.id), threadReplies[key] == nil, thread?.parent.id != item.parent.id,
+                  let orgId, let base,
+                  let t = try? await ChatService.thread(orgId: orgId, channel: item.parent.channel, messageId: item.parent.id, base: base) else { continue }
+            if threadReplies[key] == nil { threadReplies[key] = t.replies }
+        }
     }
     var unreadThreads: Int { threads.filter(\.unread).count }
     func markThreadRead(_ item: ChatThreadItem) async {
@@ -746,12 +772,27 @@ final class ChatStore: ObservableObject {
         guard let orgId, let base else { return }
         // A reply shown in the conversation opens the thread it is in.
         if let parentId = m.parentId {
-            if let head = messages[m.channel]?.first(where: { $0.id == parentId }) { return await openThread(head) }
-            guard let t = try? await ChatService.thread(orgId: orgId, channel: m.channel, messageId: parentId, base: base) else { return }
+            if let head = messages[m.channel]?.first(where: { $0.id == parentId }) ?? threads.first(where: { $0.parent.id == parentId })?.parent {
+                return await openThread(head)
+            }
+            thread = nil; threadFailed = false; threadLoading = true
+            guard let t = await readThread(channel: m.channel, parentId: parentId) else {
+                threadLoading = false; threadFailed = true
+                return
+            }
             return await openThread(t.parent)
         }
-        thread = ChatThread(parent: m, replies: viewKey(m.id).flatMap { threadReplies[$0] } ?? [])
-        if let t = try? await ChatService.thread(orgId: orgId, channel: m.channel, messageId: m.id, base: base), thread?.parent.id == m.id { thread = t }
+        // What is kept from last time — or, never opened here, the last
+        // replies Threads already holds — at once; the server's behind it.
+        // An empty sheet saying "0 replies" while it loaded read as a thread
+        // with nothing in it.
+        let kept = viewKey(m.id).flatMap { threadReplies[$0] } ?? threads.first(where: { $0.parent.id == m.id })?.replies ?? []
+        thread = ChatThread(parent: m, replies: kept)
+        threadFailed = false; threadLoading = true
+        let read = await readThread(channel: m.channel, parentId: m.id)
+        guard thread?.parent.id == m.id else { return }
+        threadLoading = false
+        if let read { thread = read } else { threadFailed = true }
         if let t = thread { await translate(m.channel, [t.parent] + t.replies) }
         // A thread opened is a thread read: Threads and Activity both stop
         // calling its replies new.

@@ -366,7 +366,7 @@ struct ConversationView: View {
                 ChatReplyingBar(quote: quote, nameOf: store.nameOf(ref:)) { replyingTo = nil }
             }
             slashSuggestions
-            mentionSuggestions
+            ChatMentionSuggestions(store: store, view: view, draft: $draft)
             mentionCheck
             composer
         }
@@ -514,110 +514,6 @@ struct ConversationView: View {
                 }.glassPanel(cornerRadius: 18)
             }
         }
-    }
-
-    /// One line of "@": what it writes, what it shows, and how.
-    private struct MentionOption: Identifiable {
-        enum Kind { case special, ai, person, agent, group }
-        let id: String
-        let insert: String
-        let label: String
-        var detail: String? = nil
-        var kind: Kind
-        var emoji: String? = nil
-        var avatarURL: String? = nil
-        var online = false
-        var outside = false
-    }
-
-    /// Who "@" offers here, as Slack orders them: @here, @channel and
-    /// @agents first; then the people in this conversation, its agents, the
-    /// groups, and the people outside it — each with a dot for whether they
-    /// are at the app now.
-    private func mentionOptions(query q: String) -> [MentionOption] {
-        let online = Set(appState.onlineLogins.map { ChatHash.short($0) })
-        let groupRefs = store.groups.first { $0.view == view }?.refs
-        func inside(_ m: ChatMember) -> Bool {
-            if m.mine { return true }
-            if view.hasPrefix("dm:") { return view == "dm:\(m.ref)" }
-            if let groupRefs { return groupRefs.contains(m.ref) }
-            return true
-        }
-        let people = store.members.filter { !$0.mine }.map { m in
-            MentionOption(id: m.ref, insert: m.handle ?? ChatMentionDirectory.runTogether(m.name), label: m.name, kind: .person,
-                          avatarURL: m.avatarUrl, online: m.loginHash.map { online.contains($0) } ?? false, outside: !inside(m))
-        }
-        let agents = store.agentMentions(in: view)
-        let here = people.filter { !$0.outside }
-        var specials = [
-            MentionOption(id: "__here", insert: "here", label: "@here", detail: String(localized: "Notifies the \(here.filter(\.online).count) people online here"), kind: .special),
-            MentionOption(id: "__channel", insert: "channel", label: "@channel", detail: String(localized: "Notifies all \(here.count) people in this conversation"), kind: .special),
-        ]
-        // "@all" is "@channel" by another name: offered once it is being typed.
-        if !q.isEmpty && "all".hasPrefix(q) {
-            specials.append(MentionOption(id: "__all", insert: "all", label: "@all", detail: String(localized: "Notifies all \(here.count) people in this conversation"), kind: .special))
-        }
-        if !agents.isEmpty {
-            specials.append(MentionOption(id: "__agents", insert: agents.map(\.handle).joined(separator: " @"), label: "@agents",
-                                          detail: String(localized: "Calls all \(agents.count) agents in this conversation"), kind: .special))
-        }
-        let ai = [MentionOption(id: "__ai", insert: "AI", label: "AI", kind: .ai)]
-        let agentOptions = agents.map { MentionOption(id: "agent:\($0.handle)", insert: $0.handle, label: $0.label, detail: "@\($0.handle)", kind: .agent, emoji: $0.emoji, avatarURL: $0.avatarUrl, online: true) }
-        let groups = store.userGroups.map { MentionOption(id: "group:\($0.handle)", insert: $0.handle, label: $0.name, detail: "@\($0.handle)", kind: .group) }
-        let ordered = specials + ai + here + agentOptions + groups + people.filter(\.outside)
-        return ordered.filter { o in
-            q.isEmpty || o.insert.lowercased().hasPrefix(q) || o.label.lowercased().hasPrefix(q) || o.label.lowercased().hasPrefix("@\(q)")
-                || o.label.lowercased().split(separator: " ").contains { $0.hasPrefix(q) }
-        }.prefix(8).map { $0 }
-    }
-
-    @ViewBuilder
-    private var mentionSuggestions: some View {
-        if let typing = Self.mentionQuery(in: draft) {
-            let hits = mentionOptions(query: typing.query.lowercased())
-            if !hits.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(hits) { o in
-                        Button {
-                            draft = typing.before + "@\(o.insert) "
-                        } label: { mentionRow(o) }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.vertical, 4)
-                .glassPanel(cornerRadius: 14)
-                .padding(.horizontal, 12)
-            }
-        }
-    }
-
-    private func mentionRow(_ o: MentionOption) -> some View {
-        HStack(spacing: 10) {
-            if o.kind == .special {
-                Text("@").font(.headline).foregroundStyle(Theme.Colors.textSecondary).frame(width: 26, height: 26)
-            } else {
-                ChatAvatar(name: o.label, isAI: o.kind == .ai, size: 26, agentEmoji: o.kind == .agent ? (o.emoji ?? "🤖") : nil, url: o.avatarURL)
-                    .overlay(alignment: .bottomTrailing) {
-                        if o.kind == .person || o.kind == .agent {
-                            Circle().fill(o.online ? Color.green : Theme.Colors.textTertiary)
-                                .frame(width: 9, height: 9)
-                                .overlay(Circle().stroke(Theme.Colors.background, lineWidth: 2))
-                                .offset(x: 2, y: 2)
-                                .accessibilityLabel(o.online ? Text("Online") : Text("Offline"))
-                        }
-                    }
-            }
-            Text(o.label).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.Colors.textPrimary).lineLimit(1)
-            Spacer(minLength: 8)
-            Group {
-                if o.kind == .agent { Text("Agent") }
-                else if o.outside { Text("Not in channel") }
-                else if let d = o.detail { Text(d) }
-            }
-            .font(.caption).foregroundStyle(Theme.Colors.textTertiary).lineLimit(1)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 7)
-        .contentShape(Rectangle())
     }
 
     /// The @names in what is being written, each saying whether it reaches
@@ -967,5 +863,119 @@ private struct ChatStaysAtBottom: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// What "@" offers while it is being typed, above a composer — in a
+/// conversation, and in a thread's reply box (the thread had none, so a
+/// name was only known to be one once it was sent).
+struct ChatMentionSuggestions: View {
+    @EnvironmentObject private var appState: AppState
+    @ObservedObject var store: ChatStore
+    let view: String
+    @Binding var draft: String
+
+    /// One line of "@": what it writes, what it shows, and how.
+    private struct MentionOption: Identifiable {
+        enum Kind { case special, ai, person, agent, group }
+        let id: String
+        let insert: String
+        let label: String
+        var detail: String? = nil
+        var kind: Kind
+        var emoji: String? = nil
+        var avatarURL: String? = nil
+        var online = false
+        var outside = false
+    }
+
+    /// Who "@" offers here, as Slack orders them: @here, @channel and
+    /// @agents first; then the people in this conversation, its agents, the
+    /// groups, and the people outside it — each with a dot for whether they
+    /// are at the app now.
+    private func mentionOptions(query q: String) -> [MentionOption] {
+        let online = Set(appState.onlineLogins.map { ChatHash.short($0) })
+        let groupRefs = store.groups.first { $0.view == view }?.refs
+        func inside(_ m: ChatMember) -> Bool {
+            if m.mine { return true }
+            if view.hasPrefix("dm:") { return view == "dm:\(m.ref)" }
+            if let groupRefs { return groupRefs.contains(m.ref) }
+            return true
+        }
+        let people = store.members.filter { !$0.mine }.map { m in
+            MentionOption(id: m.ref, insert: m.handle ?? ChatMentionDirectory.runTogether(m.name), label: m.name, kind: .person,
+                          avatarURL: m.avatarUrl, online: m.loginHash.map { online.contains($0) } ?? false, outside: !inside(m))
+        }
+        let agents = store.agentMentions(in: view)
+        let here = people.filter { !$0.outside }
+        var specials = [
+            MentionOption(id: "__here", insert: "here", label: "@here", detail: String(localized: "Notifies the \(here.filter(\.online).count) people online here"), kind: .special),
+            MentionOption(id: "__channel", insert: "channel", label: "@channel", detail: String(localized: "Notifies all \(here.count) people in this conversation"), kind: .special),
+        ]
+        // "@all" is "@channel" by another name: offered once it is being typed.
+        if !q.isEmpty && "all".hasPrefix(q) {
+            specials.append(MentionOption(id: "__all", insert: "all", label: "@all", detail: String(localized: "Notifies all \(here.count) people in this conversation"), kind: .special))
+        }
+        if !agents.isEmpty {
+            specials.append(MentionOption(id: "__agents", insert: agents.map(\.handle).joined(separator: " @"), label: "@agents",
+                                          detail: String(localized: "Calls all \(agents.count) agents in this conversation"), kind: .special))
+        }
+        let ai = [MentionOption(id: "__ai", insert: "AI", label: "AI", kind: .ai)]
+        let agentOptions = agents.map { MentionOption(id: "agent:\($0.handle)", insert: $0.handle, label: $0.label, detail: "@\($0.handle)", kind: .agent, emoji: $0.emoji, avatarURL: $0.avatarUrl, online: true) }
+        let groups = store.userGroups.map { MentionOption(id: "group:\($0.handle)", insert: $0.handle, label: $0.name, detail: "@\($0.handle)", kind: .group) }
+        let ordered = specials + ai + here + agentOptions + groups + people.filter(\.outside)
+        return ordered.filter { o in
+            q.isEmpty || o.insert.lowercased().hasPrefix(q) || o.label.lowercased().hasPrefix(q) || o.label.lowercased().hasPrefix("@\(q)")
+                || o.label.lowercased().split(separator: " ").contains { $0.hasPrefix(q) }
+        }.prefix(8).map { $0 }
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if let typing = ConversationView.mentionQuery(in: draft) {
+            let hits = mentionOptions(query: typing.query.lowercased())
+            if !hits.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(hits) { o in
+                        Button {
+                            draft = typing.before + "@\(o.insert) "
+                        } label: { mentionRow(o) }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 4)
+                .glassPanel(cornerRadius: 14)
+                .padding(.horizontal, 12)
+            }
+        }
+    }
+
+    private func mentionRow(_ o: MentionOption) -> some View {
+        HStack(spacing: 10) {
+            if o.kind == .special {
+                Text("@").font(.headline).foregroundStyle(Theme.Colors.textSecondary).frame(width: 26, height: 26)
+            } else {
+                ChatAvatar(name: o.label, isAI: o.kind == .ai, size: 26, agentEmoji: o.kind == .agent ? (o.emoji ?? "🤖") : nil, url: o.avatarURL)
+                    .overlay(alignment: .bottomTrailing) {
+                        if o.kind == .person || o.kind == .agent {
+                            Circle().fill(o.online ? Color.green : Theme.Colors.textTertiary)
+                                .frame(width: 9, height: 9)
+                                .overlay(Circle().stroke(Theme.Colors.background, lineWidth: 2))
+                                .offset(x: 2, y: 2)
+                                .accessibilityLabel(o.online ? Text("Online") : Text("Offline"))
+                        }
+                    }
+            }
+            Text(o.label).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.Colors.textPrimary).lineLimit(1)
+            Spacer(minLength: 8)
+            Group {
+                if o.kind == .agent { Text("Agent") }
+                else if o.outside { Text("Not in channel") }
+                else if let d = o.detail { Text(d) }
+            }
+            .font(.caption).foregroundStyle(Theme.Colors.textTertiary).lineLimit(1)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .contentShape(Rectangle())
     }
 }
