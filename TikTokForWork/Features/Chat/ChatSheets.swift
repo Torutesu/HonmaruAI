@@ -37,10 +37,19 @@ struct ChatThreadSheet: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         row(t.parent)
                         HStack(spacing: 8) {
-                            Text(t.replies.count == 1 ? String(localized: "1 reply") : String(localized: "\(t.replies.count) replies"))
+                            // While the replies are read: the count the
+                            // conversation already showed, and that they are
+                            // coming — not "0 replies" over an empty sheet.
+                            let known = store.threadLoading || store.threadFailed ? max(t.replies.count, t.parent.replyCount ?? 0) : t.replies.count
+                            Text(known == 1 ? String(localized: "1 reply") : String(localized: "\(known) replies"))
                                 .font(.caption.weight(.semibold)).foregroundStyle(Theme.Colors.textSecondary)
+                            if store.threadLoading && t.replies.count < known {
+                                ProgressView().controlSize(.mini)
+                                Text("Loading replies…").font(.caption).foregroundStyle(Theme.Colors.textTertiary)
+                            }
                             VStack { Divider() }
                         }.padding(.horizontal, 16).padding(.vertical, 8)
+                        if store.threadFailed { failedNote(t.parent) }
                         ForEach(t.replies) { row($0) }
                         if let step = store.thinking[t.parent.channel] { ChatAISteps(step: step).padding(.vertical, 6) }
                         ForEach((store.agentTyping[t.parent.channel] ?? []).filter { $0.parentId == nil || $0.parentId == t.parent.id }, id: \.agent.id) { typing in
@@ -48,6 +57,8 @@ struct ChatThreadSheet: View {
                         }
                         ChatBottomMarker(atBottom: $atBottom).id(Self.bottom)
                     }
+                } else if store.threadFailed {
+                    failedNote(nil)
                 } else {
                     ProgressView().padding(40)
                 }
@@ -105,6 +116,10 @@ struct ChatThreadSheet: View {
                     .accessibilityIdentifier("alsoSendToChannel")
                     if !attached.isEmpty || uploading > 0 {
                         ChatAttachedStrip(store: store, attached: $attached, uploading: uploading).padding(.horizontal, 12)
+                    }
+                    // "@" offers names here too, as in the conversation.
+                    if let channel = store.thread?.parent.channel {
+                        ChatMentionSuggestions(store: store, view: channel, draft: $draft)
                     }
                     HStack(alignment: .bottom, spacing: 8) {
                         PhotosPicker(selection: $photoItems, maxSelectionCount: 10, matching: .images) {
@@ -207,6 +222,20 @@ struct ChatThreadSheet: View {
     private func startReply(_ m: ChatMessage) {
         replyingTo = m.id == store.thread?.parent.id ? nil : m
         focused = true
+    }
+
+    /// The replies could not be read: said, with a way to read them again,
+    /// under what is already on screen.
+    private func failedNote(_ parent: ChatMessage?) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Colors.textTertiary)
+            Text("Couldn't load the replies.").font(.caption).foregroundStyle(Theme.Colors.textSecondary)
+            if let parent {
+                Button("Try again") { Task { await store.openThread(parent) } }.font(.caption.weight(.semibold))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16).padding(.vertical, parent == nil ? 40 : 6)
     }
 
     private func row(_ m: ChatMessage) -> some View {
