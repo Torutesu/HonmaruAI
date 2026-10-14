@@ -3,7 +3,7 @@
 // In keep.text, *asterisks* mark the words painted violet.
 window.I18N = {
   "en": {
-    "release.ios131": "October 12, 2026 — iOS 1.3.1 submitted for App Store review, with swipe-to-reply in chat, notification settings, and AI sharing permission remembered during the same sign-in.",
+    "release.ios132": "October 14, 2026 — iOS 1.3.2 submitted for App Store review, with notification and thread read-state fixes, clearer time labels, and consistent close buttons.",
     "preview.search": "Search decisions",
     "preview.waiting": "Waiting on you",
     "preview.decided": "Decided",
@@ -184,7 +184,7 @@ window.I18N = {
     "try.declinedCopy": "This time, it’s a no. In the app, that decision reaches the person who asked."
   },
   "ja": {
-    "release.ios131": "2026年10月12日：iOS 1.3.1をApp Storeの審査に提出しました。チャットのスワイプ返信、通知設定、同じログイン中のAI共有同意の保持に対応しています。",
+    "release.ios132": "2026年10月14日：iOS 1.3.2をApp Storeの審査に提出しました。通知とスレッドの既読連動を修正し、時刻表示と閉じるボタンを改善しています。",
     "preview.search": "判断を検索",
     "preview.waiting": "あなたの判断待ち",
     "preview.decided": "判断済み",
@@ -365,7 +365,7 @@ window.I18N = {
     "try.declinedCopy": "今回は、見送り。実際のアプリでは、その判断が相手に伝わります。"
   },
   "es": {
-    "release.ios131": "12 de octubre de 2026: iOS 1.3.1 enviado a revisión del App Store, con respuestas al deslizar en el chat, ajustes de notificaciones y permiso para compartir con la IA recordado durante la misma sesión.",
+    "release.ios132": "14 de octubre de 2026: iOS 1.3.2 enviado a revisión del App Store, con mejoras en las notificaciones y el estado de lectura de los hilos, las indicaciones de tiempo y los botones de cierre.",
     "preview.search": "Buscar decisiones",
     "preview.waiting": "Pendiente de ti",
     "preview.decided": "Decidido",
@@ -546,7 +546,7 @@ window.I18N = {
     "try.declinedCopy": "Rechazaste el ejemplo. El solicitante recibe una respuesta clara."
   },
   "fr": {
-    "release.ios131": "12 octobre 2026 : iOS 1.3.1 soumis à la validation de l’App Store, avec la réponse par balayage dans le chat, les réglages de notifications et l’autorisation de partage avec l’IA conservée pendant la même session.",
+    "release.ios132": "14 octobre 2026 : iOS 1.3.2 soumis à la validation de l’App Store, avec des corrections des notifications et du suivi de lecture des fils, des indications de temps plus claires et des boutons de fermeture cohérents.",
     "preview.search": "Rechercher des décisions",
     "preview.waiting": "En attente de vous",
     "preview.decided": "Décidé",
@@ -727,7 +727,7 @@ window.I18N = {
     "try.declinedCopy": "Vous avez refusé l’exemple. Le demandeur reçoit une réponse claire."
   },
   "de": {
-    "release.ios131": "12. Oktober 2026: iOS 1.3.1 zur App-Store-Prüfung eingereicht, mit Antworten per Wischgeste im Chat, Benachrichtigungseinstellungen und gespeicherter KI-Freigabe während derselben Anmeldung.",
+    "release.ios132": "14. Oktober 2026: iOS 1.3.2 zur App-Store-Prüfung eingereicht, mit Korrekturen bei Benachrichtigungen und dem Lesestatus von Threads, klareren Zeitangaben und einheitlichen Schließen-Schaltflächen.",
     "preview.search": "Entscheidungen suchen",
     "preview.waiting": "Wartet auf dich",
     "preview.decided": "Entschieden",
