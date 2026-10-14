@@ -102,6 +102,15 @@ struct ChatHomeView: View {
             await store.refresh()
             await store.loadInbox()
         }
+        // A tapped notification lands in Activity, on the conversation it
+        // came from: scrolled to its message, or to the thread it is in.
+        .onAppear { openPending() }
+        .onChange(of: store.pendingOpen) { _, _ in openPending() }
+    }
+
+    private func openPending() {
+        guard mode == .activity, let target = store.pendingOpen else { return }
+        path = [.conversation(view: target.channel, jump: target.parentId ?? target.messageId)]
     }
 
     // MARK: Roots

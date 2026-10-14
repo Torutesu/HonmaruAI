@@ -33,6 +33,26 @@ final class PushService: NSObject, ObservableObject {
 
     /// Set when a notification is tapped, so the feed can scroll to that card.
     @Published var pendingCardID: String?
+    /// A chat notification tapped: where its message is, to open it there.
+    @Published var pendingMessage: MessageTarget?
+
+    /// Where a chat notification's message lives, as the Worker sends it.
+    struct MessageTarget: Equatable {
+        let orgId: String?
+        let channel: String
+        let messageId: String
+        let parentId: String?
+
+        init?(_ info: [AnyHashable: Any]) {
+            guard info["kind"] as? String == "message",
+                  let channel = info["channel"] as? String, !channel.isEmpty,
+                  let messageId = info["messageId"] as? String, !messageId.isEmpty else { return nil }
+            self.channel = channel
+            self.messageId = messageId
+            self.orgId = (info["orgId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            self.parentId = (info["parentId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
+    }
 
     private var backendBaseURL: URL?
     /// This iPhone's APNs token. It belongs to the phone, not to whoever is
@@ -268,9 +288,13 @@ extension PushService: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let cardID = response.notification.request.content.userInfo["cardId"] as? String
+        let info = response.notification.request.content.userInfo
+        let cardID = info["cardId"] as? String
+        // A message's notification carries its place, not a card: opening
+        // the feed for it left you on Home with nothing to show.
+        let message = MessageTarget(info)
         Task { @MainActor in
-            PushService.shared.pendingCardID = cardID
+            if let message { PushService.shared.pendingMessage = message } else { PushService.shared.pendingCardID = cardID }
         }
         // Answered immediately rather than inside the hop: the system wants to
         // know we handled the tap, not to wait for the feed to scroll.

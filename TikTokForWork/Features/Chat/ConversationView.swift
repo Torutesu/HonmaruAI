@@ -131,6 +131,11 @@ struct ConversationView: View {
                 newSince = store.reads[view]
                 draft = store.draft(view)
                 await store.open(view)
+                // Opened from a notification for a reply: its thread too.
+                if let target = store.pendingOpen, target.channel == view {
+                    store.pendingOpen = nil
+                    if let parent = target.parentId, await store.openThread(channel: view, parentId: parent) { showThread = true }
+                }
                 if let jump {
                     highlight = jump
                     try? await Task.sleep(for: .milliseconds(250))
