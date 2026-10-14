@@ -444,3 +444,15 @@ struct ContextInsightView: View {
         }
     }
 }
+
+/// A sheet's close button: an × in its top-right corner, as the web's panes
+/// have it, read aloud as "Close".
+struct CloseButton: View {
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark").font(.body.weight(.semibold))
+        }
+        .accessibilityLabel(Text("Close"))
+    }
+}
