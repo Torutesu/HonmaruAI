@@ -77,6 +77,10 @@ struct AppShell: View {
         }
         .onChange(of: appState.currentUser?.teamID) { _, _ in composer.teamChanged() }
         .onChange(of: push.pendingCardID) { _, id in if id != nil { homeList = false; tab = .home } }
+        // A chat notification: its workspace, then its conversation. Also on
+        // appearing, for the tap that launched the app.
+        .onChange(of: push.pendingMessage) { _, _ in Task { await openTappedMessage() } }
+        .onAppear { Task { await openTappedMessage() } }
         .onReceive(appState.webSocketService.$deliveryError) { if let message = $0 { composer.restoreRejectedDraft(appState: appState); deliveryError = message } }
         .alert("Delivery needs attention", isPresented: Binding(get: { deliveryError != nil }, set: { if !$0 { deliveryError = nil } })) {
             Button("OK") { deliveryError = nil; appState.webSocketService.clearDeliveryError() }
@@ -85,6 +89,19 @@ struct AppShell: View {
             Button("View history") { sentMessage = nil; showHistory = true }
             Button("OK", role: .cancel) { sentMessage = nil }
         } message: { Text(sentMessage ?? "") }
+    }
+
+    @MainActor private func openTappedMessage() async {
+        guard let target = push.pendingMessage, !appState.isGuest else { return }
+        push.pendingMessage = nil
+        if let org = target.orgId, org != appState.currentUser?.teamID {
+            // Not a workspace this account is in any more: nothing to open.
+            guard (try? await appState.switchToJoinedTeam(org)) != nil, appState.currentUser?.teamID == org else { return }
+        }
+        // A tap that launched the app can come before the chat is bound.
+        chat.bind(appState)
+        tab = .activity
+        chat.pendingOpen = target
     }
 
     /// The phone's part of onboarding: once per person and workspace on this

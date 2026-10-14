@@ -384,3 +384,24 @@ final class ChatTranslationTests: XCTestCase {
         XCTAssertTrue(ChatQuote(of: unsent).deleted)
     }
 }
+
+/// A chat notification tapped opens where its message is, not Home.
+final class ChatNotificationTargetTests: XCTestCase {
+    func testAMessagesNotificationNamesItsPlace() {
+        // As the Worker sends it (worker/src/pushes.js pushMessage).
+        let reply = PushService.MessageTarget(["kind": "message", "orgId": "org1", "channel": "c:general", "messageId": "m2", "parentId": "m1"])
+        XCTAssertEqual(reply?.orgId, "org1")
+        XCTAssertEqual(reply?.channel, "c:general")
+        XCTAssertEqual(reply?.messageId, "m2")
+        XCTAssertEqual(reply?.parentId, "m1")
+        let post = PushService.MessageTarget(["kind": "message", "orgId": "org1", "channel": "dm:a|b", "messageId": "m3", "parentId": NSNull()])
+        XCTAssertNotNil(post)
+        XCTAssertNil(post?.parentId)
+    }
+
+    func testACardsOrAReadNotificationIsNotAMessageToOpen() {
+        XCTAssertNil(PushService.MessageTarget(["cardId": "card1"]))
+        XCTAssertNil(PushService.MessageTarget(["kind": "read", "orgId": "org1", "channel": "c:general"]))
+        XCTAssertNil(PushService.MessageTarget(["kind": "message", "channel": "c:general"]))
+    }
+}

@@ -97,6 +97,9 @@ final class ChatStore: ObservableObject {
         didSet { if let t = thread, let key = viewKey(t.parent.id) { threadReplies[key] = t.replies.filter { !$0.id.hasPrefix("tmp-") } } }
     }
     @Published var error: String?
+    /// A tapped notification's message, in this workspace, waiting for
+    /// Activity to open its conversation (and the conversation its thread).
+    @Published var pendingOpen: PushService.MessageTarget?
     /// What was last shown, in memory, for this account and workspace: a
     /// thread's replies and a teammate's profile, drawn at once when opened
     /// again and replaced by what the server says behind them.
@@ -729,6 +732,16 @@ final class ChatStore: ObservableObject {
         if level == "default" { prefs[view] = nil } else { prefs[view] = level }
         try? await ChatService.setPref(orgId: orgId, channel: view, level: level, base: base)
     }
+    /// The thread under a message known only by its id — a notification's.
+    /// False when it could not be fetched.
+    func openThread(channel: String, parentId: String) async -> Bool {
+        if let head = messages[channel]?.first(where: { $0.id == parentId }) { await openThread(head); return true }
+        guard let orgId, let base,
+              let t = try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, base: base) else { return false }
+        await openThread(t.parent)
+        return true
+    }
+
     func openThread(_ m: ChatMessage) async {
         guard let orgId, let base else { return }
         // A reply shown in the conversation opens the thread it is in.
