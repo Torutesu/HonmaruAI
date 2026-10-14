@@ -36,13 +36,13 @@ struct ChannelRecordSheet: View {
             .navigationTitle(Text(verbatim: "#\(title)"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
                 ToolbarItem(placement: .primaryAction) {
                     Button { Task { await copy() } } label: {
                         Label(copied ? LocalizedStringKey("Copied") : LocalizedStringKey("Copy as Markdown"), systemImage: copied ? "checkmark" : "doc.on.doc")
                     }
                     .disabled(record == nil)
                 }
+                ToolbarItem(placement: .topBarTrailing) { CloseButton { dismiss() } }
             }
             .task { await load() }
         }

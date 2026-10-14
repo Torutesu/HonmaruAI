@@ -161,7 +161,7 @@ struct ChatThreadSheet: View {
                 }.padding(.vertical, 8)
             }
             .navigationTitle("Thread").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { CloseButton { dismiss() } } }
             // Its message deleted, the thread went with it: nothing left to show.
             .onChange(of: store.thread?.parent.id, initial: true) { old, new in
                 alsoChannel = false
@@ -294,7 +294,7 @@ struct ChatProfileSheet: View {
                 }
             }
             .navigationTitle("Profile").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { CloseButton { dismiss() } } }
             .task { await load() }
         }
         .presentationDetents([.medium, .large])
