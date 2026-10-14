@@ -418,7 +418,7 @@ struct ConversationView: View {
                     // Quote, list, numbered list, bold and the rest, as on the web.
                     Menu {
                         Button { draft = ChatFormat.toggleLine(draft, mark: "> ") } label: { Label("Quote", systemImage: "text.quote") }
-                        Button { draft = ChatFormat.toggleLine(draft, mark: "- ") } label: { Label("Bulleted list", systemImage: "list.bullet") }
+                        Button { draft = ChatFormat.toggleLine(draft, mark: "• ") } label: { Label("Bulleted list", systemImage: "list.bullet") }
                         Button { draft = ChatFormat.toggleLine(draft, mark: "1. ") } label: { Label("Numbered list", systemImage: "list.number") }
                         Divider()
                         Button { draft = ChatFormat.wrapLast(draft, "*") } label: { Label("Bold", systemImage: "bold") }

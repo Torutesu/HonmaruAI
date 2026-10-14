@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { renderRich, prefixLines, continueBlock } from './MessageParts'
+import { renderRich, prefixLines, continueBlock, bulletOnSpace, lineMark, BULLET } from './MessageParts'
 
 const html = (text: string) => renderToStaticMarkup(<>{renderRich(text, () => 'mention')}</>)
 
@@ -108,6 +108,33 @@ describe('the quote and list buttons', () => {
     expect(n.state.value).toBe('1. a\n2. ')
     const plain = box('hello', 5)
     expect(continueBlock(plain.state.el as unknown as HTMLTextAreaElement, plain.state.value, plain.set)).toBe(false)
+  })
+
+  it('write a bullet as the dot it is drawn with, and take an old "- " off as the same bullet', () => {
+    const { state, set } = box('milk', 0)
+    prefixLines(state.el as unknown as HTMLTextAreaElement, state.value, set, BULLET)
+    expect(state.value).toBe('• milk')
+    const old = box('- a\n- b', 0, 7)
+    prefixLines(old.state.el as unknown as HTMLTextAreaElement, old.state.value, old.set, BULLET)
+    expect(old.state.value).toBe('a\nb')
+    expect(html('• a\n• b')).toBe('<ul class="slk-ul"><li>a</li><li>b</li></ul>')
+  })
+
+  it('turn "- " or "* " typed at the start of a line into a bullet, and nothing else', () => {
+    const typed = (value: string, caret: number, data = ' ', inputType = 'insertText') =>
+      bulletOnSpace({ target: { value, selectionStart: caret, setSelectionRange() {} }, nativeEvent: { inputType, data } } as unknown as React.ChangeEvent<HTMLTextAreaElement>)
+    expect(typed('- ', 2)).toBe('• ')
+    expect(typed('first\n* ', 8)).toBe('first\n• ')
+    expect(typed('a - ', 4)).toBe('a - ')
+    expect(typed('- ', 2, ' ', 'deleteContentBackward')).toBe('- ')
+    expect(typed('*bold* ', 7)).toBe('*bold* ')
+  })
+
+  it('know which mark the caret’s line has', () => {
+    expect(lineMark('a\n• b', 4)).toBe('bullet')
+    expect(lineMark('a\n• b', 1)).toBe(null)
+    expect(lineMark('2. x', 4)).toBe('numbered')
+    expect(lineMark('> q', 3)).toBe('quote')
   })
 })
 

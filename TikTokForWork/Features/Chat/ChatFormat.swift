@@ -19,7 +19,10 @@ enum ChatFormat {
         let last = lines.removeLast()
         let current = markOf(last)
         let bare = current.map { String(last.dropFirst($0.count)) } ?? last
-        let same = current == mark || (mark == "1. " && current.map { ChatRichText.numbered($0 + "x") != nil } == true)
+        // A bullet typed as "- " is the same bullet the button writes as "• ".
+        let bullets: Set<String> = ["- ", "• "]
+        let same = current == mark || (bullets.contains(mark) && current.map(bullets.contains) == true)
+            || (mark == "1. " && current.map { ChatRichText.numbered($0 + "x") != nil } == true)
         let next = same ? bare : (mark == "1. " ? "1. " : mark) + bare
         return (lines + [next]).joined(separator: "\n")
     }

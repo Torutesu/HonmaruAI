@@ -39,7 +39,7 @@ import { useCustomEmoji, loadCustomEmoji, customEmojiUrl } from '../utils/custom
 import { messageContextEntries, messageMenuTriggers, type MessageMenuActions } from '../utils/messageMenu'
 import { rememberEmoji, useQuickReactions } from '../utils/emojiSearch'
 import { DailyReportDraft } from './DailyReport'
-import { MessageActions, CardActions, Reactions, EmojiPicker, EmojiPickerAt, EmojiGlyph, FormatBar, continueBlock, renderRich, LinkCards, SlashMenu, SchedulePicker, parseScheduleCommand, TypingLine, ReplyQuoteLine, ThreadReplyLine, ReplyingBar, UnsentNote } from './MessageParts'
+import { MessageActions, CardActions, Reactions, EmojiPicker, EmojiPickerAt, EmojiGlyph, FormatBar, bulletOnSpace, continueBlock, renderRich, LinkCards, SlashMenu, SchedulePicker, parseScheduleCommand, TypingLine, ReplyQuoteLine, ThreadReplyLine, ReplyingBar, UnsentNote } from './MessageParts'
 import { heard as heardTyping, said, expire, nextExpiry as nextTypingExpiry, typistsIn, typedIn, stoppedIn, sendTyping } from '../utils/typing'
 import type { Typist, TypingEvent, Outgoing as TypingOut, Place, Signal } from '../utils/typing'
 import { quoteOf, refreshQuotes } from '../utils/replies'
@@ -4364,7 +4364,7 @@ export const ClassicList: React.FC<Props> = ({
               maxLength={4000}
               placeholder={t('Reply… — @AI to ask the AI')}
               aria-label={t('Reply in thread')}
-              onChange={(e) => { setThreadDraft(e.target.value); threadMention.track(); typed({ channel: thread.channel, parentId: thread.parent.id }, e.target.value); writing() }}
+              onChange={(e) => { const v = bulletOnSpace(e); setThreadDraft(v); threadMention.track(); typed({ channel: thread.channel, parentId: thread.parent.id }, v); writing() }}
               onBlur={() => stoppedTyping({ channel: thread.channel, parentId: thread.parent.id })}
               onKeyUp={threadMention.track}
               onClick={threadMention.track}
@@ -4922,7 +4922,7 @@ export const ClassicList: React.FC<Props> = ({
               placeholder={placeholder}
               aria-label={placeholder}
               aria-describedby={replying ? 'slk-replying-text' : undefined}
-              onChange={(e) => { setDraft(e.target.value); mention.track(); typed({ channel: thread.view!, parentId: null }, e.target.value); writing() }}
+              onChange={(e) => { const v = bulletOnSpace(e); setDraft(v); mention.track(); typed({ channel: thread.view!, parentId: null }, v); writing() }}
               onBlur={() => stoppedTyping({ channel: thread.view!, parentId: null })}
               onKeyUp={mention.track}
               onClick={mention.track}
