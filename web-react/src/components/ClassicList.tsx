@@ -209,6 +209,14 @@ interface AgentWriting { id: string; name: string; emoji: string | null; avatarU
 /// Whose face goes beside something: a name, and their photo if they have one.
 /// `emoji`: an agent's face — a tile, not a person's photo.
 interface Face { name: string; url?: string | null; emoji?: string | null; picture?: string | null }
+/// How long a conversation or thread read ahead of being opened counts as
+/// fresh: pointed at again within it, it is not read again (#273).
+const AHEAD_FRESH_MS = 60_000
+/// How many of each list are read ahead in the background, and how they
+/// are spaced: after the screen has settled, one at a time.
+const AHEAD_COUNT = 3
+const AHEAD_DELAY_MS = 1500
+const AHEAD_GAP_MS = 400
 /// One notification: somebody named you, replied in your thread, or reacted
 /// to what you wrote.
 /// A thread you are in: its first message, the last replies, how many.
@@ -1275,7 +1283,7 @@ export const ClassicList: React.FC<Props> = ({
     } : {}
     return (
       <li key={thread.key} data-view={thread.view} {...drag} onContextMenu={wide && view ? (e) => { e.preventDefault(); setRowMenu({ thread, x: e.clientX, y: e.clientY, anchor: e.currentTarget }) } : undefined} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}${thread.view && prefs[thread.view] === 'mute' ? ' muted' : ''}${dragging === view ? ' dragging' : ''}${drop}`}>
-        <button className="cl-open" onClick={() => choose(thread.key)} aria-current={on ? 'true' : undefined}>
+        <button className="cl-open" onClick={() => choose(thread.key)} onPointerEnter={() => prefetchConversation(thread.view)} onFocus={() => prefetchConversation(thread.view)} aria-current={on ? 'true' : undefined}>
           {lead(thread, 'row')}
           <span className="cl-title">{thread.name}</span>
           {thread.kind === 'person' && (() => {
@@ -1526,6 +1534,48 @@ export const ClassicList: React.FC<Props> = ({
     }
   }, [api.httpBase, api.orgId, authHeaders, more])
   useEffect(() => { if (view) void loadMessages(view, false) }, [view, loadMessages])
+  /// A conversation read before it is opened (#273): pointed at in the
+  /// sidebar, or waiting unread. Opening it then draws what is kept at once
+  /// and reads the newest page behind it, as a conversation opened before
+  /// does. A read, not a visit: nothing is marked read by it.
+  const prefetchConversation = useCallback((v: string | null | undefined) => {
+    if (v && v !== view) void loadMessages(v, false)
+  }, [view, loadMessages])
+  /// A thread's replies, the same way: kept for when it is opened, from
+  /// Threads, Activity or its "replies" line.
+  const threadLoads = useRef(new Map<string, Promise<void>>())
+  const prefetchThread = useCallback((channel: string, parentId: string | null | undefined) => {
+    if (!channel || !parentId || isTemp({ id: parentId })) return
+    const key = `thread:${channel}:${parentId}`
+    if (views.fresh(key, AHEAD_FRESH_MS) || threadLoads.current.has(key)) return
+    const task = fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(parentId)}`, { headers: authHeaders })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data?.parent) return
+        views.set(key, ((data.replies || []) as ChannelMessage[]).filter((r) => !isTemp(r)))
+        views.set(`threadHead:${channel}:${parentId}`, data.parent)
+      })
+      .catch(() => {})
+      .finally(() => threadLoads.current.delete(key))
+    threadLoads.current.set(key, task)
+  }, [api.httpBase, api.orgId, authHeaders, views])
+  // What is most likely opened next — the unread conversations, and the
+  // unread threads in Threads and Activity — read ahead a few at a time,
+  // a moment after the lists come in, not all at once with them.
+  const aheadKey = JSON.stringify([
+    ...everything.filter((th) => th.unread > 0 && th.view).slice(0, AHEAD_COUNT).map((th) => [th.view]),
+    ...(threadItems || []).filter((x) => x.unread).slice(0, AHEAD_COUNT).map((x) => [x.parent.channel, x.parent.id]),
+    ...(activityItems || []).filter((i) => i.unread && i.message.parentId).slice(0, AHEAD_COUNT).map((i) => [i.message.channel, i.message.parentId]),
+  ])
+  useEffect(() => {
+    const ahead = JSON.parse(aheadKey) as Array<[string, string?]>
+    const seen = new Set<string>()
+    const timers = ahead.filter((x) => !seen.has(x.join('\n')) && seen.add(x.join('\n'))).map(([channel, parentId], n) => setTimeout(() => {
+      if (parentId) prefetchThread(channel, parentId)
+      else prefetchConversation(channel)
+    }, AHEAD_DELAY_MS + n * AHEAD_GAP_MS))
+    return () => timers.forEach(clearTimeout)
+  }, [aheadKey, prefetchConversation, prefetchThread])
   // Where you were up to when you opened it: the red "New" line goes there.
   const [newSince, setNewSince] = useState<{ view: string; at: string } | null>(null)
   useEffect(() => {
@@ -2848,6 +2898,7 @@ export const ClassicList: React.FC<Props> = ({
     // it was open before, or before this page loaded — back in it.
     const back = data ? heldFor(channel, m.id, data.replies || []) : []
     if (data) setThread((prev) => (prev && prev.parent.id === m.id ? { channel, parent: data.parent, replies: withHeld(keepTemps(data.replies || [], prev.replies), back) } : prev))
+    if (data?.parent) views.set(`threadHead:${channel}:${m.id}`, data.parent)
     requestAnimationFrame(() => threadComposer.current?.focus())
     markThreadRead(channel, m.id)
   }
@@ -2860,9 +2911,22 @@ export const ClassicList: React.FC<Props> = ({
     if (!activityOpen && threadInActivity.current) { threadInActivity.current = false; setThread(null) }
   }, [activityOpen])
   const showThreadIn = async (channel: string, parentId: string, focusId: string) => {
+    // What was read ahead, or last time, at once; the server's when it comes.
+    const kept = views.get<ChannelMessage[]>(`thread:${channel}:${parentId}`)
+    const head = views.get<ChannelMessage>(`threadHead:${channel}:${parentId}`)
+    if (kept && head) {
+      threadInActivity.current = true
+      setThread((prev) => ({ channel, parent: head, replies: keepTemps(kept, prev && prev.parent.id === parentId ? prev.replies : undefined), loading: true }))
+    }
     const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(parentId)}`, { headers: authHeaders }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) : null
-    if (!data?.parent) { setThread(null); return }
+    if (!data?.parent) {
+      // Kept on screen when the read fails, saying so, rather than taken away.
+      if (kept && head) setThread((prev) => (prev && prev.parent.id === parentId ? { ...prev, loading: false, failed: true } : prev))
+      else setThread(null)
+      return
+    }
+    views.set(`threadHead:${channel}:${parentId}`, data.parent)
     threadInActivity.current = true
     const back = heldFor(channel, parentId, data.replies || [])
     setThread((prev) => ({ channel, parent: data.parent, replies: withHeld(keepTemps(data.replies || [], prev && prev.parent.id === parentId ? prev.replies : undefined), back) }))
@@ -3754,7 +3818,7 @@ export const ClassicList: React.FC<Props> = ({
       )}
       {pickerFor === pickerKey(m, inThread) && <div className="slk-picker-anchor"><EmojiPicker onPick={(e) => react(channel, m, e)} onClose={() => setPickerFor(null)} /></div>}
       {!inThread && (m.replyCount || 0) > 0 && (
-        <button type="button" className="slk-thread-link" onClick={() => void openThread(channel, m)}>
+        <button type="button" className="slk-thread-link" onClick={() => void openThread(channel, m)} onPointerEnter={() => prefetchThread(channel, m.id)} onFocus={() => prefetchThread(channel, m.id)}>
           <span className="slk-thread-faces" aria-hidden="true">
             {(m.replyRefs || []).slice(0, 3).map((r) => replyFace(r))}
           </span>
@@ -4052,7 +4116,7 @@ export const ClassicList: React.FC<Props> = ({
           const who = whoSaid
           const open = () => { markThreadRead(x.parent.channel, x.parent.id); openAt({ view: x.parent.channel, id: x.parent.id, parentId: x.parent.id }) }
           return (
-            <article key={x.parent.id} className={`slk-thread-card${x.unread ? ' unread' : ''}`} data-thread={x.parent.id}>
+            <article key={x.parent.id} className={`slk-thread-card${x.unread ? ' unread' : ''}`} data-thread={x.parent.id} onPointerEnter={() => { prefetchConversation(x.parent.channel); prefetchThread(x.parent.channel, x.parent.id) }}>
               <button type="button" className="slk-thread-where" onClick={open}>
                 {th?.kind === 'channel' ? <Icon name="hash" size={12} /> : <Icon name="message" size={12} />}
                 {th ? th.name : ''}
@@ -4171,6 +4235,11 @@ export const ClassicList: React.FC<Props> = ({
     // all at once without opening each conversation (#213).
     const mentionsUnread = (activityItems || []).filter((i) => i.unread && i.type === 'mention')
     const picked = (activityItems || []).find((i) => keyOf(i) === activityPick) || null
+    // Pointed at: its thread, or on a narrow screen its conversation, read ahead.
+    const readAhead = (i: ActivityItem) => {
+      prefetchThread(i.message.channel, i.message.parentId || ((i.message.replyCount || 0) > 0 ? i.message.id : null))
+      if (!wide) prefetchConversation(i.message.channel)
+    }
     const open = (i: ActivityItem) => {
       markActivitySeen([keyOf(i)])
       if (wide) {
@@ -4218,7 +4287,7 @@ export const ClassicList: React.FC<Props> = ({
               const m = i.message
               const who = whoOf(i)
               return (
-                <button key={keyOf(i)} type="button" data-key={i.unread ? keyOf(i) : undefined} className={`slk-act slk-note${i.unread ? ' unread' : ''}${activityPick === keyOf(i) ? ' on' : ''}`} onClick={() => open(i)} data-kind={i.type}>
+                <button key={keyOf(i)} type="button" data-key={i.unread ? keyOf(i) : undefined} className={`slk-act slk-note${i.unread ? ' unread' : ''}${activityPick === keyOf(i) ? ' on' : ''}`} onClick={() => open(i)} onPointerEnter={() => readAhead(i)} onFocus={() => readAhead(i)} data-kind={i.type}>
                   <span className="slk-note-avatar" aria-hidden="true">{m.kind === 'ai' && i.type !== 'reaction'
                     ? <img src="/icon.svg" alt="" width={32} height={32} />
                     : m.kind === 'agent' && i.type !== 'reaction'
@@ -5074,7 +5143,7 @@ export const ClassicList: React.FC<Props> = ({
             const said = a ? `${a.lastBy === 'me' ? `${t('You')}: ` : ''}${a.last ? shownBody(a.last).text.replace(/\s+/g, ' ').slice(0, 120) : a.preview}` : th.latest ? titleOf(th.latest) : (th.app === 'ai' ? t('Tell your AI…') : th.kind === 'agent' ? `@${th.agent?.handle || ''}` : t('Say hello'))
             return (
               <li key={th.key}>
-                <button type="button" className={`cl-dm${th.unread || th.fresh ? ' unread' : ''}`} onClick={() => choose(th.key)}>
+                <button type="button" className={`cl-dm${th.unread || th.fresh ? ' unread' : ''}`} onClick={() => choose(th.key)} onPointerEnter={() => prefetchConversation(th.view)} onFocus={() => prefetchConversation(th.view)}>
                   {th.app === 'ai'
                     ? <span className="cl-dm-face app" aria-hidden="true"><img src="/icon.svg" alt="" width={40} height={40} /></span>
                     : th.kind === 'agent'
