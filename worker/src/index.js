@@ -37,6 +37,7 @@ import { createTeam, renameTeam, teamName, canRename } from "./orgs.js";
 import { settleUsage, jevEntry } from "./ledger.js";
 import { runScheduledSync, runAutomations } from "./scheduled.js";
 import { handleAutomation } from "./automation.js";
+import { handleHarness } from "./harness/routes.js";
 import { handleChannels, broadcastStored, watchTeammateRuns, caller } from "./channelRoutes.js";
 import { handleAudit, audit, auditEverywhere, person, migrateLegacyAudit } from "./audit.js";
 import { shredPerson } from "./auditCrypto.js";
@@ -429,6 +430,11 @@ async function handle(request, env, url, ctx) {
     // What to tell your AI, from your own work.
     const suggested = await handleSuggestions(request, env, url);
     if (suggested) return suggested;
+
+    // The harness: mode, Tables, Apps, agents as members, Workflows
+    // (docs/kylon-gap-plan.md).
+    const harnessed = await handleHarness(request, env, url);
+    if (harnessed) return harnessed;
 
     // Routines, the playbook, agent tokens and the MCP endpoint.
     const automated = await handleAutomation(request, env, url, ctx);

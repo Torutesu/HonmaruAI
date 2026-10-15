@@ -1,0 +1,237 @@
+// Tables: the typed database under an App (docs/kylon-gap-plan.md).
+//
+// A table names its columns; a row is JSON keyed by column id. Values are
+// coerced to the column's type on the way in, so a view or an agent reading
+// a row never has to guess whether "1,200" is a number.
+
+export const COLUMN_TYPES = ["text", "number", "date", "select", "checkbox", "url", "person", "email"];
+export const MAX_COLUMNS = 40;
+export const MAX_ROWS = 5000;
+export const MAX_TABLES_PER_ORG = 200;
+
+const newId = (prefix) => `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+const now = () => new Date().toISOString();
+
+/// Column ids are short and stable: renaming a column keeps its data.
+function columnId(name, taken) {
+  const base = String(name).toLowerCase().normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "").slice(0, 24) || "col";
+  let id = base;
+  for (let n = 2; taken.has(id); n += 1) id = `${base}_${n}`;
+  taken.add(id);
+  return id;
+}
+
+/// Clean a column list, or say what is wrong with it.
+export function normalizeColumns(input, existing = []) {
+  if (!Array.isArray(input) || input.length === 0) return { error: "A table needs at least one column." };
+  if (input.length > MAX_COLUMNS) return { error: `A table has at most ${MAX_COLUMNS} columns.` };
+  const taken = new Set();
+  const known = new Map(existing.map((c) => [c.id, c]));
+  const out = [];
+  for (const raw of input) {
+    const name = String(raw?.name ?? "").trim().slice(0, 60);
+    if (!name) return { error: "Every column needs a name." };
+    const type = COLUMN_TYPES.includes(raw?.type) ? raw.type : "text";
+    let id = typeof raw?.id === "string" && known.has(raw.id) && !taken.has(raw.id) ? raw.id : null;
+    if (id) taken.add(id);
+    else id = columnId(name, taken);
+    const column = { id, name, type };
+    if (type === "select") {
+      const options = (Array.isArray(raw.options) ? raw.options : [])
+        .map((o) => String(o ?? "").trim().slice(0, 40))
+        .filter(Boolean);
+      column.options = [...new Set(options)].slice(0, 30);
+    }
+    out.push(column);
+  }
+  return { columns: out };
+}
+
+/// One value, as its column keeps it. Undefined means "leave it out".
+export function coerce(column, value) {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  switch (column.type) {
+    case "number": {
+      const n = typeof value === "number" ? value : Number(String(value).replace(/[,\s$¥€£]/g, ""));
+      return Number.isFinite(n) ? n : null;
+    }
+    case "checkbox":
+      return value === true || value === 1 || ["true", "yes", "1", "on"].includes(String(value).toLowerCase());
+    case "date": {
+      const s = String(value).trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      const d = new Date(s);
+      return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+    }
+    case "select": {
+      const s = String(value).trim();
+      return column.options?.includes(s) ? s : null;
+    }
+    case "url": {
+      const s = String(value).trim();
+      return /^https?:\/\//i.test(s) ? s.slice(0, 2000) : null;
+    }
+    case "email": {
+      const s = String(value).trim();
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) ? s.slice(0, 320) : null;
+    }
+    case "person":
+      return String(value).trim().replace(/^@/, "").slice(0, 64) || null;
+    default:
+      return String(value).slice(0, 5000);
+  }
+}
+
+/// A row's values, cleaned against the table. Unknown keys are dropped; a
+/// column may be named by its id or its name.
+export function cleanValues(columns, values) {
+  const out = {};
+  if (!values || typeof values !== "object") return out;
+  const byName = new Map(columns.map((c) => [c.name.toLowerCase(), c]));
+  const byId = new Map(columns.map((c) => [c.id, c]));
+  for (const [key, value] of Object.entries(values)) {
+    const column = byId.get(key) || byName.get(String(key).toLowerCase());
+    if (!column) continue;
+    const v = coerce(column, value);
+    if (v !== undefined) out[column.id] = v;
+  }
+  return out;
+}
+
+const parse = (s, fallback) => { try { return JSON.parse(s); } catch { return fallback; } };
+const publicTable = (row) => row && ({
+  id: row.id, orgId: row.org_id, name: row.name, columns: parse(row.columns, []),
+  createdBy: row.created_by, createdAt: row.created_at, updatedAt: row.updated_at,
+});
+const publicRow = (row) => row && ({
+  id: row.id, tableId: row.table_id, values: parse(row.data, {}), position: row.position,
+  createdBy: row.created_by, updatedBy: row.updated_by, createdAt: row.created_at, updatedAt: row.updated_at,
+});
+
+export async function createTable(db, { orgId, name, columns, by }) {
+  const clean = String(name ?? "").trim().slice(0, 80);
+  if (!clean) return { error: "Give the table a name." };
+  const cols = normalizeColumns(columns);
+  if (cols.error) return cols;
+  const count = await db.prepare("SELECT COUNT(*) AS n FROM hx_tables WHERE org_id = ?1").bind(orgId).first();
+  if (Number(count?.n || 0) >= MAX_TABLES_PER_ORG) return { error: "This workspace has as many tables as it can hold." };
+  const id = newId("tbl");
+  const at = now();
+  await db
+    .prepare("INSERT INTO hx_tables (id, org_id, name, columns, created_by, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)")
+    .bind(id, orgId, clean, JSON.stringify(cols.columns), String(by), at)
+    .run();
+  return { table: await getTable(db, orgId, id) };
+}
+
+export async function getTable(db, orgId, id) {
+  return publicTable(await db.prepare("SELECT * FROM hx_tables WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first());
+}
+
+export async function listTables(db, orgId) {
+  const { results } = await db.prepare("SELECT * FROM hx_tables WHERE org_id = ?1 ORDER BY created_at ASC").bind(orgId).all();
+  return (results || []).map(publicTable);
+}
+
+export async function updateTable(db, orgId, id, { name, columns }) {
+  const table = await getTable(db, orgId, id);
+  if (!table) return { error: "No such table.", status: 404 };
+  const next = { name: table.name, columns: table.columns };
+  if (name !== undefined) {
+    const clean = String(name ?? "").trim().slice(0, 80);
+    if (!clean) return { error: "Give the table a name." };
+    next.name = clean;
+  }
+  if (columns !== undefined) {
+    const cols = normalizeColumns(columns, table.columns);
+    if (cols.error) return cols;
+    next.columns = cols.columns;
+  }
+  await db
+    .prepare("UPDATE hx_tables SET name = ?1, columns = ?2, updated_at = ?3 WHERE id = ?4 AND org_id = ?5")
+    .bind(next.name, JSON.stringify(next.columns), now(), id, orgId)
+    .run();
+  return { table: await getTable(db, orgId, id) };
+}
+
+export async function deleteTable(db, orgId, id) {
+  const inUse = await db.prepare("SELECT id FROM hx_apps WHERE table_id = ?1 AND org_id = ?2 LIMIT 1").bind(id, orgId).first();
+  if (inUse) return { error: "An app is built on this table. Delete the app first.", status: 409 };
+  await db.prepare("DELETE FROM hx_rows WHERE table_id = ?1 AND org_id = ?2").bind(id, orgId).run();
+  const res = await db.prepare("DELETE FROM hx_tables WHERE id = ?1 AND org_id = ?2").bind(id, orgId).run();
+  return res.meta?.changes ? { deleted: true } : { error: "No such table.", status: 404 };
+}
+
+/// Rows, optionally narrowed: `where` is { columnId: value } (equality),
+/// `q` matches any text, `sort` is a column id with an optional leading "-".
+export async function listRows(db, orgId, tableId, { where, q, sort, limit = 500 } = {}) {
+  const table = await getTable(db, orgId, tableId);
+  if (!table) return { error: "No such table.", status: 404 };
+  const { results } = await db
+    .prepare("SELECT * FROM hx_rows WHERE table_id = ?1 AND org_id = ?2 ORDER BY position ASC, created_at ASC LIMIT ?3")
+    .bind(tableId, orgId, MAX_ROWS)
+    .all();
+  let rows = (results || []).map(publicRow);
+  if (where && typeof where === "object") {
+    const clean = cleanValues(table.columns, where);
+    rows = rows.filter((r) => Object.entries(clean).every(([k, v]) => r.values[k] === v));
+  }
+  if (q) {
+    const needle = String(q).toLowerCase();
+    rows = rows.filter((r) => Object.values(r.values).some((v) => v != null && String(v).toLowerCase().includes(needle)));
+  }
+  if (sort) {
+    const desc = String(sort).startsWith("-");
+    const key = String(sort).replace(/^-/, "");
+    rows.sort((a, b) => {
+      const x = a.values[key], y = b.values[key];
+      if (x == null && y == null) return 0;
+      if (x == null) return 1;
+      if (y == null) return -1;
+      const c = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
+      return desc ? -c : c;
+    });
+  }
+  return { table, rows: rows.slice(0, Math.max(1, Math.min(Number(limit) || 500, MAX_ROWS))) };
+}
+
+export async function getRow(db, orgId, tableId, rowId) {
+  return publicRow(await db.prepare("SELECT * FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3").bind(rowId, tableId, orgId).first());
+}
+
+export async function addRow(db, orgId, tableId, values, by) {
+  const table = await getTable(db, orgId, tableId);
+  if (!table) return { error: "No such table.", status: 404 };
+  const count = await db.prepare("SELECT COUNT(*) AS n, MAX(position) AS p FROM hx_rows WHERE table_id = ?1").bind(tableId).first();
+  if (Number(count?.n || 0) >= MAX_ROWS) return { error: `A table holds at most ${MAX_ROWS} rows.` };
+  const id = newId("row");
+  const at = now();
+  await db
+    .prepare("INSERT INTO hx_rows (id, table_id, org_id, data, position, created_by, updated_by, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?7)")
+    .bind(id, tableId, orgId, JSON.stringify(cleanValues(table.columns, values)), Number(count?.p || 0) + 1, String(by), at)
+    .run();
+  return { table, row: await getRow(db, orgId, tableId, id) };
+}
+
+/// Change some values of a row; the others stay. Returns the row before and
+/// after, so a caller can tell what changed (Workflows trigger on it).
+export async function updateRow(db, orgId, tableId, rowId, values, by) {
+  const table = await getTable(db, orgId, tableId);
+  if (!table) return { error: "No such table.", status: 404 };
+  const before = await getRow(db, orgId, tableId, rowId);
+  if (!before) return { error: "No such row.", status: 404 };
+  const merged = { ...before.values, ...cleanValues(table.columns, values) };
+  await db
+    .prepare("UPDATE hx_rows SET data = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4 AND table_id = ?5")
+    .bind(JSON.stringify(merged), String(by), now(), rowId, tableId)
+    .run();
+  return { table, before, row: await getRow(db, orgId, tableId, rowId) };
+}
+
+export async function deleteRow(db, orgId, tableId, rowId) {
+  const before = await getRow(db, orgId, tableId, rowId);
+  if (!before) return { error: "No such row.", status: 404 };
+  await db.prepare("DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2").bind(rowId, tableId).run();
+  return { deleted: true, before };
+}

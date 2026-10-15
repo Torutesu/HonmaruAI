@@ -1639,3 +1639,84 @@ CREATE TABLE IF NOT EXISTS proxy_actions (
   settled_at    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_proxy_actions_card ON proxy_actions(org_id, card_id);
+
+/* ── Harness (docs/kylon-gap-plan.md) ─────────────────────────────────────
+   Everything below backs the Kylon-style surfaces. A workspace in "simple"
+   mode never sees them; the tables exist either way so a switch back and
+   forth loses nothing. */
+
+/* Which face a workspace shows: 'simple' (the decision feed and chat, as
+   Honmaru always was) or 'harness' (plus Apps, Tables, Agents as members,
+   Workflows, Follow-ups, Approvals, Skills). No row means 'simple'. */
+CREATE TABLE IF NOT EXISTS org_settings (
+  org_id        TEXT PRIMARY KEY,
+  mode          TEXT NOT NULL DEFAULT 'simple',
+  updated_by    TEXT,
+  updated_at    TEXT NOT NULL
+);
+
+/* A typed table: the database under an App. Columns are JSON
+   [{ id, name, type, options? }] (harness/tables.js). */
+CREATE TABLE IF NOT EXISTS hx_tables (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  columns       TEXT NOT NULL,
+  created_by    TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hx_tables_org ON hx_tables(org_id);
+
+/* One row of a table. data is JSON keyed by column id. */
+CREATE TABLE IF NOT EXISTS hx_rows (
+  id            TEXT PRIMARY KEY,
+  table_id      TEXT NOT NULL,
+  org_id        TEXT NOT NULL,
+  data          TEXT NOT NULL,
+  position      REAL NOT NULL DEFAULT 0,
+  created_by    TEXT NOT NULL,
+  updated_by    TEXT,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hx_rows_table ON hx_rows(table_id, position);
+
+/* An internal app: a table plus the views over it (harness/apps.js). The
+   definition is the current version; every earlier one is kept below. */
+CREATE TABLE IF NOT EXISTS hx_apps (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  description   TEXT,
+  icon          TEXT,
+  table_id      TEXT NOT NULL,
+  template      TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  definition    TEXT NOT NULL,
+  created_by    TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hx_apps_org ON hx_apps(org_id);
+
+CREATE TABLE IF NOT EXISTS hx_app_versions (
+  app_id        TEXT NOT NULL,
+  version       INTEGER NOT NULL,
+  definition    TEXT NOT NULL,
+  note          TEXT,
+  created_by    TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  PRIMARY KEY (app_id, version)
+);
+
+/* An app pinned to a room: it shows wherever it is linked. */
+CREATE TABLE IF NOT EXISTS hx_app_links (
+  app_id        TEXT NOT NULL,
+  org_id        TEXT NOT NULL,
+  channel       TEXT NOT NULL,
+  created_by    TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  PRIMARY KEY (app_id, channel)
+);
+CREATE INDEX IF NOT EXISTS idx_hx_app_links_channel ON hx_app_links(org_id, channel);
