@@ -2142,6 +2142,7 @@ const table: Record<string, string> = {
   "Mentions, replies and a sound for posts": "メンション・返信（投稿は音のみ）",
   "Every post, on the phone too": "すべての投稿（スマホにも通知）",
   // The harness (docs/kylon-gap-plan.md).
+  "Apps in this room": "このルームのアプリ",
   "Internal tools your team and agents build: trackers, boards, dashboards.": "チームとエージェントが作る社内ツール。トラッカー、ボード、ダッシュボード。",
   "Workflows": "ワークフロー",
   "A trigger and the steps that follow, with every run kept.": "きっかけと、その後の手順。実行はすべて記録されます。",

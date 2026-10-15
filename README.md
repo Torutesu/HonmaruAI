@@ -83,6 +83,25 @@ Web Push ones (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) and
 
 Why these and not a Slack bot: [docs/viktor-gap-plan.md](docs/viktor-gap-plan.md).
 
+## Simple and Harness
+
+A workspace is **Simple** by default: the decision feed and the chat, as
+above. An admin can switch it to **Harness** (You → Harness), which adds what
+a "company harness" like [Kylon](https://kylon.io) offers, on the same data:
+
+- **Apps** on typed **Tables**: a CRM, a hiring board, an invoice tracker, or
+  anything described in a sentence; table, board and metric views, versions,
+  linked to rooms.
+- **Agents as members**: a specialty, a Lite/Standard/Max tier, a memory of
+  their own ("@billy remember …"), skills, who may call them.
+- **Workflows**: by hand, on a schedule, from a webhook or a row changing;
+  steps post, ask an agent, change rows, schedule follow-ups, and wait for a
+  person's approval — which arrives as a decision card.
+- **Follow-ups**, **Approvals**, and all of it over MCP.
+
+Switching back to Simple hides it and loses nothing. Gap analysis and status:
+[docs/kylon-gap-plan.md](docs/kylon-gap-plan.md).
+
 ## Access
 
 The relay is the trust boundary: it holds every decision the organization has

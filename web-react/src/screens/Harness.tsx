@@ -74,7 +74,10 @@ export const HarnessApps: React.FC<HarnessProps> = (props) => {
   const api = useApi(props)
   const [apps, setApps] = useState<App[] | null>(null)
   const [templates, setTemplates] = useState<Template[]>([])
-  const [open, setOpen] = useState<string | null>(null)
+  // An app opened from a room's details (RoomApps) arrives already open.
+  const [open, setOpen] = useState<string | null>(() => {
+    try { const id = sessionStorage.getItem('hx.openApp'); sessionStorage.removeItem('hx.openApp'); return id } catch { return null }
+  })
   const [prompt, setPrompt] = useState('')
   const [note, setNote] = useState<string | null>(null)
   const { busy, error, act } = useAct()

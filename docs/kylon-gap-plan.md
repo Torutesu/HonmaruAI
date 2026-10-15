@@ -115,6 +115,26 @@
 - **コストを先に見せる**: Routine の 1 回あたりコスト。
 - **人の代理エージェント**、休暇中の代理決裁、ハドル（Jam）。
 
+## 進捗（2026-10-15 時点）
+
+| 項目 | 状態 | 場所 |
+|---|---|---|
+| モード切り替え `simple` / `harness` | ✅ サーバー・Web。管理者のみ変更可。simple のエージェント・MCP は従来どおり | `worker/src/harness/mode.js`, `web-react/src/screens/Harness.tsx`（ハブ） |
+| Tables（型付きの列、行の CRUD、絞り込み・並べ替え） | ✅ | `worker/src/harness/tables.js` |
+| Apps（テンプレート 4 種、文章から生成、table / board / metrics ビュー、バージョンと復元、ルームへの紐付け） | ✅ サーバー・Web | `worker/src/harness/apps.js`, `templates.js` |
+| Agents v2（専門、tier、エージェント固有メモリ、「覚えて」、呼べる人、名指しのときだけ応答） | ✅ harness モードでのみ有効 | `worker/src/harness/agents.js` |
+| Skills（作成・付与・プロンプトへの注入） | ✅ | `worker/src/harness/skills.js` |
+| Workflows（手動 / スケジュール / Webhook / 行の変化、6 種のステップ、実行履歴、承認で再開） | ✅ | `worker/src/harness/workflows.js` |
+| Follow-ups（API とチャット「@agent follow up in 3 days: …」、一覧・キャンセル、毎分実行） | ✅ | `worker/src/harness/followups.js` |
+| Approvals（自分の判断待ち・他人待ち） | ✅ | `GET /approvals` |
+| MCP にテーブル・アプリ・ワークフロー・フォローアップのツール | ✅ harness モードのみ。書き込みは `write` スコープ | `worker/src/harness/mcpTools.js` |
+| 監査ログ（モード変更、アプリ作成・削除、ワークフロー作成・削除、エージェントのプロフィール変更） | ✅ | — |
+| Credits / Agent speed / 応答停止 / 公開 URL / Remote MCP 接続 / エージェント間の受け渡し | ⏳ フェーズ 2 | — |
+| ルーム画面に紐付いたアプリを出す、iOS の Apps タブ | ⏳ フェーズ 2 | — |
+| 画像・動画生成、音声オンボーディング、ローカル CLI ゲートウェイ | ⏳ フェーズ 3 | — |
+
+画面の確認: `E2E_SPEC=e2e/harness-tour.mjs ./e2e/run.sh` が実際の Worker と Web を立ち上げ、ハーネスの全画面をノート PC・スマホ幅で撮影する。
+
 ## 実装順
 
 「Kylon の機能を 100% 再現」→「上回る」。
