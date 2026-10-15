@@ -1,6 +1,16 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Web subscription": "Webでの定期購入",
+  "Manage your subscription with the provider where you purchased it.": "購入したサービスで定期購入の管理・解約ができます。",
+  "Subscribe on the web and use Pro in the app with the same account. Prices and renewal terms are shown before payment.": "Webで購入したProは、同じアカウントでアプリでも使えます。料金と更新条件は決済前に表示されます。",
+  "Opening…": "開いています…",
+  "Manage subscription": "定期購入を管理",
+  "Subscribe on the web": "Webで購入する",
+  "Refresh subscription status": "購入状況を更新",
+  "An existing app subscription is not canceled by purchasing on the web. Avoid overlapping subscriptions.": "Webで購入しても、既存のアプリの定期購入は解約されません。重複契約にご注意ください。",
+  "Your account already has access, or this subscription must be managed with its original provider.": "すでに利用権限があるか、購入元での管理が必要です。購入状況を更新してください。",
+  "Could not open billing. Please try again.": "決済画面を開けませんでした。もう一度お試しください。",
   "Sound could not play. Check your browser and audio output settings.": "音を再生できませんでした。ブラウザーと音声出力の設定を確認してください。",
   "Notification sounds": "通知音",
   "Keep everyday messages quiet. Hear a short sound for a request, a reply, a mention or a call.": "普段の会話は静かに。依頼・回答・メンション・着信を音でお知らせします。",

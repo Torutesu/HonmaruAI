@@ -105,6 +105,7 @@ import { createConnectLink, listConnectedAccounts, executeTool } from "./composi
 import { syncAll } from "./sync.js";
 import { checkAIAllowance, allowanceFor } from "./gate.js";
 import { billingStatus } from "./plans.js";
+import { webBillingLink } from "./webBilling.js";
 import { complimentaryAvailable, limitRedemption, readRedemptionCode, redeemComplimentaryAccess, prepareComplimentaryDeletion } from "./complimentary.js";
 import { fileCardUnderBusiness } from "./classify.js";
 import { buildRecord, recordToMarkdown } from "./record.js";
@@ -1571,6 +1572,13 @@ async function handle(request, env, url, ctx) {
         return json({ ...status, message: "Free access is saved. iOS activation is pending; refresh your plan to retry." }, 503, headers);
       }
       return json(status, 200, headers);
+    }
+
+    if (["/billing/web-checkout", "/billing/manage"].includes(url.pathname) && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const result = await webBillingLink(env, session.github_id, url.pathname === "/billing/manage" ? "manage" : "checkout");
+      return json(result.url ? { url: result.url } : { message: "Billing is unavailable or this account already has access." }, result.status, { "cache-control": "no-store" });
     }
 
     if (url.pathname === "/billing/status" && request.method === "GET") {
