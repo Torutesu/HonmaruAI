@@ -36,8 +36,11 @@ No client-side success URL or local flag grants access.
 
 ## Activation (not yet performed)
 
-1. Sign in as RevenueCat project owner. On October 15 the current Dia session
-   showed `You don't have permission to add app configurations.` and no web providers.
+1. The existing RevenueCat login can open New web provider and the RevenueCat
+   Billing creation form. The earlier permission diagnosis was incorrect: an
+   accessibility container carried an error message even though navigation worked.
+   The loaded form explicitly reports no connected Stripe accounts. No account
+   switch or role change is established as necessary.
 2. Connect the correct business Stripe account in RevenueCat, add RevenueCat Billing
    web config, and create monthly/yearly products at the web prices above. Check tax
    behavior so the Japanese displayed total remains the agreed price.
@@ -73,4 +76,5 @@ No client-side success URL or local flag grants access.
 
 Worker billing and hosted checkout tests, web billing tests, TypeScript/Vite build.
 These tests mock provider responses and do not prove a real checkout or iOS sync.
-Remaining blocker: owner-only RevenueCat provider configuration and end-to-end test.
+Remaining blocker: connect the correct Stripe account, finish RevenueCat provider
+configuration, and perform end-to-end tests. This is not a confirmed role blocker.
