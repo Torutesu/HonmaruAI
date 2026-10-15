@@ -1702,6 +1702,7 @@ CREATE INDEX IF NOT EXISTS idx_hx_apps_org ON hx_apps(org_id);
 
 CREATE TABLE IF NOT EXISTS hx_app_versions (
   app_id        TEXT NOT NULL,
+  org_id        TEXT NOT NULL,
   version       INTEGER NOT NULL,
   definition    TEXT NOT NULL,
   note          TEXT,
@@ -1720,3 +1721,113 @@ CREATE TABLE IF NOT EXISTS hx_app_links (
   PRIMARY KEY (app_id, channel)
 );
 CREATE INDEX IF NOT EXISTS idx_hx_app_links_channel ON hx_app_links(org_id, channel);
+
+/* What makes a custom agent a member (harness/agents.js): its specialty,
+   the tier it thinks at, whether it speaks only when named, and who may
+   call it. No row means the agent as it always was. */
+CREATE TABLE IF NOT EXISTS hx_agent_profiles (
+  org_id        TEXT NOT NULL,
+  agent_id      TEXT NOT NULL,
+  specialty     TEXT,
+  tier          TEXT NOT NULL DEFAULT 'standard',
+  mention_only  INTEGER NOT NULL DEFAULT 0,
+  access        TEXT NOT NULL DEFAULT 'everyone',
+  people        TEXT,
+  updated_by    TEXT,
+  updated_at    TEXT NOT NULL,
+  PRIMARY KEY (org_id, agent_id)
+);
+
+/* What one agent remembers, across every conversation it is in: written by
+   people ("@agent remember …") or by the agent's own notes. Visible,
+   editable, forgettable — like the playbook, but the agent's own. */
+CREATE TABLE IF NOT EXISTS hx_agent_memories (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  agent_id      TEXT NOT NULL,
+  text          TEXT NOT NULL,
+  source        TEXT NOT NULL DEFAULT 'person',
+  created_by    TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hx_agent_memories ON hx_agent_memories(org_id, agent_id, created_at);
+
+/* Skills: the team's way of doing a thing, written once and given to any
+   agent that needs it (harness/skills.js). */
+CREATE TABLE IF NOT EXISTS hx_skills (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  description   TEXT,
+  body          TEXT NOT NULL,
+  created_by    TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hx_skills_org ON hx_skills(org_id);
+
+CREATE TABLE IF NOT EXISTS hx_agent_skills (
+  org_id        TEXT NOT NULL,
+  agent_id      TEXT NOT NULL,
+  skill_id      TEXT NOT NULL,
+  added_by      TEXT NOT NULL,
+  added_at      TEXT NOT NULL,
+  PRIMARY KEY (org_id, agent_id, skill_id)
+);
+
+/* Workflows (harness/workflows.js): a trigger — by hand, a schedule, a
+   webhook, a row added or changed — and the steps that follow. */
+CREATE TABLE IF NOT EXISTS hx_workflows (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  enabled       INTEGER NOT NULL DEFAULT 1,
+  trigger       TEXT NOT NULL,
+  steps         TEXT NOT NULL,
+  hook_secret   TEXT,
+  next_run_at   TEXT,
+  last_run_at   TEXT,
+  created_by    TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hx_workflows_org ON hx_workflows(org_id);
+CREATE INDEX IF NOT EXISTS idx_hx_workflows_due ON hx_workflows(enabled, next_run_at);
+
+/* Every run, kept: what started it, each step's outcome, and where it
+   stopped — waiting on a person's approval, done, or failed. */
+CREATE TABLE IF NOT EXISTS hx_workflow_runs (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  workflow_id   TEXT NOT NULL,
+  trigger       TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  input         TEXT,
+  log           TEXT NOT NULL,
+  next_step     INTEGER NOT NULL DEFAULT 0,
+  card_id       TEXT,
+  started_by    TEXT,
+  started_at    TEXT NOT NULL,
+  finished_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_hx_runs_workflow ON hx_workflow_runs(workflow_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_hx_runs_card ON hx_workflow_runs(org_id, card_id);
+
+/* Follow-ups (harness/followups.js): an agent, or the team's AI, comes back
+   to a conversation at a set time to do something again. */
+CREATE TABLE IF NOT EXISTS hx_followups (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL,
+  channel       TEXT NOT NULL,
+  thread_id     TEXT,
+  agent_id      TEXT,
+  instruction   TEXT NOT NULL,
+  due_at        TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'scheduled',
+  created_by    TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  done_at       TEXT,
+  result        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_hx_followups_due ON hx_followups(status, due_at);
+CREATE INDEX IF NOT EXISTS idx_hx_followups_channel ON hx_followups(org_id, channel, status);

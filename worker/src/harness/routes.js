@@ -16,7 +16,11 @@ import {
   linkApp, unlinkApp, listVersions, restoreVersion, renderApp, specFromPrompt,
 } from "./apps.js";
 import { templateList } from "./templates.js";
+import { getProfile, saveProfile, listAgentMemories, addAgentMemory, deleteAgentMemory, TIERS, ACCESS } from "./agents.js";
+import { listSkills, createSkill, updateSkill, deleteSkill, getSkill, giveSkill, takeSkill, skillsOf } from "./skills.js";
 import { completer } from "./model.js";
+import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
+import { listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
 import { onRowChange } from "./workflows.js";
 
 const CORS_HEADERS = {
@@ -35,7 +39,7 @@ export function json(body, status = 200) {
 const fail = (result) => json({ message: result.error }, result.status || 400);
 
 /// The paths this module answers.
-const OURS = /^\/(orgs\/mode|tables|apps)(\/|$)/;
+const OURS = /^\/(orgs\/mode|tables|apps|skills|hx|workflows|followups|approvals)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
 export async function member(env, request, orgId) {
@@ -142,6 +146,160 @@ export async function handleHarness(request, env, url) {
     return null;
   }
 
+  // ── Workflows ─────────────────────────────────────────────────────────
+  if (parts[0] === "workflows") {
+    const [, wfId, sub, runId] = parts;
+    if (!wfId) {
+      if (request.method === "GET") return json({ workflows: await listWorkflows(env.DB, orgId), triggers: TRIGGERS, steps: STEP_TYPES });
+      if (request.method === "POST") {
+        const r = await createWorkflow(env.DB, orgId, input, me);
+        if (!r.error) await audit(env, request, { orgId, action: "workflow.created", actor: person(who.user), entity: { type: "workflow", id: r.workflow.id, name: r.workflow.name } });
+        return r.error ? fail(r) : json({ ...r, hookUrl: hookUrl(url, r.workflow) }, 201);
+      }
+      return null;
+    }
+    const wf = await getWorkflow(env.DB, orgId, wfId, { withSecret: true });
+    if (!wf) return json({ message: "No such workflow." }, 404);
+    const mine = await mayChange(env, orgId, who, wf.createdBy);
+    // The hook's secret is for whoever may change the workflow.
+    const shown = mine ? { ...wf, hookUrl: hookUrl(url, wf) } : { ...wf, hookSecret: undefined };
+    if (!sub) {
+      if (request.method === "GET") return json({ workflow: shown, runs: await listRuns(env.DB, orgId, wfId, 20), canEdit: mine });
+      if (!mine) return json({ message: "Only its maker or an admin can change this workflow." }, 403);
+      if (request.method === "PUT") {
+        const r = await updateWorkflow(env.DB, orgId, wfId, input);
+        return r.error ? fail(r) : json({ ...r, hookUrl: hookUrl(url, r.workflow) });
+      }
+      if (request.method === "DELETE") {
+        await audit(env, request, { orgId, action: "workflow.deleted", actor: person(who.user), entity: { type: "workflow", id: wfId, name: wf.name } });
+        return json(await deleteWorkflow(env.DB, orgId, wfId));
+      }
+      return null;
+    }
+    if (sub === "run" && request.method === "POST") {
+      if (!wf.enabled) return json({ message: "This workflow is off." }, 409);
+      const run = await startRun(env, { orgId, workflow: wf, trigger: "manual", input: input.input && typeof input.input === "object" ? input.input : { text: String(input.text || "") }, startedBy: me });
+      return json({ run }, 201);
+    }
+    if (sub === "runs" && request.method === "GET") {
+      if (runId) {
+        const run = await getRun(env.DB, orgId, runId);
+        return run && run.workflowId === wfId ? json({ run }) : json({ message: "No such run." }, 404);
+      }
+      return json({ runs: await listRuns(env.DB, orgId, wfId, url.searchParams.get("limit")) });
+    }
+    return null;
+  }
+
+  // ── Follow-ups ────────────────────────────────────────────────────────
+  if (parts[0] === "followups") {
+    const [, fuId] = parts;
+    if (!fuId && request.method === "GET") {
+      return json({ followups: await listFollowups(env.DB, orgId, { channel: url.searchParams.get("channel") || undefined, status: url.searchParams.get("status") || "scheduled" }) });
+    }
+    if (!fuId && request.method === "POST") {
+      const dueAt = input.dueAt || (Number(input.minutes) > 0 ? new Date(Date.now() + Number(input.minutes) * 60000).toISOString() : null);
+      const r = await scheduleFollowup(env.DB, { orgId, channel: input.channel, threadId: input.threadId || null, agentId: input.agentId || null, instruction: input.instruction, dueAt, by: me });
+      return r.error ? fail(r) : json(r, 201);
+    }
+    if (fuId && request.method === "DELETE") {
+      const r = await cancelFollowup(env.DB, orgId, fuId);
+      return r.error ? fail(r) : json(r);
+    }
+    return null;
+  }
+
+  // ── Approvals ─────────────────────────────────────────────────────────
+  // What agents and workflows are waiting on: for me to decide, and what I
+  // started that waits on someone else.
+  if (parts[0] === "approvals" && request.method === "GET") {
+    const { results } = await env.DB
+      .prepare("SELECT data FROM cards WHERE org_id = ?1 AND recipient_user_id = ?2 AND status = 'pending' ORDER BY created_at DESC LIMIT 200")
+      .bind(orgId, who.user.login)
+      .all();
+    const cards = (results || []).map((r) => { try { return JSON.parse(r.data); } catch { return null; } })
+      .filter((c) => c && (c.workflowApproval || c.proxyAction || c.proposal || String(c.senderUserID || "").startsWith("agent:")));
+    const { results: waiting } = await env.DB
+      .prepare(`SELECT r.id, r.workflow_id, r.card_id, r.started_at, w.name FROM hx_workflow_runs r JOIN hx_workflows w ON w.id = r.workflow_id
+        WHERE r.org_id = ?1 AND r.status = 'waiting' AND (r.started_by = ?2 OR w.created_by = ?2) ORDER BY r.started_at DESC LIMIT 100`)
+      .bind(orgId, String(me))
+      .all();
+    return json({
+      toDecide: cards.map((c) => ({ id: c.id, title: c.title, summary: c.summary, createdAt: c.createdAt, kind: c.workflowApproval ? "workflow" : c.proxyAction ? "agent" : c.proposal ? "proposal" : "agent", source: c.sourceDetail || c.sourceApp || null })),
+      waitingOnOthers: (waiting || []).map((w) => ({ runId: w.id, workflowId: w.workflow_id, workflow: w.name, cardId: w.card_id, startedAt: w.started_at })),
+    });
+  }
+
+  // ── Skills ────────────────────────────────────────────────────────────
+  if (parts[0] === "skills") {
+    const [, skillId] = parts;
+    if (!skillId) {
+      if (request.method === "GET") return json({ skills: await listSkills(env.DB, orgId) });
+      if (request.method === "POST") {
+        const r = await createSkill(env.DB, orgId, input, me);
+        return r.error ? fail(r) : json(r, 201);
+      }
+      return null;
+    }
+    const skill = await getSkill(env.DB, orgId, skillId);
+    if (!skill) return json({ message: "No such skill." }, 404);
+    if (request.method === "GET") return json({ skill });
+    if (!(await mayChange(env, orgId, who, skill.createdBy))) return json({ message: "Only its maker or an admin can change this skill." }, 403);
+    if (request.method === "PUT") {
+      const r = await updateSkill(env.DB, orgId, skillId, input);
+      return r.error ? fail(r) : json(r);
+    }
+    if (request.method === "DELETE") return json(await deleteSkill(env.DB, orgId, skillId));
+    return null;
+  }
+
+  // ── Agents as members ─────────────────────────────────────────────────
+  if (parts[0] === "hx" && parts[1] === "agents" && parts[2]) {
+    const agentId = parts[2];
+    const sub = parts[3];
+    const agent = await env.DB
+      .prepare("SELECT id, owner_login, scope FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL")
+      .bind(orgId, agentId)
+      .first();
+    // Someone else's personal agent is theirs alone: it is not here at all.
+    if (!agent || (agent.scope === "personal" && agent.owner_login !== who.user.login)) return json({ message: "No such agent." }, 404);
+    const canEdit = agent.owner_login === who.user.login || await allowed(env.DB, orgId, me, "agent.manage_others");
+    // Anyone who may talk to it may tell it to remember something, as in
+    // the chat; everything else is its maker's or an admin's.
+    if (!read && !canEdit && !(sub === "memory" && request.method === "POST")) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
+    if (sub === "profile") {
+      if (request.method === "GET") return json({ profile: await getProfile(env.DB, orgId, agentId), tiers: TIERS, access: ACCESS, canEdit });
+      if (request.method === "PUT") {
+        const r = await saveProfile(env.DB, orgId, agentId, input, me);
+        if (!r.error) await audit(env, request, { orgId, action: "agent.profile_changed", actor: person(who.user), entity: { type: "agent", id: agentId }, details: { tier: r.profile.tier, access: r.profile.access, mentionOnly: r.profile.mentionOnly } });
+        return r.error ? fail(r) : json({ ...r, canEdit });
+      }
+    }
+    if (sub === "memory") {
+      if (request.method === "GET") return json({ memories: await listAgentMemories(env.DB, orgId, agentId), canEdit });
+      if (request.method === "POST") {
+        const r = await addAgentMemory(env.DB, orgId, agentId, input.text, { by: me });
+        return r.error ? fail(r) : json(r, 201);
+      }
+      if (request.method === "DELETE") {
+        if (!canEdit) return json({ message: "Only the agent's maker or an admin can make it forget." }, 403);
+        return json(await deleteAgentMemory(env.DB, orgId, agentId, parts[4] || url.searchParams.get("id") || ""));
+      }
+    }
+    if (sub === "skills") {
+      if (request.method === "GET") return json({ skills: await skillsOf(env.DB, orgId, agentId) });
+      if (request.method === "POST") {
+        const r = await giveSkill(env.DB, orgId, agentId, input.skillId, me);
+        return r.error ? fail(r) : json(r);
+      }
+      if (request.method === "DELETE") {
+        if (!canEdit) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
+        return json(await takeSkill(env.DB, orgId, agentId, parts[4] || url.searchParams.get("skillId") || ""));
+      }
+    }
+    return null;
+  }
+
   // ── Apps ──────────────────────────────────────────────────────────────
   if (parts[0] === "apps") {
     const [, appId, sub] = parts;
@@ -219,3 +377,5 @@ async function afterRowChange(env, change) {
     console.error("harness: row hook failed", e?.message);
   }
 }
+
+const hookUrl = (url, wf) => (wf.trigger?.type === "webhook" && wf.hookSecret ? `${url.origin}/hooks/workflows/${wf.id}?secret=${wf.hookSecret}` : undefined);

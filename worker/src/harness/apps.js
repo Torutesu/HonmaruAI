@@ -171,8 +171,8 @@ export async function createApp(db, { orgId, by, name, description, icon, column
     .bind(id, orgId, clean, String(description || "").slice(0, 300), String(icon || "📋").slice(0, 8), table.id, template || null, JSON.stringify(def), String(by), at)
     .run();
   await db
-    .prepare("INSERT INTO hx_app_versions (app_id, version, definition, note, created_by, created_at) VALUES (?1, 1, ?2, ?3, ?4, ?5)")
-    .bind(id, JSON.stringify({ name: clean, columns: table.columns, ...def }), "Created", String(by), at)
+    .prepare("INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6)")
+    .bind(id, orgId, JSON.stringify({ name: clean, columns: table.columns, ...def }), "Created", String(by), at)
     .run();
   for (const values of sample.slice(0, 20)) await addRow(db, orgId, table.id, values, by);
   if (channel) await linkApp(db, orgId, id, channel, by);
@@ -213,8 +213,8 @@ export async function updateApp(db, orgId, id, { name, description, icon, column
     .bind(next.name, next.description, next.icon, JSON.stringify(def), version, at, id, orgId)
     .run();
   await db
-    .prepare("INSERT INTO hx_app_versions (app_id, version, definition, note, created_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
-    .bind(id, version, JSON.stringify({ name: next.name, columns: table.columns, ...def }), note ? String(note).slice(0, 200) : null, String(by), at)
+    .prepare("INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) VALUES (?1, ?7, ?2, ?3, ?4, ?5, ?6)")
+    .bind(id, version, JSON.stringify({ name: next.name, columns: table.columns, ...def }), note ? String(note).slice(0, 200) : null, String(by), at, orgId)
     .run();
   return { app: await getApp(db, orgId, id) };
 }

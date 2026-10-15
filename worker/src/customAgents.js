@@ -19,6 +19,8 @@ import { noteUsage } from "./ledger.js";
 import { research as researchLoop, canResearch, readResponse } from "./agentResearch.js";
 
 export { readResponse };
+import { filterResponders } from "./harness/agents.js";
+import { getMode } from "./harness/mode.js";
 
 export const MAX_INSTRUCTIONS = 20000;
 export const MAX_AGENTS = 60;
@@ -470,6 +472,10 @@ export function forChat(text) {
 export async function respondingAgents(db, { orgId, login, resolved, row }) {
   const here = await agentsHere(db, orgId, login, resolved.key);
   let agents = agentsCalled(row.body, here);
+  // Who was asked by name, or by talking to them: an agent that speaks
+  // only when named stays out of a thread it would merely be continuing.
+  const named = new Set(agents.map((a) => a.id));
+  if (resolved.kind === "agent") named.add(resolved.agent.id);
   if (resolved.kind === "agent" && !agents.some((a) => a.id === resolved.agent.id)) {
     const own = (await listAgents(db, orgId, login)).find((a) => a.id === resolved.agent.id);
     if (own) agents = [own, ...agents].slice(0, MAX_CALLED);
@@ -478,7 +484,10 @@ export async function respondingAgents(db, { orgId, login, resolved, row }) {
     const going = await continuingAgent(db, { orgId, key: resolved.key, row, login, here });
     if (going) agents = [going];
   }
-  return agents;
+  // As each agent's profile allows (harness/agents.js): who may call it,
+  // and whether it waits to be named.
+  if ((await getMode(db, orgId).catch(() => "simple")) !== "harness") return agents;
+  return filterResponders(db, orgId, login, agents, { named });
 }
 
 /// The agent a thread is talking with, for this person: the one that

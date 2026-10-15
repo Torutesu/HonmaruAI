@@ -38,6 +38,8 @@ import { settleUsage, jevEntry } from "./ledger.js";
 import { runScheduledSync, runAutomations } from "./scheduled.js";
 import { handleAutomation } from "./automation.js";
 import { handleHarness } from "./harness/routes.js";
+import { runDueWorkflows, handleWorkflowHook } from "./harness/workflows.js";
+import { runDueFollowups } from "./harness/followups.js";
 import { handleChannels, broadcastStored, watchTeammateRuns, caller } from "./channelRoutes.js";
 import { handleAudit, audit, auditEverywhere, person, migrateLegacyAudit } from "./audit.js";
 import { shredPerson } from "./auditCrypto.js";
@@ -213,6 +215,9 @@ export default {
       ctx.waitUntil(drainCardNotifications(env, notifyCardNow).catch(() => console.error("notification retry drain failed")));
       ctx.waitUntil(runMinuteJobs(env, { now: new Date(event?.scheduledTime || Date.now()), broadcast: (orgId, key, row) => broadcastStored(env, orgId, key, row) })
         .catch((err) => console.error("minute jobs failed", err?.message || err)));
+      // The harness: follow-ups and scheduled workflows whose time has come.
+      ctx.waitUntil(runDueFollowups(env, { now: new Date(event?.scheduledTime || Date.now()) }).catch((err) => console.error("follow-ups failed", err?.message || err)));
+      ctx.waitUntil(runDueWorkflows(env, { now: new Date(event?.scheduledTime || Date.now()) }).catch((err) => console.error("workflows failed", err?.message || err)));
       // AI teammates at work: whatever they have finished, posted back.
       ctx.waitUntil(watchTeammateRuns(env).catch((err) => console.error("teammate watch failed", err?.message || err)));
       // The audit log, to each workspace's SIEM, as it is written.
@@ -433,6 +438,9 @@ async function handle(request, env, url, ctx) {
 
     // The harness: mode, Tables, Apps, agents as members, Workflows
     // (docs/kylon-gap-plan.md).
+    // A workflow's webhook: called from outside, its secret is the key.
+    const workflowHook = await handleWorkflowHook(request, env, url);
+    if (workflowHook) return workflowHook;
     const harnessed = await handleHarness(request, env, url);
     if (harnessed) return harnessed;
 

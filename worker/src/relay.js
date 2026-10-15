@@ -27,6 +27,7 @@ import { redirectIfAway } from "./people.js";
 import { listMembers } from "./team.js";
 import { isGuest, isPersonal, isPrivate, accessFor, mayReadCard } from "./access.js";
 import { learnFromDecision } from "./memory.js";
+import { settleWorkflowApproval } from "./harness/workflows.js";
 import { settleProposal } from "./proposals.js";
 import { settleProxyAction } from "./proxy.js";
 import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor } from "./jam.js";
@@ -954,6 +955,8 @@ export class OrgRelay {
       if (card?.proposal) await settleProposal(this.env, orgId, card);
       // An agent's proposal to act outside the chat for its person.
       else if (card?.proxyAction) await settleProxyAction(this.env, orgId, card);
+      // A workflow waiting on this person (harness/workflows.js).
+      else if (card?.workflowApproval) await settleWorkflowApproval(this.env, orgId, card);
       // A personal card's reasons are its person's, not the team's rules.
       else if (!isPersonal(card)) await learnFromDecision(this.env, { orgId, card, actorLogin, actorGithubId });
     } catch (err) {
