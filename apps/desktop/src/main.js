@@ -16,7 +16,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { allowedOrigins, apiOriginsFrom, appUrlFrom, updatesEnabled } from './config.js'
 import { buildCsp, withCsp } from './csp.js'
-import { PROTOCOL, deepLinkToHash, deepLinkToUrl, isSafeExternal, linkFromArgv, navigationDecision, windowTitle } from './links.js'
+import { PROTOCOL, deepLinkToHash, deepLinkToUrl, goMenuItems, isSafeExternal, linkFromArgv, navigationDecision, windowTitle } from './links.js'
 import { countFromTitle, shouldAttract, trayTooltip } from './badge.js'
 import { fitBounds, loadWindowState, saveWindowState, MIN_SIZE } from './windowState.js'
 import { crashVerdict } from './crashes.js'
@@ -125,6 +125,18 @@ function openLink(link) {
     return
   }
   void win.loadURL(url)
+}
+
+/// Move the open app to one of its places, as a click inside it would: by
+/// its hash, with no reload. A window not on the app loads the place afresh.
+function goTo(hash) {
+  if (!win) return
+  showWindow()
+  if (appLoaded && onAppPage()) {
+    win.webContents.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => { void win?.loadURL(`${APP_URL}/${hash}`) })
+    return
+  }
+  void win.loadURL(`${APP_URL}/${hash}`)
 }
 
 function onAppPage() {
@@ -401,6 +413,7 @@ function createMenu() {
     ] }] : [{ label: 'File', submenu: [{ label: 'Quit', accelerator: 'Ctrl+Q', click: () => { quitting = true; app.quit() } }] }]),
     { role: 'editMenu' },
     { label: 'View', submenu: view },
+    { label: app.getLocale().startsWith('ja') ? '移動' : 'Go', submenu: goMenuItems(app.getLocale()).map((item) => (item.type ? item : { label: item.label, ...(item.accelerator ? { accelerator: item.accelerator } : {}), click: () => goTo(item.hash) })) },
     { role: 'windowMenu' },
   ]))
 }

@@ -130,7 +130,9 @@
 | MCP にテーブル・アプリ・ワークフロー・フォローアップのツール | ✅ harness モードのみ。書き込みは `write` スコープ | `worker/src/harness/mcpTools.js` |
 | 監査ログ（モード変更、アプリ作成・削除、ワークフロー作成・削除、エージェントのプロフィール変更） | ✅ | — |
 | Credits / Agent speed / 応答停止 / 公開 URL / Remote MCP 接続 / エージェント間の受け渡し | ⏳ フェーズ 2 | — |
-| ルーム画面に紐付いたアプリを出す、iOS の Apps タブ | ⏳ フェーズ 2 | — |
+| ルーム画面に紐付いたアプリを出す | ✅ Web（ルームの詳細パネル） | `web-react/src/components/RoomApps.tsx` |
+| iOS（あなた → ハーネス: モード切り替え、Apps の表・ボード・集計と行の編集、Workflows の一覧・実行履歴・作成、Approvals、エージェントチーム、Skills） | ✅ 実装。CI の iOS ジョブ（macOS）で要ビルド確認 | `TikTokForWork/Features/Harness/`, `Services/HarnessService.swift` |
+| Mac / Windows アプリ（Electron）: Web と同じ画面に加え「移動」メニュー（ハーネス ⌘⇧H、アプリ、ワークフロー、承認） | ✅ 既定はシンプルのまま | `apps/desktop/src/links.js` `goMenuItems` |
 | 画像・動画生成、音声オンボーディング、ローカル CLI ゲートウェイ | ⏳ フェーズ 3 | — |
 
 画面の確認: `E2E_SPEC=e2e/harness-tour.mjs ./e2e/run.sh` が実際の Worker と Web を立ち上げ、ハーネスの全画面をノート PC・スマホ幅で撮影する。

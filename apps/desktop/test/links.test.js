@@ -122,3 +122,16 @@ describe('the window\'s title', () => {
     expect(title('https://github.com/login', 'Sign in')).toBe('Honmaru AI — signing in at github.com')
   })
 })
+
+describe('the Go menu', () => {
+  it('names each place by a hash route the web app answers, in the system language', async () => {
+    const { goMenuItems } = await import('../src/links.js')
+    const items = goMenuItems('ja-JP').filter((i) => !i.type)
+    expect(items.map((i) => i.hash)).toEqual(['#/feed', '#/history', '#/tools', '#/harness', '#/apps', '#/workflows', '#/approvals'])
+    expect(items.find((i) => i.hash === '#/harness')).toMatchObject({ label: 'ハーネス', accelerator: 'CmdOrCtrl+Shift+H' })
+    expect(goMenuItems('en-US')[0].label).toBe('Feed')
+    // No two places share a shortcut.
+    const keys = items.map((i) => i.accelerator).filter(Boolean)
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+})

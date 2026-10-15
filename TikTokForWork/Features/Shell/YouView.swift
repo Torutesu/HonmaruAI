@@ -48,6 +48,13 @@ struct YouView: View {
                     group {
                         NavigationLink { TeamSettingsView().environmentObject(appState) } label: { row("Team", icon: "person.2") }
                         separator
+                        // Simple or Harness (docs/kylon-gap-plan.md): apps,
+                        // workflows and agents as members, for a real workspace.
+                        if !appState.isGuest {
+                            NavigationLink { HarnessHubView().environmentObject(appState) } label: { row("Harness", icon: "bolt") }
+                                .accessibilityIdentifier("profile.harness")
+                            separator
+                        }
                         // Data rules, compliance, SSO and audit streams, for
                         // the admins (the same people who may rename it).
                         if appState.canRenameWorkspace && !appState.isGuest {
