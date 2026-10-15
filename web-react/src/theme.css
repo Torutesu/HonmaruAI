@@ -416,7 +416,8 @@
      you. History and Tools are already rows under You. The rail keeps all
      five, because a column has room a thumb-width row does not. */
   .tabbar .tab[data-tab="history"],
-  .tabbar .tab[data-tab="tools"] { display: none; }
+  .tabbar .tab[data-tab="tools"],
+  .tabbar .tab[data-tab="harness"] { display: none; }
   .tabbar { padding-left: 20px; padding-right: 20px; }
   /* A screen owns the phone's viewport, so the tab bar goes away under it. */
   .shell.screen-open .tabbar { display: none; }

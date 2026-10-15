@@ -16,7 +16,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { allowedOrigins, apiOriginsFrom, appUrlFrom, updatesEnabled } from './config.js'
 import { buildCsp, withCsp } from './csp.js'
-import { PROTOCOL, deepLinkToHash, deepLinkToUrl, goMenuItems, isSafeExternal, linkFromArgv, navigationDecision, windowTitle } from './links.js'
+import { PROTOCOL, deepLinkToHash, deepLinkToUrl, goMenuItems, modeMenuItems, setModeScript, isSafeExternal, linkFromArgv, navigationDecision, windowTitle } from './links.js'
 import { countFromTitle, shouldAttract, trayTooltip } from './badge.js'
 import { fitBounds, loadWindowState, saveWindowState, MIN_SIZE } from './windowState.js'
 import { crashVerdict } from './crashes.js'
@@ -137,6 +137,19 @@ function goTo(hash) {
     return
   }
   void win.loadURL(`${APP_URL}/${hash}`)
+}
+
+/// Ask the open app for Simple or Harness: its hub applies it, for an admin.
+/// A window not on the app opens the hub, where the switch is one click.
+function askMode(mode) {
+  const script = setModeScript(mode)
+  if (!win || !script) return
+  showWindow()
+  if (appLoaded && onAppPage()) {
+    win.webContents.executeJavaScript(script).catch(() => { void win?.loadURL(`${APP_URL}/#/harness`) })
+    return
+  }
+  void win.loadURL(`${APP_URL}/#/harness`)
 }
 
 function onAppPage() {
@@ -413,6 +426,7 @@ function createMenu() {
     ] }] : [{ label: 'File', submenu: [{ label: 'Quit', accelerator: 'Ctrl+Q', click: () => { quitting = true; app.quit() } }] }]),
     { role: 'editMenu' },
     { label: 'View', submenu: view },
+    (() => { const m = modeMenuItems(app.getLocale()); return { label: m.label, submenu: m.items.map((item) => ({ label: item.label, click: () => askMode(item.mode) })) } })(),
     { label: app.getLocale().startsWith('ja') ? '移動' : 'Go', submenu: goMenuItems(app.getLocale()).map((item) => (item.type ? item : { label: item.label, ...(item.accelerator ? { accelerator: item.accelerator } : {}), click: () => goTo(item.hash) })) },
     { role: 'windowMenu' },
   ]))

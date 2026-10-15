@@ -89,3 +89,49 @@
 :root[data-theme="dark"] .hx-app-tile.template,
 :root[data-theme="dark"] .hx-lane,
 :root[data-theme="dark"] .hx-step { background: rgba(255, 255, 255, 0.04); }
+
+/* ── Mode: two cards, the one in use marked in words ─────────────────── */
+.hx-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 6px 0 8px; }
+.hx-mode {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left;
+  border: 1px solid var(--bone); border-radius: var(--radius-card); background: var(--signal-white);
+  padding: 14px; cursor: pointer; font-family: var(--font-body); color: var(--ink-black);
+}
+.hx-mode:hover:not([disabled]) { border-color: var(--ink-black); }
+.hx-mode[disabled] { cursor: default; }
+.hx-mode.current { border: 2px solid var(--brand-violet); padding: 13px; background: color-mix(in srgb, var(--brand-violet) 6%, var(--signal-white)); }
+.hx-mode:not(.current)[disabled] { opacity: 0.75; }
+.hx-mode-top { display: flex; align-items: center; gap: 8px; width: 100%; }
+.hx-mode-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--mist); }
+.hx-mode.current .hx-mode-icon { background: var(--brand-violet); color: #fff; }
+.hx-mode-title { font-weight: 700; font-size: 15px; }
+.hx-mode-badge { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: #fff; background: var(--brand-violet); border-radius: var(--radius-pill); padding: 3px 9px; }
+.hx-mode-sub { font-size: 13px; color: var(--ash); line-height: 1.45; }
+.hx-mode-action { font-size: 13px; font-weight: 600; color: var(--brand-violet); }
+
+/* ── Home ────────────────────────────────────────────────────────────── */
+.hx-home .screen-body { max-width: 1080px; }
+.hx-home-ask { display: flex; gap: 8px; margin: 4px 0 14px; }
+.hx-home-ask .hx-cell-input { flex: 1; border-color: var(--bone); background: var(--signal-white); padding: 10px 12px; font-size: 14px; }
+.hx-home-grid { display: grid; grid-template-columns: 1fr; gap: 6px 22px; }
+@media (min-width: 1100px) { .hx-home-grid { grid-template-columns: 1fr 1fr; } }
+.hx-home-sec { min-width: 0; }
+.hx-home-head { display: flex; align-items: baseline; justify-content: space-between; }
+.hx-home-empty { font-size: 13px; color: var(--ash); padding: 10px 2px 14px; }
+.hx-home-app { min-height: 92px; }
+.hx-app-top { display: flex; align-items: center; gap: 8px; }
+.hx-app-top .hx-app-icon { font-size: 20px; }
+.hx-app-figure { font-size: 13px; color: var(--ash); }
+.hx-app-figure strong { font-size: 22px; color: var(--ink-black); font-variant-numeric: tabular-nums; margin-right: 4px; }
+.hx-home .row-value { font-size: 12px; color: var(--ash); }
+.hx-home-start { margin-top: 10px; }
+
+/* A phone keeps its tab bar under the home, which is a place, not a page. */
+@media (max-width: 719px) {
+  .shell.home-open .tabbar { display: flex; z-index: 40; }
+  .shell.home-open .hx-home .screen-body { padding-bottom: 110px; }
+}
+/* Rows that are links read as rows, not as underlined text. */
+.hx-screen a.row { text-decoration: none; color: inherit; }
+.hx-screen a.row .row-value { font-size: 16px; }
+.hx-screen a.row[data-home-agent] .row-value { font-size: 12px; }

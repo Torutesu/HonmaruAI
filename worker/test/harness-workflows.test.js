@@ -171,3 +171,21 @@ test("templates, steps and follow-up sentences are read strictly", () => {
   expect(followupRequest("2時間後にフォローして: 見積の返事")).toEqual({ minutes: 120, text: "見積の返事" });
   expect(followupRequest("follow up later")).toBeNull();
 });
+
+test("the harness's home answers in one call: what waits on me, the apps' numbers, the agents' roles, how each workflow last ran", async () => {
+  const { workflow } = await (await send("POST", "/workflows", mika, overdueFlow())).json();
+  const row = (await (await send("POST", `/tables/${invoices}/rows`, mika, { orgId: ORG, values: { Client: "Acme", Amount: 4800, Status: "Sent" } })).json()).row;
+  await send("PATCH", `/tables/${invoices}/rows/${row.id}`, mika, { orgId: ORG, values: { Status: "Overdue" } });
+  const agent = (await (await send("POST", "/channels/agents", mika, { orgId: ORG, name: "Billy", handle: "billy", instructions: "You chase invoices.", scope: "team" })).json()).agent;
+  await send("PUT", `/hx/agents/${agent.id}/profile`, mika, { orgId: ORG, specialty: "Accounts receivable" });
+  await send("POST", "/followups", mika, { orgId: ORG, channel: "b:ops", instruction: "Check Acme", minutes: 60 });
+
+  const home = await (await get(`/harness/home?${q({ orgId: ORG })}`, toru)).json();
+  expect(home.mode).toBe("harness");
+  expect(home.approvals.toDecide).toEqual([expect.objectContaining({ title: "Send Acme a reminder?", kind: "workflow" })]);
+  expect(home.approvals.pendingDecisions).toBe(1);
+  expect(home.apps).toEqual([expect.objectContaining({ name: "Invoice tracker", rows: 1, headline: { label: "Open invoices", value: 1 } })]);
+  expect(home.agents).toEqual([expect.objectContaining({ handle: "billy", specialty: "Accounts receivable", tier: "standard" })]);
+  expect(home.workflows).toEqual([expect.objectContaining({ id: workflow.id, trigger: "row", lastRun: expect.objectContaining({ status: "waiting" }) })]);
+  expect(home.followups.map((f) => f.instruction)).toEqual(["Check Acme"]);
+});

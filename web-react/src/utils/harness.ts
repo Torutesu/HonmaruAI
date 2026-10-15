@@ -49,6 +49,18 @@ export interface Run { id: string; trigger: string; status: string; log: RunLog[
 export interface Followup { id: string; channel: string; instruction: string; dueAt: string; status: string; agentId: string | null }
 export interface Skill { id: string; name: string; description: string; body: string; agents?: string[]; createdBy: string }
 export interface AgentProfile { specialty: string; tier: 'lite' | 'standard' | 'max'; mentionOnly: boolean; access: 'everyone' | 'people' | 'private'; people: string[] }
+export interface HomeData {
+  mode: WorkspaceMode
+  approvals: {
+    pendingDecisions: number
+    toDecide: Array<{ id: string; title: string; summary?: string; kind: string; source: string | null; createdAt: string }>
+    waitingOnOthers: Array<{ runId: string; workflow: string; startedAt: string }>
+  }
+  apps: Array<{ id: string; name: string; icon: string; description: string; channels: string[]; rows: number; headline: { label: string; value: number | null } | null }>
+  agents: Array<{ id: string; handle: string; name: string; emoji: string | null; description: string; specialty: string; tier: string; provider: string | null }>
+  workflows: Array<{ id: string; name: string; enabled: boolean; trigger: TriggerType; nextRunAt: string | null; lastRun: { status: string; startedAt: string } | null }>
+  followups: Followup[]
+}
 export interface AgentMemory { id: string; text: string; source: string; createdAt: string }
 
 /// One client for every harness route: the session on each call, the
@@ -69,6 +81,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     return data as T
   }
   return {
+    home: () => call<HomeData>('GET', '/harness/home'),
     getMode: () => call<{ mode: WorkspaceMode; canEdit: boolean }>('GET', '/orgs/mode'),
     setMode: (mode: WorkspaceMode) => call<{ mode: WorkspaceMode; canEdit: boolean }>('PUT', '/orgs/mode', { mode }),
 
@@ -123,6 +136,13 @@ export type HarnessApi = ReturnType<typeof harnessApi>
 
 const MODE_KEY = (orgId: string) => `hx.mode.${orgId}`
 
+/// A mode asked for from outside the page — the desktop app's menu. It is
+/// left here when the hub is about to open, or sent as this event when the
+/// hub is already open; the hub applies it once it knows who may.
+export const WANT_MODE_KEY = 'hx.wantMode'
+export const SET_MODE_EVENT = 'honmaru:set-mode'
+export const isMode = (m: unknown): m is WorkspaceMode => m === 'simple' || m === 'harness'
+
 /// The workspace's mode: the last one seen first (so the rail does not
 /// jump on every load), then the server's. "simple" until told otherwise.
 export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: string) {
@@ -130,12 +150,14 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
     try { return (localStorage.getItem(MODE_KEY(orgId)) as WorkspaceMode) === 'harness' ? 'harness' : 'simple' } catch { return 'simple' }
   })
   const [canEdit, setCanEdit] = useState(false)
+  /// Whether the server has answered, so canEdit means what it says.
+  const [loaded, setLoaded] = useState(false)
   const remember = (m: WorkspaceMode) => { try { localStorage.setItem(MODE_KEY(orgId), m) } catch { /* private window */ } }
   useEffect(() => {
     let live = true
     if (!orgId || !sessionToken) return
     harnessApi(httpBase, orgId, sessionToken).getMode()
-      .then((d) => { if (!live) return; setModeState(d.mode); setCanEdit(d.canEdit); remember(d.mode) })
+      .then((d) => { if (!live) return; setModeState(d.mode); setCanEdit(d.canEdit); setLoaded(true); remember(d.mode) })
       .catch(() => { /* a workspace that cannot answer stays as it was */ })
     const onChange = (e: Event) => {
       const next = (e as CustomEvent<{ orgId: string; mode: WorkspaceMode }>).detail
@@ -151,7 +173,7 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
     window.dispatchEvent(new CustomEvent('hx-mode', { detail: { orgId, mode: d.mode } }))
     return d.mode
   }, [httpBase, orgId, sessionToken])
-  return { mode, canEdit, setMode }
+  return { mode, canEdit, loaded, setMode }
 }
 
 /// A cell as the table shows it.

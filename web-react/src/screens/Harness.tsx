@@ -3,10 +3,11 @@ import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import { hashForCard } from '../utils/route'
 import {
-  useWorkspaceMode, cellText, metricText,
+  useWorkspaceMode, cellText, metricText, WANT_MODE_KEY, SET_MODE_EVENT, isMode, type WorkspaceMode,
   type App, type Template, type Table, type Row, type View, type Column, type HarnessApi,
 } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps, type HarnessScreen } from './HarnessShared'
+import { ModePicker } from './HarnessHome'
 
 // The harness screens (docs/kylon-gap-plan.md): Apps, Workflows, Approvals,
 // Skills and agents as members, and the hub that switches a workspace into
@@ -17,8 +18,29 @@ import { Shell, useApi, useAct, type HarnessProps, type HarnessScreen } from './
 
 export const HarnessHub: React.FC<HarnessProps & { onOpen: (s: HarnessScreen) => void }> = (props) => {
   const t = useT()
-  const { mode, canEdit, setMode } = useWorkspaceMode(props.httpBase, props.orgId, props.sessionToken)
-  const { busy, error, act } = useAct()
+  const { mode, canEdit, loaded, setMode } = useWorkspaceMode(props.httpBase, props.orgId, props.sessionToken)
+  const { busy, error, setError, act } = useAct()
+  // A mode asked for from the desktop app's menu: applied once the server
+  // has said whether this person may, and refused out loud when not.
+  const [wanted, setWanted] = useState<WorkspaceMode | null>(() => {
+    try {
+      const w = sessionStorage.getItem(WANT_MODE_KEY)
+      sessionStorage.removeItem(WANT_MODE_KEY)
+      return isMode(w) ? w : null
+    } catch { return null }
+  })
+  useEffect(() => {
+    const onAsk = (e: Event) => { const m = (e as CustomEvent).detail; if (isMode(m)) setWanted(m) }
+    window.addEventListener(SET_MODE_EVENT, onAsk)
+    return () => window.removeEventListener(SET_MODE_EVENT, onAsk)
+  }, [])
+  useEffect(() => {
+    if (!wanted || !loaded) return
+    setWanted(null)
+    if (wanted === mode) return
+    if (!canEdit) { setError(t('Only an admin can change the workspace mode.')); return }
+    void act('mode', async () => { await setMode(wanted); if (wanted === 'harness') props.onOpen('home') })
+  }, [wanted, loaded, mode, canEdit, setMode, act, setError, t])
   const on = mode === 'harness'
   const rows: Array<{ screen: HarnessScreen; icon: Parameters<typeof Icon>[0]['name']; title: string; sub: string }> = [
     { screen: 'apps', icon: 'grid', title: t('Apps'), sub: t('Internal tools your team and agents build: trackers, boards, dashboards.') },
@@ -30,27 +52,9 @@ export const HarnessHub: React.FC<HarnessProps & { onOpen: (s: HarnessScreen) =>
   return (
     <Shell title={t('Harness')} onClose={props.onClose}>
       <p className="lede">{t('One workspace where your team and AI agents run the business together. Simple mode keeps Honmaru as it is: the decision feed and the chat.')}</p>
-      <div className="rows">
-        <div className="row static hx-mode-row">
-          <span className="row-main">
-            {t('Workspace mode')}
-            <span className="row-sub">{on ? t('Harness: apps, workflows, agents as members, approvals.') : t('Simple: the decision feed and the chat.')}</span>
-          </span>
-          <span className="hx-seg" role="radiogroup" aria-label={t('Workspace mode')}>
-            {(['simple', 'harness'] as const).map((m) => (
-              <button
-                key={m}
-                role="radio"
-                aria-checked={mode === m}
-                className={mode === m ? 'on' : ''}
-                disabled={!canEdit || busy === 'mode'}
-                onClick={() => act('mode', async () => { await setMode(m) })}
-              >{m === 'simple' ? t('Simple') : t('Harness')}</button>
-            ))}
-          </span>
-        </div>
-        {!canEdit && <div className="row static"><span className="row-sub">{t('Only an admin can change the workspace mode.')}</span></div>}
-      </div>
+      <div className="rows-title">{t('Workspace mode')}</div>
+      <ModePicker mode={mode} canEdit={canEdit} busy={busy === 'mode'} onPick={(m) => void act('mode', async () => { await setMode(m); if (m === 'harness') props.onOpen('home') })} />
+      {!canEdit && <p className="hx-hint">{t('Only an admin can change the workspace mode.')}</p>}
       {error && <div className="form-error">{error}</div>}
       {on && (
         <div className="rows">
