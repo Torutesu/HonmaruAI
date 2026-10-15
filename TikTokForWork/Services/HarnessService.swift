@@ -243,7 +243,6 @@ enum HarnessService {
         guard let http = response as? HTTPURLResponse else { throw Failure.server(0) }
         guard (200...299).contains(http.statusCode) else {
             if http.statusCode == 401 { throw Failure.notSignedIn }
-            struct Refusal: Decodable { let message: String }
             if let refusal = try? JSONDecoder().decode(Refusal.self, from: data) {
                 throw Failure.refused(refusal.message)
             }
@@ -253,6 +252,9 @@ enum HarnessService {
     }
 
     struct Done: Decodable {}
+
+    /// The Worker's words when it says no.
+    private struct Refusal: Decodable { let message: String }
 
     static func mode(orgId: String, base: URL) async throws -> ModeState {
         try await call("GET", "/orgs/mode", orgId: orgId, base: base)
