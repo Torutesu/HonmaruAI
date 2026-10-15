@@ -22,6 +22,8 @@ import { completer } from "./model.js";
 import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
 import { listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
 import { onRowChange } from "./workflows.js";
+import { profilesFor } from "./agents.js";
+import { listAgents } from "../customAgents.js";
 
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
@@ -39,7 +41,7 @@ export function json(body, status = 200) {
 const fail = (result) => json({ message: result.error }, result.status || 400);
 
 /// The paths this module answers.
-const OURS = /^\/(orgs\/mode|tables|apps|skills|hx|workflows|followups|approvals)(\/|$)/;
+const OURS = /^\/(orgs\/mode|tables|apps|skills|hx|workflows|followups|approvals|harness\/home)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
 export async function member(env, request, orgId) {
@@ -213,21 +215,15 @@ export async function handleHarness(request, env, url) {
   // What agents and workflows are waiting on: for me to decide, and what I
   // started that waits on someone else.
   if (parts[0] === "approvals" && request.method === "GET") {
-    const { results } = await env.DB
-      .prepare("SELECT data FROM cards WHERE org_id = ?1 AND recipient_user_id = ?2 AND status = 'pending' ORDER BY created_at DESC LIMIT 200")
-      .bind(orgId, who.user.login)
-      .all();
-    const cards = (results || []).map((r) => { try { return JSON.parse(r.data); } catch { return null; } })
-      .filter((c) => c && (c.workflowApproval || c.proxyAction || c.proposal || String(c.senderUserID || "").startsWith("agent:")));
-    const { results: waiting } = await env.DB
-      .prepare(`SELECT r.id, r.workflow_id, r.card_id, r.started_at, w.name FROM hx_workflow_runs r JOIN hx_workflows w ON w.id = r.workflow_id
-        WHERE r.org_id = ?1 AND r.status = 'waiting' AND (r.started_by = ?2 OR w.created_by = ?2) ORDER BY r.started_at DESC LIMIT 100`)
-      .bind(orgId, String(me))
-      .all();
-    return json({
-      toDecide: cards.map((c) => ({ id: c.id, title: c.title, summary: c.summary, createdAt: c.createdAt, kind: c.workflowApproval ? "workflow" : c.proxyAction ? "agent" : c.proposal ? "proposal" : "agent", source: c.sourceDetail || c.sourceApp || null })),
-      waitingOnOthers: (waiting || []).map((w) => ({ runId: w.id, workflowId: w.workflow_id, workflow: w.name, cardId: w.card_id, startedAt: w.started_at })),
-    });
+    return json(await approvalsFor(env, orgId, who.user.login, me));
+  }
+
+  // ── Home ──────────────────────────────────────────────────────────────
+  // The harness's front page in one call: what waits on me, the apps with
+  // their headline number, the agents with their roles, the workflows with
+  // how they last ran, and the follow-ups to come.
+  if (parts[0] === "harness" && parts[1] === "home" && request.method === "GET") {
+    return json(await homeFor(env, orgId, who, me));
   }
 
   // ── Skills ────────────────────────────────────────────────────────────
@@ -379,3 +375,61 @@ async function afterRowChange(env, change) {
 }
 
 const hookUrl = (url, wf) => (wf.trigger?.type === "webhook" && wf.hookSecret ? `${url.origin}/hooks/workflows/${wf.id}?secret=${wf.hookSecret}` : undefined);
+
+/// What agents and workflows are waiting on: for this person to decide, and
+/// what they started that waits on someone else.
+async function approvalsFor(env, orgId, login, me) {
+  const { results } = await env.DB
+    .prepare("SELECT data FROM cards WHERE org_id = ?1 AND recipient_user_id = ?2 AND status = 'pending' ORDER BY created_at DESC LIMIT 200")
+    .bind(orgId, login)
+    .all();
+  const pending = (results || []).map((r) => { try { return JSON.parse(r.data); } catch { return null; } }).filter(Boolean);
+  const cards = pending.filter((c) => c.workflowApproval || c.proxyAction || c.proposal || String(c.senderUserID || "").startsWith("agent:"));
+  const { results: waiting } = await env.DB
+    .prepare(`SELECT r.id, r.workflow_id, r.card_id, r.started_at, w.name FROM hx_workflow_runs r JOIN hx_workflows w ON w.id = r.workflow_id
+      WHERE r.org_id = ?1 AND r.status = 'waiting' AND (r.started_by = ?2 OR w.created_by = ?2) ORDER BY r.started_at DESC LIMIT 100`)
+    .bind(orgId, String(me))
+    .all();
+  return {
+    pendingDecisions: pending.length,
+    toDecide: cards.map((c) => ({ id: c.id, title: c.title, summary: c.summary, createdAt: c.createdAt, kind: c.workflowApproval ? "workflow" : c.proxyAction ? "agent" : c.proposal ? "proposal" : "agent", source: c.sourceDetail || c.sourceApp || null })),
+    waitingOnOthers: (waiting || []).map((w) => ({ runId: w.id, workflowId: w.workflow_id, workflow: w.name, cardId: w.card_id, startedAt: w.started_at })),
+  };
+}
+
+async function homeFor(env, orgId, who, me) {
+  const db = env.DB;
+  const [mode, approvals, appRows, agents, workflows, followups] = await Promise.all([
+    getMode(db, orgId),
+    approvalsFor(env, orgId, who.user.login, me),
+    listApps(db, orgId),
+    listAgents(db, orgId, who.user.login).catch(() => []),
+    listWorkflows(db, orgId),
+    listFollowups(db, orgId),
+  ]);
+  // An app's headline: the first number its summary view works out.
+  const apps = await Promise.all(appRows.slice(0, 12).map(async (a) => {
+    const r = await renderApp(db, orgId, a.id).catch(() => null);
+    const metrics = r?.views.find((v) => v.type === "metrics");
+    const first = metrics?.values?.[0] || null;
+    return { id: a.id, name: a.name, icon: a.icon, description: a.description, channels: a.channels || [], rows: r?.rows.length ?? 0, headline: first ? { label: first.label, value: first.value } : null };
+  }));
+  const profiles = await profilesFor(db, orgId, agents.map((a) => a.id));
+  // Newest first: the first seen for a workflow is how it last ran.
+  const { results: runs } = workflows.length
+    ? await db.prepare("SELECT workflow_id, status, started_at FROM hx_workflow_runs WHERE org_id = ?1 ORDER BY started_at DESC LIMIT 500").bind(orgId).all()
+    : { results: [] };
+  const lastOf = new Map();
+  for (const r of runs || []) if (!lastOf.has(r.workflow_id)) lastOf.set(r.workflow_id, { status: r.status, startedAt: r.started_at });
+  return {
+    mode,
+    approvals,
+    apps,
+    agents: agents.slice(0, 24).map((a) => {
+      const p = profiles.get(a.id);
+      return { id: a.id, handle: a.handle, name: a.name, emoji: a.emoji || null, description: a.description || "", specialty: p?.specialty || "", tier: p?.tier || "standard", provider: a.provider || null };
+    }),
+    workflows: workflows.slice(0, 20).map((w) => ({ id: w.id, name: w.name, enabled: w.enabled, trigger: w.trigger.type, nextRunAt: w.nextRunAt, lastRun: lastOf.get(w.id) || null })),
+    followups: followups.slice(0, 10),
+  };
+}

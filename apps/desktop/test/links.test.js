@@ -135,3 +135,36 @@ describe('the Go menu', () => {
     expect(new Set(keys).size).toBe(keys.length)
   })
 })
+
+describe('the Workspace menu', () => {
+  it('offers Simple and Harness, in the system language', async () => {
+    const { modeMenuItems } = await import('../src/links.js')
+    expect(modeMenuItems('ja').label).toBe('ワークスペース')
+    expect(modeMenuItems('ja').items.map((i) => i.mode)).toEqual(['simple', 'harness'])
+    expect(modeMenuItems('en-US').items[1].label).toBe('Switch to Harness')
+  })
+
+  it('asks the page for exactly one of the two modes, and nothing else', async () => {
+    const { setModeScript } = await import('../src/links.js')
+    expect(setModeScript('rm -rf')).toBeNull()
+    expect(setModeScript('"; alert(1); "')).toBeNull()
+    // Run against a stand-in page: the hub closed, then open.
+    for (const [hash, opens] of [['#/feed', true], ['#/harness', false]]) {
+      const store = new Map()
+      const sent = []
+      const location = { hash }
+      const window = { dispatchEvent: (e) => sent.push(e.detail) }
+      class CustomEvent { constructor(type, init) { this.type = type; this.detail = init.detail } }
+      const sessionStorage = { setItem: (k, v) => store.set(k, v) }
+      new Function('location', 'window', 'CustomEvent', 'sessionStorage', setModeScript('harness'))(location, window, CustomEvent, sessionStorage)
+      if (opens) {
+        expect(location.hash).toBe('#/harness')
+        expect(store.get('hx.wantMode')).toBe('harness')
+        expect(sent).toEqual([])
+      } else {
+        expect(sent).toEqual(['harness'])
+        expect(store.size).toBe(0)
+      }
+    }
+  })
+})

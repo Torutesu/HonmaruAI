@@ -9,6 +9,7 @@
 
 import { chromium } from '../web-react/node_modules/playwright/index.mjs'
 import { mkdirSync } from 'node:fs'
+import { setModeScript } from '../apps/desktop/src/links.js'
 
 const WEB = 'http://127.0.0.1:4173'
 const SINK = 'http://127.0.0.1:9099'
@@ -97,6 +98,13 @@ for (const [label, viewport] of [['laptop', { width: 1280, height: 860 }], ['pho
     else await page.waitForSelector('.tabbar, .cl-tabs', { timeout: 20000 })
     await shot('00-home')
   })
+  await step(`${label}: a harness workspace opens on its home: what waits on me, the apps' numbers, how workflows ran`, async () => {
+    await page.goto(WEB, { waitUntil: 'load' })
+    await page.waitForSelector('[data-screen="home"] [data-home-app]', { timeout: 20000 })
+    await page.waitForSelector('[data-screen="home"] [data-card]')
+    await page.waitForTimeout(400)
+    await shot('00b-home')
+  })
   await step(`${label}: the hub switches the mode and leads everywhere`, async () => {
     await visit('#/harness', '[data-open="apps"]')
     await shot('01-hub')
@@ -140,6 +148,23 @@ for (const [label, viewport] of [['laptop', { width: 1280, height: 860 }], ['pho
     await visit('#/agent-team', '.hx-screen')
     await shot('11-agent-team')
   })
+  if (label === 'laptop') {
+    await step('laptop: the desktop menu switches the workspace to Simple and back, through the hub', async () => {
+      const modeNow = async () => (await (await fetch(`${API}/orgs/mode?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': token } })).json()).mode
+      const until = async (want) => { for (let i = 0; i < 40; i++) { if (await modeNow() === want) return; await page.waitForTimeout(250) } throw new Error(`the mode never became ${want}`) }
+      await visit('#/feed', '.tabbar')
+      // The hub closed: the request is left for it, and it opens.
+      await page.evaluate(setModeScript('simple'))
+      await until('simple')
+      await page.waitForSelector('[data-mode="simple"][aria-checked="true"]')
+      await shot('12-switched-simple')
+      // The hub open: the request is handed to it.
+      await page.evaluate(setModeScript('harness'))
+      await until('harness')
+      // Switched to Harness, the workspace's home opens.
+      await page.waitForSelector('[data-screen="home"]')
+    })
+  }
   await step(`${label}: no page errors`, async () => { if (thrown.length) throw new Error(thrown.join('\n')) })
   await ctx.close()
 }

@@ -50,6 +50,7 @@ const Automations = React.lazy(() => import('../screens/Automations').then((m) =
 const Playbook = React.lazy(() => import('../screens/Playbook').then((m) => ({ default: m.Playbook })))
 const Agents = React.lazy(() => import('../screens/Agents').then((m) => ({ default: m.Agents })))
 // The harness screens (docs/kylon-gap-plan.md): loaded only when opened.
+const HarnessHome = React.lazy(() => import('../screens/HarnessHome').then((m) => ({ default: m.HarnessHome })))
 const HarnessHub = React.lazy(() => import('../screens/Harness').then((m) => ({ default: m.HarnessHub })))
 const HarnessApps = React.lazy(() => import('../screens/Harness').then((m) => ({ default: m.HarnessApps })))
 const HarnessApprovals = React.lazy(() => import('../screens/Harness').then((m) => ({ default: m.HarnessApprovals })))
@@ -89,7 +90,7 @@ const DECIDED_WORD: Record<string, string> = {
 /// The shell around the feed. The feed is the screen; everything else —
 /// telling your AI something, what you sent, what you decided, the team —
 /// is a sheet over it that closes back to the feed.
-const HARNESS_SCREENS = new Set<Screen>(['harness', 'apps', 'workflows', 'approvals', 'skills', 'hxagents'])
+const HARNESS_SCREENS = new Set<Screen>(['home', 'harness', 'apps', 'workflows', 'approvals', 'skills', 'hxagents'])
 
 export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout, onSwitchOrg, onLeft }) => {
   const t = useT()
@@ -283,6 +284,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const relayHttpUrl = relayUrl.replace(/^ws/, 'http')
   // Simple or harness (docs/kylon-gap-plan.md): what the rail offers.
   const { mode: workspaceMode } = useWorkspaceMode(relayHttpUrl, orgId, sessionToken)
+  // A harness workspace opens on its home, once, when nothing else was
+  // asked for: an address with a place in it is still obeyed.
+  const landedHome = useRef(false)
+  useEffect(() => {
+    if (workspaceMode !== 'harness' || landedHome.current) return
+    landedHome.current = true
+    if (!window.location.hash.replace(/^#\/?/, '')) setScreen('home')
+  }, [workspaceMode, setScreen])
 
   // Cards waiting on you: counted on the tab, and a card that stops waiting
   // (decided here, on a phone, or taken back) takes its notification with it.
@@ -970,7 +979,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     // open: on a phone a screen owns the viewport and the tab bar goes away,
     // on a laptop navigation is a place on the page and disappearing would be
     // the app losing its own chrome.
-    <div className={`shell${screen ? ' screen-open' : ''}${immersive && mode === 'classic' && !screen ? ' immersive' : ''}${mode === 'classic' && !screen ? ' list-mode' : ''}`}>
+    <div className={`shell${screen ? ' screen-open' : ''}${screen === 'home' ? ' home-open' : ''}${immersive && mode === 'classic' && !screen ? ' immersive' : ''}${mode === 'classic' && !screen ? ' list-mode' : ''}`}>
       {workbench ? (
         <div className="workbench">
           <Inbox
@@ -1165,13 +1174,18 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           {workspaceSwitcher('rail')}
           {/* The lit tab is where you are: a screen while one is open, the
               feed otherwise. The rail used to light Feed under History. */}
+          {/* A harness workspace opens on its own home; the decision feed is
+              still one tap away, named for what it holds. */}
+          {workspaceMode === 'harness' && (
+            <button className={screen === 'home' ? 'tab on' : 'tab'} aria-current={screen === 'home' ? 'page' : undefined} data-tab="hxhome" onClick={() => setScreen('home')} aria-label={t('Home')}><Icon name="home" /></button>
+          )}
           <button
             className={!screen && mode === 'cards' ? 'tab on' : 'tab'}
             aria-current={!screen && mode === 'cards' ? 'page' : undefined}
             onClick={() => { setScreen(null); switchMode('cards') }}
             data-tab="feed"
-            aria-label={t('Feed')}
-          ><Icon name="home" /></button>
+            aria-label={workspaceMode === 'harness' ? t('Decisions') : t('Feed')}
+          ><Icon name={workspaceMode === 'harness' ? 'check' : 'home'} /></button>
           <button className={screen === 'history' ? 'tab on' : 'tab'} aria-current={screen === 'history' ? 'page' : undefined} data-tab="history" onClick={() => setScreen('history')} aria-label={t('History')}><Icon name="history" /></button>
           <button className="tab compose" data-tab="compose" onClick={() => setPanel('compose')} aria-label={t('Tell your AI')} title={`${t('Tell your AI')} (N)`} aria-keyshortcuts="n">
             <span className="fab-face"><Icon name="plus" /></span>
@@ -1181,7 +1195,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           {workspaceMode === 'harness' && (
             <>
               <button className={screen === 'apps' ? 'tab on' : 'tab'} aria-current={screen === 'apps' ? 'page' : undefined} data-tab="apps" onClick={() => setScreen('apps')} aria-label={t('Apps')} title={t('Apps')}><Icon name="grid" /></button>
-              <button className={screen === 'harness' || screen === 'workflows' || screen === 'approvals' || screen === 'skills' || screen === 'hxagents' ? 'tab on' : 'tab'} data-tab="harness" onClick={() => setScreen('harness')} aria-label={t('Harness')} title={t('Harness')}><Icon name="zap" /></button>
+              <button className={screen === 'harness' || screen === 'workflows' || screen === 'approvals' || screen === 'skills' || screen === 'hxagents' ? 'tab on' : 'tab'} aria-current={screen === 'workflows' ? 'page' : undefined} data-tab="harness" onClick={() => setScreen('workflows')} aria-label={t('Workflows')} title={t('Workflows')}><Icon name="zap" /></button>
             </>
           )}
           <button className={screen === 'tools' ? 'tab on' : 'tab'} aria-current={screen === 'tools' ? 'page' : undefined} data-tab="tools" onClick={() => setScreen('tools')} aria-label={t('Tools')}><Icon name="tools" /></button>
@@ -1323,6 +1337,18 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       )}
       {screen === 'agents' && (
         <Agents httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} onMessage={(id) => navigate(hashForView(`ag:${id}`))} />
+      )}
+      {screen === 'home' && (
+        <HarnessHome
+          httpBase={relayHttpUrl}
+          orgId={orgId}
+          sessionToken={sessionToken}
+          businesses={businesses}
+          onClose={closeScreen}
+          onOpen={(where) => setScreen(where, 'home')}
+          onNavigate={(hash) => navigate(hash)}
+          onFeed={() => { setScreen(null); switchMode('cards') }}
+        />
       )}
       {screen === 'harness' && (
         <HarnessHub httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} onOpen={(where) => setScreen(where, 'harness')} />

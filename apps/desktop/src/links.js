@@ -131,3 +131,30 @@ export function goMenuItems(locale = 'en') {
     { label: ja ? '承認' : 'Approvals', hash: '#/approvals' },
   ]
 }
+
+/// The Workspace menu: Simple or Harness (docs/kylon-gap-plan.md). Each
+/// item asks the open app to switch, through its harness hub, which applies
+/// it only for an admin and says why not to anyone else.
+export function modeMenuItems(locale = 'en') {
+  const ja = String(locale || '').startsWith('ja')
+  return {
+    label: ja ? 'ワークスペース' : 'Workspace',
+    items: [
+      { label: ja ? 'シンプルにする' : 'Switch to Simple', mode: 'simple' },
+      { label: ja ? 'ハーネスにする' : 'Switch to Harness', mode: 'harness' },
+    ],
+  }
+}
+
+/// What the window runs to ask for a mode: leave the request for the hub
+/// and open it, or, when the hub is already open, hand it the request.
+/// Null for anything but the two modes, so nothing else reaches the page.
+export function setModeScript(mode) {
+  if (mode !== 'simple' && mode !== 'harness') return null
+  const m = JSON.stringify(mode)
+  return `(() => {
+  if (location.hash === '#/harness') { window.dispatchEvent(new CustomEvent('honmaru:set-mode', { detail: ${m} })); return }
+  try { sessionStorage.setItem('hx.wantMode', ${m}) } catch (e) {}
+  location.hash = '#/harness'
+})()`
+}
