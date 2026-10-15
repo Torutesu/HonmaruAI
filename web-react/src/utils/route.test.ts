@@ -97,3 +97,13 @@ describe('a card in another workspace', () => {
     expect(parseRoute('#/feed/c1').cardOrg).toBeUndefined()
   })
 })
+
+describe('the harness screens', () => {
+  it('each has an address of its own, and comes back from it', () => {
+    for (const screen of ['harness', 'apps', 'workflows', 'approvals', 'skills', 'hxagents'] as const) {
+      const hash = hashForScreen(screen)
+      expect(parseRoute(hash).screen, screen).toBe(screen)
+    }
+    expect(hashForScreen('hxagents')).toBe('#/agent-team')
+  })
+})

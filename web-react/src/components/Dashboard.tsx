@@ -35,6 +35,7 @@ import { isMacPlatform, formatCombo, hasPrimaryMod, composing } from '../utils/k
 import { tabWithin, TAB_STOPS } from '../utils/focusTrap'
 import type { ChannelMessage } from '../types/card'
 import { ForYou } from '../utils/forYou'
+import { useWorkspaceMode } from '../utils/harness'
 
 // The screens a person opens now and then load when they are opened: the
 // first page is the conversation, not the settings behind it.
@@ -48,6 +49,13 @@ const Insights = React.lazy(() => import('../screens/Insights').then((m) => ({ d
 const Automations = React.lazy(() => import('../screens/Automations').then((m) => ({ default: m.Automations })))
 const Playbook = React.lazy(() => import('../screens/Playbook').then((m) => ({ default: m.Playbook })))
 const Agents = React.lazy(() => import('../screens/Agents').then((m) => ({ default: m.Agents })))
+// The harness screens (docs/kylon-gap-plan.md): loaded only when opened.
+const HarnessHub = React.lazy(() => import('../screens/Harness').then((m) => ({ default: m.HarnessHub })))
+const HarnessApps = React.lazy(() => import('../screens/Harness').then((m) => ({ default: m.HarnessApps })))
+const HarnessApprovals = React.lazy(() => import('../screens/Harness').then((m) => ({ default: m.HarnessApprovals })))
+const HarnessWorkflows = React.lazy(() => import('../screens/HarnessWorkflows').then((m) => ({ default: m.HarnessWorkflows })))
+const HarnessSkills = React.lazy(() => import('../screens/HarnessAgents').then((m) => ({ default: m.HarnessSkills })))
+const HarnessAgents = React.lazy(() => import('../screens/HarnessAgents').then((m) => ({ default: m.HarnessAgents })))
 
 
 interface Props {
@@ -81,6 +89,8 @@ const DECIDED_WORD: Record<string, string> = {
 /// The shell around the feed. The feed is the screen; everything else —
 /// telling your AI something, what you sent, what you decided, the team —
 /// is a sheet over it that closes back to the feed.
+const HARNESS_SCREENS = new Set<Screen>(['harness', 'apps', 'workflows', 'approvals', 'skills', 'hxagents'])
+
 export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout, onSwitchOrg, onLeft }) => {
   const t = useT()
   // The last snapshot this browser saw, until the relay sends a new one —
@@ -271,6 +281,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   }, [])
 
   const relayHttpUrl = relayUrl.replace(/^ws/, 'http')
+  // Simple or harness (docs/kylon-gap-plan.md): what the rail offers.
+  const { mode: workspaceMode } = useWorkspaceMode(relayHttpUrl, orgId, sessionToken)
 
   // Cards waiting on you: counted on the tab, and a card that stops waiting
   // (decided here, on a phone, or taken back) takes its notification with it.
@@ -1164,8 +1176,16 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           <button className="tab compose" data-tab="compose" onClick={() => setPanel('compose')} aria-label={t('Tell your AI')} title={`${t('Tell your AI')} (N)`} aria-keyshortcuts="n">
             <span className="fab-face"><Icon name="plus" /></span>
           </button>
+          {/* A harness workspace (docs/kylon-gap-plan.md) adds its apps and
+              workflows to the rail; a simple one keeps the rail it had. */}
+          {workspaceMode === 'harness' && (
+            <>
+              <button className={screen === 'apps' ? 'tab on' : 'tab'} aria-current={screen === 'apps' ? 'page' : undefined} data-tab="apps" onClick={() => setScreen('apps')} aria-label={t('Apps')} title={t('Apps')}><Icon name="grid" /></button>
+              <button className={screen === 'harness' || screen === 'workflows' || screen === 'approvals' || screen === 'skills' || screen === 'hxagents' ? 'tab on' : 'tab'} data-tab="harness" onClick={() => setScreen('harness')} aria-label={t('Harness')} title={t('Harness')}><Icon name="zap" /></button>
+            </>
+          )}
           <button className={screen === 'tools' ? 'tab on' : 'tab'} aria-current={screen === 'tools' ? 'page' : undefined} data-tab="tools" onClick={() => setScreen('tools')} aria-label={t('Tools')}><Icon name="tools" /></button>
-          <button className={screen && screen !== 'history' && screen !== 'tools' ? 'tab on' : 'tab'} aria-current={screen && screen !== 'history' && screen !== 'tools' ? 'page' : undefined} data-tab="you" ref={railAvatar} onClick={() => (railed ? setStatusFrom((f) => (f === 'rail' ? null : 'rail')) : setScreen('profile'))} aria-label={t('You')} aria-haspopup={railed ? 'dialog' : undefined} aria-expanded={railed ? statusFrom === 'rail' : undefined}><Icon name="you" /><span className={`tab-avatar${myFace.url ? ' has-photo' : ''}`} aria-hidden="true" data-initial={((myFace.name || userId.replace(/^(u:|email:)/, ''))[0] || '?').toUpperCase()}>{myFace.url && <img src={myFace.url} alt="" referrerPolicy="no-referrer" />}</span></button>
+          <button className={screen && screen !== 'history' && screen !== 'tools' && !HARNESS_SCREENS.has(screen) ? 'tab on' : 'tab'} aria-current={screen && screen !== 'history' && screen !== 'tools' && !HARNESS_SCREENS.has(screen) ? 'page' : undefined} data-tab="you" ref={railAvatar} onClick={() => (railed ? setStatusFrom((f) => (f === 'rail' ? null : 'rail')) : setScreen('profile'))} aria-label={t('You')} aria-haspopup={railed ? 'dialog' : undefined} aria-expanded={railed ? statusFrom === 'rail' : undefined}><Icon name="you" /><span className={`tab-avatar${myFace.url ? ' has-photo' : ''}`} aria-hidden="true" data-initial={((myFace.name || userId.replace(/^(u:|email:)/, ''))[0] || '?').toUpperCase()}>{myFace.url && <img src={myFace.url} alt="" referrerPolicy="no-referrer" />}</span></button>
         </nav>
       )}
 
@@ -1304,6 +1324,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       {screen === 'agents' && (
         <Agents httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} onMessage={(id) => navigate(hashForView(`ag:${id}`))} />
       )}
+      {screen === 'harness' && (
+        <HarnessHub httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} onOpen={(where) => setScreen(where, 'harness')} />
+      )}
+      {screen === 'apps' && <HarnessApps httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
+      {screen === 'workflows' && <HarnessWorkflows httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
+      {screen === 'approvals' && <HarnessApprovals httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
+      {screen === 'skills' && <HarnessSkills httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
+      {screen === 'hxagents' && <HarnessAgents httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'plans' && (
         <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} orgId={orgId} onClose={closeScreen} />
       )}

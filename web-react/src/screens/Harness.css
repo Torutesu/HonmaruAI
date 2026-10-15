@@ -1,0 +1,88 @@
+/* The harness screens (docs/kylon-gap-plan.md). Built on the screens'
+   own rows and pills; what is new is the app canvas: tiles, a table, a
+   board, metric tiles, and the workflow builder. */
+
+.hx-screen .screen-head { position: relative; }
+.hx-head-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.hx-version { font-family: var(--font-mono); font-size: 12px; color: var(--ash); }
+
+.hx-seg { display: inline-flex; border: 1px solid var(--bone); border-radius: var(--radius-pill); overflow: hidden; flex-shrink: 0; margin-top: 6px; }
+.hx-seg button { border: 0; background: var(--signal-white); color: var(--ink-black); padding: 6px 12px; font: 600 13px var(--font-body); cursor: pointer; }
+.hx-seg button.on { background: var(--ink-black); color: var(--signal-white); }
+.hx-seg button[disabled] { cursor: default; opacity: 0.6; }
+.hx-mode-row { flex-wrap: wrap; gap: 10px; }
+
+.hx-app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin: 8px 0 18px; }
+.hx-app-tile {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left;
+  border: 1px solid var(--bone); border-radius: var(--radius-card); background: var(--signal-white);
+  padding: 14px; cursor: pointer; font-family: var(--font-body); color: var(--ink-black); min-height: 108px;
+}
+.hx-app-tile:hover { border-color: var(--ink-black); }
+.hx-app-tile.template { background: var(--mist); }
+.hx-app-icon { font-size: 24px; line-height: 1; }
+.hx-app-name { font-weight: 600; font-size: 14px; }
+.hx-app-sub { font-size: 12px; color: var(--ash); line-height: 1.4; }
+.hx-app-rooms { font-size: 12px; color: var(--brand-violet); margin-top: auto; }
+
+.hx-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 12px; }
+.hx-tabs button { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--bone); background: var(--signal-white); border-radius: var(--radius-pill); padding: 6px 12px; font: 600 13px var(--font-body); cursor: pointer; color: var(--ink-black); }
+.hx-tabs button.on { background: var(--ink-black); color: var(--signal-white); border-color: var(--ink-black); }
+
+.hx-table-wrap { overflow-x: auto; border: 1px solid var(--bone); border-radius: var(--radius-card); }
+.hx-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.hx-table th { text-align: left; font-weight: 600; color: var(--ash); padding: 8px; border-bottom: 1px solid var(--bone); white-space: nowrap; background: var(--mist); }
+.hx-table td { padding: 2px 4px; border-bottom: 1px solid var(--bone); }
+.hx-table tr:last-child td { border-bottom: 0; }
+.hx-cell-input, .hx-cell-select, .hx-step select, .hx-builder select {
+  width: 100%; min-width: 90px; border: 1px solid transparent; border-radius: var(--radius-input);
+  background: transparent; padding: 6px; font: 13px var(--font-body); color: var(--ink-black); box-sizing: border-box;
+}
+.hx-cell-input:hover, .hx-cell-select:hover { border-color: var(--bone); }
+.hx-cell-input:focus, .hx-cell-select:focus { border-color: var(--ink-black); outline: none; background: var(--signal-white); }
+.hx-step .hx-cell-input, .hx-builder .hx-cell-input, .hx-step select, .hx-builder select, .row .hx-cell-input { border-color: var(--bone); background: var(--signal-white); }
+.hx-num { width: 72px; min-width: 0; }
+.hx-title-input { font-size: 16px !important; font-weight: 600; }
+.hx-add { margin-top: 10px; display: inline-flex; gap: 6px; align-items: center; }
+
+.hx-board { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
+.hx-lane { flex: 0 0 220px; background: var(--mist); border-radius: var(--radius-card); padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.hx-lane-head { font-weight: 600; font-size: 13px; display: flex; justify-content: space-between; padding: 2px 4px; }
+.hx-count { color: var(--ash); font-weight: 500; }
+.hx-card { background: var(--signal-white); border: 1px solid var(--bone); border-radius: var(--radius-input); padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.hx-card-title { font-weight: 600; font-size: 13px; }
+.hx-card-field { font-size: 12px; color: var(--ink-black); }
+.hx-card-field span { color: var(--ash); margin-right: 4px; }
+
+.hx-metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.hx-metric { border: 1px solid var(--bone); border-radius: var(--radius-card); padding: 14px; display: flex; flex-direction: column; gap: 4px; }
+.hx-metric-value { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hx-metric-label { font-size: 12px; color: var(--ash); }
+
+.hx-chip { display: inline-flex; align-items: center; gap: 2px; background: var(--mist); border-radius: var(--radius-pill); padding: 2px 4px 2px 10px; margin: 0 6px 6px 0; font-size: 13px; }
+.hx-danger { color: #a11258; }
+.hx-emoji { font-size: 18px; }
+.hx-off { color: var(--ash); font-weight: 400; }
+
+.hx-builder { border: 1px solid var(--bone); border-radius: var(--radius-card); padding: 12px; margin: 8px 0 16px; display: flex; flex-direction: column; gap: 8px; }
+.hx-step { border: 1px solid var(--bone); border-radius: var(--radius-input); padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--mist); }
+.hx-step-head { display: flex; gap: 6px; align-items: center; }
+.hx-inline { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.hx-inline > span:first-child { min-width: 90px; color: var(--ash); }
+.hx-values { display: flex; flex-direction: column; gap: 4px; }
+.hx-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 4px 0 10px; }
+.hx-code { display: block; font-family: var(--font-mono); font-size: 11px; word-break: break-all; background: var(--mist); padding: 6px 8px; border-radius: var(--radius-input); margin-top: 6px; }
+.hx-log { display: block; }
+.hx-status { font-weight: 600; }
+.hx-status.done, .hx-status.ok { color: var(--emerald); }
+.hx-status.failed, .hx-status.declined { color: #a11258; }
+.hx-status.waiting, .hx-status.running { color: var(--brand-violet); }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .hx-app-tile.template,
+  :root:not([data-theme="light"]) .hx-lane,
+  :root:not([data-theme="light"]) .hx-step { background: rgba(255, 255, 255, 0.04); }
+}
+:root[data-theme="dark"] .hx-app-tile.template,
+:root[data-theme="dark"] .hx-lane,
+:root[data-theme="dark"] .hx-step { background: rgba(255, 255, 255, 0.04); }
