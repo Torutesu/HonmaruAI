@@ -1923,3 +1923,9 @@ body.slk-resizing iframe { pointer-events: none; }
 .classic.slk.slk.compact .slk-text > :is(pre, ul, ol, blockquote) { clear: left; }
 .classic.slk.slk.compact .slk-pin-mark { display: flex; }
 .classic.slk.slk.compact .slk-reactions, .classic.slk.slk.compact .slk-card { margin-top: 4px; }
+
+/* Apps linked to this room, in a harness workspace (RoomApps.tsx). */
+.slk-room-apps { margin-bottom: 14px; }
+.slk-details-sub { font-size: 12px; font-weight: 600; color: var(--ash); text-transform: uppercase; letter-spacing: 0.04em; margin: 4px 0 6px; }
+.slk-room-apps a.slk-member-main { text-decoration: none; color: inherit; display: flex; flex-direction: column; }
+.slk-room-apps a.slk-member-main:hover .slk-member-name { text-decoration: underline; }

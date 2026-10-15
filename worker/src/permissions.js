@@ -49,6 +49,10 @@ export const PERMISSIONS = {
   "channel.create": "member",
   "playbook.manage": "admin",
   "agent.manage_others": "admin",
+  // The harness (docs/kylon-gap-plan.md).
+  "workspace.mode": "admin",
+  "harness.build": "member",
+  "harness.delete_others": "admin",
 };
 
 export const rankOf = (role) => ROLE_RANK.get(String(role || "member").toLowerCase()) ?? 0;

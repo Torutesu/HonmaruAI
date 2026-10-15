@@ -42530,6 +42530,1381 @@
           }
         }
       }
+    },
+    "#room to post its answer (optional)": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答を投稿する #ルーム（任意）"
+          }
+        }
+      }
+    },
+    "@who approves": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@承認する人"
+          }
+        }
+      }
+    },
+    "A row added or changed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行の追加・変更"
+          }
+        }
+      }
+    },
+    "A webhook": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Webhook"
+          }
+        }
+      }
+    },
+    "Add a row": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行を追加"
+          }
+        }
+      }
+    },
+    "Add a step": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手順を追加"
+          }
+        }
+      }
+    },
+    "Agent team": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチーム"
+          }
+        }
+      }
+    },
+    "Agents are members of the team: each with a specialty, a memory of its own, skills, and the people who may call it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントはチームのメンバーです。それぞれに専門、自分の記憶、スキル、呼べる人があります。"
+          }
+        }
+      }
+    },
+    "Agents propose, people approve. Everything an agent or a workflow is waiting on you for, in one place.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが提案し、人が承認する。あなたの判断待ちを一か所に。"
+          }
+        }
+      }
+    },
+    "Answer only when named": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を呼ばれたときだけ答える"
+          }
+        }
+      }
+    },
+    "Approvals": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認"
+          }
+        }
+      }
+    },
+    "Ask an agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントに頼む"
+          }
+        }
+      }
+    },
+    "Ask for approval": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認を求める"
+          }
+        }
+      }
+    },
+    "Build": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作る"
+          }
+        }
+      }
+    },
+    "Building…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成中…"
+          }
+        }
+      }
+    },
+    "Built from your description.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "説明から作りました。"
+          }
+        }
+      }
+    },
+    "By hand": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        }
+      }
+    },
+    "Cadence": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "頻度"
+          }
+        }
+      }
+    },
+    "Call this address to start it:": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアドレスを呼ぶと開始します:"
+          }
+        }
+      }
+    },
+    "Change the row": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行を更新"
+          }
+        }
+      }
+    },
+    "Choose an agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントを選ぶ"
+          }
+        }
+      }
+    },
+    "Decide them in your feed, like any other card.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "いつものカードと同じく、フィードで判断できます。"
+          }
+        }
+      }
+    },
+    "Delete app": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリを削除"
+          }
+        }
+      }
+    },
+    "Delete row": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行を削除"
+          }
+        }
+      }
+    },
+    "Delete this app and all its rows?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリとすべての行を削除しますか？"
+          }
+        }
+      }
+    },
+    "Describe an app": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作りたいアプリを説明"
+          }
+        }
+      }
+    },
+    "Describe the outcome once: when it should happen, and what follows. A person approves what matters.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "いつ・何をするかを一度決めるだけ。大事なところは人が承認します。"
+          }
+        }
+      }
+    },
+    "Follow up later": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あとでフォロー"
+          }
+        }
+      }
+    },
+    "Follow-ups": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォローアップ"
+          }
+        }
+      }
+    },
+    "Forget": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "忘れさせる"
+          }
+        }
+      }
+    },
+    "Harness": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハーネス"
+          }
+        }
+      }
+    },
+    "How your team does a thing, written once in Markdown. Give it to any agent and it follows it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームのやり方をMarkdownで一度書く。エージェントに渡せば、その通りに動きます。"
+          }
+        }
+      }
+    },
+    "In %lld hours": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld時間後"
+          }
+        }
+      }
+    },
+    "In a chat: “@%@ follow up in 3 days: …”.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットでは「@%@ 3日後にフォローして: …」。"
+          }
+        }
+      }
+    },
+    "In a chat: “@%@ remember that …”.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットでは「@%@ 〇〇を覚えておいて」。"
+          }
+        }
+      }
+    },
+    "Intelligence": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "知能"
+          }
+        }
+      }
+    },
+    "It has not run yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ実行されていません。"
+          }
+        }
+      }
+    },
+    "Link": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "紐付け"
+          }
+        }
+      }
+    },
+    "Link it to a room and it shows there, next to the conversation.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルームに紐付けると、会話の横に表示されます。"
+          }
+        }
+      }
+    },
+    "Lite": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライト"
+          }
+        }
+      }
+    },
+    "Max": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大"
+          }
+        }
+      }
+    },
+    "Memory": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶"
+          }
+        }
+      }
+    },
+    "New workflow": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークフロー"
+          }
+        }
+      }
+    },
+    "Next run %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次回 %@"
+          }
+        }
+      }
+    },
+    "No agents yet. Write one under Custom agents, then give it a role here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントはまだいません。「カスタムエージェント」で作ってから、ここで役割を与えましょう。"
+          }
+        }
+      }
+    },
+    "No apps yet. Describe one above, or start from a template.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリはまだありません。上で説明するか、テンプレートから始めましょう。"
+          }
+        }
+      }
+    },
+    "No skills in this workspace yet. Write one on the Skills screen.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースにスキルはまだありません。スキル画面で作りましょう。"
+          }
+        }
+      }
+    },
+    "No skills yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキルはまだありません。"
+          }
+        }
+      }
+    },
+    "No value": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未設定"
+          }
+        }
+      }
+    },
+    "No workflow of yours is waiting on anyone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "判断待ちのワークフローはありません。"
+          }
+        }
+      }
+    },
+    "No workflows yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークフローはまだありません。"
+          }
+        }
+      }
+    },
+    "Nothing here yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ何もありません。"
+          }
+        }
+      }
+    },
+    "Nothing is waiting on you.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "判断待ちはありません。"
+          }
+        }
+      }
+    },
+    "Nothing scheduled.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予定はありません。"
+          }
+        }
+      }
+    },
+    "On a schedule": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スケジュール"
+          }
+        }
+      }
+    },
+    "One line on when to use it": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "いつ使うかを一行で"
+          }
+        }
+      }
+    },
+    "One workspace where your team and AI agents run the business together. Simple mode keeps Honmaru as it is: the decision feed and the chat.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームとAIエージェントが一緒に事業を回すワークスペース。シンプルモードでは今のHonmaru（判断フィードとチャット）のまま使えます。"
+          }
+        }
+      }
+    },
+    "Only an admin can change the workspace mode.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モードを変えられるのは管理者だけです。"
+          }
+        }
+      }
+    },
+    "Only its maker": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成者だけ"
+          }
+        }
+      }
+    },
+    "Post in a room": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルームに投稿"
+          }
+        }
+      }
+    },
+    "Remember": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "覚えさせる"
+          }
+        }
+      }
+    },
+    "Remove step": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手順を削除"
+          }
+        }
+      }
+    },
+    "Role": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "役割"
+          }
+        }
+      }
+    },
+    "Rooms": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルーム"
+          }
+        }
+      }
+    },
+    "Run now": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今すぐ実行"
+          }
+        }
+      }
+    },
+    "Runs": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行履歴"
+          }
+        }
+      }
+    },
+    "Set this step up on the web.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この手順はWebで設定してください。"
+          }
+        }
+      }
+    },
+    "Show version history": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バージョン履歴を見る"
+          }
+        }
+      }
+    },
+    "Sign in to use the harness.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハーネスを使うにはサインインしてください。"
+          }
+        }
+      }
+    },
+    "Simple": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シンプル"
+          }
+        }
+      }
+    },
+    "Skill": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキル"
+          }
+        }
+      }
+    },
+    "Skill name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキル名"
+          }
+        }
+      }
+    },
+    "Skills": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキル"
+          }
+        }
+      }
+    },
+    "Some people": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部の人"
+          }
+        }
+      }
+    },
+    "Standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        }
+      }
+    },
+    "Started from the closest template. Change its columns any time.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "いちばん近いテンプレートから作りました。列はいつでも変えられます。"
+          }
+        }
+      }
+    },
+    "Step": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手順"
+          }
+        }
+      }
+    },
+    "Steps can use what started them: {{row.Column}}, {{input.text}}, {{steps.1.output}}.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手順では、きっかけの内容を使えます: {{row.列名}}、{{input.text}}、{{steps.1.output}}。"
+          }
+        }
+      }
+    },
+    "Table": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーブル"
+          }
+        }
+      }
+    },
+    "Templates": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テンプレート"
+          }
+        }
+      }
+    },
+    "Text": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本文"
+          }
+        }
+      }
+    },
+    "The request failed (%lld).": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リクエストに失敗しました（%lld）。"
+          }
+        }
+      }
+    },
+    "Trigger": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "きっかけ"
+          }
+        }
+      }
+    },
+    "Turn off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止"
+          }
+        }
+      }
+    },
+    "Versions": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バージョン"
+          }
+        }
+      }
+    },
+    "View": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示"
+          }
+        }
+      }
+    },
+    "Waiting on others": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他の人の判断待ち"
+          }
+        }
+      }
+    },
+    "Waiting on you": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの判断待ち"
+          }
+        }
+      }
+    },
+    "What they should know": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "判断に必要な情報"
+          }
+        }
+      }
+    },
+    "What to ask it": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "頼む内容"
+          }
+        }
+      }
+    },
+    "When a row changes in %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@の行が変わったとき"
+          }
+        }
+      }
+    },
+    "When its webhook is called": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Webhookが呼ばれたとき"
+          }
+        }
+      }
+    },
+    "When someone runs it": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動で実行したとき"
+          }
+        }
+      }
+    },
+    "Who may call it": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "呼べる人"
+          }
+        }
+      }
+    },
+    "Workflow name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークフロー名"
+          }
+        }
+      }
+    },
+    "Workflows": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークフロー"
+          }
+        }
+      }
+    },
+    "Workspace mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのモード"
+          }
+        }
+      }
+    },
+    "Your AI designs the table and its views.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIが表とビューを設計します。"
+          }
+        }
+      }
+    },
+    "Your apps": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ一覧"
+          }
+        }
+      }
+    },
+    "e.g. Accounts receivable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例: 売掛金の管理"
+          }
+        }
+      }
+    },
+    "e.g. Acme pays on the 25th": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例: Acmeの支払いは毎月25日"
+          }
+        }
+      }
+    },
+    "e.g. An invoice tracker for #ops, from the billing inbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例: #ops 用の請求書トラッカー。請求の受信箱から"
+          }
+        }
+      }
+    },
+    "e.g. Send {{row.Client}} a reminder?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例: {{row.Client}} に督促を送りますか？"
+          }
+        }
+      }
+    },
+    "e.g. {{row.Client}} is overdue": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例: {{row.Client}} の支払いが遅れています"
+          }
+        }
+      }
+    },
+    "is added": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加された"
+          }
+        }
+      }
+    },
+    "is changed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更された"
+          }
+        }
+      }
+    },
+    "is added or changed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加・変更された"
+          }
+        }
+      }
+    },
+    "off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止中"
+          }
+        }
+      }
+    },
+    "done": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗"
+          }
+        }
+      }
+    },
+    "waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認待ち"
+          }
+        }
+      }
+    },
+    "running": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中"
+          }
+        }
+      }
+    },
+    "daily": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "毎日"
+          }
+        }
+      }
+    },
+    "weekdays": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平日"
+          }
+        }
+      }
+    },
+    "weekly": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "毎週"
+          }
+        }
+      }
+    },
+    "monthly": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "毎月"
+          }
+        }
+      }
+    },
+    "Sales CRM": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "営業CRM"
+          }
+        }
+      }
+    },
+    "Hiring board": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "採用ボード"
+          }
+        }
+      }
+    },
+    "Invoice tracker": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請求書トラッカー"
+          }
+        }
+      }
+    },
+    "Tracker": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トラッカー"
+          }
+        }
+      }
+    },
+    "Leads to won deals: one pipeline, a stage board and a forecast.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リードから受注まで。パイプライン、ステージボード、見込み。"
+          }
+        }
+      }
+    },
+    "Every candidate, by stage, with who interviews them.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "候補者をステージ別に、面接担当と一緒に。"
+          }
+        }
+      }
+    },
+    "What is billed, what is paid, and what is overdue.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請求済み、入金済み、期限切れ。"
+          }
+        }
+      }
+    },
+    "A list of things, who owns each, and where it stands.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "やること、担当、進み具合の一覧。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

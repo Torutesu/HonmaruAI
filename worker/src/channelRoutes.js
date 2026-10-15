@@ -1,4 +1,7 @@
 import { checkOutgoing } from "./dlp.js";
+import { prepareAgent, rememberRequest, addAgentMemory } from "./harness/agents.js";
+import { getMode } from "./harness/mode.js";
+import { followupRequest, scheduleFollowup } from "./harness/followups.js";
 import { attachedTexts } from "./dlpFiles.js";
 import { linksIn, readLinks, linksBlock } from "./links.js";
 import { agentTools } from "./agentTools.js";
@@ -470,6 +473,9 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     }).catch(() => ({}))
     : {};
   let answered = 0;
+  // A workspace in harness mode gives its agents a profile, memory and
+  // skills (harness/agents.js); a simple one keeps them as they were.
+  const harness = (await getMode(env.DB, orgId).catch(() => "simple")) === "harness";
   // A metered day is one budget for the whole message. `remaining` was read
   // once above; spending it here stops five parallel answers from running
   // past the last call the person has left. Teammates bill their own
@@ -498,11 +504,25 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     await progress(agent, "agent");
     let text;
     try {
-      if (!provider) text = serverText(locale, "agent.noModel");
+      // "@agent remember …": kept in the agent's own memory, no model
+      // needed (harness/agents.js).
+      const remember = harness ? rememberRequest(requestFor(row.body, agent)) : null;
+      // "@agent follow up in 3 days: …": it comes back to this thread then.
+      const later = harness && !remember ? followupRequest(requestFor(row.body, agent)) : null;
+      if (remember) {
+        const kept = await addAgentMemory(env.DB, orgId, agent.id, remember, { by: session.github_id });
+        text = kept.error || serverText(locale, "agent.remembered", { text: kept.memory.text });
+      } else if (later) {
+        const dueAt = new Date(Date.now() + later.minutes * 60000).toISOString();
+        const made = await scheduleFollowup(env.DB, { orgId, channel: resolved.key, threadId: parentId, agentId: agent.id, instruction: later.text, dueAt, by: session.github_id });
+        text = made.error || serverText(locale, "agent.followupScheduled", { when: dueAt.slice(0, 16).replace("T", " ") + " UTC", text: later.text });
+      } else if (!provider) text = serverText(locale, "agent.noModel");
       else if (spend[index] !== "model") text = serverText(locale, "agent.quota");
       else {
+        // Its specialty, memory and skills, at its tier's model.
+        const ready = harness ? await prepareAgent(env, orgId, agent, provider) : { agent, provider };
         const result = await askAgent({
-          provider, agent, request: requestFor(row.body, agent), transcript, playbook, where, research, links, tools, env,
+          provider: ready.provider, agent: ready.agent, request: requestFor(row.body, agent), transcript, playbook, where, research, links, tools, env,
           askedBy: user.name || "a teammate", readerLanguage: locale,
           deadline: Date.now() + (env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 25000 : 240000),
           onRound: () => progress(agent, "agent"),

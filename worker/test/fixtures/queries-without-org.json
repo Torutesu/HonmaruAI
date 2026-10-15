@@ -26,5 +26,7 @@
   "sso.js": 7,
   "team.js": 1,
   "teammates.js": 4,
-  "webhooks.js": 8
+  "webhooks.js": 8,
+  "harness/followups.js": 1,
+  "harness/workflows.js": 2
 }

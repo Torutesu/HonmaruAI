@@ -1,4 +1,6 @@
 import { sha256Hex } from "./auth.js";
+import { HARNESS_TOOLS, HARNESS_TOOL_SCOPE, callHarnessTool } from "./harness/mcpTools.js";
+import { getMode } from "./harness/mode.js";
 import { saveCard, getCard, getUserByGithubId, isMember } from "./db.js";
 import { listMembers } from "./team.js";
 import { searchDecisions } from "./insights.js";
@@ -58,7 +60,13 @@ export function hasScope(scopes, scope) {
   return Array.isArray(scopes) && scopes.includes(scope);
 }
 
-const scopeOfTool = (name) => TOOL_SCOPE[name] || "read";
+const scopeOfTool = (name) => TOOL_SCOPE[name] || HARNESS_TOOL_SCOPE[name] || "read";
+
+/// The harness's tools (harness/mcpTools.js), for a workspace in harness
+/// mode only: a simple workspace's agents see the six tools they always did.
+async function harnessTools(env, agent) {
+  return (await getMode(env.DB, agent.orgId).catch(() => "simple")) === "harness" ? HARNESS_TOOLS : [];
+}
 
 function randomToken() {
   const bytes = new Uint8Array(32);
@@ -389,15 +397,17 @@ async function handleMessage(env, agent, msg, request, ctx = null) {
       return isNotification ? null : rpcResult(msg.id, {});
     case "tools/list":
       // Only what this token may call.
-      return rpcResult(msg.id, { tools: TOOLS.filter((t) => hasScope(agent.scopes, scopeOfTool(t.name))) });
+      return rpcResult(msg.id, { tools: [...TOOLS, ...(await harnessTools(env, agent))].filter((t) => hasScope(agent.scopes, scopeOfTool(t.name))) });
     case "tools/call": {
       const name = typeof params.name === "string" ? params.name : "";
       const args = params.arguments && typeof params.arguments === "object" ? params.arguments : {};
-      if (TOOLS.some((t) => t.name === name) && !hasScope(agent.scopes, scopeOfTool(name))) {
+      const extra = await harnessTools(env, agent);
+      if ([...TOOLS, ...extra].some((t) => t.name === name) && !hasScope(agent.scopes, scopeOfTool(name))) {
         return rpcResult(msg.id, toolError(`This key does not have the ${scopeOfTool(name)} scope. Make a key with it under Studio → API.`));
       }
       try {
-        const out = await callTool(env, agent, name, args, request, ctx);
+        const out = await callTool(env, agent, name, args, request, ctx)
+          ?? (extra.some((t) => t.name === name) ? await callHarnessTool(env, agent, name, args) : null);
         if (!out) return rpcError(msg.id, -32602, `Unknown tool: ${name}`);
         return rpcResult(msg.id, out);
       } catch (err) {

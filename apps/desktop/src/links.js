@@ -113,3 +113,21 @@ export function windowTitle({ url, appOrigin, pageTitle = '', appName = 'Honmaru
   if (!parsed || parsed.origin === appOrigin || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) return pageTitle || appName
   return `${appName} — signing in at ${parsed.host}`
 }
+
+/// The Go menu: places in the app, each by its hash route, so a menu item or
+/// its shortcut moves the open app there the way a click would. The harness
+/// hub (docs/kylon-gap-plan.md) is where a workspace is switched between
+/// Simple and Harness; Apps and Workflows show once it is a harness.
+export function goMenuItems(locale = 'en') {
+  const ja = String(locale || '').startsWith('ja')
+  return [
+    { label: ja ? 'フィード' : 'Feed', accelerator: 'CmdOrCtrl+1', hash: '#/feed' },
+    { label: ja ? '履歴' : 'History', accelerator: 'CmdOrCtrl+2', hash: '#/history' },
+    { label: ja ? 'ツール' : 'Tools', accelerator: 'CmdOrCtrl+3', hash: '#/tools' },
+    { type: 'separator' },
+    { label: ja ? 'ハーネス' : 'Harness', accelerator: 'CmdOrCtrl+Shift+H', hash: '#/harness' },
+    { label: ja ? 'アプリ' : 'Apps', hash: '#/apps' },
+    { label: ja ? 'ワークフロー' : 'Workflows', hash: '#/workflows' },
+    { label: ja ? '承認' : 'Approvals', hash: '#/approvals' },
+  ]
+}

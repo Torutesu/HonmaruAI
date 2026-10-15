@@ -9,6 +9,7 @@ import { renderRich } from './MessageParts'
 import { byPresence, statusShown } from '../utils/people'
 import { composing } from '../utils/keys'
 import { safeHref } from '../utils/markdown'
+import { RoomApps } from './RoomApps'
 
 // What a channel's header opens, left to right: its journal (the context
 // someone new or back from a week away reads first), its details (members,
@@ -451,6 +452,7 @@ export function ChannelDetails({
         )}
         {d && tab === 'automations' && (
           <>
+            <RoomApps httpBase={api.httpBase} orgId={api.orgId} headers={headers} view={view} />
             {d.automations.length === 0 && !adding && <p className="slk-empty">{t('Nothing runs here yet. An automation has your AI post into this channel on a schedule.')}</p>}
             <ul className="slk-details-list">
               {d.automations.map((a) => (
