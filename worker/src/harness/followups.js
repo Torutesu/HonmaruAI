@@ -31,7 +31,7 @@ export async function scheduleFollowup(db, { orgId, channel, threadId = null, ag
       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'scheduled', ?8, ?9)`)
     .bind(id, orgId, String(channel), threadId, agentId, text, due.toISOString(), String(by), now())
     .run();
-  return { followup: pub(await db.prepare("SELECT * FROM hx_followups WHERE id = ?1").bind(id).first()) };
+  return { followup: pub(await db.prepare("SELECT * FROM hx_followups WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first()) };
 }
 
 export async function listFollowups(db, orgId, { channel, status = "scheduled" } = {}) {
@@ -69,13 +69,15 @@ export function followupRequest(text) {
 /// it runs, so two crons cannot both answer it.
 export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } = {}) {
   const { results } = await env.DB
+    // Every workspace's, by design: the cron's sweep. Each row then acts
+    // only in its own org_id.
     .prepare("SELECT * FROM hx_followups WHERE status = 'scheduled' AND due_at <= ?1 ORDER BY due_at LIMIT ?2")
     .bind(at.toISOString(), limit)
     .all()
     .catch(() => ({ results: [] }));
   let done = 0;
   for (const r of results || []) {
-    const claim = await env.DB.prepare("UPDATE hx_followups SET status = 'running' WHERE id = ?1 AND status = 'scheduled'").bind(r.id).run();
+    const claim = await env.DB.prepare("UPDATE hx_followups SET status = 'running' WHERE id = ?1 AND org_id = ?2 AND status = 'scheduled'").bind(r.id, r.org_id).run();
     if (!claim.meta?.changes) continue;
     let body = r.instruction;
     let author = null;
@@ -105,10 +107,10 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
         const { broadcastStored } = await import("../channelRoutes.js");
         await broadcastStored(env, r.org_id, r.channel, out.row).catch(() => {});
       }
-      await env.DB.prepare("UPDATE hx_followups SET status = 'done', done_at = ?1, result = ?2 WHERE id = ?3").bind(now(), String(body).slice(0, 2000), r.id).run();
+      await env.DB.prepare("UPDATE hx_followups SET status = 'done', done_at = ?1, result = ?2 WHERE id = ?3 AND org_id = ?4").bind(now(), String(body).slice(0, 2000), r.id, r.org_id).run();
       done += 1;
     } catch (e) {
-      await env.DB.prepare("UPDATE hx_followups SET status = 'failed', done_at = ?1, result = ?2 WHERE id = ?3").bind(now(), String(e?.message || e).slice(0, 300), r.id).run();
+      await env.DB.prepare("UPDATE hx_followups SET status = 'failed', done_at = ?1, result = ?2 WHERE id = ?3 AND org_id = ?4").bind(now(), String(e?.message || e).slice(0, 300), r.id, r.org_id).run();
     }
   }
   return done;

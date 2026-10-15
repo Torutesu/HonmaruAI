@@ -84,7 +84,7 @@ test("a row turning overdue runs the workflow: it posts, waits on a person's app
     return r.status === "done" ? r : null;
   });
   expect(done.log.map((l) => [l.type, l.status])).toEqual([["post", "ok"], ["approval", "ok"], ["post", "ok"]]);
-  expect((await messages(mika)).map((m) => m.body)).toContain("Reminder to Acme approved: Approved by @toru");
+  expect((await messages(mika)).map((m) => m.body)).toContain("Reminder to Acme approved: Approved by Toru");
 });
 
 test("declined, a run ends where it stood", async () => {

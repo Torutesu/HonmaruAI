@@ -165,7 +165,7 @@ export async function updateWorkflow(db, orgId, id, input) {
     .bind(name, enabled ? 1 : 0, JSON.stringify(trigger), JSON.stringify(steps), next, now(), id, orgId)
     .run();
   if (trigger.type === "webhook") {
-    await db.prepare("UPDATE hx_workflows SET hook_secret = COALESCE(hook_secret, ?1) WHERE id = ?2").bind(hex(crypto.getRandomValues(new Uint8Array(24))), id).run();
+    await db.prepare("UPDATE hx_workflows SET hook_secret = COALESCE(hook_secret, ?1) WHERE id = ?2 AND org_id = ?3").bind(hex(crypto.getRandomValues(new Uint8Array(24))), id, orgId).run();
   }
   return { workflow: await getWorkflow(db, orgId, id, { withSecret: true }) };
 }
@@ -230,7 +230,7 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
       VALUES (?1, ?2, ?3, ?4, 'running', ?5, '[]', 0, ?6, ?7)`)
     .bind(id, orgId, workflow.id, trigger, input ? JSON.stringify(input).slice(0, 20000) : null, startedBy ? String(startedBy) : null, now())
     .run();
-  await env.DB.prepare("UPDATE hx_workflows SET last_run_at = ?1 WHERE id = ?2").bind(now(), workflow.id).run();
+  await env.DB.prepare("UPDATE hx_workflows SET last_run_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), workflow.id, orgId).run();
   return continueRun(env, { orgId, runId: id, workflow, depth });
 }
 
@@ -264,8 +264,8 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     if (entry.status === "waiting") { status = "waiting"; cardId = entry.cardId; index += 1; break; }
   }
   await db
-    .prepare("UPDATE hx_workflow_runs SET status = ?1, log = ?2, next_step = ?3, card_id = COALESCE(?4, card_id), finished_at = ?5 WHERE id = ?6")
-    .bind(status, JSON.stringify(log), index, cardId, status === "waiting" ? null : now(), runId)
+    .prepare("UPDATE hx_workflow_runs SET status = ?1, log = ?2, next_step = ?3, card_id = COALESCE(?4, card_id), finished_at = ?5 WHERE id = ?6 AND org_id = ?7")
+    .bind(status, JSON.stringify(log), index, cardId, status === "waiting" ? null : now(), runId, orgId)
     .run();
   return getRun(db, orgId, runId);
 }
@@ -339,7 +339,7 @@ async function runStep(env, { orgId, workflow, step, scope, runId, depth, owner 
       const shown = await localizeForRecipient(env, orgId, card).catch(() => card);
       await announceCards(env, orgId, [shown]).catch(() => {});
       if (anyChannelConfigured(env)) await notifyCard(env, { card: shown, kind: "created", excludeLogin: null, orgId }).catch(() => {});
-      return { status: "waiting", cardId: card.id, output: `Waiting for @${to.login}` };
+      return { status: "waiting", cardId: card.id, output: `Waiting for ${to.name || to.login}` };
     }
     case "followup": {
       const r = await scheduleFollowup(db, {
@@ -365,18 +365,18 @@ export async function settleWorkflowApproval(env, orgId, card) {
   const approved = action === "approve" || action === "choose";
   if (!approved && action !== "decline") return null;
   const claimed = await env.DB
-    .prepare("UPDATE hx_workflow_runs SET status = 'running' WHERE id = ?1 AND status = 'waiting'")
-    .bind(run.id)
+    .prepare("UPDATE hx_workflow_runs SET status = 'running' WHERE id = ?1 AND org_id = ?2 AND status = 'waiting'")
+    .bind(run.id, orgId)
     .run();
   if (!claimed.meta?.changes) return null;
   const log = run.log;
   const last = log.length - 1;
-  if (last >= 0) log[last] = { ...log[last], status: approved ? "ok" : "declined", output: `${approved ? "Approved" : "Declined"} by @${card.recipientUserID}${card.decision?.note ? `: ${card.decision.note}` : ""}` };
+  if (last >= 0) log[last] = { ...log[last], status: approved ? "ok" : "declined", output: `${approved ? "Approved" : "Declined"} by ${(await getUserByLogin(env.DB, card.recipientUserID).catch(() => null))?.name || card.recipientUserID}${card.decision?.note ? `: ${card.decision.note}` : ""}` };
   if (!approved) {
-    await env.DB.prepare("UPDATE hx_workflow_runs SET status = 'declined', log = ?1, finished_at = ?2 WHERE id = ?3").bind(JSON.stringify(log), now(), run.id).run();
+    await env.DB.prepare("UPDATE hx_workflow_runs SET status = 'declined', log = ?1, finished_at = ?2 WHERE id = ?3 AND org_id = ?4").bind(JSON.stringify(log), now(), run.id, orgId).run();
     return getRun(env.DB, orgId, run.id);
   }
-  await env.DB.prepare("UPDATE hx_workflow_runs SET log = ?1 WHERE id = ?2").bind(JSON.stringify(log), run.id).run();
+  await env.DB.prepare("UPDATE hx_workflow_runs SET log = ?1 WHERE id = ?2 AND org_id = ?3").bind(JSON.stringify(log), run.id, orgId).run();
   return continueRun(env, { orgId, runId: run.id });
 }
 
@@ -428,6 +428,8 @@ export async function onRowChange(env, { orgId, table, before, row, by, depth = 
 /// The cron's part: scheduled workflows whose time has come.
 export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } = {}) {
   const { results } = await env.DB
+    // Every workspace's, by design: the cron's sweep. Each run then acts
+    // only in its workflow's own org_id.
     .prepare("SELECT * FROM hx_workflows WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?1 ORDER BY next_run_at LIMIT ?2")
     .bind(at.toISOString(), limit)
     .all()
@@ -437,8 +439,8 @@ export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } 
     const wf = publicWorkflow(r);
     // Claimed by moving its next time on, so two crons cannot both run it.
     const claim = await env.DB
-      .prepare("UPDATE hx_workflows SET next_run_at = ?1 WHERE id = ?2 AND next_run_at = ?3")
-      .bind(nextRunAt(wf.trigger, at), wf.id, r.next_run_at)
+      .prepare("UPDATE hx_workflows SET next_run_at = ?1 WHERE id = ?2 AND org_id = ?4 AND next_run_at = ?3")
+      .bind(nextRunAt(wf.trigger, at), wf.id, r.next_run_at, wf.orgId)
       .run();
     if (!claim.meta?.changes) continue;
     try {
@@ -456,6 +458,8 @@ export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } 
 export async function handleWorkflowHook(request, env, url) {
   const m = url.pathname.match(/^\/hooks\/workflows\/([A-Za-z0-9_]+)$/);
   if (!m || request.method !== "POST") return null;
+  // By id alone, by design: the caller is outside every workspace, and the
+  // secret checked below is what lets it in.
   const row = await env.DB.prepare("SELECT * FROM hx_workflows WHERE id = ?1").bind(m[1]).first();
   const secret = request.headers.get("x-hook-secret") || url.searchParams.get("secret") || "";
   const wf = row && publicWorkflow(row, { withSecret: true });

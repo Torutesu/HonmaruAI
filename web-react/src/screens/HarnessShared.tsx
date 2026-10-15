@@ -15,12 +15,14 @@ export interface HarnessProps {
 
 export type HarnessScreen = 'harness' | 'apps' | 'workflows' | 'approvals' | 'skills' | 'hxagents'
 
-export function Shell({ title, onClose, children, actions }: { title: string; onClose: () => void; children: React.ReactNode; actions?: React.ReactNode }) {
+/// `nested`: a view inside a harness screen (an app, a workflow, an agent),
+/// whose back button stays on a laptop too — the rail cannot reach it.
+export function Shell({ title, onClose, children, actions, nested = false }: { title: string; onClose: () => void; children: React.ReactNode; actions?: React.ReactNode; nested?: boolean }) {
   const t = useT()
   return (
     <div className="screen hx-screen">
       <div className="screen-head">
-        <button className="back" onClick={onClose} aria-label={t('Close')}>‹</button>
+        <button className={nested ? 'back hx-back' : 'back'} onClick={onClose} aria-label={nested ? t('Back') : t('Close')}>‹</button>
         <span className="head-title">{title}</span>
         {actions && <span className="hx-head-actions">{actions}</span>}
       </div>

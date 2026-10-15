@@ -196,7 +196,7 @@ const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack:
   const load = useCallback(() => act('load', async () => { setData(await api.app(appId)) }), [api, appId, act])
   useEffect(() => { load() }, [load])
 
-  if (!data) return <Shell title={t('Apps')} onClose={onBack}>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
+  if (!data) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
   const { app, table } = data
   const view = data.views[Math.min(viewIndex, data.views.length - 1)]
 
@@ -221,6 +221,7 @@ const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack:
     <Shell
       title={`${app.icon} ${app.name}`}
       onClose={onBack}
+      nested
       actions={<span className="hx-version">v{app.version}</span>}
     >
       {app.description && <p className="lede">{app.description}</p>}

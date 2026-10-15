@@ -101,6 +101,7 @@ test("an app from a template: its views, worked out on the server", async () => 
 
   const rendered = await (await get(`/apps/${app.id}?orgId=${ORG}`, toru)).json();
   expect(rendered.rows).toHaveLength(3);
+  expect(rendered.app.channels).toEqual(["b:sales"]);
   const board = rendered.views.find((v) => v.type === "board");
   expect(board.lanes.map((l) => l.key)).toEqual(["Lead", "Qualified", "Proposal", "Negotiation", "Won", "Lost"]);
   expect(board.lanes.find((l) => l.key === "Proposal").rows[0].values.company).toBe("Acme");

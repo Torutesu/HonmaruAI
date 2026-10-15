@@ -223,15 +223,15 @@ export async function listVersions(db, orgId, id) {
   const app = await getApp(db, orgId, id);
   if (!app) return { error: "No such app.", status: 404 };
   const { results } = await db
-    .prepare("SELECT version, note, created_by, created_at FROM hx_app_versions WHERE app_id = ?1 ORDER BY version DESC")
-    .bind(id)
+    .prepare("SELECT version, note, created_by, created_at FROM hx_app_versions WHERE app_id = ?1 AND org_id = ?2 ORDER BY version DESC")
+    .bind(id, orgId)
     .all();
   return { versions: (results || []).map((v) => ({ version: v.version, note: v.note, createdBy: v.created_by, createdAt: v.created_at })) };
 }
 
 /// Go back to an earlier version — as a new version, so nothing is lost.
 export async function restoreVersion(db, orgId, id, version, by) {
-  const row = await db.prepare("SELECT definition FROM hx_app_versions WHERE app_id = ?1 AND version = ?2").bind(id, Number(version)).first();
+  const row = await db.prepare("SELECT definition FROM hx_app_versions WHERE app_id = ?1 AND org_id = ?2 AND version = ?3").bind(id, orgId, Number(version)).first();
   if (!row) return { error: "No such version.", status: 404 };
   const old = parse(row.definition, {});
   return updateApp(db, orgId, id, { name: old.name, columns: old.columns, definition: { views: old.views }, note: `Restored version ${version}` }, by);
@@ -241,9 +241,9 @@ export async function deleteApp(db, orgId, id) {
   const app = await getApp(db, orgId, id);
   if (!app) return { error: "No such app.", status: 404 };
   await db.batch([
-    db.prepare("DELETE FROM hx_app_links WHERE app_id = ?1").bind(id),
-    db.prepare("DELETE FROM hx_app_versions WHERE app_id = ?1").bind(id),
-    db.prepare("DELETE FROM hx_apps WHERE id = ?1").bind(id),
+    db.prepare("DELETE FROM hx_app_links WHERE app_id = ?1 AND org_id = ?2").bind(id, orgId),
+    db.prepare("DELETE FROM hx_app_versions WHERE app_id = ?1 AND org_id = ?2").bind(id, orgId),
+    db.prepare("DELETE FROM hx_apps WHERE id = ?1 AND org_id = ?2").bind(id, orgId),
     db.prepare("DELETE FROM hx_rows WHERE table_id = ?1 AND org_id = ?2").bind(app.tableId, orgId),
     db.prepare("DELETE FROM hx_tables WHERE id = ?1 AND org_id = ?2").bind(app.tableId, orgId),
   ]);
@@ -270,6 +270,8 @@ export async function renderApp(db, orgId, id) {
   const app = await getApp(db, orgId, id);
   if (!app) return { error: "No such app.", status: 404 };
   const { table, rows } = await listRows(db, orgId, app.tableId);
+  const { results: links } = await db.prepare("SELECT channel FROM hx_app_links WHERE app_id = ?1 AND org_id = ?2").bind(id, orgId).all();
+  app.channels = (links || []).map((l) => l.channel);
   return { app, table, rows, views: app.definition.views.map((v) => computeView(v, table, rows)) };
 }
 

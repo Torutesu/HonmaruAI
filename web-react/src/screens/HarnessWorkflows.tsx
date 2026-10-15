@@ -158,7 +158,7 @@ function Builder({ tables, agents, onSave, onCancel, busy }: { tables: Table[]; 
         />
       ))}
       <button className="pill-btn quiet" onClick={() => setSteps([...steps, blankStep('post')])}><Icon name="plus" size={14} /> {t('Add a step')}</button>
-      <p className="row-sub">{t('Steps can use what started them: {{row.Column}}, {{input.text}}, {{steps.1.output}}.')}</p>
+      <p className="hx-hint">{t('Steps can use what started them: {{row.Column}}, {{input.text}}, {{steps.1.output}}.')}</p>
       <div className="playbook-add-foot">
         <button className="btn-text" onClick={onCancel}>{t('Cancel')}</button>
         <button className="pill-btn" disabled={busy || !name.trim() || steps.length === 0} onClick={() => onSave({ name, trigger, steps })}>{t('Save workflow')}</button>
@@ -192,7 +192,7 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
   if (open) {
     const w = open.workflow
     return (
-      <Shell title={w.name} onClose={() => { setOpen(null); load() }}>
+      <Shell title={w.name} onClose={() => { setOpen(null); load() }} nested>
         <div className="rows">
           <div className="row static">
             <span className="row-main">{triggerLabel(t, w.trigger, tables)}

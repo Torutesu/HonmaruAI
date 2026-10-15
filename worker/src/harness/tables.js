@@ -203,7 +203,7 @@ export async function getRow(db, orgId, tableId, rowId) {
 export async function addRow(db, orgId, tableId, values, by) {
   const table = await getTable(db, orgId, tableId);
   if (!table) return { error: "No such table.", status: 404 };
-  const count = await db.prepare("SELECT COUNT(*) AS n, MAX(position) AS p FROM hx_rows WHERE table_id = ?1").bind(tableId).first();
+  const count = await db.prepare("SELECT COUNT(*) AS n, MAX(position) AS p FROM hx_rows WHERE table_id = ?1 AND org_id = ?2").bind(tableId, orgId).first();
   if (Number(count?.n || 0) >= MAX_ROWS) return { error: `A table holds at most ${MAX_ROWS} rows.` };
   const id = newId("row");
   const at = now();
@@ -223,8 +223,8 @@ export async function updateRow(db, orgId, tableId, rowId, values, by) {
   if (!before) return { error: "No such row.", status: 404 };
   const merged = { ...before.values, ...cleanValues(table.columns, values) };
   await db
-    .prepare("UPDATE hx_rows SET data = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4 AND table_id = ?5")
-    .bind(JSON.stringify(merged), String(by), now(), rowId, tableId)
+    .prepare("UPDATE hx_rows SET data = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4 AND table_id = ?5 AND org_id = ?6")
+    .bind(JSON.stringify(merged), String(by), now(), rowId, tableId, orgId)
     .run();
   return { table, before, row: await getRow(db, orgId, tableId, rowId) };
 }
@@ -232,6 +232,6 @@ export async function updateRow(db, orgId, tableId, rowId, values, by) {
 export async function deleteRow(db, orgId, tableId, rowId) {
   const before = await getRow(db, orgId, tableId, rowId);
   if (!before) return { error: "No such row.", status: 404 };
-  await db.prepare("DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2").bind(rowId, tableId).run();
+  await db.prepare("DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3").bind(rowId, tableId, orgId).run();
   return { deleted: true, before };
 }

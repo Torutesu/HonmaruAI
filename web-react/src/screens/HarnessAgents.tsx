@@ -79,10 +79,10 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
     setProfile(r.profile); setSaved(true); setTimeout(() => setSaved(false), 1500)
   })
 
-  if (!profile) return <Shell title={agent.name} onClose={props.onBack}>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
+  if (!profile) return <Shell title={agent.name} onClose={props.onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
   const has = new Set(skills.map((s) => s.id))
   return (
-    <Shell title={`${agent.emoji || '🤖'} ${agent.name}`} onClose={props.onBack} actions={saved ? <span className="row-sub">{t('Saved.')}</span> : null}>
+    <Shell title={`${agent.emoji || '🤖'} ${agent.name}`} onClose={props.onBack} nested actions={saved ? <span className="row-sub">{t('Saved.')}</span> : null}>
       {error && <div className="form-error">{error}</div>}
       <div className="rows-title">{t('Role')}</div>
       <div className="rows">
