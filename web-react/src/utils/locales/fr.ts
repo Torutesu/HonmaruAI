@@ -1,6 +1,16 @@
 // The interface in fr: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Web subscription": "Abonnement web",
+  "Manage your subscription with the provider where you purchased it.": "Gérez votre abonnement auprès du fournisseur chez lequel vous l’avez acheté.",
+  "Subscribe on the web and use Pro in the app with the same account. Prices and renewal terms are shown before payment.": "Abonnez-vous sur le web et utilisez Pro dans l’application avec le même compte. Le prix et les conditions de renouvellement sont affichés avant le paiement.",
+  "Opening…": "Ouverture…",
+  "Manage subscription": "Gérer l’abonnement",
+  "Subscribe on the web": "S’abonner sur le web",
+  "Refresh subscription status": "Actualiser l’état de l’abonnement",
+  "An existing app subscription is not canceled by purchasing on the web. Avoid overlapping subscriptions.": "Un achat sur le web n’annule pas un abonnement existant dans l’application. Évitez les abonnements en double.",
+  "Your account already has access, or this subscription must be managed with its original provider.": "Votre compte dispose déjà d’un accès, ou cet abonnement doit être géré auprès du fournisseur d’origine.",
+  "Could not open billing. Please try again.": "Impossible d’ouvrir la page de paiement. Réessayez.",
   'Teammates': 'Collègues',
   "You joined the team.": "Vous avez rejoint l’équipe.",
   "Could not reach the relay.": "Impossible de joindre le serveur relais.",

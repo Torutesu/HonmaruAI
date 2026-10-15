@@ -36,14 +36,15 @@ No client-side success URL or local flag grants access.
 
 ## Activation (not yet performed)
 
-1. The existing RevenueCat login can open New web provider and the RevenueCat
-   Billing creation form. The earlier permission diagnosis was incorrect: an
-   accessibility container carried an error message even though navigation worked.
-   The loaded form explicitly reports no connected Stripe accounts. No account
-   switch or role change is established as necessary.
-2. Connect the correct business Stripe account in RevenueCat, add RevenueCat Billing
-   web config, and create monthly/yearly products at the web prices above. Check tax
-   behavior so the Japanese displayed total remains the agreed price.
+1. Stripe is connected: Select, Inc. (live). The existing RevenueCat login can
+   create web configurations; the earlier permission diagnosis was incorrect.
+2. Created RevenueCat Billing config `app678587f691`, monthly product
+   `prod72748d8d91` (`honmaru_pro_web_monthly`: JPY 1,500 / USD 10), yearly
+   `prod4092d5b8ef` (`honmaru_pro_web_yearly`: JPY 15,000 / USD 96), and dedicated
+   offering `web` (`ofrng8c23ef3424`) with monthly and annual packages. Monthly
+   entitlement attachment was verified by revisiting its saved product page.
+   Yearly entitlement attachment needs a saved-page recheck. Verify app default
+   currency and tax behavior before launch.
 3. Attach `honmaruai Pro`, create the dedicated offering and Web Purchase Link.
    Configure success redirect https://app.honmaruai.com/#/plans and customer portal.
    Returning active customers must skip checkout. Check cancellation, payment failure,
@@ -76,5 +77,17 @@ No client-side success URL or local flag grants access.
 
 Worker billing and hosted checkout tests, web billing tests, TypeScript/Vite build.
 These tests mock provider responses and do not prove a real checkout or iOS sync.
-Remaining blocker: connect the correct Stripe account, finish RevenueCat provider
-configuration, and perform end-to-end tests. This is not a confirmed role blocker.
+Remaining: finish and save the Web Purchase Link, verify both entitlements, tax and
+currency behavior, then perform end-to-end tests. The link creation form has the
+web offering, success redirect and "Show the success page" repeat-purchase behavior
+entered; it has not been saved. No production billing flag has been enabled.
+
+## Web legal pages
+
+The current iOS subscription footer links Terms of Use to Apple's Standard EULA
+(`TikTokForWork/Features/Subscription/ProPaywallSheet.swift`), not web-specific
+purchase terms. Public LP footer links privacy and support only. Repository search
+found no web purchase terms or statutory seller-disclosure page. Confirm existing
+URLs or the seller details and cancellation/refund policy before publishing new
+web purchase terms. Do not substitute the Apple EULA or a support page as web terms.
+The user asked to check the site and app; both source and public footer were checked.
