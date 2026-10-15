@@ -139,3 +139,19 @@ The resulting universal PKG is a submission artifact, not proof of store
 readiness. Test the sandboxed build via TestFlight/mas-dev, verify purchase and
 restore behavior against the shared iOS subscription, prepare screenshots and
 review access, and resolve App Store Connect validation before submitting.
+
+## Microsoft Store submission package
+
+The **Windows Store submission package** workflow builds the existing
+`electron-builder.store.yml` AppX configuration on a Windows runner, runs desktop
+tests, checks the packaged identity and disables GitHub updates. It saves the
+AppX, source SHA and SHA-256 as a CI artifact without publishing a release.
+
+Microsoft signs Store packages after certification; this route does not need the
+certificate required by the separate direct-download NSIS workflow. The artifact
+is only for Partner Center submission, not an unsigned installer to offer users.
+Before submission, compare its identity/publisher with the live Partner Center
+product, complete listing/declarations, and validate the Store-installed app.
+Building an AppX does not prove certification, login, notifications or publication.
+
+Reference: https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/app-package-requirements?pivots=store-installer-msix
