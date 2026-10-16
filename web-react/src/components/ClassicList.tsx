@@ -85,6 +85,9 @@ const actionWord = (value?: string) => (value ? ACTION_WORD[value] || value : ''
 export type Presence = Record<string, 'online' | 'offline'>
 
 interface Props {
+  harness?: boolean
+  newRequest?: number
+  homeRequest?: number
   userId: string
   orgName: string
   pending: DecisionCard[]
@@ -115,6 +118,7 @@ interface Props {
   /// The whole card, as the feed draws it, for the list's own pane.
   renderCard: (card: DecisionCard) => React.ReactNode
   onWorkspace: () => void
+  onApps?: () => void
   /// The workspace's mark, name and switcher, drawn by the shell.
   workspaceMenu?: React.ReactNode
   /// Channels are the team's businesses: made, renamed and deleted here,
@@ -303,8 +307,8 @@ function when(iso?: string): string {
 /// the relay's, not invented. On a phone it is one pane at a time: the
 /// sidebar, then the conversation with a way back.
 export const ClassicList: React.FC<Props> = ({
-  userId, orgName, pending, sent, decided, businesses, presence,
-  onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, workspaceMenu,
+  harness = false, newRequest = 0, homeRequest = 0, userId, orgName, pending, sent, decided, businesses, presence,
+  onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, onApps, workspaceMenu,
   onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen, onPlaces, onStatus, statusOpen, active = true,
 }) => {
   // Files' addresses are renewed for the workspace open now (mediaUrls).
@@ -312,6 +316,7 @@ export const ClassicList: React.FC<Props> = ({
   const t = useT()
   // Cozy or compact, as chosen on You: the stylesheet does the rest.
   const { density } = useAppearance()
+  const [harnessFilter, setHarnessFilter] = useState<'home' | 'recent' | 'unread' | 'mentions'>('home')
   const locale = getLocale()
   const titleOf = (c: DecisionCard) => c.localized?.[locale]?.title || c.title
   /// The summary, unless it only repeats the title — which it does for a
@@ -688,7 +693,7 @@ export const ClassicList: React.FC<Props> = ({
     return () => mq.removeEventListener?.('change', on)
   }, [])
   const current = everything.find((th) => th.key === openKey)
-    || (wide ? (everything.find((th) => th.unread > 0) || everything[0]) : undefined)
+    || (wide && !harness ? (everything.find((th) => th.unread > 0) || everything[0]) : undefined)
   // A conversation asked for before the list knew of it — a DM picked in ⌘K
   // or opened from a link while the team is still loading: opened once it
   // appears, if that is soon. Opening anything else first — another
@@ -746,6 +751,8 @@ export const ClassicList: React.FC<Props> = ({
   const [phoneTab, setPhoneTab] = useState<'home' | 'dms'>('home')
   // The round button's choices, and the people picker behind "New message".
   const [starting, setStarting] = useState<null | 'menu' | 'people'>(null)
+  useEffect(() => { if (harness && newRequest) setStarting('menu') }, [harness, newRequest])
+  useEffect(() => { if (harness && homeRequest) { choose(null); setHarnessFilter('home') } }, [harness, homeRequest])
   // Everything behind ⋯ in a conversation's header, on a phone.
   const [convSheet, setConvSheet] = useState(false)
   // A word that something happened — "Link copied" — for two seconds.
@@ -4680,7 +4687,13 @@ export const ClassicList: React.FC<Props> = ({
               {waitingHere > 0 && <> · <b>{t('{n} waiting on you', { n: waitingHere })}</b></>}
             </p>}
           </div>
-          {thread.view && (
+          {harness && thread.view && <div className="hx-room-actions">
+            {onApps && <button onClick={onApps}><Icon name="grid" size={15} />{t('Apps')}</button>}
+            <button onClick={() => openSide({ kind: 'details', tab: 'automations' })}><Icon name="repeat" size={15} />{t('Automations')}</button>
+            <button onClick={() => openSide({ kind: 'details', tab: 'attachments' })}><Icon name="file" size={15} />{t('Files')}</button>
+            <button onClick={() => openSide({ kind: 'details', tab: 'members' })} aria-label={t('Members')}><Icon name="users" size={15} /></button>
+          </div>}
+          {!harness && thread.view && (
             <div className="slk-head-actions">
               <button
                 type="button"
@@ -4754,7 +4767,7 @@ export const ClassicList: React.FC<Props> = ({
             </button>
           )}
         </header>
-        {thread.view && thread.kind !== 'app' && <BookmarksBar httpBase={api.httpBase} orgId={api.orgId} headers={authHeaders} view={thread.view} />}
+        {!harness && thread.view && thread.kind !== 'app' && <BookmarksBar httpBase={api.httpBase} orgId={api.orgId} headers={authHeaders} view={thread.view} />}
         {pins && thread.view && (
           <div className="slk-pins" role="dialog" aria-label={t('Pinned messages')}>
             <div className="slk-pins-head">
@@ -4783,7 +4796,7 @@ export const ClassicList: React.FC<Props> = ({
             onShow={() => { setJamShown(true); const th = everything.find((x) => x.view === call.channel); if (th && th.key !== current?.key) choose(th.key) }}
           />
         )}
-        <nav className="slk-tabs" role="tablist" aria-label={t('View')}>
+        <nav className="slk-tabs" role="tablist" aria-label={t('View')} hidden={harness && !thread.cards.length}>
           <button role="tab" aria-selected={tab === 'messages'} className={tab === 'messages' ? 'on' : ''} onClick={() => setTab('messages')}>
             {thread.view ? t('Messages') : t('Activity')}
           </button>
@@ -5214,7 +5227,15 @@ export const ClassicList: React.FC<Props> = ({
     <div className={`classic slk${current || special ? ' in-thread' : ''}${phoneRoot ? ' phone-root' : ''}${detail || thread || profile ? ' with-pane' : ''}${sideHidden ? ' side-hidden' : ''}${density === 'compact' ? ' compact' : ''}`} onClick={onMentionClick} onKeyDown={onMentionKey}>
       <aside className="slk-side" aria-label={t('Conversations')}>
         {!wide && phoneTab === 'dms' ? dmsView() : <>
-        <header className="cl-top">
+        {harness ? <>
+          <header className="hx-chat-top"><h1>{t('Chat')}</h1><button onClick={() => setStarting('menu')} aria-label={t('New message')}><Icon name="plus" size={17} /></button></header>
+          <div className="hx-chat-filters" role="tablist" aria-label={t('Chat')}>
+            {(['home', 'recent', 'unread', 'mentions'] as const).map(filter => <button key={filter} role="tab" aria-selected={harnessFilter === filter} onClick={() => {
+              setHarnessFilter(filter)
+              if (filter === 'mentions') { openActivity(); setActivityTab('mentions') } else { setActivityOpen(false); if (filter === 'home') choose(null) }
+            }}>{filter === 'home' ? t('Home') : filter === 'recent' ? t('Recent') : filter === 'unread' ? t('Unread') : '@' + t('You')}</button>)}
+          </div>
+        </> : <><header className="cl-top">
           {workspaceMenu || (
             <button className="cl-workspace" onClick={onWorkspace} aria-label={t('Team')}>
               <span className="cl-workspace-name">{orgName || t('Your team')}</span>
@@ -5231,10 +5252,10 @@ export const ClassicList: React.FC<Props> = ({
           <span>{t('Jump to or search…')}</span>
         </button>
         {waiting > 0 && <p className="cl-summary" role="status">{t('{n} waiting on you', { n: waiting })}</p>}
-        {checklist}
+        {checklist}</> }
         {!current && problem && <p className="cl-problem" role="alert">{problem}</p>}
         <nav className="slk-sections">
-          <ul className="slk-special">
+          {!harness && <ul className="slk-special">
             <li className={`cl-row cl-thread${activityOpen ? ' on' : ''}${activityUnread ? ' unread' : ''}`}>
               <button className="cl-open" onClick={openActivity} aria-current={activityOpen ? 'true' : undefined} data-activity="1">
                 <span className="cl-lead cl-app sz-row" aria-hidden="true"><Icon name="bell" size={14} /></span>
@@ -5263,16 +5284,16 @@ export const ClassicList: React.FC<Props> = ({
                 {draftCount > 0 && <span className="cl-count">{draftCount}</span>}
               </button>
             </li>
-          </ul>
-          {sidebarGroups.map((g) => (
+          </ul>}
+          {harness && (harnessFilter === 'recent' || harnessFilter === 'unread') ? <ul className="hx-filtered-chats">{everything.filter(th => th.kind !== 'app' && (harnessFilter === 'recent' ? Boolean(th.lastAt) : hasNews(th))).sort((a,b) => (b.lastAt || '').localeCompare(a.lastAt || '')).map(th => row(th))}</ul> : sidebarGroups.filter(g => !harness || g.id !== 'apps').map((g) => (
             <React.Fragment key={g.id}>
               {/* Sections of your own are added just above Apps, which stays last. */}
-              {g.id === 'apps' && (
+              {!harness && g.id === 'apps' && (
                 <button type="button" className="cl-add-section" onClick={() => { setSectionName(''); setAddingSection({}) }} data-add-section="1">
                   <Icon name="plus" size={13} /> {t('Add a section')}
                 </button>
               )}
-              {section(g.id, g.label, g.items, g.empty, g.action, g.below, g.reorder)}
+              {harness ? (g.items.length > 0 ? <ul className="hx-chat-group" aria-label={g.label}>{g.items.map(th => row(th))}</ul> : null) : section(g.id, g.label, g.items, g.empty, g.action, g.below, g.reorder)}
             </React.Fragment>
           ))}
         </nav>
@@ -5283,7 +5304,7 @@ export const ClassicList: React.FC<Props> = ({
         onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false) }}
         onDrop={(e) => { setDropping(false); if (current?.view && current.kind !== 'app' && e.dataTransfer.files.length) { e.preventDefault(); uploads.add([...e.dataTransfer.files], current.view) } }}>
         {activityOpen ? activityView() : laterOpen ? laterView() : threadsOpen ? threadsView() : sentOpen ? sentView() : current ? conversation(current) : (
-          <div className="slk-none"><p>{t('Pick a conversation.')}</p></div>
+          <div className="slk-none">{harness ? <div className="hx-chat-empty"><Icon name="message" size={32} /><h2>{t('Start a conversation')}</h2><p>{t('Choose a room or start a new message.')}</p><button onClick={() => setStarting('menu')}>{t('New message')}</button></div> : <p>{t('Pick a conversation.')}</p>}</div>
         )}
       </main>
       {phoneRoot && !special && (
