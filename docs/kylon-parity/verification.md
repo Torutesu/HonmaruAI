@@ -112,3 +112,7 @@ production build pass. Frozen full Worker suite: 193 files / 1,249 tests pass (2
 See [operator instructions and remaining limitations](../mac-mini-gateway.md).
 KY-023 becomes partial; KY-022 remains missing because an offline local JavaScript
 VM is not a complete cloud computer with files/network/agent tools.
+
+Additional real-VM checks: AbortSignal cancellation and output overflow both stopped
+the workload, bounded output, and left no containers running. Gateway screen state
+(including a one-time token) is remounted on workspace/session changes.

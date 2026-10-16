@@ -1361,7 +1361,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       {screen === 'workflows' && <HarnessWorkflows httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'approvals' && <HarnessApprovals httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'skills' && <HarnessSkills httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
-      {screen === 'gateways' && <HarnessGateways httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
+      {screen === 'gateways' && <HarnessGateways key={`${orgId}:${sessionToken}`} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'hxagents' && <HarnessAgents httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'plans' && (
         <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} orgId={orgId} onClose={closeScreen} />
