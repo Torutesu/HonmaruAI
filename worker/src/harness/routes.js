@@ -1,4 +1,4 @@
-import { handleGateways } from './gateways.js';
+import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
 import { tableContract } from "./tableContract.js";
 import { appAccess, mayUseApp, mayUseTable, setAppAccess, visibleResources } from './resourceAccess.js';
@@ -74,7 +74,7 @@ async function mayChange(env, orgId, who, createdBy) {
 export async function handleHarness(request, env, url) {
   if (!OURS.test(url.pathname)) return null;
   if (request.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
-  const limited = await enforce(env, request, "team");
+  const limited = await enforce(env, request, isGatewayNodeRoute(url.pathname) ? "gateway/edge" : "team");
   if (limited) return limited;
 
   const read = request.method === "GET" || request.method === "DELETE";

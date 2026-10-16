@@ -85,3 +85,17 @@ test('expiry works without a connected node and membership removal invalidates e
   await expireGatewayJobs(env.DB);
   expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id = ?').bind(next.id).first()).status).toBe('failed');
 });
+
+
+test('node polling has independent limits from team operations and from other nodes', async () => {
+  const first = await node(), second = await node();
+  expect((await api('POST', '/claim', null, {}, first.token)).status).toBe(200);
+  await env.DB.prepare("UPDATE rate_limits SET count = 120 WHERE bucket = 'team'").run();
+  // A busy human UI must not interrupt the execution heartbeat/queue.
+  expect((await api('POST', '/claim', null, {}, second.token)).status).toBe(200);
+  await env.DB.prepare("UPDATE rate_limits SET count = 120 WHERE bucket = 'gateway/node' AND subject = ?").bind(`gateway:${first.gateway.id}`).run();
+  expect((await api('POST', '/claim', null, {}, first.token)).status).toBe(429);
+  expect((await api('POST', '/claim', null, {}, second.token)).status).toBe(200);
+  await env.DB.prepare("UPDATE rate_limits SET count = 600 WHERE bucket = 'gateway/edge'").run();
+  expect((await api('POST', '/claim', null, {}, second.token)).status).toBe(429);
+});

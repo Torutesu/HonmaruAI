@@ -116,3 +116,9 @@ VM is not a complete cloud computer with files/network/agent tools.
 Additional real-VM checks: AbortSignal cancellation and output overflow both stopped
 the workload, bounded output, and left no containers running. Gateway screen state
 (including a one-time token) is remounted on workspace/session changes.
+
+The real-VM startup-cancel and lease-loss checks also passed: refusal of a heartbeat
+stopped the workload and suppressed result submission. No containers remained.
+A final audit found that two-second node polling could exhaust the existing team
+quota. Polling is now every five seconds, with separate edge/per-node buckets.
+The new regression test verifies human/node and node/node quota isolation and limits.

@@ -41,6 +41,10 @@ export const LIMITS = {
   // screen makes two of these on open and a person may reload it; bounded,
   // because an unbounded read of that is a scraper's endpoint.
   team: { max: 120, windowSeconds: 300 },
+  // Five outbound nodes can share one NAT. Keep their polling separate from
+  // human team operations, then limit each authenticated node independently.
+  'gateway/edge': { max: 600, windowSeconds: 300 },
+  'gateway/node': { max: 120, windowSeconds: 300 },
   // Talking: messages, edits, reactions, pins. A conversation is many small
   // writes — a burst of emoji is normal — so this is its own, wider bucket,
   // and chatting never locks a person out of their team screen.

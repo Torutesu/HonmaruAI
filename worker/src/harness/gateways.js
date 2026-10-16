@@ -1,6 +1,7 @@
 // Outbound-only execution nodes. A node token grants access to one workspace's
 // assigned jobs, never to workspace files, agent memories or integration keys.
 import { member, json } from './routes.js';
+import { enforceSubject } from '../ratelimit.js';
 import { allowed } from '../permissions.js';
 const now = () => Date.now();
 const id = () => crypto.randomUUID();
@@ -9,6 +10,8 @@ const secret = () => `${crypto.randomUUID()}${crypto.randomUUID()}`;
 const failure = (message, status = 400) => json({ message }, status);
 const activeMember = `EXISTS (SELECT 1 FROM memberships m WHERE m.org_id = hx_gateway_jobs.org_id AND m.user_github_id = hx_gateway_jobs.created_by AND m.role != 'guest')`;
 const jobView = row => row && ({ id: row.id, gatewayId: row.gateway_id, status: row.status, createdAt: row.created_at, startedAt: row.started_at, finishedAt: row.finished_at, result: row.result ? JSON.parse(row.result) : null });
+
+export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish))\/?$/.test(pathname);
 
 export async function expireGatewayJobs(db, at = now()) {
   return db.prepare(`UPDATE hx_gateway_jobs SET status = 'failed', finished_at = ?1, lease_hash = NULL,
@@ -20,13 +23,15 @@ export async function expireGatewayJobs(db, at = now()) {
 export async function handleGateways(request, env, url, input) {
   const parts = url.pathname.split('/').filter(Boolean);
   const db = env.DB;
-  const nodeRoute = parts[1] === 'claim' || (parts[1] === 'jobs' && ['heartbeat', 'finish'].includes(parts[3]));
+  const nodeRoute = isGatewayNodeRoute(url.pathname);
   if (nodeRoute) {
     if (request.method !== 'POST') return failure('Method not allowed.', 405);
     const token = request.headers.get('authorization')?.match(/^Bearer (hgw_[A-Za-z0-9-]{64,100})$/)?.[1];
     if (!token) return failure('Node authentication required.', 401);
     const g = await db.prepare('SELECT * FROM hx_gateways WHERE token_hash = ?1 AND revoked_at IS NULL').bind(await digest(token)).first();
     if (!g) return failure('Node authentication required.', 401);
+    const limited = await enforceSubject(env, 'gateway/node', `gateway:${g.id}`);
+    if (limited) return limited;
     // Removing the registering administrator disables the node as well.
     if (!(await allowed(db, g.org_id, g.created_by, 'workspace.mode'))) return failure('Node owner access was revoked.', 403);
     const at = now();

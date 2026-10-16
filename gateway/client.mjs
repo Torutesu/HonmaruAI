@@ -47,6 +47,6 @@ export async function serve(call, { signal, once = false, onError = () => {} } =
       onError(error.status || 'network');
     }
     if (once) return;
-    try { await sleep(2000, undefined, { signal }); } catch { return; }
+    try { await sleep(5000, undefined, { signal }); } catch { return; }
   }
 }

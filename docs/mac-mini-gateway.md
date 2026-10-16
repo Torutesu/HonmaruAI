@@ -17,7 +17,9 @@ non-root UID, read-only root, temporary /tmp, no network, no host mounts, one CP
 512 MiB RAM, 60-second execution limit and 32 KiB combined output limit are enforced
 by the local runner, not by the supplied code. Node credentials never enter the guest.
 
-A lost heartbeat aborts the local execution. Server leases expire after 90 seconds,
+The idle loop polls every five seconds. Node traffic has a separate IP quota and
+an authenticated per-node quota, so it does not consume the human team-operation
+bucket. A lost heartbeat aborts the local execution. Server leases expire after 90 seconds,
 with a two-minute absolute deadline. Cancellation/revocation invalidates the lease
 immediately; the connected runner notices on the next heartbeat (10 seconds plus
 network timeout). Queued jobs expire after one hour. An expired job is not silently
