@@ -23,7 +23,7 @@ await mkdir(dirname(plistPath), { recursive: true });
 // Stop the existing service before replacing its immutable runtime snapshot.
 try { execFileSync('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${SERVICE_LABEL}`], { stdio: 'ignore' }); } catch {}
 const source = dirname(fileURLToPath(import.meta.url));
-for (const file of ['service.mjs', 'client.mjs', 'runner.mjs']) await copyFile(join(source, file), join(runtime, file));
+for (const file of ['service.mjs', 'client.mjs', 'runner.mjs', 'runtime.mjs']) await copyFile(join(source, file), join(runtime, file));
 const node = join(runtime, 'node');
 await copyFile(process.execPath, node); await chmod(node, 0o700);
 await writeFile(configPath, JSON.stringify(config, null, 2) + '\n', { mode: 0o600 });
