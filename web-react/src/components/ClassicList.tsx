@@ -5611,7 +5611,7 @@ export const ClassicList: React.FC<Props> = ({
       )}
       {!detail && !thread && !profile && side && current?.view && (
         side.kind === 'resources'
-          ? <HarnessRoomResources key={`${current.view}:${side.resource}`} api={api} channel={current.view} kind={side.resource}
+          ? <HarnessRoomResources key={`${api.orgId}:${userId}:${current.view}:${side.resource}`} api={api} channel={current.view} kind={side.resource}
               onClose={() => setSide(null)} onOpenApp={id => { setSide(null); onApps?.(id) }} onOpenWorkflow={id => { setSide(null); onWorkflow?.(id) }}
               onLegacy={() => setSide({ kind: 'details', tab: 'automations' })}
               onCreate={() => { const request = t(side.resource === 'apps' ? 'Build an app for this room. What I need is: ' : 'Set up an automation for this room. What it should do: '); setDraft(previous => previous ? `${previous}\n${request}` : `${current.kind === 'agent' ? '' : '@AI '}${request}`); setSide(null); requestAnimationFrame(() => composer.current?.focus()) }} />
