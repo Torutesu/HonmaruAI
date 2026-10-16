@@ -92,6 +92,7 @@ export const HarnessApps: React.FC<HarnessProps> = (props) => {
     try { const id = sessionStorage.getItem('hx.openApp'); sessionStorage.removeItem('hx.openApp'); return id } catch { return null }
   })
   const [prompt, setPrompt] = useState('')
+  const [creating, setCreating] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const { busy, error, act } = useAct()
 
@@ -116,7 +117,8 @@ export const HarnessApps: React.FC<HarnessProps> = (props) => {
   })
 
   return (
-    <Shell title={t('Apps')} onClose={props.onClose}>
+    <Shell className="hx-resource-screen" title={t('Apps')} onClose={props.onClose} actions={<button className="pill-btn" onClick={() => setCreating(v => !v)}>{t(creating ? 'Cancel' : 'Build an app')}</button>}>
+      {creating && <>
       <div className="rows">
         <div className="row static">
           <span className="row-main">
@@ -136,12 +138,13 @@ export const HarnessApps: React.FC<HarnessProps> = (props) => {
           </span>
         </div>
       </div>
+      </>}
       {note && <div className="form-note">{note}</div>}
       {error && <div className="form-error">{error}</div>}
 
       <div className="rows-title">{t('Your apps')}</div>
       {apps === null && <div className="empty">{t('Loading…')}</div>}
-      {apps?.length === 0 && <div className="empty">{t('No apps yet. Describe one above, or start from a template.')}</div>}
+      {apps?.length === 0 && !creating && <div className="hx-resource-empty"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('No apps yet')}</h2><p>{t('Apps are small tools your agents build for this room: dashboards, trackers and forms.')}</p><button onClick={() => setCreating(true)}>{t('Build an app')}</button></div>}
       {apps && apps.length > 0 && (
         <div className="hx-app-grid">
           {apps.map((a) => (
@@ -155,6 +158,7 @@ export const HarnessApps: React.FC<HarnessProps> = (props) => {
         </div>
       )}
 
+      {creating && <>
       <div className="rows-title">{t('Templates')}</div>
       <div className="hx-app-grid">
         {templates.map((tpl) => (
@@ -165,6 +169,7 @@ export const HarnessApps: React.FC<HarnessProps> = (props) => {
           </button>
         ))}
       </div>
+      </>}
     </Shell>
   )
 }

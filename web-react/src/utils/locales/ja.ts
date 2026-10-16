@@ -1,6 +1,21 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "{n} apps": "{n}件のアプリ",
+  "{n} workflows": "{n}件のワークフロー",
+  "Close resources": "リソースを閉じる",
+  "No apps in this room yet": "このルームにはまだアプリがありません",
+  "No automations in this room yet": "このルームにはまだオートメーションがありません",
+  "Apps are small tools your agents build for this room: dashboards, trackers and forms.": "アプリは、このルームで使う小さな道具です。ダッシュボード、トラッカー、フォームなど。",
+  "Automations do work on a schedule or when something happens in this room.": "オートメーションは、決まった時間や、このルームで何かが起きたときに仕事をこなします。",
+  "Build an app": "アプリをつくる",
+  "Set up an automation": "オートメーションを設定",
+  "Manage all apps": "アプリを管理・作成",
+  "Manage all workflows": "ワークフローを管理・作成",
+  "Room schedules": "ルームの定期実行",
+  "Build an app for this room. What I need is: ": "このルーム用のアプリをつくってください。ほしいのは：",
+  "Set up an automation for this room. What it should do: ": "このルームにオートメーションを設定してください。やってほしいのは：",
+  "No apps yet": "まだアプリがありません",
   "Recent": "最近",
   "Workspace": "ワークスペース",
   "Integrations": "連携",

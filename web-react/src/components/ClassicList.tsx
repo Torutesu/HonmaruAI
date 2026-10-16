@@ -1,3 +1,4 @@
+import { HarnessRoomResources } from './HarnessRoomResources'
 import { channelMessageCache, mergeLatestMessages } from '../utils/channelMessageCache'
 import { ReadGuard } from '../utils/readGuard'
 import { toggleReaction } from '../utils/reactions'
@@ -118,7 +119,8 @@ interface Props {
   /// The whole card, as the feed draws it, for the list's own pane.
   renderCard: (card: DecisionCard) => React.ReactNode
   onWorkspace: () => void
-  onApps?: () => void
+  onApps?: (id?: string) => void
+  onWorkflow?: (id?: string) => void
   /// The workspace's mark, name and switcher, drawn by the shell.
   workspaceMenu?: React.ReactNode
   /// Channels are the team's businesses: made, renamed and deleted here,
@@ -308,7 +310,7 @@ function when(iso?: string): string {
 /// sidebar, then the conversation with a way back.
 export const ClassicList: React.FC<Props> = ({
   harness = false, newRequest = 0, homeRequest = 0, userId, orgName, pending, sent, decided, businesses, presence,
-  onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, onApps, workspaceMenu,
+  onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, onApps, onWorkflow, workspaceMenu,
   onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen, onPlaces, onStatus, statusOpen, active = true,
 }) => {
   // Files' addresses are renewed for the workspace open now (mediaUrls).
@@ -3210,8 +3212,8 @@ export const ClassicList: React.FC<Props> = ({
 
   // ---- What the header opens ----
   // The journal ("Context"), or the channel's details on one of its tabs.
-  const [side, setSide] = useState<null | { kind: 'journal' } | { kind: 'canvas' } | { kind: 'details'; tab: DetailsTab }>(null)
-  const openSide = (next: { kind: 'journal' } | { kind: 'canvas' } | { kind: 'details'; tab: DetailsTab }) => {
+  const [side, setSide] = useState<null | { kind: 'journal' } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
+  const openSide = (next: { kind: 'journal' } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
     setDetailId(null); setThread(null); setProfile(null); setPins(null)
     setSide((prev) => (prev && prev.kind === next.kind && (prev.kind === 'journal' || prev.kind === 'canvas' || (next.kind === 'details' && prev.kind === 'details' && prev.tab === next.tab)) ? null : next))
   }
@@ -4688,8 +4690,8 @@ export const ClassicList: React.FC<Props> = ({
             </p>}
           </div>
           {harness && thread.view && <div className="hx-room-actions">
-            {onApps && <button onClick={onApps}><Icon name="grid" size={15} />{t('Apps')}</button>}
-            <button onClick={() => openSide({ kind: 'details', tab: 'automations' })}><Icon name="repeat" size={15} />{t('Automations')}</button>
+            {onApps && <button aria-expanded={side?.kind === 'resources' && side.resource === 'apps'} onClick={() => openSide({ kind: 'resources', resource: 'apps' })}><Icon name="grid" size={15} />{t('Apps')}</button>}
+            <button aria-expanded={side?.kind === 'resources' && side.resource === 'workflows'} onClick={() => openSide({ kind: 'resources', resource: 'workflows' })}><Icon name="repeat" size={15} />{t('Automations')}</button>
             <button onClick={() => openSide({ kind: 'details', tab: 'attachments' })}><Icon name="file" size={15} />{t('Files')}</button>
             <button onClick={() => openSide({ kind: 'details', tab: 'members' })} aria-label={t('Members')}><Icon name="users" size={15} /></button>
           </div>}
@@ -5608,7 +5610,12 @@ export const ClassicList: React.FC<Props> = ({
         </aside>
       )}
       {!detail && !thread && !profile && side && current?.view && (
-        side.kind === 'canvas'
+        side.kind === 'resources'
+          ? <HarnessRoomResources key={`${current.view}:${side.resource}`} api={api} channel={current.view} kind={side.resource}
+              onClose={() => setSide(null)} onOpenApp={id => { setSide(null); onApps?.(id) }} onOpenWorkflow={id => { setSide(null); onWorkflow?.(id) }}
+              onLegacy={() => setSide({ kind: 'details', tab: 'automations' })}
+              onCreate={() => { const request = t(side.resource === 'apps' ? 'Build an app for this room. What I need is: ' : 'Set up an automation for this room. What it should do: '); setDraft(previous => previous ? `${previous}\n${request}` : `${current.kind === 'agent' ? '' : '@AI '}${request}`); setSide(null); requestAnimationFrame(() => composer.current?.focus()) }} />
+          : side.kind === 'canvas'
           ? (
             <ChannelCanvas
               api={api} headers={authHeaders} view={current.view}
