@@ -847,7 +847,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     const isAdmin = await allowed(env.DB, orgId, who.session.github_id, "agent.manage_others");
     const login = who.user.login;
     const list = async () => (await listAgents(env.DB, orgId, login)).map((a) => toClientAgent(a, members, login, { isAdmin }));
-    if (request.method === "GET") return json({ agents: await list(), presets: presetsFor(who.user.locale || url.searchParams.get("locale") || "en") });
+    if (request.method === "GET") return json({ agents: await list(), presets: presetsFor(who.user.locale || url.searchParams.get("locale") || "en"), privateCreation: await getMode(env.DB, orgId) === "harness" });
     const limited = await enforce(env, request, "chat");
     if (limited) return limited;
     const guest = await isGuest(env.DB, orgId, who.session.github_id);

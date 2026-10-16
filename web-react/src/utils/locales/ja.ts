@@ -1,6 +1,7 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'This agent is personal. Its owner can share it from the Agents screen.': 'このエージェントは作成者専用です。所有者はエージェント画面から共有に変更できます。',
   "Sound could not play. Check your browser and audio output settings.": "音を再生できませんでした。ブラウザーと音声出力の設定を確認してください。",
   "Notification sounds": "通知音",
   "Keep everyday messages quiet. Hear a short sound for a request, a reply, a mention or a call.": "普段の会話は静かに。依頼・回答・メンション・着信を音でお知らせします。",

@@ -247,7 +247,8 @@ export async function saveAgent(db, orgId, { id = null, input, login, members, i
   const instructions = String(field("instructions") ?? existing?.instructions ?? "").replace(/\r\n?/g, "\n").trim();
   // Only its owner turns a personal agent into the team's, or back.
   const wanted = field("scope") === "personal" ? "personal" : field("scope") === "team" ? "team" : null;
-  const scope = existing && existing.ownerLogin !== login ? existing.scope : (wanted || existing?.scope || "team");
+  const privateCreation = !existing && await getMode(db, orgId) === "harness";
+  const scope = privateCreation ? "personal" : existing && existing.ownerLogin !== login ? existing.scope : (wanted || existing?.scope || "team");
   if (!name) return { error: "Give the agent a name.", status: 400 };
   if (!handle) return { error: "Its @name is 2 to 30 letters, numbers, - _ and ., and not a word @ already means.", status: 400 };
   if (!instructions) return { error: "Write its instructions: who it is and what it does.", status: 400 };
@@ -261,10 +262,19 @@ export async function saveAgent(db, orgId, { id = null, input, login, members, i
     if ((count?.n || 0) >= MAX_AGENTS) return { error: "This workspace has all the agents it can hold.", status: 400 };
     const newId = crypto.randomUUID();
     const preset = PRESETS.some((p) => p.id === input?.preset) ? input.preset : null;
-    await db.prepare(
+    const insert = db.prepare(
       `INSERT INTO custom_agents (org_id, id, handle, name, emoji, description, instructions, scope, owner_login, preset, created_at, updated_by, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?9, ?11)`
-    ).bind(orgId, newId, handle, name, emoji, description, instructions, scope, login, preset, now).run();
+    ).bind(orgId, newId, handle, name, emoji, description, instructions, scope, login, preset, now);
+    // Atomic profile creation also disables the legacy unprofiled room-placement
+    // exception. Sharing later remains an explicit owner scope change.
+    if (privateCreation) {
+      await db.batch([insert, db.prepare(`INSERT INTO hx_agent_profiles
+        (org_id, agent_id, access, people, updated_by, updated_at) VALUES (?1, ?2, 'everyone', '[]', ?3, ?4)`)
+        .bind(orgId, newId, login, now)]);
+    } else {
+      await insert.run();
+    }
     return { agent: toAgent(await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2").bind(orgId, newId).first()), created: true };
   }
   await db.prepare(

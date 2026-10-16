@@ -177,6 +177,8 @@ test("the harness's home answers in one call: what waits on me, the apps' number
   const row = (await (await send("POST", `/tables/${invoices}/rows`, mika, { orgId: ORG, values: { Client: "Acme", Amount: 4800, Status: "Sent" } })).json()).row;
   await send("PATCH", `/tables/${invoices}/rows/${row.id}`, mika, { orgId: ORG, values: { Status: "Overdue" } });
   const agent = (await (await send("POST", "/channels/agents", mika, { orgId: ORG, name: "Billy", handle: "billy", instructions: "You chase invoices.", scope: "team" })).json()).agent;
+  expect((await (await get(`/harness/home?${q({ orgId: ORG })}`, toru)).json()).agents).toEqual([]);
+  await send("PUT", "/channels/agents", mika, { orgId: ORG, id: agent.id, scope: "team" });
   await send("PUT", `/hx/agents/${agent.id}/profile`, mika, { orgId: ORG, specialty: "Accounts receivable" });
   await send("POST", "/followups", mika, { orgId: ORG, channel: "b:ops", instruction: "Check Acme", minutes: 60 });
 

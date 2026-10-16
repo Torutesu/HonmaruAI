@@ -112,11 +112,11 @@
       "id": "KY-011",
       "category": "Agents",
       "requirement": "新規エージェントの初期非公開",
-      "status": "missing",
+      "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/agents/overview",
       "code": "worker/src/customAgents.js",
-      "acceptance": "新規Harnessエージェントは作成者のみ利用可能。既存共有エージェントは移行で維持"
+      "acceptance": "Harnessの標準作成・Markdown取込は作成者限定、profileと原子的に保存。既存共有とSimpleを維持。Studioの外部teammate経路・全端末UIは残る"
     },
     {
       "id": "KY-012",
