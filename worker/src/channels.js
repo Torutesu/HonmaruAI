@@ -8,6 +8,7 @@ import { accessFor, mayRead, membersOf, isGroupKey, hasGuests, publicAudience } 
 import { parseKeywords, keywordHit } from "./quiet.js";
 import { messageLanguage } from "./translate.js";
 import { mirrorIds } from "./store/mirror.js";
+import { mayAccessAgent } from "./harness/agents.js";
 
 // Channels you can talk in.
 //
@@ -102,6 +103,7 @@ export async function resolveChannel(db, orgId, viewer, channel, members) {
         WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL AND (scope = 'team' OR owner_login = ?3)`
     ).bind(orgId, id, viewer.login).first().catch(() => null);
     if (!agent) return null;
+    if (!(await mayAccessAgent(db, orgId, { ...agent, ownerLogin: agent.owner_login }, viewer.login))) return null;
     return { key: `ag:${id}|${viewer.login}`, kind: "agent", agent, logins: [viewer.login] };
   }
   if (channel.startsWith("dm:")) {

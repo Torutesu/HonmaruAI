@@ -1,3 +1,5 @@
+import { AppSharing } from '../components/AppSharing'
+import { AppCalendar } from '../components/AppCalendar'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
@@ -18,7 +20,7 @@ import { ModePicker } from './HarnessHome'
 
 export const HarnessHub: React.FC<HarnessProps & { onOpen: (s: HarnessScreen) => void }> = (props) => {
   const t = useT()
-  const { mode, canEdit, loaded, setMode } = useWorkspaceMode(props.httpBase, props.orgId, props.sessionToken)
+  const { mode, workspaceMode, canEdit, loaded, setMode, simpleOnly, setSimpleOnly } = useWorkspaceMode(props.httpBase, props.orgId, props.sessionToken)
   const { busy, error, setError, act } = useAct()
   // A mode asked for from the desktop app's menu: applied once the server
   // has said whether this person may, and refused out loud when not.
@@ -37,10 +39,10 @@ export const HarnessHub: React.FC<HarnessProps & { onOpen: (s: HarnessScreen) =>
   useEffect(() => {
     if (!wanted || !loaded) return
     setWanted(null)
-    if (wanted === mode) return
+    if (wanted === workspaceMode) return
     if (!canEdit) { setError(t('Only an admin can change the workspace mode.')); return }
-    void act('mode', async () => { await setMode(wanted); if (wanted === 'harness') props.onOpen('home') })
-  }, [wanted, loaded, mode, canEdit, setMode, act, setError, t])
+    void act('mode', async () => { await setMode(wanted); if (wanted === 'harness' && !simpleOnly) props.onOpen('home') })
+  }, [wanted, loaded, workspaceMode, simpleOnly, canEdit, setMode, act, setError, t])
   const on = mode === 'harness'
   const rows: Array<{ screen: HarnessScreen; icon: Parameters<typeof Icon>[0]['name']; title: string; sub: string }> = [
     { screen: 'apps', icon: 'grid', title: t('Apps'), sub: t('Internal tools your team and agents build: trackers, boards, dashboards.') },
@@ -52,8 +54,14 @@ export const HarnessHub: React.FC<HarnessProps & { onOpen: (s: HarnessScreen) =>
   return (
     <Shell title={t('Harness')} onClose={props.onClose}>
       <p className="lede">{t('One workspace where your team and AI agents run the business together. Simple mode keeps Honmaru as it is: the decision feed and the chat.')}</p>
+      <div className="rows">
+        <label className="row">
+          <input type="checkbox" checked={simpleOnly} onChange={e => setSimpleOnly(e.target.checked)} />
+          <span className="row-main">{t('Use only Simple in this browser')}<span className="row-sub">{t('Keep the decision feed and chat. Shared apps and workflows stay saved.')}</span></span>
+        </label>
+      </div>
       <div className="rows-title">{t('Workspace mode')}</div>
-      <ModePicker mode={mode} canEdit={canEdit} busy={busy === 'mode'} onPick={(m) => void act('mode', async () => { await setMode(m); if (m === 'harness') props.onOpen('home') })} />
+      <ModePicker mode={workspaceMode} canEdit={canEdit} busy={busy === 'mode'} onPick={(m) => void act('mode', async () => { await setMode(m); if (m === 'harness' && !simpleOnly) props.onOpen('home') })} />
       {!canEdit && <p className="hx-hint">{t('Only an admin can change the workspace mode.')}</p>}
       {error && <div className="form-error">{error}</div>}
       {on && (
@@ -188,7 +196,7 @@ function CellInput({ column, value, onSave }: { column: Column; value: unknown; 
   )
 }
 
-const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void }> = ({ api, appId, onBack }) => {
+const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void }> = ({ api, appId, onBack, httpBase, orgId, sessionToken }) => {
   const t = useT()
   const [data, setData] = useState<{ app: App; table: Table; rows: Row[]; views: View[] } | null>(null)
   const [viewIndex, setViewIndex] = useState(0)
@@ -205,7 +213,7 @@ const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack:
   const view = data.views[Math.min(viewIndex, data.views.length - 1)]
 
   const save = (row: Row, column: Column, value: unknown) => act(`cell:${row.id}`, async () => {
-    await api.updateRow(table.id, row.id, { [column.id]: value })
+    await api.updateRow(table.id, row.id, { [column.id]: value }, row.updatedAt)
     await load()
   })
   const addRow = () => act('add', async () => {
@@ -219,14 +227,14 @@ const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack:
     await api.addRow(table.id, seed)
     await load()
   })
-  const removeRow = (row: Row) => act(`del:${row.id}`, async () => { await api.deleteRow(table.id, row.id); await load() })
+  const removeRow = (row: Row) => act(`del:${row.id}`, async () => { await api.deleteRow(table.id, row.id, row.updatedAt); await load() })
 
   return (
     <Shell
       title={`${app.icon} ${app.name}`}
       onClose={onBack}
       nested
-      actions={<span className="hx-version">v{app.version}</span>}
+      actions={<><button className="pill-btn quiet" disabled={busy !== null} onClick={() => void load()}>{t('Reload')}</button><span className="hx-version">v{app.version}</span></>}
     >
       {app.description && <p className="lede">{app.description}</p>}
       <div className="hx-tabs" role="tablist">
@@ -237,6 +245,12 @@ const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack:
         ))}
       </div>
       {error && <div className="form-error">{error}</div>}
+      {app.definition.views.length < 12 && !data.views.some(v => v.type === 'calendar') && table.columns.some(c => c.type === 'date') && <button className="pill-btn quiet" disabled={busy !== null} onClick={() => act('calendar', async () => {
+        await api.updateApp(app.id, { definition: { ...app.definition, views: [...app.definition.views, { type: 'calendar', name: t('Calendar'), dateColumn: table.columns.find(c => c.type === 'date')!.id }] } })
+        await load()
+      })}>{t('Add calendar view')}</button>}
+
+      {view.type === 'calendar' && <AppCalendar key={view.id} view={view} table={table} onMove={(row, date) => { const column = table.columns.find(c => c.id === view.dateColumn); if (column) void save(row, column, date) }} />}
 
       {view.type === 'metrics' && (
         <div className="hx-metrics">
@@ -293,6 +307,8 @@ const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack:
         </div>
       )}
       {view.type !== 'metrics' && <button className="pill-btn quiet hx-add" onClick={addRow} disabled={busy === 'add'}><Icon name="plus" size={14} /> {t('Add a row')}</button>}
+
+      <AppSharing key={`${httpBase}:${orgId}:${appId}:${sessionToken}`} httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} appId={appId} />
 
       <div className="rows-title">{t('Rooms')}</div>
       <div className="rows">

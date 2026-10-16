@@ -1,6 +1,7 @@
 import { checkOutgoing } from "./dlp.js";
 import { prepareAgent, rememberRequest, addAgentMemory } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
+import { withRoomGuidelines } from "./harness/guidelines.js";
 import { followupRequest, scheduleFollowup } from "./harness/followups.js";
 import { attachedTexts } from "./dlpFiles.js";
 import { linksIn, readLinks, linksBlock } from "./links.js";
@@ -510,7 +511,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       // "@agent follow up in 3 days: …": it comes back to this thread then.
       const later = harness && !remember ? followupRequest(requestFor(row.body, agent)) : null;
       if (remember) {
-        const kept = await addAgentMemory(env.DB, orgId, agent.id, remember, { by: session.github_id });
+        const kept = await addAgentMemory(env.DB, orgId, agent.id, remember, { by: session.github_id, channel: resolved.key });
         text = kept.error || serverText(locale, "agent.remembered", { text: kept.memory.text });
       } else if (later) {
         const dueAt = new Date(Date.now() + later.minutes * 60000).toISOString();
@@ -520,7 +521,8 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       else if (spend[index] !== "model") text = serverText(locale, "agent.quota");
       else {
         // Its specialty, memory and skills, at its tier's model.
-        const ready = harness ? await prepareAgent(env, orgId, agent, provider) : { agent, provider };
+        const ready = harness ? await prepareAgent(env, orgId, agent, provider, { channel: resolved.key }) : { agent, provider };
+        ready.agent = await withRoomGuidelines(env.DB, orgId, resolved.key, ready.agent);
         const result = await askAgent({
           provider: ready.provider, agent: ready.agent, request: requestFor(row.body, agent), transcript, playbook, where, research, links, tools, env,
           askedBy: user.name || "a teammate", readerLanguage: locale,

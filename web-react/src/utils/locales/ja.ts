@@ -2300,6 +2300,18 @@ const table: Record<string, string> = {
   "Everyone": "全員",
   "Some people": "一部の人",
   "Only its maker": "作成者だけ",
+  "Room guidelines": "ルームガイドライン",
+  "Room rules for built-in agents, workflow agent steps and follow-ups.": "内蔵エージェント・ワークフローのAIステップ・フォローアップに適用するルームのルールです。",
+  "Use only Simple in this browser": "このブラウザではシンプル版を使う",
+  "Keep the decision feed and chat. Shared apps and workflows stay saved.": "判断フィードとチャットを使います。共有アプリとワークフローのデータは保持されます。",
+  'Shared knowledge for this agent. Memories added in chat stay in that conversation: “@{handle} remember that …”.': 'このエージェントの共有知識です。チャットで覚えた内容は、その会話内で使用します：「@{handle} …を覚えて」。',
+  'Memory conversation': '記憶の対象の会話',
+  'Shared knowledge': '共有知識',
+  'Add calendar view': 'カレンダービューを追加',
+  'No date': '日付未設定',
+  'App visibility': 'アプリの公開範囲',
+  'Workspace members': 'ワークスペースのメンバー',
+  'Sharing applies to this app and its records. Room links do not change access.': 'このアプリとレコードに適用されます。部屋へのリンクでは公開範囲は変わりません。',
 }
 
 export default table

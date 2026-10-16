@@ -283,7 +283,10 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
   const relayHttpUrl = relayUrl.replace(/^ws/, 'http')
   // Simple or harness (docs/kylon-gap-plan.md): what the rail offers.
-  const { mode: workspaceMode } = useWorkspaceMode(relayHttpUrl, orgId, sessionToken)
+  const { mode: workspaceMode, simpleOnly } = useWorkspaceMode(relayHttpUrl, orgId, sessionToken)
+  useEffect(() => {
+    if (simpleOnly && screen && screen !== 'harness' && HARNESS_SCREENS.has(screen)) closeScreen()
+  }, [simpleOnly, screen, closeScreen])
   // A harness workspace opens on its home, once, when nothing else was
   // asked for: an address with a place in it is still obeyed.
   const landedHome = useRef(false)

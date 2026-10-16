@@ -28,7 +28,7 @@ function toProfile(row) {
 }
 
 export async function getProfile(db, orgId, agentId) {
-  return toProfile(await db.prepare("SELECT * FROM hx_agent_profiles WHERE org_id = ?1 AND agent_id = ?2").bind(orgId, agentId).first().catch(() => null));
+  return toProfile(await db.prepare("SELECT * FROM hx_agent_profiles WHERE org_id = ?1 AND agent_id = ?2").bind(orgId, agentId).first());
 }
 
 export async function profilesFor(db, orgId, ids) {
@@ -36,8 +36,7 @@ export async function profilesFor(db, orgId, ids) {
   const { results } = await db
     .prepare(`SELECT * FROM hx_agent_profiles WHERE org_id = ?1 AND agent_id IN (${ids.map((_, i) => `?${i + 2}`).join(",")})`)
     .bind(orgId, ...ids)
-    .all()
-    .catch(() => ({ results: [] }));
+    .all();
   return new Map((results || []).map((r) => [r.agent_id, toProfile(r)]));
 }
 
@@ -72,62 +71,91 @@ export async function saveProfile(db, orgId, agentId, input, by) {
 
 /// Whether this person may call this agent. Its maker always may.
 export function mayCall(agent, profile, login) {
+  if (!login) return false;
+  if (agent.scope === "personal" && agent.ownerLogin !== login) return false;
   if (!profile || profile.access === "everyone") return true;
   if (agent.ownerLogin === login) return true;
   if (profile.access === "people") return profile.people.includes(login);
   return false;
 }
 
+// Access is independent of the presentation mode. Switching to Simple must
+// never make a restricted agent's instructions or memories public.
+export async function mayAccessAgent(db, orgId, agent, login) {
+  return mayCall(agent, await getProfile(db, orgId, agent.id), login);
+}
+
+// Scheduled work rechecks the owner's membership and agent grant when it
+// executes, including after an approval or a delay.
+export async function mayRunAgent(db, orgId, row, userId) {
+  const user = await db.prepare(`SELECT u.login FROM users u JOIN memberships m
+    ON m.user_github_id = u.github_id WHERE m.org_id = ?1 AND u.github_id = ?2 AND m.role != 'guest'`)
+    .bind(orgId, String(userId)).first();
+  return Boolean(user && await mayAccessAgent(db, orgId,
+    { id: row.id, scope: row.scope, ownerLogin: row.owner_login }, user.login));
+}
+
 /// The agents a message would call, as their profiles allow: someone not
 /// on an agent's list does not reach it, and an agent that speaks only
 /// when named is dropped from a thread it was only continuing.
-export async function filterResponders(db, orgId, login, agents, { named = null } = {}) {
+export async function filterResponders(db, orgId, login, agents, { named = null, channel = null } = {}) {
   if (!agents.length) return agents;
   const profiles = await profilesFor(db, orgId, agents.map((a) => a.id));
+  const placed = new Set();
+  if (channel) {
+    const { results } = await db.prepare("SELECT agent_id FROM channel_agents WHERE org_id = ?1 AND channel = ?2").bind(orgId, channel).all();
+    for (const row of results || []) placed.add(row.agent_id);
+  }
   return agents.filter((a) => {
     const p = profiles.get(a.id);
-    if (!p) return true;
+    // Preserve explicit legacy room placement for unprofiled Simple agents.
+    // It grants use in this resolved room, never direct access to private data.
+    if (!p && login && placed.has(a.id)) return true;
     if (!mayCall(a, p, login)) return false;
-    if (p.mentionOnly && named && !named.has(a.id)) return false;
+    if (p?.mentionOnly && named && !named.has(a.id)) return false;
     return true;
   });
 }
 
 // ── Memory ──────────────────────────────────────────────────────────────
 
-export async function listAgentMemories(db, orgId, agentId) {
+export async function listAgentMemories(db, orgId, agentId, { channel = "" } = {}) {
   const { results } = await db
-    .prepare("SELECT * FROM hx_agent_memories WHERE org_id = ?1 AND agent_id = ?2 ORDER BY created_at DESC LIMIT ?3")
-    .bind(orgId, agentId, MAX_MEMORIES)
-    .all()
-    .catch(() => ({ results: [] }));
-  return (results || []).map((r) => ({ id: r.id, text: r.text, source: r.source, createdBy: r.created_by, createdAt: r.created_at }));
+    .prepare(`SELECT m.*, s.channel, s.kind FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id = m.id AND s.org_id = m.org_id WHERE m.org_id = ?1 AND m.agent_id = ?2 AND (s.memory_id IS NULL OR s.channel = '' OR s.channel = ?4) ORDER BY m.created_at DESC LIMIT ?3`)
+    .bind(orgId, agentId, MAX_MEMORIES, channel)
+    .all();
+  return (results || []).map((r) => ({ id: r.id, text: r.text, source: r.source, createdBy: r.created_by, createdAt: r.created_at, channel: r.channel || null, kind: r.kind || "context" }));
 }
 
-export async function addAgentMemory(db, orgId, agentId, text, { by = null, source = "person" } = {}) {
+export async function addAgentMemory(db, orgId, agentId, text, { by = null, source = "person", channel = "", kind = "context" } = {}) {
+  if (!["context", "preference", "feedback", "reference"].includes(kind)) return { error: "Invalid memory kind." };
+  if (typeof channel !== "string") return { error: "Invalid memory channel." };
   const clean = String(text || "").replace(/\s+/g, " ").trim().slice(0, MAX_MEMORY_CHARS);
   if (!clean) return { error: "Say what to remember." };
-  const dup = await db.prepare("SELECT id FROM hx_agent_memories WHERE org_id = ?1 AND agent_id = ?2 AND text = ?3").bind(orgId, agentId, clean).first();
+  const dup = await db.prepare(`SELECT m.id FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id = m.id AND s.org_id = m.org_id WHERE m.org_id = ?1 AND m.agent_id = ?2 AND m.text = ?3 AND COALESCE(s.channel, '') = ?4 AND COALESCE(s.kind, 'context') = ?5`).bind(orgId, agentId, clean, channel, kind).first();
   if (dup) return { memory: { id: dup.id, text: clean }, duplicate: true };
   const id = newId("amem");
-  await db
-    .prepare("INSERT INTO hx_agent_memories (id, org_id, agent_id, text, source, created_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
-    .bind(id, orgId, agentId, clean, source, by ? String(by) : null, now())
-    .run();
+  await db.batch([
+    db.prepare("INSERT INTO hx_agent_memories (id, org_id, agent_id, text, source, created_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
+      .bind(id, orgId, agentId, clean, source, by ? String(by) : null, now()),
+    db.prepare("INSERT INTO hx_memory_scopes (memory_id, org_id, channel, kind) VALUES (?1, ?2, ?3, ?4)")
+      .bind(id, orgId, channel, kind),
+  ]);
   // The oldest go once the agent holds more than it can read.
   await db
-    .prepare(`DELETE FROM hx_agent_memories WHERE org_id = ?1 AND agent_id = ?2 AND id NOT IN
-      (SELECT id FROM hx_agent_memories WHERE org_id = ?1 AND agent_id = ?2 ORDER BY created_at DESC LIMIT ?3)`)
-    .bind(orgId, agentId, MAX_MEMORIES)
+    .prepare(`DELETE FROM hx_agent_memories WHERE org_id = ?1 AND agent_id = ?2 AND id IN (SELECT memory_id FROM hx_memory_scopes WHERE org_id = ?1 AND channel = ?4) AND id NOT IN
+      (SELECT m.id FROM hx_agent_memories m JOIN hx_memory_scopes s ON s.memory_id = m.id WHERE m.org_id = ?1 AND m.agent_id = ?2 AND s.channel = ?4 ORDER BY m.created_at DESC LIMIT ?3)`)
+    .bind(orgId, agentId, MAX_MEMORIES, channel)
     .run();
-  return { memory: { id, text: clean, source } };
+  return { memory: { id, text: clean, source, channel: channel || null, kind } };
 }
 
-export async function deleteAgentMemory(db, orgId, agentId, id) {
-  const res = id === "*"
-    ? await db.prepare("DELETE FROM hx_agent_memories WHERE org_id = ?1 AND agent_id = ?2").bind(orgId, agentId).run()
-    : await db.prepare("DELETE FROM hx_agent_memories WHERE org_id = ?1 AND agent_id = ?2 AND id = ?3").bind(orgId, agentId, id).run();
-  return { deleted: Number(res.meta?.changes || 0) };
+export async function deleteAgentMemory(db, orgId, agentId, id, { channel = "" } = {}) {
+  const res = await db.prepare(`DELETE FROM hx_agent_memories WHERE org_id = ?1 AND agent_id = ?2
+    AND (?3 = '*' OR id = ?3)
+    AND COALESCE((SELECT channel FROM hx_memory_scopes WHERE memory_id = hx_agent_memories.id), '') = ?4 RETURNING id`)
+    .bind(orgId, agentId, id, channel).all();
+  return { deleted: res.results.length };
 }
 
 /// "@agent remember that invoices go out on the 25th" — the part to keep,
@@ -157,10 +185,10 @@ export function modelForTier(env, provider, tier) {
 /// The agent as it should answer: its profile, memory and skills read into
 /// its instructions, and the provider at its tier's model. The provider
 /// shares its usage list, so the ledger still sees every call.
-export async function prepareAgent(env, orgId, agent, provider) {
+export async function prepareAgent(env, orgId, agent, provider, context = {}) {
   const [profile, memories, skills] = await Promise.all([
     getProfile(env.DB, orgId, agent.id),
-    listAgentMemories(env.DB, orgId, agent.id),
+    listAgentMemories(env.DB, orgId, agent.id, context),
     (async () => { const { skillsOf } = await import("./skills.js"); return skillsOf(env.DB, orgId, agent.id); })(),
   ]);
   const blocks = [];

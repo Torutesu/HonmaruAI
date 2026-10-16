@@ -189,3 +189,56 @@ test("the harness's home answers in one call: what waits on me, the apps' number
   expect(home.workflows).toEqual([expect.objectContaining({ id: workflow.id, trigger: "row", lastRun: expect.objectContaining({ status: "waiting" }) })]);
   expect(home.followups.map((f) => f.instruction)).toEqual(["Check Acme"]);
 });
+
+test("approval resumes the frozen definition even after its workflow is edited", async () => {
+  const { createWorkflow, startRun, updateWorkflow, settleWorkflowApproval } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Frozen', trigger: { type: 'manual' }, steps: [
+      { type: 'approval', to: 'toru', title: 'Approve original?' },
+      { type: 'post', channel: 'b:ops', text: 'Original approved action' },
+    ],
+  }, '9302');
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+  expect(run.status).toBe('waiting');
+  await updateWorkflow(env.DB, ORG, workflow.id, { steps: [{ type: 'post', channel: 'b:ops', text: 'Replacement' }] });
+  const done = await settleWorkflowApproval(env, ORG, {
+    id: run.cardId, workflowApproval: { runId: run.id }, recipientUserID: 'toru',
+    decision: { action: 'approve', actorUserID: 'toru' },
+  });
+  expect(done.status).toBe('done');
+  expect((await messages(mika)).map(m => m.body)).toContain('Original approved action');
+  expect((await messages(mika)).map(m => m.body)).not.toContain('Replacement');
+});
+
+test("deferred posts cannot enter a room after the owner loses access", async () => {
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Access recheck', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Forbidden' }],
+  }, '9302');
+  await env.DB.prepare("UPDATE businesses SET private = 1 WHERE org_id = ?1 AND slug = 'ops'").bind(ORG).run();
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: 'manual' });
+  expect(run.status).toBe('failed');
+  expect(run.log[0].error).toBe('Conversation access required.');
+});
+
+test('private follow-ups are hidden in lists and home and cannot be cancelled by outsiders', async () => {
+  const made = await send('POST', '/followups', mika, { orgId: ORG, channel: 'b:ops', instruction: 'Confidential', minutes: 60 });
+  expect(made.status).toBe(201);
+  const { followup } = await made.json();
+  await env.DB.prepare("UPDATE businesses SET private = 1 WHERE org_id = ?1 AND slug = 'ops'").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO conversation_members (org_id, channel, login, added_by, added_at) VALUES (?1, 'b:ops', 'mika', 'mika', ?2)").bind(ORG, new Date().toISOString()).run();
+  expect((await (await get(`/followups?${q({ orgId: ORG })}`, toru)).json()).followups).toEqual([]);
+  expect((await (await get(`/harness/home?${q({ orgId: ORG })}`, toru)).json()).followups).toEqual([]);
+  expect((await call(`/followups/${followup.id}?${q({ orgId: ORG })}`, { method: 'DELETE', headers: headers(toru) })).status).toBe(404);
+  expect((await (await get(`/followups?${q({ orgId: ORG })}`, mika)).json()).followups).toHaveLength(1);
+});
+
+test('run history retains its original room restrictions after the workflow is edited', async () => {
+  const { createWorkflow, startRun, updateWorkflow, getRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, { name: 'Private output', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Private result' }] }, '9302');
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: 'manual' });
+  await env.DB.prepare("UPDATE businesses SET private = 1 WHERE org_id = ?1 AND slug = 'ops'").bind(ORG).run();
+  expect((await get(`/workflows/${workflow.id}?${q({ orgId: ORG })}`, toru)).status).toBe(404);
+  await updateWorkflow(env.DB, ORG, workflow.id, { steps: [{ type: 'approval', to: 'toru', title: 'Public' }] });
+  expect(await getRun(env.DB, ORG, run.id, { viewerId: '9301' })).toBeNull();
+});

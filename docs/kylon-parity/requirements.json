@@ -1,0 +1,942 @@
+{
+  "asOf": "2026-10-16",
+  "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
+  "statusMeaning": {
+    "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
+    "partial": "基礎のみ。受入条件に未達項目あり",
+    "missing": "今回調査した主要経路では未実装",
+    "unverified": "証拠不足。存在しないとは断定しない"
+  },
+  "requirements": [
+    {
+      "id": "KY-001",
+      "category": "Rooms",
+      "requirement": "公開・非公開ルーム",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://kylon.io/product/workspace",
+      "code": "worker/src/access.js",
+      "acceptance": "非メンバー・管理者・ゲストのHTTP/WS/検索すべてで隔離を検証"
+    },
+    {
+      "id": "KY-002",
+      "category": "Rooms",
+      "requirement": "DM・グループ・エージェントDM",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/product/workspace",
+      "code": "worker/src/channels.js",
+      "acceptance": "各参加者の可視性と退出後のアクセスを実機で確認"
+    },
+    {
+      "id": "KY-003",
+      "category": "Rooms",
+      "requirement": "ホーム・最近・未読・メンション",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/product/workspace",
+      "code": "web-react/src/components/ClassicList.tsx",
+      "acceptance": "一覧と通知既読位置が複数端末で一致"
+    },
+    {
+      "id": "KY-004",
+      "category": "Rooms",
+      "requirement": "ルームガイドライン",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://kylon.io/product/workspace",
+      "code": "worker/src/harness/guidelines.js",
+      "acceptance": "4096字・競合検知・毎ターン反映。BYOと全AI入口への適用が残る"
+    },
+    {
+      "id": "KY-005",
+      "category": "Rooms",
+      "requirement": "オブジェクト固定スレッド",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://kylon.io/product/workspace",
+      "code": "worker/src/channels.js",
+      "acceptance": "file/app/record/workflowごとに唯一の会話を再利用"
+    },
+    {
+      "id": "KY-006",
+      "category": "Rooms",
+      "requirement": "ルームへのリソース紐付け",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://kylon.io/product/workspace",
+      "code": "worker/src/harness/apps.js",
+      "acceptance": "所有ルームと参照リンクを区別し非公開データが他ルームへ漏れない"
+    },
+    {
+      "id": "KY-007",
+      "category": "Rooms",
+      "requirement": "ルームメンバーとエージェント権限の分離",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://kylon.io/product/workspace",
+      "code": "worker/src/customAgents.js",
+      "acceptance": "ルーム追加時に不足するエージェント利用権を表示し明示付与"
+    },
+    {
+      "id": "KY-008",
+      "category": "Rooms",
+      "requirement": "ルーム横断検索",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/product/workspace",
+      "code": "worker/src/channels.js",
+      "acceptance": "メッセージだけでなくファイル本文・レコードも同じACLで検索"
+    },
+    {
+      "id": "KY-009",
+      "category": "Rooms",
+      "requirement": "ルームのアーカイブ・退出・削除",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/product/workspace",
+      "code": "worker/src/channelRoutes.js",
+      "acceptance": "復旧・保持期間・実行中自動化の扱いを定義して検証"
+    },
+    {
+      "id": "KY-010",
+      "category": "Rooms",
+      "requirement": "チャットから作業開始・送信先自動選択",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/product/workspace",
+      "code": "web-react/src/components/ClassicList.tsx",
+      "acceptance": "候補ルームに権限を適用し曖昧な送信先を確認"
+    },
+    {
+      "id": "KY-011",
+      "category": "Agents",
+      "requirement": "新規エージェントの初期非公開",
+      "status": "missing",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/src/customAgents.js",
+      "acceptance": "新規Harnessエージェントは作成者のみ利用可能。既存共有エージェントは移行で維持"
+    },
+    {
+      "id": "KY-012",
+      "category": "Agents",
+      "requirement": "名前・専門・ペルソナ・アバター",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/src/customAgents.js",
+      "acceptance": "作成・編集・表示と日英入力を全対象クライアントで検証"
+    },
+    {
+      "id": "KY-013",
+      "category": "Agents",
+      "requirement": "Fast/Pro/Maxの品質とコスト",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/src/harness/agents.js",
+      "acceptance": "現行lite/standard/maxとの差を定義し全実行経路で同じモデル選択と計測"
+    },
+    {
+      "id": "KY-014",
+      "category": "Agents",
+      "requirement": "独立したAgent Admin/Member",
+      "status": "missing",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/src/harness/agents.js",
+      "acceptance": "最後の人間Admin・所有者移譲・自己退出・将来加入者の全社権限を検証"
+    },
+    {
+      "id": "KY-015",
+      "category": "Agents",
+      "requirement": "制限したエージェントへの直接APIアクセス",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/src/harness/routes.js",
+      "acceptance": "今回メモリ等・一覧・DM・編集を修正。全API/外部実行の経路監査が残る"
+    },
+    {
+      "id": "KY-016",
+      "category": "Agents",
+      "requirement": "Simpleへの切替で権限を緩めない",
+      "status": "implemented",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/test/harness-agents.test.js",
+      "acceptance": "両モードで非許可ユーザーとworkspace adminの直接アクセスを拒否"
+    },
+    {
+      "id": "KY-017",
+      "category": "Agents",
+      "requirement": "メンション時のみ応答",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/src/harness/agents.js",
+      "acceptance": "継続スレッド・直接DM・自動化の優先順位を統一"
+    },
+    {
+      "id": "KY-018",
+      "category": "Agents",
+      "requirement": "スレッドの単一リーダーと引継ぎ",
+      "status": "missing",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/src/channelRoutes.js",
+      "acceptance": "重複起動防止・明示handoff・失敗時のリーダー交代"
+    },
+    {
+      "id": "KY-019",
+      "category": "Agents",
+      "requirement": "エージェント同士のループ抑止",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/src/customAgents.js",
+      "acceptance": "明示宛先以外の自動再起動を防ぎ最大handoff回数を記録"
+    },
+    {
+      "id": "KY-020",
+      "category": "Agents",
+      "requirement": "実行停止・キャンセル伝播",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/src/agentRunner.js",
+      "acceptance": "停止でモデル・ツール・子実行を中断し課金とUI状態を確定"
+    },
+    {
+      "id": "KY-021",
+      "category": "Agents",
+      "requirement": "ターンごとの実行プロセス",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/src/agentRunner.js",
+      "acceptance": "開始/ツール/失敗/完了を永続化し権限ある人だけ追跡"
+    },
+    {
+      "id": "KY-022",
+      "category": "Agents",
+      "requirement": "クラウド隔離コンピューター",
+      "status": "missing",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/src/agentRunner.js",
+      "acceptance": "任意コード・ファイル・ネットワークを実行単位で隔離"
+    },
+    {
+      "id": "KY-023",
+      "category": "Agents",
+      "requirement": "ローカルゲートウェイ・再接続",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/src/teammates.js",
+      "acceptance": "接続済みPCで実行しスリープ・再接続・二重配信を扱う"
+    },
+    {
+      "id": "KY-024",
+      "category": "Agents",
+      "requirement": "Codex/Claude Code/Devinの実行選択",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/src/teammates.js",
+      "acceptance": "クラウドAPI接続とローカルCLIを区別して実機で検証"
+    },
+    {
+      "id": "KY-025",
+      "category": "Agents",
+      "requirement": "ACP接続契約",
+      "status": "missing",
+      "priority": "P2",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/src/teammates.js",
+      "acceptance": "initialize/session/prompt/cancelと認証・権限更新・切断を検証"
+    },
+    {
+      "id": "KY-026",
+      "category": "Agents",
+      "requirement": "既存ChatGPT契約でクラウドCodex",
+      "status": "unverified",
+      "priority": "P2",
+      "source": "https://docs.kylon.io/agents/overview",
+      "code": "worker/src/teammates.js",
+      "acceptance": "提供元条件と対応実行方式の確認後に隔離環境で検証"
+    },
+    {
+      "id": "KY-027",
+      "category": "Memory",
+      "requirement": "エージェント固有の永続記憶",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/concepts/memory",
+      "code": "worker/src/harness/agents.js",
+      "acceptance": "文章リストから型・title・description・bodyを持つエントリへ後方互換で拡張"
+    },
+    {
+      "id": "KY-028",
+      "category": "Memory",
+      "requirement": "preference/feedback/reference/context",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/concepts/memory",
+      "code": "worker/src/harness/agents.js",
+      "acceptance": "4種のkindの保存・検証を追加。型別検索・編集・重複統合・レビュー状態は残る"
+    },
+    {
+      "id": "KY-029",
+      "category": "Memory",
+      "requirement": "ルーム・人単位の記憶スコープ",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/concepts/memory",
+      "code": "worker/src/harness/agents.js",
+      "acceptance": "新規チャット記憶を会話で分離。直接API・一覧・削除・実行時の隔離を検証。既存記憶の出典復元と人単位の横断設定は残る"
+    },
+    {
+      "id": "KY-030",
+      "category": "Memory",
+      "requirement": "共有ナレッジと個人記憶の分離",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/concepts/memory",
+      "code": "worker/src/memory.js",
+      "acceptance": "Playbookと同一視せず出典・ACL・更新責任を保持"
+    },
+    {
+      "id": "KY-031",
+      "category": "Memory",
+      "requirement": "記憶のレビュー・スキル変換",
+      "status": "missing",
+      "priority": "P2",
+      "source": "https://docs.kylon.io/concepts/memory",
+      "code": "worker/src/harness/skills.js",
+      "acceptance": "手順をスキルへ変換して記憶との二重更新を防止"
+    },
+    {
+      "id": "KY-032",
+      "category": "Skills",
+      "requirement": "スキル作成・編集・エージェントへの付与",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/skill",
+      "code": "worker/src/harness/skills.js",
+      "acceptance": "付与解除が次回の実行から反映し他エージェントは維持"
+    },
+    {
+      "id": "KY-033",
+      "category": "Skills",
+      "requirement": "SKILL.mdパッケージと補助ファイル",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/skill",
+      "code": "worker/src/harness/skills.js",
+      "acceptance": "frontmatter検証・scripts/templatesの相対パス・安全な展開"
+    },
+    {
+      "id": "KY-034",
+      "category": "Skills",
+      "requirement": "必要時にスキル本文を読む",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/skill",
+      "code": "worker/src/harness/agents.js",
+      "acceptance": "現状の全文注入を索引＋必要時読込みへ変更"
+    },
+    {
+      "id": "KY-035",
+      "category": "Skills",
+      "requirement": "組み込みスキル群",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/skill",
+      "code": "worker/src/agentPresets.js",
+      "acceptance": "アプリ開発・資料・調査・ブラウザ・データ作業を個別検証"
+    },
+    {
+      "id": "KY-036",
+      "category": "Skills",
+      "requirement": "private/publicと人間の所有者",
+      "status": "missing",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/cli/workspace/skill",
+      "code": "worker/src/harness/skills.js",
+      "acceptance": "非公開スキル本文・資産を非許可者から隔離"
+    },
+    {
+      "id": "KY-037",
+      "category": "Skills",
+      "requirement": "共有URL・期限・失効・インポート",
+      "status": "missing",
+      "priority": "P2",
+      "source": "https://docs.kylon.io/cli/workspace/skill",
+      "code": "worker/src/harness/skills.js",
+      "acceptance": "複製は非公開・失効後ダウンロード不可・既存コピーとの区別"
+    },
+    {
+      "id": "KY-038",
+      "category": "Apps",
+      "requirement": "会話・テンプレートからDatabase App",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/apps.js",
+      "acceptance": "テンプレート照合とAI生成の区別を明示し業務要件を保持"
+    },
+    {
+      "id": "KY-039",
+      "category": "Apps",
+      "requirement": "アプリ単位のDBと複数entity",
+      "status": "missing",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/tables.js",
+      "acceptance": "単一JSON行テーブルから所有権・型・relationを備えたデータ契約へ拡張"
+    },
+    {
+      "id": "KY-040",
+      "category": "Apps",
+      "requirement": "標準CRUD・型検証",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/tables.js",
+      "acceptance": "strict値検証・行CAS・HTTP/MCPページングを追加。参照整合性・スキーマ変更との競合は未実装"
+    },
+    {
+      "id": "KY-041",
+      "category": "Apps",
+      "requirement": "表・ボード・カレンダー",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/apps.js",
+      "acceptance": "table/board/metricsに終日calendarを追加。月移動・日付編集・未設定・閏日を検証。時刻・タイムゾーン付き予定とnative画面は残る"
+    },
+    {
+      "id": "KY-042",
+      "category": "Apps",
+      "requirement": "保存ビュー・列順・幅・フィルタ・グループ",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/apps.js",
+      "acceptance": "共通ビューと利用者ビューの変更競合を検証"
+    },
+    {
+      "id": "KY-043",
+      "category": "Apps",
+      "requirement": "レコードに紐づく会話",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/apps.js",
+      "acceptance": "同一entity/recordの会話が重複しない"
+    },
+    {
+      "id": "KY-044",
+      "category": "Apps",
+      "requirement": "App APIの登録・OpenAPI・検証",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/tableContract.js",
+      "acceptance": "テーブル単位のOpenAPI 3.1とstrict値検証を追加。アプリ独自API登録・契約のバージョン固定・SDK生成は未実装"
+    },
+    {
+      "id": "KY-045",
+      "category": "Apps",
+      "requirement": "Custom Appのソースコードと実行環境",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/apps.js",
+      "acceptance": "任意UI/サーバー処理を既存Honmaruと隔離して実行"
+    },
+    {
+      "id": "KY-046",
+      "category": "Apps",
+      "requirement": "下書き・プレビュー・DB fork",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/apps.js",
+      "acceptance": "プレビューの書込みが本番DBを変更しない"
+    },
+    {
+      "id": "KY-047",
+      "category": "Apps",
+      "requirement": "承認されたcommitの公開",
+      "status": "missing",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/apps.js",
+      "acceptance": "承認対象commit・公開範囲を固定し更新後の古い承認を拒否"
+    },
+    {
+      "id": "KY-048",
+      "category": "Apps",
+      "requirement": "DB migration journal",
+      "status": "missing",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/apps.js",
+      "acceptance": "migrationを一度だけ適用し改変検知・再試行を検証"
+    },
+    {
+      "id": "KY-049",
+      "category": "Apps",
+      "requirement": "公開範囲private/workspace/public",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/apps.js",
+      "acceptance": "Database Appにprivate/workspaceの明示ポリシーを追加。Table・MCP・Home・Workflowにも適用。Custom Appの公開ホスト・匿名public・room grantsは未実装"
+    },
+    {
+      "id": "KY-050",
+      "category": "Apps",
+      "requirement": "独自ドメイン・DNS・環境変数",
+      "status": "missing",
+      "priority": "P2",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/apps.js",
+      "acceptance": "ホスト競合・証明書・秘密値非表示・再デプロイ"
+    },
+    {
+      "id": "KY-051",
+      "category": "Apps",
+      "requirement": "デプロイ履歴・ログ・ロールバック",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/apps.js",
+      "acceptance": "現行定義のversionと実デプロイの復元を区別"
+    },
+    {
+      "id": "KY-052",
+      "category": "Apps",
+      "requirement": "App用Connection grant",
+      "status": "missing",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/apps.js",
+      "acceptance": "ブラウザに資格情報を渡さずserver proxyで毎回再認可"
+    },
+    {
+      "id": "KY-053",
+      "category": "Apps",
+      "requirement": "Appに同梱する自動化と差分検出",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/workflows.js",
+      "acceptance": "declared/liveのdrift・下書き停止・公開時反映"
+    },
+    {
+      "id": "KY-054",
+      "category": "Apps",
+      "requirement": "テンプレート共有とバージョン",
+      "status": "missing",
+      "priority": "P2",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/templates.js",
+      "acceptance": "秘密情報・実データを除去して固定バージョンで共有"
+    },
+    {
+      "id": "KY-055",
+      "category": "Apps",
+      "requirement": "App移動・削除とデータ保持",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/cli/workspace/app",
+      "code": "worker/src/harness/apps.js",
+      "acceptance": "ルーム移動時に会話ACLを再確認し削除時DB保持方針を明示"
+    },
+    {
+      "id": "KY-056",
+      "category": "Automations",
+      "requirement": "手動・スケジュール・Webhook・レコード変更",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/workflow",
+      "code": "worker/src/harness/workflows.js",
+      "acceptance": "現在4種。cron/every/at・deleteイベントと時差/DSTを追加"
+    },
+    {
+      "id": "KY-057",
+      "category": "Automations",
+      "requirement": "型付きイベントフィルタ",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/workflow",
+      "code": "worker/src/harness/workflows.js",
+      "acceptance": "missing/null/数値/配列・変更前後・重複配信を検証"
+    },
+    {
+      "id": "KY-058",
+      "category": "Automations",
+      "requirement": "保存定義の不変revision",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/cli/workspace/workflow",
+      "code": "worker/src/harness/workflows.js",
+      "acceptance": "新規runの定義を原子的に保存し承認後も同じ手順で再開。定義revision履歴・比較UI・旧runの移行は残る"
+    },
+    {
+      "id": "KY-059",
+      "category": "Automations",
+      "requirement": "TypeScript SDKと永続checkpoint",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/workflow",
+      "code": "worker/src/harness/workflows.js",
+      "acceptance": "再開時に完了済み外部操作を繰り返さない"
+    },
+    {
+      "id": "KY-060",
+      "category": "Automations",
+      "requirement": "条件分岐・batch・制限付き並列",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/workflow",
+      "code": "worker/src/harness/workflows.js",
+      "acceptance": "部分失敗・ページング・取りこぼし率を結果に含める"
+    },
+    {
+      "id": "KY-061",
+      "category": "Automations",
+      "requirement": "実行履歴・step結果",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/workflow",
+      "code": "worker/src/harness/workflows.js",
+      "acceptance": "全ステップの入力出力・エラー・コスト・権限を追跡"
+    },
+    {
+      "id": "KY-062",
+      "category": "Automations",
+      "requirement": "署名付きWebhookと再送防止",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/cli/workspace/workflow",
+      "code": "worker/src/harness/workflows.js",
+      "acceptance": "URL secretだけでなく署名・期限・event IDを検証"
+    },
+    {
+      "id": "KY-063",
+      "category": "Automations",
+      "requirement": "Webhook rotation/revoke/held/replay",
+      "status": "missing",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/cli/workspace/workflow",
+      "code": "worker/src/harness/workflows.js",
+      "acceptance": "停止中イベント保持と明示再実行・失効を検証"
+    },
+    {
+      "id": "KY-064",
+      "category": "Automations",
+      "requirement": "承認待ち・継続",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/cli/workspace/workflow",
+      "code": "worker/src/harness/workflows.js",
+      "acceptance": "承認者・操作内容・revisionを固定し二重承認を排除"
+    },
+    {
+      "id": "KY-065",
+      "category": "Automations",
+      "requirement": "停止・再開・アーカイブ",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/workflow",
+      "code": "worker/src/harness/workflows.js",
+      "acceptance": "スケジュール停止と実行キャンセルを区別"
+    },
+    {
+      "id": "KY-066",
+      "category": "Automations",
+      "requirement": "実行者の権限を再検証",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/cli/workspace/workflow",
+      "code": "worker/src/harness/agents.js",
+      "acceptance": "今回Agent grantの再確認を追加。部屋/DB/Connection/依頼者権限は継続監査"
+    },
+    {
+      "id": "KY-067",
+      "category": "Automations",
+      "requirement": "実行予算と自動pause",
+      "status": "missing",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/cli/workspace/workflow",
+      "code": "worker/src/ledger.js",
+      "acceptance": "日/週/月上限・同時実行の残高競合・回復時の挙動"
+    },
+    {
+      "id": "KY-068",
+      "category": "Automations",
+      "requirement": "一回限りのFollow-up",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/workflow",
+      "code": "worker/src/harness/followups.js",
+      "acceptance": "相対/絶対時刻・スレッド・通知先・停止・権限変更後を検証"
+    },
+    {
+      "id": "KY-069",
+      "category": "Automations",
+      "requirement": "Follow-upの実ツール実行",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/workflow",
+      "code": "worker/src/harness/followups.js",
+      "acceptance": "現状はモデル文章かリマインダー。外部状態を実確認して根拠と一緒に返す"
+    },
+    {
+      "id": "KY-070",
+      "category": "Files",
+      "requirement": "アップロード・フォルダ・生成者フィルタ",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/file",
+      "code": "worker/src/files.js",
+      "acceptance": "作成者/アップロード者・最近/フォルダの両表示"
+    },
+    {
+      "id": "KY-071",
+      "category": "Files",
+      "requirement": "PDF・画像・CSV・テキストのプレビュー",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/file",
+      "code": "web-react/src/components/Attachments.tsx",
+      "acceptance": "形式別エラー・大容量・モバイル・本文検索を検証"
+    },
+    {
+      "id": "KY-072",
+      "category": "Files",
+      "requirement": "PDF/Word/Markdown/HTML書き出し",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/file",
+      "code": "worker/src/files.js",
+      "acceptance": "単なる元ファイルDLと形式変換を区別"
+    },
+    {
+      "id": "KY-073",
+      "category": "Files",
+      "requirement": "ファイルの版管理・復元",
+      "status": "unverified",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/file",
+      "code": "worker/src/files.js",
+      "acceptance": "コンテンツ版・競合・復元後の新しい版・参照履歴"
+    },
+    {
+      "id": "KY-074",
+      "category": "Files",
+      "requirement": "ファイルへの固定会話",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/cli/workspace/file",
+      "code": "worker/src/channels.js",
+      "acceptance": "ファイルを開くと同一の会話が復元"
+    },
+    {
+      "id": "KY-075",
+      "category": "Files",
+      "requirement": "公開共有の承認と失効",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/cli/workspace/file",
+      "code": "worker/src/files.js",
+      "acceptance": "共有範囲・承認者・リンク失効と監査を検証"
+    },
+    {
+      "id": "KY-076",
+      "category": "Connections",
+      "requirement": "連携カタログとOAuth接続",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/proxy/tools-api",
+      "code": null,
+      "acceptance": "掲載件数ではなく認証/検索/読取/書込/解除を連携ごとに検証"
+    },
+    {
+      "id": "KY-077",
+      "category": "Connections",
+      "requirement": "Remote MCP任意サーバー",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/proxy/tools-api",
+      "code": null,
+      "acceptance": "OAuth/API key・tool一覧・schema・SSRF制限・失効"
+    },
+    {
+      "id": "KY-078",
+      "category": "Connections",
+      "requirement": "Custom API service",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/proxy/tools-api",
+      "code": null,
+      "acceptance": "許可hostとsecret保管・最小権限proxyを実装"
+    },
+    {
+      "id": "KY-079",
+      "category": "Connections",
+      "requirement": "Agent単位のConnection grant",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://docs.kylon.io/proxy/tools-api",
+      "code": "worker/src/agentTools.js",
+      "acceptance": "人の接続とagent/app/workflowの利用権を分離"
+    },
+    {
+      "id": "KY-080",
+      "category": "Connections",
+      "requirement": "Tools discovery/execute/native proxy/upload",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/proxy/tools-api",
+      "code": "worker/src/mcp.js",
+      "acceptance": "同一principalとスコープでREST/CLI/MCPを提供"
+    },
+    {
+      "id": "KY-081",
+      "category": "Connections",
+      "requirement": "LINE公式アカウント受信",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/proxy/tools-api",
+      "code": null,
+      "acceptance": "署名検証・接続単位のイベント保存・LINE Inbox"
+    },
+    {
+      "id": "KY-082",
+      "category": "Connections",
+      "requirement": "データプロバイダの組込み",
+      "status": "partial",
+      "priority": "P2",
+      "source": "https://docs.kylon.io/proxy/tools-api",
+      "code": "worker/src/agentResearch.js",
+      "acceptance": "検索以外の人/企業/SEO/地図/TikTok等を実契約APIで検証"
+    },
+    {
+      "id": "KY-083",
+      "category": "Connections",
+      "requirement": "画像・動画・音声生成",
+      "status": "missing",
+      "priority": "P2",
+      "source": "https://docs.kylon.io/proxy/tools-api",
+      "code": "worker/src/agentTools.js",
+      "acceptance": "job進捗・失敗・成果物保持・事前費用見積もり"
+    },
+    {
+      "id": "KY-084",
+      "category": "Connections",
+      "requirement": "モデル互換proxy",
+      "status": "partial",
+      "priority": "P2",
+      "source": "https://docs.kylon.io/proxy/tools-api",
+      "code": "worker/src/orgAI.js",
+      "acceptance": "対応API・stream・使用量計上・providerエラーを検証"
+    },
+    {
+      "id": "KY-085",
+      "category": "Connections",
+      "requirement": "Workspace CLIの全操作",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://docs.kylon.io/proxy/tools-api",
+      "code": "worker/src/mcp.js",
+      "acceptance": "JSON出力・scope・ユーザー/agent principal・終了コード・失敗閉鎖"
+    },
+    {
+      "id": "KY-086",
+      "category": "Commercial",
+      "requirement": "workspace共有クレジット",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://kylon.io/pricing",
+      "code": "worker/src/ledger.js",
+      "acceptance": "個人Free/Proと独立した残高予約・確定・取消・同時実行"
+    },
+    {
+      "id": "KY-087",
+      "category": "Commercial",
+      "requirement": "月次更新・trial・追加pack",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://kylon.io/pricing",
+      "code": null,
+      "acceptance": "期限・繰越・アップグレード/ダウングレード時期・二重請求防止"
+    },
+    {
+      "id": "KY-088",
+      "category": "Commercial",
+      "requirement": "残高不足時停止と通知",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://kylon.io/pricing",
+      "code": "worker/src/gate.js",
+      "acceptance": "モデルだけでなくtool/workflow/app実行も予算制御"
+    },
+    {
+      "id": "KY-089",
+      "category": "Commercial",
+      "requirement": "agent数上限",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/pricing",
+      "code": "worker/src/customAgents.js",
+      "acceptance": "固定最大数ではなくplan別active数・trial数を制御"
+    },
+    {
+      "id": "KY-090",
+      "category": "Commercial",
+      "requirement": "音声入力・AIとの音声会話",
+      "status": "partial",
+      "priority": "P2",
+      "source": "https://kylon.io/pricing",
+      "code": "web-react/src/components/JamPanel.tsx",
+      "acceptance": "人同士のJamとAI音声通話を区別して検証"
+    },
+    {
+      "id": "KY-091",
+      "category": "Commercial",
+      "requirement": "Web/Mac/iOS/Androidの機能一致",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/pricing",
+      "code": "apps/mobile/README.md",
+      "acceptance": "端末ごとの操作・通知・ファイル・オフラインを受入試験"
+    },
+    {
+      "id": "KY-092",
+      "category": "Commercial",
+      "requirement": "ユーザーごとのSimple表示維持",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://kylon.io/pricing",
+      "code": "web-react/src/utils/harness.ts",
+      "acceptance": "今回Web/Electronブラウザ設定を追加。native/端末間同期は未実装"
+    },
+    {
+      "id": "KY-093",
+      "category": "Commercial",
+      "requirement": "Simpleデータを破壊しない拡張",
+      "status": "implemented",
+      "priority": "P0",
+      "source": "https://kylon.io/pricing",
+      "code": "worker/src/harness/mode.js",
+      "acceptance": "既定Simple・追加schema・切替で削除しない。リリース時に回帰試験"
+    }
+  ]
+}

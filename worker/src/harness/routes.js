@@ -1,3 +1,7 @@
+import { tableContract } from "./tableContract.js";
+import { appAccess, mayUseApp, mayUseTable, setAppAccess, visibleResources } from './resourceAccess.js';
+import { mayUseConversation } from './conversationAccess.js';
+import { listMembers as memoryMembers } from '../team.js';
 // The harness routes (docs/kylon-gap-plan.md): the workspace's mode, Tables
 // and Apps. Every route asks for a member who is not a guest; building is a
 // member's, deleting someone else's is an admin's.
@@ -22,8 +26,10 @@ import { completer } from "./model.js";
 import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
 import { listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
 import { onRowChange } from "./workflows.js";
-import { profilesFor } from "./agents.js";
+import { profilesFor, mayAccessAgent } from "./agents.js";
 import { listAgents } from "../customAgents.js";
+import { resolveChannel, viewOf } from "../channels.js";
+import { getGuidelines, saveGuidelines, MAX_GUIDELINES } from "./guidelines.js";
 
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
@@ -38,7 +44,7 @@ export function json(body, status = 200) {
   });
 }
 
-const fail = (result) => json({ message: result.error }, result.status || 400);
+const fail = (result) => json({ message: result.error, ...(result.fields ? { fields: result.fields } : {}) }, result.status || 400);
 
 /// The paths this module answers.
 const OURS = /^\/(orgs\/mode|tables|apps|skills|hx|workflows|followups|approvals|harness\/home)(\/|$)/;
@@ -94,23 +100,49 @@ export async function handleHarness(request, env, url) {
   const me = who.session.github_id;
   if (!read && !(await allowed(env.DB, orgId, me, "harness.build"))) return json({ message: "You cannot build in this workspace." }, 403);
 
+  if (url.pathname === "/hx/rooms/guidelines") {
+    const channel = read ? url.searchParams.get("channel") : input.channel;
+    const room = await resolveChannel(env.DB, orgId, who.user, channel);
+    if (!room || room.kind !== "business") return json({ message: "No such room." }, 404);
+    const exists = await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, room.slug).first();
+    if (!exists) return json({ message: "No such room." }, 404);
+    if (request.method === "GET") return json({ guidelines: await getGuidelines(env.DB, orgId, room.key), maxLength: MAX_GUIDELINES });
+    if (request.method === "PUT") {
+      const result = await saveGuidelines(env.DB, orgId, room.key, input, me);
+      if (result.error) return fail(result);
+      await audit(env, request, { orgId, action: "room.guidelines_changed", actor: person(who.user), entity: { type: "channel", id: room.key }, details: { version: result.guidelines.version } });
+      return json(result);
+    }
+    return json({ message: "Method not allowed." }, 405);
+  }
+
   // ── Tables ────────────────────────────────────────────────────────────
   if (parts[0] === "tables") {
     const [, tableId, sub, rowId] = parts;
     if (!tableId) {
-      if (request.method === "GET") return json({ tables: await listTables(env.DB, orgId) });
+      if (request.method === "GET") return json({ tables: await visibleResources(await listTables(env.DB, orgId), t => mayUseTable(env.DB, orgId, t.id, me)) });
       if (request.method === "POST") {
         const r = await createTable(env.DB, { orgId, name: input.name, columns: input.columns, by: me });
         return r.error ? fail(r) : json(r, 201);
       }
       return null;
     }
+    if (!(await mayUseTable(env.DB, orgId, tableId, me))) return json({ message: "No such table." }, 404);
+    if (sub === "contract" && request.method === "GET") {
+      const table = await getTable(env.DB, orgId, tableId);
+      return table ? json(tableContract(table)) : json({ message: "No such table." }, 404);
+    }
     if (!sub) {
       if (request.method === "GET") {
+        let where;
+        try { where = url.searchParams.has("where") ? JSON.parse(url.searchParams.get("where")) : undefined; }
+        catch { return json({ message: "where must contain valid JSON." }, 400); }
         const r = await listRows(env.DB, orgId, tableId, {
+          limit: url.searchParams.get("limit") ?? undefined,
+          offset: url.searchParams.get("offset") ?? undefined,
           q: url.searchParams.get("q") || undefined,
           sort: url.searchParams.get("sort") || undefined,
-          where: url.searchParams.get("where") ? JSON.parse(url.searchParams.get("where") || "{}") : undefined,
+          where,
         });
         return r.error ? fail(r) : json(r);
       }
@@ -129,19 +161,19 @@ export async function handleHarness(request, env, url) {
     }
     if (sub === "rows") {
       if (!rowId && request.method === "POST") {
-        const r = await addRow(env.DB, orgId, tableId, input.values, me);
+        const r = await addRow(env.DB, orgId, tableId, input.values, me, input.validation);
         if (r.error) return fail(r);
         await afterRowChange(env, { orgId, table: r.table, before: null, row: r.row, by: me });
         return json({ row: r.row }, 201);
       }
       if (rowId && (request.method === "PUT" || request.method === "PATCH")) {
-        const r = await updateRow(env.DB, orgId, tableId, rowId, input.values, me);
+        const r = await updateRow(env.DB, orgId, tableId, rowId, input.values, me, input.expectedUpdatedAt, input.validation);
         if (r.error) return fail(r);
         await afterRowChange(env, { orgId, table: r.table, before: r.before, row: r.row, by: me });
         return json({ row: r.row });
       }
       if (rowId && request.method === "DELETE") {
-        const r = await deleteRow(env.DB, orgId, tableId, rowId);
+        const r = await deleteRow(env.DB, orgId, tableId, rowId, url.searchParams.get("expectedUpdatedAt") ?? undefined);
         return r.error ? fail(r) : json(r);
       }
     }
@@ -152,7 +184,7 @@ export async function handleHarness(request, env, url) {
   if (parts[0] === "workflows") {
     const [, wfId, sub, runId] = parts;
     if (!wfId) {
-      if (request.method === "GET") return json({ workflows: await listWorkflows(env.DB, orgId), triggers: TRIGGERS, steps: STEP_TYPES });
+      if (request.method === "GET") return json({ workflows: await listWorkflows(env.DB, orgId, { viewerId: me }), triggers: TRIGGERS, steps: STEP_TYPES });
       if (request.method === "POST") {
         const r = await createWorkflow(env.DB, orgId, input, me);
         if (!r.error) await audit(env, request, { orgId, action: "workflow.created", actor: person(who.user), entity: { type: "workflow", id: r.workflow.id, name: r.workflow.name } });
@@ -160,13 +192,13 @@ export async function handleHarness(request, env, url) {
       }
       return null;
     }
-    const wf = await getWorkflow(env.DB, orgId, wfId, { withSecret: true });
+    const wf = await getWorkflow(env.DB, orgId, wfId, { withSecret: true, viewerId: me });
     if (!wf) return json({ message: "No such workflow." }, 404);
     const mine = await mayChange(env, orgId, who, wf.createdBy);
     // The hook's secret is for whoever may change the workflow.
     const shown = mine ? { ...wf, hookUrl: hookUrl(url, wf) } : { ...wf, hookSecret: undefined };
     if (!sub) {
-      if (request.method === "GET") return json({ workflow: shown, runs: await listRuns(env.DB, orgId, wfId, 20), canEdit: mine });
+      if (request.method === "GET") return json({ workflow: shown, runs: await listRuns(env.DB, orgId, wfId, 20, me), canEdit: mine });
       if (!mine) return json({ message: "Only its maker or an admin can change this workflow." }, 403);
       if (request.method === "PUT") {
         const r = await updateWorkflow(env.DB, orgId, wfId, input);
@@ -185,10 +217,10 @@ export async function handleHarness(request, env, url) {
     }
     if (sub === "runs" && request.method === "GET") {
       if (runId) {
-        const run = await getRun(env.DB, orgId, runId);
+        const run = await getRun(env.DB, orgId, runId, { viewerId: me });
         return run && run.workflowId === wfId ? json({ run }) : json({ message: "No such run." }, 404);
       }
-      return json({ runs: await listRuns(env.DB, orgId, wfId, url.searchParams.get("limit")) });
+      return json({ runs: await listRuns(env.DB, orgId, wfId, url.searchParams.get("limit"), me) });
     }
     return null;
   }
@@ -197,7 +229,7 @@ export async function handleHarness(request, env, url) {
   if (parts[0] === "followups") {
     const [, fuId] = parts;
     if (!fuId && request.method === "GET") {
-      return json({ followups: await listFollowups(env.DB, orgId, { channel: url.searchParams.get("channel") || undefined, status: url.searchParams.get("status") || "scheduled" }) });
+      return json({ followups: await listFollowups(env.DB, orgId, { channel: url.searchParams.get("channel") || undefined, status: url.searchParams.get("status") || "scheduled", viewerId: me }) });
     }
     if (!fuId && request.method === "POST") {
       const dueAt = input.dueAt || (Number(input.minutes) > 0 ? new Date(Date.now() + Number(input.minutes) * 60000).toISOString() : null);
@@ -205,6 +237,8 @@ export async function handleHarness(request, env, url) {
       return r.error ? fail(r) : json(r, 201);
     }
     if (fuId && request.method === "DELETE") {
+      const followup = await env.DB.prepare("SELECT channel FROM hx_followups WHERE org_id = ?1 AND id = ?2").bind(orgId, fuId).first();
+      if (!followup || !(await mayUseConversation(env.DB, orgId, me, followup.channel))) return json({ message: "Nothing scheduled by that id." }, 404);
       const r = await cancelFollowup(env.DB, orgId, fuId);
       return r.error ? fail(r) : json(r);
     }
@@ -259,6 +293,7 @@ export async function handleHarness(request, env, url) {
       .first();
     // Someone else's personal agent is theirs alone: it is not here at all.
     if (!agent || (agent.scope === "personal" && agent.owner_login !== who.user.login)) return json({ message: "No such agent." }, 404);
+    if (!(await mayAccessAgent(env.DB, orgId, { ...agent, ownerLogin: agent.owner_login }, who.user.login))) return json({ message: "No such agent." }, 404);
     const canEdit = agent.owner_login === who.user.login || await allowed(env.DB, orgId, me, "agent.manage_others");
     // Anyone who may talk to it may tell it to remember something, as in
     // the chat; everything else is its maker's or an admin's.
@@ -272,14 +307,42 @@ export async function handleHarness(request, env, url) {
       }
     }
     if (sub === "memory") {
-      if (request.method === "GET") return json({ memories: await listAgentMemories(env.DB, orgId, agentId), canEdit });
+      if (parts[4] === "scopes" && request.method === "GET") {
+        const members = await memoryMembers(env.DB, orgId, me);
+        const { results } = await env.DB.prepare(`SELECT DISTINCT s.channel FROM hx_memory_scopes s JOIN hx_agent_memories m ON m.id = s.memory_id
+          WHERE s.org_id = ?1 AND m.agent_id = ?2 AND s.channel != '' ORDER BY s.channel LIMIT 200`).bind(orgId, agentId).all();
+        const scopes = [];
+        for (const entry of results || []) {
+          const view = viewOf(entry.channel, who.user.login, members);
+          if (!view) continue;
+          const room = await resolveChannel(env.DB, orgId, who.user, view, members);
+          if (!room || room.key !== entry.channel) continue;
+          let label = room.agent?.name || room.other?.name || room.others?.map(m => m.name).join(', ') || room.slug;
+          if (room.kind === "business") {
+            const business = await env.DB.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, room.slug).first();
+            if (!business) continue;
+            label = business.name;
+          }
+          scopes.push({ channel: view, label: label || view });
+        }
+        return json({ scopes });
+      }
+      const requestedChannel = read ? url.searchParams.get("channel") : input.channel;
+      let channel = "";
+      if (requestedChannel) {
+        const room = await resolveChannel(env.DB, orgId, who.user, requestedChannel);
+        if (!room) return json({ message: "No such conversation." }, 404);
+        channel = room.key;
+      }
+      const context = { channel };
+      if (request.method === "GET") return json({ memories: await listAgentMemories(env.DB, orgId, agentId, context), canEdit });
       if (request.method === "POST") {
-        const r = await addAgentMemory(env.DB, orgId, agentId, input.text, { by: me });
+        const r = await addAgentMemory(env.DB, orgId, agentId, input.text, { by: me, channel, kind: input.kind || "context" });
         return r.error ? fail(r) : json(r, 201);
       }
       if (request.method === "DELETE") {
         if (!canEdit) return json({ message: "Only the agent's maker or an admin can make it forget." }, 403);
-        return json(await deleteAgentMemory(env.DB, orgId, agentId, parts[4] || url.searchParams.get("id") || ""));
+        return json(await deleteAgentMemory(env.DB, orgId, agentId, parts[4] || url.searchParams.get("id") || "", context));
       }
     }
     if (sub === "skills") {
@@ -315,11 +378,11 @@ export async function handleHarness(request, env, url) {
       return json({ ...r, source: made.source, room: made.room || null }, 201);
     }
     if (!appId) {
-      if (request.method === "GET") return json({ apps: await listApps(env.DB, orgId, { channel: url.searchParams.get("channel") || undefined }) });
+      if (request.method === "GET") return json({ apps: await visibleResources(await listApps(env.DB, orgId, { channel: url.searchParams.get("channel") || undefined }), a => mayUseApp(env.DB, orgId, a.id, me)) });
       if (request.method === "POST") {
         const r = input.template
           ? await createFromTemplate(env.DB, { orgId, by: me, template: input.template, name: input.name, channel: input.channel, withSample: input.sample !== false })
-          : await createApp(env.DB, { orgId, by: me, ...input, channel: input.channel });
+          : await createApp(env.DB, { ...input, orgId, by: me, channel: input.channel });
         if (r.error) return fail(r);
         await audit(env, request, { orgId, action: "app.created", actor: person(who.user), entity: { type: "app", id: r.app.id, name: r.app.name } });
         return json(r, 201);
@@ -327,7 +390,16 @@ export async function handleHarness(request, env, url) {
       return null;
     }
     const app = await getApp(env.DB, orgId, appId);
-    if (!app) return json({ message: "No such app." }, 404);
+    if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);
+    if (sub === "access") {
+      if (request.method === "GET") return json({ access: await appAccess(env.DB, orgId, appId), canEdit: app.createdBy === String(me) });
+      if (request.method === "PUT") {
+        const result = await setAppAccess(env.DB, orgId, appId, me, input);
+        if (!result.error) await audit(env, request, { orgId, action: "app.access_changed", actor: person(who.user), entity: { type: "app", id: appId }, details: { visibility: result.access.visibility, version: result.access.version } });
+        return result.error ? fail(result) : json(result);
+      }
+      return json({ message: "Method not allowed." }, 405);
+    }
     if (!sub) {
       if (request.method === "GET") {
         const r = await renderApp(env.DB, orgId, appId);
@@ -393,7 +465,7 @@ async function approvalsFor(env, orgId, login, me) {
   return {
     pendingDecisions: pending.length,
     toDecide: cards.map((c) => ({ id: c.id, title: c.title, summary: c.summary, createdAt: c.createdAt, kind: c.workflowApproval ? "workflow" : c.proxyAction ? "agent" : c.proposal ? "proposal" : "agent", source: c.sourceDetail || c.sourceApp || null })),
-    waitingOnOthers: (waiting || []).map((w) => ({ runId: w.id, workflowId: w.workflow_id, workflow: w.name, cardId: w.card_id, startedAt: w.started_at })),
+    waitingOnOthers: (await visibleResources(waiting || [], async w => Boolean(await getRun(env.DB, orgId, w.id, { viewerId: me })))).map((w) => ({ runId: w.id, workflowId: w.workflow_id, workflow: w.name, cardId: w.card_id, startedAt: w.started_at })),
   };
 }
 
@@ -402,10 +474,10 @@ async function homeFor(env, orgId, who, me) {
   const [mode, approvals, appRows, agents, workflows, followups] = await Promise.all([
     getMode(db, orgId),
     approvalsFor(env, orgId, who.user.login, me),
-    listApps(db, orgId),
+    listApps(db, orgId).then(items => visibleResources(items, a => mayUseApp(db, orgId, a.id, me))),
     listAgents(db, orgId, who.user.login).catch(() => []),
-    listWorkflows(db, orgId),
-    listFollowups(db, orgId),
+    listWorkflows(db, orgId, { viewerId: me }),
+    listFollowups(db, orgId, { viewerId: me }),
   ]);
   // An app's headline: the first number its summary view works out.
   const apps = await Promise.all(appRows.slice(0, 12).map(async (a) => {
