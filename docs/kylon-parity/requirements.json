@@ -236,7 +236,7 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/agents/overview",
       "code": "worker/src/harness/gateways.js",
-      "acceptance": "Mac miniの隔離JS・ノード認証・lease・取消を実装。スリープ/再起動/常駐・エージェント実ツール連携の受入試験は残る"
+      "acceptance": "Mac mini隔離JS・常駐・ログイン時接続・プロセス/ランタイム復旧と本番個人DMの実ツール往復を検証。物理再起動・スリープ復帰の実機試験は残る"
     },
     {
       "id": "KY-024",

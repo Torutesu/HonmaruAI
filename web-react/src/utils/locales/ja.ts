@@ -1,6 +1,13 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Recent": "最近",
+  "Workspace": "ワークスペース",
+  "Integrations": "連携",
+  "Start a conversation": "会話を始めましょう",
+  "Edit profile": "プロフィールを編集",
+  "Overview": "概要",
+  "Run": "実行",
   "Execution nodes": "実行ノード",
   "Run isolated jobs on your own machines.": "自分のマシンで隔離されたジョブを実行します。",
   "JavaScript runs without network or host files, with a 60-second limit. Results are visible only to the requester.": "JavaScriptをネットワーク・ホスト側ファイルへのアクセスなしで最大60秒実行します。結果は依頼者だけに表示されます。",
