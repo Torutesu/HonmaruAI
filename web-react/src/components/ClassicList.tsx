@@ -3215,7 +3215,7 @@ export const ClassicList: React.FC<Props> = ({
   const [side, setSide] = useState<null | { kind: 'journal' } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
   const openSide = (next: { kind: 'journal' } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
     setDetailId(null); setThread(null); setProfile(null); setPins(null)
-    setSide((prev) => (prev && prev.kind === next.kind && (prev.kind === 'journal' || prev.kind === 'canvas' || (next.kind === 'details' && prev.kind === 'details' && prev.tab === next.tab)) ? null : next))
+    setSide((prev) => (prev && prev.kind === next.kind && (prev.kind === 'journal' || prev.kind === 'canvas' || (next.kind === 'resources' && prev.kind === 'resources' && prev.resource === next.resource) || (next.kind === 'details' && prev.kind === 'details' && prev.tab === next.tab)) ? null : next))
   }
   // What to open beside a conversation chosen from somewhere else (the
   // sidebar's right-click menu): set before choosing, applied once it opens.
