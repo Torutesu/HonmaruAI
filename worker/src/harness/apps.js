@@ -7,7 +7,7 @@
 // without one it still lands on the closest template.
 
 import { TEMPLATES, matchTemplate } from "./templates.js";
-import { createTable, getTable, listRows, addRow, updateTable } from "./tables.js";
+import { createTable, getTable, listRows, addRow, updateTable, MAX_ROWS } from "./tables.js";
 
 export const VIEW_TYPES = ["table", "board", "metrics", "calendar"];
 export const METRIC_OPS = ["count", "sum", "avg", "min", "max"];
@@ -287,7 +287,7 @@ export async function unlinkApp(db, orgId, id, channel) {
 export async function renderApp(db, orgId, id) {
   const app = await getApp(db, orgId, id);
   if (!app) return { error: "No such app.", status: 404 };
-  const { table, rows } = await listRows(db, orgId, app.tableId);
+  const { table, rows } = await listRows(db, orgId, app.tableId, { limit: MAX_ROWS });
   const { results: links } = await db.prepare("SELECT channel FROM hx_app_links WHERE app_id = ?1 AND org_id = ?2").bind(id, orgId).all();
   app.channels = (links || []).map((l) => l.channel);
   return { app, table, rows, views: app.definition.views.map((v) => computeView(v, table, rows)) };

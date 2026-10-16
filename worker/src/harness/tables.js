@@ -166,11 +166,16 @@ export async function deleteTable(db, orgId, id) {
 
 /// Rows, optionally narrowed: `where` is { columnId: value } (equality),
 /// `q` matches any text, `sort` is a column id with an optional leading "-".
-export async function listRows(db, orgId, tableId, { where, q, sort, limit = 500 } = {}) {
+export async function listRows(db, orgId, tableId, { where, q, sort, limit = 500, offset = 0 } = {}) {
   const table = await getTable(db, orgId, tableId);
   if (!table) return { error: "No such table.", status: 404 };
+  const pageSize = Number(limit), start = Number(offset);
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > MAX_ROWS || !Number.isInteger(start) || start < 0 || start > MAX_ROWS) return { error: "Invalid pagination: limit must be 1–5000 and offset 0–5000.", status: 400 };
+  if (where !== undefined && (!where || typeof where !== "object" || Array.isArray(where))) return { error: "where must be an object.", status: 400 };
+  if (where && Object.keys(where).some(key => !table.columns.some(c => c.id === key || c.name.toLowerCase() === key.toLowerCase()))) return { error: "Unknown filter column.", status: 400 };
+  if (sort && !table.columns.some(c => c.id === String(sort).replace(/^-/, ""))) return { error: "Unknown sort column.", status: 400 };
   const { results } = await db
-    .prepare("SELECT * FROM hx_rows WHERE table_id = ?1 AND org_id = ?2 ORDER BY position ASC, created_at ASC LIMIT ?3")
+    .prepare("SELECT * FROM hx_rows WHERE table_id = ?1 AND org_id = ?2 ORDER BY position ASC, created_at ASC, id ASC LIMIT ?3")
     .bind(tableId, orgId, MAX_ROWS)
     .all();
   let rows = (results || []).map(publicRow);
@@ -194,7 +199,8 @@ export async function listRows(db, orgId, tableId, { where, q, sort, limit = 500
       return desc ? -c : c;
     });
   }
-  return { table, rows: rows.slice(0, Math.max(1, Math.min(Number(limit) || 500, MAX_ROWS))) };
+  const total = rows.length;
+  return { table, rows: rows.slice(start, start + pageSize), total, offset: start, limit: pageSize, nextOffset: start + pageSize < total ? start + pageSize : null };
 }
 
 export async function getRow(db, orgId, tableId, rowId) {

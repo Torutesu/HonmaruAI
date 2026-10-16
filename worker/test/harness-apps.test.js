@@ -304,3 +304,34 @@ test('strict record contract rejects invalid fields atomically while legacy coer
   const winner = results.find(r => r.row);
   expect(await getRow(env.DB, ORG, table.id, row.id)).toEqual(winner.row);
  });
+
+test('row pages filter before slicing and reject malformed queries', async () => {
+  const { createTable, addRow } = await import('../src/harness/tables.js');
+  const { table } = await createTable(env.DB, { orgId: ORG, name: 'Pages', columns: [{ name: 'Name', type: 'text' }], by: '9102' });
+  for (const name of ['Keep A', 'Skip', 'Keep B', 'Keep C']) await addRow(env.DB, ORG, table.id, { name }, '9102');
+  const path = `/tables/${table.id}?orgId=${ORG}`;
+  const first = await (await get(`${path}&q=Keep&limit=2`, mika)).json();
+  expect(first).toMatchObject({ total: 3, nextOffset: 2, offset: 0 });
+  expect(first.rows.map(r => r.values.name)).toEqual(['Keep A', 'Keep B']);
+  const last = await (await get(`${path}&q=Keep&limit=2&offset=${first.nextOffset}`, mika)).json();
+  expect(last).toMatchObject({ total: 3, nextOffset: null });
+  expect(last.rows.map(r => r.values.name)).toEqual(['Keep C']);
+  for (const query of ['where=%7B', 'where=null', 'where=[]', 'where=%7B%22unknown%22:1%7D', 'limit=-1', 'limit=0', 'limit=1.5', 'offset=-1', 'offset=oops', 'sort=unknown']) {
+    expect((await get(`${path}&${query}`, mika)).status).toBe(400);
+  }
+  const { callHarnessTool } = await import('../src/harness/mcpTools.js');
+  const page = await callHarnessTool(env, { orgId: ORG, githubId: '9102' }, 'query_rows', { tableId: table.id, q: 'Keep', limit: 2, offset: 2 });
+  expect(page.structuredContent).toMatchObject({ total: 3, nextOffset: null, rows: [{ name: 'Keep C' }] });
+});
+
+test('app views include records beyond the default API page size', async () => {
+  const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, template: 'crm' })).json();
+  const before = await (await get(`/apps/${app.id}?orgId=${ORG}`, mika)).json();
+  await env.DB.batch(Array.from({ length: 501 }, (_, i) => env.DB.prepare(
+    'INSERT INTO hx_rows (id, table_id, org_id, data, position, created_by, updated_by, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?7)'
+  ).bind(`page_test_${i}`, app.tableId, ORG, JSON.stringify({ company: `Added ${i}`, stage: 'Lead', value: 1 }), i + 10, '9102', '2026-10-16T00:00:00.000Z')));
+  const after = await (await get(`/apps/${app.id}?orgId=${ORG}`, mika)).json();
+  expect(after.rows.length).toBe(before.rows.length + 501);
+  const pipeline = data => data.views.find(v => v.type === 'metrics').values.find(m => m.label === 'Open pipeline').value;
+  expect(pipeline(after)).toBe(pipeline(before) + 501);
+});

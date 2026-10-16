@@ -134,10 +134,15 @@ export async function handleHarness(request, env, url) {
     }
     if (!sub) {
       if (request.method === "GET") {
+        let where;
+        try { where = url.searchParams.has("where") ? JSON.parse(url.searchParams.get("where")) : undefined; }
+        catch { return json({ message: "where must contain valid JSON." }, 400); }
         const r = await listRows(env.DB, orgId, tableId, {
+          limit: url.searchParams.get("limit") ?? undefined,
+          offset: url.searchParams.get("offset") ?? undefined,
           q: url.searchParams.get("q") || undefined,
           sort: url.searchParams.get("sort") || undefined,
-          where: url.searchParams.get("where") ? JSON.parse(url.searchParams.get("where") || "{}") : undefined,
+          where,
         });
         return r.error ? fail(r) : json(r);
       }

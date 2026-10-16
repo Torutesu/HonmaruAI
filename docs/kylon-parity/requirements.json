@@ -406,7 +406,7 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/app",
       "code": "worker/src/harness/tables.js",
-      "acceptance": "strict値検証・行の更新/削除CASを追加。参照整合性・ページング・スキーマ変更との競合は未実装"
+      "acceptance": "strict値検証・行CAS・HTTP/MCPページングを追加。参照整合性・スキーマ変更との競合は未実装"
     },
     {
       "id": "KY-041",

@@ -37,7 +37,7 @@ export const HARNESS_TOOLS = [
     description: "Rows of a table, narrowed by text (q), by exact column values (where: {column: value}), and sorted (sort: column, or -column for descending).",
     inputSchema: {
       type: "object",
-      properties: { tableId: { type: "string" }, q: { type: "string" }, where: { type: "object" }, sort: { type: "string" }, limit: { type: "number" } },
+      properties: { tableId: { type: "string" }, q: { type: "string" }, where: { type: "object" }, sort: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 500 }, offset: { type: "integer", minimum: 0, maximum: 5000 } },
       required: ["tableId"],
     },
   },
@@ -99,8 +99,8 @@ export async function callHarnessTool(env, agent, name, args) {
       return out({ tables: await visibleResources(await listTables(db, orgId), t => mayUseTable(db, orgId, t.id, by)) });
     case "query_rows": {
       if (!(await mayUseTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
-      const r = await listRows(db, orgId, String(args.tableId || ""), { q: args.q, where: args.where, sort: args.sort, limit: Math.min(Number(args.limit) || 100, 500) });
-      return r.error ? err(r.error) : out({ rowVersions: Object.fromEntries(r.rows.map(x => [x.id, x.updatedAt])), rows: r.rows.map((x) => ({ id: x.id, ...x.values })) });
+      const r = await listRows(db, orgId, String(args.tableId || ""), { q: args.q, where: args.where, sort: args.sort, limit: Math.min(Number(args.limit ?? 100), 500), offset: args.offset });
+      return r.error ? err(r.error) : out({ total: r.total, nextOffset: r.nextOffset, rowVersions: Object.fromEntries(r.rows.map(x => [x.id, x.updatedAt])), rows: r.rows.map((x) => ({ id: x.id, ...x.values })) });
     }
     case "add_row": {
       if (!(await mayUseTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");

@@ -56,7 +56,7 @@ export function tableContract(table) {
     openapi: '3.1.0', info: { title: `${table.name} record API`, version: '1.0.0', description: 'Strict opt-in contract. Legacy requests without validation=strict continue to coerce values. All operations require current table access. PATCH merges supplied fields; null clears a value.' },
     security: [{ session: [] }], components: { securitySchemes: { session: { type: 'apiKey', in: 'header', name: 'x-session-token' } }, schemas: { Values: values } },
     paths: {
-      [path]: { get: { parameters: [orgQuery], responses: { 200: response('Table and rows, including updatedAt for optimistic edits.'), 404: response('Unavailable table.') } } },
+      [path]: { get: { parameters: [orgQuery, { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 5000, default: 500 } }, { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0, maximum: 5000, default: 0 } }], responses: { 200: response('Table, rows, total and nextOffset (null at the end). Offsets reflect current data, not a frozen snapshot. Rows include updatedAt for optimistic edits.'), 404: response('Unavailable table.') } } },
       [`${path}/rows`]: { post: { requestBody: requestBody(false), responses: { 201: response('Created row.'), 400: response('Invalid values; no write.'), 404: response('Unavailable table.') } } },
       [`${path}/rows/{rowId}`]: {
         patch: { parameters: [rowParam], requestBody: requestBody(true), responses: { 200: response('Updated row.'), 400: response('Invalid values; no write.'), 404: response('Unavailable record.'), 409: response('Row changed; reload before retrying.') } },

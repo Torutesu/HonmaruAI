@@ -77,7 +77,7 @@
 |---|---|---|---|---|---|
 | KY-038 | 会話・テンプレートからDatabase App | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | テンプレート照合とAI生成の区別を明示し業務要件を保持 |
 | KY-039 | アプリ単位のDBと複数entity | 未実装 | P0 | [worker/src/harness/tables.js](../../worker/src/harness/tables.js) | 単一JSON行テーブルから所有権・型・relationを備えたデータ契約へ拡張 |
-| KY-040 | 標準CRUD・型検証 | 一部 | P0 | [worker/src/harness/tables.js](../../worker/src/harness/tables.js) | strict値検証・行の更新/削除CASを追加。参照整合性・ページング・スキーマ変更との競合は未実装 |
+| KY-040 | 標準CRUD・型検証 | 一部 | P0 | [worker/src/harness/tables.js](../../worker/src/harness/tables.js) | strict値検証・行CAS・HTTP/MCPページングを追加。参照整合性・スキーマ変更との競合は未実装 |
 | KY-041 | 表・ボード・カレンダー | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | table/board/metricsに終日calendarを追加。月移動・日付編集・未設定・閏日を検証。時刻・タイムゾーン付き予定とnative画面は残る |
 | KY-042 | 保存ビュー・列順・幅・フィルタ・グループ | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 共通ビューと利用者ビューの変更競合を検証 |
 | KY-043 | レコードに紐づく会話 | 未実装 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 同一entity/recordの会話が重複しない |
