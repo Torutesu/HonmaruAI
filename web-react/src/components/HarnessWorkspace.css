@@ -180,3 +180,5 @@
 @media (max-width: 900px) { :root .shell.harness-workspace .classic.slk.slk .hx-room-resource { position: absolute; inset: 12px 12px 64px; width: auto; margin: 0; z-index: 30; } :root .shell.harness-workspace .hx-resource-screen .screen-body { padding: 24px 16px 64px; } }
 :root .shell.harness-workspace .hx-resource-screen .screen-head { max-width: none; width: auto; }
 :root .shell.harness-workspace .hx-resource-screen .head-title { color: #242422; }
+
+:root .shell.harness-workspace .hx-resource-screen .rows:empty { display: none; }
