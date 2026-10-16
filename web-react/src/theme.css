@@ -859,6 +859,12 @@
   .shell .ws-rail { display: block; position: relative; order: -2; margin-bottom: 4px; }
   .shell .ws-rail .ws-button { padding: 0; border-radius: 10px; }
   .shell .ws-rail .ws-button:hover { background: none; box-shadow: 0 0 0 3px var(--chrome-hover); }
+  /* Focus from the keyboard: the hover's ring, a step brighter — not the
+     browser's own dark-and-white one, which on the dark rail read as a
+     frame drawn round the mark (left on it after its menu closed, or the
+     window came back). A click leaves none. */
+  .shell .ws-rail .ws-button:focus { outline: none; }
+  .shell .ws-rail .ws-button:focus-visible { box-shadow: 0 0 0 3px var(--chrome-on); }
   .shell .ws-rail .ws-button .ws-mark { width: 36px !important; height: 36px !important; border-radius: 10px; }
   .shell .ws-rail .ws-button .ws-mark-letter { background: #fff; color: #1d1c1d; }
   .shell .ws-rail .ws-name, .shell .ws-rail .ws-caret { display: none; }
