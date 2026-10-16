@@ -19,7 +19,7 @@ import { noteUsage } from "./ledger.js";
 import { research as researchLoop, canResearch, readResponse } from "./agentResearch.js";
 
 export { readResponse };
-import { filterResponders } from "./harness/agents.js";
+import { filterResponders, mayAccessAgent } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
 
 export const MAX_INSTRUCTIONS = 20000;
@@ -115,7 +115,8 @@ export async function listAgents(db, orgId, login) {
     `SELECT * FROM custom_agents WHERE org_id = ?1 AND deleted_at IS NULL AND (scope = 'team' OR owner_login = ?2)
       ORDER BY scope = 'personal', name COLLATE NOCASE`
   ).bind(orgId, String(login || "")).all().catch(() => ({ results: [] }));
-  return upgradePresets(db, orgId, (results || []).map(toAgent));
+  const visible = await filterResponders(db, orgId, login, (results || []).map(toAgent));
+  return upgradePresets(db, orgId, visible);
 }
 
 /// Agents added from a preset and never changed follow its current
@@ -232,6 +233,7 @@ export async function saveAgent(db, orgId, { id = null, input, login, members, i
     const row = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, String(id)).first();
     if (!row) return { error: "No such agent.", status: 404 };
     existing = toAgent(row);
+    if (!(await mayAccessAgent(db, orgId, existing, login))) return { error: "No such agent.", status: 404 };
     if (existing.scope === "personal" && existing.ownerLogin !== login) return { error: "No such agent.", status: 404 };
     if (existing.provider) return { error: "This teammate is set up in Studio → AI teammates.", status: 400 };
   }
@@ -279,6 +281,7 @@ export async function setAgentAvatar(db, orgId, { id, login, avatarUrl, isGuest 
   if (isGuest) return { error: "A guest cannot make or change agents.", status: 403 };
   const row = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, String(id || "")).first();
   if (!row || (row.scope === "personal" && row.owner_login !== login)) return { error: "No such agent.", status: 404 };
+  if (!(await mayAccessAgent(db, orgId, toAgent(row), login))) return { error: "No such agent.", status: 404 };
   if (dryRun) return { agent: toAgent(row), previous: row.avatar_url || null };
   await db.prepare("UPDATE custom_agents SET avatar_url = ?3, updated_by = ?4, updated_at = ?5 WHERE org_id = ?1 AND id = ?2")
     .bind(orgId, row.id, avatarUrl || null, login, new Date().toISOString()).run();
@@ -291,6 +294,7 @@ export async function setAgentAvatar(db, orgId, { id, login, avatarUrl, isGuest 
 export async function deleteAgent(db, orgId, { id, login, isAdmin }) {
   const row = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, String(id || "")).first();
   if (!row || (row.scope === "personal" && row.owner_login !== login)) return { error: "No such agent.", status: 404 };
+  if (!(await mayAccessAgent(db, orgId, toAgent(row), login))) return { error: "No such agent.", status: 404 };
   if (row.owner_login !== login && !isAdmin) return { error: "Only whoever made it, or an admin, can delete it.", status: 403 };
   if (row.provider) return { error: "Turn this teammate off in Studio → AI teammates.", status: 400 };
   await db.prepare("UPDATE custom_agents SET deleted_at = ?3 WHERE org_id = ?1 AND id = ?2").bind(orgId, row.id, new Date().toISOString()).run();
@@ -486,8 +490,8 @@ export async function respondingAgents(db, { orgId, login, resolved, row }) {
   }
   // As each agent's profile allows (harness/agents.js): who may call it,
   // and whether it waits to be named.
-  if ((await getMode(db, orgId).catch(() => "simple")) !== "harness") return agents;
-  return filterResponders(db, orgId, login, agents, { named });
+  const harness = (await getMode(db, orgId)) === "harness";
+  return filterResponders(db, orgId, login, agents, { named: harness ? named : null, channel: resolved.key });
 }
 
 /// The agent a thread is talking with, for this person: the one that

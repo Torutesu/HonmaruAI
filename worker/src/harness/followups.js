@@ -1,3 +1,4 @@
+import { mayUseConversation } from './conversationAccess.js';
 // Follow-ups (docs/kylon-gap-plan.md): "check whether Acme paid in three
 // days". An agent — or the team's AI — comes back to the conversation at the
 // time, does it, and says what it found where the thread is. Anyone in the
@@ -5,7 +6,8 @@
 
 import { postMessage } from "../channels.js";
 import { completer } from "./model.js";
-import { prepareAgent } from "./agents.js";
+import { prepareAgent, mayRunAgent } from "./agents.js";
+import { withRoomGuidelines } from "./guidelines.js";
 
 export const MAX_PER_CHANNEL = 50;
 
@@ -23,6 +25,11 @@ export async function scheduleFollowup(db, { orgId, channel, threadId = null, ag
   const due = new Date(dueAt);
   if (Number.isNaN(due.getTime()) || due.getTime() <= Date.now()) return { error: "A follow-up is for a time still to come." };
   if (!channel) return { error: "channel is required" };
+  if (!(await mayUseConversation(db, orgId, by, channel))) return { error: "No such conversation.", status: 404 };
+  if (agentId) {
+    const agent = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, agentId).first();
+    if (!agent || !(await mayRunAgent(db, orgId, agent, by))) return { error: "No such agent.", status: 404 };
+  }
   const n = await db.prepare("SELECT COUNT(*) AS n FROM hx_followups WHERE org_id = ?1 AND channel = ?2 AND status = 'scheduled'").bind(orgId, channel).first();
   if (Number(n?.n || 0) >= MAX_PER_CHANNEL) return { error: "This conversation has as many follow-ups waiting as it can hold." };
   const id = newId("fu");
@@ -34,11 +41,15 @@ export async function scheduleFollowup(db, { orgId, channel, threadId = null, ag
   return { followup: pub(await db.prepare("SELECT * FROM hx_followups WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first()) };
 }
 
-export async function listFollowups(db, orgId, { channel, status = "scheduled" } = {}) {
+export async function listFollowups(db, orgId, { channel, status = "scheduled", viewerId } = {}) {
   const { results } = channel
     ? await db.prepare("SELECT * FROM hx_followups WHERE org_id = ?1 AND channel = ?2 AND status = ?3 ORDER BY due_at").bind(orgId, channel, status).all()
     : await db.prepare("SELECT * FROM hx_followups WHERE org_id = ?1 AND status = ?2 ORDER BY due_at LIMIT 200").bind(orgId, status).all();
-  return (results || []).map(pub);
+  const visible = [];
+  for (const row of results || []) {
+    if (viewerId && await mayUseConversation(db, orgId, viewerId, row.channel)) visible.push(pub(row));
+  }
+  return visible;
 }
 
 export async function cancelFollowup(db, orgId, id) {
@@ -83,17 +94,20 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
     let author = null;
     let kind = "ai";
     try {
+      if (!(await mayUseConversation(env.DB, r.org_id, r.created_by, r.channel))) throw new Error("Conversation access required.");
       const agentRow = r.agent_id
         ? await env.DB.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(r.org_id, r.agent_id).first()
         : null;
+      if (r.agent_id && (!agentRow || !(await mayRunAgent(env.DB, r.org_id, agentRow, r.created_by)))) throw new Error("Agent access required.");
       if (agentRow) { author = `agent:${agentRow.id}`; kind = "agent"; }
       // The maker of a follow-up pays for it, as for anything they ask.
       const payer = /^\d+$|^email:/.test(String(r.created_by)) ? r.created_by : null;
       const complete = payer ? await completer(env, r.org_id, payer, "followup", { json: false, maxTokens: 800 }) : null;
       if (complete) {
-        const { agent } = agentRow
-          ? await prepareAgent(env, r.org_id, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null)
+        const prepared = agentRow
+          ? await prepareAgent(env, r.org_id, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: r.channel || "" })
           : { agent: { name: "AI", handle: "AI", instructions: "You are the team's AI." } };
+        const agent = await withRoomGuidelines(env.DB, r.org_id, r.channel, prepared.agent);
         const answer = await complete(
           `You are ${agent.name}. You said you would follow up on something, and the time has come. Do it now and say what you found, briefly, as a colleague would.\n\n<agent_instructions>\n${String(agent.instructions).slice(0, 8000)}\n</agent_instructions>`,
           `Follow-up you scheduled on ${String(r.created_at).slice(0, 10)}: ${r.instruction}`,

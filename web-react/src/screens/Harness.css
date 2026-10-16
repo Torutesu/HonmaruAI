@@ -135,3 +135,9 @@
 .hx-screen a.row { text-decoration: none; color: inherit; }
 .hx-screen a.row .row-value { font-size: 16px; }
 .hx-screen a.row[data-home-agent] .row-value { font-size: 12px; }
+
+.hx-calendar-scroll { overflow-x: auto; }
+.hx-calendar { display: grid; grid-template-columns: repeat(7, minmax(110px, 1fr)); gap: 4px; min-width: 790px; }
+.hx-calendar-day { min-height: 110px; padding: 6px; border: 1px solid var(--border, #ddd); border-radius: 6px; }
+.hx-calendar-day .hx-card { margin-top: 6px; padding: 6px; }
+.hx-calendar-day time { font-size: 12px; opacity: .7; }

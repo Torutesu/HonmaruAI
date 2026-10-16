@@ -1,3 +1,5 @@
+import { mayUseTable } from './resourceAccess.js';
+import { mayUseConversation } from './conversationAccess.js';
 // Workflows (docs/kylon-gap-plan.md): a saved piece of work with a trigger
 // and steps, and every run kept where anyone can read what it did.
 //
@@ -20,8 +22,9 @@ import { localizeForRecipient } from "../localize.js";
 import { notifyCard, anyChannelConfigured } from "../notify.js";
 import { addRow, updateRow, getTable } from "./tables.js";
 import { completer } from "./model.js";
-import { prepareAgent } from "./agents.js";
+import { prepareAgent, mayRunAgent } from "./agents.js";
 import { scheduleFollowup } from "./followups.js";
+import { withRoomGuidelines } from "./guidelines.js";
 
 export const TRIGGERS = ["manual", "schedule", "webhook", "row"];
 export const STEP_TYPES = ["post", "agent", "add_row", "update_row", "approval", "followup"];
@@ -111,13 +114,33 @@ const publicRun = (r) => r && ({
   startedBy: r.started_by, startedAt: r.started_at, finishedAt: r.finished_at,
 });
 
-export async function getWorkflow(db, orgId, id, opts) {
-  return publicWorkflow(await db.prepare("SELECT * FROM hx_workflows WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first(), opts);
+export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
+  if (!workflow) return false;
+  if (workflow.trigger?.tableId && !(await mayUseTable(db, orgId, workflow.trigger.tableId, viewerId))) return false;
+  for (const step of workflow.steps || []) {
+    if (step.tableId && !(await mayUseTable(db, orgId, step.tableId, viewerId))) return false;
+    if (step.channel && !(await mayUseConversation(db, orgId, viewerId, step.channel))) return false;
+    if (step.agentId) {
+      const agent = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, step.agentId).first();
+      if (!agent || !(await mayRunAgent(db, orgId, agent, viewerId))) return false;
+    }
+  }
+  return true;
 }
 
-export async function listWorkflows(db, orgId) {
+export async function getWorkflow(db, orgId, id, opts = {}) {
+  const wf = publicWorkflow(await db.prepare("SELECT * FROM hx_workflows WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first(), opts);
+  return opts.viewerId && !(await mayViewWorkflow(db, orgId, wf, opts.viewerId)) ? null : wf;
+}
+
+export async function listWorkflows(db, orgId, { viewerId } = {}) {
   const { results } = await db.prepare("SELECT * FROM hx_workflows WHERE org_id = ?1 ORDER BY created_at ASC").bind(orgId).all();
-  return (results || []).map((r) => publicWorkflow(r));
+  const visible = [];
+  for (const row of results || []) {
+    const wf = publicWorkflow(row);
+    if (!viewerId || await mayViewWorkflow(db, orgId, wf, viewerId)) visible.push(wf);
+  }
+  return visible;
 }
 
 export async function createWorkflow(db, orgId, input, by) {
@@ -178,16 +201,28 @@ export async function deleteWorkflow(db, orgId, id) {
   return { deleted: true };
 }
 
-export async function listRuns(db, orgId, workflowId, limit = 50) {
+export async function listRuns(db, orgId, workflowId, limit = 50, viewerId) {
   const { results } = await db
     .prepare("SELECT * FROM hx_workflow_runs WHERE org_id = ?1 AND workflow_id = ?2 ORDER BY started_at DESC LIMIT ?3")
     .bind(orgId, workflowId, Math.min(Number(limit) || 50, 200))
     .all();
-  return (results || []).map(publicRun);
+  const visible = [];
+  for (const row of results || []) {
+    const run = viewerId ? await getRun(db, orgId, row.id, { viewerId }) : publicRun(row);
+    if (run) visible.push(run);
+  }
+  return visible;
 }
 
-export async function getRun(db, orgId, runId) {
-  return publicRun(await db.prepare("SELECT * FROM hx_workflow_runs WHERE id = ?1 AND org_id = ?2").bind(runId, orgId).first());
+export async function getRun(db, orgId, runId, { viewerId } = {}) {
+  const run = publicRun(await db.prepare("SELECT * FROM hx_workflow_runs WHERE id = ?1 AND org_id = ?2").bind(runId, orgId).first());
+  if (run && viewerId) {
+    const frozen = await db.prepare("SELECT definition FROM hx_workflow_run_definitions WHERE run_id = ?1 AND org_id = ?2").bind(runId, orgId).first();
+    const definition = frozen ? JSON.parse(frozen.definition) : await getWorkflow(db, orgId, run.workflowId);
+    if (!(await mayViewWorkflow(db, orgId, definition, viewerId))) return null;
+    if (run.input?.tableId && !(await mayUseTable(db, orgId, run.input.tableId, viewerId))) return null;
+  }
+  return run;
 }
 
 // ── Running ─────────────────────────────────────────────────────────────
@@ -225,11 +260,16 @@ async function rowScope(db, orgId, tableId, row) {
 /// JSON for a webhook, { row, before } for a row.
 export async function startRun(env, { orgId, workflow, trigger, input = null, startedBy = null, depth = 0 }) {
   const id = newId("run");
-  await env.DB
-    .prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_by, started_at)
+  // Store the definition and the run atomically. An approval always resumes
+  // the same steps that were presented when the run started.
+  const definition = { id: workflow.id, name: workflow.name, steps: workflow.steps, trigger: workflow.trigger, createdBy: workflow.createdBy };
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_by, started_at)
       VALUES (?1, ?2, ?3, ?4, 'running', ?5, '[]', 0, ?6, ?7)`)
-    .bind(id, orgId, workflow.id, trigger, input ? JSON.stringify(input).slice(0, 20000) : null, startedBy ? String(startedBy) : null, now())
-    .run();
+      .bind(id, orgId, workflow.id, trigger, input ? JSON.stringify(input).slice(0, 20000) : null, startedBy ? String(startedBy) : null, now()),
+    env.DB.prepare("INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at) VALUES (?1, ?2, ?3, ?4)")
+      .bind(id, orgId, JSON.stringify(definition), now()),
+  ]);
   await env.DB.prepare("UPDATE hx_workflows SET last_run_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), workflow.id, orgId).run();
   return continueRun(env, { orgId, runId: id, workflow, depth });
 }
@@ -239,8 +279,15 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
   const db = env.DB;
   const run = await getRun(db, orgId, runId);
   if (!run) return null;
-  workflow = workflow || await getWorkflow(db, orgId, run.workflowId);
+  const frozen = await db.prepare("SELECT definition FROM hx_workflow_run_definitions WHERE run_id = ?1 AND org_id = ?2").bind(runId, orgId).first();
+  // Runs created before this table existed retain their previous behavior.
+  workflow = frozen ? JSON.parse(frozen.definition) : (workflow || await getWorkflow(db, orgId, run.workflowId));
   if (!workflow) return null;
+  const sourceTable = workflow.trigger?.tableId || run.input?.tableId;
+  if (sourceTable && !(await mayUseTable(db, orgId, sourceTable, workflow.createdBy))) {
+    await db.prepare("UPDATE hx_workflow_runs SET status = 'failed', finished_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), runId, orgId).run();
+    return getRun(db, orgId, runId);
+  }
   const log = run.log;
   const scope = { input: run.input || {}, steps: {}, workflow: { name: workflow.name } };
   if (run.input?.row) scope.row = run.input.row;
@@ -281,6 +328,9 @@ async function say(env, orgId, channel, body, { authorLogin = null, kind = "ai",
 
 async function runStep(env, { orgId, workflow, step, scope, runId, depth, owner }) {
   const db = env.DB;
+  if (step.channel && !(await mayUseConversation(db, orgId, owner, step.channel))) {
+    return { status: "failed", error: "Conversation access required." };
+  }
   switch (step.type) {
     case "post": {
       const row = await say(env, orgId, step.channel, render(step.text, scope));
@@ -289,9 +339,11 @@ async function runStep(env, { orgId, workflow, step, scope, runId, depth, owner 
     case "agent": {
       const agentRow = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, step.agentId).first();
       if (!agentRow) return { status: "failed", error: "That agent is gone." };
+      if (!(await mayRunAgent(db, orgId, agentRow, owner))) return { status: "failed", error: "Agent access required." };
       const complete = await completer(env, orgId, owner, "workflow_agent", { json: false, maxTokens: 1200 });
       if (!complete) return { status: "failed", error: "No AI model, or none left today." };
-      const { agent } = await prepareAgent(env, orgId, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null);
+      const prepared = await prepareAgent(env, orgId, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: step.channel || "" });
+      const agent = await withRoomGuidelines(db, orgId, step.channel, prepared.agent);
       const answer = await complete(
         `You are ${agent.name} (@${agent.handle}), doing one step of the workflow "${workflow.name}". Do what the step asks and answer with the result only.\n\n<agent_instructions>\n${String(agent.instructions).slice(0, 12000)}\n</agent_instructions>`,
         `${render(step.prompt, scope)}\n\n<context>\n${JSON.stringify({ input: scope.input, row: scope.row || null }).slice(0, 6000)}\n</context>`,
@@ -301,6 +353,7 @@ async function runStep(env, { orgId, workflow, step, scope, runId, depth, owner 
       return { status: "ok", output: String(answer).slice(0, 4000) };
     }
     case "add_row": {
+      if (!(await mayUseTable(db, orgId, step.tableId, owner))) return { status: "failed", error: "Table access required." };
       const r = await addRow(db, orgId, step.tableId, renderValues(step.values, scope), `workflow:${workflow.id}`);
       if (r.error) return { status: "failed", error: r.error };
       await onRowChange(env, { orgId, table: r.table, before: null, row: r.row, by: `workflow:${workflow.id}`, depth: depth + 1 });
@@ -309,6 +362,7 @@ async function runStep(env, { orgId, workflow, step, scope, runId, depth, owner 
     case "update_row": {
       const tableId = step.tableId || scope.input?.tableId;
       const rowId = step.rowId ? render(step.rowId, scope) : scope.row?.id;
+      if (tableId && !(await mayUseTable(db, orgId, tableId, owner))) return { status: "failed", error: "Table access required." };
       if (!tableId || !rowId) return { status: "failed", error: "No row to change." };
       const r = await updateRow(db, orgId, tableId, rowId, renderValues(step.values, scope), `workflow:${workflow.id}`);
       if (r.error) return { status: "failed", error: r.error };
@@ -405,6 +459,7 @@ export async function onRowChange(env, { orgId, table, before, row, by, depth = 
   for (const r of results || []) {
     const wf = publicWorkflow(r);
     const t = wf.trigger;
+    if (!(await mayUseTable(env.DB, orgId, table.id, wf.createdBy))) continue;
     // A workflow's own change does not start the same workflow again.
     if (by === `workflow:${wf.id}`) continue;
     if (t.on === "added" && before) continue;

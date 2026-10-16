@@ -14,8 +14,11 @@ export interface Row { id: string; values: Record<string, unknown>; updatedAt: s
 export interface Metric { label: string; op: string; column?: string; value: number | null }
 export interface View {
   id: string
-  type: 'table' | 'board' | 'metrics'
+  type: 'table' | 'board' | 'metrics' | 'calendar'
   name: string
+  dateColumn?: string
+  days?: Array<{ date: string; rows: Row[] }>
+  undated?: Row[]
   groupBy?: string
   sort?: string
   rows?: Row[]
@@ -23,6 +26,7 @@ export interface View {
   values?: Metric[]
 }
 export interface App {
+  definition: { views: View[] }
   id: string; name: string; description: string; icon: string; tableId: string
   template: string | null; version: number; channels?: string[]; createdBy: string; updatedAt: string
 }
@@ -61,7 +65,7 @@ export interface HomeData {
   workflows: Array<{ id: string; name: string; enabled: boolean; trigger: TriggerType; nextRunAt: string | null; lastRun: { status: string; startedAt: string } | null }>
   followups: Followup[]
 }
-export interface AgentMemory { id: string; text: string; source: string; createdAt: string }
+export interface AgentMemory { id: string; text: string; source: string; createdAt: string; channel?: string | null; kind?: string }
 
 /// One client for every harness route: the session on each call, the
 /// server's own message on a refusal.
@@ -99,8 +103,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
 
     tables: () => call<{ tables: Table[] }>('GET', '/tables'),
     addRow: (tableId: string, values: Record<string, unknown>) => call<{ row: Row }>('POST', `/tables/${tableId}/rows`, { values }),
-    updateRow: (tableId: string, rowId: string, values: Record<string, unknown>) => call<{ row: Row }>('PATCH', `/tables/${tableId}/rows/${rowId}`, { values }),
-    deleteRow: (tableId: string, rowId: string) => call<{ deleted: boolean }>('DELETE', `/tables/${tableId}/rows/${rowId}`),
+    updateRow: (tableId: string, rowId: string, values: Record<string, unknown>, expectedUpdatedAt?: string) => call<{ row: Row }>('PATCH', `/tables/${tableId}/rows/${rowId}`, { values, expectedUpdatedAt }),
+    deleteRow: (tableId: string, rowId: string, expectedUpdatedAt?: string) => call<{ deleted: boolean }>('DELETE', `/tables/${tableId}/rows/${rowId}`, undefined, expectedUpdatedAt ? { expectedUpdatedAt } : {}),
 
     workflows: () => call<{ workflows: Workflow[] }>('GET', '/workflows'),
     workflow: (id: string) => call<{ workflow: Workflow; runs: Run[]; canEdit: boolean }>('GET', `/workflows/${id}`),
@@ -123,9 +127,10 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
 
     profile: (agentId: string) => call<{ profile: AgentProfile; canEdit: boolean }>('GET', `/hx/agents/${agentId}/profile`),
     saveProfile: (agentId: string, p: Partial<AgentProfile>) => call<{ profile: AgentProfile }>('PUT', `/hx/agents/${agentId}/profile`, p as Record<string, unknown>),
-    memory: (agentId: string) => call<{ memories: AgentMemory[]; canEdit: boolean }>('GET', `/hx/agents/${agentId}/memory`),
-    remember: (agentId: string, text: string) => call<{ memory: AgentMemory }>('POST', `/hx/agents/${agentId}/memory`, { text }),
-    forget: (agentId: string, id: string) => call<{ deleted: number }>('DELETE', `/hx/agents/${agentId}/memory`, undefined, { id }),
+    memoryScopes: (agentId: string) => call<{ scopes: Array<{ channel: string; label: string }> }>('GET', `/hx/agents/${agentId}/memory/scopes`),
+    memory: (agentId: string, channel = '') => call<{ memories: AgentMemory[]; canEdit: boolean }>('GET', `/hx/agents/${agentId}/memory`, undefined, { channel }),
+    remember: (agentId: string, text: string, channel = '') => call<{ memory: AgentMemory }>('POST', `/hx/agents/${agentId}/memory`, { text, channel }),
+    forget: (agentId: string, id: string, channel = '') => call<{ deleted: number }>('DELETE', `/hx/agents/${agentId}/memory`, undefined, { id, channel }),
     agentSkills: (agentId: string) => call<{ skills: Skill[] }>('GET', `/hx/agents/${agentId}/skills`),
     giveSkill: (agentId: string, skillId: string) => call<{ given: boolean }>('POST', `/hx/agents/${agentId}/skills`, { skillId }),
     takeSkill: (agentId: string, skillId: string) => call<{ taken: boolean }>('DELETE', `/hx/agents/${agentId}/skills`, undefined, { skillId }),
@@ -134,8 +139,6 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
 
 export type HarnessApi = ReturnType<typeof harnessApi>
 
-const MODE_KEY = (orgId: string) => `hx.mode.${orgId}`
-
 /// A mode asked for from outside the page — the desktop app's menu. It is
 /// left here when the hub is about to open, or sent as this event when the
 /// hub is already open; the hub applies it once it knows who may.
@@ -143,37 +146,59 @@ export const WANT_MODE_KEY = 'hx.wantMode'
 export const SET_MODE_EVENT = 'honmaru:set-mode'
 export const isMode = (m: unknown): m is WorkspaceMode => m === 'simple' || m === 'harness'
 
-/// The workspace's mode: the last one seen first (so the rail does not
-/// jump on every load), then the server's. "simple" until told otherwise.
+/// Simple until this workspace answers. Browser preference changes only
+/// presentation; it never writes the workspace's shared configuration.
 export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: string) {
-  const [mode, setModeState] = useState<WorkspaceMode>(() => {
-    try { return (localStorage.getItem(MODE_KEY(orgId)) as WorkspaceMode) === 'harness' ? 'harness' : 'simple' } catch { return 'simple' }
-  })
-  const [canEdit, setCanEdit] = useState(false)
-  /// Whether the server has answered, so canEdit means what it says.
-  const [loaded, setLoaded] = useState(false)
-  const remember = (m: WorkspaceMode) => { try { localStorage.setItem(MODE_KEY(orgId), m) } catch { /* private window */ } }
+  // Keep authorization results tied to their exact request scope. A workspace
+  // switch must not show the previous workspace's mode or admin controls.
+  const scope = JSON.stringify([httpBase, orgId, sessionToken])
+  const preferenceKey = `hx.simple.${httpBase}.${orgId}`
+  const readPreference = () => { try { return localStorage.getItem(preferenceKey) === 'true' } catch { return false } }
+  const [snapshot, setSnapshot] = useState({ scope: '', mode: 'simple' as WorkspaceMode, canEdit: false, loaded: false })
+  const [preference, setPreference] = useState({ key: preferenceKey, simple: readPreference() })
+  const simpleOnly = preference.key === preferenceKey ? preference.simple : readPreference()
+  const current = snapshot.scope === scope ? snapshot : { mode: 'simple' as WorkspaceMode, canEdit: false, loaded: false }
   useEffect(() => {
     let live = true
+    setSnapshot({ scope, mode: 'simple', canEdit: false, loaded: false })
     if (!orgId || !sessionToken) return
     harnessApi(httpBase, orgId, sessionToken).getMode()
-      .then((d) => { if (!live) return; setModeState(d.mode); setCanEdit(d.canEdit); setLoaded(true); remember(d.mode) })
-      .catch(() => { /* a workspace that cannot answer stays as it was */ })
+      .then(d => { if (live && isMode(d.mode)) setSnapshot({ scope, mode: d.mode, canEdit: d.canEdit === true, loaded: true }) })
+      .catch(() => { /* Default to Simple without inheriting earlier grants. */ })
     const onChange = (e: Event) => {
-      const next = (e as CustomEvent<{ orgId: string; mode: WorkspaceMode }>).detail
-      if (next?.orgId === orgId) setModeState(next.mode)
+      const next = (e as CustomEvent<{ orgId: string; httpBase: string; mode: WorkspaceMode }>).detail
+      if (next?.orgId === orgId && next.httpBase === httpBase && isMode(next.mode)) {
+        setSnapshot(s => s.scope === scope ? { ...s, mode: next.mode } : s)
+      }
     }
     window.addEventListener('hx-mode', onChange)
     return () => { live = false; window.removeEventListener('hx-mode', onChange) }
-  }, [httpBase, orgId, sessionToken])
+  }, [httpBase, orgId, sessionToken, scope])
+  useEffect(() => {
+    const update = (event?: Event) => {
+      const detail = event?.type === 'hx-simple' ? (event as CustomEvent<{ key: string; simple: boolean }>).detail : null
+      if (detail && detail.key !== preferenceKey) return
+      setPreference({ key: preferenceKey, simple: detail ? detail.simple : readPreference() })
+    }
+    update()
+    window.addEventListener('hx-simple', update)
+    window.addEventListener('storage', update)
+    return () => { window.removeEventListener('hx-simple', update); window.removeEventListener('storage', update) }
+  }, [preferenceKey])
+  const setSimpleOnly = useCallback((simple: boolean) => {
+    try { localStorage.setItem(preferenceKey, String(simple)) } catch { /* Current browser session still works. */ }
+    setPreference({ key: preferenceKey, simple })
+    window.dispatchEvent(new CustomEvent('hx-simple', { detail: { key: preferenceKey, simple } }))
+  }, [preferenceKey])
   const setMode = useCallback(async (next: WorkspaceMode) => {
     const d = await harnessApi(httpBase, orgId, sessionToken).setMode(next)
-    setModeState(d.mode)
-    remember(d.mode)
-    window.dispatchEvent(new CustomEvent('hx-mode', { detail: { orgId, mode: d.mode } }))
+    if (!isMode(d.mode)) throw new Error('Invalid workspace mode.')
+    setSnapshot(s => s.scope === scope ? { ...s, mode: d.mode } : s)
+    window.dispatchEvent(new CustomEvent('hx-mode', { detail: { orgId, httpBase, mode: d.mode } }))
     return d.mode
-  }, [httpBase, orgId, sessionToken])
-  return { mode, canEdit, loaded, setMode }
+  }, [httpBase, orgId, sessionToken, scope])
+  return { mode: simpleOnly ? 'simple' as const : current.mode, workspaceMode: current.mode,
+    canEdit: current.canEdit, loaded: current.loaded, setMode, simpleOnly, setSimpleOnly }
 }
 
 /// A cell as the table shows it.

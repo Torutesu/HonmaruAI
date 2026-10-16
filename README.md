@@ -86,8 +86,8 @@ Why these and not a Slack bot: [docs/viktor-gap-plan.md](docs/viktor-gap-plan.md
 ## Simple and Harness
 
 A workspace is **Simple** by default: the decision feed and the chat, as
-above. An admin can switch it to **Harness** (You → Harness), which adds what
-a "company harness" like [Kylon](https://kylon.io) offers, on the same data:
+above. An admin can switch it to **Harness** (You → Harness), which adds the following foundations on the same data. Kylon feature parity is
+still in progress; the [evidence-backed matrix](docs/kylon-parity/matrix.md) tracks the gaps:
 
 - **Apps** on typed **Tables**: a CRM, a hiring board, an invoice tracker, or
   anything described in a sentence; table, board and metric views, versions,
@@ -99,7 +99,7 @@ a "company harness" like [Kylon](https://kylon.io) offers, on the same data:
   person's approval — which arrives as a decision card.
 - **Follow-ups**, **Approvals**, and all of it over MCP.
 
-Switching back to Simple hides it and loses nothing. Gap analysis and status:
+Switching back to Simple hides it and loses nothing. A browser-local “Use only Simple” preference also keeps the simple interface while the workspace uses Harness. Gap analysis and status:
 [docs/kylon-gap-plan.md](docs/kylon-gap-plan.md).
 
 ## Access

@@ -1831,3 +1831,12 @@ CREATE TABLE IF NOT EXISTS hx_followups (
 );
 CREATE INDEX IF NOT EXISTS idx_hx_followups_due ON hx_followups(status, due_at);
 CREATE INDEX IF NOT EXISTS idx_hx_followups_channel ON hx_followups(org_id, channel, status);
+
+/* Room rules survive Simple / Harness switches. */
+CREATE TABLE IF NOT EXISTS hx_room_guidelines (org_id TEXT NOT NULL, channel TEXT NOT NULL, body TEXT NOT NULL, version INTEGER NOT NULL, updated_by TEXT, updated_at TEXT NOT NULL, PRIMARY KEY (org_id, channel));
+
+CREATE TABLE IF NOT EXISTS hx_memory_scopes (memory_id TEXT PRIMARY KEY REFERENCES hx_agent_memories(id) ON DELETE CASCADE, org_id TEXT NOT NULL, channel TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT 'context');
+
+CREATE TABLE IF NOT EXISTS hx_workflow_run_definitions (run_id TEXT PRIMARY KEY REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, org_id TEXT NOT NULL, definition TEXT NOT NULL, created_at TEXT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS hx_app_access (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, visibility TEXT NOT NULL CHECK (visibility IN ('workspace', 'private')), version INTEGER NOT NULL, PRIMARY KEY (org_id, app_id));

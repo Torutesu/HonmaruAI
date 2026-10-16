@@ -173,3 +173,134 @@ test("views drop what the table no longer has, and count what is overdue", () =>
   expect(m.values.map((v) => [v.label, v.value])).toEqual([["Late", 1], ["Total", 16]]);
   expect(coerce({ type: "email" }, "not an email")).toBeNull();
 });
+
+test('calendar views validate date columns and retain undated records without timezone conversion', async () => {
+  const { normalizeDefinition, computeView } = await import('../src/harness/apps.js');
+  const columns = [{ id: 'name', name: 'Name', type: 'text' }, { id: 'due', name: 'Due', type: 'date' }];
+  const { views } = normalizeDefinition({ views: [{ type: 'calendar', dateColumn: 'Due', name: 'Calendar' }] }, columns);
+  expect(views[0]).toMatchObject({ type: 'calendar', dateColumn: 'due' });
+  const rows = [
+    { id: 'leap', values: { due: '2028-02-29' } },
+    { id: 'newyear', values: { due: '2029-01-01' } },
+    { id: 'empty', values: {} },
+    { id: 'invalid', values: { due: '2027-02-29' } },
+  ];
+  const computed = computeView(views[0], { columns }, rows);
+  expect(computed.days.map(d => d.date)).toEqual(['2028-02-29', '2029-01-01']);
+  expect(computed.undated.map(r => r.id)).toEqual(['empty', 'invalid']);
+  expect(normalizeDefinition({ views: [{ type: 'calendar', dateColumn: 'Name' }] }, columns).views[0].type).toBe('table');
+});
+
+test('private apps protect their table, versions, home and MCP even from workspace admins and in Simple', async () => {
+  const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, template: 'crm' })).json();
+  const accessPath = `/apps/${app.id}/access`;
+  expect((await send('PUT', accessPath, toru, { orgId: ORG, visibility: 'private', version: 0 })).status).toBe(403);
+  expect((await send('PUT', accessPath, mika, { orgId: ORG, visibility: 'private', version: 0 })).status).toBe(200);
+  for (const mode of ['simple', 'harness']) {
+    await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode });
+    for (const path of [`/apps/${app.id}`, `/apps/${app.id}/versions`, accessPath, `/tables/${app.tableId}`]) {
+      expect((await get(`${path}?orgId=${ORG}`, toru)).status).toBe(404);
+    }
+    expect((await (await get(`/apps?orgId=${ORG}`, toru)).json()).apps).toEqual([]);
+    expect((await (await get(`/tables?orgId=${ORG}`, toru)).json()).tables).toEqual([]);
+    expect((await (await get(`/harness/home?orgId=${ORG}`, toru)).json()).apps).toEqual([]);
+    expect((await send('POST', `/tables/${app.tableId}/rows`, toru, { orgId: ORG, values: {} })).status).toBe(404);
+    expect((await send('PUT', `/apps/${app.id}`, toru, { orgId: ORG, name: 'Stolen' })).status).toBe(404);
+    const { callHarnessTool } = await import('../src/harness/mcpTools.js');
+    const principal = { orgId: ORG, githubId: '9101' };
+    expect((await callHarnessTool(env, principal, 'list_apps', {})).structuredContent.apps).toEqual([]);
+    expect((await callHarnessTool(env, principal, 'read_app', { appId: app.id })).isError).toBe(true);
+    expect((await callHarnessTool(env, principal, 'query_rows', { tableId: app.tableId })).isError).toBe(true);
+    expect((await callHarnessTool(env, principal, 'add_row', { tableId: app.tableId, values: {} })).isError).toBe(true);
+  }
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, mika)).status).toBe(200);
+  expect((await send('PUT', accessPath, mika, { orgId: ORG, visibility: 'workspace', version: 0 })).status).toBe(409);
+  expect((await send('PUT', accessPath, mika, { orgId: ORG, visibility: 'workspace', version: 1 })).status).toBe(200);
+  expect((await get(`/tables/${app.tableId}?orgId=${ORG}`, toru)).status).toBe(200);
+});
+
+test('app creators cannot spoof ownership and private grants require live membership', async () => {
+  const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, by: '9101', name: 'Owned', columns: [{ name: 'Name', type: 'text' }] })).json();
+  expect(app.createdBy).toBe('9102');
+  const { setAppAccess, mayUseApp } = await import('../src/harness/resourceAccess.js');
+  expect((await setAppAccess(env.DB, ORG, app.id, '9102', { visibility: 'public', version: 0 })).error).toBeTruthy();
+  await setAppAccess(env.DB, ORG, app.id, '9102', { visibility: 'private', version: 0 });
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = ?2').bind(ORG, '9102').run();
+  expect(await mayUseApp(env.DB, ORG, app.id, '9102')).toBe(false);
+});
+
+test('table workflows lose access when an app becomes private, including historical runs', async () => {
+  const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, template: 'crm', sample: false })).json();
+  const { createWorkflow, startRun, getRun, getWorkflow } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, { name: 'Write CRM', trigger: { type: 'manual' }, steps: [{ type: 'add_row', tableId: app.tableId, values: { company: 'Before' } }] }, '9101');
+  const before = await startRun(env, { orgId: ORG, workflow, trigger: 'manual' });
+  expect(before.status).toBe('done');
+  await send('PUT', `/apps/${app.id}/access`, mika, { orgId: ORG, visibility: 'private', version: 0 });
+  expect(await getWorkflow(env.DB, ORG, workflow.id, { viewerId: '9101' })).toBeNull();
+  expect(await getRun(env.DB, ORG, before.id, { viewerId: '9101' })).toBeNull();
+  const after = await startRun(env, { orgId: ORG, workflow, trigger: 'manual' });
+  expect(after).toMatchObject({ status: 'failed', log: [expect.objectContaining({ error: 'Table access required.' })] });
+});
+
+test('MCP can summarize a calendar view', async () => {
+  const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, name: 'Calendar', columns: [{ name: 'Due', type: 'date' }], definition: { views: [{ type: 'calendar', dateColumn: 'Due' }] } })).json();
+  const { callHarnessTool } = await import('../src/harness/mcpTools.js');
+  const result = await callHarnessTool(env, { orgId: ORG, githubId: '9102' }, 'read_app', { appId: app.id });
+  expect(result.structuredContent.views[0]).toMatchObject({ days: [], undated: 0 });
+});
+
+test('record edits and deletes reject stale snapshots without losing newer values', async () => {
+  const { table } = await (await send('POST', '/tables', mika, { orgId: ORG, name: 'Concurrent', columns: [{ name: 'Name', type: 'text' }] })).json();
+  const path = `/tables/${table.id}/rows`;
+  const { row } = await (await send('POST', path, mika, { orgId: ORG, values: { name: 'Initial' } })).json();
+  const updated = await send('PATCH', `${path}/${row.id}`, mika, { orgId: ORG, values: { name: 'Newer' }, expectedUpdatedAt: row.updatedAt });
+  expect(updated.status).toBe(200);
+  const next = (await updated.json()).row;
+  expect(next.updatedAt > row.updatedAt).toBe(true);
+  expect((await send('PATCH', `${path}/${row.id}`, toru, { orgId: ORG, values: { name: 'Stale' }, expectedUpdatedAt: row.updatedAt })).status).toBe(409);
+  expect((await call(`${path}/${row.id}?orgId=${ORG}&expectedUpdatedAt=${encodeURIComponent(row.updatedAt)}`, { method: 'DELETE', headers: headers(toru) })).status).toBe(409);
+  const rows = (await (await get(`/tables/${table.id}?orgId=${ORG}`, mika)).json()).rows;
+  expect(rows[0].values.name).toBe('Newer');
+  const { callHarnessTool } = await import('../src/harness/mcpTools.js');
+  const queried = await callHarnessTool(env, { orgId: ORG, githubId: '9102' }, 'query_rows', { tableId: table.id });
+  expect(queried.structuredContent.rowVersions[row.id]).toBe(next.updatedAt);
+  const staleMcp = await callHarnessTool(env, { orgId: ORG, githubId: '9102' }, 'update_row', { tableId: table.id, rowId: row.id, values: { name: 'MCP stale' }, expectedUpdatedAt: row.updatedAt });
+  expect(staleMcp.isError).toBe(true);
+  expect((await call(`${path}/${row.id}?orgId=${ORG}&expectedUpdatedAt=${encodeURIComponent(next.updatedAt)}`, { method: 'DELETE', headers: headers(mika) })).status).toBe(200);
+});
+
+test('strict record contract rejects invalid fields atomically while legacy coercion stays available', async () => {
+  const { table } = await (await send('POST', '/tables', mika, { orgId: ORG, name: 'Contract', columns: [
+    { name: 'Amount', type: 'number' }, { name: 'Day', type: 'date' }, { name: 'Link', type: 'url' }, { name: 'Done', type: 'checkbox' }, { name: 'Stage', type: 'select', options: ['Open'] },
+  ] })).json();
+  const contract = await get(`/tables/${table.id}/contract?orgId=${ORG}`, mika);
+  expect(contract.status).toBe(200);
+  const spec = await contract.json();
+  expect(spec.openapi).toBe('3.1.0');
+  expect(spec.components.schemas.Values.additionalProperties).toBe(false);
+  expect(spec.components.schemas.Values.properties.amount.type).toEqual(['number', 'null']);
+  expect((await get(`/tables/${table.id}/contract?orgId=${ORG}`, outsider)).status).toBe(403);
+  for (const values of [{ amount: '120' }, { day: '2026-02-30' }, { link: 'https://' }, { done: 'yes' }, { stage: 'Closed' }, { unknown: 1 }, { constructor: 'bad' }, [], null]) {
+    const invalid = await send('POST', `/tables/${table.id}/rows`, mika, { orgId: ORG, values, validation: 'strict' });
+    expect(invalid.status).toBe(400);
+    expect((await invalid.json()).fields.length).toBeGreaterThan(0);
+  }
+  expect((await (await get(`/tables/${table.id}?orgId=${ORG}`, mika)).json()).rows).toHaveLength(0);
+  const valid = await send('POST', `/tables/${table.id}/rows`, mika, { orgId: ORG, validation: 'strict', values: { amount: 120, day: '2028-02-29', link: null, done: false, stage: 'Open' } });
+  expect(valid.status).toBe(201);
+  const { row } = await valid.json();
+  const rejected = await send('PATCH', `/tables/${table.id}/rows/${row.id}`, mika, { orgId: ORG, validation: 'strict', expectedUpdatedAt: row.updatedAt, values: { amount: 42, day: 'invalid' } });
+  expect(rejected.status).toBe(400);
+  expect((await (await get(`/tables/${table.id}?orgId=${ORG}`, mika)).json()).rows[0]).toMatchObject({ values: { amount: 120 }, updatedAt: row.updatedAt });
+  expect((await send('POST', `/tables/${table.id}/rows`, mika, { orgId: ORG, values: { amount: '$1,200' } })).status).toBe(201);
+});
+
+ test('two writers using the same snapshot cannot both commit', async () => {
+  const { createTable, addRow, updateRow, getRow } = await import('../src/harness/tables.js');
+  const { table } = await createTable(env.DB, { orgId: ORG, name: 'Race', columns: [{ name: 'Name', type: 'text' }], by: '9102' });
+  const { row } = await addRow(env.DB, ORG, table.id, { name: 'Before' }, '9102');
+  const results = await Promise.all(['One', 'Two'].map(name => updateRow(env.DB, ORG, table.id, row.id, { name }, '9102', row.updatedAt)));
+  expect(results.filter(r => r.status === 409)).toHaveLength(1);
+  const winner = results.find(r => r.row);
+  expect(await getRow(env.DB, ORG, table.id, row.id)).toEqual(winner.row);
+ });

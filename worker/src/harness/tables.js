@@ -1,3 +1,4 @@
+import { validateValues } from "./tableContract.js";
 // Tables: the typed database under an App (docs/kylon-gap-plan.md).
 //
 // A table names its columns; a row is JSON keyed by column id. Values are
@@ -200,38 +201,57 @@ export async function getRow(db, orgId, tableId, rowId) {
   return publicRow(await db.prepare("SELECT * FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3").bind(rowId, tableId, orgId).first());
 }
 
-export async function addRow(db, orgId, tableId, values, by) {
+export async function addRow(db, orgId, tableId, values, by, validation) {
   const table = await getTable(db, orgId, tableId);
   if (!table) return { error: "No such table.", status: 404 };
+  const invalid = checkValues(table, values, validation);
+  if (invalid) return invalid;
   const count = await db.prepare("SELECT COUNT(*) AS n, MAX(position) AS p FROM hx_rows WHERE table_id = ?1 AND org_id = ?2").bind(tableId, orgId).first();
   if (Number(count?.n || 0) >= MAX_ROWS) return { error: `A table holds at most ${MAX_ROWS} rows.` };
   const id = newId("row");
   const at = now();
   await db
     .prepare("INSERT INTO hx_rows (id, table_id, org_id, data, position, created_by, updated_by, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?7)")
-    .bind(id, tableId, orgId, JSON.stringify(cleanValues(table.columns, values)), Number(count?.p || 0) + 1, String(by), at)
+    .bind(id, tableId, orgId, JSON.stringify(validation === "strict" ? values : cleanValues(table.columns, values)), Number(count?.p || 0) + 1, String(by), at)
     .run();
   return { table, row: await getRow(db, orgId, tableId, id) };
 }
 
 /// Change some values of a row; the others stay. Returns the row before and
 /// after, so a caller can tell what changed (Workflows trigger on it).
-export async function updateRow(db, orgId, tableId, rowId, values, by) {
+export async function updateRow(db, orgId, tableId, rowId, values, by, expectedUpdatedAt, validation) {
   const table = await getTable(db, orgId, tableId);
   if (!table) return { error: "No such table.", status: 404 };
   const before = await getRow(db, orgId, tableId, rowId);
   if (!before) return { error: "No such row.", status: 404 };
-  const merged = { ...before.values, ...cleanValues(table.columns, values) };
-  await db
-    .prepare("UPDATE hx_rows SET data = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4 AND table_id = ?5 AND org_id = ?6")
-    .bind(JSON.stringify(merged), String(by), now(), rowId, tableId, orgId)
-    .run();
-  return { table, before, row: await getRow(db, orgId, tableId, rowId) };
+  if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== before.updatedAt) return rowConflict();
+  const invalid = checkValues(table, values, validation);
+  if (invalid) return invalid;
+  const merged = { ...before.values, ...(validation === "strict" ? values : cleanValues(table.columns, values)) };
+  // Strictly advance even when two writes happen within the same millisecond.
+  const at = new Date(Math.max(Date.now(), Date.parse(before.updatedAt) + 1)).toISOString();
+  const changed = await db
+    .prepare("UPDATE hx_rows SET data = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4 AND table_id = ?5 AND org_id = ?6 AND updated_at = ?7 RETURNING *")
+    .bind(JSON.stringify(merged), String(by), at, rowId, tableId, orgId, before.updatedAt)
+    .first();
+  if (!changed) return rowConflict();
+  return { table, before, row: publicRow(changed) };
 }
 
-export async function deleteRow(db, orgId, tableId, rowId) {
+const rowConflict = () => ({ error: "This row changed. Reload the app before trying again.", status: 409 });
+
+export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt) {
   const before = await getRow(db, orgId, tableId, rowId);
   if (!before) return { error: "No such row.", status: 404 };
-  await db.prepare("DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3").bind(rowId, tableId, orgId).run();
+  if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== before.updatedAt) return rowConflict();
+  const deleted = await db.prepare("DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3 AND updated_at = ?4 RETURNING id").bind(rowId, tableId, orgId, before.updatedAt).first();
+  if (!deleted) return rowConflict();
   return { deleted: true, before };
+}
+
+function checkValues(table, values, validation) {
+  if (validation === undefined) return null;
+  if (validation !== "strict") return { error: "Unknown validation mode.", status: 400 };
+  const errors = validateValues(table.columns, values);
+  return errors.length ? { error: "Invalid record values.", status: 400, fields: errors } : null;
 }

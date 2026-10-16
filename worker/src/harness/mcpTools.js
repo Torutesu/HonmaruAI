@@ -1,3 +1,4 @@
+import { mayUseApp, mayUseTable, visibleResources } from './resourceAccess.js';
 // The harness over MCP (docs/kylon-gap-plan.md): what Kylon's Tools API and
 // workspace CLI give an outside agent — the workspace's apps, tables,
 // workflows and follow-ups — offered only by a workspace in harness mode.
@@ -50,7 +51,7 @@ export const HARNESS_TOOLS = [
     name: "update_row",
     title: "Change a row",
     description: "Change some values of a row; the rest stay. Workflows watching the table run.",
-    inputSchema: { type: "object", properties: { tableId: { type: "string" }, rowId: { type: "string" }, values: { type: "object" } }, required: ["tableId", "rowId", "values"] },
+    inputSchema: { type: "object", properties: { tableId: { type: "string" }, rowId: { type: "string" }, expectedUpdatedAt: { type: "string", description: "Token from rowVersions[rowId] in query_rows or read_app; rejects stale edits." }, values: { type: "object" } }, required: ["tableId", "rowId", "values"] },
   },
   {
     name: "list_workflows",
@@ -87,34 +88,38 @@ export async function callHarnessTool(env, agent, name, args) {
   const by = agent.githubId;
   switch (name) {
     case "list_apps":
-      return out({ apps: (await listApps(db, orgId)).map((a) => ({ id: a.id, name: a.name, description: a.description, tableId: a.tableId, rooms: a.channels })) });
+      return out({ apps: (await visibleResources(await listApps(db, orgId), a => mayUseApp(db, orgId, a.id, by))).map((a) => ({ id: a.id, name: a.name, description: a.description, tableId: a.tableId, rooms: a.channels })) });
     case "read_app": {
+      if (!(await mayUseApp(db, orgId, String(args.appId || ""), by))) return err("No such app.");
       const r = await renderApp(db, orgId, String(args.appId || ""));
       if (r.error) return err(r.error);
-      return out({ app: { id: r.app.id, name: r.app.name }, columns: r.table.columns, rows: r.rows.slice(0, 200).map((x) => ({ id: x.id, ...x.values })), views: r.views.map((v) => (v.type === "metrics" ? { name: v.name, metrics: v.values.map((m) => ({ label: m.label, value: m.value })) } : v.type === "board" ? { name: v.name, lanes: v.lanes.map((l) => ({ lane: l.key, count: l.rows.length })) } : { name: v.name, rows: v.rows.length })) });
+      return out({ app: { id: r.app.id, name: r.app.name }, columns: r.table.columns, rowVersions: Object.fromEntries(r.rows.slice(0, 200).map(x => [x.id, x.updatedAt])), rows: r.rows.slice(0, 200).map((x) => ({ id: x.id, ...x.values })), views: r.views.map((v) => (v.type === "metrics" ? { name: v.name, metrics: v.values.map((m) => ({ label: m.label, value: m.value })) } : v.type === "board" ? { name: v.name, lanes: v.lanes.map((l) => ({ lane: l.key, count: l.rows.length })) } : v.type === "calendar" ? { name: v.name, days: v.days.map(d => ({ date: d.date, count: d.rows.length })), undated: v.undated.length } : { name: v.name, rows: v.rows.length })) });
     }
     case "list_tables":
-      return out({ tables: await listTables(db, orgId) });
+      return out({ tables: await visibleResources(await listTables(db, orgId), t => mayUseTable(db, orgId, t.id, by)) });
     case "query_rows": {
+      if (!(await mayUseTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
       const r = await listRows(db, orgId, String(args.tableId || ""), { q: args.q, where: args.where, sort: args.sort, limit: Math.min(Number(args.limit) || 100, 500) });
-      return r.error ? err(r.error) : out({ rows: r.rows.map((x) => ({ id: x.id, ...x.values })) });
+      return r.error ? err(r.error) : out({ rowVersions: Object.fromEntries(r.rows.map(x => [x.id, x.updatedAt])), rows: r.rows.map((x) => ({ id: x.id, ...x.values })) });
     }
     case "add_row": {
+      if (!(await mayUseTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
       const r = await addRow(db, orgId, String(args.tableId || ""), args.values, by);
       if (r.error) return err(r.error);
       await onRowChange(env, { orgId, table: r.table, before: null, row: r.row, by });
-      return out({ row: { id: r.row.id, ...r.row.values } });
+      return out({ row: { id: r.row.id, ...r.row.values }, rowVersions: { [r.row.id]: r.row.updatedAt } });
     }
     case "update_row": {
-      const r = await updateRow(db, orgId, String(args.tableId || ""), String(args.rowId || ""), args.values, by);
+      if (!(await mayUseTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
+      const r = await updateRow(db, orgId, String(args.tableId || ""), String(args.rowId || ""), args.values, by, args.expectedUpdatedAt);
       if (r.error) return err(r.error);
       await onRowChange(env, { orgId, table: r.table, before: r.before, row: r.row, by });
-      return out({ row: { id: r.row.id, ...r.row.values } });
+      return out({ row: { id: r.row.id, ...r.row.values }, rowVersions: { [r.row.id]: r.row.updatedAt } });
     }
     case "list_workflows":
-      return out({ workflows: (await listWorkflows(db, orgId)).map((w) => ({ id: w.id, name: w.name, enabled: w.enabled, trigger: w.trigger, steps: w.steps.map((s) => s.type) })) });
+      return out({ workflows: (await listWorkflows(db, orgId, { viewerId: by })).map((w) => ({ id: w.id, name: w.name, enabled: w.enabled, trigger: w.trigger, steps: w.steps.map((s) => s.type) })) });
     case "run_workflow": {
-      const wf = await getWorkflow(db, orgId, String(args.workflowId || ""));
+      const wf = await getWorkflow(db, orgId, String(args.workflowId || ""), { viewerId: by });
       if (!wf) return err("No such workflow.");
       if (!wf.enabled) return err("This workflow is off.");
       const run = await startRun(env, { orgId, workflow: wf, trigger: "manual", input: { text: String(args.text || "") }, startedBy: by });
@@ -126,7 +131,7 @@ export async function callHarnessTool(env, agent, name, args) {
       return r.error ? err(r.error) : out({ followup: r.followup });
     }
     case "list_followups":
-      return out({ followups: await listFollowups(db, orgId, { channel: args.channel || undefined }) });
+      return out({ followups: await listFollowups(db, orgId, { channel: args.channel || undefined, viewerId: by }) });
     default:
       return null;
   }

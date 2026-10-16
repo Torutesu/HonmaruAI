@@ -9,7 +9,7 @@
 import { TEMPLATES, matchTemplate } from "./templates.js";
 import { createTable, getTable, listRows, addRow, updateTable } from "./tables.js";
 
-export const VIEW_TYPES = ["table", "board", "metrics"];
+export const VIEW_TYPES = ["table", "board", "metrics", "calendar"];
 export const METRIC_OPS = ["count", "sum", "avg", "min", "max"];
 export const MAX_APPS_PER_ORG = 100;
 
@@ -43,6 +43,11 @@ export function normalizeDefinition(definition, columns) {
       const desc = String(raw.sort).startsWith("-");
       const id = col(String(raw.sort).replace(/^-/, ""));
       if (id) view.sort = desc ? `-${id}` : id;
+    }
+    if (type === "calendar") {
+      const dateColumn = col(raw.dateColumn) || columns.find(c => c.type === "date")?.id;
+      if (!columns.some(c => c.id === dateColumn && c.type === "date")) continue;
+      view.dateColumn = dateColumn;
     }
     if (type === "board") {
       const groupBy = col(raw.groupBy) || columns.find((c) => c.type === "select")?.id;
@@ -92,6 +97,19 @@ export function computeView(view, table, rows, today = new Date().toISOString().
       const c = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
       return desc ? -c : c;
     });
+  }
+  if (view.type === "calendar") {
+    const days = new Map();
+    const undated = [];
+    for (const row of shown) {
+      const date = row.values[view.dateColumn];
+      const valid = typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)
+        && Number.isFinite(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date;
+      if (!valid) { undated.push(row); continue; }
+      if (!days.has(date)) days.set(date, []);
+      days.get(date).push(row);
+    }
+    return { ...view, days: [...days].sort(([a], [b]) => a.localeCompare(b)).map(([date, rows]) => ({ date, rows })), undated };
   }
   if (view.type === "board") {
     const column = table.columns.find((c) => c.id === view.groupBy);
@@ -288,7 +306,7 @@ export async function specFromPrompt(prompt, { complete } = {}) {
         [
           "Design a small internal business app as JSON, nothing else.",
           'Shape: {"name": string, "icon": one emoji, "description": string, "columns": [{"name": string, "type": "text"|"number"|"date"|"select"|"checkbox"|"url"|"person"|"email", "options"?: string[]}],',
-          '"views": [{"type": "table"|"board"|"metrics", "name": string, "groupBy"?: column name, "sort"?: column name or "-name", "metrics"?: [{"label": string, "op": "count"|"sum"|"avg", "column"?: column name}]}]}',
+          '"views": [{"type": "table"|"board"|"metrics"|"calendar", "dateColumn"?: column name, "name": string, "groupBy"?: column name, "sort"?: column name or "-name", "metrics"?: [{"label": string, "op": "count"|"sum"|"avg", "column"?: column name}]}]}',
           "At most 10 columns. A board needs a select column to group by. Name things in the language of the request.",
         ].join("\n"),
         text,

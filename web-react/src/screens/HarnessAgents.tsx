@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import type { AgentProfile, AgentMemory, Skill, Followup } from '../utils/harness'
@@ -61,17 +61,23 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
   const [skills, setSkills] = useState<Skill[]>([])
   const [allSkills, setAllSkills] = useState<Skill[]>([])
   const [followups, setFollowups] = useState<Followup[]>([])
+  const memoryLoad = useRef(0)
+  const [memoryChannel, setMemoryChannel] = useState('')
+  const [memoryScopes, setMemoryScopes] = useState<Array<{ channel: string; label: string }>>([])
   const [remember, setRemember] = useState('')
   const [people, setPeople] = useState('')
   const [saved, setSaved] = useState(false)
   const { busy, error, act } = useAct()
 
   const load = useCallback(() => act('load', async () => {
-    const [p, m, s, all, f] = await Promise.all([api.profile(agent.id), api.memory(agent.id), api.agentSkills(agent.id), api.skills(), api.followups()])
+    const version = ++memoryLoad.current
+    const [p, m, s, all, f, scopes] = await Promise.all([api.profile(agent.id), api.memory(agent.id, memoryChannel), api.agentSkills(agent.id), api.skills(), api.followups(), api.memoryScopes(agent.id)])
+    if (version !== memoryLoad.current) return
+    setMemoryScopes(scopes.scopes)
     setProfile(p.profile); setCanEdit(p.canEdit); setPeople(p.profile.people.map((x) => `@${x}`).join(' '))
     setMemories(m.memories); setSkills(s.skills); setAllSkills(all.skills)
     setFollowups(f.followups.filter((x) => x.agentId === agent.id))
-  }), [api, act, agent.id])
+  }), [api, act, agent.id, memoryChannel])
   useEffect(() => { load() }, [load])
 
   const save = (patch: Partial<AgentProfile>) => act('save', async () => {
@@ -135,20 +141,24 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
       </div>
 
       <div className="rows-title">{t('Memory')}</div>
+      <select aria-label={t('Memory conversation')} value={memoryChannel} disabled={busy !== null} onChange={e => { memoryLoad.current++; setMemories([]); setMemoryChannel(e.target.value) }}>
+        <option value="">{t('Shared knowledge')}</option>
+        {memoryScopes.map(scope => <option key={scope.channel} value={scope.channel}>{scope.label}</option>)}
+      </select>
       <div className="rows">
         <div className="row static">
           <span className="row-main">
-            <span className="row-sub">{t('What it carries from one conversation to the next. In a chat: “@{handle} remember that …”.', { handle: agent.handle })}</span>
+            <span className="row-sub">{t('Shared knowledge for this agent. Memories added in chat stay in that conversation: “@{handle} remember that …”.', { handle: agent.handle })}</span>
             <span className="playbook-add-foot">
               <input className="hx-cell-input" value={remember} onChange={(e) => setRemember(e.target.value)} placeholder={t('e.g. Acme pays on the 25th')} aria-label={t('Remember')} />
-              <button className="pill-btn" disabled={!remember.trim()} onClick={() => act('remember', async () => { await api.remember(agent.id, remember); setRemember(''); setMemories((await api.memory(agent.id)).memories) })}>{t('Remember')}</button>
+              <button className="pill-btn" disabled={!remember.trim()} onClick={() => act('remember', async () => { await api.remember(agent.id, remember, memoryChannel); setRemember(''); setMemories((await api.memory(agent.id, memoryChannel)).memories) })}>{t('Remember')}</button>
             </span>
           </span>
         </div>
         {memories.map((m) => (
           <div key={m.id} className="row static memory-row">
             <span className="row-main"><span className="memory-text">{m.text}</span><span className="row-sub">{new Date(m.createdAt).toLocaleDateString()}</span></span>
-            {canEdit && <button className="btn-text" onClick={() => act(`forget:${m.id}`, async () => { await api.forget(agent.id, m.id); setMemories((x) => x.filter((y) => y.id !== m.id)) })}>{t('Forget')}</button>}
+            {canEdit && <button className="btn-text" onClick={() => act(`forget:${m.id}`, async () => { await api.forget(agent.id, m.id, m.channel ? memoryChannel : ''); setMemories((x) => x.filter((y) => y.id !== m.id)) })}>{t('Forget')}</button>}
           </div>
         ))}
       </div>
