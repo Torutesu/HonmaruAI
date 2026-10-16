@@ -130,3 +130,15 @@
 .shell.harness-workspace .screen .row { box-sizing: border-box; }
 .hx-chat-group { margin: 0 0 12px; padding: 0; list-style: none; }
 .shell.harness-workspace .screen .hx-persona-text .md { white-space: normal; }
+.hx-profile-card { border: 1px solid #dfdfd8; border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+.hx-profile-card header { display: flex; align-items: center; justify-content: space-between; color: #85857b; font-size: 12px; }
+.hx-profile-card header button { border: 0; background: none; color: inherit; cursor: pointer; }
+.hx-profile-card dl { display: grid; grid-template-columns: minmax(100px, 145px) 1fr; gap: 14px 0; font-size: 13px; margin: 22px 0 0; }
+.hx-profile-card dt { color: #85857b; }
+.hx-profile-card dd { margin: 0; color: #353532; }
+.hx-profile-card .rows { margin-top: 16px; border: 0; }
+.shell.harness-workspace .classic.slk.slk .slk-head-text > p:not(.slk-head-agent) { display: none; }
+.shell.harness-workspace .classic.slk.slk .slk-composer-hint { visibility: hidden; }
+.shell.harness-workspace .classic.slk.slk .slk-send-label { display: none; }
+.shell.harness-workspace .classic.slk.slk .slk-start { margin-top: 28px; }
+.shell.harness-workspace .classic.slk.slk .slk-start h2 { font-size: 18px; font-weight: 500; }

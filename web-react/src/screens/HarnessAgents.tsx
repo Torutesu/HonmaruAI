@@ -60,6 +60,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
   const api = useApi(props)
   const { agent } = props
   const [section, setSection] = useState<'profile' | 'skills' | 'memory' | 'followups'>('profile')
+  const [editingProfile, setEditingProfile] = useState(false)
   const [profile, setProfile] = useState<AgentProfile | null>(null)
   const [canEdit, setCanEdit] = useState(false)
   const [memories, setMemories] = useState<AgentMemory[]>([])
@@ -98,7 +99,9 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
       <div className="hx-profile-heading"><AgentAvatar agent={agent} className="hx-profile-avatar" /><h1>{agent.name}</h1><button className="pill-btn quiet" onClick={props.onMessage} aria-label={t('Message')}><Icon name="message" size={18} /></button></div>
       <div className="hx-profile-tabs" role="tablist">{(['profile','skills','memory','followups'] as const).map(key => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)}>{t(key === 'profile' ? 'Profile' : key === 'skills' ? 'Skills' : key === 'memory' ? 'Memory' : 'Follow-ups')}</button>)}</div>
       {section === 'profile' && <>
-      <div className="rows-title">{t('Profile')}</div>
+      <section className="hx-profile-card"><header><span>{t('Profile')}</span>{canEdit && <button onClick={() => setEditingProfile(v => !v)} aria-label={t(editingProfile ? 'Close' : 'Edit profile')}><Icon name={editingProfile ? 'x' : 'edit'} size={16} /></button>}</header>
+      {!editingProfile && <dl><dt>{t('Specialty')}</dt><dd>{profile.specialty || '—'}</dd><dt>{t('Intelligence')}</dt><dd>{t(profile.tier === 'lite' ? 'Lite' : profile.tier === 'max' ? 'Max' : 'Standard')}</dd><dt>{t('Who may call it')}</dt><dd>{t(agent.scope === 'personal' || profile.access === 'private' ? 'Only its maker' : profile.access === 'people' ? 'Some people' : 'Everyone')}</dd></dl>}
+      {editingProfile && <>
       <div className="rows">
         <div className="row static">
           <span className="row-main">{t('Specialty')}
@@ -135,6 +138,9 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
         </div>
       </div>
 
+      </>}
+      {saved && <p role="status">{t('Saved.')}</p>}
+      </section>
       <section className="hx-persona"><header><span>{t('Persona')}</span>{canEdit && <button onClick={props.onEdit} aria-label={t('Edit')}><Icon name="edit" size={16} /></button>}</header><p>{agent.description}</p><div className="hx-persona-text"><Markdown source={agent.instructions || t('Edit this agent to set its instructions.')} /></div></section>
       </>}
       {section === 'skills' && <>
