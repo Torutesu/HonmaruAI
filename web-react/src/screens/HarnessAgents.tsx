@@ -113,10 +113,11 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
           <span className="row-main">{t('Who may call it')}
             <span className="hx-seg">
               {(['everyone', 'people', 'private'] as const).map((a) => (
-                <button key={a} className={profile.access === a ? 'on' : ''} disabled={!canEdit} onClick={() => save({ access: a })}>{t(a === 'everyone' ? 'Everyone' : a === 'people' ? 'Some people' : 'Only its maker')}</button>
+                <button key={a} className={(agent.scope === 'personal' ? 'private' : profile.access) === a ? 'on' : ''} disabled={!canEdit || agent.scope === 'personal'} onClick={() => save({ access: a })}>{t(a === 'everyone' ? 'Everyone' : a === 'people' ? 'Some people' : 'Only its maker')}</button>
               ))}
             </span>
-            {profile.access === 'people' && (
+            {agent.scope === 'personal' && <span className="row-sub">{t('This agent is personal. Its owner can share it from the Agents screen.')}</span>}
+            {agent.scope !== 'personal' && profile.access === 'people' && (
               <span className="playbook-add-foot">
                 <input className="hx-cell-input" disabled={!canEdit} value={people} onChange={(e) => setPeople(e.target.value)} placeholder="@mika @kenji" aria-label={t('People')} />
                 <button className="pill-btn" disabled={!canEdit} onClick={() => save({ people: people.split(/[\s,]+/).map((x) => x.replace(/^@/, '')).filter(Boolean) })}>{t('Save')}</button>
