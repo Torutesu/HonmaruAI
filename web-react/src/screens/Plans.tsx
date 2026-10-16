@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { desktopApp } from '../utils/desktop'
 import { useT } from '../utils/i18n'
-import { AccessCodeError, loadBillingStatus, redeemAccessCode, type BillingStatus } from '../utils/billing'
+import { AccessCodeError, openBillingLink, loadBillingStatus, redeemAccessCode, type BillingStatus } from '../utils/billing'
 
 interface Props {
   httpBase: string
@@ -21,6 +22,8 @@ const AccountPlans: React.FC<Props> = ({ httpBase, sessionToken, onClose, orgId 
   const [error, setError] = useState<string | null>(null)
   const [code, setCode] = useState('')
   const [redeeming, setRedeeming] = useState(false)
+  const [openingBilling, setOpeningBilling] = useState(false)
+  const browserBilling = !desktopApp()
   const [checking, setChecking] = useState(true)
   const [reload, setReload] = useState(0)
   const lifecycle = useRef<AbortController | null>(null)
@@ -84,6 +87,21 @@ const AccountPlans: React.FC<Props> = ({ httpBase, sessionToken, onClose, orgId 
     }
   }
 
+  const openBilling = async (action: 'checkout' | 'manage') => {
+    const controller = lifecycle.current
+    if (!controller || controller.signal.aborted || submitting.current) return
+    submitting.current = true
+    setOpeningBilling(true); setError(null)
+    try {
+      const url = await openBillingLink(httpBase, sessionToken, action, controller.signal)
+      if (!controller.signal.aborted) window.location.assign(url)
+    } catch (err) {
+      if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Could not open billing. Please try again.')
+    } finally {
+      if (!controller.signal.aborted) { submitting.current = false; setOpeningBilling(false) }
+    }
+  }
+
   const cancellationNote = t('Free access does not cancel an existing Apple subscription. Cancel it in iPhone Settings → your name → Subscriptions to stop future renewals.')
 
   return (
@@ -130,7 +148,24 @@ const AccountPlans: React.FC<Props> = ({ httpBase, sessionToken, onClose, orgId 
             </section>
 
             {status.complimentary ? (
-              <p className="form-note" role="status">{cancellationNote}</p>
+              <>
+                <p className="form-note" role="status">{browserBilling && status.webPurchasable
+                  ? t('Manage your subscription with the provider where you purchased it.')
+                  : cancellationNote}</p>
+                {browserBilling && status.webPurchasable && <button className="btn btn-secondary" disabled={checking || openingBilling} onClick={() => openBilling('manage')}>{t('Manage subscription')}</button>}
+              </>
+            ) : browserBilling && status.webPurchasable ? (
+              <section aria-label={t('Web subscription')}>
+                <div className="rows-title">{t('Web subscription')}</div>
+                <p className="lede">{t(status.pro
+                  ? 'Manage your subscription with the provider where you purchased it.'
+                  : 'Subscribe on the web and use Pro in the app with the same account. Prices and renewal terms are shown before payment.')}</p>
+                <button className="btn btn-primary" disabled={checking || redeeming || openingBilling} onClick={() => openBilling(status.pro ? 'manage' : 'checkout')}>
+                  {t(openingBilling ? 'Opening…' : status.pro ? 'Manage subscription' : 'Subscribe on the web')}
+                </button>
+                <button className="btn btn-secondary" disabled={checking || redeeming || openingBilling} onClick={retryStatus}>{t('Refresh subscription status')}</button>
+                <p className="foot-note">{t('An existing app subscription is not canceled by purchasing on the web. Avoid overlapping subscriptions.')}</p>
+              </section>
             ) : (
               <section aria-label={t('App Store subscription')}>
                 <div className="rows-title">{t('App Store subscription')}</div>

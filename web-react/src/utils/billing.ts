@@ -4,6 +4,7 @@ export interface BillingStatus {
   plan: string
   pro: boolean
   purchasable: boolean
+  webPurchasable: boolean
   accessSource: 'complimentary' | 'subscription' | 'workspace' | 'free'
   /// The workspace runs on its own OpenAI key, so nothing here is metered.
   workspaceKey: boolean
@@ -27,6 +28,7 @@ function statusFrom(body: Record<string, unknown>): BillingStatus {
     plan: body.pro ? 'pro' : 'free',
     pro: body.pro,
     purchasable: body.purchasable,
+    webPurchasable: body.webPurchasable === true,
     accessSource: complimentary ? 'complimentary' : body.pro ? 'subscription' : body.workspaceKey === true ? 'workspace' : 'free',
     workspaceKey: body.workspaceKey === true,
     complimentary,
@@ -85,4 +87,18 @@ export async function redeemAccessCode(base: string, token: string, input: strin
   const status = statusFrom(await readResponse(response))
   if (!status.complimentary) throw new Error('Could not activate free access. Try again.')
   return status
+}
+
+export async function openBillingLink(base: string, token: string, action: 'checkout' | 'manage', signal: AbortSignal): Promise<string> {
+  const response = await fetch(`${base}/billing/${action === 'checkout' ? 'web-checkout' : 'manage'}`, {
+    method: 'POST', headers: { 'x-session-token': token }, cache: 'no-store', signal,
+  })
+  if (!response.ok) throw new Error(response.status === 409
+    ? 'Your account already has access, or this subscription must be managed with its original provider.'
+    : 'Could not open billing. Please try again.')
+  const body = await readResponse(response)
+  const url = new URL(String(body.url))
+  const hosts = action === 'checkout' ? ['pay.rev.cat'] : ['billing.stripe.com', 'billing.revenuecat.com', 'apps.apple.com', 'play.google.com']
+  if (url.protocol !== 'https:' || url.username || url.password || !hosts.includes(url.hostname)) throw new Error('Could not open billing. Please try again.')
+  return url.href
 }

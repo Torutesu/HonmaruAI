@@ -1,5 +1,6 @@
 // StoreKit is the source of truth for prices, periods, and offer eligibility.
-// The web shows account access and directs paid purchases to the iOS app.
+// Web checkout is enabled separately after the RevenueCat provider is ready.
+import { webPurchaseBase } from "./webBilling.js";
 import { isPro } from "./entitlements.js";
 import { hasComplimentaryAccess, complimentaryAvailable, ensureComplimentarySynced } from "./complimentary.js";
 import { usedToday } from "./db.js";
@@ -47,6 +48,7 @@ export async function billingStatus(env, githubId, orgId) {
     plan: pro ? "pro" : "free",
     pro,
     purchasable,
+    webPurchasable: Boolean(webPurchaseBase(env)),
     purchasePlatform: "app_store",
     accessSource: complimentary ? "complimentary" : pro ? "subscription" : workspaceKey ? "workspace" : "free",
     workspaceKey,

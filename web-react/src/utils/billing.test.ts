@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { loadBillingStatus, redeemAccessCode } from './billing'
+import { loadBillingStatus, redeemAccessCode, openBillingLink } from './billing'
 
 const free = { pro: false, purchasable: true, dailyLimit: 3, usedToday: 1, remainingToday: 2 }
 const granted = { ...free, pro: true, remainingToday: null, complimentary: true, complimentaryAvailable: true }
@@ -82,5 +82,22 @@ describe('Account billing requests', () => {
     vi.stubGlobal('fetch', fetcher)
     await expect(redeemAccessCode('https://api.example', 'account-a', 'private-fixture', signal())).rejects.toThrow('Could not activate free access.')
     await expect(redeemAccessCode('https://api.example', 'account-a', 'private-fixture', signal())).rejects.toThrow('Could not load plans.')
+  })
+})
+
+
+describe('Hosted billing links', () => {
+  it('rejects arbitrary checkout redirect URLs', async () => {
+    for (const url of ['https://evil.example', 'javascript:alert(1)', 'https://pay.rev.cat.evil.example/x']) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ url })))
+      await expect(openBillingLink('https://api.example', 'session', 'checkout', signal())).rejects.toThrow()
+    }
+  })
+  it('uses authenticated POST without a caller-supplied identity', async () => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ url: 'https://pay.rev.cat/production/user' }))
+    vi.stubGlobal('fetch', fetcher)
+    const abort = signal()
+    await expect(openBillingLink('https://api.example', 'session', 'checkout', abort)).resolves.toBe('https://pay.rev.cat/production/user')
+    expect(fetcher).toHaveBeenCalledWith('https://api.example/billing/web-checkout', { method: 'POST', headers: { 'x-session-token': 'session' }, cache: 'no-store', signal: abort })
   })
 })
