@@ -1041,6 +1041,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           harness={workspaceMode === 'harness'}
           newRequest={harnessNewRequest}
           homeRequest={harnessHomeRequest}
+          onApps={() => setScreen('apps')}
           userId={userId}
           orgName={orgName}
           pending={pendingCards}

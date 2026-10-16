@@ -118,6 +118,7 @@ interface Props {
   /// The whole card, as the feed draws it, for the list's own pane.
   renderCard: (card: DecisionCard) => React.ReactNode
   onWorkspace: () => void
+  onApps?: () => void
   /// The workspace's mark, name and switcher, drawn by the shell.
   workspaceMenu?: React.ReactNode
   /// Channels are the team's businesses: made, renamed and deleted here,
@@ -307,7 +308,7 @@ function when(iso?: string): string {
 /// sidebar, then the conversation with a way back.
 export const ClassicList: React.FC<Props> = ({
   harness = false, newRequest = 0, homeRequest = 0, userId, orgName, pending, sent, decided, businesses, presence,
-  onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, workspaceMenu,
+  onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, onApps, workspaceMenu,
   onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen, onPlaces, onStatus, statusOpen, active = true,
 }) => {
   // Files' addresses are renewed for the workspace open now (mediaUrls).
@@ -4686,7 +4687,13 @@ export const ClassicList: React.FC<Props> = ({
               {waitingHere > 0 && <> · <b>{t('{n} waiting on you', { n: waitingHere })}</b></>}
             </p>}
           </div>
-          {thread.view && (
+          {harness && thread.view && <div className="hx-room-actions">
+            {onApps && <button onClick={onApps}><Icon name="grid" size={15} />{t('Apps')}</button>}
+            <button onClick={() => openSide({ kind: 'details', tab: 'automations' })}><Icon name="repeat" size={15} />{t('Automations')}</button>
+            <button onClick={() => openSide({ kind: 'details', tab: 'attachments' })}><Icon name="file" size={15} />{t('Files')}</button>
+            <button onClick={() => openSide({ kind: 'details', tab: 'members' })} aria-label={t('Members')}><Icon name="users" size={15} /></button>
+          </div>}
+          {!harness && thread.view && (
             <div className="slk-head-actions">
               <button
                 type="button"
@@ -4760,7 +4767,7 @@ export const ClassicList: React.FC<Props> = ({
             </button>
           )}
         </header>
-        {thread.view && thread.kind !== 'app' && <BookmarksBar httpBase={api.httpBase} orgId={api.orgId} headers={authHeaders} view={thread.view} />}
+        {!harness && thread.view && thread.kind !== 'app' && <BookmarksBar httpBase={api.httpBase} orgId={api.orgId} headers={authHeaders} view={thread.view} />}
         {pins && thread.view && (
           <div className="slk-pins" role="dialog" aria-label={t('Pinned messages')}>
             <div className="slk-pins-head">
@@ -4789,7 +4796,7 @@ export const ClassicList: React.FC<Props> = ({
             onShow={() => { setJamShown(true); const th = everything.find((x) => x.view === call.channel); if (th && th.key !== current?.key) choose(th.key) }}
           />
         )}
-        <nav className="slk-tabs" role="tablist" aria-label={t('View')}>
+        <nav className="slk-tabs" role="tablist" aria-label={t('View')} hidden={harness && !thread.cards.length}>
           <button role="tab" aria-selected={tab === 'messages'} className={tab === 'messages' ? 'on' : ''} onClick={() => setTab('messages')}>
             {thread.view ? t('Messages') : t('Activity')}
           </button>

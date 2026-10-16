@@ -142,3 +142,7 @@
 .shell.harness-workspace .classic.slk.slk .slk-send-label { display: none; }
 .shell.harness-workspace .classic.slk.slk .slk-start { margin-top: 28px; }
 .shell.harness-workspace .classic.slk.slk .slk-start h2 { font-size: 18px; font-weight: 500; }
+.hx-room-actions { display: flex; gap: 15px; align-items: center; }
+.hx-room-actions button { display: flex; gap: 6px; align-items: center; border: 0; padding: 6px 0; background: transparent; color: #85857b; font: inherit; font-size: 12px; cursor: pointer; }
+.shell.harness-workspace .classic.slk.slk .slk-tabs[hidden] { display: none; }
+@media (max-width: 719px) { .hx-room-actions { gap: 10px; } .hx-room-actions button { font-size: 10px; } }
