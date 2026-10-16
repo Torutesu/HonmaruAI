@@ -220,7 +220,7 @@ test("API keys carry scopes: a read key cannot ask, an audit key reads the log",
   await env.DB.prepare("UPDATE api_tokens SET scopes = NULL WHERE name = 'Reader'").run();
   const listed = await (await call(`/tokens?${q({ orgId: ORG })}`, toru)).json();
   expect(listed.tokens.find((t) => t.name === "Reader").scopes).toEqual(["read", "write"]);
-  expect(listed.scopes).toEqual(["read", "write", "audit:read"]);
+  expect(listed.scopes).toEqual(["read", "write", "execute", "audit:read"]);
 });
 
 test("a webhook's deliveries are kept, can be sent again, and its secret replaced", async () => {
