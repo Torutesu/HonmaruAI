@@ -232,11 +232,11 @@
       "id": "KY-023",
       "category": "Agents",
       "requirement": "ローカルゲートウェイ・再接続",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/agents/overview",
-      "code": "worker/src/teammates.js",
-      "acceptance": "接続済みPCで実行しスリープ・再接続・二重配信を扱う"
+      "code": "worker/src/harness/gateways.js",
+      "acceptance": "Mac miniの隔離JS・ノード認証・lease・取消を実装。スリープ/再起動/常駐・エージェント実ツール連携の受入試験は残る"
     },
     {
       "id": "KY-024",
@@ -362,11 +362,11 @@
       "id": "KY-036",
       "category": "Skills",
       "requirement": "private/publicと人間の所有者",
-      "status": "missing",
+      "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/skill",
       "code": "worker/src/harness/skills.js",
-      "acceptance": "非公開スキル本文・資産を非許可者から隔離"
+      "acceptance": "スキル本文のprivate/workspace、所有者のみの共有変更、HTTP/agent一覧/実行時の隔離を実装。パッケージ資産・共有リンク・agent grantモデルは残る"
     },
     {
       "id": "KY-037",

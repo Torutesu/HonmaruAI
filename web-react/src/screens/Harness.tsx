@@ -49,6 +49,7 @@ export const HarnessHub: React.FC<HarnessProps & { onOpen: (s: HarnessScreen) =>
     { screen: 'workflows', icon: 'zap', title: t('Workflows'), sub: t('A trigger and the steps that follow, with every run kept.') },
     { screen: 'approvals', icon: 'check', title: t('Approvals'), sub: t('What agents and workflows are waiting on you for.') },
     { screen: 'hxagents', icon: 'sparkle', title: t('Agent team'), sub: t('Specialty, tier, memory and who may call each agent.') },
+    { screen: 'gateways', icon: 'zap', title: t('Execution nodes'), sub: t('Run isolated jobs on your own machines.') },
     { screen: 'skills', icon: 'book', title: t('Skills'), sub: t('How your team does a thing, written once and given to agents.') },
   ]
   return (

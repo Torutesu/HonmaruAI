@@ -13,7 +13,7 @@ export interface HarnessProps {
   onClose: () => void
 }
 
-export type HarnessScreen = 'home' | 'harness' | 'apps' | 'workflows' | 'approvals' | 'skills' | 'hxagents'
+export type HarnessScreen = 'home' | 'harness' | 'apps' | 'workflows' | 'approvals' | 'skills' | 'hxagents' | 'gateways'
 
 /// `nested`: a view inside a harness screen (an app, a workflow, an agent),
 /// whose back button stays on a laptop too — the rail cannot reach it.

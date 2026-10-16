@@ -128,6 +128,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
       </div>
 
       <div className="rows-title">{t('Skills')}</div>
+      <p className="row-sub">{t('Private skills run only in their owner’s direct agent conversation, including follow-ups. They are excluded from shared rooms and workflows.')}</p>
       <div className="rows">
         {allSkills.length === 0 && <div className="row static"><span className="row-sub">{t('No skills in this workspace yet. Write one on the Skills screen.')}</span></div>}
         {allSkills.map((s) => (
@@ -193,13 +194,14 @@ export const HarnessSkills: React.FC<HarnessProps> = (props) => {
       {error && <div className="form-error">{error}</div>}
       {draft && (
         <div className="hx-builder">
+          {!draft.id && <p className="row-sub">{t('New skills are private. Share them with the workspace after saving.')}</p>}
           <input className="hx-cell-input hx-title-input" placeholder={t('Skill name')} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} aria-label={t('Skill name')} />
           <input className="hx-cell-input" placeholder={t('One line on when to use it')} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} aria-label={t('Description')} />
           <textarea className="context-input" rows={8} placeholder={t('e.g. Day 7: a polite nudge. Day 14: a call. Day 30: escalate to the owner.')} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} aria-label={t('Skill')} />
           <div className="playbook-add-foot">
             <button className="btn-text" onClick={() => setDraft(null)}>{t('Cancel')}</button>
             <button className="pill-btn" disabled={busy === 'save' || !draft.name.trim() || !draft.body.trim()} onClick={() => act('save', async () => {
-              if (draft.id) await api.updateSkill(draft.id, draft); else await api.createSkill(draft)
+              if (draft.id) await api.updateSkill(draft.id, draft); else await api.createSkill({ ...draft, visibility: 'private' })
               setDraft(null); await load()
             })}>{t('Save')}</button>
           </div>
@@ -211,9 +213,15 @@ export const HarnessSkills: React.FC<HarnessProps> = (props) => {
         {skills?.map((s) => (
           <div key={s.id} className="row static" data-skill={s.id}>
             <span className="row-icon"><Icon name="book" size={18} /></span>
+            <select aria-label={t('Skill visibility')} value={s.visibility || 'workspace'} disabled={!s.canShare || busy !== null} onChange={e => {
+              const visibility = e.target.value as 'private' | 'workspace';
+              act(`share:${s.id}`, async () => { await api.setSkillAccess(s.id, visibility, s.accessVersion || 0); await load() })
+            }}>
+              <option value="private">{t('Only me')}</option><option value="workspace">{t('Everyone on the team')}</option>
+            </select>
             <span className="row-main">{s.name}<span className="row-sub">{s.description || s.body.slice(0, 100)}{s.agents?.length ? ` · ${t('{n} agents', { n: s.agents.length })}` : ''}</span></span>
-            <button className="btn-text" onClick={() => setDraft({ id: s.id, name: s.name, description: s.description, body: s.body })}>{t('Edit')}</button>
-            <button className="btn-text danger" onClick={() => act(`del:${s.id}`, async () => { await api.deleteSkill(s.id); await load() })}>{t('Delete')}</button>
+            <button className="btn-text" disabled={s.canEdit === false} onClick={() => setDraft({ id: s.id, name: s.name, description: s.description, body: s.body })}>{t('Edit')}</button>
+            <button className="btn-text danger" disabled={s.canEdit === false} onClick={() => act(`del:${s.id}`, async () => { await api.deleteSkill(s.id); await load() })}>{t('Delete')}</button>
           </div>
         ))}
       </div>

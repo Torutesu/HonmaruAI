@@ -82,3 +82,33 @@ PR [#284](https://github.com/Torutesu/HonmaruAI/pull/284) をmainへマージ。
 初回の関連2ファイル41テスト成功。非所有者・管理者の一覧/直接profile/編集拒否、Simpleへの切替後の維持、所有者による明示共有を確認。全体実行でテスト追加位置の誤り（未定義変数）を検出して停止し、修正。ルーム配置例外の検証を新規作成テストに限定した最終コードで再検証する。Web全713テスト、型チェック単独実行、本番ビルド成功。Studioの外部teammate作成と全端末UIは未対応のためKY-011は一部実装。
 
 最終のAgents/Harness Agents/Workflows 3ファイル53テスト成功。Homeの従来テストは作成時共有を前提としていたため、非公開状態の非表示を先に確認し、所有者が共有へ変更してから表示を検証するよう更新した。最終全体実行はPR CIで確認する。
+
+最終コード固定後、Worker全191ファイル1,241テスト成功（exit 0）、Web全713テスト成功。日本語の実効アクセス表示修正後の型チェックと本番APIホスト指定ビルドも成功。PR [#285](https://github.com/Torutesu/HonmaruAI/pull/285) の全CI（Worker/Web/Relay/Desktop/Shared core and mobile/E2E/Windows/iOS）が成功。公開対象コミットは `ba8457344fbac097ab36a534bf6056817f18a8ee`、treeは `58992379022656ea08730adf705d11eb231e30c1`。
+
+[Worker公開](https://github.com/Torutesu/HonmaruAI/actions/runs/38885271177) と [Web公開](https://github.com/Torutesu/HonmaruAI/actions/runs/38885271261) が順番に成功。独自ドメインとPagesドメインで `/assets/index-BBTj9qSU.js` を確認し、ローカル本番APIホスト指定ビルドとも一致。本番healthはok/encryption.all=true、未認証agents一覧は401。
+
+ログイン済みMacアプリを再読込し、新規作成フォームで「自分だけ」選択済み・「チーム全員」無効を確認。保存せずキャンセルし、本番エージェントは作成していない。実データ作成・共有変更の本番操作まで検証したという意味ではない。
+
+## スキルの非公開本文と実行時隔離（2026-10-16・未公開）
+
+private/workspace・所有者の共有変更・version競合検知・作成とpolicyの原子保存を追加。HTTPの一覧/CRUD/agent付与一覧、実行時の直接会話、所有者membership、共有解除後の反映、旧共有スキルを検証。privateへのworkspace admin迂回はない。スキル一覧のagentリンクも閲覧可能なものだけに限定。
+
+コード固定後のWorker全192ファイル1,245テスト、Web全713テスト、型チェックが成功。追加4テストは二つの表示モードでの非許可者/管理者の直接CRUD拒否、共有解除と競合、実行プロンプト隔離、membership剥奪、旧データ互換、作成時policy失敗のrollbackを含む。まだ本番未反映。
+
+
+## Mac mini execution foundation (2026-10-16, not yet deployed)
+
+The user authorized an existing-contract-only local Mac mini execution path.
+Apple container 1.5.0 was installed under the user directory from its signed,
+notarized installer payload. The actual VM smoke returned 42 as Linux UID 65534,
+denied host-home access/root writes/outbound network, and stopped a runaway loop.
+No test containers remained afterward. No production gateway credential was created.
+
+Gateway HTTP tests pass (4): owner-only logs, administrator registration, hashed
+credentials, exclusive claims, idempotent submissions, wrong-node/replay refusal,
+cancellation/revocation, expiration without a connected node and membership removal.
+Portable local runner/client tests pass (4). Web TypeScript, all 713 tests and
+production build pass. Frozen full Worker suite: 193 files / 1,249 tests pass (295.81 seconds).
+See [operator instructions and remaining limitations](../mac-mini-gateway.md).
+KY-023 becomes partial; KY-022 remains missing because an offline local JavaScript
+VM is not a complete cloud computer with files/network/agent tools.

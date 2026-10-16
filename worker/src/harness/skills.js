@@ -1,3 +1,5 @@
+import { skillSelect, skillVisible } from './skillAccess.js';
+import { mayAccessAgent } from './agents.js';
 // Skills (docs/kylon-gap-plan.md): how the team does a thing, written once
 // as Markdown and given to any agent. An agent reads every skill it has
 // when it answers (agents.js prepareAgent).
@@ -7,18 +9,24 @@ export const MAX_SKILL_CHARS = 8000;
 
 const now = () => new Date().toISOString();
 const newId = (p) => `${p}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
-const pub = (r) => r && ({ id: r.id, name: r.name, description: r.description || "", body: r.body, createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at });
+const pub = (r) => r && ({ id: r.id, name: r.name, description: r.description || "", body: r.body, createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at, visibility: r.visibility, accessVersion: r.access_version });
 
-export async function listSkills(db, orgId) {
-  const { results } = await db.prepare("SELECT * FROM hx_skills WHERE org_id = ?1 ORDER BY name COLLATE NOCASE").bind(orgId).all();
+export async function listSkills(db, orgId, userId = "") {
+  const { results } = await db.prepare(`${skillSelect} WHERE s.org_id = ?1 AND (p.visibility IS NULL OR p.visibility = 'workspace' OR s.created_by = ?2) ORDER BY s.name COLLATE NOCASE`).bind(orgId, String(userId)).all();
   const skills = (results || []).map(pub);
   const { results: links } = await db.prepare("SELECT skill_id, agent_id FROM hx_agent_skills WHERE org_id = ?1").bind(orgId).all();
-  for (const s of skills) s.agents = (links || []).filter((l) => l.skill_id === s.id).map((l) => l.agent_id);
+  const user = userId ? await db.prepare("SELECT login FROM users WHERE github_id = ?1").bind(String(userId)).first() : null;
+  const visible = new Set();
+  for (const id of new Set((links || []).map(l => l.agent_id))) {
+    const a = await db.prepare("SELECT id, scope, owner_login FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, id).first();
+    if (a && user && await mayAccessAgent(db, orgId, { ...a, ownerLogin: a.owner_login }, user.login)) visible.add(id);
+  }
+  for (const s of skills) { s.agents = (links || []).filter(l => l.skill_id === s.id && visible.has(l.agent_id)).map(l => l.agent_id); s.canShare = s.createdBy === String(userId); }
   return skills;
 }
 
-export async function getSkill(db, orgId, id) {
-  return pub(await db.prepare("SELECT * FROM hx_skills WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first());
+export async function getSkill(db, orgId, id, userId = "") {
+  return pub(await db.prepare(`${skillSelect} WHERE s.org_id = ?1 AND s.id = ?2 AND ${skillVisible}`).bind(orgId, id, String(userId)).first());
 }
 
 function clean(input) {
@@ -30,37 +38,45 @@ function clean(input) {
 }
 
 export async function createSkill(db, orgId, input, by) {
+  const visibility = input.visibility ?? 'workspace';
+  if (!['workspace', 'private'].includes(visibility)) return { error: 'Invalid visibility.' };
   const c = clean(input);
   if (c.error) return c;
   const n = await db.prepare("SELECT COUNT(*) AS n FROM hx_skills WHERE org_id = ?1").bind(orgId).first();
   if (Number(n?.n || 0) >= MAX_SKILLS) return { error: "This workspace has as many skills as it can hold." };
   const id = newId("skill");
   const at = now();
-  await db.prepare("INSERT INTO hx_skills (id, org_id, name, description, body, created_by, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)")
-    .bind(id, orgId, c.name, c.description, c.body, String(by), at).run();
-  return { skill: await getSkill(db, orgId, id) };
+  const insert = db.prepare("INSERT INTO hx_skills (id, org_id, name, description, body, created_by, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)")
+    .bind(id, orgId, c.name, c.description, c.body, String(by), at);
+  await db.batch([insert, db.prepare("INSERT INTO hx_skill_access (org_id, skill_id, visibility, version) VALUES (?1, ?2, ?3, 1)").bind(orgId, id, visibility)]);
+  return { skill: await getSkill(db, orgId, id, by) };
 }
 
-export async function updateSkill(db, orgId, id, input) {
-  const existing = await getSkill(db, orgId, id);
+export async function updateSkill(db, orgId, id, input, userId = "") {
+  const existing = await getSkill(db, orgId, id, userId);
   if (!existing) return { error: "No such skill.", status: 404 };
   const c = clean({ ...existing, ...input });
   if (c.error) return c;
-  await db.prepare("UPDATE hx_skills SET name = ?1, description = ?2, body = ?3, updated_at = ?4 WHERE id = ?5 AND org_id = ?6")
-    .bind(c.name, c.description, c.body, now(), id, orgId).run();
-  return { skill: await getSkill(db, orgId, id) };
+  const result = await db.prepare(`UPDATE hx_skills SET name = ?1, description = ?2, body = ?3, updated_at = ?4
+    WHERE id = ?5 AND org_id = ?6 AND (created_by = ?7 OR NOT EXISTS
+      (SELECT 1 FROM hx_skill_access p WHERE p.org_id = ?6 AND p.skill_id = ?5 AND p.visibility = 'private'))`)
+    .bind(c.name, c.description, c.body, now(), id, orgId, String(userId)).run();
+  if (!result.meta?.changes) return { error: 'No such skill.', status: 404 };
+  return { skill: await getSkill(db, orgId, id, userId) };
 }
 
-export async function deleteSkill(db, orgId, id) {
-  await db.batch([
-    db.prepare("DELETE FROM hx_agent_skills WHERE org_id = ?1 AND skill_id = ?2").bind(orgId, id),
-    db.prepare("DELETE FROM hx_skills WHERE org_id = ?1 AND id = ?2").bind(orgId, id),
+export async function deleteSkill(db, orgId, id, userId = '') {
+  const visible = `SELECT s.id FROM hx_skills s LEFT JOIN hx_skill_access p ON p.org_id = s.org_id AND p.skill_id = s.id
+    WHERE s.org_id = ?1 AND s.id = ?2 AND ${skillVisible}`;
+  const results = await db.batch([
+    db.prepare(`DELETE FROM hx_agent_skills WHERE org_id = ?1 AND skill_id IN (${visible})`).bind(orgId, id, String(userId)),
+    db.prepare(`DELETE FROM hx_skills WHERE org_id = ?1 AND id IN (${visible})`).bind(orgId, id, String(userId)),
   ]);
-  return { deleted: true };
+  return results[1].meta?.changes ? { deleted: true } : { error: 'No such skill.', status: 404 };
 }
 
 export async function giveSkill(db, orgId, agentId, skillId, by) {
-  if (!(await getSkill(db, orgId, skillId))) return { error: "No such skill.", status: 404 };
+  if (!(await getSkill(db, orgId, skillId, by))) return { error: "No such skill.", status: 404 };
   await db.prepare("INSERT OR IGNORE INTO hx_agent_skills (org_id, agent_id, skill_id, added_by, added_at) VALUES (?1, ?2, ?3, ?4, ?5)")
     .bind(orgId, agentId, skillId, String(by), now()).run();
   return { given: true };
@@ -71,11 +87,22 @@ export async function takeSkill(db, orgId, agentId, skillId) {
   return { taken: true };
 }
 
-export async function skillsOf(db, orgId, agentId) {
+export async function skillsOf(db, orgId, agentId, userId = "") {
   const { results } = await db
-    .prepare("SELECT s.* FROM hx_agent_skills l JOIN hx_skills s ON s.id = l.skill_id WHERE l.org_id = ?1 AND l.agent_id = ?2 ORDER BY s.name COLLATE NOCASE")
-    .bind(orgId, agentId)
-    .all()
-    .catch(() => ({ results: [] }));
+    .prepare(`${skillSelect} JOIN hx_agent_skills l ON l.skill_id = s.id AND l.org_id = s.org_id WHERE s.org_id = ?1 AND l.agent_id = ?2 AND ${skillVisible} ORDER BY s.name COLLATE NOCASE`)
+    .bind(orgId, agentId, String(userId))
+    .all();
   return (results || []).map(pub);
+}
+
+// Private bodies are allowed only in their owner's direct agent conversation.
+// Shared rooms and workflow logs must never inherit a private skill.
+export async function executionSkills(db, orgId, agentId, context = {}) {
+  let privateOwner = '';
+  if (context.userId) {
+    const u = await db.prepare(`SELECT u.login FROM users u JOIN memberships m ON m.user_github_id = u.github_id
+      WHERE m.org_id = ?1 AND u.github_id = ?2 AND m.role != 'guest'`).bind(orgId, String(context.userId)).first();
+    if (u && context.channel === `ag:${agentId}|${u.login}`) privateOwner = String(context.userId);
+  }
+  return skillsOf(db, orgId, agentId, privateOwner);
 }

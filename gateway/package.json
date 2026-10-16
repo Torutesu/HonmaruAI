@@ -1,0 +1,7 @@
+{
+  "name": "honmaru-gateway",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test test/*.test.mjs", "start": "node cli.mjs", "smoke": "node smoke.mjs" },
+  "engines": { "node": ">=22" }
+}
