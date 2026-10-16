@@ -1,3 +1,4 @@
+import { enqueueExecution, jobView } from './executions.js';
 // Outbound-only execution nodes. A node token grants access to one workspace's
 // assigned jobs, never to workspace files, agent memories or integration keys.
 import { member, json } from './routes.js';
@@ -9,7 +10,7 @@ const digest = async value => Array.from(new Uint8Array(await crypto.subtle.dige
 const secret = () => `${crypto.randomUUID()}${crypto.randomUUID()}`;
 const failure = (message, status = 400) => json({ message }, status);
 const activeMember = `EXISTS (SELECT 1 FROM memberships m WHERE m.org_id = hx_gateway_jobs.org_id AND m.user_github_id = hx_gateway_jobs.created_by AND m.role != 'guest')`;
-const jobView = row => row && ({ id: row.id, gatewayId: row.gateway_id, status: row.status, createdAt: row.created_at, startedAt: row.started_at, finishedAt: row.finished_at, result: row.result ? JSON.parse(row.result) : null });
+
 
 export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish))\/?$/.test(pathname);
 
@@ -99,23 +100,9 @@ export async function handleGateways(request, env, url, input) {
       return json({ jobs: (results || []).map(jobView) });
     }
     if (request.method !== 'POST') return failure('Method not allowed.', 405);
-    if (!(await allowed(db, orgId, me, 'harness.build'))) return failure('Execution is not allowed.', 403);
-    const gateway = await db.prepare('SELECT id FROM hx_gateways WHERE org_id = ?1 AND id = ?2 AND revoked_at IS NULL').bind(orgId, String(input.gatewayId || '')).first();
-    if (!gateway) return failure('No such execution node.', 404);
-    if (typeof input.code !== 'string' || !input.code.trim()) return failure('JavaScript code is required.');
-    const payload = JSON.stringify({ code: input.code, input: input.input ?? null });
-    if (new TextEncoder().encode(payload).length > 65536) return failure('Execution input is too large.', 413);
-    const requestId = input.requestId || id();
-    if (typeof requestId !== 'string' || !/^[\w-]{1,80}$/.test(requestId)) return failure('Invalid request ID.');
-    const previous = await db.prepare('SELECT * FROM hx_gateway_jobs WHERE org_id = ?1 AND created_by = ?2 AND request_id = ?3').bind(orgId, me, requestId).first();
-    if (previous) return previous.payload === payload && previous.gateway_id === gateway.id ? json({ job: jobView(previous) }) : failure('Request ID was already used for different input.', 409);
-    const jobIdNew = id();
-    const r = await db.prepare(`INSERT OR IGNORE INTO hx_gateway_jobs (id, org_id, gateway_id, created_by, request_id, payload, status, created_at)
-      SELECT ?1, ?2, ?3, ?4, ?5, ?6, 'queued', ?7 WHERE (SELECT COUNT(*) FROM hx_gateway_jobs WHERE org_id = ?2 AND status IN ('queued', 'running')) < 100
-      AND EXISTS (SELECT 1 FROM hx_gateways WHERE id = ?3 AND org_id = ?2 AND revoked_at IS NULL)`)
-      .bind(jobIdNew, orgId, gateway.id, me, requestId, payload, now()).run();
-    if (!r.meta?.changes) return failure('Queue is full or the request was already submitted. Reload before retrying.', 409);
-    return json({ job: jobView(await db.prepare('SELECT * FROM hx_gateway_jobs WHERE id = ?1').bind(jobIdNew).first()) }, 201);
+    const result = await enqueueExecution(db, orgId, me, input);
+    if (result.error) return failure(result.error, result.status);
+    return json({ job: result.job }, result.statusCode);
   }
   if (parts[2] === 'revoke' && request.method === 'POST') {
     if (!admin) return failure('Only an administrator can revoke an execution node.', 403);

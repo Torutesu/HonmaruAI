@@ -53,9 +53,10 @@ const EVENT_WORD: Record<string, string> = {
 const SCOPE_WORD: Record<string, string> = {
   read: 'Read decisions, people and the playbook',
   write: 'Ask for decisions',
+  execute: 'Run isolated JavaScript on trusted execution nodes',
   'audit:read': 'Read the audit log (admins)',
 }
-const SCOPE_CHIP: Record<string, string> = { read: 'Read', write: 'Ask', 'audit:read': 'Audit log' }
+const SCOPE_CHIP: Record<string, string> = { read: 'Read', write: 'Ask', execute: 'Execute', 'audit:read': 'Audit log' }
 
 /// One attempt to deliver a webhook, as the Worker keeps it.
 interface Delivery {

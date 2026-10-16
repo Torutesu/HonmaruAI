@@ -41,7 +41,7 @@ const TOKEN_PREFIX = "hm_";
 /// `write` asks for decisions; `audit:read` reads the audit log (and only
 /// an admin's token can use it). A token made before scopes had read and
 /// write, and keeps them.
-export const SCOPES = ["read", "write", "audit:read"];
+export const SCOPES = ["read", "write", "execute", "audit:read"];
 const LEGACY_SCOPES = ["read", "write"];
 const TOOL_SCOPE = { request_decision: "write" };
 

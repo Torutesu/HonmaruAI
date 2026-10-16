@@ -38,9 +38,9 @@ export async function processOne(call, { signal, run = runIsolated } = {}) {
   } finally { clearInterval(heartbeat); signal?.removeEventListener('abort', abort); }
 }
 
-export async function serve(call, { signal, once = false, onError = () => {} } = {}) {
+export async function serve(call, { signal, once = false, onError = () => {}, beforeClaim = async () => {} } = {}) {
   while (!signal?.aborted) {
-    try { await processOne(call, { signal }); }
+    try { await beforeClaim(); if (!signal?.aborted) await processOne(call, { signal }); }
     catch (error) {
       // Authentication revocation is terminal. Never log the token or payload.
       if ([401, 403].includes(error.status)) throw error;

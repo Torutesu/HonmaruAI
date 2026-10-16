@@ -54,3 +54,38 @@ test("in a harness workspace an agent reads an app's numbers, adds a row, and ne
   const found = (await tool(reader, "query_rows", { tableId: app.tableId, where: { Stage: "Lead" } })).result.structuredContent;
   expect(found.rows.map((r) => r.company).sort()).toEqual(["Hooli", "Initech"]);
 });
+
+test('node execution requires execute scope, preserves ownership and leaves Simple unchanged', async () => {
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
+  const { gateway, token: nodeToken } = await (await call('/gateways', { method: 'POST', headers: headers(toru), body: JSON.stringify({ orgId: ORG, name: 'Mac mini' }) })).json();
+  const writer = await mint(['read', 'write']), executor = await mint(['read', 'execute']);
+  expect(await names(writer)).not.toContain('run_javascript');
+  expect(await names(executor)).toContain('run_javascript');
+  const args = { gatewayId: gateway.id, requestId: 'agent-op-1', code: 'return input * 2', input: 21 };
+  expect((await tool(writer, 'run_javascript', args)).result.isError).toBe(true);
+  const queued = (await tool(executor, 'run_javascript', args)).result.structuredContent.job;
+  expect(queued.status).toBe('queued');
+  expect((await tool(executor, 'run_javascript', args)).result.structuredContent.job.id).toBe(queued.id);
+  expect((await tool(executor, 'run_javascript', { ...args, code: 'return 0' })).result.isError).toBe(true);
+  const nodeCall = async (path, body) => (await call('/gateways/' + path, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${nodeToken}` }, body: JSON.stringify(body) })).json();
+  const { job } = await nodeCall('claim', {});
+  expect(job.id).toBe(queued.id);
+  await nodeCall(`jobs/${job.id}/finish`, { lease: job.lease, status: 'succeeded', stdout: '42', exitCode: 0 });
+  expect((await tool(executor, 'get_execution', { jobId: job.id })).result.structuredContent.job).toMatchObject({ status: 'succeeded', result: { stdout: '42' } });
+  const { upsertUser, upsertMembership } = await import('../src/db.js');
+  const { callExecutionTool, executionAgentTools } = await import('../src/harness/executionTools.js');
+  await upsertUser(env.DB, { githubId: '9402', login: 'other', name: 'Other' });
+  await upsertMembership(env.DB, ORG, '9402', 'admin');
+  const other = { orgId: ORG, githubId: '9402' };
+  expect((await callExecutionTool(env, other, 'get_execution', { jobId: job.id })).isError).toBe(true);
+  expect((await callExecutionTool(env, other, 'cancel_execution', { jobId: job.id })).isError).toBe(true);
+  const context = { orgId: ORG, session: { github_id: '9401' }, personal: true, ownAgentsOnly: true };
+  expect(Object.keys(await executionAgentTools(env, context))).toContain('run_javascript');
+  expect(await executionAgentTools(env, { ...context, personal: false })).toEqual({});
+  expect(await executionAgentTools(env, { ...context, ownAgentsOnly: false })).toEqual({});
+  const next = (await tool(executor, 'run_javascript', { ...args, requestId: 'cancel-me' })).result.structuredContent.job;
+  expect((await tool(executor, 'cancel_execution', { jobId: next.id })).result.structuredContent.job.status).toBe('cancelled');
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'simple' }) });
+  expect(await names(executor)).not.toContain('run_javascript');
+  expect(await executionAgentTools(env, context)).toEqual({});
+});

@@ -34,7 +34,10 @@ submission retries. Results are visible only to the requesting member, even for 
 - Image pinned in `gateway/runner.mjs` (official Node 22 Alpine image).
 - Real VM smoke passed: result 42, Linux non-root UID, host home absent, root read-only,
   outbound network unavailable, runaway loop terminated, no containers left running.
-- No production node/token has been registered by this setup.
+- Production Select workspace: Mac mini registered and connected with explicit user approval on 2026-10-16.
+- Token stored outside the repository in an owner-only directory/file (0700/0600).
+- Production UI round trip passed at 20:54 JST: `return input * 2`, input `21`, status `succeeded`, output `42`; no containers remained afterward.
+- On 2026-10-17, installed the user LaunchAgent `com.honmaru.gateway`; runtime and Node are snapshotted outside the checkout. Reboot/login persistence is configured; a physical reboot has not been performed.
 
 Official runtime architecture: https://github.com/apple/container/blob/main/docs/technical-overview.md
 Official release: https://github.com/apple/container/releases/tag/1.5.0
@@ -56,7 +59,7 @@ operator's local session (do not commit a token or paste it into chat):
 Run `node gateway/cli.mjs`. `--once` processes at most one job for diagnostics.
 A restart uses the same credential; revoke it in Honmaru if lost. Registration is
 limited to five active nodes per workspace. Ctrl-C stops the loop and current job.
-The gateway itself is not installed as an always-on background service yet.
+The gateway can be installed as a user LaunchAgent with `node gateway/install-service.mjs /absolute/path/to/config.json`. It reconnects after login following a reboot, retries network/runtime outages, and restarts after a crash. FileVault unlock and user login are required; it cannot receive work while the Mac is asleep. The installer snapshots the Node executable and gateway source outside the checkout. Authentication revocation stops the service until an operator intervenes.
 
 Run `node --test gateway/test/*.test.mjs` for client/argument tests, and
 `node gateway/smoke.mjs` for the actual VM isolation checks. The latter requires the
@@ -70,10 +73,18 @@ This is a foundation, not a hosted service readiness declaration. Outstanding:
 - Fleet attestation, durable cleanup verification, resource pressure admission and health alerts.
 - Per-customer storage, encrypted secrets, retention/deletion controls, audit/export and quotas.
 - Controlled egress and file exchange; the initial runner deliberately offers neither.
-- Agent tools/workflows and Codex/Claude CLI integration; this screen runs explicit JavaScript only.
-- Always-on startup, Mac sleep/reboot/reconnect and power-loss operational tests.
+- Workflow steps and richer browser/file workloads. MCP now exposes isolated JavaScript execution to clients with explicit `execute` scope.
+- Physical reboot, Mac sleep and power-loss operational tests (login startup and process crash recovery are configured).
 - Custom app hosting, browser sessions, commercial terms and provider licensing review.
 
 Never place mutually untrusted customers on an operator-controlled node without a
 reviewed tenancy model. Keep the control API compatible so nodes can later move from
 a Mac mini to a dedicated fleet without coupling execution to Simple Honmaru.
+
+## Agent execution
+
+Harness-mode MCP clients can use `list_execution_nodes`, `run_javascript`, `get_execution`, and `cancel_execution`. Reads require `read`; enqueue/cancel require the new `execute` scope. Existing read/write keys do not gain execution access. Use a stable requestId for submission retries, then read the job until terminal; queued is not success. Results remain requester-only, including against administrators.
+
+Built-in agents receive these tools only in an unthreaded personal DM when all responding agents belong to the asker and an active node exists. Shared rooms, other people's agents and Simple workspaces receive no execution tools. Current model-provider tool support still applies. A node operator can read submitted code/input; do not submit credentials.
+
+Service config fields: `apiUrl`, `tokenFile`, `containerBinary`, `containerInstallRoot`, `containerAppRoot` (all file paths absolute). Keep tokenFile owner-only. On this Mac configuration lives under `~/.local/share/honmaru/gateway/`; launchd contains paths only, not the token. To stop: `launchctl bootout gui/$(id -u)/com.honmaru.gateway`. To restart an installed service: `launchctl kickstart gui/$(id -u)/com.honmaru.gateway`. Updating the service requires rerunning the installer.
