@@ -1,3 +1,7 @@
+import { Markdown } from '../utils/markdown'
+import { useMembers, type Mentionable } from '../utils/mentions'
+import { Avatar } from '../components/Avatar'
+import { AgentAvatar } from '../components/AgentAvatar'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
@@ -8,7 +12,7 @@ import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 // An agent is still written on the Agents screen; this is where it gets a
 // specialty, a tier, a memory, skills, and a say in who may call it.
 
-interface AgentFace { id: string; handle: string; name: string; emoji?: string | null; description?: string; scope?: string; mine?: boolean }
+interface AgentFace { avatarUrl?: string | null; instructions?: string; id: string; handle: string; name: string; emoji?: string | null; description?: string; scope?: string; mine?: boolean }
 
 const TIER_HINT: Record<AgentProfile['tier'], string> = {
   lite: 'Fast and cheap, for simple work.',
@@ -16,11 +20,14 @@ const TIER_HINT: Record<AgentProfile['tier'], string> = {
   max: 'The strongest model, for hard work.',
 }
 
-export const HarnessAgents: React.FC<HarnessProps> = (props) => {
+export const HarnessAgents: React.FC<HarnessProps & { onMessage?: (id: string) => void; onManageAgents?: () => void; onManageTeam?: () => void }> = (props) => {
   const t = useT()
   const api = useApi(props)
   const [agents, setAgents] = useState<AgentFace[] | null>(null)
   const [open, setOpen] = useState<AgentFace | null>(null)
+  const [person, setPerson] = useState<Mentionable | null>(null)
+  const [filter, setFilter] = useState<'all' | 'people' | 'agents'>('all')
+  const members = useMembers(props.httpBase, props.orgId, props.sessionToken)
   const { error, act } = useAct()
   useEffect(() => {
     act('load', async () => {
@@ -31,30 +38,28 @@ export const HarnessAgents: React.FC<HarnessProps> = (props) => {
     })
   }, [act, props.httpBase, props.orgId, props.sessionToken])
 
-  if (open) return <AgentMember {...props} agent={open} onBack={() => setOpen(null)} />
-  return (
-    <Shell title={t('Agent team')} onClose={props.onClose}>
-      <p className="lede">{t('Agents are members of the team: each with a specialty, a memory of its own, skills, and the people who may call it.')}</p>
-      {error && <div className="form-error">{error}</div>}
-      {agents === null && <div className="empty">{t('Loading…')}</div>}
-      {agents?.length === 0 && <div className="empty">{t('No agents yet. Write one on the Agents screen, then give it a role here.')}</div>}
-      <div className="rows">
-        {agents?.map((a) => (
-          <button key={a.id} className="row" onClick={() => { void api; setOpen(a) }} data-agent={a.id}>
-            <span className="row-icon hx-emoji">{a.emoji || '🤖'}</span>
-            <span className="row-main">{a.name} <span className="row-sub">@{a.handle}{a.description ? ` · ${a.description}` : ''}</span></span>
-            <span className="row-value">›</span>
-          </button>
-        ))}
+  return <div className="screen hx-members-screen">
+    <aside className="hx-members-list">
+      <header className="hx-chat-top"><h1>{t('Members')}</h1><details className="hx-member-add"><summary aria-label={t('New')}><Icon name="plus" size={17} /></summary><div className="hx-rail-menu"><button onClick={props.onManageTeam}>{t('Invite people')}</button><button onClick={props.onManageAgents}>{t('New agent')}</button></div></details></header>
+      <div className="hx-chat-filters" role="tablist" aria-label={t('Members')}>
+        {(['all', 'people', 'agents'] as const).map(f => <button key={f} role="tab" aria-selected={filter === f} onClick={() => setFilter(f)}>{t(f === 'all' ? 'All' : f === 'people' ? 'People' : 'Agents')}</button>)}
       </div>
-    </Shell>
-  )
+      {error && <p role="alert">{error}</p>}
+      {filter !== 'agents' && members.map(m => <button className={`hx-member-row${person?.ref === m.ref ? ' on' : ''}`} key={m.ref} onClick={() => { setPerson(m); setOpen(null) }}><Avatar name={m.name} url={m.avatarUrl} round size={40} /><span><b>{m.name}</b><small>{m.mine ? t('You') : t('Member')}</small></span></button>)}
+      {filter !== 'people' && agents?.map(a => <button className={`hx-member-row${open?.id === a.id ? ' on' : ''}`} key={a.id} onClick={() => { setOpen(a); setPerson(null) }} data-agent={a.id}><AgentAvatar agent={a} className="hx-member-avatar" /><span><b>{a.name}</b><small>{t('Agent')}{a.scope === 'personal' ? ` · ${t('Only you')}` : ''}</small></span></button>)}
+      {agents === null && <p className="hx-members-note">{t('Loading…')}</p>}
+    </aside>
+    <main className="hx-member-detail">
+      {open ? <AgentMember key={open.id} {...props} agent={open} onBack={() => setOpen(null)} onMessage={() => props.onMessage?.(open.id)} onEdit={props.onManageAgents} /> : person ? <div className="hx-person-profile"><Avatar name={person.name} url={person.avatarUrl} round size={64} /><h1>{person.name}</h1>{person.handle && <p>@{person.handle}</p>}<button className="pill-btn" onClick={props.onManageTeam}>{t('Team settings')}</button></div> : <div className="hx-member-empty"><Icon name="you" size={32} /><p>{t('Choose a member')}</p></div>}
+    </main>
+  </div>
 }
 
-const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => void }> = (props) => {
+const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => void; onMessage?: () => void; onEdit?: () => void }> = (props) => {
   const t = useT()
   const api = useApi(props)
   const { agent } = props
+  const [section, setSection] = useState<'profile' | 'skills' | 'memory' | 'followups'>('profile')
   const [profile, setProfile] = useState<AgentProfile | null>(null)
   const [canEdit, setCanEdit] = useState(false)
   const [memories, setMemories] = useState<AgentMemory[]>([])
@@ -90,7 +95,10 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
   return (
     <Shell title={`${agent.emoji || '🤖'} ${agent.name}`} onClose={props.onBack} nested actions={saved ? <span className="row-sub">{t('Saved.')}</span> : null}>
       {error && <div className="form-error">{error}</div>}
-      <div className="rows-title">{t('Role')}</div>
+      <div className="hx-profile-heading"><AgentAvatar agent={agent} className="hx-profile-avatar" /><h1>{agent.name}</h1><button className="pill-btn quiet" onClick={props.onMessage} aria-label={t('Message')}><Icon name="message" size={18} /></button></div>
+      <div className="hx-profile-tabs" role="tablist">{(['profile','skills','memory','followups'] as const).map(key => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)}>{t(key === 'profile' ? 'Profile' : key === 'skills' ? 'Skills' : key === 'memory' ? 'Memory' : 'Follow-ups')}</button>)}</div>
+      {section === 'profile' && <>
+      <div className="rows-title">{t('Profile')}</div>
       <div className="rows">
         <div className="row static">
           <span className="row-main">{t('Specialty')}
@@ -127,6 +135,9 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
         </div>
       </div>
 
+      <section className="hx-persona"><header><span>{t('Persona')}</span>{canEdit && <button onClick={props.onEdit} aria-label={t('Edit')}><Icon name="edit" size={16} /></button>}</header><p>{agent.description}</p><div className="hx-persona-text"><Markdown source={agent.instructions || t('Edit this agent to set its instructions.')} /></div></section>
+      </>}
+      {section === 'skills' && <>
       <div className="rows-title">{t('Skills')}</div>
       <p className="row-sub">{t('Private skills run only in their owner’s direct agent conversation, including follow-ups. They are excluded from shared rooms and workflows.')}</p>
       <div className="rows">
@@ -142,6 +153,8 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
         ))}
       </div>
 
+      </>}
+      {section === 'memory' && <>
       <div className="rows-title">{t('Memory')}</div>
       <select aria-label={t('Memory conversation')} value={memoryChannel} disabled={busy !== null} onChange={e => { memoryLoad.current++; setMemories([]); setMemoryChannel(e.target.value) }}>
         <option value="">{t('Shared knowledge')}</option>
@@ -165,6 +178,8 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
         ))}
       </div>
 
+      </>}
+      {section === 'followups' && <>
       <div className="rows-title">{t('Follow-ups')}</div>
       <div className="rows">
         {followups.length === 0 && <div className="row static"><span className="row-sub">{t('Nothing scheduled. In a chat: “@{handle} follow up in 3 days: …”.', { handle: agent.handle })}</span></div>}
@@ -176,6 +191,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
           </div>
         ))}
       </div>
+      </>}
     </Shell>
   )
 }
