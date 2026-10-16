@@ -51,7 +51,9 @@ export interface Workflow {
 export interface RunLog { step: number; type: StepType; status: string; output?: string; error?: string; at: string }
 export interface Run { id: string; trigger: string; status: string; log: RunLog[]; startedAt: string; finishedAt: string | null; cardId: string | null }
 export interface Followup { id: string; channel: string; instruction: string; dueAt: string; status: string; agentId: string | null }
-export interface Skill { id: string; name: string; description: string; body: string; agents?: string[]; createdBy: string }
+export interface Gateway { id: string; name: string; createdAt: number; lastSeenAt: number | null; revokedAt: number | null }
+export interface GatewayJob { id: string; gatewayId: string; status: string; createdAt: number; result: { stdout?: string; stderr?: string; error?: string; exitCode?: number | null } | null }
+export interface Skill { visibility?: 'workspace' | 'private'; accessVersion?: number; canShare?: boolean; canEdit?: boolean; id: string; name: string; description: string; body: string; agents?: string[]; createdBy: string }
 export interface AgentProfile { specialty: string; tier: 'lite' | 'standard' | 'max'; mentionOnly: boolean; access: 'everyone' | 'people' | 'private'; people: string[] }
 export interface HomeData {
   mode: WorkspaceMode
@@ -85,6 +87,12 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     return data as T
   }
   return {
+    gateways: () => call<{ gateways: Gateway[]; canManage: boolean }>('GET', '/gateways'),
+    registerGateway: (name: string) => call<{ gateway: Gateway; token: string }>('POST', '/gateways', { name }),
+    revokeGateway: (id: string) => call('POST', `/gateways/${encodeURIComponent(id)}/revoke`),
+    gatewayJobs: () => call<{ jobs: GatewayJob[] }>('GET', '/gateways/jobs'),
+    execute: (gatewayId: string, code: string, input: unknown, requestId: string) => call<{ job: GatewayJob }>('POST', '/gateways/jobs', { gatewayId, code, input, requestId }),
+    cancelExecution: (id: string) => call('POST', `/gateways/jobs/${encodeURIComponent(id)}/cancel`),
     home: () => call<HomeData>('GET', '/harness/home'),
     getMode: () => call<{ mode: WorkspaceMode; canEdit: boolean }>('GET', '/orgs/mode'),
     setMode: (mode: WorkspaceMode) => call<{ mode: WorkspaceMode; canEdit: boolean }>('PUT', '/orgs/mode', { mode }),
@@ -121,7 +129,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     }>('GET', '/approvals'),
 
     skills: () => call<{ skills: Skill[] }>('GET', '/skills'),
-    createSkill: (s: { name: string; description?: string; body: string }) => call<{ skill: Skill }>('POST', '/skills', s),
+    setSkillAccess: (id: string, visibility: 'workspace' | 'private', version: number) => call('PUT', `/skills/${id}/access`, { visibility, version }),
+    createSkill: (s: { name: string; description?: string; body: string; visibility?: 'workspace' | 'private' }) => call<{ skill: Skill }>('POST', '/skills', s),
     updateSkill: (id: string, s: Partial<Skill>) => call<{ skill: Skill }>('PUT', `/skills/${id}`, s as Record<string, unknown>),
     deleteSkill: (id: string) => call<{ deleted: boolean }>('DELETE', `/skills/${id}`),
 

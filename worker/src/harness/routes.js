@@ -1,3 +1,5 @@
+import { handleGateways, isGatewayNodeRoute } from './gateways.js';
+import { setSkillAccess } from './skillAccess.js';
 import { tableContract } from "./tableContract.js";
 import { appAccess, mayUseApp, mayUseTable, setAppAccess, visibleResources } from './resourceAccess.js';
 import { mayUseConversation } from './conversationAccess.js';
@@ -47,7 +49,7 @@ export function json(body, status = 200) {
 const fail = (result) => json({ message: result.error, ...(result.fields ? { fields: result.fields } : {}) }, result.status || 400);
 
 /// The paths this module answers.
-const OURS = /^\/(orgs\/mode|tables|apps|skills|hx|workflows|followups|approvals|harness\/home)(\/|$)/;
+const OURS = /^\/(orgs\/mode|tables|apps|skills|gateways|hx|workflows|followups|approvals|harness\/home)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
 export async function member(env, request, orgId) {
@@ -72,7 +74,7 @@ async function mayChange(env, orgId, who, createdBy) {
 export async function handleHarness(request, env, url) {
   if (!OURS.test(url.pathname)) return null;
   if (request.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
-  const limited = await enforce(env, request, "team");
+  const limited = await enforce(env, request, isGatewayNodeRoute(url.pathname) ? "gateway/edge" : "team");
   if (limited) return limited;
 
   const read = request.method === "GET" || request.method === "DELETE";
@@ -80,6 +82,8 @@ export async function handleHarness(request, env, url) {
   if (!read && !input) return json({ message: "Invalid JSON body." }, 400);
   const orgId = read ? url.searchParams.get("orgId") : input.orgId;
   const parts = url.pathname.split("/").filter(Boolean);
+
+  if (parts[0] === 'gateways') return handleGateways(request, env, url, input);
 
   // ── Mode ──────────────────────────────────────────────────────────────
   if (url.pathname === "/orgs/mode") {
@@ -264,22 +268,33 @@ export async function handleHarness(request, env, url) {
   if (parts[0] === "skills") {
     const [, skillId] = parts;
     if (!skillId) {
-      if (request.method === "GET") return json({ skills: await listSkills(env.DB, orgId) });
+      if (request.method === "GET") {
+        const skills = await listSkills(env.DB, orgId, me);
+        for (const skill of skills) skill.canEdit = await mayChange(env, orgId, who, skill.createdBy);
+        return json({ skills });
+      }
       if (request.method === "POST") {
         const r = await createSkill(env.DB, orgId, input, me);
         return r.error ? fail(r) : json(r, 201);
       }
       return null;
     }
-    const skill = await getSkill(env.DB, orgId, skillId);
+    const skill = await getSkill(env.DB, orgId, skillId, me);
     if (!skill) return json({ message: "No such skill." }, 404);
+    if (parts[2] === 'access' && request.method === 'PUT') {
+      const r = await setSkillAccess(env.DB, orgId, skillId, me, input);
+      return r.error ? fail(r) : json(r);
+    }
     if (request.method === "GET") return json({ skill });
     if (!(await mayChange(env, orgId, who, skill.createdBy))) return json({ message: "Only its maker or an admin can change this skill." }, 403);
     if (request.method === "PUT") {
-      const r = await updateSkill(env.DB, orgId, skillId, input);
+      const r = await updateSkill(env.DB, orgId, skillId, input, me);
       return r.error ? fail(r) : json(r);
     }
-    if (request.method === "DELETE") return json(await deleteSkill(env.DB, orgId, skillId));
+    if (request.method === "DELETE") {
+      const r = await deleteSkill(env.DB, orgId, skillId, me);
+      return r.error ? fail(r) : json(r);
+    }
     return null;
   }
 
@@ -346,14 +361,16 @@ export async function handleHarness(request, env, url) {
       }
     }
     if (sub === "skills") {
-      if (request.method === "GET") return json({ skills: await skillsOf(env.DB, orgId, agentId) });
+      if (request.method === "GET") return json({ skills: await skillsOf(env.DB, orgId, agentId, me) });
       if (request.method === "POST") {
         const r = await giveSkill(env.DB, orgId, agentId, input.skillId, me);
         return r.error ? fail(r) : json(r);
       }
       if (request.method === "DELETE") {
         if (!canEdit) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
-        return json(await takeSkill(env.DB, orgId, agentId, parts[4] || url.searchParams.get("skillId") || ""));
+        const id = parts[4] || url.searchParams.get("skillId") || "";
+        if (!(await getSkill(env.DB, orgId, id, me))) return json({ message: 'No such skill.' }, 404);
+        return json(await takeSkill(env.DB, orgId, agentId, id));
       }
     }
     return null;

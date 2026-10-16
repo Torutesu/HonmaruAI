@@ -14,6 +14,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  gateway:
+    name: Local gateway
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --test gateway/test/*.test.mjs
+
   # The Worker suite runs against real workerd, so a pass here means the relay,
   # the gate and the connectors behave the way they will in production — not the
   # way a mock was told to.

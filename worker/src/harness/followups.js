@@ -105,7 +105,7 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
       const complete = payer ? await completer(env, r.org_id, payer, "followup", { json: false, maxTokens: 800 }) : null;
       if (complete) {
         const prepared = agentRow
-          ? await prepareAgent(env, r.org_id, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: r.channel || "" })
+          ? await prepareAgent(env, r.org_id, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: r.channel || "", userId: r.created_by })
           : { agent: { name: "AI", handle: "AI", instructions: "You are the team's AI." } };
         const agent = await withRoomGuidelines(env.DB, r.org_id, r.channel, prepared.agent);
         const answer = await complete(

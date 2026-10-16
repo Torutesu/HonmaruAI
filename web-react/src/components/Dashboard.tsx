@@ -1,3 +1,4 @@
+const HarnessGateways = React.lazy(() => import('../screens/HarnessGateways'))
 import { channelMessageCache } from '../utils/channelMessageCache'
 import { setQuietState, getQuietState, onQuietChange, type QuietState } from '../utils/quiet'
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
@@ -90,7 +91,7 @@ const DECIDED_WORD: Record<string, string> = {
 /// The shell around the feed. The feed is the screen; everything else —
 /// telling your AI something, what you sent, what you decided, the team —
 /// is a sheet over it that closes back to the feed.
-const HARNESS_SCREENS = new Set<Screen>(['home', 'harness', 'apps', 'workflows', 'approvals', 'skills', 'hxagents'])
+const HARNESS_SCREENS = new Set<Screen>(['home', 'harness', 'apps', 'workflows', 'approvals', 'skills', 'hxagents', 'gateways'])
 
 export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout, onSwitchOrg, onLeft }) => {
   const t = useT()
@@ -1360,6 +1361,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       {screen === 'workflows' && <HarnessWorkflows httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'approvals' && <HarnessApprovals httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'skills' && <HarnessSkills httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
+      {screen === 'gateways' && <HarnessGateways key={`${orgId}:${sessionToken}`} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'hxagents' && <HarnessAgents httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'plans' && (
         <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} orgId={orgId} onClose={closeScreen} />

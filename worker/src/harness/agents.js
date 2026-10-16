@@ -189,7 +189,7 @@ export async function prepareAgent(env, orgId, agent, provider, context = {}) {
   const [profile, memories, skills] = await Promise.all([
     getProfile(env.DB, orgId, agent.id),
     listAgentMemories(env.DB, orgId, agent.id, context),
-    (async () => { const { skillsOf } = await import("./skills.js"); return skillsOf(env.DB, orgId, agent.id); })(),
+    (async () => { const { executionSkills } = await import("./skills.js"); return executionSkills(env.DB, orgId, agent.id, context); })(),
   ]);
   const blocks = [];
   if (profile.specialty) blocks.push(`Your specialty: ${profile.specialty}`);

@@ -1,6 +1,27 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Execution nodes": "実行ノード",
+  "Run isolated jobs on your own machines.": "自分のマシンで隔離されたジョブを実行します。",
+  "JavaScript runs without network or host files, with a 60-second limit. Results are visible only to the requester.": "JavaScriptをネットワーク・ホスト側ファイルへのアクセスなしで最大60秒実行します。結果は依頼者だけに表示されます。",
+  "Node name": "ノード名",
+  "Register only a trusted machine. Its operator can read the code and input sent to it. The token grants access to that node’s jobs.": "信頼できるマシンだけを登録してください。管理者は送信されたコードと入力を読むことができます。トークンはそのノードのジョブへのアクセスを許可します。",
+  "Register node": "ノードを登録",
+  "Save this token securely. It is shown only once. Set HONMARU_GATEWAY_TOKEN on the trusted machine, then start the gateway.": "トークンは一度だけ表示されます。安全に保存し、信頼できるマシンのHONMARU_GATEWAY_TOKENに設定してゲートウェイを起動してください。",
+  "Node token": "ノードトークン",
+  "I have saved the token": "トークンを保存しました",
+  "Last seen": "最終接続",
+  "Not connected yet": "未接続",
+  "Revoke and cancel jobs": "無効化してジョブを取り消す",
+  "Run JavaScript": "JavaScriptを実行",
+  "Execution node": "実行ノード",
+  "Input (JSON)": "入力（JSON）",
+  "Your execution history": "自分の実行履歴",
+
+  'Skill visibility': 'スキルの公開範囲',
+  'New skills are private. Share them with the workspace after saving.': '新しいスキルは非公開です。保存後にワークスペースへ共有できます。',
+  'Private skills run only in their owner’s direct agent conversation, including follow-ups. They are excluded from shared rooms and workflows.': '非公開スキルは所有者とエージェントの直接会話（フォローアップを含む）だけで使われます。共有ルームとワークフローでは使われません。',
+
   'This agent is personal. Its owner can share it from the Agents screen.': 'このエージェントは作成者専用です。所有者はエージェント画面から共有に変更できます。',
   "Sound could not play. Check your browser and audio output settings.": "音を再生できませんでした。ブラウザーと音声出力の設定を確認してください。",
   "Notification sounds": "通知音",

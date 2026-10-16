@@ -39,7 +39,7 @@
 | KY-020 | 実行停止・キャンセル伝播 | 一部 | P0 | [worker/src/agentRunner.js](../../worker/src/agentRunner.js) | 停止でモデル・ツール・子実行を中断し課金とUI状態を確定 |
 | KY-021 | ターンごとの実行プロセス | 一部 | P1 | [worker/src/agentRunner.js](../../worker/src/agentRunner.js) | 開始/ツール/失敗/完了を永続化し権限ある人だけ追跡 |
 | KY-022 | クラウド隔離コンピューター | 未実装 | P0 | [worker/src/agentRunner.js](../../worker/src/agentRunner.js) | 任意コード・ファイル・ネットワークを実行単位で隔離 |
-| KY-023 | ローカルゲートウェイ・再接続 | 未実装 | P1 | [worker/src/teammates.js](../../worker/src/teammates.js) | 接続済みPCで実行しスリープ・再接続・二重配信を扱う |
+| KY-023 | ローカルゲートウェイ・再接続 | 一部 | P1 | [worker/src/harness/gateways.js](../../worker/src/harness/gateways.js) | Mac miniの隔離JS・認証・lease・取消を実装。スリープ/再起動/常駐・エージェント実ツール連携は残る |
 | KY-024 | Codex/Claude Code/Devinの実行選択 | 一部 | P1 | [worker/src/teammates.js](../../worker/src/teammates.js) | クラウドAPI接続とローカルCLIを区別して実機で検証 |
 | KY-025 | ACP接続契約 | 未実装 | P2 | [worker/src/teammates.js](../../worker/src/teammates.js) | initialize/session/prompt/cancelと認証・権限更新・切断を検証 |
 | KY-026 | 既存ChatGPT契約でクラウドCodex | 要検証 | P2 | [worker/src/teammates.js](../../worker/src/teammates.js) | 提供元条件と対応実行方式の確認後に隔離環境で検証 |
@@ -66,7 +66,7 @@
 | KY-033 | SKILL.mdパッケージと補助ファイル | 未実装 | P1 | [worker/src/harness/skills.js](../../worker/src/harness/skills.js) | frontmatter検証・scripts/templatesの相対パス・安全な展開 |
 | KY-034 | 必要時にスキル本文を読む | 未実装 | P1 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 現状の全文注入を索引＋必要時読込みへ変更 |
 | KY-035 | 組み込みスキル群 | 一部 | P1 | [worker/src/agentPresets.js](../../worker/src/agentPresets.js) | アプリ開発・資料・調査・ブラウザ・データ作業を個別検証 |
-| KY-036 | private/publicと人間の所有者 | 未実装 | P0 | [worker/src/harness/skills.js](../../worker/src/harness/skills.js) | 非公開スキル本文・資産を非許可者から隔離 |
+| KY-036 | private/publicと人間の所有者 | 一部 | P0 | [worker/src/harness/skills.js](../../worker/src/harness/skills.js) | 本文のprivate/workspace・所有者の共有変更・実行時隔離。パッケージ資産とgrantモデルは残る |
 | KY-037 | 共有URL・期限・失効・インポート | 未実装 | P2 | [worker/src/harness/skills.js](../../worker/src/harness/skills.js) | 複製は非公開・失効後ダウンロード不可・既存コピーとの区別 |
 
 ## Apps

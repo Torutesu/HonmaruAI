@@ -1,3 +1,4 @@
+import { expireGatewayJobs } from './harness/gateways.js';
 import { drainCardNotifications } from './notificationJobs.js';
 import { notifyCardNow } from './notify.js';
 import { routeInstruction } from "./routing.js";
@@ -215,6 +216,7 @@ export default {
       ctx.waitUntil(drainCardNotifications(env, notifyCardNow).catch(() => console.error("notification retry drain failed")));
       ctx.waitUntil(runMinuteJobs(env, { now: new Date(event?.scheduledTime || Date.now()), broadcast: (orgId, key, row) => broadcastStored(env, orgId, key, row) })
         .catch((err) => console.error("minute jobs failed", err?.message || err)));
+      ctx.waitUntil(expireGatewayJobs(env.DB).catch(() => console.error("gateway expiry failed")));
       // The harness: follow-ups and scheduled workflows whose time has come.
       ctx.waitUntil(runDueFollowups(env, { now: new Date(event?.scheduledTime || Date.now()) }).catch((err) => console.error("follow-ups failed", err?.message || err)));
       ctx.waitUntil(runDueWorkflows(env, { now: new Date(event?.scheduledTime || Date.now()) }).catch((err) => console.error("workflows failed", err?.message || err)));

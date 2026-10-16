@@ -4,7 +4,7 @@
 
 - 既存の判断カード・フィード・チャット・Routines・Playbookと既存クライアントを維持する。
 - 新規・既存workspaceの既定はSimple。既存APIとschemaを破壊しない。
-- modeは表示。データ保持・アクセス権・監査・保存済みルームルールはmodeで無効にしない。
+- modeは主に表示と新規作成時の初期設定を決める。保存済みのデータ保持・アクセス権・監査・ルームルールはmodeで無効にしない。
 - Harnessのコードは追加モジュール・遅延ロード。SimpleにApp builder/gatewayの必須起動や課金を持ち込まない。
 - 画面を隠すことと、自動化を停止することは別。Simpleに戻しても保存済み自動化は既存スケジュールで動く。停止は自動化の操作として明示する。
 
@@ -88,3 +88,30 @@ run開始時に定義スナップショットを原子的に保存。再開時�
 `/tables/:id/contract` は現在のテーブル定義からOpenAPI 3.1を生成する。`validation: "strict"` を選ぶ書き込みだけに、同じ定義に基づく型・列ID・形式の検証を適用する。既存のSimple/agent/workflowクライアントの値変換を突然変更しない。契約は現時点のスナップショットで、スキーマ変更との競合や契約バージョンの固定は今後の課題。
 
 行の更新・削除はDBで `updated_at` の一致を条件に実行する。新Webは読み取った `updatedAt` を `expectedUpdatedAt` として送り、MCPも同じ引数を受け付ける。時刻は更新ごとに最低1ms進めるため、同一ミリ秒の連続更新でもトークンを再利用しない。409の操作では後続ワークフローを発火しない。古いクライアントがトークンを送らない場合もサーバー内の読取/更新間の競合は検知するが、ユーザーが古い画面を見ていたかは判定できない。
+
+
+## Harnessエージェントの初期公開範囲
+
+標準作成・Markdown取込は、サーバーのworkspace modeがHarnessの場合にpersonal scopeで作成する。ブラウザのSimple優先設定は初期公開範囲を変更しない。profileを同一batchで保存し、profileのない旧エージェント向けルーム配置互換を新規エージェントへ適用しない。profileのaccessはscopeの制限に追加する条件であり、personal scopeの間はeveryoneでも作成者以外を許可しない。UIも実効的な公開範囲を表示する。
+
+所有者は作成後の編集でteam scopeへ変更できる。既存レコードのscopeは移行しない。Simpleで作成する旧経路、Studioで外部providerを登録する経路は今回の変更対象外。独立したAgent Admin/Memberと所有者移譲は別の未完了項目。
+
+
+## スキルの所有者と非公開本文
+
+`hx_skill_access` のない既存スキルはworkspace共有を保持する。旧APIクライアントの省略値もworkspaceを保持し、新Webの作成フォームは明示的にprivateを指定する。作成とpolicyを同一batchで保存する。所有者だけがversion付きで共有範囲を変更でき、privateにはworkspace adminの迂回を設けない。公開済みスキルへの従来の管理者編集権は保持する。
+
+private本文を呼出者へ渡すだけでは不十分なので、実行時も所有者のmembershipと直接agent会話キーを検証する。privateは所有者の直接会話とそのfollow-upだけへ注入する。共有ルーム・workflowログ・所有者不明の内部呼出へは注入しない。共有解除はリンクを残し、次回実行で現在のvisibilityを確認する。スキル一覧に載るagentリンクも閲覧者に見えるagentだけへ絞る。
+
+このpolicyを無視する旧Workerへロールバックするとprivate本文を保護できない。ロールバック版にもskillAccessの読取制御を保持する。パッケージ資産、独立したagent grant、共有URLは別途実装する。
+
+
+### Existing-contract execution nodes
+
+The optional `gateways` Harness screen talks to an independent outbound-only node
+protocol. `hx_gateways` stores hashed node credentials; `hx_gateway_jobs` stores
+requester-owned jobs with idempotency keys and expiring leases. The local `gateway/`
+runner fixes the image and VM restrictions independently of remote payloads.
+Simple mode and its code/data remain untouched. This boundary allows a later fleet
+implementation without embedding Mac-specific execution in Honmaru's control API.
+See [Mac mini gateway](../mac-mini-gateway.md) for deployment and tenancy limitations.
