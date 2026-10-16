@@ -1,3 +1,4 @@
+import { EXECUTION_TOOLS, callExecutionTool } from './executionTools.js';
 import { mayUseApp, mayUseTable, visibleResources } from './resourceAccess.js';
 // The harness over MCP (docs/kylon-gap-plan.md): what Kylon's Tools API and
 // workspace CLI give an outside agent — the workspace's apps, tables,
@@ -10,9 +11,10 @@ import { listWorkflows, getWorkflow, startRun } from "./workflows.js";
 import { listFollowups, scheduleFollowup } from "./followups.js";
 import { onRowChange } from "./workflows.js";
 
-export const HARNESS_TOOL_SCOPE = { add_row: "write", update_row: "write", run_workflow: "write", schedule_followup: "write" };
+export const HARNESS_TOOL_SCOPE = { run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", run_workflow: "write", schedule_followup: "write" };
 
 export const HARNESS_TOOLS = [
+  ...EXECUTION_TOOLS,
   {
     name: "list_apps",
     title: "The workspace's apps",
@@ -83,6 +85,7 @@ const out = (value) => ({ content: [{ type: "text", text: JSON.stringify(value, 
 const err = (message) => ({ content: [{ type: "text", text: message }], isError: true });
 
 export async function callHarnessTool(env, agent, name, args) {
+  if (EXECUTION_TOOLS.some(t => t.name === name)) return callExecutionTool(env, agent, name, args);
   const db = env.DB;
   const orgId = agent.orgId;
   const by = agent.githubId;

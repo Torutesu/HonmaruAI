@@ -1,3 +1,4 @@
+import { executionAgentTools } from './harness/executionTools.js';
 /// The function tools an agent may call while it researches. Few, each
 /// doing one whole thing, described for the model the way OpenAI's
 /// function-calling guide asks: when to use it, what comes back. Strict
@@ -60,6 +61,7 @@ export async function agentTools(env, { orgId, session, language = "en", persona
       return found.slice(0, 10).map((d) => `- ${d.decidedAt ? String(d.decidedAt).slice(0, 10) : "pending"}${d.recipient ? ` ${d.recipient}` : ""} ${d.status || ""}: ${String(d.title || "").slice(0, 160)}`).join("\n");
     },
   };
+  Object.assign(tools, await executionAgentTools(env, { orgId, session, personal, ownAgentsOnly }));
   const connected = await connectedSources(env, session, orgId).catch(() => ({}));
   if (connected.notion) {
     tools.search_notion = {

@@ -122,3 +122,32 @@ stopped the workload and suppressed result submission. No containers remained.
 A final audit found that two-second node polling could exhaust the existing team
 quota. Polling is now every five seconds, with separate edge/per-node buckets.
 The new regression test verifies human/node and node/node quota isolation and limits.
+
+
+## PR 287 production rollout (2026-10-16)
+
+- PR: https://github.com/Torutesu/HonmaruAI/pull/287
+- Merge: `9637e58f7038c95ad51c00d9058266b284f06b94`.
+- Final tree: `002cef7bbe2616d32e89844f7654c16355b736b7` (local/uploaded match).
+- PR CI: all nine jobs passed, including Worker 193 files / 1,250 tests,
+  Windows Edge, iOS, E2E and the portable gateway tests.
+- Worker deployment: https://github.com/Torutesu/HonmaruAI/actions/runs/38893095555 (success).
+- Web deployment: https://github.com/Torutesu/HonmaruAI/actions/runs/38893095395 (success).
+- Both public web origins serve `/assets/index-BOvdznfG.js`, matching the local production build.
+- Public API health: ok; encryption.all true. Unauthenticated gateway list and node claim both return 401.
+- Authenticated desktop UI: the Harness hub preserves the Simple-only preference and now opens
+  Execution nodes. The registration form, offline-JavaScript restrictions, input editor and
+  requester history render without an API error. No production credential/node/job has been created.
+- An existing desktop session referenced a removed lazy Profile chunk after an earlier deployment;
+  restarting the app recovered its authenticated state. This cache/reload experience remains follow-up work.
+- Main CI's E2E job alone timed out waiting for an existing group-unread marker. The same code passed
+  E2E on both branch and PR runs. Only this failed job was rerun; job 116952265995 succeeded. The same timeout is present
+  in pre-change main job 116926221866, so this remains a known intermittent read-state issue.
+
+The registration action is prepared but awaits action-time confirmation required by the computer-use
+policy for creating new security-sensitive access. Mac mini runtime smoke is complete; production
+control-plane-to-node execution has not yet been tested. Kylon parity remains incomplete.
+
+## Production Mac mini connection — 2026-10-16
+
+User explicitly approved node registration, local token storage and connection. Registered Mac mini in Select using the authenticated production UI. Token saved outside Git with directory 0700/file 0600; token hidden immediately afterward. Started gateway against the deployed Worker. UI showed latest connection and a successful job at 20:54 JST: `return input * 2` with input `21` returned `42`. Runtime list was empty after completion. Screenshot: `/tmp/honmaru-mac-mini-connected.png`. This verifies the production control plane → local VM → production result path. Gateway remains a local process, without reboot autostart; full Kylon parity and hosted service readiness remain incomplete.
