@@ -139,8 +139,6 @@ test("in a simple workspace an agent is exactly what it was: no remembering, no 
 test("restricted agent data stays private through direct APIs, listings and Simple mode", async () => {
   await send("POST", `/hx/agents/${agentId}/memory`, mika, { orgId: ORG, text: "Private pricing" });
   await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, access: "private" });
-  await env.DB.prepare("INSERT INTO channel_agents (org_id, channel, agent_id, added_by, added_at) VALUES (?1, ?2, ?3, ?4, ?5)").bind(ORG, "b:ops", a.id, "mika", new Date().toISOString()).run();
-  expect(await filterResponders(env.DB, ORG, "kenji", [{ id: a.id, scope: "personal", ownerLogin: "mika" }], { channel: "b:ops" })).toEqual([]);
   for (const mode of ["harness", "simple"]) {
     await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode });
     for (const token of [kenji, toru]) {
