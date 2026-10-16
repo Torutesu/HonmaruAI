@@ -377,7 +377,7 @@ export const Agents: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose
               />
             )}
             <p className="dlg-hint">
-              {t('It also reads the conversation it was called into and your team’s playbook. It writes; it does not act.')}
+              {t(privateCreation ? 'In your own agent DM, available execution tools can run requested JavaScript on trusted nodes. Shared rooms do not receive these tools.' : 'It also reads the conversation it was called into and your team’s playbook. It writes; it does not act.')}
               {draft.instructions.length > MAX_INSTRUCTIONS - 2000 ? ` ${draft.instructions.length}/${MAX_INSTRUCTIONS}` : ''}
             </p>
           </div>
