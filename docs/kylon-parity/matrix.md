@@ -27,7 +27,7 @@
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-011 | 新規エージェントの初期非公開 | 未実装 | P0 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 新規Harnessエージェントは作成者のみ利用可能。既存共有エージェントは移行で維持 |
+| KY-011 | 新規エージェントの初期非公開 | 一部実装 | P0 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 標準作成・Markdown取込を作成者限定で原子的に保存。既存共有・Simpleを維持。外部teammate・全端末UIは残る |
 | KY-012 | 名前・専門・ペルソナ・アバター | 一部 | P1 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 作成・編集・表示と日英入力を全対象クライアントで検証 |
 | KY-013 | Fast/Pro/Maxの品質とコスト | 一部 | P1 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 現行lite/standard/maxとの差を定義し全実行経路で同じモデル選択と計測 |
 | KY-014 | 独立したAgent Admin/Member | 未実装 | P0 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 最後の人間Admin・所有者移譲・自己退出・将来加入者の全社権限を検証 |

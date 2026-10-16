@@ -3,7 +3,7 @@ import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
-import { rememberRequest, modelForTier } from "../src/harness/agents.js";
+import { rememberRequest, modelForTier, filterResponders } from "../src/harness/agents.js";
 
 // Agents as members (docs/kylon-gap-plan.md): a specialty, a tier, a memory
 // of its own, skills, who may call it, and whether it waits to be named.
@@ -42,6 +42,8 @@ beforeEach(async () => {
   await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode: "harness" });
   const made = await send("POST", "/channels/agents", mika, { orgId: ORG, name: "Billy", handle: "billy", instructions: "You chase invoices.", scope: "team" });
   agentId = (await made.json()).agent.id;
+  // Most tests exercise an explicitly shared agent, not the creation default.
+  await send("PUT", "/channels/agents", mika, { orgId: ORG, id: agentId, scope: "team" });
 });
 afterEach(() => fetchMock.assertNoPendingInterceptors());
 
@@ -137,6 +139,8 @@ test("in a simple workspace an agent is exactly what it was: no remembering, no 
 test("restricted agent data stays private through direct APIs, listings and Simple mode", async () => {
   await send("POST", `/hx/agents/${agentId}/memory`, mika, { orgId: ORG, text: "Private pricing" });
   await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, access: "private" });
+  await env.DB.prepare("INSERT INTO channel_agents (org_id, channel, agent_id, added_by, added_at) VALUES (?1, ?2, ?3, ?4, ?5)").bind(ORG, "b:ops", a.id, "mika", new Date().toISOString()).run();
+  expect(await filterResponders(env.DB, ORG, "kenji", [{ id: a.id, scope: "personal", ownerLogin: "mika" }], { channel: "b:ops" })).toEqual([]);
   for (const mode of ["harness", "simple"]) {
     await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode });
     for (const token of [kenji, toru]) {
@@ -201,4 +205,28 @@ test('memory API hides private-room scopes and forbids cross-scope deletion', as
   expect((await (await get(`${base}?${q({ orgId: ORG })}`, mika)).json()).memories).toEqual([]);
   const deleted = await call(`${base}?${q({ orgId: ORG, id: kept.memory.id })}`, { method: 'DELETE', headers: headers(mika) });
   expect((await deleted.json()).deleted).toBe(0);
+});
+
+
+test("Harness creation is private even when a client requests team scope, and stays private in Simple", async () => {
+  const made = await send("POST", "/channels/agents", mika, { orgId: ORG, name: "Private", handle: "private-new", instructions: "Secret instructions", scope: "team" });
+  expect(made.status).toBe(201);
+  const a = (await made.json()).agent;
+  expect(a.scope).toBe("personal");
+  expect(await env.DB.prepare("SELECT agent_id FROM hx_agent_profiles WHERE org_id = ?1 AND agent_id = ?2").bind(ORG, a.id).first()).toBeTruthy();
+  await env.DB.prepare("INSERT INTO channel_agents (org_id, channel, agent_id, added_by, added_at) VALUES (?1, ?2, ?3, ?4, ?5)").bind(ORG, "b:ops", a.id, "mika", new Date().toISOString()).run();
+  expect(await filterResponders(env.DB, ORG, "kenji", [{ id: a.id, scope: "personal", ownerLogin: "mika" }], { channel: "b:ops" })).toEqual([]);
+  for (const mode of ["harness", "simple"]) {
+    await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode });
+    for (const token of [toru, kenji]) {
+      const list = await (await get(`/channels/agents?${q({ orgId: ORG })}`, token)).json();
+      expect(list.agents.some(x => x.id === a.id)).toBe(false);
+      expect((await get(`/hx/agents/${a.id}/profile?${q({ orgId: ORG })}`, token)).status).toBe(404);
+      expect((await send("PUT", "/channels/agents", token, { orgId: ORG, id: a.id, scope: "team" })).status).toBe(404);
+    }
+  }
+  const shared = await send("PUT", "/channels/agents", mika, { orgId: ORG, id: a.id, scope: "team" });
+  expect(shared.status).toBe(200);
+  const list = await (await get(`/channels/agents?${q({ orgId: ORG })}`, kenji)).json();
+  expect(list.agents.some(x => x.id === a.id)).toBe(true);
 });

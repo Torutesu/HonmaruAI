@@ -28,6 +28,7 @@ const announce = () => { try { window.dispatchEvent(new Event('honmaru:agents-ch
 /// download and bring back here or into another workspace.
 export const Agents: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose, onMessage }) => {
   const t = useT()
+  const [privateCreation, setPrivateCreation] = useState(false)
   const [agents, setAgents] = useState<ClientAgent[] | null>(null)
   const [presets, setPresets] = useState<AgentPreset[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -53,6 +54,7 @@ export const Agents: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose
       if (!res.ok) throw new Error(data.message || t('Could not load the agents.'))
       setAgents(data.agents || [])
       setPresets(data.presets || [])
+      setPrivateCreation(data.privateCreation === true)
     } catch (err) {
       setAgents([])
       setError(err instanceof Error ? agentError(err.message, t) : String(err))
@@ -69,7 +71,7 @@ export const Agents: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose
     return data
   }
 
-  const open = (next: AgentDraft) => { setDraft(next); setDraftError(null); setPreview(false); setConfirm(null); setNote(null); setPicture(null); setPictureOff(false) }
+  const open = (next: AgentDraft) => { setDraft(!next.id && privateCreation ? { ...next, scope: 'personal', canChangeScope: false } : next); setDraftError(null); setPreview(false); setConfirm(null); setNote(null); setPicture(null); setPictureOff(false) }
   /// A picture for the agent, in place of its emoji: an image of 2 MB at
   /// most — the same as a person's photo. Not SVG: it could run script.
   const PICTURE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
