@@ -149,3 +149,34 @@
 
 :root .shell.harness-workspace .classic.slk.slk, :root .shell.harness-workspace .classic.slk.slk .slk-side { color: #242422; color-scheme: light; }
 :root .shell.harness-workspace .hx-chat-top h1 { color: #242422; }
+/* Room resources remain beside the conversation, with the same layout on empty and populated states. */
+:root .shell.harness-workspace .classic.slk.slk .hx-room-resource { width: 360px; flex: 0 0 360px; align-self: stretch; margin: 64px 12px 12px 0; border: 1px solid #deded8; border-radius: 20px; background: #fff; color: #242422; overflow: auto; box-shadow: 0 2px 8px #00000003; }
+.hx-room-resource > header { display: flex; align-items: center; justify-content: space-between; padding: 16px; font-size: 13px; }
+.hx-room-resource > header button { border: 0; background: transparent; color: #555; cursor: pointer; }
+.hx-resource-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; min-height: 300px; }
+.hx-resource-symbol { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 13px; background: #f3eddf; color: #827961; font-size: 22px; }
+.hx-resource-empty h2 { font-size: 14px; line-height: 1.6; font-weight: 600; margin: 18px 0 8px; }
+.hx-resource-empty p { font-size: 12px; line-height: 1.6; color: #85857b; max-width: 350px; margin: 0 0 20px; }
+.hx-resource-empty > button, .hx-resource-create { border: 0; border-radius: 12px; background: #f3eddf; color: #514b3d; padding: 9px 14px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.hx-resource-items { padding: 8px 12px; flex: 1; }
+.hx-resource-item { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 6px; border: 0; border-bottom: 1px solid #efefeb; background: white; text-align: left; color: #292924; cursor: pointer; }
+.hx-resource-item > span:nth-child(2) { flex: 1; min-width: 0; }
+.hx-resource-item b { display: block; font-size: 13px; }
+.hx-resource-item small { display: block; color: #85857b; font-size: 12px; margin-top: 5px; overflow-wrap: anywhere; }
+.hx-resource-create { display: flex; gap: 6px; margin: 16px auto; align-items: center; }
+.hx-resource-loading { padding: 24px; color: #85857b; font-size: 12px; }
+.hx-room-resource footer { padding: 12px; display: flex; justify-content: center; gap: 12px; }
+.hx-room-resource footer button { background: transparent; border: 0; color: #85857b; font: inherit; font-size: 11px; cursor: pointer; }
+:root .shell.harness-workspace .hx-resource-screen .screen-body { width: 100%; max-width: 1050px; margin: 0 auto; padding: 40px 32px; box-sizing: border-box; }
+:root .shell.harness-workspace .hx-resource-screen .screen-head { padding: 18px 30px; border-bottom: 1px solid #ededeb; }
+:root .shell.harness-workspace .hx-resource-screen .head-title { font-size: 17px; font-weight: 600; }
+:root .shell.harness-workspace .hx-resource-screen .hx-app-tile { background: #fff; color: #242422; border: 1px solid #e5e5df; border-radius: 14px; padding: 20px; box-shadow: none; }
+:root .shell.harness-workspace .hx-resource-screen .hx-app-sub, :root .shell.harness-workspace .hx-resource-screen .lede { color: #85857b; font-size: 13px; }
+:root .shell.harness-workspace .hx-resource-screen .hx-builder, :root .shell.harness-workspace .hx-resource-screen .hx-step { background: #fafaf8; border-color: #e5e5df; border-radius: 12px; }
+:root .shell.harness-workspace .hx-resource-screen :is(input,textarea,select) { color-scheme: light; background: #fff; color: #242422; border-color: #deded8; }
+:root .shell.harness-workspace .hx-resource-screen .rows { border: 1px solid #e5e5df; border-radius: 14px; overflow: hidden; }
+:root .shell.harness-workspace .hx-resource-screen .row { background: #fff; }
+:root .shell.harness-workspace .hx-resource-screen .hx-resource-empty { min-height: 45vh; }
+@media (max-width: 900px) { :root .shell.harness-workspace .classic.slk.slk .hx-room-resource { position: absolute; inset: 12px 12px 64px; width: auto; margin: 0; z-index: 30; } :root .shell.harness-workspace .hx-resource-screen .screen-body { padding: 24px 16px 64px; } }
+:root .shell.harness-workspace .hx-resource-screen .screen-head { max-width: none; width: auto; }
+:root .shell.harness-workspace .hx-resource-screen .head-title { color: #242422; }

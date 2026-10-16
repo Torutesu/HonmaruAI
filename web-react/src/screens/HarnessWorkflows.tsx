@@ -188,11 +188,12 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
   useEffect(() => { load() }, [load])
 
   const openOne = (id: string) => act(`open:${id}`, async () => { setOpen(await api.workflow(id)) })
+  useEffect(() => { let id: string | null = null; try { id = sessionStorage.getItem('hx.openWorkflow'); sessionStorage.removeItem('hx.openWorkflow') } catch {} if (id) void openOne(id) }, [])
 
   if (open) {
     const w = open.workflow
     return (
-      <Shell title={w.name} onClose={() => { setOpen(null); load() }} nested>
+      <Shell className="hx-resource-screen" title={w.name} onClose={() => { setOpen(null); load() }} nested>
         <div className="rows">
           <div className="row static">
             <span className="row-main">{triggerLabel(t, w.trigger, tables)}
@@ -229,7 +230,7 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
   }
 
   return (
-    <Shell title={t('Workflows')} onClose={props.onClose} actions={!building && <button className="pill-btn" onClick={() => setBuilding(true)}><Icon name="plus" size={14} /> {t('New')}</button>}>
+    <Shell className="hx-resource-screen" title={t('Workflows')} onClose={props.onClose} actions={!building && <button className="pill-btn" onClick={() => setBuilding(true)}><Icon name="plus" size={14} /> {t('New')}</button>}>
       <p className="lede">{t('Describe the outcome once: when it should happen, and what follows. A person approves what matters.')}</p>
       {error && <div className="form-error">{error}</div>}
       {hook && <div className="form-note">{t('Call this address to start it:')} <code className="hx-code">{hook}</code></div>}
@@ -248,7 +249,7 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
         />
       )}
       {workflows === null && <div className="empty">{t('Loading…')}</div>}
-      {workflows?.length === 0 && !building && <div className="empty">{t('No workflows yet.')}</div>}
+      {workflows?.length === 0 && !building && <div className="hx-resource-empty"><span className="hx-resource-symbol"><Icon name="zap" size={24} /></span><h2>{t('No workflows yet.')}</h2><p>{t('Automations do work on a schedule or when something happens in this room.')}</p><button onClick={() => setBuilding(true)}>{t('Set up an automation')}</button></div>}
       <div className="rows">
         {workflows?.map((w) => (
           <button key={w.id} className="row" onClick={() => openOne(w.id)} data-workflow={w.id}>

@@ -17,10 +17,10 @@ export type HarnessScreen = 'home' | 'harness' | 'apps' | 'workflows' | 'approva
 
 /// `nested`: a view inside a harness screen (an app, a workflow, an agent),
 /// whose back button stays on a laptop too — the rail cannot reach it.
-export function Shell({ title, onClose, children, actions, nested = false }: { title: string; onClose: () => void; children: React.ReactNode; actions?: React.ReactNode; nested?: boolean }) {
+export function Shell({ title, onClose, children, actions, nested = false, className = '' }: { title: string; onClose: () => void; children: React.ReactNode; actions?: React.ReactNode; nested?: boolean; className?: string }) {
   const t = useT()
   return (
-    <div className="screen hx-screen">
+    <div className={`screen hx-screen ${className}`}>
       <div className="screen-head">
         <button className={nested ? 'back hx-back' : 'back'} onClick={onClose} aria-label={nested ? t('Back') : t('Close')}>‹</button>
         <span className="head-title">{title}</span>
