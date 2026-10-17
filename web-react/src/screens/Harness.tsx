@@ -1,3 +1,4 @@
+import { HarnessAppIcon } from '../components/HarnessAppIcon'
 import { CompanyApp } from '../components/CompanyApp'
 import { CustomAppEditor, CustomAppFrame } from "../components/CustomApp"
 import { AppSharing } from '../components/AppSharing'
@@ -95,6 +96,7 @@ export const HarnessApps: React.FC<HarnessProps> = (props) => {
   })
   const [prompt, setPrompt] = useState('')
   const [creating, setCreating] = useState(false)
+  const [query, setQuery] = useState('')
   const [note, setNote] = useState<string | null>(null)
   const { busy, error, act } = useAct()
 
@@ -119,7 +121,7 @@ export const HarnessApps: React.FC<HarnessProps> = (props) => {
   })
 
   return (
-    <Shell className="hx-resource-screen" title={t('Apps')} onClose={props.onClose} actions={<button className="pill-btn" onClick={() => setCreating(v => !v)}>{t(creating ? 'Cancel' : 'Build an app')}</button>}>
+    <Shell className="hx-resource-screen hx-app-library" title={t('Apps')} onClose={props.onClose} actions={<button className="pill-btn" onClick={() => setCreating(v => !v)}>{t(creating ? 'Cancel' : 'Build an app')}</button>}>
       {creating && <>
       <div className="rows">
         <div className="row static">
@@ -144,28 +146,27 @@ export const HarnessApps: React.FC<HarnessProps> = (props) => {
       {note && <div className="form-note">{note}</div>}
       {error && <div className="form-error">{error}</div>}
 
-      <div className="rows-title">{t('Your apps')}</div>
+      <label className="hx-library-search"><Icon name="search" size={16} /><input type="search" aria-label="アプリを検索" placeholder="アプリを検索" value={query} onChange={e => setQuery(e.target.value)} /></label>
       {apps === null && <div className="empty">{t('Loading…')}</div>}
       {apps?.length === 0 && !creating && <div className="hx-resource-empty"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('No apps yet')}</h2><p>{t('Apps are small tools your agents build for this room: dashboards, trackers and forms.')}</p><button onClick={() => setCreating(true)}>{t('Build an app')}</button></div>}
       {apps && apps.length > 0 && (
         <div className="hx-app-grid">
-          {apps.map((a) => (
+          {apps.filter(a => `${a.name} ${a.description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map((a) => (
             <button key={a.id} className="hx-app-tile" onClick={() => setOpen(a.id)} data-app={a.id}>
-              <span className="hx-app-icon" aria-hidden="true">{a.icon}</span>
-              <span className="hx-app-name">{a.name}</span>
-              <span className="hx-app-sub">{a.description}</span>
-              {a.channels && a.channels.length > 0 && <span className="hx-app-rooms">{a.channels.map((c) => c.replace(/^b:/, '#')).join(' ')}</span>}
+              <span className="hx-library-card-heading"><HarnessAppIcon icon={a.icon} /><span><span className="hx-app-name">{a.name}</span><span className="hx-app-rooms">{a.channels?.map(c => c.replace(/^b:/, '')).join(' · ') || t('Apps')}</span></span></span>
+              <span className="hx-library-card-preview"><span className="hx-library-preview-title"><HarnessAppIcon icon={a.icon} size={12} />{a.name}</span><span className="hx-library-preview-views">{a.definition?.views?.map((v, i) => <span key={v.id || i}>{v.name}</span>)}</span><span className="hx-app-sub">{a.description || t('Browse data')}</span></span>
             </button>
           ))}
         </div>
       )}
 
+      {apps && apps.length > 0 && !apps.some(a => `${a.name} ${a.description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())) && <p className="hx-library-no-results" role="status">該当するアプリがありません。</p>}
       {creating && <>
       <div className="rows-title">{t('Templates')}</div>
       <div className="hx-app-grid">
         {templates.map((tpl) => (
           <button key={tpl.id} className="hx-app-tile template" onClick={() => fromTemplate(tpl.id)} disabled={busy === `tpl:${tpl.id}`}>
-            <span className="hx-app-icon" aria-hidden="true">{tpl.icon}</span>
+            <span className="hx-app-icon"><HarnessAppIcon icon={tpl.icon} /></span>
             <span className="hx-app-name">{t(tpl.name)}</span>
             <span className="hx-app-sub">{t(tpl.description)}</span>
           </button>
@@ -245,10 +246,10 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   return (
     <Shell
       className="hx-resource-screen hx-app-detail"
-      title={`${app.icon} ${app.name}`}
+      title={<span className="hx-app-title"><HarnessAppIcon icon={app.icon} size={16} />{app.name}</span>}
       onClose={onBack}
       nested
-      actions={<><button className="pill-btn quiet" onClick={() => setSection('custom')}>{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => setSection('settings')}>{t('Sharing')}</button><button className="pill-btn quiet" disabled={busy !== null} onClick={() => void load()}>{t('Reload')}</button><span className="hx-version">v{app.version}</span></>}
+      actions={<><button className="pill-btn quiet" onClick={() => setSection('custom')}><Icon name="grid" size={14} />{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => setSection('settings')}><Icon name="users" size={14} />{t('Sharing')}</button><button className="pill-btn quiet" disabled={busy !== null} onClick={() => void load()}><Icon name="refresh" size={14} />{t('Reload')}</button><span className="hx-version">v{app.version}</span></>}
     >
       <nav className="hx-app-sections" aria-label={t('App sections')}>{(['overview', 'data', 'custom', 'backend', 'settings'] as const).map(tab => <button key={tab} aria-current={section === tab ? 'page' : undefined} className={section === tab ? 'on' : ''} onClick={() => setSection(tab)}>{t(tab === 'overview' ? 'Overview' : tab === 'data' ? 'Data viewer' : tab === 'custom' ? 'Customize app' : tab === 'backend' ? '実行基盤' : 'Settings')}</button>)}</nav>
       {section === 'backend' && <CompanyApp app={app} api={api} canManage={data.canCustomize !== false} reload={load} />}

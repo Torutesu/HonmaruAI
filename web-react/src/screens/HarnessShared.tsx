@@ -1,3 +1,4 @@
+import { Icon } from '../components/Icon'
 import React, { useCallback, useMemo, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { harnessApi, type HarnessApi } from '../utils/harness'
@@ -17,12 +18,12 @@ export type HarnessScreen = 'home' | 'harness' | 'apps' | 'workflows' | 'approva
 
 /// `nested`: a view inside a harness screen (an app, a workflow, an agent),
 /// whose back button stays on a laptop too — the rail cannot reach it.
-export function Shell({ title, onClose, children, actions, nested = false, className = '' }: { title: string; onClose: () => void; children: React.ReactNode; actions?: React.ReactNode; nested?: boolean; className?: string }) {
+export function Shell({ title, onClose, children, actions, nested = false, className = '' }: { title: React.ReactNode; onClose: () => void; children: React.ReactNode; actions?: React.ReactNode; nested?: boolean; className?: string }) {
   const t = useT()
   return (
     <div className={`screen hx-screen ${className}`}>
       <div className="screen-head">
-        <button className={nested ? 'back hx-back' : 'back'} onClick={onClose} aria-label={nested ? t('Back') : t('Close')}>‹</button>
+        <button className={nested ? 'back hx-back' : 'back'} onClick={onClose} aria-label={nested ? t('Back') : t('Close')}><Icon name="chevron-left" size={16} /></button>
         <span className="head-title">{title}</span>
         {actions && <span className="hx-head-actions">{actions}</span>}
       </div>

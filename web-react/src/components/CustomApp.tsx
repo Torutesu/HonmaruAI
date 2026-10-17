@@ -1,9 +1,9 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAppearance } from '../utils/appearance'
-import type { App, AppAction, AppConnection, AppFork, HarnessApi, Row, Table } from '../utils/harness'
+import type { App, AppAction, AppConnection, AppFork, AppEntity, HarnessApi, Row, Table } from '../utils/harness'
 
 // Two opaque-origin frames isolate generated code and its navigation.
-export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId }: { appId?: string; html: string; table: Table; rows: Row[]; httpBase: string; api?: HarnessApi; reload?: () => unknown }) {
+export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId, previewEntities }: { previewEntities?: Array<AppEntity & {rows:Row[]}>; appId?: string; html: string; table: Table; rows: Row[]; httpBase: string; api?: HarnessApi; reload?: () => unknown }) {
   const frame = useRef<HTMLIFrameElement>(null)
   const initialized = useRef(false)
   const { theme } = useAppearance()
@@ -49,6 +49,7 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
       if (event.data?.type !== 'honmaru:request' || typeof event.data.id !== 'string' || event.data.id.length > 80) return
       const { id, operation, args } = event.data
       if (operation === 'read') { reply(id, { table, rows }); return }
+      if (operation === 'entity' && previewEntities) { const entity=previewEntities.find(e=>e.key===args?.entity); entity?reply(id,{table:entity.table,rows:entity.rows}):reply(id,undefined,'No such preview entity.');return }
       if (!api) { reply(id, undefined, 'Preview is read-only.'); return }
       let size = Infinity
       try { size = JSON.stringify(args).length } catch { /* cyclic input is invalid */ }
@@ -59,6 +60,9 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
       pending.current = request
       try {
         if(['run','connect','job','entity'].includes(operation) || args.entity && args.entity !== 'primary') {
+          if(previewEntities && args.entity && !['run','connect','job'].includes(operation)) {
+            const entity=previewEntities.find(e=>e.key===args.entity);if(!entity)throw new Error('No such preview entity.');request.targetTable=entity.table;request.before=entity.rows.find(r=>r.id===args.id)
+          } else {
           if(!appId) throw new Error('This capability is unavailable in preview.')
           if(operation==='job') { reply(id,await api.actionJob(appId,String(args.id||'')));pending.current=null;return }
           if(operation==='run') {
@@ -80,6 +84,7 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
             request.before=data.rows.find(r=>r.id===args.id)
           }
         }
+        }
         if(['create','update','remove'].includes(operation)) {
           const row=request.targetTable?request.before:rows.find(r=>r.id===args.id)
           if(operation!=='create'&&!row)throw new Error('No such row in this app.')
@@ -91,7 +96,7 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
     }
     window.addEventListener('message', listener)
     return () => window.removeEventListener('message', listener)
-  }, [table, rows, html, theme, api, appId])
+  }, [table, rows, html, theme, api, appId, previewEntities])
   const labeled = (values: Record<string, unknown>) => Object.fromEntries(Object.entries(values).map(([id, value]) => [(change?.targetTable || table).columns.find(c => c.id === id)?.name || id, value]))
   if (html.length > 119800) return <p role="alert">表示できるコードの上限は119800文字です。コードを短くして保存してください。</p>
   return <>{change && <div className="hx-custom-approval" role="alertdialog" aria-label="アプリのデータ変更を確認"><h3>{change.action ? 'サーバー処理の実行確認' : change.connection ? '外部API読み取りの確認' : 'データ変更の確認'}</h3><p>{change.targetTable?.name || table.name} · {change.operation === 'create' ? '行を追加' : change.operation === 'update' ? '行を更新' : change.operation === 'run' ? 'サーバー処理' : change.operation === 'connect' ? '外部API' : '行を削除'}</p><pre>{JSON.stringify(change.action ? {処理:change.action.name,公開版:change.action.publishedVersion,コード:change.action.published,入力:change.args.input,実行ノード:change.gatewayId} : change.connection ? {接続:change.connection.name,URL:change.connection.endpoint,操作:change.connection.method||'GET',送信内容:change.args.body||null} : { ...(change.before ? { '対象レコード': change.before.id, '変更前': labeled(change.before.values) } : {}), ...(change.operation !== 'remove' ? { '変更内容': labeled(change.args.values || {}) } : {}) }, null, 2)}</pre><button disabled={working} onClick={() => decide(false)}>キャンセル</button><button disabled={working} onClick={() => decide(true)}>この変更を許可</button></div>}<iframe ref={frame} onLoad={initialize} title="カスタムアプリ" sandbox="allow-scripts" referrerPolicy="no-referrer" key={html + theme} src={`${httpBase}/custom-app-runner?v=2`} className="hx-custom-frame" /></>
@@ -136,14 +141,15 @@ function ForkPreview({appId,api,httpBase,html,table,rows}:{appId:string;api:Harn
   const current=useRef<AppFork|null>(null)
   const load=async()=>{try{setError('');const d=await api.appDatabase(appId);current.current=d.fork;setFork(d.fork);setLoadedAppId(appId)}catch(e){setError(String(e))}}
   useEffect(()=>{void load()},[appId,api])
-  const mutate=async(operation:string,values?:Record<string,unknown>,rowId?:string,expectedUpdatedAt?:string)=>{
+  const mutate=async(tableId:string,operation:string,values?:Record<string,unknown>,rowId?:string,expectedUpdatedAt?:string)=>{
     const f=current.current;if(!f)throw new Error('No preview database.')
-    const r=await api.databaseChange(appId,{action:'fork_write',forkId:f.id,revision:f.revision,entity:'primary',operation,values,rowId,expectedUpdatedAt})
+    const entity=f.entities.find(e=>e.table.id===tableId);if(!entity)throw new Error('No such preview entity.')
+    const r=await api.databaseChange(appId,{action:'fork_write',forkId:f.id,revision:f.revision,entity:entity.key,operation,values,rowId,expectedUpdatedAt})
     await load();return operation==='remove'?r.result:{row:r.result}
   }
-  const adapter=fork?{addRow:(_:string,v:Record<string,unknown>)=>mutate('create',v),updateRow:(_:string,id:string,v:Record<string,unknown>,expected?:string)=>mutate('update',v,id,expected),deleteRow:(_:string,id:string,expected?:string)=>mutate('remove',undefined,id,expected)} as HarnessApi:undefined
+  const adapter=fork&&!fork.mergedAt?{addRow:(t:string,v:Record<string,unknown>)=>mutate(t,'create',v),updateRow:(t:string,id:string,v:Record<string,unknown>,expected?:string)=>mutate(t,'update',v,id,expected),deleteRow:(t:string,id:string,expected?:string)=>mutate(t,'remove',undefined,id,expected)} as HarnessApi:undefined
   const primary=fork?.entities.find(e=>e.key==='primary')
   // Do not let generated code read production before its private snapshot loads.
   if(loadedAppId!==appId)return error?<p role="alert">{error}<button onClick={()=>void load()}>再読み込み</button></p>:<p role="status">検証DBを読み込み中…</p>
-  return <><p>{fork?'検証DBのプレビュー（本番データは変更しません）':'読み取り専用プレビュー · 実行基盤 → データベースから検証DBを作成できます。'}</p>{error&&<p role="alert">{error}</p>}<CustomAppFrame html={html} httpBase={httpBase} table={primary?.table||table} rows={primary?.rows||rows} api={adapter} /></>
+  return <><p>{fork?'検証DBのプレビュー（本番データは変更しません）':'読み取り専用プレビュー · 実行基盤 → データベースから検証DBを作成できます。'}</p>{error&&<p role="alert">{error}</p>}<CustomAppFrame html={html} httpBase={httpBase} table={primary?.table||table} rows={primary?.rows||rows} api={adapter} previewEntities={fork?.entities} /></>
 }

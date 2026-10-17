@@ -33,7 +33,8 @@ export interface App {
 export interface AppAction { name: string; version: number; draft?: string; published: string | null; publishedVersion: number | null }
 export interface AppConnection { name: string; version: number; endpoint: string; method: string; enabled: number; hasToken: number }
 export interface AppEntity { key: string; table: Table; rows?: Row[] }
-export interface AppFork { id: string; revision: number; entities: Array<AppEntity & { rows: Row[] }> }
+export interface AppFork { id: string; revision: number; mergedAt?: string | null; entities: Array<AppEntity & { rows: Row[] }> }
+export interface MergeReview { forkId: string; revision: number; checksum: string; changes: Array<{entity:string;tableId:string;tableName:string;id:string;operation:'create'|'update'|'remove';before:Record<string,unknown>|null;after:Record<string,unknown>|null}>; conflicts: Array<{entity:string;id:string;reason:string}> }
 export interface AppDatabase { version: number; entities: AppEntity[]; migrations: Array<{id:string;version:number;checksum:string;plan:unknown;createdAt:string}>; fork: AppFork | null }
 export interface Template { id: string; name: string; icon: string; description: string }
 
@@ -111,7 +112,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     generateCustom: (id: string, prompt: string) => call<{ html: string }>('POST', `/apps/${id}/custom`, { action: 'generate', prompt }),
     saveCustom: (id: string, action: 'draft' | 'publish' | 'unpublish' | 'restore', version: number, html?: string, restoreVersion?: number) => call('POST', `/apps/${id}/custom`, { action, version, html, restoreVersion }),
     appDatabase: (id: string) => call<AppDatabase>('GET', `/apps/${id}/database`),
-    databaseChange: (id: string, body: Record<string, unknown>) => call<{operations?: unknown[]; fork?: AppFork; revision?: number; result?: unknown}>('POST', `/apps/${id}/database`, body),
+    mergePreview: (id: string, fork: AppFork) => call<MergeReview>('POST', `/apps/${id}/database`, { action:'merge_preview',forkId:fork.id,revision:fork.revision }),
+    databaseChange: (id: string, body: Record<string, unknown>) => call<{operations?: unknown[]; fork?: AppFork; revision?: number; result?: unknown; review?: MergeReview}>('POST', `/apps/${id}/database`, body),
     appActions: (id: string) => call<{actions: AppAction[]}>('GET', `/apps/${id}/actions`),
     actionChange: (id: string, body: Record<string, unknown>) => call<{name?: string;code?: string;job?: GatewayJob}>('POST', `/apps/${id}/actions`, body),
     actionHistory: (id: string, name: string) => call<{versions:Array<{version:number;code:string;createdAt:string}>}>('GET', `/apps/${id}/actions`, undefined, {history:name}),

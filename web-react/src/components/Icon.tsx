@@ -17,7 +17,7 @@ import React from 'react'
 /// Stroke is `currentColor`, so a tab colours its icon by colouring itself.
 
 export type IconName =
-  | 'home' | 'you' | 'history' | 'tools' | 'plus'
+  | 'compose' | 'plug' | 'list-check' | 'workflow' | 'home' | 'you' | 'history' | 'tools' | 'plus'
   | 'record' | 'bell' | 'invite' | 'plan' | 'mail' | 'hash' | 'notion' | 'github' | 'box'
   | 'calendar' | 'drive' | 'insights' | 'search' | 'mic'
   | 'repeat' | 'book' | 'terminal' | 'send'
@@ -28,6 +28,10 @@ export type IconName =
   | 'trash' | 'image' | 'file' | 'lock' | 'users' | 'download' | 'camera' | 'at' | 'star' | 'folder' | 'shield' | 'devices' | 'log-out' | 'crown' | 'eye'
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  compose: <><path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7" /><path d="m16 3 5 5M10 14l-1 4 4-1L22 8a2.1 2.1 0 0 0-5-5z" /></>,
+  plug: <><path d="M7 2v4m4-4v4M5 6h8v4a4 4 0 0 1-8 0zM9 14v4a3 3 0 0 0 6 0v-8a3 3 0 0 1 6 0v5m-2 0h4v5h-4z" /></>,
+  'list-check': <><path d="m3 6 1.5 1.5L7 4M11 6h10M3 12h4m4 0h10M3 18h4m4 0h10" /></>,
+  workflow: <><rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="15" y="15" width="6" height="6" rx="1.5"/><path d="M6 9v7a2 2 0 0 0 2 2h7M9 6h7a2 2 0 0 1 2 2v7"/></>,
   // Figma: Chrome/Tab Bar → icon/home
   home: (
     <>

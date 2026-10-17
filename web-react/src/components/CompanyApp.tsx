@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import type { App, AppAction, AppConnection, AppDatabase, Gateway, GatewayJob, HarnessApi } from '../utils/harness'
+import type { App, AppAction, AppConnection, AppDatabase, MergeReview, Gateway, GatewayJob, HarnessApi } from '../utils/harness'
 
 export function CompanyApp({ app, api, canManage, reload }: {app: App; api: HarnessApi; canManage: boolean; reload: () => unknown}) {
   const [history,setHistory]=useState<Array<{version:number;code:string;createdAt:string}>>([])
@@ -10,8 +10,9 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
   const [plan,setPlan]=useState('[]'),[migrationId,setMigrationId]=useState(''),[confirmMigration,setConfirmMigration]=useState(false)
   const [method,setMethod]=useState('GET'),[requestBody,setRequestBody]=useState('{}'),[confirmExternal,setConfirmExternal]=useState(false)
   const [connectionName,setConnectionName]=useState(''),[endpoint,setEndpoint]=useState(''),[token,setToken]=useState(''),[response,setResponse]=useState<unknown>(undefined)
+  const [mergeReview,setMergeReview]=useState<MergeReview|null>(null)
   const [entity,setEntity]=useState('primary'),[record,setRecord]=useState('{}')
-  async function load() { const [a,c,d,g]=await Promise.all([api.appActions(app.id),api.appConnections(app.id),api.appDatabase(app.id),api.gateways()]);setActions(a.actions);setConnections(c.connections);setDb(d);setNodes(g.gateways.filter(n=>!n.revokedAt)); }
+  async function load() { setMergeReview(null); const [a,c,d,g]=await Promise.all([api.appActions(app.id),api.appConnections(app.id),api.appDatabase(app.id),api.gateways()]);setActions(a.actions);setConnections(c.connections);setDb(d);setNodes(g.gateways.filter(n=>!n.revokedAt)); }
   async function run(fn:()=>Promise<unknown>) {setBusy(true);setError('');setNotice('');try{await fn()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}}
   useEffect(()=>{void run(load)},[app.id,api])
   const selected=actions.find(a=>a.name===name),conn=connections.find(c=>c.name===connectionName)
@@ -42,8 +43,14 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
       <label>変更ID<input value={migrationId} onChange={e=>{setMigrationId(e.target.value);setConfirmMigration(false)}} placeholder="add_customers_v1" /></label>
       <label>変更案（JSON）<textarea aria-label="DB変更案" className="hx-code-editor" value={plan} onChange={e=>{setPlan(e.target.value);setConfirmMigration(false)}} maxLength={30000} /></label>
       {!confirmMigration?<button className="pill-btn" disabled={busy||!migrationId||plan==='[]'} onClick={()=>setConfirmMigration(true)}>本番への変更を確認</button>:<div className="hx-custom-approval" role="alertdialog" aria-label="DB変更を確認"><p>上記の変更案を、本番スキーマ v{db.version} に適用します。既存データを削除する操作は許可されません。</p><button disabled={busy} onClick={()=>setConfirmMigration(false)}>キャンセル</button><button disabled={busy} onClick={()=>void run(async()=>{await api.databaseChange(app.id,{action:'migrate',id:migrationId,version:db.version,operations:JSON.parse(plan)});setConfirmMigration(false);await load();await reload();setNotice('DB変更を適用し、履歴に記録しました。')})}>このDB変更を適用</button></div>}
-      <h3>個人用の検証DB</h3><p>本番のコピーで書き込みを試せます。作り直すと現在の検証データを置き換えます。本番への自動マージはしません。</p><button className="pill-btn quiet" disabled={busy} onClick={()=>void run(async()=>{await api.databaseChange(app.id,{action:'fork'});await load();setNotice('本番から検証DBを作成しました。')})}>{db.fork?'検証DBを本番から作り直す':'検証DBを作成'}</button>
-      {db.fork&&<><label>検証するテーブル<select value={entity} onChange={e=>setEntity(e.target.value)}>{db.fork.entities.map(e=><option key={e.key} value={e.key}>{e.table.name}</option>)}</select></label><label>検証レコード（項目IDをキーにしたJSON）<textarea value={record} onChange={e=>setRecord(e.target.value)} maxLength={20000} /></label><button className="pill-btn" disabled={busy} onClick={()=>void run(async()=>{await api.databaseChange(app.id,{action:'fork_write',forkId:db.fork!.id,revision:db.fork!.revision,entity,operation:'create',values:JSON.parse(record)});await load()})}>検証DBだけに追加</button><pre>{JSON.stringify(forkEntity?.rows||[],null,2)}</pre></>}
+      <h3>個人用の検証DB</h3><p>本番のコピーで書き込みを試せます。作り直すと現在の検証データを置き換えます。本番への反映には差分の確認が必要です。</p><button className="pill-btn quiet" disabled={busy} onClick={()=>void run(async()=>{await api.databaseChange(app.id,{action:'fork'});await load();setNotice('本番から検証DBを作成しました。')})}>{db.fork?'検証DBを本番から作り直す':'検証DBを作成'}</button>
+      {db.fork&&<>{db.fork.mergedAt&&<p role="status">この検証DBは本番反映済みです。編集を続けるには本番から作り直してください。</p>}<label>検証するテーブル<select value={entity} onChange={e=>setEntity(e.target.value)}>{db.fork.entities.map(e=><option key={e.key} value={e.key}>{e.table.name}</option>)}</select></label><label>検証レコード（項目IDをキーにしたJSON）<textarea value={record} onChange={e=>setRecord(e.target.value)} maxLength={20000} /></label><button className="pill-btn" disabled={busy||Boolean(db.fork.mergedAt)} onClick={()=>void run(async()=>{await api.databaseChange(app.id,{action:'fork_write',forkId:db.fork!.id,revision:db.fork!.revision,entity,operation:'create',values:JSON.parse(record)});await load()})}>検証DBだけに追加</button><pre>{JSON.stringify(forkEntity?.rows||[],null,2)}</pre></>}
+      {db.fork&&!db.fork.mergedAt&&<button className="pill-btn" disabled={busy} onClick={()=>void run(async()=>setMergeReview(await api.mergePreview(app.id,db.fork!)))}>本番への反映差分を確認</button>}
+      {mergeReview&&<section className="hx-custom-approval" aria-label="検証DBの反映差分"><h3>本番への反映差分</h3><p>追加 {mergeReview.changes.filter(c=>c.operation==='create').length}件 · 更新 {mergeReview.changes.filter(c=>c.operation==='update').length}件 · 削除 {mergeReview.changes.filter(c=>c.operation==='remove').length}件</p>
+      {mergeReview.conflicts.length>0&&<p role="alert">本番で変更されたレコードが{mergeReview.conflicts.length}件あります。この差分は反映できません。検証DBを作り直して変更をやり直してください。</p>}
+      {mergeReview.changes.map(c=><details key={c.entity+c.id} open><summary>{c.tableName} · {c.operation==='create'?'追加':c.operation==='remove'?'削除':'更新'}</summary><pre>{JSON.stringify({レコード:c.id,変更前:c.before,変更後:c.after},null,2)}</pre></details>)}
+      <p>表示された差分をまとめて本番に反映します。確認後に本番または検証DBが変わると反映を中止します。反映済みの検証DBは読み取り専用になります。この反映で行変更ワークフローを自動実行することはありません。</p>
+      <button className="pill-btn quiet" disabled={busy} onClick={()=>setMergeReview(null)}>閉じる</button><button className="pill-btn" disabled={busy||!mergeReview.changes.length||Boolean(mergeReview.conflicts.length)} onClick={()=>void run(async()=>{await api.databaseChange(app.id,{action:'merge_apply',forkId:mergeReview.forkId,revision:mergeReview.revision,checksum:mergeReview.checksum});await load();await reload();setNotice('確認した差分を本番に反映しました。')})}>この差分を本番に反映</button></section>}
       </>}
       <h3>DB変更履歴</h3>{db.migrations.map(m=><details key={m.id}><summary>v{m.version} · {m.id} · {m.createdAt}</summary><pre>{JSON.stringify(m.plan,null,2)}</pre><small>SHA-256: {m.checksum}</small></details>)}
     </>}
