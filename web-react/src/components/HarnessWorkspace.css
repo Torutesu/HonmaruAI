@@ -389,3 +389,25 @@
 .hx-pinned-apps > button:hover { color:var(--hx-text); }
 .hx-view-popover { max-height:min(70dvh,640px); overflow:auto; }
 @media(max-width:719px){.hx-pinned-apps{display:none}}
+
+.hx-personal-popover { width:380px; }
+.hx-column-setting { display:flex; align-items:center; gap:8px; padding:8px 0; }
+.hx-column-label { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.hx-column-grip,.hx-personal-badge { opacity:.55; }
+.hx-column-setting input { width:64px; background:var(--hx-surface); color:inherit; border:1px solid var(--hx-border); border-radius:6px; padding:5px; }
+.hx-column-setting button { background:transparent; color:inherit; border:0; padding:4px; cursor:pointer; }
+.hx-column-setting button:disabled { opacity:.25; }
+.hx-personal-table { table-layout:fixed; }
+.hx-personal-table td,.hx-personal-table th { overflow:hidden; text-overflow:ellipsis; }
+.hx-personal-badge { font-size:10px; margin-left:5px; }
+
+.hx-view-popover-footer { display:flex; justify-content:flex-end; gap:8px; margin:14px 0; }
+.hx-view-hint { font-size:12px; color:var(--hx-muted); line-height:1.6; }
+
+:root .shell.harness-workspace .hx-data-tools .hx-column-setting input { width:64px; }
+.hx-personal-table th { position:relative; }
+.hx-column-resize { position:absolute; right:0; top:0; bottom:0; width:8px; cursor:col-resize; touch-action:none; }
+.hx-column-resize:hover,.hx-column-resize:focus-visible { background:var(--hx-border); outline:2px solid var(--hx-accent); outline-offset:-2px; }
+.hx-column-grip { cursor:grab; }
+
+.hx-column-width-label { position:fixed; transform:translate(-60px,30px); border:1px solid var(--hx-border); border-radius:6px; padding:4px 8px; background:var(--hx-surface); color:var(--hx-text); z-index:20; pointer-events:none; }

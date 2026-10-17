@@ -1,3 +1,4 @@
+import { personalViews } from './personalViews.js';
 import { appPins, setAppPin } from './appPins.js';
 import { previewMerge, mergeFork } from './appMerge.js';
 import { databaseView, applyMigration, generateMigration, forkDatabase, readFork, mutateFork } from './appDatabase.js';
@@ -112,6 +113,11 @@ export async function handleHarness(request, env, url) {
     if (request.method === 'GET') return json(await appPins(env.DB,orgId,me));
     if (request.method === 'PUT') { const r=await setAppPin(env.DB,orgId,me,input.appId,input.pinned); return r.error ? fail(r) : json(r); }
     return json({message:'Method not allowed.'},405);
+  }
+  if (parts[0] === 'hx' && parts[1] === 'personal-views' && parts.length === 3) {
+    if (!['GET','PUT'].includes(request.method)) return json({message:'Method not allowed.'},405);
+    const r = await personalViews(env.DB,orgId,me,parts[2],request.method === 'PUT' ? input : undefined);
+    return r.error ? fail(r) : json(r);
   }
   if (!read && !(await allowed(env.DB, orgId, me, "harness.build"))) return json({ message: "You cannot build in this workspace." }, 403);
 

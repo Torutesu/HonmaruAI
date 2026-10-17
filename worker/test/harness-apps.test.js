@@ -424,3 +424,32 @@ test('saved filters and grouping persist when a view is read again', async () =>
   expect(reread.app.definition.views[0]).toMatchObject(definition.views[0]);
   expect(reread.views[0].groupBy).toBe(column);
 });
+
+test('personal views and column layouts persist across sessions without changing shared views', async () => {
+  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+  const original=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+  const ids=original.table.columns.map(c=>c.id);
+  const path=`/hx/personal-views/${app.id}`;
+  const body={orgId:ORG,expectedRevision:0,views:[{id:'personal_test',type:'table',name:'自分用',filters:[{column:ids[0],op:'contains',value:'Acme'}]}],layouts:{personal_test:{order:[ids[1],ids[1],'deleted',ids[0]],widths:{[ids[0]]:320,[ids[1]]:9999,deleted:100}}}};
+  const saved=await send('PUT',path,mika,body); expect(saved.status).toBe(200);
+  const result=await saved.json(); expect(result.revision).toBe(1);expect(result.layouts.personal_test.order).toEqual([ids[1],ids[0],...ids.slice(2)]);expect(result.layouts.personal_test.widths).toEqual({[ids[0]]:320,[ids[1]]:600});
+  const {createSession}=await import('../src/db.js'); const second=await createSession(env.DB,'9102','second');
+  expect(await (await get(`${path}?orgId=${ORG}`,second)).json()).toEqual(result);
+  expect((await (await get(`${path}?orgId=${ORG}&userId=9102`,toru)).json()).views).toEqual([]);
+  expect((await send('PUT',path,second,body)).status).toBe(409);
+  expect((await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json()).app).toEqual(original.app);
+  expect((await get(`${path}?orgId=${ORG}`,guest)).status).toBe(403);
+  expect((await get(`${path}?orgId=${ORG}`,outsider)).status).toBe(403);
+  expect((await send('PUT',path,mika,{...body,expectedRevision:1,views:[{id:'shared',type:'table',name:'bad'}]})).status).toBe(400);
+});
+
+test('personal view access follows app visibility and current columns', async () => {
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const rendered=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();const id=rendered.table.columns[0].id;
+ const path=`/hx/personal-views/${app.id}`;
+ expect((await send('PUT',path,mika,{orgId:ORG,expectedRevision:0,activeView:'personal_mine',views:[{id:'personal_mine',type:'table',name:'Mine'}],layouts:{personal_mine:{order:[id],widths:{[id]:250}}}})).status).toBe(200);
+ expect((await (await get(`${path}?orgId=${ORG}`,mika)).json()).activeView).toBe('personal_mine');
+ await env.DB.prepare("INSERT OR REPLACE INTO hx_app_access (org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,app.id).run();
+ expect((await get(`${path}?orgId=${ORG}`,mika)).status).toBe(404);
+ expect((await send('PUT',path,mika,{orgId:ORG,expectedRevision:1,views:[],layouts:{}})).status).toBe(404);
+});
