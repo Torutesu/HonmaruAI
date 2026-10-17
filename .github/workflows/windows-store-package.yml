@@ -1,6 +1,8 @@
-name: Windows Store package
+name: Windows Store submission package
 on:
   workflow_dispatch:
+  pull_request:
+    paths: ['apps/desktop/**', '.github/workflows/windows-store-package.yml']
   push:
     branches: [codex/windows-store-submission]
     paths: ['apps/desktop/**', '.github/workflows/windows-store-package.yml']
@@ -47,7 +49,7 @@ jobs:
       - name: Build package for Microsoft Store signing
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder --config electron-builder.store.yml --win appx --x64 --publish never
+        run: npx --no-install electron-builder --config electron-builder.store.yml --win appx --x64 --publish never
       - name: Verify package identity and startup
         shell: pwsh
         run: |
@@ -67,6 +69,19 @@ jobs:
             if ($app.WaitForExit(20000)) { throw 'App exited during startup' }
             'Windows x64 startup passed for 20 seconds. Store installation and signed-in workflows require further verification.' | Set-Content dist/startup-result.txt
           } finally { taskkill /PID $app.Id /T /F 2>$null }
+      - name: Record source and package integrity
+        shell: pwsh
+        run: |
+          node --input-type=module -e "import { createRequire } from 'node:module'; const require=createRequire(import.meta.url); const asar=require('@electron/asar'); const pkg=JSON.parse(asar.extractFile('dist/win-unpacked/resources/app.asar','package.json')); if(pkg.honmaruUpdates !== false) throw new Error('Store build must disable GitHub updates');"
+          $package = @(Get-ChildItem dist -Filter '*-store.appx')
+          if ($package.Count -ne 1) { throw 'Expected one Store package.' }
+          [ordered]@{
+            commit = '${{ github.sha }}'
+            package = $package[0].Name
+            sha256 = (Get-FileHash $package[0].FullName -Algorithm SHA256).Hash
+            distribution = 'Microsoft Store submission only; not a signed direct-download installer'
+            remaining = 'Partner Center identity readback, certification, installed-app QA and publication'
+          } | ConvertTo-Json | Set-Content dist/store-package-evidence.json
       - uses: actions/upload-artifact@v4
         with:
           name: Honmaru-AI-Windows-Store
@@ -74,5 +89,6 @@ jobs:
             apps/desktop/dist/*-store.appx
             apps/desktop/dist/Store-AppxManifest.xml
             apps/desktop/dist/startup-result.txt
+            apps/desktop/dist/store-package-evidence.json
           if-no-files-found: error
           retention-days: 14
