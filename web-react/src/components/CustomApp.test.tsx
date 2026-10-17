@@ -103,3 +103,17 @@ test('writable preview uses only its private fork and keeps the production SDK r
   expect(contentWindow.postMessage).toHaveBeenCalledWith(expect.objectContaining({id:'r',value:{row}}),'*')
   act(()=>tree!.unmount())
 })
+
+
+test('cached runner load initializes even when its ready message was missed, only once', () => {
+  let handler: (e: any) => void = () => {}
+  const contentWindow = { postMessage: vi.fn() }
+  vi.stubGlobal('window', { addEventListener: (_: string, fn: any) => { handler = fn }, removeEventListener: vi.fn() })
+  let tree: ReturnType<typeof create>
+  act(() => { tree = create(<CustomAppFrame html="<h1>Preview</h1>" table={table} rows={[]} httpBase="https://api.example" />, { createNodeMock: e => e.type === 'iframe' ? { contentWindow } : null }) })
+  act(() => tree!.root.findByType('iframe').props.onLoad())
+  expect(contentWindow.postMessage).toHaveBeenCalledWith(expect.objectContaining({type:'honmaru:init',html:expect.stringContaining('<h1>Preview</h1>')}), '*')
+  act(() => handler({source: contentWindow, data:{type:'honmaru:ready'}}))
+  expect(contentWindow.postMessage).toHaveBeenCalledTimes(1)
+  act(() => tree!.unmount())
+})

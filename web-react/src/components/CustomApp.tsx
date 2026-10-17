@@ -1,16 +1,22 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAppearance } from '../utils/appearance'
 import type { App, AppAction, AppConnection, AppFork, HarnessApi, Row, Table } from '../utils/harness'
 
 // Two opaque-origin frames isolate generated code and its navigation.
 export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId }: { appId?: string; html: string; table: Table; rows: Row[]; httpBase: string; api?: HarnessApi; reload?: () => unknown }) {
   const frame = useRef<HTMLIFrameElement>(null)
+  const initialized = useRef(false)
   const { theme } = useAppearance()
   type Change = { targetWindow?: Window | null; targetTable?: Table; action?: AppAction; connection?: AppConnection; gatewayId?: string; before?: Row; expectedUpdatedAt?: string; id: string; operation: string; args: { id?: string; values?: Record<string, unknown>; input?: unknown; body?: Record<string,unknown>; entity?: string; name?: string; gatewayId?: string } }
   const [change, setChange] = useState<Change | null>(null)
   const pending = useRef<Change | null>(null)
   const [working, setWorking] = useState(false)
-  useEffect(()=>{pending.current=null;setChange(null)},[html,theme,appId])
+  useLayoutEffect(()=>{initialized.current=false;pending.current=null;setChange(null)},[html,theme,appId,httpBase])
+  const initialize = () => {
+    if (initialized.current || !frame.current?.contentWindow) return
+    initialized.current = true
+    frame.current.contentWindow.postMessage({ type: 'honmaru:init', html: `<meta name="color-scheme" content="${theme === 'system' ? 'light dark' : theme}"><style>body{background:Canvas;color:CanvasText}</style>${html}`, theme }, '*')
+  }
   const reply = (id: string, value?: unknown, error?: string, target: Window | null = frame.current?.contentWindow || null) => target?.postMessage({ type: 'honmaru:result', id, value, error }, '*')
   async function decide(approved: boolean) {
     const current = pending.current
@@ -36,10 +42,10 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
     finally { if(pending.current===current){pending.current=null;setChange(null)} setWorking(false) }
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const listener = async (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow) return
-      if (event.data?.type === 'honmaru:ready') { frame.current?.contentWindow?.postMessage({ type: 'honmaru:init', html: `<meta name="color-scheme" content="${theme === 'system' ? 'light dark' : theme}"><style>body{background:Canvas;color:CanvasText}</style>${html}`, theme }, '*'); return }
+      if (event.data?.type === 'honmaru:ready') { initialize(); return }
       if (event.data?.type !== 'honmaru:request' || typeof event.data.id !== 'string' || event.data.id.length > 80) return
       const { id, operation, args } = event.data
       if (operation === 'read') { reply(id, { table, rows }); return }
@@ -88,7 +94,7 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
   }, [table, rows, html, theme, api, appId])
   const labeled = (values: Record<string, unknown>) => Object.fromEntries(Object.entries(values).map(([id, value]) => [(change?.targetTable || table).columns.find(c => c.id === id)?.name || id, value]))
   if (html.length > 119800) return <p role="alert">表示できるコードの上限は119800文字です。コードを短くして保存してください。</p>
-  return <>{change && <div className="hx-custom-approval" role="alertdialog" aria-label="アプリのデータ変更を確認"><h3>{change.action ? 'サーバー処理の実行確認' : change.connection ? '外部API読み取りの確認' : 'データ変更の確認'}</h3><p>{change.targetTable?.name || table.name} · {change.operation === 'create' ? '行を追加' : change.operation === 'update' ? '行を更新' : change.operation === 'run' ? 'サーバー処理' : change.operation === 'connect' ? '外部API' : '行を削除'}</p><pre>{JSON.stringify(change.action ? {処理:change.action.name,公開版:change.action.publishedVersion,コード:change.action.published,入力:change.args.input,実行ノード:change.gatewayId} : change.connection ? {接続:change.connection.name,URL:change.connection.endpoint,操作:change.connection.method||'GET',送信内容:change.args.body||null} : { ...(change.before ? { '対象レコード': change.before.id, '変更前': labeled(change.before.values) } : {}), ...(change.operation !== 'remove' ? { '変更内容': labeled(change.args.values || {}) } : {}) }, null, 2)}</pre><button disabled={working} onClick={() => decide(false)}>キャンセル</button><button disabled={working} onClick={() => decide(true)}>この変更を許可</button></div>}<iframe ref={frame} title="カスタムアプリ" sandbox="allow-scripts" referrerPolicy="no-referrer" key={html + theme} src={`${httpBase}/custom-app-runner?v=2`} className="hx-custom-frame" /></>
+  return <>{change && <div className="hx-custom-approval" role="alertdialog" aria-label="アプリのデータ変更を確認"><h3>{change.action ? 'サーバー処理の実行確認' : change.connection ? '外部API読み取りの確認' : 'データ変更の確認'}</h3><p>{change.targetTable?.name || table.name} · {change.operation === 'create' ? '行を追加' : change.operation === 'update' ? '行を更新' : change.operation === 'run' ? 'サーバー処理' : change.operation === 'connect' ? '外部API' : '行を削除'}</p><pre>{JSON.stringify(change.action ? {処理:change.action.name,公開版:change.action.publishedVersion,コード:change.action.published,入力:change.args.input,実行ノード:change.gatewayId} : change.connection ? {接続:change.connection.name,URL:change.connection.endpoint,操作:change.connection.method||'GET',送信内容:change.args.body||null} : { ...(change.before ? { '対象レコード': change.before.id, '変更前': labeled(change.before.values) } : {}), ...(change.operation !== 'remove' ? { '変更内容': labeled(change.args.values || {}) } : {}) }, null, 2)}</pre><button disabled={working} onClick={() => decide(false)}>キャンセル</button><button disabled={working} onClick={() => decide(true)}>この変更を許可</button></div>}<iframe ref={frame} onLoad={initialize} title="カスタムアプリ" sandbox="allow-scripts" referrerPolicy="no-referrer" key={html + theme} src={`${httpBase}/custom-app-runner?v=2`} className="hx-custom-frame" /></>
 }
 export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { app: App; table: Table; rows: Row[]; api: HarnessApi; reload: () => unknown; httpBase: string }) {
   const [html, setHtml] = useState(app.definition.custom?.draft || '')
