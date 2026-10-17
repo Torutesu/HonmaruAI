@@ -334,3 +334,35 @@
 .hx-library-no-results { font-size:13px; color:var(--hx-muted); padding:24px 0; }
 .hx-library-card-heading, .hx-library-card-preview { align-self:stretch; box-sizing:border-box; }
 :root .shell.harness-workspace .hx-library-search input::placeholder { color:var(--hx-subtle); opacity:1; }
+
+/* Live app cards use a scaled, read-only rendering, never a fabricated thumbnail. */
+:root .shell.harness-workspace .hx-app-library .hx-app-tile:not(.template) { position:relative; cursor:default; }
+.hx-app-card-open { position:absolute; inset:0; z-index:2; border:0; border-radius:inherit; cursor:pointer; background:transparent; }
+.hx-app-card-open:focus-visible { outline:2px solid var(--hx-accent); outline-offset:2px; }
+.hx-app-card-pin { position:absolute; right:8px; top:9px; z-index:3; display:grid; place-items:center; width:26px; height:26px; border:0; border-radius:6px; background:transparent; color:var(--hx-muted); cursor:pointer; }
+.hx-app-card-pin:hover,.hx-app-card-pin.on { background:var(--hx-hover); color:var(--hx-text); }
+.hx-library-card-heading { padding-right:32px; min-height:24px; }
+.hx-app-live-preview { display:block; position:relative; align-self:stretch; flex:1; min-height:0; overflow:hidden; border:1px solid var(--hx-border); border-radius:10px; background:var(--hx-surface); pointer-events:none; }
+.hx-preview-viewport { display:block; width:357.142857%; height:520px; transform:scale(.28); transform-origin:top left; }
+.hx-preview-viewport .hx-custom-frame { width:100%; height:520px; min-height:520px; margin:0; border:0; border-radius:0; }
+.hx-preview-state { display:grid; place-items:center; height:100%; color:var(--hx-muted); font-size:10px; }
+.hx-preview-table-surface { display:block; padding:16px; color:var(--hx-text); }
+.hx-preview-table-surface > strong { display:block; font-size:15px; margin:0 0 16px; }
+.hx-preview-table-surface .hx-table { table-layout:fixed; }
+.hx-preview-table-surface .hx-table th,.hx-preview-table-surface .hx-table td { padding:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.hx-preview-table-empty { display:flex; flex-direction:column; gap:10px; align-items:center; justify-content:center; height:210px; font-size:14px; }
+.hx-preview-table-empty > span { font-size:12px; color:var(--hx-muted); }
+.hx-app-menu { position:relative; flex:none; }
+.hx-app-icon-button { display:grid; place-items:center; width:30px; height:30px; padding:0; background:transparent; color:var(--hx-muted); border:0; border-radius:7px; cursor:pointer; }
+.hx-app-icon-button:hover { background:var(--hx-hover); }
+.hx-app-menu-popover { position:absolute; top:calc(100% + 6px); right:0; z-index:70; width:244px; max-width:calc(100vw - 80px); padding:5px; border:1px solid var(--hx-border); border-radius:13px; background:var(--hx-surface); box-shadow:0 8px 28px #00000012; }
+.hx-app-menu-popover button { display:flex; align-items:center; gap:9px; width:100%; padding:9px 8px; border:0; border-radius:7px; background:transparent; color:var(--hx-text); font:inherit; font-size:12px; text-align:left; cursor:pointer; }
+.hx-app-menu-popover button:hover,.hx-app-menu-popover button:focus-visible { background:var(--hx-hover); outline:0; }
+.hx-app-menu-popover [role="separator"] { border-top:1px solid var(--hx-border); margin:5px; }
+.hx-app-menu-notice { position:absolute; top:40px; right:0; z-index:71; padding:10px 14px; border:1px solid var(--hx-border); border-radius:10px; background:var(--hx-surface); color:var(--hx-text); font-size:12px; width:max-content; max-width:300px; overflow-wrap:anywhere; box-shadow:0 3px 12px #00000012; }
+.hx-app-title > button { color:inherit; background:transparent; border:0; padding:0; font:inherit; font-weight:600; cursor:pointer; }
+.hx-app-breadcrumb { color:var(--hx-muted); font-weight:400; white-space:nowrap; }
+:root .shell.harness-workspace .hx-app-detail .screen-body { padding:16px; }
+:root .shell.harness-workspace .hx-app-detail .screen-head { overflow:visible; z-index:5; }
+.hx-rail .hx-pinned-app { background:var(--hx-app-surface); }
+@media(max-width:719px) { .hx-rail .hx-pinned-app { display:none; } .hx-app-breadcrumb { display:none; } }

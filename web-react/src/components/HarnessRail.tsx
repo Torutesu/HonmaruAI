@@ -1,10 +1,12 @@
+import { HarnessPinnedApps } from './HarnessPinnedApps'
 import React from 'react'
 import { Icon } from './Icon'
 import { useT } from '../utils/i18n'
 import type { Screen } from '../utils/route'
 import './HarnessWorkspace.css'
 
-export function HarnessRail({ workspace, screen, chat, onChat, onNew, onSearch, onOpen, avatar }: {
+export function HarnessRail({ workspace, screen, chat, onChat, onNew, onSearch, onOpen, avatar, api }: {
+  api?: { httpBase: string; orgId: string; sessionToken: string };
   workspace: React.ReactNode; screen: Screen | null; chat: boolean; onChat: () => void; onNew: () => void; onSearch: () => void; onOpen: (screen: Screen) => void; avatar: React.ReactNode
 }) {
   const t = useT()
@@ -23,6 +25,7 @@ export function HarnessRail({ workspace, screen, chat, onChat, onNew, onSearch, 
         {([['home', 'Overview'], ['apps', 'Apps'], ['workflows', 'Workflows'], ['approvals', 'Approvals'], ['skills', 'Skills'], ['gateways', 'Execution nodes'], ['history', 'History'], ['harness', 'Workspace mode']] as [Screen, string][]).map(([key, label]) => <button key={key} onClick={e => { e.currentTarget.closest('details')?.removeAttribute('open'); onOpen(key) }}>{t(label)}</button>)}
       </div>
     </details>
+    {api && <HarnessPinnedApps {...api} />}
     <div className="hx-rail-spacer" />
     <button className={screen === 'tools' ? 'on' : ''} title={t('Integrations')} aria-label={t('Integrations')} onClick={() => onOpen('tools')}><Icon name="plug" size={18} /></button>
     <button className="hx-rail-avatar" title={t('You')} aria-label={t('You')} onClick={() => onOpen('profile')}>{avatar}</button>

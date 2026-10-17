@@ -639,6 +639,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     navigate(hashForMode('classic'), true)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route.openView, route.openOrg, workspaces.length, orgId, navigate])
+  useEffect(() => {
+    if (!route.appId || !route.appOrg || route.appOrg === orgId || !workspaces.length) return
+    if (workspaces.some(w => w.id === route.appOrg)) onSwitchOrg(route.appOrg)
+    else navigate('#/apps', true)
+  }, [route.appId, route.appOrg, orgId, workspaces, onSwitchOrg, navigate])
   // A card in another of your workspaces (a notification from there): go
   // there, and the card opens once it has loaded. One you are not in drops
   // the workspace and looks here, as a plain card link does.
@@ -1178,7 +1183,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
       {/* Always drawn: on a phone the sheet and its scrim cover it, on a
           laptop the rail staying put is the app keeping its own chrome. */}
-      {workspaceMode === 'harness' ? <HarnessRail
+      {workspaceMode === 'harness' ? <HarnessRail api={{ httpBase: relayHttpUrl, orgId, sessionToken }}
         workspace={workspaceSwitcher('rail')} screen={screen} chat={!screen && mode === 'classic'}
         onChat={() => { navigate(hashForMode('classic')); setHarnessHomeRequest(n => n + 1) }}
         onNew={() => { navigate(hashForMode('classic')); setHarnessNewRequest(n => n + 1) }}
@@ -1363,7 +1368,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       {screen === 'harness' && (
         <HarnessHub httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} onOpen={(where) => setScreen(where, 'harness')} />
       )}
-      {screen === 'apps' && <HarnessApps httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
+      {screen === 'apps' && (!route.appOrg || route.appOrg === orgId) && <HarnessApps key={`${orgId}:${sessionToken}`} requestedAppId={route.appId} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'workflows' && <HarnessWorkflows httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'approvals' && <HarnessApprovals httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'skills' && <HarnessSkills httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}

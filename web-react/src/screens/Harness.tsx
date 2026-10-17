@@ -1,12 +1,15 @@
+import { HarnessAppPreview } from '../components/HarnessAppPreview'
+import { HarnessAppMenu } from '../components/HarnessAppMenu'
+import { useAppPins } from '../utils/appPins'
 import { HarnessAppIcon } from '../components/HarnessAppIcon'
 import { CompanyApp } from '../components/CompanyApp'
 import { CustomAppEditor, CustomAppFrame } from "../components/CustomApp"
 import { AppSharing } from '../components/AppSharing'
 import { AppCalendar } from '../components/AppCalendar'
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
-import { hashForCard } from '../utils/route'
+import { hashForApp, hashForCard } from '../utils/route'
 import {
   useWorkspaceMode, cellText, metricText, WANT_MODE_KEY, SET_MODE_EVENT, isMode, type WorkspaceMode,
   type App, type Template, type Table, type Row, type View, type Column, type HarnessApi,
@@ -85,13 +88,15 @@ export const HarnessHub: React.FC<HarnessProps & { onOpen: (s: HarnessScreen) =>
 
 // ── Apps ────────────────────────────────────────────────────────────────
 
-export const HarnessApps: React.FC<HarnessProps> = (props) => {
+export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | null }> = (props) => {
   const t = useT()
   const api = useApi(props)
+  const { pins, toggle } = useAppPins(props.orgId)
   const [apps, setApps] = useState<App[] | null>(null)
   const [templates, setTemplates] = useState<Template[]>([])
   // An app opened from a room's details (RoomApps) arrives already open.
   const [open, setOpen] = useState<string | null>(() => {
+    if (props.requestedAppId) return props.requestedAppId
     try { const id = sessionStorage.getItem('hx.openApp'); sessionStorage.removeItem('hx.openApp'); return id } catch { return null }
   })
   const [prompt, setPrompt] = useState('')
@@ -106,18 +111,24 @@ export const HarnessApps: React.FC<HarnessProps> = (props) => {
   }), [api, act])
   useEffect(() => { load() }, [load])
 
-  if (open) return <AppView {...props} api={api} appId={open} onBack={() => { setOpen(null); load() }} />
+  const previousRequestedApp = useRef(props.requestedAppId)
+  useEffect(() => {
+    if (previousRequestedApp.current !== props.requestedAppId) setOpen(props.requestedAppId || null)
+    previousRequestedApp.current = props.requestedAppId
+  }, [props.requestedAppId])
+  const openApp = (id: string) => { setOpen(id); location.hash = hashForApp(id, props.orgId) }
+  if (open) return <AppView key={open} {...props} api={api} appId={open} onBack={() => { setOpen(null); location.hash = '#/apps'; load() }} />
 
   const generate = () => act('generate', async () => {
     const room = prompt.match(/#([\p{L}\p{N}_-]+)/u)?.[1]
     const made = await api.generate(prompt, room ? `b:${room}` : undefined)
     setPrompt('')
     setNote(made.source === 'model' ? t('Built from your description.') : t('Started from the closest template. Change its columns any time.'))
-    setOpen(made.app.id)
+    openApp(made.app.id)
   })
   const fromTemplate = (id: string) => act(`tpl:${id}`, async () => {
     const made = await api.createFromTemplate(id)
-    setOpen(made.app.id)
+    openApp(made.app.id)
   })
 
   return (
@@ -152,10 +163,12 @@ export const HarnessApps: React.FC<HarnessProps> = (props) => {
       {apps && apps.length > 0 && (
         <div className="hx-app-grid">
           {apps.filter(a => `${a.name} ${a.description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map((a) => (
-            <button key={a.id} className="hx-app-tile" onClick={() => setOpen(a.id)} data-app={a.id}>
+            <article key={a.id} className="hx-app-tile" data-app={a.id}>
+              <button className="hx-app-card-open" aria-label={`${a.name}を開く`} onClick={() => openApp(a.id)} />
               <span className="hx-library-card-heading"><HarnessAppIcon icon={a.icon} /><span><span className="hx-app-name">{a.name}</span><span className="hx-app-rooms">{a.channels?.map(c => c.startsWith('ag:') || c.startsWith('dm:') ? t('Private chat') : c.replace(/^b:/, '')).join(' · ') || t('Apps')}</span></span></span>
-              <span className="hx-library-card-preview"><span className="hx-library-preview-title"><HarnessAppIcon icon={a.icon} size={12} />{a.name}</span><span className="hx-library-preview-views">{a.definition?.views?.map((v, i) => <span key={v.id || i}>{v.name}</span>)}</span><span className="hx-app-sub">{a.description || t('Browse data')}</span></span>
-            </button>
+              <button className={`hx-app-card-pin ${pins.includes(a.id) ? 'on' : ''}`} aria-label={pins.includes(a.id) ? `${a.name}の固定を解除` : `${a.name}をナビゲーションに固定`} aria-pressed={pins.includes(a.id)} onClick={() => void act('pin', async () => toggle(a.id))}><Icon name="pin" size={14} /></button>
+              <HarnessAppPreview app={a} api={api} httpBase={props.httpBase} />
+            </article>
           ))}
         </div>
       )}
@@ -208,6 +221,7 @@ function CellInput({ column, value, onSave }: { column: Column; value: unknown; 
 export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void }> = ({ api, appId, onBack, httpBase, orgId, sessionToken }) => {
   const t = useT()
   const [data, setData] = useState<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize?: boolean } | null>(null)
+  const initializedSection = useRef(false)
   const [viewIndex, setViewIndex] = useState(0)
   const [section, setSection] = useState<'overview' | 'data' | 'settings' | 'custom' | 'backend'>('overview')
   const [search, setSearch] = useState('')
@@ -218,7 +232,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { busy, error, act } = useAct()
 
-  const load = useCallback(() => act('load', async () => { setData(await api.app(appId)) }), [api, appId, act])
+  const load = useCallback(() => act('load', async () => { const next = await api.app(appId); setData(next); if (!initializedSection.current) { initializedSection.current = true; setSection(next.app.definition.custom?.published ? 'overview' : 'data') } }), [api, appId, act])
   useEffect(() => { load() }, [load])
 
   if (!data) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
@@ -246,12 +260,12 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   return (
     <Shell
       className="hx-resource-screen hx-app-detail"
-      title={<span className="hx-app-title"><HarnessAppIcon icon={app.icon} size={16} />{app.name}</span>}
+      title={<span className="hx-app-title"><HarnessAppIcon icon={app.icon} size={16} /><button onClick={() => setSection(app.definition.custom?.published ? 'overview' : 'data')}>{app.name}</button>{section !== 'overview' && <span className="hx-app-breadcrumb">/ {t(section === 'data' ? 'Data viewer' : section === 'custom' ? 'Customize app' : section === 'backend' ? '実行基盤' : 'Settings')}</span>}</span>}
       onClose={onBack}
       nested
-      actions={<><button className="pill-btn quiet" onClick={() => setSection('custom')}><Icon name="grid" size={14} />{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => setSection('settings')}><Icon name="users" size={14} />{t('Sharing')}</button><button className="pill-btn quiet" disabled={busy !== null} onClick={() => void load()}><Icon name="refresh" size={14} />{t('Reload')}</button><span className="hx-version">v{app.version}</span></>}
+      actions={<><button className="pill-btn quiet" onClick={() => setSection('custom')}><Icon name="grid" size={14} />{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => setSection('settings')}><Icon name="users" size={14} />{t('Sharing')}</button><button className="pill-btn quiet" disabled={busy !== null} onClick={() => void load()}><Icon name="refresh" size={14} />{t('Reload')}</button><HarnessAppMenu appId={app.id} orgId={orgId} onSection={setSection} /></>}
     >
-      <nav className="hx-app-sections" aria-label={t('App sections')}>{(['overview', 'data', 'custom', 'backend', 'settings'] as const).map(tab => <button key={tab} aria-current={section === tab ? 'page' : undefined} className={section === tab ? 'on' : ''} onClick={() => setSection(tab)}>{t(tab === 'overview' ? 'Overview' : tab === 'data' ? 'Data viewer' : tab === 'custom' ? 'Customize app' : tab === 'backend' ? '実行基盤' : 'Settings')}</button>)}</nav>
+      {section !== 'overview' && section !== 'data' && <nav className="hx-app-sections" aria-label={t('App sections')}>{(['overview', 'data', 'custom', 'backend', 'settings'] as const).map(tab => <button key={tab} aria-current={section === tab ? 'page' : undefined} className={section === tab ? 'on' : ''} onClick={() => setSection(tab)}>{t(tab === 'overview' ? 'Overview' : tab === 'data' ? 'Data viewer' : tab === 'custom' ? 'Customize app' : tab === 'backend' ? '実行基盤' : 'Settings')}</button>)}</nav>}
       {section === 'backend' && <CompanyApp app={app} api={api} canManage={data.canCustomize !== false} reload={load} />}
       {section === 'custom' && data.canCustomize === false && <p>カスタムコードの編集・公開は、作成者または管理者が行えます。</p>}
       {section === 'custom' && data.canCustomize !== false && <CustomAppEditor httpBase={httpBase} app={app} table={table} rows={data.rows} api={api} reload={load} />}
