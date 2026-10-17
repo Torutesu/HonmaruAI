@@ -1,6 +1,8 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Fields": "フィールド",
+  "Sharing": "共有",
   "Add field": "フィールドを追加",
   "Field type": "フィールドの種類",
   "Field name": "フィールド名",
