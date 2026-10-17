@@ -19,5 +19,6 @@ test('column order and width save together and rejected drafts remain editable',
  expect(save.mock.calls[0][0].layouts.v).toEqual({order:['b','a'],widths:{a:320}})
  expect(tree!.root.findByProps({role:'alert'}).children).toContain('Conflict')
  expect(tree!.root.findByProps({'aria-label':'名前の列幅'}).props.value).toBe(320)
+ const stopPropagation=vi.fn();act(()=>tree!.root.findByProps({className:'hx-view-controls'}).props.onKeyDown({key:'Escape',stopPropagation}));expect(stopPropagation).toHaveBeenCalledOnce();expect(tree!.root.findAllByProps({role:'dialog'})).toHaveLength(0)
  act(()=>tree!.unmount())
 })
