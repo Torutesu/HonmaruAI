@@ -7,6 +7,7 @@ export function PersonalViewControls({view,columns,state,save,onSelect,onSetting
  const [order,setOrder]=useState(layout?.order || ids),[widths,setWidths]=useState<Record<string,number>>(layout?.widths || {})
  const root=useRef<HTMLDivElement>(null), dragged=useRef<string|null>(null)
  useEffect(()=>{const close=(e:PointerEvent)=>{if(!busy&&!root.current?.contains(e.target as Node))setOpen(null)};document.addEventListener('pointerdown',close);return()=>document.removeEventListener('pointerdown',close)},[busy])
+ useEffect(()=>{if(open)root.current?.querySelector<HTMLElement>('[role="dialog"] input,[role="dialog"] button:not(:disabled)')?.focus()},[open])
  const perform=async(next:PersonalViews,id?:string)=>{setBusy(true);setError('');try{await save(next);setOpen(null);if(id)onSelect(id)}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}}
  const move=(id:string,delta:number)=>{const next=[...order],i=next.indexOf(id);[next[i],next[i+delta]]=[next[i+delta],next[i]];setOrder(next)}
  const personal=view.id.startsWith('personal_')
