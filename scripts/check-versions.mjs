@@ -17,6 +17,10 @@ const found = {
   'apps/mobile/app.json (expo.version)': json('apps/mobile/app.json').expo.version,
   'apps/mobile/package.json': json('apps/mobile/package.json').version,
   'web-react/package.json': json('web-react/package.json').version,
+  'web-react/package-lock.json': json('web-react/package-lock.json').version,
+  'web-react/package-lock.json (root package)': json('web-react/package-lock.json').packages[''].version,
+  'apps/desktop/package-lock.json (root package)': json('apps/desktop/package-lock.json').packages[''].version,
+  'package-lock.json (mobile workspace)': json('package-lock.json').packages['apps/mobile'].version,
   'project.yml (MARKETING_VERSION)': read('project.yml').match(/MARKETING_VERSION:\s*"?([^"\n]+)"?/)?.[1],
 }
 for (const [i, m] of [...read('TikTokForWork.xcodeproj/project.pbxproj').matchAll(/MARKETING_VERSION = ([^;]+);/g)].entries()) {

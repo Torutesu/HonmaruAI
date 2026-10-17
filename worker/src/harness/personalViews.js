@@ -5,7 +5,8 @@ export function normalizeLayout(raw, columns) {
   const ids = columns.map(c => c.id);
   const order = [...new Set((Array.isArray(raw?.order) ? raw.order : []).filter(id => ids.includes(id)))];
   const widths = Object.fromEntries(ids.filter(id => Number.isFinite(raw?.widths?.[id])).map(id => [id, Math.max(80, Math.min(600, Math.round(raw.widths[id])))]));
-  return { order: [...order, ...ids.filter(id => !order.includes(id))], widths };
+  const hidden = [...new Set((Array.isArray(raw?.hidden) ? raw.hidden : []).filter(id => ids.includes(id) && id !== ids[0]))];
+  return { order: [...order, ...ids.filter(id => !order.includes(id))], widths, hidden };
 }
 export async function personalViews(db, orgId, userId, appId, input) {
   if (!(await mayUseApp(db, orgId, appId, userId))) return { error: 'No such app.', status: 404 };

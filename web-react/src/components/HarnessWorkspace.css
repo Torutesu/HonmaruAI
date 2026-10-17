@@ -415,3 +415,6 @@
  .hx-view-popover { position:fixed; left:16px; right:16px; top:min(140px,20dvh); width:auto; max-width:none; }
  .hx-view-popover.editing,.hx-personal-popover { width:auto; }
 }
+
+.hx-column-setting.is-hidden .hx-column-label {color:var(--hx-muted);text-decoration:line-through}
+.hx-column-visibility {display:inline-flex;align-items:center;justify-content:center;min-width:28px;min-height:28px}
