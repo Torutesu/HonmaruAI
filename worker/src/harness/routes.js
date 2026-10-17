@@ -24,6 +24,7 @@ import {
 import { templateList } from "./templates.js";
 import { getProfile, saveProfile, listAgentMemories, addAgentMemory, deleteAgentMemory, TIERS, ACCESS } from "./agents.js";
 import { listSkills, createSkill, updateSkill, deleteSkill, getSkill, giveSkill, takeSkill, skillsOf } from "./skills.js";
+import { workflowFromPrompt } from './workflowGeneration.js';
 import { completer } from "./model.js";
 import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
 import { listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
@@ -187,6 +188,25 @@ export async function handleHarness(request, env, url) {
   // ── Workflows ─────────────────────────────────────────────────────────
   if (parts[0] === "workflows") {
     const [, wfId, sub, runId] = parts;
+    if (wfId === 'generate' && request.method === 'POST') {
+      let generationRoom = null;
+      if (input.channel) {
+        generationRoom = await resolveChannel(env.DB, orgId, who.user, input.channel);
+        if (!generationRoom || !(await mayUseConversation(env.DB, orgId, me, generationRoom.key))) return json({ message: 'No such room.' }, 403);
+        input.channel = generationRoom.key;
+      }
+      const tables = await visibleResources(await listTables(env.DB, orgId), t => mayUseTable(env.DB, orgId, t.id, me));
+      const agents = await listAgents(env.DB, orgId, who.user.login);
+      const visibleAgents = [];
+      for (const agent of agents) if (await mayAccessAgent(env.DB, orgId, agent, who.user.login)) visibleAgents.push({ id: agent.id, name: agent.name });
+      const complete = input.useModel === false ? null : await completer(env, orgId, me, 'workflow_generate', { maxTokens: 2400 });
+      const made = await workflowFromPrompt(env.DB, orgId, me, { ...input, complete, tables, agents: visibleAgents });
+      if (made.error) return fail(made);
+      const r = await createWorkflow(env.DB, orgId, made.workflow, me);
+      if (r.error) return fail(r);
+      await audit(env, request, { orgId, action: 'workflow.created', actor: person(who.user), entity: { type: 'workflow', id: r.workflow.id, name: r.workflow.name }, details: { source: made.source } });
+      return json({ workflow: { ...r.workflow, hookSecret: undefined }, source: made.source }, 201);
+    }
     if (!wfId) {
       if (request.method === "GET") return json({ workflows: await listWorkflows(env.DB, orgId, { viewerId: me }), triggers: TRIGGERS, steps: STEP_TYPES });
       if (request.method === "POST") {
@@ -381,7 +401,13 @@ export async function handleHarness(request, env, url) {
     const [, appId, sub] = parts;
     if (appId === "templates" && request.method === "GET") return json({ templates: templateList() });
     if (appId === "generate" && request.method === "POST") {
-      const complete = input.useModel === false ? null : await completer(env, orgId, me, "app_generate");
+      let generationRoom = null;
+      if (input.channel) {
+        generationRoom = await resolveChannel(env.DB, orgId, who.user, input.channel);
+        if (!generationRoom || !(await mayUseConversation(env.DB, orgId, me, generationRoom.key))) return json({ message: 'No such room.' }, 403);
+        input.channel = generationRoom.key;
+      }
+      const complete = input.useModel === false ? null : await completer(env, orgId, me, "app_generate", { maxTokens: 2400 });
       const made = await specFromPrompt(input.prompt, { complete });
       if (made.error) return fail(made);
       const { spec } = made;
@@ -391,11 +417,17 @@ export async function handleHarness(request, env, url) {
         sample: spec.sample || [], channel: input.channel || null,
       });
       if (r.error) return fail(r);
+      if (generationRoom && (generationRoom.kind !== 'business' || generationRoom.private)) await setAppAccess(env.DB, orgId, r.app.id, me, { visibility: 'private', version: 0 });
       await audit(env, request, { orgId, action: "app.created", actor: person(who.user), entity: { type: "app", id: r.app.id, name: r.app.name }, details: { source: made.source } });
       return json({ ...r, source: made.source, room: made.room || null }, 201);
     }
     if (!appId) {
-      if (request.method === "GET") return json({ apps: await visibleResources(await listApps(env.DB, orgId, { channel: url.searchParams.get("channel") || undefined }), a => mayUseApp(env.DB, orgId, a.id, me)) });
+      if (request.method === "GET") {
+        const requested = url.searchParams.get('channel');
+        const room = requested ? await resolveChannel(env.DB, orgId, who.user, requested) : null;
+        if (requested && !room) return json({ message: 'No such room.' }, 403);
+        return json({ apps: await visibleResources(await listApps(env.DB, orgId, { channel: room?.key }), a => mayUseApp(env.DB, orgId, a.id, me)) });
+      }
       if (request.method === "POST") {
         const r = input.template
           ? await createFromTemplate(env.DB, { orgId, by: me, template: input.template, name: input.name, channel: input.channel, withSample: input.sample !== false })

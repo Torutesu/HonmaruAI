@@ -182,3 +182,34 @@
 :root .shell.harness-workspace .hx-resource-screen .head-title { color: #242422; }
 
 :root .shell.harness-workspace .hx-resource-screen .rows:empty { display: none; }
+
+:root .shell.harness-workspace .hx-build-status { display:flex; gap:8px; align-items:center; padding:9px 12px; background:#f1f7e8; border-radius:12px; margin:6px; color:#58643d; font-size:12px; }
+:root .shell.harness-workspace .hx-build-status button { margin-left:auto; border:0; background:none; color:inherit; cursor:pointer; }
+:root .shell.harness-workspace .hx-app-pane.slk-pane { width:min(58vw,1100px); min-width:420px; margin:8px 8px 8px 0; border:1px solid #d5dbc9; border-radius:16px; overflow:hidden; background:#f1fae6; }
+:root .shell.harness-workspace .hx-app-detail { height:100%; background:#f1fae6; }
+:root .shell.harness-workspace .hx-app-detail .screen-head { background:#f1fae6; min-height:48px; height:auto; flex-wrap:wrap; padding:8px 12px; gap:8px; }
+:root .shell.harness-workspace .hx-app-detail .screen-body { background:white; border:1px solid #e0e2dc; border-radius:12px; margin:0 5px 5px; padding:20px; width:auto; max-width:none; flex:1; }
+:root .shell.harness-workspace .hx-app-sections { display:flex; gap:20px; border-bottom:1px solid #e9e9e5; margin-bottom:22px; }
+:root .shell.harness-workspace .hx-app-sections button { background:none; border:0; padding:8px 0 12px; color:#7c7c73; cursor:pointer; font-size:13px; }
+:root .shell.harness-workspace .hx-app-sections button.on { color:#34382b; box-shadow:0 2px #778152; }
+:root .shell.harness-workspace .hx-app-overview { min-height:55vh; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:14px; padding:30px; }
+:root .shell.harness-workspace .hx-app-overview h2 { font-size:16px; margin:0; }
+:root .shell.harness-workspace .hx-app-overview p { max-width:480px; line-height:1.8; color:#737469; margin:0 0 8px; }
+:root .shell.harness-workspace .hx-app-overview small { color:#97998e; font-size:11px; }
+:root .shell.harness-workspace .hx-app-detail .pill-btn { background:#717b4c; color:white; border-radius:11px; border:0; }
+:root .shell.harness-workspace .hx-app-detail .pill-btn.quiet { background:#f2eddf; color:#4d4e43; }
+:root .shell.harness-workspace .hx-data-heading,.shell.harness-workspace .hx-data-tools { display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+:root .shell.harness-workspace .hx-data-heading h2 { font-size:17px; margin-right:auto; }
+:root .shell.harness-workspace .hx-data-tools input { width:220px; }
+:root .shell.harness-workspace .hx-data-tools span { margin-left:auto; color:#8b8c83; font-size:12px; }
+:root .shell.harness-workspace .hx-generation { border:1px solid #e5e3dd; border-radius:16px; padding:24px; margin-bottom:24px; }
+:root .shell.harness-workspace .hx-generation textarea { margin-top:12px; }
+:root .shell.harness-workspace .hx-flow-diagram { display:flex; flex-direction:column; align-items:center; padding:24px; background:#fafaf7; border-radius:16px; margin-bottom:24px; }
+:root .shell.harness-workspace .hx-flow-node { width:min(100%,520px); display:flex; flex-direction:column; gap:10px; background:white; border:1px solid #dedfd6; border-radius:14px; padding:20px; overflow-wrap:anywhere; }
+:root .shell.harness-workspace .hx-flow-node small { color:#858b69; }
+:root .shell.harness-workspace .hx-flow-node strong { font-size:14px; white-space:pre-wrap; }
+:root .shell.harness-workspace .hx-flow-node span { font-size:12px; color:#777; }
+:root .shell.harness-workspace .hx-flow-connector { color:#a8ad94; padding:10px; }
+@media(max-width:1100px) { :root .shell.harness-workspace .hx-app-pane.slk-pane { position:absolute; inset:0; width:auto; min-width:0; z-index:35; margin:6px; } }
+:root .shell.harness-workspace .hx-app-pane .hx-app-detail { position:static; inset:auto; min-width:0; width:100%; }
+@media(min-width:1180px) { :root .shell.harness-workspace .classic.slk.slk:has(.hx-app-pane) .slk-side { display:none; } }
