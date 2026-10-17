@@ -11,7 +11,7 @@ export function PersonalViewControls({view,columns,state,save,onSelect,onSetting
  const perform=async(next:PersonalViews,id?:string)=>{setBusy(true);setError('');try{await save(next);setOpen(null);if(id)onSelect(id)}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}}
  const move=(id:string,delta:number)=>{const next=[...order],i=next.indexOf(id);[next[i],next[i+delta]]=[next[i+delta],next[i]];setOrder(next)}
  const personal=view.id.startsWith('personal_')
- return <div className="hx-view-controls" ref={root} onKeyDown={e=>{if(e.key==='Escape'&&!busy)setOpen(null)}}>
+ return <div className="hx-view-controls" ref={root} onKeyDown={e=>{if(e.key==='Escape'&&open){e.stopPropagation();if(!busy){setOpen(null);root.current?.querySelector<HTMLButtonElement>('button')?.focus()}}}}>
  <button className="pill-btn quiet" aria-expanded={open==='fields'} onClick={()=>setOpen(open==='fields'?null:'fields')}><Icon name="sliders" size={14}/>フィールド</button>
  <button className="pill-btn quiet" aria-expanded={open==='view'} onClick={()=>{setName(view.name);setOpen(open==='view'?null:'view')}}><Icon name="plus" size={14}/>新しいビュー{personal?' / 編集':''}</button>
  {open && <div className="hx-view-popover hx-personal-popover" role="dialog" aria-label={open==='fields'?'列の表示設定':'個人ビュー'}>
