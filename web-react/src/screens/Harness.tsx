@@ -153,7 +153,7 @@ export const HarnessApps: React.FC<HarnessProps> = (props) => {
         <div className="hx-app-grid">
           {apps.filter(a => `${a.name} ${a.description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map((a) => (
             <button key={a.id} className="hx-app-tile" onClick={() => setOpen(a.id)} data-app={a.id}>
-              <span className="hx-library-card-heading"><HarnessAppIcon icon={a.icon} /><span><span className="hx-app-name">{a.name}</span><span className="hx-app-rooms">{a.channels?.map(c => c.replace(/^b:/, '')).join(' · ') || t('Apps')}</span></span></span>
+              <span className="hx-library-card-heading"><HarnessAppIcon icon={a.icon} /><span><span className="hx-app-name">{a.name}</span><span className="hx-app-rooms">{a.channels?.map(c => c.startsWith('ag:') || c.startsWith('dm:') ? t('Private chat') : c.replace(/^b:/, '')).join(' · ') || t('Apps')}</span></span></span>
               <span className="hx-library-card-preview"><span className="hx-library-preview-title"><HarnessAppIcon icon={a.icon} size={12} />{a.name}</span><span className="hx-library-preview-views">{a.definition?.views?.map((v, i) => <span key={v.id || i}>{v.name}</span>)}</span><span className="hx-app-sub">{a.description || t('Browse data')}</span></span>
             </button>
           ))}
