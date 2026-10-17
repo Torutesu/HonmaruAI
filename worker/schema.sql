@@ -1864,3 +1864,12 @@ CREATE TABLE IF NOT EXISTS hx_app_fork_bases (org_id TEXT NOT NULL,app_id TEXT N
 CREATE TABLE IF NOT EXISTS hx_app_fork_merges (org_id TEXT NOT NULL,app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,created_by TEXT NOT NULL,fork_id TEXT NOT NULL PRIMARY KEY,revision INTEGER NOT NULL,checksum TEXT NOT NULL,nonce TEXT NOT NULL,plan TEXT NOT NULL,created_at TEXT NOT NULL);
 
 CREATE TABLE IF NOT EXISTS hx_app_pins (org_id TEXT NOT NULL,user_id TEXT NOT NULL REFERENCES users(github_id) ON DELETE CASCADE,app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,created_at TEXT NOT NULL,PRIMARY KEY(org_id,user_id,app_id));
+
+CREATE TABLE IF NOT EXISTS hx_personal_views (
+ org_id TEXT NOT NULL,
+ user_id TEXT NOT NULL REFERENCES users(github_id) ON DELETE CASCADE,
+ app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+ revision INTEGER NOT NULL,
+ settings TEXT NOT NULL,
+ PRIMARY KEY(org_id,user_id,app_id)
+);

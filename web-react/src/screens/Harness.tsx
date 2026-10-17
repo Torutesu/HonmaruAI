@@ -1,3 +1,6 @@
+import { ColumnResize } from '../components/ColumnResize'
+import { PersonalViewControls } from '../components/PersonalViewControls'
+import type { PersonalViews } from '../utils/harness'
 import { AppViewControls } from '../components/AppViewControls'
 import { HarnessAppPreview } from '../components/HarnessAppPreview'
 import { HarnessAppMenu } from '../components/HarnessAppMenu'
@@ -222,6 +225,7 @@ function CellInput({ column, value, onSave }: { column: Column; value: unknown; 
 export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void }> = ({ api, appId, onBack, httpBase, orgId, sessionToken }) => {
   const t = useT()
   const [data, setData] = useState<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize?: boolean } | null>(null)
+  const [personal,setPersonal] = useState<PersonalViews>({revision:0,views:[],computed:[],layouts:{}})
   const initializedSection = useRef(false)
   const [viewIndex, setViewIndex] = useState(0)
   const [section, setSection] = useState<'overview' | 'data' | 'settings' | 'custom' | 'backend'>('overview')
@@ -233,12 +237,16 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { busy, error, act } = useAct()
 
-  const load = useCallback(() => act('load', async () => { const next = await api.app(appId); setData(next); if (!initializedSection.current) { initializedSection.current = true; setSection(next.app.definition.custom?.published ? 'overview' : 'data') } }), [api, appId, act])
+  const load = useCallback(() => act('load', async () => { const [next,preferences] = await Promise.all([api.app(appId),api.personalViews(appId)]); setData(next); setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(next.app.definition.custom?.published ? 'overview' : 'data') } }), [api, appId, act])
   useEffect(() => { load() }, [load])
 
   if (!data) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
   const { app, table } = data
-  const view = data.views[Math.min(viewIndex, data.views.length - 1)]
+  const allViews = [...data.views,...personal.computed]
+  const view = allViews[Math.min(viewIndex, allViews.length - 1)]
+  const savePersonal = async (next:PersonalViews) => {const saved=await api.savePersonalViews(appId,next);setPersonal(saved);setViewIndex(Math.max(0,[...data.views,...saved.computed].findIndex(v=>v.id===saved.activeView)))}
+  const layout = personal.layouts[view.id]
+  const displayColumns = [...(layout?.order || []),...table.columns.map(c=>c.id)].filter((id,i,ids)=>ids.indexOf(id)===i).map(id=>table.columns.find(c=>c.id===id)).filter((c):c is Column=>!!c)
   const shownRows = (view.rows || []).filter(row => !search || table.columns.some(c => cellText(c, row.values[c.id]).toLowerCase().includes(search.toLowerCase())))
 
   const save = (row: Row, column: Column, value: unknown) => act(`cell:${row.id}`, async () => {
@@ -274,11 +282,11 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       {section === 'overview' && !app.definition.custom?.published && <div className="hx-app-overview"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('Database app')}</h2><p>{app.description || t('Browse and manage this app’s data in the data viewer.')}</p><div className="hx-actions"><button className="pill-btn" onClick={() => setSection('data')}>{t('Browse data')}</button><button className="pill-btn quiet" onClick={() => setSection('custom')}>{t('Customize app')}</button></div><small>{t('{n} records', { n: data.rows.length })} · {table.columns.length} {t('Fields')}</small></div>}
       {section === 'data' && <>
       <div className="hx-data-toolbar"><div className="hx-data-heading"><h2>{app.name}</h2><button className="pill-btn" onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{t('Add a row')}</button></div>
-      <div className="hx-data-tools"><input className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /><button className="pill-btn quiet" onClick={() => setSection('settings')}><Icon name="sliders" size={14} />{t('Fields')}</button><AppViewControls key={`${view.id}:${app.version}`} view={view} columns={table.columns} canEdit={data.canCustomize !== false} save={async patch => { await api.updateApp(app.id, { expectedVersion: app.version, definition: { ...app.definition, views: app.definition.views.map(v => v.id === view.id ? {...v,...patch} : v) }, note: 'ビューのフィルター・グループを更新' }); await load() }} /><span>{t('{n} records', { n: data.rows.length })}</span></div>
+      <div className="hx-data-tools"><input className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /><PersonalViewControls key={`${view.id}:${personal.revision}`} view={view} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>setSection('settings')} /><AppViewControls key={`${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} personal={view.id.startsWith('personal_')} canEdit={view.id.startsWith('personal_') || data.canCustomize !== false} save={async patch => { if(view.id.startsWith('personal_')) { await savePersonal({...personal,views:personal.views.map(v=>v.id===view.id?{...v,...patch}:v)}); return } await api.updateApp(app.id, { expectedVersion: app.version, definition: { ...app.definition, views: app.definition.views.map(v => v.id === view.id ? {...v,...patch} : v) }, note: 'ビューのフィルター・グループを更新' }); await load() }} /><span>{t('{n} records', { n: data.rows.length })}</span></div>
       <div className="hx-tabs" role="tablist">
-        {data.views.map((v, i) => (
-          <button key={v.id} role="tab" aria-selected={i === viewIndex} className={i === viewIndex ? 'on' : ''} onClick={() => setViewIndex(i)}>
-            <Icon name={v.type === 'board' ? 'grid' : v.type === 'metrics' ? 'insights' : v.type === 'calendar' ? 'calendar' : 'list'} size={14} /> {v.name}
+        {allViews.map((v, i) => (
+          <button key={v.id} role="tab" aria-selected={i === viewIndex} className={i === viewIndex ? 'on' : ''} onClick={() => {setViewIndex(i);void act('view',()=>savePersonal({...personal,activeView:v.id}))}}>
+            <Icon name={v.type === 'board' ? 'grid' : v.type === 'metrics' ? 'insights' : v.type === 'calendar' ? 'calendar' : 'list'} size={14} /> {v.name}{v.id.startsWith('personal_') && <small className="hx-personal-badge">個人</small>}
           </button>
         ))}
       </div>
@@ -327,16 +335,17 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
 
       {view.type === 'table' && (
         <div className="hx-table-wrap">
-          <table className="hx-table">
+          <table className="hx-table hx-personal-table" style={{width:displayColumns.reduce((n,c)=>n+(layout?.widths[c.id]||180),48)}}>
+            <colgroup>{displayColumns.map(c=><col key={c.id} style={{width:layout?.widths[c.id]||180}}/>)}<col style={{width:48}}/></colgroup>
             <thead>
-              <tr>{table.columns.map((c) => <th key={c.id}>{c.name}</th>)}<th aria-label={t('Actions')} /></tr>
+              <tr>{displayColumns.map((c) => <th key={c.id}>{c.name}<ColumnResize name={c.name} width={layout?.widths[c.id]||180} save={width=>act('layout',()=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:displayColumns.map(c=>c.id),widths:{...layout?.widths,[c.id]:width}}}}))}/></th>)}<th aria-label={t('Actions')} /></tr>
             </thead>
             <tbody>
               {(view.groupBy ? (view.lanes || []).map(lane=>({...lane,rows:lane.rows.filter(row=>shownRows.some(r=>r.id===row.id))})) : [{key:null,rows:shownRows}]).map((group,groupIndex)=><React.Fragment key={group.key ?? groupIndex}>
               {view.groupBy && <tr className="hx-table-group"><th colSpan={table.columns.length+1}>{group.key ?? '未設定'} <span className="hx-count">{group.rows.length}</span></th></tr>}
               {group.rows.map((row) => (
                 <tr key={row.id} data-row={row.id}>
-                  {table.columns.map((c) => (
+                  {displayColumns.map((c) => (
                     <td key={c.id}><CellInput column={c} value={row.values[c.id]} onSave={(v) => save(row, c, v)} /></td>
                   ))}
                   <td><button className="btn-text danger" onClick={() => removeRow(row)} disabled={busy === `del:${row.id}`} aria-label={t('Delete row')}><Icon name="trash" size={14} /></button></td>
