@@ -221,6 +221,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   if (!data) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
   const { app, table } = data
   const view = data.views[Math.min(viewIndex, data.views.length - 1)]
+  const shownRows = (view.rows || []).filter(row => !search || table.columns.some(c => cellText(c, row.values[c.id]).toLowerCase().includes(search.toLowerCase())))
 
   const save = (row: Row, column: Column, value: unknown) => act(`cell:${row.id}`, async () => {
     await api.updateRow(table.id, row.id, { [column.id]: value }, row.updatedAt)
@@ -308,7 +309,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
               <tr>{table.columns.map((c) => <th key={c.id}>{c.name}</th>)}<th aria-label={t('Actions')} /></tr>
             </thead>
             <tbody>
-              {(view.rows || []).filter(row => !search || table.columns.some(c => cellText(c, row.values[c.id]).toLowerCase().includes(search.toLowerCase()))).map((row) => (
+              {shownRows.map((row) => (
                 <tr key={row.id} data-row={row.id}>
                   {table.columns.map((c) => (
                     <td key={c.id}><CellInput column={c} value={row.values[c.id]} onSave={(v) => save(row, c, v)} /></td>
@@ -318,7 +319,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
               ))}
             </tbody>
           </table>
-          {(view.rows || []).length === 0 && <div className="empty">{t('Nothing here yet.')}</div>}
+          {shownRows.length === 0 && <div className="empty">{t('Nothing here yet.')}</div>}
         </div>
       )}
       {view.type !== 'metrics' && <button className="pill-btn quiet hx-add" onClick={addRow} disabled={busy === 'add'}><Icon name="plus" size={14} /> {t('Add a row')}</button>}
