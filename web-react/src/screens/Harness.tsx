@@ -258,7 +258,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       {section === 'overview' && app.definition.custom?.published && <CustomAppFrame appId={app.id} api={api} reload={load} httpBase={httpBase} html={app.definition.custom.published} table={table} rows={data.rows} />}
       {section === 'overview' && !app.definition.custom?.published && <div className="hx-app-overview"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('Database app')}</h2><p>{app.description || t('Browse and manage this app’s data in the data viewer.')}</p><div className="hx-actions"><button className="pill-btn" onClick={() => setSection('data')}>{t('Browse data')}</button><button className="pill-btn quiet" onClick={() => setSection('custom')}>{t('Customize app')}</button></div><small>{t('{n} records', { n: data.rows.length })} · {table.columns.length} {t('Fields')}</small></div>}
       {section === 'data' && <>
-      <div className="hx-data-heading"><h2>{app.name}</h2><button className="pill-btn" onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{t('Add a row')}</button></div>
+      <div className="hx-data-toolbar"><div className="hx-data-heading"><h2>{app.name}</h2><button className="pill-btn" onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{t('Add a row')}</button></div>
       <div className="hx-data-tools"><input className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /><button className="pill-btn quiet" onClick={() => setSection('settings')}>{t('Fields')}</button><span>{t('{n} records', { n: data.rows.length })}</span></div>
       <div className="hx-tabs" role="tablist">
         {data.views.map((v, i) => (
@@ -266,6 +266,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
             <Icon name={v.type === 'board' ? 'grid' : v.type === 'metrics' ? 'insights' : 'list'} size={14} /> {v.name}
           </button>
         ))}
+      </div>
       </div>
       {error && <div className="form-error">{error}</div>}
       {app.definition.views.length < 12 && !data.views.some(v => v.type === 'calendar') && table.columns.some(c => c.type === 'date') && <button className="pill-btn quiet" disabled={busy !== null} onClick={() => act('calendar', async () => {
@@ -326,7 +327,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
               ))}
             </tbody>
           </table>
-          {shownRows.length === 0 && <div className="empty">{t('Nothing here yet.')}</div>}
+          {shownRows.length === 0 && <div className="hx-table-empty"><strong>レコードがありません</strong><span>この表示に一致するレコードはありません。</span></div>}
         </div>
       )}
       {view.type !== 'metrics' && <button className="pill-btn quiet hx-add" onClick={addRow} disabled={busy === 'add'}><Icon name="plus" size={14} /> {t('Add a row')}</button>}

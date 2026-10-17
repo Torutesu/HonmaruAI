@@ -1,3 +1,4 @@
+import { HarnessAppIcon } from '../components/HarnessAppIcon'
 import React, { useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon, type IconName } from '../components/Icon'
@@ -148,7 +149,7 @@ export const HarnessHome: React.FC<HarnessProps & {
                 <div className="hx-app-grid">
                   {data.apps.map((a) => (
                     <button key={a.id} className="hx-app-tile hx-home-app" onClick={() => openApp(a.id)} data-home-app={a.id}>
-                      <span className="hx-app-top"><span className="hx-app-icon" aria-hidden="true">{a.icon}</span><span className="hx-app-name">{a.name}</span></span>
+                      <span className="hx-app-top"><span className="hx-app-icon" aria-hidden="true"><HarnessAppIcon icon={a.icon} /></span><span className="hx-app-name">{a.name}</span></span>
                       {a.headline ? (
                         <span className="hx-app-figure"><strong>{a.headline.value == null ? '—' : a.headline.value.toLocaleString()}</strong> {a.headline.label}</span>
                       ) : (
@@ -237,9 +238,9 @@ export const HarnessHome: React.FC<HarnessProps & {
           <div className="hx-home-start">
             <div className="rows-title">{t('Get started')}</div>
             <div className="hx-app-grid">
-              <button className="hx-app-tile template" onClick={() => props.onOpen('apps')}><span className="hx-app-icon">🧾</span><span className="hx-app-name">{t('Start an app from a template')}</span><span className="hx-app-sub">{t('A CRM, a hiring board or an invoice tracker, with sample rows.')}</span></button>
-              <button className="hx-app-tile template" onClick={() => props.onOpen('workflows')}><span className="hx-app-icon">⚡</span><span className="hx-app-name">{t('Make a workflow')}</span><span className="hx-app-sub">{t('When something happens, your AI does the next steps.')}</span></button>
-              <button className="hx-app-tile template" onClick={() => props.onNavigate('#/agents')}><span className="hx-app-icon">🤖</span><span className="hx-app-name">{t('Add an agent')}</span><span className="hx-app-sub">{t('A teammate with a role, a memory and skills.')}</span></button>
+              <button className="hx-app-tile template" onClick={() => props.onOpen('apps')}><span className="hx-app-icon"><Icon name="record" size={20} /></span><span className="hx-app-name">{t('Start an app from a template')}</span><span className="hx-app-sub">{t('A CRM, a hiring board or an invoice tracker, with sample rows.')}</span></button>
+              <button className="hx-app-tile template" onClick={() => props.onOpen('workflows')}><span className="hx-app-icon"><Icon name="workflow" size={20} /></span><span className="hx-app-name">{t('Make a workflow')}</span><span className="hx-app-sub">{t('When something happens, your AI does the next steps.')}</span></button>
+              <button className="hx-app-tile template" onClick={() => props.onNavigate('#/agents')}><span className="hx-app-icon"><Icon name="users" size={20} /></span><span className="hx-app-name">{t('Add an agent')}</span><span className="hx-app-sub">{t('A teammate with a role, a memory and skills.')}</span></button>
             </div>
           </div>
         )}
