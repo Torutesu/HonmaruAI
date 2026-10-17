@@ -263,7 +263,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       title={<span className="hx-app-title"><HarnessAppIcon icon={app.icon} size={16} /><button onClick={() => setSection(app.definition.custom?.published ? 'overview' : 'data')}>{app.name}</button>{section !== 'overview' && <span className="hx-app-breadcrumb">/ {t(section === 'data' ? 'Data viewer' : section === 'custom' ? 'Customize app' : section === 'backend' ? '実行基盤' : 'Settings')}</span>}</span>}
       onClose={onBack}
       nested
-      actions={<><button className="pill-btn quiet" onClick={() => setSection('custom')}><Icon name="grid" size={14} />{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => setSection('settings')}><Icon name="users" size={14} />{t('Sharing')}</button><button className="pill-btn quiet" disabled={busy !== null} onClick={() => void load()}><Icon name="refresh" size={14} />{t('Reload')}</button><HarnessAppMenu appId={app.id} orgId={orgId} onSection={setSection} /></>}
+      actions={<><button className="pill-btn quiet" onClick={() => setSection('custom')}><Icon name="grid" size={14} />{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => setSection('settings')}><Icon name="share" size={14} />{t('Sharing')}</button><button className="pill-btn quiet" disabled={busy !== null} onClick={() => void load()}><Icon name="refresh" size={14} />{t('Reload')}</button><HarnessAppMenu appId={app.id} orgId={orgId} onSection={setSection} /></>}
     >
       {section !== 'overview' && section !== 'data' && <nav className="hx-app-sections" aria-label={t('App sections')}>{(['overview', 'data', 'custom', 'backend', 'settings'] as const).map(tab => <button key={tab} aria-current={section === tab ? 'page' : undefined} className={section === tab ? 'on' : ''} onClick={() => setSection(tab)}>{t(tab === 'overview' ? 'Overview' : tab === 'data' ? 'Data viewer' : tab === 'custom' ? 'Customize app' : tab === 'backend' ? '実行基盤' : 'Settings')}</button>)}</nav>}
       {section === 'backend' && <CompanyApp app={app} api={api} canManage={data.canCustomize !== false} reload={load} />}
@@ -273,11 +273,11 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       {section === 'overview' && !app.definition.custom?.published && <div className="hx-app-overview"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('Database app')}</h2><p>{app.description || t('Browse and manage this app’s data in the data viewer.')}</p><div className="hx-actions"><button className="pill-btn" onClick={() => setSection('data')}>{t('Browse data')}</button><button className="pill-btn quiet" onClick={() => setSection('custom')}>{t('Customize app')}</button></div><small>{t('{n} records', { n: data.rows.length })} · {table.columns.length} {t('Fields')}</small></div>}
       {section === 'data' && <>
       <div className="hx-data-toolbar"><div className="hx-data-heading"><h2>{app.name}</h2><button className="pill-btn" onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{t('Add a row')}</button></div>
-      <div className="hx-data-tools"><input className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /><button className="pill-btn quiet" onClick={() => setSection('settings')}>{t('Fields')}</button><span>{t('{n} records', { n: data.rows.length })}</span></div>
+      <div className="hx-data-tools"><input className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /><button className="pill-btn quiet" onClick={() => setSection('settings')}><Icon name="sliders" size={14} />{t('Fields')}</button><span>{t('{n} records', { n: data.rows.length })}</span></div>
       <div className="hx-tabs" role="tablist">
         {data.views.map((v, i) => (
           <button key={v.id} role="tab" aria-selected={i === viewIndex} className={i === viewIndex ? 'on' : ''} onClick={() => setViewIndex(i)}>
-            <Icon name={v.type === 'board' ? 'grid' : v.type === 'metrics' ? 'insights' : 'list'} size={14} /> {v.name}
+            <Icon name={v.type === 'board' ? 'grid' : v.type === 'metrics' ? 'insights' : v.type === 'calendar' ? 'calendar' : 'list'} size={14} /> {v.name}
           </button>
         ))}
       </div>

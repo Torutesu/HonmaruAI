@@ -17,7 +17,7 @@ import React from 'react'
 /// Stroke is `currentColor`, so a tab colours its icon by colouring itself.
 
 export type IconName =
-  | 'compose' | 'plug' | 'list-check' | 'workflow' | 'home' | 'you' | 'history' | 'tools' | 'plus'
+  | 'share' | 'sliders' | 'compose' | 'plug' | 'list-check' | 'workflow' | 'home' | 'you' | 'history' | 'tools' | 'plus'
   | 'record' | 'bell' | 'invite' | 'plan' | 'mail' | 'hash' | 'notion' | 'github' | 'box'
   | 'calendar' | 'drive' | 'insights' | 'search' | 'mic'
   | 'repeat' | 'book' | 'terminal' | 'send'
@@ -28,6 +28,8 @@ export type IconName =
   | 'trash' | 'image' | 'file' | 'lock' | 'users' | 'download' | 'camera' | 'at' | 'star' | 'folder' | 'shield' | 'devices' | 'log-out' | 'crown' | 'eye'
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  share: <><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.5 6.8-4m-6.8 7 6.8 4"/></>,
+  sliders: <><path d="M4 3v4m0 4v10M12 3v10m0 4v4M20 3v2m0 4v12M1 7h6m2 10h6m2-12h6"/></>,
   compose: <><path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7" /><path d="m16 3 5 5M10 14l-1 4 4-1L22 8a2.1 2.1 0 0 0-5-5z" /></>,
   plug: <><path d="M7 2v4m4-4v4M5 6h8v4a4 4 0 0 1-8 0zM9 14v4a3 3 0 0 0 6 0v-8a3 3 0 0 1 6 0v5m-2 0h4v5h-4z" /></>,
   'list-check': <><path d="m3 6 1.5 1.5L7 4M11 6h10M3 12h4m4 0h10M3 18h4m4 0h10" /></>,
