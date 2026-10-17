@@ -40,11 +40,13 @@ test('approval keeps the row revision that was shown when the change was request
   const updateRow = vi.fn().mockResolvedValue({ row: { id: 'r1' } })
   const api = { updateRow } as any
   vi.stubGlobal('window', { addEventListener: (_: string, fn: any) => { handler = fn }, removeEventListener: vi.fn() })
-  const element = (updatedAt: string) => <CustomAppFrame html="test" table={table} rows={[{ id: 'r1', updatedAt, values: {} }]} httpBase="https://api.example" api={api} />
+  const element = (updatedAt: string) => <CustomAppFrame html="test" table={table} rows={[{ id: 'r1', updatedAt, values: { name: updatedAt } }]} httpBase="https://api.example" api={api} />
   let tree: ReturnType<typeof create>
   act(() => { tree = create(element('revision-1'), { createNodeMock: e => e.type === 'iframe' ? { contentWindow } : null }) })
   act(() => handler({ source: contentWindow, data: { type: 'honmaru:request', id: 'request', operation: 'update', args: { id: 'r1', values: { name: 'Approved edit' } } } }))
   act(() => tree!.update(element('revision-2')))
+  expect(tree!.root.findByType('pre').children.join('')).toContain('revision-1')
+  expect(tree!.root.findByType('pre').children.join('')).not.toContain('revision-2')
   await act(async () => { await tree!.root.findAllByType('button')[1].props.onClick() })
   expect(updateRow).toHaveBeenCalledWith('only-this-table', 'r1', { name: 'Approved edit' }, 'revision-1', 'strict')
   act(() => tree!.unmount())

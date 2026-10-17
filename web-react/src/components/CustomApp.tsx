@@ -6,7 +6,7 @@ import type { App, HarnessApi, Row, Table } from '../utils/harness'
 export function CustomAppFrame({ html, table, rows, httpBase, api, reload }: { html: string; table: Table; rows: Row[]; httpBase: string; api?: HarnessApi; reload?: () => unknown }) {
   const frame = useRef<HTMLIFrameElement>(null)
   const { theme } = useAppearance()
-  type Change = { expectedUpdatedAt?: string; id: string; operation: string; args: { id?: string; values?: Record<string, unknown> } }
+  type Change = { before?: Row; expectedUpdatedAt?: string; id: string; operation: string; args: { id?: string; values?: Record<string, unknown> } }
   const [change, setChange] = useState<Change | null>(null)
   const pending = useRef<Change | null>(null)
   const [working, setWorking] = useState(false)
@@ -45,14 +45,15 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload }: { h
       if (pending.current) { reply(id, undefined, 'Another change is awaiting approval.'); return }
       const row = rows.find(r => r.id === args.id)
       if (operation !== 'create' && !row) { reply(id, undefined, 'No such row in this app.'); return }
-      const request = { id, operation, args, expectedUpdatedAt: row?.updatedAt }
+      const request = { id, operation, args, expectedUpdatedAt: row?.updatedAt, before: row }
       pending.current = request; setChange(request)
     }
     window.addEventListener('message', listener)
     return () => window.removeEventListener('message', listener)
   }, [table, rows, html, theme, api])
+  const labeled = (values: Record<string, unknown>) => Object.fromEntries(Object.entries(values).map(([id, value]) => [table.columns.find(c => c.id === id)?.name || id, value]))
   if (html.length > 119800) return <p role="alert">表示できるコードの上限は119800文字です。コードを短くして保存してください。</p>
-  return <>{change && <div className="hx-custom-approval" role="alertdialog" aria-label="アプリのデータ変更を確認"><h3>データ変更の確認</h3><p>{table.name} · {change.operation === 'create' ? '行を追加' : change.operation === 'update' ? '行を更新' : '行を削除'}</p><pre>{JSON.stringify(change.args, null, 2)}</pre><button disabled={working} onClick={() => void decide(false)}>キャンセル</button><button disabled={working} onClick={() => void decide(true)}>この変更を許可</button></div>}<iframe ref={frame} title="カスタムアプリ" sandbox="allow-scripts" referrerPolicy="no-referrer" key={html + theme} src={`${httpBase}/custom-app-runner`} className="hx-custom-frame" /></>
+  return <>{change && <div className="hx-custom-approval" role="alertdialog" aria-label="アプリのデータ変更を確認"><h3>データ変更の確認</h3><p>{table.name} · {change.operation === 'create' ? '行を追加' : change.operation === 'update' ? '行を更新' : '行を削除'}</p><pre>{JSON.stringify({ ...(change.before ? { '対象レコード': change.before.id, '変更前': labeled(change.before.values) } : {}), ...(change.operation !== 'remove' ? { '変更内容': labeled(change.args.values || {}) } : {}) }, null, 2)}</pre><button disabled={working} onClick={() => void decide(false)}>キャンセル</button><button disabled={working} onClick={() => void decide(true)}>この変更を許可</button></div>}<iframe ref={frame} title="カスタムアプリ" sandbox="allow-scripts" referrerPolicy="no-referrer" key={html + theme} src={`${httpBase}/custom-app-runner`} className="hx-custom-frame" /></>
 }
 export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { app: App; table: Table; rows: Row[]; api: HarnessApi; reload: () => unknown; httpBase: string }) {
   const [html, setHtml] = useState(app.definition.custom?.draft || '')
