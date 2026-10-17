@@ -88,6 +88,8 @@ test('revoked app access prevents a queued server action from being claimed',asy
  expect(await claim.json()).toEqual({job:null});
  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(result.job.id).first()).status).toBe('failed');
  expect((await call('/gateways/jobs/'+result.job.id,member)).status).toBe(404);
+ const original=await env.DB.prepare('SELECT request_id FROM hx_gateway_jobs WHERE id=?1').bind(result.job.id).first();
+ expect((await call('/gateways/jobs',member,{gatewayId:g.gateway.id,code:'return input',input:42,requestId:original.request_id})).status).toBe(404);
 });
 test('secrets require encryption, are omitted from responses, and clear on origin change',async()=>{
  const req={action:'save',name:'private_api',version:0,endpoint:'https://api.github.com/user',token:'secret-value'};
