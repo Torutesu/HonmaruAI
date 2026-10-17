@@ -366,3 +366,21 @@
 :root .shell.harness-workspace .hx-app-detail .screen-head { overflow:visible; z-index:5; }
 .hx-rail .hx-pinned-app { background:var(--hx-app-surface); }
 @media(max-width:719px) { .hx-rail .hx-pinned-app { display:none; } .hx-app-breadcrumb { display:none; } }
+
+.hx-view-controls { position:relative; display:flex; align-items:center; gap:4px; }
+.hx-view-popover { position:absolute; right:0; top:calc(100% + 8px); z-index:30; width:320px; max-width:calc(100vw - 80px); box-sizing:border-box; padding:16px; border:1px solid var(--hx-border); border-radius:13px; background:var(--hx-surface); box-shadow:0 8px 28px #00000012; color:var(--hx-text); font-size:12px; }
+.hx-view-popover.editing { width:560px; }
+.hx-view-summary { background:var(--hx-hover); padding:14px; border:1px solid var(--hx-border); border-radius:15px; margin-bottom:10px; }
+.hx-view-popover p { color:var(--hx-muted); margin:10px 0; white-space:normal; }
+.hx-view-popover button { color:var(--hx-text); cursor:pointer; }
+.hx-view-adjust { display:flex; align-items:center; gap:9px; border:0; background:transparent; border-radius:7px; padding:10px; font:inherit; font-weight:600; width:100%; text-align:left; }
+.hx-view-adjust:hover { background:var(--hx-hover); }
+.hx-filter-row { display:flex; gap:6px; margin-top:12px; align-items:center; }
+.hx-filter-row select,.hx-filter-row input,.hx-view-popover label select { background:var(--hx-surface); color:var(--hx-text); border:1px solid var(--hx-border); border-radius:7px; padding:8px; font:inherit; min-width:0; flex:1; width:100%; box-sizing:border-box; }
+.hx-filter-row > button { display:grid; place-items:center; border:0; background:transparent; padding:6px; }
+.hx-view-popover label { display:grid; gap:8px; margin-top:16px; }
+.hx-view-footer { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
+.hx-view-footer > button:not(.pill-btn) { border:0; background:transparent; padding:8px; font:inherit; }
+.hx-view-popover button:disabled { opacity:.45; cursor:default; }
+:root .shell.harness-workspace .hx-app-detail .hx-table .hx-table-group th { background:var(--hx-hover); text-align:left; font-weight:600; }
+@media(max-width:719px){.hx-filter-row{flex-wrap:wrap}.hx-filter-row select,.hx-filter-row input{flex-basis:40%}.hx-view-popover{max-width:calc(100vw - 40px)}}

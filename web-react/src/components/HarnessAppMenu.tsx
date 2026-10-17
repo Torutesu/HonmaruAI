@@ -3,12 +3,12 @@ import { Icon, type IconName } from './Icon'
 import { hashForApp } from '../utils/route'
 import { useAppPins } from '../utils/appPins'
 
-export function HarnessAppMenu({ appId, orgId, onSection }: { appId: string; orgId: string; onSection: (section: 'overview' | 'data' | 'custom' | 'backend' | 'settings') => void }) {
+export function HarnessAppMenu({ appId, orgId, api, onSection }: { api: import('../utils/harness').HarnessApi; appId: string; orgId: string; onSection: (section: 'overview' | 'data' | 'custom' | 'backend' | 'settings') => void }) {
   const [open, setOpen] = useState(false)
   const [notice, setNotice] = useState('')
   const root = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
-  const { pins, toggle } = useAppPins(orgId)
+  const { pins, toggle } = useAppPins(orgId,api)
   useEffect(() => {
     if (!open) return
     root.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
@@ -30,7 +30,7 @@ export function HarnessAppMenu({ appId, orgId, onSection }: { appId: string; org
     <button ref={trigger} className="hx-app-icon-button" aria-label="その他のアプリ操作" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(v => !v)}><Icon name="more" size={18} /></button>
     {open && <div className="hx-app-menu-popover" role="menu" aria-label="その他のアプリ操作">
       {item('リンクをコピー', 'link', () => { const url = `${location.origin}/${hashForApp(appId, orgId)}`; navigator.clipboard?.writeText(url).then(() => setNotice('リンクをコピーしました'), () => setNotice(url)); if (!navigator.clipboard) setNotice(url); close() })}
-      {item(pins.includes(appId) ? 'ナビゲーションから固定を解除' : 'アプリをナビゲーションに固定', 'pin', () => { try { toggle(appId); setNotice('このブラウザのナビゲーションを更新しました') } catch { setNotice('固定を保存できませんでした') } close() })}
+      {item(pins.includes(appId) ? 'ナビゲーションから固定を解除' : 'アプリをナビゲーションに固定', 'pin', () => { void toggle(appId).then(() => setNotice('ナビゲーションを端末間で同期しました'), () => setNotice('固定を保存できませんでした。接続を確認してください。')); close() })}
       <div role="separator" />
       {item('アプリを表示', 'grid', () => select('overview'))}
       {item('データビューアー', 'list-check', () => select('data'))}

@@ -19,6 +19,8 @@ export interface View {
   dateColumn?: string
   days?: Array<{ date: string; rows: Row[] }>
   undated?: Row[]
+  filters?: Array<{column: string; op: string; value: string}>
+  where?: Record<string, string[]>
   groupBy?: string
   sort?: string
   rows?: Row[]
@@ -93,6 +95,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     return data as T
   }
   return {
+    appPins: () => call<{pins:string[]}>('GET', '/hx/app-pins'),
+    setAppPin: (appId:string,pinned:boolean) => call<{pins:string[]}>('PUT','/hx/app-pins',{appId,pinned}),
     gateways: () => call<{ gateways: Gateway[]; canManage: boolean }>('GET', '/gateways'),
     registerGateway: (name: string) => call<{ gateway: Gateway; token: string }>('POST', '/gateways', { name }),
     revokeGateway: (id: string) => call('POST', `/gateways/${encodeURIComponent(id)}/revoke`),

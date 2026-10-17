@@ -37,6 +37,8 @@ export function normalizeDefinition(definition, columns) {
     const type = VIEW_TYPES.includes(raw?.type) ? raw.type : null;
     if (!type) continue;
     const view = { id: typeof raw.id === "string" ? raw.id.slice(0, 32) : newId("view"), type, name: String(raw.name || type).slice(0, 40) };
+    if (Array.isArray(raw.filters)) view.filters = raw.filters.slice(0,20).filter(f => col(f?.column) && ['eq','neq','contains','empty','not_empty','gt','lt'].includes(f.op)).map(f => ({column:col(f.column),op:f.op,value:String(f.value ?? '').slice(0,500)}));
+    if (type === 'table' && col(raw.groupBy)) view.groupBy = col(raw.groupBy);
     const w = where(raw.where);
     if (w) view.where = w;
     if (raw.sort) {
@@ -85,7 +87,18 @@ const matches = (values, where) => !where || Object.entries(where).every(([k, al
 /// What a view shows, worked out on the server so every client — web, iOS,
 /// an agent over MCP — reads the same numbers.
 export function computeView(view, table, rows, today = new Date().toISOString().slice(0, 10)) {
-  let shown = rows.filter((r) => matches(r.values, view.where));
+  let shown = rows.filter((r) => matches(r.values, view.where) && (view.filters || []).every(f => {
+    const value=r.values[f.column]; const empty=value==null || value===''; const text=String(value ?? '');
+    if(f.op==='empty') return empty;
+    if(f.op==='not_empty') return !empty;
+    if(f.op==='eq') return text===f.value;
+    if(f.op==='neq') return text!==f.value;
+    if(f.op==='contains') return text.toLocaleLowerCase().includes(f.value.toLocaleLowerCase());
+    if(empty) return false;
+    const numeric=table.columns.find(c=>c.id===f.column)?.type==='number';
+    const a=numeric?Number(value):text, b=numeric?Number(f.value):f.value;
+    return f.op==='gt'?a>b:a<b;
+  }));
   if (view.sort) {
     const desc = view.sort.startsWith("-");
     const key = view.sort.replace(/^-/, "");
@@ -111,16 +124,20 @@ export function computeView(view, table, rows, today = new Date().toISOString().
     }
     return { ...view, days: [...days].sort(([a], [b]) => a.localeCompare(b)).map(([date, rows]) => ({ date, rows })), undated };
   }
-  if (view.type === "board") {
+  if (view.type === "board" || view.type === "table" && view.groupBy) {
     const column = table.columns.find((c) => c.id === view.groupBy);
     const lanes = (column?.options || []).map((option) => ({ key: option, rows: [] }));
     const none = { key: null, rows: [] };
     for (const row of shown) {
-      const lane = lanes.find((l) => l.key === row.values[view.groupBy]);
-      (lane || none).rows.push(row);
+      const value = row.values[view.groupBy];
+      if(value == null || value === '') { none.rows.push(row); continue; }
+      const key=String(value);
+      let lane=lanes.find(l=>l.key===key);
+      if(!lane) { lane={key,rows:[]}; lanes.push(lane); }
+      lane.rows.push(row);
     }
     if (none.rows.length) lanes.push(none);
-    return { ...view, lanes };
+    return { ...view, lanes, rows: shown };
   }
   if (view.type === "metrics") {
     const values = (view.metrics || []).map((m) => {
@@ -209,9 +226,10 @@ export async function createFromTemplate(db, { orgId, by, template, name, channe
 
 /// A new version: change the name, the views, or the table's columns. The
 /// previous definition is kept, so a change can be undone.
-export async function updateApp(db, orgId, id, { name, description, icon, columns, definition, note }, by) {
+export async function updateApp(db, orgId, id, { name, description, icon, columns, definition, note, expectedVersion }, by) {
   const app = await getApp(db, orgId, id);
   if (!app) return { error: "No such app.", status: 404 };
+  if (expectedVersion !== undefined && expectedVersion !== app.version) return { error: "This app changed. Reload before saving.", status: 409 };
   let table = await getTable(db, orgId, app.tableId);
   if (columns !== undefined) {
     const changed = await updateTable(db, orgId, app.tableId, { columns });
