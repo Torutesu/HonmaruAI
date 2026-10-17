@@ -374,3 +374,53 @@ test('custom runner has no external capabilities or authentication data', async 
   expect(policy).not.toContain('allow-same-origin');
   expect(await response.text()).toContain('e.source===child.contentWindow');
 });
+
+test('pins synchronize across sessions and remain per-user', async () => {
+  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+  const {createSession}=await import('../src/db.js');
+  const second=await createSession(env.DB,'9101','gho_second');
+  expect((await send('PUT','/hx/app-pins',toru,{orgId:ORG,appId:app.id,pinned:true})).status).toBe(200);
+  expect(await (await get(`/hx/app-pins?orgId=${ORG}`,second)).json()).toEqual({pins:[app.id]});
+  expect(await (await get(`/hx/app-pins?orgId=${ORG}`,mika)).json()).toEqual({pins:[]});
+  await send('PUT','/hx/app-pins',second,{orgId:ORG,appId:app.id,pinned:false});
+  expect(await (await get(`/hx/app-pins?orgId=${ORG}`,toru)).json()).toEqual({pins:[]});
+  expect((await send('PUT','/hx/app-pins',outsider,{orgId:ORG,appId:app.id,pinned:true})).status).toBe(403);
+  expect((await send('PUT','/hx/app-pins',guest,{orgId:ORG,appId:app.id,pinned:true})).status).toBe(403);
+  expect((await send('PUT','/hx/app-pins',toru,{orgId:ORG,appId:'missing',pinned:true})).status).toBe(404);
+  expect((await send('PUT','/hx/app-pins',toru,{orgId:ORG,appId:app.id,pinned:'yes'})).status).toBe(400);
+});
+
+test('view filters and arbitrary-column groups compute the same rows for all clients', () => {
+  const columns=[{id:'name',name:'Name',type:'text'},{id:'n',name:'Number',type:'number'}];
+  const view=normalizeDefinition({views:[{id:'v',type:'table',groupBy:'Name',filters:[{column:'Number',op:'gt',value:'2'},{column:'name',op:'contains',value:'al'}]}]},columns).views[0];
+  const rows=[{id:'a',values:{name:'Alpha',n:10}},{id:'b',values:{name:'Alpha',n:1}},{id:'c',values:{name:'Beta',n:20}}];
+  const result=computeView(view,{columns},rows);
+  expect(result.rows.map(r=>r.id)).toEqual(['a']);
+  expect(result.lanes).toEqual([{key:'Alpha',rows:[rows[0]]}]);
+  expect(computeView({type:'table',filters:[{column:'n',op:'empty',value:''}]},{columns},[{id:'z',values:{n:0}},{id:'e',values:{}}]).rows.map(r=>r.id)).toEqual(['e']);
+});
+
+test('stale view edits do not replace newer definitions', async () => {
+  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+  expect((await send('PUT',`/apps/${app.id}`,toru,{orgId:ORG,expectedVersion:app.version,name:'New name'})).status).toBe(200);
+  expect((await send('PUT',`/apps/${app.id}`,toru,{orgId:ORG,expectedVersion:app.version,name:'Stale name'})).status).toBe(409);
+  expect((await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json()).app.name).toBe('New name');
+});
+
+test('revoked app access removes pins from the response without leaking app names', async () => {
+  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+  expect((await send('PUT','/hx/app-pins',mika,{orgId:ORG,appId:app.id,pinned:true})).status).toBe(200);
+  await env.DB.prepare("INSERT OR REPLACE INTO hx_app_access (org_id,app_id,visibility,version) VALUES (?1,?2,'private',1)").bind(ORG,app.id).run();
+  expect(await (await get(`/hx/app-pins?orgId=${ORG}`,mika)).json()).toEqual({pins:[]});
+});
+
+test('saved filters and grouping persist when a view is read again', async () => {
+  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+  const data=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+  const column=data.table.columns[0].id;
+  const definition={views:[{id:'filtered',type:'table',name:'Filtered',groupBy:column,filters:[{column,op:'contains',value:'Example'}]}]};
+  expect((await send('PUT',`/apps/${app.id}`,toru,{orgId:ORG,expectedVersion:app.version,definition})).status).toBe(200);
+  const reread=await (await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json();
+  expect(reread.app.definition.views[0]).toMatchObject(definition.views[0]);
+  expect(reread.views[0].groupBy).toBe(column);
+});

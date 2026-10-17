@@ -1,3 +1,4 @@
+import { appPins, setAppPin } from './appPins.js';
 import { previewMerge, mergeFork } from './appMerge.js';
 import { databaseView, applyMigration, generateMigration, forkDatabase, readFork, mutateFork } from './appDatabase.js';
 import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection, invokeConnection } from './appCapabilities.js';
@@ -107,6 +108,11 @@ export async function handleHarness(request, env, url) {
   const who = await member(env, request, orgId);
   if (who.denied) return who.denied;
   const me = who.session.github_id;
+  if (url.pathname === '/hx/app-pins') {
+    if (request.method === 'GET') return json(await appPins(env.DB,orgId,me));
+    if (request.method === 'PUT') { const r=await setAppPin(env.DB,orgId,me,input.appId,input.pinned); return r.error ? fail(r) : json(r); }
+    return json({message:'Method not allowed.'},405);
+  }
   if (!read && !(await allowed(env.DB, orgId, me, "harness.build"))) return json({ message: "You cannot build in this workspace." }, 403);
 
   if (url.pathname === "/hx/rooms/guidelines") {
