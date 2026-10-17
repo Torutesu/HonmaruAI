@@ -390,7 +390,7 @@
 :root .shell.harness-workspace .classic.slk.slk .slk-tabs[hidden] { display: none; }
 @media (max-width: 719px) { .hx-room-actions { gap: 10px; } .hx-room-actions button { font-size: 10px; } }
 
-:root .shell.harness-workspace .classic.slk.slk, :root .shell.harness-workspace .classic.slk.slk .slk-side { color: var(--hx-color-242422); color-scheme: light; }
+:root .shell.harness-workspace .classic.slk.slk, :root .shell.harness-workspace .classic.slk.slk .slk-side { color: var(--hx-color-242422); color-scheme: inherit; }
 :root .shell.harness-workspace .hx-chat-top h1 { color: var(--hx-color-242422); }
 /* Room resources remain beside the conversation, with the same layout on empty and populated states. */
 :root .shell.harness-workspace .classic.slk.slk .hx-room-resource { width: 360px; flex: 0 0 360px; align-self: stretch; margin: 64px 12px 12px 0; border: 1px solid var(--hx-color-deded8); border-radius: 20px; background: var(--hx-color-ffffff); color: var(--hx-color-242422); overflow: auto; box-shadow: 0 2px 8px #00000003; }
@@ -416,7 +416,7 @@
 :root .shell.harness-workspace .hx-resource-screen .hx-app-tile { background: var(--hx-color-ffffff); color: var(--hx-color-242422); border: 1px solid var(--hx-color-e5e5df); border-radius: 14px; padding: 20px; box-shadow: none; }
 :root .shell.harness-workspace .hx-resource-screen .hx-app-sub, :root .shell.harness-workspace .hx-resource-screen .lede { color: var(--hx-color-85857b); font-size: 13px; }
 :root .shell.harness-workspace .hx-resource-screen .hx-builder, :root .shell.harness-workspace .hx-resource-screen .hx-step { background: var(--hx-color-fafaf8); border-color: var(--hx-color-e5e5df); border-radius: 12px; }
-:root .shell.harness-workspace .hx-resource-screen :is(input,textarea,select) { color-scheme: light; background: var(--hx-color-ffffff); color: var(--hx-color-242422); border-color: var(--hx-color-deded8); }
+:root .shell.harness-workspace .hx-resource-screen :is(input,textarea,select) { color-scheme: inherit; background: var(--hx-color-ffffff); color: var(--hx-color-242422); border-color: var(--hx-color-deded8); }
 :root .shell.harness-workspace .hx-resource-screen .rows { border: 1px solid var(--hx-color-e5e5df); border-radius: 14px; overflow: hidden; }
 :root .shell.harness-workspace .hx-resource-screen .row { background: var(--hx-color-ffffff); }
 :root .shell.harness-workspace .hx-resource-screen .hx-resource-empty { min-height: 45vh; }
@@ -465,3 +465,7 @@
 .hx-custom-approval { position: sticky; top: 0; z-index: 3; padding: 20px; margin: 12px 0; border: 2px solid var(--hx-action); border-radius: 12px; background: var(--hx-color-ffffff); color: var(--hx-color-242422); }
 .hx-custom-approval pre { max-height: 220px; overflow: auto; white-space: pre-wrap; }
 .hx-custom-approval button { padding: 10px 16px; margin-right: 10px; border-radius: 8px; border: 1px solid var(--hx-action); background: var(--hx-action); color: var(--hx-action-text); cursor: pointer; }
+
+.hx-custom-editor summary { cursor: pointer; padding: 12px 0; font-weight: 600; }
+.hx-custom-editor form { margin-bottom: 16px; }
+.hx-custom-editor .hx-actions { margin: 14px 0; flex-wrap: wrap; }
