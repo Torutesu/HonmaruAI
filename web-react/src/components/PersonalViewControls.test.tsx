@@ -10,6 +10,10 @@ test('column order and width save together and rejected drafts remain editable',
  const button=(text:string)=>tree!.root.findAllByType('button').find(b=>b.children.includes(text))!
  act(()=>button('フィールド').props.onClick())
  act(()=>tree!.root.findByProps({'aria-label':'状態を左へ'}).props.onClick())
+ act(()=>tree!.root.findByProps({'aria-label':'名前の列幅'}).props.onChange({target:{value:''}}))
+ expect(tree!.root.findByProps({'aria-label':'名前の列幅'}).props.value).toBe(0)
+ expect(button('保存').props.disabled).toBe(true)
+ expect(tree!.root.findByProps({role:'alert'}).children).toContain('列幅は80〜600pxで入力してください。')
  act(()=>tree!.root.findByProps({'aria-label':'名前の列幅'}).props.onChange({target:{value:'320'}}))
  await act(async()=>{button('保存').props.onClick();await Promise.resolve()})
  expect(save.mock.calls[0][0].layouts.v).toEqual({order:['b','a'],widths:{a:320}})
