@@ -131,9 +131,10 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
 
 function ForkPreview({appId,api,httpBase,html,table,rows}:{appId:string;api:HarnessApi;httpBase:string;html:string;table:Table;rows:Row[]}) {
   const [fork,setFork]=useState<AppFork|null>(null)
+  const [loadedAppId,setLoadedAppId]=useState('')
   const [error,setError]=useState('')
   const current=useRef<AppFork|null>(null)
-  const load=async()=>{try{const d=await api.appDatabase(appId);current.current=d.fork;setFork(d.fork)}catch(e){setError(String(e))}}
+  const load=async()=>{try{setError('');const d=await api.appDatabase(appId);current.current=d.fork;setFork(d.fork);setLoadedAppId(appId)}catch(e){setError(String(e))}}
   useEffect(()=>{void load()},[appId,api])
   const mutate=async(operation:string,values?:Record<string,unknown>,rowId?:string,expectedUpdatedAt?:string)=>{
     const f=current.current;if(!f)throw new Error('No preview database.')
@@ -142,5 +143,7 @@ function ForkPreview({appId,api,httpBase,html,table,rows}:{appId:string;api:Harn
   }
   const adapter=fork?{addRow:(_:string,v:Record<string,unknown>)=>mutate('create',v),updateRow:(_:string,id:string,v:Record<string,unknown>,expected?:string)=>mutate('update',v,id,expected),deleteRow:(_:string,id:string,expected?:string)=>mutate('remove',undefined,id,expected)} as HarnessApi:undefined
   const primary=fork?.entities.find(e=>e.key==='primary')
+  // Do not let generated code read production before its private snapshot loads.
+  if(loadedAppId!==appId)return error?<p role="alert">{error}<button onClick={()=>void load()}>再読み込み</button></p>:<p role="status">検証DBを読み込み中…</p>
   return <><p>{fork?'検証DBのプレビュー（本番データは変更しません）':'読み取り専用プレビュー · 実行基盤 → データベースから検証DBを作成できます。'}</p>{error&&<p role="alert">{error}</p>}<CustomAppFrame html={html} httpBase={httpBase} table={primary?.table||table} rows={primary?.rows||rows} api={adapter} /></>
 }

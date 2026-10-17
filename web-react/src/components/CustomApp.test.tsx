@@ -117,3 +117,19 @@ test('cached runner load initializes even when its ready message was missed, onl
   expect(contentWindow.postMessage).toHaveBeenCalledTimes(1)
   act(() => tree!.unmount())
 })
+
+test('preview waits for the fork before generated code can read its first snapshot', async () => {
+  const {CustomAppEditor}=await import('./CustomApp')
+  let resolve!: (value:any)=>void, handler:(e:any)=>void=()=>{}
+  const contentWindow={postMessage:vi.fn()}
+  const api={appDatabase:vi.fn(()=>new Promise(r=>{resolve=r}))} as any
+  vi.stubGlobal('window',{addEventListener:(_:string,fn:any)=>{handler=fn},removeEventListener:vi.fn()})
+  let tree:ReturnType<typeof create>
+  await act(async()=>{tree=create(<CustomAppEditor app={{id:'app',version:1,definition:{custom:{draft:'test'}}}as any} table={table} rows={[{id:'production',values:{},updatedAt:'p'}]} api={api} reload={()=>{}} httpBase="https://api.example"/>,{createNodeMock:e=>e.type==='iframe'?{contentWindow}:null})})
+  expect(tree!.root.findAllByType('iframe')).toHaveLength(0)
+  const rows=[{id:'private',values:{name:'Preview'},updatedAt:'f'}]
+  await act(async()=>resolve({fork:{id:'fork',revision:1,entities:[{key:'primary',table,rows}]}}))
+  act(()=>handler({source:contentWindow,data:{type:'honmaru:request',id:'read',operation:'read'}}))
+  expect(contentWindow.postMessage).toHaveBeenCalledWith(expect.objectContaining({id:'read',value:{table,rows}}),'*')
+  act(()=>tree!.unmount())
+})
