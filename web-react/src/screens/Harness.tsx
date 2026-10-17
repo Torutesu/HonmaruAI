@@ -335,7 +335,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
         <div className="row static">
           <span className="row-main">
             {(app.channels || []).length ? (app.channels || []).map((c) => (
-              <span key={c} className="hx-chip">{c.replace(/^b:/, '#')}<button className="btn-text" onClick={() => act('unlink', async () => { await api.unlink(app.id, c); await load() })} aria-label={t('Remove')}>×</button></span>
+              <span key={c} className="hx-chip">{c.startsWith('ag:') || c.startsWith('dm:') ? t('Private chat') : c.replace(/^b:/, '#')}<button className="btn-text" onClick={() => act('unlink', async () => { await api.unlink(app.id, c); await load() })} aria-label={t('Remove')}>×</button></span>
             )) : <span className="row-sub">{t('Link it to a room and it shows there, next to the conversation.')}</span>}
             <span className="playbook-add-foot">
               <input className="hx-cell-input" value={room} onChange={(e) => setRoom(e.target.value)} placeholder="#ops" aria-label={t('Room')} />
