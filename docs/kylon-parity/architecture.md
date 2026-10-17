@@ -115,3 +115,9 @@ runner fixes the image and VM restrictions independently of remote payloads.
 Simple mode and its code/data remain untouched. This boundary allows a later fleet
 implementation without embedding Mac-specific execution in Honmaru's control API.
 See [Mac mini gateway](../mac-mini-gateway.md) for deployment and tenancy limitations.
+
+### Saved view controls and personal navigation (2026-10-17)
+
+`definition.views[].filters` stores up to 20 conjunctive rules (`eq`, `neq`, `contains`, `empty`, `not_empty`, `gt`, `lt`). Legacy `where` constraints remain active until explicitly cleared. Server-side `computeView` applies conditions consistently to tables, boards, calendars and metrics. Table/board `groupBy` uses actual values, including non-select columns; missing values have their own group. UI writes include `expectedVersion` and retain the draft when the server rejects a stale edit. Shared view editing is exposed to creators/admins, and changes remain versioned. This is not yet a personal-view or column-layout implementation.
+
+`hx_app_pins` stores `(org_id,user_id,app_id)` in existing D1. Session identity determines the user; requests cannot supply another user's identity. Each PUT sets one app's desired state idempotently rather than replacing a whole list. GET filters current app access. Foreign keys clean up pins with an app or account deletion. Visible clients refresh on focus, visibility changes and every 30 seconds; changing auth/workspace clears the prior scope immediately. It is eventual synchronization, not a WebSocket broadcast. Legacy browser-only IDs remain untouched in local storage and are not automatically imported across accounts; users can pin those apps again to synchronize them.

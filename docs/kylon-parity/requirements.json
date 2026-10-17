@@ -426,7 +426,7 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
       "code": "worker/src/harness/apps.js",
-      "acceptance": "共通ビューと利用者ビューの変更競合を検証"
+      "acceptance": "共有ビューのフィルター（等値・除外・部分一致・空欄・大小比較）とtable/boardのグループ編集を追加。expectedVersionで古い編集を拒否。列順・列幅・個人ビューは残る"
     },
     {
       "id": "KY-043",

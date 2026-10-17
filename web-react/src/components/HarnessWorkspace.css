@@ -384,3 +384,8 @@
 .hx-view-popover button:disabled { opacity:.45; cursor:default; }
 :root .shell.harness-workspace .hx-app-detail .hx-table .hx-table-group th { background:var(--hx-hover); text-align:left; font-weight:600; }
 @media(max-width:719px){.hx-filter-row{flex-wrap:wrap}.hx-filter-row select,.hx-filter-row input{flex-basis:40%}.hx-view-popover{max-width:calc(100vw - 40px)}}
+.hx-pinned-apps { display:flex; flex-direction:column; gap:5px; min-height:0; max-height:calc(100dvh - 470px); overflow-y:auto; scrollbar-width:none; flex-shrink:1; }
+.hx-pinned-apps > button { display:grid; place-items:center; width:38px; height:38px; min-height:38px; padding:0; border:0; border-radius:9px; color:inherit; cursor:pointer; }
+.hx-pinned-apps > button:hover { color:var(--hx-text); }
+.hx-view-popover { max-height:min(70dvh,640px); overflow:auto; }
+@media(max-width:719px){.hx-pinned-apps{display:none}}
