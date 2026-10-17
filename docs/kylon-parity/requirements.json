@@ -426,7 +426,7 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
       "code": "worker/src/harness/apps.js",
-      "acceptance": "共有ビューのフィルター（等値・除外・部分一致・空欄・大小比較）とtable/boardのグループ編集を追加。expectedVersionで古い編集を拒否。個人ビュー・列順・列幅・選択中ビューをユーザー別D1に保存し、同一アカウントで復元。列の表示切替と全操作の完全一致は未達"
+      "acceptance": "共有ビューのフィルター（等値・除外・部分一致・空欄・大小比較）とtable/boardのグループ編集を追加。expectedVersionで古い編集を拒否。個人ビュー・列順・列幅・選択中ビューをユーザー別D1に保存し、同一アカウントで復元。列の表示切替も同じ個人設定に保存し、非表示中の列順・幅を保持。タイトル列は常時表示。Kylonのシステム列など全操作の完全一致は未達"
     },
     {
       "id": "KY-043",
