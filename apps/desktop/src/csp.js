@@ -37,7 +37,7 @@ const socketOrigin = (origin) => origin.replace(/^https:/, 'wss:').replace(/^htt
 /// - Images: the app, the API, data: and blob: (pasted pictures, previews),
 ///   and any https site — people's avatars come from GitHub and Google, and a
 ///   link's preview shows that site's own picture. An image cannot run code.
-/// - Media: the app, the API and blob:. Frames: the YouTube player only.
+/// - Media: the app, the API and blob:. Frames: the YouTube player and the isolated custom-app runner path.
 /// - No plugins, no <base> elsewhere, forms only to the app or the API, and
 ///   no other site may frame the app.
 ///
@@ -56,7 +56,7 @@ export function buildCsp({ apiOrigins = [], mediaOrigins = MEDIA_ORIGINS, script
     ['img-src', ["'self'", ...api, 'data:', 'blob:', 'https:', ...local]],
     ['media-src', ["'self'", ...api, ...media, 'blob:', ...local]],
     ['font-src', ["'self'", 'data:']],
-    ['frame-src', [...FRAME_ORIGINS]],
+    ['frame-src', [...FRAME_ORIGINS, ...api.map(origin => `${origin.replace(/\/$/, '')}/custom-app-runner`)]],
     ['worker-src', ["'self'"]],
     ['manifest-src', ["'self'"]],
     ['object-src', ["'none'"]],

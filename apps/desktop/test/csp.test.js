@@ -34,11 +34,12 @@ describe('the policy on the app\'s pages', () => {
     expect(more['form-action']).toEqual(["'self'", API, 'https://api.staging.example'])
   })
 
-  it('shows pictures from the API, pasted ones, and https sites; media from the API and blobs; frames only YouTube\'s player', () => {
+  it('shows pictures from the API, pasted ones, and https sites; media from the API and blobs; frames only the player and isolated runner', () => {
     expect(csp['img-src']).toEqual(["'self'", API, 'data:', 'blob:', 'https:'])
     expect(csp['img-src']).not.toContain('http:')
     expect(csp['media-src']).toEqual(["'self'", API, 'https://media.honmaruai.com', 'blob:'])
-    expect(csp['frame-src']).toEqual(['https://www.youtube-nocookie.com'])
+    expect(csp['frame-src']).toEqual(['https://www.youtube-nocookie.com', `${API}/custom-app-runner`])
+    expect(csp['frame-src']).not.toContain(API)
   })
 
   it('lets Vite\'s dev server reload, only in development', () => {

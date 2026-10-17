@@ -45,7 +45,7 @@ Following the baseline in `docs/architecture/discord-model-platform-plan.md` §1
   allowed by its sha256 hash (change that script and `test/csp.test.js`
   fails until the hash in `src/csp.js` is updated); connections only to the
   app, the API and its wss relay; images also from any https site (avatars,
-  link previews); frames only YouTube's player; no plugins, and no framing
+  link previews); frames only YouTube's player and the API's `/custom-app-runner` path; no plugins, and no framing
   by other sites. It is sent beside any policy the server sends, so it can
   only narrow what the page may do. The dev policy adds what Vite's hot
   reload needs, and only when pointed at a local http server.
