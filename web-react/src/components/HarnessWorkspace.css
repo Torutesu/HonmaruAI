@@ -273,3 +273,13 @@
 .hx-custom-editor .hx-actions { margin: 14px 0; flex-wrap: wrap; }
 
 :root .shell.harness-workspace :is(.form-error, .hx-danger, .btn-text.danger) { color: var(--hx-danger); }
+
+.hx-company-app { display: grid; gap: 16px; color: var(--hx-text); max-width: 100%; }
+.hx-company-app form, .hx-company-app label { display: grid; gap: 8px; }
+.hx-company-app input, .hx-company-app textarea, .hx-company-app select { box-sizing: border-box; width: 100%; color: var(--hx-text); background: var(--hx-surface); border: 1px solid var(--hx-border); border-radius: 10px; padding: 10px 12px; font: inherit; }
+.hx-company-app textarea { min-height: 100px; resize: vertical; }
+.hx-company-app pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow: auto; padding: 12px; background: var(--hx-hover); border-radius: 10px; font-size: 12px; }
+.hx-company-app details { border: 1px solid var(--hx-border); border-radius: 10px; padding: 12px; }
+.hx-company-app summary { cursor: pointer; }
+.hx-company-app h2, .hx-company-app h3, .hx-company-app p { margin: 0; }
+.hx-company-app small { overflow-wrap: anywhere; }

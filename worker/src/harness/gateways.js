@@ -1,4 +1,4 @@
-import { enqueueExecution, jobView } from './executions.js';
+import { enqueueExecution, jobView, readExecution } from './executions.js';
 // Outbound-only execution nodes. A node token grants access to one workspace's
 // assigned jobs, never to workspace files, agent memories or integration keys.
 import { member, json } from './routes.js';
@@ -9,7 +9,7 @@ const id = () => crypto.randomUUID();
 const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('');
 const secret = () => `${crypto.randomUUID()}${crypto.randomUUID()}`;
 const failure = (message, status = 400) => json({ message }, status);
-const activeMember = `EXISTS (SELECT 1 FROM memberships m WHERE m.org_id = hx_gateway_jobs.org_id AND m.user_github_id = hx_gateway_jobs.created_by AND m.role != 'guest')`;
+const activeMember = `(EXISTS (SELECT 1 FROM memberships m WHERE m.org_id = hx_gateway_jobs.org_id AND m.user_github_id = hx_gateway_jobs.created_by AND m.role != 'guest') AND NOT EXISTS (SELECT 1 FROM hx_app_action_jobs j WHERE j.job_id=hx_gateway_jobs.id AND NOT EXISTS (SELECT 1 FROM hx_apps a LEFT JOIN hx_app_access p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=j.org_id AND a.id=j.app_id AND (COALESCE(p.visibility,'workspace')='workspace' OR a.created_by=hx_gateway_jobs.created_by))))`;
 
 
 export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish))\/?$/.test(pathname);
@@ -88,7 +88,7 @@ export async function handleGateways(request, env, url, input) {
     if (jobId) {
       const job = await db.prepare('SELECT * FROM hx_gateway_jobs WHERE org_id = ?1 AND id = ?2 AND created_by = ?3').bind(orgId, jobId, me).first();
       if (!job) return failure('No such execution.', 404);
-      if (request.method === 'GET') return json({ job: jobView(job) });
+      if (request.method === 'GET') { const r=await readExecution(db,orgId,me,jobId); return r.error?failure(r.error,r.status):json(r); }
       if (parts[3] === 'cancel' && request.method === 'POST') {
         await db.prepare("UPDATE hx_gateway_jobs SET status = 'cancelled', lease_hash = NULL, finished_at = ?2 WHERE id = ?1 AND status IN ('queued', 'running')").bind(jobId, now()).run();
         return json({ cancelled: true });
@@ -97,7 +97,7 @@ export async function handleGateways(request, env, url, input) {
     }
     if (request.method === 'GET') {
       const { results } = await db.prepare('SELECT * FROM hx_gateway_jobs WHERE org_id = ?1 AND created_by = ?2 ORDER BY created_at DESC LIMIT 100').bind(orgId, me).all();
-      return json({ jobs: (results || []).map(jobView) });
+      const jobs=[]; for(const row of results||[]) {const r=await readExecution(db,orgId,me,row.id);if(!r.error)jobs.push(r.job);} return json({jobs});
     }
     if (request.method !== 'POST') return failure('Method not allowed.', 405);
     const result = await enqueueExecution(db, orgId, me, input);

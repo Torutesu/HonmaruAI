@@ -30,6 +30,11 @@ export interface App {
   id: string; name: string; description: string; icon: string; tableId: string
   template: string | null; version: number; channels?: string[]; createdBy: string; updatedAt: string
 }
+export interface AppAction { name: string; version: number; draft?: string; published: string | null; publishedVersion: number | null }
+export interface AppConnection { name: string; version: number; endpoint: string; method: string; enabled: number; hasToken: number }
+export interface AppEntity { key: string; table: Table; rows?: Row[] }
+export interface AppFork { id: string; revision: number; entities: Array<AppEntity & { rows: Row[] }> }
+export interface AppDatabase { version: number; entities: AppEntity[]; migrations: Array<{id:string;version:number;checksum:string;plan:unknown;createdAt:string}>; fork: AppFork | null }
 export interface Template { id: string; name: string; icon: string; description: string }
 
 export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'row'
@@ -105,6 +110,15 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     updateApp: (id: string, patch: Record<string, unknown>) => call<{ app: App }>('PUT', `/apps/${id}`, patch),
     generateCustom: (id: string, prompt: string) => call<{ html: string }>('POST', `/apps/${id}/custom`, { action: 'generate', prompt }),
     saveCustom: (id: string, action: 'draft' | 'publish' | 'unpublish' | 'restore', version: number, html?: string, restoreVersion?: number) => call('POST', `/apps/${id}/custom`, { action, version, html, restoreVersion }),
+    appDatabase: (id: string) => call<AppDatabase>('GET', `/apps/${id}/database`),
+    databaseChange: (id: string, body: Record<string, unknown>) => call<{operations?: unknown[]; fork?: AppFork; revision?: number; result?: unknown}>('POST', `/apps/${id}/database`, body),
+    appActions: (id: string) => call<{actions: AppAction[]}>('GET', `/apps/${id}/actions`),
+    actionChange: (id: string, body: Record<string, unknown>) => call<{name?: string;code?: string;job?: GatewayJob}>('POST', `/apps/${id}/actions`, body),
+    actionHistory: (id: string, name: string) => call<{versions:Array<{version:number;code:string;createdAt:string}>}>('GET', `/apps/${id}/actions`, undefined, {history:name}),
+    actionJob: (id: string, jobId: string) => call<{job: GatewayJob}>('GET', `/apps/${id}/actions`, undefined, {jobId}),
+    appConnections: (id: string) => call<{connections: AppConnection[];hosts: string[]}>('GET', `/apps/${id}/connections`),
+    connectionChange: (id: string, body: Record<string, unknown>) => call<{data?: unknown}>('POST', `/apps/${id}/connections`, body),
+    entityRows: (tableId: string) => call<{table: Table; rows: Row[]}>('GET', `/tables/${tableId}`, undefined, {limit:'5000'}),
     deleteApp: (id: string) => call<{ deleted: boolean }>('DELETE', `/apps/${id}`),
     versions: (id: string) => call<{ versions: Array<{ version: number; note: string | null; createdAt: string }> }>('GET', `/apps/${id}/versions`),
     restore: (id: string, version: number) => call<{ app: App }>('POST', `/apps/${id}/versions`, { version }),

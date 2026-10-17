@@ -1,3 +1,5 @@
+import { databaseView, applyMigration, generateMigration, forkDatabase, readFork, mutateFork } from './appDatabase.js';
+import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection, invokeConnection } from './appCapabilities.js';
 import { generateCustomSource, saveCustomRelease } from "./customApps.js";
 import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
@@ -441,13 +443,55 @@ export async function handleHarness(request, env, url) {
     }
     const app = await getApp(env.DB, orgId, appId);
     if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);
+    if (['database','actions','connections'].includes(sub)) {
+      const canManage = await mayChange(env, orgId, who, app.createdBy);
+      const respond = async (result, action) => {
+        if (!result.error && action) await audit(env, request, { orgId, action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version ?? null, name: typeof input?.name === 'string' ? input.name : null } });
+        return result.error ? fail(result) : json(result);
+      };
+      if (sub === 'database') {
+        if (request.method === 'GET') return json({ ...(await databaseView(env.DB, orgId, app)), ...(await readFork(env.DB, orgId, appId, me)) });
+        if (request.method !== 'POST') return json({ message: 'Method not allowed.' },405);
+        if (!canManage) return json({ message: 'Only its maker or an admin can develop this app.' },403);
+        if (input.action === 'generate') return respond(await generateMigration(input.prompt, await databaseView(env.DB, orgId, app), await completer(env, orgId, me, 'app_database_generate', { maxTokens: 4000 })));
+        if (input.action === 'migrate') return respond(await applyMigration(env.DB, orgId, app, input, me), 'app.database_migrated');
+        if (input.action === 'fork') return respond(await forkDatabase(env.DB, orgId, app, me), 'app.database_forked');
+        if (input.action === 'fork_write') return respond(await mutateFork(env.DB, orgId, appId, me, input), 'app.preview_changed');
+      }
+      if (sub === 'actions') {
+        if (request.method === 'GET') {
+          const history=url.searchParams.get('history');
+          if(history){
+            if(!canManage)return json({message:'Only its maker or an admin can read draft history.'},403);
+            const result=await env.DB.prepare('SELECT version,code,created_at AS createdAt FROM hx_app_action_versions WHERE org_id=?1 AND app_id=?2 AND name=?3 ORDER BY version DESC LIMIT 50').bind(orgId,appId,history).all();return json({versions:result.results||[]});
+          }
+          const jobId=url.searchParams.get('jobId');
+          if(jobId)return respond(await readActionJob(env.DB,orgId,appId,me,jobId));
+          const result=await actions(env.DB,orgId,appId);
+          return json({actions:canManage?result.actions:result.actions.filter(a=>a.published).map(({draft,...a})=>a)});
+        }
+        if (request.method !== 'POST') return json({message:'Method not allowed.'},405);
+        if(input.action==='run')return respond(await runAction(env.DB,orgId,appId,input,me),'app.action_requested');
+        if(!canManage)return json({message:'Only its maker or an admin can publish server actions.'},403);
+        if(input.action==='generate')return respond(await generateAction(input.prompt,await completer(env,orgId,me,'app_action_generate',{maxTokens:6000})));
+        return respond(await saveAction(env.DB,orgId,appId,input,me),'app.action_'+input.action);
+      }
+      if (sub === 'connections') {
+        if(request.method==='GET')return json(await connections(env.DB,orgId,appId,me));
+        if(request.method!=='POST')return json({message:'Method not allowed.'},405);
+        if(input.action==='request')return respond(await invokeConnection(env.DB,orgId,appId,me,input),'app.connection_requested');
+        if(input.action==='save')return respond(await saveConnection(env.DB,orgId,appId,me,input),'app.connection_saved');
+      }
+      return json({message:'Unknown operation.'},400);
+    }
     if (sub === "custom") {
       if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: "Only its maker or an admin can change custom code." }, 403);
       if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
       if (input.action === 'generate') {
         const table = await getTable(env.DB, orgId, app.tableId);
         const complete = await completer(env, orgId, me, 'custom_app_generate', { maxTokens: 8000 });
-        const result = await generateCustomSource(input.prompt, table, complete);
+        const capabilities = { entities: (await databaseView(env.DB,orgId,app)).entities, actions: (await actions(env.DB,orgId,appId)).actions.filter(a=>a.published).map(a=>({name:a.name,code:a.published})), connections:(await connections(env.DB,orgId,appId,me)).connections.map(c=>({name:c.name,endpoint:c.endpoint,method:c.method,enabled:c.enabled})), gateways:(await env.DB.prepare('SELECT id,name FROM hx_gateways WHERE org_id=?1 AND revoked_at IS NULL').bind(orgId).all()).results };
+        const result = await generateCustomSource(input.prompt, table, complete, capabilities);
         return result.error ? fail(result) : json(result);
       }
       const result = await saveCustomRelease(env.DB, orgId, app, input, me);

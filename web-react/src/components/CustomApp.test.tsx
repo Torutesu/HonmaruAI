@@ -51,3 +51,35 @@ test('approval keeps the row revision that was shown when the change was request
   expect(updateRow).toHaveBeenCalledWith('only-this-table', 'r1', { name: 'Approved edit' }, 'revision-1', 'strict')
   act(() => tree!.unmount())
 })
+
+test('a generated external request requires host approval and uses the discovered connection version', async () => {
+  let handler: (e: any) => Promise<void> = async () => {}
+  const contentWindow = { postMessage: vi.fn() }
+  const connectionChange = vi.fn().mockResolvedValue({ data: { ok: true } })
+  const api = { appConnections: vi.fn().mockResolvedValue({ connections: [{ name: 'github', version: 7, enabled: 1, endpoint: 'https://api.github.com/user' }] }), connectionChange } as any
+  vi.stubGlobal('window', { addEventListener: (_: string, fn: any) => { handler = fn }, removeEventListener: vi.fn() })
+  let tree: ReturnType<typeof create>
+  act(() => { tree = create(<CustomAppFrame appId="app" html="test" table={table} rows={[]} httpBase="https://api.example" api={api}/>, { createNodeMock: e => e.type === 'iframe' ? { contentWindow } : null }) })
+  await act(async () => { await handler({ source: contentWindow, data: { type: 'honmaru:request', id: 'request', operation: 'connect', args: { name: 'github', endpoint: 'https://evil.test' } } }) })
+  expect(connectionChange).not.toHaveBeenCalled()
+  expect(tree!.root.findByType('pre').children.join('')).toContain('https://api.github.com/user')
+  expect(tree!.root.findByType('pre').children.join('')).not.toContain('evil.test')
+  await act(async () => { await tree!.root.findAllByType('button')[1].props.onClick() })
+  expect(connectionChange).toHaveBeenCalledWith('app', { action: 'request', name: 'github', version: 7, body: undefined, requestId: 'request' })
+  act(() => tree!.unmount())
+})
+test('server execution approval fixes the published code version and never accepts code from the iframe',async()=>{
+  let handler: (e:any)=>Promise<void>=async()=>{}
+  const contentWindow={postMessage:vi.fn()}
+  const actionChange=vi.fn().mockResolvedValue({job:{id:'job'}})
+  const api={appActions:vi.fn().mockResolvedValue({actions:[{name:'sum',published:'return input.a+input.b',publishedVersion:2}]}),gateways:vi.fn().mockResolvedValue({gateways:[{id:'mac'}]}),actionChange}as any
+  vi.stubGlobal('window',{addEventListener:(_:string,fn:any)=>{handler=fn},removeEventListener:vi.fn()})
+  let tree:ReturnType<typeof create>
+  act(()=>{tree=create(<CustomAppFrame appId="app" html="test" table={table} rows={[]} httpBase="https://api.example" api={api}/>,{createNodeMock:e=>e.type==='iframe'?{contentWindow}:null})})
+  await act(async()=>{await handler({source:contentWindow,data:{type:'honmaru:request',id:'r',operation:'run',args:{name:'sum',input:{a:20,b:22},gatewayId:'mac',code:'evil'}}})})
+  expect(actionChange).not.toHaveBeenCalled()
+  expect(tree!.root.findByType('pre').children.join('')).toContain('return input.a+input.b')
+  await act(async()=>{await tree!.root.findAllByType('button')[1].props.onClick()})
+  expect(actionChange).toHaveBeenCalledWith('app',{action:'run',name:'sum',version:2,gatewayId:'mac',input:{a:20,b:22},requestId:'r'})
+  act(()=>tree!.unmount())
+})

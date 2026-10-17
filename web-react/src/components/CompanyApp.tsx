@@ -1,0 +1,63 @@
+import React, { useEffect, useState } from 'react'
+import type { App, AppAction, AppConnection, AppDatabase, Gateway, GatewayJob, HarnessApi } from '../utils/harness'
+
+export function CompanyApp({ app, api, canManage, reload }: {app: App; api: HarnessApi; canManage: boolean; reload: () => unknown}) {
+  const [history,setHistory]=useState<Array<{version:number;code:string;createdAt:string}>>([])
+  const [tab,setTab]=useState<'actions'|'database'|'connections'>('actions')
+  const [actions,setActions]=useState<AppAction[]>([]),[connections,setConnections]=useState<AppConnection[]>([]),[db,setDb]=useState<AppDatabase|null>(null),[nodes,setNodes]=useState<Gateway[]>([])
+  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
+  const [prompt,setPrompt]=useState(''),[name,setName]=useState(''),[code,setCode]=useState(''),[node,setNode]=useState(''),[input,setInput]=useState('{}'),[job,setJob]=useState<GatewayJob|null>(null)
+  const [plan,setPlan]=useState('[]'),[migrationId,setMigrationId]=useState(''),[confirmMigration,setConfirmMigration]=useState(false)
+  const [method,setMethod]=useState('GET'),[requestBody,setRequestBody]=useState('{}'),[confirmExternal,setConfirmExternal]=useState(false)
+  const [connectionName,setConnectionName]=useState(''),[endpoint,setEndpoint]=useState(''),[token,setToken]=useState(''),[response,setResponse]=useState<unknown>(undefined)
+  const [entity,setEntity]=useState('primary'),[record,setRecord]=useState('{}')
+  async function load() { const [a,c,d,g]=await Promise.all([api.appActions(app.id),api.appConnections(app.id),api.appDatabase(app.id),api.gateways()]);setActions(a.actions);setConnections(c.connections);setDb(d);setNodes(g.gateways.filter(n=>!n.revokedAt)); }
+  async function run(fn:()=>Promise<unknown>) {setBusy(true);setError('');setNotice('');try{await fn()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}}
+  useEffect(()=>{void run(load)},[app.id,api])
+  const selected=actions.find(a=>a.name===name),conn=connections.find(c=>c.name===connectionName)
+  const selectAction=(a:AppAction)=>{setHistory([]);setName(a.name);setCode(a.draft||a.published||'')}
+  const forkEntity=db?.fork?.entities.find(e=>e.key===entity)
+  return <section className="hx-company-app">
+    <h2>アプリの実行基盤</h2><p>サーバー処理・データ・接続を、このアプリの権限と監査履歴の下で管理します。</p>
+    <nav className="hx-tabs" aria-label="実行基盤の機能">{([['actions','サーバー処理'],['database','データベース'],['connections','外部接続']] as const).map(([id,label])=><button key={id} className={tab===id?'on':''} onClick={()=>{setTab(id);setError('');setNotice('');setPrompt('')}}>{label}</button>)}</nav>
+    {error&&<p role="alert" className="form-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
+    {tab==='actions'&&<>
+      <p>公開したJavaScriptを既存のMac実行ノードで実行します。入力と戻り値はJSONです。外部通信や本番DBへの直接書き込みは行えません。</p>
+      {canManage&&<form onSubmit={e=>{e.preventDefault();void run(async()=>{const r=await api.actionChange(app.id,{action:'generate',prompt});setName(r.name||'');setCode(r.code||'');setNotice('生成した処理を確認して下書き保存してください。')})}}><label>作りたいサーバー処理<textarea value={prompt} maxLength={4000} onChange={e=>setPrompt(e.target.value)} placeholder="例：入力された売上明細から税抜合計と消費税を計算する" /></label><button disabled={busy||!prompt.trim()} className="pill-btn">処理を自動生成</button></form>}
+      <div className="hx-actions">{actions.map(a=><button className="pill-btn quiet" key={a.name} onClick={()=>selectAction(a)}>{a.name} · {a.published?'公開中':'下書き'}</button>)}</div>
+      <label>処理名<input value={name} disabled={!canManage} onChange={e=>setName(e.target.value)} placeholder="calculate_total" /></label>
+      <label>JavaScript（inputを受け取り、returnで返す）<textarea aria-label="サーバー処理のコード" className="hx-code-editor" value={code} maxLength={40000} readOnly={!canManage} spellCheck={false} onChange={e=>setCode(e.target.value)} /></label>
+      {canManage&&<div className="hx-actions"><button className="pill-btn" disabled={busy||!name||!code} onClick={()=>void run(async()=>{await api.actionChange(app.id,{action:'draft',name,code,version:selected?.version||0});await load();setNotice('サーバー処理の下書きを保存しました。')})}>処理の下書きを保存</button><button className="pill-btn" disabled={busy||!selected||code!==selected.draft||selected.published===code} onClick={()=>void run(async()=>{await api.actionChange(app.id,{action:'publish',name,version:selected!.version});await load();setNotice('保存したサーバー処理を公開しました。')})}>処理を公開</button>{selected?.published&&<button className="pill-btn quiet" disabled={busy} onClick={()=>void run(async()=>{await api.actionChange(app.id,{action:'unpublish',name,version:selected.version});await load()})}>処理の公開を停止</button>}</div>}
+      {canManage&&selected&&<details onToggle={e=>{if(e.currentTarget.open)void run(async()=>setHistory((await api.actionHistory(app.id,selected.name)).versions))}}><summary>処理コードの履歴</summary>{history.map(h=><div key={h.version}><p>v{h.version} · {h.createdAt}</p><pre>{h.code}</pre><button className="pill-btn quiet" disabled={busy} onClick={()=>void run(async()=>{await api.actionChange(app.id,{action:'restore',name:selected.name,version:selected.version,restoreVersion:h.version});setCode(h.code);await load()})}>この版を下書きに復元</button></div>)}</details>}
+      <label>実行ノード<select value={node} onChange={e=>setNode(e.target.value)}><option value="">選択してください</option>{nodes.map(n=><option key={n.id} value={n.id}>{n.name}</option>)}</select></label>
+      <label>実行する入力（JSON）<textarea aria-label="サーバー処理の入力" value={input} onChange={e=>setInput(e.target.value)} maxLength={20000} /></label>
+      {selected?.published&&<details><summary>今回実行される公開済みコード v{selected.publishedVersion}</summary><pre>{selected.published}</pre></details>}
+      <button className="pill-btn" disabled={busy||!selected?.published||!node} onClick={()=>void run(async()=>{const r=await api.actionChange(app.id,{action:'run',name,version:selected!.publishedVersion,gatewayId:node,input:JSON.parse(input),requestId:crypto.randomUUID()});setJob(r.job||null)})}>この入力で公開済み処理を実行</button>
+      {job&&<div role="status"><p>実行状態: {job.status}</p><pre>{JSON.stringify(job.result,null,2)}</pre><button className="pill-btn quiet" disabled={busy} onClick={()=>void run(async()=>setJob((await api.actionJob(app.id,job.id)).job))}>実行結果を更新</button></div>}
+    </>}
+    {tab==='database'&&db&&<>
+      <p>スキーマ v{db.version} · 本番データを保ったまま、テーブルと項目を追加できます。検証DBの編集は本番に反映されません。</p>
+      {db.entities.map(e=><details key={e.key}><summary>{e.table.name} · {e.key} · {e.table.columns.length}項目</summary><pre>{JSON.stringify(e.table.columns,null,2)}</pre></details>)}
+      {canManage&&<><form onSubmit={e=>{e.preventDefault();void run(async()=>{const r=await api.databaseChange(app.id,{action:'generate',prompt});setPlan(JSON.stringify(r.operations,null,2));setMigrationId('migration_'+Date.now());setConfirmMigration(false)})}}><label>追加したいデータ構造<textarea value={prompt} maxLength={4000} onChange={e=>setPrompt(e.target.value)} placeholder="例：顧客テーブルを追加。会社名、メール、担当者を管理したい" /></label><button className="pill-btn" disabled={busy||!prompt.trim()}>DB変更案を生成</button></form>
+      <label>変更ID<input value={migrationId} onChange={e=>{setMigrationId(e.target.value);setConfirmMigration(false)}} placeholder="add_customers_v1" /></label>
+      <label>変更案（JSON）<textarea aria-label="DB変更案" className="hx-code-editor" value={plan} onChange={e=>{setPlan(e.target.value);setConfirmMigration(false)}} maxLength={30000} /></label>
+      {!confirmMigration?<button className="pill-btn" disabled={busy||!migrationId||plan==='[]'} onClick={()=>setConfirmMigration(true)}>本番への変更を確認</button>:<div className="hx-custom-approval" role="alertdialog" aria-label="DB変更を確認"><p>上記の変更案を、本番スキーマ v{db.version} に適用します。既存データを削除する操作は許可されません。</p><button disabled={busy} onClick={()=>setConfirmMigration(false)}>キャンセル</button><button disabled={busy} onClick={()=>void run(async()=>{await api.databaseChange(app.id,{action:'migrate',id:migrationId,version:db.version,operations:JSON.parse(plan)});setConfirmMigration(false);await load();await reload();setNotice('DB変更を適用し、履歴に記録しました。')})}>このDB変更を適用</button></div>}
+      <h3>個人用の検証DB</h3><p>本番のコピーで書き込みを試せます。作り直すと現在の検証データを置き換えます。本番への自動マージはしません。</p><button className="pill-btn quiet" disabled={busy} onClick={()=>void run(async()=>{await api.databaseChange(app.id,{action:'fork'});await load();setNotice('本番から検証DBを作成しました。')})}>{db.fork?'検証DBを本番から作り直す':'検証DBを作成'}</button>
+      {db.fork&&<><label>検証するテーブル<select value={entity} onChange={e=>setEntity(e.target.value)}>{db.fork.entities.map(e=><option key={e.key} value={e.key}>{e.table.name}</option>)}</select></label><label>検証レコード（項目IDをキーにしたJSON）<textarea value={record} onChange={e=>setRecord(e.target.value)} maxLength={20000} /></label><button className="pill-btn" disabled={busy} onClick={()=>void run(async()=>{await api.databaseChange(app.id,{action:'fork_write',forkId:db.fork!.id,revision:db.fork!.revision,entity,operation:'create',values:JSON.parse(record)});await load()})}>検証DBだけに追加</button><pre>{JSON.stringify(forkEntity?.rows||[],null,2)}</pre></>}
+      </>}
+      <h3>DB変更履歴</h3>{db.migrations.map(m=><details key={m.id}><summary>v{m.version} · {m.id} · {m.createdAt}</summary><pre>{JSON.stringify(m.plan,null,2)}</pre><small>SHA-256: {m.checksum}</small></details>)}
+    </>}
+    {tab==='connections'&&<>
+      <p>接続はあなた専用・このアプリ専用です。登録したURLと操作だけを許可します。書き込みは送信内容を確認してから実行します。認証情報は暗号化保存し、生成コードに渡しません。</p>
+      <p>対応API: GitHub、Notion、Slack、Google Drive／Calendar／Sheets、Open-Meteo。既存の利用枠・資格情報を使用します。</p>
+      <div className="hx-actions">{connections.map(c=><button key={c.name} className="pill-btn quiet" onClick={()=>{setConnectionName(c.name);setEndpoint(c.endpoint);setMethod(c.method||'GET');setConfirmExternal(false);setToken('')}}>{c.name} · {c.enabled?'有効':'停止'}</button>)}</div>
+      <label>接続名<input value={connectionName} onChange={e=>setConnectionName(e.target.value)} placeholder="company_repository" /></label><label>APIの完全URL<input value={endpoint} onChange={e=>setEndpoint(e.target.value)} placeholder="https://api.github.com/repos/owner/repository" /></label>
+      <label>許可する操作<select value={method} onChange={e=>setMethod(e.target.value)}>{['GET','POST','PATCH','PUT','DELETE'].map(m=><option key={m} value={m}>{m}{m==='GET'?'（読み取り）':'（書き込み）'}</option>)}</select></label>
+      <label>Bearerトークン（任意・空欄なら既存値を維持）<input type="password" autoComplete="off" value={token} onChange={e=>setToken(e.target.value)} /></label>
+      <div className="hx-actions"><button className="pill-btn" disabled={busy||!connectionName||!endpoint} onClick={()=>void run(async()=>{await api.connectionChange(app.id,{action:'save',name:connectionName,version:conn?.version||0,endpoint,method,...(token?{token}:{}),enabled:true});setToken('');await load();setNotice('このアプリ専用の接続を保存しました。')})}>このURLと操作への接続を許可して保存</button>{conn&&<><button className="pill-btn quiet" disabled={busy||!conn.enabled} onClick={()=>void run(async()=>{await api.connectionChange(app.id,{action:'save',name:conn.name,version:conn.version,endpoint:conn.endpoint,method:conn.method,enabled:false});await load()})}>接続を停止</button><button className="pill-btn quiet" disabled={busy||!conn.enabled} onClick={()=>{if(conn.method&&conn.method!=='GET')setConfirmExternal(true);else void run(async()=>{const r=await api.connectionChange(app.id,{action:'request',name:conn.name,version:conn.version});setResponse(r.data)})}}>{conn.method&&conn.method!=='GET'?'外部への送信内容を確認':'登録したAPIを読み取る'}</button></>}</div>
+      {conn&&conn.method!=='GET'&&<label>送信内容（JSON）<textarea aria-label="外部APIへの送信内容" value={requestBody} onChange={e=>{setRequestBody(e.target.value);setConfirmExternal(false)}} maxLength={20000}/></label>}
+      {confirmExternal&&conn&&<div role="alertdialog" aria-label="外部APIへの書き込み確認" className="hx-custom-approval"><p>{conn.method} {conn.endpoint}</p><pre>{requestBody}</pre><p>この内容を外部サービスへ送信します。結果不明の場合は自動で再送しません。</p><button disabled={busy} onClick={()=>setConfirmExternal(false)}>キャンセル</button><button disabled={busy} onClick={()=>void run(async()=>{setConfirmExternal(false);const r=await api.connectionChange(app.id,{action:'request',name:conn.name,version:conn.version,body:JSON.parse(requestBody),requestId:crypto.randomUUID()});setResponse(r.data)})}>この内容を送信</button></div>}
+      {response!==undefined&&<pre aria-label="外部APIの結果">{JSON.stringify(response,null,2)}</pre>}
+    </>}
+  </section>
+}

@@ -263,6 +263,8 @@ export async function deleteApp(db, orgId, id) {
   await db.batch([
     db.prepare("DELETE FROM hx_app_links WHERE app_id = ?1 AND org_id = ?2").bind(id, orgId),
     db.prepare("DELETE FROM hx_app_versions WHERE app_id = ?1 AND org_id = ?2").bind(id, orgId),
+    db.prepare("DELETE FROM hx_rows WHERE org_id=?2 AND table_id IN (SELECT table_id FROM hx_app_entities WHERE org_id=?2 AND app_id=?1)").bind(id,orgId),
+    db.prepare("DELETE FROM hx_tables WHERE org_id=?2 AND id IN (SELECT table_id FROM hx_app_entities WHERE org_id=?2 AND app_id=?1)").bind(id,orgId),
     db.prepare("DELETE FROM hx_apps WHERE id = ?1 AND org_id = ?2").bind(id, orgId),
     db.prepare("DELETE FROM hx_rows WHERE table_id = ?1 AND org_id = ?2").bind(app.tableId, orgId),
     db.prepare("DELETE FROM hx_tables WHERE id = ?1 AND org_id = ?2").bind(app.tableId, orgId),

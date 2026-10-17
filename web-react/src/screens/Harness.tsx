@@ -1,3 +1,4 @@
+import { CompanyApp } from '../components/CompanyApp'
 import { CustomAppEditor, CustomAppFrame } from "../components/CustomApp"
 import { AppSharing } from '../components/AppSharing'
 import { AppCalendar } from '../components/AppCalendar'
@@ -207,7 +208,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const t = useT()
   const [data, setData] = useState<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize?: boolean } | null>(null)
   const [viewIndex, setViewIndex] = useState(0)
-  const [section, setSection] = useState<'overview' | 'data' | 'settings' | 'custom'>('overview')
+  const [section, setSection] = useState<'overview' | 'data' | 'settings' | 'custom' | 'backend'>('overview')
   const [search, setSearch] = useState('')
   const [newColumn, setNewColumn] = useState('')
   const [newColumnType, setNewColumnType] = useState<Column['type']>('text')
@@ -249,10 +250,11 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       nested
       actions={<><button className="pill-btn quiet" onClick={() => setSection('custom')}>{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => setSection('settings')}>{t('Sharing')}</button><button className="pill-btn quiet" disabled={busy !== null} onClick={() => void load()}>{t('Reload')}</button><span className="hx-version">v{app.version}</span></>}
     >
-      <nav className="hx-app-sections" aria-label={t('App sections')}>{(['overview', 'data', 'custom', 'settings'] as const).map(tab => <button key={tab} aria-current={section === tab ? 'page' : undefined} className={section === tab ? 'on' : ''} onClick={() => setSection(tab)}>{t(tab === 'overview' ? 'Overview' : tab === 'data' ? 'Data viewer' : tab === 'custom' ? 'Customize app' : 'Settings')}</button>)}</nav>
+      <nav className="hx-app-sections" aria-label={t('App sections')}>{(['overview', 'data', 'custom', 'backend', 'settings'] as const).map(tab => <button key={tab} aria-current={section === tab ? 'page' : undefined} className={section === tab ? 'on' : ''} onClick={() => setSection(tab)}>{t(tab === 'overview' ? 'Overview' : tab === 'data' ? 'Data viewer' : tab === 'custom' ? 'Customize app' : tab === 'backend' ? '実行基盤' : 'Settings')}</button>)}</nav>
+      {section === 'backend' && <CompanyApp app={app} api={api} canManage={data.canCustomize !== false} reload={load} />}
       {section === 'custom' && data.canCustomize === false && <p>カスタムコードの編集・公開は、作成者または管理者が行えます。</p>}
       {section === 'custom' && data.canCustomize !== false && <CustomAppEditor httpBase={httpBase} app={app} table={table} rows={data.rows} api={api} reload={load} />}
-      {section === 'overview' && app.definition.custom?.published && <CustomAppFrame api={api} reload={load} httpBase={httpBase} html={app.definition.custom.published} table={table} rows={data.rows} />}
+      {section === 'overview' && app.definition.custom?.published && <CustomAppFrame appId={app.id} api={api} reload={load} httpBase={httpBase} html={app.definition.custom.published} table={table} rows={data.rows} />}
       {section === 'overview' && !app.definition.custom?.published && <div className="hx-app-overview"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('Database app')}</h2><p>{app.description || t('Browse and manage this app’s data in the data viewer.')}</p><div className="hx-actions"><button className="pill-btn" onClick={() => setSection('data')}>{t('Browse data')}</button><button className="pill-btn quiet" onClick={() => setSection('custom')}>{t('Customize app')}</button></div><small>{t('{n} records', { n: data.rows.length })} · {table.columns.length} {t('Fields')}</small></div>}
       {section === 'data' && <>
       <div className="hx-data-heading"><h2>{app.name}</h2><button className="pill-btn" onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{t('Add a row')}</button></div>
