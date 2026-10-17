@@ -76,6 +76,8 @@ test('generation errors fail closed',async()=>{
  expect((await generateAction('sum',null)).status).toBe(503);
  expect(await generateAction('sum',async()=>'{"name":"sum","code":"return input.a + input.b"}')).toMatchObject({name:'sum'});
  expect((await generateAction('sum',async()=>'not json')).status).toBe(502);
+ const wrapped=await generateAction('sum',async()=>JSON.stringify({name:'sum',code:'async function sum(input) { return input.a + input.b; }'}));
+ expect(wrapped.code).toBe('return await (async function sum(input) { return input.a + input.b; })(input);');
 });
 
 test('revoked app access prevents a queued server action from being claimed',async()=>{

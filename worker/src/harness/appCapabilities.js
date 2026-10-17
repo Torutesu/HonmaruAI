@@ -12,9 +12,16 @@ export async function generateAction(prompt, complete) {
   if (typeof prompt !== 'string' || !prompt.trim() || prompt.length>4000) return err('Describe the action in 1–4000 characters.');
   if (!complete) return err('AI generation is unavailable within the current allowance.',503);
   try {
-    const raw=await complete('Return JSON {"name":"lowercase_action_name","code":"JavaScript async function body"}. Only input is available. Return a JSON value. Run calculations, transformations or validation. No network, filesystem, environment variables, process, imports, database access, secrets or external dependencies. Use only JavaScript built-ins. Maximum runtime 60 seconds. Code is reviewed and explicitly published before execution.',prompt);
+    const raw=await complete('Return JSON {"name":"lowercase_action_name","code":"JavaScript async function body"}. The code MUST be a function BODY, for example: return input.a + input.b; Do not declare an outer function or export. Only input is available. Return a JSON value. Run calculations, transformations or validation. No network, filesystem, environment variables, process, imports, database access, secrets or external dependencies. Use only JavaScript built-ins. Maximum runtime 60 seconds. Code is reviewed and explicitly published before execution.',prompt);
     const result=JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm,'').trim());
-    return nameOK(result.name)&&codeOK(result.code)?result:err('Invalid generated action.',502);
+    if (!nameOK(result.name)||!codeOK(result.code)) return err('Invalid generated action.',502);
+    // Some models return a complete function despite the body-only contract.
+    // Invoke that function inside the existing sandbox; never evaluate it here.
+    const source=result.code.trim();
+    if (/^(?:async\s+)?function\s+[A-Za-z_$][\w$]*\s*\(\s*input\s*\)\s*\{[\s\S]*\}\s*;?$/.test(source)) {
+      result.code=`return await (${source.replace(/;$/, '')})(input);`;
+    }
+    return result;
   } catch { return err('The model did not return a valid action.',502); }
 }
 export async function saveAction(db,orgId,appId,input,by) {
