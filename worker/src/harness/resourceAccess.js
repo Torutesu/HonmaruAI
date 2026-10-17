@@ -21,7 +21,7 @@ export async function mayUseTable(db, orgId, tableId, userId) {
   if (!member) return false;
   const table = await db.prepare('SELECT id FROM hx_tables WHERE org_id = ?1 AND id = ?2').bind(orgId, tableId).first();
   if (!table) return false;
-  const { results } = await db.prepare('SELECT id FROM hx_apps WHERE org_id = ?1 AND table_id = ?2').bind(orgId, tableId).all();
+  const { results } = await db.prepare('SELECT id FROM hx_apps WHERE org_id = ?1 AND table_id = ?2 UNION SELECT app_id AS id FROM hx_app_entities WHERE org_id = ?1 AND table_id = ?2').bind(orgId, tableId).all();
   for (const app of results || []) if (!(await mayUseApp(db, orgId, app.id, userId))) return false;
   return true;
 }

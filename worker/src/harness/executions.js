@@ -1,3 +1,4 @@
+import { mayUseApp } from './resourceAccess.js';
 import { allowed } from '../permissions.js';
 export const jobView = row => row && ({ id: row.id, gatewayId: row.gateway_id, status: row.status, createdAt: row.created_at, startedAt: row.started_at, finishedAt: row.finished_at, result: row.result ? JSON.parse(row.result) : null });
 const id = () => crypto.randomUUID();
@@ -12,6 +13,8 @@ export async function listExecutionNodes(db, orgId, me) {
 export async function readExecution(db, orgId, me, jobId) {
   if (!(await allowed(db, orgId, me, 'harness.build'))) return error('Execution is not allowed.', 403);
   const row = await db.prepare('SELECT * FROM hx_gateway_jobs WHERE org_id = ?1 AND id = ?2 AND created_by = ?3').bind(orgId, String(jobId || ''), String(me)).first();
+  const scope = row && await db.prepare('SELECT app_id FROM hx_app_action_jobs WHERE job_id=?1 AND org_id=?2').bind(row.id,orgId).first();
+  if(scope && !(await mayUseApp(db,orgId,scope.app_id,me))) return error('No such execution.',404);
   return row ? { job: jobView(row) } : error('No such execution.', 404);
 }
 export async function cancelExecution(db, orgId, me, jobId) {
@@ -20,7 +23,7 @@ export async function cancelExecution(db, orgId, me, jobId) {
   await db.prepare("UPDATE hx_gateway_jobs SET status = 'cancelled', lease_hash = NULL, finished_at = ?2 WHERE id = ?1 AND status IN ('queued', 'running')").bind(jobId, now()).run();
   return readExecution(db, orgId, me, jobId);
 }
-export async function enqueueExecution(db, orgId, me, input) {
+export async function enqueueExecution(db, orgId, me, input, appAction = null) {
   me = String(me);
     if (!(await allowed(db, orgId, me, 'harness.build'))) return error('Execution is not allowed.', 403);
     const gateway = await db.prepare('SELECT id FROM hx_gateways WHERE org_id = ?1 AND id = ?2 AND revoked_at IS NULL').bind(orgId, String(input.gatewayId || '')).first();
@@ -33,10 +36,11 @@ export async function enqueueExecution(db, orgId, me, input) {
     const previous = await db.prepare('SELECT * FROM hx_gateway_jobs WHERE org_id = ?1 AND created_by = ?2 AND request_id = ?3').bind(orgId, me, requestId).first();
     if (previous) return previous.payload === payload && previous.gateway_id === gateway.id ? success({ job: jobView(previous) }) : error('Request ID was already used for different input.', 409);
     const jobIdNew = id();
-    const r = await db.prepare(`INSERT OR IGNORE INTO hx_gateway_jobs (id, org_id, gateway_id, created_by, request_id, payload, status, created_at)
+    const insert = db.prepare(`INSERT OR IGNORE INTO hx_gateway_jobs (id, org_id, gateway_id, created_by, request_id, payload, status, created_at)
       SELECT ?1, ?2, ?3, ?4, ?5, ?6, 'queued', ?7 WHERE (SELECT COUNT(*) FROM hx_gateway_jobs WHERE org_id = ?2 AND status IN ('queued', 'running')) < 100
       AND EXISTS (SELECT 1 FROM hx_gateways WHERE id = ?3 AND org_id = ?2 AND revoked_at IS NULL)`)
-      .bind(jobIdNew, orgId, gateway.id, me, requestId, payload, now()).run();
+      .bind(jobIdNew, orgId, gateway.id, me, requestId, payload, now());
+    const r = appAction ? (await db.batch([insert, db.prepare('INSERT INTO hx_app_action_jobs (org_id,app_id,job_id,action_name,action_version,created_by) SELECT ?1,?2,?3,?4,?5,?6 WHERE changes()=1').bind(orgId,appAction.appId,jobIdNew,appAction.name,appAction.version,me)]))[0] : await insert.run();
     if (!r.meta?.changes) return error('Queue is full or the request was already submitted. Reload before retrying.', 409);
     return success({ job: jobView(await db.prepare('SELECT * FROM hx_gateway_jobs WHERE id = ?1').bind(jobIdNew).first()) }, 201);
 }

@@ -145,19 +145,23 @@ export async function updateTable(db, orgId, id, { name, columns }) {
     next.name = clean;
   }
   if (columns !== undefined) {
+    const managed = await db.prepare(`SELECT a.id FROM hx_apps a JOIN hx_app_database_state s ON s.app_id=a.id AND s.org_id=a.org_id WHERE a.org_id=?1 AND s.version>0 AND (a.table_id=?2 OR EXISTS (SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=?2))`).bind(orgId,id).first();
+    if(managed) return {error:'This schema is migration-managed. Use the app database migration editor.',status:409};
     const cols = normalizeColumns(columns, table.columns);
     if (cols.error) return cols;
     next.columns = cols.columns;
   }
-  await db
-    .prepare("UPDATE hx_tables SET name = ?1, columns = ?2, updated_at = ?3 WHERE id = ?4 AND org_id = ?5")
-    .bind(next.name, JSON.stringify(next.columns), now(), id, orgId)
+  const changed = await db
+    .prepare(`UPDATE hx_tables SET name = ?1, columns = ?2, updated_at = ?3 WHERE id = ?4 AND org_id = ?5 AND columns=?6 AND updated_at=?7
+      AND (?8=0 OR NOT EXISTS (SELECT 1 FROM hx_apps a JOIN hx_app_database_state s ON s.app_id=a.id AND s.org_id=a.org_id WHERE a.org_id=?5 AND s.version>0 AND (a.table_id=?4 OR EXISTS (SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=?4))))`)
+    .bind(next.name, JSON.stringify(next.columns), new Date(Math.max(Date.now(),Date.parse(table.updatedAt)+1)).toISOString(), id, orgId, JSON.stringify(table.columns),table.updatedAt,columns===undefined?0:1)
     .run();
+  if(!changed.meta?.changes)return {error:'Table schema changed. Reload before editing.',status:409};
   return { table: await getTable(db, orgId, id) };
 }
 
 export async function deleteTable(db, orgId, id) {
-  const inUse = await db.prepare("SELECT id FROM hx_apps WHERE table_id = ?1 AND org_id = ?2 LIMIT 1").bind(id, orgId).first();
+  const inUse = await db.prepare("SELECT id FROM hx_apps WHERE table_id = ?1 AND org_id = ?2 UNION SELECT app_id AS id FROM hx_app_entities WHERE table_id = ?1 AND org_id = ?2 LIMIT 1").bind(id, orgId).first();
   if (inUse) return { error: "An app is built on this table. Delete the app first.", status: 409 };
   await db.prepare("DELETE FROM hx_rows WHERE table_id = ?1 AND org_id = ?2").bind(id, orgId).run();
   const res = await db.prepare("DELETE FROM hx_tables WHERE id = ?1 AND org_id = ?2").bind(id, orgId).run();
