@@ -235,3 +235,12 @@ Acceptance evidence for Company runtime (PRs #305–309):
 - Database forks now retain an immutable baseline and offer explicit three-way merge review. Atomic D1 receipt guards reject concurrent production or fork changes, including a transaction-time race test. Applied forks are sealed; retry is idempotent. Secondary entities are available to the private preview SDK.
 - Limits: 50 changed rows per merge, no schema merge, no selective conflict resolution, older forks need recreation. Row workflows are not automatically triggered by a merge. These are documented gaps, not 100% parity.
 - PR #313 includes initial UI and merge functionality. Production acceptance is recorded separately after deployment completes.
+
+### Production acceptance (2026-10-17, 17:40 JST)
+
+- Worker deploy run `39016758769`: success (test gate, D1 migration, deployment and verification).
+- Web runs `39016758752`, `39017245462` and final label correction `39018106879`: success.
+- Final application code on main: `a37da78a77b3711baf81c6b74070c4d9019d68d9` (PRs #313–315).
+- Native Honmaru in Select: direct Apps rail navigation, new searchable framed cards, app detail and compact data toolbar confirmed on production. Agent/DM metadata now reads “プライベートチャット” instead of internal channel identifiers.
+- Existing app remains at zero production records; its prior private preview record remains intact. The new merge-preview endpoint correctly rejects the legacy fork without a merge baseline. Successful merge and race paths were tested in isolated Worker tests, not by overwriting this existing production preview.
+- Production dark screenshots: `/tmp/honmaru-ui-apps-dark-production.png` and `/tmp/honmaru-ui-data-dark-production.png`. Light and dark layout inspection completed locally; production light-theme switching was not conclusively verified.
