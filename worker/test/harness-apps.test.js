@@ -335,3 +335,42 @@ test('app views include records beyond the default API page size', async () => {
   const pipeline = data => data.views.find(v => v.type === 'metrics').values.find(m => m.label === 'Open pipeline').value;
   expect(pipeline(after)).toBe(pipeline(before) + 501);
 });
+
+test('custom releases require owner permission, separate drafts and reject stale writes', async () => {
+  const { app } = await (await send('POST', '/apps', toru, { orgId: ORG, template: 'tracker', sample: false })).json();
+  const path = `/apps/${app.id}/custom`;
+  const draft = { orgId: ORG, action: 'draft', version: 1, html: '<h1>Custom dashboard</h1>' };
+  expect((await send('POST', path, mika, draft)).status).toBe(403);
+  expect((await send('POST', path, outsider, draft)).status).not.toBe(200);
+  expect((await send('POST', path, toru, draft)).status).toBe(200);
+  expect((await send('POST', path, toru, draft)).status).toBe(409);
+  let current = await (await get(`/apps/${app.id}?orgId=${ORG}`, toru)).json();
+  expect(current.app.definition.custom.draft).toBe(draft.html);
+  expect(current.app.definition.custom.published).toBeUndefined();
+  expect((await send('POST', path, toru, { orgId: ORG, action: 'publish', version: 2 })).status).toBe(200);
+  await send('PUT', `/apps/${app.id}`, mika, { orgId: ORG, definition: { custom: { published: 'injected' } } });
+  current = await (await get(`/apps/${app.id}?orgId=${ORG}`, toru)).json();
+  expect(current.app.definition.custom.published).toBe(draft.html);
+  expect((await send('POST', path, toru, { orgId: ORG, action: 'unpublish', version: current.app.version })).status).toBe(200);
+  current = await (await get(`/apps/${app.id}?orgId=${ORG}`, toru)).json();
+  expect(current.app.definition.custom.published).toBeUndefined();
+  expect(current.app.definition.custom.draft).toBe(draft.html);
+});
+
+test('custom generation validates source and fails without an existing AI allowance', async () => {
+  const { generateCustomSource } = await import('../src/harness/customApps.js');
+  expect((await generateCustomSource('dashboard', { columns: [] }, null)).status).toBe(503);
+  expect((await generateCustomSource('dashboard', { columns: [] }, async () => '{bad')).status).toBe(502);
+  expect((await generateCustomSource('dashboard', { columns: [] }, async () => JSON.stringify({ html: '<button>計算</button>' }))).html).toContain('計算');
+});
+
+test('custom runner has no external capabilities or authentication data', async () => {
+  const response = await call('/custom-app-runner');
+  expect(response.status).toBe(200);
+  const policy = response.headers.get('content-security-policy');
+  expect(policy).toContain("connect-src 'none'");
+  expect(policy).toContain("frame-src 'none'");
+  expect(policy).toContain('sandbox allow-scripts');
+  expect(policy).not.toContain('allow-same-origin');
+  expect(await response.text()).toContain('e.source===child.contentWindow');
+});

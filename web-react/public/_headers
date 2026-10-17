@@ -12,7 +12,7 @@
 # frame-ancestors keeps the app out of other sites' frames (approve and role
 # screens are one click away from someone else's page otherwise).
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-ZSOmNCOL3UyoUvUboFoN0uT1gY4hkv1Ljc7lCwv+8pY='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https: wss:; frame-src https://www.youtube-nocookie.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-ZSOmNCOL3UyoUvUboFoN0uT1gY4hkv1Ljc7lCwv+8pY='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https: wss:; frame-src https://www.youtube-nocookie.com https://tiktokforwork.torubj0904.workers.dev/custom-app-runner; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin

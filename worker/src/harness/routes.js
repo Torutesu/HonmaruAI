@@ -1,3 +1,4 @@
+import { generateCustomSource, saveCustomRelease } from "./customApps.js";
 import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
 import { tableContract } from "./tableContract.js";
@@ -440,6 +441,19 @@ export async function handleHarness(request, env, url) {
     }
     const app = await getApp(env.DB, orgId, appId);
     if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);
+    if (sub === "custom") {
+      if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: "Only its maker or an admin can change custom code." }, 403);
+      if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
+      if (input.action === 'generate') {
+        const table = await getTable(env.DB, orgId, app.tableId);
+        const complete = await completer(env, orgId, me, 'custom_app_generate', { maxTokens: 8000 });
+        const result = await generateCustomSource(input.prompt, table, complete);
+        return result.error ? fail(result) : json(result);
+      }
+      const result = await saveCustomRelease(env.DB, orgId, app, input, me);
+      if (!result.error) await audit(env, request, { orgId, action: 'app.custom_' + input.action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version } });
+      return result.error ? fail(result) : json(result);
+    }
     if (sub === "access") {
       if (request.method === "GET") return json({ access: await appAccess(env.DB, orgId, appId), canEdit: app.createdBy === String(me) });
       if (request.method === "PUT") {
@@ -452,7 +466,7 @@ export async function handleHarness(request, env, url) {
     if (!sub) {
       if (request.method === "GET") {
         const r = await renderApp(env.DB, orgId, appId);
-        return r.error ? fail(r) : json(r);
+        return r.error ? fail(r) : json({ ...r, canCustomize: await mayChange(env, orgId, who, app.createdBy) });
       }
       if (request.method === "PUT") {
         const r = await updateApp(env.DB, orgId, appId, input, me);

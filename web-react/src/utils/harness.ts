@@ -26,7 +26,7 @@ export interface View {
   values?: Metric[]
 }
 export interface App {
-  definition: { views: View[] }
+  definition: { views: View[]; custom?: { draft?: string; published?: string; publishedAt?: string } }
   id: string; name: string; description: string; icon: string; tableId: string
   template: string | null; version: number; channels?: string[]; createdBy: string; updatedAt: string
 }
@@ -99,10 +99,12 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
 
     templates: () => call<{ templates: Template[] }>('GET', '/apps/templates'),
     apps: (channel?: string) => call<{ apps: App[] }>('GET', '/apps', undefined, channel ? { channel } : {}),
-    app: (id: string) => call<{ app: App; table: Table; rows: Row[]; views: View[] }>('GET', `/apps/${id}`),
+    app: (id: string) => call<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize: boolean }>('GET', `/apps/${id}`),
     createFromTemplate: (template: string, channel?: string) => call<{ app: App }>('POST', '/apps', { template, channel }),
     generate: (prompt: string, channel?: string) => call<{ app: App; source: 'model' | 'template'; room: string | null }>('POST', '/apps/generate', { prompt, channel }),
     updateApp: (id: string, patch: Record<string, unknown>) => call<{ app: App }>('PUT', `/apps/${id}`, patch),
+    generateCustom: (id: string, prompt: string) => call<{ html: string }>('POST', `/apps/${id}/custom`, { action: 'generate', prompt }),
+    saveCustom: (id: string, action: 'draft' | 'publish' | 'unpublish' | 'restore', version: number, html?: string, restoreVersion?: number) => call('POST', `/apps/${id}/custom`, { action, version, html, restoreVersion }),
     deleteApp: (id: string) => call<{ deleted: boolean }>('DELETE', `/apps/${id}`),
     versions: (id: string) => call<{ versions: Array<{ version: number; note: string | null; createdAt: string }> }>('GET', `/apps/${id}/versions`),
     restore: (id: string, version: number) => call<{ app: App }>('POST', `/apps/${id}/versions`, { version }),

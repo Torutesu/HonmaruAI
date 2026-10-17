@@ -219,6 +219,7 @@ export async function updateApp(db, orgId, id, { name, description, icon, column
     table = changed.table;
   }
   const def = normalizeDefinition(definition ?? app.definition, table.columns);
+  if (app.definition.custom) def.custom = app.definition.custom;
   const next = {
     name: name !== undefined ? String(name).trim().slice(0, 80) || app.name : app.name,
     description: description !== undefined ? String(description).slice(0, 300) : app.description,
@@ -226,10 +227,11 @@ export async function updateApp(db, orgId, id, { name, description, icon, column
   };
   const version = app.version + 1;
   const at = now();
-  await db
-    .prepare("UPDATE hx_apps SET name = ?1, description = ?2, icon = ?3, definition = ?4, version = ?5, updated_at = ?6 WHERE id = ?7 AND org_id = ?8")
-    .bind(next.name, next.description, next.icon, JSON.stringify(def), version, at, id, orgId)
+  const changed = await db
+    .prepare("UPDATE hx_apps SET name = ?1, description = ?2, icon = ?3, definition = ?4, version = ?5, updated_at = ?6 WHERE id = ?7 AND org_id = ?8 AND version = ?9")
+    .bind(next.name, next.description, next.icon, JSON.stringify(def), version, at, id, orgId, app.version)
     .run();
+  if (!changed.meta?.changes) return { error: "This app changed. Reload before saving.", status: 409 };
   await db
     .prepare("INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) VALUES (?1, ?7, ?2, ?3, ?4, ?5, ?6)")
     .bind(id, version, JSON.stringify({ name: next.name, columns: table.columns, ...def }), note ? String(note).slice(0, 200) : null, String(by), at, orgId)

@@ -1,3 +1,4 @@
+import { customRunner } from "./harness/customRunner.js";
 import { expireGatewayJobs } from './harness/gateways.js';
 import { drainCardNotifications } from './notificationJobs.js';
 import { notifyCardNow } from './notify.js';
@@ -300,6 +301,7 @@ export default {
     const requestId = crypto.randomUUID();
     const startedAt = Date.now();
     const url = new URL(request.url);
+    if (url.pathname === "/custom-app-runner" && request.method === "GET") return customRunner();
     const route = routeLabel(request.method, url.pathname);
     try {
       const response = await requestContext.run({ ip: request.headers.get("cf-connecting-ip") || null }, () => handle(request, env, url, ctx));
