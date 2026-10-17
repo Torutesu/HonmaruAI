@@ -34,7 +34,11 @@ export async function enqueueExecution(db, orgId, me, input, appAction = null) {
     const requestId = input.requestId || id();
     if (typeof requestId !== 'string' || !/^[\w-]{1,80}$/.test(requestId)) return error('Invalid request ID.');
     const previous = await db.prepare('SELECT * FROM hx_gateway_jobs WHERE org_id = ?1 AND created_by = ?2 AND request_id = ?3').bind(orgId, me, requestId).first();
-    if (previous) return previous.payload === payload && previous.gateway_id === gateway.id ? success({ job: jobView(previous) }) : error('Request ID was already used for different input.', 409);
+    if (previous) {
+      if(previous.payload !== payload || previous.gateway_id !== gateway.id) return error('Request ID was already used for different input.',409);
+      const current=await readExecution(db,orgId,me,previous.id);
+      return current.error?current:success(current);
+    }
     const jobIdNew = id();
     const insert = db.prepare(`INSERT OR IGNORE INTO hx_gateway_jobs (id, org_id, gateway_id, created_by, request_id, payload, status, created_at)
       SELECT ?1, ?2, ?3, ?4, ?5, ?6, 'queued', ?7 WHERE (SELECT COUNT(*) FROM hx_gateway_jobs WHERE org_id = ?2 AND status IN ('queued', 'running')) < 100

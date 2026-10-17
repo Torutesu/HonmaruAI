@@ -6,18 +6,18 @@ import type { App, AppAction, AppConnection, AppFork, HarnessApi, Row, Table } f
 export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId }: { appId?: string; html: string; table: Table; rows: Row[]; httpBase: string; api?: HarnessApi; reload?: () => unknown }) {
   const frame = useRef<HTMLIFrameElement>(null)
   const { theme } = useAppearance()
-  type Change = { targetTable?: Table; action?: AppAction; connection?: AppConnection; gatewayId?: string; before?: Row; expectedUpdatedAt?: string; id: string; operation: string; args: { id?: string; values?: Record<string, unknown>; input?: unknown; body?: Record<string,unknown>; entity?: string; name?: string; gatewayId?: string } }
+  type Change = { targetWindow?: Window | null; targetTable?: Table; action?: AppAction; connection?: AppConnection; gatewayId?: string; before?: Row; expectedUpdatedAt?: string; id: string; operation: string; args: { id?: string; values?: Record<string, unknown>; input?: unknown; body?: Record<string,unknown>; entity?: string; name?: string; gatewayId?: string } }
   const [change, setChange] = useState<Change | null>(null)
   const pending = useRef<Change | null>(null)
   const [working, setWorking] = useState(false)
   useEffect(()=>{pending.current=null;setChange(null)},[html,theme,appId])
-  const reply = (id: string, value?: unknown, error?: string) => frame.current?.contentWindow?.postMessage({ type: 'honmaru:result', id, value, error }, '*')
+  const reply = (id: string, value?: unknown, error?: string, target: Window | null = frame.current?.contentWindow || null) => target?.postMessage({ type: 'honmaru:result', id, value, error }, '*')
   async function decide(approved: boolean) {
     const current = pending.current
     if (!current || working) return
     setWorking(true)
     try {
-      if (!approved) { reply(current.id, undefined, 'The user declined this change.'); return }
+      if (!approved) { reply(current.id, undefined, 'The user declined this change.',current.targetWindow); return }
       if (!api) throw new Error('Preview is read-only.')
       const targetTable = current.targetTable || table
       const row = current.before || rows.find(r => r.id === current.args.id)
@@ -30,10 +30,10 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
         if (!row) throw new Error('No such row in this app.')
         result = current.operation === 'update' ? await api.updateRow(targetTable.id, row.id, current.args.values || {}, current.expectedUpdatedAt, 'strict') : await api.deleteRow(targetTable.id, row.id, current.expectedUpdatedAt)
       }
-      reply(current.id, result)
+      reply(current.id, result, undefined,current.targetWindow)
       await reload?.()
-    } catch (e) { reply(current.id, undefined, e instanceof Error ? e.message : String(e)) }
-    finally { pending.current = null; setChange(null); setWorking(false) }
+    } catch (e) { reply(current.id, undefined, e instanceof Error ? e.message : String(e),current.targetWindow) }
+    finally { if(pending.current===current){pending.current=null;setChange(null)} setWorking(false) }
   }
 
   useEffect(() => {
@@ -49,7 +49,7 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
       if (!['create', 'update', 'remove', 'entity', 'run', 'connect', 'job'].includes(operation) || !args || typeof args !== 'object' || size > 20000) { reply(id, undefined, 'Invalid request.'); return }
       if (pending.current) { reply(id, undefined, 'Another change is awaiting approval.'); return }
       // Reserve the approval slot before asynchronous capability discovery.
-      const request: Change = { id, operation, args }
+      const request: Change = { id, operation, args, targetWindow:frame.current?.contentWindow }
       pending.current = request
       try {
         if(['run','connect','job','entity'].includes(operation) || args.entity && args.entity !== 'primary') {
