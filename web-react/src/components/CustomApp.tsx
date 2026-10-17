@@ -6,7 +6,7 @@ import type { App, HarnessApi, Row, Table } from '../utils/harness'
 export function CustomAppFrame({ html, table, rows, httpBase, api, reload }: { html: string; table: Table; rows: Row[]; httpBase: string; api?: HarnessApi; reload?: () => unknown }) {
   const frame = useRef<HTMLIFrameElement>(null)
   const { theme } = useAppearance()
-  type Change = { id: string; operation: string; args: { id?: string; values?: Record<string, unknown> } }
+  type Change = { expectedUpdatedAt?: string; id: string; operation: string; args: { id?: string; values?: Record<string, unknown> } }
   const [change, setChange] = useState<Change | null>(null)
   const pending = useRef<Change | null>(null)
   const [working, setWorking] = useState(false)
@@ -20,10 +20,10 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload }: { h
       if (!api) throw new Error('Preview is read-only.')
       const row = rows.find(r => r.id === current.args.id)
       let result
-      if (current.operation === 'create') result = await api.addRow(table.id, current.args.values || {})
+      if (current.operation === 'create') result = await api.addRow(table.id, current.args.values || {}, 'strict')
       else {
         if (!row) throw new Error('No such row in this app.')
-        result = current.operation === 'update' ? await api.updateRow(table.id, row.id, current.args.values || {}, row.updatedAt) : await api.deleteRow(table.id, row.id, row.updatedAt)
+        result = current.operation === 'update' ? await api.updateRow(table.id, row.id, current.args.values || {}, current.expectedUpdatedAt, 'strict') : await api.deleteRow(table.id, row.id, current.expectedUpdatedAt)
       }
       reply(current.id, result)
       await reload?.()
@@ -39,9 +39,13 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload }: { h
       const { id, operation, args } = event.data
       if (operation === 'read') { reply(id, { table, rows }); return }
       if (!api) { reply(id, undefined, 'Preview is read-only.'); return }
-      if (!['create', 'update', 'remove'].includes(operation) || !args || typeof args !== 'object' || JSON.stringify(args).length > 20000) { reply(id, undefined, 'Invalid request.'); return }
+      let size = Infinity
+      try { size = JSON.stringify(args).length } catch { /* cyclic input is invalid */ }
+      if (!['create', 'update', 'remove'].includes(operation) || !args || typeof args !== 'object' || size > 20000) { reply(id, undefined, 'Invalid request.'); return }
       if (pending.current) { reply(id, undefined, 'Another change is awaiting approval.'); return }
-      const request = { id, operation, args }
+      const row = rows.find(r => r.id === args.id)
+      if (operation !== 'create' && !row) { reply(id, undefined, 'No such row in this app.'); return }
+      const request = { id, operation, args, expectedUpdatedAt: row?.updatedAt }
       pending.current = request; setChange(request)
     }
     window.addEventListener('message', listener)
