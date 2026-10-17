@@ -82,9 +82,9 @@
 | KY-042 | 保存ビュー・列順・幅・フィルタ・グループ | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 共通ビューと利用者ビューの変更競合を検証 |
 | KY-043 | レコードに紐づく会話 | 未実装 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 同一entity/recordの会話が重複しない |
 | KY-044 | App APIの登録・OpenAPI・検証 | 一部 | P1 | [worker/src/harness/tableContract.js](../../worker/src/harness/tableContract.js) | テーブル単位のOpenAPI 3.1とstrict値検証を追加。独自API登録・契約固定・SDK生成は未実装 |
-| KY-045 | Custom Appのソースコードと実行環境 | 未実装 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 任意UI/サーバー処理を既存Honmaruと隔離して実行 |
-| KY-046 | 下書き・プレビュー・DB fork | 未実装 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | プレビューの書込みが本番DBを変更しない |
-| KY-047 | 承認されたcommitの公開 | 未実装 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 承認対象commit・公開範囲を固定し更新後の古い承認を拒否 |
+| KY-045 | Custom Appのソースコードと実行環境 | 一部 | P1 | [worker/src/harness/customRunner.js](../../worker/src/harness/customRunner.js) | HTML/CSS/JS生成・隔離UI・確認付きCRUDを実装。生成サーバー処理と外部接続は残る |
+| KY-046 | 下書き・プレビュー・DB fork | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 下書き・読取専用プレビューを実装。書込み可能な独立DB forkは残る |
+| KY-047 | 承認されたcommitの公開 | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 保存済みversionをCASで公開し公開者を記録。Git commit単位の配布・別承認者の承認は残る |
 | KY-048 | DB migration journal | 未実装 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | migrationを一度だけ適用し改変検知・再試行を検証 |
 | KY-049 | 公開範囲private/workspace/public | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | Database Appにprivate/workspaceの明示ポリシーを追加。Table・MCP・Home・Workflowにも適用。Custom Appの公開ホスト・匿名public・room grantsは未実装 |
 | KY-050 | 独自ドメイン・DNS・環境変数 | 未実装 | P2 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | ホスト競合・証明書・秘密値非表示・再デプロイ |

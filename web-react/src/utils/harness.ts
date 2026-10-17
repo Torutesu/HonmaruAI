@@ -112,8 +112,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     unlink: (id: string, channel: string) => call<{ unlinked: boolean }>('DELETE', `/apps/${id}/links`, undefined, { channel }),
 
     tables: () => call<{ tables: Table[] }>('GET', '/tables'),
-    addRow: (tableId: string, values: Record<string, unknown>) => call<{ row: Row }>('POST', `/tables/${tableId}/rows`, { values }),
-    updateRow: (tableId: string, rowId: string, values: Record<string, unknown>, expectedUpdatedAt?: string) => call<{ row: Row }>('PATCH', `/tables/${tableId}/rows/${rowId}`, { values, expectedUpdatedAt }),
+    addRow: (tableId: string, values: Record<string, unknown>, validation?: 'strict') => call<{ row: Row }>('POST', `/tables/${tableId}/rows`, { values, validation }),
+    updateRow: (tableId: string, rowId: string, values: Record<string, unknown>, expectedUpdatedAt?: string, validation?: 'strict') => call<{ row: Row }>('PATCH', `/tables/${tableId}/rows/${rowId}`, { values, expectedUpdatedAt, validation }),
     deleteRow: (tableId: string, rowId: string, expectedUpdatedAt?: string) => call<{ deleted: boolean }>('DELETE', `/tables/${tableId}/rows/${rowId}`, undefined, expectedUpdatedAt ? { expectedUpdatedAt } : {}),
 
     workflows: () => call<{ workflows: Workflow[] }>('GET', '/workflows'),

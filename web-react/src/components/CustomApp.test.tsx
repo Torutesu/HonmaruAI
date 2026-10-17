@@ -18,7 +18,7 @@ test('generated code cannot mutate data before host approval or choose another t
   act(() => handler({ source: contentWindow, data }))
   expect(addRow).not.toHaveBeenCalled()
   await act(async () => { await tree!.root.findAllByType('button')[1].props.onClick() })
-  expect(addRow).toHaveBeenCalledWith('only-this-table', { name: 'Task' })
+  expect(addRow).toHaveBeenCalledWith('only-this-table', { name: 'Task' }, 'strict')
   expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'honmaru:result', id: 'r' }), '*')
   act(() => tree!.unmount())
 })
@@ -31,5 +31,21 @@ test('preview rejects writes without displaying an approval action', () => {
   act(() => handler({ source: contentWindow, data: { type: 'honmaru:request', id: 'r', operation: 'remove', args: { id: 'row' } } }))
   expect(contentWindow.postMessage).toHaveBeenCalledWith(expect.objectContaining({ error: 'Preview is read-only.' }), '*')
   expect(tree!.root.findAllByProps({ role: 'alertdialog' })).toHaveLength(0)
+  act(() => tree!.unmount())
+})
+
+test('approval keeps the row revision that was shown when the change was requested', async () => {
+  let handler: (e: any) => void = () => {}
+  const contentWindow = { postMessage: vi.fn() }
+  const updateRow = vi.fn().mockResolvedValue({ row: { id: 'r1' } })
+  const api = { updateRow } as any
+  vi.stubGlobal('window', { addEventListener: (_: string, fn: any) => { handler = fn }, removeEventListener: vi.fn() })
+  const element = (updatedAt: string) => <CustomAppFrame html="test" table={table} rows={[{ id: 'r1', updatedAt, values: {} }]} httpBase="https://api.example" api={api} />
+  let tree: ReturnType<typeof create>
+  act(() => { tree = create(element('revision-1'), { createNodeMock: e => e.type === 'iframe' ? { contentWindow } : null }) })
+  act(() => handler({ source: contentWindow, data: { type: 'honmaru:request', id: 'request', operation: 'update', args: { id: 'r1', values: { name: 'Approved edit' } } } }))
+  act(() => tree!.update(element('revision-2')))
+  await act(async () => { await tree!.root.findAllByType('button')[1].props.onClick() })
+  expect(updateRow).toHaveBeenCalledWith('only-this-table', 'r1', { name: 'Approved edit' }, 'revision-1', 'strict')
   act(() => tree!.unmount())
 })
