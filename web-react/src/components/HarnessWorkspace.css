@@ -411,3 +411,7 @@
 .hx-column-grip { cursor:grab; }
 
 .hx-column-width-label { position:fixed; transform:translate(-60px,30px); border:1px solid var(--hx-border); border-radius:6px; padding:4px 8px; background:var(--hx-surface); color:var(--hx-text); z-index:20; pointer-events:none; }
+@media(max-width:719px) {
+ .hx-view-popover { position:fixed; left:16px; right:16px; top:min(140px,20dvh); width:auto; max-width:none; }
+ .hx-view-popover.editing,.hx-personal-popover { width:auto; }
+}
