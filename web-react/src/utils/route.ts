@@ -34,6 +34,8 @@ export type Screen = 'tools' | 'history' | 'notifications' | 'plans' | 'profile'
 export type Mode = 'cards' | 'classic'
 
 export interface Route {
+  appId?: string | null
+  appOrg?: string | null
   screen: Screen | null
   /// Null when the hash names no mode (the root), so the caller can fall
   /// back to the remembered one.
@@ -101,6 +103,11 @@ export function parseRoute(hash: string): Route {
     const org = new URLSearchParams(query).get('org')
     return { screen: null, mode: 'classic', cardId: null, join: null, openView, openOrg: openView && org && isOrgId(org) ? org : null }
   }
+  if (head === 'apps' && rest.length) {
+    const decode = (value: string) => { try { return decodeURIComponent(value) } catch { return '' } }
+    const id = decode(rest[0]), org = decode(rest[1] || '')
+    return { screen: 'apps', mode: null, cardId: null, join: null, appId: /^[\w-]{1,80}$/.test(id) ? id : null, appOrg: isOrgId(org) ? org : null }
+  }
   if (head === 'join') {
     const code = (rest[0] || '').trim()
     return { screen: null, mode: null, cardId: null, join: /^[0-9a-f]{16,64}$/i.test(code) ? code.toLowerCase() : null }
@@ -109,6 +116,8 @@ export function parseRoute(hash: string): Route {
   const screen = Object.prototype.hasOwnProperty.call(SCREEN_BY_PATH, head) ? SCREEN_BY_PATH[head] : undefined
   return screen ? { screen, mode: null, cardId: null, join: null } : { screen: null, mode: null, cardId: null, join: null }
 }
+
+export function hashForApp(id: string, orgId: string): string { return `#/apps/${encodeURIComponent(id)}/${encodeURIComponent(orgId)}` }
 
 export function hashForScreen(screen: Screen): string { return `#/${PATH_BY_SCREEN[screen]}` }
 export function hashForCard(cardId: string, orgId?: string | null): string {

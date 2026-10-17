@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseRoute, hashForJoin, hashForCard, hashForScreen, hashForView, hashForMessage, pathToHash } from './route'
+import { parseRoute, hashForApp, hashForJoin, hashForCard, hashForScreen, hashForView, hashForMessage, pathToHash } from './route'
 
 // The URL says where you are, and what a link you were sent opens.
 describe('parseRoute', () => {
@@ -105,5 +105,15 @@ describe('the harness screens', () => {
       expect(parseRoute(hash).screen, screen).toBe(screen)
     }
     expect(hashForScreen('hxagents')).toBe('#/agent-team')
+  })
+})
+
+ describe('app detail links', () => {
+  it('preserves the app and workspace across reloads', () => {
+    expect(parseRoute(hashForApp('app_123', 'personal:abc'))).toMatchObject({ screen: 'apps', appId: 'app_123', appOrg: 'personal:abc' })
+    expect(parseRoute('#/apps').appId).toBeUndefined()
+  })
+  it('rejects malformed app identifiers', () => {
+    for (const id of ['%3Cscript%3E', '%2Fother', '%zz']) expect(parseRoute('#/apps/' + id).appId).toBeNull()
   })
 })
