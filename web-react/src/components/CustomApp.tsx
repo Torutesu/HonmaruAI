@@ -88,7 +88,7 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
   }, [table, rows, html, theme, api, appId])
   const labeled = (values: Record<string, unknown>) => Object.fromEntries(Object.entries(values).map(([id, value]) => [(change?.targetTable || table).columns.find(c => c.id === id)?.name || id, value]))
   if (html.length > 119800) return <p role="alert">表示できるコードの上限は119800文字です。コードを短くして保存してください。</p>
-  return <>{change && <div className="hx-custom-approval" role="alertdialog" aria-label="アプリのデータ変更を確認"><h3>{change.action ? 'サーバー処理の実行確認' : change.connection ? '外部API読み取りの確認' : 'データ変更の確認'}</h3><p>{change.targetTable?.name || table.name} · {change.operation === 'create' ? '行を追加' : change.operation === 'update' ? '行を更新' : change.operation === 'run' ? 'サーバー処理' : change.operation === 'connect' ? '外部API' : '行を削除'}</p><pre>{JSON.stringify(change.action ? {処理:change.action.name,公開版:change.action.publishedVersion,コード:change.action.published,入力:change.args.input,実行ノード:change.gatewayId} : change.connection ? {接続:change.connection.name,URL:change.connection.endpoint,操作:change.connection.method||'GET',送信内容:change.args.body||null} : { ...(change.before ? { '対象レコード': change.before.id, '変更前': labeled(change.before.values) } : {}), ...(change.operation !== 'remove' ? { '変更内容': labeled(change.args.values || {}) } : {}) }, null, 2)}</pre><button disabled={working} onClick={() => void decide(false)}>キャンセル</button><button disabled={working} onClick={() => void decide(true)}>この変更を許可</button></div>}<iframe ref={frame} title="カスタムアプリ" sandbox="allow-scripts" referrerPolicy="no-referrer" key={html + theme} src={`${httpBase}/custom-app-runner`} className="hx-custom-frame" /></>
+  return <>{change && <div className="hx-custom-approval" role="alertdialog" aria-label="アプリのデータ変更を確認"><h3>{change.action ? 'サーバー処理の実行確認' : change.connection ? '外部API読み取りの確認' : 'データ変更の確認'}</h3><p>{change.targetTable?.name || table.name} · {change.operation === 'create' ? '行を追加' : change.operation === 'update' ? '行を更新' : change.operation === 'run' ? 'サーバー処理' : change.operation === 'connect' ? '外部API' : '行を削除'}</p><pre>{JSON.stringify(change.action ? {処理:change.action.name,公開版:change.action.publishedVersion,コード:change.action.published,入力:change.args.input,実行ノード:change.gatewayId} : change.connection ? {接続:change.connection.name,URL:change.connection.endpoint,操作:change.connection.method||'GET',送信内容:change.args.body||null} : { ...(change.before ? { '対象レコード': change.before.id, '変更前': labeled(change.before.values) } : {}), ...(change.operation !== 'remove' ? { '変更内容': labeled(change.args.values || {}) } : {}) }, null, 2)}</pre><button disabled={working} onClick={() => decide(false)}>キャンセル</button><button disabled={working} onClick={() => decide(true)}>この変更を許可</button></div>}<iframe ref={frame} title="カスタムアプリ" sandbox="allow-scripts" referrerPolicy="no-referrer" key={html + theme} src={`${httpBase}/custom-app-runner`} className="hx-custom-frame" /></>
 }
 export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { app: App; table: Table; rows: Row[]; api: HarnessApi; reload: () => unknown; httpBase: string }) {
   const [html, setHtml] = useState(app.definition.custom?.draft || '')
@@ -118,7 +118,7 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
       {app.definition.custom?.published && <button className="pill-btn quiet" disabled={busy} onClick={() => void run(async () => { await api.saveCustom(app.id, 'unpublish', app.version); await reload() })}>公開を停止</button>}
     </div>
     <details onToggle={e => { if (e.currentTarget.open) void api.versions(app.id).then(r => setHistory(r.versions)).catch(e => setError(String(e))) }}><summary>コードの履歴</summary>{history.filter(v => v.note?.startsWith('Custom app:')).map(v => <p key={v.version}>v{v.version} · {v.note} <button className="pill-btn quiet" disabled={busy} onClick={() => void run(async () => { await api.saveCustom(app.id, 'restore', app.version, undefined, v.version); await reload() })}>下書きに復元</button></p>)}</details>
-    <small>{changed ? '未保存の変更があります' : `バージョン ${app.version}`} · 外部通信なし · アプリの閲覧権限を継承 · 公開操作は監査ログに記録</small>
+    <small>{changed ? '未保存の変更があります' : `バージョン ${app.version}`} · 直接の外部通信なし・接続は確認付き · アプリの閲覧権限を継承 · 公開操作は監査ログに記録</small>
     {preview && <ForkPreview appId={app.id} api={api} httpBase={httpBase} html={html} table={table} rows={rows} />}
   </section>
 }
@@ -132,7 +132,7 @@ function ForkPreview({appId,api,httpBase,html,table,rows}:{appId:string;api:Harn
   const mutate=async(operation:string,values?:Record<string,unknown>,rowId?:string,expectedUpdatedAt?:string)=>{
     const f=current.current;if(!f)throw new Error('No preview database.')
     const r=await api.databaseChange(appId,{action:'fork_write',forkId:f.id,revision:f.revision,entity:'primary',operation,values,rowId,expectedUpdatedAt})
-    await load();return r.result
+    await load();return operation==='remove'?r.result:{row:r.result}
   }
   const adapter=fork?{addRow:(_:string,v:Record<string,unknown>)=>mutate('create',v),updateRow:(_:string,id:string,v:Record<string,unknown>,expected?:string)=>mutate('update',v,id,expected),deleteRow:(_:string,id:string,expected?:string)=>mutate('remove',undefined,id,expected)} as HarnessApi:undefined
   const primary=fork?.entities.find(e=>e.key==='primary')

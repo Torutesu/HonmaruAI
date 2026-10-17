@@ -83,3 +83,23 @@ test('server execution approval fixes the published code version and never accep
   expect(actionChange).toHaveBeenCalledWith('app',{action:'run',name:'sum',version:2,gatewayId:'mac',input:{a:20,b:22},requestId:'r'})
   act(()=>tree!.unmount())
 })
+
+test('writable preview uses only its private fork and keeps the production SDK response shape',async()=>{
+  const {CustomAppEditor}=await import('./CustomApp')
+  let handler:(e:any)=>Promise<void>=async()=>{}
+  const contentWindow={postMessage:vi.fn()}
+  const row={id:'preview-row',values:{name:'Preview'},updatedAt:'v2'}
+  const databaseChange=vi.fn().mockResolvedValue({result:row,revision:2})
+  const api={appDatabase:vi.fn().mockResolvedValue({fork:{id:'fork',revision:1,entities:[{key:'primary',table,rows:[]}]}}),databaseChange,addRow:vi.fn()}as any
+  vi.stubGlobal('window',{addEventListener:(_:string,fn:any)=>{handler=fn},removeEventListener:vi.fn()})
+  let tree:ReturnType<typeof create>
+  await act(async()=>{tree=create(<CustomAppEditor app={{id:'app',version:1,definition:{custom:{draft:'test'}}}as any} table={table} rows={[]} api={api} reload={()=>{}} httpBase="https://api.example"/>,{createNodeMock:e=>e.type==='iframe'?{contentWindow}:null})})
+  await act(async()=>{await Promise.resolve()})
+  await act(async()=>{await handler({source:contentWindow,data:{type:'honmaru:request',id:'r',operation:'create',args:{values:{name:'Preview'}}}})})
+  const confirm=tree!.root.findAllByType('button').find(b=>b.children.join('')==='この変更を許可')!
+  await act(async()=>{await confirm.props.onClick()})
+  expect(api.addRow).not.toHaveBeenCalled()
+  expect(databaseChange).toHaveBeenCalledWith('app',expect.objectContaining({action:'fork_write',forkId:'fork',revision:1,entity:'primary',operation:'create'}))
+  expect(contentWindow.postMessage).toHaveBeenCalledWith(expect.objectContaining({id:'r',value:{row}}),'*')
+  act(()=>tree!.unmount())
+})
