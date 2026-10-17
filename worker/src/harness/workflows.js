@@ -156,7 +156,7 @@ export async function createWorkflow(db, orgId, input, by) {
   const id = newId("wf");
   const at = now();
   const secret = t.trigger.type === "webhook" ? hex(crypto.getRandomValues(new Uint8Array(24))) : null;
-  const next = t.trigger.type === "schedule" ? nextRunAt(t.trigger) : null;
+  const next = t.trigger.type === "schedule" && input?.enabled !== false ? nextRunAt(t.trigger) : null;
   await db
     .prepare(`INSERT INTO hx_workflows (id, org_id, name, enabled, trigger, steps, hook_secret, next_run_at, created_by, created_at, updated_at)
       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)`)

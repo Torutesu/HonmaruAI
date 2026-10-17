@@ -1,6 +1,22 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Add field": "フィールドを追加",
+  "Field type": "フィールドの種類",
+  "Field name": "フィールド名",
+  "Search records": "レコードを検索",
+  "{n} records": "{n}件のレコード",
+  "Browse data": "データを閲覧",
+  "Browse and manage this app’s data in the data viewer.": "データビューアーでこのアプリのデータを閲覧・管理できます。",
+  "Database app": "データベースアプリ",
+  "Data viewer": "データビューアー",
+  "App sections": "アプリの表示切り替え",
+  "Customize app": "アプリをカスタマイズ",
+  "Describe the resource without attachments or scheduled sending.": "添付・予約送信を使わず、作りたい内容を文章で入力してください。",
+  "e.g. Every weekday at 9, ask an agent to summarize tasks and post in #ops.": "例：毎平日9時にエージェントがタスクを要約し、#ops に投稿する",
+  "Manual setup": "手動で設定",
+  "Created paused. Review the steps before turning it on.": "停止状態で作成しました。内容を確認してから有効にしてください。",
+  "Describe an automation": "オートメーションの内容を入力",
   "{n} apps": "{n}件のアプリ",
   "{n} workflows": "{n}件のワークフロー",
   "Close resources": "リソースを閉じる",

@@ -202,10 +202,14 @@ function CellInput({ column, value, onSave }: { column: Column; value: unknown; 
   )
 }
 
-const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void }> = ({ api, appId, onBack, httpBase, orgId, sessionToken }) => {
+export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void }> = ({ api, appId, onBack, httpBase, orgId, sessionToken }) => {
   const t = useT()
   const [data, setData] = useState<{ app: App; table: Table; rows: Row[]; views: View[] } | null>(null)
   const [viewIndex, setViewIndex] = useState(0)
+  const [section, setSection] = useState<'overview' | 'data' | 'settings'>('overview')
+  const [search, setSearch] = useState('')
+  const [newColumn, setNewColumn] = useState('')
+  const [newColumnType, setNewColumnType] = useState<Column['type']>('text')
   const [versions, setVersions] = useState<Array<{ version: number; note: string | null; createdAt: string }> | null>(null)
   const [room, setRoom] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -237,12 +241,17 @@ const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack:
 
   return (
     <Shell
+      className="hx-resource-screen hx-app-detail"
       title={`${app.icon} ${app.name}`}
       onClose={onBack}
       nested
-      actions={<><button className="pill-btn quiet" disabled={busy !== null} onClick={() => void load()}>{t('Reload')}</button><span className="hx-version">v{app.version}</span></>}
+      actions={<><button className="pill-btn quiet" onClick={() => setSection('settings')}>{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => setSection('settings')}>{t('Sharing')}</button><button className="pill-btn quiet" disabled={busy !== null} onClick={() => void load()}>{t('Reload')}</button><span className="hx-version">v{app.version}</span></>}
     >
-      {app.description && <p className="lede">{app.description}</p>}
+      <nav className="hx-app-sections" aria-label={t('App sections')}>{(['overview', 'data', 'settings'] as const).map(tab => <button key={tab} aria-current={section === tab ? 'page' : undefined} className={section === tab ? 'on' : ''} onClick={() => setSection(tab)}>{t(tab === 'overview' ? 'Overview' : tab === 'data' ? 'Data viewer' : 'Settings')}</button>)}</nav>
+      {section === 'overview' && <div className="hx-app-overview"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('Database app')}</h2><p>{app.description || t('Browse and manage this app’s data in the data viewer.')}</p><div className="hx-actions"><button className="pill-btn" onClick={() => setSection('data')}>{t('Browse data')}</button><button className="pill-btn quiet" onClick={() => setSection('settings')}>{t('Customize app')}</button></div><small>{t('{n} records', { n: data.rows.length })} · {table.columns.length} {t('Fields')}</small></div>}
+      {section === 'data' && <>
+      <div className="hx-data-heading"><h2>{app.name}</h2><button className="pill-btn" onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{t('Add a row')}</button></div>
+      <div className="hx-data-tools"><input className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /><button className="pill-btn quiet" onClick={() => setSection('settings')}>{t('Fields')}</button><span>{t('{n} records', { n: data.rows.length })}</span></div>
       <div className="hx-tabs" role="tablist">
         {data.views.map((v, i) => (
           <button key={v.id} role="tab" aria-selected={i === viewIndex} className={i === viewIndex ? 'on' : ''} onClick={() => setViewIndex(i)}>
@@ -299,7 +308,7 @@ const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack:
               <tr>{table.columns.map((c) => <th key={c.id}>{c.name}</th>)}<th aria-label={t('Actions')} /></tr>
             </thead>
             <tbody>
-              {(view.rows || []).map((row) => (
+              {(view.rows || []).filter(row => !search || table.columns.some(c => cellText(c, row.values[c.id]).toLowerCase().includes(search.toLowerCase()))).map((row) => (
                 <tr key={row.id} data-row={row.id}>
                   {table.columns.map((c) => (
                     <td key={c.id}><CellInput column={c} value={row.values[c.id]} onSave={(v) => save(row, c, v)} /></td>
@@ -314,6 +323,10 @@ const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack:
       )}
       {view.type !== 'metrics' && <button className="pill-btn quiet hx-add" onClick={addRow} disabled={busy === 'add'}><Icon name="plus" size={14} /> {t('Add a row')}</button>}
 
+      </>}
+      {section === 'settings' && <>
+      <h2>{t('Fields')}</h2><div className="rows">{table.columns.map(column => <div className="row static" key={column.id}><span className="row-main">{column.name}</span><span className="row-sub">{column.type}</span></div>)}</div>
+      <form className="hx-actions" onSubmit={event => { event.preventDefault(); void act('column', async () => { await api.updateApp(app.id, { columns: [...table.columns, { name: newColumn.trim(), type: newColumnType }] }); setNewColumn(''); await load() }) }}><input className="hx-cell-input" aria-label={t('Field name')} placeholder={t('Field name')} value={newColumn} onChange={e => setNewColumn(e.target.value)} /><select aria-label={t('Field type')} value={newColumnType} onChange={e => setNewColumnType(e.target.value as Column['type'])}>{(['text', 'number', 'date', 'checkbox', 'person', 'email', 'url'] as const).map(type => <option key={type} value={type}>{type}</option>)}</select><button className="pill-btn" disabled={busy !== null || !newColumn.trim()}>{t('Add field')}</button></form>
       <AppSharing key={`${httpBase}:${orgId}:${appId}:${sessionToken}`} httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} appId={appId} />
 
       <div className="rows-title">{t('Rooms')}</div>
@@ -359,6 +372,8 @@ const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack:
           <button className="row" onClick={() => setConfirmDelete(true)}><span className="row-main hx-danger">{t('Delete app')}</span></button>
         )}
       </div>
+      </>}
+      {section !== 'data' && error && <div className="form-error" role="alert">{error}</div>}
     </Shell>
   )
 }

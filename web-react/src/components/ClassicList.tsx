@@ -1,3 +1,5 @@
+import { AppView } from '../screens/Harness'
+import { harnessApi } from '../utils/harness'
 import { HarnessRoomResources } from './HarnessRoomResources'
 import { channelMessageCache, mergeLatestMessages } from '../utils/channelMessageCache'
 import { ReadGuard } from '../utils/readGuard'
@@ -1436,6 +1438,10 @@ export const ClassicList: React.FC<Props> = ({
   const drawnAs = useRef(new Map<string, string>())
   const keyOf = (m: ChannelMessage) => drawnAs.current.get(m.id) || m.id
   const [draft, setDraft] = useState('')
+  const [resourceBuild, setResourceBuild] = useState<{ kind: 'apps' | 'workflows'; channel: string } | null>(null)
+  const [resourceBuilding, setResourceBuilding] = useState(false)
+  const resourceBuildLock = useRef(false)
+  const resourceClient = useMemo(() => harnessApi(api.httpBase, api.orgId, api.sessionToken), [api.httpBase, api.orgId, api.sessionToken])
   // Set by the boxes' own handlers, and gone by the end of the same event
   // (a microtask): the render it causes changes only what is being
   // written, so the conversation's rows are the ones already drawn. Set
@@ -1960,6 +1966,23 @@ export const ClassicList: React.FC<Props> = ({
     const up = parentId ? threadUploads : uploads
     if (!body && !up.ids.length) return
     if (up.busy) { setProblem(t('Wait for the files to finish uploading.')); return }
+    if (harness && resourceBuild?.channel === channel && !parentId) {
+      if (resourceBuildLock.current) return
+      if (sendAt || up.ids.length) { setProblem(t('Describe the resource without attachments or scheduled sending.')); return }
+      resourceBuildLock.current = true; setResourceBuilding(true); setProblem(null)
+      try {
+        const client = harnessApi(api.httpBase, api.orgId, api.sessionToken)
+        if (resourceBuild.kind === 'apps') {
+          const made = await client.generate(body.replace(/^@AI\s*/i, ''), channel)
+          clearDraftOf(channel); setResourceBuild(null); setSide({ kind: 'app', id: made.app.id })
+        } else {
+          const made = await client.generateWorkflow(body.replace(/^@AI\s*/i, ''), channel)
+          clearDraftOf(channel); setResourceBuild(null); onWorkflow?.(made.workflow.id)
+        }
+      } catch (e) { setProblem(e instanceof Error ? e.message : String(e)) }
+      finally { resourceBuildLock.current = false; setResourceBuilding(false) }
+      return
+    }
     if (sendAt && up.ids.length) { setProblem(t('A scheduled message cannot carry files yet.')); return }
     // A command, not a message: done here, with a note only you see.
     const cmd = !parentId && !sendAt ? /^\/(\w+)\s*([\s\S]*)$/.exec(body) : null
@@ -3212,8 +3235,8 @@ export const ClassicList: React.FC<Props> = ({
 
   // ---- What the header opens ----
   // The journal ("Context"), or the channel's details on one of its tabs.
-  const [side, setSide] = useState<null | { kind: 'journal' } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
-  const openSide = (next: { kind: 'journal' } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
+  const [side, setSide] = useState<null | { kind: 'journal' } | { kind: 'app'; id: string } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
+  const openSide = (next: { kind: 'journal' } | { kind: 'app'; id: string } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
     setDetailId(null); setThread(null); setProfile(null); setPins(null)
     setSide((prev) => (prev && prev.kind === next.kind && (prev.kind === 'journal' || prev.kind === 'canvas' || (next.kind === 'resources' && prev.kind === 'resources' && prev.resource === next.resource) || (next.kind === 'details' && prev.kind === 'details' && prev.tab === next.tab)) ? null : next))
   }
@@ -4993,6 +5016,7 @@ export const ClassicList: React.FC<Props> = ({
         {thread.view && <TypingLine names={typingHere(thread.view, null)} />}
         {thread.view ? (
           <form className="slk-composer" onSubmit={(e) => { e.preventDefault(); void send(thread.view!, false) }}>
+            {harness && resourceBuild?.channel === thread.view && <div className="hx-build-status" role="status"><Icon name={resourceBuild.kind === 'apps' ? 'grid' : 'zap'} size={15} /><span>{t(resourceBuilding ? 'Building…' : resourceBuild.kind === 'apps' ? 'Describe an app' : 'Describe an automation')}</span><button type="button" disabled={resourceBuilding} onClick={() => setResourceBuild(null)}>{t('Cancel')}</button></div>}
             {replying && <ReplyingBar quote={replying} name={quoteName(replying)} textId="slk-replying-text" onCancel={() => { setReplyingTo(null); composer.current?.focus() }} />}
             <PendingUploads items={uploads.items} onRemove={uploads.remove} />
             {draftHl.layer}
@@ -5054,7 +5078,7 @@ export const ClassicList: React.FC<Props> = ({
                 <Icon name="sparkle" size={15} /><span className="slk-send-label">{t('Send as a decision')}</span>
               </button>
               <span className="slk-send-group">
-                <button type="submit" className="slk-send" disabled={uploads.busy || (!draft.trim() && !uploads.ids.length)} aria-label={t('Send')}>
+                <button type="submit" className="slk-send" disabled={resourceBuilding || uploads.busy || (!draft.trim() && !uploads.ids.length)} aria-label={t('Send')}>
                   <Icon name="send" size={16} />
                 </button>
                 <button type="button" className="slk-send more" disabled={!draft.trim() || draft.trim().startsWith('/')} onClick={() => setScheduleOpen((o) => !o)} aria-label={t('Schedule message')} title={t('Schedule message')} aria-expanded={scheduleOpen}>
@@ -5610,11 +5634,13 @@ export const ClassicList: React.FC<Props> = ({
         </aside>
       )}
       {!detail && !thread && !profile && side && current?.view && (
-        side.kind === 'resources'
+        side.kind === 'app'
+          ? <aside className="hx-app-pane slk-pane"><AppView key={`${api.orgId}:${side.id}`} httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} api={resourceClient} appId={side.id} onClose={() => setSide(null)} onBack={() => setSide({ kind: 'resources', resource: 'apps' })} /></aside>
+          : side.kind === 'resources'
           ? <HarnessRoomResources key={`${api.orgId}:${userId}:${current.view}:${side.resource}`} api={api} channel={current.view} kind={side.resource}
-              onClose={() => setSide(null)} onOpenApp={id => { setSide(null); onApps?.(id) }} onOpenWorkflow={id => { setSide(null); onWorkflow?.(id) }}
+              onClose={() => setSide(null)} onOpenApp={id => { if (id) setSide({ kind: 'app', id }); else { setSide(null); onApps?.() } }} onOpenWorkflow={id => { setSide(null); onWorkflow?.(id) }}
               onLegacy={() => setSide({ kind: 'details', tab: 'automations' })}
-              onCreate={() => { const request = t(side.resource === 'apps' ? 'Build an app for this room. What I need is: ' : 'Set up an automation for this room. What it should do: '); setDraft(previous => previous ? `${previous}\n${request}` : `${current.kind === 'agent' ? '' : '@AI '}${request}`); setSide(null); requestAnimationFrame(() => composer.current?.focus()) }} />
+              onCreate={() => { setResourceBuild({ kind: side.resource, channel: current.view! }); const request = t(side.resource === 'apps' ? 'Build an app for this room. What I need is: ' : 'Set up an automation for this room. What it should do: '); setDraft(previous => previous ? `${previous}\n${request}` : `${current.kind === 'agent' ? '' : '@AI '}${request}`); setSide(null); requestAnimationFrame(() => composer.current?.focus()) }} />
           : side.kind === 'canvas'
           ? (
             <ChannelCanvas

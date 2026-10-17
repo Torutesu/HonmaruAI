@@ -174,6 +174,8 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
   const [tables, setTables] = useState<Table[]>([])
   const [agents, setAgents] = useState<AgentFace[]>([])
   const [building, setBuilding] = useState(false)
+  const [prompt, setPrompt] = useState('')
+  const [manual, setManual] = useState(false)
   const [open, setOpen] = useState<{ workflow: Workflow; runs: Run[]; canEdit: boolean } | null>(null)
   const [hook, setHook] = useState<string | null>(null)
   const { busy, error, act } = useAct()
@@ -194,6 +196,8 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
     const w = open.workflow
     return (
       <Shell className="hx-resource-screen" title={w.name} onClose={() => { setOpen(null); load() }} nested>
+        {!w.enabled && <p className="form-note">{t('Created paused. Review the steps before turning it on.')}</p>}
+        <div className="hx-flow-diagram"><div className="hx-flow-node"><small>{t('Trigger')}</small><strong>{triggerLabel(t, w.trigger, tables)}</strong></div>{w.steps.map((step, index) => <React.Fragment key={index}><span className="hx-flow-connector">↓</span><div className="hx-flow-node"><small>{index + 1}. {stepLabel(t, step.type)}</small><strong>{step.text || step.prompt || step.title || tables.find(table => table.id === step.tableId)?.name}</strong>{step.channel && <span>{step.channel.replace(/^b:/, '#')}</span>}{step.values && <pre>{JSON.stringify(step.values, null, 2)}</pre>}</div></React.Fragment>)}</div>
         <div className="rows">
           <div className="row static">
             <span className="row-main">{triggerLabel(t, w.trigger, tables)}
@@ -234,7 +238,13 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
       <p className="lede">{t('Describe the outcome once: when it should happen, and what follows. A person approves what matters.')}</p>
       {error && <div className="form-error">{error}</div>}
       {hook && <div className="form-note">{t('Call this address to start it:')} <code className="hx-code">{hook}</code></div>}
-      {building && (
+      {building && <section className="hx-generation">
+        <label htmlFor="workflow-prompt">{t('Describe an automation')}</label>
+        <textarea id="workflow-prompt" className="context-input" rows={4} maxLength={4000} value={prompt} onChange={e => setPrompt(e.target.value)} placeholder={t('e.g. Every weekday at 9, ask an agent to summarize tasks and post in #ops.')} />
+        <p className="row-sub">{t('Created paused. Review the steps before turning it on.')}</p>
+        <div className="hx-actions"><button className="pill-btn" disabled={busy !== null || !prompt.trim()} onClick={() => act('generate', async () => { const made = await api.generateWorkflow(prompt); setOpen(await api.workflow(made.workflow.id)); setBuilding(false); setPrompt('') })}>{t(busy === 'generate' ? 'Building…' : 'Build')}</button><button className="btn-text" onClick={() => setManual(v => !v)}>{t('Manual setup')}</button><button className="btn-text" onClick={() => setBuilding(false)}>{t('Cancel')}</button></div>
+      </section>}
+      {building && manual && (
         <Builder
           tables={tables}
           agents={agents}

@@ -244,3 +244,33 @@ test('run history retains its original room restrictions after the workflow is e
   await updateWorkflow(env.DB, ORG, workflow.id, { steps: [{ type: 'approval', to: 'toru', title: 'Public' }] });
   expect(await getRun(env.DB, ORG, run.id, { viewerId: '9301' })).toBeNull();
 });
+
+test('natural language generation refuses unavailable AI instead of silently making a substitute', async () => {
+  const response = await send('POST', '/workflows/generate', mika, { orgId: ORG, prompt: 'Every day post a reminder', channel: 'b:ops', useModel: false });
+  expect(response.status).toBe(503);
+  expect((await (await get(`/workflows?${q({ orgId: ORG })}`, mika)).json()).workflows).toEqual([]);
+});
+
+test('generated workflows are paused and reject inaccessible resources and unsupported steps', async () => {
+  const { workflowFromPrompt } = await import('../src/harness/workflowGeneration.js');
+  const spec = { name: 'Daily reminder', trigger: { type: 'schedule', cadence: 'daily', hour: 9, minute: 15, timezone: 'Asia/Tokyo' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Check tasks' }], enabled: true };
+  const made = await workflowFromPrompt(env.DB, ORG, '9302', { prompt: 'Every day at 9:15 remind us', complete: async () => JSON.stringify(spec) });
+  expect(made.workflow.enabled).toBe(false);
+  const saved = (await (await send('POST', '/workflows', mika, { orgId: ORG, ...made.workflow })).json()).workflow;
+  expect(saved.enabled).toBe(false);
+  expect(saved.nextRunAt).toBeNull();
+  expect(saved.steps[0].text).toBe('Check tasks');
+  expect((await send('POST', `/workflows/${saved.id}/run`, mika, { orgId: ORG })).status).toBe(409);
+  spec.steps[0].channel = 'b:nonexistent';
+  expect((await workflowFromPrompt(env.DB, ORG, '9302', { prompt: 'Post', complete: async () => JSON.stringify(spec) })).status).toBe(403);
+  spec.steps = [{ type: 'shell', command: 'echo unsafe' }];
+  expect((await workflowFromPrompt(env.DB, ORG, '9302', { prompt: 'Run', complete: async () => JSON.stringify(spec) })).error).toBeTruthy();
+});
+
+test('generation validates malformed output, invalid schedules and foreign rooms', async () => {
+  const { workflowFromPrompt } = await import('../src/harness/workflowGeneration.js');
+  expect((await workflowFromPrompt(env.DB, ORG, '9302', { prompt: 'do something', complete: async () => 'not json' })).error).toBeTruthy();
+  expect((await workflowFromPrompt(env.DB, ORG, '9302', { prompt: 'daily', complete: async () => JSON.stringify({ name: 'bad', trigger: { type: 'schedule', cadence: 'daily', hour: 99 }, steps: [{ type: 'post', channel: 'b:ops', text: 'hello' }] }) })).error).toBeTruthy();
+  expect((await send('POST', '/workflows/generate', mika, { orgId: ORG, prompt: 'Post', channel: 'b:foreign', useModel: false })).status).toBe(403);
+  expect((await send('POST', '/apps/generate', mika, { orgId: ORG, prompt: 'Tracker', channel: 'b:foreign', useModel: false })).status).toBe(403);
+});
