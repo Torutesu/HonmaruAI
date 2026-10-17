@@ -239,7 +239,7 @@ export const HarnessHome: React.FC<HarnessProps & {
             <div className="rows-title">{t('Get started')}</div>
             <div className="hx-app-grid">
               <button className="hx-app-tile template" onClick={() => props.onOpen('apps')}><span className="hx-app-icon"><Icon name="record" size={20} /></span><span className="hx-app-name">{t('Start an app from a template')}</span><span className="hx-app-sub">{t('A CRM, a hiring board or an invoice tracker, with sample rows.')}</span></button>
-              <button className="hx-app-tile template" onClick={() => props.onOpen('workflows')}><span className="hx-app-icon"><Icon name="workflow" size={20} /></span><span className="hx-app-name">{t('Make a workflow')}</span><span className="hx-app-sub">{t('When something happens, your AI does the next steps.')}</span></button>
+              <button className="hx-app-tile template" onClick={() => props.onOpen('workflows')}><span className="hx-app-icon"><Icon name="zap" size={20} /></span><span className="hx-app-name">{t('Make a workflow')}</span><span className="hx-app-sub">{t('When something happens, your AI does the next steps.')}</span></button>
               <button className="hx-app-tile template" onClick={() => props.onNavigate('#/agents')}><span className="hx-app-icon"><Icon name="users" size={20} /></span><span className="hx-app-name">{t('Add an agent')}</span><span className="hx-app-sub">{t('A teammate with a role, a memory and skills.')}</span></button>
             </div>
           </div>
