@@ -317,3 +317,20 @@
  :root .shell.harness-workspace .hx-app-library .hx-app-grid { grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); }
  .hx-app-sections { overflow-x:auto; white-space:nowrap; }
 }
+:root .shell.harness-workspace .hx-data-toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+:root .shell.harness-workspace .hx-data-toolbar .hx-data-heading { margin:0; gap:10px; }
+:root .shell.harness-workspace .hx-data-toolbar h2 { font-size:14px; font-weight:600; margin:0; }
+:root .shell.harness-workspace .hx-data-toolbar .pill-btn { display:inline-flex; align-items:center; gap:6px; background:var(--hx-hover); color:var(--hx-text); padding:7px 10px; border-radius:7px; font-size:12px; font-weight:500; }
+:root .shell.harness-workspace .hx-data-toolbar .hx-tabs { order:1; margin:0; gap:2px; border-radius:7px; background:var(--hx-hover); padding:3px; }
+:root .shell.harness-workspace .hx-data-toolbar .hx-tabs button { font-size:12px; font-weight:500; padding:5px 8px; border-radius:5px; border-color:transparent; background:transparent; color:var(--hx-muted); }
+:root .shell.harness-workspace .hx-data-toolbar .hx-tabs button.on { color:var(--hx-text); background:var(--hx-surface); border-color:var(--hx-border); box-shadow:0 1px 2px #00000006; }
+:root .shell.harness-workspace .hx-data-toolbar .hx-data-tools { order:2; margin:0 0 0 auto; gap:8px; }
+:root .shell.harness-workspace .hx-data-toolbar .hx-data-tools input { width:180px; font-size:12px; }
+:root .shell.harness-workspace .hx-app-detail .hx-table-wrap { border-color:var(--hx-border); border-radius:12px; }
+:root .shell.harness-workspace .hx-app-detail .hx-table th { height:40px; box-sizing:border-box; background:var(--hx-surface); padding:10px 16px; font-size:12px; font-weight:500; border-color:var(--hx-border); }
+:root .shell.harness-workspace .hx-app-detail .hx-table td { height:40px; padding:4px 10px; border-color:var(--hx-hover); }
+.hx-table-empty { min-height:220px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:var(--hx-text); font-size:14px; }
+.hx-table-empty span { font-size:12px; color:var(--hx-muted); }
+.hx-library-no-results { font-size:13px; color:var(--hx-muted); padding:24px 0; }
+.hx-library-card-heading, .hx-library-card-preview { align-self:stretch; box-sizing:border-box; }
+:root .shell.harness-workspace .hx-library-search input::placeholder { color:var(--hx-subtle); opacity:1; }
