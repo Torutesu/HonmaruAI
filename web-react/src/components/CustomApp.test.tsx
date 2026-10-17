@@ -133,3 +133,24 @@ test('preview waits for the fork before generated code can read its first snapsh
   expect(contentWindow.postMessage).toHaveBeenCalledWith(expect.objectContaining({id:'read',value:{table,rows}}),'*')
   act(()=>tree!.unmount())
 })
+
+test('secondary preview entities read and write only the private database',async()=>{
+ const {CustomAppEditor}=await import('./CustomApp')
+ let handler:(e:any)=>Promise<void>=async()=>{}
+ const contentWindow={postMessage:vi.fn()},people={id:'people-table',name:'People',columns:[{id:'name',name:'Name',type:'text'}]}
+ const row={id:'person',values:{name:'Private'},updatedAt:'v1'}
+ const databaseChange=vi.fn().mockResolvedValue({result:row,revision:2})
+ const api={appDatabase:vi.fn().mockResolvedValue({fork:{id:'fork',revision:1,entities:[{key:'primary',table,rows:[]},{key:'people',table:people,rows:[row]}]}}),databaseChange,addRow:vi.fn(),entityRows:vi.fn()}as any
+ vi.stubGlobal('window',{addEventListener:(_:string,fn:any)=>{handler=fn},removeEventListener:vi.fn()})
+ let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<CustomAppEditor app={{id:'app',version:1,definition:{custom:{draft:'test'}}}as any} table={table} rows={[]} api={api} reload={()=>{}} httpBase="https://api.example"/>,{createNodeMock:e=>e.type==='iframe'?{contentWindow}:null})})
+ await act(async()=>{await Promise.resolve()})
+ await act(async()=>handler({source:contentWindow,data:{type:'honmaru:request',id:'read',operation:'entity',args:{entity:'people'}}}))
+ expect(contentWindow.postMessage).toHaveBeenCalledWith(expect.objectContaining({id:'read',value:{table:people,rows:[row]}}),'*')
+ await act(async()=>handler({source:contentWindow,data:{type:'honmaru:request',id:'write',operation:'update',args:{id:'person',entity:'people',values:{name:'Updated'}}}}))
+ expect(databaseChange).not.toHaveBeenCalled()
+ await act(async()=>tree!.root.findAllByType('button').find(b=>b.children.join('')==='この変更を許可')!.props.onClick())
+ expect(databaseChange).toHaveBeenCalledWith('app',expect.objectContaining({entity:'people',operation:'update',rowId:'person',expectedUpdatedAt:'v1'}))
+ expect(api.addRow).not.toHaveBeenCalled();expect(api.entityRows).not.toHaveBeenCalled()
+ act(()=>tree!.unmount())
+})

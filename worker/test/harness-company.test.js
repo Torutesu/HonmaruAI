@@ -142,3 +142,71 @@ test('external writes are constrained to the approved method/path and never repl
  expect((await run('connections',{...req,requestId:'write2'})).status).toBe(409);
  expect((await env.DB.prepare("SELECT status FROM hx_app_connection_requests WHERE request_id='write2'").first()).status).toBe('unknown');
 });
+
+test('reviewed preview merge is atomic, scoped, replayable and seals the preview',async()=>{
+ const {fork}=await (await run('database',{action:'fork'})).json();
+ await run('database',{action:'fork_write',forkId:fork.id,revision:1,entity:'primary',operation:'create',values:{task:'Merged record'}});
+ const request={forkId:fork.id,revision:2};
+ expect((await run('database',{action:'merge_preview',...request},member)).status).toBe(403);
+ const review=await (await run('database',{action:'merge_preview',...request})).json();
+ expect(review.changes).toMatchObject([{operation:'create',after:{task:'Merged record'}}]);expect(review.conflicts).toEqual([]);expect(review.snapshots).toBeUndefined();
+ expect((await (await call('/tables/'+app.tableId,owner)).json()).rows).toEqual([]);
+ expect((await run('database',{action:'merge_apply',...request,checksum:'wrong'})).status).toBe(409);
+ const merge={action:'merge_apply',...request,checksum:review.checksum};
+ expect(await (await run('database',merge)).json()).toMatchObject({merged:true,changed:1});
+ expect(await (await run('database',merge)).json()).toMatchObject({merged:true,replay:true});
+ expect((await (await call('/tables/'+app.tableId,owner)).json()).rows).toMatchObject([{values:{task:'Merged record'}}]);
+ expect((await run('database',{action:'fork_write',...request,entity:'primary',operation:'create',values:{task:'late'}})).status).toBe(409);
+});
+
+test('merge detects production updates/deletes/schema changes and rejects the entire batch',async()=>{
+ const row=(await (await call('/tables/'+app.tableId+'/rows',owner,{values:{task:'Original'}})).json()).row;
+ const {fork}=await (await run('database',{action:'fork'})).json();
+ await run('database',{action:'fork_write',forkId:fork.id,revision:1,entity:'primary',operation:'update',rowId:row.id,values:{task:'Edited'}});
+ await run('database',{action:'fork_write',forkId:fork.id,revision:2,entity:'primary',operation:'create',values:{task:'New'}});
+ const req={forkId:fork.id,revision:3};
+ const review=await (await run('database',{action:'merge_preview',...req})).json();expect(review.changes).toHaveLength(2);
+ await env.DB.prepare("UPDATE hx_rows SET data=?,updated_at=? WHERE id=?").bind('{"task":"Concurrent"}','later',row.id).run();
+ expect((await run('database',{action:'merge_apply',...req,checksum:review.checksum})).status).toBe(409);
+ const conflict=await (await run('database',{action:'merge_preview',...req})).json();expect(conflict.conflicts).toHaveLength(1);
+ expect((await (await call('/tables/'+app.tableId,owner)).json()).rows).toMatchObject([{values:{task:'Concurrent'}}]);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_fork_merges').first()).n).toBe(0);
+ await env.DB.prepare('DELETE FROM hx_rows WHERE id=?').bind(row.id).run();
+ expect((await (await run('database',{action:'merge_preview',...req})).json()).conflicts).toHaveLength(1);
+ await run('database',{action:'migrate',id:'schema_change',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'More',type:'text'}]}]});
+ expect((await run('database',{action:'merge_preview',...req})).status).toBe(409);
+});
+
+test('merge can delete an unchanged production row and rejects later changes after review',async()=>{
+ const row=(await (await call('/tables/'+app.tableId+'/rows',owner,{values:{task:'Remove me'}})).json()).row;
+ let {fork}=await (await run('database',{action:'fork'})).json();
+ await run('database',{action:'fork_write',forkId:fork.id,revision:1,entity:'primary',operation:'remove',rowId:row.id});
+ let req={forkId:fork.id,revision:2},review=await (await run('database',{action:'merge_preview',...req})).json();
+ expect(review.changes[0]).toMatchObject({operation:'remove',before:{task:'Remove me'},after:null});
+ expect((await run('database',{action:'merge_apply',...req,checksum:review.checksum})).status).toBe(200);
+ expect((await (await call('/tables/'+app.tableId,owner)).json()).rows).toEqual([]);
+ ({fork}=await (await run('database',{action:'fork'})).json());
+ await run('database',{action:'fork_write',forkId:fork.id,revision:fork.revision,entity:'primary',operation:'create',values:{task:'Draft'}});
+ req={forkId:fork.id,revision:fork.revision+1};review=await (await run('database',{action:'merge_preview',...req})).json();
+ await call('/tables/'+app.tableId+'/rows',owner,{values:{task:'Unrelated new production row'}});
+ expect((await run('database',{action:'merge_apply',...req,checksum:review.checksum})).status).toBe(409);
+});
+
+test('transaction-time guard prevents partial merge when production changes after validation',async()=>{
+ const {mergeFork}=await import('../src/harness/appMerge.js');
+ await run('database',{action:'migrate',id:'secondary',version:0,operations:[{op:'create_entity',entity:'people',name:'People',columns:[{name:'Name',type:'text'}]}]});
+ const {fork}=await (await run('database',{action:'fork'})).json();
+ await run('database',{action:'fork_write',forkId:fork.id,revision:1,entity:'primary',operation:'create',values:{task:'Draft task'}});
+ await run('database',{action:'fork_write',forkId:fork.id,revision:2,entity:'people',operation:'create',values:{name:'Draft person'}});
+ const req={forkId:fork.id,revision:3},review=await (await run('database',{action:'merge_preview',...req})).json();
+ const racing={prepare:sql=>env.DB.prepare(sql),batch:async statements=>{
+   await env.DB.prepare('INSERT INTO hx_rows (id,table_id,org_id,data,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?)').bind('concurrent',app.tableId,orgId,'{"task":"Live"}','1','now','now').run();
+   return env.DB.batch(statements);
+ }};
+ expect((await mergeFork(racing,orgId,app,'1',{...req,checksum:review.checksum})).status).toBe(409);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows').first()).n).toBe(1);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_fork_merges').first()).n).toBe(0);
+ const fresh=await (await run('database',{action:'merge_preview',...req})).json();
+ expect((await run('database',{action:'merge_apply',...req,checksum:fresh.checksum})).status).toBe(200);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows').first()).n).toBe(3);
+});

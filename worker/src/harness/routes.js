@@ -1,3 +1,4 @@
+import { previewMerge, mergeFork } from './appMerge.js';
 import { databaseView, applyMigration, generateMigration, forkDatabase, readFork, mutateFork } from './appDatabase.js';
 import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection, invokeConnection } from './appCapabilities.js';
 import { generateCustomSource, saveCustomRelease } from "./customApps.js";
@@ -446,7 +447,7 @@ export async function handleHarness(request, env, url) {
     if (['database','actions','connections'].includes(sub)) {
       const canManage = await mayChange(env, orgId, who, app.createdBy);
       const respond = async (result, action) => {
-        if (!result.error && action) await audit(env, request, { orgId, action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version ?? null, name: typeof input?.name === 'string' ? input.name : null } });
+        if (!result.error && action) await audit(env, request, { orgId, action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version ?? null, name: typeof input?.name === 'string' ? input.name : null, ...(result.merged?{forkId:result.forkId,checksum:result.checksum,changed:result.changed??null,replay:Boolean(result.replay)}:{}) } });
         return result.error ? fail(result) : json(result);
       };
       if (sub === 'database') {
@@ -456,6 +457,8 @@ export async function handleHarness(request, env, url) {
         if (input.action === 'generate') return respond(await generateMigration(input.prompt, await databaseView(env.DB, orgId, app), await completer(env, orgId, me, 'app_database_generate', { maxTokens: 4000 })));
         if (input.action === 'migrate') return respond(await applyMigration(env.DB, orgId, app, input, me), 'app.database_migrated');
         if (input.action === 'fork') return respond(await forkDatabase(env.DB, orgId, app, me), 'app.database_forked');
+        if (input.action === 'merge_preview') { const result=await previewMerge(env.DB,orgId,app,me,input); const {snapshots,...review}=result; return respond(review); }
+        if (input.action === 'merge_apply') return respond(await mergeFork(env.DB,orgId,app,me,input), 'app.preview_merged');
         if (input.action === 'fork_write') return respond(await mutateFork(env.DB, orgId, appId, me, input), 'app.preview_changed');
       }
       if (sub === 'actions') {

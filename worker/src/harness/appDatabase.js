@@ -97,17 +97,20 @@ export async function forkDatabase(db, orgId, app, by) {
   const data = JSON.stringify(entities);
   if (new TextEncoder().encode(data).length > 750000) return err('This database is too large for a preview snapshot.', 413);
   const id = crypto.randomUUID();
-  await db.prepare(`INSERT INTO hx_app_forks (org_id,app_id,created_by,id,revision,data,created_at) VALUES (?1,?2,?3,?4,1,?5,?6)
-    ON CONFLICT(org_id,app_id,created_by) DO UPDATE SET id=excluded.id,revision=hx_app_forks.revision+1,data=excluded.data,created_at=excluded.created_at`).bind(orgId, app.id, String(by), id, data, new Date().toISOString()).run();
+  await db.batch([db.prepare(`INSERT INTO hx_app_forks (org_id,app_id,created_by,id,revision,data,created_at) VALUES (?1,?2,?3,?4,1,?5,?6)
+    ON CONFLICT(org_id,app_id,created_by) DO UPDATE SET id=excluded.id,revision=hx_app_forks.revision+1,data=excluded.data,created_at=excluded.created_at`).bind(orgId, app.id, String(by), id, data, new Date().toISOString()),
+    db.prepare('DELETE FROM hx_app_fork_bases WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(orgId,app.id,String(by)),
+    db.prepare('INSERT INTO hx_app_fork_bases (org_id,app_id,created_by,fork_id,data) VALUES (?1,?2,?3,?4,?5)').bind(orgId,app.id,String(by),id,data)]);
   return readFork(db, orgId, app.id, by);
 }
 export async function readFork(db, orgId, appId, by) {
-  const row = await db.prepare('SELECT id,revision,data,created_at AS createdAt FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(orgId, appId, String(by)).first();
-  return { fork: row ? { id: row.id, revision: row.revision, entities: JSON.parse(row.data), createdAt: row.createdAt } : null };
+  const row = await db.prepare('SELECT id,revision,data,created_at AS createdAt,(SELECT created_at FROM hx_app_fork_merges m WHERE m.fork_id=hx_app_forks.id) AS mergedAt FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(orgId, appId, String(by)).first();
+  return { fork: row ? { id: row.id, revision: row.revision, entities: JSON.parse(row.data), createdAt: row.createdAt, mergedAt:row.mergedAt } : null };
 }
 export async function mutateFork(db, orgId, appId, by, input) {
   const { fork } = await readFork(db, orgId, appId, by);
   if (!fork || fork.id !== input.forkId || fork.revision !== input.revision) return err('Preview data changed. Reload before editing.', 409);
+  if(fork.mergedAt)return err('This preview was merged. Create a new preview before editing.',409);
   const entity = fork.entities.find(e => e.key === input.entity);
   if (!entity || !['create','update','remove'].includes(input.operation)) return err('Invalid preview operation.');
   const row = entity.rows.find(r => r.id === input.rowId);
@@ -126,6 +129,6 @@ export async function mutateFork(db, orgId, appId, by, input) {
   else { entity.rows = entity.rows.filter(r => r.id !== input.rowId); result = { deleted: true }; }
   const data = JSON.stringify(fork.entities);
   if (new TextEncoder().encode(data).length > 750000) return err('Preview database is too large.', 413);
-  const saved = await db.prepare('UPDATE hx_app_forks SET data=?1,revision=revision+1 WHERE org_id=?2 AND app_id=?3 AND created_by=?4 AND id=?5 AND revision=?6').bind(data, orgId, appId, String(by), fork.id, fork.revision).run();
+  const saved = await db.prepare('UPDATE hx_app_forks SET data=?1,revision=revision+1 WHERE org_id=?2 AND app_id=?3 AND created_by=?4 AND id=?5 AND revision=?6 AND NOT EXISTS (SELECT 1 FROM hx_app_fork_merges m WHERE m.fork_id=hx_app_forks.id)').bind(data, orgId, appId, String(by), fork.id, fork.revision).run();
   return saved.meta?.changes ? { result, revision: fork.revision+1 } : err('Preview data changed. Reload before editing.', 409);
 }

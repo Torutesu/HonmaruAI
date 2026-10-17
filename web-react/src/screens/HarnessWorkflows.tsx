@@ -259,11 +259,11 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
         />
       )}
       {workflows === null && <div className="empty">{t('Loading…')}</div>}
-      {workflows?.length === 0 && !building && <div className="hx-resource-empty"><span className="hx-resource-symbol"><Icon name="zap" size={24} /></span><h2>{t('No workflows yet.')}</h2><p>{t('Automations do work on a schedule or when something happens in this room.')}</p><button onClick={() => setBuilding(true)}>{t('Set up an automation')}</button></div>}
+      {workflows?.length === 0 && !building && <div className="hx-resource-empty"><span className="hx-resource-symbol"><Icon name="workflow" size={24} /></span><h2>{t('No workflows yet.')}</h2><p>{t('Automations do work on a schedule or when something happens in this room.')}</p><button onClick={() => setBuilding(true)}>{t('Set up an automation')}</button></div>}
       <div className="rows">
         {workflows?.map((w) => (
           <button key={w.id} className="row" onClick={() => openOne(w.id)} data-workflow={w.id}>
-            <span className="row-icon"><Icon name="zap" size={18} /></span>
+            <span className="row-icon"><Icon name="workflow" size={18} /></span>
             <span className="row-main">{w.name}{!w.enabled && <span className="hx-off"> · {t('off')}</span>}
               <span className="row-sub">{triggerLabel(t, w.trigger, tables)} · {w.steps.length} {t('steps')}</span>
             </span>

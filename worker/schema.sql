@@ -1858,3 +1858,7 @@ CREATE TABLE IF NOT EXISTS hx_app_action_jobs (org_id TEXT NOT NULL, app_id TEXT
 CREATE TABLE IF NOT EXISTS hx_app_connections (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, created_by TEXT NOT NULL, name TEXT NOT NULL, version INTEGER NOT NULL, endpoint TEXT NOT NULL, method TEXT NOT NULL DEFAULT 'GET', token TEXT, enabled INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(org_id,app_id,created_by,name));
 
 CREATE TABLE IF NOT EXISTS hx_app_connection_requests (org_id TEXT NOT NULL,app_id TEXT NOT NULL,created_by TEXT NOT NULL,request_id TEXT NOT NULL,connection_name TEXT NOT NULL,connection_version INTEGER NOT NULL,body_hash TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(org_id,app_id,created_by,request_id));
+
+/* Immutable baselines and one-shot, reviewed preview merges. */
+CREATE TABLE IF NOT EXISTS hx_app_fork_bases (org_id TEXT NOT NULL,app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,created_by TEXT NOT NULL,fork_id TEXT NOT NULL PRIMARY KEY,data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS hx_app_fork_merges (org_id TEXT NOT NULL,app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,created_by TEXT NOT NULL,fork_id TEXT NOT NULL PRIMARY KEY,revision INTEGER NOT NULL,checksum TEXT NOT NULL,nonce TEXT NOT NULL,plan TEXT NOT NULL,created_at TEXT NOT NULL);
