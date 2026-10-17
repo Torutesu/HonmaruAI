@@ -274,3 +274,15 @@ test('generation validates malformed output, invalid schedules and foreign rooms
   expect((await send('POST', '/workflows/generate', mika, { orgId: ORG, prompt: 'Post', channel: 'b:foreign', useModel: false })).status).toBe(403);
   expect((await send('POST', '/apps/generate', mika, { orgId: ORG, prompt: 'Tracker', channel: 'b:foreign', useModel: false })).status).toBe(403);
 });
+
+test('an app generated in an agent DM resolves the room and remains private', async () => {
+  const { agent } = await (await send('POST', '/channels/agents', mika, { orgId: ORG, name: 'Builder', handle: 'builder', instructions: 'Build apps.', scope: 'personal' })).json();
+  const room = `ag:${agent.id}`;
+  const response = await send('POST', '/apps/generate', mika, { orgId: ORG, prompt: 'Task tracker', channel: room, useModel: false });
+  expect(response.status).toBe(201);
+  const { app } = await response.json();
+  const listed = await (await get(`/apps?${q({ orgId: ORG, channel: room })}`, mika)).json();
+  expect(listed.apps.map(a => a.id)).toContain(app.id);
+  expect(listed.apps.find(a => a.id === app.id).channels).toEqual([`${room}|mika`]);
+  expect((await get(`/apps/${app.id}?${q({ orgId: ORG })}`, toru)).status).toBe(404);
+});
