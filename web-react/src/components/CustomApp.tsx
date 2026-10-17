@@ -34,7 +34,7 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload }: { h
   useEffect(() => {
     const listener = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow) return
-      if (event.data?.type === 'honmaru:ready') { frame.current?.contentWindow?.postMessage({ type: 'honmaru:init', html, theme }, '*'); return }
+      if (event.data?.type === 'honmaru:ready') { frame.current?.contentWindow?.postMessage({ type: 'honmaru:init', html: `<meta name="color-scheme" content="${theme === 'system' ? 'light dark' : theme}"><style>body{background:Canvas;color:CanvasText}</style>${html}`, theme }, '*'); return }
       if (event.data?.type !== 'honmaru:request' || typeof event.data.id !== 'string' || event.data.id.length > 80) return
       const { id, operation, args } = event.data
       if (operation === 'read') { reply(id, { table, rows }); return }
@@ -47,12 +47,13 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload }: { h
     window.addEventListener('message', listener)
     return () => window.removeEventListener('message', listener)
   }, [table, rows, html, theme, api])
+  if (html.length > 119800) return <p role="alert">表示できるコードの上限は119800文字です。コードを短くして保存してください。</p>
   return <>{change && <div className="hx-custom-approval" role="alertdialog" aria-label="アプリのデータ変更を確認"><h3>データ変更の確認</h3><p>{table.name} · {change.operation === 'create' ? '行を追加' : change.operation === 'update' ? '行を更新' : '行を削除'}</p><pre>{JSON.stringify(change.args, null, 2)}</pre><button disabled={working} onClick={() => void decide(false)}>キャンセル</button><button disabled={working} onClick={() => void decide(true)}>この変更を許可</button></div>}<iframe ref={frame} title="カスタムアプリ" sandbox="allow-scripts" referrerPolicy="no-referrer" key={html + theme} src={`${httpBase}/custom-app-runner`} className="hx-custom-frame" /></>
 }
 export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { app: App; table: Table; rows: Row[]; api: HarnessApi; reload: () => unknown; httpBase: string }) {
   const [html, setHtml] = useState(app.definition.custom?.draft || '')
   const [prompt, setPrompt] = useState('')
-  const [preview, setPreview] = useState(false)
+  const [preview, setPreview] = useState(Boolean(app.definition.custom?.draft))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [history, setHistory] = useState<Array<{version: number; note: string | null}>>([])
@@ -69,7 +70,7 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
       <button className="pill-btn" disabled={busy || !prompt.trim()}>{busy ? '処理中…' : '自然文からコードを生成'}</button>
     </form>
     {error && <p role="alert" className="form-error">{error}</p>}
-    <label>HTML / CSS / JavaScript<textarea className="hx-code-editor" aria-label="カスタムアプリのソース" value={html} maxLength={120000} spellCheck={false} onChange={e => { setHtml(e.target.value); setPreview(false) }} /></label>
+    <details className="hx-custom-source"><summary>コードを編集</summary><label>HTML / CSS / JavaScript<textarea className="hx-code-editor" aria-label="カスタムアプリのソース" value={html} maxLength={119800} spellCheck={false} onChange={e => { setHtml(e.target.value); setPreview(false) }} /></label></details>
     <div className="hx-actions">
       <button className="pill-btn quiet" disabled={!html || busy} onClick={() => setPreview(v => !v)}>{preview ? 'プレビューを閉じる' : 'プレビュー'}</button>
       <button className="pill-btn" disabled={busy || !html || !changed} onClick={() => void run(async () => { await api.saveCustom(app.id, 'draft', app.version, html); await reload() })}>下書きを保存</button>
