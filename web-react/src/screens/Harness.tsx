@@ -225,6 +225,9 @@ function CellInput({ column, value, onSave }: { column: Column; value: unknown; 
 export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void }> = ({ api, appId, onBack, httpBase, orgId, sessionToken }) => {
   const t = useT()
   const [data, setData] = useState<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize?: boolean } | null>(null)
+  const loadSequence=useRef(0)
+  const currentApi=useRef(api);currentApi.current=api
+  const [loadedApi,setLoadedApi]=useState<HarnessApi|null>(null)
   const [personal,setPersonal] = useState<PersonalViews>({revision:0,views:[],computed:[],layouts:{}})
   const initializedSection = useRef(false)
   const [viewIndex, setViewIndex] = useState(0)
@@ -237,14 +240,14 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { busy, error, act } = useAct()
 
-  const load = useCallback(() => act('load', async () => { const [next,preferences] = await Promise.all([api.app(appId),api.personalViews(appId)]); setData(next); setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(next.app.definition.custom?.published ? 'overview' : 'data') } }), [api, appId, act])
-  useEffect(() => { load() }, [load])
+  const load = useCallback(() => act('load', async () => { const sequence=++loadSequence.current; const [next,preferences] = await Promise.all([api.app(appId),api.personalViews(appId)]); if(sequence!==loadSequence.current)return;setLoadedApi(api);setData(next); setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(next.app.definition.custom?.published ? 'overview' : 'data') } }), [api, appId, act])
+  useEffect(() => { load();return()=>{loadSequence.current++;initializedSection.current=false} }, [load])
 
-  if (!data) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
+  if (!data || loadedApi!==api) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
   const { app, table } = data
   const allViews = [...data.views,...personal.computed]
   const view = allViews[Math.min(viewIndex, allViews.length - 1)]
-  const savePersonal = async (next:PersonalViews) => {const saved=await api.savePersonalViews(appId,next);setPersonal(saved);setViewIndex(Math.max(0,[...data.views,...saved.computed].findIndex(v=>v.id===saved.activeView)))}
+  const savePersonal = async (next:PersonalViews) => {const saved=await api.savePersonalViews(appId,next);if(currentApi.current!==api)return;setPersonal(saved);setViewIndex(Math.max(0,[...data.views,...saved.computed].findIndex(v=>v.id===saved.activeView)))}
   const layout = personal.layouts[view.id]
   const displayColumns = [...(layout?.order || []),...table.columns.map(c=>c.id)].filter((id,i,ids)=>ids.indexOf(id)===i).map(id=>table.columns.find(c=>c.id===id)).filter((c):c is Column=>!!c)
   const shownRows = (view.rows || []).filter(row => !search || table.columns.some(c => cellText(c, row.values[c.id]).toLowerCase().includes(search.toLowerCase())))
