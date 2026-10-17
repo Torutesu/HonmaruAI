@@ -1,4 +1,4 @@
-export interface PersonalViews { activeView?: string; revision: number; views: View[]; computed: View[]; layouts: Record<string, {order:string[];widths:Record<string,number>}> }
+export interface PersonalViews { activeView?: string; revision: number; views: View[]; computed: View[]; layouts: Record<string, {order:string[];widths:Record<string,number>;hidden?:string[]}> }
 import { useCallback, useEffect, useState } from 'react'
 
 // The harness (docs/kylon-gap-plan.md), as the web app talks to it: the

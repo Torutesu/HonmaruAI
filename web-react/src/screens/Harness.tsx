@@ -249,7 +249,8 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const view = allViews[Math.min(viewIndex, allViews.length - 1)]
   const savePersonal = async (next:PersonalViews) => {const saved=await api.savePersonalViews(appId,next);if(currentApi.current!==api)return;setPersonal(saved);setViewIndex(Math.max(0,[...data.views,...saved.computed].findIndex(v=>v.id===saved.activeView)))}
   const layout = personal.layouts[view.id]
-  const displayColumns = [...(layout?.order || []),...table.columns.map(c=>c.id)].filter((id,i,ids)=>ids.indexOf(id)===i).map(id=>table.columns.find(c=>c.id===id)).filter((c):c is Column=>!!c)
+  const orderedColumns = [...(layout?.order || []),...table.columns.map(c=>c.id)].filter((id,i,ids)=>ids.indexOf(id)===i).map(id=>table.columns.find(c=>c.id===id)).filter((c):c is Column=>!!c)
+  const displayColumns = orderedColumns.filter(c=>c.id===table.columns[0]?.id || !layout?.hidden?.includes(c.id))
   const shownRows = (view.rows || []).filter(row => !search || table.columns.some(c => cellText(c, row.values[c.id]).toLowerCase().includes(search.toLowerCase())))
 
   const save = (row: Row, column: Column, value: unknown) => act(`cell:${row.id}`, async () => {
@@ -341,11 +342,11 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
           <table className="hx-table hx-personal-table" style={{width:displayColumns.reduce((n,c)=>n+(layout?.widths[c.id]||180),48)}}>
             <colgroup>{displayColumns.map(c=><col key={c.id} style={{width:layout?.widths[c.id]||180}}/>)}<col style={{width:48}}/></colgroup>
             <thead>
-              <tr>{displayColumns.map((c) => <th key={c.id}>{c.name}<ColumnResize name={c.name} width={layout?.widths[c.id]||180} save={width=>act('layout',()=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:displayColumns.map(c=>c.id),widths:{...layout?.widths,[c.id]:width}}}}))}/></th>)}<th aria-label={t('Actions')} /></tr>
+              <tr>{displayColumns.map((c) => <th key={c.id}>{c.name}<ColumnResize name={c.name} width={layout?.widths[c.id]||180} save={width=>act('layout',()=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{...layout,order:orderedColumns.map(c=>c.id),widths:{...layout?.widths,[c.id]:width}}}}))}/></th>)}<th aria-label={t('Actions')} /></tr>
             </thead>
             <tbody>
               {(view.groupBy ? (view.lanes || []).map(lane=>({...lane,rows:lane.rows.filter(row=>shownRows.some(r=>r.id===row.id))})) : [{key:null,rows:shownRows}]).map((group,groupIndex)=><React.Fragment key={group.key ?? groupIndex}>
-              {view.groupBy && <tr className="hx-table-group"><th colSpan={table.columns.length+1}>{group.key ?? '未設定'} <span className="hx-count">{group.rows.length}</span></th></tr>}
+              {view.groupBy && <tr className="hx-table-group"><th colSpan={displayColumns.length+1}>{group.key ?? '未設定'} <span className="hx-count">{group.rows.length}</span></th></tr>}
               {group.rows.map((row) => (
                 <tr key={row.id} data-row={row.id}>
                   {displayColumns.map((c) => (
