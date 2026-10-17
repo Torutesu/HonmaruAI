@@ -18,8 +18,9 @@ export function AppViewControls({view,columns,save,canEdit}:{view:View;columns:C
     const outside=(e:PointerEvent)=>{if(!busy && !root.current?.contains(e.target as Node))setOpen(null)}
     document.addEventListener('pointerdown',outside)
     return()=>document.removeEventListener('pointerdown',outside)
-  },[open,busy])
+  },[open,busy,editing])
   const count=filters.length+Object.keys(where || {}).length
+  const invalid = open==='filter' && filters.some(f=>!['empty','not_empty'].includes(f.op) && f.value==='')
   const activeCount=(view.filters?.length || 0)+Object.keys(view.where || {}).length
   const apply=async()=>{
     setBusy(true);setError('')
@@ -44,7 +45,8 @@ export function AppViewControls({view,columns,save,canEdit}:{view:View;columns:C
           <button className="hx-view-adjust" disabled={filters.length>=20||!columns.length} onClick={()=>setFilters([...filters,{column:columns[0].id,op:'eq',value:''}])}><Icon name="plus" size={14}/>条件を追加</button>
         </>}
       </>:<>{!editing?<><div className="hx-view-summary">{group ? columns.find(c=>c.id===group)?.name : 'グループ化なし'}</div><button className="hx-view-adjust" disabled={!canEdit} onClick={()=>setEditing(true)}><Icon name="group" size={15}/>グループ化を調整</button></>:<><strong>グループ化</strong><label>フィールド<select aria-label="グループ化するフィールド" value={group} onChange={e=>setGroup(e.target.value)} disabled={!canEdit}>{view.type!=='board'&&<option value="">グループ化なし</option>}{columns.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><p>同じ値のレコードをまとめて表示します。</p></>}</>}
-      {editing&&<><p className="hx-view-save-hint">このビューを使うメンバーに反映されます。</p><div className="hx-view-footer"><button disabled={busy} onClick={close}>キャンセル</button><button className="pill-btn" disabled={busy||!canEdit} onClick={()=>void apply()}>{busy?'保存中…':'保存'}</button></div></>}
+      {editing&&<><p className="hx-view-save-hint">このビューを使うメンバーに反映されます。</p><div className="hx-view-footer"><button disabled={busy} onClick={close}>キャンセル</button><button className="pill-btn" disabled={busy||!canEdit||invalid} onClick={()=>void apply()}>{busy?'保存中…':'保存'}</button></div></>}
+      {editing&&invalid&&<p>条件の値を入力してください。空欄の検索には「が空」を選びます。</p>}
       {error&&<p role="alert" className="form-error">{error}</p>}
     </div>}
   </div>

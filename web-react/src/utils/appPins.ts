@@ -29,7 +29,7 @@ export function useAppPins(orgId: string, api: Pick<import('./harness').HarnessA
     if(!loaded || loadedApi!==api || pending) throw new Error('固定状態を同期中です。しばらく待って再試行してください。')
     const active=generation.current
     setPending(true)
-    try { await api.setAppPin(id,!pins.includes(id)); if(active===generation.current) { setError('');window.dispatchEvent(new Event(EVENT)) } }
+    try { const result=await api.setAppPin(id,!pins.includes(id)); if(active===generation.current) { setPins(result.pins);setLoadedApi(api);setError('');window.dispatchEvent(new Event(EVENT)) } }
     catch(e) { if(active===generation.current) setError('固定状態を保存できませんでした。');throw e }
     finally { if(active===generation.current) setPending(false) }
   },[api,pins,loaded,loadedApi,pending])
