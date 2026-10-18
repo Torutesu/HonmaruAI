@@ -239,10 +239,12 @@ export async function runExport(env, { orgId, id, from, to, logins = null, chann
   for (const r of rows) {
     lines.push(JSON.stringify({ type: "message", id: r.id, channel: r.channel, author: r.author_login ? { login: r.author_login, name: nameOf.get(r.author_login) || null } : { kind: r.kind }, text: r.body, created_at: r.created_at, edited_at: r.edited_at, deleted_at: r.deleted_at, parent_id: r.parent_id }));
   }
+  // A failed read of the earlier words fails the export: one without them
+  // would look complete and not be.
   const hwhere = where.map((w) => w.replace("created_at", "message_created_at"));
   const { results: history } = await env.DB.prepare(
     `SELECT message_id, channel, author_login, body, message_created_at, reason, recorded_at FROM message_history WHERE ${hwhere.join(" AND ")} ORDER BY recorded_at`
-  ).bind(...args).all().catch(() => ({ results: [] }));
+  ).bind(...args).all();
   for (const h of history || []) {
     lines.push(JSON.stringify({ type: "earlier_version", message_id: h.message_id, channel: h.channel, author: { login: h.author_login, name: nameOf.get(h.author_login) || null }, text: h.body, before: h.reason, recorded_at: h.recorded_at }));
   }

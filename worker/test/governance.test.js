@@ -14,13 +14,30 @@ const ORG = "team:gov";
 let owner; let admin; let member;
 const pending = [];
 const ctx = { waitUntil: (p) => pending.push(p) };
-const call = async (path, token, { method = "GET", body, ip = "203.0.113.5" } = {}) => {
+const call = async (path, token, { method = "GET", body, ip = "203.0.113.5", withEnv = env } = {}) => {
   const res = await worker.fetch(new Request(`https://api.example.com${path}`, {
     method, headers: { "content-type": "application/json", "cf-connecting-ip": ip, ...(token ? { "x-session-token": token } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}),
-  }), { ...env, OPENAI_API_KEY: undefined }, ctx);
+  }), { ...withEnv, OPENAI_API_KEY: undefined }, ctx);
   while (pending.length) await pending.shift();
   return res;
 };
+/// The database, but every statement matching `pattern` fails.
+const failing = (pattern) => ({
+  ...env,
+  DB: new Proxy(env.DB, {
+    get(target, key) {
+      if (key === "prepare") {
+        return (sql) => {
+          if (!pattern.test(sql)) return target.prepare(sql);
+          const down = async () => { throw new Error("D1 is down"); };
+          return { bind: () => ({ all: down, first: down, run: down }) };
+        };
+      }
+      const value = target[key];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }),
+});
 const q = `orgId=${encodeURIComponent(ORG)}`;
 const put = (token, body, ip) => call("/orgs/governance", token, { method: "PUT", body: { orgId: ORG, ...body }, ip });
 const post = (token, channel, text) => call("/channels/messages", token, { method: "POST", body: { orgId: ORG, channel, body: text } });
@@ -156,4 +173,20 @@ test("invitations: company only, or held for an admin's approval; guests may be 
   expect((await call("/orgs/join-requests", admin, { method: "POST", body: { orgId: ORG, ref: asks[0].ref, approve: true } })).status).toBe(200);
   const joined = await env.DB.prepare("SELECT role, joined_via FROM memberships WHERE org_id = ?1 AND user_github_id = '9603'").bind(ORG).first();
   expect(joined).toEqual({ role: "member", joined_via: "invite" });
+});
+
+// A failed read of the earlier words was taken for none: the export was
+// marked ready, complete to look at, without what the hold had kept.
+test("an export whose earlier words cannot be read fails, and a retry has them", async () => {
+  const ken = (await (await call(`/members?${q}`, owner)).json()).members.find((m) => m.name === "Ken");
+  await call("/orgs/holds", owner, { method: "POST", body: { orgId: ORG, kind: "person", ref: ken.ref, reason: "Matter 8" } });
+  const sent = await (await post(member, "b:cafe", "first words")).json();
+  await call("/channels/messages", member, { method: "PUT", body: { orgId: ORG, channel: "b:cafe", messageId: sent.message.id, body: "second words" } });
+  const ask = { orgId: ORG, from: ago(1), to: new Date(Date.now() + 60_000).toISOString(), reason: "Matter 8" };
+  const failed = await call("/orgs/compliance/exports", owner, { method: "POST", body: ask, withEnv: failing(/FROM message_history/) });
+  expect(failed.status).toBe(500);
+  const rows = (await env.DB.prepare("SELECT status FROM compliance_exports WHERE org_id = ?1").bind(ORG).all()).results;
+  expect(rows).toEqual([{ status: "failed" }]);
+  const made = await call("/orgs/compliance/exports", owner, { method: "POST", body: ask });
+  expect((await made.json()).export).toMatchObject({ status: "ready", counts: { messages: 1, earlier: 1 } });
 });
