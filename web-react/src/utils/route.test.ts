@@ -61,6 +61,14 @@ it('a message link carries its workspace, and is read back with it', () => {
   expect(parseRoute('#/m/msg_1/<script>').messageOrg).toBeNull()
 })
 
+it('a message link to a GitHub owner/repo workspace keeps its workspace', () => {
+  const hash = hashForMessage('msg_1', 'acme/widgets')
+  expect(hash).toBe('#/m/msg_1/acme%2Fwidgets')
+  expect(parseRoute(hash)).toMatchObject({ messageId: 'msg_1', messageOrg: 'acme/widgets' })
+  expect(parseRoute(hashForMessage('msg_1', 'team:acme'))).toMatchObject({ messageOrg: 'team:acme' })
+  expect(parseRoute('#/m/msg_1/acme%2F%3Cscript%3E').messageOrg).toBeNull()
+})
+
 // A link from outside is a real path (packages/core/src/links.ts), the same
 // one the phone apps open; here it becomes its hash.
 describe('links from outside', () => {

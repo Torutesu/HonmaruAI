@@ -88,7 +88,7 @@ export function parseRoute(hash: string): Route {
     let org = rest[1] || ''
     try { org = decodeURIComponent(org) } catch { /* as written */ }
     const messageId = /^[\w-]{1,80}$/.test(id) ? id : null
-    return { screen: null, mode: 'classic', cardId: null, join: null, messageId, messageOrg: messageId && /^[\w:.@|+-]{1,160}$/.test(org) ? org : null }
+    return { screen: null, mode: 'classic', cardId: null, join: null, messageId, messageOrg: messageId && isOrgId(org) ? org : null }
   }
   if (head === 'jam') {
     let view = rest.join('/')
