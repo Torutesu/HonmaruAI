@@ -75,7 +75,7 @@ struct AppShell: View {
                 try? await Task.sleep(for: .seconds(30))
             }
         }
-        .onChange(of: appState.currentUser?.teamID) { _, _ in composer.teamChanged() }
+        .onChange(of: appState.currentUser?.teamID) { _, _ in composer.teamChanged(appState: appState) }
         .onChange(of: push.pendingCardID) { _, id in if id != nil { homeList = false; tab = .home } }
         // A chat notification: its workspace, then its conversation. Also on
         // appearing, for the tap that launched the app.
