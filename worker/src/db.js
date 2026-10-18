@@ -186,10 +186,11 @@ const SESSION_SLIDE_AFTER_DAYS = 15;
 
 /// A session by the key it is stored under, for work the Worker hands to
 /// itself (a queued agent run): never for a value a client sent, which is
-/// a token and goes through getSession. Unexpired, and not slid.
+/// a token and goes through getSession. Unexpired, and not slid; with what
+/// a workspace's sign-in rules read (policy.js), so they can be applied.
 export async function sessionByKey(db, key) {
   if (typeof key !== "string" || !key.startsWith("h1:")) return null;
-  const row = await db.prepare("SELECT token, github_id, github_access_token, expires_at, auth_method, sso_org_id, sso_connection_id FROM sessions WHERE token = ?1")
+  const row = await db.prepare("SELECT token, github_id, github_access_token, created_at, expires_at, last_seen_at, client, longest_idle_ms, auth_method, sso_org_id, sso_connection_id FROM sessions WHERE token = ?1")
     .bind(key).first().then(openSessionToken);
   if (!row || (row.expires_at && row.expires_at <= new Date().toISOString())) return null;
   return row;

@@ -6,7 +6,7 @@
 /// minutes. A job is taken off the list before it runs, so a failure never
 /// answers twice.
 
-import { getSession, getUserByGithubId, sessionByKey } from "./db.js";
+import { getSession, getUserByGithubId, isMember, sessionByKey } from "./db.js";
 import { getMessage, resolveChannel, viewOf } from "./channels.js";
 import { listMembers } from "./team.js";
 import { respondingAgents } from "./customAgents.js";
@@ -61,6 +61,12 @@ export async function runQueuedAgents(env, { orgId, token, rowId, locale }) {
   // sessions were stored hashed carries the token itself.
   const session = String(token || "").startsWith("h1:") ? await sessionByKey(env.DB, token) : await getSession(env.DB, token);
   if (!session) return 0;
+  // Whether this person may still ask here is decided now, as at the door
+  // (channelRoutes.js caller): someone removed from the workspace, or held
+  // out by its sign-in rules, since the job was queued has nothing answered.
+  if (!(await isMember(env.DB, orgId, session.github_id))) return 0;
+  const { policyDenial } = await import("./policy.js");
+  if (await policyDenial(env, session, orgId)) return 0;
   const user = await getUserByGithubId(env.DB, session.github_id);
   const row = await getMessage(env.DB, orgId, rowId);
   if (!user?.login || !row || row.deleted_at) return 0;
