@@ -59,8 +59,8 @@ export async function writeDecisionToNotion({ env, orgId, login, card }) {
        VALUES (?1, ?2, ?3, ?4, NULL, ?5) ON CONFLICT(connector, external_id, user_github_id) DO NOTHING`
     ).bind(EXPORTED, mark, String(user.github_id), orgId || "", new Date().toISOString()).run();
     if (!claim.meta?.changes) return false;
-    const release = () => env.DB.prepare("DELETE FROM ingested_items WHERE connector = ?1 AND external_id = ?2 AND user_github_id = ?3")
-      .bind(EXPORTED, mark, String(user.github_id)).run().catch(() => {});
+    const release = () => env.DB.prepare("DELETE FROM ingested_items WHERE connector = ?1 AND external_id = ?2 AND user_github_id = ?3 AND org_id = ?4")
+      .bind(EXPORTED, mark, String(user.github_id), orgId || "").run().catch(() => {});
 
     const payload = await executeTool(
       env.COMPOSIO_API_KEY, "NOTION_INSERT_ROW_DATABASE", String(user.github_id),

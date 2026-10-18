@@ -28,9 +28,9 @@ const BATCHES_PER_RUN = 200;
 /// Where a workspace's objects are kept by a name only its rows know: the
 /// key each row names, and how the row lets go of it once it is deleted.
 const NAMED_OBJECTS = [
-  { table: "org_icons", column: "media_id", key: (name) => name, clear: "DELETE FROM org_icons" },
-  { table: "org_emoji", column: "media_id", key: (name) => name, clear: "DELETE FROM org_emoji" },
-  { table: "custom_agents", column: "avatar_url", key: (url) => /\/agents\/avatar\/(agent-avatar-[0-9a-f-]{36})$/.exec(String(url))?.[1] || null, clear: "UPDATE custom_agents SET avatar_url = NULL" },
+  { table: "org_icons", column: "media_id", key: (name) => name, clear: "DELETE FROM org_icons WHERE org_id = ?1 AND rowid IN" },
+  { table: "org_emoji", column: "media_id", key: (name) => name, clear: "DELETE FROM org_emoji WHERE org_id = ?1 AND rowid IN" },
+  { table: "custom_agents", column: "avatar_url", key: (url) => /\/agents\/avatar\/(agent-avatar-[0-9a-f-]{36})$/.exec(String(url))?.[1] || null, clear: "UPDATE custom_agents SET avatar_url = NULL WHERE org_id = ?1 AND rowid IN" },
 ];
 /// The Jam recordings have all been looked through.
 const SCANNED = "scanned";
@@ -115,7 +115,7 @@ export async function purgeWorkspace(env, orgId, { budget = BATCHES_PER_RUN } = 
         if (!rows.length) break;
         const keys = rows.map((r) => key(r.name)).filter(Boolean);
         if (keys.length) await env.MEDIA.delete(keys);
-        await env.DB.prepare(`${clear} WHERE rowid IN (${rows.map((r) => Number(r.rowid)).join(", ")})`).run();
+        await env.DB.prepare(`${clear} (${rows.map((r) => Number(r.rowid)).join(", ")})`).bind(orgId).run();
       }
     }
     // Its Jam recordings, kept as jam/<id> with the workspace in their

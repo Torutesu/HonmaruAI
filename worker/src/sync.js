@@ -62,7 +62,7 @@ export async function syncConnector(connector, { env, session, orgId, userId, re
       if (await isIngested(env.DB, connector.id, message.id, session.github_id)) continue;
       created += await ingestOne(connector, message, { env, session, orgId, userId, readerLanguage, provider });
     } finally {
-      await releaseItem(env.DB, connector.id, message.id, session.github_id);
+      await releaseItem(env.DB, connector.id, message.id, session.github_id, orgId);
     }
   }
 
@@ -86,9 +86,9 @@ async function claimItem(db, connectorId, externalId, githubId, orgId) {
   return Boolean(res.meta?.changes);
 }
 
-async function releaseItem(db, connectorId, externalId, githubId) {
-  await db.prepare("DELETE FROM ingested_items WHERE connector = ?1 AND external_id = ?2 AND user_github_id = ?3")
-    .bind(claimKey(connectorId), externalId, String(githubId)).run()
+async function releaseItem(db, connectorId, externalId, githubId, orgId) {
+  await db.prepare("DELETE FROM ingested_items WHERE connector = ?1 AND external_id = ?2 AND user_github_id = ?3 AND org_id IS ?4")
+    .bind(claimKey(connectorId), externalId, String(githubId), orgId ?? null).run()
     .catch((err) => console.error("sync claim release failed", err?.message || err));
 }
 
