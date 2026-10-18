@@ -1,3 +1,4 @@
+import { RoomThreadDirectory } from './RoomThreadDirectory'
 import { MessageAppCards } from './MessageAppCards'
 import { AppView } from '../screens/Harness'
 import { harnessApi } from '../utils/harness'
@@ -5411,7 +5412,7 @@ export const ClassicList: React.FC<Props> = ({
   }
 
   return (
-    <div className={`classic slk${current || special ? ' in-thread' : ''}${phoneRoot ? ' phone-root' : ''}${detail || thread || profile ? ' with-pane' : ''}${sourceThreadApp ? ' hx-thread-app' : ''}${sideHidden ? ' side-hidden' : ''}${density === 'compact' ? ' compact' : ''}`} onClick={onMentionClick} onKeyDown={onMentionKey}>
+    <div className={`classic slk${current || special ? ' in-thread' : ''}${phoneRoot ? ' phone-root' : ''}${detail || thread || profile ? ' with-pane' : ''}${sourceThreadApp ? ' hx-thread-app' : ''}${harness && thread && !detail && !profile && !activityOpen ? ' hx-focused-thread' : ''}${sideHidden ? ' side-hidden' : ''}${density === 'compact' ? ' compact' : ''}`} onClick={onMentionClick} onKeyDown={onMentionKey}>
       <aside className="slk-side" aria-label={t('Conversations')}>
         {!wide && phoneTab === 'dms' ? dmsView() : <>
         {harness ? <>
@@ -5482,7 +5483,7 @@ export const ClassicList: React.FC<Props> = ({
                   <Icon name="plus" size={13} /> {t('Add a section')}
                 </button>
               )}
-              {harness ? (g.items.length > 0 ? <ul className="hx-chat-group" aria-label={g.label}>{g.items.map(th => row(th))}</ul> : null) : section(g.id, g.label, g.items, g.empty, g.action, g.below, g.reorder)}
+              {harness ? (g.items.length > 0 ? <ul className="hx-chat-group" aria-label={g.label}>{g.items.map(th => th.kind === 'channel' && th.view ? <RoomThreadDirectory key={`${api.orgId}:${api.sessionToken}:${th.view}`} api={api} channel={th.view} name={th.name} selected={current?.key===th.key} activeId={thread?.channel===th.view?thread.parent.id:undefined} onOpen={id=>openAt({view:th.view!,id,parentId:id})}>{row(th)}</RoomThreadDirectory> : row(th))}</ul> : null) : section(g.id, g.label, g.items, g.empty, g.action, g.below, g.reorder)}
             </React.Fragment>
           ))}
         </nav>
@@ -5803,7 +5804,7 @@ export const ClassicList: React.FC<Props> = ({
           onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.stopPropagation(); setThreadDropping(true) } }}
           onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setThreadDropping(false) }}
           onDrop={(e) => { setThreadDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); e.stopPropagation(); threadUploads.add([...e.dataTransfer.files], thread.channel) } }}>
-          {wide && !sourceThreadApp && <PaneResizer pane={threadPane} label={t('Resize thread')} title={t('Drag to resize · double-click to reset')} onWidth={keepThreadWidth} onReset={() => keepThreadWidth(null)} />}
+          {wide && !harness && !sourceThreadApp && <PaneResizer pane={threadPane} label={t('Resize thread')} title={t('Drag to resize · double-click to reset')} onWidth={keepThreadWidth} onReset={() => keepThreadWidth(null)} />}
           <header className="slk-pane-head">
             <button className="slk-back pane" onClick={() => setThread(null)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
             <h2>{t('Thread')}</h2>

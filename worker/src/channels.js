@@ -916,6 +916,54 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
   return { items: out.slice(0, limit), lastRead };
 }
 
+export async function roomThreads(db, orgId, key, login, view, members, { limit = 20, before, beforeId } = {}) {
+  // Unlike the personal Threads inbox, a room directory includes roots with
+  // no replies and threads the reader has not participated in. The route
+  // resolves membership before passing the room's internal key here.
+  const { results = [] } = await db.prepare(`
+    WITH summaries AS (
+      SELECT m.id, COUNT(r.id) AS reply_count,
+        MAX(m.created_at, COALESCE(MAX(r.created_at), m.created_at)) AS activity_at,
+        MAX(CASE WHEN m.author_login = ?3 THEN m.created_at ELSE '' END,
+            COALESCE(MAX(CASE WHEN r.author_login = ?3 THEN r.created_at END), '')) AS mine_at,
+        MAX(CASE WHEN m.author_login != ?3 THEN m.created_at ELSE '' END,
+            COALESCE(MAX(CASE WHEN r.author_login != ?3 THEN r.created_at END), '')) AS others_at
+      FROM channel_messages m
+      LEFT JOIN channel_messages r ON r.org_id = m.org_id AND r.channel = m.channel
+        AND r.parent_id = m.id AND r.deleted_at IS NULL
+      WHERE m.org_id = ?1 AND m.channel = ?2 AND m.parent_id IS NULL AND m.deleted_at IS NULL
+      GROUP BY m.id
+    )
+    SELECT m.*, u.name AS author_name, s.reply_count, s.activity_at, s.mine_at, s.others_at,
+      COALESCE(cr.last_read_at, '') AS thread_read_at
+    FROM summaries s JOIN channel_messages m ON m.id = s.id AND m.org_id = ?1
+    LEFT JOIN users u ON u.login = m.author_login
+    LEFT JOIN channel_reads cr ON cr.org_id = ?1 AND cr.login = ?3 AND cr.channel = 't:' || m.id
+    WHERE (?4 IS NULL OR s.activity_at < ?4 OR (s.activity_at = ?4 AND m.id < ?5))
+    ORDER BY s.activity_at DESC, m.id DESC LIMIT ?6
+  `).bind(orgId, key, login, before || null, beforeId || '', limit + 1).all();
+  const rows = results.slice(0, limit);
+  if (!rows.length) return { threads: [], nextCursor: null };
+  const placeholders = rows.map(() => '?').join(',');
+  const { results: replies = [] } = await db.prepare(`
+    SELECT ranked.*, u.name AS author_name FROM (
+      SELECT m.*, ROW_NUMBER() OVER (PARTITION BY parent_id ORDER BY created_at DESC, rowid DESC) AS position
+      FROM channel_messages m WHERE org_id = ? AND channel = ? AND deleted_at IS NULL
+        AND parent_id IN (${placeholders})
+    ) ranked LEFT JOIN users u ON u.login = ranked.author_login WHERE position <= 2
+    ORDER BY created_at ASC, position DESC
+  `).bind(orgId, key, ...rows.map(r => r.id)).all();
+  const shown = await present(db, orgId, [...rows, ...replies], login, view, members);
+  const byId = new Map(shown.map(m => [m.id, m]));
+  const threads = rows.map(r => ({
+    parent: byId.get(r.id), replies: replies.filter(m => m.parent_id === r.id).map(m => byId.get(m.id)),
+    replyCount: r.reply_count, lastReplyAt: r.activity_at,
+    unread: r.others_at > [r.thread_read_at, r.mine_at].sort().pop(),
+  }));
+  const last = rows[rows.length - 1];
+  return { threads, nextCursor: results.length > limit ? { before: last.activity_at, beforeId: last.id } : null };
+}
+
 /// Threads: every thread this person is in — started, answered, or named
 /// in — with a reply in the last 30 days, the newest reply first. Each is
 /// its first message, the last two replies, how many there are, and
