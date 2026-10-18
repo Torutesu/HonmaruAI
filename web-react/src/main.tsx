@@ -9,6 +9,7 @@ import { registerShell, watchInstallPrompt } from './utils/install'
 import { installAuthGuard } from './utils/authGuard'
 import { installAppearance } from './utils/appearance'
 import { pathToHash } from './utils/route'
+import { startAfterLocale } from './utils/startup'
 
 // A link from outside (https://app.honmaruai.com/c/…, /join/…) — the same
 // address the phone apps open — becomes this page's own hash route, before
@@ -29,7 +30,7 @@ installAuthGuard()
 // The theme index.html already drew, and another tab's choice followed.
 installAppearance()
 
-void localeLoaded.finally(() => {
+startAfterLocale(localeLoaded, () => {
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <ErrorBoundary>
