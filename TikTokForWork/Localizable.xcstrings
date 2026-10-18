@@ -43989,6 +43989,62 @@
           }
         }
       }
+    },
+    "That scheduled message was already sent or cancelled.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この予約メッセージは、すでに送信済みかキャンセル済みです。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese mensaje programado ya se envió o se canceló."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce message programmé a déjà été envoyé ou annulé."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese geplante Nachricht wurde bereits gesendet oder abgebrochen."
+          }
+        }
+      }
+    },
+    "That scheduled message could not be cancelled and will still be sent. Try again.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予約メッセージをキャンセルできなかったため、予定どおり送信されます。もう一度お試しください。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cancelar ese mensaje programado y se enviará igualmente. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce message programmé n’a pas pu être annulé et sera quand même envoyé. Réessayez."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese geplante Nachricht konnte nicht abgebrochen werden und wird trotzdem gesendet. Versuch es noch einmal."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

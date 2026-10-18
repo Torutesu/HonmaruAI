@@ -778,10 +778,36 @@ final class ChatStore: ObservableObject {
         saved.removeAll { $0.id == item.id }
         try? await ChatService.finishLater(orgId: orgId, id: item.id, base: base)
     }
-    func cancelScheduled(_ s: ChatScheduled) async {
-        guard let orgId, let base else { return }
-        scheduled.removeAll { $0.id == s.id }
-        try? await ChatService.cancelScheduled(orgId: orgId, id: s.id, base: base)
+    /// What became of a scheduled message asked to be cancelled.
+    enum ScheduledCancel: Equatable {
+        case cancelled
+        /// The server no longer had it waiting: already sent, or cancelled before.
+        case alreadyGone
+        /// Not known to be cancelled: it stays scheduled, and will be sent.
+        case failed
+        /// Being cancelled already.
+        case busy
+    }
+    /// Scheduled messages being cancelled: still listed until the server says.
+    @Published private(set) var cancelling: Set<String> = []
+
+    /// Taken off the schedule only once the server has done so: a failure
+    /// leaves it listed, since it will still be sent at its time.
+    func cancelScheduled(_ s: ChatScheduled) async -> ScheduledCancel {
+        guard let orgId, let base else { return .failed }
+        guard !cancelling.contains(s.id) else { return .busy }
+        cancelling.insert(s.id)
+        defer { cancelling.remove(s.id) }
+        do {
+            try await ChatService.cancelScheduled(orgId: orgId, id: s.id, base: base)
+            scheduled.removeAll { $0.id == s.id }
+            return .cancelled
+        } catch ChatService.Failure.server(404, _) {
+            scheduled.removeAll { $0.id == s.id }
+            return .alreadyGone
+        } catch {
+            return .failed
+        }
     }
     func setPref(_ view: String, level: String) async {
         guard let orgId, let base else { return }

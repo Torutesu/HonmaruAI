@@ -464,4 +464,13 @@ final class ChatStoreFailureTests: XCTestCase {
         XCTAssertFalse(saved, "A failed save must leave the edit open")
         XCTAssertEqual(app.currentUser?.teamID, "org-offline")
     }
+
+    func testACancellationTheServerDidNotTakeIsNotReportedDone() async {
+        let (store, app) = offline()
+        let later = ChatScheduled(id: "s1", body: "Reminder", sendAt: "2026-10-20T09:00:00.000Z", channel: "b:general", parentId: nil)
+        let result = await store.cancelScheduled(later)
+        XCTAssertEqual(result, .failed)
+        XCTAssertTrue(store.cancelling.isEmpty)
+        XCTAssertEqual(app.currentUser?.teamID, "org-offline")
+    }
 }

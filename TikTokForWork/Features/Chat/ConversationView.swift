@@ -392,8 +392,12 @@ struct ConversationView: View {
                             }
                             Text(s.body).font(.footnote).lineLimit(1)
                             Spacer()
-                            Button("Edit") { draft = s.body; Task { await store.cancelScheduled(s) } }.font(.caption)
-                            Button("Cancel", role: .destructive) { Task { await store.cancelScheduled(s) } }.font(.caption)
+                            if store.cancelling.contains(s.id) {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Button("Edit") { Task { await cancelScheduled(s, thenEdit: true) } }.font(.caption)
+                                Button("Cancel", role: .destructive) { Task { await cancelScheduled(s, thenEdit: false) } }.font(.caption)
+                            }
                         }.padding(.top, 6)
                     }
                 } label: {
@@ -698,6 +702,18 @@ struct ConversationView: View {
             unsent = (text, clientId)
             if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { draft = text }
             if attached.isEmpty { attached = files }
+        }
+    }
+
+    /// A scheduled message taken off the schedule — and, to edit it, its
+    /// words back in the box only once it is: an edit sent while the first
+    /// one still waited would have gone out as well.
+    private func cancelScheduled(_ s: ChatScheduled, thenEdit: Bool) async {
+        switch await store.cancelScheduled(s) {
+        case .cancelled: if thenEdit { draft = s.body }
+        case .alreadyGone: notes.append(String(localized: "That scheduled message was already sent or cancelled."))
+        case .failed: notes.append(String(localized: "That scheduled message could not be cancelled and will still be sent. Try again."))
+        case .busy: break
         }
     }
 
