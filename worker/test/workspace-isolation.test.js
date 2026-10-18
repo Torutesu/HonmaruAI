@@ -112,6 +112,18 @@ test("the context is stored per person, per workspace", async () => {
   expect((await res.json()).text).toBe("");
 });
 
+test("a context cleared on purpose reads as saved, unlike one never written", async () => {
+  let res = await get(`/me/context?orgId=${encodeURIComponent(ORG_A)}`, alice);
+  expect(await res.json()).toMatchObject({ text: "", saved: false });
+  await put("/me/context", alice, { orgId: ORG_A, text: "Old responsibilities" });
+  res = await put("/me/context", alice, { orgId: ORG_A, text: "" });
+  expect(res.status).toBe(200);
+  res = await get(`/me/context?orgId=${encodeURIComponent(ORG_A)}`, alice);
+  expect(await res.json()).toMatchObject({ text: "", saved: true });
+  res = await get(`/me/context?orgId=${encodeURIComponent(ORG_B)}`, bob);
+  expect(await res.json()).toMatchObject({ text: "Bob prefers mornings", saved: true });
+});
+
 test("a saved context reaches the workspace's open sockets and nobody else's", async () => {
   const { joined } = await import("./helpers.js");
   const { messages: bobRoom } = await joined(ORG_B, bob);

@@ -34,10 +34,11 @@ function stillSignedIn(sessionToken: string): boolean {
 
 /// The server's copy, which is the truth; the local one is refreshed from it.
 ///
-/// With one exception: a local copy the server has never seen — written
-/// before this existed, or typed and closed before the save landed — is sent
-/// up rather than thrown away. The server wins only once it has something.
-/// Null when there is no answer to show: the request failed, the session it
+/// With one exception: a local copy the server has never had a word of —
+/// written before this existed — is sent up rather than thrown away. Once
+/// the server has kept any text, an empty one included, it wins: an empty
+/// one is a clear made on this device or another, and the old copy here
+/// must not undo it. Null when there is no answer to show: the request failed, the session it
 /// was asked under is over, or the local copy was edited while it was on its
 /// way (that edit is newer than the answer).
 export async function loadSenderContext(httpBase: string, orgId: string, sessionToken: string): Promise<string | null> {
@@ -48,7 +49,9 @@ export async function loadSenderContext(httpBase: string, orgId: string, session
     const data = await res.json().catch(() => ({}))
     if (!stillSignedIn(sessionToken) || getSenderContext(orgId) !== before) return null
     const text = typeof data.text === 'string' ? data.text : ''
-    if (!text.trim()) {
+    // An older Worker does not say whether it kept anything; its blank is
+    // taken as the clear it may be.
+    if (!text.trim() && data.saved === false) {
       const local = getSenderContext(orgId) || legacyContext()
       if (local.trim()) {
         void saveSenderContext(httpBase, orgId, sessionToken, local)

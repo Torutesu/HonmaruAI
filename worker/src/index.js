@@ -1706,7 +1706,10 @@ async function handle(request, env, url, ctx) {
       }
       const contexts = await loadContexts(env.DB, orgId);
       const mine = contexts[user.login];
-      return json({ orgId, text: typeof mine?.text === "string" ? mine.text : "" });
+      // `saved`: whether any text was ever kept, an empty one included. An
+      // empty one was cleared on purpose, on some device; a browser's older
+      // copy must not be sent up over it as if it had never been saved.
+      return json({ orgId, text: typeof mine?.text === "string" ? mine.text : "", saved: typeof mine?.text === "string" });
     }
     if (url.pathname === "/me" && request.method === "PUT") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));

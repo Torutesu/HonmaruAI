@@ -104,6 +104,27 @@ describe('loading the server copy', () => {
     expect(getSenderContext(W)).toBe('typed meanwhile')
   })
 
+  it('keeps a clear made on another device, instead of sending the old copy back up', async () => {
+    setSenderContext('Old responsibilities', W)
+    const loading = loadSenderContext('https://api', W, 'tok-a')
+    answer({ orgId: W, text: '', saved: true })
+    expect(await loading).toBe('')
+    expect(getSenderContext(W)).toBe('')
+    expect(sent.filter((r) => r.init?.method === 'PUT')).toEqual([])
+  })
+
+  it('sends up, once, a copy the server never had', async () => {
+    localStorage.setItem('senderContext', 'Written before it was per workspace')
+    const loading = loadSenderContext('https://api', W, 'tok-a')
+    answer({ orgId: W, text: '', saved: false })
+    expect(await loading).toBe('Written before it was per workspace')
+    const puts = sent.filter((r) => r.init?.method === 'PUT')
+    expect(puts).toHaveLength(1)
+    expect(JSON.parse(String(puts[0].init?.body))).toEqual({ orgId: W, text: 'Written before it was per workspace' })
+    expect(getSenderContext(W)).toBe('Written before it was per workspace')
+    expect(localStorage.getItem('senderContext')).toBeNull()
+  })
+
   it('saves to the account, but not into this browser, once it has signed out', async () => {
     localStorage.removeItem('sessionToken')
     expect(await saveSenderContext('https://api', W, 'tok-a', 'A-only context')).toBe(true)
