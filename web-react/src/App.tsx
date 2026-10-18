@@ -9,7 +9,7 @@ import { Onboarding } from './screens/Onboarding'
 import { PickRepository } from './screens/PickRepository'
 import { githubWebConfig, beginGitHubSignIn, readCallback, finishGitHubSignIn } from './utils/githubAuth'
 import type { GitHubWebConfig } from './utils/githubAuth'
-import { clearCardCache, clearAccountData } from './utils/cardCache'
+import { clearCardCache, accountOwner, claimAccountData, adoptAccountData, releaseAccountData } from './utils/cardCache'
 import { resetEmojiAccount } from './utils/emojiSearch'
 import { parseRoute } from './utils/route'
 import { onboardingKey, needsOnboarding, completeOnboarding } from './utils/onboardingProgress'
@@ -132,7 +132,11 @@ function App() {
           // here, fails its next push and is pruned.
           disableWebPush(httpBase(savedHost), savedToken).catch(() => {})
           for (const key of ['sessionToken', 'userId', 'orgId']) localStorage.removeItem(key)
-          clearCardCache()
+          // Everything the account kept here goes, as on signing out: the
+          // next person to sign in on this browser is not shown its drafts
+          // or handed its AI key.
+          releaseAccountData()
+          resetEmojiAccount()
           setUserId(null); setSessionToken(''); setOrgId(''); setStage('welcome'); setRestoring(false)
           return
         }
@@ -142,6 +146,7 @@ function App() {
         if (typeof me.login !== 'string' || !Array.isArray(me.orgs)) throw new Error('Invalid session response')
         const workspace = me.orgs.some((org: { id: string }) => org.id === savedOrg) ? savedOrg! : me.orgs[0]?.id || ''
         setSessionToken(savedToken); setUserId(me.login); setOrgId(workspace)
+        adoptAccountData(accountOwner(httpBase(savedHost), me.login))
         localStorage.setItem('userId', me.login); localStorage.setItem('orgId', workspace)
         setStage(needsOnboarding(localStorage, httpBase(savedHost), me.login) ? 'onboarding' : 'app')
         setRestoring(false)
@@ -284,6 +289,7 @@ function App() {
     setSessionToken(token)
     setUserId(uid)
     setOrgId(workspace)
+    claimAccountData(accountOwner(httpBase(host), uid))
     localStorage.setItem('sessionToken', token)
     localStorage.setItem('userId', uid)
     localStorage.setItem('orgId', workspace)
@@ -376,7 +382,7 @@ function App() {
     localStorage.removeItem('userId')
     // The workspace's cards, drafts, notes and unsent messages (outbox:*)
     // stay readable on this machine otherwise.
-    if (stillOurs) clearAccountData()
+    if (stillOurs) releaseAccountData()
     else if (userId) forgetOwnOutbox(localStorage, userId)
     // Recently used emoji, kept and in memory, are this person's too.
     resetEmojiAccount()
