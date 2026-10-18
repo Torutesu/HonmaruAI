@@ -558,6 +558,18 @@ final class ChatMediaURLs: ObservableObject {
         min(10 * pow(2, Double(max(count, 1) - 1)), 60)
     }
 
+    /// A new address for one file now, for a player whose address stopped
+    /// opening; nil when there is none newer than the one it had (the server
+    /// would not renew it, or could not be reached).
+    func renewNow(_ f: ChatFile, base: URL) async -> URL? {
+        guard let org = SessionStore.orgId, org == orgId else { return nil }
+        let had = expiry(f) ?? 0
+        asked[f.id] = Date()
+        guard let got = try? await ChatService.freshFileURLs(orgId: org, ids: [f.id], base: base), let one = got[f.id] else { return nil }
+        if one.expiresAt > (fresh[f.id]?.expiresAt ?? 0) { fresh[f.id] = one }
+        return one.expiresAt > had ? address(f, base: base) : nil
+    }
+
     /// Renews the ones due within a minute; returns how long until the next
     /// one is, or until a failed one is tried again, in seconds. Nil only
     /// when nothing on screen runs out, or the server would renew none of it.
@@ -649,7 +661,10 @@ struct ChatAttachments: View {
         }
         .sheet(item: $preview) { file in
             if let url = assets.base.flatMap({ media.address(file, base: $0) }) {
-                ChatFilePreview(file: file, url: url)
+                ChatFilePreview(file: file, url: url) {
+                    guard let base = assets.base else { return nil }
+                    return await media.renewNow(file, base: base)
+                }
             }
         }
     }
