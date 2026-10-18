@@ -3346,7 +3346,7 @@ export const ClassicList: React.FC<Props> = ({
   // ---- What the header opens ----
   // The journal ("Context"), or the channel's details on one of its tabs.
   const [side, setSide] = useState<null | { kind: 'journal' } | { kind: 'app'; id: string; conversation?:boolean } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
-  const openSide = (next: { kind: 'journal' } | { kind: 'app'; id: string } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
+  const openSide = (next: { kind: 'journal' } | { kind: 'app'; id: string; conversation?:boolean } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
     setDetailId(null); setThread(null); setProfile(null); setPins(null)
     setSide((prev) => (prev && prev.kind === next.kind && (prev.kind === 'journal' || prev.kind === 'canvas' || (next.kind === 'resources' && prev.kind === 'resources' && prev.resource === next.resource) || (next.kind === 'details' && prev.kind === 'details' && prev.tab === next.tab)) ? null : next))
   }
@@ -3973,7 +3973,7 @@ export const ClassicList: React.FC<Props> = ({
         <LinkCards text={m.body} httpBase={api.httpBase} orgId={api.orgId} token={api.sessionToken}
           onHide={m.mine ? () => void act('POST', '/channels/previews', channel, { messageId: m.id, hidden: true }) : undefined} />
       )}
-      {harness && !m.deleted && !m.previewsHidden && !isTemp(m) && <MessageAppCards text={m.body} api={resourceClient} onOpen={id=>setSide({kind:'app',id,conversation:true})}/>}
+      {harness && !m.deleted && !m.previewsHidden && !isTemp(m) && <MessageAppCards text={m.body} api={resourceClient} onOpen={id=>openSide({kind:'app',id,conversation:true})}/>}
       {!m.deleted && (
         <Reactions message={m} nameOf={nameOfRef} onToggle={(e) => react(channel, m, e)} onAdd={() => setPickerFor(pickerKey(m, inThread))} />
       )}
