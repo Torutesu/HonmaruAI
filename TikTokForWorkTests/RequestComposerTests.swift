@@ -48,6 +48,61 @@ final class RequestComposerTests: XCTestCase {
     }
 
     @MainActor
+    func testWordsWrittenAfterAWorkspaceSwitchAreKeptForTheNewWorkspace() {
+        let app = AppState(startServices: false)
+        let a = User(id: "draft-switcher", name: "Alice", role: "Member", teamID: "team-a", githubUsername: nil)
+        var b = a
+        b.teamID = "team-b"
+        let keyA = FeedViewModel.draftKey(for: a), keyB = FeedViewModel.draftKey(for: b)
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: keyA); defaults.removeObject(forKey: keyB)
+        defer { defaults.removeObject(forKey: keyA); defaults.removeObject(forKey: keyB) }
+        app.currentUser = a
+        let composer = FeedViewModel()
+        composer.bind(to: app)
+        composer.sourceText = "Draft for A"
+        app.currentUser = b
+        composer.teamChanged(appState: app)
+        XCTAssertEqual(composer.sourceText, "Draft for A")
+        composer.sourceText = "Draft for B"
+        XCTAssertEqual(defaults.string(forKey: keyA), "Draft for A")
+        XCTAssertEqual(defaults.string(forKey: keyB), "Draft for B")
+        // A composer bound afresh to B finds what was written there.
+        let fresh = FeedViewModel()
+        fresh.bind(to: app)
+        XCTAssertEqual(fresh.sourceText, "Draft for B")
+        // Sent or cleared in B, A's words stay.
+        composer.sourceText = ""
+        XCTAssertNil(defaults.string(forKey: keyB))
+        XCTAssertEqual(defaults.string(forKey: keyA), "Draft for A")
+    }
+
+    @MainActor
+    func testAWorkspacesOwnWaitingDraftIsShownAndNeitherIsLost() {
+        let app = AppState(startServices: false)
+        let a = User(id: "draft-returner", name: "Alice", role: "Member", teamID: "team-a", githubUsername: nil)
+        var b = a
+        b.teamID = "team-b"
+        let keyA = FeedViewModel.draftKey(for: a), keyB = FeedViewModel.draftKey(for: b)
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: keyA)
+        defaults.set("Waiting in B", forKey: keyB)
+        defer { defaults.removeObject(forKey: keyA); defaults.removeObject(forKey: keyB) }
+        app.currentUser = a
+        let composer = FeedViewModel()
+        composer.bind(to: app)
+        composer.sourceText = "Draft for A"
+        app.currentUser = b
+        composer.teamChanged(appState: app)
+        XCTAssertEqual(composer.sourceText, "Waiting in B")
+        XCTAssertEqual(defaults.string(forKey: keyA), "Draft for A")
+        app.currentUser = a
+        composer.teamChanged(appState: app)
+        XCTAssertEqual(composer.sourceText, "Draft for A")
+        XCTAssertEqual(defaults.string(forKey: keyB), "Waiting in B")
+    }
+
+    @MainActor
     func testDemoPreviewAndSendPreserveEditedFieldsAndExplicitRecipient() async throws {
         let app = AppState(startServices: false)
         app.activateGuestSession()

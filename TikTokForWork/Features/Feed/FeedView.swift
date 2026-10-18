@@ -106,6 +106,35 @@ private struct CardHomeContent: View {
         AppReads.shared.seen(cards, orgId: appState.currentUser?.teamID, base: appState.backendBaseURL)
     }
     private var selectedCard: DecisionCard? { cards.first { $0.id == selectedID } ?? cards.first }
+    /// A tapped notification's card not here yet: the tap, and how many
+    /// times the workspace had sent its cards when it was first looked for.
+    @State private var tappedCardWait: (tap: UUID, snapshots: Int)?
+    @State private var tappedCardGone = false
+
+    /// A tapped notification's card, opened once it is here — in its own
+    /// workspace, which the shell switches to first. Looked for when Home
+    /// appears and whenever the cards change, so a tap made before they
+    /// loaded is not lost; still missing once the workspace has sent its
+    /// cards again, it is said to be gone rather than left waiting.
+    private func openTappedCard() {
+        guard let target = push.pendingCard, !appState.isGuest,
+              target.orgId == nil || target.orgId == appState.currentUser?.teamID else { return }
+        if let card = service.card(id: target.cardId) {
+            push.pendingCard = nil
+            tappedCardWait = nil
+            detailCard = card
+            return
+        }
+        guard let wait = tappedCardWait, wait.tap == target.tap else {
+            tappedCardWait = (tap: target.tap, snapshots: service.snapshots)
+            return
+        }
+        if service.snapshots > wait.snapshots {
+            push.pendingCard = nil
+            tappedCardWait = nil
+            tappedCardGone = true
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -144,16 +173,17 @@ private struct CardHomeContent: View {
             }
         }
         .background(Theme.Colors.surface)
-        .onAppear { selectedID = selectedCard?.id; markAppsSeen() }
+        .onAppear { selectedID = selectedCard?.id; markAppsSeen(); openTappedCard() }
         .onChange(of: service.revision) { _, _ in
             if !cards.contains(where: { $0.id == selectedID }) { selectedID = cards.first?.id }
             markAppsSeen()
+            openTappedCard()
         }
         .onChange(of: scenePhase) { _, phase in if phase == .active { markAppsSeen() } }
-        .onChange(of: push.pendingCardID) { _, id in
-            guard let id, let card = service.card(id: id) else { return }
-            detailCard = card; push.pendingCardID = nil
-        }
+        .onChange(of: push.pendingCard) { _, _ in openTappedCard() }
+        .alert("That card is no longer available", isPresented: $tappedCardGone) {
+            Button("OK", role: .cancel) {}
+        } message: { Text("It may have been deleted, or you are no longer in its workspace.") }
         .sheet(item: $detailCard) { card in
             NavigationStack {
                 RequestDetailView(cardID: card.id, service: service)

@@ -324,6 +324,27 @@ final class ChatTranslationTests: XCTestCase {
         XCTAssertEqual(t.wanted([m], reader: "en").map(\.id), ["m2"])
     }
 
+    func testAReplyIsOpenedAtItselfInItsThread() {
+        // Search, Activity and Sent keep both: the reply, and the thread it is in.
+        let route = ChatRoute.conversation(view: "b:general", jump: "r1", thread: "p1")
+        guard case let .conversation(view, jump, thread) = route else { return XCTFail("Not a conversation") }
+        XCTAssertEqual(view, "b:general")
+        XCTAssertEqual(jump, "r1")
+        XCTAssertEqual(thread, "p1")
+        XCTAssertEqual(ChatRoute.conversation(view: "b:general", jump: "m1"), ChatRoute.conversation(view: "b:general", jump: "m1", thread: nil))
+    }
+
+    func testOnlyNewMessagesAtTheBottomMoveAReaderDown() {
+        // The first page: to its newest, unless opened at a message.
+        XCTAssertTrue(ConversationView.followsNewest(previous: nil, openedAt: nil, atBottom: false, newestIsMine: false))
+        XCTAssertFalse(ConversationView.followsNewest(previous: nil, openedAt: "m1", atBottom: true, newestIsMine: false))
+        // Something new: followed at the bottom, or when it is your own.
+        XCTAssertTrue(ConversationView.followsNewest(previous: "m9", openedAt: nil, atBottom: true, newestIsMine: false))
+        XCTAssertTrue(ConversationView.followsNewest(previous: "m9", openedAt: "m1", atBottom: false, newestIsMine: true))
+        // Reading further up: someone else's message leaves the place alone.
+        XCTAssertFalse(ConversationView.followsNewest(previous: "m9", openedAt: nil, atBottom: false, newestIsMine: false))
+    }
+
     func testFormatMarksToggleSwapAndContinue() {
         XCTAssertEqual(ChatFormat.toggleLine("hello", mark: "> "), "> hello")
         XCTAssertEqual(ChatFormat.toggleLine("> hello", mark: "> "), "hello")
@@ -403,5 +424,128 @@ final class ChatNotificationTargetTests: XCTestCase {
         XCTAssertNil(PushService.MessageTarget(["cardId": "card1"]))
         XCTAssertNil(PushService.MessageTarget(["kind": "read", "orgId": "org1", "channel": "c:general"]))
         XCTAssertNil(PushService.MessageTarget(["kind": "message", "channel": "c:general"]))
+    }
+
+    func testACardsNotificationKeepsTheWorkspaceItIsIn() {
+        // As the Worker sends it (worker/src/notify.js).
+        let card = PushService.CardTarget(["cardId": "card1", "kind": "request", "orgId": "org-b"])
+        XCTAssertEqual(card?.cardId, "card1")
+        XCTAssertEqual(card?.orgId, "org-b")
+        XCTAssertNil(PushService.CardTarget(["cardId": "card1"])?.orgId)
+        XCTAssertNil(PushService.CardTarget(["kind": "message", "cardId": "card1", "channel": "c:general", "messageId": "m1"]))
+        XCTAssertNil(PushService.CardTarget(["kind": "read", "orgId": "org1", "channel": "c:general"]))
+        // The same card tapped twice is two taps, each opened.
+        XCTAssertNotEqual(PushService.CardTarget(["cardId": "card1"]), PushService.CardTarget(["cardId": "card1"]))
+    }
+}
+
+/// Messages that did not reach the server: kept for the account, workspace
+/// and conversation they were written in, and across a relaunch.
+final class ChatOutboxTests: XCTestCase {
+    private func entry(_ id: String, at: String, user: String = "alice", org: String = "org-a", view: String = "b:general",
+                       parent: String? = nil, also: Bool = false) -> ChatOutbox.Entry {
+        ChatOutbox.Entry(clientId: id, user: user, orgId: org, view: view, text: "Words for \(id)", decide: false, parentId: parent,
+                         alsoChannel: also, files: [], replyTo: nil, createdAt: at, reason: nil)
+    }
+
+    private var entries: [String: ChatOutbox.Entry] {
+        let list = [
+            entry("tmp-1", at: "2026-10-18T09:01:00Z"),
+            entry("tmp-2", at: "2026-10-18T09:02:00Z", org: "org-b"),
+            entry("tmp-3", at: "2026-10-18T09:03:00Z", user: "bob"),
+            entry("tmp-4", at: "2026-10-18T09:04:00Z", view: "b:sales"),
+            entry("tmp-5", at: "2026-10-18T09:05:00Z", parent: "p1"),
+            entry("tmp-6", at: "2026-10-18T09:06:00Z", parent: "p1", also: true),
+            entry("tmp-0", at: "2026-10-18T09:00:00Z"),
+        ]
+        return Dictionary(uniqueKeysWithValues: list.map { ($0.clientId, $0) })
+    }
+
+    func testAHeldMessageIsShownOnlyWhereItWasWritten() {
+        // Another workspace's #general, or another account's, never shows it.
+        XCTAssertEqual(ChatOutbox.held(entries, user: "alice", orgId: "org-a", view: "b:general", thread: nil).map(\.clientId), ["tmp-0", "tmp-1", "tmp-6"])
+        XCTAssertEqual(ChatOutbox.held(entries, user: "alice", orgId: "org-b", view: "b:general", thread: nil).map(\.clientId), ["tmp-2"])
+        XCTAssertEqual(ChatOutbox.held(entries, user: "bob", orgId: "org-a", view: "b:general", thread: nil).map(\.clientId), ["tmp-3"])
+        // A thread's replies in the thread; one sent to the conversation too, in both.
+        XCTAssertEqual(ChatOutbox.held(entries, user: "alice", orgId: "org-a", view: "b:general", thread: "p1").map(\.clientId), ["tmp-5", "tmp-6"])
+    }
+
+    func testHeldMessagesSurviveARelaunchUntilThereAreNone() throws {
+        let suite = "chat-outbox-test-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var kept = entries
+        kept["tmp-1"]?.reason = "The network connection was lost."
+        ChatOutbox.save(kept, to: defaults)
+        XCTAssertEqual(ChatOutbox.load(from: defaults), kept)
+        ChatOutbox.save([:], to: defaults)
+        XCTAssertNil(defaults.data(forKey: ChatOutbox.key))
+        // Signing out takes away every "chat.draft." key, these with them.
+        XCTAssertTrue(ChatOutbox.key.hasPrefix("chat.draft."))
+    }
+}
+
+/// What the chat store does when the server cannot be reached. With no
+/// session on the phone every request fails before it leaves it.
+@MainActor
+final class ChatStoreFailureTests: XCTestCase {
+    /// The store holds the app state weakly: each test keeps it, and says
+    /// so last, to the end.
+    private func offline() -> (store: ChatStore, app: AppState) {
+        SessionStore.clear()
+        let app = AppState(startServices: false)
+        app.currentUser = User(id: "offline-reader", name: "Reader", role: "Member", teamID: "org-offline", githubUsername: nil)
+        let store = ChatStore()
+        store.bind(app)
+        return (store, app)
+    }
+
+    func testAConversationThatCouldNotBeLoadedIsNotMarkedRead() async {
+        let (store, app) = offline()
+        await store.open("b:general")
+        XCTAssertNil(store.readAt("b:general"))
+        XCTAssertNotNil(store.error)
+        XCTAssertEqual(app.currentUser?.teamID, "org-offline")
+    }
+
+    private func mine(_ id: String, _ body: String) throws -> ChatMessage {
+        let json = #"{"id":"\#(id)","channel":"b:general","kind":"message","body":"\#(body)","mine":true,"createdAt":"2026-10-01T09:00:00.000Z"}"#
+        return try JSONDecoder().decode(ChatMessage.self, from: Data(json.utf8))
+    }
+
+    func testAnEditTheServerDidNotTakeIsNotReportedSaved() async throws {
+        let (store, app) = offline()
+        let m = try mine("m1", "before")
+        let saved = await store.edit(m, to: "after")
+        XCTAssertFalse(saved, "A failed save must leave the edit open")
+        XCTAssertEqual(app.currentUser?.teamID, "org-offline")
+    }
+
+    func testSwitchingWorkspaceLeavesNothingOfTheLastOneShowing() async {
+        let (store, app) = offline()
+        await store.open("b:general")
+        XCTAssertNotNil(store.error)
+        store.pendingOpen = PushService.MessageTarget(["kind": "message", "orgId": "org-offline", "channel": "b:general", "messageId": "m1"])
+        app.currentUser?.teamID = "org-other"
+        XCTAssertNil(store.error)
+        XCTAssertNil(store.pendingOpen)
+        XCTAssertTrue(store.messages.isEmpty)
+    }
+
+    func testAMessageThatCannotBeReachedIsReportedNotFound() async {
+        let (store, app) = offline()
+        await store.open("b:general")
+        let found = await store.loadUntil("b:general", contains: "far-back")
+        XCTAssertFalse(found)
+        XCTAssertEqual(app.currentUser?.teamID, "org-offline")
+    }
+
+    func testACancellationTheServerDidNotTakeIsNotReportedDone() async {
+        let (store, app) = offline()
+        let later = ChatScheduled(id: "s1", body: "Reminder", sendAt: "2026-10-20T09:00:00.000Z", channel: "b:general", parentId: nil)
+        let result = await store.cancelScheduled(later)
+        XCTAssertEqual(result, .failed)
+        XCTAssertTrue(store.cancelling.isEmpty)
+        XCTAssertEqual(app.currentUser?.teamID, "org-offline")
     }
 }
