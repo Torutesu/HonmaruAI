@@ -446,19 +446,25 @@ final class ChatStore: ObservableObject {
         if let me = appState?.currentUser?.id { tr.use(scope: "\(me)|\(orgId)") }
         let want = tr.wanted(list, reader: reader)
         guard !want.isEmpty else { return }
-        let asked = Array(want.prefix(60))
         tr.retry = { [weak self] m in Task { await self?.translate(m.channel, [m]) } }
-        tr.asking(asked)
-        let got: ChatService.Translations
-        do {
-            got = try await ChatService.translate(orgId: orgId, channel: channel, ids: asked.map(\.id), locale: reader, base: base)
-        } catch {
-            tr.answered(asked, error: ChatTranslateFailure.of(error))
-            return
+        tr.asking(want)
+        // Every one, sixty to a request: a long history used to have its
+        // first sixty sent and the rest marked asked and never sent.
+        let batches = ChatTranslations.batches(want)
+        for (i, asked) in batches.enumerated() {
+            let got: ChatService.Translations
+            do {
+                got = try await ChatService.translate(orgId: orgId, channel: channel, ids: asked.map(\.id), locale: reader, base: base)
+            } catch {
+                // The rest were not asked about either: each fails the same
+                // way, and may be asked about again.
+                tr.answered(Array(batches[i...].joined()), error: ChatTranslateFailure.of(error))
+                return
+            }
+            if got.off == true { tr.off = true; tr.answered(Array(batches[i...].joined()), error: nil, reasons: [:]); return }
+            for m in asked { if let text = got.translations[m.id] { tr.store(m.id, from: m.body, text: text, lang: reader) } }
+            tr.answered(asked, error: nil, reasons: got.failed ?? [:])
         }
-        if got.off == true { tr.off = true; tr.answered(asked, error: nil, reasons: [:]); return }
-        for m in asked { if let text = got.translations[m.id] { tr.store(m.id, from: m.body, text: text, lang: reader) } }
-        tr.answered(asked, error: nil, reasons: got.failed ?? [:])
     }
 
     func markRead(_ view: String) async {
