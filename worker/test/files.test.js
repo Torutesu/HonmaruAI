@@ -384,13 +384,111 @@ const failing = (match) => new Proxy(env.DB, {
   get(db, prop) {
     const down = async () => { throw new Error("D1 is down"); };
     if (prop === "prepare") {
-      return (sql) => (match.test(sql) ? { bind() { return this; }, run: down, first: down, all: down } : db.prepare(sql));
+      return (sql) => (match.test(sql) ? { down: true, bind() { return this; }, run: down, first: down, all: down } : db.prepare(sql));
     }
+    if (prop === "batch") return (stmts) => (stmts.some((s) => s.down) ? down() : db.batch(stmts));
     const value = db[prop];
     return typeof value === "function" ? value.bind(db) : value;
   },
 });
 const stored = async () => (await env.MEDIA.list({ prefix: `org/${encodeURIComponent(ORG)}/files/` })).objects.length;
+
+/// The database, with `between` done just after the statement `match` picks
+/// has read what it read: another request landing in the middle of this one.
+const interrupted = (match, between) => new Proxy(env.DB, {
+  get(db, prop) {
+    if (prop === "prepare") {
+      return (sql) => {
+        const stmt = db.prepare(sql);
+        if (!match.test(sql)) return stmt;
+        return { bind: (...args) => { const bound = stmt.bind(...args); return { all: async () => { const out = await bound.all(); await between(); return out; } }; } };
+      };
+    }
+    const value = db[prop];
+    return typeof value === "function" ? value.bind(db) : value;
+  },
+});
+const sendWith = (token, db, payload) => worker.fetch(new Request("https://example.com/channels/messages", {
+  method: "POST", headers: auth(token, { "content-type": "application/json" }), body: JSON.stringify({ orgId: ORG, channel: "b:cafe", ...payload }),
+}), { ...env, DB: db }, ctx);
+const fileKeyOf = (id) => `org/${encodeURIComponent(ORG)}/files/${id}`;
+const dayAfterTomorrow = () => Date.now() + 2 * 86400000;
+
+test("a send that claims an old upload while the sweep is on its way keeps it whole", async () => {
+  const { file } = await (await upload(mika, "b:cafe")).json();
+  let sent = null;
+  const racing = interrupted(/^SELECT id, org_id FROM message_files/, async () => { sent = await say(mika, "b:cafe", "", [file.id]); });
+  expect(await sweepUnsent({ ...env, DB: racing }, dayAfterTomorrow())).toBe(0);
+  expect(sent.status).toBe(201);
+  const [seen] = await list(kenji, "b:cafe");
+  expect(seen.files.map((f) => f.id)).toEqual([file.id]);
+  expect(await env.MEDIA.get(fileKeyOf(file.id))).not.toBeNull();
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM media_deletions").first()).n).toBe(0);
+  expect((await call(seen.files[0].url, {})).status).toBe(200);
+});
+
+test("a send after the sweep took its upload is told so, and nothing is sent without it", async () => {
+  const { file } = await (await upload(mika, "b:cafe")).json();
+  expect(await sweepUnsent(env, dayAfterTomorrow())).toBe(1);
+  // Swept twice over: nothing more to do.
+  expect(await sweepUnsent(env, dayAfterTomorrow())).toBe(0);
+  for (const body of ["", "the photo"]) {
+    const res = await say(mika, "b:cafe", body, [file.id]);
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("files_gone");
+  }
+  expect(await list(mika, "b:cafe")).toEqual([]);
+});
+
+test("a sweep that lands between a send's look at its uploads and its claim leaves no message", async () => {
+  const { file } = await (await upload(mika, "b:cafe")).json();
+  const racing = interrupted(/^SELECT id, channel, uploader, message_id FROM message_files/, async () => { await sweepUnsent(env, dayAfterTomorrow()); });
+  const res = await sendWith(mika, racing, { body: "the photo", files: [file.id] });
+  await settle();
+  expect(res.status).toBe(409);
+  expect((await res.json()).code).toBe("files_gone");
+  expect(await list(mika, "b:cafe")).toEqual([]);
+});
+
+test("bytes R2 will not delete after the sweep claimed them are written down, not lost", async () => {
+  const { file } = await (await upload(mika, "b:cafe")).json();
+  const refusing = { ...env, MEDIA: { delete: async () => { throw new Error("R2 is down"); } } };
+  expect(await sweepUnsent(refusing, dayAfterTomorrow())).toBe(1);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM message_files").first()).n).toBe(0);
+  const kept = await env.DB.prepare("SELECT key, last_error FROM media_deletions ORDER BY key").all();
+  expect(kept.results.map((r) => r.key)).toEqual([`file-${file.id}`, fileKeyOf(file.id)].sort());
+  expect(kept.results.every((r) => r.last_error === "R2 is down")).toBe(true);
+  const { retryMediaDeletions } = await import("../src/files.js");
+  expect(await retryMediaDeletions(env, Date.now() + 1000)).toEqual({ deleted: 2, failed: 0 });
+  expect(await env.MEDIA.get(fileKeyOf(file.id))).toBeNull();
+});
+
+test("a send whose files could not be claimed writes no message, and its retry sends them", async () => {
+  const { file } = await (await upload(mika, "b:cafe")).json();
+  const clientId = "tmp-photo-1";
+  const down = failing(/^UPDATE message_files SET message_id = \?4/);
+  const failed = await sendWith(mika, down, { body: "", files: [file.id], clientId }).catch(() => null);
+  await settle();
+  expect(failed?.ok).not.toBe(true);
+  expect(await list(mika, "b:cafe")).toEqual([]);
+
+  const retried = await call("/channels/messages", {
+    method: "POST", headers: auth(mika, { "content-type": "application/json" }), body: JSON.stringify({ orgId: ORG, channel: "b:cafe", body: "", files: [file.id], clientId }),
+  });
+  expect(retried.status).toBe(201);
+  const { message } = await retried.json();
+  expect(message.files.map((f) => f.id)).toEqual([file.id]);
+  // Its answer lost on the way back, and tried once more: the same message,
+  // with its file.
+  const again = await call("/channels/messages", {
+    method: "POST", headers: auth(mika, { "content-type": "application/json" }), body: JSON.stringify({ orgId: ORG, channel: "b:cafe", body: "", files: [file.id], clientId }),
+  });
+  expect(again.status).toBe(200);
+  const replayed = (await again.json()).message;
+  expect(replayed.id).toBe(message.id);
+  expect(replayed.files.map((f) => f.id)).toEqual([file.id]);
+  expect(await list(kenji, "b:cafe")).toHaveLength(1);
+});
 
 test("an upload whose row cannot be written leaves no bytes behind", async () => {
   const down = { ...env, DB: failing(/^INSERT INTO message_files/) };

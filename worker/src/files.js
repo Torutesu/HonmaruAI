@@ -186,30 +186,31 @@ export async function filesFor(db, orgId, messageIds) {
   return out;
 }
 
-/// Claim uploads for a message just sent: only yours, only uploaded into
-/// this conversation, only ones no message has yet.
-export async function attachFiles(db, { orgId, key, login, messageId, ids }) {
-  const wanted = [...new Set((Array.isArray(ids) ? ids : []).filter((x) => typeof x === "string" && ID.test(x)))].slice(0, MAX_FILES_PER_MESSAGE);
-  if (!wanted.length) return 0;
-  const marks = wanted.map((_, j) => `?${j + 5}`).join(", ");
-  const res = await db
+/// The statement that claims uploads for a message being sent: only yours,
+/// only uploaded into this conversation, only ones no message has yet. It
+/// is run with the message's own INSERT, in one step (postMessage).
+export function claimFiles(db, { orgId, key, login, messageId, ids }) {
+  const marks = ids.map((_, j) => `?${j + 5}`).join(", ");
+  return db
     .prepare(`UPDATE message_files SET message_id = ?4
                WHERE org_id = ?1 AND channel = ?2 AND uploader = ?3 AND message_id IS NULL AND id IN (${marks})`)
-    .bind(orgId, key, login, messageId, ...wanted)
-    .run();
-  return res.meta?.changes || 0;
+    .bind(orgId, key, login, messageId, ...ids);
 }
 
-/// Uploads that could be attached: yours, in this conversation, unsent.
-export async function claimable(db, { orgId, key, login, ids }) {
+/// The uploads a send names, before its message is written: `ids`, the ones
+/// it can claim (yours, in this conversation, unsent); `gone`, how many are
+/// not there at all — swept unsent, or deleted with their message — which
+/// the send is told of rather than going without them.
+export async function sendable(db, { orgId, key, login, ids }) {
   const wanted = [...new Set((Array.isArray(ids) ? ids : []).filter((x) => typeof x === "string" && ID.test(x)))].slice(0, MAX_FILES_PER_MESSAGE);
-  if (!wanted.length) return 0;
-  const marks = wanted.map((_, j) => `?${j + 4}`).join(", ");
-  const row = await db
-    .prepare(`SELECT COUNT(*) AS n FROM message_files WHERE org_id = ?1 AND channel = ?2 AND uploader = ?3 AND message_id IS NULL AND id IN (${marks})`)
-    .bind(orgId, key, login, ...wanted)
-    .first();
-  return row?.n || 0;
+  if (!wanted.length) return { ids: [], gone: 0 };
+  const marks = wanted.map((_, j) => `?${j + 2}`).join(", ");
+  const { results = [] } = await db
+    .prepare(`SELECT id, channel, uploader, message_id FROM message_files WHERE org_id = ?1 AND id IN (${marks})`)
+    .bind(orgId, ...wanted)
+    .all();
+  const mine = results.filter((r) => r.channel === key && r.uploader === login && !r.message_id).map((r) => r.id);
+  return { ids: wanted.filter((id) => mine.includes(id)), gone: wanted.length - results.length };
 }
 
 // Where a file's bytes live: under its workspace, so a workspace's files can
@@ -295,14 +296,42 @@ export async function dropFiles(env, orgId, messageId) {
 }
 
 /// Uploads nobody sent within a day, swept by the cron.
+///
+/// A message can still be sent with one between the sweep finding it and
+/// deleting it, so each is claimed before anything of it goes: in one step,
+/// and only while no message has it, its row is deleted and its keys are
+/// written down for deleting. A send that claimed it first keeps it whole;
+/// one that comes after finds no upload to claim. Only then are the bytes
+/// deleted, and a key R2 refuses is left written down for the cron to try
+/// again (retryMediaDeletions).
 export async function sweepUnsent(env, now = Date.now()) {
   const cutoff = new Date(now - 86400000).toISOString();
   const { results } = await env.DB.prepare("SELECT id, org_id FROM message_files WHERE message_id IS NULL AND created_at < ?1 LIMIT 200").bind(cutoff).all();
+  let swept = 0;
   for (const r of results || []) {
-    await deleteFileObject(env, r.org_id, r.id);
-    await env.DB.prepare("DELETE FROM message_files WHERE id = ?1").bind(r.id).run();
+    const keys = env.MEDIA ? [fileKey(r.org_id, r.id), legacyFileKey(r.id)] : [];
+    const at = new Date().toISOString();
+    const done = await env.DB.batch([
+      ...keys.map((key) => env.DB
+        .prepare(`INSERT INTO media_deletions (key, org_id, attempts, last_error, created_at, next_at)
+                  SELECT ?1, ?2, 0, NULL, ?3, ?3
+                   WHERE EXISTS (SELECT 1 FROM message_files WHERE id = ?4 AND message_id IS NULL AND created_at < ?5)
+                  ON CONFLICT(key) DO NOTHING`)
+        .bind(key, r.org_id, at, r.id, cutoff)),
+      env.DB.prepare("DELETE FROM message_files WHERE id = ?1 AND message_id IS NULL AND created_at < ?2").bind(r.id, cutoff),
+    ]);
+    if (!done[keys.length].meta?.changes) continue;
+    swept += 1;
+    for (const key of keys) {
+      try {
+        await env.MEDIA.delete(key);
+        await env.DB.prepare("DELETE FROM media_deletions WHERE key = ?1").bind(key).run();
+      } catch (err) {
+        await env.DB.prepare("UPDATE media_deletions SET last_error = ?2 WHERE key = ?1").bind(key, String(err?.message || err).slice(0, 200)).run().catch(() => {});
+      }
+    }
   }
-  return (results || []).length;
+  return swept;
 }
 
 // ---- Upload and fetch ----

@@ -42,7 +42,7 @@ import { channelDetails, setDescription, channelRow } from "./channelDetails.js"
 import { channelJournal, forgetJournalDay, validDay, validZone } from "./journal.js";
 import { settleUsage } from "./ledger.js";
 import { readCapped } from "./media.js";
-import { uploadFile, attachFiles, claimable, dropFiles } from "./files.js";
+import { uploadFile, sendable, dropFiles } from "./files.js";
 import { queueMessagePushes, clearDelivered, clearDeliveredMessages } from "./pushes.js";
 import { audit, person } from "./audit.js";
 import { getCanvas, toClientCanvas, listRevisions, getRevision, saveCanvas, draftCanvas } from "./canvas.js";
@@ -989,20 +989,20 @@ export async function handleChannels(request, env, url, { route, after }) {
       if (sched.error) return json({ message: sched.error }, 400);
       return json({ scheduled: { ...sched.scheduled, channel: view } }, 201);
     }
-    // Files uploaded for this message come with it — yours, uploaded here.
-    const fileIds = Array.isArray(body.files) ? body.files : [];
-    const withFiles = fileIds.length > 0 && (await claimable(env.DB, { orgId, key: resolved.key, login: who.user.login, ids: fileIds })) > 0;
+    // Files uploaded for this message come with it — yours, uploaded here —
+    // claimed with it in one step (postMessage).
+    const uploads = await sendable(env.DB, { orgId, key: resolved.key, login: who.user.login, ids: body.files });
+    const withFiles = uploads.ids.length > 0;
     if (body.clientId != null && body.clientId !== "" && (typeof body.clientId !== "string" || !clientIdOk(body.clientId))) {
       return json({ message: "That send cannot be tried again." }, 400);
     }
     const clientId = typeof body.clientId === "string" && body.clientId ? body.clientId : null;
-    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId, replyTo, withFiles, clientId, alsoChannel });
+    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId, replyTo, withFiles, files: { login: who.user.login, ...uploads }, clientId, alsoChannel });
     if (out.error) return json({ message: out.error, ...(out.code ? { code: out.code } : {}) }, out.status || 400);
     if (out.replay) {
       const [message] = await present(env.DB, orgId, [out.row], who.user.login, view, members);
       return json({ message });
     }
-    if (withFiles) await attachFiles(env.DB, { orgId, key: resolved.key, login: who.user.login, messageId: out.row.id, ids: fileIds });
     // A message to an agent is the agent's to do: it never becomes a card
     // for a person, whatever else it says.
     //
