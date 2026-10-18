@@ -30,3 +30,15 @@ test('group editor can select and save a column',async()=>{
   expect(ui.save).toHaveBeenCalledWith({groupBy:'state'})
   act(()=>ui.tree.unmount())
 })
+
+test('metadata timestamp filters expose local datetime input and save UTC',async()=>{
+ const ui=setup();ui.click('フィルター');ui.click('フィルターを調整');ui.click('条件を追加')
+ act(()=>ui.tree.root.findByProps({'aria-label':'条件1のフィールド'}).props.onChange({target:{value:'$row.updatedAt'}}))
+ const input=ui.tree.root.findByProps({'aria-label':'条件1の値'})
+ expect(input.props.type).toBe('datetime-local')
+ expect(ui.tree.root.findByProps({'aria-label':'条件1の演算子'}).findAllByType('option').map(n=>n.props.value)).not.toContain('contains')
+ act(()=>input.props.onChange({target:{value:'2026-10-18T11:00:00'}}))
+ await act(async()=>{ui.tree.root.findAllByType('button').find(b=>b.children.includes('保存'))!.props.onClick();await Promise.resolve()})
+ expect(ui.save.mock.calls[0][0].filters).toEqual([{column:'$row.updatedAt',op:'eq',value:new Date('2026-10-18T11:00:00').toISOString()}])
+ act(()=>ui.tree.unmount())
+})

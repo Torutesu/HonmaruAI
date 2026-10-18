@@ -420,3 +420,6 @@
 .hx-column-visibility {display:inline-flex;align-items:center;justify-content:center;min-width:28px;min-height:28px}
 
 .hx-system-cell {display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:7px 8px;color:var(--hx-muted);font-variant-numeric:tabular-nums;user-select:text}
+
+.hx-column-sort {display:inline-flex;align-items:center;gap:6px;max-width:calc(100% - 12px);border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;padding:0}
+.hx-column-sort svg {flex-shrink:0}.hx-column-sort:disabled {cursor:default}.hx-column-sort:focus-visible {outline:2px solid var(--hx-muted);outline-offset:4px}

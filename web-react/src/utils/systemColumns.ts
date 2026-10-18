@@ -22,3 +22,16 @@ export function systemCellText(row:Row,id:string) {
   const date=new Date(value)
   return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(date) : '—'
 }
+
+export const isSystemTimestamp = (id:string) => id==='$row.createdAt'||id==='$row.updatedAt'
+export function localDateTime(value:string) {
+ const date=new Date(value)
+ if(!value||!Number.isFinite(date.getTime())) return ''
+ const pad=(n:number)=>String(n).padStart(2,'0')
+ return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+export function utcDateTime(value:string) {
+ const date=new Date(value)
+ return value&&Number.isFinite(date.getTime())?date.toISOString():''
+}
+export const nextColumnSort = (current:string|undefined,id:string) => current===id?`-${id}`:current===`-${id}`?'':id
