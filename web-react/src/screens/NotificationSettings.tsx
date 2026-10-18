@@ -17,6 +17,8 @@ interface Props {
 interface Me {
   email: string | null
   emailEditable: boolean
+  /// The address is the one a company's sign-on or directory gave it.
+  emailManaged?: boolean
   notifyEmail: boolean
   pushWhileActive?: boolean
   notifyPausedUntil?: string | null
@@ -173,13 +175,19 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
               value={email}
               disabled={!me.emailEditable}
               onChange={(e) => setEmail(e.target.value)}
-              onBlur={() => { if (me.emailEditable && email !== (me.email || '')) patch({ email }) }}
+              onBlur={() => {
+                if (!me.emailEditable || email === (me.email || '')) return
+                // Refused, the field goes back to the address mail still goes to.
+                void patch({ email }).then((saved) => { if (!saved) setEmail(me.email || '') })
+              }}
               placeholder={t('you@company.com')}
             />
             <div className="hint">
               {me.emailEditable
                 ? t('Changing this changes nothing else — it is only where mail lands.')
-                : t('This is the address you sign in with, so it cannot be changed here.')}
+                : me.emailManaged
+                  ? t('Your company manages this address, so it cannot be changed here.')
+                  : t('This is the address you sign in with, so it cannot be changed here.')}
             </div>
           </div>
         )}

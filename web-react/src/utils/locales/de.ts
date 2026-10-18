@@ -1017,6 +1017,8 @@ const table: Record<string, string> = {
     'Das zu ändern ändert nichts weiter — es ist nur, wohin Mail geht.',
   'This is the address you sign in with, so it cannot be changed here.':
     'Das ist die Adresse, mit der du dich anmeldest — sie lässt sich hier nicht ändern.',
+  'Your company manages this address, so it cannot be changed here.':
+    'Deine Firma verwaltet diese Adresse — sie lässt sich hier nicht ändern.',
   'On this device': 'Auf diesem Gerät',
   'By email': 'Per E-Mail',
   'Email fallback': 'E-Mail-Fallback',

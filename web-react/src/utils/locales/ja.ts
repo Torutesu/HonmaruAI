@@ -1007,6 +1007,8 @@ const table: Record<string, string> = {
     'ここを変えても他には影響しません。メールの届き先だけです。',
   'This is the address you sign in with, so it cannot be changed here.':
     'サインインに使っているアドレスなので、ここでは変更できません。',
+  'Your company manages this address, so it cannot be changed here.':
+    '会社が管理しているアドレスなので、ここでは変更できません。',
 
   // Notifications
   'On this device': 'この端末で',

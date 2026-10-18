@@ -116,3 +116,26 @@ test("a GitHub account can say where email should go; an email account cannot ch
   await upsertUser(env.DB, { githubId: "email:mai@example.com", login: "u:mai@example.com", name: "Mai", avatarUrl: null });
   expect(await setUserEmail(env.DB, "email:mai@example.com", "other@example.com")).toMatchObject({ error: expect.any(String) });
 });
+
+test("an account the company made says its address cannot be changed, before a change is refused", async () => {
+  const { upsertUser, createSession } = await import("../src/db.js");
+  for (const githubId of ["sso:acme:ken", "scim:acme:ken"]) {
+    await upsertUser(env.DB, { githubId, login: githubId, name: "Ken", avatarUrl: null });
+    const email = `${githubId.split(":")[0]}-ken@acme.jp`;
+    await env.DB.prepare("UPDATE users SET email = ?2 WHERE github_id = ?1").bind(githubId, email).run();
+    const token = await createSession(env.DB, githubId, "x");
+    expect(await (await SELF.fetch("https://example.com/me", { headers: headers(token) })).json())
+      .toMatchObject({ email, emailEditable: false, emailManaged: true });
+    const res = await SELF.fetch("https://example.com/me", {
+      method: "PUT", headers: headers(token), body: JSON.stringify({ email: "ken@gmail.com" }),
+    });
+    expect(res.status).toBe(400);
+  }
+  // An email account cannot either, but because the address is its sign-in.
+  await upsertUser(env.DB, { githubId: "email:mai@example.com", login: "u:mai@example.com", name: "Mai", avatarUrl: null });
+  const mai = await createSession(env.DB, "email:mai@example.com", "x");
+  expect(await (await SELF.fetch("https://example.com/me", { headers: headers(mai) })).json())
+    .toMatchObject({ emailEditable: false, emailManaged: false });
+  expect(await (await SELF.fetch("https://example.com/me", { headers: headers(globalThis.__yuki) })).json())
+    .toMatchObject({ emailEditable: true, emailManaged: false });
+});
