@@ -109,6 +109,11 @@ export async function policyDenial(env, session, orgId) {
   const { ipDenial } = await import("./governance.js");
   const offNetwork = await ipDenial(env, orgId, currentIp());
   if (offNetwork) return offNetwork;
+  // Turned off by the company's directory, however they came back in.
+  const { deactivatedHere, DEACTIVATED_MESSAGE } = await import("./scim.js");
+  if (await deactivatedHere(env.DB, orgId, session.github_id)) {
+    return { status: 403, body: { message: DEACTIVATED_MESSAGE, code: "deactivated", orgId } };
+  }
   // Signed out of this workspace (by its admin, or its rules), whatever
   // the session may still open elsewhere.
   if (await endedHere(env.DB, session.token, orgId)) {

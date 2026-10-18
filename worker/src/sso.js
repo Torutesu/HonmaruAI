@@ -469,6 +469,10 @@ async function finishSignIn(env, request, row, conn, identity, grant = {}) {
   }
   let account;
   try { account = await accountFor(env, conn, identity); } catch (err) { return fail(err?.message || String(err)); }
+  // The provider signing someone in does not overrule the directory that
+  // turned them off here.
+  const { deactivatedHere, DEACTIVATED_MESSAGE } = await import("./scim.js");
+  if (await deactivatedHere(env.DB, conn.org_id, account.githubId)) return fail(DEACTIVATED_MESSAGE);
   const now = new Date().toISOString();
   await env.DB.prepare(
     `INSERT INTO sso_identities (org_id, issuer, subject, user_github_id, email, last_login_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)

@@ -105,6 +105,9 @@ function cleanCidrs(input) {
 /// rule: anyone; only people at its verified domains; or anyone else only
 /// once an admin approves. Guests may be let through either way.
 export async function inviteGate(env, orgId, userId, role) {
+  // Turned off by the company's directory: an invitation does not undo it.
+  const { deactivatedHere, DEACTIVATED_MESSAGE } = await import("./scim.js");
+  if (await deactivatedHere(env.DB, orgId, userId)) return { error: DEACTIVATED_MESSAGE };
   const row = await governanceOf(env.DB, orgId);
   const policy = row?.invite_policy || "open";
   if (policy === "open") return { ok: true };
