@@ -430,9 +430,10 @@ test('personal views and column layouts persist across sessions without changing
   const original=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
   const ids=original.table.columns.map(c=>c.id);
   const path=`/hx/personal-views/${app.id}`;
-  const body={orgId:ORG,expectedRevision:0,views:[{id:'personal_test',type:'table',name:'自分用',filters:[{column:ids[0],op:'contains',value:'Acme'}]}],layouts:{personal_test:{order:[ids[1],ids[1],'deleted',ids[0]],hidden:[ids[0],ids[1],ids[1],'deleted'],widths:{[ids[0]]:320,[ids[1]]:9999,deleted:100}}}};
+  const body={orgId:ORG,expectedRevision:0,views:[{id:'personal_test',type:'table',name:'自分用',filters:[{column:ids[0],op:'contains',value:'Acme'}]}],layouts:{personal_test:{wrapText:true,order:[ids[1],ids[1],'deleted',ids[0]],hidden:[ids[0],ids[1],ids[1],'deleted'],widths:{[ids[0]]:320,[ids[1]]:9999,deleted:100}}}};
   const saved=await send('PUT',path,mika,body); expect(saved.status).toBe(200);
   const result=await saved.json(); expect(result.revision).toBe(1);expect(result.layouts.personal_test.order).toEqual([ids[1],ids[0],...ids.slice(2),'$row.id','$row.createdAt','$row.updatedAt']);expect(result.layouts.personal_test.widths).toEqual({[ids[0]]:320,[ids[1]]:600});
+  expect(result.layouts.personal_test.wrapText).toBe(true);
   expect(result.layouts.personal_test.hidden).toEqual([ids[1],'$row.id','$row.createdAt','$row.updatedAt']);
   const {createSession}=await import('../src/db.js'); const second=await createSession(env.DB,'9102','second');
   expect(await (await get(`${path}?orgId=${ORG}`,second)).json()).toEqual(result);

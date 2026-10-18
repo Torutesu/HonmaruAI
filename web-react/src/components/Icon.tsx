@@ -17,7 +17,7 @@ import React from 'react'
 /// Stroke is `currentColor`, so a tab colours its icon by colouring itself.
 
 export type IconName =
-  | 'sort' | 'arrow-up' | 'arrow-down' | 'filter' | 'group' | 'share' | 'sliders' | 'compose' | 'plug' | 'list-check' | 'workflow' | 'home' | 'you' | 'history' | 'tools' | 'plus'
+  | 'wrap-text' | 'sort' | 'arrow-up' | 'arrow-down' | 'filter' | 'group' | 'share' | 'sliders' | 'compose' | 'plug' | 'list-check' | 'workflow' | 'home' | 'you' | 'history' | 'tools' | 'plus'
   | 'record' | 'bell' | 'invite' | 'plan' | 'mail' | 'hash' | 'notion' | 'github' | 'box'
   | 'calendar' | 'drive' | 'insights' | 'search' | 'mic'
   | 'repeat' | 'book' | 'terminal' | 'send'
@@ -28,6 +28,7 @@ export type IconName =
   | 'trash' | 'image' | 'file' | 'lock' | 'users' | 'download' | 'camera' | 'at' | 'star' | 'folder' | 'shield' | 'devices' | 'log-out' | 'crown' | 'eye-off' | 'eye'
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  'wrap-text': <><path d="M3 6h18M3 12h14a3 3 0 0 1 0 6h-4m3-3-3 3 3 3M3 18h4"/></>,
   sort: <><path d="m8 9 4-4 4 4m-8 6 4 4 4-4"/></>,
   'arrow-up': <path d="M12 20V4m-6 6 6-6 6 6"/>,
   'arrow-down': <path d="M12 4v16m-6-6 6 6 6-6"/>,

@@ -1,0 +1,18 @@
+import React, {useEffect, useRef, useState} from 'react'
+import {Dialog} from './Dialog'
+import type {Column} from '../utils/harness'
+
+export function AppRecordDialog({appName,columns,initial={},members=[],save,onClose}:{appName:string;columns:Column[];initial?:Record<string,unknown>;members?:Array<{ref:string;name:string}>;save:(values:Record<string,unknown>)=>Promise<void>;onClose:()=>void}) {
+ const [draft,setDraft]=useState<Record<string,unknown>>(initial),[busy,setBusy]=useState(false),[error,setError]=useState('')
+ const pending=useRef(false),form=useRef<HTMLFormElement>(null)
+ const close=()=>{if(!pending.current)onClose()}
+ useEffect(()=>{const trap=(e:KeyboardEvent)=>{if(e.key!=='Tab')return;const dialog=form.current?.closest('[role="dialog"]');const fields=Array.from(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled)')||[]);const first=fields[0],last=fields.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus()}};document.addEventListener('keydown',trap,true);return()=>document.removeEventListener('keydown',trap,true)},[])
+ const submit=async(e:React.FormEvent)=>{e.preventDefault();if(pending.current)return;pending.current=true;setBusy(true);setError('');try{const values=Object.fromEntries(columns.filter(c=>draft[c.id]!==undefined&&draft[c.id]!=='').map(c=>[c.id,c.type==='number'?Number(draft[c.id]):draft[c.id]]));await save(values);onClose()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{pending.current=false;setBusy(false)}}
+ const change=(id:string,value:unknown)=>setDraft(d=>({...d,[id]:value}))
+ return <Dialog title="新規レコード" lede={`${appName}に新しいレコードを作成します。`} className="hx-record-dialog" onClose={close} footer={<><button className="dlg-btn" disabled={busy} onClick={close}>キャンセル</button><button className="dlg-btn primary" form="hx-record-form" type="submit" disabled={busy}>{busy?'作成中…':'作成'}</button></>}>
+  <form id="hx-record-form" ref={form} onSubmit={e=>void submit(e)} className="hx-record-form">
+   {columns.map((c,i)=><label key={c.id}><span className="dlg-label">{c.name}</span>{c.type==='checkbox'?<input type="checkbox" checked={Boolean(draft[c.id])} disabled={busy} onChange={e=>change(c.id,e.target.checked)}/>:c.type==='select'||c.type==='person'&&members.length>0?<select className="dlg-input" disabled={busy} value={String(draft[c.id]??'')} onChange={e=>change(c.id,e.target.value)}><option value="">{c.name}を選択</option>{c.type==='person'?members.map(m=><option value={m.ref} key={m.ref}>{m.name}</option>):(c.options||[]).map(o=><option key={o}>{o}</option>)}</select>:c.type==='text'?<textarea className="dlg-input" rows={i===0?3:2} maxLength={5000} disabled={busy} value={String(draft[c.id]??'')} onChange={e=>change(c.id,e.target.value)}/>:<input className="dlg-input" type={c.type==='number'?'number':c.type==='date'?'date':c.type==='email'?'email':c.type==='url'?'url':'text'} step={c.type==='number'?'any':undefined} disabled={busy} value={String(draft[c.id]??'')} onChange={e=>change(c.id,e.target.value)}/>}</label>)}
+   {error&&<p role="alert" className="dlg-error">{error}</p>}
+  </form>
+ </Dialog>
+}
