@@ -1,3 +1,5 @@
+import { announceTo } from '../announce.js';
+import { custom as appActivityEvent } from '../agui/events.js';
 import { conversationSource, sourceFor, sourceHistory, notifyAppMentions, appNotifications, asksAppAI, replyToApp } from './appConversationFeatures.js';
 import { appConversation } from './appConversations.js';
 import { personalViews } from './personalViews.js';
@@ -462,6 +464,7 @@ export async function handleHarness(request, env, url, context = {}) {
         ? await conversationSource(env.DB,orgId,who.user,appId,input,request.method==='POST')
         : await appNotifications(env.DB,orgId,me,appId,input,request.method==='POST');
       if(!r.error&&sub==='conversation-source'&&request.method==='POST')await audit(env,request,{orgId,action:'app.conversation_inherited',actor:person(who.user),entity:{type:'app',id:appId},details:{threadId:input.messageId}});
+      if(!r.error&&sub==='conversation-notifications'&&request.method==='POST')await announceTo(env,orgId,[{to:who.user.login,event:appActivityEvent('reads_changed',{items:[`a:${input.messageId}`],threads:[]})}]);
       return r.error?fail(r):json(r);
     }
     if (sub === 'conversation' && parts.length === 3) {
@@ -491,9 +494,9 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       const r=await appConversation(env.DB,orgId,me,appId,input,true);
       if(r.error)return fail(r);
-      await notifyAppMentions(env.DB,orgId,who.user,appId,input,r.messageId);
+      await notifyAppMentions(env.DB,orgId,who.user,appId,input,r.messageId,env);
       if(asksAppAI(input.body)){
-        const work=()=>replyToApp(env,orgId,who.user,appId,input,r.messageId);
+        const work=()=>replyToApp(env,orgId,who.user,appId,input,r.messageId,env);
         if(context.after)context.after(work);else await work();
       }
       return json(r);

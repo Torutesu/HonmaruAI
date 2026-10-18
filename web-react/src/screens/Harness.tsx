@@ -97,7 +97,7 @@ export const HarnessHub: React.FC<HarnessProps & { onOpen: (s: HarnessScreen) =>
 
 // ── Apps ────────────────────────────────────────────────────────────────
 
-export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | null }> = (props) => {
+export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | null; initialConversation?: {tableId?:string;rowId?:string} }> = (props) => {
   const t = useT()
   const api = useApi(props)
   const { pins, toggle } = useAppPins(props.orgId,api)
@@ -231,7 +231,7 @@ function CellInput({ column, value, onSave, wrap = false, width, members=[] }: {
   )
 }
 
-export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void }> = ({ api, appId, onBack, httpBase, orgId, sessionToken }) => {
+export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void; initialConversation?: {tableId?:string;rowId?:string} }> = ({ api, appId, onBack, httpBase, orgId, sessionToken, initialConversation }) => {
   const t = useT()
   const [data, setData] = useState<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize?: boolean } | null>(null)
   const loadSequence=useRef(0)
@@ -257,7 +257,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const { busy, error, act } = useAct()
 
   const load = useCallback(() => act('load', async () => { const sequence=++loadSequence.current; const [next,preferences] = await Promise.all([api.app(appId),api.personalViews(appId)]); if(sequence!==loadSequence.current)return;setLoadedApi(api);setData(next); setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(next.app.definition.custom?.published ? 'overview' : 'data') } }), [api, appId, act])
-  useEffect(() => { setEditingRecord(null);setCreating(false);setChatScope({});setChatOpen(false);load();return()=>{loadSequence.current++;initializedSection.current=false} }, [load])
+  useEffect(() => { setEditingRecord(null);setCreating(false);setChatScope(initialConversation||{});setChatOpen(Boolean(initialConversation));load();return()=>{loadSequence.current++;initializedSection.current=false} }, [load,initialConversation])
 
   if (!data || loadedApi!==api) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
   const { app, table } = data

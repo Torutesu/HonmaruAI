@@ -12,7 +12,7 @@ import { BookmarksBar } from './BookmarksBar'
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { awaitsPost } from '../utils/automation'
-import { hashForMessage, hashForView } from '../utils/route'
+import { hashForMessage, hashForView, hashForApp } from '../utils/route'
 import { RowMenu } from './RowMenu'
 import { SidebarSection } from './SidebarSection'
 import { Dialog } from './Dialog'
@@ -246,7 +246,7 @@ interface SidebarSection extends SidebarGroup<Thread> {
 }
 /// A user group: "@handle" names everyone in it.
 interface UserGroup { handle: string; name: string; refs: string[]; createdBy: string | null }
-interface ActivityItem { key?: string; type: 'mention' | 'reply' | 'reaction' | 'keyword'; message: ChannelMessage; unread: boolean; at?: string; emoji?: string; by?: string | null; byAvatar?: string | null; keyword?: string }
+interface ActivityItem { app?: {id:string;name:string;tableId?:string;rowId?:string}; key?: string; type: 'mention' | 'reply' | 'reaction' | 'keyword'; message: ChannelMessage; unread: boolean; at?: string; emoji?: string; by?: string | null; byAvatar?: string | null; keyword?: string }
 
 async function hash16(text: string): Promise<string> {
   const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
@@ -834,7 +834,7 @@ export const ClassicList: React.FC<Props> = ({
       })
       .catch(() => { /* nothing new is the same as nothing loaded */ })
   }, [api.httpBase, api.orgId, authHeaders, views])
-  useEffect(() => { void loadActivity() }, [loadActivity])
+  useEffect(() => { void loadActivity(); const refresh=()=>{void loadActivity()}; window.addEventListener('honmaru:app-activity-changed',refresh);return()=>window.removeEventListener('honmaru:app-activity-changed',refresh) }, [loadActivity])
   const stillNew = (i: ActivityItem) => i.unread
   const activityKey = (i: ActivityItem) => i.key || `${i.type}-${i.message.id}-${i.emoji || ''}-${i.at || ''}`
   // Looked at is read: here at once, and on the server for every other
@@ -844,7 +844,7 @@ export const ClassicList: React.FC<Props> = ({
     if (!fresh.size) return
     readGuard.readItems(fresh)
     setActivityItems((prev) => prev && prev.map((i) => (i.unread && fresh.has(activityKey(i)) ? { ...i, unread: false } : i)))
-    const serverKeys = keys.filter((k) => /^(m|r):/.test(k))
+    const serverKeys = keys.filter((k) => /^(m|r|a):/.test(k))
     if (!serverKeys.length) return
     closeMessageNotifications(messageIdsOf(serverKeys))
     void fetch(`${api.httpBase}/channels/read`, {
@@ -4365,11 +4365,13 @@ export const ClassicList: React.FC<Props> = ({
     const picked = (activityItems || []).find((i) => keyOf(i) === activityPick) || null
     // Pointed at: its thread, or on a narrow screen its conversation, read ahead.
     const readAhead = (i: ActivityItem) => {
+      if(i.app)return
       prefetchThread(i.message.channel, i.message.parentId || ((i.message.replyCount || 0) > 0 ? i.message.id : null))
       if (!wide) prefetchConversation(i.message.channel)
     }
     const open = (i: ActivityItem) => {
       markActivitySeen([keyOf(i)])
+      if(i.app){location.hash=hashForApp(i.app.id,api.orgId,{tableId:i.app.tableId,rowId:i.app.rowId});return}
       if (wide) {
         setActivityPick(keyOf(i))
         // Part of a thread: the whole of it, open, beside the list.
@@ -4426,7 +4428,7 @@ export const ClassicList: React.FC<Props> = ({
                       <span className="slk-note-who"><b>{who}</b> {verb(i)}</span>
                       <span className="slk-act-when">{when(i.at || m.createdAt)}</span>
                     </span>
-                    {where(m.channel)}
+                    {i.app?<span className="slk-note-where"><Icon name="grid" size={11}/>{i.app.name}{i.app.rowId?' · レコード':''}</span>:where(m.channel)}
                     <span className="slk-act-body">{i.type === 'reaction' ? <>{t('You')}: </> : null}{shownBody(m).text.slice(0, 280)}</span>
                     {i.type === 'reaction' && i.emoji && <span className="slk-note-reaction"><span><EmojiGlyph emoji={i.emoji} /></span> 1</span>}
                   </span>
