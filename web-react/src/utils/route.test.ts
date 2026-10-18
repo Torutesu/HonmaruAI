@@ -117,3 +117,11 @@ describe('the harness screens', () => {
     for (const id of ['%3Cscript%3E', '%2Fother', '%zz']) expect(parseRoute('#/apps/' + id).appId).toBeNull()
   })
 })
+
+it('app notification links retain workspace and exact record conversation',()=>{
+ const scope={tableId:'tbl_one',rowId:'row_two'};
+ expect(parseRoute(hashForApp('app_one','team:acme',scope))).toMatchObject({appId:'app_one',appOrg:'team:acme',appConversation:scope});
+ expect(parseRoute(hashForApp('app_one','team:acme',{})).appConversation).toEqual({});
+ expect(parseRoute('#/apps/app_one/team%3Aacme?chat=1&row=row_two').appConversation).toBeUndefined();
+ expect(parseRoute('#/apps/app_one/team%3Aacme?chat=1&table=%3Cbad%3E&row=row_two').appConversation).toBeUndefined();
+});

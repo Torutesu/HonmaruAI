@@ -1368,7 +1368,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       {screen === 'harness' && (
         <HarnessHub httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} onOpen={(where) => setScreen(where, 'harness')} />
       )}
-      {screen === 'apps' && (!route.appOrg || route.appOrg === orgId) && <HarnessApps key={`${orgId}:${sessionToken}`} requestedAppId={route.appId} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
+      {screen === 'apps' && (!route.appOrg || route.appOrg === orgId) && <HarnessApps key={`${orgId}:${sessionToken}`} requestedAppId={route.appId} initialConversation={route.appConversation} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'workflows' && <HarnessWorkflows httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'approvals' && <HarnessApprovals httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'skills' && <HarnessSkills httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}

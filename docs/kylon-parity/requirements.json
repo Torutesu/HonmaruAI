@@ -56,7 +56,7 @@
       "priority": "P1",
       "source": "https://kylon.io/product/workspace",
       "code": "worker/src/harness/appConversationFeatures.js",
-      "acceptance": "作成元スレッドの履歴・返信・既読を共用。独立アプリ／レコード会話に明示的AI返信・メンション・アプリ内通知・既読同期を追加。独立会話のOSプッシュ／全体Activity統合と実機比較未確認部分は残る"
+      "acceptance": "作成元スレッドの履歴・返信・既読を共用。独立アプリ／レコード会話に明示的AI返信・メンション・アプリ内通知・既読同期を追加。全体Activityの表示・既読・対象会話への移動を統合。独立会話のOSプッシュと実機比較未確認部分は残る"
     },
     {
       "id": "KY-006",
@@ -436,7 +436,7 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
       "code": "worker/src/harness/appConversationFeatures.js",
-      "acceptance": "作成元スレッドの履歴・返信・既読を共用。独立アプリ／レコード会話に明示的AI返信・メンション・アプリ内通知・既読同期を追加。独立会話のOSプッシュ／全体Activity統合と実機比較未確認部分は残る"
+      "acceptance": "作成元スレッドの履歴・返信・既読を共用。独立アプリ／レコード会話に明示的AI返信・メンション・アプリ内通知・既読同期を追加。全体Activityの表示・既読・対象会話への移動を統合。独立会話のOSプッシュと実機比較未確認部分は残る"
     },
     {
       "id": "KY-044",
