@@ -94,6 +94,40 @@ test("the answer to a decision's tool call reaches only the card's audience", as
   expect(out.some((m) => m.toolCallId === "tc-board" || m.toolCallId === "tc-mine")).toBe(false);
 });
 
+test("a report said in a private channel is filed under it, and heard only by its members", async () => {
+  const { default: worker } = await import("../src/index.js");
+  const { getCard } = await import("../src/db.js");
+  const post = (path, body) => worker.fetch(new Request(`https://example.com${path}`, {
+    method: "POST", headers: { "content-type": "application/json", "x-session-token": owner }, body: JSON.stringify(body),
+  }), { ...env, OPENAI_API_KEY: undefined }, { waitUntil() {}, passThroughOnException() {} });
+  const { ws } = await joined(ORG, owner);
+  const { messages: inside } = await joined(ORG, insider);
+  const { messages: out } = await joined(ORG, outsider);
+
+  const made = await post("/routines", { orgId: ORG, title: "Kestrel board digest", instruction: "Summarise the board's week", cadence: "weekly", weekday: 1, hour: 9, channel: "b:board" });
+  expect(made.status).toBe(201);
+  const { routine } = await made.json();
+  const ran = await post(`/routines/${routine.id}/run`, { orgId: ORG });
+  expect(ran.status).toBe(200);
+  const card = await getCard(env.DB, ORG, (await ran.json()).cardId);
+  expect(card).toMatchObject({ visibility: "team", business: "board", sourceDetail: "Kestrel board digest" });
+  expect(await message(inside, (m) => m.type === "STATE_DELTA" && JSON.stringify(m).includes("Kestrel board digest"))).toBeTruthy();
+
+  // A public card after it: once the outsider has heard that one, they would
+  // have heard the report.
+  ws.send(JSON.stringify({ type: "card_created", payload: { card: {
+    id: "c-after", type: "approval", status: "pending", priority: "high", createdAt: new Date().toISOString(), senderUserID: "owner", recipientUserID: "owner", title: "Order team lunch",
+  } } }));
+  expect(await message(out, (m) => m.type === "STATE_DELTA" && JSON.stringify(m).includes("Order team lunch"))).toBeTruthy();
+  expect(JSON.stringify(out)).not.toContain("Kestrel board digest");
+
+  // Nor is it in their feed when they come back.
+  const { messages: again } = await joined(ORG, outsider);
+  expect(JSON.stringify(again.find((m) => m.type === "STATE_SNAPSHOT"))).not.toContain("Kestrel board digest");
+  const { messages: member } = await joined(ORG, insider);
+  expect(JSON.stringify(member.find((m) => m.type === "STATE_SNAPSHOT"))).toContain("Kestrel board digest");
+});
+
 test("a decision lookup that cannot say who it is for leaves a private channel out", async () => {
   const titles = (hits) => hits.map((h) => h.title);
   expect(titles(await searchDecisions(env.DB, ORG, "Budget"))).toEqual(["Budget offsite"]);
