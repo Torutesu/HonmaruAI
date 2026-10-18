@@ -18,7 +18,7 @@ import { AppCalendar } from '../components/AppCalendar'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
-import { hashForApp, hashForCard } from '../utils/route'
+import { hashForApp, hashForAppSource, hashForCard } from '../utils/route'
 import {
   useWorkspaceMode, cellText, metricText, WANT_MODE_KEY, SET_MODE_EVENT, isMode, type WorkspaceMode,
   type App, type Template, type Table, type Row, type View, type Column, type HarnessApi,
@@ -146,7 +146,8 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
     // app. Keep that navigation; the finished app remains in the library.
     if (location.hash !== startingHash) return
     setNote(made.source === 'model' ? t('Built from your description.') : t('Started from the closest template. Change its columns any time.'))
-    setOpen(made.app.id); location.hash = hashForApp(made.app.id, props.orgId, room ? {} : undefined)
+    if(room) location.hash = hashForAppSource(made.app.id, props.orgId)
+    else { setOpen(made.app.id); location.hash = hashForApp(made.app.id, props.orgId) }
   })
   const fromTemplate = (id: string) => act(`tpl:${id}`, async () => {
     const made = await api.createFromTemplate(id)

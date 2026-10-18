@@ -26,8 +26,8 @@ test('lost access clears the visible history and older pages remain deduplicated
  await act(async()=>{await tree!.root.findByProps({'aria-label':'会話を更新'}).props.onClick()});expect(tree!.root.findAllByType('article')).toHaveLength(0);expect(tree!.root.findByProps({role:'alert'})).toBeTruthy();act(()=>tree!.unmount());expect(mergeMessages([message(2)],[message(1),message(2)])).toHaveLength(2)
 })
 test('inherited history is shown and disappears when current source access is lost',async()=>{
- vi.stubGlobal('document',{visibilityState:'visible'});const api:any={conversation:vi.fn().mockResolvedValueOnce({messages:[],hasMore:false,source:{channel:'b:design',threadId:'root',messages:[{id:'root',body:'Original request',authorName:'Maker',createdAt:'2026-10-18T00:00:00Z'}]}}).mockRejectedValue(new Error('Source access denied'))};let tree:ReturnType<typeof create>;
- await act(async()=>{tree=create(<AppConversationPanel api={api} appId="app" title="App"/>)});expect(JSON.stringify(tree!.toJSON())).toContain('Original request');
+ vi.stubGlobal('document',{visibilityState:'visible'});const api:any={orgId:'team:source',conversation:vi.fn().mockResolvedValueOnce({messages:[],hasMore:false,source:{channel:'b:design',threadId:'root',messages:[{id:'root',body:'Original request',authorName:'Maker',createdAt:'2026-10-18T00:00:00Z'}]}}).mockRejectedValue(new Error('Source access denied'))};let tree:ReturnType<typeof create>;
+ await act(async()=>{tree=create(<AppConversationPanel api={api} appId="app" title="App"/>)});expect(JSON.stringify(tree!.toJSON())).toContain('Original request');expect(tree!.root.findByProps({'aria-label':'作成元スレッドを開く'}).props.href).toBe('#/apps/app/team%3Asource?source=1');
  await act(async()=>{await tree!.root.findByProps({'aria-label':'会話を更新'}).props.onClick()});expect(JSON.stringify(tree!.toJSON())).not.toContain('Original request');
  act(()=>tree!.root.findAllByType('button').find(b=>b.props.className==='hx-chat-ai')!.props.onClick());expect(tree!.root.findByType('textarea').props.value).toBe('@AI ');act(()=>tree!.unmount())
 })

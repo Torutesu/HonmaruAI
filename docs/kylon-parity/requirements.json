@@ -36,7 +36,12 @@
       "priority": "P1",
       "source": "https://kylon.io/product/workspace",
       "code": "web-react/src/components/ClassicList.tsx",
-      "acceptance": "一覧と通知既読位置が複数端末で一致"
+      "acceptance": "一覧と通知既読位置が複数端末で一致",
+      "evidence": {
+        "release": "PR #443 / efb65d31",
+        "verified": "Production native left mention-filter empty state; local nonempty fixture preserved chat, draft and app.",
+        "remaining": "Physical multi-device unread/read synchronization and nonempty reference comparison remain unverified."
+      }
     },
     {
       "id": "KY-004",
@@ -385,18 +390,31 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/apps.js",
-      "acceptance": "テンプレート照合とAI生成の区別を明示し業務要件を保持"
+      "code": "worker/src/harness/appGeneration.js",
+      "acceptance": "テンプレート照合とAI生成の区別を明示し業務要件を保持",
+      "evidence": {
+        "release": "PR #443 and #446–#448 / da14da8f",
+        "verified": "Source capture, retry leases, atomic app/reply publication, completion cards, central thread layout and generation navigation deployed. Worker 39118408100 and Web 39118662926 passed; custom domain serves index-Bv-d5WwR.js.",
+        "pending": "Nonempty generation-to-thread behavior uses controlled local fixtures; no paid model or production test message was used for this release.",
+        "remaining": "Business-requirement fidelity across real model outputs and full Kylon generation behavior remain unverified."
+      }
     },
     {
       "id": "KY-039",
       "category": "Apps",
       "requirement": "アプリ単位のDBと複数entity",
-      "status": "missing",
+      "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/tables.js",
-      "acceptance": "単一JSON行テーブルから所有権・型・relationを備えたデータ契約へ拡張"
+      "code": "worker/src/harness/appDatabase.js",
+      "acceptance": "単一JSON行テーブルから所有権・型・relationを備えたデータ契約へ拡張",
+      "evidence": {
+        "reviewedAt": "2026-10-18",
+        "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
+        "implementedScope": "App-scoped primary/additional entities, inherited table ACL and bounded additive schema operations.",
+        "remaining": "Relations and referential integrity remain incomplete.",
+        "verification": "docs/kylon-parity/verification.md"
+      }
     },
     {
       "id": "KY-040",
@@ -452,41 +470,69 @@
       "id": "KY-045",
       "category": "Apps",
       "requirement": "Custom Appのソースコードと実行環境",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/apps.js",
-      "acceptance": "任意UI/サーバー処理を既存Honmaruと隔離して実行"
+      "code": "worker/src/harness/customRunner.js",
+      "acceptance": "任意UI/サーバー処理を既存Honmaruと隔離して実行",
+      "evidence": {
+        "reviewedAt": "2026-10-18",
+        "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
+        "implementedScope": "Generated HTML/CSS/JS runs in opaque-origin sandboxes; host-mediated approved CRUD and published Mac server actions are available. PR #445 production runner v3 was observed rendering saved HTML and SDK data.",
+        "remaining": "Cloud arbitrary-server deployment and full Kylon editing/runtime parity remain incomplete.",
+        "verification": "docs/kylon-parity/verification.md"
+      }
     },
     {
       "id": "KY-046",
       "category": "Apps",
       "requirement": "下書き・プレビュー・DB fork",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/apps.js",
-      "acceptance": "プレビューの書込みが本番DBを変更しない"
+      "code": "worker/src/harness/appMerge.js",
+      "acceptance": "プレビューの書込みが本番DBを変更しない",
+      "evidence": {
+        "reviewedAt": "2026-10-18",
+        "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
+        "implementedScope": "Private database forks, baseline-aware merge review and atomic conflict rejection are implemented.",
+        "remaining": "50 changed rows per merge, no selective merge or schema merge; legacy forks need recreation.",
+        "verification": "docs/kylon-parity/verification.md"
+      }
     },
     {
       "id": "KY-047",
       "category": "Apps",
       "requirement": "承認されたcommitの公開",
-      "status": "missing",
+      "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/apps.js",
-      "acceptance": "承認対象commit・公開範囲を固定し更新後の古い承認を拒否"
+      "code": "worker/src/harness/customApps.js",
+      "acceptance": "承認対象commit・公開範囲を固定し更新後の古い承認を拒否",
+      "evidence": {
+        "reviewedAt": "2026-10-18",
+        "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
+        "implementedScope": "Saved source versions publish with compare-and-swap and publisher attribution.",
+        "remaining": "Git-commit deployment and an independent approver are not implemented.",
+        "verification": "docs/kylon-parity/verification.md"
+      }
     },
     {
       "id": "KY-048",
       "category": "Apps",
       "requirement": "DB migration journal",
-      "status": "missing",
+      "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/apps.js",
-      "acceptance": "migrationを一度だけ適用し改変検知・再試行を検証"
+      "code": "worker/src/harness/appDatabase.js",
+      "acceptance": "migrationを一度だけ適用し改変検知・再試行を検証",
+      "evidence": {
+        "reviewedAt": "2026-10-18",
+        "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
+        "implementedScope": "Additive migration journal, checksums, retry IDs and database revision checks commit atomically.",
+        "remaining": "Destructive changes and data-transforming migrations are not implemented.",
+        "verification": "docs/kylon-parity/verification.md"
+      }
     },
     {
       "id": "KY-049",
@@ -522,11 +568,18 @@
       "id": "KY-052",
       "category": "Apps",
       "requirement": "App用Connection grant",
-      "status": "missing",
+      "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/apps.js",
-      "acceptance": "ブラウザに資格情報を渡さずserver proxyで毎回再認可"
+      "code": "worker/src/harness/appCapabilities.js",
+      "acceptance": "ブラウザに資格情報を渡さずserver proxyで毎回再認可",
+      "evidence": {
+        "reviewedAt": "2026-10-18",
+        "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
+        "implementedScope": "Personal app-scoped exact endpoint/method grants with encrypted credentials and host approval are implemented.",
+        "remaining": "Organization-shared grants and OAuth refresh remain incomplete.",
+        "verification": "docs/kylon-parity/verification.md"
+      }
     },
     {
       "id": "KY-053",
@@ -782,11 +835,18 @@
       "id": "KY-078",
       "category": "Connections",
       "requirement": "Custom API service",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/proxy/tools-api",
-      "code": null,
-      "acceptance": "許可hostとsecret保管・最小権限proxyを実装"
+      "code": "worker/src/harness/appCapabilities.js",
+      "acceptance": "許可hostとsecret保管・最小権限proxyを実装",
+      "evidence": {
+        "reviewedAt": "2026-10-18",
+        "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
+        "implementedScope": "Six supported API hosts, fixed operations, encrypted credentials, bounded response/time and ambiguous-write retry suppression are implemented.",
+        "remaining": "Arbitrary hosts and MCP connections are not implemented.",
+        "verification": "docs/kylon-parity/verification.md"
+      }
     },
     {
       "id": "KY-079",

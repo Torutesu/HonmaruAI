@@ -509,6 +509,8 @@
 
 .hx-chat-origin,.hx-chat-source{padding:10px 14px;font-size:12px;color:var(--hx-muted);border-bottom:1px solid var(--hx-border)}
 .hx-chat-origin{display:flex;gap:6px;align-items:center}
+a.hx-chat-origin{text-decoration:none}
+a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-chat-source button,.hx-chat-ai{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;color:inherit;cursor:pointer;font-size:12px;padding:4px}
 .hx-chat-source select{width:100%;max-width:100%;padding:8px;background:var(--hx-surface);color:var(--hx-text);border:1px solid var(--hx-border);border-radius:8px}
 .hx-chat-compose{position:relative}

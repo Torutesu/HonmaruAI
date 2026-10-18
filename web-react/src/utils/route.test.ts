@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { parseRoute, hashForApp, hashForJoin, hashForCard, hashForScreen, hashForView, hashForMessage, pathToHash } from './route'
+import { parseRoute, hashForApp, hashForAppSource, hashForJoin, hashForCard, hashForScreen, hashForView, hashForMessage, pathToHash } from './route'
+
+it('source-app links enter chat in the named workspace, without accepting malformed targets',()=>{
+ expect(parseRoute(hashForAppSource('app_one','team:acme'))).toMatchObject({screen:null,mode:'classic',appSource:true,appId:'app_one',appOrg:'team:acme'})
+ for(const hash of ['#/apps/%3Cbad%3E/team%3Aacme?source=1','#/apps/app_one/%3Cbad%3E?source=1','#/apps/app_one?source=1'])expect(parseRoute(hash).appSource).toBeUndefined()
+ expect(parseRoute(hashForApp('app_one','team:acme',{}))).toMatchObject({screen:'apps',appConversation:{}})
+})
 
 // The URL says where you are, and what a link you were sent opens.
 describe('parseRoute', () => {

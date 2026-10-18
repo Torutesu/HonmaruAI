@@ -34,6 +34,7 @@ export type Screen = 'tools' | 'history' | 'notifications' | 'plans' | 'profile'
 export type Mode = 'cards' | 'classic'
 
 export interface Route {
+  appSource?: boolean
   appConversation?: {tableId?:string;rowId?:string}
   appId?: string | null
   appOrg?: string | null
@@ -110,6 +111,7 @@ export function parseRoute(hash: string): Route {
     const id = decode(segments[0]), org = decode(segments[1] || '')
     const tableId=params.get('table')||'',rowId=params.get('row')||''
     const conversation=params.get('chat')==='1'&&((!tableId&&!rowId)||(/^[\w-]{1,100}$/.test(tableId)&&/^[\w-]{1,100}$/.test(rowId)))?{appConversation:rowId?{tableId,rowId}:{}}:{}
+    if(params.get('source')==='1' && /^[\w-]{1,80}$/.test(id) && isOrgId(org)) return {screen:null,mode:'classic',cardId:null,join:null,appId:id,appOrg:org,appSource:true}
     return { screen: 'apps', mode: null, cardId: null, join: null, appId: /^[\w-]{1,80}$/.test(id) ? id : null, appOrg: isOrgId(org) ? org : null, ...conversation }
   }
   if (head === 'join') {
@@ -122,6 +124,7 @@ export function parseRoute(hash: string): Route {
 }
 
 export function hashForApp(id: string, orgId: string, conversation?: {tableId?:string;rowId?:string}): string { const query=new URLSearchParams();if(conversation){query.set('chat','1');if(conversation.tableId&&conversation.rowId){query.set('table',conversation.tableId);query.set('row',conversation.rowId)}}return `#/apps/${encodeURIComponent(id)}/${encodeURIComponent(orgId)}${query.size?'?'+query:''}` }
+export function hashForAppSource(id:string,orgId:string):string { return `${hashForApp(id,orgId)}?source=1` }
 
 export function hashForScreen(screen: Screen): string { return `#/${PATH_BY_SCREEN[screen]}` }
 export function hashForCard(cardId: string, orgId?: string | null): string {
