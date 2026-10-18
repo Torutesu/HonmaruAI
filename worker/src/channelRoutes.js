@@ -127,6 +127,24 @@ async function readEverywhere(env, orgId, login, { view, key, thread, lastReadAt
   }
 }
 
+/// Several replies of one thread as they are now, in one announcement:
+/// a thread deleted with fifty replies is one message to the relay, not
+/// fifty.
+async function broadcastReplies(env, orgId, resolved, ids, members) {
+  if (!ids.length) return;
+  const rows = (await Promise.all(ids.map((id) => getMessage(env.DB, orgId, id)))).filter(Boolean);
+  if (!rows.length) return;
+  if (resolved.kind === "business" && !resolved.logins) {
+    const messages = await present(env.DB, orgId, rows, null, resolved.key, members);
+    await announceEvents(env, orgId, messages.map((message) => customEvent("channel_message", { message })));
+    return;
+  }
+  await announceTo(env, orgId, (await Promise.all(resolved.logins.map(async (login) => {
+    const messages = await present(env.DB, orgId, rows, login, viewOf(resolved.key, login, members), members);
+    return messages.map((message) => ({ to: login, event: customEvent("channel_message", { message }) }));
+  }))).flat());
+}
+
 /// A reply changes its parent too: the count and faces under it.
 export async function broadcastWithParent(env, orgId, resolved, row, members) {
   await broadcast(env, orgId, resolved, row, members);
@@ -969,9 +987,12 @@ export async function handleChannels(request, env, url, { route, after }) {
     const view = viewOf(resolved.key, who.user.login, members);
     if (request.method === "GET") {
       const before = url.searchParams.get("before") || undefined;
+      // The oldest message held, with `before` its time: a cursor that does
+      // not skip a message sharing that millisecond.
+      const beforeId = url.searchParams.get("beforeId") || undefined;
       // `{ messages, more }`: `more` says whether older messages are there
       // to page back to, so a client need not guess it from the count.
-      return json(await listMessages(env.DB, orgId, resolved, who.user.login, view, members, { before }));
+      return json(await listMessages(env.DB, orgId, resolved, who.user.login, view, members, { before, beforeId }));
     }
     const parentId = typeof body.parentId === "string" && body.parentId ? body.parentId : null;
     // An inline reply: the message it answers (postMessage checks it is here).
@@ -1088,6 +1109,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     }
     after(async () => {
       await broadcastWithParent(env, body.orgId, ctx.resolved, out.row, ctx.members);
+      // The replies that went with it are gone wherever they show — those
+      // sent to the conversation too are in it as well as in the thread.
+      await broadcastReplies(env, body.orgId, ctx.resolved, out.replies || [], ctx.members);
       await emitMessage(env, body.orgId, out.row, { updated: true });
       // The journal said what this message said; its day is written again.
       await forgetJournalDay(env.DB, body.orgId, ctx.resolved.key, current.created_at);

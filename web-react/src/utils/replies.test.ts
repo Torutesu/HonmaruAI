@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ChannelMessage } from '../types/card'
-import { SPOILER_MASK, replyExcerpt, quoteOf, refreshQuotes, excerptParts } from './replies'
+import { SPOILER_MASK, replyExcerpt, quoteOf, refreshQuotes, excerptParts, withoutThread } from './replies'
 
 const msg = (over: Partial<ChannelMessage> = {}): ChannelMessage => ({
   id: 'm1', channel: 'b:cafe', kind: 'message', body: 'Roaster wants +8%', authorName: 'Mika', authorRef: 'r-mika',
@@ -90,6 +90,22 @@ describe('refreshQuotes', () => {
   it('hands back the same list when nothing quotes the message', () => {
     const list = [original, other]
     expect(refreshQuotes(list, { ...other, body: 'changed' })).toBe(list)
+  })
+})
+
+describe('withoutThread', () => {
+  it('takes an unsent message and the replies of its thread shown in the conversation too', () => {
+    const parent = msg({ id: 'p1' })
+    const shared = msg({ id: 'r1', parentId: 'p1', alsoChannel: true })
+    const elsewhere = msg({ id: 'r2', parentId: 'p2', alsoChannel: true })
+    const plain = msg({ id: 'm9' })
+    expect(withoutThread([parent, shared, elsewhere, plain], 'p1').map((x) => x.id)).toEqual(['r2', 'm9'])
+  })
+
+  it('takes only the reply when a reply is unsent, and hands back the same list when nothing goes', () => {
+    const list = [msg({ id: 'p1' }), msg({ id: 'r1', parentId: 'p1', alsoChannel: true }), msg({ id: 'r3', parentId: 'p1', alsoChannel: true })]
+    expect(withoutThread(list, 'r1').map((x) => x.id)).toEqual(['p1', 'r3'])
+    expect(withoutThread(list, 'nope')).toBe(list)
   })
 })
 

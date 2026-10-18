@@ -165,6 +165,9 @@ test("what a file says is read: plain text, and the words inside Word, Excel and
   expect(await fileText(xlsx, { type: "application/octet-stream", name: "staff.xlsx" })).toContain("1234-5678-9018");
   const pptx = await zip({ "ppt/slides/slide1.xml": "<p:sld><a:p><a:r><a:t>AKIAABCDEFGHIJKLMNOP</a:t></a:r></a:p></p:sld>", "ppt/media/image1.png": "not read" });
   expect((await zipEntries(pptx, /^ppt\/slides\//)).map((e) => e.name)).toEqual(["ppt/slides/slide1.xml"]);
+  // Character references are read as the characters the document shows.
+  const coded = await zip({ "word/document.xml": "<w:p><w:t>&#66;lue&#x62;ird &#x0041;KIA &amp;#65; &amp;lt; &#xD800; &#99999999;</w:t></w:p>" });
+  expect(await fileText(coded, { type: DOCX, name: "coded.docx" })).toBe("Bluebird AKIA &#65; &lt; &#xD800; &#99999999;\n");
   // A small file that would inflate into a large one is not read past the cap.
   const bomb = await zip({ "word/document.xml": "a".repeat(9 * 1024 * 1024) });
   expect(await fileText(bomb, { type: DOCX, name: "bomb.docx" })).toBe(null);
@@ -185,6 +188,11 @@ test("a rule met inside an attached file stops the message, and names the file",
   expect(warned.status).toBe(409);
   expect(await warned.json()).toMatchObject({ code: "dlp-warning", files: ["plan.docx"] });
   expect((await post(mika, "see attached", { files: [docx], dlpAck: true })).status).toBe(201);
+  // The same words written as character references are still seen.
+  const coded = await upload(mika, await zip({ "word/document.xml": "<w:p><w:t>&#66;lue&#x62;ird launch plan</w:t></w:p>" }), DOCX, "coded.docx");
+  const warnedCoded = await post(mika, "see attached", { files: [coded] });
+  expect(warnedCoded.status).toBe(409);
+  expect(await warnedCoded.json()).toMatchObject({ code: "dlp-warning", files: ["coded.docx"] });
   // A picture is not read at all.
   const png = await upload(mika, new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), "image/png", "shot.png");
   expect((await post(mika, "a picture", { files: [png] })).status).toBe(201);

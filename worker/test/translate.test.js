@@ -123,6 +123,26 @@ test("a message in another language is translated for its reader, once; edited, 
   expect(me.translateMessages).toBe(false);
 });
 
+test("a slow translation of words since edited does not take the place of the new words' one", async () => {
+  const { translateMessages, sourceHash } = await import("../src/translate.js");
+  const { editMessage, getMessage } = await import("../src/channels.js");
+  const said = (await (await post("/channels/messages", toru, { orgId: ORG, channel: "b:cafe", body: "秋メニューは1日から始まります" })).json()).message;
+  const before = await getMessage(env.DB, ORG, said.id);
+  await editMessage(env.DB, { orgId: ORG, id: said.id, authorLogin: "toru", body: "修正：秋メニューは2日からです" });
+  const now = await getMessage(env.DB, ORG, said.id);
+  const answer = (text) => fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(200, () => ({ choices: [{ message: { content: JSON.stringify({ items: [{ id: said.id, text }] }) } }] }));
+  const provider = { endpoint: "https://api.openai.com/v1/chat/completions", apiKey: "sk-test", model: "gpt-test" };
+  // The edited words are translated first, then the answer for the old
+  // words, asked before the edit, comes back.
+  answer("Fixed: the autumn menu starts on the 2nd");
+  expect((await translateMessages(env.DB, ORG, [now], { locale: "en", provider })).byId[said.id]).toContain("2nd");
+  answer("The autumn menu starts on the 1st");
+  expect((await translateMessages(env.DB, ORG, [before], { locale: "en", provider })).byId[said.id]).toContain("1st");
+  const kept = await env.DB.prepare("SELECT source_hash, body FROM message_translations WHERE org_id = ?1 AND message_id = ?2 AND locale = 'en'").bind(ORG, said.id).first();
+  expect(kept).toEqual({ source_hash: sourceHash(now.body), body: "Fixed: the autumn menu starts on the 2nd" });
+});
+
 test("what could not be translated says why: no translator, or the translator failed (#225)", async () => {
   const said = (await (await post("/channels/messages", toru, { orgId: ORG, channel: "b:cafe", body: "秋メニューは1日から" })).json()).message;
   // No translator here: nothing exists to show, and the answer says so.

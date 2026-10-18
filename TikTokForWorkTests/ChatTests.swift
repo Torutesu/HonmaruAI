@@ -168,6 +168,17 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(ChatStore.messageIds(["m:abc", "r:abc:1x", "m:def", "local-1"]), ["abc", "def"])
     }
 
+    /// A deleted thread's replies sent to the conversation too leave it with
+    /// the thread; another thread's stay.
+    func testADeletedThreadTakesItsRepliesFromTheConversation() throws {
+        func message(_ id: String, parent: String?) throws -> ChatMessage {
+            let parentField = parent.map { #","parentId":"\#($0)","alsoChannel":true"# } ?? ""
+            return try JSONDecoder().decode(ChatMessage.self, from: Data(#"{"id":"\#(id)","channel":"b:cafe","kind":"message","body":"x","mine":false,"createdAt":"2026-09-28T09:00:00.000Z"\#(parentField)}"#.utf8))
+        }
+        let list = [try message("p1", parent: nil), try message("r1", parent: "p1"), try message("r2", parent: "p2"), try message("m9", parent: nil)]
+        XCTAssertEqual(ChatStore.withoutReplies(of: "p1", in: list).map(\.id), ["p1", "r2", "m9"])
+    }
+
     func testTheCanvasDecodesAsTheWorkerSendsIt() throws {
         let canvas = try JSONDecoder().decode(ChatCanvas.self, from: ###"{"body":"## Opening\n- [ ] Unlock at 7","version":3,"updatedBy":"Mika","updatedAt":"2026-09-26T01:00:00.000Z"}"###.data(using: .utf8)!)
         XCTAssertEqual(canvas.version, 3)
@@ -302,6 +313,41 @@ final class ChatTranslationTests: XCTestCase {
         XCTAssertFalse(t.hasTranslation(ja))
         XCTAssertEqual(t.wanted([ja], reader: "en").map(\.id), [])
         XCTAssertTrue(t.hasTranslation(ja))
+    }
+
+    /// A slow answer for words since edited does not put out the
+    /// translation of the words as they are now (#390).
+    func testALateTranslationOfOldWordsKeepsTheNewOne() throws {
+        func msg(_ body: String) throws -> ChatMessage {
+            let json: [String: Any] = ["id": "m1", "channel": "b:cafe", "kind": "message", "body": body, "mine": false, "createdAt": "2026-09-27T00:00:00Z", "lang": "ja"]
+            return try JSONDecoder().decode(ChatMessage.self, from: JSONSerialization.data(withJSONObject: json))
+        }
+        let a = try msg("秋メニューは1日から")
+        let b = try msg("修正：秋メニューは2日から")
+        let t = ChatTranslations()
+        XCTAssertEqual(t.wanted([a], reader: "en").map(\.id), ["m1"])
+        XCTAssertEqual(t.wanted([b], reader: "en").map(\.id), ["m1"])
+        t.asking([a]); t.asking([b])
+        // B comes back first, then A.
+        t.store("m1", from: b.body, text: "Fixed: from the 2nd", lang: "en")
+        t.answered([b], error: nil)
+        XCTAssertTrue(t.isPending(a))
+        t.store("m1", from: a.body, text: "From the 1st", lang: "en")
+        t.answered([a], error: nil)
+        XCTAssertEqual(t.shown(b).text, "Fixed: from the 2nd")
+        XCTAssertNil(t.failure(b))
+        // Edited back to A: its translation is there too.
+        XCTAssertEqual(t.shown(a).text, "From the 1st")
+        XCTAssertNotEqual(ChatTranslations.textKey("m1", lang: "en", from: a.body), ChatTranslations.textKey("m1", lang: "en", from: b.body))
+    }
+
+    /// Every message is asked about, sixty to a request (#389).
+    func testEveryMessageIsAskedForInBoundedRequests() {
+        let ids = Array(0..<150)
+        let batches = ChatTranslations.batches(ids)
+        XCTAssertEqual(batches.map(\.count), [60, 60, 30])
+        XCTAssertEqual(Array(batches.joined()), ids)
+        XCTAssertTrue(ChatTranslations.batches([Int]()).isEmpty)
     }
 
     func testAFailureSaysWhyAndNoTranslatorIsNoFailure() throws {

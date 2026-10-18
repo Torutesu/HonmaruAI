@@ -502,10 +502,14 @@ enum ChatService {
         try await call("POST", "/channels/translate", base: base, body: ["orgId": orgId, "channel": channel, "ids": ids, "locale": locale], timeout: 60, as: Translations.self)
     }
 
-    static func messages(orgId: String, channel: String, before: String? = nil, base: URL) async throws -> [ChatMessage] {
+    /// A page of a conversation. `before` and `beforeId` are the oldest
+    /// message already held, its time and its id: with both, a message
+    /// sharing that millisecond is not skipped.
+    static func messages(orgId: String, channel: String, before: String? = nil, beforeId: String? = nil, base: URL) async throws -> [ChatMessage] {
         struct R: Decodable { let messages: [ChatMessage] }
         var q = ["orgId": orgId, "channel": channel]
         if let before { q["before"] = before }
+        if before != nil, let beforeId { q["beforeId"] = beforeId }
         return try await call("GET", "/channels/messages", base: base, query: q, as: R.self).messages
     }
 

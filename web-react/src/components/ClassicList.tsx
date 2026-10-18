@@ -5,7 +5,7 @@ import { channelMessageCache, mergeLatestMessages } from '../utils/channelMessag
 import { ReadGuard } from '../utils/readGuard'
 import { toggleReaction } from '../utils/reactions'
 import { sameWords, wantsTranslation } from '../utils/translationRule'
-import { FAILURE_LABEL, failureOf, keepTranslations, keptTranslation, type TranslateFailure } from '../utils/translationCache'
+import { FAILURE_LABEL, failureOf, keepTranslations, keptTranslation, translationBatches, translationKey, type TranslateFailure } from '../utils/translationCache'
 import { ChannelCanvas } from './ChannelCanvas'
 import { AgentAvatar } from './AgentAvatar'
 import { BookmarksBar } from './BookmarksBar'
@@ -45,7 +45,7 @@ import { DailyReportDraft } from './DailyReport'
 import { MessageActions, CardActions, Reactions, EmojiPicker, EmojiPickerAt, EmojiGlyph, FormatBar, bulletOnSpace, continueBlock, renderRich, LinkCards, SlashMenu, SchedulePicker, parseScheduleCommand, TypingLine, ReplyQuoteLine, ThreadReplyLine, ReplyingBar, UnsentNote } from './MessageParts'
 import { heard as heardTyping, said, expire, nextExpiry as nextTypingExpiry, typistsIn, typedIn, stoppedIn, sendTyping } from '../utils/typing'
 import type { Typist, TypingEvent, Outgoing as TypingOut, Place, Signal } from '../utils/typing'
-import { quoteOf, refreshQuotes } from '../utils/replies'
+import { quoteOf, refreshQuotes, withoutThread } from '../utils/replies'
 import { ChannelJournal, ChannelDetails, JamButton, JamBar } from './ChannelPanes'
 import type { DetailsTab, JournalCite, NotifyLevel } from './ChannelPanes'
 import { JamCall } from '../utils/jam'
@@ -60,7 +60,7 @@ import { useUploads, PendingUploads, MessageFiles } from './Attachments'
 import { configureMediaUrls } from '../utils/mediaUrls'
 import { playSound, setOpenView, rememberLevels, rememberLevel, startRing, stopRing } from '../utils/sound'
 import { closeMessageNotifications, closeThreadNotifications } from '../utils/notifications'
-import { hasOlder } from '../utils/historyPage'
+import { hasOlder, olderThan } from '../utils/historyPage'
 import { foldedRows, sectionBadge, visibleRows, stepRow, readFolds, writeFolds, withSectionFolds, withFold, unplacedAgents } from '../utils/sidebarSections'
 import { placesFrom } from '../utils/places'
 import type { Place as Conversation } from '../utils/places'
@@ -1534,7 +1534,7 @@ export const ClassicList: React.FC<Props> = ({
     if (loadingOlder.current || !list?.length || !more[channel]) return
     loadingOlder.current = true
     try {
-      const res = await fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&before=${encodeURIComponent(list[0].createdAt)}`, { headers: authHeaders })
+      const res = await fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&${olderThan(list[0])}`, { headers: authHeaders })
       const data = res.ok ? await res.json() : null
       if (!data) return
       const older = (data.messages || []) as ChannelMessage[]
@@ -1770,10 +1770,11 @@ export const ClassicList: React.FC<Props> = ({
         if (!list) return prev
         const has = list.some((x) => x.id === m.id)
         isNew = !has
-        // Deleted is gone — its thread with it — never a "was deleted" line;
-        // a reply quoting it says so instead, and one quoting an edit
-        // quotes the new words.
-        if (m.deleted) return { ...prev, [m.channel]: refreshQuotes(list.filter((x) => x.id !== m.id), msg) }
+        // Deleted is gone — its thread with it, replies sent to the
+        // conversation too included — never a "was deleted" line; a reply
+        // quoting it says so instead, and one quoting an edit quotes the
+        // new words.
+        if (m.deleted) return { ...prev, [m.channel]: refreshQuotes(withoutThread(list, m.id), msg) }
         // Our own, back before the answer to the send, takes the place of
         // the copy on its way rather than showing twice.
         const held = echoOf(list, msg)
@@ -2081,6 +2082,7 @@ export const ClassicList: React.FC<Props> = ({
       // Unsent while this was on its way: back in the box, to go as a plain
       // message if it is sent again.
       if (res && !res.ok && data.code === 'reply_gone') { out.said = { ...out.said, replyTo: null }; refuse(out, t('The message you were replying to is gone. Send again to post this on its own.')) }
+      else if (res && !res.ok && data.code === 'thread_gone' && parentId) threadGone(out)
       else if (res && !res.ok && refusedOutright(res.status)) refuse(out, refusal(data))
       else fail(out, res && !res.ok ? refusal(data) : t('That did not send. Try again.'))
       return null
@@ -2148,6 +2150,20 @@ export const ClassicList: React.FC<Props> = ({
     drop(tempId, channel, parentId)
     if (parentId) { setThreadDraft(body); threadUploads.restore(files) } else { setDraft(body); uploads.restore(files) }
     setProblem(why)
+  }
+  /// A reply whose thread was deleted before it landed: there is no thread
+  /// box to put it back in, so its words go to the conversation's own box,
+  /// after whatever is written there, to send there instead or not at all.
+  const threadGone = (out: Outgoing) => {
+    const { tempId, channel, parentId, body, files } = out
+    drop(tempId, channel, parentId)
+    const after = (was: string) => (was.trim() ? `${was.replace(/\s+$/, '')}\n${body}` : body)
+    if (draftView.current === channel) { setDraft(after); uploads.restore(files) }
+    else {
+      try { localStorage.setItem(draftKey(channel), after(localStorage.getItem(draftKey(channel)) || '')) } catch { /* not kept */ }
+      setDrafts((prev) => (prev[channel] ? prev : { ...prev, [channel]: true }))
+    }
+    setProblem(t('That thread was deleted, so your reply was not sent. It is in the conversation’s box instead.'))
   }
   /// Edit, under one that was refused: its words and files back in the box
   /// it was written in, after whatever is there already, and it goes from
@@ -2392,8 +2408,10 @@ export const ClassicList: React.FC<Props> = ({
   // and kept; the words they were translated from, so an edit asks again.
   // "Show original" per message. Off when the person turned it off.
   const readerLang = locale.slice(0, 2).toLowerCase()
-  // Each with the language it was put into: a reader who changes theirs is
-  // not shown one made for the old one (#220).
+  // Each by the message, the language it was put into and the words it was
+  // made from (translationKey): a reader who changes theirs is not shown one
+  // made for the old one (#220), and an answer for words since edited sits
+  // beside the one for the words as they are, never in its place.
   const [translations, setTranslations] = useState<Record<string, { from: string; text: string; lang: string }>>({})
   const [originals, setOriginals] = useState<Set<string>>(new Set())
   const [translateOff, setTranslateOff] = useState(false)
@@ -2408,7 +2426,7 @@ export const ClassicList: React.FC<Props> = ({
   // (translationCache, #225) — so a remount, a reload or a failed request
   // never turns a translated message back into its original.
   const knownTranslation = (m: ChannelMessage): string | null => {
-    const tr = translations[m.id]
+    const tr = translations[translationKey(m.id, readerLang, m.body)]
     if (tr && tr.from === m.body && tr.lang === readerLang) return tr.text
     return api.orgId ? keptTranslation(api.orgId, m.id, readerLang, m.body) : null
   }
@@ -2418,59 +2436,82 @@ export const ClassicList: React.FC<Props> = ({
   const hasTranslation = (m: ChannelMessage) => knownTranslation(m) !== null
   const needsTranslation = (m: ChannelMessage) => !translateOff && !m.deleted && wantsTranslation(m.lang, readerLang, m.body)
     && !hasTranslation(m) && !asking.current.has(`${m.id}:${m.body}:${readerLang}`)
+  const askKey = (m: ChannelMessage) => `${m.id}:${m.body}:${readerLang}`
+  // Every message on screen that needs it, a bounded request at a time,
+  // until none is left: a conversation of 150 used to have its first 60
+  // asked about and the rest left in the original until something else
+  // happened to ask again.
   const translate = useCallback(async (channel: string, list: ChannelMessage[]) => {
-    const want = list.filter(needsTranslation).slice(0, 60)
-    if (!want.length) return
-    for (const m of want) asking.current.add(`${m.id}:${m.body}:${readerLang}`)
+    const all = list.filter(needsTranslation)
+    if (!all.length) return
+    for (const m of all) asking.current.add(askKey(m))
     setTranslating((prev) => {
       const next = { ...prev }
-      for (const m of want) next[m.id] = m.body
+      for (const m of all) next[m.id] = m.body
       return next
     })
     setUntranslated((prev) => {
       const next = { ...prev }
-      for (const m of want) delete next[m.id]
+      for (const m of all) delete next[m.id]
       return next
     })
-    const res = await fetch(`${api.httpBase}/channels/translate`, {
-      method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
-      body: JSON.stringify({ orgId: api.orgId, channel, ids: want.map((m) => m.id), locale: readerLang }),
-    }).catch(() => null)
-    const data = res?.ok ? await res.json().catch(() => null) : null
-    setTranslating((prev) => {
+    // Back, one way or another: no longer "Translating…" — unless a newer
+    // request for the message's newer words is what is pending now.
+    const settled = (batch: ChannelMessage[]) => setTranslating((prev) => {
       const next = { ...prev }
-      for (const m of want) delete next[m.id]
+      for (const m of batch) if (next[m.id] === m.body) delete next[m.id]
       return next
     })
     // Not reached, refused or unreadable: said so, with why and a way to
     // ask again — and each may be asked about again later.
-    const failed = (why: (m: ChannelMessage) => TranslateFailure | null) => {
+    const failed = (batch: ChannelMessage[], why: (m: ChannelMessage) => TranslateFailure | null) => {
       const out: Record<string, { from: string; why: TranslateFailure }> = {}
-      for (const m of want) {
+      for (const m of batch) {
         const w = why(m)
         if (!w) continue
-        asking.current.delete(`${m.id}:${m.body}:${readerLang}`)
+        asking.current.delete(askKey(m))
         out[m.id] = { from: m.body, why: w }
       }
       if (Object.keys(out).length) setUntranslated((prev) => ({ ...prev, ...out }))
     }
-    if (!data) {
-      failed(() => failureOf(res ? res.status : null))
-      return
+    const batches = translationBatches(all)
+    for (let i = 0; i < batches.length; i++) {
+      const want = batches[i]
+      const res = await fetch(`${api.httpBase}/channels/translate`, {
+        method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId: api.orgId, channel, ids: want.map((m) => m.id), locale: readerLang }),
+      }).catch(() => null)
+      const data = res?.ok ? await res.json().catch(() => null) : null
+      settled(want)
+      if (!data) {
+        // The rest were never asked about: they fail the same way, and
+        // each is there to ask about again.
+        const rest = batches.slice(i).flat()
+        settled(rest)
+        failed(rest, () => failureOf(res ? res.status : null))
+        return
+      }
+      if (data.off) {
+        const rest = batches.slice(i + 1).flat()
+        settled(rest)
+        for (const m of rest) asking.current.delete(askKey(m))
+        setTranslateOff(true)
+        return
+      }
+      const got = want.filter((m) => typeof data.translations?.[m.id] === 'string')
+      if (got.length) {
+        for (const m of got) asking.current.delete(askKey(m))
+        setTranslations((prev) => {
+          const next = { ...prev }
+          for (const m of got) next[translationKey(m.id, readerLang, m.body)] = { from: m.body, text: data.translations[m.id], lang: readerLang }
+          return next
+        })
+        if (api.orgId) keepTranslations(api.orgId, readerLang, got.map((m) => ({ id: m.id, from: m.body, text: data.translations[m.id] })))
+      }
+      // One the Worker left out says why; one with no translator at all
+      // (no_provider) is no failure — none exists, and it reads as written.
+      failed(want, (m) => typeof data.translations?.[m.id] === 'string' ? null : failureOf(200, data.failed?.[m.id] || 'no_provider'))
     }
-    if (data.off) { setTranslateOff(true); return }
-    const got = want.filter((m) => typeof data.translations?.[m.id] === 'string')
-    if (got.length) {
-      setTranslations((prev) => {
-        const next = { ...prev }
-        for (const m of got) next[m.id] = { from: m.body, text: data.translations[m.id], lang: readerLang }
-        return next
-      })
-      if (api.orgId) keepTranslations(api.orgId, readerLang, got.map((m) => ({ id: m.id, from: m.body, text: data.translations[m.id] })))
-    }
-    // One the Worker left out says why; one with no translator at all
-    // (no_provider) is no failure — none exists, and it reads as written.
-    failed((m) => typeof data.translations?.[m.id] === 'string' ? null : failureOf(200, data.failed?.[m.id] || 'no_provider'))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api.httpBase, api.orgId, authHeaders, translations, translateOff, readerLang])
   // Whatever is on screen: the open conversation, and the thread beside it.
@@ -2855,7 +2896,7 @@ export const ClassicList: React.FC<Props> = ({
     // Gone here at once, and its thread with it.
     if (m.alsoChannel) setMessages((prev) => (prev[channel] ? { ...prev, [channel]: prev[channel].filter((x) => x.id !== m.id) } : prev))
     if (!m.parentId) {
-      setMessages((prev) => (prev[channel] ? { ...prev, [channel]: prev[channel].filter((x) => x.id !== m.id) } : prev))
+      setMessages((prev) => (prev[channel] ? { ...prev, [channel]: withoutThread(prev[channel], m.id) } : prev))
       setThread((prev) => (prev && prev.parent.id === m.id ? null : prev))
     }
     return { gone: true }
@@ -3290,7 +3331,7 @@ export const ClassicList: React.FC<Props> = ({
     let list = messagesRef.current[channel] || []
     let older = more[channel]
     for (let page = 0; page < 20 && older && list.length && !list.some((m) => m.id === cite.id); page += 1) {
-      const res = await fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&before=${encodeURIComponent(list[0].createdAt)}`, { headers: authHeaders }).catch(() => null)
+      const res = await fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&${olderThan(list[0])}`, { headers: authHeaders }).catch(() => null)
       const data = res?.ok ? await res.json().catch(() => null) : null
       if (!data) break
       const got = (data.messages || []) as ChannelMessage[]

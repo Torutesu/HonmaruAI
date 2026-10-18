@@ -34,6 +34,10 @@ function pageIdFrom(payload) {
     || null;
 }
 
+/// Where a decision already written to Notion is remembered (ingested_items,
+/// with no card: nothing reads it as the source of one).
+const EXPORTED = "notion-decision";
+
 // Returns true when a row was written. Never throws: recording a decision
 // elsewhere must not be able to break the decision itself.
 export async function writeDecisionToNotion({ env, orgId, login, card }) {
@@ -43,6 +47,20 @@ export async function writeDecisionToNotion({ env, orgId, login, card }) {
     if (!user) return false;
     const config = await getConnectorConfig(env.DB, user.github_id, "notion");
     if (!config?.databaseId) return false;
+
+    // One page per decision, however many times the card carrying it is
+    // delivered: claimed before the write, so a replay or a second delivery
+    // at the same moment finds it taken. Given back when the write fails, so
+    // the decision can still be written by a later try.
+    const d = card.decision || {};
+    const mark = `${card.id}|${d.action || ""}|${d.decidedAt || ""}`;
+    const claim = await env.DB.prepare(
+      `INSERT INTO ingested_items (connector, external_id, user_github_id, org_id, card_id, created_at)
+       VALUES (?1, ?2, ?3, ?4, NULL, ?5) ON CONFLICT(connector, external_id, user_github_id) DO NOTHING`
+    ).bind(EXPORTED, mark, String(user.github_id), orgId || "", new Date().toISOString()).run();
+    if (!claim.meta?.changes) return false;
+    const release = () => env.DB.prepare("DELETE FROM ingested_items WHERE connector = ?1 AND external_id = ?2 AND user_github_id = ?3")
+      .bind(EXPORTED, mark, String(user.github_id)).run().catch(() => {});
 
     const payload = await executeTool(
       env.COMPOSIO_API_KEY, "NOTION_INSERT_ROW_DATABASE", String(user.github_id),
@@ -56,7 +74,7 @@ export async function writeDecisionToNotion({ env, orgId, login, card }) {
         properties: [{ name: "title", type: "title", value: card.title || "Untitled" }],
         child_blocks: childBlocksFor(card),
       }
-    );
+    ).catch(async (err) => { await release(); throw err; });
 
     // The insert returns the new page id at data.id — the SAME id a later query
     // returns. Recording it in ingested_items (the table inbound dedups against)

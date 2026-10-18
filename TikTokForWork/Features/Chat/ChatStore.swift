@@ -565,19 +565,25 @@ final class ChatStore: ObservableObject {
         if let me = appState?.currentUser?.id { tr.use(scope: "\(me)|\(orgId)") }
         let want = tr.wanted(list, reader: reader)
         guard !want.isEmpty else { return }
-        let asked = Array(want.prefix(60))
         tr.retry = { [weak self] m in Task { await self?.translate(m.channel, [m]) } }
-        tr.asking(asked)
-        let got: ChatService.Translations
-        do {
-            got = try await ChatService.translate(orgId: orgId, channel: channel, ids: asked.map(\.id), locale: reader, base: base)
-        } catch {
-            tr.answered(asked, error: ChatTranslateFailure.of(error))
-            return
+        tr.asking(want)
+        // Every one, sixty to a request: a long history used to have its
+        // first sixty sent and the rest marked asked and never sent.
+        let batches = ChatTranslations.batches(want)
+        for (i, asked) in batches.enumerated() {
+            let got: ChatService.Translations
+            do {
+                got = try await ChatService.translate(orgId: orgId, channel: channel, ids: asked.map(\.id), locale: reader, base: base)
+            } catch {
+                // The rest were not asked about either: each fails the same
+                // way, and may be asked about again.
+                tr.answered(Array(batches[i...].joined()), error: ChatTranslateFailure.of(error))
+                return
+            }
+            if got.off == true { tr.off = true; tr.answered(Array(batches[i...].joined()), error: nil, reasons: [:]); return }
+            for m in asked { if let text = got.translations[m.id] { tr.store(m.id, from: m.body, text: text, lang: reader) } }
+            tr.answered(asked, error: nil, reasons: got.failed ?? [:])
         }
-        if got.off == true { tr.off = true; tr.answered(asked, error: nil, reasons: [:]); return }
-        for m in asked { if let text = got.translations[m.id] { tr.store(m.id, from: m.body, text: text, lang: reader) } }
-        tr.answered(asked, error: nil, reasons: got.failed ?? [:])
     }
 
     func markRead(_ view: String) async {
@@ -626,6 +632,12 @@ final class ChatStore: ObservableObject {
 
     nonisolated static func messageIds(_ keys: [String]) -> [String] {
         keys.filter { $0.hasPrefix("m:") }.map { String($0.dropFirst(2)) }
+    }
+
+    /// A conversation once a thread in it is deleted: the replies sent to
+    /// the conversation too went with the thread, so they go from here.
+    nonisolated static func withoutReplies(of parentId: String, in list: [ChatMessage]) -> [ChatMessage] {
+        list.filter { $0.parentId != parentId }
     }
 
     /// Activity's "Mark all as read": everything new there, and the threads
@@ -677,7 +689,7 @@ final class ChatStore: ObservableObject {
         olderFailed.remove(view)
         defer { if scope == self.scope { olderLoading.remove(view) } }
         do {
-            let older = try await ChatService.messages(orgId: orgId, channel: view, before: first.createdAt, base: base)
+            let older = try await ChatService.messages(orgId: orgId, channel: view, before: first.createdAt, beforeId: first.id, base: base)
             guard scope == self.scope else { return false }
             let known = Set((messages[view] ?? []).map(\.id))
             messages[view] = older.filter { !known.contains($0.id) } + (messages[view] ?? [])
@@ -1198,6 +1210,7 @@ final class ChatStore: ObservableObject {
             list.append(m)
             if !m.mine { activity[m.channel] = ChatActivity(channel: m.channel, lastAt: m.createdAt, preview: String(m.body.prefix(120)), lastBy: m.authorName) }
         }
+        if m.isDeleted, m.parentId == nil { list = Self.withoutReplies(of: m.id, in: list) }
         if messages[m.channel] != nil { messages[m.channel] = list }
         if thread?.parent.id == m.id {
             if m.isDeleted { thread = nil } else { thread?.parent = m }

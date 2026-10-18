@@ -178,6 +178,34 @@ test("a decision sent as tool_result is written to Notion, same as card_updated"
   expect(await untilNoThrow(() => fetchMock.assertNoPendingInterceptors())).toBe(true);
 });
 
+test("a decided card published again writes no second Notion page", async () => {
+  const { saveCard } = await import("../src/db.js");
+  const pending = { id: "c-again", recipientUserID: "realdev", senderUserID: "watcher", status: "pending", title: "Approve the deploy", priority: "high", createdAt: "2026-08-10T00:00:00Z" };
+  await saveCard(env.DB, "notion-org", pending);
+  fetchMock.activate();
+  let inserts = 0;
+  fetchMock.get("https://backend.composio.dev")
+    .intercept({ path: (p) => p.includes("NOTION_INSERT_ROW_DATABASE"), method: "POST", body: () => { inserts += 1; return true; } })
+    .reply(200, { successful: true, data: { id: "page-again" } })
+    .persist();
+  const { ws: a } = await joined("notion-org", globalThis.__tokenA);
+  const decided = { ...pending, status: "approved", decision: { action: "approve", actorUserID: "realdev", decidedAt: "2026-08-10T02:00:00Z" } };
+  a.send(JSON.stringify({ type: "card_updated", payload: { card: decided } }));
+  expect(await until(() => inserts === 1)).toBe(true);
+  // The phone republishes the decided card whole, and again with an
+  // unrelated change: neither is a new decision.
+  a.send(JSON.stringify({ type: "card_updated", payload: { card: decided } }));
+  a.send(JSON.stringify({ type: "card_updated", payload: { card: { ...decided, priority: "low" } } }));
+  const events = await until(async () => {
+    const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM card_events WHERE org_id='notion-org' AND card_id='c-again'").first();
+    return row.n >= 3 ? row.n : null;
+  });
+  expect(events).toBe(3);
+  await new Promise((r) => setTimeout(r, 200));
+  expect(inserts).toBe(1);
+  fetchMock.deactivate();
+});
+
 // The public handler forwards to the stub only for `Upgrade: websocket`, so the
 // announce path is not reachable from the internet. Pinned because
 // "unreachable" is a property of code someone can change.

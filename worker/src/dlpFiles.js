@@ -96,13 +96,26 @@ export async function zipEntries(buffer, match) {
   return out;
 }
 
+const NAMED_ENTITIES = { lt: "<", gt: ">", quot: "\"", apos: "'", amp: "&" };
+
+/// One XML reference as the character it stands for: the five named ones,
+/// and decimal (`&#65;`) or hexadecimal (`&#x41;`) character references, in
+/// one pass so `&amp;#65;` stays the text "&#65;". Anything else is left as
+/// written; no DTD-declared or external entity is ever resolved.
+function xmlEntity(whole, ref) {
+  if (ref[0] !== "#") return NAMED_ENTITIES[ref] ?? whole;
+  const code = ref[1] === "x" || ref[1] === "X" ? parseInt(ref.slice(2), 16) : parseInt(ref.slice(1), 10);
+  if (!Number.isFinite(code) || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return whole;
+  return String.fromCodePoint(code);
+}
+
 /// The words in Office XML: tags gone, paragraphs and cells kept apart.
 export function textOfXml(xml) {
   return String(xml)
     .replace(/<\/(w:p|a:p|row|si|c)>/g, "\n")
     .replace(/<(w:tab|w:br)\b[^>]*\/>/g, " ")
     .replace(/<[^>]+>/g, "")
-    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&apos;/g, "'").replace(/&amp;/g, "&")
+    .replace(/&(lt|gt|quot|apos|amp|#[0-9]{1,8}|#[xX][0-9a-fA-F]{1,8});/g, xmlEntity)
     .replace(/[ \t]+\n/g, "\n");
 }
 

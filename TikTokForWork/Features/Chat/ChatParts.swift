@@ -214,10 +214,28 @@ final class ChatTranslations: ObservableObject {
     }
 
     private static func key(_ m: ChatMessage) -> String { "\(m.id):\(m.body)" }
-    /// The translation known for a message as it now reads, in the reader's language.
+    /// A short fingerprint of a message's words, the same on every launch
+    /// (the Worker's sourceHash) — Swift's own hash is not.
+    static func wordsHash(_ text: String) -> String {
+        var h: UInt32 = 0x811c9dc5
+        for c in text.unicodeScalars {
+            h ^= c.value
+            h = h &* 0x01000193
+        }
+        return String(h, radix: 16)
+    }
+    /// Where one version of a message's translation is kept: by the message,
+    /// the language and the words it was made from, so a slow answer for
+    /// words since edited never takes the place of the words as they are.
+    static func textKey(_ id: String, lang: String, from: String) -> String { "\(id):\(lang):\(wordsHash(from))" }
+    /// The translation known for a message as it now reads, in the reader's
+    /// language. (Kept before versions were, by message and language alone:
+    /// still read.)
     func known(_ m: ChatMessage) -> String? {
-        guard let t = texts["\(m.id):\(reader)"], t.from == m.body else { return nil }
-        return t.text
+        for k in [Self.textKey(m.id, lang: reader, from: m.body), "\(m.id):\(reader)"] {
+            if let t = texts[k], t.from == m.body { return t.text }
+        }
+        return nil
     }
     func isPending(_ m: ChatMessage) -> Bool { !off && pending.contains(Self.key(m)) }
     /// Failed, and no translation known to show instead: a failed refresh
@@ -244,7 +262,7 @@ final class ChatTranslations: ObservableObject {
     }
 
     func store(_ id: String, from: String, text: String, lang: String? = nil) {
-        texts["\(id):\(lang ?? reader)"] = Kept(from: from, text: text, at: Date().timeIntervalSince1970)
+        texts[Self.textKey(id, lang: lang ?? reader, from: from)] = Kept(from: from, text: text, at: Date().timeIntervalSince1970)
         save()
     }
     func shown(_ m: ChatMessage) -> (text: String, translated: Bool) {
@@ -286,8 +304,15 @@ final class ChatTranslations: ObservableObject {
         }
         return true
     }
+    /// Requests of at most `size`, for every one of `list`: a request is
+    /// bounded, the work is not.
+    static func batches<T>(_ list: [T], size: Int = 60) -> [[T]] {
+        stride(from: 0, to: list.count, by: size).map { Array(list[$0..<min($0 + size, list.count)]) }
+    }
     /// The ones still to ask for, marked as asked: none known already, in
-    /// this reader's language.
+    /// this reader's language. Every one returned is to be asked for (in
+    /// `batches`) — one marked asked and never sent would never be asked
+    /// for again.
     func wanted(_ list: [ChatMessage], reader: String) -> [ChatMessage] {
         let to = String(reader.prefix(2)).lowercased()
         if to != self.reader { self.reader = to; asked = [] }

@@ -1991,6 +1991,7 @@ const table: Record<string, string> = {
   'Replying to {name}': 'Réponse à {name}',
   'Cancel reply': 'Annuler la réponse',
   'The message you were replying to is gone. Send again to post this on its own.': 'Le message auquel vous répondiez a été supprimé. Envoyez à nouveau pour le publier seul.',
+  'That thread was deleted, so your reply was not sent. It is in the conversation’s box instead.': 'Le fil a été supprimé, votre réponse n’a donc pas été envoyée. Elle se trouve dans la zone de saisie de la conversation.',
   'A scheduled message cannot be a reply yet.': 'Un message programmé ne peut pas encore être une réponse.',
   'Could not find the original message.': 'Impossible de trouver le message d’origine.',
   'replied to you': 'vous a répondu',
