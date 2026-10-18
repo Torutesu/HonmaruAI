@@ -222,6 +222,44 @@ test("a stream sends what is new, in order and signed; a failure backs off; Splu
   expect(JSON.parse(dd.body)[0]).toMatchObject({ ddsource: "honmaru", service: "audit" });
 });
 
+// A replay from before the oldest row D1 still kept started at that row and
+// moved the stream past the pruned range: the archive was never read.
+test("a replay from entries retention has pruned sends them from the archive, then the live ones; a missing archive stops the stream instead", async () => {
+  await write(4, T0 + 60_000);
+  await sealPending(env, { now: T0 + HOUR + 60_000 });
+  await write(2, T0 + 2 * HOUR + 60_000);
+  expect(await pruneAudit(env, { now: T0 + 200 * 24 * HOUR })).toEqual([{ orgId: ORG, count: 4 }]);
+  expect((await call("/audit/streams", owner, { method: "POST", body: { orgId: ORG, kind: "https", endpoint: "https://siem.example.com/in", secret: "whsec" } })).status).toBe(201);
+  const stream = await env.DB.prepare("SELECT id FROM audit_streams WHERE org_id = ?1").bind(ORG).first();
+  const sent = [];
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url.startsWith("https://siem.example.com")) { sent.push(...init.body.trim().split("\n").map((l) => JSON.parse(l))); return new Response("ok"); }
+    return realFetch(input, init);
+  };
+  // Without the archive there is nothing to send them from: refused, and the earliest that can be.
+  const noArchive = await call(`/audit/streams/${stream.id}/replay`, owner, { method: "POST", body: { orgId: ORG, fromSeq: 1 }, withEnv: { ...env, AUDIT_ARCHIVE: undefined } });
+  expect(noArchive.status).toBe(409);
+  expect(await noArchive.json()).toMatchObject({ code: "replay-unavailable", earliestSeq: 5 });
+
+  expect((await call(`/audit/streams/${stream.id}/replay`, owner, { method: "POST", body: { orgId: ORG, fromSeq: 2 } })).status).toBe(200);
+  for (let run = 0; run < 3; run += 1) await deliverStreams(env);
+  const newest = (await env.DB.prepare("SELECT MAX(seq) AS s FROM audit_events WHERE org_id = ?1").bind(ORG).first()).s;
+  expect(sent.map((e) => e.seq)).toEqual(Array.from({ length: newest - 1 }, (_, i) => i + 2));
+  expect(sent.slice(0, 3).map((e) => e.action)).toEqual(["emoji.added", "emoji.added", "emoji.added"]);
+  expect(sent[0].actor.name).toBe("Toru");
+
+  // The archive gone: the stream fails where it is and says why.
+  await env.AUDIT_ARCHIVE.delete(`${archivePath(ORG, T0)}.jsonl.gz`);
+  expect((await call(`/audit/streams/${stream.id}/replay`, owner, { method: "POST", body: { orgId: ORG, fromSeq: 1 } })).status).toBe(200);
+  sent.length = 0;
+  await deliverStreams(env);
+  expect(sent).toEqual([]);
+  const row = await env.DB.prepare("SELECT delivered_seq, failures, last_error FROM audit_streams WHERE id = ?1").bind(stream.id).first();
+  expect(row).toMatchObject({ delivered_seq: 0, failures: 1 });
+  expect(row.last_error).toContain("archive");
+});
+
 // Twenty due streams, LIMIT 20, no order and no memory of the last run: the
 // same twenty had every run, idle or not, and a twenty-first never sent.
 test("streams take turns: twenty idle ones do not keep a twenty-first from sending", async () => {

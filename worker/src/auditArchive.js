@@ -137,6 +137,22 @@ export async function sealHour(env, orgId, hourStart) {
   return digest;
 }
 
+/// One sealed hour's rows as they were archived — {seq, id, created_at,
+/// prev_hash, hash, body} — read back from the bucket, the digest checked
+/// against the hash D1 recorded for it and the archive against its digest.
+/// Null when either object is gone or does not match.
+export async function sealedRows(env, orgId, seal) {
+  const path = archivePath(orgId, Date.parse(seal.hour));
+  const digestObj = await env.AUDIT_ARCHIVE.get(`${path}.digest.json`);
+  const archiveObj = digestObj && (await env.AUDIT_ARCHIVE.get(`${path}.jsonl.gz`));
+  if (!archiveObj) return null;
+  const digestText = await digestObj.text();
+  if ((await sha256Hex(digestText)) !== seal.digest_sha256) return null;
+  const archive = new Uint8Array(await archiveObj.arrayBuffer());
+  if ((await sha256Bytes(archive)) !== JSON.parse(digestText).archive_sha256) return null;
+  return (await gunzip(archive)).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+}
+
 /// The hours of a workspace still to seal: complete hours after the last
 /// sealed one that hold rows, oldest first.
 async function hoursToSeal(env, orgId, before) {

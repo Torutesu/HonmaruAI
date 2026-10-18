@@ -10,6 +10,7 @@
 import { getSession, getUserByGithubId } from "./db.js";
 import { audit, person, presentEntry, AUDIT_ACTIONS, SEVERITIES } from "./audit.js";
 import { decryptBody } from "./auditCrypto.js";
+import { archiveReady, sealedRows } from "./auditArchive.js";
 import { allowed } from "./permissions.js";
 import { memberGate, reauthDenial } from "./policy.js";
 import { sealSecret } from "./sso.js";
@@ -72,21 +73,54 @@ async function send(stream, secret, events) {
   if (!res.ok) throw new Error(`${new URL(req.url).host} answered ${res.status}`);
 }
 
+/// The rows from `fromSeq` up to (not including) `beforeSeq` that retention
+/// has taken out of D1, read from the sealed archive in order, at most a
+/// batch. A row that is not there, or an hour that does not match its seal,
+/// is an error: the stream stops before it rather than passing over it.
+async function archivedRows(env, orgId, fromSeq, beforeSeq) {
+  let expected = fromSeq;
+  const gone = () => new Error(`entry ${expected} is no longer kept here and could not be read from the archive`);
+  if (!archiveReady(env)) throw gone();
+  const { results } = await env.DB.prepare(
+    "SELECT hour, from_seq, to_seq, digest_sha256 FROM audit_seals WHERE org_id = ?1 AND to_seq >= ?2 AND from_seq < ?3 ORDER BY from_seq LIMIT 24"
+  ).bind(orgId, fromSeq, beforeSeq).all();
+  const out = [];
+  for (const seal of results || []) {
+    if (out.length >= BATCH) break;
+    const rows = await sealedRows(env, orgId, seal);
+    if (!rows) throw new Error(`the archive of ${seal.hour} could not be read or does not match its seal`);
+    for (const r of rows) {
+      if (r.seq < expected || r.seq >= beforeSeq || out.length >= BATCH) continue;
+      if (r.seq !== expected) throw gone();
+      out.push({ seq: r.seq, body: r.body });
+      expected += 1;
+    }
+  }
+  if (!out.length) throw gone();
+  return out;
+}
+
 /// The next rows for a stream, decrypted and presented as the API shows them.
+/// Rows replayed from before the oldest D1 still keeps come from the archive.
 async function nextEvents(env, stream, members) {
   const rank = SEVERITIES.indexOf(stream.min_severity || "info");
   const cats = stream.categories ? JSON.parse(stream.categories) : null;
   const { results } = await env.DB.prepare(
     "SELECT seq, body FROM audit_events WHERE org_id = ?1 AND seq > ?2 ORDER BY seq LIMIT ?3"
   ).bind(stream.org_id, stream.delivered_seq, BATCH).all();
+  let rows = (results || []).map((r) => ({ seq: r.seq, body: JSON.parse(r.body) }));
+  // Entries are numbered without gaps, so one before the first row here is a
+  // range retention has pruned.
+  const want = Number(stream.delivered_seq) + 1;
+  if (rows.length && rows[0].seq > want) rows = await archivedRows(env, stream.org_id, want, rows[0].seq);
   const ids = new Map(members.map((m) => [m.login, m.userId]));
   const refs = new Map();
   const keys = new Map();
   const out = [];
   let lastSeq = stream.delivered_seq;
-  for (const r of results || []) {
+  for (const r of rows) {
     lastSeq = r.seq;
-    const body = await decryptBody(env, stream.org_id, { seq: r.seq, ...JSON.parse(r.body) }, keys);
+    const body = await decryptBody(env, stream.org_id, { seq: r.seq, ...r.body }, keys);
     if (SEVERITIES.indexOf(body.severity) < rank) continue;
     if (cats && !cats.includes(body.category)) continue;
     const shown = await presentEntry(body, stream.org_id, ids, refs);
@@ -114,9 +148,9 @@ export async function deliverStreams(env, { now = Date.now(), limit = 20 } = {})
   const done = [];
   for (const stream of results) {
     const members = await listMembers(env.DB, stream.org_id, null).catch(() => []);
-    const { events, lastSeq } = await nextEvents(env, stream, members);
-    if (lastSeq === stream.delivered_seq) continue;
     try {
+      const { events, lastSeq } = await nextEvents(env, stream, members);
+      if (lastSeq === stream.delivered_seq) continue;
       const secret = await openStreamSecret(env, stream);
       if (events.length) await send(stream, secret, events);
       await env.DB.prepare("UPDATE audit_streams SET delivered_seq = ?2, failures = 0, next_try_at = NULL, last_error = NULL, failing_since = NULL, last_sent_at = ?3 WHERE id = ?1")
@@ -211,6 +245,16 @@ export async function handleStreams(request, env, url) {
   }
   if (m[2] === "/replay" && request.method === "POST") {
     const from = Math.max(0, Number(body.fromSeq) || 0);
+    // From before what D1 still keeps: only as far back as the archive goes,
+    // and said so, rather than starting quietly at the oldest row here.
+    const oldest = await env.DB.prepare("SELECT MIN(seq) AS s FROM audit_events WHERE org_id = ?1").bind(orgId).first();
+    if (oldest?.s && from < oldest.s) {
+      const sealed = archiveReady(env) ? await env.DB.prepare("SELECT MIN(from_seq) AS s FROM audit_seals WHERE org_id = ?1").bind(orgId).first() : null;
+      const earliest = sealed?.s && sealed.s < oldest.s ? sealed.s : oldest.s;
+      if (from < earliest && earliest > 1) {
+        return json({ message: `Entries before ${earliest} are no longer kept, so they cannot be sent again. Send again from ${earliest} or later.`, code: "replay-unavailable", earliestSeq: earliest }, 409);
+      }
+    }
     await env.DB.prepare("UPDATE audit_streams SET delivered_seq = ?2, status = 'active', failures = 0, next_try_at = NULL, failing_since = NULL WHERE id = ?1").bind(stream.id, Math.max(0, from - 1)).run();
     await audit(env, request, { orgId, action: "audit.stream_replayed", actor: person(user), entity, details: { from_seq: from } });
     return json({ streams: await list() });
