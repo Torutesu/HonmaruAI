@@ -286,3 +286,35 @@ test('an app generated in an agent DM resolves the room and remains private', as
   expect(listed.apps.find(a => a.id === app.id).channels).toEqual([`${room}|mika`]);
   expect((await get(`/apps/${app.id}?${q({ orgId: ORG })}`, toru)).status).toBe(404);
 });
+
+test("an approval goes only to someone in this workspace, checked when saved and again when it runs", async () => {
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  // Zed has an account, in another workspace; Kai is here until removed.
+  await upsertUser(env.DB, { githubId: "9304", login: "zed", name: "Zed", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, "personal:elsewhere", "9304", "admin");
+  await upsertUser(env.DB, { githubId: "9303", login: "kai", name: "Kai", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, ORG, "9303", "member");
+  const flow = (to) => ({ orgId: ORG, name: `Ask ${to}`, trigger: { type: "manual" }, steps: [{ type: "approval", to, title: "Secret plan", summary: "Only for us" }] });
+
+  const refused = await send("POST", "/workflows", mika, flow("zed"));
+  expect(refused.status).toBe(400);
+  expect((await refused.json()).message).toMatch(/zed/);
+  const { workflow: viaTemplate } = await (await send("POST", "/workflows", mika, flow("{{input.who}}"))).json();
+  expect((await send("PUT", `/workflows/${viaTemplate.id}`, mika, { orgId: ORG, steps: flow("@zed").steps })).status).toBe(400);
+  const { workflow: toKai } = await (await send("POST", "/workflows", mika, flow("kai"))).json();
+
+  const outsider = (await (await send("POST", `/workflows/${viaTemplate.id}/run`, mika, { orgId: ORG, input: { who: "zed" } })).json()).run;
+  expect(outsider).toMatchObject({ status: "failed", cardId: null });
+  expect(outsider.log[0]).toMatchObject({ status: "failed", error: "Nobody by that name here." });
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = '9303'").bind(ORG).run();
+  const removed = (await (await send("POST", `/workflows/${toKai.id}/run`, mika, { orgId: ORG })).json()).run;
+  expect(removed.status).toBe("failed");
+  // Nothing was saved or queued for either of them.
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1").bind(ORG).first()).n).toBe(0);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM notification_jobs").first()).n).toBe(0);
+
+  // A member named through the template still gets the approval.
+  const member = (await (await send("POST", `/workflows/${viaTemplate.id}/run`, mika, { orgId: ORG, input: { who: "toru" } })).json()).run;
+  expect(member.status).toBe("waiting");
+  expect((await (await get(`/approvals?${q({ orgId: ORG })}`, toru)).json()).toDecide).toEqual([expect.objectContaining({ title: "Secret plan", kind: "workflow" })]);
+});

@@ -13,7 +13,7 @@ import { mayUseConversation } from './conversationAccess.js';
 // is what carries it on (or ends it) — afterDecision in relay.js calls
 // settleWorkflowApproval.
 
-import { saveCard, getUserByLogin } from "../db.js";
+import { saveCard, getUserByLogin, isMember } from "../db.js";
 import { postMessage } from "../channels.js";
 import { nextRunAt, CADENCES, isTimeZone } from "../schedule.js";
 import { appendCardEvent } from "../events.js";
@@ -114,6 +114,24 @@ const publicRun = (r) => r && ({
   startedBy: r.started_by, startedAt: r.started_at, finishedAt: r.finished_at,
 });
 
+/// Who an approval goes to: a login is global, so it names someone only
+/// while they belong to this workspace. Anyone else would be sent its title
+/// and summary, and the run would wait on a decision they cannot reach.
+async function approverIn(db, orgId, login) {
+  const user = await getUserByLogin(db, login);
+  return user && (await isMember(db, orgId, user.github_id)) ? user : null;
+}
+
+/// An approval written to a fixed login is checked when it is saved; one
+/// written as a {{placeholder}} can only be checked when it runs.
+async function unknownApprover(db, orgId, steps) {
+  for (const step of steps) {
+    if (step.type !== "approval" || step.to.includes("{{")) continue;
+    if (!(await approverIn(db, orgId, step.to))) return { error: `Nobody by that name here: @${step.to}` };
+  }
+  return null;
+}
+
 export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
   if (!workflow) return false;
   if (workflow.trigger?.tableId && !(await mayUseTable(db, orgId, workflow.trigger.tableId, viewerId))) return false;
@@ -150,6 +168,8 @@ export async function createWorkflow(db, orgId, input, by) {
   if (t.error) return t;
   const s = normalizeSteps(input?.steps);
   if (s.error) return s;
+  const nobody = await unknownApprover(db, orgId, s.steps);
+  if (nobody) return nobody;
   if (t.trigger.type === "row" && !(await getTable(db, orgId, t.trigger.tableId))) return { error: "No such table." };
   const n = await db.prepare("SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id = ?1").bind(orgId).first();
   if (Number(n?.n || 0) >= MAX_WORKFLOWS) return { error: "This workspace has as many workflows as it can hold." };
@@ -179,6 +199,8 @@ export async function updateWorkflow(db, orgId, id, input) {
   if (input.steps !== undefined) {
     const s = normalizeSteps(input.steps);
     if (s.error) return s;
+    const nobody = await unknownApprover(db, orgId, s.steps);
+    if (nobody) return nobody;
     steps = s.steps;
   }
   const enabled = input.enabled !== undefined ? Boolean(input.enabled) : wf.enabled;
@@ -370,7 +392,9 @@ async function runStep(env, { orgId, workflow, step, scope, runId, depth, owner 
       return { status: "ok", output: rowId, rowId };
     }
     case "approval": {
-      const to = await getUserByLogin(db, render(step.to, scope));
+      // Checked again here: a placeholder names someone only now, and a
+      // fixed login may have left the workspace since the workflow was saved.
+      const to = await approverIn(db, orgId, render(step.to, scope));
       if (!to) return { status: "failed", error: "Nobody by that name here." };
       const card = {
         id: `wf-${runId}`,
