@@ -59,11 +59,14 @@ export async function runCardNotification(env, id, send, now = Date.now()) {
       if (!user) result = {sent:0, skipped:'recipient removed'};
       if (!result && job.org_id) {
         const member = await env.DB.prepare('SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2').bind(job.org_id, user.github_id).first();
-        const card = await getCard(env.DB, job.org_id, job.card_id);
-        if (!member || !card || !mayReadCard(card, await accessFor(env.DB, job.org_id, job.login))) result = {sent:0, skipped:'no longer accessible'};
+        // A digest is a count under a made-up id, not a stored card: still
+        // news while they are a member, and sent as it was queued.
+        const tally = job.kind === 'digest';
+        const card = tally ? null : await getCard(env.DB, job.org_id, job.card_id);
+        if (!member || !tally && (!card || !mayReadCard(card, await accessFor(env.DB, job.org_id, job.login)))) result = {sent:0, skipped:'no longer accessible'};
         else if ((job.kind === 'created' || job.kind === 'nudged') && (card.status !== 'pending' || card.recipientUserID !== job.login)) result = {sent:0, skipped:'request changed'};
         else if (job.kind === 'decided' && (card.status === 'pending' || card.decision?.decidedAt !== input.card.decision?.decidedAt)) result = {sent:0, skipped:'response changed'};
-        else input.card = card;
+        else if (!tally) input.card = card;
       }
     }
     result ||= await send(env, {...input, deliveryJobId:id});
