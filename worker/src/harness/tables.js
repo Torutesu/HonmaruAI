@@ -110,7 +110,8 @@ const publicRow = (row) => row && ({
   createdBy: row.created_by, updatedBy: row.updated_by, createdAt: row.created_at, updatedAt: row.updated_at,
 });
 
-export async function createTable(db, { orgId, name, columns, by }) {
+// Apps include this insertion in the same transaction as their access policy.
+export async function prepareTable(db, { orgId, name, columns, by }) {
   const clean = String(name ?? "").trim().slice(0, 80);
   if (!clean) return { error: "Give the table a name." };
   const cols = normalizeColumns(columns);
@@ -119,11 +120,17 @@ export async function createTable(db, { orgId, name, columns, by }) {
   if (Number(count?.n || 0) >= MAX_TABLES_PER_ORG) return { error: "This workspace has as many tables as it can hold." };
   const id = newId("tbl");
   const at = now();
-  await db
+  const statement = db
     .prepare("INSERT INTO hx_tables (id, org_id, name, columns, created_by, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)")
-    .bind(id, orgId, clean, JSON.stringify(cols.columns), String(by), at)
-    .run();
-  return { table: await getTable(db, orgId, id) };
+    .bind(id, orgId, clean, JSON.stringify(cols.columns), String(by), at);
+  return { statement, table: publicTable({id, org_id:orgId, name:clean, columns:JSON.stringify(cols.columns), created_by:String(by), created_at:at, updated_at:at}) };
+}
+
+export async function createTable(db, input) {
+  const prepared = await prepareTable(db, input);
+  if (prepared.error) return prepared;
+  await prepared.statement.run();
+  return {table:prepared.table};
 }
 
 export async function getTable(db, orgId, id) {

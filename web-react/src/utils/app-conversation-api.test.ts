@@ -11,3 +11,9 @@ test('app conversation omits undefined record scope; record conversation encodes
  await api.postConversation('app',{tableId:undefined,rowId:undefined},'Message','request_1234567890')
  expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({orgId:'team:one',body:'Message',requestId:'request_1234567890'})
 })
+test('app generation sends the retry identity and source capture alongside its room',async()=>{
+ const fetch=vi.fn().mockResolvedValue({ok:true,json:async()=>({app:{id:'app'}})});vi.stubGlobal('fetch',fetch)
+ const api=harnessApi('https://example.test','team:one','session')
+ await api.generate('Track work','b:ops',{requestId:'generation_request_001',captureSource:true})
+ expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({orgId:'team:one',prompt:'Track work',channel:'b:ops',requestId:'generation_request_001',captureSource:true})
+})

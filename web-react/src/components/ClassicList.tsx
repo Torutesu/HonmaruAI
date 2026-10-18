@@ -1441,6 +1441,7 @@ export const ClassicList: React.FC<Props> = ({
   const [resourceBuild, setResourceBuild] = useState<{ kind: 'apps' | 'workflows'; channel: string } | null>(null)
   const [resourceBuilding, setResourceBuilding] = useState(false)
   const resourceBuildLock = useRef(false)
+  const appGenerationRequest = useRef<{key:string;id:string}|null>(null)
   const resourceClient = useMemo(() => harnessApi(api.httpBase, api.orgId, api.sessionToken), [api.httpBase, api.orgId, api.sessionToken])
   // Set by the boxes' own handlers, and gone by the end of the same event
   // (a microtask): the render it causes changes only what is being
@@ -1973,8 +1974,12 @@ export const ClassicList: React.FC<Props> = ({
       try {
         const client = harnessApi(api.httpBase, api.orgId, api.sessionToken)
         if (resourceBuild.kind === 'apps') {
-          const made = await client.generate(body.replace(/^@AI\s*/i, ''), channel)
-          clearDraftOf(channel); setResourceBuild(null); setSide({ kind: 'app', id: made.app.id })
+          const prompt = body.replace(/^@AI\s*/i, '')
+          const key = JSON.stringify([api.orgId, channel, prompt])
+          if (appGenerationRequest.current?.key !== key) appGenerationRequest.current = {key,id:crypto.randomUUID()}
+          const made = await client.generate(prompt, channel, {requestId:appGenerationRequest.current.id,captureSource:true})
+          appGenerationRequest.current = null
+          clearDraftOf(channel); setResourceBuild(null); setSide({ kind: 'app', id: made.app.id, conversation:true })
         } else {
           const made = await client.generateWorkflow(body.replace(/^@AI\s*/i, ''), channel)
           clearDraftOf(channel); setResourceBuild(null); onWorkflow?.(made.workflow.id)
@@ -3235,7 +3240,7 @@ export const ClassicList: React.FC<Props> = ({
 
   // ---- What the header opens ----
   // The journal ("Context"), or the channel's details on one of its tabs.
-  const [side, setSide] = useState<null | { kind: 'journal' } | { kind: 'app'; id: string } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
+  const [side, setSide] = useState<null | { kind: 'journal' } | { kind: 'app'; id: string; conversation?:boolean } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
   const openSide = (next: { kind: 'journal' } | { kind: 'app'; id: string } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
     setDetailId(null); setThread(null); setProfile(null); setPins(null)
     setSide((prev) => (prev && prev.kind === next.kind && (prev.kind === 'journal' || prev.kind === 'canvas' || (next.kind === 'resources' && prev.kind === 'resources' && prev.resource === next.resource) || (next.kind === 'details' && prev.kind === 'details' && prev.tab === next.tab)) ? null : next))
@@ -5637,7 +5642,7 @@ export const ClassicList: React.FC<Props> = ({
       )}
       {!detail && !thread && !profile && side && current?.view && (
         side.kind === 'app'
-          ? <aside className="hx-app-pane slk-pane"><AppView key={`${api.orgId}:${side.id}`} httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} api={resourceClient} appId={side.id} onClose={() => setSide(null)} onBack={() => setSide({ kind: 'resources', resource: 'apps' })} /></aside>
+          ? <aside className="hx-app-pane slk-pane"><AppView key={`${api.orgId}:${side.id}`} httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} api={resourceClient} appId={side.id} openConversation={side.conversation} onClose={() => setSide(null)} onBack={() => setSide({ kind: 'resources', resource: 'apps' })} /></aside>
           : side.kind === 'resources'
           ? <HarnessRoomResources key={`${api.orgId}:${userId}:${current.view}:${side.resource}`} api={api} channel={current.view} kind={side.resource}
               onClose={() => setSide(null)} onOpenApp={id => { if (id) setSide({ kind: 'app', id }); else { setSide(null); onApps?.() } }} onOpenWorkflow={id => { setSide(null); onWorkflow?.(id) }}
