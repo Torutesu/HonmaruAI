@@ -678,7 +678,7 @@ test("a queued agent job answers only someone still in the workspace and within 
   expect(await replies(allowed.row)).toEqual([expect.objectContaining({ kind: "agent", authorName: "Hayao" })]);
 
   // Signed out of this workspace by its rules: the session is still good elsewhere.
-  await endHere(env.DB, ORG, [key]);
+  await endHere(env, ORG, [key]);
   const ended = await ask(key);
   expect(await replies(ended.row)).toEqual([]);
 
