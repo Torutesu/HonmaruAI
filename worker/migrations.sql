@@ -82,6 +82,8 @@ ALTER TABLE sessions ADD COLUMN sso_org_id TEXT;
 ALTER TABLE audit_principal_keys ADD COLUMN shred_pending INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE sessions ADD COLUMN sso_connection_id TEXT;
 ALTER TABLE sso_states ADD COLUMN connection_id TEXT;
+ALTER TABLE sso_states ADD COLUMN browser_hash TEXT;
+ALTER TABLE sso_handoffs ADD COLUMN browser_hash TEXT;
 ALTER TABLE join_requests ADD COLUMN role TEXT;
 ALTER TABLE join_requests ADD COLUMN via TEXT;
 ALTER TABLE sessions ADD COLUMN sso_subject TEXT;

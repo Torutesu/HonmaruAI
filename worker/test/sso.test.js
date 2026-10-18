@@ -38,8 +38,8 @@ const where = (res) => new URL(res.headers.get("location"), "https://app.test");
 const hashParams = (res) => new URLSearchParams((res.headers.get("location").split("?")[1] || ""));
 
 /// Go to the provider and come back as `who`.
-async function signIn(who, { client = "web", mutate = (c) => c } = {}) {
-  const start = await call(`/sso/start?orgId=${encodeURIComponent(ORG)}&client=${client}`);
+async function signIn(who, { client = "web", mutate = (c) => c, bind = null } = {}) {
+  const start = await call(`/sso/start?orgId=${encodeURIComponent(ORG)}&client=${client}${bind ? `&bind=${bind}` : ""}`);
   expect(start.status).toBe(302);
   const at = where(start);
   expect(at.origin + at.pathname).toBe(`${ISSUER}/authorize`);
@@ -129,6 +129,31 @@ test("the round trip: a new person is made, joins by SSO, and trades a one-time 
   const mika = await signIn({ sub: "okta-mika", email: "mika@acme.co.jp", name: "Mika" });
   const mikaSession = await (await call("/sso/exchange", null, { method: "POST", body: { code: hashParams(mika).get("code"), client: "web" } })).json();
   expect(mikaSession.userId).toBe("7803");
+});
+
+test("a sign-in a browser started with its secret is traded only by that browser", async () => {
+  await activate();
+  const verifier = "browser-a-secret-that-only-this-page-keeps";
+  const bind = b64url(await crypto.subtle.digest("SHA-256", enc.encode(verifier)));
+  const exchange = (code, extra = {}) => call("/sso/exchange", null, { method: "POST", body: { code, client: "web", ...extra } });
+
+  // Opened in a browser that started nothing (no secret), or one with a
+  // sign-in of its own under way (another secret): refused, and the code is
+  // still good for the browser that started it.
+  let code = hashParams(await signIn({ sub: "okta-aya", email: "aya@acme.co.jp", name: "Aya" }, { bind })).get("code");
+  expect((await exchange(code)).status).toBe(400);
+  expect((await exchange(code, { verifier: "browser-b-secret" })).status).toBe(400);
+  const session = await (await exchange(code, { verifier })).json();
+  expect(session.token).toBeTruthy();
+  // Once.
+  expect((await exchange(code, { verifier })).status).toBe(400);
+
+  // A browser holding a secret takes no code that was not started with it:
+  // an unbound one sent from elsewhere does not sign it in either.
+  code = hashParams(await signIn({ sub: "okta-mika", email: "mika@acme.co.jp", name: "Mika" })).get("code");
+  expect((await exchange(code, { verifier })).status).toBe(400);
+  // An app from before the secret, which sends none, still finishes its own.
+  expect((await (await exchange(code)).json()).userId).toBe("7803");
 });
 
 test("every check on the token refuses: audience, nonce, unproved address, other domain, no signature, a replayed state", async () => {

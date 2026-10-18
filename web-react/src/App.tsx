@@ -16,6 +16,7 @@ import { onboardingKey, needsOnboarding, completeOnboarding } from './utils/onbo
 import { t, adoptAccountLocale } from './utils/i18n'
 import type { InvitePeek } from './screens/SignIn'
 import { disableWebPush, sessionIsCurrent } from './utils/push'
+import { boundSsoStart, takeSsoVerifier } from './utils/ssoBinding'
 import { forgetOwnOutbox } from './utils/pendingSend'
 import './theme.css'
 import './App.css'
@@ -218,17 +219,27 @@ function App() {
   }, [restoring])
   // Back from the company's identity provider: #/sso/done?code=… is a
   // one-time code, traded here for the session (the token itself never
-  // rides in a URL); #/sso/done?error=… says why it did not work.
+  // rides in a URL); #/sso/done?error=… says why it did not work. Only a
+  // sign-in this browser started is finished (utils/ssoBinding): a code
+  // that arrives without one is someone else's, and whoever is signed in
+  // here stays signed in.
   useEffect(() => {
     const hash = location.hash
     if (!hash.startsWith('#/sso/done')) return
     const q = new URLSearchParams(hash.split('?')[1] || '')
     try { history.replaceState(null, '', location.pathname + location.search + '#/feed') } catch { /* cosmetic */ }
+    const verifier = takeSsoVerifier()
     if (q.get('error')) { setGithubError(q.get('error')); setStage('welcome'); return }
     const code = q.get('code')
     if (!code) return
+    if (!verifier) {
+      const text = t('That sign-in was not started in this browser. Start it again here.')
+      if (localStorage.getItem('sessionToken')) setNotice({ text, error: true })
+      else setGithubError(text)
+      return
+    }
     const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
-    fetch(`${base}/sso/exchange`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, client: 'web' }) })
+    fetch(`${base}/sso/exchange`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, client: 'web', verifier }) })
       .then(async (r) => {
         const data = await r.json().catch(() => ({}))
         if (!r.ok || !data.token) { setGithubError(data.message || t('That sign-in did not finish. Try again.')); return }
@@ -244,7 +255,7 @@ function App() {
       const { start } = (e as CustomEvent<{ start?: string }>).detail || {}
       if (!start) return
       const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
-      window.location.href = `${base}${start}&client=web`
+      void boundSsoStart(base, `${start}&client=web`).then((href) => { window.location.href = href })
     }
     window.addEventListener('honmaru:sso-required', on)
     return () => window.removeEventListener('honmaru:sso-required', on)

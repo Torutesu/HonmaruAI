@@ -1606,6 +1606,7 @@ const table: Record<string, string> = {
   '{team} signs in only with {provider}.': '{team} meldet sich nur über {provider} an.',
   '{team} uses {provider} for sign-in.': '{team} nutzt {provider} zur Anmeldung.',
   'That sign-in did not finish. Try again.': 'Die Anmeldung wurde nicht abgeschlossen. Versuche es erneut.',
+  'That sign-in was not started in this browser. Start it again here.': 'Diese Anmeldung wurde nicht in diesem Browser begonnen. Beginne sie hier noch einmal.',
   'Workspace keys': 'Workspace-Schlüssel',
   'For an HR system or Terraform: add and remove people, set up channels, read the audit log. The key belongs to the workspace, not to whoever made it, and never reads messages.': 'Für ein HR-System oder Terraform: Personen hinzufügen und entfernen, Kanäle anlegen, das Audit-Log lesen. Der Schlüssel gehört dem Workspace, nicht seinem Ersteller, und liest nie Nachrichten.',
   'Make a key': 'Schlüssel erstellen',

@@ -1290,7 +1290,9 @@ CREATE TABLE IF NOT EXISTS sso_states (
   tester_id       TEXT,
   created_at      TEXT NOT NULL,
   expires_at      TEXT NOT NULL,
-  connection_id   TEXT
+  connection_id   TEXT,
+  /* The hash of the secret the web page that started this keeps (sso.js). */
+  browser_hash    TEXT
 );
 
 /* The one-time code a finished SSO sign-in is handed back with, in place
@@ -1300,7 +1302,8 @@ CREATE TABLE IF NOT EXISTS sso_handoffs (
   token           TEXT NOT NULL,
   org_id          TEXT NOT NULL,
   client          TEXT NOT NULL,
-  expires_at      TEXT NOT NULL
+  expires_at      TEXT NOT NULL,
+  browser_hash    TEXT
 );
 
 /* Each hour of a workspace's audit log sealed into the archive
