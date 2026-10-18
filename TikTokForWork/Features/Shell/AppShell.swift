@@ -77,7 +77,12 @@ struct AppShell: View {
                 try? await Task.sleep(for: .seconds(30))
             }
         }
-        .onChange(of: appState.currentUser?.teamID) { _, _ in composer.teamChanged(appState: appState) }
+        .onChange(of: appState.currentUser?.teamID) { _, team in
+            composer.teamChanged(appState: appState)
+            // The chat emptied itself for the new workspace: its own counts
+            // for the tab bar, whichever tab is showing.
+            if team != nil && !appState.isGuest { Task { await chat.refresh() } }
+        }
         // A notification: its workspace, then its conversation or its card.
         // Also on appearing, for the tap that launched the app.
         .onChange(of: push.pendingCard) { _, _ in Task { await openTappedCard() } }

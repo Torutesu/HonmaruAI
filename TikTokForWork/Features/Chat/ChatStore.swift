@@ -50,6 +50,51 @@ struct ChatAgentTyping: Hashable {
     let parentId: String?
 }
 
+/// Messages that have not reached the server, kept on this phone until they
+/// do or are thrown away (#342), each under the account, workspace and
+/// conversation it was written in (#331).
+struct ChatOutbox {
+    struct Entry: Codable, Equatable {
+        let clientId: String
+        let user: String
+        let orgId: String
+        let view: String
+        let text: String
+        let decide: Bool
+        let parentId: String?
+        let alsoChannel: Bool
+        let files: [ChatFile]
+        let replyTo: ChatQuote?
+        /// When it was first sent.
+        let createdAt: String
+        /// Why it did not go, when that is known.
+        var reason: String?
+    }
+
+    /// "chat.draft." so signing out takes it away with the drafts.
+    static let key = "chat.draft.outbox"
+
+    static func load(from defaults: UserDefaults = .standard) -> [String: Entry] {
+        guard let data = defaults.data(forKey: key), let list = try? JSONDecoder().decode([Entry].self, from: data) else { return [:] }
+        return Dictionary(list.map { ($0.clientId, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    static func save(_ entries: [String: Entry], to defaults: UserDefaults = .standard) {
+        guard !entries.isEmpty else { defaults.removeObject(forKey: key); return }
+        if let data = try? JSONEncoder().encode(entries.values.sorted { $0.createdAt < $1.createdAt }) { defaults.set(data, forKey: key) }
+    }
+
+    /// The ones held for one conversation, of this account in this
+    /// workspace: its own messages, or one thread's replies. Oldest first.
+    static func held(_ entries: [String: Entry], user: String, orgId: String, view: String, thread parentId: String?) -> [Entry] {
+        entries.values.filter { e in
+            e.user == user && e.orgId == orgId && e.view == view
+                && (parentId == nil ? (e.parentId == nil || e.alsoChannel) : e.parentId == parentId)
+        }
+        .sorted { $0.createdAt < $1.createdAt }
+    }
+}
+
 /// Everything the chat tab knows, kept current by the relay's channel events.
 @MainActor
 final class ChatStore: ObservableObject {
@@ -177,7 +222,47 @@ final class ChatStore: ObservableObject {
         PushService.clearDelivered(channel: view, parentId: nil, orgId: orgId)
     }
 
-    func bind(_ appState: AppState) { self.appState = appState }
+    func bind(_ appState: AppState) {
+        guard self.appState !== appState else { return }
+        self.appState = appState
+        ChatSends.shared.retry = { [weak self] id in Task { await self?.sendAgain(id) } }
+        ChatSends.shared.discard = { [weak self] id in self?.throwAway(id) }
+        // Told before the account or workspace changes, with the new one:
+        // nothing of the last is left on screen under it.
+        scopeWatch = appState.$currentUser
+            .map { "\($0?.id ?? "")|\($0?.teamID ?? "")" }
+            .removeDuplicates()
+            .sink { [weak self] next in self?.adopt(next) }
+    }
+
+    /// Whose chat this is, and in which workspace: "user|org".
+    private var scope = ""
+    private var scopeWatch: AnyCancellable?
+
+    /// Another account or workspace: everything held for the last one goes,
+    /// so a channel that shares a name never shows the other's messages,
+    /// even while its own load (#331). Answers to what the last one asked
+    /// are dropped as they arrive. Messages not yet sent stay kept, each
+    /// for the workspace it was written in.
+    private func adopt(_ next: String) {
+        guard next != scope else { return }
+        scope = next
+        members = []; businesses = []; groups = []; emoji = []; threads = []; userGroups = []
+        sidebar = ChatSidebar(); activity = [:]; reads = [:]; prefs = [:]; mine = nil; agents = []
+        messages = [:]; more = [:]; olderLoading = []; olderFailed = []
+        inbox = []; saved = []; scheduled = []; cancelling = []
+        thinking = [:]; agentTyping = [:]
+        thread = nil; threadLoading = false; threadFailed = false; threadReadTo = [:]
+        pendingOpen = nil; dataWarning = nil; dataBlocked = nil; error = nil
+        if next.hasPrefix("|") {
+            // Signed out: signing out has taken them off the phone.
+            outboxLoaded = false
+            heldSends = [:]
+        } else if !outboxLoaded {
+            heldSends = ChatOutbox.load()
+            outboxLoaded = true
+        }
+    }
 
     private var orgId: String? { appState?.currentUser?.teamID }
     private var base: URL? { appState?.backendBaseURL }
@@ -250,10 +335,13 @@ final class ChatStore: ObservableObject {
 
     func refresh() async {
         guard let orgId, let base else { return }
+        // What arrives after a switch was the last workspace's: dropped.
+        let scope = self.scope
         do {
             async let o = ChatService.overview(orgId: orgId, base: base)
             async let b = ChatService.businesses(orgId: orgId, base: base)
             let (overview, list) = try await (o, b)
+            guard scope == self.scope else { return }
             members = overview.members
             activity = Dictionary(uniqueKeysWithValues: overview.activity.map { ($0.channel, $0) })
             reads = overview.reads ?? [:]
@@ -263,11 +351,20 @@ final class ChatStore: ObservableObject {
             groups = overview.groups ?? []
             agents = overview.agents ?? []
             businesses = list
-        } catch { self.error = error.localizedDescription }
-        if let list = try? await ChatService.emoji(orgId: orgId, base: base) { emoji = list } else { emoji = [] }
-        if let list = try? await ChatService.userGroups(orgId: orgId, base: base) { userGroups = list } else { userGroups = [] }
+        } catch {
+            guard scope == self.scope else { return }
+            self.error = error.localizedDescription
+        }
+        let emojiList = try? await ChatService.emoji(orgId: orgId, base: base)
+        guard scope == self.scope else { return }
+        emoji = emojiList ?? []
+        let groupList = try? await ChatService.userGroups(orgId: orgId, base: base)
+        guard scope == self.scope else { return }
+        userGroups = groupList ?? []
         ChatMentionDirectory.shared.update(members: members, groups: userGroups, agents: agents)
-        if let layout = try? await ChatService.sidebar(orgId: orgId, base: base) { sidebar = layout } else { sidebar = ChatSidebar() }
+        let layout = try? await ChatService.sidebar(orgId: orgId, base: base)
+        guard scope == self.scope else { return }
+        sidebar = layout ?? ChatSidebar()
         await loadThreads()
         async let i: Void = loadInbox()
         async let l: Void = loadLater()
@@ -312,7 +409,8 @@ final class ChatStore: ObservableObject {
 
     func loadThreads() async {
         guard let orgId, let base else { return }
-        if let list = try? await ChatService.threads(orgId: orgId, base: base) { threads = list }
+        let scope = self.scope
+        if let list = try? await ChatService.threads(orgId: orgId, base: base), scope == self.scope { threads = list }
         // Behind, so what waits on the list does not wait on this too.
         Task { await readAhead() }
     }
@@ -416,30 +514,38 @@ final class ChatStore: ObservableObject {
 
     func loadInbox() async {
         guard let orgId, let base else { return }
-        if let items = try? await ChatService.activity(orgId: orgId, base: base) { inbox = items }
+        let scope = self.scope
+        if let items = try? await ChatService.activity(orgId: orgId, base: base), scope == self.scope { inbox = items }
     }
     func loadLater() async {
         guard let orgId, let base else { return }
-        if let items = try? await ChatService.later(orgId: orgId, base: base) { saved = items }
+        let scope = self.scope
+        if let items = try? await ChatService.later(orgId: orgId, base: base), scope == self.scope { saved = items }
     }
     func loadScheduled() async {
         guard let orgId, let base else { return }
-        if let items = try? await ChatService.scheduled(orgId: orgId, base: base) { scheduled = items }
+        let scope = self.scope
+        if let items = try? await ChatService.scheduled(orgId: orgId, base: base), scope == self.scope { scheduled = items }
     }
 
     // MARK: A conversation
 
     func open(_ view: String) async {
         guard let orgId, let base else { return }
+        let scope = self.scope
         do {
             let list = try await ChatService.messages(orgId: orgId, channel: view, base: base)
-            messages[view] = list
+            guard scope == self.scope else { return }
+            messages[view] = withHeld(list, view: view, thread: nil)
             more[view] = list.count >= page
             olderFailed.remove(view)
         } catch {
+            guard scope == self.scope else { return }
             // Not read: what was never shown stays new, here, on the other
             // devices and on the lock screen. Opening it again reads it.
             self.error = error.localizedDescription
+            // What did not send is shown all the same, to send again.
+            if messages[view] == nil { messages[view] = withHeld([], view: view, thread: nil) }
             return
         }
         await markRead(view)
@@ -563,17 +669,19 @@ final class ChatStore: ObservableObject {
     @discardableResult
     func loadOlder(_ view: String) async -> Bool {
         guard more[view] == true, !olderLoading.contains(view), let first = messages[view]?.first, let orgId, let base else { return false }
+        let scope = self.scope
         olderLoading.insert(view)
         olderFailed.remove(view)
-        defer { olderLoading.remove(view) }
+        defer { if scope == self.scope { olderLoading.remove(view) } }
         do {
             let older = try await ChatService.messages(orgId: orgId, channel: view, before: first.createdAt, base: base)
+            guard scope == self.scope else { return false }
             let known = Set((messages[view] ?? []).map(\.id))
             messages[view] = older.filter { !known.contains($0.id) } + (messages[view] ?? [])
             more[view] = older.count >= page
             return !older.isEmpty
         } catch {
-            olderFailed.insert(view)
+            if scope == self.scope { olderFailed.insert(view) }
             return false
         }
     }
@@ -597,9 +705,12 @@ final class ChatStore: ObservableObject {
     /// Why a message could not be sent at all: a data rule that blocks.
     @Published var dataBlocked: String?
 
-    /// What a message on its way was sent with, to send it again (#212).
-    private struct HeldSend { let view: String; let text: String; let decide: Bool; let parentId: String?; let alsoChannel: Bool; let files: [ChatFile]; let replyTo: ChatQuote? }
-    private var heldSends: [String: HeldSend] = [:]
+    /// What a message on its way was sent with, to send it again (#212):
+    /// kept on the phone until the server has it (#342).
+    private var heldSends: [String: ChatOutbox.Entry] = [:] {
+        didSet { if outboxLoaded { ChatOutbox.save(heldSends) } }
+    }
+    private var outboxLoaded = false
 
     /// Whether a send that did not go is kept in the conversation, failed,
     /// to send again — so its words need not come back to the box.
@@ -610,17 +721,33 @@ final class ChatStore: ObservableObject {
 
     /// Yours, drawn the moment it is sent: faded, under the send's own id,
     /// until the server's copy takes its place.
-    private func drawSending(_ clientId: String, view: String, text: String, parentId: String?, alsoChannel: Bool, files: [ChatFile], replyTo: ChatQuote?) {
-        let sends = ChatSends.shared
-        sends.states[clientId] = .pending
-        sends.retry = { [weak self] id in Task { await self?.sendAgain(id) } }
-        sends.discard = { [weak self] id in self?.throwAway(id) }
+    private func drawSending(_ h: ChatOutbox.Entry) {
+        ChatSends.shared.states[h.clientId] = .pending
+        let m = heldMessage(h)
+        if let parentId = h.parentId, thread?.parent.id == parentId, !(thread?.replies.contains { $0.id == h.clientId } ?? false) { thread?.replies.append(m) }
+        if h.parentId == nil || h.alsoChannel, messages[h.view] != nil, !(messages[h.view]?.contains { $0.id == h.clientId } ?? false) { messages[h.view]?.append(m) }
+    }
+
+    /// A message not yet on the server, as the conversation draws it.
+    private func heldMessage(_ h: ChatOutbox.Entry) -> ChatMessage {
         let me = members.first { $0.mine }
-        let m = ChatMessage(id: clientId, channel: view, kind: "message", body: text, authorName: me?.name, authorRef: me?.ref, mine: true,
-                            createdAt: ISO8601DateFormatter().string(from: Date()), parentId: parentId, files: files.isEmpty ? nil : files,
-                            alsoChannel: parentId != nil && alsoChannel ? true : nil, replyTo: replyTo)
-        if let parentId, thread?.parent.id == parentId, !(thread?.replies.contains { $0.id == clientId } ?? false) { thread?.replies.append(m) }
-        if parentId == nil || alsoChannel, messages[view] != nil, !(messages[view]?.contains { $0.id == clientId } ?? false) { messages[view]?.append(m) }
+        return ChatMessage(id: h.clientId, channel: h.view, kind: "message", body: h.text, authorName: me?.name, authorRef: me?.ref, mine: true,
+                           createdAt: h.createdAt, parentId: h.parentId, files: h.files.isEmpty ? nil : h.files,
+                           alsoChannel: h.parentId != nil && h.alsoChannel ? true : nil, replyTo: h.replyTo)
+    }
+
+    /// What the server sent for a conversation or a thread, and after it
+    /// this account's messages there that have not reached it: a reload, or
+    /// the app closed and opened again, does not lose them (#342).
+    private func withHeld(_ list: [ChatMessage], view: String, thread parentId: String?) -> [ChatMessage] {
+        guard let orgId, let me = appState?.currentUser?.id else { return list }
+        let known = Set(list.map(\.id))
+        let held = ChatOutbox.held(heldSends, user: me, orgId: orgId, view: view, thread: parentId).filter { !known.contains($0.clientId) }
+        for h in held where ChatSends.shared.states[h.clientId] == nil {
+            // Kept from before the app was last closed: not sent, to send again.
+            ChatSends.shared.states[h.clientId] = .failed(h.reason ?? String(localized: "The app closed before it was sent."))
+        }
+        return list + held.map { heldMessage($0) }
     }
 
     /// The server has it: its copy where ours was, and up to full opacity.
@@ -649,8 +776,12 @@ final class ChatStore: ObservableObject {
 
     /// A failed one, sent again under the same id: a send that in fact
     /// landed comes back as the message already posted.
+    ///
+    /// Only by the account, and into the workspace, it was written in: from
+    /// anywhere else it would go out as somebody else, or into another
+    /// workspace's channel of the same name (#331).
     func sendAgain(_ clientId: String) async {
-        guard let h = heldSends[clientId] else { return }
+        guard let h = heldSends[clientId], h.user == appState?.currentUser?.id, h.orgId == orgId else { return }
         _ = await send(h.view, text: h.text, decide: h.decide, parentId: h.parentId, alsoChannel: h.alsoChannel, replyTo: h.replyTo, files: h.files, clientId: clientId)
     }
     /// A failed one, thrown away.
@@ -658,17 +789,27 @@ final class ChatStore: ObservableObject {
 
     @discardableResult
     func send(_ view: String, text: String, decide: Bool = false, parentId: String? = nil, alsoChannel: Bool = false, replyTo: ChatQuote? = nil, at: Date? = nil, files: [ChatFile] = [], acknowledged: Bool = false, clientId: String? = nil) async -> Bool {
-        guard let orgId, let base else { return false }
+        guard let orgId, let base, let me = appState?.currentUser?.id else { return false }
+        let scope = self.scope
         // A reply is to something said now; one written for later is not.
         let replyTo = at == nil ? replyTo : nil
         // A scheduled one is not in the conversation until its time.
         let drawn = at == nil ? clientId : nil
         if let drawn {
-            heldSends[drawn] = HeldSend(view: view, text: text, decide: decide, parentId: parentId, alsoChannel: alsoChannel, files: files, replyTo: replyTo)
-            drawSending(drawn, view: view, text: text, parentId: parentId, alsoChannel: alsoChannel, files: files, replyTo: replyTo)
+            let held = ChatOutbox.Entry(clientId: drawn, user: me, orgId: orgId, view: view, text: text, decide: decide, parentId: parentId,
+                                        alsoChannel: alsoChannel, files: files, replyTo: replyTo,
+                                        createdAt: heldSends[drawn]?.createdAt ?? ISO8601DateFormatter().string(from: Date()), reason: nil)
+            heldSends[drawn] = held
+            drawSending(held)
         }
         do {
             let sent = try await ChatService.send(orgId: orgId, channel: view, body: text, decide: decide, parentId: parentId, alsoChannel: alsoChannel, replyTo: replyTo?.id, sendAt: at, files: files.map(\.id), acknowledged: acknowledged, clientId: clientId, base: base)
+            // Answered after a switch to another workspace or account: it is
+            // there, and nothing of it is drawn here.
+            guard scope == self.scope else {
+                if let drawn { heldSends[drawn] = nil; ChatSends.shared.states[drawn] = nil }
+                return true
+            }
             if let s = sent.scheduled { scheduled.append(s); scheduled.sort { $0.sendAt < $1.sendAt } }
             if let m = sent.message { if let drawn { landed(drawn, as: m) } else { upsert(m) } } else if let drawn { takeBack(drawn) }
             if sent.deciding == true { thinking[view] = "reading" }
@@ -679,6 +820,7 @@ final class ChatStore: ObservableObject {
             return true
         } catch ChatService.Failure.dataRule(let blocked, let rules, _) {
             if let drawn { takeBack(drawn) }
+            guard scope == self.scope else { return false }
             let what = rules.map { NSLocalizedString($0, comment: "") }.joined(separator: ", ")
             if blocked {
                 dataBlocked = String(localized: "This can't be sent here: it looks like it contains \(what). Take it out and try again.")
@@ -698,9 +840,12 @@ final class ChatStore: ObservableObject {
             default: reached = false
             }
             if let drawn {
-                if reached { takeBack(drawn) } else { ChatSends.shared.states[drawn] = .failed(error.localizedDescription) }
+                if reached { takeBack(drawn) } else {
+                    ChatSends.shared.states[drawn] = .failed(error.localizedDescription)
+                    heldSends[drawn]?.reason = error.localizedDescription
+                }
             }
-            if reached || drawn == nil { self.error = error.localizedDescription }
+            if (reached || drawn == nil) && scope == self.scope { self.error = error.localizedDescription }
             return false
         }
     }
@@ -732,9 +877,10 @@ final class ChatStore: ObservableObject {
     /// the edit open, its words where they were, to save again.
     func edit(_ m: ChatMessage, to text: String) async -> Bool {
         guard let orgId, let base else { return false }
+        let scope = self.scope
         do {
             guard let out = try await ChatService.edit(orgId: orgId, channel: m.channel, messageId: m.id, body: text, base: base) else { return false }
-            upsert(out)
+            upsert(out, askedIn: scope)
             return true
         } catch {
             self.error = error.localizedDescription
@@ -743,24 +889,28 @@ final class ChatStore: ObservableObject {
     }
     func delete(_ m: ChatMessage) async {
         guard let orgId, let base else { return }
-        do { if let out = try await ChatService.delete(orgId: orgId, channel: m.channel, messageId: m.id, base: base) { upsert(out) } }
+        let scope = self.scope
+        do { if let out = try await ChatService.delete(orgId: orgId, channel: m.channel, messageId: m.id, base: base) { upsert(out, askedIn: scope) } }
         catch { self.error = error.localizedDescription }
     }
     func react(_ m: ChatMessage, _ emoji: String) async {
         guard let orgId, let base else { return }
         Haptics.light()
-        do { if let out = try await ChatService.react(orgId: orgId, channel: m.channel, messageId: m.id, emoji: emoji, base: base) { upsert(out) } }
+        let scope = self.scope
+        do { if let out = try await ChatService.react(orgId: orgId, channel: m.channel, messageId: m.id, emoji: emoji, base: base) { upsert(out, askedIn: scope) } }
         catch { self.error = error.localizedDescription }
     }
     /// Take the link cards off your own message, for everyone.
     func hidePreviews(_ m: ChatMessage) async {
         guard let orgId, let base else { return }
-        do { if let out = try await ChatService.hidePreviews(orgId: orgId, channel: m.channel, messageId: m.id, base: base) { upsert(out) } }
+        let scope = self.scope
+        do { if let out = try await ChatService.hidePreviews(orgId: orgId, channel: m.channel, messageId: m.id, base: base) { upsert(out, askedIn: scope) } }
         catch { self.error = error.localizedDescription }
     }
     func togglePin(_ m: ChatMessage) async {
         guard let orgId, let base else { return }
-        do { if let out = try await ChatService.pin(orgId: orgId, channel: m.channel, messageId: m.id, pinned: m.pinned != true, base: base) { upsert(out) } }
+        let scope = self.scope
+        do { if let out = try await ChatService.pin(orgId: orgId, channel: m.channel, messageId: m.id, pinned: m.pinned != true, base: base) { upsert(out, askedIn: scope) } }
         catch { self.error = error.localizedDescription }
     }
     func decide(_ m: ChatMessage) async {
@@ -819,8 +969,10 @@ final class ChatStore: ObservableObject {
     /// False when it could not be fetched.
     func openThread(channel: String, parentId: String) async -> Bool {
         if let head = messages[channel]?.first(where: { $0.id == parentId }) { await openThread(head); return true }
+        let scope = self.scope
         guard let orgId, let base,
-              let t = try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, base: base) else { return false }
+              let t = try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, base: base),
+              scope == self.scope else { return false }
         await openThread(t.parent)
         return true
     }
@@ -832,8 +984,11 @@ final class ChatStore: ObservableObject {
             if let head = messages[m.channel]?.first(where: { $0.id == parentId }) ?? threads.first(where: { $0.parent.id == parentId })?.parent {
                 return await openThread(head)
             }
+            let scope = self.scope
             thread = nil; threadFailed = false; threadLoading = true
-            guard let t = await readThread(channel: m.channel, parentId: parentId) else {
+            let found = await readThread(channel: m.channel, parentId: parentId)
+            guard scope == self.scope else { return }
+            guard let t = found else {
                 threadLoading = false; threadFailed = true
                 return
             }
@@ -844,7 +999,7 @@ final class ChatStore: ObservableObject {
         // An empty sheet saying "0 replies" while it loaded read as a thread
         // with nothing in it.
         let kept = viewKey(m.id).flatMap { threadReplies[$0] } ?? threads.first(where: { $0.parent.id == m.id })?.replies ?? []
-        thread = ChatThread(parent: m, replies: kept)
+        thread = ChatThread(parent: m, replies: withHeld(kept, view: m.channel, thread: m.id))
         threadFailed = false; threadLoading = true
         let read = await readThread(channel: m.channel, parentId: m.id)
         guard thread?.parent.id == m.id else { return }
@@ -852,13 +1007,13 @@ final class ChatStore: ObservableObject {
         // Not read, it is not marked read: its replies stay new until they
         // have been shown (Try again reads them).
         guard let read else { threadFailed = true; return }
-        thread = read
+        thread = ChatThread(parent: read.parent, replies: withHeld(read.replies, view: m.channel, thread: m.id))
         if let t = thread { await translate(m.channel, [t.parent] + t.replies) }
         // A thread opened is a thread read: Threads and Activity both stop
         // calling its replies new.
         inbox = inbox.map { var i = $0; if i.unread && i.message.parentId == m.id { i.unread = false }; return i }
         if let i = threads.firstIndex(where: { $0.parent.id == m.id }) { threads[i].unread = false }
-        threadReadTo[m.id] = thread?.replies.map(\.createdAt).max() ?? ChatDates.string(.now)
+        threadReadTo[m.id] = read.replies.map(\.createdAt).max() ?? ChatDates.string(.now)
         PushService.clearDelivered(channel: m.channel, parentId: m.id, orgId: orgId)
         await ChatService.markThreadRead(orgId: orgId, channel: m.channel, parentId: m.id, base: base)
     }
@@ -986,6 +1141,12 @@ final class ChatStore: ObservableObject {
 
     // MARK: Live
 
+    /// A message the server answered with, unless the account or workspace
+    /// has changed since it was asked: then it belongs to the other one.
+    private func upsert(_ m: ChatMessage, askedIn scope: String) {
+        if scope == self.scope { upsert(m) }
+    }
+
     /// A changed or new message, wherever it shows.
     func upsert(_ incoming: ChatMessage) {
         var m = incoming
@@ -996,7 +1157,7 @@ final class ChatStore: ObservableObject {
         // Ours, brought by the socket before the answer to the send: in the
         // place of the copy on its way, not beside it.
         if m.mine, !m.id.hasPrefix("tmp-"), let held = heldSends.first(where: { id, h in
-            h.view == m.channel && h.text == m.body && h.parentId == m.parentId && ChatSends.shared.states[id] == .pending
+            h.orgId == orgId && h.view == m.channel && h.text == m.body && h.parentId == m.parentId && ChatSends.shared.states[id] == .pending
         })?.key, !(messages[m.channel]?.contains { $0.id == m.id } ?? false), !(thread?.replies.contains { $0.id == m.id } ?? false) {
             return landed(held, as: m)
         }

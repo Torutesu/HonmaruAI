@@ -145,7 +145,9 @@ struct ConversationView: View {
                     if highlight == id { withAnimation { highlight = nil } }
                 }
             }
-            .task(id: view) {
+            // Read again in another workspace: one channel name can be two
+            // workspaces' conversations.
+            .task(id: "\(appState.currentUser?.teamID ?? "")|\(view)") {
                 replyingTo = nil
                 newSince = store.reads[view]
                 draft = store.draft(view)

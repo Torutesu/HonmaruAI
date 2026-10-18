@@ -44045,6 +44045,34 @@
           }
         }
       }
+    },
+    "The app closed before it was sent.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信される前にアプリが閉じられました。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La app se cerró antes de enviarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’app s’est fermée avant l’envoi."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die App wurde geschlossen, bevor sie gesendet wurde."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -429,6 +429,52 @@ final class ChatNotificationTargetTests: XCTestCase {
     }
 }
 
+/// Messages that did not reach the server: kept for the account, workspace
+/// and conversation they were written in, and across a relaunch.
+final class ChatOutboxTests: XCTestCase {
+    private func entry(_ id: String, at: String, user: String = "alice", org: String = "org-a", view: String = "b:general",
+                       parent: String? = nil, also: Bool = false) -> ChatOutbox.Entry {
+        ChatOutbox.Entry(clientId: id, user: user, orgId: org, view: view, text: "Words for \(id)", decide: false, parentId: parent,
+                         alsoChannel: also, files: [], replyTo: nil, createdAt: at, reason: nil)
+    }
+
+    private var entries: [String: ChatOutbox.Entry] {
+        let list = [
+            entry("tmp-1", at: "2026-10-18T09:01:00Z"),
+            entry("tmp-2", at: "2026-10-18T09:02:00Z", org: "org-b"),
+            entry("tmp-3", at: "2026-10-18T09:03:00Z", user: "bob"),
+            entry("tmp-4", at: "2026-10-18T09:04:00Z", view: "b:sales"),
+            entry("tmp-5", at: "2026-10-18T09:05:00Z", parent: "p1"),
+            entry("tmp-6", at: "2026-10-18T09:06:00Z", parent: "p1", also: true),
+            entry("tmp-0", at: "2026-10-18T09:00:00Z"),
+        ]
+        return Dictionary(uniqueKeysWithValues: list.map { ($0.clientId, $0) })
+    }
+
+    func testAHeldMessageIsShownOnlyWhereItWasWritten() {
+        // Another workspace's #general, or another account's, never shows it.
+        XCTAssertEqual(ChatOutbox.held(entries, user: "alice", orgId: "org-a", view: "b:general", thread: nil).map(\.clientId), ["tmp-0", "tmp-1", "tmp-6"])
+        XCTAssertEqual(ChatOutbox.held(entries, user: "alice", orgId: "org-b", view: "b:general", thread: nil).map(\.clientId), ["tmp-2"])
+        XCTAssertEqual(ChatOutbox.held(entries, user: "bob", orgId: "org-a", view: "b:general", thread: nil).map(\.clientId), ["tmp-3"])
+        // A thread's replies in the thread; one sent to the conversation too, in both.
+        XCTAssertEqual(ChatOutbox.held(entries, user: "alice", orgId: "org-a", view: "b:general", thread: "p1").map(\.clientId), ["tmp-5", "tmp-6"])
+    }
+
+    func testHeldMessagesSurviveARelaunchUntilThereAreNone() throws {
+        let suite = "chat-outbox-test-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var kept = entries
+        kept["tmp-1"]?.reason = "The network connection was lost."
+        ChatOutbox.save(kept, to: defaults)
+        XCTAssertEqual(ChatOutbox.load(from: defaults), kept)
+        ChatOutbox.save([:], to: defaults)
+        XCTAssertNil(defaults.data(forKey: ChatOutbox.key))
+        // Signing out takes away every "chat.draft." key, these with them.
+        XCTAssertTrue(ChatOutbox.key.hasPrefix("chat.draft."))
+    }
+}
+
 /// What the chat store does when the server cannot be reached. With no
 /// session on the phone every request fails before it leaves it.
 @MainActor
@@ -463,6 +509,17 @@ final class ChatStoreFailureTests: XCTestCase {
         let saved = await store.edit(m, to: "after")
         XCTAssertFalse(saved, "A failed save must leave the edit open")
         XCTAssertEqual(app.currentUser?.teamID, "org-offline")
+    }
+
+    func testSwitchingWorkspaceLeavesNothingOfTheLastOneShowing() async {
+        let (store, app) = offline()
+        await store.open("b:general")
+        XCTAssertNotNil(store.error)
+        store.pendingOpen = PushService.MessageTarget(["kind": "message", "orgId": "org-offline", "channel": "b:general", "messageId": "m1"])
+        app.currentUser?.teamID = "org-other"
+        XCTAssertNil(store.error)
+        XCTAssertNil(store.pendingOpen)
+        XCTAssertTrue(store.messages.isEmpty)
     }
 
     func testACancellationTheServerDidNotTakeIsNotReportedDone() async {
