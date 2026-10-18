@@ -2075,6 +2075,7 @@ export const ClassicList: React.FC<Props> = ({
       // Unsent while this was on its way: back in the box, to go as a plain
       // message if it is sent again.
       if (res && !res.ok && data.code === 'reply_gone') { out.said = { ...out.said, replyTo: null }; refuse(out, t('The message you were replying to is gone. Send again to post this on its own.')) }
+      else if (res && !res.ok && data.code === 'thread_gone' && parentId) threadGone(out)
       else if (res && !res.ok && refusedOutright(res.status)) refuse(out, refusal(data))
       else fail(out, res && !res.ok ? refusal(data) : t('That did not send. Try again.'))
       return null
@@ -2142,6 +2143,20 @@ export const ClassicList: React.FC<Props> = ({
     drop(tempId, channel, parentId)
     if (parentId) { setThreadDraft(body); threadUploads.restore(files) } else { setDraft(body); uploads.restore(files) }
     setProblem(why)
+  }
+  /// A reply whose thread was deleted before it landed: there is no thread
+  /// box to put it back in, so its words go to the conversation's own box,
+  /// after whatever is written there, to send there instead or not at all.
+  const threadGone = (out: Outgoing) => {
+    const { tempId, channel, parentId, body, files } = out
+    drop(tempId, channel, parentId)
+    const after = (was: string) => (was.trim() ? `${was.replace(/\s+$/, '')}\n${body}` : body)
+    if (draftView.current === channel) { setDraft(after); uploads.restore(files) }
+    else {
+      try { localStorage.setItem(draftKey(channel), after(localStorage.getItem(draftKey(channel)) || '')) } catch { /* not kept */ }
+      setDrafts((prev) => (prev[channel] ? prev : { ...prev, [channel]: true }))
+    }
+    setProblem(t('That thread was deleted, so your reply was not sent. It is in the conversation’s box instead.'))
   }
   /// Edit, under one that was refused: its words and files back in the box
   /// it was written in, after whatever is there already, and it goes from

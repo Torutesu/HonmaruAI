@@ -2178,6 +2178,7 @@ const table: Record<string, string> = {
   'Replying to {name}': '{name}に返信',
   'Cancel reply': '返信をやめる',
   'The message you were replying to is gone. Send again to post this on its own.': '返信先のメッセージは削除されました。もう一度送ると、返信ではない通常のメッセージとして投稿されます。',
+  'That thread was deleted, so your reply was not sent. It is in the conversation’s box instead.': 'スレッドが削除されたため、返信は送信されませんでした。代わりに会話の入力欄に戻してあります。',
   'A scheduled message cannot be a reply yet.': '予約送信はまだ返信にできません。',
   'Could not find the original message.': '元のメッセージが見つかりませんでした。',
   'replied to you': 'があなたに返信',

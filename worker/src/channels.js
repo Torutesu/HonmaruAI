@@ -411,12 +411,26 @@ export async function deleteMessage(db, { orgId, id, authorLogin, withThread = f
   if (others && !withThread) return { error: "Others replied in this thread. Delete it with their replies?", status: 409, code: "thread_has_replies", others };
   for (const r of under || []) await keepIfHeld(db, orgId, r, "delete");
   const now = new Date().toISOString();
-  const gone = [id, ...(under || []).map((r) => r.id)];
-  await db.batch(gone.flatMap((mid) => [
+  const tombstone = (mids) => db.batch(mids.flatMap((mid) => [
     db.prepare("UPDATE channel_messages SET body = '', deleted_at = ?3, pinned_at = NULL, pinned_by = NULL WHERE org_id = ?1 AND id = ?2")
       .bind(orgId, mid, now),
     db.prepare("DELETE FROM message_reactions WHERE org_id = ?1 AND message_id = ?2").bind(orgId, mid),
   ]));
+  const gone = [id, ...(under || []).map((r) => r.id)];
+  await tombstone(gone);
+  // A reply that landed between the read above and the parent going is
+  // taken too: once the parent is a tombstone no further reply can land
+  // (postMessage), so this second look is the last.
+  if (!row.parent_id) {
+    const { results: late } = await db.prepare(
+      "SELECT * FROM channel_messages WHERE org_id = ?1 AND parent_id = ?2 AND deleted_at IS NULL"
+    ).bind(orgId, id).all();
+    if (late?.length) {
+      for (const r of late) await keepIfHeld(db, orgId, r, "delete");
+      await tombstone(late.map((r) => r.id));
+      gone.push(...late.map((r) => r.id));
+    }
+  }
   await mirrorIds(db, orgId, gone);
   return { row: await getMessage(db, orgId, id), replies: gone.slice(1) };
 }
@@ -492,6 +506,8 @@ export async function getMessage(db, orgId, id) {
 const CLIENT_ID = /^tmp-[0-9a-z-]{1,76}$/;
 export const clientIdOk = (id) => typeof id === "string" && CLIENT_ID.test(id);
 
+const THREAD_GONE = "That thread is not here any more.";
+
 async function messageByClientId(db, orgId, authorLogin, clientId) {
   const hit = await db
     .prepare("SELECT id FROM channel_messages WHERE org_id = ?1 AND author_login = ?2 AND client_id = ?3")
@@ -508,8 +524,9 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
   if (clientId != null && clientId !== "" && !clientIdOk(clientId)) return { error: "That send cannot be tried again.", status: 400 };
   if (parentId) {
     // A reply goes under a message in this same conversation, one level deep.
+    // A deleted one is a tombstone, not a thread: nothing new goes under it.
     const parent = await getMessage(db, orgId, parentId);
-    if (!parent || parent.channel !== key || parent.parent_id) return { error: "That thread is not here any more." };
+    if (!parent || parent.deleted_at || parent.channel !== key || parent.parent_id) return { error: THREAD_GONE, code: "thread_gone" };
   }
   // A retry of a send that already landed gets that message back, before
   // anything about it is checked again: it was fine when it was written.
@@ -535,13 +552,17 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
   // millisecond still read in the order they were sent.
   const now = new Date().toISOString();
   try {
-    await db
+    // A reply is written only while its parent is still there, in the same
+    // statement: a thread deleted after the check above takes no reply.
+    const put = await db
       .prepare(
         `INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
+         WHERE ?9 IS NULL OR EXISTS (SELECT 1 FROM channel_messages WHERE org_id = ?2 AND id = ?9 AND deleted_at IS NULL)`
       )
       .bind(id, orgId, key, authorLogin, kind, text, cardId, now, parentId, replyTo || null, remembered, parentId && alsoChannel ? 1 : 0, kind === "agent" && onBehalfOf ? onBehalfOf : null)
       .run();
+    if (parentId && !put.meta?.changes) return { error: THREAD_GONE, code: "thread_gone" };
   } catch (err) {
     if (remembered && authorLogin) {
       const prior = await messageByClientId(db, orgId, authorLogin, remembered);
