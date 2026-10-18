@@ -639,6 +639,36 @@ export async function countAIUse(db, githubId, day) {
     .run();
 }
 
+/// How long a checked call holds its place before it lapses, if it is
+/// neither counted nor let go: longer than a model call takes, short enough
+/// that a caller which never called the model gives the place back soon.
+export const AI_RESERVATION_MS = 60_000;
+
+/// Take one of the day's `limit` calls for a call about to be made, in one
+/// statement: what is counted and what is already held both count, so two
+/// checks at once cannot both take the last one. Returns the reservation's
+/// id and what remains including it, or null when the day is spent.
+export async function reserveAIUse(db, githubId, day, limit, now = Date.now()) {
+  const id = crypto.randomUUID();
+  const user = String(githubId);
+  const [, taken] = await db.batch([
+    db.prepare("DELETE FROM ai_reservations WHERE user_github_id = ?1 AND expires_at <= ?2").bind(user, now),
+    db.prepare(`INSERT INTO ai_reservations (id, user_github_id, day, expires_at)
+      SELECT ?1, ?2, ?3, ?4 WHERE COALESCE((SELECT used FROM ai_usage WHERE user_github_id = ?2 AND day = ?3), 0)
+        + (SELECT COUNT(*) FROM ai_reservations WHERE user_github_id = ?2 AND day = ?3 AND expires_at > ?5) < ?6`)
+      .bind(id, user, day, now + AI_RESERVATION_MS, now, limit),
+  ]);
+  if (!taken.meta?.changes) return null;
+  const row = await db.prepare(`SELECT COALESCE((SELECT used FROM ai_usage WHERE user_github_id = ?1 AND day = ?2), 0)
+      + (SELECT COUNT(*) FROM ai_reservations WHERE user_github_id = ?1 AND day = ?2 AND expires_at > ?3 AND id != ?4) AS taken`)
+    .bind(user, day, now, id).first();
+  return { id, remaining: Math.max(1, limit - Number(row?.taken || 0)) };
+}
+
+export async function releaseAIUse(db, id) {
+  await db.prepare("DELETE FROM ai_reservations WHERE id = ?1").bind(id).run();
+}
+
 export async function readEntitlement(db, githubId) {
   return (
     (await db

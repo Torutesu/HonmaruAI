@@ -130,10 +130,11 @@ export async function localizeStored(env, orgId, card, { locale, payerGithubId, 
   const lang = primaryLanguage(locale);
   if (!env?.DB || !orgId || !card?.id || !lang || !needsLocalizing(card, lang)) return card;
   let provider;
+  let allowance;
   try {
     provider = await providerFor(env, orgId);
     if (!provider) return card;
-    const allowance = payerGithubId ? await allowanceFor(env, orgId, { githubId: String(payerGithubId) }) : undefined;
+    allowance = payerGithubId ? await allowanceFor(env, orgId, { githubId: String(payerGithubId) }) : undefined;
     const out = await localizeCard(card, { provider, locale: lang, allowance });
     if (!out) return card;
     await saveCardLocalization(env.DB, orgId, card.id, lang, out.localized[lang]);
@@ -144,6 +145,7 @@ export async function localizeStored(env, orgId, card, { locale, payerGithubId, 
     console.error("localize failed", err?.message || err);
     return card;
   } finally {
+    await allowance?.release().catch(() => {});
     if (provider) await settleUsage(env.DB, provider, { orgId, githubId: payerGithubId }).catch(() => {});
   }
 }

@@ -366,6 +366,17 @@ CREATE TABLE IF NOT EXISTS ai_usage (
   used           INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (user_github_id, day)
 );
+/* A metered call's place in the day's allowance, held from the check until
+   the call is counted in ai_usage or let go (gate.js). Counted with `used`
+   when the next call is checked, so two calls checked at once cannot both
+   take the last one. One never settled lapses at expires_at (ms). */
+CREATE TABLE IF NOT EXISTS ai_reservations (
+  id             TEXT PRIMARY KEY,
+  user_github_id TEXT NOT NULL,
+  day            TEXT NOT NULL,
+  expires_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_reservations_user ON ai_reservations (user_github_id, day, expires_at);
 
 /* When each user last ran through the connector cron. The run is capped, so
    ordering candidates by this — never-synced first — is what keeps the cap a

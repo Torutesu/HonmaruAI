@@ -170,6 +170,7 @@ export function reasonOf(card) {
 /// null. Paid from the decider's allowance, like everything else the model
 /// does on their behalf, and skipped where there is no model.
 export async function learnFromDecision(env, { orgId, card, actorLogin, actorGithubId }) {
+  let allowance = null;
   try {
     const reason = reasonOf(card);
     if (!reason || !orgId) return null;
@@ -178,7 +179,7 @@ export async function learnFromDecision(env, { orgId, card, actorLogin, actorGit
     if (card.proposal || card.report) return null;
     const provider = await providerFor(env, orgId);
     if (!provider) return null;
-    const allowance = actorGithubId
+    allowance = actorGithubId
       ? await allowanceFor(env, orgId, { githubId: String(actorGithubId) })
       : null;
     // Learning is never paid for out of a free tier's handful of calls:
@@ -238,5 +239,8 @@ ${JSON.stringify({
   } catch (err) {
     console.error("learn failed", err?.message || err);
     return null;
+  } finally {
+    // Not learning, or the call failed: the decider's place back (gate.js).
+    await allowance?.release?.().catch(() => {});
   }
 }

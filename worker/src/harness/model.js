@@ -29,6 +29,8 @@ export async function completer(env, orgId, githubId, purpose, { maxTokens = 900
       if (allowance.metered) await allowance.consume();
       return data?.choices?.[0]?.message?.content ?? null;
     } finally {
+      // A call that failed gives its place in the day back (gate.js).
+      await allowance.release().catch(() => {});
       await settleUsage(env.DB, provider, { orgId, githubId: String(githubId) });
     }
   };

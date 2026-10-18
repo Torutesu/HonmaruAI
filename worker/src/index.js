@@ -2764,16 +2764,20 @@ async function handle(request, env, url, ctx) {
         ? await triageMessage(message, { provider, readerLanguage: user.locale || "en", sourceLabel: "Email" })
         : { called: false, card: null };
       if (result.called && allowance.metered) await allowance.consume();
+      // No call made: its place in the day goes back (gate.js).
+      await allowance.release();
       await settleUsage(env.DB, provider, { orgId, githubId });
 
       let cardId = null;
       if (result.card) {
         cardId = crypto.randomUUID();
+        const filing = await allowanceFor(env, orgId, { githubId: String(githubId) });
         const business = await fileCardUnderBusiness(env, {
           orgId, provider, githubId,
           card: { ...result.card, sourceDetail: `${message.from} · ${message.subject}` },
-          allowance: await allowanceFor(env, orgId, { githubId: String(githubId) }),
+          allowance: filing,
         });
+        await filing.release();
         const card = {
           id: cardId,
           ...(business ? { business } : {}),

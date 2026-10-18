@@ -221,6 +221,7 @@ export async function deleteAccount(db, githubId, login) {
     "DELETE FROM connector_sync_state WHERE user_github_id = ?1",
     "DELETE FROM entitlements WHERE user_github_id = ?1",
     "DELETE FROM ai_usage WHERE user_github_id = ?1",
+    "DELETE FROM ai_reservations WHERE user_github_id = ?1",
     "DELETE FROM ingested_items WHERE user_github_id = ?1",
     "DELETE FROM device_tokens WHERE user_github_id = ?1",
     "DELETE FROM push_subscriptions WHERE user_github_id = ?1",
