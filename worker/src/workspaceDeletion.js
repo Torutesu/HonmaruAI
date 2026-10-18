@@ -1,9 +1,10 @@
 // Deleting a workspace: asked for by an owner, carried out thirty days later.
 //
 // For thirty days the workspace is closed to everyone but its owners, who
-// may take the request back; nothing is gone yet. Then a daily job deletes
-// it: every row stored under it, in batches, and its objects in storage
-// (org/<id>/). What is left is a tombstone saying when and at whose request.
+// may take the request back; nothing is gone yet. Then a daily job claims
+// it, after which it can no longer be taken back, and deletes it: every row
+// stored under it, in batches, and its objects in storage (org/<id>/). What
+// is left is a tombstone saying when and at whose request.
 //
 // The audit log is the one record kept on: its rows leave D1 by the
 // workspace's audit retention once sealed into the archive, as any other
@@ -38,23 +39,42 @@ export async function deletionDue(db, orgId) {
 
 export function forgetDeletions() { cache.clear(); }
 
-/// Ask for the workspace to be deleted in thirty days.
+/// Ask for the workspace to be deleted in thirty days. Asking again restarts
+/// the thirty days, unless the deletion has already begun.
 export async function scheduleDeletion(env, request, { orgId, by, actor, now = Date.now() }) {
   const due = new Date(now + GRACE_DAYS * DAY).toISOString();
-  await env.DB.prepare(
-    "INSERT OR REPLACE INTO workspace_deletions (org_id, due_at, requested_by, requested_at) VALUES (?1, ?2, ?3, ?4)"
+  const out = await env.DB.prepare(
+    `INSERT INTO workspace_deletions (org_id, due_at, requested_by, requested_at) VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT(org_id) DO UPDATE SET due_at = excluded.due_at, requested_by = excluded.requested_by, requested_at = excluded.requested_at
+     WHERE workspace_deletions.purge_started_at IS NULL`
   ).bind(orgId, due, String(by), new Date(now).toISOString()).run();
   cache.delete(orgId);
+  if (!(out?.meta?.changes > 0)) return (await env.DB.prepare("SELECT due_at FROM workspace_deletions WHERE org_id = ?1").bind(orgId).first())?.due_at || due;
   await audit(env, request, { orgId, action: "workspace.deletion_scheduled", actor, entity: { type: "workspace", id: orgId }, details: { due_at: due } });
   return due;
 }
 
+/// Take the request back: "cancelled", "started" when the daily job has
+/// already claimed it and deleting has begun, or null when there was none.
 export async function cancelDeletion(env, request, { orgId, actor }) {
-  const out = await env.DB.prepare("DELETE FROM workspace_deletions WHERE org_id = ?1").bind(orgId).run();
+  const out = await env.DB.prepare("DELETE FROM workspace_deletions WHERE org_id = ?1 AND purge_started_at IS NULL").bind(orgId).run();
   cache.delete(orgId);
-  if (!(out?.meta?.changes > 0)) return false;
+  if (!(out?.meta?.changes > 0)) {
+    const started = await env.DB.prepare("SELECT 1 FROM workspace_deletions WHERE org_id = ?1").bind(orgId).first();
+    return started ? "started" : null;
+  }
   await audit(env, request, { orgId, action: "workspace.deletion_cancelled", actor, entity: { type: "workspace", id: orgId } });
-  return true;
+  return "cancelled";
+}
+
+/// Claim a due deletion for this run, before anything is deleted: only the
+/// request that was selected, still due, and not taken back. A claimed one
+/// stays claimed, so a run that stopped partway is picked up again.
+async function claimDeletion(db, row, now) {
+  const out = await db.prepare(
+    "UPDATE workspace_deletions SET purge_started_at = COALESCE(purge_started_at, ?3) WHERE org_id = ?1 AND requested_at = ?2 AND due_at <= ?3"
+  ).bind(row.id, row.requested_at, new Date(now).toISOString()).run();
+  return out?.meta?.changes > 0;
 }
 
 /// The tables that keep rows by workspace, found rather than listed, so a
@@ -98,10 +118,12 @@ export async function purgeWorkspace(env, orgId, { budget = BATCHES_PER_RUN } = 
 /// Daily: carry out the deletions that are due.
 export async function purgeDueWorkspaces(env, { now = Date.now(), limit = 5 } = {}) {
   const { results = [] } = await env.DB.prepare(
-    "SELECT org_id AS id, requested_by AS deletion_requested_by FROM workspace_deletions WHERE due_at <= ?1 ORDER BY due_at LIMIT ?2"
+    "SELECT org_id AS id, requested_by AS deletion_requested_by, requested_at FROM workspace_deletions WHERE due_at <= ?1 ORDER BY due_at LIMIT ?2"
   ).bind(new Date(now).toISOString(), limit).all();
   const done = [];
   for (const row of results) {
+    if (!(await claimDeletion(env.DB, row, now))) continue;
+    cache.delete(row.id);
     if (!(await purgeWorkspace(env, row.id))) continue;
     await audit(env, null, { orgId: row.id, action: "workspace.deleted", actor: { type: "system" }, entity: { type: "workspace", id: row.id }, details: { requested_by: row.deletion_requested_by } });
     await env.DB.prepare("INSERT OR REPLACE INTO workspace_tombstones (org_id, deleted_at, requested_by) VALUES (?1, ?2, ?3)")

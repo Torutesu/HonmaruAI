@@ -71,12 +71,14 @@ CREATE TABLE IF NOT EXISTS orgs (
 );
 
 /* A workspace an owner asked to delete (workspaceDeletion.js): closed to all
-   but its owners until due_at, then deleted by the daily job. */
+   but its owners until due_at, then deleted by the daily job. purge_started_at:
+   when that job claimed it; from then on it can no longer be taken back. */
 CREATE TABLE IF NOT EXISTS workspace_deletions (
   org_id        TEXT PRIMARY KEY,
   due_at        TEXT NOT NULL,
   requested_by  TEXT NOT NULL,
-  requested_at  TEXT NOT NULL
+  requested_at  TEXT NOT NULL,
+  purge_started_at TEXT
 );
 
 /* Each workspace's own data key, random, wrapped under DATA_KEY

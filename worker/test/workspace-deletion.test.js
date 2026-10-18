@@ -75,3 +75,89 @@ test("after thirty days everything under the workspace goes, the audit log stays
   expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id = 'team:stays'").first()).n).toBe(1);
   expect(await env.MEDIA.get(`org/${encodeURIComponent("team:stays")}/files/f_2`)).not.toBeNull();
 });
+
+// The daily job read the due deletions, then went on to delete each one
+// without asking again, so an owner who took the request back in between
+// was told it was kept while it was deleted. The job now claims each
+// request before deleting anything: whichever comes first wins.
+
+/// The env with env.DB stopping once, right after the first statement
+/// matching `match` has run, to let `during` happen there.
+function pausedAfter(match, during) {
+  let fired = false;
+  const wrap = (stmt) => new Proxy(stmt, {
+    get(t, p) {
+      if (p === "bind") return (...args) => wrap(t.bind(...args));
+      if (p === "all" || p === "first" || p === "run") {
+        return async (...args) => {
+          const out = await t[p](...args);
+          if (!fired) { fired = true; await during(); }
+          return out;
+        };
+      }
+      const v = Reflect.get(t, p);
+      return typeof v === "function" ? v.bind(t) : v;
+    },
+  });
+  const DB = new Proxy(env.DB, {
+    get(t, p) {
+      if (p === "prepare") return (sql) => (match.test(sql) ? wrap(t.prepare(sql)) : t.prepare(sql));
+      const v = Reflect.get(t, p);
+      return typeof v === "function" ? v.bind(t) : v;
+    },
+  });
+  return { ...env, DB };
+}
+const count = async (sql) => (await env.DB.prepare(sql).bind(ORG).first()).n;
+
+test("taken back after the job selected it but before it claimed it, the workspace is kept whole", async () => {
+  await post("/orgs/delete", owner, { orgId: ORG, confirm: "Going Co" });
+  let cancel;
+  const racing = pausedAfter(/FROM workspace_deletions WHERE due_at <= /, async () => { cancel = await post("/orgs/delete/cancel", owner, { orgId: ORG }); });
+  expect(await purgeDueWorkspaces(racing, { now: Date.now() + 31 * DAY })).toEqual([]);
+  expect(cancel.status).toBe(200);
+  expect(await count("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1")).toBe(1);
+  expect(await count("SELECT COUNT(*) AS n FROM orgs WHERE id = ?1")).toBe(1);
+  expect(await count("SELECT COUNT(*) AS n FROM workspace_tombstones WHERE org_id = ?1")).toBe(0);
+  expect(await env.MEDIA.get(`org/${encodeURIComponent(ORG)}/files/f_1`)).not.toBeNull();
+});
+
+test("asked again after the job selected the old request, the new thirty days hold", async () => {
+  await post("/orgs/delete", owner, { orgId: ORG, confirm: "Going Co" });
+  const racing = pausedAfter(/FROM workspace_deletions WHERE due_at <= /, async () => {
+    await post("/orgs/delete/cancel", owner, { orgId: ORG });
+    await post("/orgs/delete", owner, { orgId: ORG, confirm: "Going Co" });
+  });
+  expect(await purgeDueWorkspaces(racing, { now: Date.now() + 31 * DAY })).toEqual([]);
+  expect(await count("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1")).toBe(1);
+  expect((await env.DB.prepare("SELECT purge_started_at FROM workspace_deletions WHERE org_id = ?1").bind(ORG).first()).purge_started_at).toBeNull();
+});
+
+test("once the job has claimed it, taking it back is refused rather than promised", async () => {
+  await post("/orgs/delete", owner, { orgId: ORG, confirm: "Going Co" });
+  let cancel; let again;
+  const racing = pausedAfter(/sqlite_master/, async () => {
+    cancel = await post("/orgs/delete/cancel", owner, { orgId: ORG });
+    again = await post("/orgs/delete", owner, { orgId: ORG, confirm: "Going Co" });
+  });
+  expect(await purgeDueWorkspaces(racing, { now: Date.now() + 31 * DAY })).toEqual([ORG]);
+  expect(cancel.status).toBe(409);
+  expect((await cancel.json()).code).toBe("deletion-started");
+  expect(again.status).toBe(202);
+  expect(await count("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1")).toBe(0);
+  expect(await count("SELECT COUNT(*) AS n FROM workspace_tombstones WHERE org_id = ?1")).toBe(1);
+  expect(await count("SELECT COUNT(*) AS n FROM workspace_deletions WHERE org_id = ?1")).toBe(0);
+  const actions = (await env.DB.prepare("SELECT action FROM audit_events WHERE org_id = ?1").bind(ORG).all()).results.map((r) => r.action);
+  expect(actions).not.toContain("workspace.deletion_cancelled");
+});
+
+test("a deletion a run claimed and did not finish cannot be taken back, and the next run finishes it", async () => {
+  await post("/orgs/delete", owner, { orgId: ORG, confirm: "Going Co" });
+  const later = Date.now() + 31 * DAY;
+  await env.DB.prepare("UPDATE workspace_deletions SET purge_started_at = ?2 WHERE org_id = ?1").bind(ORG, new Date(later).toISOString()).run();
+  const cancel = await post("/orgs/delete/cancel", owner, { orgId: ORG });
+  expect(cancel.status).toBe(409);
+  expect((await cancel.json()).code).toBe("deletion-started");
+  expect(await purgeDueWorkspaces(env, { now: later + DAY })).toEqual([ORG]);
+  expect(await count("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1")).toBe(0);
+});
