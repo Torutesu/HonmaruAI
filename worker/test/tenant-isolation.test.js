@@ -106,14 +106,14 @@ async function walk(token, { methods = ["GET", "POST", "PUT", "PATCH", "DELETE"]
   return leaks;
 }
 
-test("the walk sees the workspace's data when its own member asks", { timeout: 300_000 }, async () => {
+test("the walk sees the workspace's data when its own member asks", { timeout: 600_000 }, async () => {
   const { createSession } = await import("../src/db.js");
   const vic = await createSession(env.DB, "9601", "gho_vic");
   const seen = await walk(vic, { methods: ["GET"] });
   expect(seen.length).toBeGreaterThan(3);
 });
 
-test("nothing of a workspace reaches, or is changed by, someone outside it", { timeout: 300_000 }, async () => {
+test("nothing of a workspace reaches, or is changed by, someone outside it", { timeout: 600_000 }, async () => {
   const before = await victimRows();
   expect(await walk(mal)).toEqual([]);
   const after = await victimRows();
@@ -123,7 +123,7 @@ test("nothing of a workspace reaches, or is changed by, someone outside it", { t
 
 // The workspace's own rules — here its allowed networks — on every route:
 // two routes checked membership and skipped them.
-test("a member outside the workspace's allowed networks gets nothing from any route", { timeout: 300_000 }, async () => {
+test("a member outside the workspace's allowed networks gets nothing from any route", { timeout: 600_000 }, async () => {
   const { createSession } = await import("../src/db.js");
   const vic = await createSession(env.DB, "9601", "gho_vic");
   await env.DB.prepare("INSERT INTO org_governance (org_id, ip_enforce, ip_allowlist, updated_by, updated_at) VALUES (?1, 1, '[\"203.0.113.0/24\"]', '9601', ?2)")

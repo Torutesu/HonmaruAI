@@ -85,7 +85,7 @@ private struct ChatMediaPlayer: View {
             failed = false
             if let at = resumeAt {
                 resumeAt = nil
-                player.seek(to: at, toleranceBefore: .zero, toleranceAfter: .zero)
+                _ = await player.seek(to: at, toleranceBefore: .zero, toleranceAfter: .zero)
             }
         case .failed:
             await recover()

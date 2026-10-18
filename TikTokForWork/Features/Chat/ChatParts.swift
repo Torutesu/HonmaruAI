@@ -624,7 +624,11 @@ final class ChatMediaURLs: ObservableObject {
                 retry = Self.retryDelay(afterFailures: due.compactMap { failures[$0.id] }.max() ?? 1)
             }
         }
-        let next = files.filter { !isRefused($0) }.compactMap { expiry($0) }.map { ($0 - 60_000 - Date().timeIntervalSince1970 * 1000) / 1000 }.filter { $0 > 0 }.min()
+        // In steps: as one expression it is more than the compiler will check.
+        let nowMs: Double = Date().timeIntervalSince1970 * 1000
+        let expiries: [Double] = files.filter { !isRefused($0) }.compactMap { expiry($0) }
+        let waits: [Double] = expiries.map { ($0 - 60_000 - nowMs) / 1000 }.filter { $0 > 0 }
+        let next: Double? = waits.min()
         guard let retry else { return next }
         return min(next ?? retry, retry)
     }
