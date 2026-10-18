@@ -31,3 +31,26 @@ test('inherited history is shown and disappears when current source access is lo
  await act(async()=>{await tree!.root.findByProps({'aria-label':'会話を更新'}).props.onClick()});expect(JSON.stringify(tree!.toJSON())).not.toContain('Original request');
  act(()=>tree!.root.findAllByType('button').find(b=>b.props.className==='hx-chat-ai')!.props.onClick());expect(tree!.root.findByType('textarea').props.value).toBe('@AI ');act(()=>tree!.unmount())
 })
+test('late source candidates and errors cannot cross an account change',async()=>{
+ vi.stubGlobal('document',{visibilityState:'visible'});let resolve!:(v:any)=>void, reject!:(e:any)=>void;
+ const old:any={conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false}),conversationSources:vi.fn().mockImplementationOnce(()=>new Promise(r=>resolve=r)).mockImplementationOnce(()=>new Promise((_,r)=>reject=r))};
+ const next:any={conversation:vi.fn().mockResolvedValue({messages:[message(2,'Current account')],hasMore:false})};let tree:ReturnType<typeof create>;
+ await act(async()=>{tree=create(<AppConversationPanel api={old} appId="old" title="Old"/>)});
+ const find=()=>tree!.root.findAllByType('button').find(b=>b.children.includes('作成元スレッドを引き継ぐ'))!;
+ act(()=>{find().props.onClick();find().props.onClick()});
+ await act(async()=>{tree!.update(<AppConversationPanel api={next} appId="new" title="New"/>)});
+ await act(async()=>{resolve({candidates:[{id:'private',body:'Previous account secret',channel:'b:private'}]});reject(new Error('Previous account failure'))});
+ expect(JSON.stringify(tree!.toJSON())).not.toContain('Previous account');expect(JSON.stringify(tree!.toJSON())).toContain('Current account');act(()=>tree!.unmount())
+})
+test('late inheritance cannot refresh the previous account into a new conversation',async()=>{
+ vi.stubGlobal('document',{visibilityState:'visible'});let finish!:(v:any)=>void;
+ const old:any={conversation:vi.fn().mockResolvedValue({messages:[message(1,'Old account')],hasMore:false}),conversationSources:vi.fn().mockResolvedValue({candidates:[{id:'root',body:'Request',channel:'b:old'}]}),inheritConversation:vi.fn(()=>new Promise(r=>finish=r))};
+ const next:any={conversation:vi.fn().mockResolvedValue({messages:[message(2,'New account')],hasMore:false})};let tree:ReturnType<typeof create>;
+ await act(async()=>{tree=create(<AppConversationPanel api={old} appId="old" title="Old"/>)});
+ await act(async()=>{tree!.root.findAllByType('button').find(b=>b.children.includes('作成元スレッドを引き継ぐ'))!.props.onClick()});
+ act(()=>tree!.root.findByType('select').props.onChange({target:{value:'root'}}));
+ await act(async()=>{tree!.update(<AppConversationPanel api={next} appId="new" title="New"/>)});
+ expect(tree!.root.findAllByType('button').find(b=>b.children.includes('作成元スレッドを引き継ぐ'))!.props.disabled).toBe(false);
+ await act(async()=>finish({}));
+ expect(old.conversation).toHaveBeenCalledTimes(1);expect(JSON.stringify(tree!.toJSON())).not.toContain('Old account');expect(JSON.stringify(tree!.toJSON())).toContain('New account');act(()=>tree!.unmount())
+})
