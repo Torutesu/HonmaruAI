@@ -1,0 +1,10 @@
+import React,{useEffect,useRef,useState} from 'react'
+import type {HarnessApi} from '../utils/harness'
+import {Icon} from './Icon'
+type Item={messageId:number;body:string;tableId:string;rowId:string;readAt:string|null;kind:string}
+export function AppConversationInbox({api,appId,onOpen}:{api:HarnessApi;appId:string;onOpen:(scope:{tableId?:string;rowId?:string})=>void}){
+ const epoch=useRef(0)
+ const [items,setItems]=useState<Item[]>([]),[open,setOpen]=useState(false),[error,setError]=useState('')
+ useEffect(()=>{++epoch.current;let active=true;setItems([]);setOpen(false);const load=()=>{if(api.conversationNotifications)void api.conversationNotifications(appId).then(r=>{if(active){setItems(r.items);setError('')}},()=>{if(active){setItems([]);setError('通知を読み込めませんでした。')}})};load();const timer=setInterval(()=>{if(document.visibilityState==='visible')load()},15000);return()=>{++epoch.current;active=false;clearInterval(timer)}},[api,appId])
+ return <div className="hx-app-notifications"><button type="button" className="hx-app-icon-button" aria-label={`会話の通知${items.some(i=>!i.readAt)?'（未読あり）':''}`} aria-expanded={open} onClick={()=>setOpen(!open)}><Icon name="bell" size={16}/>{items.some(i=>!i.readAt)&&<i/>}</button>{open&&<div className="hx-app-notification-list" role="region" aria-label="会話の通知"><strong>会話の通知</strong>{error&&<p role="alert">{error}</p>}{!items.length?<p>新しい通知はありません</p>:items.map(item=><button type="button" key={item.messageId} className={item.readAt?'':'unread'} onClick={async()=>{const generation=epoch.current;try{await api.readConversationNotification(appId,item.messageId);if(generation!==epoch.current)return;setItems(prev=>prev.map(i=>i.messageId===item.messageId?{...i,readAt:new Date().toISOString()}:i));onOpen(item.rowId?{tableId:item.tableId,rowId:item.rowId}:{});setOpen(false)}catch{if(generation===epoch.current)setError('通知を開けませんでした。')}}}><small>{item.kind==='ai'?'AIの返信':'あなたへのメンション'} · {item.rowId?'レコード':'アプリ'}</small><span>{item.body}</span></button>)}</div>}</div>
+}

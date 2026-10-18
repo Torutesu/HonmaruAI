@@ -493,3 +493,30 @@
 
 .hx-app-with-chat > .screen-body > .hx-object-chat { border-left:0; border-right:1px solid var(--hx-border); }
 .hx-chat-message p { background:var(--hx-hover); border-radius:12px; padding:10px 12px; }
+
+.hx-chat-origin,.hx-chat-source{padding:10px 14px;font-size:12px;color:var(--hx-muted);border-bottom:1px solid var(--hx-border)}
+.hx-chat-origin{display:flex;gap:6px;align-items:center}
+.hx-chat-source button,.hx-chat-ai{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;color:inherit;cursor:pointer;font-size:12px;padding:4px}
+.hx-chat-source select{width:100%;max-width:100%;padding:8px;background:var(--hx-surface);color:var(--hx-text);border:1px solid var(--hx-border);border-radius:8px}
+.hx-chat-compose{position:relative}
+.hx-chat-compose .mention-menu{bottom:100%;left:0;right:0;max-height:220px;overflow:auto;z-index:30}
+.hx-app-notifications{position:relative}
+.hx-app-notifications>button i{position:absolute;right:3px;top:3px;width:6px;height:6px;border-radius:50%;background:var(--hx-action)}
+.hx-app-notification-list{position:absolute;right:0;top:38px;z-index:80;width:min(320px,calc(100vw - 32px));max-height:360px;overflow:auto;padding:14px;background:var(--hx-surface);color:var(--hx-text);border:1px solid var(--hx-border);border-radius:12px;box-shadow:0 8px 28px #0002}
+.hx-app-notification-list>button{display:flex;flex-direction:column;gap:5px;width:100%;text-align:left;border:0;border-bottom:1px solid var(--hx-border);background:transparent;color:inherit;padding:12px 4px;cursor:pointer}
+.hx-app-notification-list small,.hx-app-notification-list p{font-size:12px;color:var(--hx-muted)}
+.hx-app-notification-list span{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;font-size:13px}
+.hx-app-notification-list .unread{border-left:3px solid var(--hx-action);padding-left:8px}
+.hx-chat-compose .mention-menu{position:absolute;list-style:none;margin:0 0 8px;padding:6px;background:var(--hx-surface);border:1px solid var(--hx-border);border-radius:12px;box-shadow:0 8px 24px #0002}
+.hx-chat-compose .mention-option{display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px;border:0;border-radius:8px;color:var(--hx-text);background:transparent;text-align:left;cursor:pointer}
+.hx-chat-compose .mention-option.on,.hx-chat-compose .mention-option:hover{background:var(--hx-hover)}
+.hx-chat-compose .mention-face{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--hx-hover);flex:none}
+.hx-chat-compose .mention-face img{width:26px;height:26px;object-fit:cover;border-radius:50%}
+.hx-chat-compose .mention-name{font-size:13px;color:var(--hx-text)}
+.hx-chat-compose .mention-handle,.hx-chat-compose .mention-side{font-size:11px;color:var(--hx-muted)}
+.hx-chat-compose .mention-side{margin-left:auto}
+@media(max-width:700px){.hx-app-notification-list{position:fixed;top:100px;left:16px;right:16px;width:auto;max-height:60vh}.hx-chat-compose .mention-menu:not(.emoji){min-width:0;max-width:100%}}
+@media(max-width:700px){
+ :root .shell.harness-workspace .hx-app-detail .hx-head-actions{max-width:100%;flex-wrap:wrap;gap:4px}
+ :root .shell.harness-workspace .hx-app-detail .screen-head .hx-head-actions .pill-btn{font-size:0;gap:0;width:30px;min-width:30px;padding:6px}
+}

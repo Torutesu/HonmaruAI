@@ -1,3 +1,4 @@
+import { conversationSource, sourceFor, sourceHistory, notifyAppMentions, appNotifications, asksAppAI, replyToApp } from './appConversationFeatures.js';
 import { appConversation } from './appConversations.js';
 import { personalViews } from './personalViews.js';
 import { appPins, setAppPin } from './appPins.js';
@@ -79,7 +80,7 @@ async function mayChange(env, orgId, who, createdBy) {
   return allowed(env.DB, orgId, who.session.github_id, "harness.delete_others");
 }
 
-export async function handleHarness(request, env, url) {
+export async function handleHarness(request, env, url, context = {}) {
   if (!OURS.test(url.pathname)) return null;
   if (request.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   const limited = await enforce(env, request, isGatewayNodeRoute(url.pathname) ? "gateway/edge" : "team");
@@ -431,7 +432,7 @@ export async function handleHarness(request, env, url) {
       const r = await createApp(env.DB, {
         orgId, by: me, name: input.name || spec.name, description: spec.description, icon: spec.icon,
         columns: spec.columns, definition: spec.definition, template: spec.template || null,
-        sample: spec.sample || [], channel: input.channel || null,
+        sample: spec.sample || [], channel: input.channel || null, sourceThreadId:input.sourceThreadId,
       });
       if (r.error) return fail(r);
       if (generationRoom && (generationRoom.kind !== 'business' || generationRoom.private)) await setAppAccess(env.DB, orgId, r.app.id, me, { visibility: 'private', version: 0 });
@@ -447,7 +448,7 @@ export async function handleHarness(request, env, url) {
       }
       if (request.method === "POST") {
         const r = input.template
-          ? await createFromTemplate(env.DB, { orgId, by: me, template: input.template, name: input.name, channel: input.channel, withSample: input.sample !== false })
+          ? await createFromTemplate(env.DB, { orgId, by: me, template: input.template, name: input.name, channel: input.channel, sourceThreadId:input.sourceThreadId, withSample: input.sample !== false })
           : await createApp(env.DB, { ...input, orgId, by: me, channel: input.channel });
         if (r.error) return fail(r);
         await audit(env, request, { orgId, action: "app.created", actor: person(who.user), entity: { type: "app", id: r.app.id, name: r.app.name } });
@@ -455,10 +456,47 @@ export async function handleHarness(request, env, url) {
       }
       return null;
     }
+    if (['conversation-source','conversation-notifications'].includes(sub) && parts.length === 3) {
+      if(!['GET','POST'].includes(request.method))return json({message:'Method not allowed.'},405);
+      const r=sub==='conversation-source'
+        ? await conversationSource(env.DB,orgId,who.user,appId,input,request.method==='POST')
+        : await appNotifications(env.DB,orgId,me,appId,input,request.method==='POST');
+      if(!r.error&&sub==='conversation-source'&&request.method==='POST')await audit(env,request,{orgId,action:'app.conversation_inherited',actor:person(who.user),entity:{type:'app',id:appId},details:{threadId:input.messageId}});
+      return r.error?fail(r):json(r);
+    }
     if (sub === 'conversation' && parts.length === 3) {
       if (!['GET','POST'].includes(request.method)) return json({message:'Method not allowed.'},405);
-      const r = await appConversation(env.DB, orgId, me, appId, request.method === 'GET' ? Object.fromEntries(url.searchParams) : input, request.method === 'POST');
-      return r.error ? fail(r) : json(r);
+      const query=request.method==='GET'?Object.fromEntries(url.searchParams):input;
+      // Validate both app and record before looking up any source thread.
+      const access=await appConversation(env.DB,orgId,me,appId,query);
+      if(access.error)return fail(access);
+      const source=!query.rowId?await sourceFor(env.DB,orgId,who.user,appId):null;
+      if(source?.error)return fail(source);
+      if(request.method==='POST'&&source){
+        if(typeof input.body!=='string'||!input.body.trim()||input.body.length>4000||typeof input.requestId!=='string'||!/^[a-zA-Z0-9_-]{16,100}$/.test(input.requestId))return json({message:'Invalid message.'},400);
+        if(!context.dispatch)return json({message:'Conversation routing unavailable.'},503);
+        const members=await memoryMembers(env.DB,orgId,me);
+        const channel=viewOf(source.channel,who.user.login,members);
+        const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([appId,source.threadId,input.requestId])));
+        const clientId='tmp-'+Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');
+        const forwarded=await context.dispatch(new Request(new URL('/channels/messages',url.origin),{method:'POST',headers:request.headers,body:JSON.stringify({orgId,channel,parentId:source.threadId,body:input.body,clientId})}));
+        if(!forwarded.ok)return forwarded;
+        const sent=await forwarded.json();
+        if(sent.message?.body!==input.body.replace(/\r\n/g,'\n').trim())return json({message:'Request ID was already used for a different message.'},409);
+        return json({threadId:source.threadId,source:true});
+      }
+      if(request.method==='GET'){
+        const {results:aiReplies}=await env.DB.prepare(`SELECT r.message_id AS messageId,CASE WHEN r.status='running' AND r.started_at<unixepoch()-120 THEN 'failed' ELSE r.status END AS status,CASE WHEN r.status='running' AND r.started_at<unixepoch()-120 THEN 'AIの応答待ちが終了しました。再度質問してください。' ELSE r.error END AS error FROM hx_app_ai_replies r JOIN hx_app_messages m ON m.sequence=r.message_id WHERE m.org_id=? AND m.app_id=? AND m.table_id=? AND m.row_id=? ORDER BY m.sequence DESC LIMIT 10`).bind(orgId,appId,query.tableId||'',query.rowId||'').all();
+        return json({...access,source:source?await sourceHistory(env.DB,orgId,who.user,source):null,aiReplies});
+      }
+      const r=await appConversation(env.DB,orgId,me,appId,input,true);
+      if(r.error)return fail(r);
+      await notifyAppMentions(env.DB,orgId,who.user,appId,input,r.messageId);
+      if(asksAppAI(input.body)){
+        const work=()=>replyToApp(env,orgId,who.user,appId,input,r.messageId);
+        if(context.after)context.after(work);else await work();
+      }
+      return json(r);
     }
     const app = await getApp(env.DB, orgId, appId);
     if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);

@@ -26,7 +26,7 @@ export async function appConversation(db, orgId, userId, appId, input = {}, writ
   }
   const before = input.before === undefined || input.before === '' ? null : Number(input.before);
   if (before !== null && (!Number.isSafeInteger(before) || before < 1)) return { error: 'Invalid cursor.', status: 400 };
-  const { results } = await db.prepare(`SELECT m.sequence AS id,m.author_id AS authorId,COALESCE(u.name,u.login,'メンバー') AS authorName,m.body,m.created_at AS createdAt
+  const { results } = await db.prepare(`SELECT m.sequence AS id,m.author_id AS authorId,CASE WHEN m.author_id='__app_ai' THEN 'AI' ELSE COALESCE(u.name,u.login,'メンバー') END AS authorName,m.body,m.created_at AS createdAt
     FROM hx_app_messages m LEFT JOIN users u ON u.github_id=m.author_id
     WHERE m.org_id=? AND m.app_id=? AND m.table_id=? AND m.row_id=? AND (? IS NULL OR m.sequence<?)
     ORDER BY m.sequence DESC LIMIT 51`).bind(...params, before, before).all();

@@ -1888,3 +1888,21 @@ CREATE TABLE IF NOT EXISTS hx_app_messages (
  UNIQUE(org_id,app_id,table_id,row_id,author_id,request_id)
 );
 CREATE INDEX IF NOT EXISTS idx_hx_app_messages_scope ON hx_app_messages(org_id,app_id,table_id,row_id,sequence);
+
+CREATE TABLE IF NOT EXISTS hx_app_conversation_sources (
+ org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+ channel TEXT NOT NULL, thread_id TEXT NOT NULL, created_by TEXT NOT NULL,
+ PRIMARY KEY(org_id,app_id)
+);
+CREATE TABLE IF NOT EXISTS hx_app_notifications (
+ org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+ message_id INTEGER NOT NULL REFERENCES hx_app_messages(sequence) ON DELETE CASCADE,
+ user_id TEXT NOT NULL, kind TEXT NOT NULL, read_at TEXT,
+ PRIMARY KEY(message_id,user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_hx_app_notifications_user ON hx_app_notifications(org_id,user_id,app_id);
+CREATE TABLE IF NOT EXISTS hx_app_ai_replies (
+ message_id INTEGER PRIMARY KEY REFERENCES hx_app_messages(sequence) ON DELETE CASCADE,
+ org_id TEXT NOT NULL, app_id TEXT NOT NULL, status TEXT NOT NULL, error TEXT,
+ started_at INTEGER NOT NULL DEFAULT (unixepoch())
+);

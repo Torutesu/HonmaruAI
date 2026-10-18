@@ -1,3 +1,5 @@
+import { mayUseConversation } from './conversationAccess.js';
+import { getMessage } from '../channels.js';
 import { SYSTEM_COLUMN_IDS, isSystemTimestamp, queryValue } from './systemColumns.js';
 // Apps: internal tools built on a Table (docs/kylon-gap-plan.md).
 //
@@ -199,7 +201,13 @@ export async function listApps(db, orgId, { channel } = {}) {
 }
 
 /// Build an app: a new table from the spec, its views, and the first version.
-export async function createApp(db, { orgId, by, name, description, icon, columns, definition, template, sample = [], channel }) {
+export async function createApp(db, { orgId, by, name, description, icon, columns, definition, template, sample = [], channel, sourceThreadId }) {
+  let source=null;
+  if(sourceThreadId){
+    source=typeof sourceThreadId==='string'?await getMessage(db,orgId,sourceThreadId):null;
+    if(!source||source.deleted_at||source.parent_id||!await mayUseConversation(db,orgId,by,source.channel))return {error:'No such source thread.',status:404};
+    channel=source.channel;
+  }
   const count = await db.prepare("SELECT COUNT(*) AS n FROM hx_apps WHERE org_id = ?1").bind(orgId).first();
   if (Number(count?.n || 0) >= MAX_APPS_PER_ORG) return { error: "This workspace has as many apps as it can hold." };
   const clean = String(name ?? "").trim().slice(0, 80);
@@ -223,14 +231,15 @@ export async function createApp(db, { orgId, by, name, description, icon, column
     .run();
   for (const values of sample.slice(0, 20)) await addRow(db, orgId, table.id, values, by);
   if (channel) await linkApp(db, orgId, id, channel, by);
+  if(source)await db.prepare("INSERT INTO hx_app_conversation_sources(org_id,app_id,channel,thread_id,created_by) VALUES (?,?,?,?,?)").bind(orgId,id,source.channel,source.id,String(by)).run();
   return { app: await getApp(db, orgId, id) };
 }
 
-export async function createFromTemplate(db, { orgId, by, template, name, channel, withSample = true }) {
+export async function createFromTemplate(db, { orgId, by, template, name, channel, sourceThreadId, withSample = true }) {
   const t = TEMPLATES[template];
   if (!t) return { error: "No such template." };
   return createApp(db, {
-    orgId, by, template, channel,
+    orgId, by, template, channel, sourceThreadId,
     name: name || t.name, description: t.description, icon: t.icon,
     columns: t.columns, definition: { views: t.views }, sample: withSample ? t.sample : [],
   });
