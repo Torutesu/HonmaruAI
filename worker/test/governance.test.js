@@ -191,6 +191,37 @@ test("an export whose earlier words cannot be read fails, and a retry has them",
   expect((await made.json()).export).toMatchObject({ status: "ready", counts: { messages: 1, earlier: 1 } });
 });
 
+// A failed read of the holds was taken for none, and of the private channels
+// for none private: an edit lost the held words, and retention deleted
+// what a hold or a longer private retention kept.
+test("when the holds or the private channels cannot be read, nothing held is changed or deleted", async () => {
+  const members = (await (await call(`/members?${q}`, owner)).json()).members;
+  const ken = members.find((m) => m.name === "Ken");
+  await call("/orgs/holds", owner, { method: "POST", body: { orgId: ORG, kind: "person", ref: ken.ref, reason: "Matter 3" } });
+  const sent = await (await post(member, "b:cafe", "as it was")).json();
+  const edit = (withEnv) => call("/channels/messages", member, { method: "PUT", body: { orgId: ORG, channel: "b:cafe", messageId: sent.message.id, body: "as it is" }, withEnv });
+  expect((await edit(failing(/FROM message_holds/))).status).toBe(500);
+  const body = async () => (await env.DB.prepare("SELECT body FROM channel_messages WHERE org_id = ?1 AND id = ?2").bind(ORG, sent.message.id).first()).body;
+  expect(await body()).toBe("as it was");
+  expect((await edit(env)).status).toBe(200);
+  expect((await env.DB.prepare("SELECT body FROM message_history WHERE org_id = ?1").bind(ORG).first()).body).toBe("as it was");
+
+  await put(owner, { retention: { publicDays: 30, privateDays: 365 } });
+  const insert = (id, channel, login) => env.DB.prepare(
+    "INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at) VALUES (?1, ?2, ?3, ?4, 'message', 'x', ?5)"
+  ).bind(id, ORG, channel, login, ago(40)).run();
+  await insert("old-held", "b:cafe", "u:ken@gov.jp");
+  await insert("old-private", "b:board", "u:mika@gov.jp");
+  await insert("old-public", "b:cafe", "u:mika@gov.jp");
+  const left = async () => (await env.DB.prepare("SELECT id FROM channel_messages WHERE org_id = ?1 AND id LIKE 'old-%' ORDER BY id").bind(ORG).all()).results.map((r) => r.id);
+  expect(await pruneMessages(failing(/FROM message_holds/))).toEqual([]);
+  expect(await pruneMessages(failing(/FROM businesses WHERE org_id = \?1 AND private = 1/))).toEqual([]);
+  expect(await left()).toEqual(["old-held", "old-private", "old-public"]);
+  // Read again: only what nothing keeps goes.
+  await pruneMessages(env);
+  expect(await left()).toEqual(["old-held", "old-private"]);
+});
+
 // A person chosen who had left by the time the export was made was dropped,
 // and with nobody left in the choice the export was of everyone.
 test("an export for people who are no longer members is refused, not widened to everyone", async () => {

@@ -17,6 +17,7 @@ import { ipAllowed, parseCidr } from "./orgKeys.js";
 import { listMembers } from "./team.js";
 import { deleteFileObject } from "./files.js";
 import { mirrorDeletes } from "./store/mirror.js";
+import { safe } from "./log.js";
 
 const DAY = 86_400_000;
 export const RETENTION_CHOICES = [null, 1, 7, 30, 90, 180, 365, 730, 1825, 3650];
@@ -123,8 +124,11 @@ export async function inviteGate(env, orgId, userId, role) {
 
 // ---- Holds ----
 
+/// A workspace's holds. A read that fails throws rather than answering
+/// "none": an edit, an unsend or retention then stops instead of going
+/// ahead as though nothing were held.
 export async function holdsOf(db, orgId, { active = true } = {}) {
-  const { results } = await db.prepare(`SELECT * FROM message_holds WHERE org_id = ?1 ${active ? "AND released_at IS NULL" : ""} ORDER BY created_at DESC`).bind(orgId).all().catch(() => ({ results: [] }));
+  const { results } = await db.prepare(`SELECT * FROM message_holds WHERE org_id = ?1 ${active ? "AND released_at IS NULL" : ""} ORDER BY created_at DESC`).bind(orgId).all();
   return results || [];
 }
 
@@ -146,8 +150,10 @@ export async function keepIfHeld(db, orgId, row, reason) {
 
 // ---- Retention ----
 
+// Unread, every private channel would look public and take the public
+// channels' retention, so a failed read throws too.
 async function privateSlugs(db, orgId) {
-  const { results } = await db.prepare("SELECT slug FROM businesses WHERE org_id = ?1 AND private = 1").bind(orgId).all().catch(() => ({ results: [] }));
+  const { results } = await db.prepare("SELECT slug FROM businesses WHERE org_id = ?1 AND private = 1").bind(orgId).all();
   return new Set((results || []).map((r) => `b:${r.slug}`));
 }
 const kindOfKey = (key, privates) => (key.startsWith("b:") ? (privates.has(key) ? "private" : "public") : "dm");
@@ -162,8 +168,16 @@ export async function pruneMessages(env, { now = Date.now(), perRun = 500 } = {}
   const out = [];
   for (const g of orgs) {
     const orgId = g.org_id;
-    const holds = await holdsOf(env.DB, orgId);
-    const privates = await privateSlugs(env.DB, orgId);
+    // What is held, and which channels are private, unread: nothing of this
+    // workspace's goes this run.
+    let holds; let privates;
+    try {
+      holds = await holdsOf(env.DB, orgId);
+      privates = await privateSlugs(env.DB, orgId);
+    } catch (err) {
+      console.error("message retention skipped", orgId, safe(err?.message));
+      continue;
+    }
     const days = { public: g.retention_public_days, private: g.retention_private_days, dm: g.retention_dm_days };
     const cutoffs = Object.fromEntries(Object.entries(days).map(([k, d]) => [k, d ? new Date(now - d * DAY).toISOString() : null]));
     const oldest = Object.values(cutoffs).filter(Boolean).sort().pop();
