@@ -101,6 +101,9 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
   const t = useT()
   const api = useApi(props)
   const generationRequest = useRef<{key:string;id:string}|null>(null)
+  const liveApi = useRef<HarnessApi | null>(api)
+  liveApi.current = api
+  useEffect(() => { liveApi.current = api; return () => { liveApi.current = null } }, [api])
   const { pins, toggle } = useAppPins(props.orgId,api)
   const [apps, setApps] = useState<App[] | null>(null)
   const [templates, setTemplates] = useState<Template[]>([])
@@ -130,12 +133,18 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
   if (open) return <AppView key={open} {...props} api={api} appId={open} onBack={() => { setOpen(null); location.hash = '#/apps'; load() }} />
 
   const generate = () => act('generate', async () => {
+    const startingHash = location.hash
+    const submittedPrompt = prompt
     const room = prompt.match(/#([\p{L}\p{N}_-]+)/u)?.[1]
     const key = JSON.stringify([props.orgId,prompt,room])
     if (generationRequest.current?.key !== key) generationRequest.current = {key,id:crypto.randomUUID()}
     const made = await api.generate(prompt, room ? `b:${room}` : undefined, {requestId:generationRequest.current.id,captureSource:Boolean(room)})
+    if (liveApi.current !== api) return
     generationRequest.current = null
-    setPrompt('')
+    setPrompt(current => current === submittedPrompt ? '' : current)
+    // Publication can finish after leaving this screen or opening another
+    // app. Keep that navigation; the finished app remains in the library.
+    if (location.hash !== startingHash) return
     setNote(made.source === 'model' ? t('Built from your description.') : t('Started from the closest template. Change its columns any time.'))
     setOpen(made.app.id); location.hash = hashForApp(made.app.id, props.orgId, room ? {} : undefined)
   })
