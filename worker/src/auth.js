@@ -181,7 +181,7 @@ export async function signup(env, { email, password, name, inviteCode, locale, p
       const gate = await inviteGate(env, invite.org_id, userId, role);
       if (gate.error) inviteError = gate.error;
       else if (gate.pending) {
-        await askToJoin(env, invite.org_id, userId, gate.email, role);
+        await askToJoin(env, invite.org_id, userId, gate.email, role, invite);
         invitePending = { orgId: invite.org_id, role };
       } else if (await spendInvite(env.DB, inviteCode.trim())) {
         org = invite.org_id;
@@ -458,12 +458,13 @@ export async function settleProvedAddress(env, email, { orgId } = {}) {
   return null;
 }
 
-/// An invitation the workspace wants an admin to approve: kept for them.
-async function askToJoin(env, orgId, userId, email, role) {
+/// An invitation the workspace wants an admin to approve: kept for them,
+/// with the channels it names and who sent it, for when they say yes.
+async function askToJoin(env, orgId, userId, email, role, invite) {
   await env.DB.prepare(
-    `INSERT INTO join_requests (org_id, user_github_id, email, requested_at, role, via) VALUES (?1, ?2, ?3, ?4, ?5, 'invite')
-     ON CONFLICT(org_id, user_github_id) DO UPDATE SET requested_at = excluded.requested_at, role = excluded.role, via = 'invite', decided_by = NULL, decided_at = NULL, outcome = NULL`
-  ).bind(orgId, String(userId), email || "", new Date().toISOString(), role).run();
+    `INSERT INTO join_requests (org_id, user_github_id, email, requested_at, role, via, channels, invited_by) VALUES (?1, ?2, ?3, ?4, ?5, 'invite', ?6, ?7)
+     ON CONFLICT(org_id, user_github_id) DO UPDATE SET requested_at = excluded.requested_at, role = excluded.role, via = 'invite', channels = excluded.channels, invited_by = excluded.invited_by, decided_by = NULL, decided_at = NULL, outcome = NULL`
+  ).bind(orgId, String(userId), email || "", new Date().toISOString(), role, invite?.channels || null, invite?.created_by || null).run();
 }
 
 // Redeem an invite code: look it up, add the user to that org.
@@ -495,7 +496,7 @@ export async function acceptInvite(env, { code, userId }) {
     const gate = await inviteGate(env, row.org_id, userId, offered);
     if (gate.error) return { error: gate.error, orgId: row.org_id };
     if (gate.pending) {
-      await askToJoin(env, row.org_id, userId, gate.email, offered);
+      await askToJoin(env, row.org_id, userId, gate.email, offered, row);
       return { orgId: row.org_id, pending: true, role: offered };
     }
   }

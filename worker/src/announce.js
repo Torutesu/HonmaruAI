@@ -103,3 +103,22 @@ export async function evictMember(env, orgId, login) {
     return { evicted: 0, error: true };
   }
 }
+
+/// Take somebody out of one private channel's Jam, when they are taken out of
+/// the channel: the socket that joined it stays in the Jam otherwise, still
+/// hearing it and still introduced to whoever joins next.
+export async function evictFromJam(env, orgId, login, channel) {
+  if (!login || !channel || !env.ORG_RELAY) return { evicted: 0 };
+  try {
+    const stub = env.ORG_RELAY.get(env.ORG_RELAY.idFromName(orgId));
+    const res = await stub.fetch(`https://relay.internal${EVICT_PATH}?orgId=${encodeURIComponent(orgId)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ login, channel }),
+    });
+    return await res.json();
+  } catch (err) {
+    console.error("jam evict failed", orgId, err?.message || err);
+    return { evicted: 0, error: true };
+  }
+}

@@ -460,6 +460,30 @@ export async function upsertMembership(db, orgId, githubId, role, via = null) {
     )
     .bind(orgId, String(githubId), role, new Date().toISOString(), via)
     .run();
+  await settleJoinRequest(db, orgId, githubId);
+}
+
+/// Add someone who is not in the workspace yet. Whoever already is keeps the
+/// role they have: returns whether they were added.
+export async function addMembership(db, orgId, githubId, role, via = null) {
+  const out = await db
+    .prepare(
+      `INSERT INTO memberships (org_id, user_github_id, role, created_at, joined_via)
+       VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT(org_id, user_github_id) DO NOTHING`
+    )
+    .bind(orgId, String(githubId), role, new Date().toISOString(), via)
+    .run();
+  await settleJoinRequest(db, orgId, githubId);
+  return out?.meta?.changes > 0;
+}
+
+/// Someone in the workspace has nothing left to ask: a request to join still
+/// open is closed as joined, so nobody approves it later over the role they
+/// hold by then.
+async function settleJoinRequest(db, orgId, githubId) {
+  await db.prepare("UPDATE join_requests SET outcome = 'joined', decided_at = ?3 WHERE org_id = ?1 AND user_github_id = ?2 AND outcome IS NULL")
+    .bind(orgId, String(githubId), new Date().toISOString()).run();
 }
 
 /// What a person may say they do.

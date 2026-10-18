@@ -85,6 +85,41 @@ test("someone else's pending decision survives, with the name taken off it", asy
   expect(event).toMatchObject({ actor_user_id: "deleted-user" });
 });
 
+// The indexed columns lost the name, but the card's own JSON and the
+// snapshots in its history kept it — and saving the card again put the old
+// sender back in the column from that JSON.
+test("the name comes off inside a kept card and its history too, and saving the card again does not bring it back", async () => {
+  const token = await seedAlice();
+  const { saveCard, getCard } = await import("../src/db.js");
+  const { appendCardEvent, listCardEvents } = await import("../src/events.js");
+  const card = {
+    id: "c-asked", recipientUserID: "bob", senderUserID: "alice", status: "pending", title: "Budget", priority: "high",
+    prioritySetBy: "alice", createdAt: "2026-08-11T00:00:00Z",
+    requestedBy: { login: "alice", name: "Alice", role: "admin", quote: "Can we move the budget?" },
+  };
+  await saveCard(env.DB, "acme/app", card);
+  await appendCardEvent(env.DB, "acme/app", { cardId: "c-asked", type: "created", actorUserId: "alice", snapshot: card });
+  // A decision Alice made, on a card that goes with her: its history stays.
+  await appendCardEvent(env.DB, "acme/app", { cardId: "c-alices", type: "decided", actorUserId: "alice", snapshot: { id: "c-alices", recipientUserID: "alice", senderUserID: "bob" } });
+  // Bob's own card, which only mentions her in passing, is left as it is.
+  await saveCard(env.DB, "acme/app", { id: "c-quiet", recipientUserID: "bob", senderUserID: "bob", status: "pending", title: "Ask alice later", createdAt: "2026-08-11T00:00:00Z" });
+
+  expect((await SELF.fetch("https://example.com/account", { method: "DELETE", headers: { "x-session-token": token } })).status).toBe(200);
+
+  const kept = await getCard(env.DB, "acme/app", "c-asked");
+  expect(kept).toMatchObject({ senderUserID: "deleted-user", prioritySetBy: "deleted-user", title: "Budget", requestedBy: { login: "deleted-user", name: "deleted-user", quote: "Can we move the budget?" } });
+  expect(kept.requestedBy.role).toBeUndefined();
+  const [created] = await listCardEvents(env.DB, "acme/app", "c-asked");
+  expect(created.snapshot).toMatchObject({ senderUserID: "deleted-user", requestedBy: { login: "deleted-user", name: "deleted-user" } });
+  const [decided] = await listCardEvents(env.DB, "acme/app", "c-alices");
+  expect(decided.snapshot).toEqual({ id: "c-alices", recipientUserID: "deleted-user", senderUserID: "bob" });
+  expect(JSON.stringify([kept, created, decided])).not.toMatch(/"alice"|Alice/);
+  expect((await getCard(env.DB, "acme/app", "c-quiet")).title).toBe("Ask alice later");
+
+  await saveCard(env.DB, "acme/app", { ...kept, status: "approved" });
+  expect((await env.DB.prepare("SELECT sender_user_id FROM cards WHERE card_id = 'c-asked'").first()).sender_user_id).toBe("deleted-user");
+});
+
 test("nothing the account minted or is named on outlives it", async () => {
   // The rule this module writes down is: what is *about* this person goes,
   // what is someone else's record of a shared event stays with the name off.

@@ -148,6 +148,10 @@ export async function listMembersForClient(db, orgId, viewerId) {
   })));
 }
 
+/// The condition on a write that takes an owner away (?1 the workspace, ?2
+/// the owner): that they are still one, and somebody else is too.
+const ANOTHER_OWNER = " AND role = 'owner' AND EXISTS (SELECT 1 FROM memberships o WHERE o.org_id = ?1 AND o.role = 'owner' AND o.user_github_id != ?2)";
+
 /// Take someone out of a workspace, or leave it yourself.
 ///
 /// Standing decides: you may remove anyone ranked below you, and you may
@@ -192,10 +196,15 @@ export async function removeMember(env, { orgId, actorId, targetId, ref }) {
     return { error: "Only an owner can remove an admin.", status: 403 };
   }
 
-  await env.DB
-    .prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = ?2")
+  // An owner goes only while another owner stays, decided by the delete
+  // itself: the count read above may be stale when two owners leave at once.
+  const out = await env.DB
+    .prepare(`DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = ?2${target.role === "owner" ? ANOTHER_OWNER : ""}`)
     .bind(orgId, target.userId)
     .run();
+  if (target.role === "owner" && !(out?.meta?.changes > 0)) {
+    return { error: "You are this workspace's only owner. Make someone else an owner first.", status: 409, code: "last-owner" };
+  }
   // Their app connections in this workspace end with them (smitheryApps.js).
   const { forgetAppConnections } = await import("./smitheryApps.js");
   await forgetAppConnections(env, { orgId, githubId: target.userId }).catch(() => {});
@@ -461,7 +470,13 @@ export async function changeRole(env, { orgId, actorId, ref, role, channels }) {
     if (!chosen.length) return { error: "Choose the channels a guest can see.", status: 400 };
   }
   if (to !== target.role) {
-    await env.DB.prepare("UPDATE memberships SET role = ?3 WHERE org_id = ?1 AND user_github_id = ?2").bind(orgId, target.userId, to).run();
+    // An owner stops being one only while another owner stays, decided by the
+    // write itself: two owners stepping down at once cannot both go.
+    const out = await env.DB.prepare(`UPDATE memberships SET role = ?3 WHERE org_id = ?1 AND user_github_id = ?2${target.role === "owner" ? ANOTHER_OWNER : ""}`)
+      .bind(orgId, target.userId, to).run();
+    if (target.role === "owner" && !(out?.meta?.changes > 0)) {
+      return { error: self ? "You are this workspace's only owner. Make someone else an owner first." : "This is the workspace's only owner. Make someone else an owner first.", status: 409, code: "last-owner" };
+    }
   }
   if (chosen) {
     // The public channels a guest was in go; private ones stay theirs to

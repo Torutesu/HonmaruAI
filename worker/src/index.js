@@ -839,7 +839,10 @@ async function handle(request, env, url, ctx) {
       const { scheduleDeletion, cancelDeletion, GRACE_DAYS } = await import("./workspaceDeletion.js");
       const actor = await actorOf(env, session);
       if (url.pathname === "/orgs/delete/cancel") {
-        return (await cancelDeletion(env, request, { orgId, actor })) ? json({ cancelled: true }) : json({ message: "This workspace is not being deleted." }, 409);
+        const outcome = await cancelDeletion(env, request, { orgId, actor });
+        if (outcome === "cancelled") return json({ cancelled: true });
+        if (outcome === "started") return json({ message: "This workspace is already being deleted and can no longer be kept.", code: "deletion-started" }, 409);
+        return json({ message: "This workspace is not being deleted." }, 409);
       }
       const name = (await env.DB.prepare("SELECT name FROM orgs WHERE id = ?1").bind(orgId).first().catch(() => null))?.name || orgId;
       if (String(body.confirm || "").trim() !== name) return json({ message: `Type the workspace's name, ${name}, to delete it.`, code: "confirm-name", name }, 400);

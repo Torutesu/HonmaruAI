@@ -1368,6 +1368,8 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (!target || !ctx.resolved.logins.includes(target.login)) return json({ message: "They are not in this channel." }, 404);
     await removeMember(env.DB, { orgId, key, login: target.login });
     await announceTo(env, orgId, [await listFor(target.login)]);
+    const { evictFromJam } = await import("./announce.js");
+    await evictFromJam(env, orgId, target.login, key);
     await note(target.login === me.login
       ? serverText(locale, "channel.left", { who: nameOf(me.login) })
       : serverText(locale, "channel.removed", { who: nameOf(me.login), name: target.name }));
