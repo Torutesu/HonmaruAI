@@ -1,3 +1,4 @@
+import { parseAppLink } from '../utils/appLinks'
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { getLocale } from '../utils/locale'
@@ -849,12 +850,14 @@ function JamAudio({ link }: { link: string }) {
 function inline(line: string, mentionClass: (name: string) => MentionLook, nested = false): React.ReactNode[] {
   // Doubled marks (Discord's ||spoiler||, __underline__, ~~strike~~) come
   // before their single forms so "__a__" is not read as "_" + "_a_" + "_".
-  const tokens = line.split(/(`[^`\n]+`|https?:\/\/[^\s<>"）」|]+|:[a-z0-9_+-]{1,30}:|[@＠][^\s@＠,，。、!?！？:;|]+|\|\|[^|\n]+\|\||\*\*[^*\n]+\*\*|\*[^*\n]+\*|__[^_\n]+__|_[^_\n]+_|~~[^~\n]+~~|~[^~\n]+~)/g)
+  const tokens = line.split(/(\[(?:\\.|[^\]\\\n])+\]\(#\/apps\/[^\s)]+\)|`[^`\n]+`|https?:\/\/[^\s<>"）」|]+|:[a-z0-9_+-]{1,30}:|[@＠][^\s@＠,，。、!?！？:;|]+|\|\|[^|\n]+\|\||\*\*[^*\n]+\*\*|\*[^*\n]+\*|__[^_\n]+__|_[^_\n]+_|~~[^~\n]+~~|~[^~\n]+~)/g)
   // A line that is nothing but emoji — characters, or this workspace's own
   // — draws them large.
   const onlyEmoji = !nested && isEmojiOnly(line, (token) => Boolean(customEmojiUrl(token)))
   return tokens.map((part, i) => {
     if (!part) return null
+    const appLink=parseAppLink(part)
+    if(appLink)return <a key={i} href={appLink.href} className="hx-inline-app-link">{appLink.label}</a>
     if (/^`[^`]+`$/.test(part)) return <code key={i} className="slk-code">{part.slice(1, -1)}</code>
     if (CUSTOM_EMOJI.test(part)) {
       const url = customEmojiUrl(part)

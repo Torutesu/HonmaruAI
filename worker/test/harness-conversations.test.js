@@ -59,6 +59,10 @@ test('room generation captures one source and replays the same app across sessio
  const made=await retry.json();expect(made.replay).toBe(true);
  const history=await (await request('GET',owner,{},made.app.id)).json();
  expect(history.source.messages[0].body).toBe(input.prompt);
+ expect(history.source.messages).toHaveLength(2);
+ expect(history.source.messages[1].kind).toBe('ai');
+ expect(history.source.messages[1].body).toContain(`](#/apps/${made.app.id}/${encodeURIComponent(org)})`);
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND id=?").bind(org,`app-created-${made.app.id}`).first()).n).toBe(1);
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND body=?').bind(org,input.prompt).first()).n).toBe(1);
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=?').bind(org).first()).n).toBe(2);
  expect((await createRequest('/apps/generate',owner,{...input,prompt:'A different app'})).status).toBe(409);
@@ -73,6 +77,7 @@ test('failed app commit keeps the generated definition and source for a safe ret
  finally {await env.DB.exec('DROP TRIGGER fail_generated_version');}
  const failed=await env.DB.prepare('SELECT status,generated,app_id FROM hx_app_generation_jobs WHERE org_id=? AND user_id=? AND request_id=?').bind(org,'9201',input.requestId).first();
  expect(failed.status).toBe('failed');expect(failed.generated).toBeTruthy();expect(failed.app_id).toBeNull();
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND id LIKE 'app-created-%'").bind(org).first()).n).toBe(0);
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_tables WHERE org_id=?').bind(org).first()).n).toBe(1);
  expect((await createRequest('/apps/generate',owner,input)).status).toBe(201);
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND body=?').bind(org,input.prompt).first()).n).toBe(1);
@@ -214,4 +219,17 @@ test('Activity and app inbox share scoped mentions, read state and revoked acces
  expect((await activity(member)).items.some(i=>i.key===first.key)).toBe(false);
  await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(org,app.id).run();
  expect((await activity(member)).items.filter(i=>i.app)).toEqual([]);
+});
+
+
+test('a missing source at commit rolls back app, table and completion announcement',async()=>{
+ const root=await privateSource();
+ const {createApp}=await import('../src/harness/apps.js');
+ const before=await env.DB.prepare('SELECT (SELECT COUNT(*) FROM hx_apps) AS apps,(SELECT COUNT(*) FROM hx_tables) AS tables').first();
+ await env.DB.exec(`CREATE TRIGGER remove_source_during_creation BEFORE INSERT ON hx_apps BEGIN UPDATE channel_messages SET deleted_at='gone' WHERE id='${root.id}'; END;`);
+ try {
+  await expect(createApp(env.DB,{orgId:org,by:'9201',name:'Must roll back',columns:[{name:'Task',type:'text'}],sourceThreadId:root.id},{announceInSource:true})).rejects.toThrow();
+  expect(await env.DB.prepare('SELECT (SELECT COUNT(*) FROM hx_apps) AS apps,(SELECT COUNT(*) FROM hx_tables) AS tables').first()).toEqual(before);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE id LIKE 'app-created-%'").first()).n).toBe(0);
+ }finally{await env.DB.exec('DROP TRIGGER remove_source_during_creation');}
 });

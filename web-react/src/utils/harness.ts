@@ -98,6 +98,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     return data as T
   }
   return {
+    httpBase, orgId,
     conversation: (id:string, scope:{tableId?:string;rowId?:string}={}, before?:number) => call<AppConversation>('GET',`/apps/${id}/conversation`,undefined,{...(scope.tableId?{tableId:scope.tableId}:{}),...(scope.rowId?{rowId:scope.rowId}:{}),...(before?{before:String(before)}:{})}),
     postConversation: (id:string, scope:{tableId?:string;rowId?:string}, body:string, requestId:string) => call<{threadId:string;messageId:number}>('POST',`/apps/${id}/conversation`,{...scope,body,requestId}),
     markSourceRead: (channel:string,thread:string,at:string) => call('POST','/channels/read',{channel,thread,at}),

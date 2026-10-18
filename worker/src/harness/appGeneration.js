@@ -1,7 +1,8 @@
+import { mirrorIds } from '../store/mirror.js';
 import { appCreationSource, createApp, getApp, specFromPrompt } from './apps.js';
 import { mayUseApp } from './resourceAccess.js';
 import { mayUseConversation } from './conversationAccess.js';
-import { resolveChannel, postMessage } from '../channels.js';
+import { resolveChannel, postMessage, getMessage } from '../channels.js';
 import { broadcastStored } from '../channelRoutes.js';
 import { checkOutgoing } from '../dlp.js';
 import { completer } from './model.js';
@@ -91,11 +92,17 @@ export async function generateApp(env, request, orgId, who, input, {makeComplete
     const spec=made.spec;
     const result=await createApp(env.DB,{orgId,by,name:name||spec.name,description:spec.description,icon:spec.icon,
       columns:spec.columns,definition:spec.definition,template:spec.template||null,sample:spec.sample||[],channel,sourceThreadId,privateByDefault},
-      requestId?{commitGuard:appId=>env.DB.prepare(`UPDATE hx_app_generation_jobs
+      {announceInSource:true,...(requestId?{commitGuard:appId=>env.DB.prepare(`UPDATE hx_app_generation_jobs
         SET app_id=CASE WHEN lease_token=? AND lease_until>? AND status='running' THEN ? ELSE NULL END,status='complete'
-        WHERE org_id=? AND user_id=? AND request_id=?`).bind(token,Date.now(),appId,orgId,by,requestId)}:{});
+        WHERE org_id=? AND user_id=? AND request_id=?`).bind(token,Date.now(),appId,orgId,by,requestId)}:{})});
     if(result.error){await release();return result;}
-    return {...result,source:made.source,room:made.room||null};
+    const {announcementId,...published}=result;
+    if(announcementId){
+      await mirrorIds(env.DB,orgId,[announcementId]);
+      const message=await getMessage(env.DB,orgId,announcementId);
+      if(message)await broadcastStored(env,orgId,channel,message).catch(()=>{});
+    }
+    return {...published,source:made.source,room:made.room||null};
   }catch(error){
     if(requestId && (await jobOf())?.lease_token!==token)return conflict();
     await release();throw error;
