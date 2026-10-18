@@ -222,6 +222,40 @@ test("when the holds or the private channels cannot be read, nothing held is cha
   expect(await left()).toEqual(["old-held", "old-private"]);
 });
 
+// The oldest 500 rows were read before holds, each conversation's retention
+// and threads in use were checked: 500 that must stay filled every run, and
+// what had expired behind them was never reached.
+test("retention reaches expired messages and files behind more than a batch of ones that must stay", async () => {
+  await put(owner, { retention: { publicDays: 30, privateDays: 365, filesDays: 30 } });
+  const ken = (await (await call(`/members?${q}`, owner)).json()).members.find((m) => m.name === "Ken");
+  await call("/orgs/holds", owner, { method: "POST", body: { orgId: ORG, kind: "person", ref: ken.ref, reason: "Matter 5" } });
+  const at = (days, i = 0) => new Date(Date.now() - days * 86_400_000 + i).toISOString();
+  const msg = (id, channel, login, created, parent = null) => env.DB.prepare(
+    "INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at, parent_id) VALUES (?1, ?2, ?3, ?4, 'message', 'x', ?5, ?6)"
+  ).bind(id, ORG, channel, login, created, parent);
+  const file = (id, login, created) => env.DB.prepare(
+    "INSERT INTO message_files (id, org_id, channel, uploader, name, type, size, created_at) VALUES (?1, ?2, 'b:cafe', ?3, 'f.txt', 'text/plain', 1, ?4)"
+  ).bind(id, ORG, login, created);
+  const rows = [];
+  for (let i = 0; i < 520; i += 1) {
+    rows.push(msg(`held-${i}`, "b:cafe", "u:ken@gov.jp", at(90, i)));
+    rows.push(msg(`private-${i}`, "b:board", "u:mika@gov.jp", at(80, i)));
+    rows.push(msg(`parent-${i}`, "b:cafe", "u:mika@gov.jp", at(70, i)));
+    rows.push(msg(`reply-${i}`, "b:cafe", "u:mika@gov.jp", at(1, i), `parent-${i}`));
+    rows.push(file(`heldfile-${i}`, "u:ken@gov.jp", at(90, i)));
+  }
+  rows.push(msg("expired", "b:cafe", "u:mika@gov.jp", at(40)));
+  rows.push(file("expiredfile", "u:mika@gov.jp", at(40)));
+  for (let i = 0; i < rows.length; i += 200) await env.DB.batch(rows.slice(i, i + 200));
+  const has = async (table, id) => Boolean(await env.DB.prepare(`SELECT 1 FROM ${table} WHERE org_id = ?1 AND id = ?2`).bind(ORG, id).first());
+  for (let run = 0; run < 3; run += 1) await pruneMessages(env);
+  expect(await has("channel_messages", "expired")).toBe(false);
+  expect(await has("message_files", "expiredfile")).toBe(false);
+  const count = async (sql) => (await env.DB.prepare(sql).bind(ORG).first()).n;
+  expect(await count("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id = ?1 AND (id LIKE 'held-%' OR id LIKE 'private-%' OR id LIKE 'parent-%')")).toBe(3 * 520);
+  expect(await count("SELECT COUNT(*) AS n FROM message_files WHERE org_id = ?1 AND id LIKE 'heldfile-%'")).toBe(520);
+});
+
 // A person chosen who had left by the time the export was made was dropped,
 // and with nobody left in the choice the export was of everyone.
 test("an export for people who are no longer members is refused, not widened to everyone", async () => {

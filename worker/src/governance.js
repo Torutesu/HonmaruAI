@@ -157,6 +157,10 @@ async function privateSlugs(db, orgId) {
   return new Set((results || []).map((r) => `b:${r.slug}`));
 }
 const kindOfKey = (key, privates) => (key.startsWith("b:") ? (privates.has(key) ? "private" : "public") : "dm");
+/// The SQL for "no active hold of workspace ?1 covers this author or this
+/// channel" — heldBy, in the query that picks what retention deletes.
+const notHeld = (login, channel) => `NOT EXISTS (SELECT 1 FROM message_holds h WHERE h.org_id = ?1 AND h.released_at IS NULL
+  AND ((h.kind = 'person' AND h.target = ${login}) OR (h.kind = 'channel' AND h.target = ${channel})))`;
 
 /// Messages and files past the workspace's retention, deleted — never what
 /// a hold covers, and never a message whose thread is still being kept.
@@ -183,11 +187,28 @@ export async function pruneMessages(env, { now = Date.now(), perRun = 500 } = {}
     const oldest = Object.values(cutoffs).filter(Boolean).sort().pop();
     let messages = 0;
     if (oldest) {
+      // Only rows past their own conversation's retention and under no hold
+      // are read, so a batch of what must stay cannot fill every run. What a
+      // batch still keeps (a thread in use) is passed by the cursor, from
+      // where the last full batch ended to the end and round again.
+      const cursorKey = `cursor:pruneMessages:${orgId}`;
+      const kept = await env.DB.prepare("SELECT value FROM kv WHERE key = ?1").bind(cursorKey).first().catch(() => null);
+      const [afterAt = "", afterId = ""] = String(kept?.value || "").split("\n");
       const { results } = await env.DB.prepare(
         `SELECT m.id, m.channel, m.author_login, m.created_at, m.parent_id,
                 (SELECT MAX(r.created_at) FROM channel_messages r WHERE r.org_id = m.org_id AND r.parent_id = m.id) AS last_reply
-           FROM channel_messages m WHERE m.org_id = ?1 AND m.created_at < ?2 ORDER BY m.created_at LIMIT ?3`
-      ).bind(orgId, oldest, PRUNE_BATCH).all();
+           FROM channel_messages m
+          WHERE m.org_id = ?1 AND m.created_at < ?2
+            AND m.created_at < (CASE WHEN substr(m.channel, 1, 2) <> 'b:' THEN ?4
+                                     WHEN EXISTS (SELECT 1 FROM businesses b WHERE b.org_id = m.org_id AND b.slug = substr(m.channel, 3) AND b.private = 1) THEN ?5
+                                     ELSE ?6 END)
+            AND ${notHeld("m.author_login", "m.channel")}
+            AND (m.created_at > ?7 OR (m.created_at = ?7 AND m.id > ?8))
+          ORDER BY m.created_at, m.id LIMIT ?3`
+      ).bind(orgId, oldest, PRUNE_BATCH, cutoffs.dm, cutoffs.private, cutoffs.public, afterAt, afterId).all();
+      const last = results?.length === PRUNE_BATCH ? results[results.length - 1] : null;
+      await env.DB.prepare("INSERT INTO kv (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+        .bind(cursorKey, last ? `${last.created_at}\n${last.id}` : "", new Date(now).toISOString()).run().catch(() => {});
       const doomed = [];
       for (const m of results || []) {
         const cutoff = cutoffs[kindOfKey(m.channel, privates)];
@@ -215,7 +236,7 @@ export async function pruneMessages(env, { now = Date.now(), perRun = 500 } = {}
     if (g.retention_files_days) {
       const cutoff = new Date(now - g.retention_files_days * DAY).toISOString();
       const { results } = await env.DB.prepare(
-        "SELECT id, channel, uploader FROM message_files WHERE org_id = ?1 AND created_at < ?2 ORDER BY created_at LIMIT ?3"
+        `SELECT id, channel, uploader FROM message_files WHERE org_id = ?1 AND created_at < ?2 AND ${notHeld("uploader", "channel")} ORDER BY created_at LIMIT ?3`
       ).bind(orgId, cutoff, PRUNE_BATCH).all();
       for (const f of results || []) {
         if (heldBy(holds, { login: f.uploader, channel: f.channel })) continue;
