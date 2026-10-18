@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { countNewBelow, focusAfterJump, holdDelta, isAtBottom, isLooking, isNewSince, leavesGap, mergeById, reachesPast, shouldFollow, waitToSay } from './chatScroll'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
+import { countNewBelow, focusAfterJump, holdDelta, isAtBottom, isLooking, isNewSince, leavesGap, mergeById, reachesPast, seenWhileLooking, shouldFollow, waitToSay } from './chatScroll'
 
 /// A message said `i` minutes into the day, by a teammate unless it is yours.
 const at = (i: number) => new Date(Date.UTC(2026, 8, 30, 0, i)).toISOString()
@@ -48,6 +48,92 @@ describe('somebody looking', () => {
     } finally {
       w.window = had
     }
+  })
+})
+
+describe('rows read by being looked at', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+  const watch = (looking = true) => {
+    const state = { looking }
+    const seen: string[] = []
+    const rows = seenWhileLooking({ wait: 900, looking: () => state.looking, seen: (key) => seen.push(key) })
+    return { state, seen, rows }
+  }
+
+  it('reads a row that stays in view for a moment while somebody looks', () => {
+    const { seen, rows } = watch()
+    rows.view('m:1', true)
+    vi.advanceTimersByTime(899)
+    expect(seen).toEqual([])
+    vi.advanceTimersByTime(1)
+    expect(seen).toEqual(['m:1'])
+  })
+
+  it('does not read a row scrolled past before the moment is up', () => {
+    const { seen, rows } = watch()
+    rows.view('m:1', true)
+    vi.advanceTimersByTime(500)
+    rows.view('m:1', false)
+    vi.advanceTimersByTime(2000)
+    expect(seen).toEqual([])
+  })
+
+  it('does not read a row when the window goes away before the moment is up (#346)', () => {
+    // The desktop app's page still says "visible" in the tray, minimized or
+    // behind a locked screen: whether anybody is looking is what counts.
+    const { state, seen, rows } = watch()
+    rows.view('m:1', true)
+    vi.advanceTimersByTime(500)
+    state.looking = false
+    rows.attention()
+    vi.advanceTimersByTime(5000)
+    expect(seen).toEqual([])
+  })
+
+  it('does not read a row that arrives while nobody is looking', () => {
+    const { seen, rows } = watch(false)
+    rows.view('m:2', true)
+    vi.advanceTimersByTime(5000)
+    expect(seen).toEqual([])
+  })
+
+  it('does not read a row when nobody is looking as the moment ends, though nothing said so', () => {
+    const { state, seen, rows } = watch()
+    rows.view('m:1', true)
+    state.looking = false
+    vi.advanceTimersByTime(900)
+    expect(seen).toEqual([])
+  })
+
+  it('starts each row in view afresh when somebody is back', () => {
+    const { state, seen, rows } = watch()
+    rows.view('m:1', true)
+    vi.advanceTimersByTime(800)
+    state.looking = false
+    rows.attention()
+    rows.view('m:2', true)
+    vi.advanceTimersByTime(5000)
+    state.looking = true
+    rows.attention()
+    vi.advanceTimersByTime(899)
+    expect(seen).toEqual([])
+    vi.advanceTimersByTime(1)
+    expect(seen.sort()).toEqual(['m:1', 'm:2'])
+  })
+
+  it('reads a row once, and nothing after it ends', () => {
+    const { seen, rows } = watch()
+    rows.view('m:1', true)
+    vi.advanceTimersByTime(900)
+    rows.attention()
+    vi.advanceTimersByTime(900)
+    expect(seen).toEqual(['m:1'])
+    rows.view('m:3', true)
+    rows.end()
+    rows.attention()
+    vi.advanceTimersByTime(5000)
+    expect(seen).toEqual(['m:1'])
   })
 })
 
