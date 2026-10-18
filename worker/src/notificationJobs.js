@@ -70,8 +70,10 @@ export async function runCardNotification(env, id, send, now = Date.now()) {
   } catch { result = {sent:0, retry:true, failure:'delivery exception'}; }
   // Held through the person's quiet time: pending again, from when it ends.
   // Run again, it checks the card is still news (attempts > 1, above).
+  // Nothing was sent, so the attempt is given back, down to that one: a
+  // hold on the last attempt still leaves a real attempt after it.
   if (result.deferUntil) {
-    await env.DB.prepare(`UPDATE notification_jobs SET due_at = ?2, lease_until = NULL, last_error = 'held', updated_at = ?3 WHERE id = ?1 AND lease_until = ?4`)
+    await env.DB.prepare(`UPDATE notification_jobs SET due_at = ?2, lease_until = NULL, attempts = MAX(attempts - 1, 1), last_error = 'held', updated_at = ?3 WHERE id = ?1 AND lease_until = ?4`)
       .bind(id, new Date(result.deferUntil).toISOString(), at, lease).run();
     return result;
   }
@@ -85,9 +87,12 @@ export async function runCardNotification(env, id, send, now = Date.now()) {
 
 export async function drainCardNotifications(env, send, now = Date.now()) {
   const at = new Date(now).toISOString();
-  await env.DB.prepare("UPDATE notification_jobs SET state = 'failed', payload = '{}', lease_until = NULL, last_error = 'retry limit or expiry' WHERE state = 'pending' AND (created_at < ?1 OR (attempts >= ?2 AND lease_until <= ?3))")
+  // Out of attempts and not held by a live claim, one that was never
+  // leased again (NULL) included: nothing can claim it, so it is finished
+  // here rather than left taking a place in the batch below.
+  await env.DB.prepare("UPDATE notification_jobs SET state = 'failed', payload = '{}', lease_until = NULL, last_error = 'retry limit or expiry' WHERE state = 'pending' AND (created_at < ?1 OR (attempts >= ?2 AND (lease_until IS NULL OR lease_until <= ?3)))")
     .bind(new Date(now - 86400000).toISOString(), MAX_ATTEMPTS, at).run();
-  const {results} = await env.DB.prepare("SELECT id FROM notification_jobs WHERE state = 'pending' AND due_at <= ?1 AND (lease_until IS NULL OR lease_until <= ?1) ORDER BY due_at LIMIT 25").bind(at).all();
+  const {results} = await env.DB.prepare("SELECT id FROM notification_jobs WHERE state = 'pending' AND due_at <= ?1 AND (lease_until IS NULL OR lease_until <= ?1) AND attempts < ?2 ORDER BY due_at LIMIT 25").bind(at, MAX_ATTEMPTS).all();
   for (const job of results || []) await runCardNotification(env, job.id, send, now);
   // Finished jobs and their deliveries past a week are trimmed by the daily
   // pruneGrowth (retention.js). Here, every minute, the same two deletes

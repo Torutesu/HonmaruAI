@@ -51,6 +51,31 @@ test('a removed recipient is not notified by a retry',async()=>{
  const send=vi.fn();await runCardNotification(env,id,send,Date.now()+61000);
  expect(send).not.toHaveBeenCalled();expect((await job(id)).state).toBe('skipped');
 });
+test('a quiet-time hold on the last attempt leaves a real delivery attempt after it',async()=>{
+ const id=await enqueueCardNotification(env,input);
+ const start=Date.now();
+ for(let n=0;n<MAX_ATTEMPTS-1;n++) await runCardNotification(env,id,async()=>({sent:0,retry:true}),start+n*3600001);
+ const held=start+(MAX_ATTEMPTS-1)*3600001;
+ await runCardNotification(env,id,async()=>({sent:0,deferUntil:held+600000}),held);
+ expect(await job(id)).toMatchObject({state:'pending',attempts:MAX_ATTEMPTS-1,lease_until:null,last_error:'held'});
+ const send=vi.fn().mockResolvedValue({sent:1});
+ await drainCardNotifications(env,send,held+600001);
+ expect(send).toHaveBeenCalledOnce();expect((await job(id)).state).toBe('sent');
+});
+test('exhausted jobs without a claim are finished and cannot crowd out newer ones',async()=>{
+ const old=new Date(Date.now()-3600000).toISOString();
+ for(let n=0;n<25;n++) await env.DB.prepare(`INSERT INTO notification_jobs (id, org_id, login, card_id, kind, payload, state, attempts, due_at, created_at, updated_at)
+  VALUES (?1, NULL, 'reader', 'stuck', 'created', '{}', 'pending', ?2, ?3, ?3, ?3)`).bind(`stuck-${n}`,MAX_ATTEMPTS,old).run();
+ // Out of attempts, but its claim is live: that invocation finishes it.
+ await env.DB.prepare(`INSERT INTO notification_jobs (id, org_id, login, card_id, kind, payload, state, attempts, due_at, lease_until, created_at, updated_at)
+  VALUES ('leased', NULL, 'reader', 'leased', 'created', '{}', 'pending', ?1, ?2, ?3, ?2, ?2)`).bind(MAX_ATTEMPTS,old,new Date(Date.now()+60000).toISOString()).run();
+ const id=await enqueueCardNotification(env,input);
+ const send=vi.fn().mockResolvedValue({sent:1});
+ await drainCardNotifications(env,send);
+ expect(send).toHaveBeenCalledOnce();expect((await job(id)).state).toBe('sent');
+ expect(await job('stuck-0')).toMatchObject({state:'failed',last_error:'retry limit or expiry'});
+ expect((await job('leased')).state).toBe('pending');
+});
 test('workspace access is rechecked before retrying private content',async()=>{
  const id=await enqueueCardNotification(env,{...input,orgId:'removed-workspace'});
  await runCardNotification(env,id,async()=>({sent:0,retry:true}));
