@@ -777,12 +777,18 @@ export async function readsFor(db, orgId, login, members) {
 }
 
 /// Where this person can read: every public channel and the private ones
-/// they are in, their own DMs, and their group DMs. (`?1` the workspace,
-/// `?2` the login.) viewOf with their access checks each row again.
+/// they are in — for a guest, only the channels they were let into — their
+/// own DMs, and their group DMs. (`?1` the workspace, `?2` the login.)
+/// viewOf with their access checks each row again, but the rule is whole
+/// here, as mayRead has it, so it holds before a LIMIT: a guest's search
+/// was cut to its newest 30 matches first, and matches in public channels
+/// they cannot read could fill them and hide every one they can.
 const VISIBLE = `(
-  (m.channel LIKE 'b:%' AND NOT EXISTS (
-     SELECT 1 FROM businesses b WHERE b.org_id = ?1 AND 'b:' || b.slug = m.channel AND b.private = 1
-        AND NOT EXISTS (SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = m.channel AND c.login = ?2)))
+  (m.channel LIKE 'b:%' AND (
+     EXISTS (SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = m.channel AND c.login = ?2)
+     OR (NOT EXISTS (SELECT 1 FROM businesses b WHERE b.org_id = ?1 AND 'b:' || b.slug = m.channel AND b.private = 1)
+         AND NOT EXISTS (SELECT 1 FROM memberships ms JOIN users gu ON gu.github_id = ms.user_github_id
+                          WHERE ms.org_id = ?1 AND gu.login = ?2 AND LOWER(ms.role) = 'guest'))))
   OR m.channel LIKE 'dm:' || ?2 || '|%' OR m.channel LIKE 'dm:%|' || ?2
   OR (m.channel LIKE 'g:%' AND EXISTS (SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = m.channel AND c.login = ?2)))`;
 

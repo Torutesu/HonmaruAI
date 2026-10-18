@@ -161,6 +161,19 @@ test("a guest sees only the channels they were let into", async () => {
   const found = await (await call(`/channels/search?${q({ orgId: ORG, q: "rates" })}`, gus)).json();
   expect(found.messages).toHaveLength(0);
   expect(members.length).toBe(3);
+  // Nor do matches behind it crowd out the ones a guest can read: forty
+  // newer in #hotel, one older in #cafe, and the page is the #cafe one.
+  const at = (i) => new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString();
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, body, kind, created_at) VALUES ('c1', ?1, 'b:cafe', 'mika', 'menu rates for spring', 'message', ?2)").bind(ORG, at(0)),
+    ...Array.from({ length: 40 }, (_, i) => env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, body, kind, created_at) VALUES (?1, ?2, 'b:hotel', 'mika', 'room rates', 'message', ?3)").bind(`hr${i}`, ORG, at(i + 1))),
+  ]);
+  const guestFinds = await (await call(`/channels/search?${q({ orgId: ORG, q: "rates" })}`, gus)).json();
+  expect(guestFinds.messages.map((m) => m.id)).toEqual(["c1"]);
+  // A member still finds the public channel's newest matches first.
+  const memberFinds = await (await call(`/channels/search?${q({ orgId: ORG, q: "rates" })}`, mika)).json();
+  expect(memberFinds.messages).toHaveLength(30);
+  expect(memberFinds.messages.every((m) => m.channel === "b:hotel")).toBe(true);
 
   // A guest cannot make channels, invitations, keys or webhooks.
   expect((await call("/businesses", gus, { method: "POST", body: { orgId: ORG, name: "Mine" } })).status).toBe(403);
