@@ -324,6 +324,17 @@ final class ChatTranslationTests: XCTestCase {
         XCTAssertEqual(t.wanted([m], reader: "en").map(\.id), ["m2"])
     }
 
+    func testOnlyNewMessagesAtTheBottomMoveAReaderDown() {
+        // The first page: to its newest, unless opened at a message.
+        XCTAssertTrue(ConversationView.followsNewest(previous: nil, openedAt: nil, atBottom: false, newestIsMine: false))
+        XCTAssertFalse(ConversationView.followsNewest(previous: nil, openedAt: "m1", atBottom: true, newestIsMine: false))
+        // Something new: followed at the bottom, or when it is your own.
+        XCTAssertTrue(ConversationView.followsNewest(previous: "m9", openedAt: nil, atBottom: true, newestIsMine: false))
+        XCTAssertTrue(ConversationView.followsNewest(previous: "m9", openedAt: "m1", atBottom: false, newestIsMine: true))
+        // Reading further up: someone else's message leaves the place alone.
+        XCTAssertFalse(ConversationView.followsNewest(previous: "m9", openedAt: nil, atBottom: false, newestIsMine: false))
+    }
+
     func testFormatMarksToggleSwapAndContinue() {
         XCTAssertEqual(ChatFormat.toggleLine("hello", mark: "> "), "> hello")
         XCTAssertEqual(ChatFormat.toggleLine("> hello", mark: "> "), "hello")

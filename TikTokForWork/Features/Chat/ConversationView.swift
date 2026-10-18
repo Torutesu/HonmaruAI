@@ -57,6 +57,8 @@ struct ConversationView: View {
     @State private var showScheduled = false
     @State private var newSince: String?
     @State private var highlight: String?
+    /// Whether the newest message is in view: there, what arrives is followed.
+    @State private var atBottom = true
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var attached: [ChatFile] = []
     @State private var uploading = 0
@@ -86,10 +88,10 @@ struct ConversationView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if store.more[view] == true {
                         if store.olderFailed.contains(view) {
-                            olderFailedNote
+                            olderFailedNote { loadOlder(proxy) }
                         } else {
                             ProgressView().frame(maxWidth: .infinity).padding()
-                                .onAppear { Task { await store.loadOlder(view) } }
+                                .onAppear { loadOlder(proxy) }
                                 // Its own each time the top moves, so it asks again
                                 // for the page above when it is still in view.
                                 .id("older-\(list.first?.id ?? "")")
@@ -112,16 +114,23 @@ struct ConversationView: View {
                     ForEach((store.agentTyping[view] ?? []).filter { $0.parentId == nil || !isAgentConversation }, id: \.agent.id) { typing in
                         ChatAgentTypingRow(agent: typing.agent).padding(.vertical, 6)
                     }
-                    Color.clear.frame(height: 1).id("bottom")
+                    ChatBottomMarker(atBottom: $atBottom).id("bottom")
                 }
                 .padding(.bottom, 8)
             }
             .scrollDismissesKeyboard(.interactively)
             .defaultScrollAnchor(.bottom)
             .modifier(ChatStaysAtBottom())
-            .onChange(of: list.count) { _, _ in if jump == nil { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
-            .onChange(of: store.thinking[view]) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
-            .onChange(of: store.agentTyping[view]) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .modifier(ChatTracksBottom(atBottom: $atBottom))
+            // Followed only by someone already at the bottom, or after their
+            // own send: reading further up is not interrupted.
+            .onChange(of: list.last?.id) { old, _ in
+                if Self.followsNewest(previous: old, openedAt: jump, atBottom: atBottom, newestIsMine: list.last?.mine == true) {
+                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+            }
+            .onChange(of: store.thinking[view]) { _, _ in if atBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
+            .onChange(of: store.agentTyping[view]) { _, _ in if atBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
             .onChange(of: quoteJump) { _, id in
                 guard let id else { return }
                 quoteJump = nil
@@ -240,13 +249,31 @@ struct ConversationView: View {
 
     /// Earlier messages could not be read: said where they would be, with a
     /// way to read them again — not "This is the start".
-    private var olderFailedNote: some View {
+    private func olderFailedNote(retry: @escaping () -> Void) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Colors.textTertiary)
             Text("Couldn't load earlier messages.").font(.caption).foregroundStyle(Theme.Colors.textSecondary)
-            Button("Try again") { Task { await store.loadOlder(view) } }.font(.caption.weight(.semibold))
+            Button("Try again", action: retry).font(.caption.weight(.semibold))
         }
         .frame(maxWidth: .infinity).padding()
+    }
+
+    /// The page above, put in above what is being read: the message that
+    /// was at the top stays where it was rather than the list jumping.
+    private func loadOlder(_ proxy: ScrollViewProxy) {
+        let top = list.first?.id
+        Task {
+            if await store.loadOlder(view), let top { proxy.scrollTo(top, anchor: .top) }
+        }
+    }
+
+    /// Whether a change of the newest message takes the conversation to
+    /// it: the first page, unless it was opened at a message; your own
+    /// send; anything new while the bottom is in view. Older messages put
+    /// in above leave the newest as it was, and move nothing.
+    static func followsNewest(previous: String?, openedAt jump: String?, atBottom: Bool, newestIsMine: Bool) -> Bool {
+        if previous == nil { return jump == nil }
+        return atBottom || newestIsMine
     }
 
     @ViewBuilder
