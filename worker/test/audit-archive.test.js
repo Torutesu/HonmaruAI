@@ -160,6 +160,43 @@ test("past their retention and sealed, rows leave D1; unsealed ones and a hold k
   expect(verify.ok).toBe(true);
 });
 
+// A failed read of the settings was taken for no settings: the 180-day
+// default and no hold, and rows a hold or a longer retention kept went.
+test("a workspace whose retention and hold cannot be read is not pruned; once they can be, its rules apply", async () => {
+  await write(2, T0 + 60_000);
+  await sealPending(env, { now: T0 + HOUR + 60_000 });
+  const later = T0 + 200 * 24 * HOUR;
+  await env.DB.prepare("INSERT INTO org_audit_settings (org_id, retention_days, legal_hold, updated_by, updated_at) VALUES (?1, 365, 0, 'ops', ?2)").bind(ORG, new Date().toISOString()).run();
+  const settingsDown = {
+    ...env,
+    DB: new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "prepare") {
+          return (sql) => (/FROM org_audit_settings/.test(sql)
+            ? { bind: () => ({ first: async () => { throw new Error("D1 is down"); } }) }
+            : target.prepare(sql));
+        }
+        const value = target[key];
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }),
+  };
+  const count = async () => (await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_events WHERE org_id = ?1 AND action = 'emoji.added'").bind(ORG).first()).n;
+  expect(await pruneAudit(settingsDown, { now: later })).toEqual([]);
+  expect(await count()).toBe(2);
+  // Read: 365 days keeps them at 200.
+  expect(await pruneAudit(env, { now: later })).toEqual([]);
+  expect(await count()).toBe(2);
+  // With no settings at all, the default applies.
+  await env.DB.prepare("DELETE FROM org_audit_settings WHERE org_id = ?1").bind(ORG).run();
+  expect(await pruneAudit(env, { now: later })).toEqual([{ orgId: ORG, count: 2 }]);
+  // And the operator's door does not write over settings it could not read.
+  const ops = { ...settingsDown, OPS_TOKEN: "ops-secret" };
+  const res = await call("/ops/audit/settings", null, { method: "POST", body: { orgId: ORG, retentionDays: 90, reason: "Case 1" }, headers: { "x-ops-token": "ops-secret" }, withEnv: ops });
+  expect(res.status).toBe(500);
+  expect(await env.DB.prepare("SELECT 1 FROM org_audit_settings WHERE org_id = ?1").bind(ORG).first()).toBe(null);
+});
+
 test("nothing but pruning deletes from the audit log", async () => {
   const files = import.meta.glob("../src/**/*.js", { query: "?raw", import: "default", eager: true });
   const deleting = Object.entries(files).filter(([, text]) => /DELETE FROM audit_events/.test(text)).map(([p]) => p);
