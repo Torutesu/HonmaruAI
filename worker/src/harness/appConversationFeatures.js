@@ -69,7 +69,8 @@ export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompl
  const inserted=await db.prepare("INSERT OR IGNORE INTO hx_app_ai_replies(message_id,org_id,app_id,status) VALUES (?,?,?,'running')").bind(messageId,orgId,appId).run();
  if(!inserted.meta?.changes)return;
  try{
-  const history=await appConversation(db,orgId,user.github_id,appId,scope);
+  // Each job answers its triggering message, never a later concurrent question.
+  const history=await appConversation(db,orgId,user.github_id,appId,{...scope,before:messageId+1});
   if(history.error)throw new Error('Access revoked.');
   const app=await db.prepare('SELECT name,description FROM hx_apps WHERE org_id=? AND id=?').bind(orgId,appId).first();
   const record=scope.rowId?await db.prepare('SELECT data FROM hx_rows WHERE org_id=? AND table_id=? AND id=?').bind(orgId,scope.tableId,scope.rowId).first():null;
