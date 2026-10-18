@@ -354,18 +354,22 @@ export async function uploadFile(request, env, url, { orgId, resolved, login }) 
   // A picture's or a video's shape, as the uploader measured it, so the
   // message is drawn at that shape before the bytes arrive.
   const shaped = isPicture(type) || isVideo(type);
-  try {
-    // Streamed, held to the length it promised: nothing is kept of a body
-    // that ends early or runs on.
-    await putExactly(env, fileKey(orgId, id), stream, promised.length, { contentType: type });
-  } catch {
-    return json({ message: "The file did not arrive whole. Try again." }, 400);
-  }
+  // The row first, then the bytes: an upload is never in the bucket without
+  // a row the sweep of unsent ones finds it by. A row whose bytes never
+  // came is swept the same way, a day on.
   await env.DB
     .prepare(`INSERT INTO message_files (id, org_id, channel, message_id, uploader, name, type, size, width, height, created_at)
               VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`)
     .bind(id, orgId, resolved.key, login, name, type, promised.length, shaped ? dim("width") : null, shaped ? dim("height") : null, new Date().toISOString())
     .run();
+  try {
+    // Streamed, held to the length it promised: nothing is kept of a body
+    // that ends early or runs on.
+    await putExactly(env, fileKey(orgId, id), stream, promised.length, { contentType: type });
+  } catch {
+    await env.DB.prepare("DELETE FROM message_files WHERE id = ?1").bind(id).run().catch(() => {});
+    return json({ message: "The file did not arrive whole. Try again." }, 400);
+  }
   const row = await env.DB.prepare("SELECT * FROM message_files WHERE id = ?1").bind(id).first();
   return json({ file: await toFile(env.DB, row) }, 201);
 }

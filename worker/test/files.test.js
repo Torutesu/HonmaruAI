@@ -378,3 +378,37 @@ test("a delete R2 refuses is written down and tried again until it goes", async 
   expect(deleted.sort()).toEqual(["file-f_1", "org/x/files/f_1"]);
   expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM media_deletions").first()).n).toBe(0);
 });
+
+/// The database, with the statements `match` picks failing as in an outage.
+const failing = (match) => new Proxy(env.DB, {
+  get(db, prop) {
+    const down = async () => { throw new Error("D1 is down"); };
+    if (prop === "prepare") {
+      return (sql) => (match.test(sql) ? { bind() { return this; }, run: down, first: down, all: down } : db.prepare(sql));
+    }
+    const value = db[prop];
+    return typeof value === "function" ? value.bind(db) : value;
+  },
+});
+const stored = async () => (await env.MEDIA.list({ prefix: `org/${encodeURIComponent(ORG)}/files/` })).objects.length;
+
+test("an upload whose row cannot be written leaves no bytes behind", async () => {
+  const down = { ...env, DB: failing(/^INSERT INTO message_files/) };
+  const res = await worker.fetch(new Request(`https://example.com/channels/files?${q({ orgId: ORG, channel: "b:cafe", name: "p.png" })}`, {
+    method: "POST", headers: auth(mika, { "content-type": "image/png", "content-length": String(PNG.byteLength) }), body: PNG,
+  }), down, ctx);
+  await settle();
+  expect(res.ok).toBe(false);
+  expect(await stored()).toBe(0);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM message_files").first()).n).toBe(0);
+});
+
+test("an upload whose bytes do not arrive whole leaves no row behind", async () => {
+  const body = new ReadableStream({ start(c) { c.enqueue(PNG); c.close(); } });
+  const res = await call(`/channels/files?${q({ orgId: ORG, channel: "b:cafe", name: "p.png" })}`, {
+    method: "POST", headers: auth(mika, { "content-type": "image/png", "content-length": String(PNG.byteLength + 10) }), body, duplex: "half",
+  });
+  expect(res.status).toBe(400);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM message_files").first()).n).toBe(0);
+  expect(await stored()).toBe(0);
+});
