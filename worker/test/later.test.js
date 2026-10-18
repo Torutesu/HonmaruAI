@@ -66,6 +66,44 @@ test("a scheduled message waits, can be cancelled, and is sent by the minute cro
   expect(list).toHaveLength(0);
 });
 
+test("a scheduled message whose send fails stays waiting and is sent, once, on a later minute", async () => {
+  const soon = new Date(Date.now() + 5 * 60000).toISOString();
+  await post("/channels/messages", toru, { orgId: ORG, channel: "b:cafe", body: "Deliveries at ten", sendAt: soon });
+  // A database that refuses the matching statement once.
+  const failing = (pattern) => {
+    const realPrepare = env.DB.prepare.bind(env.DB);
+    let failed = false;
+    return { ...env, DB: new Proxy(env.DB, {
+      get(target, prop) {
+        if (prop === "prepare") return (sql) => { if (!failed && pattern.test(sql)) { failed = true; throw new Error("D1 hiccup"); } return realPrepare(sql); };
+        const v = target[prop];
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    }) };
+  };
+  const minute = (m) => new Date(Date.now() + m * 60000);
+  const listed = async () => (await (await get(`/channels/scheduled?${q({ orgId: ORG })}`, toru)).json()).scheduled.map((x) => x.body);
+  const said = async () => (await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id = ?1 AND body = 'Deliveries at ten'").bind(ORG).first()).n;
+
+  // The insert fails: nothing said, still on its author's list.
+  expect((await runMinuteJobs(failing(/INSERT INTO channel_messages/), { now: minute(6) })).sent).toBe(0);
+  expect(await said()).toBe(0);
+  expect(await listed()).toEqual(["Deliveries at ten"]);
+  // Held a few minutes by the run that failed, then tried again.
+  expect((await runMinuteJobs(env, { now: minute(7) })).sent).toBe(0);
+  expect((await runMinuteJobs(env, { now: minute(12) })).sent).toBe(1);
+  expect(await said()).toBe(1);
+  expect(await listed()).toEqual([]);
+
+  // Said, but not marked sent: tried again, it finds what it said.
+  await post("/channels/messages", toru, { orgId: ORG, channel: "b:cafe", body: "Deliveries at eleven", sendAt: soon });
+  await runMinuteJobs(failing(/^UPDATE scheduled_messages SET sent_at/), { now: minute(6) });
+  await runMinuteJobs(env, { now: minute(12) });
+  const eleven = await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id = ?1 AND body = 'Deliveries at eleven'").bind(ORG).first();
+  expect(eleven.n).toBe(1);
+  expect(await listed()).toEqual([]);
+});
+
 test("Later keeps a message for you, and a reminder brings it back as a card", async () => {
   const m = await say(toru, "Order more oat milk before Friday");
   const remindAt = new Date(Date.now() + 60 * 60000).toISOString();
