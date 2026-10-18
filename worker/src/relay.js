@@ -1034,11 +1034,23 @@ export class OrgRelay {
     if (next) await this.state.storage.setAlarm(next).catch(() => {});
   }
 
+  /// A connection has gone: closed, refused, or broken. Its person is
+  /// offline only if it was their last one here — another tab or device
+  /// still open keeps them online.
+  announceLeft(ws, att) {
+    if (!att.userId) return;
+    for (const other of this.state.getWebSockets()) {
+      // 1 is OPEN: a socket being closed (refused, evicted) no longer counts.
+      if (other === ws || other.readyState !== 1) continue;
+      const oatt = other.deserializeAttachment();
+      if (oatt?.orgId === att.orgId && oatt?.authed && oatt.userId === att.userId) return;
+    }
+    for (const ev of presenceEvents(att.userId, "offline")) this.broadcast(att.orgId, ev, ws);
+  }
+
   async webSocketClose(ws) {
     const att = ws.deserializeAttachment() || {};
-    if (att.userId) {
-      for (const ev of presenceEvents(att.userId, "offline")) this.broadcast(att.orgId, ev, ws);
-    }
+    this.announceLeft(ws, att);
     // A closed tab has left its Jam.
     if (att.jam) {
       try { await leaveJam(this, ws, att, { closing: true }); } catch (err) { console.error("jam leave failed", err?.message || err); }
@@ -1047,5 +1059,6 @@ export class OrgRelay {
 
   webSocketError(ws, err) {
     console.error("ws error", err);
+    try { this.announceLeft(ws, ws.deserializeAttachment() || {}); } catch {}
   }
 }
