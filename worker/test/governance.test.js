@@ -190,3 +190,27 @@ test("an export whose earlier words cannot be read fails, and a retry has them",
   const made = await call("/orgs/compliance/exports", owner, { method: "POST", body: ask });
   expect((await made.json()).export).toMatchObject({ status: "ready", counts: { messages: 1, earlier: 1 } });
 });
+
+// A person chosen who had left by the time the export was made was dropped,
+// and with nobody left in the choice the export was of everyone.
+test("an export for people who are no longer members is refused, not widened to everyone", async () => {
+  const members = (await (await call(`/members?${q}`, owner)).json()).members;
+  const ken = members.find((m) => m.name === "Ken");
+  const mika = members.find((m) => m.name === "Mika");
+  await post(member, "b:cafe", "from Ken");
+  await post(admin, "b:cafe", "from Mika");
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = '9503'").bind(ORG).run();
+  const ask = (extra) => call("/orgs/compliance/exports", owner, { method: "POST", body: { orgId: ORG, from: ago(1), to: new Date(Date.now() + 60_000).toISOString(), reason: "Matter 9", ...extra } });
+  for (const people of [[ken.ref], [mika.ref, ken.ref], ["not-a-ref"]]) {
+    const res = await ask({ people });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("unknown-people");
+  }
+  expect((await ask({ channels: ["Cafe"] })).status).toBe(400);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM compliance_exports WHERE org_id = ?1").bind(ORG).first()).n).toBe(0);
+  // One still here: theirs alone. None chosen: everyone.
+  const one = (await (await ask({ people: [mika.ref] })).json()).export;
+  expect(one).toMatchObject({ status: "ready", filters: { people: ["Mika"] }, counts: { messages: 1 } });
+  const all = (await (await ask({ people: [] })).json()).export;
+  expect(all).toMatchObject({ status: "ready", filters: { people: [] }, counts: { messages: 2 } });
+});

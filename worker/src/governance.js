@@ -404,8 +404,13 @@ export async function handleGovernance(request, env, url) {
     if (!env.MEDIA) return json({ message: "Storage is not set up on this deployment." }, 503);
     const from = Date.parse(body.from || ""), to = Date.parse(body.to || "");
     if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return json({ message: "Choose a start and an end date." }, 400);
-    const logins = (Array.isArray(body.people) ? body.people : []).map((r) => byRef.get(String(r))?.login).filter(Boolean);
-    const channels = (Array.isArray(body.channels) ? body.channels : []).map(String).filter((c) => /^b:[a-z0-9-]+$/.test(c));
+    // People or channels chosen that cannot be found are refused, never
+    // dropped: a choice left empty that way would export everyone.
+    const people = Array.isArray(body.people) ? body.people : [];
+    const logins = people.map((r) => byRef.get(String(r))?.login).filter(Boolean);
+    if (logins.length !== people.length) return json({ message: "Someone you chose is no longer in this workspace. Choose the people again.", code: "unknown-people" }, 400);
+    const channels = (Array.isArray(body.channels) ? body.channels : []).map(String);
+    if (channels.some((c) => !/^b:[a-z0-9-]+$/.test(c))) return json({ message: "Choose channels in this workspace.", code: "unknown-channels" }, 400);
     const reason = String(body.reason || "").trim().slice(0, 500);
     if (!reason) return json({ message: "Say why: the matter this export is for." }, 400);
     const id = crypto.randomUUID();
