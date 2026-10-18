@@ -3346,6 +3346,7 @@ export const ClassicList: React.FC<Props> = ({
   // ---- What the header opens ----
   // The journal ("Context"), or the channel's details on one of its tabs.
   const [side, setSide] = useState<null | { kind: 'journal' } | { kind: 'app'; id: string; conversation?:boolean } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
+  const sourceThreadApp = Boolean(harness && thread && side?.kind==='app' && !detail && !profile && !activityOpen && current?.view)
   const openSide = (next: { kind: 'journal' } | { kind: 'app'; id: string; conversation?:boolean } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
     setDetailId(null); setThread(null); setProfile(null); setPins(null)
     setSide((prev) => (prev && prev.kind === next.kind && (prev.kind === 'journal' || prev.kind === 'canvas' || (next.kind === 'resources' && prev.kind === 'resources' && prev.resource === next.resource) || (next.kind === 'details' && prev.kind === 'details' && prev.tab === next.tab)) ? null : next))
@@ -3361,9 +3362,10 @@ export const ClassicList: React.FC<Props> = ({
   useBackStack([
     [!wide && !!current, () => choose(null)],
     [activityOpen || laterOpen || threadsOpen || sentOpen, () => { setActivityOpen(false); setLaterOpen(false); setThreadsOpen(false); setSentOpen(false) }],
-    [!!side, () => setSide(null)],
+    [!!side && !sourceThreadApp, () => setSide(null)],
     [!!profile, () => setProfile(null)],
     [!!thread, () => setThread(null)],
+    [sourceThreadApp, () => setSide(null)],
     [!!detailId, () => setDetailId(null)],
     // A teammate's card stands over all of these.
     [!!popout, () => setPopout(null)],
@@ -3973,7 +3975,7 @@ export const ClassicList: React.FC<Props> = ({
         <LinkCards text={m.body} httpBase={api.httpBase} orgId={api.orgId} token={api.sessionToken}
           onHide={m.mine ? () => void act('POST', '/channels/previews', channel, { messageId: m.id, hidden: true }) : undefined} />
       )}
-      {harness && !m.deleted && !m.previewsHidden && !isTemp(m) && <MessageAppCards text={m.body} api={resourceClient} onOpen={id=>openSide({kind:'app',id,conversation:true})}/>}
+      {harness && !m.deleted && !m.previewsHidden && !isTemp(m) && <MessageAppCards text={m.body} api={resourceClient} onOpen={id=>{ if(activityOpen || !current?.view){location.hash=hashForApp(id,api.orgId,{});return}if(thread && inThread){setDetailId(null);setProfile(null);setSide({kind:'app',id})}else openSide({kind:'app',id,conversation:true}) }}/>}
       {!m.deleted && (
         <Reactions message={m} nameOf={nameOfRef} onToggle={(e) => react(channel, m, e)} onAdd={() => setPickerFor(pickerKey(m, inThread))} />
       )}
@@ -5388,7 +5390,7 @@ export const ClassicList: React.FC<Props> = ({
   }
 
   return (
-    <div className={`classic slk${current || special ? ' in-thread' : ''}${phoneRoot ? ' phone-root' : ''}${detail || thread || profile ? ' with-pane' : ''}${sideHidden ? ' side-hidden' : ''}${density === 'compact' ? ' compact' : ''}`} onClick={onMentionClick} onKeyDown={onMentionKey}>
+    <div className={`classic slk${current || special ? ' in-thread' : ''}${phoneRoot ? ' phone-root' : ''}${detail || thread || profile ? ' with-pane' : ''}${sourceThreadApp ? ' hx-thread-app' : ''}${sideHidden ? ' side-hidden' : ''}${density === 'compact' ? ' compact' : ''}`} onClick={onMentionClick} onKeyDown={onMentionKey}>
       <aside className="slk-side" aria-label={t('Conversations')}>
         {!wide && phoneTab === 'dms' ? dmsView() : <>
         {harness ? <>
@@ -5773,7 +5775,24 @@ export const ClassicList: React.FC<Props> = ({
           })()}
         </aside>
       )}
-      {!detail && !thread && !profile && side && current?.view && (
+      {!detail && thread && !(activityOpen && wide) && (
+        <aside ref={threadPane} className={`slk-pane slk-thread-pane${threadDropping ? ' slk-dropping' : ''}`} aria-label={t('Thread')}
+          style={wide && threadWidth ? { width: threadWidth } : undefined}
+          // Files dropped on the thread are the reply's, not the conversation's.
+          onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.stopPropagation(); setThreadDropping(true) } }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setThreadDropping(false) }}
+          onDrop={(e) => { setThreadDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); e.stopPropagation(); threadUploads.add([...e.dataTransfer.files], thread.channel) } }}>
+          {wide && !sourceThreadApp && <PaneResizer pane={threadPane} label={t('Resize thread')} title={t('Drag to resize · double-click to reset')} onWidth={keepThreadWidth} onReset={() => keepThreadWidth(null)} />}
+          <header className="slk-pane-head">
+            <button className="slk-back pane" onClick={() => setThread(null)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
+            <h2>{t('Thread')}</h2>
+            {current && <span className="slk-pane-where">{current.kind === 'channel' ? `#${current.name}` : current.name}</span>}
+            <button className="slk-pane-close" onClick={() => setThread(null)} aria-label={t('Close')}><Icon name="x" size={16} /></button>
+          </header>
+          {threadBody(thread)}
+        </aside>
+      )}
+      {!detail && (!thread || sourceThreadApp) && !profile && side && current?.view && (
         side.kind === 'app'
           ? <aside className="hx-app-pane slk-pane"><AppView key={`${api.orgId}:${side.id}`} httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} api={resourceClient} appId={side.id} openConversation={side.conversation} onClose={() => setSide(null)} onBack={() => setSide({ kind: 'resources', resource: 'apps' })} /></aside>
           : side.kind === 'resources'
@@ -5814,23 +5833,6 @@ export const ClassicList: React.FC<Props> = ({
               onClose={() => setSide(null)}
             />
           )
-      )}
-      {!detail && thread && !(activityOpen && wide) && (
-        <aside ref={threadPane} className={`slk-pane slk-thread-pane${threadDropping ? ' slk-dropping' : ''}`} aria-label={t('Thread')}
-          style={wide && threadWidth ? { width: threadWidth } : undefined}
-          // Files dropped on the thread are the reply's, not the conversation's.
-          onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.stopPropagation(); setThreadDropping(true) } }}
-          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setThreadDropping(false) }}
-          onDrop={(e) => { setThreadDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); e.stopPropagation(); threadUploads.add([...e.dataTransfer.files], thread.channel) } }}>
-          {wide && <PaneResizer pane={threadPane} label={t('Resize thread')} title={t('Drag to resize · double-click to reset')} onWidth={keepThreadWidth} onReset={() => keepThreadWidth(null)} />}
-          <header className="slk-pane-head">
-            <button className="slk-back pane" onClick={() => setThread(null)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
-            <h2>{t('Thread')}</h2>
-            {current && <span className="slk-pane-where">{current.kind === 'channel' ? `#${current.name}` : current.name}</span>}
-            <button className="slk-pane-close" onClick={() => setThread(null)} aria-label={t('Close')}><Icon name="x" size={16} /></button>
-          </header>
-          {threadBody(thread)}
-        </aside>
       )}
       {inviting && (
         <InviteDialog httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} orgName={orgName} initialTab={inviting} onClose={() => setInviting(null)} />
