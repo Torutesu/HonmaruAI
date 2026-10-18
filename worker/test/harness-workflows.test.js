@@ -361,3 +361,24 @@ test("a workflow's approval card has a priority every client reads, and old ones
   expect((await getCard(env.DB, ORG, "wf-run_old")).priority).toBe("medium");
   expect((await env.DB.prepare("SELECT priority FROM cards WHERE card_id = 'wf-run_old'").first()).priority).toBe("medium");
 });
+
+test("a workflow's follow-up is scheduled with its maker's access, and checked again when due", async () => {
+  const { createWorkflow, startRun } = await import("../src/harness/workflows.js");
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: "Chase later", trigger: { type: "manual" }, steps: [{ type: "followup", channel: "b:ops", text: "Did {{input.text}} pay?", minutes: 60 }],
+  }, "9302");
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: "manual", input: { text: "Acme" }, startedBy: "9302" });
+  expect(run.status).toBe("done");
+  const { followups } = await (await get(`/followups?${q({ orgId: ORG, channel: "b:ops" })}`, mika)).json();
+  expect(followups).toEqual([expect.objectContaining({ id: run.log[0].output, instruction: "Did Acme pay?", createdBy: "9302" })]);
+  expect(await runDueFollowups(env, { now: new Date(Date.now() + 2 * 3600000) })).toBe(1);
+  expect((await messages(mika)).map((m) => m.body)).toContain("⏰ Follow-up: Did Acme pay?");
+
+  // Its maker gone from the workspace, the next one is never posted.
+  const again = await startRun(env, { orgId: ORG, workflow, trigger: "manual", input: { text: "Globex" }, startedBy: "9302" });
+  expect(again.status).toBe("done");
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = '9302'").bind(ORG).run();
+  expect(await runDueFollowups(env, { now: new Date(Date.now() + 2 * 3600000) })).toBe(0);
+  expect((await messages(toru)).map((m) => m.body)).not.toContain("⏰ Follow-up: Did Globex pay?");
+  expect((await startRun(env, { orgId: ORG, workflow, trigger: "manual", input: { text: "Initech" } })).status).toBe("failed");
+});

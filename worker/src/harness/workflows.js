@@ -423,9 +423,13 @@ async function runStep(env, { orgId, workflow, step, number, scope, runId, depth
       return { status: "waiting", cardId: card.id, output: `Waiting for ${to.name || to.login}` };
     }
     case "followup": {
+      // Scheduled as the workflow's maker, the person whose access it acts
+      // with: the follow-up checks that access now and again when it is due,
+      // and that person pays for its answer. The run's log is what says a
+      // workflow made it.
       const r = await scheduleFollowup(db, {
         orgId, channel: step.channel, agentId: step.agentId || null, instruction: render(step.text, scope),
-        dueAt: new Date(Date.now() + step.minutes * 60000).toISOString(), by: `workflow:${workflow.id}`,
+        dueAt: new Date(Date.now() + step.minutes * 60000).toISOString(), by: owner,
       });
       return r.error ? { status: "failed", error: r.error } : { status: "ok", output: r.followup.id };
     }
