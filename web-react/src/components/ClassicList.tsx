@@ -2383,7 +2383,15 @@ export const ClassicList: React.FC<Props> = ({
   // `loading` while its replies are being read (the count the conversation
   // showed stands meanwhile, never a "0 replies"); `failed` when they could
   // not be (#216).
-  const [thread, setThread] = useState<{ channel: string; parent: ChannelMessage; replies: ChannelMessage[]; loading?: boolean; failed?: boolean } | null>(null)
+  const [thread, setThreadPane] = useState<{ channel: string; parent: ChannelMessage; replies: ChannelMessage[]; loading?: boolean; failed?: boolean } | null>(null)
+  // Each thread asked for counts one up, and so does closing the pane: an
+  // answer that comes back after a newer ask, or after the pane was closed
+  // (another conversation, another workspace), is not drawn and reads nothing.
+  const threadAsk = useRef(0)
+  const setThread = useCallback((next: React.SetStateAction<typeof thread>) => {
+    if (next === null) threadAsk.current += 1
+    setThreadPane(next)
+  }, [])
   // The thread as it stands — replies sent, edited, arrived live — kept for
   // the next time it is opened.
   useEffect(() => {
@@ -2927,12 +2935,14 @@ export const ClassicList: React.FC<Props> = ({
     }
     setDetailId(null)
     setProfile(null)
+    const ask = ++threadAsk.current
     if (thread?.parent.id !== m.id) holdFrom(m.id)
     // The replies read last time, at once; the server's, when they come.
     const kept = views.get<ChannelMessage[]>(`thread:${channel}:${m.id}`) || []
     setThread((prev) => ({ channel, parent: m, replies: prev && prev.parent.id === m.id ? keepTemps(kept, prev.replies) : kept, loading: true }))
     const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(m.id)}`, { headers: authHeaders }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) : null
+    if (ask !== threadAsk.current) return
     if (!data) setThread((prev) => (prev && prev.parent.id === m.id ? { ...prev, loading: false, failed: true } : prev))
     // Replies of yours still on their way, or that did not go — sent while
     // it was open before, or before this page loaded — back in it.
@@ -2951,6 +2961,7 @@ export const ClassicList: React.FC<Props> = ({
     if (!activityOpen && threadInActivity.current) { threadInActivity.current = false; setThread(null) }
   }, [activityOpen])
   const showThreadIn = async (channel: string, parentId: string, focusId: string) => {
+    const ask = ++threadAsk.current
     // What was read ahead, or last time, at once; the server's when it comes.
     const kept = views.get<ChannelMessage[]>(`thread:${channel}:${parentId}`)
     const head = views.get<ChannelMessage>(`threadHead:${channel}:${parentId}`)
@@ -2960,6 +2971,8 @@ export const ClassicList: React.FC<Props> = ({
     }
     const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(parentId)}`, { headers: authHeaders }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) : null
+    // Another thread picked since, or the pane closed: that one stands.
+    if (ask !== threadAsk.current) return
     if (!data?.parent) {
       // Kept on screen when the read fails, saying so, rather than taken away.
       if (kept && head) setThread((prev) => (prev && prev.parent.id === parentId ? { ...prev, loading: false, failed: true } : prev))
