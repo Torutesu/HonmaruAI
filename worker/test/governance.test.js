@@ -14,13 +14,30 @@ const ORG = "team:gov";
 let owner; let admin; let member;
 const pending = [];
 const ctx = { waitUntil: (p) => pending.push(p) };
-const call = async (path, token, { method = "GET", body, ip = "203.0.113.5" } = {}) => {
+const call = async (path, token, { method = "GET", body, ip = "203.0.113.5", withEnv = env } = {}) => {
   const res = await worker.fetch(new Request(`https://api.example.com${path}`, {
     method, headers: { "content-type": "application/json", "cf-connecting-ip": ip, ...(token ? { "x-session-token": token } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}),
-  }), { ...env, OPENAI_API_KEY: undefined }, ctx);
+  }), { ...withEnv, OPENAI_API_KEY: undefined }, ctx);
   while (pending.length) await pending.shift();
   return res;
 };
+/// The database, but every statement matching `pattern` fails.
+const failing = (pattern) => ({
+  ...env,
+  DB: new Proxy(env.DB, {
+    get(target, key) {
+      if (key === "prepare") {
+        return (sql) => {
+          if (!pattern.test(sql)) return target.prepare(sql);
+          const down = async () => { throw new Error("D1 is down"); };
+          return { bind: () => ({ all: down, first: down, run: down }) };
+        };
+      }
+      const value = target[key];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }),
+});
 const q = `orgId=${encodeURIComponent(ORG)}`;
 const put = (token, body, ip) => call("/orgs/governance", token, { method: "PUT", body: { orgId: ORG, ...body }, ip });
 const post = (token, channel, text) => call("/channels/messages", token, { method: "POST", body: { orgId: ORG, channel, body: text } });
@@ -156,4 +173,109 @@ test("invitations: company only, or held for an admin's approval; guests may be 
   expect((await call("/orgs/join-requests", admin, { method: "POST", body: { orgId: ORG, ref: asks[0].ref, approve: true } })).status).toBe(200);
   const joined = await env.DB.prepare("SELECT role, joined_via FROM memberships WHERE org_id = ?1 AND user_github_id = '9603'").bind(ORG).first();
   expect(joined).toEqual({ role: "member", joined_via: "invite" });
+});
+
+// A failed read of the earlier words was taken for none: the export was
+// marked ready, complete to look at, without what the hold had kept.
+test("an export whose earlier words cannot be read fails, and a retry has them", async () => {
+  const ken = (await (await call(`/members?${q}`, owner)).json()).members.find((m) => m.name === "Ken");
+  await call("/orgs/holds", owner, { method: "POST", body: { orgId: ORG, kind: "person", ref: ken.ref, reason: "Matter 8" } });
+  const sent = await (await post(member, "b:cafe", "first words")).json();
+  await call("/channels/messages", member, { method: "PUT", body: { orgId: ORG, channel: "b:cafe", messageId: sent.message.id, body: "second words" } });
+  const ask = { orgId: ORG, from: ago(1), to: new Date(Date.now() + 60_000).toISOString(), reason: "Matter 8" };
+  const failed = await call("/orgs/compliance/exports", owner, { method: "POST", body: ask, withEnv: failing(/FROM message_history/) });
+  expect(failed.status).toBe(500);
+  const rows = (await env.DB.prepare("SELECT status FROM compliance_exports WHERE org_id = ?1").bind(ORG).all()).results;
+  expect(rows).toEqual([{ status: "failed" }]);
+  const made = await call("/orgs/compliance/exports", owner, { method: "POST", body: ask });
+  expect((await made.json()).export).toMatchObject({ status: "ready", counts: { messages: 1, earlier: 1 } });
+});
+
+// A failed read of the holds was taken for none, and of the private channels
+// for none private: an edit lost the held words, and retention deleted
+// what a hold or a longer private retention kept.
+test("when the holds or the private channels cannot be read, nothing held is changed or deleted", async () => {
+  const members = (await (await call(`/members?${q}`, owner)).json()).members;
+  const ken = members.find((m) => m.name === "Ken");
+  await call("/orgs/holds", owner, { method: "POST", body: { orgId: ORG, kind: "person", ref: ken.ref, reason: "Matter 3" } });
+  const sent = await (await post(member, "b:cafe", "as it was")).json();
+  const edit = (withEnv) => call("/channels/messages", member, { method: "PUT", body: { orgId: ORG, channel: "b:cafe", messageId: sent.message.id, body: "as it is" }, withEnv });
+  expect((await edit(failing(/FROM message_holds/))).status).toBe(500);
+  const body = async () => (await env.DB.prepare("SELECT body FROM channel_messages WHERE org_id = ?1 AND id = ?2").bind(ORG, sent.message.id).first()).body;
+  expect(await body()).toBe("as it was");
+  expect((await edit(env)).status).toBe(200);
+  expect((await env.DB.prepare("SELECT body FROM message_history WHERE org_id = ?1").bind(ORG).first()).body).toBe("as it was");
+
+  await put(owner, { retention: { publicDays: 30, privateDays: 365 } });
+  const insert = (id, channel, login) => env.DB.prepare(
+    "INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at) VALUES (?1, ?2, ?3, ?4, 'message', 'x', ?5)"
+  ).bind(id, ORG, channel, login, ago(40)).run();
+  await insert("old-held", "b:cafe", "u:ken@gov.jp");
+  await insert("old-private", "b:board", "u:mika@gov.jp");
+  await insert("old-public", "b:cafe", "u:mika@gov.jp");
+  const left = async () => (await env.DB.prepare("SELECT id FROM channel_messages WHERE org_id = ?1 AND id LIKE 'old-%' ORDER BY id").bind(ORG).all()).results.map((r) => r.id);
+  expect(await pruneMessages(failing(/FROM message_holds/))).toEqual([]);
+  expect(await pruneMessages(failing(/FROM businesses WHERE org_id = \?1 AND private = 1/))).toEqual([]);
+  expect(await left()).toEqual(["old-held", "old-private", "old-public"]);
+  // Read again: only what nothing keeps goes.
+  await pruneMessages(env);
+  expect(await left()).toEqual(["old-held", "old-private"]);
+});
+
+// The oldest 500 rows were read before holds, each conversation's retention
+// and threads in use were checked: 500 that must stay filled every run, and
+// what had expired behind them was never reached.
+test("retention reaches expired messages and files behind more than a batch of ones that must stay", async () => {
+  await put(owner, { retention: { publicDays: 30, privateDays: 365, filesDays: 30 } });
+  const ken = (await (await call(`/members?${q}`, owner)).json()).members.find((m) => m.name === "Ken");
+  await call("/orgs/holds", owner, { method: "POST", body: { orgId: ORG, kind: "person", ref: ken.ref, reason: "Matter 5" } });
+  const at = (days, i = 0) => new Date(Date.now() - days * 86_400_000 + i).toISOString();
+  const msg = (id, channel, login, created, parent = null) => env.DB.prepare(
+    "INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at, parent_id) VALUES (?1, ?2, ?3, ?4, 'message', 'x', ?5, ?6)"
+  ).bind(id, ORG, channel, login, created, parent);
+  const file = (id, login, created) => env.DB.prepare(
+    "INSERT INTO message_files (id, org_id, channel, uploader, name, type, size, created_at) VALUES (?1, ?2, 'b:cafe', ?3, 'f.txt', 'text/plain', 1, ?4)"
+  ).bind(id, ORG, login, created);
+  const rows = [];
+  for (let i = 0; i < 520; i += 1) {
+    rows.push(msg(`held-${i}`, "b:cafe", "u:ken@gov.jp", at(90, i)));
+    rows.push(msg(`private-${i}`, "b:board", "u:mika@gov.jp", at(80, i)));
+    rows.push(msg(`parent-${i}`, "b:cafe", "u:mika@gov.jp", at(70, i)));
+    rows.push(msg(`reply-${i}`, "b:cafe", "u:mika@gov.jp", at(1, i), `parent-${i}`));
+    rows.push(file(`heldfile-${i}`, "u:ken@gov.jp", at(90, i)));
+  }
+  rows.push(msg("expired", "b:cafe", "u:mika@gov.jp", at(40)));
+  rows.push(file("expiredfile", "u:mika@gov.jp", at(40)));
+  for (let i = 0; i < rows.length; i += 200) await env.DB.batch(rows.slice(i, i + 200));
+  const has = async (table, id) => Boolean(await env.DB.prepare(`SELECT 1 FROM ${table} WHERE org_id = ?1 AND id = ?2`).bind(ORG, id).first());
+  for (let run = 0; run < 3; run += 1) await pruneMessages(env);
+  expect(await has("channel_messages", "expired")).toBe(false);
+  expect(await has("message_files", "expiredfile")).toBe(false);
+  const count = async (sql) => (await env.DB.prepare(sql).bind(ORG).first()).n;
+  expect(await count("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id = ?1 AND (id LIKE 'held-%' OR id LIKE 'private-%' OR id LIKE 'parent-%')")).toBe(3 * 520);
+  expect(await count("SELECT COUNT(*) AS n FROM message_files WHERE org_id = ?1 AND id LIKE 'heldfile-%'")).toBe(520);
+});
+
+// A person chosen who had left by the time the export was made was dropped,
+// and with nobody left in the choice the export was of everyone.
+test("an export for people who are no longer members is refused, not widened to everyone", async () => {
+  const members = (await (await call(`/members?${q}`, owner)).json()).members;
+  const ken = members.find((m) => m.name === "Ken");
+  const mika = members.find((m) => m.name === "Mika");
+  await post(member, "b:cafe", "from Ken");
+  await post(admin, "b:cafe", "from Mika");
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = '9503'").bind(ORG).run();
+  const ask = (extra) => call("/orgs/compliance/exports", owner, { method: "POST", body: { orgId: ORG, from: ago(1), to: new Date(Date.now() + 60_000).toISOString(), reason: "Matter 9", ...extra } });
+  for (const people of [[ken.ref], [mika.ref, ken.ref], ["not-a-ref"]]) {
+    const res = await ask({ people });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("unknown-people");
+  }
+  expect((await ask({ channels: ["Cafe"] })).status).toBe(400);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM compliance_exports WHERE org_id = ?1").bind(ORG).first()).n).toBe(0);
+  // One still here: theirs alone. None chosen: everyone.
+  const one = (await (await ask({ people: [mika.ref] })).json()).export;
+  expect(one).toMatchObject({ status: "ready", filters: { people: ["Mika"] }, counts: { messages: 1 } });
+  const all = (await (await ask({ people: [] })).json()).export;
+  expect(all).toMatchObject({ status: "ready", filters: { people: [] }, counts: { messages: 2 } });
 });

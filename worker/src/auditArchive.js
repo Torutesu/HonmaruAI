@@ -93,11 +93,20 @@ export async function sealHour(env, orgId, hourStart) {
   if (!rows.length) return null;
   const path = archivePath(orgId, hourStart);
   const jsonl = rows.map((r) => JSON.stringify({ seq: r.seq, id: r.id, created_at: r.created_at, prev_hash: r.prev_hash, hash: r.hash, body: JSON.parse(r.body) })).join("\n") + "\n";
-  const archive = await gzip(jsonl);
+  const bucket = env.AUDIT_ARCHIVE;
+  // Never over an object already there: a sealed hour stays as sealed. A run
+  // that stopped after writing either object, before D1 recorded the seal,
+  // left what this hour is sealed as: what is recorded, and what the next
+  // hour points at, is the object read back from the bucket, checked against
+  // the rows, never a fresh digest beside it.
+  if (!(await bucket.head(`${path}.jsonl.gz`))) {
+    await bucket.put(`${path}.jsonl.gz`, await gzip(jsonl), { httpMetadata: { contentType: "application/gzip" } });
+  }
+  const archive = new Uint8Array(await (await bucket.get(`${path}.jsonl.gz`)).arrayBuffer());
+  if ((await gunzip(archive)) !== jsonl) throw new Error(`the archive at ${path} is not this hour's rows`);
   const archiveSha = await sha256Bytes(archive);
   const last = await env.DB.prepare("SELECT digest_sha256 FROM audit_seals WHERE org_id = ?1 ORDER BY hour DESC LIMIT 1").bind(orgId).first();
-  const key = await signingKey(env);
-  const digest = {
+  const expected = {
     v: 1,
     org: orgId,
     hour: new Date(hourStart).toISOString(),
@@ -109,23 +118,39 @@ export async function sealHour(env, orgId, hourStart) {
     first_prev_hash: rows[0].prev_hash || null,
     prev_digest: last?.digest_sha256 || null,
     archive_sha256: archiveSha,
-    sealed_at: new Date().toISOString(),
-    key_id: key.kid,
   };
-  digest.sig = b64url(await crypto.subtle.sign({ name: "Ed25519" }, key.privateKey, enc.encode(canonical(digest))));
-  const digestText = JSON.stringify(digest);
-  // Never over an object already there: a sealed hour stays as sealed.
-  if (!(await env.AUDIT_ARCHIVE.head(`${path}.jsonl.gz`))) {
-    await env.AUDIT_ARCHIVE.put(`${path}.jsonl.gz`, archive, { httpMetadata: { contentType: "application/gzip" } });
+  if (!(await bucket.head(`${path}.digest.json`))) {
+    const key = await signingKey(env);
+    const fresh = { ...expected, sealed_at: new Date().toISOString(), key_id: key.kid };
+    fresh.sig = b64url(await crypto.subtle.sign({ name: "Ed25519" }, key.privateKey, enc.encode(canonical(fresh))));
+    await bucket.put(`${path}.digest.json`, JSON.stringify(fresh), { httpMetadata: { contentType: "application/json" } });
   }
-  if (!(await env.AUDIT_ARCHIVE.head(`${path}.digest.json`))) {
-    await env.AUDIT_ARCHIVE.put(`${path}.digest.json`, digestText, { httpMetadata: { contentType: "application/json" } });
-  }
+  const digestText = await (await bucket.get(`${path}.digest.json`)).text();
+  let digest = null;
+  try { digest = JSON.parse(digestText); } catch { /* not a digest: refused below */ }
+  const sealsThis = digest && Object.entries(expected).every(([k, v]) => digest[k] === v) && (await verifyDigest(digest, await publicKeys(env)));
+  if (!sealsThis) throw new Error(`the digest at ${path} does not seal this hour's archive`);
   const digestSha = await sha256Hex(digestText);
   await env.DB.prepare(
     "INSERT OR IGNORE INTO audit_seals (org_id, hour, from_seq, to_seq, digest_sha256, sealed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
   ).bind(orgId, digest.hour, digest.from_seq, digest.to_seq, digestSha, digest.sealed_at).run();
   return digest;
+}
+
+/// One sealed hour's rows as they were archived — {seq, id, created_at,
+/// prev_hash, hash, body} — read back from the bucket, the digest checked
+/// against the hash D1 recorded for it and the archive against its digest.
+/// Null when either object is gone or does not match.
+export async function sealedRows(env, orgId, seal) {
+  const path = archivePath(orgId, Date.parse(seal.hour));
+  const digestObj = await env.AUDIT_ARCHIVE.get(`${path}.digest.json`);
+  const archiveObj = digestObj && (await env.AUDIT_ARCHIVE.get(`${path}.jsonl.gz`));
+  if (!archiveObj) return null;
+  const digestText = await digestObj.text();
+  if ((await sha256Hex(digestText)) !== seal.digest_sha256) return null;
+  const archive = new Uint8Array(await archiveObj.arrayBuffer());
+  if ((await sha256Bytes(archive)) !== JSON.parse(digestText).archive_sha256) return null;
+  return (await gunzip(archive)).split("\n").filter(Boolean).map((line) => JSON.parse(line));
 }
 
 /// The hours of a workspace still to seal: complete hours after the last

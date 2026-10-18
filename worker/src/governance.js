@@ -17,6 +17,7 @@ import { ipAllowed, parseCidr } from "./orgKeys.js";
 import { listMembers } from "./team.js";
 import { deleteFileObject } from "./files.js";
 import { mirrorDeletes } from "./store/mirror.js";
+import { safe } from "./log.js";
 
 const DAY = 86_400_000;
 export const RETENTION_CHOICES = [null, 1, 7, 30, 90, 180, 365, 730, 1825, 3650];
@@ -123,8 +124,11 @@ export async function inviteGate(env, orgId, userId, role) {
 
 // ---- Holds ----
 
+/// A workspace's holds. A read that fails throws rather than answering
+/// "none": an edit, an unsend or retention then stops instead of going
+/// ahead as though nothing were held.
 export async function holdsOf(db, orgId, { active = true } = {}) {
-  const { results } = await db.prepare(`SELECT * FROM message_holds WHERE org_id = ?1 ${active ? "AND released_at IS NULL" : ""} ORDER BY created_at DESC`).bind(orgId).all().catch(() => ({ results: [] }));
+  const { results } = await db.prepare(`SELECT * FROM message_holds WHERE org_id = ?1 ${active ? "AND released_at IS NULL" : ""} ORDER BY created_at DESC`).bind(orgId).all();
   return results || [];
 }
 
@@ -146,11 +150,17 @@ export async function keepIfHeld(db, orgId, row, reason) {
 
 // ---- Retention ----
 
+// Unread, every private channel would look public and take the public
+// channels' retention, so a failed read throws too.
 async function privateSlugs(db, orgId) {
-  const { results } = await db.prepare("SELECT slug FROM businesses WHERE org_id = ?1 AND private = 1").bind(orgId).all().catch(() => ({ results: [] }));
+  const { results } = await db.prepare("SELECT slug FROM businesses WHERE org_id = ?1 AND private = 1").bind(orgId).all();
   return new Set((results || []).map((r) => `b:${r.slug}`));
 }
 const kindOfKey = (key, privates) => (key.startsWith("b:") ? (privates.has(key) ? "private" : "public") : "dm");
+/// The SQL for "no active hold of workspace ?1 covers this author or this
+/// channel" — heldBy, in the query that picks what retention deletes.
+const notHeld = (login, channel) => `NOT EXISTS (SELECT 1 FROM message_holds h WHERE h.org_id = ?1 AND h.released_at IS NULL
+  AND ((h.kind = 'person' AND h.target = ${login}) OR (h.kind = 'channel' AND h.target = ${channel})))`;
 
 /// Messages and files past the workspace's retention, deleted — never what
 /// a hold covers, and never a message whose thread is still being kept.
@@ -162,18 +172,43 @@ export async function pruneMessages(env, { now = Date.now(), perRun = 500 } = {}
   const out = [];
   for (const g of orgs) {
     const orgId = g.org_id;
-    const holds = await holdsOf(env.DB, orgId);
-    const privates = await privateSlugs(env.DB, orgId);
+    // What is held, and which channels are private, unread: nothing of this
+    // workspace's goes this run.
+    let holds; let privates;
+    try {
+      holds = await holdsOf(env.DB, orgId);
+      privates = await privateSlugs(env.DB, orgId);
+    } catch (err) {
+      console.error("message retention skipped", orgId, safe(err?.message));
+      continue;
+    }
     const days = { public: g.retention_public_days, private: g.retention_private_days, dm: g.retention_dm_days };
     const cutoffs = Object.fromEntries(Object.entries(days).map(([k, d]) => [k, d ? new Date(now - d * DAY).toISOString() : null]));
     const oldest = Object.values(cutoffs).filter(Boolean).sort().pop();
     let messages = 0;
     if (oldest) {
+      // Only rows past their own conversation's retention and under no hold
+      // are read, so a batch of what must stay cannot fill every run. What a
+      // batch still keeps (a thread in use) is passed by the cursor, from
+      // where the last full batch ended to the end and round again.
+      const cursorKey = `cursor:pruneMessages:${orgId}`;
+      const kept = await env.DB.prepare("SELECT value FROM kv WHERE key = ?1").bind(cursorKey).first().catch(() => null);
+      const [afterAt = "", afterId = ""] = String(kept?.value || "").split("\n");
       const { results } = await env.DB.prepare(
         `SELECT m.id, m.channel, m.author_login, m.created_at, m.parent_id,
                 (SELECT MAX(r.created_at) FROM channel_messages r WHERE r.org_id = m.org_id AND r.parent_id = m.id) AS last_reply
-           FROM channel_messages m WHERE m.org_id = ?1 AND m.created_at < ?2 ORDER BY m.created_at LIMIT ?3`
-      ).bind(orgId, oldest, PRUNE_BATCH).all();
+           FROM channel_messages m
+          WHERE m.org_id = ?1 AND m.created_at < ?2
+            AND m.created_at < (CASE WHEN substr(m.channel, 1, 2) <> 'b:' THEN ?4
+                                     WHEN EXISTS (SELECT 1 FROM businesses b WHERE b.org_id = m.org_id AND b.slug = substr(m.channel, 3) AND b.private = 1) THEN ?5
+                                     ELSE ?6 END)
+            AND ${notHeld("m.author_login", "m.channel")}
+            AND (m.created_at > ?7 OR (m.created_at = ?7 AND m.id > ?8))
+          ORDER BY m.created_at, m.id LIMIT ?3`
+      ).bind(orgId, oldest, PRUNE_BATCH, cutoffs.dm, cutoffs.private, cutoffs.public, afterAt, afterId).all();
+      const last = results?.length === PRUNE_BATCH ? results[results.length - 1] : null;
+      await env.DB.prepare("INSERT INTO kv (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+        .bind(cursorKey, last ? `${last.created_at}\n${last.id}` : "", new Date(now).toISOString()).run().catch(() => {});
       const doomed = [];
       for (const m of results || []) {
         const cutoff = cutoffs[kindOfKey(m.channel, privates)];
@@ -201,7 +236,7 @@ export async function pruneMessages(env, { now = Date.now(), perRun = 500 } = {}
     if (g.retention_files_days) {
       const cutoff = new Date(now - g.retention_files_days * DAY).toISOString();
       const { results } = await env.DB.prepare(
-        "SELECT id, channel, uploader FROM message_files WHERE org_id = ?1 AND created_at < ?2 ORDER BY created_at LIMIT ?3"
+        `SELECT id, channel, uploader FROM message_files WHERE org_id = ?1 AND created_at < ?2 AND ${notHeld("uploader", "channel")} ORDER BY created_at LIMIT ?3`
       ).bind(orgId, cutoff, PRUNE_BATCH).all();
       for (const f of results || []) {
         if (heldBy(holds, { login: f.uploader, channel: f.channel })) continue;
@@ -239,10 +274,12 @@ export async function runExport(env, { orgId, id, from, to, logins = null, chann
   for (const r of rows) {
     lines.push(JSON.stringify({ type: "message", id: r.id, channel: r.channel, author: r.author_login ? { login: r.author_login, name: nameOf.get(r.author_login) || null } : { kind: r.kind }, text: r.body, created_at: r.created_at, edited_at: r.edited_at, deleted_at: r.deleted_at, parent_id: r.parent_id }));
   }
+  // A failed read of the earlier words fails the export: one without them
+  // would look complete and not be.
   const hwhere = where.map((w) => w.replace("created_at", "message_created_at"));
   const { results: history } = await env.DB.prepare(
     `SELECT message_id, channel, author_login, body, message_created_at, reason, recorded_at FROM message_history WHERE ${hwhere.join(" AND ")} ORDER BY recorded_at`
-  ).bind(...args).all().catch(() => ({ results: [] }));
+  ).bind(...args).all();
   for (const h of history || []) {
     lines.push(JSON.stringify({ type: "earlier_version", message_id: h.message_id, channel: h.channel, author: { login: h.author_login, name: nameOf.get(h.author_login) || null }, text: h.body, before: h.reason, recorded_at: h.recorded_at }));
   }
@@ -402,8 +439,13 @@ export async function handleGovernance(request, env, url) {
     if (!env.MEDIA) return json({ message: "Storage is not set up on this deployment." }, 503);
     const from = Date.parse(body.from || ""), to = Date.parse(body.to || "");
     if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return json({ message: "Choose a start and an end date." }, 400);
-    const logins = (Array.isArray(body.people) ? body.people : []).map((r) => byRef.get(String(r))?.login).filter(Boolean);
-    const channels = (Array.isArray(body.channels) ? body.channels : []).map(String).filter((c) => /^b:[a-z0-9-]+$/.test(c));
+    // People or channels chosen that cannot be found are refused, never
+    // dropped: a choice left empty that way would export everyone.
+    const people = Array.isArray(body.people) ? body.people : [];
+    const logins = people.map((r) => byRef.get(String(r))?.login).filter(Boolean);
+    if (logins.length !== people.length) return json({ message: "Someone you chose is no longer in this workspace. Choose the people again.", code: "unknown-people" }, 400);
+    const channels = (Array.isArray(body.channels) ? body.channels : []).map(String);
+    if (channels.some((c) => !/^b:[a-z0-9-]+$/.test(c))) return json({ message: "Choose channels in this workspace.", code: "unknown-channels" }, 400);
     const reason = String(body.reason || "").trim().slice(0, 500);
     if (!reason) return json({ message: "Say why: the matter this export is for." }, 400);
     const id = crypto.randomUUID();
