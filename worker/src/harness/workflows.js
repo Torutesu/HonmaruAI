@@ -322,7 +322,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     const step = workflow.steps[index];
     let entry;
     try {
-      entry = await runStep(env, { orgId, workflow, step, scope, runId, depth, owner: workflow.createdBy });
+      entry = await runStep(env, { orgId, workflow, step, number: index + 1, scope, runId, depth, owner: workflow.createdBy });
     } catch (e) {
       entry = { status: "failed", error: String(e?.message || e).slice(0, 300) };
     }
@@ -348,7 +348,7 @@ async function say(env, orgId, channel, body, { authorLogin = null, kind = "ai",
   return out?.row || null;
 }
 
-async function runStep(env, { orgId, workflow, step, scope, runId, depth, owner }) {
+async function runStep(env, { orgId, workflow, step, number, scope, runId, depth, owner }) {
   const db = env.DB;
   if (step.channel && !(await mayUseConversation(db, orgId, owner, step.channel))) {
     return { status: "failed", error: "Conversation access required." };
@@ -396,8 +396,11 @@ async function runStep(env, { orgId, workflow, step, scope, runId, depth, owner 
       // fixed login may have left the workspace since the workflow was saved.
       const to = await approverIn(db, orgId, render(step.to, scope));
       if (!to) return { status: "failed", error: "Nobody by that name here." };
+      // One card for each approval in the run, so a decision on an earlier
+      // one can never be taken as the answer to a later one, and the earlier
+      // card is kept as it was decided.
       const card = {
-        id: `wf-${runId}`,
+        id: `wf-${runId}-${number}`,
         recipientUserID: to.login,
         senderUserID: to.login,
         type: "approval",
@@ -410,7 +413,7 @@ async function runStep(env, { orgId, workflow, step, scope, runId, depth, owner 
         sourceApp: "Workflow",
         sourceDetail: workflow.name,
         requestedBy: { login: to.login, name: workflow.name },
-        workflowApproval: { runId, workflowId: workflow.id },
+        workflowApproval: { runId, workflowId: workflow.id, step: number },
       };
       await saveCard(db, orgId, card);
       await appendCardEvent(db, orgId, { cardId: card.id, type: "created", actorUserId: to.login, note: "workflow", snapshot: card }).catch(() => {});
@@ -432,19 +435,22 @@ async function runStep(env, { orgId, workflow, step, scope, runId, depth, owner 
 }
 
 /// A workflow's approval card, decided: approve carries the run on,
-/// decline ends it. Once only, and only by the person it was made to.
+/// decline ends it. Once only, only by the person it was made to, and only
+/// for the approval the run waits on now: an answer to an earlier one in the
+/// same run settles nothing.
 export async function settleWorkflowApproval(env, orgId, card) {
   const ref = card?.workflowApproval;
   if (!ref?.runId) return null;
   const action = card.decision?.action;
   const run = await getRun(env.DB, orgId, ref.runId);
   if (!run || run.status !== "waiting" || run.cardId !== card.id) return null;
+  if (ref.step !== undefined && ref.step !== run.nextStep) return null;
   if (card.decision?.actorUserID && card.decision.actorUserID !== card.recipientUserID) return null;
   const approved = action === "approve" || action === "choose";
   if (!approved && action !== "decline") return null;
   const claimed = await env.DB
-    .prepare("UPDATE hx_workflow_runs SET status = 'running' WHERE id = ?1 AND org_id = ?2 AND status = 'waiting'")
-    .bind(run.id, orgId)
+    .prepare("UPDATE hx_workflow_runs SET status = 'running' WHERE id = ?1 AND org_id = ?2 AND status = 'waiting' AND card_id = ?3")
+    .bind(run.id, orgId, card.id)
     .run();
   if (!claimed.meta?.changes) return null;
   const log = run.log;

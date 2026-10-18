@@ -318,3 +318,32 @@ test("an approval goes only to someone in this workspace, checked when saved and
   expect(member.status).toBe("waiting");
   expect((await (await get(`/approvals?${q({ orgId: ORG })}`, toru)).json()).toDecide).toEqual([expect.objectContaining({ title: "Secret plan", kind: "workflow" })]);
 });
+
+test("a decision on a run's first approval, replayed, does not answer its second", async () => {
+  const { createWorkflow, startRun, settleWorkflowApproval, getRun } = await import("../src/harness/workflows.js");
+  const { getCard } = await import("../src/db.js");
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: "Two gates", trigger: { type: "manual" }, steps: [
+      { type: "approval", to: "toru", title: "Approve A?" },
+      { type: "approval", to: "toru", title: "Approve B?" },
+      { type: "post", channel: "b:ops", text: "Reached the final step" },
+    ],
+  }, "9302");
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: "manual", startedBy: "9302" });
+  const decided = (card) => ({ ...card, status: "approved", decision: { action: "approve", actorUserID: "toru", decidedAt: new Date().toISOString() } });
+  const first = await getCard(env.DB, ORG, run.cardId);
+  const atSecond = await settleWorkflowApproval(env, ORG, decided(first));
+  expect(atSecond).toMatchObject({ status: "waiting", nextStep: 2 });
+  expect(atSecond.cardId).not.toBe(first.id);
+  // The first card is kept as it was, beside the second.
+  expect((await getCard(env.DB, ORG, first.id)).title).toBe("Approve A?");
+  expect((await getCard(env.DB, ORG, atSecond.cardId)).title).toBe("Approve B?");
+
+  expect(await settleWorkflowApproval(env, ORG, decided(first))).toBeNull();
+  expect(await getRun(env.DB, ORG, run.id)).toMatchObject({ status: "waiting", nextStep: 2, cardId: atSecond.cardId });
+  expect((await messages(mika)).map((m) => m.body)).not.toContain("Reached the final step");
+
+  const done = await settleWorkflowApproval(env, ORG, decided(await getCard(env.DB, ORG, atSecond.cardId)));
+  expect(done.status).toBe("done");
+  expect((await messages(mika)).map((m) => m.body)).toContain("Reached the final step");
+});
