@@ -1193,7 +1193,8 @@ CREATE TABLE IF NOT EXISTS org_key_ips (
   PRIMARY KEY (key_id, ip)
 );
 
-/* The admin API's answers to an Idempotency-Key, for a day. */
+/* The admin API's answers to an Idempotency-Key, for a day (adminApi.js).
+   status 0: claimed by a request still being carried out. */
 CREATE TABLE IF NOT EXISTS admin_idempotency (
   key_id        TEXT NOT NULL,
   idem_key      TEXT NOT NULL,
