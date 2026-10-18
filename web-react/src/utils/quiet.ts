@@ -46,3 +46,34 @@ export function tomorrowAt(hour: number, now = new Date()): string {
   d.setHours(hour, 0, 0, 0)
   return d.toISOString()
 }
+
+/// Saves the notification hours one request at a time. Every save sends the
+/// whole schedule, so two in flight at once would each carry the other's
+/// field as it was before: From and To changed quickly came back as only the
+/// second. A change made while a save is on its way waits for it, and only
+/// the newest of those waiting is sent. `settled` hears once nothing is left
+/// to send, whether that last save was taken.
+export function scheduleSaver(
+  send: (schedule: NotifySchedule) => Promise<boolean>,
+  settled: (saved: boolean) => void,
+): (schedule: NotifySchedule) => void {
+  let sending = false
+  let waiting: NotifySchedule | null = null
+  const run = async (schedule: NotifySchedule) => {
+    sending = true
+    let saved = false
+    try { saved = await send(schedule) } catch { saved = false }
+    if (waiting) {
+      const next = waiting
+      waiting = null
+      void run(next)
+      return
+    }
+    sending = false
+    settled(saved)
+  }
+  return (schedule) => {
+    if (sending) { waiting = schedule; return }
+    void run(schedule)
+  }
+}
