@@ -15,6 +15,8 @@ export function AppConversationPanel({api,appId,tableId,rowId,title,context,onCl
  const [sources,setSources]=useState<Array<{id:string;body:string;channel:string}>|null>(null),[linking,setLinking]=useState(false)
  const mentions=useMentionMenu(box,draft,setDraft,[{ref:'__ai',name:'AI',handle:'AI'},{ref:'__channel',name:'全員',handle:'channel',special:'channel',detail:'閲覧できるメンバーに通知'},...members])
  useEffect(()=>{let active=true;setMembers([]);if(api.members)void api.members().then(r=>{if(active)setMembers(r.members)},()=>{});return()=>{active=false}},[api])
+ const sourceRead=useRef('')
+ useEffect(()=>{const last=source?.messages.at(-1);if(!source||!last||!api.markSourceRead||document.visibilityState!=='visible')return;const key=source.threadId+':'+last.id;if(sourceRead.current===key)return;sourceRead.current=key;void api.markSourceRead(source.channel,source.threadId,last.createdAt).catch(()=>{if(sourceRead.current===key)sourceRead.current=''})},[api,source])
  const chooseSource=async(messageId:string)=>{setLinking(true);try{await api.inheritConversation(appId,messageId);setSources(null);await refresh(epoch.current)}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setLinking(false)}}
  const stickToBottom=useRef(true),scrollAnchor=useRef<{height:number;top:number}|null>(null)
  const historyLoaded=useRef(false),readVersion=useRef(0),epoch=useRef(0),pending=useRef(false),request=useRef<{body:string;id:string}|null>(null),list=useRef<HTMLDivElement>(null)
@@ -25,7 +27,7 @@ export function AppConversationPanel({api,appId,tableId,rowId,title,context,onCl
   catch(e){if(generation===epoch.current&&read===readVersion.current){historyLoaded.current=false;setMessages([]);setSource(null);setSources(null);setAIReplies([]);setError(e instanceof Error?e.message:String(e))}}
   finally {if(generation===epoch.current)setLoading(false)}
  },[api,appId,tableId,rowId])
- useEffect(()=>{const generation=++epoch.current;setMessages([]);setSource(null);setSources(null);setAIReplies([]);setDraft('');setError('');setLoading(true);setHasMore(false);setSending(false);setOlder(false);pending.current=false;request.current=null;historyLoaded.current=false;stickToBottom.current=true;scrollAnchor.current=null;void refresh(generation);const interval=setInterval(()=>{if(document.visibilityState==='visible')void refresh(generation)},10000);return()=>{epoch.current++;clearInterval(interval)}},[refresh])
+ useEffect(()=>{const generation=++epoch.current;sourceRead.current='';setMessages([]);setSource(null);setSources(null);setAIReplies([]);setDraft('');setError('');setLoading(true);setHasMore(false);setSending(false);setOlder(false);pending.current=false;request.current=null;historyLoaded.current=false;stickToBottom.current=true;scrollAnchor.current=null;void refresh(generation);const interval=setInterval(()=>{if(document.visibilityState==='visible')void refresh(generation)},10000);return()=>{epoch.current++;clearInterval(interval)}},[refresh])
  const send=async(e:React.FormEvent)=>{
   e.preventDefault();const body=draft.trim();if(!body||pending.current)return;const generation=epoch.current;pending.current=true;setSending(true);setError('');
   if(request.current?.body!==body)request.current={body,id:crypto.randomUUID()};
