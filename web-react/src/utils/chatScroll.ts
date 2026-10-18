@@ -24,6 +24,43 @@ export function isLooking(doc: { visibilityState: string; hasFocus(): boolean })
   return pageShowing(doc) && doc.hasFocus()
 }
 
+/// Rows that are read by being looked at: each one in view counts as seen
+/// once it has stayed there for `wait` with somebody looking. Nobody looking
+/// — the window behind another, in the tray, minimized, a locked screen —
+/// stops every wait, and a row that comes into view meanwhile does not start
+/// one; when they are back, each row still in view waits afresh. A row is
+/// seen once.
+export function seenWhileLooking(o: { wait: number; looking: () => boolean; seen: (key: string) => void }) {
+  const inView = new Set<string>()
+  const timers = new Map<string, ReturnType<typeof setTimeout>>()
+  const stop = (key: string) => { clearTimeout(timers.get(key)); timers.delete(key) }
+  const start = (key: string) => {
+    if (timers.has(key) || !o.looking()) return
+    timers.set(key, setTimeout(() => {
+      timers.delete(key)
+      if (!inView.has(key) || !o.looking()) return
+      inView.delete(key)
+      o.seen(key)
+    }, o.wait))
+  }
+  return {
+    /// A row came into view, or went out of it.
+    view(key: string, showing: boolean) {
+      if (showing) { inView.add(key); start(key) } else { inView.delete(key); stop(key) }
+    },
+    /// Whether anybody is looking may have changed.
+    attention() {
+      if (o.looking()) for (const key of inView) start(key)
+      else for (const key of [...timers.keys()]) stop(key)
+    },
+    /// Nothing is watched any more.
+    end() {
+      for (const key of [...timers.keys()]) stop(key)
+      inView.clear()
+    },
+  }
+}
+
 /// Whether the log goes to its newest line after a change. A conversation
 /// just opened always does; a page of older messages loading above keeps
 /// the reader where they were; otherwise it follows only a reader already at

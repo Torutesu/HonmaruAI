@@ -27,7 +27,9 @@ protocols:
 # draft; publishing it is what offers the update to everyone. electron-updater
 # takes the repository's latest published release, so the desktop app's
 # releases have to be the newest ones here (or this moves to a repository of
-# their own).
+# their own), and each one has to carry every platform's feed file: the
+# release workflows copy over those of platforms they did not build and
+# check the draft is complete before publishing (scripts/feed.mjs).
 publish:
   provider: github
   owner: Torutesu

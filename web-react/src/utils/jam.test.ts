@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { JamCall } from './jam'
+import { JamCall, canShareScreen, screenShareProblem } from './jam'
 
 // A Jam from this browser, with the browser's parts stood in for: what it
 // sends the relay, whom it calls, and what it lets go of when it leaves.
@@ -176,5 +176,43 @@ describe('JamCall', () => {
     expect(call.reactions.map((r) => r.emoji)).toEqual(['👏'])
     call.react('🎉')
     expect(sent.at(-1)).toEqual({ type: 'jam_react', payload: { emoji: '🎉' } })
+  })
+})
+
+describe('sharing a screen', () => {
+  const browser = (display: boolean) => { vi.stubGlobal('navigator', { mediaDevices: display ? { getDisplayMedia: async () => null } : {} }) }
+  const desktop = (extra: Record<string, unknown>) => {
+    const w = new EventTarget() as EventTarget & { honmaruDesktop?: unknown }
+    w.honmaruDesktop = { isDesktop: true, platform: 'win32', show: () => {}, ...extra }
+    vi.stubGlobal('window', w)
+  }
+
+  it('is offered by a browser that can, and not by one that cannot', () => {
+    browser(true)
+    expect(canShareScreen()).toBe(true)
+    browser(false)
+    expect(canShareScreen()).toBe(false)
+  })
+
+  it('is offered in the desktop app only by a build that answers it (#347)', () => {
+    // An older shell has getDisplayMedia but refuses every request: the
+    // button would only ever fail there.
+    browser(true)
+    desktop({})
+    expect(canShareScreen()).toBe(false)
+    desktop({ screenShare: true })
+    expect(canShareScreen()).toBe(true)
+  })
+
+  it('says nothing when the picker was cancelled, and the call goes on', () => {
+    expect(screenShareProblem(new DOMException('Permission denied', 'NotAllowedError'))).toBeNull()
+    expect(screenShareProblem(new DOMException('Aborted', 'AbortError'))).toBeNull()
+  })
+
+  it('says where to change it when the system refuses, and that it failed otherwise', () => {
+    expect(screenShareProblem(new DOMException('Permission denied by system', 'NotAllowedError'))).toMatch(/system settings/)
+    expect(screenShareProblem(new DOMException('Not supported', 'NotSupportedError'))).toBe('The screen could not be shared.')
+    expect(screenShareProblem(new Error('boom'))).toBe('The screen could not be shared.')
+    expect(screenShareProblem(undefined)).toBe('The screen could not be shared.')
   })
 })

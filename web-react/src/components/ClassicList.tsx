@@ -29,7 +29,7 @@ import { displayName, properName } from '../utils/names'
 import { Icon } from './Icon'
 import { BrandLogo, isBrand } from './BrandLogo'
 import { useBackStack } from '../utils/backStack'
-import { countNewBelow, holdDelta, isAtBottom, isLooking, isNewSince, leavesGap, mergeById, reachesPast, shouldFollow, waitToSay } from '../utils/chatScroll'
+import { countNewBelow, holdDelta, isAtBottom, isLooking, isNewSince, leavesGap, mergeById, reachesPast, seenWhileLooking, shouldFollow, waitToSay } from '../utils/chatScroll'
 import { JumpToPresent, newBelowLabel } from './JumpToPresent'
 import { FollowingLog } from './FollowingLog'
 import { PaneResizer, PANE_MIN } from './PaneResizer'
@@ -912,23 +912,29 @@ export const ClassicList: React.FC<Props> = ({
   useEffect(() => {
     const root = activityRows.current
     if (!activityOpen || !root || typeof IntersectionObserver === 'undefined') return
-    const timers = new Map<string, ReturnType<typeof setTimeout>>()
+    // In the desktop app the page always reports itself visible, so it is
+    // the window being in front with somebody at it that counts.
+    const rows = seenWhileLooking({ wait: 900, looking: () => isLooking(document), seen: (key) => markActivitySeen([key]) })
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) {
         const key = (e.target as HTMLElement).dataset.key
-        if (!key) continue
-        if (e.isIntersecting && e.intersectionRatio >= 0.6) {
-          if (!timers.has(key)) timers.set(key, setTimeout(() => {
-            timers.delete(key)
-            if (document.visibilityState === 'visible') markActivitySeen([key])
-          }, 900))
-        } else {
-          clearTimeout(timers.get(key)); timers.delete(key)
-        }
+        if (key) rows.view(key, e.isIntersecting && e.intersectionRatio >= 0.6)
       }
     }, { root, threshold: [0, 0.6, 1] })
     root.querySelectorAll<HTMLElement>('[data-key]').forEach((el) => io.observe(el))
-    return () => { io.disconnect(); for (const t of timers.values()) clearTimeout(t) }
+    const look = () => rows.attention()
+    // Focus going into a frame on the page blurs the window before the
+    // frame has it; asked a moment later, the page still has focus.
+    const blurred = () => { setTimeout(look, 0) }
+    document.addEventListener('visibilitychange', look)
+    window.addEventListener('focus', look)
+    window.addEventListener('blur', blurred)
+    return () => {
+      io.disconnect(); rows.end()
+      document.removeEventListener('visibilitychange', look)
+      window.removeEventListener('focus', look)
+      window.removeEventListener('blur', blurred)
+    }
   }, [activityOpen, activityItems, activityTab, markActivitySeen])
   // A place to go to inside a conversation, once it has loaded: a message,
   // or a reply in a thread.

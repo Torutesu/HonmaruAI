@@ -140,6 +140,8 @@ const table: Record<string, string> = {
   'Show': '表示',
   'Shrink': '元に戻す',
   'Stop sharing': '共有を停止',
+  'The screen could not be shared.': '画面を共有できませんでした。',
+  'Your system settings do not allow screen sharing. Allow it and try again.': 'システムの設定で画面の共有が許可されていません。許可してから、もう一度お試しください。',
   'This Jam is not recorded, so nothing is written down.': 'このJamは記録しない設定なので、文字起こしはされません。',
   'This browser cannot write down what you say; others’ words still appear here.': 'このブラウザではあなたの発言を文字にできません。ほかの人の発言はここに表示されます。',
   'Turn camera off': 'カメラをオフ',

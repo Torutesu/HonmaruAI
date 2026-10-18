@@ -14,6 +14,9 @@ export interface DesktopBridge {
   /// machine, or no input for a while (apps/desktop/src/attention.js). The
   /// page's visibilityState cannot say so in the desktop app.
   away?: () => boolean
+  /// The shell answers getDisplayMedia() with a picker of screens and
+  /// windows (apps/desktop/src/capture.js). One built before it refuses it.
+  screenShare?: boolean
 }
 
 /// The bridge, when this page is running in the desktop app.
