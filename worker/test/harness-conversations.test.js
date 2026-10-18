@@ -54,3 +54,42 @@ test('simultaneous retries converge and other apps or records never share a thre
  expect((await (await request('GET',owner,{},another.id)).json()).messages).toEqual([]);
  expect((await request('GET',owner,{tableId:app.tableId,rowId:row.id},another.id)).status).toBe(404);
 });
+
+const featureRequest=(suffix,method,token,input={})=>worker.fetch(new Request('https://test/apps/'+app.id+'/'+suffix+(method==='GET'?'?orgId='+encodeURIComponent(org):''),{method,headers:{'x-session-token':token,'content-type':'application/json'},...(method==='GET'?{}:{body:JSON.stringify({orgId:org,...input})})}),env);
+test('source inheritance reuses the original thread and preserves room access, record separation and retries',async()=>{
+ const {postMessage}=await import('../src/channels.js');
+ const {linkApp}=await import('../src/harness/apps.js');
+ await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,created_by,created_at) VALUES (?,'source','Source','9201',?)").bind(org,new Date().toISOString()).run();
+ const root=await postMessage(env.DB,{orgId:org,key:'b:source',authorLogin:'user9201',body:'Original app request'});
+ await linkApp(env.DB,org,app.id,'b:source','9201');
+ expect((await featureRequest('conversation-source','POST',member,{messageId:root.row.id})).status).toBe(403);
+ expect((await featureRequest('conversation-source','POST',owner,{messageId:root.row.id})).status).toBe(200);
+ expect((await featureRequest('conversation-source','POST',owner,{messageId:root.row.id})).status).toBe(200);
+ const history=await (await request('GET',owner)).json();expect(history.source.threadId).toBe(root.row.id);expect(history.source.messages[0].body).toBe('Original app request');
+ expect((await post(owner,'Continue here','source_request_001')).status).toBe(200);
+ expect((await post(owner,'Continue here','source_request_001')).status).toBe(200);
+ const replies=await env.DB.prepare('SELECT body FROM channel_messages WHERE parent_id=?').bind(root.row.id).all();expect(replies.results.map(r=>r.body)).toEqual(['Continue here']);
+ expect((await (await request('GET',owner,{tableId:app.tableId,rowId:row.id})).json()).source).toBeNull();
+ await env.DB.prepare('DELETE FROM businesses WHERE org_id=? AND slug=?').bind(org,'source').run();
+ expect((await request('GET',owner)).status).toBe(403);expect((await post(owner,'No access','source_request_002')).status).toBe(403);
+});
+test('mentions notify only accessible members once and reads synchronize across sessions',async()=>{
+ const scope={tableId:app.tableId,rowId:row.id};
+ await post(owner,'@user9202 please review @user9203 @user9204','mention_request_01',scope);
+ await post(owner,'@user9202 please review @user9203 @user9204','mention_request_01',scope);
+ const notifications=await (await featureRequest('conversation-notifications','GET',member)).json();expect(notifications.items).toHaveLength(1);expect(notifications.items[0].rowId).toBe(row.id);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_notifications').first()).n).toBe(1);
+ expect((await featureRequest('conversation-notifications','POST',member,{messageId:notifications.items[0].messageId})).status).toBe(200);
+ const second=await createSession(env.DB,'9202','another-session');expect((await (await featureRequest('conversation-notifications','GET',second)).json()).items[0].readAt).toBeTruthy();
+ await env.DB.prepare('DELETE FROM hx_rows WHERE id=?').bind(row.id).run();expect((await (await featureRequest('conversation-notifications','GET',member)).json()).items).toEqual([]);
+});
+test('creation records its supplied source thread but refuses an unavailable source before creating data',async()=>{
+ const {postMessage}=await import('../src/channels.js');
+ await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,created_by,created_at) VALUES (?,'creation','Creation','9201',?)").bind(org,new Date().toISOString()).run();
+ const root=await postMessage(env.DB,{orgId:org,key:'b:creation',authorLogin:'user9201',body:'Create an app'});
+ const made=await createApp(env.DB,{orgId:org,by:'9201',name:'Inherited',columns:[{id:'title',name:'Title',type:'text'}],sourceThreadId:root.row.id});expect(await env.DB.prepare('SELECT channel FROM hx_app_links WHERE app_id=?').bind(made.app.id).first()).toEqual({channel:'b:creation'});
+ expect((await (await request('GET',owner,{},made.app.id)).json()).source.threadId).toBe(root.row.id);
+ const count=await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps').first();
+ expect((await createApp(env.DB,{orgId:org,by:'9201',name:'Invalid',columns:[],sourceThreadId:'missing'})).status).toBe(404);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps').first()).toEqual(count);
+});

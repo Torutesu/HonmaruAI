@@ -7,7 +7,7 @@ import { providerFor } from "../orgAI.js";
 import { allowanceFor } from "../gate.js";
 import { noteUsage, settleUsage } from "../ledger.js";
 
-export async function completer(env, orgId, githubId, purpose, { maxTokens = 900, json = true } = {}) {
+export async function completer(env, orgId, githubId, purpose, { maxTokens = 900, json = true, timeoutMs = 30000 } = {}) {
   const provider = await providerFor(env, orgId).catch(() => null);
   if (!provider) return null;
   const allowance = await allowanceFor(env, orgId, { githubId: String(githubId) });
@@ -15,7 +15,7 @@ export async function completer(env, orgId, githubId, purpose, { maxTokens = 900
   return async (system, user) => {
     try {
       const res = await fetch(provider.endpoint, {
-        method: "POST",
+        method: "POST", signal: AbortSignal.timeout(timeoutMs),
         headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           model: provider.model, temperature: 0.2, max_tokens: maxTokens,
