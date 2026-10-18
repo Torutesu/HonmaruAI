@@ -125,24 +125,24 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
     `SELECT * FROM scheduled_messages WHERE sent_at IS NULL AND send_at <= ?1 AND send_at > ?2
        AND (lease_until IS NULL OR lease_until <= ?1) ORDER BY send_at LIMIT 50`
   ).bind(at, new Date(now.getTime() - SEND_RETRY_MS).toISOString()).all().catch((err) => { console.error("scheduled messages unavailable", err?.message || err); return { results: [] }; });
-  const done = (id) => db.prepare("UPDATE scheduled_messages SET sent_at = ?2, lease_until = NULL WHERE id = ?1").bind(id, at).run();
+  const done = (row) => db.prepare("UPDATE scheduled_messages SET sent_at = ?2, lease_until = NULL WHERE id = ?1 AND org_id = ?3").bind(row.id, at, row.org_id).run();
   for (const row of due || []) {
     try {
-      const claim = await db.prepare("UPDATE scheduled_messages SET lease_until = ?2 WHERE id = ?1 AND sent_at IS NULL AND (lease_until IS NULL OR lease_until <= ?3)")
-        .bind(row.id, new Date(now.getTime() + SEND_LEASE_MS).toISOString(), at).run();
+      const claim = await db.prepare("UPDATE scheduled_messages SET lease_until = ?2 WHERE id = ?1 AND org_id = ?4 AND sent_at IS NULL AND (lease_until IS NULL OR lease_until <= ?3)")
+        .bind(row.id, new Date(now.getTime() + SEND_LEASE_MS).toISOString(), at, row.org_id).run();
       if (!(claim.meta?.changes > 0)) continue;
       // Still a member? A message scheduled by somebody who has since left
       // is not sent in their name.
       const member = await db.prepare(
         "SELECT 1 FROM memberships ms JOIN users u ON u.github_id = ms.user_github_id WHERE ms.org_id = ?1 AND u.login = ?2"
       ).bind(row.org_id, row.author_login).first();
-      if (!member) { await done(row.id); continue; }
+      if (!member) { await done(row); continue; }
       // Nor into a private channel or group they are no longer in.
-      if (!mayRead(row.channel, await accessFor(db, row.org_id, row.author_login))) { await done(row.id); continue; }
+      if (!mayRead(row.channel, await accessFor(db, row.org_id, row.author_login))) { await done(row); continue; }
       // Its own retry key: tried again after the post landed but before it
       // was marked sent, it finds that message rather than saying it twice.
       const out = await postMessage(db, { orgId: row.org_id, key: row.channel, authorLogin: row.author_login, body: row.body, parentId: row.parent_id, alsoChannel: Boolean(row.also_channel), clientId: `tmp-later-${row.id}` });
-      await done(row.id);
+      await done(row);
       if (out.row) { sent += 1; if (broadcast) await broadcast(row.org_id, row.channel, out.row).catch(() => {}); }
     } catch (err) {
       console.error("scheduled send failed", err?.message || err);

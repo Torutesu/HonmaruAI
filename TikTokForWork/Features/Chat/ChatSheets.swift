@@ -18,6 +18,8 @@ struct ChatThreadSheet: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var attached: [ChatFile] = []
     @State private var uploading = 0
+    /// Photos were picked past what one reply carries, and left out.
+    @State private var photoLimitNote = false
     @FocusState private var focused: Bool
     /// Whether the newest reply is in view. There, what arrives is scrolled
     /// to; up in the earlier replies, the place is kept and what arrived is
@@ -132,24 +134,35 @@ struct ChatThreadSheet: View {
                     if !attached.isEmpty || uploading > 0 {
                         ChatAttachedStrip(store: store, attached: $attached, uploading: uploading).padding(.horizontal, 12)
                     }
+                    if photoLimitNote {
+                        Text("A message can carry at most 10 files.")
+                            .font(.footnote).foregroundStyle(Theme.Colors.textSecondary)
+                            .padding(.horizontal, 16)
+                    }
                     // "@" offers names here too, as in the conversation.
                     if let channel = store.thread?.parent.channel {
                         ChatMentionSuggestions(store: store, view: channel, draft: $draft)
                     }
                     HStack(alignment: .bottom, spacing: 8) {
-                        PhotosPicker(selection: $photoItems, maxSelectionCount: 10, matching: .images) {
+                        let photoRoom = ChatPhotos.room(attached: attached.count, uploading: uploading)
+                        PhotosPicker(selection: $photoItems, maxSelectionCount: max(photoRoom, 1), matching: .images) {
                             Image(systemName: "plus").font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(Theme.Colors.textSecondary)
+                                .foregroundStyle(photoRoom == 0 ? Theme.Colors.textTertiary : Theme.Colors.textSecondary)
                                 .frame(width: 44, height: 44).glassCircle()
                         }
+                        .disabled(photoRoom == 0)
                         .accessibilityLabel("Add photos")
                         .onChange(of: photoItems) { _, items in
                             guard !items.isEmpty, let channel = store.thread?.parent.channel else { return }
                             photoItems = []
+                            let taken = Array(items.prefix(ChatPhotos.room(attached: attached.count, uploading: uploading)))
+                            photoLimitNote = taken.count < items.count
+                            guard !taken.isEmpty else { return }
+                            // Their places are kept from now, before the first has gone up.
+                            uploading += taken.count
                             Task {
-                                uploading += items.count
-                                for file in await ChatPhotos.upload(items, to: channel, store: store) { attached.append(file) }
-                                uploading -= items.count
+                                for file in await ChatPhotos.upload(taken, to: channel, store: store) { attached.append(file) }
+                                uploading -= taken.count
                             }
                         }
                         TextField("Reply… — @AI to ask the AI", text: $draft, axis: .vertical)
@@ -169,6 +182,7 @@ struct ChatThreadSheet: View {
                             draft = ""
                             alsoChannel = false
                             attached = []
+                            photoLimitNote = false
                             Task {
                                 let went = await store.send(t.parent.channel, text: text, parentId: t.parent.id, alsoChannel: both, replyTo: quote, files: files, clientId: clientId)
                                 if went || store.isHeld(clientId) {
@@ -1063,6 +1077,16 @@ struct ChatCatchUpView: View {
 /// Pictures picked from the camera roll, made JPEGs (a HEIC would not show
 /// everywhere) and uploaded to the conversation they are for.
 enum ChatPhotos {
+    /// How many files one message carries; the Worker refuses a send with more.
+    static let maxPerMessage = 10
+
+    /// How many more can be picked for a message holding `attached` files
+    /// with `uploading` more on their way up. Those going up keep their
+    /// places, so picking again before they arrive cannot add up to more.
+    static func room(attached: Int, uploading: Int) -> Int {
+        max(0, maxPerMessage - attached - uploading)
+    }
+
     @MainActor
     static func upload(_ items: [PhotosPickerItem], to view: String, store: ChatStore) async -> [ChatFile] {
         var out: [ChatFile] = []

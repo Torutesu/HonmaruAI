@@ -272,6 +272,26 @@ final class ChannelRecordTests: XCTestCase {
         XCTAssertEqual(ChatMentionDirectory.shared.agentCalled(in: "＠hayaoに頼む")?.id, "a1")
         XCTAssertNil(ChatMentionDirectory.shared.agentCalled(in: "@gota 見て"))
     }
+
+    func testPhotosPickedInSeveralGoesNeverAddUpToMoreThanAMessageCarries() {
+        XCTAssertEqual(ChatPhotos.maxPerMessage, 10)
+        XCTAssertEqual(ChatPhotos.room(attached: 0, uploading: 0), 10)
+        // Ten picked: nothing more, whether they have arrived or are still going up.
+        XCTAssertEqual(ChatPhotos.room(attached: 10, uploading: 0), 0)
+        XCTAssertEqual(ChatPhotos.room(attached: 4, uploading: 6), 0)
+        XCTAssertEqual(ChatPhotos.room(attached: 7, uploading: 2), 1)
+        // Taking one off gives back exactly one place.
+        XCTAssertEqual(ChatPhotos.room(attached: 9, uploading: 0), 1)
+        XCTAssertEqual(ChatPhotos.room(attached: 12, uploading: 0), 0)
+    }
+
+    func testAFailedRenewalIsTriedAgainSoonAndNeverLeftForGood() {
+        XCTAssertEqual(ChatMediaURLs.retryDelay(afterFailures: 1), 10)
+        XCTAssertEqual(ChatMediaURLs.retryDelay(afterFailures: 2), 20)
+        XCTAssertEqual(ChatMediaURLs.retryDelay(afterFailures: 3), 40)
+        XCTAssertEqual(ChatMediaURLs.retryDelay(afterFailures: 4), 60)
+        XCTAssertEqual(ChatMediaURLs.retryDelay(afterFailures: 50), 60)
+    }
 }
 
 final class ChatTranslationTests: XCTestCase {

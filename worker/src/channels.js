@@ -3,7 +3,7 @@ import { businessSlug } from "./db.js";
 import { resolveMentions, MENTION_BEFORE } from "./threads.js";
 
 const NOBODY = new Set();
-import { filesFor, toFile } from "./files.js";
+import { filesFor, toFile, claimFiles } from "./files.js";
 import { accessFor, mayRead, membersOf, isGroupKey, hasGuests, publicAudience } from "./access.js";
 import { parseKeywords, keywordHit } from "./quiet.js";
 import { messageLanguage } from "./translate.js";
@@ -527,10 +527,17 @@ async function messageByClientId(db, orgId, authorLogin, clientId) {
   return hit ? getMessage(db, orgId, hit.id) : null;
 }
 
-export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, clientId = null, alsoChannel = false, onBehalfOf = null }) {
+/// A send naming an upload that is not there any more: swept unsent, or
+/// gone with its message. Said, so the file can be attached again, rather
+/// than sent without it.
+const FILES_GONE = "A file in this message is no longer there. Attach it again.";
+
+export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null }) {
   const text = String(body || "").replace(/\r\n/g, "\n").trim();
-  // A picture on its own is something said.
-  if (!text && !withFiles) return { error: "Write something first." };
+  const remembered = clientIdOk(clientId) ? clientId : null;
+  // A picture on its own is something said. A retry of one has had its
+  // files claimed already, and is answered below with what it made.
+  if (!text && !withFiles && !files?.gone && !remembered) return { error: "Write something first." };
   if (text.length > MAX_MESSAGE_CHARS) return { error: `That is longer than ${MAX_MESSAGE_CHARS} characters.` };
   if (clientId != null && clientId !== "" && !clientIdOk(clientId)) return { error: "That send cannot be tried again.", status: 400 };
   if (parentId) {
@@ -541,11 +548,12 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
   }
   // A retry of a send that already landed gets that message back, before
   // anything about it is checked again: it was fine when it was written.
-  const remembered = clientIdOk(clientId) ? clientId : null;
   if (remembered && authorLogin) {
     const prior = await messageByClientId(db, orgId, authorLogin, remembered);
     if (prior) return { row: prior, replay: true };
   }
+  if (files?.gone) return { error: FILES_GONE, code: "files_gone", status: 409 };
+  if (!text && !withFiles) return { error: "Write something first." };
   if (replyTo) {
     // An inline reply answers a message where it is read: the conversation
     // for a message, the same thread for a reply in one. Gone, unsent or
@@ -562,18 +570,38 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
   // Strictly after the channel's last message, so two sent in the same
   // millisecond still read in the order they were sent.
   const now = new Date().toISOString();
+  const columns = "id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of";
+  const values = [id, orgId, key, authorLogin, kind, text, cardId, now, parentId, replyTo || null, remembered, parentId && alsoChannel ? 1 : 0, kind === "agent" && onBehalfOf ? onBehalfOf : null];
+  const marks = values.map((_, i) => `?${i + 1}`).join(", ");
   try {
     // A reply is written only while its parent is still there, in the same
     // statement: a thread deleted after the check above takes no reply.
-    const put = await db
-      .prepare(
-        `INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
-         WHERE ?9 IS NULL OR EXISTS (SELECT 1 FROM channel_messages WHERE org_id = ?2 AND id = ?9 AND deleted_at IS NULL)`
-      )
-      .bind(id, orgId, key, authorLogin, kind, text, cardId, now, parentId, replyTo || null, remembered, parentId && alsoChannel ? 1 : 0, kind === "agent" && onBehalfOf ? onBehalfOf : null)
-      .run();
-    if (parentId && !put.meta?.changes) return { error: THREAD_GONE, code: "thread_gone" };
+    const parentLive = "(?9 IS NULL OR EXISTS (SELECT 1 FROM channel_messages WHERE org_id = ?2 AND id = ?9 AND deleted_at IS NULL))";
+    if (files?.ids?.length) {
+      // The message and its files in one step, all or none: its uploads are
+      // claimed, the message is written only if every one of them still
+      // could be (the sweep of unsent ones may have taken one since they
+      // were looked at), and a claim whose message was not written is let
+      // go. A send that fails part way leaves no message missing its files,
+      // and a retry of it is a send like the first.
+      const done = await db.batch([
+        claimFiles(db, { orgId, key, login: files.login, messageId: id, ids: files.ids }),
+        db.prepare(`INSERT INTO channel_messages (${columns}) SELECT ${marks}
+                    WHERE ${parentLive} AND (SELECT COUNT(*) FROM message_files WHERE org_id = ?2 AND message_id = ?1) = ?${values.length + 1}`)
+          .bind(...values, files.ids.length),
+        db.prepare("UPDATE message_files SET message_id = NULL WHERE org_id = ?1 AND message_id = ?2 AND NOT EXISTS (SELECT 1 FROM channel_messages WHERE org_id = ?1 AND id = ?2)")
+          .bind(orgId, id),
+      ]);
+      if (!done[1].meta?.changes) {
+        if (parentId && !(await db.prepare("SELECT 1 FROM channel_messages WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, parentId).first())) {
+          return { error: THREAD_GONE, code: "thread_gone" };
+        }
+        return { error: FILES_GONE, code: "files_gone", status: 409 };
+      }
+    } else {
+      const put = await db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}`).bind(...values).run();
+      if (parentId && !put.meta?.changes) return { error: THREAD_GONE, code: "thread_gone" };
+    }
   } catch (err) {
     if (remembered && authorLogin) {
       const prior = await messageByClientId(db, orgId, authorLogin, remembered);
