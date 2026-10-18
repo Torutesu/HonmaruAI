@@ -382,3 +382,32 @@ test("a workflow's follow-up is scheduled with its maker's access, and checked a
   expect((await messages(toru)).map((m) => m.body)).not.toContain("⏰ Follow-up: Did Globex pay?");
   expect((await startRun(env, { orgId: ORG, workflow, trigger: "manual", input: { text: "Initech" } })).status).toBe("failed");
 });
+
+test("what starts a run is kept whole: a large webhook body still renders, and one too large to keep fails before any step", async () => {
+  const { createWorkflow, startRun, continueRun, getRun, MAX_INPUT } = await import("../src/harness/workflows.js");
+  const made = await (await send("POST", "/workflows", mika, {
+    orgId: ORG, name: "Customer hook", trigger: { type: "webhook" },
+    steps: [{ type: "post", channel: "b:ops", text: "Customer: {{input.customer}}" }],
+  })).json();
+  const path = new URL(made.hookUrl).pathname;
+  const body = JSON.stringify({ customer: "Acme \"東京\"", padding: "x".repeat(25000) });
+  const hooked = await (await call(`${path}?secret=${made.workflow.hookSecret}`, { method: "POST", headers: { "content-type": "application/json" }, body })).json();
+  expect(hooked.status).toBe("done");
+  expect((await messages(mika)).map((m) => m.body)).toContain("Customer: Acme \"東京\"");
+  expect((await getRun(env.DB, ORG, hooked.runId)).input.customer).toBe("Acme \"東京\"");
+
+  const { workflow } = await createWorkflow(env.DB, ORG, { name: "Big", trigger: { type: "manual" }, steps: [{ type: "post", channel: "b:ops", text: "Got {{input.customer}}" }] }, "9302");
+  const huge = await startRun(env, { orgId: ORG, workflow, trigger: "manual", input: { customer: "Initech", padding: "x".repeat(MAX_INPUT) } });
+  expect(huge).toMatchObject({ status: "failed", input: null });
+  expect(huge.log).toEqual([expect.objectContaining({ step: 1, status: "failed", error: expect.stringMatching(/over/) })]);
+  expect((await messages(mika)).map((m) => m.body)).not.toContain("Got Initech");
+
+  // A run whose stored input no longer reads as JSON fails rather than
+  // going on as though nothing had started it.
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_at)
+    VALUES ('run_cut', ?1, ?2, 'webhook', 'running', '{"customer":"Globex","padding":"xx', '[]', 0, ?3)`).bind(ORG, workflow.id, new Date().toISOString()).run();
+  const cut = await continueRun(env, { orgId: ORG, runId: "run_cut", workflow });
+  expect(cut.status).toBe("failed");
+  expect(cut.log[0]).toMatchObject({ status: "failed", error: "What started this run can no longer be read." });
+  expect((await messages(mika)).some((m) => m.body.startsWith("Got "))).toBe(false);
+});

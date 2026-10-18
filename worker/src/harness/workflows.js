@@ -33,6 +33,9 @@ export const MAX_WORKFLOWS = 100;
 /// A step that changes a row may start another workflow; a chain longer
 /// than this is a loop, and stops.
 export const MAX_DEPTH = 3;
+/// The most a run keeps of what started it, as JSON: room for a webhook's
+/// whole 64,000-character body even where escaping makes it longer.
+export const MAX_INPUT = 200000;
 
 const now = () => new Date().toISOString();
 const newId = (p) => `${p}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
@@ -285,14 +288,20 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
   // Store the definition and the run atomically. An approval always resumes
   // the same steps that were presented when the run started.
   const definition = { id: workflow.id, name: workflow.name, steps: workflow.steps, trigger: workflow.trigger, createdBy: workflow.createdBy };
+  // Input is kept whole or the run fails before its first step: JSON cut
+  // short is no longer JSON, and the steps would run on blanks.
+  const stored = input ? JSON.stringify(input) : null;
+  const tooLarge = stored !== null && stored.length > MAX_INPUT;
+  const failed = tooLarge ? [{ step: 1, type: workflow.steps[0]?.type, at: now(), status: "failed", error: `What started this run is over ${MAX_INPUT} characters.` }] : [];
   await env.DB.batch([
-    env.DB.prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_by, started_at)
-      VALUES (?1, ?2, ?3, ?4, 'running', ?5, '[]', 0, ?6, ?7)`)
-      .bind(id, orgId, workflow.id, trigger, input ? JSON.stringify(input).slice(0, 20000) : null, startedBy ? String(startedBy) : null, now()),
+    env.DB.prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_by, started_at, finished_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`)
+      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, now(), tooLarge ? now() : null),
     env.DB.prepare("INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at) VALUES (?1, ?2, ?3, ?4)")
       .bind(id, orgId, JSON.stringify(definition), now()),
   ]);
   await env.DB.prepare("UPDATE hx_workflows SET last_run_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), workflow.id, orgId).run();
+  if (tooLarge) return getRun(env.DB, orgId, id);
   return continueRun(env, { orgId, runId: id, workflow, depth });
 }
 
@@ -305,6 +314,13 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
   // Runs created before this table existed retain their previous behavior.
   workflow = frozen ? JSON.parse(frozen.definition) : (workflow || await getWorkflow(db, orgId, run.workflowId));
   if (!workflow) return null;
+  // Input that does not read back (cut short by an earlier version) is a
+  // run that no longer knows what started it: it fails here, not on blanks.
+  if (run.input === null && (await db.prepare("SELECT input FROM hx_workflow_runs WHERE id = ?1 AND org_id = ?2").bind(runId, orgId).first())?.input != null) {
+    const log = [...run.log, { step: run.nextStep + 1, type: workflow.steps[run.nextStep]?.type, at: now(), status: "failed", error: "What started this run can no longer be read." }];
+    await db.prepare("UPDATE hx_workflow_runs SET status = 'failed', log = ?1, finished_at = ?2 WHERE id = ?3 AND org_id = ?4").bind(JSON.stringify(log), now(), runId, orgId).run();
+    return getRun(db, orgId, runId);
+  }
   const sourceTable = workflow.trigger?.tableId || run.input?.tableId;
   if (sourceTable && !(await mayUseTable(db, orgId, sourceTable, workflow.createdBy))) {
     await db.prepare("UPDATE hx_workflow_runs SET status = 'failed', finished_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), runId, orgId).run();
