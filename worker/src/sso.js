@@ -339,14 +339,19 @@ async function pickConnection(db, orgId, { connectionId, email, test }) {
 
 /// Where the provider's sign-in page is for this workspace, with a state
 /// saved to check the answer against.
-export async function startUrl(env, url, orgId, { client = "web", email = null, testerId = null, connectionId = null } = {}) {
+///
+/// `browser`, from the web: the hash of a secret the page that started this
+/// keeps. The code this sign-in comes back with is then traded only with
+/// that secret, so a link to someone else's finished sign-in opened in
+/// another browser signs nobody in there.
+export async function startUrl(env, url, orgId, { client = "web", email = null, testerId = null, connectionId = null, browser = null } = {}) {
   const conn = await pickConnection(env.DB, orgId, { connectionId, email, test: client === "test" });
   if (!conn || (client !== "test" && conn.status !== "active")) throw new Error("Single sign-on is not on for this workspace.");
   const state = random(24);
   const now = Date.now();
   const save = (nonce, verifier) => env.DB.prepare(
-    `INSERT INTO sso_states (state, org_id, nonce, code_verifier, return_to, tester_id, created_at, expires_at, connection_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
-  ).bind(state, orgId, nonce, verifier, client, testerId, new Date(now).toISOString(), new Date(now + STATE_MINUTES * 60_000).toISOString(), conn.id).run();
+    `INSERT INTO sso_states (state, org_id, nonce, code_verifier, return_to, tester_id, created_at, expires_at, connection_id, browser_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+  ).bind(state, orgId, nonce, verifier, client, testerId, new Date(now).toISOString(), new Date(now + STATE_MINUTES * 60_000).toISOString(), conn.id, browser).run();
 
   if (conn.provider === "saml") {
     // The request's ID is what the assertion must answer (InResponseTo).
@@ -471,8 +476,8 @@ async function finishSignIn(env, request, row, conn, identity, grant = {}) {
   await signedIn(env, request, token, account.githubId, "sso");
   await mark();
   const code = random(24);
-  await env.DB.prepare("INSERT INTO sso_handoffs (code, token, org_id, client, expires_at) VALUES (?1, ?2, ?3, ?4, ?5)")
-    .bind(await sha256Hex(code), token, conn.org_id, client, new Date(Date.now() + HANDOFF_SECONDS * 1000).toISOString()).run();
+  await env.DB.prepare("INSERT INTO sso_handoffs (code, token, org_id, client, expires_at, browser_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
+    .bind(await sha256Hex(code), token, conn.org_id, client, new Date(Date.now() + HANDOFF_SECONDS * 1000).toISOString(), row.browser_hash || null).run();
   return redirect(back(env, client, { code }));
 }
 
@@ -578,12 +583,16 @@ async function samlLogout(env, request, url, connectionId) {
 }
 
 /// The one-time code for the session it stands for: once, within a minute,
-/// by the kind of client it was issued to.
-export async function exchange(env, { code, client }) {
+/// by the kind of client it was issued to — and, for a sign-in a browser
+/// started with a secret (`verifier`), only with that secret. A browser that
+/// holds a secret trades it for no code but its own, so a code sent from
+/// elsewhere cannot swap whoever is signed in there for another account.
+export async function exchange(env, { code, client, verifier }) {
   const kind = client === "ios" ? "ios" : "web";
+  const browser = typeof verifier === "string" && verifier ? b64url(await crypto.subtle.digest("SHA-256", enc.encode(verifier))) : null;
   // Spent only by the kind of client it was issued to, and then only once.
-  const row = await env.DB.prepare("DELETE FROM sso_handoffs WHERE code = ?1 AND (CASE WHEN client = 'ios' THEN 'ios' ELSE 'web' END) = ?2 RETURNING *")
-    .bind(await sha256Hex(String(code || "")), kind).first().catch(() => null);
+  const row = await env.DB.prepare("DELETE FROM sso_handoffs WHERE code = ?1 AND (CASE WHEN client = 'ios' THEN 'ios' ELSE 'web' END) = ?2 AND browser_hash IS ?3 RETURNING *")
+    .bind(await sha256Hex(String(code || "")), kind, browser).first().catch(() => null);
   if (!row || row.expires_at <= new Date().toISOString()) return { error: "That sign-in code has expired, or is for a different app. Start again.", status: 400 };
   const session = await env.DB.prepare("SELECT github_id FROM sessions WHERE token = ?1").bind(await sessionKey(row.token)).first();
   if (!session) return { error: "That sign-in has ended.", status: 400 };
@@ -822,8 +831,10 @@ export async function handleSso(request, env, url) {
     const limited = await enforce(env, request, "sso");
     if (limited) return limited;
     const client = ["web", "ios"].includes(url.searchParams.get("client")) ? url.searchParams.get("client") : "web";
+    const bind = url.searchParams.get("bind") || "";
+    const browser = client === "web" && /^[A-Za-z0-9_-]{43}$/.test(bind) ? bind : null;
     try {
-      return redirect(await startUrl(env, url, url.searchParams.get("orgId") || "", { client, email: url.searchParams.get("email"), connectionId: url.searchParams.get("connection") }));
+      return redirect(await startUrl(env, url, url.searchParams.get("orgId") || "", { client, email: url.searchParams.get("email"), connectionId: url.searchParams.get("connection"), browser }));
     } catch (err) {
       return redirect(back(env, client, { error: err?.message || String(err) }));
     }
@@ -851,7 +862,7 @@ export async function handleSso(request, env, url) {
     const limited = await enforce(env, request, "sso");
     if (limited) return limited;
     const body = await request.json().catch(() => ({}));
-    const out = await exchange(env, { code: body.code, client: body.client });
+    const out = await exchange(env, { code: body.code, client: body.client, verifier: body.verifier });
     return out.error ? json({ message: out.error }, out.status) : json(out);
   }
   if (!path.startsWith("/orgs/sso")) return null;

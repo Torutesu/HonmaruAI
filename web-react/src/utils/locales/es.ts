@@ -1015,6 +1015,8 @@ const table: Record<string, string> = {
     'Cambiar esto no cambia nada más: es solo dónde llega el correo.',
   'This is the address you sign in with, so it cannot be changed here.':
     'Es la dirección con la que entras, así que no se puede cambiar aquí.',
+  'Your company manages this address, so it cannot be changed here.':
+    'Tu empresa gestiona esta dirección, así que no se puede cambiar aquí.',
   'On this device': 'En este dispositivo',
   'By email': 'Por email',
   'Email fallback': 'Respaldo por email',
@@ -1603,6 +1605,7 @@ const table: Record<string, string> = {
   '{team} signs in only with {provider}.': '{team} solo inicia sesión con {provider}.',
   '{team} uses {provider} for sign-in.': '{team} usa {provider} para iniciar sesión.',
   'That sign-in did not finish. Try again.': 'El inicio de sesión no terminó. Inténtalo de nuevo.',
+  'That sign-in was not started in this browser. Start it again here.': 'Este inicio de sesión no se empezó en este navegador. Empiézalo de nuevo aquí.',
   'Workspace keys': 'Claves del espacio',
   'For an HR system or Terraform: add and remove people, set up channels, read the audit log. The key belongs to the workspace, not to whoever made it, and never reads messages.': 'Para un sistema de RR. HH. o Terraform: añadir y quitar personas, preparar canales y leer el registro de auditoría. La clave es del espacio, no de quien la creó, y nunca lee mensajes.',
   'Make a key': 'Crear una clave',

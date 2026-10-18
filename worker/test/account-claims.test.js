@@ -124,6 +124,8 @@ test("an address a workspace holds to its SSO cannot be moved out from under it"
   await env.DB.prepare("INSERT INTO org_sso_policy (org_id, enforce, enforce_since, updated_at) VALUES ('team:acme', 1, ?1, ?1)").bind(now).run();
   const ken = await createSession(env.DB, "gh-ken", "x");
 
+  // Settings say so before anyone tries.
+  expect(await (await call("/me", { token: ken })).json()).toMatchObject({ emailEditable: false, emailManaged: true });
   expect((await call("/me", { token: ken, method: "PUT", body: { email: "ken@gmail.com" } })).status).toBe(403);
   expect((await userOf("gh-ken")).email).toBe("ken@acme.jp");
   // The unchanged address, sent with the rest of a profile, is still fine.

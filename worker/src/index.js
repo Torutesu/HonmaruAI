@@ -125,6 +125,27 @@ export { OrgRelay } from "./relay.js";
 export { AgentRunner } from "./agentRunner.js";
 export { WorkspaceDO } from "./workspace/do.js";
 
+/// Whether one of this person's workspaces holds their address to its single
+/// sign-on — the address then stays where the company put it.
+async function ssoHoldsEmail(env, githubId) {
+  const { ssoRequiredFor } = await import("./sso.js");
+  for (const org of await listUserOrgs(env.DB, githubId)) {
+    if (await ssoRequiredFor(env.DB, org.id, githubId)) return true;
+  }
+  return false;
+}
+
+/// Whether this person may change where mail goes, by the same rules `PUT
+/// /me` applies. An email account signs in with its address; an account a
+/// company's identity provider or directory made, or one a workspace holds
+/// to its SSO, has the address the company gave it (`emailManaged`).
+async function emailCapability(env, user) {
+  const id = String(user.github_id);
+  if (id.startsWith("email:")) return { emailEditable: false, emailManaged: false };
+  const managed = id.startsWith("sso:") || id.startsWith("scim:") || await ssoHoldsEmail(env, id);
+  return { emailEditable: !managed, emailManaged: managed };
+}
+
 /// The language a request was made in, from the header every client sends
 /// without being asked: URLSession fills Accept-Language from the device's
 /// languages, browsers from their settings. It seeds a new account's locale
@@ -1619,9 +1640,7 @@ async function handle(request, env, url, ctx) {
         avatarUrl: user.avatar_url || null,
         locale: user.locale || "en",
         email: user.email || null,
-        // An email account signs in with its address; only a GitHub account
-        // can change where mail goes.
-        emailEditable: !String(user.github_id).startsWith("email:"),
+        ...(await emailCapability(env, user)),
         aliases: parseAliases(user.aliases),
         notifyEmail: Number(user.notify_email ?? 1) !== 0,
         pushWhileActive: Boolean(user.push_while_active),
@@ -1687,7 +1706,10 @@ async function handle(request, env, url, ctx) {
       }
       const contexts = await loadContexts(env.DB, orgId);
       const mine = contexts[user.login];
-      return json({ orgId, text: typeof mine?.text === "string" ? mine.text : "" });
+      // `saved`: whether any text was ever kept, an empty one included. An
+      // empty one was cleared on purpose, on some device; a browser's older
+      // copy must not be sent up over it as if it had never been saved.
+      return json({ orgId, text: typeof mine?.text === "string" ? mine.text : "", saved: typeof mine?.text === "string" });
     }
     if (url.pathname === "/me" && request.method === "PUT") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
@@ -1747,11 +1769,8 @@ async function handle(request, env, url, ctx) {
         // address. An address one of their workspaces holds to SSO stays put:
         // moving it elsewhere and signing in with a code there was a way
         // round the requirement, and past the company switching them off.
-        const { ssoRequiredFor } = await import("./sso.js");
-        for (const org of await listUserOrgs(env.DB, session.github_id)) {
-          if (await ssoRequiredFor(env.DB, org.id, session.github_id)) {
-            return json({ message: "Your company manages this address through its single sign-on." }, 403);
-          }
+        if (await ssoHoldsEmail(env, session.github_id)) {
+          return json({ message: "Your company manages this address through its single sign-on." }, 403);
         }
         const result = await setUserEmail(env.DB, session.github_id, body.email);
         if (result.error) return json({ message: result.error }, 400);

@@ -189,6 +189,37 @@ describe('keeping it on', () => {
       expect(kept1.unsubscribe).toHaveBeenCalled()
     })
 
+    // A tab left open as A, after B signed in in another: signing A out
+    // there must not turn B's push off.
+    it('is left alone, with the subscription, by a tab whose session is no longer this browser’s', async () => {
+      const saved: Record<string, string> = { sessionToken: 'tok' }
+      vi.stubGlobal('localStorage', { getItem: (k: string) => saved[k] ?? null })
+      const httpBase = http()
+      expect(await enableWebPush(httpBase, 'tok')).toBe('on')
+      const theirs = current!
+      saved.sessionToken = 'tok-b'
+      await disableWebPush(httpBase, 'tok-a')
+      expect(kept.get('/push-key')).toBe(KEY)
+      expect(theirs.unsubscribe).not.toHaveBeenCalled()
+      expect(requests.filter((r) => r.method === 'DELETE')).toHaveLength(0)
+    })
+
+    it('keeps the subscription when another session signs in while turning off waits', async () => {
+      const saved: Record<string, string> = { sessionToken: 'tok' }
+      vi.stubGlobal('localStorage', { getItem: (k: string) => saved[k] ?? null })
+      const httpBase = http()
+      expect(await enableWebPush(httpBase, 'tok')).toBe('on')
+      const theirs = current!
+      const off = disableWebPush(httpBase, 'tok')
+      saved.sessionToken = 'tok-b'
+      await off
+      expect(theirs.unsubscribe).not.toHaveBeenCalled()
+      // Its own session, still current: off as before.
+      saved.sessionToken = 'tok-b'
+      await disableWebPush(httpBase, 'tok-b')
+      expect(theirs.unsubscribe).toHaveBeenCalled()
+    })
+
     it('makes again a subscription the browser dropped while push was on here', async () => {
       permission = 'granted'
       kept.set('/push-key', KEY)

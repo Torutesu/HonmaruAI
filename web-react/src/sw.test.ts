@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import source from '../public/sw.js?raw'
+import indexHtml from '../index.html?raw'
+import privacyHtml from '../public/privacy.html?raw'
+import supportHtml from '../public/support.html?raw'
+import deleteAccountHtml from '../public/delete-account.html?raw'
 
 // public/sw.js itself, run with just enough of a service worker around it
 // (its globals handed in as parameters): what a push shows, and where a
@@ -10,7 +14,11 @@ interface Shown { title: string; options: Record<string, unknown> & { data: Reco
 
 type Existing = { title?: string; body?: string; timestamp?: number; data: Record<string, unknown> }
 
-function worker(opts: { windows?: Array<Record<string, unknown>>; existing?: Existing[]; cached?: Record<string, Record<string, string>>; subscribed?: boolean } = {}) {
+type CacheKey = string | { url: string }
+const keyOf = (key: CacheKey) => (typeof key === 'string' ? key : new URL(key.url).pathname)
+const answer = (value: unknown) => (typeof value === 'string' ? { text: async () => value } : value)
+
+function worker(opts: { windows?: Array<Record<string, unknown>>; existing?: Existing[]; cached?: Record<string, Record<string, unknown>>; subscribed?: boolean; fetch?: (req: { url: string }) => Promise<Response> } = {}) {
   const handlers: Record<string, Handler> = {}
   const shown: Shown[] = []
   const subscribed: unknown[] = []
@@ -21,10 +29,14 @@ function worker(opts: { windows?: Array<Record<string, unknown>>; existing?: Exi
       if (!store.has(name)) store.set(name, new Map())
       const entries = store.get(name)!
       return {
-        match: async (key: string) => (entries.has(key) ? { text: async () => entries.get(key) } : undefined),
-        put: async () => {},
+        match: async (key: CacheKey) => (entries.has(keyOf(key)) ? answer(entries.get(keyOf(key))) : undefined),
+        put: async (key: CacheKey, value: unknown) => { entries.set(keyOf(key), value) },
         addAll: async () => {},
       }
+    },
+    match: async (key: CacheKey) => {
+      for (const entries of store.values()) if (entries.has(keyOf(key))) return answer(entries.get(keyOf(key)))
+      return undefined
     },
     keys: async () => [...store.keys()],
     delete: async (name: string) => { deleted.push(name); return store.delete(name) },
@@ -56,7 +68,7 @@ function worker(opts: { windows?: Array<Record<string, unknown>>; existing?: Exi
       claim: async () => {},
     },
   }
-  new Function('self', 'caches', 'fetch', 'navigator', source)(self, caches, () => Promise.reject(new Error('offline')), {})
+  new Function('self', 'caches', 'fetch', 'navigator', source)(self, caches, opts.fetch || (() => Promise.reject(new Error('offline'))), {})
   const fire = async (name: string, event: Record<string, unknown>) => {
     let work: Promise<unknown> = Promise.resolve()
     handlers[name]({ ...event, waitUntil: (p: Promise<unknown>) => { work = p } })
@@ -64,7 +76,18 @@ function worker(opts: { windows?: Array<Record<string, unknown>>; existing?: Exi
   }
   const push = (data: Record<string, unknown>) => fire('push', { data: { json: () => data, text: () => JSON.stringify(data) } })
   const click = (data: Record<string, unknown>) => fire('notificationclick', { notification: { data, close: () => {} } })
-  return { shown, opened, posted, focused, push, click, fire, subscribed, deleted }
+  // A page load: what the worker answers with, once whatever it keeps has
+  // been written.
+  const navigate = async (path: string) => {
+    let answered: Promise<Response> | undefined
+    handlers.fetch({ request: { url: `https://app.example${path}`, method: 'GET', mode: 'navigate' }, respondWith: (p: Promise<Response>) => { answered = p } })
+    if (!answered) throw new Error(`${path} was not answered`)
+    const res = await answered
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    return res
+  }
+  const shell = () => store.get('honmaru-shell-v3')?.get('/') as Response | undefined
+  return { shown, opened, posted, focused, push, click, fire, subscribed, deleted, navigate, shell }
 }
 
 describe('a push, shown', () => {
@@ -192,5 +215,48 @@ describe('a new version of the worker', () => {
     const w = worker({ cached: { 'honmaru-shell-v2': {}, 'honmaru-shell-v3': {}, 'honmaru-push': { '/push-key': 'BKEY' } } })
     await w.fire('activate', {})
     expect(w.deleted).toEqual(['honmaru-shell-v2'])
+  })
+})
+
+describe('the offline shell', () => {
+  const page = (html: string) => new Response(html, { headers: { 'content-type': 'text/html' } })
+  // Online for whatever `pages` names, offline otherwise.
+  const site = (pages: Record<string, string>) => async (req: { url: string }) => {
+    const html = pages[new URL(req.url).pathname]
+    if (html === undefined) throw new Error('offline')
+    return page(html)
+  }
+
+  it('is kept from the app, and is what an offline open shows — on a deep link too', async () => {
+    const w = worker({ fetch: site({ '/': indexHtml }) })
+    await w.navigate('/')
+    expect(await w.shell()!.clone().text()).toBe(indexHtml)
+    expect(await (await w.navigate('/c/b%3Akitchen')).text()).toBe(indexHtml)
+  })
+
+  it('is never replaced by the privacy, support or account-deletion page', async () => {
+    const info = { '/privacy.html': privacyHtml, '/privacy': privacyHtml, '/support': supportHtml, '/delete-account.html': deleteAccountHtml }
+    const w = worker({ fetch: site({ '/': indexHtml, ...info }) })
+    await w.navigate('/')
+    for (const path of Object.keys(info)) await w.navigate(path)
+    expect(await w.shell()!.clone().text()).toBe(indexHtml)
+    const offline = worker({ cached: { 'honmaru-shell-v3': { '/': page(indexHtml), '/privacy': page(privacyHtml) } } })
+    expect(await (await offline.navigate('/')).text()).toBe(indexHtml)
+    expect(await (await offline.navigate('/privacy')).text()).toBe(privacyHtml)
+  })
+
+  it('is not replaced by an error page or a redirect', async () => {
+    const w = worker({
+      cached: { 'honmaru-shell-v3': { '/': page(indexHtml) } },
+      fetch: async (req) => {
+        if (new URL(req.url).pathname === '/broken') return new Response('<div id="root"></div>', { status: 503 })
+        const res = page('<div id="root"></div> elsewhere')
+        Object.defineProperty(res, 'redirected', { value: true })
+        return res
+      },
+    })
+    await w.navigate('/broken')
+    await w.navigate('/moved')
+    expect(await w.shell()!.clone().text()).toBe(indexHtml)
   })
 })

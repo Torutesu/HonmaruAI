@@ -1009,6 +1009,8 @@ const table: Record<string, string> = {
     'ここを変えても他には影響しません。メールの届き先だけです。',
   'This is the address you sign in with, so it cannot be changed here.':
     'サインインに使っているアドレスなので、ここでは変更できません。',
+  'Your company manages this address, so it cannot be changed here.':
+    '会社が管理しているアドレスなので、ここでは変更できません。',
 
   // Notifications
   'On this device': 'この端末で',
@@ -1790,6 +1792,7 @@ const table: Record<string, string> = {
   '{team} signs in only with {provider}.': '{team}は{provider}でのみログインします。',
   '{team} uses {provider} for sign-in.': '{team}は{provider}でログインします。',
   'That sign-in did not finish. Try again.': 'ログインが完了しませんでした。もう一度お試しください。',
+  'That sign-in was not started in this browser. Start it again here.': 'このログインはこのブラウザで始めたものではありません。ここからもう一度始めてください。',
   'Workspace keys': 'ワークスペースのキー',
   'For an HR system or Terraform: add and remove people, set up channels, read the audit log. The key belongs to the workspace, not to whoever made it, and never reads messages.': '人事システムやTerraform向けです。人の追加・削除、チャンネルの用意、監査ログの取得ができます。キーは作った人ではなくワークスペースのもので、メッセージは読めません。',
   'Make a key': 'キーを作る',
