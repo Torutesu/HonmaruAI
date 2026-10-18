@@ -469,6 +469,8 @@ export class WebSocketClient {
       this.onTyping?.(event.value)
     } else if (typeof event.name === 'string' && (event.name.startsWith('jam_') || event.name === 'channel_described' || event.name === 'channel_bookmarks' || event.name === 'channel_canvas') && event.value) {
       this.onJam?.(event.name, event.value)
+    } else if (event.name === 'app_activity_changed') {
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('honmaru:app-activity-changed', { detail: event.value }))
     } else if (event.name === 'reads_changed' && event.value) {
       // Read on another of your devices: every list here agrees at once.
       if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('honmaru:reads-changed', { detail: event.value }))

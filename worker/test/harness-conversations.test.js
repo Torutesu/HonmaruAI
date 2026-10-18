@@ -93,3 +93,24 @@ test('creation records its supplied source thread but refuses an unavailable sou
  expect((await createApp(env.DB,{orgId:org,by:'9201',name:'Invalid',columns:[],sourceThreadId:'missing'})).status).toBe(404);
  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps').first()).toEqual(count);
 });
+
+test('Activity and app inbox share scoped mentions, read state and revoked access',async()=>{
+ const activity=async(token)=>await (await worker.fetch(new Request('https://test/channels/activity?orgId='+encodeURIComponent(org),{headers:{'x-session-token':token}}),env)).json();
+ const read=async(token,items)=>worker.fetch(new Request('https://test/channels/read',{method:'POST',headers:{'x-session-token':token,'content-type':'application/json'},body:JSON.stringify({orgId:org,channel:'activity',...(items?{items}:{})})}),env);
+ await post(owner,'@user9202 record mention','activity_request_1',{tableId:app.tableId,rowId:row.id});
+ const first=(await activity(member)).items.find(i=>i.app);expect(first).toMatchObject({type:'mention',unread:true,app:{id:app.id,tableId:app.tableId,rowId:row.id},message:{body:'@user9202 record mention'}});
+ expect((await activity(owner)).items.filter(i=>i.app)).toEqual([]);
+ await read(owner,[first.key]);expect((await activity(member)).items.find(i=>i.app).unread).toBe(true);
+ expect((await read(member,[first.key])).status).toBe(200);
+ expect((await (await featureRequest('conversation-notifications','GET',member)).json()).items[0].readAt).toBeTruthy();
+ await post(owner,'@user9202 next','activity_request_2');
+ const bell=(await (await featureRequest('conversation-notifications','GET',member)).json()).items[0];
+ await featureRequest('conversation-notifications','POST',member,{messageId:bell.messageId});
+ expect((await activity(member)).items.filter(i=>i.app&&i.unread)).toEqual([]);
+ await post(owner,'@user9202 last','activity_request_3');await read(member);
+ expect((await activity(member)).items.filter(i=>i.app&&i.unread)).toEqual([]);
+ await env.DB.prepare('DELETE FROM hx_rows WHERE org_id=? AND id=?').bind(org,row.id).run();
+ expect((await activity(member)).items.some(i=>i.key===first.key)).toBe(false);
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(org,app.id).run();
+ expect((await activity(member)).items.filter(i=>i.app)).toEqual([]);
+});

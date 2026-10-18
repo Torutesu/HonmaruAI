@@ -1,3 +1,4 @@
+import { appActivity, readAppActivity } from './harness/appActivity.js';
 import { checkOutgoing } from "./dlp.js";
 import { prepareAgent, rememberRequest, addAgentMemory } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
@@ -718,7 +719,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       if (who.denied) return who.denied;
       // The ones looked at: gone from every device's Activity.
       if (Array.isArray(body.items)) {
-        const items = await markActivitySeen(env.DB, body.orgId, who.user.login, body.items);
+        const items = [...await markActivitySeen(env.DB, body.orgId, who.user.login, body.items), ...await readAppActivity(env.DB, body.orgId, who.user.github_id, body.items)];
         // A reply among them is read in its thread too: Threads agrees.
         const threads = items.length ? await readThreadsSeenInActivity(env.DB, body.orgId, who.user.login, items) : [];
         if (items.length) after(() => readEverywhere(env, body.orgId, who.user.login, { items, threads }));
@@ -729,7 +730,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       const members = await listMembers(env.DB, body.orgId, who.session.github_id);
       const { items: all } = await activityFeed(env.DB, body.orgId, who.user.login, members);
       const newKeys = all.filter((i) => i.unread).map((i) => i.key).filter((k) => /^(m|r):/.test(k || ""));
-      const items = await markActivitySeen(env.DB, body.orgId, who.user.login, newKeys);
+      const items = [...await markActivitySeen(env.DB, body.orgId, who.user.login, newKeys), ...await readAppActivity(env.DB, body.orgId, who.user.github_id)];
       const threads = items.length ? await readThreadsSeenInActivity(env.DB, body.orgId, who.user.login, items) : [];
       const lastReadAt = await markRead(env.DB, body.orgId, who.user.login, "activity", body.at);
       if (items.length) after(() => readEverywhere(env, body.orgId, who.user.login, { items, threads }));
@@ -937,7 +938,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
     const members = await listMembers(env.DB, orgId, who.session.github_id);
-    return json(await activityFeed(env.DB, orgId, who.user.login, members));
+    const feed=await activityFeed(env.DB, orgId, who.user.login, members);
+    const apps=await appActivity(env.DB,orgId,who.user.github_id);
+    return json({...feed,items:[...feed.items,...apps].sort((a,b)=>String(b.at).localeCompare(String(a.at))).slice(0,100)});
   }
 
   // Search what was said, with Slack's filters.

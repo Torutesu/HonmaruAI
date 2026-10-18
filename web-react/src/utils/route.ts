@@ -34,6 +34,7 @@ export type Screen = 'tools' | 'history' | 'notifications' | 'plans' | 'profile'
 export type Mode = 'cards' | 'classic'
 
 export interface Route {
+  appConversation?: {tableId?:string;rowId?:string}
   appId?: string | null
   appOrg?: string | null
   screen: Screen | null
@@ -105,8 +106,11 @@ export function parseRoute(hash: string): Route {
   }
   if (head === 'apps' && rest.length) {
     const decode = (value: string) => { try { return decodeURIComponent(value) } catch { return '' } }
-    const id = decode(rest[0]), org = decode(rest[1] || '')
-    return { screen: 'apps', mode: null, cardId: null, join: null, appId: /^[\w-]{1,80}$/.test(id) ? id : null, appOrg: isOrgId(org) ? org : null }
+    const [appPath,query='']=rest.join('/').split('?'); const segments=appPath.split('/'); const params=new URLSearchParams(query);
+    const id = decode(segments[0]), org = decode(segments[1] || '')
+    const tableId=params.get('table')||'',rowId=params.get('row')||''
+    const conversation=params.get('chat')==='1'&&((!tableId&&!rowId)||(/^[\w-]{1,100}$/.test(tableId)&&/^[\w-]{1,100}$/.test(rowId)))?{appConversation:rowId?{tableId,rowId}:{}}:{}
+    return { screen: 'apps', mode: null, cardId: null, join: null, appId: /^[\w-]{1,80}$/.test(id) ? id : null, appOrg: isOrgId(org) ? org : null, ...conversation }
   }
   if (head === 'join') {
     const code = (rest[0] || '').trim()
@@ -117,7 +121,7 @@ export function parseRoute(hash: string): Route {
   return screen ? { screen, mode: null, cardId: null, join: null } : { screen: null, mode: null, cardId: null, join: null }
 }
 
-export function hashForApp(id: string, orgId: string): string { return `#/apps/${encodeURIComponent(id)}/${encodeURIComponent(orgId)}` }
+export function hashForApp(id: string, orgId: string, conversation?: {tableId?:string;rowId?:string}): string { const query=new URLSearchParams();if(conversation){query.set('chat','1');if(conversation.tableId&&conversation.rowId){query.set('table',conversation.tableId);query.set('row',conversation.rowId)}}return `#/apps/${encodeURIComponent(id)}/${encodeURIComponent(orgId)}${query.size?'?'+query:''}` }
 
 export function hashForScreen(screen: Screen): string { return `#/${PATH_BY_SCREEN[screen]}` }
 export function hashForCard(cardId: string, orgId?: string | null): string {

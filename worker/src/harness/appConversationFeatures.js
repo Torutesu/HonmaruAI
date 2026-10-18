@@ -1,3 +1,5 @@
+import { announceTo } from '../announce.js';
+import { custom } from '../agui/events.js';
 import { appConversation } from './appConversations.js';
 import { mayUseApp } from './resourceAccess.js';
 import { mayUseConversation } from './conversationAccess.js';
@@ -44,12 +46,13 @@ export async function sourceHistory(db,orgId,user,source){
  const thread=await listThread(db,orgId,source.channel,source.threadId,user.login,channel,members);
  return {...source,channel,messages:[thread.parent,...thread.replies]};
 }
-export async function notifyAppMentions(db,orgId,user,appId,input,messageId){
+export async function notifyAppMentions(db,orgId,user,appId,input,messageId,env=null){
  const members=await listMembers(db,orgId,user.github_id);
  for(const recipient of resolveMentions(input.body,members)){
   if(recipient.userId===String(user.github_id)||recipient.role==='guest')continue;
   if((await appConversation(db,orgId,recipient.userId,appId,scopeOf(input))).error)continue;
-  await db.prepare('INSERT OR IGNORE INTO hx_app_notifications(org_id,app_id,message_id,user_id,kind) VALUES (?,?,?,?,?)').bind(orgId,appId,messageId,recipient.userId,'mention').run();
+  const saved=await db.prepare('INSERT OR IGNORE INTO hx_app_notifications(org_id,app_id,message_id,user_id,kind) VALUES (?,?,?,?,?)').bind(orgId,appId,messageId,recipient.userId,'mention').run();
+  if(env&&saved.meta?.changes)await announceTo(env,orgId,[{to:recipient.login,event:custom('app_activity_changed',{appId})}]);
  }
 }
 export async function appNotifications(db,orgId,userId,appId,input,write=false){
@@ -84,5 +87,6 @@ export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompl
   const reply=await db.prepare('SELECT sequence FROM hx_app_messages WHERE org_id=? AND app_id=? AND author_id=? AND request_id=?').bind(orgId,appId,'__app_ai',requestId).first();
   await db.prepare("INSERT OR IGNORE INTO hx_app_notifications(org_id,app_id,message_id,user_id,kind) VALUES (?,?,?,?,'ai')").bind(orgId,appId,reply.sequence,String(user.github_id)).run();
   await db.prepare("UPDATE hx_app_ai_replies SET status='succeeded' WHERE message_id=? AND org_id=? AND app_id=?").bind(messageId,orgId,appId).run();
+  await announceTo(env,orgId,[{to:user.login,event:custom('app_activity_changed',{appId})}]);
  }catch(e){await db.prepare("UPDATE hx_app_ai_replies SET status='failed',error=? WHERE message_id=? AND org_id=? AND app_id=?").bind(e.message==='Access revoked.'?'会話へのアクセスが変更されました。':'AIに接続できませんでした。既存のAI設定・利用枠を確認してください。',messageId,orgId,appId).run();}
 }
