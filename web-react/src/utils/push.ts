@@ -259,8 +259,9 @@ export async function resyncWebPush(httpBase: string, sessionToken: string): Pro
   }
 }
 
-/// Whether this tab's session is still the one this browser signed in last.
-function sessionIsCurrent(sessionToken: string): boolean {
+/// Whether this tab's session is still the one this browser signed in last
+/// (or nobody has signed in since it ended).
+export function sessionIsCurrent(sessionToken: string): boolean {
   try {
     const saved = localStorage.getItem('sessionToken')
     return !saved || saved === sessionToken
@@ -271,11 +272,16 @@ function sessionIsCurrent(sessionToken: string): boolean {
 
 /// Unsubscribe here and forget it on the Worker, so signing out on a shared
 /// machine stops the next person seeing your decisions.
+///
+/// The subscription and its kept key are the browser's, not the session's:
+/// once another session has signed in here — before this starts, or while it
+/// waits — they are that one's, and are left alone.
 export async function disableWebPush(httpBase: string, sessionToken: string): Promise<void> {
+  if (!sessionIsCurrent(sessionToken)) return
   generation += 1
   await keepKey(null)
   const subscription = await currentSubscription()
-  if (!subscription) return
+  if (!subscription || !sessionIsCurrent(sessionToken)) return
   try {
     await forget(httpBase, sessionToken, subscription.endpoint)
   } finally {

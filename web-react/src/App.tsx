@@ -15,7 +15,7 @@ import { parseRoute } from './utils/route'
 import { onboardingKey, needsOnboarding, completeOnboarding } from './utils/onboardingProgress'
 import { t, adoptAccountLocale } from './utils/i18n'
 import type { InvitePeek } from './screens/SignIn'
-import { disableWebPush } from './utils/push'
+import { disableWebPush, sessionIsCurrent } from './utils/push'
 import { forgetOwnOutbox } from './utils/pendingSend'
 import './theme.css'
 import './App.css'
@@ -363,30 +363,61 @@ function App() {
   // Signed out by a workspace's login rules: said on the way out.
   const [signedOutWhy, setSignedOutWhy] = useState<string | null>(null)
   const handleLogout = () => {
-    // Who this browser belongs to now. A tab left open from before someone
-    // else signed in (in another tab) must not wipe that person's things.
-    const stillOurs = localStorage.getItem('userId') === userId
-    // This browser stops receiving this account's decisions before the
-    // session is dropped — the Worker needs the token to forget the subscription.
-    // Then the session itself ends on the server, so the token left in this
-    // browser's history opens nothing.
     const base = httpBase(host)
     const token = sessionToken
-    disableWebPush(base, token).catch(() => {}).finally(() => {
+    // Who this browser belongs to now, by session rather than by name. A tab
+    // left open from before someone else signed in (in another tab) — or the
+    // same person again, with a newer session — ends only its own session:
+    // the newer one's saved sign-in, push subscription and things stay.
+    const current = sessionIsCurrent(token)
+    // The session ends on the server either way, so the token left in this
+    // browser's history opens nothing. When it is this browser's own, the
+    // browser first stops receiving its decisions — the Worker needs the
+    // token to forget the subscription.
+    const revoke = () => {
       if (token) fetch(`${base}/auth/logout`, { method: 'POST', headers: { 'x-session-token': token } }).catch(() => {})
-    })
+    }
+    if (current) disableWebPush(base, token).catch(() => {}).finally(revoke)
+    else revoke()
     setUserId(null)
     setSessionToken('')
     setStage('welcome')
-    localStorage.removeItem('sessionToken')
-    localStorage.removeItem('userId')
-    // The workspace's cards, drafts, notes and unsent messages (outbox:*)
-    // stay readable on this machine otherwise.
-    if (stillOurs) releaseAccountData()
-    else if (userId) forgetOwnOutbox(localStorage, userId)
-    // Recently used emoji, kept and in memory, are this person's too.
-    resetEmojiAccount()
+    if (current) {
+      localStorage.removeItem('sessionToken')
+      localStorage.removeItem('userId')
+      // The workspace's cards, drafts, notes and unsent messages (outbox:*)
+      // stay readable on this machine otherwise.
+      releaseAccountData()
+      // Recently used emoji, kept and in memory, are this person's too.
+      resetEmojiAccount()
+    } else if (userId && localStorage.getItem('userId') !== userId) {
+      forgetOwnOutbox(localStorage, userId)
+    }
   }
+
+  // Another tab signed in or out. This tab's session, held in memory, is
+  // then no longer the browser's, and an old account's view must not go on
+  // acting as if it were: a new sign-in is opened here as well (checked
+  // with the Worker, as on opening), and a sign-out ends this tab's view of
+  // the account too — the tab that signed out has already cleared what the
+  // account kept.
+  const sessionRef = useRef({ token: sessionToken, stage })
+  sessionRef.current = { token: sessionToken, stage }
+  useEffect(() => {
+    const on = (e: StorageEvent) => {
+      if (e.key !== 'sessionToken' && e.key !== null) return
+      let saved = ''
+      try { saved = localStorage.getItem('sessionToken') || '' } catch { return }
+      const mine = sessionRef.current
+      if (saved === mine.token) return
+      if (saved) { setRestoreAttempt((value) => value + 1); return }
+      if (mine.stage === 'app' || mine.stage === 'onboarding') {
+        setUserId(null); setSessionToken(''); setStage('welcome')
+      }
+    }
+    window.addEventListener('storage', on)
+    return () => window.removeEventListener('storage', on)
+  }, [])
 
   // A workspace's login rules ended this sign-in (utils/authGuard): out,
   // with the reason, to sign in again.
