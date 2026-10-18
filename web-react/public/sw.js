@@ -34,6 +34,12 @@ self.addEventListener('activate', (event) => {
   )
 })
 
+/// Whether a page is the app itself (index.html, which every app address is
+/// served as): the one document with the root React mounts into.
+function isAppShell(html) {
+  return /<div id="root"><\/div>/.test(html)
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET') return
@@ -49,13 +55,19 @@ self.addEventListener('fetch', (event) => {
       fetch(req).then((res) => {
         // Only a page that actually is the app becomes the shell: a 404 or
         // a 5xx during a bad deploy would otherwise be what every offline
-        // open shows until the next good one.
+        // open shows until the next good one, and the privacy, support and
+        // account-deletion pages are on this origin too. Those are kept
+        // under their own address instead, for opening them offline.
         if (res.ok && !res.redirected) {
           const copy = res.clone()
-          caches.open(SHELL).then((cache) => cache.put('/', copy)).catch(() => {})
+          copy.clone().text()
+            .then((html) => caches.open(SHELL).then((cache) => cache.put(isAppShell(html) ? '/' : req, copy)))
+            .catch(() => {})
         }
         return res
-      }).catch(() => caches.match('/').then((hit) => hit || caches.match('/index.html')))
+      }).catch(() => caches.match(req)
+        .then((own) => own || caches.match('/'))
+        .then((hit) => hit || caches.match('/index.html')))
     )
     return
   }

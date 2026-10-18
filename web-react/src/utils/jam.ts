@@ -16,6 +16,8 @@
 // Which incoming picture is a camera and which is a screen travels with the
 // negotiation as the ids of the streams they arrive in.
 
+import { desktopApp } from './desktop'
+
 export type JamMode = 'full' | 'notes' | 'off'
 
 export interface JamParticipant {
@@ -83,9 +85,25 @@ export function canPickSpeaker(): boolean {
   return typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype
 }
 
-/// Can this browser share a screen? (Phones mostly cannot.)
+/// Can this browser share a screen? (Phones mostly cannot.) The desktop app
+/// has getDisplayMedia whatever it is, but only a build that answers it with
+/// a picker (apps/desktop/src/capture.js) says so; an older one refuses every
+/// request.
 export function canShareScreen(): boolean {
-  return typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices && 'getDisplayMedia' in navigator.mediaDevices)
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices || !('getDisplayMedia' in navigator.mediaDevices)) return false
+  const desktop = desktopApp()
+  return !desktop || desktop.screenShare === true
+}
+
+/// What to say when a screen was not shared. Nothing when the picker was
+/// cancelled: the call goes on as it was. The system refusing the browser
+/// says where to change that; anything else, that it did not work.
+export function screenShareProblem(error: unknown): string | null {
+  const e = error as { name?: unknown; message?: unknown } | null
+  const name = typeof e?.name === 'string' ? e.name : ''
+  if (name === 'NotAllowedError' && /system/i.test(String(e?.message || ''))) return 'Your system settings do not allow screen sharing. Allow it and try again.'
+  if (name === 'NotAllowedError' || name === 'AbortError') return null
+  return 'The screen could not be shared.'
 }
 
 type Recognition = {

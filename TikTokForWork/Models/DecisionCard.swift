@@ -43,6 +43,14 @@ enum CardPriority: String, Codable, CaseIterable {
     case medium
     case high
     case urgent
+
+    /// A priority this build does not know, such as the "normal" workflow
+    /// approvals were once sent with, reads as medium. Failing it would fail
+    /// the whole card, and the decision would never reach the feed.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = CardPriority(rawValue: raw) ?? .medium
+    }
 }
 
 enum CardActionKind {

@@ -117,6 +117,26 @@ export async function exportAccount(db, githubId, login) {
   return out;
 }
 
+/// The name taken off the card documents that stay: a card's `data` and the
+/// snapshots in its history name people inside the JSON as well as in the
+/// indexed columns, and a card saved again takes its columns from the JSON.
+/// Wherever the document says this login sent it, was asked, asked for it or
+/// set its importance, it says the deleted user instead; the decision stays.
+async function anonymizeCardDocuments(db, table, column, login) {
+  const doc = `CASE WHEN json_valid(${column}) THEN ${column} END`;
+  // Only rows that mention the login at all are parsed.
+  const mentions = `instr(${column}, ?3) > 0`;
+  const quoted = JSON.stringify(login);
+  for (const path of ["$.senderUserID", "$.recipientUserID", "$.prioritySetBy"]) {
+    await db.prepare(`UPDATE ${table} SET ${column} = json_set(${column}, '${path}', ?1) WHERE ${mentions} AND json_extract(${doc}, '${path}') = ?2`)
+      .bind(ANONYMOUS, login, quoted).run();
+  }
+  await db.prepare(
+    `UPDATE ${table} SET ${column} = json_remove(json_set(${column}, '$.requestedBy.login', ?1, '$.requestedBy.name', ?1), '$.requestedBy.role')
+      WHERE ${mentions} AND json_extract(${doc}, '$.requestedBy.login') = ?2`
+  ).bind(ANONYMOUS, login, quoted).run();
+}
+
 export async function deleteAccount(db, githubId, login) {
   const id = String(githubId);
 
@@ -156,11 +176,13 @@ export async function deleteAccount(db, githubId, login) {
       .prepare("UPDATE cards SET sender_user_id = ?1 WHERE sender_user_id = ?2")
       .bind(ANONYMOUS, login)
       .run();
+    await anonymizeCardDocuments(db, "cards", "data", login);
     await db.prepare("DELETE FROM contexts WHERE user_id = ?1").bind(login).run();
     await db
       .prepare("UPDATE card_events SET actor_user_id = ?1 WHERE actor_user_id = ?2")
       .bind(ANONYMOUS, login)
       .run();
+    await anonymizeCardDocuments(db, "card_events", "snapshot", login);
     // A rule in the playbook is the team's, like a business: it stays, and
     // the name comes off. Routines that report to this person stop.
     for (const [sql, binds] of [
@@ -221,6 +243,7 @@ export async function deleteAccount(db, githubId, login) {
     "DELETE FROM connector_sync_state WHERE user_github_id = ?1",
     "DELETE FROM entitlements WHERE user_github_id = ?1",
     "DELETE FROM ai_usage WHERE user_github_id = ?1",
+    "DELETE FROM ai_reservations WHERE user_github_id = ?1",
     "DELETE FROM ingested_items WHERE user_github_id = ?1",
     "DELETE FROM device_tokens WHERE user_github_id = ?1",
     "DELETE FROM push_subscriptions WHERE user_github_id = ?1",

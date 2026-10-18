@@ -125,10 +125,15 @@ export async function translateMessages(db, orgId, rows, { locale, provider, all
       // Already the reader's, near enough: kept as the message itself, so
       // it is never shown as "Translated" and never asked about again.
       byId[r.id] = sameWords(text, r.body) ? String(r.body) : text.trim().slice(0, MAX_TEXT);
+      // Kept only while the message still reads as it was translated: one
+      // edited meanwhile may already have its new words' translation here,
+      // and a slow answer for the old words must not take its place.
       await db.prepare(
-        `INSERT INTO message_translations (org_id, message_id, locale, source_hash, body, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        `INSERT INTO message_translations (org_id, message_id, locale, source_hash, body, created_at)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6
+          WHERE EXISTS (SELECT 1 FROM channel_messages m WHERE m.org_id = ?1 AND m.id = ?2 AND m.body = ?7)
          ON CONFLICT(org_id, message_id, locale) DO UPDATE SET source_hash = excluded.source_hash, body = excluded.body, created_at = excluded.created_at`
-      ).bind(orgId, r.id, lang, sourceHash(r.body), byId[r.id], now).run().catch(() => {});
+      ).bind(orgId, r.id, lang, sourceHash(r.body), byId[r.id], now, String(r.body)).run().catch(() => {});
     }
   }
   if (called && allowance?.metered) await allowance.consume().catch(() => {});

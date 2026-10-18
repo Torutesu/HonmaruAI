@@ -107,4 +107,18 @@ final class DecisionCardTests: XCTestCase {
         XCTAssertEqual(decoded.translation(for: "vi")?.title, "Phê duyệt ngân sách")
         XCTAssertNil(decoded.translation(for: "vi")?.context)
     }
+
+    func testAWorkflowApprovalWithAnUnknownPriorityStillArrives() throws {
+        // Workflow approvals were once sent as "normal"; failing the priority
+        // dropped the whole card and the run waited on a decision nobody saw.
+        let json = """
+        {"id":"wf-run_1-1","recipientUserID":"alice","senderUserID":"alice","type":"approval","title":"Send Acme a reminder?",
+         "summary":"","context":"Workflow: Chase","status":"pending","priority":"normal","createdAt":"2026-09-24T00:00:00Z"}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(DecisionCard.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.priority, .medium)
+        XCTAssertEqual(try decoder.decode([CardPriority].self, from: Data(#"["low","urgent","someday"]"#.utf8)), [.low, .urgent, .medium])
+    }
 }

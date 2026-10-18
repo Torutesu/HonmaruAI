@@ -17,6 +17,8 @@ struct AppShell: View {
     @State private var pendingSentMessage: String?
     /// The daily report, offered once after sign-in to someone without one.
     @State private var offerDailyReport = false
+    /// A tapped card's workspace could not be opened.
+    @State private var cardUnavailable = false
     @FocusState private var promptFocused: Bool
 
     var body: some View {
@@ -75,12 +77,20 @@ struct AppShell: View {
                 try? await Task.sleep(for: .seconds(30))
             }
         }
-        .onChange(of: appState.currentUser?.teamID) { _, _ in composer.teamChanged() }
-        .onChange(of: push.pendingCardID) { _, id in if id != nil { homeList = false; tab = .home } }
-        // A chat notification: its workspace, then its conversation. Also on
-        // appearing, for the tap that launched the app.
+        .onChange(of: appState.currentUser?.teamID) { _, team in
+            composer.teamChanged(appState: appState)
+            // The chat emptied itself for the new workspace: its own counts
+            // for the tab bar, whichever tab is showing.
+            if team != nil && !appState.isGuest { Task { await chat.refresh() } }
+        }
+        // A notification: its workspace, then its conversation or its card.
+        // Also on appearing, for the tap that launched the app.
+        .onChange(of: push.pendingCard) { _, _ in Task { await openTappedCard() } }
         .onChange(of: push.pendingMessage) { _, _ in Task { await openTappedMessage() } }
-        .onAppear { Task { await openTappedMessage() } }
+        .onAppear { Task { await openTappedMessage(); await openTappedCard() } }
+        .alert("That card is no longer available", isPresented: $cardUnavailable) {
+            Button("OK", role: .cancel) {}
+        } message: { Text("It may have been deleted, or you are no longer in its workspace.") }
         .onReceive(appState.webSocketService.$deliveryError) { if let message = $0 { composer.restoreRejectedDraft(appState: appState); deliveryError = message } }
         .alert("Delivery needs attention", isPresented: Binding(get: { deliveryError != nil }, set: { if !$0 { deliveryError = nil } })) {
             Button("OK") { deliveryError = nil; appState.webSocketService.clearDeliveryError() }
@@ -102,6 +112,26 @@ struct AppShell: View {
         chat.bind(appState)
         tab = .activity
         chat.pendingOpen = target
+    }
+
+    /// A card's notification: its workspace first, then Home's cards, where
+    /// the feed opens the card once it has arrived (#376).
+    @MainActor private func openTappedCard() async {
+        guard let target = push.pendingCard else { return }
+        guard !appState.isGuest else { push.pendingCard = nil; return }
+        if let org = target.orgId, org != appState.currentUser?.teamID {
+            let session = appState.activeSessionID
+            guard (try? await appState.switchToJoinedTeam(org)) != nil, appState.currentUser?.teamID == org,
+                  appState.activeSessionID == session else {
+                // Not a workspace this account is in any more, or another
+                // sign-in since: nothing of this one to open.
+                if push.pendingCard == target { push.pendingCard = nil; cardUnavailable = appState.activeSessionID == session }
+                return
+            }
+        }
+        guard push.pendingCard == target else { return }
+        homeList = false
+        tab = .home
     }
 
     /// The phone's part of onboarding: once per person and workspace on this

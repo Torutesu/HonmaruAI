@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { failureOf, forgetTranslations, keepTranslations, keptTranslation } from './translationCache'
+import { failureOf, forgetTranslations, keepTranslations, keptTranslation, translationBatches, translationKey } from './translationCache'
 import { clearAccountData } from './cardCache'
 
 function fakeStorage(): Storage {
@@ -35,6 +35,33 @@ describe('translationCache (#225)', () => {
     expect(keptTranslation('org1', 'm1', 'en', 'a2')).toBe('A2-en')
     expect(keptTranslation('org1', 'm1', 'fr', 'a')).toBe('A-fr')
     expect(keptTranslation('org1', 'm2', 'en', 'b')).toBe('B-en')
+  })
+
+  it('a late answer for words since edited does not put out the translation of the words now (#390)', () => {
+    // B (the edit) came back first; A, asked before the edit, after it.
+    keepTranslations('org1', 'en', [{ id: 'm1', from: 'b', text: 'B-en' }])
+    keepTranslations('org1', 'en', [{ id: 'm1', from: 'a', text: 'A-en' }])
+    forgetTranslations()
+    expect(keptTranslation('org1', 'm1', 'en', 'b')).toBe('B-en')
+    // Edited back to A: its translation is still there too.
+    expect(keptTranslation('org1', 'm1', 'en', 'a')).toBe('A-en')
+    expect(translationKey('m1', 'en', 'a')).not.toBe(translationKey('m1', 'en', 'b'))
+    expect(translationKey('m1', 'en', 'a')).not.toBe(translationKey('m1', 'fr', 'a'))
+  })
+
+  it('still reads a translation kept before versions were', () => {
+    localStorage.setItem('translations:org1', JSON.stringify({ 'm1:en': ['a', 'A-en', 1] }))
+    forgetTranslations()
+    expect(keptTranslation('org1', 'm1', 'en', 'a')).toBe('A-en')
+    expect(keptTranslation('org1', 'm1', 'en', 'b')).toBeNull()
+  })
+
+  it('asks about every message, in bounded requests, the last one partial (#389)', () => {
+    const ids = Array.from({ length: 150 }, (_, i) => i)
+    const batches = translationBatches(ids)
+    expect(batches.map((b) => b.length)).toEqual([60, 60, 30])
+    expect(batches.flat()).toEqual(ids)
+    expect(translationBatches([])).toEqual([])
   })
 
   it('goes with the account on sign-out', () => {

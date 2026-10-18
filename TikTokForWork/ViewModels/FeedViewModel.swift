@@ -22,6 +22,7 @@ final class FeedViewModel: ObservableObject {
     @Published private(set) var attachmentURL: URL?
     private var generation = UUID()
     private var boundScope: String?
+    private var boundOwner: String?
     private var lastQueuedDraft: (cardID: String, sessionID: UUID, source: String, title: String, summary: String, context: String, recipient: String, kind: CardType, priority: CardPriority, attachment: URL?)?
 
     var validationMessage: String? {
@@ -46,17 +47,29 @@ final class FeedViewModel: ObservableObject {
     var canSend: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !recipientID.isEmpty && !isSending && !isDrafting }
 
     func bind(to appState: AppState) {
-        let scope = "\(appState.currentUser?.id ?? "")|\(appState.currentUser?.teamID ?? "")|\(appState.isGuest)|\(appState.activeSessionID)"
+        let scope = Self.scope(of: appState)
         guard boundScope != scope else { return }
         // The last account's words stay where they were kept, for it.
         sourceKey = nil
         reset()
         boundScope = scope
+        boundOwner = Self.owner(of: appState)
         if !appState.isGuest, let user = appState.currentUser {
-            // "chat.draft." so signing out takes it away with the others.
-            sourceKey = "chat.draft.ai.\(user.id)|\(user.teamID ?? "")"
+            sourceKey = Self.draftKey(for: user)
             sourceText = sourceKey.flatMap { UserDefaults.standard.string(forKey: $0) } ?? ""
         }
+    }
+
+    /// Who is writing, in which sign-in: switching workspaces keeps it.
+    private static func owner(of appState: AppState) -> String {
+        "\(appState.currentUser?.id ?? "")|\(appState.isGuest)|\(appState.activeSessionID)"
+    }
+    private static func scope(of appState: AppState) -> String {
+        "\(owner(of: appState))|\(appState.currentUser?.teamID ?? "")"
+    }
+    /// "chat.draft." so signing out takes it away with the others.
+    static func draftKey(for user: User) -> String {
+        "chat.draft.ai.\(user.id)|\(user.teamID ?? "")"
     }
 
     private func keepSource() {
@@ -78,9 +91,28 @@ final class FeedViewModel: ObservableObject {
         if let video { attachmentURL = MediaStore.keep(video) ?? video }
     }
 
-    func teamChanged() {
+    /// Another workspace, the same person and sign-in: the request being
+    /// written comes along, and from now on is kept under the workspace it
+    /// is now for. The workspace it was written in keeps its own copy. One
+    /// the new workspace already had waiting is shown instead, and the
+    /// words that were on screen stay kept where they were written.
+    func teamChanged(appState: AppState? = nil) {
         generation = UUID(); recipientID = ""; isDrafting = false
         lastQueuedDraft = nil
+        guard let appState, sourceKey != nil, boundOwner == Self.owner(of: appState),
+              !appState.isGuest, let user = appState.currentUser else { return }
+        let key = Self.draftKey(for: user)
+        boundScope = Self.scope(of: appState)
+        guard key != sourceKey else { return }
+        sourceKey = key
+        if let waiting = UserDefaults.standard.string(forKey: key), !waiting.isEmpty {
+            // A review in progress was of the other words: it stays with them.
+            sourceText = waiting
+            title = ""; summary = ""; context = ""; isReviewing = false
+            errorMessage = nil; preparationNote = nil
+        } else {
+            keepSource()
+        }
     }
 
     func removeAttachment() { attachmentURL = nil }

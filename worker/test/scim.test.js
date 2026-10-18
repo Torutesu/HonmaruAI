@@ -123,6 +123,50 @@ test("deactivated: out of the workspace and every session signed out of it at on
   expect((await call(`/scim/v2/Users/${user.id}`, { key })).status).toBe(404);
 });
 
+test("deactivated stays deactivated: a fresh sign-in at the domain, an invitation and the relay do not bring them back", async () => {
+  const key = await makeKey();
+  const user = await (await provision(key, "aya@acme.jp")).json();
+  const OTHER = "team:elsewhere";
+  const { createSession, upsertMembership } = await import("../src/db.js");
+  await upsertMembership(env.DB, OTHER, "8602", "member");
+  await env.DB.prepare("UPDATE users SET email_verified_at = ?2 WHERE github_id = ?1").bind("8602", new Date().toISOString()).run();
+  await env.DB.prepare("UPDATE org_domains SET join_policy = 'auto' WHERE domain = 'acme.jp'").run();
+  const patch = (active) => call(`/scim/v2/Users/${user.id}`, { key, method: "PATCH", body: { schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"], Operations: [{ op: "replace", path: "active", value: active }] } });
+  expect((await patch(false)).status).toBe(200);
+  expect(await isMember("8602")).toBe(false);
+
+  // A new email-code sign-in: the domain lets everyone else in, not them.
+  const fresh = await createSession(env.DB, "8602", "x");
+  const { signedIn } = await import("../src/sessions.js");
+  await signedIn(env, null, fresh, "8602", "email_code");
+  expect(await isMember("8602")).toBe(false);
+  // Nor does an invitation.
+  const invite = await (await call("/invites/create", { token: owner, method: "POST", body: { orgId: ORG, role: "member" } })).json();
+  expect(invite.code).toBeTruthy();
+  const accepted = await call("/invites/accept", { token: fresh, method: "POST", body: { code: invite.code } });
+  expect(accepted.status).toBe(403);
+  expect((await accepted.json()).message).toMatch(/directory/);
+  expect(await isMember("8602")).toBe(false);
+  // A membership that came back some other way opens nothing, and the
+  // directory saying "inactive" again takes it away.
+  await upsertMembership(env.DB, ORG, "8602", "member");
+  const refused = await call(`/members?orgId=${encodeURIComponent(ORG)}`, { token: fresh });
+  expect(refused.status).toBe(403);
+  expect((await refused.json()).code).toBe("deactivated");
+  const { authorizeOrgAccess } = await import("../src/membership.js");
+  const { getSession } = await import("../src/db.js");
+  expect((await authorizeOrgAccess(env, await getSession(env.DB, fresh), ORG)).ok).toBe(false);
+  expect((await patch(false)).status).toBe(200);
+  expect(await isMember("8602")).toBe(false);
+  // Their other workspace is not this directory's.
+  expect((await call(`/members?orgId=${encodeURIComponent(OTHER)}`, { token: fresh })).status).toBe(200);
+
+  // The directory turning them on again is what lets them back in.
+  expect((await patch(true)).status).toBe(200);
+  expect(await isMember("8602")).toBe(true);
+  expect((await call(`/members?orgId=${encodeURIComponent(ORG)}`, { token: await createSession(env.DB, "8602", "x") })).status).toBe(200);
+});
+
 test("an owner is never deactivated by provisioning", async () => {
   const key = await makeKey();
   const user = await (await provision(key, "toru@acme.jp")).json();

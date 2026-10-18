@@ -173,6 +173,50 @@ test("the legacy gmail route still answers for build 28", async () => {
 // The model interceptor is persisted and counts its calls — a swallowed fetch
 // error would still look like "no card", so only the count proves the second
 // sync never asked the model again.
+// Interceptors outlive their test here, and the first that matches answers:
+// these two come before any that answer every model call, and answer only
+// mail of their own — the second with the model answer the first set up.
+const RACE = { ...NEEDS, messageId: "m-race", subject: "Invoice #77 needs approval" };
+const aboutRace = (b) => String(b).includes("Invoice #77");
+
+test("two syncs reading the same new mail at once make one card and one model call", async () => {
+  let modelCalls = 0;
+  composioReply([RACE]);
+  composioReply([RACE]);
+  fetchMock.get("https://api.openai.com")
+    .intercept({ path: "/v1/chat/completions", method: "POST", body: (b) => { if (!aboutRace(b)) return false; modelCalls += 1; return true; } })
+    .reply(200, () => ({ choices: [{ message: { content: JSON.stringify({
+      needsDecision: true, cardType: "approval", title: "Approve invoice #77",
+      summary: "Acme is waiting.", context: "deadline: Friday", priority: "high" }) } }] }))
+    .delay(200)
+    .persist();
+
+  const [a, b] = await Promise.all([sync(), sync()]);
+  const made = [await a.json(), await b.json()].reduce((n, r) => n + r.created, 0);
+  expect(made).toBe(1);
+  expect(modelCalls).toBe(1);
+  const cards = await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id = 'acme/web'").first();
+  expect(cards.n).toBe(1);
+  const marker = await env.DB.prepare("SELECT card_id FROM ingested_items WHERE connector='gmail' AND external_id='m-race'").first();
+  expect(marker.card_id).toBeTruthy();
+  // The claim is gone with the work.
+  const claims = await env.DB.prepare("SELECT COUNT(*) AS n FROM ingested_items WHERE connector LIKE 'claim:%'").first();
+  expect(claims.n).toBe(0);
+});
+
+test("mail another run is judging is left to it, unless that run died holding it", async () => {
+  const claim = (at) => env.DB.prepare("INSERT OR REPLACE INTO ingested_items (connector, external_id, user_github_id, org_id, card_id, created_at) VALUES ('claim:gmail', 'm-race', '700', 'acme/web', NULL, ?1)").bind(at).run();
+  // Being judged right now: this sync leaves it.
+  await claim(new Date().toISOString());
+  composioReply([RACE]);
+  expect(await (await sync()).json()).toMatchObject({ scanned: 1, created: 0 });
+  expect(await env.DB.prepare("SELECT 1 FROM ingested_items WHERE connector='gmail' AND external_id='m-race'").first()).toBeNull();
+  // Held for an hour by a run that never came back: taken over.
+  await claim(new Date(Date.now() - 3600_000).toISOString());
+  composioReply([RACE]);
+  expect(await (await sync()).json()).toMatchObject({ scanned: 1, created: 1 });
+});
+
 test("a second sync does not re-judge mail it has already seen", async () => {
   let modelCalls = 0;
   composioReply([NEEDS]);

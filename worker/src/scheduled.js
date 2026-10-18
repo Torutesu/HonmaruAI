@@ -126,20 +126,22 @@ export async function runScheduledSync(env, ctx) {
       console.error("scheduled sync failed", row.login, err?.message || err);
       // A sync that fails quietly for weeks is how connectors rot unnoticed.
       alert(ctx, env, "scheduled-sync", `${row.login}: ${safe(err?.message)}`);
-    }
-    // Marked whether the sync succeeded or failed: the timestamp orders the
-    // next run's candidates, and a user whose connector is broken must not
-    // sit at the front of every queue forever.
-    try {
-      await env.DB
-        .prepare(
-          `INSERT INTO connector_sync_state (user_github_id, synced_at) VALUES (?1, ?2)
-           ON CONFLICT(user_github_id) DO UPDATE SET synced_at = excluded.synced_at`
-        )
-        .bind(row.github_id, new Date().toISOString())
-        .run();
-    } catch (err) {
-      console.error("sync state write failed", row.login, err?.message || err);
+    } finally {
+      // Marked whether the sync succeeded, failed or found nothing new: the
+      // timestamp orders the next run's candidates, and neither a user whose
+      // connector is broken nor one whose inbox is empty may sit at the front
+      // of every queue forever.
+      try {
+        await env.DB
+          .prepare(
+            `INSERT INTO connector_sync_state (user_github_id, synced_at) VALUES (?1, ?2)
+             ON CONFLICT(user_github_id) DO UPDATE SET synced_at = excluded.synced_at`
+          )
+          .bind(row.github_id, new Date().toISOString())
+          .run();
+      } catch (err) {
+        console.error("sync state write failed", row.login, err?.message || err);
+      }
     }
   }
 

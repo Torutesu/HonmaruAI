@@ -3,7 +3,9 @@ import SwiftUI
 import UIKit
 
 enum ChatRoute: Hashable {
-    case conversation(view: String, jump: String?)
+    /// A conversation, opened at a message when `jump` is set; a reply's
+    /// thread is `thread`, opened at that reply.
+    case conversation(view: String, jump: String?, thread: String? = nil)
     case activity
     case later
     case threads
@@ -25,7 +27,10 @@ enum ChatRoute: Hashable {
 /// threads in a sheet, and the AI's steps while it makes a card.
 struct ConversationView: View {
     let view: String
+    /// The message to show: one in the conversation, or a reply in `thread`.
     var jump: String?
+    /// The thread `jump` is a reply in, opened with it.
+    var thread: String? = nil
     @EnvironmentObject private var appState: AppState
     @ObservedObject var store: ChatStore
 
@@ -39,6 +44,9 @@ struct ConversationView: View {
     @State private var unsent: (text: String, clientId: String)?
     @FocusState private var focused: Bool
     @State private var editing: ChatMessage?
+    /// An edit on its way to the server, and one the server did not take.
+    @State private var savingEdit = false
+    @State private var editFailed = false
     /// The message the next one answers, inline (swiped, or Reply).
     @State private var replyingTo: ChatMessage?
     /// A reply's quote pressed: the message it quotes, to scroll to.
@@ -57,6 +65,8 @@ struct ConversationView: View {
     @State private var showScheduled = false
     @State private var newSince: String?
     @State private var highlight: String?
+    /// Whether the newest message is in view: there, what arrives is followed.
+    @State private var atBottom = true
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var attached: [ChatFile] = []
     @State private var uploading = 0
@@ -85,8 +95,15 @@ struct ConversationView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if store.more[view] == true {
-                        ProgressView().frame(maxWidth: .infinity).padding()
-                            .onAppear { Task { await store.loadOlder(view) } }
+                        if store.olderFailed.contains(view) {
+                            olderFailedNote { loadOlder(proxy) }
+                        } else {
+                            ProgressView().frame(maxWidth: .infinity).padding()
+                                .onAppear { loadOlder(proxy) }
+                                // Its own each time the top moves, so it asks again
+                                // for the page above when it is still in view.
+                                .id("older-\(list.first?.id ?? "")")
+                        }
                     } else {
                         start
                     }
@@ -105,16 +122,23 @@ struct ConversationView: View {
                     ForEach((store.agentTyping[view] ?? []).filter { $0.parentId == nil || !isAgentConversation }, id: \.agent.id) { typing in
                         ChatAgentTypingRow(agent: typing.agent).padding(.vertical, 6)
                     }
-                    Color.clear.frame(height: 1).id("bottom")
+                    ChatBottomMarker(atBottom: $atBottom).id("bottom")
                 }
                 .padding(.bottom, 8)
             }
             .scrollDismissesKeyboard(.interactively)
             .defaultScrollAnchor(.bottom)
             .modifier(ChatStaysAtBottom())
-            .onChange(of: list.count) { _, _ in if jump == nil { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
-            .onChange(of: store.thinking[view]) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
-            .onChange(of: store.agentTyping[view]) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .modifier(ChatTracksBottom(atBottom: $atBottom))
+            // Followed only by someone already at the bottom, or after their
+            // own send: reading further up is not interrupted.
+            .onChange(of: list.last?.id) { old, _ in
+                if Self.followsNewest(previous: old, openedAt: jump ?? thread, atBottom: atBottom, newestIsMine: list.last?.mine == true) {
+                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+            }
+            .onChange(of: store.thinking[view]) { _, _ in if atBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
+            .onChange(of: store.agentTyping[view]) { _, _ in if atBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
             .onChange(of: quoteJump) { _, id in
                 guard let id else { return }
                 quoteJump = nil
@@ -126,20 +150,33 @@ struct ConversationView: View {
                     if highlight == id { withAnimation { highlight = nil } }
                 }
             }
-            .task(id: view) {
+            // Read again in another workspace: one channel name can be two
+            // workspaces' conversations.
+            .task(id: "\(appState.currentUser?.teamID ?? "")|\(view)") {
                 replyingTo = nil
                 newSince = store.reads[view]
                 draft = store.draft(view)
                 await store.open(view)
-                // Opened from a notification for a reply: its thread too.
-                if let target = store.pendingOpen, target.channel == view {
-                    store.pendingOpen = nil
-                    if let parent = target.parentId, await store.openThread(channel: view, parentId: parent) { showThread = true }
+                // Opened from a notification: here now.
+                if store.pendingOpen?.channel == view { store.pendingOpen = nil }
+                // Opened at a reply (Search, Activity, Sent, a notification):
+                // its thread, at that reply, over the message it answers.
+                var shown = true
+                if let thread {
+                    store.threadJump = jump
+                    if await store.openThread(channel: view, parentId: thread) { showThread = true } else { store.threadJump = nil; shown = false }
                 }
-                if let jump {
-                    highlight = jump
+                if let target = thread ?? jump {
+                    // Further back than the newest page: read back to it. A
+                    // reply's thread shows the message it answers already.
+                    if thread == nil && !list.contains(where: { $0.id == target }) { await store.loadUntil(view, contains: target) }
+                    guard !Task.isCancelled else { return }
+                    if thread == nil && !list.contains(where: { $0.id == target }) { shown = false }
+                    if !shown { notes.append(String(localized: "That message could not be shown. It may have been deleted, or you may no longer have access to it.")) }
+                    guard list.contains(where: { $0.id == target }) else { return }
+                    highlight = target
                     try? await Task.sleep(for: .milliseconds(250))
-                    withAnimation { proxy.scrollTo(jump, anchor: .center) }
+                    withAnimation { proxy.scrollTo(target, anchor: .center) }
                     try? await Task.sleep(for: .seconds(1.6))
                     withAnimation { highlight = nil }
                 } else {
@@ -229,6 +266,35 @@ struct ConversationView: View {
                 }
             }
         }.padding(16).padding(.top, 8)
+    }
+
+    /// Earlier messages could not be read: said where they would be, with a
+    /// way to read them again — not "This is the start".
+    private func olderFailedNote(retry: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Colors.textTertiary)
+            Text("Couldn't load earlier messages.").font(.caption).foregroundStyle(Theme.Colors.textSecondary)
+            Button("Try again", action: retry).font(.caption.weight(.semibold))
+        }
+        .frame(maxWidth: .infinity).padding()
+    }
+
+    /// The page above, put in above what is being read: the message that
+    /// was at the top stays where it was rather than the list jumping.
+    private func loadOlder(_ proxy: ScrollViewProxy) {
+        let top = list.first?.id
+        Task {
+            if await store.loadOlder(view), let top { proxy.scrollTo(top, anchor: .top) }
+        }
+    }
+
+    /// Whether a change of the newest message takes the conversation to
+    /// it: the first page, unless it was opened at a message; your own
+    /// send; anything new while the bottom is in view. Older messages put
+    /// in above leave the newest as it was, and move nothing.
+    static func followsNewest(previous: String?, openedAt jump: String?, atBottom: Bool, newestIsMine: Bool) -> Bool {
+        if previous == nil { return jump == nil }
+        return atBottom || newestIsMine
     }
 
     @ViewBuilder
@@ -344,8 +410,12 @@ struct ConversationView: View {
                             }
                             Text(s.body).font(.footnote).lineLimit(1)
                             Spacer()
-                            Button("Edit") { draft = s.body; Task { await store.cancelScheduled(s) } }.font(.caption)
-                            Button("Cancel", role: .destructive) { Task { await store.cancelScheduled(s) } }.font(.caption)
+                            if store.cancelling.contains(s.id) {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Button("Edit") { Task { await cancelScheduled(s, thenEdit: true) } }.font(.caption)
+                                Button("Cancel", role: .destructive) { Task { await cancelScheduled(s, thenEdit: false) } }.font(.caption)
+                            }
                         }.padding(.top, 6)
                     }
                 } label: {
@@ -360,8 +430,14 @@ struct ConversationView: View {
                     Label("Editing", systemImage: "pencil").font(.caption.weight(.semibold)).foregroundStyle(.orange)
                     Text(editing.body).font(.caption).lineLimit(1).foregroundStyle(Theme.Colors.textSecondary)
                     Spacer()
+                    if savingEdit { ProgressView().controlSize(.mini) }
                     Button("Cancel") { endEdit() }.font(.caption)
                 }.padding(.horizontal, 14)
+                if editFailed {
+                    Label("That did not save.", systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(Theme.Colors.reject)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14)
+                }
             } else if let quote = replyQuote {
                 ChatReplyingBar(quote: quote, nameOf: store.nameOf(ref:)) { replyingTo = nil }
             }
@@ -408,17 +484,25 @@ struct ConversationView: View {
                     }
                 }
                 HStack(alignment: .bottom, spacing: 8) {
-                    // Photos from the camera roll, uploaded as soon as they are picked.
-                    PhotosPicker(selection: $photoItems, maxSelectionCount: 10, matching: .images) {
+                    // Photos from the camera roll, uploaded as soon as they are picked:
+                    // no more, all told, than one message carries.
+                    let photoRoom = ChatPhotos.room(attached: attached.count, uploading: uploading)
+                    PhotosPicker(selection: $photoItems, maxSelectionCount: max(photoRoom, 1), matching: .images) {
                         Image(systemName: "plus").font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .foregroundStyle(photoRoom == 0 ? Theme.Colors.textTertiary : Theme.Colors.textSecondary)
                             .frame(width: 44, height: 44).glassCircle()
                     }
+                    .disabled(photoRoom == 0)
                     .accessibilityLabel("Add photos")
                     .onChange(of: photoItems) { _, items in
                         guard !items.isEmpty else { return }
                         photoItems = []
-                        Task { await attach(items) }
+                        let taken = Array(items.prefix(ChatPhotos.room(attached: attached.count, uploading: uploading)))
+                        if taken.count < items.count { notes.append(String(localized: "A message can carry at most 10 files.")) }
+                        guard !taken.isEmpty else { return }
+                        // Their places are kept from now, before the first has gone up.
+                        uploading += taken.count
+                        Task { await attach(taken) }
                     }
                     // Quote, list, numbered list, bold and the rest, as on the web.
                     Menu {
@@ -470,14 +554,14 @@ struct ConversationView: View {
     }
 
     private var canSend: Bool {
-        uploading == 0 && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (!attached.isEmpty && editing == nil))
+        uploading == 0 && !savingEdit && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (!attached.isEmpty && editing == nil))
     }
 
     /// Picked photos: each made a JPEG (a HEIC would not show everywhere),
-    /// uploaded, and held for the message you are about to send.
+    /// uploaded, and held for the message you are about to send. Each is
+    /// already counted in `uploading`, and given back as it is done.
     private func attach(_ items: [PhotosPickerItem]) async {
         for (i, item) in items.enumerated() {
-            uploading += 1
             defer { uploading -= 1 }
             guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data),
                   let jpeg = image.jpegData(compressionQuality: 0.85) else { continue }
@@ -586,8 +670,18 @@ struct ConversationView: View {
             return
         }
         if let editing {
-            await store.edit(editing, to: text)
-            endEdit()
+            guard !savingEdit else { return }
+            savingEdit = true
+            editFailed = false
+            let saved = await store.edit(editing, to: text)
+            savingEdit = false
+            // Another message taken up meanwhile is left as it is.
+            guard self.editing?.id == editing.id else { return }
+            // Not saved: the edit stays open with every word, to save again.
+            guard saved else { editFailed = true; return }
+            // Saved as it stands: done. Words written while it went stay,
+            // still an edit, for one more save.
+            if draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { endEdit() }
             return
         }
         // A command, not a message.
@@ -637,6 +731,18 @@ struct ConversationView: View {
         }
     }
 
+    /// A scheduled message taken off the schedule — and, to edit it, its
+    /// words back in the box only once it is: an edit sent while the first
+    /// one still waited would have gone out as well.
+    private func cancelScheduled(_ s: ChatScheduled, thenEdit: Bool) async {
+        switch await store.cancelScheduled(s) {
+        case .cancelled: if thenEdit { draft = s.body }
+        case .alreadyGone: notes.append(String(localized: "That scheduled message was already sent or cancelled."))
+        case .failed: notes.append(String(localized: "That scheduled message could not be cancelled and will still be sent. Try again."))
+        case .busy: break
+        }
+    }
+
     /// Sent: the box empties — unless more was written while it went, which
     /// stays, and stays kept.
     private func clearSent(_ text: String) {
@@ -661,12 +767,14 @@ struct ConversationView: View {
         replyingTo = nil
         if editing == nil { keptDraft = draft }
         editing = m
+        editFailed = false
         draft = m.body
         focused = true
     }
 
     private func endEdit() {
         editing = nil
+        editFailed = false
         draft = keptDraft ?? store.draft(view)
         keptDraft = nil
     }

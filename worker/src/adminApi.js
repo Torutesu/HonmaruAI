@@ -25,6 +25,9 @@ function json(body, status = 200) {
 }
 
 const IDEMPOTENT_HOURS = 24;
+/// How long a request may hold an Idempotency-Key unanswered before a retry
+/// takes it over: the request that held it is taken to have died.
+const ABANDONED_MINUTES = 10;
 const pageOf = (items, cursor, limit) => {
   const start = Math.max(0, parseInt(cursor ? atob(cursor) : "0", 10) || 0);
   const size = Math.max(1, Math.min(200, parseInt(limit, 10) || 100));
@@ -86,7 +89,7 @@ async function route(request, env, url, key) {
     if (memberMatch[2] && request.method === "POST") {
       // Out of this workspace. A workspace's key used to sign the person out
       // of every workspace they belong to — anyone's, not only this one.
-      const ended = await endAccountHere(env.DB, orgId, target.userId);
+      const ended = await endAccountHere(env, orgId, target.userId);
       await audit(env, request, { orgId, action: "auth.session_revoked", actor, entity, details: { count: ended, everywhere: false } });
       return json({ data: { ended } });
     }
@@ -107,7 +110,7 @@ async function route(request, env, url, key) {
       if (!owner) return apiError(409, "no_owner", "This workspace has no owner to act for.");
       const out = await removeMember(env, { orgId, actorId: owner, targetId: target.userId });
       if (out.error) return apiError(out.status || 400, "invalid_request", out.error);
-      const ended = await endAccountHere(env.DB, orgId, target.userId);
+      const ended = await endAccountHere(env, orgId, target.userId);
       const { evictMember } = await import("./announce.js");
       await evictMember(env, orgId, target.login).catch(() => {});
       await audit(env, request, { orgId, action: "member.removed", actor, entity, details: { sessions_ended: ended } });
@@ -278,21 +281,46 @@ export async function handleAdminApi(request, env, url) {
   }
   // The same answer to the same Idempotency-Key, for a day.
   const idem = request.method !== "GET" ? String(request.headers.get("idempotency-key") || "").slice(0, 200) : "";
-  if (idem) {
-    const since = new Date(Date.now() - IDEMPOTENT_HOURS * 3_600_000).toISOString();
-    const seen = await env.DB.prepare("SELECT status, body FROM admin_idempotency WHERE key_id = ?1 AND idem_key = ?2 AND created_at > ?3")
-      .bind(key.id, idem, since).first().catch(() => null);
-    if (seen) return new Response(seen.body, { status: seen.status, headers: { "cache-control": "no-store", "content-type": "application/json", "idempotent-replayed": "true", ...CORS } });
-  }
-  const res = await route(request, env, url, key);
-  if (idem && res.status < 500) {
-    const text = await res.clone().text();
-    await env.DB.prepare(
-      `INSERT INTO admin_idempotency (key_id, idem_key, status, body, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
-       ON CONFLICT(key_id, idem_key) DO NOTHING`
-    ).bind(key.id, idem, res.status, text, new Date().toISOString()).run().catch(() => {});
+  if (!idem) return route(request, env, url, key);
+  const claim = await claimIdempotency(env.DB, key.id, idem);
+  if (claim.replay) return new Response(claim.replay.body, { status: claim.replay.status, headers: { "cache-control": "no-store", "content-type": "application/json", "idempotent-replayed": "true", ...CORS } });
+  if (!claim.at) return apiError(409, "idempotency_in_progress", "A request with this Idempotency-Key is still being carried out. Try again in a moment.");
+  let res = null;
+  try {
+    res = await route(request, env, url, key);
+  } finally {
+    // Kept only by the request that holds the claim, and only while it holds
+    // it; a failure lets go, so the retry is carried out.
+    const mine = "WHERE key_id = ?1 AND idem_key = ?2 AND created_at = ?3 AND status = 0";
+    if (res && res.status < 500) {
+      await env.DB.prepare(`UPDATE admin_idempotency SET status = ?4, body = ?5 ${mine}`)
+        .bind(key.id, idem, claim.at, res.status, await res.clone().text()).run().catch(() => {});
+    } else {
+      await env.DB.prepare(`DELETE FROM admin_idempotency ${mine}`).bind(key.id, idem, claim.at).run().catch(() => {});
+    }
   }
   return res;
+}
+
+/// Claim an Idempotency-Key before anything is done under it. Status 0 is a
+/// request still being carried out. One answered within the day is replayed
+/// (`replay`); one that is still being carried out leaves this one nothing
+/// (no `at`); otherwise — never seen, older than a day, or a claim nobody
+/// finished in ten minutes — this request takes it, as of `at`. Decided in one
+/// statement, so two copies of a request cannot both take it.
+async function claimIdempotency(db, keyId, idem) {
+  const now = Date.now();
+  const at = new Date(now).toISOString();
+  const expired = new Date(now - IDEMPOTENT_HOURS * 3_600_000).toISOString();
+  const abandoned = new Date(now - ABANDONED_MINUTES * 60_000).toISOString();
+  const out = await db.prepare(
+    `INSERT INTO admin_idempotency (key_id, idem_key, status, body, created_at) VALUES (?1, ?2, 0, '', ?3)
+     ON CONFLICT(key_id, idem_key) DO UPDATE SET status = 0, body = '', created_at = excluded.created_at
+     WHERE admin_idempotency.created_at <= ?4 OR (admin_idempotency.status = 0 AND admin_idempotency.created_at <= ?5)`
+  ).bind(keyId, idem, at, expired, abandoned).run();
+  if (out?.meta?.changes > 0) return { at };
+  const seen = await db.prepare("SELECT status, body FROM admin_idempotency WHERE key_id = ?1 AND idem_key = ?2").bind(keyId, idem).first();
+  return seen?.status > 0 ? { replay: seen } : {};
 }
 
 export { memberRef };

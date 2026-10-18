@@ -197,6 +197,7 @@ export async function suggestionsFor(env, orgId, user, { locale, refresh = false
   try {
     written = await modelSuggestions(material, { locale, provider, allowance });
   } finally {
+    await allowance?.release().catch(() => {});
     await settleUsage(db, provider, { orgId, githubId: user.github_id });
   }
   const suggestions = written || ruleSuggestions(material, locale);

@@ -98,6 +98,58 @@ test("the AI's own cards, and a free tier with billing on, teach nothing", async
   expect(await learnFromDecision(ENV({ OPENAI_API_KEY: "sk-test", REVENUECAT_SECRET_KEY: "rc" }), { orgId: ORG, card, actorLogin: "toru", actorGithubId: "8501" })).toBeNull();
 });
 
+test("a private channel's decisions teach the workspace's playbook nothing, and nothing learned from one is shown", async () => {
+  const { saveCard, upsertBusiness } = await import("../src/db.js");
+  await upsertBusiness(env.DB, ORG, { name: "Board" });
+  await upsertBusiness(env.DB, ORG, { name: "Sales" });
+  await env.DB.prepare("UPDATE businesses SET private = 1 WHERE org_id = ?1 AND slug = 'board'").bind(ORG).run();
+  const learn = (card) => learnFromDecision(ENV({ OPENAI_API_KEY: "sk-test" }), { orgId: ORG, card, actorLogin: "toru", actorGithubId: "8501" });
+  const asked = [];
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(200, (opts) => {
+      asked.push(JSON.parse(opts.body).messages[1].content);
+      return { choices: [{ message: { content: JSON.stringify({ rule: asked.length > 1 ? "For Project Cedar, offers above 12,345 need finance." : "Supplier offers wait for the quarterly review." }) } }] };
+    });
+
+  // Filed under the private channel: no model call, no rule.
+  const secret = {
+    id: "c-cedar", title: "Cedar supplier offer", type: "approval", business: "board", recipientUserID: "toru", senderUserID: "mika",
+    decision: { action: "decline", actorUserID: "toru", note: "For Project Cedar, offers above 12,345 need finance" },
+  };
+  expect(await learn(secret)).toBeNull();
+  expect(asked).toEqual([]);
+  // Nor when the card is stored under it.
+  await saveCard(env.DB, ORG, { ...secret, id: "c-stored" });
+  expect(await learn({ ...secret, id: "c-stored", business: undefined })).toBeNull();
+  expect(asked).toEqual([]);
+
+  // A public channel's decision still teaches.
+  const open = await learn({ ...secret, id: "c-open", business: "sales", title: "Supplier offer", decision: { ...secret.decision, note: "Wait for the quarterly review" } });
+  expect(open).toMatchObject({ text: "Supplier offers wait for the quarterly review.", origin: "learned" });
+
+  // Filed under the private channel while the model was reading it.
+  await saveCard(env.DB, ORG, { ...secret, id: "c-moved", business: "sales" });
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(200, async () => {
+      await saveCard(env.DB, ORG, { ...secret, id: "c-moved", business: "board" });
+      return { choices: [{ message: { content: JSON.stringify({ rule: "For Project Cedar, offers above 12,345 need finance." }) } }] };
+    });
+  expect(await learn({ ...secret, id: "c-moved", business: "sales" })).toBeNull();
+
+  // A rule learned before its channel was made private is no longer anybody's
+  // to read: not the Playbook, not the prompts.
+  await saveCard(env.DB, ORG, { ...secret, id: "c-old", business: "sales" });
+  await addMemory(env.DB, ORG, { text: "For Project Cedar, offers above 12,345 need finance.", origin: "learned", cardId: "c-old", createdBy: "toru" });
+  await addMemory(env.DB, ORG, { text: "Brand work goes to Mika." });
+  const before = await (await call(`/memories?${q}`, { headers: headers(mika) })).json();
+  expect(before.memories.map((m) => m.text)).toContain("For Project Cedar, offers above 12,345 need finance.");
+  await saveCard(env.DB, ORG, { ...secret, id: "c-old", business: "board" });
+  const after = await (await call(`/memories?${q}`, { headers: headers(mika) })).json();
+  expect(after.memories.map((m) => m.text).sort()).toEqual(["Brand work goes to Mika.", "Supplier offers wait for the quarterly review."]);
+  const hits = await relevantMemories(env.DB, ORG, "Project Cedar supplier offer");
+  expect(hits.map((m) => m.text)).not.toContain("For Project Cedar, offers above 12,345 need finance.");
+});
+
 test("the router is handed the rules that bear on the instruction", async () => {
   await addMemory(env.DB, ORG, { text: "Supplier price rises wait until the lease is settled." });
   await addMemory(env.DB, ORG, { text: "Brand work goes to Mika." });

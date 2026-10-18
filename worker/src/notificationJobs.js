@@ -54,24 +54,32 @@ export async function runCardNotification(env, id, send, now = Date.now()) {
   let result;
   try {
     const input = JSON.parse(job.payload);
-    if (job.attempts > 1) {
-      const user = await getUserByLogin(env.DB, job.login);
-      if (!user) result = {sent:0, skipped:'recipient removed'};
-      if (!result && job.org_id) {
-        const member = await env.DB.prepare('SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2').bind(job.org_id, user.github_id).first();
-        const card = await getCard(env.DB, job.org_id, job.card_id);
-        if (!member || !card || !mayReadCard(card, await accessFor(env.DB, job.org_id, job.login))) result = {sent:0, skipped:'no longer accessible'};
-        else if ((job.kind === 'created' || job.kind === 'nudged') && (card.status !== 'pending' || card.recipientUserID !== job.login)) result = {sent:0, skipped:'request changed'};
+    // Whoever it is for must still be in the workspace and able to read the
+    // card, on the first try as on a retry. A retry also checks the card is
+    // still the news it was, and sends it as it is now.
+    const user = await getUserByLogin(env.DB, job.login);
+    if (!user) result = {sent:0, skipped:'recipient removed'};
+    if (!result && job.org_id) {
+      const member = await env.DB.prepare('SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2').bind(job.org_id, user.github_id).first();
+      // A digest is a count under a made-up id, not a stored card: still
+      // news while they are a member, and sent as it was queued.
+      const tally = job.kind === 'digest';
+      const card = tally ? null : await getCard(env.DB, job.org_id, job.card_id);
+      if (!member || !tally && (!card || !mayReadCard(card, await accessFor(env.DB, job.org_id, job.login)))) result = {sent:0, skipped:'no longer accessible'};
+      else if (job.attempts > 1 && !tally) {
+        if ((job.kind === 'created' || job.kind === 'nudged') && (card.status !== 'pending' || card.recipientUserID !== job.login)) result = {sent:0, skipped:'request changed'};
         else if (job.kind === 'decided' && (card.status === 'pending' || card.decision?.decidedAt !== input.card.decision?.decidedAt)) result = {sent:0, skipped:'response changed'};
-        else input.card = card;
+        else if (!tally) input.card = card;
       }
     }
     result ||= await send(env, {...input, deliveryJobId:id});
   } catch { result = {sent:0, retry:true, failure:'delivery exception'}; }
   // Held through the person's quiet time: pending again, from when it ends.
   // Run again, it checks the card is still news (attempts > 1, above).
+  // Nothing was sent, so the attempt is given back, down to that one: a
+  // hold on the last attempt still leaves a real attempt after it.
   if (result.deferUntil) {
-    await env.DB.prepare(`UPDATE notification_jobs SET due_at = ?2, lease_until = NULL, last_error = 'held', updated_at = ?3 WHERE id = ?1 AND lease_until = ?4`)
+    await env.DB.prepare(`UPDATE notification_jobs SET due_at = ?2, lease_until = NULL, attempts = MAX(attempts - 1, 1), last_error = 'held', updated_at = ?3 WHERE id = ?1 AND lease_until = ?4`)
       .bind(id, new Date(result.deferUntil).toISOString(), at, lease).run();
     return result;
   }
@@ -85,9 +93,12 @@ export async function runCardNotification(env, id, send, now = Date.now()) {
 
 export async function drainCardNotifications(env, send, now = Date.now()) {
   const at = new Date(now).toISOString();
-  await env.DB.prepare("UPDATE notification_jobs SET state = 'failed', payload = '{}', lease_until = NULL, last_error = 'retry limit or expiry' WHERE state = 'pending' AND (created_at < ?1 OR (attempts >= ?2 AND lease_until <= ?3))")
+  // Out of attempts and not held by a live claim, one that was never
+  // leased again (NULL) included: nothing can claim it, so it is finished
+  // here rather than left taking a place in the batch below.
+  await env.DB.prepare("UPDATE notification_jobs SET state = 'failed', payload = '{}', lease_until = NULL, last_error = 'retry limit or expiry' WHERE state = 'pending' AND (created_at < ?1 OR (attempts >= ?2 AND (lease_until IS NULL OR lease_until <= ?3)))")
     .bind(new Date(now - 86400000).toISOString(), MAX_ATTEMPTS, at).run();
-  const {results} = await env.DB.prepare("SELECT id FROM notification_jobs WHERE state = 'pending' AND due_at <= ?1 AND (lease_until IS NULL OR lease_until <= ?1) ORDER BY due_at LIMIT 25").bind(at).all();
+  const {results} = await env.DB.prepare("SELECT id FROM notification_jobs WHERE state = 'pending' AND due_at <= ?1 AND (lease_until IS NULL OR lease_until <= ?1) AND attempts < ?2 ORDER BY due_at LIMIT 25").bind(at, MAX_ATTEMPTS).all();
   for (const job of results || []) await runCardNotification(env, job.id, send, now);
   // Finished jobs and their deliveries past a week are trimmed by the daily
   // pruneGrowth (retention.js). Here, every minute, the same two deletes

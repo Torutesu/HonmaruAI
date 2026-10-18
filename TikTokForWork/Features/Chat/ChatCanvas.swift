@@ -3,7 +3,10 @@ import SwiftUI
 /// A conversation's canvas: one shared document — how things are done,
 /// what was decided, who owns what — that anyone in it reads and edits.
 /// A save names the version it was made from; if somebody else saved in
-/// between, this says so instead of writing over theirs.
+/// between, this says so instead of writing over theirs. The editor stays
+/// open to typing while a save or an update is on its way: a save's answer
+/// closes it only if it still holds what was sent, and an update written
+/// from words since changed is offered rather than put in their place.
 struct ChatCanvasSheet: View {
     let view: String
     let title: String
@@ -16,6 +19,10 @@ struct ChatCanvasSheet: View {
     @State private var busy = false
     @State private var note: String?
     @State private var error: String?
+    /// An update written from the words as they were before more was typed.
+    @State private var suggestion: String?
+    /// Which edit this is: an answer to one since left behind changes nothing in it.
+    @State private var editRun = 0
 
     private var orgId: String? { appState.currentUser?.teamID }
 
@@ -23,10 +30,15 @@ struct ChatCanvasSheet: View {
         NavigationStack {
             Group {
                 if let editing {
-                    TextEditor(text: Binding(get: { editing }, set: { self.editing = $0 }))
-                        .font(.system(.body, design: .monospaced))
-                        .padding(.horizontal, 12)
-                        .accessibilityLabel(Text("Canvas"))
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let note {
+                            Text(note).font(.footnote).foregroundStyle(Theme.Colors.textSecondary).padding(.horizontal, 16)
+                        }
+                        TextEditor(text: Binding(get: { editing }, set: { self.editing = $0 }))
+                            .font(.system(.body, design: .monospaced))
+                            .padding(.horizontal, 12)
+                            .accessibilityLabel(Text("Canvas"))
+                    }
                 } else if let canvas {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 12) {
@@ -53,14 +65,14 @@ struct ChatCanvasSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(editing == nil ? "Close" : "Cancel") {
-                        if editing == nil { dismiss() } else { editing = nil; conflict = nil }
+                        if editing == nil { dismiss() } else { editRun += 1; editing = nil; conflict = nil; suggestion = nil; note = nil }
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if editing != nil {
                         Button("Save") { Task { await save() } }.disabled(busy)
                     } else {
-                        Button("Edit") { baseVersion = canvas?.version ?? 0; editing = canvas?.body ?? "" }.disabled(canvas == nil)
+                        Button("Edit") { editRun += 1; baseVersion = canvas?.version ?? 0; editing = canvas?.body ?? ""; note = nil }.disabled(canvas == nil)
                     }
                 }
                 ToolbarItem(placement: .bottomBar) {
@@ -70,8 +82,12 @@ struct ChatCanvasSheet: View {
             }
             .alert("Someone else changed the canvas while you were editing.", isPresented: Binding(get: { conflict != nil }, set: { if !$0 { conflict = nil } })) {
                 Button("Keep mine") { if let c = conflict { baseVersion = c.version }; conflict = nil; Task { await save() } }
-                Button("Use theirs") { canvas = conflict; editing = nil; conflict = nil }
+                Button("Use theirs") { canvas = conflict; editRun += 1; editing = nil; conflict = nil; suggestion = nil }
                 Button("Cancel", role: .cancel) {}
+            }
+            .alert("The update was written from the canvas before your latest changes.", isPresented: Binding(get: { suggestion != nil && editing != nil }, set: { if !$0 { suggestion = nil } })) {
+                Button("Use the update") { if let s = suggestion { editing = s }; suggestion = nil }
+                Button("Keep mine", role: .cancel) { suggestion = nil }
             }
             .alert("That did not save.", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
                 Button("OK", role: .cancel) {}
@@ -87,26 +103,49 @@ struct ChatCanvasSheet: View {
     }
 
     private func save() async {
-        guard let orgId, let base = appState.backendBaseURL, let text = editing else { return }
+        guard !busy, let orgId, let base = appState.backendBaseURL, let text = editing else { return }
+        let run = editRun
         busy = true
         defer { busy = false }
         do {
-            switch try await ChatService.saveCanvas(orgId: orgId, channel: view, body: text, baseVersion: baseVersion, base: base) {
-            case .saved(let saved): canvas = saved; editing = nil; Haptics.success()
+            let result = try await ChatService.saveCanvas(orgId: orgId, channel: view, body: text, baseVersion: baseVersion, base: base)
+            guard run == editRun else {
+                if case .saved(let saved) = result { canvas = saved }
+                return
+            }
+            switch result {
+            case .saved(let saved):
+                canvas = saved
+                Haptics.success()
+                if editing == text { editing = nil; suggestion = nil; note = nil }
+                else {
+                    // Typed on while it saved: that is still to save, from what was saved.
+                    baseVersion = saved.version
+                    note = String(localized: "Saved. What you wrote since is not saved yet.")
+                }
             case .conflict(let theirs): conflict = theirs
             }
-        } catch { self.error = error.localizedDescription }
+        } catch { if run == editRun { self.error = error.localizedDescription } }
     }
 
     private func askAI() async {
-        guard let orgId, let base = appState.backendBaseURL else { return }
+        guard !busy, let orgId, let base = appState.backendBaseURL else { return }
+        let wasEditing = editing != nil
+        let from = editing ?? canvas?.body ?? ""
+        let fromVersion = canvas?.version ?? 0
         busy = true
         defer { busy = false }
         do {
-            let out = try await ChatService.draftCanvas(orgId: orgId, channel: view, body: editing ?? canvas?.body ?? "", base: base)
+            let out = try await ChatService.draftCanvas(orgId: orgId, channel: view, body: from, base: base)
             if out.byModel {
-                if editing == nil { baseVersion = canvas?.version ?? 0 }
-                editing = out.body
+                // Put in only where the words it was written from still stand;
+                // typed on since, it is offered. An edit closed meanwhile stays closed.
+                if let now = editing {
+                    if now == from { editing = out.body } else { suggestion = out.body }
+                } else if !wasEditing {
+                    baseVersion = fromVersion
+                    editing = out.body
+                }
             }
             note = out.note
         } catch { self.error = error.localizedDescription }

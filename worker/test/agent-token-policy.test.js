@@ -56,6 +56,7 @@ test("once a workspace requires SSO, a token made without it stops; one made thr
   const plain = await createApiToken(env.DB, { orgId: ORG, githubId: "8801", name: "Before SSO" });
   const viaSso = await createApiToken(env.DB, { orgId: ORG, githubId: "8801", name: "After SSO", ssoBacked: true });
   const now = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO org_domains (domain, org_id, verify_token, verified_at, created_by, created_at) VALUES ('acme.jp', ?1, 't', ?2, '8801', ?2)").bind(ORG, now).run();
   await env.DB.prepare(
     "INSERT INTO sso_connections (id, org_id, provider, issuer, allowed_domains, status, created_by, created_at, updated_at) VALUES ('c1', ?1, 'okta', 'https://acme.okta.com', '[\"acme.jp\"]', 'active', '8801', ?2, ?2)"
   ).bind(ORG, now).run();

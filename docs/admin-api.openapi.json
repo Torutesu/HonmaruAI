@@ -3,7 +3,7 @@
   "info": {
     "title": "Honmaru admin API",
     "version": "1.0.0",
-    "description": "What a workspace key (hmo_…) opens. Make one in Tools → API & Webhooks → Workspace keys (owners only). Errors are {\"error\":{\"code\",\"message\"}}. Send Idempotency-Key on writes to get the same answer for 24 hours. 600 requests a minute per key. Nothing here reads messages, and nothing makes, changes or removes an owner. See docs/admin-controls.md §2."
+    "description": "What a workspace key (hmo_…) opens. Make one in Tools → API & Webhooks → Workspace keys (owners only). Errors are {\"error\":{\"code\",\"message\"}}. Send Idempotency-Key on writes to get the same answer for 24 hours; after that the key may be used again for a new request. A copy sent while the first is still being carried out gets 409 idempotency_in_progress: try it again in a moment. 600 requests a minute per key. Nothing here reads messages, and nothing makes, changes or removes an owner. See docs/admin-controls.md §2."
   },
   "servers": [
     {
@@ -58,7 +58,8 @@
                         "invalid_json",
                         "invalid_request",
                         "method_not_allowed",
-                        "rate_limited"
+                        "rate_limited",
+                        "idempotency_in_progress"
                       ]
                     },
                     "message": {

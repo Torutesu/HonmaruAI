@@ -154,6 +154,34 @@ test("a digest is a count in the reader's language, and names no card", async ()
   expect(bodies[0].aps.badge).toBe(3);
 });
 
+test("a digest keeps a pause and the hours set, and is held until they end", async () => {
+  const { upsertMembership } = await import("../src/db.js");
+  const { drainCardNotifications } = await import("../src/notificationJobs.js");
+  const { notifyCardNow } = await import("../src/notify.js");
+  await upsertMembership(env.DB, "personal:digest", "8001", "member");
+  const until = new Date(Date.now() + 30 * 60_000).toISOString();
+  await env.DB.prepare("UPDATE users SET notify_paused_until = ?1 WHERE login = 'taro'").bind(until).run();
+  // No interceptor: a push now would fail the test.
+  const digest = { card: { id: "digest-taro-1", recipientUserID: "taro" }, kind: "digest", count: 2, badge: 2, orgId: "personal:digest" };
+  expect(await notifyCard(apns(), digest)).toMatchObject({ sent: 0 });
+  const held = await env.DB.prepare("SELECT state, due_at, last_error FROM notification_jobs WHERE card_id = 'digest-taro-1'").first();
+  expect(held).toEqual({ state: "pending", due_at: until, last_error: "held" });
+
+  // The pause over, it goes out once, as the count it was — its made-up id
+  // is not looked for among the workspace's cards.
+  await env.DB.prepare("UPDATE users SET notify_paused_until = NULL WHERE login = 'taro'").run();
+  const bodies = [];
+  interceptAPNs("tok-taro", bodies);
+  await drainCardNotifications(apns(), notifyCardNow, Date.parse(until) + 1000);
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0].aps.alert.title).toBe("2件の決定があなたを待っています");
+  expect((await env.DB.prepare("SELECT state FROM notification_jobs WHERE card_id = 'digest-taro-1'").first()).state).toBe("sent");
+
+  // Outside the hours set, with none soon enough to hold for: not sent.
+  await env.DB.prepare(`UPDATE users SET notify_schedule = '{"enabled":true,"days":[],"from":"09:00","to":"18:00"}' WHERE login = 'taro'`).run();
+  expect(await notifyCard(apns(), { ...digest, card: { id: "digest-taro-2", recipientUserID: "taro" } })).toMatchObject({ sent: 0, skipped: "quiet:schedule" });
+});
+
 test("someone with no device and no browser is emailed, in their language, once", async () => {
   let mailed;
   fetchMock.get("https://api.resend.com")

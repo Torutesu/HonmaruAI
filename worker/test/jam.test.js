@@ -165,6 +165,51 @@ test("a camera, a shared screen, a reaction and a live transcript go to everyone
   expect(clap.value.emoji).toBe("👏");
 });
 
+// Taken out of a private channel, a person's socket stayed in its Jam: still
+// signalling, still introduced to whoever joined next, and nobody told to
+// hang up on them.
+test("someone taken out of a private channel is out of its Jam too, and cannot come back", async () => {
+  const { SELF } = await import("cloudflare:test");
+  const { memberRef } = await import("../src/team.js");
+  const now = new Date().toISOString();
+  await env.DB.prepare("INSERT OR REPLACE INTO businesses (org_id, slug, name, private, created_at) VALUES (?1, 'board', 'Board', 1, ?2)").bind(ORG, now).run();
+  for (const login of ["toru", "mika", "kenji"]) {
+    await env.DB.prepare("INSERT OR IGNORE INTO conversation_members (org_id, channel, login, added_by, added_at) VALUES (?1, 'b:board', ?2, 'toru', ?3)").bind(ORG, login, now).run();
+  }
+  const toru = await joined(ORG, globalThis.__jamT);
+  const mika = await joined(ORG, globalThis.__jamM);
+  const kenji = await joined(ORG, globalThis.__jamK);
+  toru.ws.send(JSON.stringify({ type: "jam_join", payload: { channel: "b:board" } }));
+  const t = await message(toru.messages, custom("jam_joined"));
+  mika.ws.send(JSON.stringify({ type: "jam_join", payload: { channel: "b:board" } }));
+  const m = await message(mika.messages, custom("jam_joined"));
+  await message(toru.messages, custom("jam_state", (v) => v.participants.length === 2));
+
+  const removed = await SELF.fetch("https://example.com/channels/members", {
+    method: "DELETE",
+    headers: { "content-type": "application/json", "x-session-token": globalThis.__jamT },
+    body: JSON.stringify({ orgId: ORG, channel: "b:board", ref: await memberRef(ORG, "2002") }),
+  });
+  expect(removed.status).toBe(200);
+  // The others are told they are gone, which hangs up on them; they are told why.
+  await message(toru.messages, custom("jam_state", (v) => v.participants.length === 1 && v.participants[0].peerId === t.value.peerId));
+  expect((await message(mika.messages, custom("jam_error"))).value.message).toBe("You are no longer in this channel.");
+
+  // Their signals reach nobody, the next to join is not introduced to them,
+  // and they cannot join again.
+  mika.ws.send(JSON.stringify({ type: "jam_signal", payload: { to: t.value.peerId, data: { candidate: {} } } }));
+  kenji.ws.send(JSON.stringify({ type: "jam_join", payload: { channel: "b:board" } }));
+  expect((await message(kenji.messages, custom("jam_joined"))).value.peers).toEqual([t.value.peerId]);
+  const errors = mika.messages.filter(custom("jam_error")).length;
+  mika.ws.send(JSON.stringify({ type: "jam_join", payload: { channel: "b:board" } }));
+  await until(() => mika.messages.filter(custom("jam_error")).length > errors);
+  expect(mika.messages.some(custom("jam_joined", (v) => v.peerId !== m.value.peerId))).toBe(false);
+  expect(toru.messages.some(custom("jam_signal", (v) => v.from === m.value.peerId))).toBe(false);
+  toru.ws.send(JSON.stringify({ type: "jam_leave", payload: {} }));
+  kenji.ws.send(JSON.stringify({ type: "jam_leave", payload: {} }));
+  await message(toru.messages, custom("jam_state", (v) => !v.active));
+});
+
 test("a transcript message names each speaker and stays inside a message's length", () => {
   const body = transcriptMessage("en", [{ name: "A", text: "hi" }, { name: "B", text: "x".repeat(20000) }]);
   expect(body.startsWith("*Transcript*\nA: hi\nB: ")).toBe(true);

@@ -309,7 +309,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       </div>
       </div>
       {error && <div className="form-error">{error}</div>}
-      {app.definition.views.length < 12 && !data.views.some(v => v.type === 'calendar') && table.columns.some(c => c.type === 'date') && <button className="pill-btn quiet" disabled={busy !== null} onClick={() => act('calendar', async () => {
+      {data.canCustomize !== false && app.definition.views.length < 12 && !data.views.some(v => v.type === 'calendar') && table.columns.some(c => c.type === 'date') && <button className="pill-btn quiet" disabled={busy !== null} onClick={() => act('calendar', async () => {
         await api.updateApp(app.id, { definition: { ...app.definition, views: [...app.definition.views, { type: 'calendar', name: t('Calendar'), dateColumn: table.columns.find(c => c.type === 'date')!.id }] } })
         await load()
       })}>{t('Add calendar view')}</button>}
@@ -378,7 +378,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       </>}
       {section === 'settings' && <>
       <h2>{t('Fields')}</h2><div className="rows">{table.columns.map(column => <div className="row static" key={column.id}><span className="row-main">{column.name}</span><span className="row-sub">{column.type}</span></div>)}</div>
-      <form className="hx-actions" onSubmit={event => { event.preventDefault(); void act('column', async () => { await api.updateApp(app.id, { columns: [...table.columns, { name: newColumn.trim(), type: newColumnType }] }); setNewColumn(''); await load() }) }}><input className="hx-cell-input" aria-label={t('Field name')} placeholder={t('Field name')} value={newColumn} onChange={e => setNewColumn(e.target.value)} /><select aria-label={t('Field type')} value={newColumnType} onChange={e => setNewColumnType(e.target.value as Column['type'])}>{(['text', 'number', 'date', 'checkbox', 'person', 'email', 'url'] as const).map(type => <option key={type} value={type}>{type}</option>)}</select><button className="pill-btn" disabled={busy !== null || !newColumn.trim()}>{t('Add field')}</button></form>
+      {data.canCustomize !== false && <form className="hx-actions" onSubmit={event => { event.preventDefault(); void act('column', async () => { await api.updateApp(app.id, { columns: [...table.columns, { name: newColumn.trim(), type: newColumnType }] }); setNewColumn(''); await load() }) }}><input className="hx-cell-input" aria-label={t('Field name')} placeholder={t('Field name')} value={newColumn} onChange={e => setNewColumn(e.target.value)} /><select aria-label={t('Field type')} value={newColumnType} onChange={e => setNewColumnType(e.target.value as Column['type'])}>{(['text', 'number', 'date', 'checkbox', 'person', 'email', 'url'] as const).map(type => <option key={type} value={type}>{type}</option>)}</select><button className="pill-btn" disabled={busy !== null || !newColumn.trim()}>{t('Add field')}</button></form>}
       <AppSharing key={`${httpBase}:${orgId}:${appId}:${sessionToken}`} httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} appId={appId} />
 
       <div className="rows-title">{t('Rooms')}</div>
@@ -406,7 +406,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
         ) : versions.map((v) => (
           <div className="row static" key={v.version}>
             <span className="row-main">v{v.version}{v.note ? ` · ${v.note}` : ''}<span className="row-sub">{new Date(v.createdAt).toLocaleString()}</span></span>
-            {v.version !== app.version && <button className="btn-text" onClick={() => act('restore', async () => { await api.restore(app.id, v.version); setVersions(null); await load() })}>{t('Restore')}</button>}
+            {data.canCustomize !== false && v.version !== app.version && <button className="btn-text" onClick={() => act('restore', async () => { await api.restore(app.id, v.version); setVersions(null); await load() })}>{t('Restore')}</button>}
           </div>
         ))}
       </div>

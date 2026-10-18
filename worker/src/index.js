@@ -125,6 +125,27 @@ export { OrgRelay } from "./relay.js";
 export { AgentRunner } from "./agentRunner.js";
 export { WorkspaceDO } from "./workspace/do.js";
 
+/// Whether one of this person's workspaces holds their address to its single
+/// sign-on — the address then stays where the company put it.
+async function ssoHoldsEmail(env, githubId) {
+  const { ssoRequiredFor } = await import("./sso.js");
+  for (const org of await listUserOrgs(env.DB, githubId)) {
+    if (await ssoRequiredFor(env.DB, org.id, githubId)) return true;
+  }
+  return false;
+}
+
+/// Whether this person may change where mail goes, by the same rules `PUT
+/// /me` applies. An email account signs in with its address; an account a
+/// company's identity provider or directory made, or one a workspace holds
+/// to its SSO, has the address the company gave it (`emailManaged`).
+async function emailCapability(env, user) {
+  const id = String(user.github_id);
+  if (id.startsWith("email:")) return { emailEditable: false, emailManaged: false };
+  const managed = id.startsWith("sso:") || id.startsWith("scim:") || await ssoHoldsEmail(env, id);
+  return { emailEditable: !managed, emailManaged: managed };
+}
+
 /// The language a request was made in, from the header every client sends
 /// without being asked: URLSession fills Accept-Language from the device's
 /// languages, browsers from their settings. It seeds a new account's locale
@@ -818,7 +839,10 @@ async function handle(request, env, url, ctx) {
       const { scheduleDeletion, cancelDeletion, GRACE_DAYS } = await import("./workspaceDeletion.js");
       const actor = await actorOf(env, session);
       if (url.pathname === "/orgs/delete/cancel") {
-        return (await cancelDeletion(env, request, { orgId, actor })) ? json({ cancelled: true }) : json({ message: "This workspace is not being deleted." }, 409);
+        const outcome = await cancelDeletion(env, request, { orgId, actor });
+        if (outcome === "cancelled") return json({ cancelled: true });
+        if (outcome === "started") return json({ message: "This workspace is already being deleted and can no longer be kept.", code: "deletion-started" }, 409);
+        return json({ message: "This workspace is not being deleted." }, 409);
       }
       const name = (await env.DB.prepare("SELECT name FROM orgs WHERE id = ?1").bind(orgId).first().catch(() => null))?.name || orgId;
       if (String(body.confirm || "").trim() !== name) return json({ message: `Type the workspace's name, ${name}, to delete it.`, code: "confirm-name", name }, 400);
@@ -1558,7 +1582,7 @@ async function handle(request, env, url, ctx) {
       let context = null;
       if (channel && record.businesses.length) {
         const { channelContext } = await import("./channelContext.js");
-        context = await channelContext(env, { orgId, key: `b:${channel}`, locale, githubId: session.github_id, refresh: url.searchParams.get("refresh") === "1" })
+        context = await channelContext(env, { orgId, key: `b:${channel}`, locale, viewer: me?.login || null, githubId: session.github_id, refresh: url.searchParams.get("refresh") === "1" })
           .catch((err) => { console.error("channel context failed", err?.message || err); return null; });
       }
       if (channel && !record.businesses.length) return json({ message: "No such channel." }, 404);
@@ -1619,9 +1643,7 @@ async function handle(request, env, url, ctx) {
         avatarUrl: user.avatar_url || null,
         locale: user.locale || "en",
         email: user.email || null,
-        // An email account signs in with its address; only a GitHub account
-        // can change where mail goes.
-        emailEditable: !String(user.github_id).startsWith("email:"),
+        ...(await emailCapability(env, user)),
         aliases: parseAliases(user.aliases),
         notifyEmail: Number(user.notify_email ?? 1) !== 0,
         pushWhileActive: Boolean(user.push_while_active),
@@ -1687,7 +1709,10 @@ async function handle(request, env, url, ctx) {
       }
       const contexts = await loadContexts(env.DB, orgId);
       const mine = contexts[user.login];
-      return json({ orgId, text: typeof mine?.text === "string" ? mine.text : "" });
+      // `saved`: whether any text was ever kept, an empty one included. An
+      // empty one was cleared on purpose, on some device; a browser's older
+      // copy must not be sent up over it as if it had never been saved.
+      return json({ orgId, text: typeof mine?.text === "string" ? mine.text : "", saved: typeof mine?.text === "string" });
     }
     if (url.pathname === "/me" && request.method === "PUT") {
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
@@ -1747,11 +1772,8 @@ async function handle(request, env, url, ctx) {
         // address. An address one of their workspaces holds to SSO stays put:
         // moving it elsewhere and signing in with a code there was a way
         // round the requirement, and past the company switching them off.
-        const { ssoRequiredFor } = await import("./sso.js");
-        for (const org of await listUserOrgs(env.DB, session.github_id)) {
-          if (await ssoRequiredFor(env.DB, org.id, session.github_id)) {
-            return json({ message: "Your company manages this address through its single sign-on." }, 403);
-          }
+        if (await ssoHoldsEmail(env, session.github_id)) {
+          return json({ message: "Your company manages this address through its single sign-on." }, 403);
         }
         const result = await setUserEmail(env.DB, session.github_id, body.email);
         if (result.error) return json({ message: result.error }, 400);
@@ -1888,6 +1910,16 @@ async function handle(request, env, url, ctx) {
         const held = await policyDenial(env, session, m.org_id);
         if (held) withheld.push({ orgId: m.org_id, code: held.body?.code || "session-policy" });
       }
+      // A workspace this person has left keeps what was said in it, and what
+      // happened to their cards after they went: only the workspaces they are
+      // in now are exported.
+      const current = new Set((data.memberships || []).map((m) => m.org_id));
+      const former = new Set();
+      for (const rows of Object.values(data)) {
+        if (!Array.isArray(rows)) continue;
+        for (const r of rows) if (r && typeof r === "object" && r.org_id != null && !current.has(r.org_id)) former.add(r.org_id);
+      }
+      for (const orgId of former) withheld.push({ orgId, code: "not-a-member" });
       if (withheld.length) {
         const out = new Set(withheld.map((w) => w.orgId));
         for (const [key, rows] of Object.entries(data)) {
@@ -2764,16 +2796,20 @@ async function handle(request, env, url, ctx) {
         ? await triageMessage(message, { provider, readerLanguage: user.locale || "en", sourceLabel: "Email" })
         : { called: false, card: null };
       if (result.called && allowance.metered) await allowance.consume();
+      // No call made: its place in the day goes back (gate.js).
+      await allowance.release();
       await settleUsage(env.DB, provider, { orgId, githubId });
 
       let cardId = null;
       if (result.card) {
         cardId = crypto.randomUUID();
+        const filing = await allowanceFor(env, orgId, { githubId: String(githubId) });
         const business = await fileCardUnderBusiness(env, {
           orgId, provider, githubId,
           card: { ...result.card, sourceDetail: `${message.from} · ${message.subject}` },
-          allowance: await allowanceFor(env, orgId, { githubId: String(githubId) }),
+          allowance: filing,
         });
+        await filing.release();
         const card = {
           id: cardId,
           ...(business ? { business } : {}),
@@ -2848,13 +2884,24 @@ export function isDatabaseLimit(err) {
 /// Where to play a card's video from, for someone who may read the card:
 /// a signed address on the media origin when it is on, else the address
 /// the card was saved with. Only the video the card itself names.
+///
+/// A video belongs to the first card it came on. Another card naming the
+/// same video — anyone can paste an address into a new card — plays it only
+/// for someone who may also read that first one, so a reader who lost a
+/// private channel does not get the channel's videos back through a card of
+/// their own.
 async function cardVideoUrl(env, { orgId, login, cardId }) {
   const card = await getCard(env.DB, orgId, cardId);
-  if (!card?.videoURL || !mayReadCard(card, await accessFor(env.DB, orgId, login))) return null;
+  const access = await accessFor(env.DB, orgId, login);
+  if (!card?.videoURL || !mayReadCard(card, access)) return null;
   const m = /\/media\/([0-9a-fA-F-]{36})(?:\?o=([^&#]+))?/.exec(String(card.videoURL));
   if (!m) return { url: card.videoURL, expiresAt: null };
   const stored = m[2] ? decodeURIComponent(m[2]) : null;
   if (stored && stored !== orgId) return null;
+  const first = await env.DB.prepare(
+    "SELECT card_id FROM cards WHERE org_id = ?1 AND instr(lower(json_extract(data, '$.videoURL')), ?2) > 0 ORDER BY rowid LIMIT 1"
+  ).bind(orgId, `/media/${m[1].toLowerCase()}`).first();
+  if (first?.card_id && first.card_id !== cardId && !mayReadCard(await getCard(env.DB, orgId, first.card_id), access)) return null;
   if (mediaOriginOn(env)) {
     const signed = await signVideoUrl(env, { orgId: stored, id: m[1] });
     if (signed) return signed;

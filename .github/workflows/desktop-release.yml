@@ -135,3 +135,31 @@ jobs:
       - name: The key file goes
         if: always() && runner.os == 'macOS'
         run: rm -f "$RUNNER_TEMP/AuthKey.p8"
+
+  # Every installed app reads the latest release's feed for its own
+  # platform, with no fallback: a draft built for some platforms only would,
+  # once published, leave the others unable to update. Their feeds and
+  # installers come over from the newest release that has them, and the
+  # draft is checked complete (scripts/feed.mjs).
+  feed:
+    name: Every platform's update
+    needs: [draft, build]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Keep the platforms not built on their current version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.draft.outputs.tag }}
+        run: node scripts/feed.mjs carry "$TAG"
+      - name: The draft holds every platform's update
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.draft.outputs.tag }}
+        run: node scripts/feed.mjs check "$TAG"

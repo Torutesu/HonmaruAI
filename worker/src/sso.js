@@ -19,6 +19,7 @@ import { allowed, ownersOf } from "./permissions.js";
 import { memberGate, reauthDenial } from "./policy.js";
 import { domainOf, domainMatches } from "./domains.js";
 import { enforce } from "./ratelimit.js";
+import { evictSessions } from "./announce.js";
 import { spEntityId, acsUrl, sloUrl, spMetadata, redirectUrl, verifyResponse, parseIdpMetadata, normalizeCert, verifyLogoutRequest, logoutResponseUrl } from "./saml.js";
 
 export const PROVIDERS = {
@@ -254,9 +255,27 @@ export async function policyOf(db, orgId) {
 const domainsOf = (conn) => JSON.parse(conn?.allowed_domains || "[]");
 const covers = (conn, email) => { const d = domainOf(email); return Boolean(d) && domainsOf(conn).some((x) => domainMatches(d, x)); };
 
+/// The domains this workspace has proved, as of now.
+async function verifiedDomainsOf(db, orgId) {
+  const { results } = await db.prepare("SELECT domain FROM org_domains WHERE org_id = ?1 AND verified_at IS NOT NULL").bind(orgId).all().catch(() => ({ results: [] }));
+  return new Set((results || []).map((r) => r.domain));
+}
+
+/// Whether a connection speaks for an address now: one of its domains
+/// covers it, and the workspace still has that domain proved. A connection
+/// is set up only with verified domains, but a domain removed, lost to its
+/// DNS record or proved by another workspace since used to stay on it — and
+/// the old provider kept signing people in, and linking accounts, at a
+/// domain the workspace no longer owned.
+const coversNow = (conn, email, verified) => {
+  const d = domainOf(email);
+  return Boolean(d) && domainsOf(conn).some((x) => verified.has(x) && domainMatches(d, x));
+};
+
 /// The switched-on connection that covers an address, if any.
 export async function connectionFor(db, orgId, email) {
-  return (await connectionsOf(db, orgId)).find((c) => c.status === "active" && covers(c, email)) || null;
+  const verified = await verifiedDomainsOf(db, orgId);
+  return (await connectionsOf(db, orgId)).find((c) => c.status === "active" && coversNow(c, email, verified)) || null;
 }
 
 /// The first connection, as `/orgs/sso` has always shown it.
@@ -339,14 +358,19 @@ async function pickConnection(db, orgId, { connectionId, email, test }) {
 
 /// Where the provider's sign-in page is for this workspace, with a state
 /// saved to check the answer against.
-export async function startUrl(env, url, orgId, { client = "web", email = null, testerId = null, connectionId = null } = {}) {
+///
+/// `browser`, from the web: the hash of a secret the page that started this
+/// keeps. The code this sign-in comes back with is then traded only with
+/// that secret, so a link to someone else's finished sign-in opened in
+/// another browser signs nobody in there.
+export async function startUrl(env, url, orgId, { client = "web", email = null, testerId = null, connectionId = null, browser = null } = {}) {
   const conn = await pickConnection(env.DB, orgId, { connectionId, email, test: client === "test" });
   if (!conn || (client !== "test" && conn.status !== "active")) throw new Error("Single sign-on is not on for this workspace.");
   const state = random(24);
   const now = Date.now();
   const save = (nonce, verifier) => env.DB.prepare(
-    `INSERT INTO sso_states (state, org_id, nonce, code_verifier, return_to, tester_id, created_at, expires_at, connection_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
-  ).bind(state, orgId, nonce, verifier, client, testerId, new Date(now).toISOString(), new Date(now + STATE_MINUTES * 60_000).toISOString(), conn.id).run();
+    `INSERT INTO sso_states (state, org_id, nonce, code_verifier, return_to, tester_id, created_at, expires_at, connection_id, browser_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+  ).bind(state, orgId, nonce, verifier, client, testerId, new Date(now).toISOString(), new Date(now + STATE_MINUTES * 60_000).toISOString(), conn.id, browser).run();
 
   if (conn.provider === "saml") {
     // The request's ID is what the assertion must answer (InResponseTo).
@@ -400,10 +424,9 @@ async function accountFor(env, conn, identity) {
   // sign-up, or into a profile — loses its hold first (settleProvedAddress).
   // Linking to it as it stood handed whoever registered
   // newhire@corp.example first the new hire's workspace.
-  const domainProved = await env.DB.prepare("SELECT 1 FROM org_domains WHERE org_id = ?1 AND domain = ?2 AND verified_at IS NOT NULL").bind(conn.org_id, domainOf(identity.email)).first()
-    || covers(conn, identity.email);
+  const domainProved = coversNow(conn, identity.email, await verifiedDomainsOf(env.DB, conn.org_id));
   if (domainProved) {
-    const owner = await settleProvedAddress(env, identity.email, { orgId: conn.org_id });
+    const owner = await settleProvedAddress(env, identity.email);
     if (owner) return { githubId: owner.githubId, linked: false };
   } else {
     const byEmail = await env.DB.prepare("SELECT github_id, email_verified_at FROM users WHERE email = ?1").bind(identity.email).first();
@@ -445,8 +468,16 @@ async function finishSignIn(env, request, row, conn, identity, grant = {}) {
     await audit(env, request, { orgId: conn.org_id, action: "sso.tested", actor: person(tester) || { type: "system" }, details: { connection: conn.id, provider: conn.provider } });
     return redirect(back(env, "test", { tested: "1", connection: conn.id }));
   }
+  // The provider speaks only for the domains the workspace still owns.
+  if (!coversNow(conn, identity.email, await verifiedDomainsOf(env.DB, conn.org_id))) {
+    return fail("This email's domain is no longer verified for this workspace.");
+  }
   let account;
   try { account = await accountFor(env, conn, identity); } catch (err) { return fail(err?.message || String(err)); }
+  // The provider signing someone in does not overrule the directory that
+  // turned them off here.
+  const { deactivatedHere, DEACTIVATED_MESSAGE } = await import("./scim.js");
+  if (await deactivatedHere(env.DB, conn.org_id, account.githubId)) return fail(DEACTIVATED_MESSAGE);
   const now = new Date().toISOString();
   await env.DB.prepare(
     `INSERT INTO sso_identities (org_id, issuer, subject, user_github_id, email, last_login_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -471,8 +502,8 @@ async function finishSignIn(env, request, row, conn, identity, grant = {}) {
   await signedIn(env, request, token, account.githubId, "sso");
   await mark();
   const code = random(24);
-  await env.DB.prepare("INSERT INTO sso_handoffs (code, token, org_id, client, expires_at) VALUES (?1, ?2, ?3, ?4, ?5)")
-    .bind(await sha256Hex(code), token, conn.org_id, client, new Date(Date.now() + HANDOFF_SECONDS * 1000).toISOString()).run();
+  await env.DB.prepare("INSERT INTO sso_handoffs (code, token, org_id, client, expires_at, browser_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
+    .bind(await sha256Hex(code), token, conn.org_id, client, new Date(Date.now() + HANDOFF_SECONDS * 1000).toISOString(), row.browser_hash || null).run();
   return redirect(back(env, client, { code }));
 }
 
@@ -565,6 +596,7 @@ async function samlLogout(env, request, url, connectionId) {
   ).bind(conn.id, said.nameId, ...indexes).all();
   const gone = results || [];
   if (gone.length) await env.DB.batch(gone.map((r) => env.DB.prepare("DELETE FROM sessions WHERE token = ?1").bind(r.token)));
+  if (gone.length) await evictSessions(env, gone.map((r) => r.token)).catch(() => {});
   const who = gone[0] ? await getUserByGithubId(env.DB, gone[0].github_id).catch(() => null) : null;
   await audit(env, request, {
     orgId: conn.org_id, action: "sso.idp_signed_out", actor: { type: "system" }, entity: person(who) || undefined,
@@ -578,12 +610,16 @@ async function samlLogout(env, request, url, connectionId) {
 }
 
 /// The one-time code for the session it stands for: once, within a minute,
-/// by the kind of client it was issued to.
-export async function exchange(env, { code, client }) {
+/// by the kind of client it was issued to — and, for a sign-in a browser
+/// started with a secret (`verifier`), only with that secret. A browser that
+/// holds a secret trades it for no code but its own, so a code sent from
+/// elsewhere cannot swap whoever is signed in there for another account.
+export async function exchange(env, { code, client, verifier }) {
   const kind = client === "ios" ? "ios" : "web";
+  const browser = typeof verifier === "string" && verifier ? b64url(await crypto.subtle.digest("SHA-256", enc.encode(verifier))) : null;
   // Spent only by the kind of client it was issued to, and then only once.
-  const row = await env.DB.prepare("DELETE FROM sso_handoffs WHERE code = ?1 AND (CASE WHEN client = 'ios' THEN 'ios' ELSE 'web' END) = ?2 RETURNING *")
-    .bind(await sha256Hex(String(code || "")), kind).first().catch(() => null);
+  const row = await env.DB.prepare("DELETE FROM sso_handoffs WHERE code = ?1 AND (CASE WHEN client = 'ios' THEN 'ios' ELSE 'web' END) = ?2 AND browser_hash IS ?3 RETURNING *")
+    .bind(await sha256Hex(String(code || "")), kind, browser).first().catch(() => null);
   if (!row || row.expires_at <= new Date().toISOString()) return { error: "That sign-in code has expired, or is for a different app. Start again.", status: 400 };
   const session = await env.DB.prepare("SELECT github_id FROM sessions WHERE token = ?1").bind(await sessionKey(row.token)).first();
   if (!session) return { error: "That sign-in has ended.", status: 400 };
@@ -598,13 +634,14 @@ async function endNonSsoSessions(env, orgId, conns) {
     `SELECT s.token, s.github_id, s.auth_method, s.sso_org_id, u.email FROM sessions s
        JOIN memberships m ON m.user_github_id = s.github_id AND m.org_id = ?1 JOIN users u ON u.github_id = s.github_id`
   ).bind(orgId).all();
+  const verified = await verifiedDomainsOf(env.DB, orgId);
   let ended = 0;
   for (const s of results || []) {
-    if (!conns.some((c) => covers(c, s.email))) continue;
+    if (!conns.some((c) => coversNow(c, s.email, verified))) continue;
     if (s.auth_method === "sso" && s.sso_org_id === orgId) continue;
     // Out of this workspace, not out of the others the account is in.
     const { endHere } = await import("./sessions.js");
-    ended += await endHere(env.DB, orgId, [s.token]);
+    ended += await endHere(env, orgId, [s.token]);
   }
   return ended;
 }
@@ -719,6 +756,7 @@ async function backchannelLogout(env, request, connectionId) {
   ).bind(conn.id, sid, sub).all();
   const gone = results || [];
   if (gone.length) await env.DB.batch(gone.map((r) => env.DB.prepare("DELETE FROM sessions WHERE token = ?1").bind(r.token)));
+  if (gone.length) await evictSessions(env, gone.map((r) => r.token)).catch(() => {});
   const who = gone[0] ? await getUserByGithubId(env.DB, gone[0].github_id).catch(() => null) : null;
   await audit(env, request, {
     orgId: conn.org_id, action: "sso.idp_signed_out", actor: { type: "system" }, entity: person(who) || undefined,
@@ -757,6 +795,7 @@ export async function checkSsoGrants(env, { now = Date.now(), limit = 50 } = {})
     const { conn, discovery, secret } = conns.get(s.sso_connection_id);
     const ending = async (reason) => {
       await env.DB.prepare("DELETE FROM sessions WHERE token = ?1").bind(s.token).run();
+      await evictSessions(env, [s.token]).catch(() => {});
       ended += 1;
       const who = await getUserByGithubId(env.DB, s.github_id).catch(() => null);
       await audit(env, null, { orgId: s.sso_org_id, action: "sso.session_revoked", actor: { type: "system" }, entity: person(who) || undefined, details: { connection: s.sso_connection_id, reason } });
@@ -822,8 +861,10 @@ export async function handleSso(request, env, url) {
     const limited = await enforce(env, request, "sso");
     if (limited) return limited;
     const client = ["web", "ios"].includes(url.searchParams.get("client")) ? url.searchParams.get("client") : "web";
+    const bind = url.searchParams.get("bind") || "";
+    const browser = client === "web" && /^[A-Za-z0-9_-]{43}$/.test(bind) ? bind : null;
     try {
-      return redirect(await startUrl(env, url, url.searchParams.get("orgId") || "", { client, email: url.searchParams.get("email"), connectionId: url.searchParams.get("connection") }));
+      return redirect(await startUrl(env, url, url.searchParams.get("orgId") || "", { client, email: url.searchParams.get("email"), connectionId: url.searchParams.get("connection"), browser }));
     } catch (err) {
       return redirect(back(env, client, { error: err?.message || String(err) }));
     }
@@ -851,7 +892,7 @@ export async function handleSso(request, env, url) {
     const limited = await enforce(env, request, "sso");
     if (limited) return limited;
     const body = await request.json().catch(() => ({}));
-    const out = await exchange(env, { code: body.code, client: body.client });
+    const out = await exchange(env, { code: body.code, client: body.client, verifier: body.verifier });
     return out.error ? json({ message: out.error }, out.status) : json(out);
   }
   if (!path.startsWith("/orgs/sso")) return null;
@@ -923,9 +964,10 @@ export async function handleSso(request, env, url) {
       if (!recent) return json({ message: "Sign in with single sign-on in the last 10 minutes before making it required.", code: "sso-recent-required" }, 400);
       // Somebody has to be able to get in if the provider fails.
       let breakGlass = 0;
+      const verified = await verifiedDomainsOf(env.DB, orgId);
       for (const id of await ownersOf(env.DB, orgId)) {
         const email = (await env.DB.prepare("SELECT email FROM users WHERE github_id = ?1").bind(id).first())?.email;
-        if (!conns.some((c) => covers(c, email))) breakGlass += 1;
+        if (!conns.some((c) => coversNow(c, email, verified))) breakGlass += 1;
       }
       const now = new Date().toISOString();
       await env.DB.prepare(`INSERT INTO org_sso_policy (org_id, enforce, enforce_since, updated_at) VALUES (?1, 1, ?2, ?2)

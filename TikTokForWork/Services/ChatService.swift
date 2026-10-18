@@ -372,6 +372,15 @@ enum ChatDates {
         return withFraction.date(from: s) ?? plain.date(from: s)
     }
     static func string(_ d: Date) -> String { withFraction.string(from: d) }
+    /// A message's time where nothing around it says which day it was (a
+    /// thread, unlike a conversation, has no day lines): the time alone
+    /// today, the date with it on an earlier day, and the year too in an
+    /// earlier year — each in the reader's own order and words.
+    static func threadStyle(for d: Date, now: Date = .now, calendar: Calendar = .current) -> Date.FormatStyle {
+        if calendar.isDate(d, inSameDayAs: now) { return Date.FormatStyle.dateTime.hour().minute() }
+        let dated = Date.FormatStyle.dateTime.month(.abbreviated).day().hour().minute()
+        return calendar.isDate(d, equalTo: now, toGranularity: .year) ? dated : dated.year()
+    }
 }
 
 enum ChatService {
@@ -502,10 +511,14 @@ enum ChatService {
         try await call("POST", "/channels/translate", base: base, body: ["orgId": orgId, "channel": channel, "ids": ids, "locale": locale], timeout: 60, as: Translations.self)
     }
 
-    static func messages(orgId: String, channel: String, before: String? = nil, base: URL) async throws -> [ChatMessage] {
+    /// A page of a conversation. `before` and `beforeId` are the oldest
+    /// message already held, its time and its id: with both, a message
+    /// sharing that millisecond is not skipped.
+    static func messages(orgId: String, channel: String, before: String? = nil, beforeId: String? = nil, base: URL) async throws -> [ChatMessage] {
         struct R: Decodable { let messages: [ChatMessage] }
         var q = ["orgId": orgId, "channel": channel]
         if let before { q["before"] = before }
+        if before != nil, let beforeId { q["beforeId"] = beforeId }
         return try await call("GET", "/channels/messages", base: base, query: q, as: R.self).messages
     }
 

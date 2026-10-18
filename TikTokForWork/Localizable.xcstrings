@@ -43905,6 +43905,318 @@
           }
         }
       }
+    },
+    "That card is no longer available": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このカードはもう表示できません"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta tarjeta ya no está disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette carte n’est plus disponible"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Karte ist nicht mehr verfügbar"
+          }
+        }
+      }
+    },
+    "It may have been deleted, or you are no longer in its workspace.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除されたか、そのワークスペースのメンバーではなくなった可能性があります。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puede que se haya eliminado o que ya no estés en su espacio de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elle a peut-être été supprimée, ou vous ne faites plus partie de son espace de travail."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sie wurde möglicherweise gelöscht, oder du bist nicht mehr in ihrem Workspace."
+          }
+        }
+      }
+    },
+    "Couldn't load earlier messages.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前のメッセージを読み込めませんでした。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron cargar los mensajes anteriores."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger les messages précédents."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ältere Nachrichten konnten nicht geladen werden."
+          }
+        }
+      }
+    },
+    "That scheduled message was already sent or cancelled.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この予約メッセージは、すでに送信済みかキャンセル済みです。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese mensaje programado ya se envió o se canceló."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce message programmé a déjà été envoyé ou annulé."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese geplante Nachricht wurde bereits gesendet oder abgebrochen."
+          }
+        }
+      }
+    },
+    "That scheduled message could not be cancelled and will still be sent. Try again.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予約メッセージをキャンセルできなかったため、予定どおり送信されます。もう一度お試しください。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cancelar ese mensaje programado y se enviará igualmente. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce message programmé n’a pas pu être annulé et sera quand même envoyé. Réessayez."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese geplante Nachricht konnte nicht abgebrochen werden und wird trotzdem gesendet. Versuch es noch einmal."
+          }
+        }
+      }
+    },
+    "The app closed before it was sent.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信される前にアプリが閉じられました。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La app se cerró antes de enviarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’app s’est fermée avant l’envoi."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die App wurde geschlossen, bevor sie gesendet wurde."
+          }
+        }
+      }
+    },
+    "That message could not be shown. It may have been deleted, or you may no longer have access to it.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このメッセージを表示できませんでした。削除されたか、アクセスできなくなった可能性があります。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo mostrar ese mensaje. Puede que se haya eliminado o que ya no tengas acceso a él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce message n’a pas pu être affiché. Il a peut-être été supprimé, ou vous n’y avez peut-être plus accès."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Nachricht konnte nicht angezeigt werden. Sie wurde möglicherweise gelöscht, oder du hast keinen Zugriff mehr darauf."
+          }
+        }
+      }
+    },
+    "A message can carry at most 10 files.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1つのメッセージに添付できるファイルは10個までです。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un mensaje puede llevar como máximo 10 archivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un message peut contenir au plus 10 fichiers."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Nachricht kann höchstens 10 Dateien enthalten."
+          }
+        }
+      }
+    },
+    "Saved. What you wrote since is not saved yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存しました。その後に書いた分はまだ保存されていません。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardado. Lo que escribiste después aún no está guardado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistré. Ce que vous avez écrit depuis n’est pas encore enregistré."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gespeichert. Was du seitdem geschrieben hast, ist noch nicht gespeichert."
+          }
+        }
+      }
+    },
+    "The update was written from the canvas before your latest changes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この更新は、最後に書き足す前のキャンバスから作られました。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La actualización se escribió a partir del lienzo antes de tus últimos cambios."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La mise à jour a été rédigée à partir du canevas avant vos dernières modifications."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aktualisierung wurde aus dem Canvas vor deinen letzten Änderungen geschrieben."
+          }
+        }
+      }
+    },
+    "Use the update": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新を使う"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar la actualización"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser la mise à jour"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisierung übernehmen"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

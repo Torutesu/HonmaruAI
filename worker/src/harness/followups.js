@@ -100,8 +100,13 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
         : null;
       if (r.agent_id && (!agentRow || !(await mayRunAgent(env.DB, r.org_id, agentRow, r.created_by)))) throw new Error("Agent access required.");
       if (agentRow) { author = `agent:${agentRow.id}`; kind = "agent"; }
-      // The maker of a follow-up pays for it, as for anything they ask.
-      const payer = /^\d+$|^email:/.test(String(r.created_by)) ? r.created_by : null;
+      // The maker of a follow-up pays for it, as for anything they ask: a
+      // person in this workspace, whichever way their account was made. The
+      // shape of the id used to decide it, and an account made by SSO or by
+      // the company's directory got the bare reminder instead of the answer.
+      // A maker who is nobody's account here spends nobody's allowance.
+      const member = await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2").bind(r.org_id, String(r.created_by)).first();
+      const payer = member ? r.created_by : null;
       const complete = payer ? await completer(env, r.org_id, payer, "followup", { json: false, maxTokens: 800 }) : null;
       if (complete) {
         const prepared = agentRow

@@ -53,6 +53,14 @@ export function refreshQuotes(list: ChannelMessage[], changed: ChannelMessage): 
   return list.map((x) => (x.replyTo?.id === changed.id ? { ...x, replyTo: quote } : x))
 }
 
+/// A message unsent, gone from a conversation's list, and with it the
+/// replies of its thread that were sent to the conversation too — they went
+/// with the thread. The same list back when nothing in it goes.
+export function withoutThread(list: ChannelMessage[], id: string): ChannelMessage[] {
+  if (!list.some((x) => x.id === id || x.parentId === id)) return list
+  return list.filter((x) => x.id !== id && x.parentId !== id)
+}
+
 /// An excerpt in pieces to draw: its words, and null where a spoiler was
 /// hidden — drawn as a bar a screen reader can name.
 export function excerptParts(excerpt: string): Array<string | null> {

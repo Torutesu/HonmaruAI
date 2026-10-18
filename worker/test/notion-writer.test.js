@@ -90,3 +90,31 @@ test("the echo is suppressed on the other shape Composio answers with", async ()
   expect(wrote).toBe(true);
   expect(await isIngested(env.DB, "notion", "page-echo-2", "800")).toBe(true);
 });
+
+test("one decision is one page, delivered however many times; a new decision is another", async () => {
+  let inserts = 0;
+  fetchMock.get("https://backend.composio.dev")
+    .intercept({ path: (p) => p.includes("NOTION_INSERT_ROW_DATABASE"), method: "POST", body: () => { inserts += 1; return true; } })
+    .reply(200, { successful: true, data: { id: "page-once" } })
+    .times(2);
+  const write = (c) => writeDecisionToNotion({ env: ENV(), orgId: "acme/web", login: "octocat", card: c });
+  // Delivered twice at once, and again later with an unrelated change.
+  const [a, b] = await Promise.all([write(card), write(card)]);
+  expect([a, b].filter(Boolean)).toHaveLength(1);
+  expect(await write({ ...card, priority: "high" })).toBe(false);
+  expect(inserts).toBe(1);
+  // Decided again, later: a decision of its own, written.
+  expect(await write({ ...card, decision: { ...card.decision, action: "reject", decidedAt: "2026-08-11T02:00:00Z" } })).toBe(true);
+  expect(inserts).toBe(2);
+});
+
+test("a write that failed does not keep the decision from being written later", async () => {
+  fetchMock.get("https://backend.composio.dev")
+    .intercept({ path: (p) => p.includes("NOTION_INSERT_ROW_DATABASE"), method: "POST" })
+    .reply(500, "notion is down");
+  expect(await writeDecisionToNotion({ env: ENV(), orgId: "acme/web", login: "octocat", card })).toBe(false);
+  fetchMock.get("https://backend.composio.dev")
+    .intercept({ path: (p) => p.includes("NOTION_INSERT_ROW_DATABASE"), method: "POST" })
+    .reply(200, { successful: true, data: { id: "page-later" } });
+  expect(await writeDecisionToNotion({ env: ENV(), orgId: "acme/web", login: "octocat", card })).toBe(true);
+});

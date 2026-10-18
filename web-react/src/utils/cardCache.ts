@@ -58,3 +58,37 @@ export function clearAccountData(storage: Storage = localStorage): void {
     for (const k of gone) storage.removeItem(k)
   } catch { /* blocked storage: nothing kept to clear */ }
 }
+
+// Whose those things are: the server and the account they were kept for.
+// They are stored under the workspace alone, so whatever way the last
+// account left — signed out, a session that ran out while the app was
+// closed, an answer that landed after it had gone — the next one to sign in
+// here must start from none of it.
+const OWNER_KEY = 'account.owner'
+export const accountOwner = (server: string, userId: string): string => `${server}|${userId}`
+
+/// A sign-in: what this browser kept is this account's only if it says so.
+/// Anything else — another account's, another server's, or kept by nobody
+/// known (from before this was recorded, or written after a sign-out) — is
+/// cleared first.
+export function claimAccountData(owner: string, storage: Storage = localStorage): void {
+  let kept: string | null = null
+  try { kept = storage.getItem(OWNER_KEY) } catch { /* blocked */ }
+  if (kept !== owner) clearAccountData(storage)
+  try { storage.setItem(OWNER_KEY, owner) } catch { /* blocked */ }
+}
+
+/// A session this browser already had, found still good on opening: what it
+/// kept is that account's unless it was recorded as someone else's.
+export function adoptAccountData(owner: string, storage: Storage = localStorage): void {
+  let kept: string | null = null
+  try { kept = storage.getItem(OWNER_KEY) } catch { /* blocked */ }
+  if (kept && kept !== owner) clearAccountData(storage)
+  try { storage.setItem(OWNER_KEY, owner) } catch { /* blocked */ }
+}
+
+/// The account is gone from this browser: all it kept goes with it.
+export function releaseAccountData(storage: Storage = localStorage): void {
+  clearAccountData(storage)
+  try { storage.removeItem(OWNER_KEY) } catch { /* blocked */ }
+}
