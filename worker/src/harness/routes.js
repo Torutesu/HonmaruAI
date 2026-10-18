@@ -1,3 +1,4 @@
+import { appConversation } from './appConversations.js';
 import { personalViews } from './personalViews.js';
 import { appPins, setAppPin } from './appPins.js';
 import { previewMerge, mergeFork } from './appMerge.js';
@@ -453,6 +454,11 @@ export async function handleHarness(request, env, url) {
         return json(r, 201);
       }
       return null;
+    }
+    if (sub === 'conversation' && parts.length === 3) {
+      if (!['GET','POST'].includes(request.method)) return json({message:'Method not allowed.'},405);
+      const r = await appConversation(env.DB, orgId, me, appId, request.method === 'GET' ? Object.fromEntries(url.searchParams) : input, request.method === 'POST');
+      return r.error ? fail(r) : json(r);
     }
     const app = await getApp(env.DB, orgId, appId);
     if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);
