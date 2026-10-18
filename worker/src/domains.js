@@ -159,6 +159,19 @@ export async function verifiedDomainFor(db, email) {
   return null;
 }
 
+/// Someone let in by the domain, into the channels it names: every one for a
+/// guest, who sees no others; the private ones for anyone else.
+async function joinDomainChannels(env, row, login) {
+  const channels = row?.join_channels ? JSON.parse(row.join_channels) : [];
+  if (!channels.length || !login) return;
+  const { addMembers } = await import("./access.js");
+  for (const slug of channels) {
+    const priv = await env.DB.prepare("SELECT private FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(row.org_id, slug).first();
+    if (!priv) continue;
+    if (priv.private || row.join_role === "guest") await addMembers(env.DB, { orgId: row.org_id, key: `b:${slug}`, logins: [login], addedBy: null });
+  }
+}
+
 /// After a sign-in with an address that was checked (an email code, SSO):
 /// the workspace that owns its domain lets them in, or offers to.
 export async function domainJoin(env, githubId, { via = "domain" } = {}) {
@@ -169,14 +182,7 @@ export async function domainJoin(env, githubId, { via = "domain" } = {}) {
   const already = await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2").bind(row.org_id, String(githubId)).first();
   if (already) return null;
   await upsertMembership(env.DB, row.org_id, githubId, row.join_role === "guest" ? "guest" : "member", via);
-  const channels = row.join_channels ? JSON.parse(row.join_channels) : [];
-  if (channels.length && user.login) {
-    const { addMembers } = await import("./access.js");
-    for (const slug of channels) {
-      const priv = await env.DB.prepare("SELECT private FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(row.org_id, slug).first();
-      if (priv?.private || row.join_role === "guest") await addMembers(env.DB, { orgId: row.org_id, key: `b:${slug}`, logins: [user.login], addedBy: null });
-    }
-  }
+  await joinDomainChannels(env, row, user.login);
   const joiner = await getUserByGithubId(env.DB, githubId);
   await audit(env, null, { orgId: row.org_id, action: "member.joined", actor: person(joiner), details: { role: row.join_role, via } });
   return { orgId: row.org_id };
@@ -240,7 +246,7 @@ export async function handleDomains(request, env, url) {
       return json({ requests: out });
     }
     if (request.method === "POST") {
-      const { results } = await env.DB.prepare("SELECT user_github_id, role, via FROM join_requests WHERE org_id = ?1 AND outcome IS NULL").bind(orgId).all();
+      const { results } = await env.DB.prepare("SELECT user_github_id, role, via, channels, invited_by FROM join_requests WHERE org_id = ?1 AND outcome IS NULL").bind(orgId).all();
       let target = null; let asked = null;
       for (const r of results || []) if ((await memberRef(orgId, String(r.user_github_id))) === body.ref) { target = String(r.user_github_id); asked = r; }
       if (!target) return json({ message: "No such request." }, 404);
@@ -259,6 +265,29 @@ export async function handleDomains(request, env, url) {
         if (!(await addMembership(env.DB, orgId, target, role, via))) {
           await env.DB.prepare("UPDATE join_requests SET outcome = 'joined' WHERE org_id = ?1 AND user_github_id = ?2").bind(orgId, target).run();
           return json({ ok: true, approved: false, alreadyMember: true });
+        }
+        // Into the channels they would have had coming in directly: the
+        // invitation's that still exist, said there as an accepted
+        // invitation is; or the domain's. Should that fail they are not in
+        // after all, and the request waits to be approved again.
+        try {
+          if (asked?.via === "invite") {
+            const channels = asked.channels ? JSON.parse(asked.channels) : [];
+            const { results: known = [] } = channels.length
+              ? await env.DB.prepare("SELECT slug FROM businesses WHERE org_id = ?1 AND slug IN (SELECT value FROM json_each(?2))").bind(orgId, JSON.stringify(channels)).all()
+              : {};
+            const kept = channels.filter((slug) => known.some((b) => b.slug === slug));
+            if (kept.length) {
+              const { introduce } = await import("./welcome.js");
+              await introduce(env, { orgId, channels: kept, githubId: target, invitedBy: asked.invited_by || session.github_id });
+            }
+          } else {
+            await joinDomainChannels(env, domain?.org_id === orgId ? domain : null, joiner?.login);
+          }
+        } catch (err) {
+          await env.DB.prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = ?2").bind(orgId, target).run();
+          await env.DB.prepare("UPDATE join_requests SET outcome = NULL, decided_by = NULL, decided_at = NULL WHERE org_id = ?1 AND user_github_id = ?2").bind(orgId, target).run();
+          throw err;
         }
         await audit(env, request, { orgId, action: "member.joined", actor: person(joiner), details: { via, approved: true, role } });
       }

@@ -116,6 +116,21 @@ test("request: they see the workspace, ask, and an admin lets them in", async ()
   expect(actions).toEqual(expect.arrayContaining(["member.join_requested", "member.join_approved", "member.joined"]));
 });
 
+test("request, as a guest: approving lets them into the domain's channels, as joining by it would", async () => {
+  const { upsertBusiness } = await import("../src/db.js");
+  await upsertBusiness(env.DB, ORG, { name: "Lobby", createdBy: "7701" });
+  await upsertBusiness(env.DB, ORG, { name: "Inner", createdBy: "7701" });
+  await provedAndPolicy("request");
+  expect((await call("/orgs/domains", owner, { method: "PUT", body: { orgId: ORG, domain: "acme.co.jp", joinPolicy: "request", joinRole: "guest", joinChannels: ["lobby"] } })).status).toBe(200);
+  const ken = await newcomer("7720", "ken@acme.co.jp");
+  expect((await call("/orgs/join-requests/ask", ken, { method: "POST", body: { orgId: ORG } })).status).toBe(200);
+  const reqs = (await (await call(`/orgs/join-requests?orgId=${ORG}`, admin)).json()).requests;
+  expect((await call("/orgs/join-requests", admin, { method: "POST", body: { orgId: ORG, ref: reqs[0].ref, approve: true } })).status).toBe(200);
+  expect((await env.DB.prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = '7720'").bind(ORG).first()).role).toBe("guest");
+  const into = (await env.DB.prepare("SELECT channel FROM conversation_members WHERE org_id = ?1 AND login = 'u:ken@acme.co.jp'").bind(ORG).all()).results.map((r) => r.channel);
+  expect(into).toEqual(["b:lobby"]);
+});
+
 // A request stayed open after its person came in another way, and approving
 // it later wrote the domain's role over the one they held by then: an admin
 // could demote an owner, the last one included, by letting them "in".

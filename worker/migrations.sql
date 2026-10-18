@@ -167,3 +167,6 @@ CREATE INDEX IF NOT EXISTS hx_gateway_jobs_queue ON hx_gateway_jobs(gateway_id, 
    Jam recordings it got (workspaceDeletion.js). */
 ALTER TABLE workspace_deletions ADD COLUMN purge_started_at TEXT;
 ALTER TABLE workspace_deletions ADD COLUMN purge_cursor TEXT;
+/* An invitation held for approval keeps its channels and its sender (schema.sql). */
+ALTER TABLE join_requests ADD COLUMN channels TEXT;
+ALTER TABLE join_requests ADD COLUMN invited_by TEXT;

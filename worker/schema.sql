@@ -1220,7 +1220,10 @@ CREATE TABLE IF NOT EXISTS org_domains (
 );
 CREATE INDEX IF NOT EXISTS idx_org_domains_org ON org_domains(org_id);
 
-/* People at a workspace's domain asking to join it, when joining asks. */
+/* People at a workspace's domain asking to join it, when joining asks. One
+   held from an invitation (via 'invite') keeps the channels it named (JSON)
+   and who sent it, so approving it lets them in where the invitation would
+   have. */
 CREATE TABLE IF NOT EXISTS join_requests (
   org_id          TEXT NOT NULL,
   user_github_id  TEXT NOT NULL,
@@ -1231,6 +1234,8 @@ CREATE TABLE IF NOT EXISTS join_requests (
   outcome         TEXT,
   role            TEXT,
   via             TEXT,
+  channels        TEXT,
+  invited_by      TEXT,
   PRIMARY KEY (org_id, user_github_id)
 );
 

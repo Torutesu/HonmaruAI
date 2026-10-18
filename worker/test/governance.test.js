@@ -157,3 +157,30 @@ test("invitations: company only, or held for an admin's approval; guests may be 
   const joined = await env.DB.prepare("SELECT role, joined_via FROM memberships WHERE org_id = ?1 AND user_github_id = '9603'").bind(ORG).first();
   expect(joined).toEqual({ role: "member", joined_via: "invite" });
 });
+
+// A guest invitation held for approval kept only its role: the guest an
+// admin let in was in no channel at all, public ones included, which are
+// the only ones a guest can see.
+test("a guest invitation held for approval lets the guest into the channels it named once approved, and no others", async () => {
+  const { createInvite } = await import("../src/auth.js");
+  const { createSession, upsertUser, upsertBusiness } = await import("../src/db.js");
+  await upsertBusiness(env.DB, ORG, { name: "Lobby", createdBy: "9501" });
+  await put(owner, { invites: { policy: "approval", guestsExempt: false } });
+  await upsertUser(env.DB, { githubId: "9604", login: "u:val@partner.com", name: "Val", avatarUrl: null, locale: "en" });
+  await env.DB.prepare("UPDATE users SET email = 'val@partner.com', email_verified_at = ?1 WHERE github_id = '9604'").bind(new Date().toISOString()).run();
+  const val = await createSession(env.DB, "9604", "v");
+  await upsertBusiness(env.DB, ORG, { name: "Gone", createdBy: "9501" });
+  const { addMembers } = await import("../src/access.js");
+  await addMembers(env.DB, { orgId: ORG, key: "b:board", logins: ["u:toru@gov.jp"], addedBy: null });
+  const invite = await createInvite(env, { orgId: ORG, createdBy: "9501", role: "guest", uses: 1, channels: ["cafe", "board", "gone"] });
+  expect((await env.DB.prepare("SELECT channels FROM invites WHERE code = ?1").bind(invite.code).first()).channels).toContain("gone");
+  const held = await call("/invites/accept", val, { method: "POST", body: { code: invite.code } });
+  expect(held.status).toBe(202);
+  // Taken away while the invitation waited.
+  await env.DB.prepare("DELETE FROM businesses WHERE org_id = ?1 AND slug = 'gone'").bind(ORG).run();
+  const asks = (await (await call(`/orgs/join-requests?${q}`, admin)).json()).requests;
+  expect((await call("/orgs/join-requests", admin, { method: "POST", body: { orgId: ORG, ref: asks[0].ref, approve: true } })).status).toBe(200);
+  expect((await env.DB.prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = '9604'").bind(ORG).first()).role).toBe("guest");
+  const into = (await env.DB.prepare("SELECT channel FROM conversation_members WHERE org_id = ?1 AND login = 'u:val@partner.com' ORDER BY channel").bind(ORG).all()).results.map((r) => r.channel);
+  expect(into).toEqual(["b:board", "b:cafe"]);
+});
