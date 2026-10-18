@@ -83,6 +83,10 @@ final class ChatStore: ObservableObject {
     @Published private(set) var mine: ChatMine?
     @Published private(set) var messages: [String: [ChatMessage]] = [:]
     @Published private(set) var more: [String: Bool] = [:]
+    /// Conversations whose older messages are being read, and ones whose
+    /// last page of them could not be.
+    @Published private(set) var olderLoading: Set<String> = []
+    @Published private(set) var olderFailed: Set<String> = []
     @Published private(set) var inbox: [ChatActivityItem] = []
     @Published private(set) var saved: [ChatSaved] = []
     @Published private(set) var scheduled: [ChatScheduled] = []
@@ -431,6 +435,7 @@ final class ChatStore: ObservableObject {
             let list = try await ChatService.messages(orgId: orgId, channel: view, base: base)
             messages[view] = list
             more[view] = list.count >= page
+            olderFailed.remove(view)
         } catch {
             // Not read: what was never shown stays new, here, on the other
             // devices and on the lock screen. Opening it again reads it.
@@ -551,13 +556,26 @@ final class ChatStore: ObservableObject {
         return threads.map { var t = $0; if t.unread, let at = upTo[t.parent.id], t.lastReplyAt <= at { t.unread = false }; return t }
     }
 
-    func loadOlder(_ view: String) async {
-        guard more[view] == true, let first = messages[view]?.first, let orgId, let base else { return }
-        more[view] = false
-        guard let older = try? await ChatService.messages(orgId: orgId, channel: view, before: first.createdAt, base: base) else { return }
-        let known = Set((messages[view] ?? []).map(\.id))
-        messages[view] = older.filter { !known.contains($0.id) } + (messages[view] ?? [])
-        more[view] = older.count >= page
+    /// The page before the oldest message shown; true when one came. One at
+    /// a time per conversation. A page that could not be read is not the
+    /// start of the conversation: `more` stays as it was, and the failure is
+    /// kept for the top of the conversation to offer Try again.
+    @discardableResult
+    func loadOlder(_ view: String) async -> Bool {
+        guard more[view] == true, !olderLoading.contains(view), let first = messages[view]?.first, let orgId, let base else { return false }
+        olderLoading.insert(view)
+        olderFailed.remove(view)
+        defer { olderLoading.remove(view) }
+        do {
+            let older = try await ChatService.messages(orgId: orgId, channel: view, before: first.createdAt, base: base)
+            let known = Set((messages[view] ?? []).map(\.id))
+            messages[view] = older.filter { !known.contains($0.id) } + (messages[view] ?? [])
+            more[view] = older.count >= page
+            return !older.isEmpty
+        } catch {
+            olderFailed.insert(view)
+            return false
+        }
     }
 
     /// A message one of the workspace's data rules warned about, held while

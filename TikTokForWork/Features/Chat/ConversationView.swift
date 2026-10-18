@@ -85,8 +85,15 @@ struct ConversationView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if store.more[view] == true {
-                        ProgressView().frame(maxWidth: .infinity).padding()
-                            .onAppear { Task { await store.loadOlder(view) } }
+                        if store.olderFailed.contains(view) {
+                            olderFailedNote
+                        } else {
+                            ProgressView().frame(maxWidth: .infinity).padding()
+                                .onAppear { Task { await store.loadOlder(view) } }
+                                // Its own each time the top moves, so it asks again
+                                // for the page above when it is still in view.
+                                .id("older-\(list.first?.id ?? "")")
+                        }
                     } else {
                         start
                     }
@@ -229,6 +236,17 @@ struct ConversationView: View {
                 }
             }
         }.padding(16).padding(.top, 8)
+    }
+
+    /// Earlier messages could not be read: said where they would be, with a
+    /// way to read them again — not "This is the start".
+    private var olderFailedNote: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Colors.textTertiary)
+            Text("Couldn't load earlier messages.").font(.caption).foregroundStyle(Theme.Colors.textSecondary)
+            Button("Try again") { Task { await store.loadOlder(view) } }.font(.caption.weight(.semibold))
+        }
+        .frame(maxWidth: .infinity).padding()
     }
 
     @ViewBuilder
