@@ -1,4 +1,4 @@
-export interface PersonalViews { activeView?: string; revision: number; views: View[]; computed: View[]; layouts: Record<string, {order:string[];widths:Record<string,number>;hidden?:string[]}> }
+export interface PersonalViews { activeView?: string; revision: number; views: View[]; computed: View[]; layouts: Record<string, {order:string[];widths:Record<string,number>;hidden?:string[];wrapText?:boolean}> }
 import { useCallback, useEffect, useState } from 'react'
 
 // The harness (docs/kylon-gap-plan.md), as the web app talks to it: the
@@ -96,6 +96,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     return data as T
   }
   return {
+    members: () => call<{members:Array<{ref:string;name:string}>}>('GET','/members'),
     personalViews: (id:string) => call<PersonalViews>('GET', `/hx/personal-views/${id}`),
     savePersonalViews: (id:string, state:PersonalViews) => call<PersonalViews>('PUT', `/hx/personal-views/${id}`, {expectedRevision:state.revision,views:state.views,layouts:state.layouts,activeView:state.activeView}),
     appPins: () => call<{pins:string[]}>('GET', '/hx/app-pins'),

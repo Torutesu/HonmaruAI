@@ -1,3 +1,5 @@
+import {AppRecordDialog} from '../components/AppRecordDialog'
+import {AppDataMenu} from '../components/AppDataMenu'
 import {displayLayout, isSystemColumn, systemCellText, nextColumnSort} from '../utils/systemColumns'
 import { ColumnResize } from '../components/ColumnResize'
 import { PersonalViewControls } from '../components/PersonalViewControls'
@@ -195,9 +197,13 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
   )
 }
 
-function CellInput({ column, value, onSave }: { column: Column; value: unknown; onSave: (v: unknown) => void }) {
+function CellInput({ column, value, onSave, wrap = false, width, members=[] }: { column: Column; value: unknown; onSave: (v: unknown) => void; wrap?:boolean; width?:number;members?:Array<{ref:string;name:string}> }) {
   const [draft, setDraft] = useState<string>(value == null ? '' : String(value))
   useEffect(() => { setDraft(value == null ? '' : String(value)) }, [value])
+  const textArea=useRef<HTMLTextAreaElement>(null)
+  useEffect(()=>{if(textArea.current){textArea.current.style.height='auto';textArea.current.style.height=`${textArea.current.scrollHeight}px`}},[draft,wrap,width])
+  if(column.type==='person'&&members.length) return <select className="hx-cell-select" aria-label={column.name} value={String(value??'')} onChange={e=>onSave(e.target.value||null)}><option value="">—</option>{value&&!members.some(m=>m.ref===String(value))?<option value={String(value)}>{String(value)}</option>:null}{members.map(m=><option key={m.ref} value={m.ref}>{m.name}</option>)}</select>
+  if(wrap&&['text','person'].includes(column.type)) return <textarea ref={textArea} className="hx-cell-input hx-wrapped-input" rows={1} value={draft} onChange={e=>setDraft(e.target.value)} onBlur={()=>{if(draft!==(value==null?'':String(value)))onSave(draft)}} aria-label={column.name}/>
   if (column.type === 'checkbox') {
     return <input type="checkbox" checked={Boolean(value)} onChange={(e) => onSave(e.target.checked)} aria-label={column.name} />
   }
@@ -234,6 +240,10 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const [viewIndex, setViewIndex] = useState(0)
   const [section, setSection] = useState<'overview' | 'data' | 'settings' | 'custom' | 'backend'>('overview')
   const [search, setSearch] = useState('')
+  const [creating,setCreating]=useState(false),[fullscreen,setFullscreen]=useState(false)
+  const [recordMembers,setRecordMembers]=useState<Array<{ref:string;name:string}>>([])
+  useEffect(()=>{if(!creating&&!data?.table.columns.some(c=>c.type==='person'))return;let active=true;setRecordMembers([]);void api.members().then(result=>{if(active)setRecordMembers(result.members)},()=>{if(active)setRecordMembers([])});return()=>{active=false}},[creating,api,data?.table.columns])
+  useEffect(()=>{if(!fullscreen)return;const exit=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!creating){e.stopPropagation();setFullscreen(false)}};document.addEventListener('keydown',exit);return()=>document.removeEventListener('keydown',exit)},[fullscreen,creating])
   const [newColumn, setNewColumn] = useState('')
   const [newColumnType, setNewColumnType] = useState<Column['type']>('text')
   const [versions, setVersions] = useState<Array<{ version: number; note: string | null; createdAt: string }> | null>(null)
@@ -260,42 +270,34 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
     await api.updateRow(table.id, row.id, { [column.id]: value }, row.updatedAt)
     await load()
   })
-  const addRow = () => act('add', async () => {
-    const first = table.columns[0]
-    const seed: Record<string, unknown> = {}
-    if (view.type === 'board' && view.groupBy) {
-      const col = table.columns.find((c) => c.id === view.groupBy)
-      if (col?.options?.[0]) seed[col.id] = col.options[0]
-    }
-    if (first && first.type === 'text') seed[first.id] = t('New')
-    await api.addRow(table.id, seed)
-    await load()
-  })
+  const addRow = () => setCreating(true)
   const removeRow = (row: Row) => act(`del:${row.id}`, async () => { await api.deleteRow(table.id, row.id, row.updatedAt); await load() })
 
   return (
     <Shell
-      className="hx-resource-screen hx-app-detail"
-      title={<span className="hx-app-title"><HarnessAppIcon icon={app.icon} size={16} /><button onClick={() => setSection(app.definition.custom?.published ? 'overview' : 'data')}>{app.name}</button>{section !== 'overview' && <span className="hx-app-breadcrumb">/ {t(section === 'data' ? 'Data viewer' : section === 'custom' ? 'Customize app' : section === 'backend' ? '実行基盤' : 'Settings')}</span>}</span>}
+      className={`hx-resource-screen hx-app-detail${fullscreen?' hx-app-fullscreen':''}`}
+      title={<span className="hx-app-title"><HarnessAppIcon icon={app.icon} size={16} /><button onClick={() => setSection(app.definition.custom?.published ? 'overview' : 'data')}>{app.name}</button>{section !== 'overview' && <span className="hx-app-breadcrumb">/ {t(section === 'data' ? 'Data viewer' : section === 'custom' ? 'Customize app' : section === 'backend' ? '実行基盤' : 'Settings')}</span>}<button className="hx-app-icon-button" aria-label="データを更新" disabled={busy!==null} onClick={()=>void load()}><Icon name="refresh" size={14}/></button></span>}
       onClose={onBack}
       nested
-      actions={<><button className="pill-btn quiet" onClick={() => setSection('custom')}><Icon name="grid" size={14} />{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => setSection('settings')}><Icon name="share" size={14} />{t('Sharing')}</button><button className="pill-btn quiet" disabled={busy !== null} onClick={() => void load()}><Icon name="refresh" size={14} />{t('Reload')}</button><HarnessAppMenu api={api} appId={app.id} orgId={orgId} onSection={setSection} /></>}
+      actions={<><button className="pill-btn quiet" onClick={() => setSection('custom')}><Icon name="grid" size={14} />{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => setSection('settings')}><Icon name="share" size={14} />{t('Sharing')}</button><button className="hx-app-icon-button" aria-label={fullscreen?'全画面表示を終了':'全画面表示'} aria-pressed={fullscreen} onClick={()=>setFullscreen(!fullscreen)}><Icon name={fullscreen?'minimize':'maximize'} size={16}/></button><HarnessAppMenu api={api} appId={app.id} orgId={orgId} onSection={setSection} /><button className="hx-app-icon-button" aria-label="パネルを閉じる" onClick={onBack}><Icon name="x" size={16}/></button></>}
     >
       {section !== 'overview' && section !== 'data' && <nav className="hx-app-sections" aria-label={t('App sections')}>{(['overview', 'data', 'custom', 'backend', 'settings'] as const).map(tab => <button key={tab} aria-current={section === tab ? 'page' : undefined} className={section === tab ? 'on' : ''} onClick={() => setSection(tab)}>{t(tab === 'overview' ? 'Overview' : tab === 'data' ? 'Data viewer' : tab === 'custom' ? 'Customize app' : tab === 'backend' ? '実行基盤' : 'Settings')}</button>)}</nav>}
+      {creating&&<AppRecordDialog appName={app.name} columns={table.columns} members={recordMembers} save={async values=>{await api.addRow(table.id,values,'strict');await load()}} onClose={()=>setCreating(false)}/>}
       {section === 'backend' && <CompanyApp app={app} api={api} canManage={data.canCustomize !== false} reload={load} />}
       {section === 'custom' && data.canCustomize === false && <p>カスタムコードの編集・公開は、作成者または管理者が行えます。</p>}
       {section === 'custom' && data.canCustomize !== false && <CustomAppEditor httpBase={httpBase} app={app} table={table} rows={data.rows} api={api} reload={load} />}
       {section === 'overview' && app.definition.custom?.published && <CustomAppFrame appId={app.id} api={api} reload={load} httpBase={httpBase} html={app.definition.custom.published} table={table} rows={data.rows} />}
       {section === 'overview' && !app.definition.custom?.published && <div className="hx-app-overview"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('Database app')}</h2><p>{app.description || t('Browse and manage this app’s data in the data viewer.')}</p><div className="hx-actions"><button className="pill-btn" onClick={() => setSection('data')}>{t('Browse data')}</button><button className="pill-btn quiet" onClick={() => setSection('custom')}>{t('Customize app')}</button></div><small>{t('{n} records', { n: data.rows.length })} · {table.columns.length} {t('Fields')}</small></div>}
       {section === 'data' && <>
-      <div className="hx-data-toolbar"><div className="hx-data-heading"><h2>{app.name}</h2><button className="pill-btn" onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{t('Add a row')}</button></div>
-      <div className="hx-data-tools"><input className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /><PersonalViewControls key={`${view.id}:${personal.revision}`} view={view} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>setSection('settings')} /><AppViewControls key={`${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} personal={view.id.startsWith('personal_')} canEdit={view.id.startsWith('personal_') || data.canCustomize !== false} save={saveView} /><span>{t('{n} records', { n: data.rows.length })}</span></div>
+      <div className="hx-data-toolbar"><div className="hx-data-heading"><h2>{table.name}</h2><button className="pill-btn" onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />新規レコード</button></div>
+      <div className="hx-data-tools"><input className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /><PersonalViewControls control="fields" key={`${view.id}:${personal.revision}`} view={view} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>setSection('settings')} /><AppViewControls key={`${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} personal={view.id.startsWith('personal_')} canEdit={view.id.startsWith('personal_') || data.canCustomize !== false} save={saveView} />{view.type==='table'&&<AppDataMenu wrapText={layout.wrapText===true} save={wrapText=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:layout.order,widths:layout.widths,hidden:layout.hidden,wrapText}}})}/>}<span>{t('{n} records', { n: view.type==='table'?shownRows.length:data.rows.length })}</span></div>
       <div className="hx-tabs" role="tablist">
         {allViews.map((v, i) => (
           <button key={v.id} role="tab" aria-selected={i === viewIndex} className={i === viewIndex ? 'on' : ''} onClick={() => {setViewIndex(i);void act('view',()=>savePersonal({...personal,activeView:v.id}))}}>
             <Icon name={v.type === 'board' ? 'grid' : v.type === 'metrics' ? 'insights' : v.type === 'calendar' ? 'calendar' : 'list'} size={14} /> {v.name}{v.id.startsWith('personal_') && <small className="hx-personal-badge">個人</small>}
           </button>
         ))}
+        <PersonalViewControls control="view" key={`new:${view.id}:${personal.revision}`} view={view} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>setSection('settings')} />
       </div>
       </div>
       {error && <div className="form-error">{error}</div>}
@@ -342,10 +344,10 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
 
       {view.type === 'table' && (
         <div className="hx-table-wrap">
-          <table className="hx-table hx-personal-table" style={{width:displayColumns.reduce((n,c)=>n+(layout?.widths[c.id]||180),48)}}>
+          <table className={`hx-table hx-personal-table${layout.wrapText?' hx-wrap-text':''}`} style={{width:displayColumns.reduce((n,c)=>n+(layout?.widths[c.id]||180),48)}}>
             <colgroup>{displayColumns.map(c=><col key={c.id} style={{width:layout?.widths[c.id]||180}}/>)}<col style={{width:48}}/></colgroup>
             <thead>
-              <tr>{displayColumns.map((c) => <th key={c.id} aria-sort={view.sort===c.id?'ascending':view.sort===`-${c.id}`?'descending':'none'}><button className="hx-column-sort" disabled={!canEditView||busy!==null} aria-label={`${c.name}で${view.sort===c.id?'降順に並べ替え':view.sort===`-${c.id}`?'並べ替えを解除':'昇順に並べ替え'}`} onClick={()=>void act('sort',()=>saveView({sort:nextColumnSort(view.sort,c.id)}))}>{c.name}<Icon name={view.sort===c.id?'arrow-up':view.sort===`-${c.id}`?'arrow-down':'sort'} size={12}/></button><ColumnResize name={c.name} width={layout?.widths[c.id]||180} save={width=>act('layout',()=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{hidden:layout.hidden,order:orderedColumns.map(c=>c.id),widths:{...layout?.widths,[c.id]:width}}}}))}/></th>)}<th aria-label={t('Actions')} /></tr>
+              <tr>{displayColumns.map((c) => <th key={c.id} aria-sort={view.sort===c.id?'ascending':view.sort===`-${c.id}`?'descending':'none'}><button className="hx-column-sort" disabled={!canEditView||busy!==null} aria-label={`${c.name}で${view.sort===c.id?'降順に並べ替え':view.sort===`-${c.id}`?'並べ替えを解除':'昇順に並べ替え'}`} onClick={()=>void act('sort',()=>saveView({sort:nextColumnSort(view.sort,c.id)}))}>{c.name}<Icon name={view.sort===c.id?'arrow-up':view.sort===`-${c.id}`?'arrow-down':'sort'} size={12}/></button><ColumnResize name={c.name} width={layout?.widths[c.id]||180} save={width=>act('layout',()=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{...personal.layouts[view.id],hidden:layout.hidden,order:orderedColumns.map(c=>c.id),widths:{...layout?.widths,[c.id]:width}}}}))}/></th>)}<th aria-label={t('Actions')} /></tr>
             </thead>
             <tbody>
               {(view.groupBy ? (view.lanes || []).map(lane=>({...lane,rows:lane.rows.filter(row=>shownRows.some(r=>r.id===row.id))})) : [{key:null,rows:shownRows}]).map((group,groupIndex)=><React.Fragment key={group.key ?? groupIndex}>
@@ -353,7 +355,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
               {group.rows.map((row) => (
                 <tr key={row.id} data-row={row.id}>
                   {displayColumns.map((c) => (
-                    <td key={c.id}>{isSystemColumn(c.id)?<span className="hx-system-cell" title={c.id==='$row.id'?row.id:c.id==='$row.createdAt'?row.createdAt:row.updatedAt}>{systemCellText(row,c.id)}</span>:<CellInput column={c} value={row.values[c.id]} onSave={(v) => save(row, c, v)} />}</td>
+                    <td key={c.id}>{isSystemColumn(c.id)?<span className="hx-system-cell" title={c.id==='$row.id'?row.id:c.id==='$row.createdAt'?row.createdAt:row.updatedAt}>{systemCellText(row,c.id)}</span>:<CellInput members={recordMembers} width={layout.widths[c.id]||180} wrap={layout.wrapText===true} column={c} value={row.values[c.id]} onSave={(v) => save(row, c, v)} />}</td>
                   ))}
                   <td><button className="btn-text danger" onClick={() => removeRow(row)} disabled={busy === `del:${row.id}`} aria-label={t('Delete row')}><Icon name="trash" size={14} /></button></td>
                 </tr>

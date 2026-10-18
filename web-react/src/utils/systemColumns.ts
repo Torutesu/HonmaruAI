@@ -13,7 +13,7 @@ export function displayLayout(columns:Column[], layout?:PersonalViews['layouts']
   const order=[...new Set([...(layout?.order||[]).filter(id=>ids.includes(id)),...ids])]
   // Older saved layouts did not know about system fields: preserve their appearance.
   const hidden=[...new Set([...(layout?.hidden||[]),...SYSTEM_COLUMN_IDS.filter(id=>!layout?.order?.includes(id))])].filter(id=>ids.includes(id)&&id!==columns[0]?.id)
-  return {columns:all,order,hidden,widths:layout?.widths||{}}
+  return {columns:all,order,hidden,widths:layout?.widths||{},...(layout?.wrapText ? {wrapText:true} : {})}
 }
 export function systemCellText(row:Row,id:string) {
   if(id==='$row.id') return row.id

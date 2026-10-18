@@ -322,8 +322,8 @@
 :root .shell.harness-workspace .hx-data-toolbar h2 { font-size:14px; font-weight:600; margin:0; }
 :root .shell.harness-workspace .hx-data-toolbar .pill-btn { display:inline-flex; align-items:center; gap:6px; background:var(--hx-hover); color:var(--hx-text); padding:7px 10px; border-radius:7px; font-size:12px; font-weight:500; }
 :root .shell.harness-workspace .hx-data-toolbar .hx-tabs { order:1; margin:0; gap:2px; border-radius:7px; background:var(--hx-hover); padding:3px; }
-:root .shell.harness-workspace .hx-data-toolbar .hx-tabs button { font-size:12px; font-weight:500; padding:5px 8px; border-radius:5px; border-color:transparent; background:transparent; color:var(--hx-muted); }
-:root .shell.harness-workspace .hx-data-toolbar .hx-tabs button.on { color:var(--hx-text); background:var(--hx-surface); border-color:var(--hx-border); box-shadow:0 1px 2px #00000006; }
+:root .shell.harness-workspace .hx-data-toolbar .hx-tabs > button { font-size:12px; font-weight:500; padding:5px 8px; border-radius:5px; border-color:transparent; background:transparent; color:var(--hx-muted); }
+:root .shell.harness-workspace .hx-data-toolbar .hx-tabs > button.on { color:var(--hx-text); background:var(--hx-surface); border-color:var(--hx-border); box-shadow:0 1px 2px #00000006; }
 :root .shell.harness-workspace .hx-data-toolbar .hx-data-tools { order:2; margin:0 0 0 auto; gap:8px; }
 :root .shell.harness-workspace .hx-data-toolbar .hx-data-tools input { width:180px; font-size:12px; }
 :root .shell.harness-workspace .hx-app-detail .hx-table-wrap { border-color:var(--hx-border); border-radius:12px; }
@@ -423,3 +423,26 @@
 
 .hx-column-sort {display:inline-flex;align-items:center;gap:6px;max-width:calc(100% - 12px);border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;padding:0}
 .hx-column-sort svg {flex-shrink:0}.hx-column-sort:disabled {cursor:default}.hx-column-sort:focus-visible {outline:2px solid var(--hx-muted);outline-offset:4px}
+
+/* Data viewer details, measured against the native reference. */
+:root .shell.harness-workspace .hx-data-tools .pill-btn.quiet { background:transparent; }
+:root .shell.harness-workspace .hx-data-tools .pill-btn.quiet:hover { background:var(--hx-hover); }
+:root .shell.harness-workspace .hx-data-tools .hx-app-menu-popover span { margin:0; }
+:root .shell.harness-workspace .hx-app-detail.hx-app-fullscreen { position:fixed; inset:0; z-index:150; width:100%; height:100%; }
+.hx-wrap-text .hx-system-cell { white-space:pre-wrap; overflow-wrap:anywhere; }
+.hx-wrapped-input { resize:none; overflow:hidden; white-space:pre-wrap; overflow-wrap:anywhere; display:block; min-height:30px; box-sizing:border-box; }
+.hx-record-dialog { width:min(672px,100%); background:var(--hx-surface); color:var(--hx-text); border-color:var(--hx-border); --dlg-ink:var(--hx-text); --dlg-bg:var(--hx-surface); --dlg-line:var(--hx-border); --dlg-dim:var(--hx-muted); --dlg-field:var(--hx-surface); --dlg-accent:var(--hx-accent); }
+.hx-record-dialog .dialog-head { padding:20px 20px 8px; }
+.hx-record-dialog .dialog-head h2 { font-size:20px; }
+.hx-record-dialog .dialog-foot { padding:16px 20px; }
+.hx-record-dialog .dlg-btn { height:36px; border-radius:12px; }
+.hx-record-dialog .dlg-btn.primary { background:var(--hx-action); color:var(--hx-action-text); border-color:var(--hx-action); }
+.hx-record-form { display:flex; flex-direction:column; gap:18px; }
+.hx-record-form .dlg-input { border-radius:12px; background:var(--hx-surface); color:var(--hx-text); }
+.hx-record-form textarea { height:auto; min-height:72px; padding:10px 12px; resize:vertical; }
+.hx-record-form label:first-child textarea { min-height:98px; }
+.hx-record-form .dlg-label { color:var(--hx-text); }
+
+:root .shell.harness-workspace .hx-tabs .hx-new-view { padding:5px; display:grid; place-items:center; }
+:root .shell.harness-workspace .hx-tabs .hx-view-popover { left:0; right:auto; }
+@media(max-width:719px) { :root .shell.harness-workspace .hx-tabs .hx-view-popover { left:16px; right:16px; } }
