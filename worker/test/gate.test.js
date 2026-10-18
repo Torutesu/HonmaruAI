@@ -89,3 +89,38 @@ test("a Pro subscriber is never metered", async () => {
   const decision = await checkAIAllowance(e, { githubId: "603" });
   expect(decision).toMatchObject({ allowed: true, metered: false });
 });
+
+test("checks made at once cannot all take the day's last call", async () => {
+  const day = new Date().toISOString().slice(0, 10);
+  await env.DB.prepare("INSERT INTO ai_usage (user_github_id, day, used) VALUES ('604', ?1, ?2)").bind(day, UNBILLED_DAILY_ROUTES - 1).run();
+  const checks = await Promise.all([1, 2, 3].map(() => checkAIAllowance({ ...env }, { githubId: "604" })));
+  expect(checks.filter((c) => c.allowed)).toHaveLength(1);
+  const [winner] = checks.filter((c) => c.allowed);
+  expect(winner.remaining).toBe(1);
+  // While its call runs, nobody else gets in; once it is counted, the day is spent.
+  expect((await checkAIAllowance({ ...env }, { githubId: "604" })).allowed).toBe(false);
+  await winner.consume();
+  expect(await usedToday(env.DB, "604", day)).toBe(UNBILLED_DAILY_ROUTES);
+  expect((await checkAIAllowance({ ...env }, { githubId: "604" })).allowed).toBe(false);
+});
+
+test("a checked call that never happened gives its place back, by release or when it lapses", async () => {
+  const { reserveAIUse, AI_RESERVATION_MS } = await import("../src/db.js");
+  const day = new Date().toISOString().slice(0, 10);
+  await env.DB.prepare("INSERT INTO ai_usage (user_github_id, day, used) VALUES ('605', ?1, ?2)").bind(day, UNBILLED_DAILY_ROUTES - 1).run();
+  const first = await checkAIAllowance({ ...env }, { githubId: "605" });
+  expect((await checkAIAllowance({ ...env }, { githubId: "605" })).allowed).toBe(false);
+  await first.release();
+  await first.release();
+  const second = await checkAIAllowance({ ...env }, { githubId: "605" });
+  expect(second.allowed).toBe(true);
+  await second.consume();
+  await second.release();
+  expect(await usedToday(env.DB, "605", day)).toBe(UNBILLED_DAILY_ROUTES);
+
+  // One neither counted nor let go holds its place only for a while.
+  const now = Date.now();
+  expect(await reserveAIUse(env.DB, "606", day, 1, now)).toMatchObject({ remaining: 1 });
+  expect(await reserveAIUse(env.DB, "606", day, 1, now + 1000)).toBeNull();
+  expect(await reserveAIUse(env.DB, "606", day, 1, now + AI_RESERVATION_MS + 1)).toMatchObject({ remaining: 1 });
+});

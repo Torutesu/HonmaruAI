@@ -1017,6 +1017,8 @@ export class OrgRelay {
         const recipient = await getUserByLogin(this.db, card.recipientUserID);
         const locale = recipient?.locale || "en";
         const localized = await localizeCard(current, { provider, locale, allowance });
+        // Neither needed the model: its place in the day goes back (gate.js).
+        await allowance?.release();
         if (localized) { current = localized; changed = true; }
         if (changed) {
           await saveCard(this.db, orgId, current);

@@ -110,17 +110,21 @@ async function ingestOne(connector, message, { env, session, orgId, userId, read
   // decision, and charging only for the ones that produce a card would let an
   // inbox of noise run the model for free.
   if (result.called && allowance.metered) await allowance.consume();
+  // No call made: its place in the day goes back (gate.js).
+  await allowance.release();
   const triaged = result.card;
 
   if (triaged) {
     cardId = crypto.randomUUID();
     // Filed in the background like every other card. Its own allowance
     // check: the one above was spent on the triage.
+    const filing = await allowanceFor(env, orgId, { githubId: String(session.github_id) });
     const business = await fileCardUnderBusiness(env, {
       orgId, provider, githubId: session.github_id,
       card: { ...triaged, sourceDetail: `${message.from} · ${message.subject}` },
-      allowance: await allowanceFor(env, orgId, { githubId: String(session.github_id) }),
+      allowance: filing,
     });
+    await filing.release();
     await saveCard(env.DB, orgId, {
       id: cardId,
       ...(business ? { business } : {}),

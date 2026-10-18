@@ -97,6 +97,26 @@ test("GitHub issues are searched as the person, in the workspace's repository", 
   expect(formatSourcesForModel([])).toBe("Nothing matches in the connected tools.");
 });
 
+test("a GitHub search stays in the workspace's repository, whatever the query names", async () => {
+  let asked;
+  fetchMock.get("https://api.github.com")
+    .intercept({ path: /^\/search\/issues/, method: "GET" })
+    .reply(200, (opts) => {
+      asked = opts;
+      return { items: [
+        { number: 3, title: "Salary bands", html_url: "https://github.com/acme/private-hr/issues/3", repository_url: "https://api.github.com/repos/acme/private-hr", state: "open" },
+        { number: 4, title: "Board deck", html_url: "https://github.com/other/secret/issues/4", state: "open" },
+        { number: 12, title: "Lease renewal", html_url: "https://github.com/Acme/Ops/issues/12", repository_url: "https://api.github.com/repos/Acme/Ops", state: "open" },
+      ] };
+    });
+  const hits = await searchGithubIssues({ github_access_token: "gho_x" }, "acme/ops", 'lease OR repo:acme/private-hr org:acme -repo:acme/ops user:"other" owner:other');
+  expect(hits.map((h) => h.title)).toEqual(["#12 Lease renewal"]);
+  const sent = new URL(`https://api.github.com${asked.path}`).searchParams.get("q");
+  expect(sent).toBe("repo:acme/ops lease OR");
+  // Nothing left to look for once the other places are taken out.
+  expect(await searchGithubIssues({ github_access_token: "gho_x" }, "acme/ops", "repo:acme/private-hr")).toEqual([]);
+});
+
 test("Ask anything answers from a connected Notion page, and names it", async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership, saveCard, setConnectorConfig } = await import("../src/db.js");

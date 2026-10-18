@@ -186,10 +186,11 @@ const SESSION_SLIDE_AFTER_DAYS = 15;
 
 /// A session by the key it is stored under, for work the Worker hands to
 /// itself (a queued agent run): never for a value a client sent, which is
-/// a token and goes through getSession. Unexpired, and not slid.
+/// a token and goes through getSession. Unexpired, and not slid; with what
+/// a workspace's sign-in rules read (policy.js), so they can be applied.
 export async function sessionByKey(db, key) {
   if (typeof key !== "string" || !key.startsWith("h1:")) return null;
-  const row = await db.prepare("SELECT token, github_id, github_access_token, expires_at, auth_method, sso_org_id, sso_connection_id FROM sessions WHERE token = ?1")
+  const row = await db.prepare("SELECT token, github_id, github_access_token, created_at, expires_at, last_seen_at, client, longest_idle_ms, auth_method, sso_org_id, sso_connection_id FROM sessions WHERE token = ?1")
     .bind(key).first().then(openSessionToken);
   if (!row || (row.expires_at && row.expires_at <= new Date().toISOString())) return null;
   return row;
@@ -660,6 +661,36 @@ export async function countAIUse(db, githubId, day) {
     )
     .bind(String(githubId), day)
     .run();
+}
+
+/// How long a checked call holds its place before it lapses, if it is
+/// neither counted nor let go: longer than a model call takes, short enough
+/// that a caller which never called the model gives the place back soon.
+export const AI_RESERVATION_MS = 60_000;
+
+/// Take one of the day's `limit` calls for a call about to be made, in one
+/// statement: what is counted and what is already held both count, so two
+/// checks at once cannot both take the last one. Returns the reservation's
+/// id and what remains including it, or null when the day is spent.
+export async function reserveAIUse(db, githubId, day, limit, now = Date.now()) {
+  const id = crypto.randomUUID();
+  const user = String(githubId);
+  const [, taken] = await db.batch([
+    db.prepare("DELETE FROM ai_reservations WHERE user_github_id = ?1 AND expires_at <= ?2").bind(user, now),
+    db.prepare(`INSERT INTO ai_reservations (id, user_github_id, day, expires_at)
+      SELECT ?1, ?2, ?3, ?4 WHERE COALESCE((SELECT used FROM ai_usage WHERE user_github_id = ?2 AND day = ?3), 0)
+        + (SELECT COUNT(*) FROM ai_reservations WHERE user_github_id = ?2 AND day = ?3 AND expires_at > ?5) < ?6`)
+      .bind(id, user, day, now + AI_RESERVATION_MS, now, limit),
+  ]);
+  if (!taken.meta?.changes) return null;
+  const row = await db.prepare(`SELECT COALESCE((SELECT used FROM ai_usage WHERE user_github_id = ?1 AND day = ?2), 0)
+      + (SELECT COUNT(*) FROM ai_reservations WHERE user_github_id = ?1 AND day = ?2 AND expires_at > ?3 AND id != ?4) AS taken`)
+    .bind(user, day, now, id).first();
+  return { id, remaining: Math.max(1, limit - Number(row?.taken || 0)) };
+}
+
+export async function releaseAIUse(db, id) {
+  await db.prepare("DELETE FROM ai_reservations WHERE id = ?1").bind(id).run();
 }
 
 export async function readEntitlement(db, githubId) {

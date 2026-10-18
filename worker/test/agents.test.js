@@ -658,3 +658,33 @@ test("in a thread an agent answered, the person who called it goes on without na
   const thread = await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:cafe", messageId: asked.id })}`, mika)).json();
   expect(thread.replies.filter((r) => r.kind === "agent").map((r) => r.body)).toEqual(["Amber.", "A rounded serif."]);
 });
+
+test("a queued agent job answers only someone still in the workspace and within its sign-in rules", async () => {
+  await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
+  const { getSession, createSession } = await import("../src/db.js");
+  const { postMessage } = await import("../src/channels.js");
+  const { runQueuedAgents } = await import("../src/agentRunner.js");
+  const { endHere } = await import("../src/sessions.js");
+  const ask = async (token) => {
+    const { row } = await postMessage(env.DB, { orgId: ORG, key: "b:cafe", authorLogin: "kenji", body: "@hayao poster ideas?" });
+    await runQueuedAgents(env, { orgId: ORG, token, rowId: row.id, locale: "en" });
+    return { row };
+  };
+  const replies = async (row) => (await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:cafe", messageId: row.id })}`, toru)).json()).replies;
+
+  // Queued as the request does it: by the session's stored key.
+  const key = (await getSession(env.DB, kenji)).token;
+  const allowed = await ask(key);
+  expect(await replies(allowed.row)).toEqual([expect.objectContaining({ kind: "agent", authorName: "Hayao" })]);
+
+  // Signed out of this workspace by its rules: the session is still good elsewhere.
+  await endHere(env.DB, ORG, [key]);
+  const ended = await ask(key);
+  expect(await replies(ended.row)).toEqual([]);
+
+  // Removed from the workspace after the job was queued.
+  const fresh = await createSession(env.DB, "8803", "gho_k2");
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = '8803'").bind(ORG).run();
+  const removed = await ask(fresh);
+  expect(await replies(removed.row)).toEqual([]);
+});

@@ -13,7 +13,7 @@ import { mayUseConversation } from './conversationAccess.js';
 // is what carries it on (or ends it) — afterDecision in relay.js calls
 // settleWorkflowApproval.
 
-import { saveCard, getUserByLogin } from "../db.js";
+import { saveCard, getUserByLogin, isMember } from "../db.js";
 import { postMessage } from "../channels.js";
 import { nextRunAt, CADENCES, isTimeZone } from "../schedule.js";
 import { appendCardEvent } from "../events.js";
@@ -33,6 +33,9 @@ export const MAX_WORKFLOWS = 100;
 /// A step that changes a row may start another workflow; a chain longer
 /// than this is a loop, and stops.
 export const MAX_DEPTH = 3;
+/// The most a run keeps of what started it, as JSON: room for a webhook's
+/// whole 64,000-character body even where escaping makes it longer.
+export const MAX_INPUT = 200000;
 
 const now = () => new Date().toISOString();
 const newId = (p) => `${p}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
@@ -114,6 +117,24 @@ const publicRun = (r) => r && ({
   startedBy: r.started_by, startedAt: r.started_at, finishedAt: r.finished_at,
 });
 
+/// Who an approval goes to: a login is global, so it names someone only
+/// while they belong to this workspace. Anyone else would be sent its title
+/// and summary, and the run would wait on a decision they cannot reach.
+async function approverIn(db, orgId, login) {
+  const user = await getUserByLogin(db, login);
+  return user && (await isMember(db, orgId, user.github_id)) ? user : null;
+}
+
+/// An approval written to a fixed login is checked when it is saved; one
+/// written as a {{placeholder}} can only be checked when it runs.
+async function unknownApprover(db, orgId, steps) {
+  for (const step of steps) {
+    if (step.type !== "approval" || step.to.includes("{{")) continue;
+    if (!(await approverIn(db, orgId, step.to))) return { error: `Nobody by that name here: @${step.to}` };
+  }
+  return null;
+}
+
 export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
   if (!workflow) return false;
   if (workflow.trigger?.tableId && !(await mayUseTable(db, orgId, workflow.trigger.tableId, viewerId))) return false;
@@ -150,6 +171,8 @@ export async function createWorkflow(db, orgId, input, by) {
   if (t.error) return t;
   const s = normalizeSteps(input?.steps);
   if (s.error) return s;
+  const nobody = await unknownApprover(db, orgId, s.steps);
+  if (nobody) return nobody;
   if (t.trigger.type === "row" && !(await getTable(db, orgId, t.trigger.tableId))) return { error: "No such table." };
   const n = await db.prepare("SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id = ?1").bind(orgId).first();
   if (Number(n?.n || 0) >= MAX_WORKFLOWS) return { error: "This workspace has as many workflows as it can hold." };
@@ -179,6 +202,8 @@ export async function updateWorkflow(db, orgId, id, input) {
   if (input.steps !== undefined) {
     const s = normalizeSteps(input.steps);
     if (s.error) return s;
+    const nobody = await unknownApprover(db, orgId, s.steps);
+    if (nobody) return nobody;
     steps = s.steps;
   }
   const enabled = input.enabled !== undefined ? Boolean(input.enabled) : wf.enabled;
@@ -263,14 +288,20 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
   // Store the definition and the run atomically. An approval always resumes
   // the same steps that were presented when the run started.
   const definition = { id: workflow.id, name: workflow.name, steps: workflow.steps, trigger: workflow.trigger, createdBy: workflow.createdBy };
+  // Input is kept whole or the run fails before its first step: JSON cut
+  // short is no longer JSON, and the steps would run on blanks.
+  const stored = input ? JSON.stringify(input) : null;
+  const tooLarge = stored !== null && stored.length > MAX_INPUT;
+  const failed = tooLarge ? [{ step: 1, type: workflow.steps[0]?.type, at: now(), status: "failed", error: `What started this run is over ${MAX_INPUT} characters.` }] : [];
   await env.DB.batch([
-    env.DB.prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_by, started_at)
-      VALUES (?1, ?2, ?3, ?4, 'running', ?5, '[]', 0, ?6, ?7)`)
-      .bind(id, orgId, workflow.id, trigger, input ? JSON.stringify(input).slice(0, 20000) : null, startedBy ? String(startedBy) : null, now()),
+    env.DB.prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_by, started_at, finished_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`)
+      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, now(), tooLarge ? now() : null),
     env.DB.prepare("INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at) VALUES (?1, ?2, ?3, ?4)")
       .bind(id, orgId, JSON.stringify(definition), now()),
   ]);
   await env.DB.prepare("UPDATE hx_workflows SET last_run_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), workflow.id, orgId).run();
+  if (tooLarge) return getRun(env.DB, orgId, id);
   return continueRun(env, { orgId, runId: id, workflow, depth });
 }
 
@@ -283,6 +314,13 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
   // Runs created before this table existed retain their previous behavior.
   workflow = frozen ? JSON.parse(frozen.definition) : (workflow || await getWorkflow(db, orgId, run.workflowId));
   if (!workflow) return null;
+  // Input that does not read back (cut short by an earlier version) is a
+  // run that no longer knows what started it: it fails here, not on blanks.
+  if (run.input === null && (await db.prepare("SELECT input FROM hx_workflow_runs WHERE id = ?1 AND org_id = ?2").bind(runId, orgId).first())?.input != null) {
+    const log = [...run.log, { step: run.nextStep + 1, type: workflow.steps[run.nextStep]?.type, at: now(), status: "failed", error: "What started this run can no longer be read." }];
+    await db.prepare("UPDATE hx_workflow_runs SET status = 'failed', log = ?1, finished_at = ?2 WHERE id = ?3 AND org_id = ?4").bind(JSON.stringify(log), now(), runId, orgId).run();
+    return getRun(db, orgId, runId);
+  }
   const sourceTable = workflow.trigger?.tableId || run.input?.tableId;
   if (sourceTable && !(await mayUseTable(db, orgId, sourceTable, workflow.createdBy))) {
     await db.prepare("UPDATE hx_workflow_runs SET status = 'failed', finished_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), runId, orgId).run();
@@ -300,7 +338,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     const step = workflow.steps[index];
     let entry;
     try {
-      entry = await runStep(env, { orgId, workflow, step, scope, runId, depth, owner: workflow.createdBy });
+      entry = await runStep(env, { orgId, workflow, step, number: index + 1, scope, runId, depth, owner: workflow.createdBy });
     } catch (e) {
       entry = { status: "failed", error: String(e?.message || e).slice(0, 300) };
     }
@@ -326,7 +364,7 @@ async function say(env, orgId, channel, body, { authorLogin = null, kind = "ai",
   return out?.row || null;
 }
 
-async function runStep(env, { orgId, workflow, step, scope, runId, depth, owner }) {
+async function runStep(env, { orgId, workflow, step, number, scope, runId, depth, owner }) {
   const db = env.DB;
   if (step.channel && !(await mayUseConversation(db, orgId, owner, step.channel))) {
     return { status: "failed", error: "Conversation access required." };
@@ -370,23 +408,28 @@ async function runStep(env, { orgId, workflow, step, scope, runId, depth, owner 
       return { status: "ok", output: rowId, rowId };
     }
     case "approval": {
-      const to = await getUserByLogin(db, render(step.to, scope));
+      // Checked again here: a placeholder names someone only now, and a
+      // fixed login may have left the workspace since the workflow was saved.
+      const to = await approverIn(db, orgId, render(step.to, scope));
       if (!to) return { status: "failed", error: "Nobody by that name here." };
+      // One card for each approval in the run, so a decision on an earlier
+      // one can never be taken as the answer to a later one, and the earlier
+      // card is kept as it was decided.
       const card = {
-        id: `wf-${runId}`,
+        id: `wf-${runId}-${number}`,
         recipientUserID: to.login,
         senderUserID: to.login,
         type: "approval",
         title: render(step.title, scope).slice(0, 120),
         summary: render(step.summary || "", scope).slice(0, 600),
         context: `Workflow: ${workflow.name}`,
-        priority: "normal",
+        priority: "medium",
         status: "pending",
         createdAt: now(),
         sourceApp: "Workflow",
         sourceDetail: workflow.name,
         requestedBy: { login: to.login, name: workflow.name },
-        workflowApproval: { runId, workflowId: workflow.id },
+        workflowApproval: { runId, workflowId: workflow.id, step: number },
       };
       await saveCard(db, orgId, card);
       await appendCardEvent(db, orgId, { cardId: card.id, type: "created", actorUserId: to.login, note: "workflow", snapshot: card }).catch(() => {});
@@ -396,9 +439,13 @@ async function runStep(env, { orgId, workflow, step, scope, runId, depth, owner 
       return { status: "waiting", cardId: card.id, output: `Waiting for ${to.name || to.login}` };
     }
     case "followup": {
+      // Scheduled as the workflow's maker, the person whose access it acts
+      // with: the follow-up checks that access now and again when it is due,
+      // and that person pays for its answer. The run's log is what says a
+      // workflow made it.
       const r = await scheduleFollowup(db, {
         orgId, channel: step.channel, agentId: step.agentId || null, instruction: render(step.text, scope),
-        dueAt: new Date(Date.now() + step.minutes * 60000).toISOString(), by: `workflow:${workflow.id}`,
+        dueAt: new Date(Date.now() + step.minutes * 60000).toISOString(), by: owner,
       });
       return r.error ? { status: "failed", error: r.error } : { status: "ok", output: r.followup.id };
     }
@@ -408,19 +455,22 @@ async function runStep(env, { orgId, workflow, step, scope, runId, depth, owner 
 }
 
 /// A workflow's approval card, decided: approve carries the run on,
-/// decline ends it. Once only, and only by the person it was made to.
+/// decline ends it. Once only, only by the person it was made to, and only
+/// for the approval the run waits on now: an answer to an earlier one in the
+/// same run settles nothing.
 export async function settleWorkflowApproval(env, orgId, card) {
   const ref = card?.workflowApproval;
   if (!ref?.runId) return null;
   const action = card.decision?.action;
   const run = await getRun(env.DB, orgId, ref.runId);
   if (!run || run.status !== "waiting" || run.cardId !== card.id) return null;
+  if (ref.step !== undefined && ref.step !== run.nextStep) return null;
   if (card.decision?.actorUserID && card.decision.actorUserID !== card.recipientUserID) return null;
   const approved = action === "approve" || action === "choose";
   if (!approved && action !== "decline") return null;
   const claimed = await env.DB
-    .prepare("UPDATE hx_workflow_runs SET status = 'running' WHERE id = ?1 AND org_id = ?2 AND status = 'waiting'")
-    .bind(run.id, orgId)
+    .prepare("UPDATE hx_workflow_runs SET status = 'running' WHERE id = ?1 AND org_id = ?2 AND status = 'waiting' AND card_id = ?3")
+    .bind(run.id, orgId, card.id)
     .run();
   if (!claimed.meta?.changes) return null;
   const log = run.log;

@@ -315,3 +315,128 @@ test('an app generated in an agent DM resolves the room and remains private', as
   expect(listed.apps.find(a => a.id === app.id).channels).toEqual([`${room}|mika`]);
   expect((await get(`/apps/${app.id}?${q({ orgId: ORG })}`, toru)).status).toBe(404);
 });
+
+test("an approval goes only to someone in this workspace, checked when saved and again when it runs", async () => {
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  // Zed has an account, in another workspace; Kai is here until removed.
+  await upsertUser(env.DB, { githubId: "9304", login: "zed", name: "Zed", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, "personal:elsewhere", "9304", "admin");
+  await upsertUser(env.DB, { githubId: "9303", login: "kai", name: "Kai", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, ORG, "9303", "member");
+  const flow = (to) => ({ orgId: ORG, name: `Ask ${to}`, trigger: { type: "manual" }, steps: [{ type: "approval", to, title: "Secret plan", summary: "Only for us" }] });
+
+  const refused = await send("POST", "/workflows", mika, flow("zed"));
+  expect(refused.status).toBe(400);
+  expect((await refused.json()).message).toMatch(/zed/);
+  const { workflow: viaTemplate } = await (await send("POST", "/workflows", mika, flow("{{input.who}}"))).json();
+  expect((await send("PUT", `/workflows/${viaTemplate.id}`, mika, { orgId: ORG, steps: flow("@zed").steps })).status).toBe(400);
+  const { workflow: toKai } = await (await send("POST", "/workflows", mika, flow("kai"))).json();
+
+  const outsider = (await (await send("POST", `/workflows/${viaTemplate.id}/run`, mika, { orgId: ORG, input: { who: "zed" } })).json()).run;
+  expect(outsider).toMatchObject({ status: "failed", cardId: null });
+  expect(outsider.log[0]).toMatchObject({ status: "failed", error: "Nobody by that name here." });
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = '9303'").bind(ORG).run();
+  const removed = (await (await send("POST", `/workflows/${toKai.id}/run`, mika, { orgId: ORG })).json()).run;
+  expect(removed.status).toBe("failed");
+  // Nothing was saved or queued for either of them.
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1").bind(ORG).first()).n).toBe(0);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM notification_jobs").first()).n).toBe(0);
+
+  // A member named through the template still gets the approval.
+  const member = (await (await send("POST", `/workflows/${viaTemplate.id}/run`, mika, { orgId: ORG, input: { who: "toru" } })).json()).run;
+  expect(member.status).toBe("waiting");
+  expect((await (await get(`/approvals?${q({ orgId: ORG })}`, toru)).json()).toDecide).toEqual([expect.objectContaining({ title: "Secret plan", kind: "workflow" })]);
+});
+
+test("a decision on a run's first approval, replayed, does not answer its second", async () => {
+  const { createWorkflow, startRun, settleWorkflowApproval, getRun } = await import("../src/harness/workflows.js");
+  const { getCard } = await import("../src/db.js");
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: "Two gates", trigger: { type: "manual" }, steps: [
+      { type: "approval", to: "toru", title: "Approve A?" },
+      { type: "approval", to: "toru", title: "Approve B?" },
+      { type: "post", channel: "b:ops", text: "Reached the final step" },
+    ],
+  }, "9302");
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: "manual", startedBy: "9302" });
+  const decided = (card) => ({ ...card, status: "approved", decision: { action: "approve", actorUserID: "toru", decidedAt: new Date().toISOString() } });
+  const first = await getCard(env.DB, ORG, run.cardId);
+  const atSecond = await settleWorkflowApproval(env, ORG, decided(first));
+  expect(atSecond).toMatchObject({ status: "waiting", nextStep: 2 });
+  expect(atSecond.cardId).not.toBe(first.id);
+  // The first card is kept as it was, beside the second.
+  expect((await getCard(env.DB, ORG, first.id)).title).toBe("Approve A?");
+  expect((await getCard(env.DB, ORG, atSecond.cardId)).title).toBe("Approve B?");
+
+  expect(await settleWorkflowApproval(env, ORG, decided(first))).toBeNull();
+  expect(await getRun(env.DB, ORG, run.id)).toMatchObject({ status: "waiting", nextStep: 2, cardId: atSecond.cardId });
+  expect((await messages(mika)).map((m) => m.body)).not.toContain("Reached the final step");
+
+  const done = await settleWorkflowApproval(env, ORG, decided(await getCard(env.DB, ORG, atSecond.cardId)));
+  expect(done.status).toBe("done");
+  expect((await messages(mika)).map((m) => m.body)).toContain("Reached the final step");
+});
+
+test("a workflow's approval card has a priority every client reads, and old ones are repaired", async () => {
+  const { createWorkflow, startRun } = await import("../src/harness/workflows.js");
+  const { getCard, saveCard } = await import("../src/db.js");
+  const { PRIORITIES } = await import("../src/agui/validate.js");
+  const { workflow } = await createWorkflow(env.DB, ORG, { name: "Gate", trigger: { type: "manual" }, steps: [{ type: "approval", to: "toru", title: "Go?" }] }, "9302");
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: "manual", startedBy: "9302" });
+  expect(PRIORITIES.has((await getCard(env.DB, ORG, run.cardId)).priority)).toBe(true);
+
+  await saveCard(env.DB, ORG, { id: "wf-run_old", recipientUserID: "toru", senderUserID: "toru", type: "approval", title: "Old", summary: "", status: "pending", priority: "normal", createdAt: new Date().toISOString(), workflowApproval: { runId: "run_old" } });
+  await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  expect((await getCard(env.DB, ORG, "wf-run_old")).priority).toBe("medium");
+  expect((await env.DB.prepare("SELECT priority FROM cards WHERE card_id = 'wf-run_old'").first()).priority).toBe("medium");
+});
+
+test("a workflow's follow-up is scheduled with its maker's access, and checked again when due", async () => {
+  const { createWorkflow, startRun } = await import("../src/harness/workflows.js");
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: "Chase later", trigger: { type: "manual" }, steps: [{ type: "followup", channel: "b:ops", text: "Did {{input.text}} pay?", minutes: 60 }],
+  }, "9302");
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: "manual", input: { text: "Acme" }, startedBy: "9302" });
+  expect(run.status).toBe("done");
+  const { followups } = await (await get(`/followups?${q({ orgId: ORG, channel: "b:ops" })}`, mika)).json();
+  expect(followups).toEqual([expect.objectContaining({ id: run.log[0].output, instruction: "Did Acme pay?", createdBy: "9302" })]);
+  expect(await runDueFollowups(env, { now: new Date(Date.now() + 2 * 3600000) })).toBe(1);
+  expect((await messages(mika)).map((m) => m.body)).toContain("⏰ Follow-up: Did Acme pay?");
+
+  // Its maker gone from the workspace, the next one is never posted.
+  const again = await startRun(env, { orgId: ORG, workflow, trigger: "manual", input: { text: "Globex" }, startedBy: "9302" });
+  expect(again.status).toBe("done");
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = '9302'").bind(ORG).run();
+  expect(await runDueFollowups(env, { now: new Date(Date.now() + 2 * 3600000) })).toBe(0);
+  expect((await messages(toru)).map((m) => m.body)).not.toContain("⏰ Follow-up: Did Globex pay?");
+  expect((await startRun(env, { orgId: ORG, workflow, trigger: "manual", input: { text: "Initech" } })).status).toBe("failed");
+});
+
+test("what starts a run is kept whole: a large webhook body still renders, and one too large to keep fails before any step", async () => {
+  const { createWorkflow, startRun, continueRun, getRun, MAX_INPUT } = await import("../src/harness/workflows.js");
+  const made = await (await send("POST", "/workflows", mika, {
+    orgId: ORG, name: "Customer hook", trigger: { type: "webhook" },
+    steps: [{ type: "post", channel: "b:ops", text: "Customer: {{input.customer}}" }],
+  })).json();
+  const path = new URL(made.hookUrl).pathname;
+  const body = JSON.stringify({ customer: "Acme \"東京\"", padding: "x".repeat(25000) });
+  const hooked = await (await call(`${path}?secret=${made.workflow.hookSecret}`, { method: "POST", headers: { "content-type": "application/json" }, body })).json();
+  expect(hooked.status).toBe("done");
+  expect((await messages(mika)).map((m) => m.body)).toContain("Customer: Acme \"東京\"");
+  expect((await getRun(env.DB, ORG, hooked.runId)).input.customer).toBe("Acme \"東京\"");
+
+  const { workflow } = await createWorkflow(env.DB, ORG, { name: "Big", trigger: { type: "manual" }, steps: [{ type: "post", channel: "b:ops", text: "Got {{input.customer}}" }] }, "9302");
+  const huge = await startRun(env, { orgId: ORG, workflow, trigger: "manual", input: { customer: "Initech", padding: "x".repeat(MAX_INPUT) } });
+  expect(huge).toMatchObject({ status: "failed", input: null });
+  expect(huge.log).toEqual([expect.objectContaining({ step: 1, status: "failed", error: expect.stringMatching(/over/) })]);
+  expect((await messages(mika)).map((m) => m.body)).not.toContain("Got Initech");
+
+  // A run whose stored input no longer reads as JSON fails rather than
+  // going on as though nothing had started it.
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_at)
+    VALUES ('run_cut', ?1, ?2, 'webhook', 'running', '{"customer":"Globex","padding":"xx', '[]', 0, ?3)`).bind(ORG, workflow.id, new Date().toISOString()).run();
+  const cut = await continueRun(env, { orgId: ORG, runId: "run_cut", workflow });
+  expect(cut.status).toBe("failed");
+  expect(cut.log[0]).toMatchObject({ status: "failed", error: "What started this run can no longer be read." });
+  expect((await messages(mika)).some((m) => m.body.startsWith("Got "))).toBe(false);
+});

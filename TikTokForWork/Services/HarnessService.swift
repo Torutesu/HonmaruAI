@@ -83,6 +83,9 @@ enum HarnessService {
         let table: Table
         let rows: [Row]
         let views: [Pane]
+        /// Whether this person may change the shared app: its maker or an
+        /// admin. Absent from an older Worker, which let anyone.
+        let canCustomize: Bool?
     }
 
     struct Template: Decodable, Identifiable {
