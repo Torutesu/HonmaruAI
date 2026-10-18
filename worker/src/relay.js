@@ -4,7 +4,7 @@ import {
   joinEvents, upsertEvents, removeEvents,
   presenceEvents, contextEvents, applyDecision, applyRollback,
 } from "./agui/adapter.js";
-import { toolCallResult, runError } from "./agui/events.js";
+import { toolCallResult, runError, custom as customEvent } from "./agui/events.js";
 import {
   loadStore, saveCard, removeCard, loadContexts, saveContext,
   getSession, getCard, getUserByLogin, upsertBusiness, businessSlug, getMemberProfile,
@@ -120,10 +120,20 @@ export class OrgRelay {
     // holding right now, which no later check would ever look at.
     if (url.pathname === EVICT_PATH && request.headers.get("Upgrade") !== "websocket") {
       if (request.method !== "POST") return new Response("not found", { status: 404 });
-      let login = null;
-      try { ({ login = null } = await request.json()); } catch { return new Response("bad request", { status: 400 }); }
+      let login = null; let channel = null;
+      try { ({ login = null, channel = null } = await request.json()); } catch { return new Response("bad request", { status: 400 }); }
       let evicted = 0;
-      if (login) {
+      if (login && typeof channel === "string") {
+        // Out of one private channel only: out of its Jam, so the others
+        // hang up on them, and told so; the rest of the room is still theirs.
+        for (const ws of this.state.getWebSockets()) {
+          const att = ws.deserializeAttachment();
+          if (att?.orgId !== orgId || att?.userId !== login || att.jam?.key !== channel) continue;
+          await leaveJam(this, ws, att);
+          OrgRelay.deliver(ws, JSON.stringify(customEvent("jam_error", { channel: null, message: "You are no longer in this channel." })));
+          evicted += 1;
+        }
+      } else if (login) {
         for (const ws of this.state.getWebSockets()) {
           const att = ws.deserializeAttachment();
           if (att?.orgId !== orgId || att?.userId !== login) continue;
