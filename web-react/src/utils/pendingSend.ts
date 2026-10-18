@@ -163,6 +163,21 @@ export function keepTemps(fresh: ChannelMessage[], held: ChannelMessage[] | unde
   return ours.length ? [...fresh, ...ours] : fresh
 }
 
+/// A thread read again while it is open. `before`: the ids of the replies
+/// drawn when the read left. The answer was the server's thread as it stood
+/// then, so a reply that came over the socket since, and is not in it, stays
+/// — and one taken away here since stays away; what is held only here is
+/// kept at the end, as keepTemps does. Without anything held here it is the
+/// answer as it came.
+export function refreshedReplies(fresh: ChannelMessage[], held: ChannelMessage[] | undefined, before: ReadonlySet<string>): ChannelMessage[] {
+  if (!held?.length) return fresh
+  const now = new Set(held.map((x) => x.id))
+  const got = new Set(fresh.map((x) => x.id))
+  const kept = fresh.filter((x) => !before.has(x.id) || now.has(x.id))
+  const since = held.filter((x) => !isTemp(x) && !before.has(x.id) && !got.has(x.id))
+  return keepTemps(kept.length === fresh.length && !since.length ? fresh : [...kept, ...since], held)
+}
+
 /// Ours not drawn in `list` yet, at the end — each once, however often asked.
 export function withHeld(list: ChannelMessage[], held: ChannelMessage[]): ChannelMessage[] {
   const more = held.filter((h) => !list.some((x) => x.id === h.id))

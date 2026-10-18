@@ -18,7 +18,7 @@ import { SidebarSection } from './SidebarSection'
 import { Dialog } from './Dialog'
 import type { MenuEntry } from './RowMenu'
 import type { DecisionCard, Business, ChannelMessage, FileRef, ReplyQuote } from '../types/card'
-import { arrive, drawUnder, echoOf, isDoubleSend, isTemp, keepTemps, keptAsYours, keptUnsent, landedCopy, markFailed, markPending, outboxKey, provenYours, readUnsent, reconcile, refusedOutright, SEND_TIMEOUT, sendDeadline, sendTime, sharedOutboxKey, tempMessage, tempState, unsentAgain, wentAfterAll, withHeld } from '../utils/pendingSend'
+import { arrive, drawUnder, echoOf, isDoubleSend, isTemp, keepTemps, keptAsYours, keptUnsent, landedCopy, markFailed, markPending, outboxKey, provenYours, readUnsent, reconcile, refreshedReplies, refusedOutright, SEND_TIMEOUT, sendDeadline, sendTime, sharedOutboxKey, tempMessage, tempState, unsentAgain, wentAfterAll, withHeld } from '../utils/pendingSend'
 import type { Unsent } from '../utils/pendingSend'
 import { askingAboutData } from '../utils/authGuard'
 import { draftToClear, withoutDraft } from '../utils/drafts'
@@ -2939,6 +2939,7 @@ export const ClassicList: React.FC<Props> = ({
     if (thread?.parent.id !== m.id) holdFrom(m.id)
     // The replies read last time, at once; the server's, when they come.
     const kept = views.get<ChannelMessage[]>(`thread:${channel}:${m.id}`) || []
+    const before = new Set([...kept, ...(thread?.parent.id === m.id ? thread.replies : [])].map((r) => r.id))
     setThread((prev) => ({ channel, parent: m, replies: prev && prev.parent.id === m.id ? keepTemps(kept, prev.replies) : kept, loading: true }))
     const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(m.id)}`, { headers: authHeaders }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) : null
@@ -2947,7 +2948,7 @@ export const ClassicList: React.FC<Props> = ({
     // Replies of yours still on their way, or that did not go — sent while
     // it was open before, or before this page loaded — back in it.
     const back = data ? heldFor(channel, m.id, data.replies || []) : []
-    if (data) setThread((prev) => (prev && prev.parent.id === m.id ? { channel, parent: data.parent, replies: withHeld(keepTemps(data.replies || [], prev.replies), back) } : prev))
+    if (data) setThread((prev) => (prev && prev.parent.id === m.id ? { channel, parent: data.parent, replies: withHeld(refreshedReplies(data.replies || [], prev.replies, before), back) } : prev))
     if (data?.parent) views.set(`threadHead:${channel}:${m.id}`, data.parent)
     requestAnimationFrame(() => threadComposer.current?.focus())
     markThreadRead(channel, m.id)
@@ -2965,6 +2966,7 @@ export const ClassicList: React.FC<Props> = ({
     // What was read ahead, or last time, at once; the server's when it comes.
     const kept = views.get<ChannelMessage[]>(`thread:${channel}:${parentId}`)
     const head = views.get<ChannelMessage>(`threadHead:${channel}:${parentId}`)
+    const before = new Set([...(kept && head ? kept : []), ...(thread?.parent.id === parentId ? thread.replies : [])].map((r) => r.id))
     if (kept && head) {
       threadInActivity.current = true
       setThread((prev) => ({ channel, parent: head, replies: keepTemps(kept, prev && prev.parent.id === parentId ? prev.replies : undefined), loading: true }))
@@ -2982,7 +2984,7 @@ export const ClassicList: React.FC<Props> = ({
     views.set(`threadHead:${channel}:${parentId}`, data.parent)
     threadInActivity.current = true
     const back = heldFor(channel, parentId, data.replies || [])
-    setThread((prev) => ({ channel, parent: data.parent, replies: withHeld(keepTemps(data.replies || [], prev && prev.parent.id === parentId ? prev.replies : undefined), back) }))
+    setThread((prev) => ({ channel, parent: data.parent, replies: withHeld(refreshedReplies(data.replies || [], prev && prev.parent.id === parentId ? prev.replies : undefined, before), back) }))
     markThreadRead(channel, parentId)
     requestAnimationFrame(() => {
       const id = focusId === parentId ? `thread-${focusId}` : focusId
@@ -3075,9 +3077,10 @@ export const ClassicList: React.FC<Props> = ({
     if (view) void loadMessages(view)
     if (thread) {
       const { channel, parent } = thread
+      const before = new Set(thread.replies.map((r) => r.id))
       fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(parent.id)}`, { headers: authHeaders })
         .then((r) => (r.ok ? r.json() : null))
-        .then((data) => { if (data?.parent) setThread((prev) => (prev && prev.parent.id === parent.id ? { ...prev, parent: data.parent, replies: data.replies || [] } : prev)) })
+        .then((data) => { if (data?.parent) setThread((prev) => (prev && prev.parent.id === parent.id ? { ...prev, parent: data.parent, replies: refreshedReplies(data.replies || [], prev.replies, before) } : prev)) })
         .catch(() => { /* the thread stays as it was */ })
     }
     if (activityItems) void loadActivity()
