@@ -22,3 +22,14 @@ test('system cells use row metadata rather than editable values and handle absen
  expect(systemCellText(row,'$row.updatedAt')).toBe('—')
  expect(systemCellText({...row,createdAt:undefined},'$row.createdAt')).toBe('—')
 })
+
+test('sort cycles ascending, descending, cleared; local date inputs round-trip to UTC',async()=>{
+ const {nextColumnSort,localDateTime,utcDateTime}=await import('./systemColumns')
+ expect(nextColumnSort(undefined,'$row.id')).toBe('$row.id')
+ expect(nextColumnSort('$row.id','$row.id')).toBe('-$row.id')
+ expect(nextColumnSort('-$row.id','$row.id')).toBe('')
+ const iso='2026-10-18T02:03:04.000Z'
+ expect(utcDateTime(localDateTime(iso))).toBe(iso)
+ expect(utcDateTime('')).toBe('')
+ expect(localDateTime('invalid')).toBe('')
+})

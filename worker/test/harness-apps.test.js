@@ -458,3 +458,43 @@ test('personal view access follows app visibility and current columns', async ()
  expect((await get(`${path}?orgId=${ORG}`,mika)).status).toBe(404);
  expect((await send('PUT',path,mika,{orgId:ORG,expectedRevision:1,views:[],layouts:{}})).status).toBe(404);
 });
+
+test('metadata query columns normalize without becoming editable/group/calendar fields',()=>{
+ const columns=[{id:'id',name:'ID',type:'text'}];
+ const view=normalizeDefinition({views:[{id:'v',type:'table',groupBy:'$row.id',sort:'-$row.updatedAt',filters:[{column:'$row.id',op:'contains',value:'row_'},{column:'$row.createdAt',op:'gt',value:'2026-01-01T00:00:00Z'}]}]},columns).views[0];
+ expect(view.sort).toBe('-$row.updatedAt');expect(view.filters).toHaveLength(2);expect(view.groupBy).toBeUndefined();
+ expect(normalizeDefinition({views:[{type:'table',sort:'ID'}]},columns).views[0].sort).toBe('id');
+});
+test('metadata sort/filter use real IDs and chronological instants, with missing dates last',()=>{
+ const table={columns:[{id:'id',type:'text'}]};
+ const rows=[{id:'row_b',createdAt:'2026-10-18T10:00:00.900+09:00',updatedAt:'2026-10-18T03:00:00Z',values:{id:'A','$row.id':'spoof'}},{id:'row_a',createdAt:'2026-10-18T02:00:00Z',updatedAt:'2026-10-18T02:00:00Z',values:{id:'B'}},{id:'row_c',values:{}}];
+ const result=patch=>computeView({type:'table',...patch},table,rows).rows.map(r=>r.id);
+ expect(result({sort:'$row.id'})).toEqual(['row_a','row_b','row_c']);
+ expect(result({sort:'-$row.id'})).toEqual(['row_c','row_b','row_a']);
+ expect(result({sort:'$row.createdAt'})).toEqual(['row_b','row_a','row_c']);
+ expect(result({sort:'-$row.createdAt'})).toEqual(['row_a','row_b','row_c']);
+ expect(result({sort:'-$row.updatedAt'})).toEqual(['row_b','row_a','row_c']);
+ const filter=(column,op,value)=>({filters:[{column,op,value}]});
+ expect(result(filter('$row.id','eq','spoof'))).toEqual([]);
+ expect(result(filter('$row.id','contains','ROW_A'))).toEqual(['row_a']);
+ expect(result(filter('$row.createdAt','eq','2026-10-18T01:00:00Z'))).toEqual(['row_b']);
+ expect(result(filter('$row.createdAt','gt','2026-10-18T01:30:00Z'))).toEqual(['row_a']);
+ expect(result(filter('$row.updatedAt','lt','2026-10-18T03:00:00Z'))).toEqual(['row_a']);
+ expect(result(filter('$row.updatedAt','empty',''))).toEqual(['row_c']);
+ expect(result(filter('$row.createdAt','gt','invalid'))).toEqual([]);
+ expect(result({sort:'$row.id',filters:[{column:'$row.id',op:'neq',value:'row_c'},{column:'$row.updatedAt',op:'not_empty',value:''}]})).toEqual(['row_a','row_b']);
+});
+test('shared and personal metadata queries persist with independent layouts and server computed rows',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const definition={views:[{id:'metadata',type:'table',name:'Metadata',sort:'-$row.createdAt',filters:[{column:'$row.id',op:'contains',value:'row_'}]}]};
+ expect((await send('PUT',`/apps/${app.id}`,toru,{orgId:ORG,expectedVersion:app.version,definition})).status).toBe(200);
+ const shared=await (await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json();expect(shared.app.definition.views[0]).toMatchObject(definition.views[0]);
+ const path=`/hx/personal-views/${app.id}`;
+ const views=[{...definition.views[0],id:'personal_meta',sort:'$row.updatedAt'}];
+ const saved=await send('PUT',path,mika,{orgId:ORG,expectedRevision:0,activeView:'personal_meta',views,layouts:{}});expect(saved.status).toBe(200);
+ const result=await saved.json();expect(result.views).toEqual(views);expect(result.computed[0].sort).toBe('$row.updatedAt');
+ const {createSession}=await import('../src/db.js');const second=await createSession(env.DB,'9102','metadata-second');
+ expect(await (await get(`${path}?orgId=${ORG}`,second)).json()).toEqual(result);
+ expect((await (await get(`${path}?orgId=${ORG}`,toru)).json()).views).toEqual([]);
+ expect((await (await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app.definition.views).toEqual(shared.app.definition.views);
+});

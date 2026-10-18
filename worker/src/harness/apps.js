@@ -1,3 +1,4 @@
+import { SYSTEM_COLUMN_IDS, isSystemTimestamp, queryValue } from './systemColumns.js';
 // Apps: internal tools built on a Table (docs/kylon-gap-plan.md).
 //
 // An app is a table plus views over it — table, board, metrics — kept as a
@@ -23,11 +24,12 @@ export function normalizeDefinition(definition, columns) {
   const ids = new Set(columns.map((c) => c.id));
   const byName = new Map(columns.map((c) => [c.name.toLowerCase(), c.id]));
   const col = (ref) => (ids.has(ref) ? ref : byName.get(String(ref ?? "").toLowerCase()) || null);
-  const where = (w) => {
+  const queryCol = ref => SYSTEM_COLUMN_IDS.includes(ref) ? ref : col(ref);
+  const where = (w, resolve = queryCol) => {
     if (!w || typeof w !== "object") return undefined;
     const out = {};
     for (const [k, v] of Object.entries(w)) {
-      const id = col(k);
+      const id = resolve(k);
       if (id) out[id] = (Array.isArray(v) ? v : [v]).map(String);
     }
     return Object.keys(out).length ? out : undefined;
@@ -37,13 +39,13 @@ export function normalizeDefinition(definition, columns) {
     const type = VIEW_TYPES.includes(raw?.type) ? raw.type : null;
     if (!type) continue;
     const view = { id: typeof raw.id === "string" ? raw.id.slice(0, 32) : newId("view"), type, name: String(raw.name || type).slice(0, 40) };
-    if (Array.isArray(raw.filters)) view.filters = raw.filters.slice(0,20).filter(f => col(f?.column) && ['eq','neq','contains','empty','not_empty','gt','lt'].includes(f.op)).map(f => ({column:col(f.column),op:f.op,value:String(f.value ?? '').slice(0,500)}));
+    if (Array.isArray(raw.filters)) view.filters = raw.filters.slice(0,20).filter(f => queryCol(f?.column) && ['eq','neq','contains','empty','not_empty','gt','lt'].includes(f.op)).map(f => ({column:queryCol(f.column),op:f.op,value:String(f.value ?? '').slice(0,500)}));
     if (type === 'table' && col(raw.groupBy)) view.groupBy = col(raw.groupBy);
     const w = where(raw.where);
     if (w) view.where = w;
     if (raw.sort) {
       const desc = String(raw.sort).startsWith("-");
-      const id = col(String(raw.sort).replace(/^-/, ""));
+      const id = queryCol(String(raw.sort).replace(/^-/, ""));
       if (id) view.sort = desc ? `-${id}` : id;
     }
     if (type === "calendar") {
@@ -66,7 +68,7 @@ export function normalizeDefinition(definition, columns) {
             if (!c) return null;
             metric.column = c;
           }
-          const mw = where(m.where);
+          const mw = where(m.where, col);
           if (mw) metric.where = mw;
           if (m.overdue) {
             const c = col(m.overdue);
@@ -87,10 +89,19 @@ const matches = (values, where) => !where || Object.entries(where).every(([k, al
 /// What a view shows, worked out on the server so every client — web, iOS,
 /// an agent over MCP — reads the same numbers.
 export function computeView(view, table, rows, today = new Date().toISOString().slice(0, 10)) {
-  let shown = rows.filter((r) => matches(r.values, view.where) && (view.filters || []).every(f => {
-    const value=r.values[f.column]; const empty=value==null || value===''; const text=String(value ?? '');
+  let shown = rows.filter((r) => (!view.where || Object.entries(view.where).every(([key, allowed]) => allowed.includes(String(queryValue(r,key) ?? '')))) && (view.filters || []).every(f => {
+    const value=queryValue(r,f.column); const empty=value==null || value===''; const text=String(value ?? '');
     if(f.op==='empty') return empty;
     if(f.op==='not_empty') return !empty;
+    if(isSystemTimestamp(f.column)) {
+      // The editor and visible timestamps have second precision.
+      const a=Math.floor(Date.parse(text)/1000), b=Math.floor(Date.parse(f.value)/1000);
+      if(!Number.isFinite(a)||!Number.isFinite(b)) return false;
+      if(f.op==='eq') return a===b;
+      if(f.op==='neq') return a!==b;
+      if(f.op==='gt') return a>b;
+      if(f.op==='lt') return a<b;
+    }
     if(f.op==='eq') return text===f.value;
     if(f.op==='neq') return text!==f.value;
     if(f.op==='contains') return text.toLocaleLowerCase().includes(f.value.toLocaleLowerCase());
@@ -103,7 +114,8 @@ export function computeView(view, table, rows, today = new Date().toISOString().
     const desc = view.sort.startsWith("-");
     const key = view.sort.replace(/^-/, "");
     shown = [...shown].sort((a, b) => {
-      const x = a.values[key], y = b.values[key];
+      let x = queryValue(a,key), y = queryValue(b,key);
+      if(isSystemTimestamp(key)) { x=Number.isFinite(Date.parse(x))?Date.parse(x):null; y=Number.isFinite(Date.parse(y))?Date.parse(y):null; }
       if (x == null && y == null) return 0;
       if (x == null) return 1;
       if (y == null) return -1;

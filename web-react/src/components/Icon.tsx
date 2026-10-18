@@ -17,7 +17,7 @@ import React from 'react'
 /// Stroke is `currentColor`, so a tab colours its icon by colouring itself.
 
 export type IconName =
-  | 'filter' | 'group' | 'share' | 'sliders' | 'compose' | 'plug' | 'list-check' | 'workflow' | 'home' | 'you' | 'history' | 'tools' | 'plus'
+  | 'sort' | 'arrow-up' | 'arrow-down' | 'filter' | 'group' | 'share' | 'sliders' | 'compose' | 'plug' | 'list-check' | 'workflow' | 'home' | 'you' | 'history' | 'tools' | 'plus'
   | 'record' | 'bell' | 'invite' | 'plan' | 'mail' | 'hash' | 'notion' | 'github' | 'box'
   | 'calendar' | 'drive' | 'insights' | 'search' | 'mic'
   | 'repeat' | 'book' | 'terminal' | 'send'
@@ -28,6 +28,9 @@ export type IconName =
   | 'trash' | 'image' | 'file' | 'lock' | 'users' | 'download' | 'camera' | 'at' | 'star' | 'folder' | 'shield' | 'devices' | 'log-out' | 'crown' | 'eye-off' | 'eye'
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  sort: <><path d="m8 9 4-4 4 4m-8 6 4 4 4-4"/></>,
+  'arrow-up': <path d="M12 20V4m-6 6 6-6 6 6"/>,
+  'arrow-down': <path d="M12 4v16m-6-6 6 6 6-6"/>,
   filter: <path d="M3 4h18l-7 8v7l-4 2v-9z"/>,
   group: <><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M7 3H4a1 1 0 0 0-1 1v3m14-4h3a1 1 0 0 1 1 1v3M3 17v3a1 1 0 0 0 1 1h3m10 0h3a1 1 0 0 0 1-1v-3"/></>,
   share: <><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.5 6.8-4m-6.8 7 6.8 4"/></>,

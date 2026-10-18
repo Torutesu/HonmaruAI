@@ -1,7 +1,7 @@
 import { renderApp, normalizeDefinition, computeView } from './apps.js';
 import { mayUseApp } from './resourceAccess.js';
 
-export const SYSTEM_COLUMN_IDS = ['$row.id', '$row.createdAt', '$row.updatedAt'];
+import { SYSTEM_COLUMN_IDS } from './systemColumns.js';
 
 export function normalizeLayout(raw, columns) {
   const ids = [...columns.map(c => c.id), ...SYSTEM_COLUMN_IDS];
