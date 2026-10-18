@@ -95,13 +95,24 @@ async function nextEvents(env, stream, members) {
   return { events: out, lastSeq };
 }
 
-/// From the minute cron: every active stream that is due, one batch each.
+/// From the minute cron: every active stream that is due, one batch each,
+/// `limit` streams a run. They are taken in id order from where the last run
+/// stopped, wrapping round to the first, so the same twenty — busy or idle —
+/// cannot have every run while a later stream's events wait unsent.
 export async function deliverStreams(env, { now = Date.now(), limit = 20 } = {}) {
-  const { results } = await env.DB.prepare(
-    "SELECT * FROM audit_streams WHERE status = 'active' AND (next_try_at IS NULL OR next_try_at <= ?1) LIMIT ?2"
-  ).bind(new Date(now).toISOString(), limit).all();
+  const kept = await env.DB.prepare("SELECT value FROM kv WHERE key = 'cursor:deliverStreams'").first().catch(() => null);
+  const after = kept?.value || "";
+  const due = (op, n) => env.DB.prepare(
+    `SELECT * FROM audit_streams WHERE status = 'active' AND (next_try_at IS NULL OR next_try_at <= ?1) AND id ${op} ?2 ORDER BY id LIMIT ?3`
+  ).bind(new Date(now).toISOString(), after, n).all().then((r) => r.results || []);
+  const results = await due(">", limit);
+  if (results.length < limit && after) results.push(...await due("<=", limit - results.length));
+  if (results.length) {
+    await env.DB.prepare("INSERT INTO kv (key, value, updated_at) VALUES ('cursor:deliverStreams', ?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+      .bind(results[results.length - 1].id, new Date(now).toISOString()).run().catch(() => {});
+  }
   const done = [];
-  for (const stream of results || []) {
+  for (const stream of results) {
     const members = await listMembers(env.DB, stream.org_id, null).catch(() => []);
     const { events, lastSeq } = await nextEvents(env, stream, members);
     if (lastSeq === stream.delivered_seq) continue;

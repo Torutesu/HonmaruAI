@@ -222,6 +222,29 @@ test("a stream sends what is new, in order and signed; a failure backs off; Splu
   expect(JSON.parse(dd.body)[0]).toMatchObject({ ddsource: "honmaru", service: "audit" });
 });
 
+// Twenty due streams, LIMIT 20, no order and no memory of the last run: the
+// same twenty had every run, idle or not, and a twenty-first never sent.
+test("streams take turns: twenty idle ones do not keep a twenty-first from sending", async () => {
+  for (let i = 0; i < 20; i += 1) {
+    await env.DB.prepare(
+      "INSERT INTO audit_streams (id, org_id, kind, endpoint, secret, min_severity, delivered_seq, status, failures, created_by, created_at) VALUES (?1, 'team:quiet', 'https', 'https://quiet.example.com/in', 'x', 'info', 0, 'active', 0, '1', ?2)"
+    ).bind(`as_${String(i).padStart(2, "0")}`, new Date().toISOString()).run();
+  }
+  expect((await call("/audit/streams", owner, { method: "POST", body: { orgId: ORG, kind: "https", endpoint: "https://siem.example.com/in", secret: "whsec" } })).status).toBe(201);
+  const sent = [];
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url.startsWith("https://siem.example.com")) { sent.push(init.body); return new Response("ok"); }
+    return realFetch(input, init);
+  };
+  for (let run = 0; run < 2 && !sent.length; run += 1) await deliverStreams(env, { limit: 20 });
+  expect(sent).toHaveLength(1);
+  // And round again: the idle ones are visited, the busy one comes back.
+  await write(1, Date.now());
+  for (let run = 0; run < 2 && sent.length < 2; run += 1) await deliverStreams(env, { limit: 20 });
+  expect(sent).toHaveLength(2);
+});
+
 test("each workspace is sealed on its own: the ones with a finished hour, not the ones already sealed or still in their hour", async () => {
   const writeTo = async (orgId, at) => {
     await audit(env, null, { orgId, action: "emoji.added", actor: { type: "user", id: "u:toru@x.jp", name: "Toru" }, entity: { type: "emoji", id: "e", name: ":e:" } });
