@@ -1283,7 +1283,7 @@ export const ClassicList: React.FC<Props> = ({
     )
   }
 
-  const row = (thread: Thread, reorder?: (to: { view: string; after: boolean }, from: string) => void) => {
+  const row = (thread: Thread, reorder?: (to: { view: string; after: boolean }, from: string) => void, onOpen?:()=>void) => {
     const on = !special && current?.key === thread.key
     const hasDraft = Boolean(thread.view && draftsFor(thread.view).length)
     const view = thread.view
@@ -1308,7 +1308,7 @@ export const ClassicList: React.FC<Props> = ({
     } : {}
     return (
       <li key={thread.key} data-view={thread.view} {...drag} onContextMenu={wide && view ? (e) => { e.preventDefault(); setRowMenu({ thread, x: e.clientX, y: e.clientY, anchor: e.currentTarget }) } : undefined} className={`cl-row cl-thread${thread.unread || (thread.fresh && !on) ? ' unread' : ''}${on ? ' on' : ''}${thread.view && prefs[thread.view] === 'mute' ? ' muted' : ''}${dragging === view ? ' dragging' : ''}${drop}`}>
-        <button className="cl-open" onClick={() => choose(thread.key)} onPointerEnter={() => prefetchConversation(thread.view)} onFocus={() => prefetchConversation(thread.view)} aria-current={on ? 'true' : undefined}>
+        <button className="cl-open" onClick={() => onOpen ? onOpen() : choose(thread.key)} onPointerEnter={() => prefetchConversation(thread.view)} onFocus={() => prefetchConversation(thread.view)} aria-current={on ? 'true' : undefined}>
           {lead(thread, 'row')}
           <span className="cl-title">{thread.name}</span>
           {thread.kind === 'person' && (() => {
@@ -1696,6 +1696,32 @@ export const ClassicList: React.FC<Props> = ({
   /// Where ⌥⇧↑/⌥⇧↓ stop: a dot or an @, or cards waiting on you, which
   /// reading does not clear.
   const hasNews = (th: Thread) => th.unread > 0 || isFresh(th)
+  const harnessMentionsView = () => {
+    const mentions=(activityItems||[]).filter(item=>stillNew(item)&&item.type==='mention')
+    const chats=everything.filter(th=>th.kind!=='app' && Boolean(th.view) && (
+      mentions.some(item=>!item.app&&item.message.channel===th.view) ||
+      (['person','group','agent'].includes(th.kind)&&isFresh(th))
+    )).sort((a,b)=>(b.lastAt||'').localeCompare(a.lastAt||''))
+    const appMentions=mentions.filter(item=>item.app)
+    if(!chats.length&&!appMentions.length)return <div className="hx-chat-filter-empty" role="status">
+      <Icon name="at" size={24}/>
+      <strong>{activityItems===null?t('Loading…'):t('No mentions or DMs')}</strong>
+      {activityItems!==null&&<p>{t('Unread mentions and direct messages appear here.')}</p>}
+    </div>
+    return <ul className="hx-filtered-chats" aria-label={t('Mentions and DMs')}>
+      {chats.map(th=>{
+        const mention=mentions.find(item=>!item.app&&item.message.channel===th.view)
+        return row(th,undefined,mention?()=>{markActivitySeen([activityKey(mention)]);openAt({view:mention.message.channel,id:mention.message.id,parentId:mention.message.parentId})}:undefined)
+      })}
+      {appMentions.map(item=><li className="cl-row cl-thread unread" key={activityKey(item)}>
+        <button className="cl-open" onClick={()=>{markActivitySeen([activityKey(item)]);location.hash=hashForApp(item.app!.id,api.orgId,{tableId:item.app!.tableId,rowId:item.app!.rowId})}}>
+          <span className="cl-lead cl-app sz-row"><Icon name="grid" size={14}/></span>
+          <span className="cl-title">{item.app!.name}<span className="hx-mention-excerpt">{previewText(item.message.body)}</span></span>
+          <span className="cl-badge mention">@</span>
+        </button>
+      </li>)}
+    </ul>
+  }
   /// Everything new, read at once — ⇧Esc, as in Slack: every conversation
   /// with a dot or an @ waiting, and Activity with them.
   const freshViews = () => everything.filter(isFresh).map((th) => th.view!)
@@ -4823,9 +4849,9 @@ export const ClassicList: React.FC<Props> = ({
             </p>}
           </div>
           {harness && thread.view && <div className="hx-room-actions">
-            {onApps && <button aria-expanded={side?.kind === 'resources' && side.resource === 'apps'} onClick={() => openSide({ kind: 'resources', resource: 'apps' })}><Icon name="grid" size={15} />{t('Apps')}</button>}
-            <button aria-expanded={side?.kind === 'resources' && side.resource === 'workflows'} onClick={() => openSide({ kind: 'resources', resource: 'workflows' })}><Icon name="repeat" size={15} />{t('Automations')}</button>
-            <button onClick={() => openSide({ kind: 'details', tab: 'attachments' })}><Icon name="file" size={15} />{t('Files')}</button>
+            {onApps && <button aria-label={t('Apps')} title={t('Apps')} aria-expanded={side?.kind === 'resources' && side.resource === 'apps'} onClick={() => openSide({ kind: 'resources', resource: 'apps' })}><Icon name="grid" size={15} /><span>{t('Apps')}</span></button>}
+            <button aria-label={t('Automations')} title={t('Automations')} aria-expanded={side?.kind === 'resources' && side.resource === 'workflows'} onClick={() => openSide({ kind: 'resources', resource: 'workflows' })}><Icon name="repeat" size={15} /><span>{t('Automations')}</span></button>
+            <button aria-label={t('Files')} title={t('Files')} onClick={() => openSide({ kind: 'details', tab: 'attachments' })}><Icon name="file" size={15} /><span>{t('Files')}</span></button>
             <button onClick={() => openSide({ kind: 'details', tab: 'members' })} aria-label={t('Members')}><Icon name="users" size={15} /></button>
           </div>}
           {!harness && thread.view && (
@@ -5368,7 +5394,9 @@ export const ClassicList: React.FC<Props> = ({
           <div className="hx-chat-filters" role="tablist" aria-label={t('Chat')}>
             {(['home', 'recent', 'unread', 'mentions'] as const).map(filter => <button key={filter} role="tab" aria-selected={harnessFilter === filter} onClick={() => {
               setHarnessFilter(filter)
-              if (filter === 'mentions') { openActivity(); setActivityTab('mentions') } else { setActivityOpen(false); if (filter === 'home') choose(null) }
+              // This changes only the left list. Keep the selected thread,
+              // draft and app panel in place while moving between filters.
+              if (filter === 'mentions') void loadActivity()
             }}>{filter === 'home' ? t('Home') : filter === 'recent' ? t('Recent') : filter === 'unread' ? t('Unread') : '@' + t('You')}</button>)}
           </div>
         </> : <><header className="cl-top">
@@ -5421,7 +5449,7 @@ export const ClassicList: React.FC<Props> = ({
               </button>
             </li>
           </ul>}
-          {harness && (harnessFilter === 'recent' || harnessFilter === 'unread') ? <ul className="hx-filtered-chats">{everything.filter(th => th.kind !== 'app' && (harnessFilter === 'recent' ? Boolean(th.lastAt) : hasNews(th))).sort((a,b) => (b.lastAt || '').localeCompare(a.lastAt || '')).map(th => row(th))}</ul> : sidebarGroups.filter(g => !harness || g.id !== 'apps').map((g) => (
+          {harness && harnessFilter==='mentions' ? harnessMentionsView() : harness && (harnessFilter === 'recent' || harnessFilter === 'unread') ? <ul className="hx-filtered-chats">{everything.filter(th => th.kind !== 'app' && (harnessFilter === 'recent' ? Boolean(th.lastAt) : hasNews(th))).sort((a,b) => (b.lastAt || '').localeCompare(a.lastAt || '')).map(th => row(th))}</ul> : sidebarGroups.filter(g => !harness || g.id !== 'apps').map((g) => (
             <React.Fragment key={g.id}>
               {/* Sections of your own are added just above Apps, which stays last. */}
               {!harness && g.id === 'apps' && (
