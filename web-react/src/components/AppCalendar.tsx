@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { Icon } from './Icon'
 import { useT } from '../utils/i18n'
 import type { Row, View, Table } from '../utils/harness'
 
@@ -13,7 +14,7 @@ export function shiftMonth(month: string, delta: number) {
   const [year, number] = month.split('-').map(Number)
   return new Date(Date.UTC(year, number - 1 + delta, 1)).toISOString().slice(0, 7)
 }
-export function AppCalendar({ view, table, onMove }: { view: View; table: Table; onMove: (row: Row, date: string) => void }) {
+export function AppCalendar({ view, table, onMove, onOpen }: { view: View; table: Table; onOpen?: (row: Row) => void; onMove: (row: Row, date: string) => void }) {
   const t = useT()
   const [month, setMonth] = useState(() => {
     const now = new Date()
@@ -21,7 +22,7 @@ export function AppCalendar({ view, table, onMove }: { view: View; table: Table;
   })
   const title = table.columns.find(c => c.type === 'text') || table.columns[0]
   const event = (row: Row) => <div className="hx-card" key={row.id}>
-    <div className="hx-card-title">{String(row.values[title?.id] || t('No value'))}</div>
+    <div className="hx-card-title">{onOpen ? <button className="hx-record-title" onClick={()=>onOpen(row)} aria-label={`${String(row.values[title?.id] || t('No value'))}の詳細を開く`}>{String(row.values[title?.id] || t('No value'))}<Icon name="maximize" size={13}/></button> : String(row.values[title?.id] || t('No value'))}</div>
     <input type="date" className="hx-cell-input" aria-label={t('Date')} value={String(row.values[view.dateColumn!] || '')} onChange={e => onMove(row, e.target.value)} />
   </div>
   return <section aria-label={view.name}>

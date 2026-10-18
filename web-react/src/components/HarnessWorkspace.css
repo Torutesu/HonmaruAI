@@ -446,3 +446,12 @@
 :root .shell.harness-workspace .hx-tabs .hx-new-view { padding:5px; display:grid; place-items:center; }
 :root .shell.harness-workspace .hx-tabs .hx-view-popover { left:0; right:auto; }
 @media(max-width:719px) { :root .shell.harness-workspace .hx-tabs .hx-view-popover { left:16px; right:16px; } }
+
+.hx-record-actions { display:flex; align-items:center; justify-content:center; gap:4px; }
+.hx-record-title { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; padding:0; background:none; color:inherit; border:0; font:inherit; text-align:left; cursor:pointer; }
+.hx-record-title svg { flex-shrink:0; color:var(--hx-muted); }
+.hx-record-title:hover { color:var(--hx-accent); }
+.hx-record-metadata { margin:4px 0 0; padding-top:16px; border-top:1px solid var(--hx-border); display:grid; gap:10px; font-size:12px; }
+.hx-record-metadata > div { display:grid; grid-template-columns:80px minmax(0,1fr); gap:12px; }
+.hx-record-metadata dt { color:var(--hx-muted); }
+.hx-record-metadata dd { margin:0; overflow-wrap:anywhere; user-select:text; }
