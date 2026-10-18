@@ -1,3 +1,4 @@
+import { generateApp } from './appGeneration.js';
 import { announceTo } from '../announce.js';
 import { custom as appActivityEvent } from '../agui/events.js';
 import { conversationSource, sourceFor, sourceHistory, notifyAppMentions, appNotifications, asksAppAI, replyToApp } from './appConversationFeatures.js';
@@ -29,7 +30,7 @@ import {
 } from "./tables.js";
 import {
   listApps, getApp, createApp, createFromTemplate, updateApp, deleteApp,
-  linkApp, unlinkApp, listVersions, restoreVersion, renderApp, specFromPrompt,
+  linkApp, unlinkApp, listVersions, restoreVersion, renderApp,
 } from "./apps.js";
 import { templateList } from "./templates.js";
 import { getProfile, saveProfile, listAgentMemories, addAgentMemory, deleteAgentMemory, TIERS, ACCESS } from "./agents.js";
@@ -421,25 +422,11 @@ export async function handleHarness(request, env, url, context = {}) {
     const [, appId, sub] = parts;
     if (appId === "templates" && request.method === "GET") return json({ templates: templateList() });
     if (appId === "generate" && request.method === "POST") {
-      let generationRoom = null;
-      if (input.channel) {
-        generationRoom = await resolveChannel(env.DB, orgId, who.user, input.channel);
-        if (!generationRoom || !(await mayUseConversation(env.DB, orgId, me, generationRoom.key))) return json({ message: 'No such room.' }, 403);
-        input.channel = generationRoom.key;
-      }
-      const complete = input.useModel === false ? null : await completer(env, orgId, me, "app_generate", { maxTokens: 2400 });
-      const made = await specFromPrompt(input.prompt, { complete });
-      if (made.error) return fail(made);
-      const { spec } = made;
-      const r = await createApp(env.DB, {
-        orgId, by: me, name: input.name || spec.name, description: spec.description, icon: spec.icon,
-        columns: spec.columns, definition: spec.definition, template: spec.template || null,
-        sample: spec.sample || [], channel: input.channel || null, sourceThreadId:input.sourceThreadId,
-      });
+      const r = await generateApp(env, request, orgId, who, input);
+      if (r.response) return r.response;
       if (r.error) return fail(r);
-      if (generationRoom && (generationRoom.kind !== 'business' || generationRoom.private)) await setAppAccess(env.DB, orgId, r.app.id, me, { visibility: 'private', version: 0 });
-      await audit(env, request, { orgId, action: "app.created", actor: person(who.user), entity: { type: "app", id: r.app.id, name: r.app.name }, details: { source: made.source } });
-      return json({ ...r, source: made.source, room: made.room || null }, 201);
+      if (!r.replay) await audit(env, request, { orgId, action: "app.created", actor: person(who.user), entity: { type: "app", id: r.app.id, name: r.app.name }, details: { source: r.source } });
+      return json(r, r.replay ? 200 : 201);
     }
     if (!appId) {
       if (request.method === "GET") {

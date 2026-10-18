@@ -100,6 +100,7 @@ export const HarnessHub: React.FC<HarnessProps & { onOpen: (s: HarnessScreen) =>
 export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | null; initialConversation?: {tableId?:string;rowId?:string} }> = (props) => {
   const t = useT()
   const api = useApi(props)
+  const generationRequest = useRef<{key:string;id:string}|null>(null)
   const { pins, toggle } = useAppPins(props.orgId,api)
   const [apps, setApps] = useState<App[] | null>(null)
   const [templates, setTemplates] = useState<Template[]>([])
@@ -130,10 +131,13 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
 
   const generate = () => act('generate', async () => {
     const room = prompt.match(/#([\p{L}\p{N}_-]+)/u)?.[1]
-    const made = await api.generate(prompt, room ? `b:${room}` : undefined)
+    const key = JSON.stringify([props.orgId,prompt,room])
+    if (generationRequest.current?.key !== key) generationRequest.current = {key,id:crypto.randomUUID()}
+    const made = await api.generate(prompt, room ? `b:${room}` : undefined, {requestId:generationRequest.current.id,captureSource:Boolean(room)})
+    generationRequest.current = null
     setPrompt('')
     setNote(made.source === 'model' ? t('Built from your description.') : t('Started from the closest template. Change its columns any time.'))
-    openApp(made.app.id)
+    setOpen(made.app.id); location.hash = hashForApp(made.app.id, props.orgId, room ? {} : undefined)
   })
   const fromTemplate = (id: string) => act(`tpl:${id}`, async () => {
     const made = await api.createFromTemplate(id)
@@ -231,7 +235,7 @@ function CellInput({ column, value, onSave, wrap = false, width, members=[] }: {
   )
 }
 
-export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void; initialConversation?: {tableId?:string;rowId?:string} }> = ({ api, appId, onBack, httpBase, orgId, sessionToken, initialConversation }) => {
+export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void; initialConversation?: {tableId?:string;rowId?:string}; openConversation?:boolean }> = ({ api, appId, onBack, httpBase, orgId, sessionToken, initialConversation, openConversation }) => {
   const t = useT()
   const [data, setData] = useState<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize?: boolean } | null>(null)
   const loadSequence=useRef(0)
@@ -257,7 +261,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const { busy, error, act } = useAct()
 
   const load = useCallback(() => act('load', async () => { const sequence=++loadSequence.current; const [next,preferences] = await Promise.all([api.app(appId),api.personalViews(appId)]); if(sequence!==loadSequence.current)return;setLoadedApi(api);setData(next); setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(next.app.definition.custom?.published ? 'overview' : 'data') } }), [api, appId, act])
-  useEffect(() => { setEditingRecord(null);setCreating(false);setChatScope(initialConversation||{});setChatOpen(Boolean(initialConversation));load();return()=>{loadSequence.current++;initializedSection.current=false} }, [load,initialConversation])
+  useEffect(() => { setEditingRecord(null);setCreating(false);setChatScope(initialConversation||{});setChatOpen(Boolean(initialConversation)||Boolean(openConversation));load();return()=>{loadSequence.current++;initializedSection.current=false} }, [load,initialConversation,openConversation])
 
   if (!data || loadedApi!==api) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
   const { app, table } = data

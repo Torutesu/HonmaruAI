@@ -10,7 +10,7 @@ import { SYSTEM_COLUMN_IDS, isSystemTimestamp, queryValue } from './systemColumn
 // without one it still lands on the closest template.
 
 import { TEMPLATES, matchTemplate } from "./templates.js";
-import { createTable, getTable, listRows, addRow, planTableUpdate, MAX_ROWS } from "./tables.js";
+import { prepareTable, getTable, listRows, cleanValues, planTableUpdate, MAX_ROWS } from "./tables.js";
 
 export const VIEW_TYPES = ["table", "board", "metrics", "calendar"];
 export const METRIC_OPS = ["count", "sum", "avg", "min", "max"];
@@ -201,37 +201,55 @@ export async function listApps(db, orgId, { channel } = {}) {
 }
 
 /// Build an app: a new table from the spec, its views, and the first version.
-export async function createApp(db, { orgId, by, name, description, icon, columns, definition, template, sample = [], channel, sourceThreadId }) {
-  let source=null;
+export async function appCreationSource(db, orgId, by, sourceThreadId) {
+  const source = typeof sourceThreadId === 'string' ? await getMessage(db, orgId, sourceThreadId) : null;
+  if (!source || source.deleted_at || source.parent_id || !await mayUseConversation(db, orgId, by, source.channel)) {
+    return { error: 'No such source thread.', status: 404 };
+  }
+  const room = source.channel.startsWith('b:')
+    ? await db.prepare('SELECT private FROM businesses WHERE org_id = ? AND slug = ?').bind(orgId, source.channel.slice(2)).first()
+    : null;
+  return { source, private: !room || Boolean(room.private) };
+}
+
+export async function createApp(db, { orgId, by, name, description, icon, columns, definition, template, sample = [], channel, sourceThreadId, privateByDefault = false }, { commitGuard } = {}) {
+  let source=null, sourcePrivate=false;
   if(sourceThreadId){
-    source=typeof sourceThreadId==='string'?await getMessage(db,orgId,sourceThreadId):null;
-    if(!source||source.deleted_at||source.parent_id||!await mayUseConversation(db,orgId,by,source.channel))return {error:'No such source thread.',status:404};
+    const origin = await appCreationSource(db, orgId, by, sourceThreadId);
+    if (origin.error) return origin;
+    source = origin.source; sourcePrivate = origin.private;
     channel=source.channel;
   }
   const count = await db.prepare("SELECT COUNT(*) AS n FROM hx_apps WHERE org_id = ?1").bind(orgId).first();
   if (Number(count?.n || 0) >= MAX_APPS_PER_ORG) return { error: "This workspace has as many apps as it can hold." };
   const clean = String(name ?? "").trim().slice(0, 80);
   if (!clean) return { error: "Give the app a name." };
-  const made = await createTable(db, { orgId, name: clean, columns, by });
+  const made = await prepareTable(db, { orgId, name: clean, columns, by });
   if (made.error) return made;
   const table = made.table;
   const def = normalizeDefinition(definition, table.columns);
   const id = newId("app");
   const at = now();
-  await db
+  const insertApp = db
     .prepare(
       `INSERT INTO hx_apps (id, org_id, name, description, icon, table_id, template, version, definition, created_by, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?9, ?10, ?10)`,
     )
-    .bind(id, orgId, clean, String(description || "").slice(0, 300), String(icon || "📋").slice(0, 8), table.id, template || null, JSON.stringify(def), String(by), at)
-    .run();
-  await db
+    .bind(id, orgId, clean, String(description || "").slice(0, 300), String(icon || "📋").slice(0, 8), table.id, template || null, JSON.stringify(def), String(by), at);
+  // Publish the app and its inherited policy together: no workspace-visible
+  // interval for an app originating in a private room, DM or agent chat.
+  const statements = [...(commitGuard ? [commitGuard(id)] : []), made.statement, insertApp, ...(sourcePrivate || privateByDefault ? [db.prepare(
+    "INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)",
+  ).bind(orgId,id)] : [])];
+  statements.push(db
     .prepare("INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6)")
-    .bind(id, orgId, JSON.stringify({ name: clean, columns: table.columns, ...def }), "Created", String(by), at)
-    .run();
-  for (const values of sample.slice(0, 20)) await addRow(db, orgId, table.id, values, by);
-  if (channel) await linkApp(db, orgId, id, channel, by);
-  if(source)await db.prepare("INSERT INTO hx_app_conversation_sources(org_id,app_id,channel,thread_id,created_by) VALUES (?,?,?,?,?)").bind(orgId,id,source.channel,source.id,String(by)).run();
+    .bind(id, orgId, JSON.stringify({ name: clean, columns: table.columns, ...def }), "Created", String(by), at));
+  for (const [position,values] of sample.slice(0,20).entries()) statements.push(db.prepare(
+    'INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
+  ).bind(newId('row'),table.id,orgId,JSON.stringify(cleanValues(table.columns,values)),position+1,String(by),String(by),at,at));
+  if(channel) statements.push(db.prepare('INSERT INTO hx_app_links(app_id,org_id,channel,created_by,created_at) VALUES (?,?,?,?,?)').bind(id,orgId,String(channel).trim().slice(0,200),String(by),at));
+  if(source) statements.push(db.prepare("INSERT INTO hx_app_conversation_sources(org_id,app_id,channel,thread_id,created_by) VALUES (?,?,?,?,?)").bind(orgId,id,source.channel,source.id,String(by)));
+  await db.batch(statements);
   return { app: await getApp(db, orgId, id) };
 }
 
@@ -346,7 +364,7 @@ export async function renderApp(db, orgId, id) {
 /// Without a model, or when its answer does not hold up, the closest
 /// template is used — "an invoice tracker for #ops" always gets an app.
 export async function specFromPrompt(prompt, { complete } = {}) {
-  const text = String(prompt || "").trim().slice(0, 1000);
+  const text = String(prompt || "").trim().slice(0, 4000);
   if (!text) return { error: "Say what the app is for." };
   if (complete) {
     try {

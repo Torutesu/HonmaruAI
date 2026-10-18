@@ -1941,3 +1941,18 @@ CREATE TABLE IF NOT EXISTS hx_app_ai_replies (
  org_id TEXT NOT NULL, app_id TEXT NOT NULL, status TEXT NOT NULL, error TEXT,
  started_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+/* Durable app creation retries and source capture. */
+CREATE TABLE IF NOT EXISTS hx_app_generation_jobs (
+  org_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  lease_token TEXT NOT NULL,
+  lease_until INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('running','failed','complete')),
+  generated TEXT,
+  app_id TEXT,
+  PRIMARY KEY(org_id,user_id,request_id),
+  CHECK(status != 'complete' OR (app_id IS NOT NULL AND generated IS NOT NULL))
+);

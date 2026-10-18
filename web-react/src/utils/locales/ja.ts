@@ -1,6 +1,9 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "No mentions or DMs": "メンションやDMはありません",
+  "Unread mentions and direct messages appear here.": "未読のメンションとダイレクトメッセージがここに表示されます。",
+  "Mentions and DMs": "メンションとDM",
   "Private chat": "プライベートチャット",
   "Fields": "フィールド",
   "Sharing": "共有",

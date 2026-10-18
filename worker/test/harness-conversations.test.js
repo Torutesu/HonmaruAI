@@ -1,5 +1,5 @@
 import {env} from 'cloudflare:test';
-import {beforeEach,expect,test} from 'vitest';
+import {beforeEach,expect,test,vi} from 'vitest';
 import schema from '../schema.sql?raw';
 import worker from '../src/index.js';
 import {createSession,upsertUser,upsertMembership} from '../src/db.js';
@@ -16,6 +16,107 @@ beforeEach(async()=>{
  ({row}=await addRow(env.DB,org,app.tableId,{title:'First'},'9201'));
 });
 const post=(token,body,requestId='request_0000000001',scope={})=>request('POST',token,{body,requestId,...scope});
+const createRequest=(path,token,input)=>worker.fetch(new Request('https://test'+path,{method:'POST',headers:{'x-session-token':token,'content-type':'application/json'},body:JSON.stringify({orgId:org,...input})}),env);
+async function privateSource(){
+ const {postMessage}=await import('../src/channels.js');
+ await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?,'confidential','Confidential',1,'9201',?)").bind(org,new Date().toISOString()).run();
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?,'b:confidential','user9201',?)").bind(org,new Date().toISOString()).run();
+ return (await postMessage(env.DB,{orgId:org,key:'b:confidential',authorLogin:'user9201',body:'Private app request'})).row;
+}
+test('source privacy governs direct, template and generated apps even with a conflicting public channel',async()=>{
+ const root=await privateSource();
+ const {appAccess,mayUseApp,mayUseTable}=await import('../src/harness/resourceAccess.js');
+ const cases=[['/apps',{name:'Direct',columns:[{name:'Title',type:'text'}]}],['/apps',{template:'tracker',sample:false}],['/apps/generate',{prompt:'A task tracker',useModel:false}]];
+ for(const [path,input] of cases){
+  const response=await createRequest(path,owner,{...input,channel:'b:public',sourceThreadId:root.id});
+  expect(response.status).toBe(201);
+  const {app:made}=await response.json();
+  expect(await appAccess(env.DB,org,made.id)).toMatchObject({ownerId:'9201',visibility:'private'});
+  expect(await mayUseApp(env.DB,org,made.id,'9202')).toBe(false);
+  expect(await mayUseTable(env.DB,org,made.tableId,'9202')).toBe(false);
+  expect((await env.DB.prepare('SELECT channel FROM hx_app_links WHERE org_id=? AND app_id=?').bind(org,made.id).all()).results).toEqual([{channel:'b:confidential'}]);
+ }
+ const denied=await createRequest('/apps/generate',member,{prompt:'A task tracker',sourceThreadId:root.id,useModel:false});
+ expect(denied.status).toBe(404);
+});
+test('private creation rolls back the app and table if its access policy cannot be saved',async()=>{
+ const root=await privateSource();
+ const before=await env.DB.prepare('SELECT (SELECT COUNT(*) FROM hx_apps) AS apps,(SELECT COUNT(*) FROM hx_tables) AS tables').first();
+ await env.DB.exec("CREATE TRIGGER reject_app_policy BEFORE INSERT ON hx_app_access BEGIN SELECT RAISE(ABORT, 'policy unavailable'); END;");
+ try {
+  await expect(createApp(env.DB,{orgId:org,by:'9201',name:'Must not publish',columns:[{name:'Secret',type:'text'}],sourceThreadId:root.id})).rejects.toThrow();
+  expect(await env.DB.prepare('SELECT (SELECT COUNT(*) FROM hx_apps) AS apps,(SELECT COUNT(*) FROM hx_tables) AS tables').first()).toEqual(before);
+ } finally {await env.DB.exec('DROP TRIGGER reject_app_policy');}
+});
+test('room generation captures one source and replays the same app across sessions and concurrent sends',async()=>{
+ await privateSource();
+ const input={prompt:'A task tracker',channel:'b:confidential',captureSource:true,requestId:'generate_request_001',useModel:false};
+ const responses=await Promise.all([createRequest('/apps/generate',owner,input),createRequest('/apps/generate',owner,input)]);
+ expect(responses.map(r=>r.status)).toContain(201);
+ expect(responses.every(r=>[200,201,409].includes(r.status))).toBe(true);
+ const secondSession=await createSession(env.DB,'9201','generation-reconnect');
+ const retry=await createRequest('/apps/generate',secondSession,input);expect(retry.status).toBe(200);
+ const made=await retry.json();expect(made.replay).toBe(true);
+ const history=await (await request('GET',owner,{},made.app.id)).json();
+ expect(history.source.messages[0].body).toBe(input.prompt);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND body=?').bind(org,input.prompt).first()).n).toBe(1);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=?').bind(org).first()).n).toBe(2);
+ expect((await createRequest('/apps/generate',owner,{...input,prompt:'A different app'})).status).toBe(409);
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential'").bind(org).run();
+ expect((await createRequest('/apps/generate',owner,input)).status).toBe(403);
+});
+test('failed app commit keeps the generated definition and source for a safe retry',async()=>{
+ await privateSource();
+ const input={prompt:'A project tracker',channel:'b:confidential',captureSource:true,requestId:'generate_request_002',useModel:false};
+ await env.DB.exec("CREATE TRIGGER fail_generated_version BEFORE INSERT ON hx_app_versions BEGIN SELECT RAISE(ABORT, 'storage unavailable'); END;");
+ try {expect((await createRequest('/apps/generate',owner,input)).status).toBe(500);}
+ finally {await env.DB.exec('DROP TRIGGER fail_generated_version');}
+ const failed=await env.DB.prepare('SELECT status,generated,app_id FROM hx_app_generation_jobs WHERE org_id=? AND user_id=? AND request_id=?').bind(org,'9201',input.requestId).first();
+ expect(failed.status).toBe('failed');expect(failed.generated).toBeTruthy();expect(failed.app_id).toBeNull();
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_tables WHERE org_id=?').bind(org).first()).n).toBe(1);
+ expect((await createRequest('/apps/generate',owner,input)).status).toBe(201);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND body=?').bind(org,input.prompt).first()).n).toBe(1);
+});
+test('DLP blocks generation before saving a source, job or app',async()=>{
+ await privateSource();
+ expect((await createRequest('/orgs/dlp',owner,{kind:'builtin',detector:'credit_card',action:'block'})).status).toBe(201);
+ const input={prompt:'Track card 4111 1111 1111 1111',channel:'b:confidential',captureSource:true,requestId:'generate_request_003',useModel:false};
+ expect((await createRequest('/apps/generate',owner,input)).status).toBe(422);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_generation_jobs WHERE org_id=?').bind(org).first()).n).toBe(0);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND body=?').bind(org,input.prompt).first()).n).toBe(0);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=?').bind(org).first()).n).toBe(1);
+});
+test('model output survives a storage retry without a second model call, and revoked access cannot publish',async()=>{
+ const {generateApp}=await import('../src/harness/appGeneration.js');
+ await privateSource();
+ const who={session:{github_id:'9201'},user:{github_id:'9201',login:'user9201'}};
+ const req=new Request('https://test/apps/generate');
+ const input={prompt:'Model app',channel:'b:confidential',captureSource:true,requestId:'generate_model_001'};
+ const complete=vi.fn().mockResolvedValue(JSON.stringify({name:'Model app',columns:[{name:'Title',type:'text'}]}));
+ const makeCompleter=vi.fn().mockResolvedValue(complete);
+ await env.DB.exec("CREATE TRIGGER fail_model_app BEFORE INSERT ON hx_app_versions BEGIN SELECT RAISE(ABORT, 'storage unavailable'); END;");
+ try {await expect(generateApp(env,req,org,who,input,{makeCompleter})).rejects.toThrow();}
+ finally {await env.DB.exec('DROP TRIGGER fail_model_app');}
+ expect((await generateApp(env,req,org,who,input,{makeCompleter})).source).toBe('model');
+ expect(complete).toHaveBeenCalledTimes(1);expect(makeCompleter).toHaveBeenCalledTimes(1);
+ const revoke=async()=>async()=>{await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential'").bind(org).run();return JSON.stringify({name:'Cannot publish',columns:[{name:'Title',type:'text'}]});};
+ expect((await generateApp(env,req,org,who,{...input,requestId:'generate_model_002'},{makeCompleter:revoke})).status).toBe(403);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=? AND name=?').bind(org,'Cannot publish').first()).n).toBe(0);
+});
+test('an expired generation cannot publish after another request takes its lease',async()=>{
+ const {generateApp}=await import('../src/harness/appGeneration.js');
+ const who={session:{github_id:'9201'},user:{github_id:'9201',login:'user9201'}};
+ const req=new Request('https://test/apps/generate');
+ const input={prompt:'Create one app',requestId:'expired_generation_01'};
+ const spec=name=>JSON.stringify({name,columns:[{name:'Title',type:'text'}]});
+ const stale=await generateApp(env,req,org,who,input,{makeCompleter:async()=>async()=>{
+  await env.DB.prepare('UPDATE hx_app_generation_jobs SET lease_until=0 WHERE org_id=? AND user_id=? AND request_id=?').bind(org,'9201',input.requestId).run();
+  expect((await generateApp(env,req,org,who,input,{makeCompleter:async()=>async()=>spec('Winner')})).app.name).toBe('Winner');
+  return spec('Stale result');
+ }});
+ expect(stale.status).toBe(409);
+ expect((await env.DB.prepare('SELECT name FROM hx_apps WHERE org_id=? AND name IN (?,?)').bind(org,'Winner','Stale result').all()).results).toEqual([{name:'Winner'}]);
+});
 test('app and record conversations have stable identities, independent histories and idempotent sends',async()=>{
  const empty=await (await request('GET',owner)).json();expect(empty.messages).toEqual([]);
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_messages').first()).n).toBe(0);
