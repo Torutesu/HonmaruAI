@@ -661,21 +661,24 @@ export class OrgRelay {
       // writeDecisionToNotion never throws, so an unhandled rejection cannot
       // escape here either.
       if (decision?.action) {
-        this.state.waitUntil(
-          writeDecisionToNotion({
-            env: this.env,
-            orgId,
-            login: decision.actorUserID || att.userId,
-            card,
-          })
-        );
         // Only the update that made the decision: the phone republishes a
         // decided card whole whenever it touches it, and learning from it
-        // again was another model call and another copy of the same rule.
+        // again was another model call and another copy of the same rule —
+        // and writing it again was another page in the Notion database.
         const isNew = !existing?.decision?.action
           || existing.decision.action !== decision.action
           || existing.decision.decidedAt !== decision.decidedAt;
-        if (isNew) this.state.waitUntil(this.afterDecision(orgId, card, att.userId, att.githubId));
+        if (isNew) {
+          this.state.waitUntil(
+            writeDecisionToNotion({
+              env: this.env,
+              orgId,
+              login: decision.actorUserID || att.userId,
+              card,
+            })
+          );
+          this.state.waitUntil(this.afterDecision(orgId, card, att.userId, att.githubId));
+        }
       }
       const { forEveryone, forRecipient } = upsertEvents(card, { isNew: type === "card_created" });
       for (const ev of forEveryone) await this.broadcastCard(orgId, card, ev);
