@@ -190,6 +190,40 @@ test("one channel's record: only that channel, its context written out in full, 
   expect(md).toContain("賃貸契約の承認");
   expect(md).not.toContain("Cafe Sakura");
   expect(asked).toHaveLength(1);
+  // An edit says nothing newer, but what was said changed: written again.
+  const { editMessage } = await import("../src/channels.js");
+  const said = await env.DB.prepare("SELECT id FROM channel_messages WHERE org_id = ?1 AND channel = 'b:hotel-本丸'").bind(ORG).first();
+  const again = () => fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    asked.push(JSON.parse(opts.body));
+    return { id: "r", output_text: "## 目的\n更新済み。", output: [] };
+  });
+  again();
+  await editMessage(env.DB, { orgId: ORG, id: said.id, authorLogin: "owner", body: "Lease signed for one floor only." });
+  expect((await (await call({ channel: "b:hotel-本丸" })).json()).context).toContain("更新済み");
+  expect(asked).toHaveLength(2);
+  expect(asked[1].input).toContain("one floor only");
+  expect(asked[1].input).not.toContain("two floors");
+  // So does a decision changing, with no new message at all.
+  again();
+  const { saveCard, getCard } = await import("../src/db.js");
+  await saveCard(env.DB, ORG, { ...(await getCard(env.DB, ORG, "r2")), status: "approved", decision: { action: "approve", actorUserID: "owner", decidedAt: "2026-09-06T10:00:00Z" } });
+  await call({ channel: "b:hotel-本丸" });
+  expect(asked).toHaveLength(3);
+  // And nothing changed: kept.
+  await call({ channel: "b:hotel-本丸" });
+  expect(asked).toHaveLength(3);
+  // Changed while it was being written: shown, but not kept as current.
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, async (opts) => {
+    asked.push(JSON.parse(opts.body));
+    await editMessage(env.DB, { orgId: ORG, id: said.id, authorLogin: "owner", body: "Lease cancelled." });
+    return { id: "r", output_text: "## 目的\n古い版。", output: [] };
+  });
+  await editMessage(env.DB, { orgId: ORG, id: said.id, authorLogin: "owner", body: "Lease signed for three floors." });
+  expect((await (await call({ channel: "b:hotel-本丸" })).json()).context).toContain("古い版");
+  again();
+  expect((await (await call({ channel: "b:hotel-本丸" })).json()).context).toContain("更新済み");
+  expect(asked).toHaveLength(5);
+  expect(asked[4].input).toContain("Lease cancelled.");
   // A channel this reader cannot see is not theirs to read.
   expect((await call({ channel: "b:nope" })).status).toBe(404);
   fetchMock.assertNoPendingInterceptors();

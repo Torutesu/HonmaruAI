@@ -1089,9 +1089,10 @@ CREATE TABLE IF NOT EXISTS message_translations (
   PRIMARY KEY (org_id, message_id, locale)
 );
 
-/* A channel's context, written by the model for the record: kept with the
-   newest message it read, so it is written again only after something new
-   was said (channelContext.js). One per reader language. */
+/* A channel's context, written by the model for the record: kept with a
+   fingerprint of what it read (in last_message_at, a name from when it held
+   the newest message's time), so it is written again only after something
+   it read changed (channelContext.js). One per reader language. */
 CREATE TABLE IF NOT EXISTS channel_context_cache (
   org_id           TEXT NOT NULL,
   channel          TEXT NOT NULL,
