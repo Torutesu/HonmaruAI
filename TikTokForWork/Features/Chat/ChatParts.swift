@@ -519,11 +519,21 @@ struct ChatEmojiGlyph: View {
 /// Files' addresses kept fresh: each file is kept by its id, and a minute
 /// before its address runs out a new one is asked for (POST /media/urls),
 /// with the others due about then.
+///
+/// Asking can fail — no connection, or the server down for a moment. Then
+/// it is asked again, ten seconds on and twice as long each time up to a
+/// minute, for as long as the files are on screen. One the server answers
+/// without (not the reader's to see any more, or gone) is not asked for
+/// again until a newer address for it comes with the message.
 @MainActor
 final class ChatMediaURLs: ObservableObject {
     static let shared = ChatMediaURLs()
     @Published private(set) var fresh: [String: ChatService.FreshFile] = [:]
     private var asked: [String: Date] = [:]
+    /// Renewals that failed in a row, by file.
+    private var failures: [String: Int] = [:]
+    /// Files the server would not renew, by the expiry they had then.
+    private var refused: [String: Double] = [:]
     private var orgId: String?
 
     /// The best address known for a file.
@@ -536,24 +546,50 @@ final class ChatMediaURLs: ObservableObject {
         max(fresh[f.id]?.expiresAt ?? 0, f.expiresAt ?? 0).nonZero
     }
 
+    /// Whether the server would not renew this file's address as it is now.
+    private func isRefused(_ f: ChatFile) -> Bool {
+        guard let no = refused[f.id], let at = expiry(f) else { return false }
+        return at <= no
+    }
+
+    /// How long to wait after `count` renewals of a file failed in a row:
+    /// ten seconds, doubling, up to a minute.
+    nonisolated static func retryDelay(afterFailures count: Int) -> TimeInterval {
+        min(10 * pow(2, Double(max(count, 1) - 1)), 60)
+    }
+
     /// Renews the ones due within a minute; returns how long until the next
-    /// one is, in seconds.
+    /// one is, or until a failed one is tried again, in seconds. Nil only
+    /// when nothing on screen runs out, or the server would renew none of it.
     func renewDue(_ files: [ChatFile], base: URL) async -> TimeInterval? {
         let now = Date().timeIntervalSince1970 * 1000
         let org = SessionStore.orgId
-        if org != orgId { fresh = [:]; orgId = org }
+        if org != orgId { fresh = [:]; failures = [:]; refused = [:]; orgId = org }
         let due = files.filter { f in
-            guard let at = expiry(f) else { return false }
+            guard !isRefused(f), let at = expiry(f) else { return false }
             return at - 60_000 <= now && Date().timeIntervalSince(asked[f.id] ?? .distantPast) > 10
         }
+        var retry: TimeInterval?
         if let org, !due.isEmpty {
             for f in due { asked[f.id] = Date() }
-            if let got = try? await ChatService.freshFileURLs(orgId: org, ids: due.map(\.id), base: base) {
+            do {
+                let got = try await ChatService.freshFileURLs(orgId: org, ids: due.map(\.id), base: base)
                 for (id, f) in got { fresh[id] = f }
+                for f in due {
+                    failures[f.id] = nil
+                    if got[f.id] == nil { refused[f.id] = expiry(f) ?? 0 }
+                }
+            } catch ChatService.Failure.server(let code, _) where code == 403 || code == 404 {
+                // Not this reader's workspace any more: nothing here is renewed.
+                for f in due { failures[f.id] = nil; refused[f.id] = expiry(f) ?? 0 }
+            } catch {
+                for f in due { failures[f.id, default: 0] += 1 }
+                retry = Self.retryDelay(afterFailures: due.compactMap { failures[$0.id] }.max() ?? 1)
             }
         }
-        let next = files.compactMap { expiry($0) }.map { ($0 - 60_000 - Date().timeIntervalSince1970 * 1000) / 1000 }.filter { $0 > 0 }.min()
-        return next
+        let next = files.filter { !isRefused($0) }.compactMap { expiry($0) }.map { ($0 - 60_000 - Date().timeIntervalSince1970 * 1000) / 1000 }.filter { $0 > 0 }.min()
+        guard let retry else { return next }
+        return min(next ?? retry, retry)
     }
 }
 

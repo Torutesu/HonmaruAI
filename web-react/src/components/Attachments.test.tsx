@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MessageFiles } from './Attachments'
 import type { FileRef } from '../types/card'
+import { configureMediaUrls } from '../utils/mediaUrls'
 
 const BASE = 'https://api.example'
 const file = (id: string, name: string, type: string, extra: Partial<FileRef> = {}): FileRef =>
@@ -276,5 +277,35 @@ describe('MessageFiles, when the connection drops', () => {
     expect(box.all('video')).toHaveLength(0)
     expect(box.all('a')[0].attrs.class).toBe('att-file')
     close()
+  })
+})
+
+// A message's files on a page left open while their addresses run out.
+describe('MessageFiles, kept fresh', () => {
+  onPage()
+
+  it('asks again for an address it could not renew, until it is taken off the page', async () => {
+    vi.useFakeTimers()
+    const calls: number[] = []
+    const fetching = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => { calls.push(Date.now()); throw new TypeError('Failed to fetch') })
+    configureMediaUrls({ httpBase: BASE, orgId: 'team:fresh', sessionToken: 'tok' })
+    try {
+      const pic = file('f_eeeeeeeeeeeeeeeeeeeeeeee', 'p.png', 'image/png', { expiresAt: Date.now() + 30_000 })
+      const { close } = drawn([pic])
+      await vi.advanceTimersByTimeAsync(100)
+      expect(calls).toHaveLength(1)
+      // Offline when it was due: asked again ten seconds on, then twenty.
+      await vi.advanceTimersByTimeAsync(10_500)
+      expect(calls).toHaveLength(2)
+      await vi.advanceTimersByTimeAsync(20_500)
+      expect(calls).toHaveLength(3)
+      close()
+      await vi.advanceTimersByTimeAsync(600_000)
+      expect(calls).toHaveLength(3)
+    } finally {
+      fetching.mockRestore()
+      configureMediaUrls(null)
+      vi.useRealTimers()
+    }
   })
 })

@@ -273,6 +273,14 @@ final class ChannelRecordTests: XCTestCase {
         XCTAssertEqual(ChatPhotos.room(attached: 9, uploading: 0), 1)
         XCTAssertEqual(ChatPhotos.room(attached: 12, uploading: 0), 0)
     }
+
+    func testAFailedRenewalIsTriedAgainSoonAndNeverLeftForGood() {
+        XCTAssertEqual(ChatMediaURLs.retryDelay(afterFailures: 1), 10)
+        XCTAssertEqual(ChatMediaURLs.retryDelay(afterFailures: 2), 20)
+        XCTAssertEqual(ChatMediaURLs.retryDelay(afterFailures: 3), 40)
+        XCTAssertEqual(ChatMediaURLs.retryDelay(afterFailures: 4), 60)
+        XCTAssertEqual(ChatMediaURLs.retryDelay(afterFailures: 50), 60)
+    }
 }
 
 final class ChatTranslationTests: XCTestCase {
