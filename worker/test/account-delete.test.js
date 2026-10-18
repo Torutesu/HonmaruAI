@@ -197,6 +197,32 @@ test("export hands back the account's own data, and nobody else's", async () => 
   expect(data.cardsAddressedToMe.some((c) => c.card_id === "c-bobs")).toBe(false);
 });
 
+test("export leaves out a workspace the account has left, and what happened there after", async () => {
+  const token = await seedAlice();
+  const { upsertMembership, saveCard } = await import("../src/db.js");
+  const { postMessage } = await import("../src/channels.js");
+  await upsertMembership(env.DB, "beta/co", "9001", "member");
+  await upsertMembership(env.DB, "beta/co", "9002", "member");
+  const card = { id: "c-beta", recipientUserID: "bob", senderUserID: "alice", status: "pending", title: "Beta pricing", priority: "high", createdAt: "2026-08-11T00:00:00Z" };
+  await saveCard(env.DB, "beta/co", card);
+  await postMessage(env.DB, { orgId: "beta/co", key: "b:general", authorLogin: "alice", body: "Beta launch notes" });
+  // Alice leaves; Bob decides her card afterwards.
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id = 'beta/co' AND user_github_id = '9001'").run();
+  await saveCard(env.DB, "beta/co", { ...card, status: "rejected", decision: { action: "reject", actorUserID: "bob", note: "Decided after she left" } });
+
+  const res = await SELF.fetch("https://example.com/account/export", { headers: { "x-session-token": token } });
+  expect(res.status).toBe(200);
+  const data = await res.json();
+  const text = JSON.stringify(data);
+  expect(text).not.toContain("Decided after she left");
+  expect(text).not.toContain("Beta launch notes");
+  expect(data.cardsISent.map((c) => c.card_id)).toEqual(["c-bobs"]);
+  expect(data.withheld).toEqual([{ orgId: "beta/co", code: "not-a-member" }]);
+  // The workspace she is still in is exported as before.
+  expect(data.cardsAddressedToMe.some((c) => c.card_id === "c-alices")).toBe(true);
+  expect(data.myActions.length).toBe(1);
+});
+
 test("export needs a session", async () => {
   const res = await SELF.fetch("https://example.com/account/export");
   expect(res.status).toBe(401);

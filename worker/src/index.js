@@ -1888,6 +1888,16 @@ async function handle(request, env, url, ctx) {
         const held = await policyDenial(env, session, m.org_id);
         if (held) withheld.push({ orgId: m.org_id, code: held.body?.code || "session-policy" });
       }
+      // A workspace this person has left keeps what was said in it, and what
+      // happened to their cards after they went: only the workspaces they are
+      // in now are exported.
+      const current = new Set((data.memberships || []).map((m) => m.org_id));
+      const former = new Set();
+      for (const rows of Object.values(data)) {
+        if (!Array.isArray(rows)) continue;
+        for (const r of rows) if (r && typeof r === "object" && r.org_id != null && !current.has(r.org_id)) former.add(r.org_id);
+      }
+      for (const orgId of former) withheld.push({ orgId, code: "not-a-member" });
       if (withheld.length) {
         const out = new Set(withheld.map((w) => w.orgId));
         for (const [key, rows] of Object.entries(data)) {
