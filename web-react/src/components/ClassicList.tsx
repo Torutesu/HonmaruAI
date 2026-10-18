@@ -1463,6 +1463,8 @@ export const ClassicList: React.FC<Props> = ({
   // An inline reply being written (Discord's Reply, not a thread): the
   // message the next one answers, in the conversation it was started in.
   const [replyingTo, setReplyingTo] = useState<{ view: string; quote: ReplyQuote } | null>(null)
+  // The same inside a thread: the reply in it the next one answers, quoted.
+  const [threadReplying, setThreadReplying] = useState<{ parentId: string; quote: ReplyQuote } | null>(null)
   // Files going up with the next message: the conversation's, and a thread's.
   const uploads = useUploads(api, setProblem)
   const threadUploads = useUploads(api, setProblem)
@@ -1757,8 +1759,9 @@ export const ClassicList: React.FC<Props> = ({
           if (held) drawnAs.current.set(m.id, held.id)
           // One that looked failed got there: not kept to send again.
           if (held?.failed) queueMicrotask(() => settle(held.id))
-          return { ...prev, replies: arrive(prev.replies, msg) }
+          return { ...prev, replies: refreshQuotes(arrive(prev.replies, msg), msg) }
         })
+        setThreadReplying((prev) => (prev?.quote.id === m.id ? { ...prev, quote: quoteOf(msg) } : prev))
         // Sent to the conversation too: there as well.
         if (m.alsoChannel) inConversationToo(m.channel, msg)
         if (m.kind === 'ai') setThinking((prev) => ({ ...prev, [m.channel]: false }))
@@ -2025,11 +2028,14 @@ export const ClassicList: React.FC<Props> = ({
     }
     // In the conversation at once, marked as on its way, and the box free
     // for the next line while it goes — the files in it are already up.
-    // The conversation's own box answers the message it is replying to: the
-    // quote rides on the copy shown at once, and on a retry or a reload.
-    const quoting = !parentId && replyingTo?.view === channel ? replyingTo.quote : null
+    // The conversation's own box answers the message it is replying to, and
+    // a thread's the reply in it: the quote rides on the copy shown at once,
+    // and on a retry or a reload.
+    const quoting = parentId
+      ? (threadReplying?.parentId === parentId ? threadReplying.quote : null)
+      : (replyingTo?.view === channel ? replyingTo.quote : null)
     const temp = { ...tempMessage({ channel, body, parentId, files }, { name: myName || null, ref: myRef || null, avatar: myAvatar }, sendTime(parentId ? undefined : messagesRef.current[channel])), ...(quoting ? { replyTo: quoting } : {}), ...(parentId && threadAlso ? { alsoChannel: true } : {}) }
-    if (quoting) setReplyingTo(null)
+    if (quoting) { if (parentId) setThreadReplying(null); else setReplyingTo(null) }
     // Sent: nobody is typing in this box any more.
     stoppedTyping({ channel, parentId: parentId || null })
     if (parentId) {
@@ -2715,8 +2721,9 @@ export const ClassicList: React.FC<Props> = ({
   const replaceMessage = (channel: string, msg: ChannelMessage) => {
     if (msg.parentId) {
       setThread((prev) => (prev && prev.parent.id === msg.parentId
-        ? { ...prev, replies: msg.deleted ? prev.replies.filter((x) => x.id !== msg.id) : prev.replies.map((x) => (x.id === msg.id ? msg : x)) }
+        ? { ...prev, replies: refreshQuotes(msg.deleted ? prev.replies.filter((x) => x.id !== msg.id) : prev.replies.map((x) => (x.id === msg.id ? msg : x)), msg) }
         : prev))
+      setThreadReplying((prev) => (prev?.quote.id === msg.id ? { ...prev, quote: quoteOf(msg) } : prev))
       if (msg.alsoChannel) inConversationToo(channel, msg)
       return
     }
@@ -3113,7 +3120,7 @@ export const ClassicList: React.FC<Props> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { setEditing(null); setThread(null); setPins(null); setPickerFor(null); setReplyingTo(null); setMsgMenu(null); setReactAt(null); uploads.clear() }, [current?.key])
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { threadUploads.clear() }, [thread?.parent.id])
+  useEffect(() => { threadUploads.clear(); setThreadReplying(null) }, [thread?.parent.id])
   useEffect(() => {
     const j = pendingJump.current
     if (!j || !current || current.view !== j.view) return
@@ -3690,6 +3697,23 @@ export const ClassicList: React.FC<Props> = ({
     setReplyingTo({ view: channel, quote: quoteOf(m) })
     requestAnimationFrame(() => composer.current?.focus())
   }
+  /// Reply, pressed on a reply in a thread: the same bar over the thread's
+  /// box. Every reply there answers the thread's first message already, so
+  /// that one has no Reply of its own.
+  const startThreadReply = (m: ChannelMessage) => {
+    if (!m.parentId) return
+    setThreadReplying({ parentId: m.parentId, quote: quoteOf(m) })
+    requestAnimationFrame(() => threadComposer.current?.focus())
+  }
+  /// A quote in a thread, pressed: the reply it quotes, or the thread's
+  /// first message, lit where it is in the thread.
+  const goToQuotedInThread = (parentId: string, id: string) => {
+    const lit = id === parentId ? `thread-${id}` : id
+    const at = `#${CSS.escape(`msg-${lit}`)}`
+    const el = document.querySelector(`.slk-thread-pane ${at}, .slk-inbox-thread ${at}`)
+    if (!el) { setToast(t('Could not find the original message.')); return }
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' }); setFlash(lit); setTimeout(() => setFlash(null), 1600)
+  }
   /// The face beside a message: yours, or whoever wrote it.
   const faceOfMessage = (m: ChannelMessage): Face => (m.kind === 'agent'
     ? { name: whoSaid(m), emoji: m.agent?.emoji || '🤖', picture: m.agent?.avatarUrl || null }
@@ -3931,7 +3955,7 @@ export const ClassicList: React.FC<Props> = ({
   /// it, a phone's long press and a right-click all offer exactly this.
   const actionsFor = (channel: string, m: ChannelMessage, inThread: boolean): MessageMenuActions => ({
     inThread,
-    onQuote: inThread ? undefined : () => startReply(channel, m),
+    onQuote: !inThread ? () => startReply(channel, m) : m.parentId ? () => startThreadReply(m) : undefined,
     onReply: () => void openThread(channel, m),
     onPin: () => togglePin(channel, m),
     onEdit: m.mine && m.kind === 'message' ? () => setEditing({ id: m.id, text: m.body }) : undefined,
@@ -4453,6 +4477,7 @@ export const ClassicList: React.FC<Props> = ({
             {[thread.parent, ...thread.replies].map((m, i) => (
               <React.Fragment key={keyOf(m)}>
                 {block(keyOf(m), {
+                  quote: i > 0 && m.replyTo && !m.deleted ? <ReplyQuoteLine quote={m.replyTo} name={quoteName(m.replyTo)} onJump={() => goToQuotedInThread(thread.parent.id, m.replyTo!.id)} /> : undefined,
                   joined: false, at: m.createdAt, dated: true, app: m.kind === 'ai' ? 'ai' : '', badge: m.kind === 'ai' ? t('AI') : m.kind === 'agent' ? (m.onBehalfOf?.name ? t("{name}'s agent", { name: m.onBehalfOf.name }) : t('Agent')) : undefined,
                   name: whoSaid(m),
                   face: m.kind !== 'ai' ? faceOfMessage(m) : null,
@@ -4479,6 +4504,9 @@ export const ClassicList: React.FC<Props> = ({
           </FollowingLog>
           <TypingLine names={typingHere(thread.channel, thread.parent.id)} />
           <form className="slk-composer thread" onSubmit={(e) => { e.preventDefault(); void send(thread.channel, false, thread.parent.id) }}>
+            {threadReplying?.parentId === thread.parent.id && (
+              <ReplyingBar quote={threadReplying.quote} name={quoteName(threadReplying.quote)} textId="slk-thread-replying-text" onCancel={() => { setThreadReplying(null); threadComposer.current?.focus() }} />
+            )}
             <PendingUploads items={threadUploads.items} onRemove={threadUploads.remove} />
             {threadHl.layer}
             <textarea
@@ -4490,12 +4518,15 @@ export const ClassicList: React.FC<Props> = ({
               maxLength={4000}
               placeholder={t('Reply… — @AI to ask the AI')}
               aria-label={t('Reply in thread')}
+              aria-describedby={threadReplying?.parentId === thread.parent.id ? 'slk-thread-replying-text' : undefined}
               onChange={(e) => { const v = bulletOnSpace(e); setThreadDraft(v); threadMention.track(); typed({ channel: thread.channel, parentId: thread.parent.id }, v); writing() }}
               onBlur={() => stoppedTyping({ channel: thread.channel, parentId: thread.parent.id })}
               onKeyUp={threadMention.track}
               onClick={threadMention.track}
               onKeyDown={(e) => {
                 if (threadMention.onKeyDown(e)) return
+                // Escape takes the reply back, and leaves the words.
+                if (e.key === 'Escape' && threadReplying && !e.shiftKey && !composing(e)) { e.preventDefault(); setThreadReplying(null); return }
                 // ↑ in an empty box edits what you last said in this thread,
                 // as the conversation's own box does (#250).
                 if (e.key === 'ArrowUp' && !threadDraft && !composing(e)) {
