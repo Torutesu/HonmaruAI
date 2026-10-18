@@ -82,6 +82,6 @@ export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompl
   await db.prepare('INSERT OR IGNORE INTO hx_app_messages(org_id,app_id,table_id,row_id,author_id,request_id,body,created_at) VALUES (?,?,?,?,?,?,?,?)').bind(orgId,appId,scope.tableId,scope.rowId,'__app_ai',requestId,answer.slice(0,12000),new Date().toISOString()).run();
   const reply=await db.prepare('SELECT sequence FROM hx_app_messages WHERE org_id=? AND app_id=? AND author_id=? AND request_id=?').bind(orgId,appId,'__app_ai',requestId).first();
   await db.prepare("INSERT OR IGNORE INTO hx_app_notifications(org_id,app_id,message_id,user_id,kind) VALUES (?,?,?,?,'ai')").bind(orgId,appId,reply.sequence,String(user.github_id)).run();
-  await db.prepare("UPDATE hx_app_ai_replies SET status='succeeded' WHERE message_id=?").bind(messageId).run();
- }catch(e){await db.prepare("UPDATE hx_app_ai_replies SET status='failed',error=? WHERE message_id=?").bind(e.message==='Access revoked.'?'会話へのアクセスが変更されました。':'AIに接続できませんでした。既存のAI設定・利用枠を確認してください。',messageId).run();}
+  await db.prepare("UPDATE hx_app_ai_replies SET status='succeeded' WHERE message_id=? AND org_id=? AND app_id=?").bind(messageId,orgId,appId).run();
+ }catch(e){await db.prepare("UPDATE hx_app_ai_replies SET status='failed',error=? WHERE message_id=? AND org_id=? AND app_id=?").bind(e.message==='Access revoked.'?'会話へのアクセスが変更されました。':'AIに接続できませんでした。既存のAI設定・利用枠を確認してください。',messageId,orgId,appId).run();}
 }
