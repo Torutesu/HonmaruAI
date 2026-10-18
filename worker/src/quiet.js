@@ -9,7 +9,7 @@
 // Quiet stops the push and the email, not the message: it still arrives in
 // the conversation and in Activity, and is there when they look.
 
-import { zonedParts, isTimeZone } from "./schedule.js";
+import { zonedParts, zonedTime, isTimeZone } from "./schedule.js";
 
 const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -63,6 +63,26 @@ export async function quietFor(db, login, now = new Date()) {
 /// is not news any more; it is in the conversation and in Activity.
 export const HOLD_MAX_MS = 16 * 3_600_000;
 
+/// The instants after `after`, up to `limit`, at which a schedule's hours
+/// can open where the person is: the start of the hours, and midnight, on
+/// each local day in between.
+function scheduleStarts(schedule, timezone, after, limit) {
+  const tz = isTimeZone(timezone) ? timezone : "UTC";
+  const p = zonedParts(new Date(after), tz);
+  const day = new Date(Date.UTC(p.year, p.month - 1, p.day));
+  const from = minutes(schedule.from);
+  const out = [];
+  for (let i = 0; i < 3; i += 1) {
+    const date = { year: day.getUTCFullYear(), month: day.getUTCMonth() + 1, day: day.getUTCDate() };
+    for (const m of [0, from]) {
+      const t = zonedTime({ ...date, hour: Math.floor(m / 60), minute: m % 60 }, tz).getTime();
+      if (t > after && t <= limit) out.push(t);
+    }
+    day.setUTCDate(day.getUTCDate() + 1);
+  }
+  return out;
+}
+
 /// When the person's quiet time ends, if it ends within HOLD_MAX_MS: the end
 /// of a pause, or the next minute their hours allow. Null when they are not
 /// quiet, or will not hear anything for longer than that.
@@ -75,13 +95,21 @@ export async function quietEnds(db, login, now = new Date()) {
   const paused = row.notify_paused_until ? Date.parse(row.notify_paused_until) : 0;
   if (paused > at) at = paused;
   // Step through the schedule a quarter-hour at a time, then to the minute.
+  // The hours open at their start, or at a midnight that begins an allowed
+  // day, so those instants are tried as well: hours shorter than a quarter
+  // hour ("9:00 to 9:05") would otherwise fall between the steps.
   if (outsideSchedule(schedule, row.timezone, new Date(at))) {
+    const times = new Set();
+    for (let t = at; t <= limit; t += 15 * 60_000) times.add(t);
+    for (const t of scheduleStarts(schedule, row.timezone, at, limit)) times.add(t);
     let open = null;
-    for (let t = at; t <= limit; t += 15 * 60_000) {
+    let before = at;
+    for (const t of [...times].sort((a, b) => a - b)) {
       if (!outsideSchedule(schedule, row.timezone, new Date(t))) { open = t; break; }
+      before = t;
     }
     if (open === null) return null;
-    for (let t = Math.max(at, open - 15 * 60_000); t <= open; t += 60_000) {
+    for (let t = before; t <= open; t += 60_000) {
       if (!outsideSchedule(schedule, row.timezone, new Date(t))) { open = t; break; }
     }
     at = open;
