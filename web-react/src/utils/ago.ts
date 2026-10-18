@@ -24,3 +24,16 @@ export function fullTime(iso: string, locale?: string): string {
   if (!Number.isFinite(then)) return ''
   return formatDate(then, locale, { dateStyle: 'full', timeStyle: 'short' })
 }
+
+/// A message's time where nothing around it says which day it was (a
+/// thread, unlike a conversation, has no day lines): the time alone today,
+/// the date before it on an earlier day, and the year too in an earlier year
+/// — each in the reader's own order and words.
+export function datedTime(iso: string, locale?: string, now: Date = new Date()): string {
+  const then = Date.parse(iso)
+  if (!Number.isFinite(then)) return ''
+  const d = new Date(then)
+  if (d.toDateString() === now.toDateString()) return formatDate(then, locale, { hour: 'numeric', minute: '2-digit' })
+  const year = d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' as const }
+  return formatDate(then, locale, { ...year, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+}

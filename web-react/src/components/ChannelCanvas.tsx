@@ -13,6 +13,11 @@ import { enterKey } from '../utils/keys'
 // A save names the version it was made from; if somebody saved in between,
 // the Worker refuses and hands theirs back, and this says so rather than
 // writing over it. To-dos ("- [ ]") tick straight from the page.
+//
+// The editor stays open to typing while a save or an update is on its way.
+// A save's answer closes it only if it still holds what was sent; words
+// typed since stay, unsaved. An update written from words since changed is
+// offered, not put in their place.
 
 interface Canvas { body: string; version: number; updatedBy: string | null; updatedAt: string | null }
 interface Revision { version: number; updatedBy: string | null; updatedAt: string; size: number }
@@ -59,8 +64,13 @@ export const ChannelCanvas: React.FC<{ api: Api; headers: Record<string, string>
   const [changedBy, setChangedBy] = useState<string | null>(null)
   const [history, setHistory] = useState(false)
   const [viewing, setViewing] = useState<Canvas | null>(null)
+  const [suggestion, setSuggestion] = useState<string | null>(null)
   const editingRef = useRef<string | null>(null)
   editingRef.current = editing
+  // One save or update at a time, however fast the keys are; and which
+  // edit this is, so an answer to an edit since left behind changes nothing in it.
+  const going = useRef(false)
+  const editRun = useRef(0)
 
   const q = useCallback((extra: Record<string, string> = {}) => new URLSearchParams({ orgId: api.orgId, channel: view, ...extra }).toString(), [api.orgId, view])
   const load = useCallback(async () => {
@@ -94,14 +104,22 @@ export const ChannelCanvas: React.FC<{ api: Api; headers: Record<string, string>
   }
 
   const save = async () => {
-    if (editing === null) return
+    const sent = editingRef.current
+    if (sent === null || going.current) return
+    const run = editRun.current
+    going.current = true
     setBusy('save'); setNote(null)
     try {
-      const { res, data } = await put(editing, base)
+      const { res, data } = await put(sent, base)
+      if (run !== editRun.current) { if (res.ok) { setCanvas(data.canvas); setRevisions(data.revisions || []) } return }
       if (res.status === 409) { setConflict(data.canvas); return }
       if (!res.ok) { setNote(data.message || t('That did not save.')); return }
-      setCanvas(data.canvas); setRevisions(data.revisions || []); setEditing(null); setConflict(null); setChangedBy(null)
-    } finally { setBusy(null) }
+      setCanvas(data.canvas); setRevisions(data.revisions || []); setConflict(null); setChangedBy(null)
+      if (editingRef.current === sent) { setEditing(null); setSuggestion(null); return }
+      // Typed on while it saved: that is still to save, from what was saved.
+      setBase(data.canvas.version)
+      setNote(t('Saved. What you wrote since is not saved yet.'))
+    } finally { going.current = false; setBusy(null) }
   }
 
   const tick = async (line: number) => {
@@ -113,20 +131,29 @@ export const ChannelCanvas: React.FC<{ api: Api; headers: Record<string, string>
   }
 
   const askAI = async () => {
+    if (going.current) return
+    const wasEditing = editingRef.current !== null
+    const from = editingRef.current ?? canvas?.body ?? ''
+    going.current = true
     setBusy('ai'); setNote(null)
     try {
       const res = await fetch(`${api.httpBase}/channels/canvas/draft`, {
         method: 'POST', headers: { ...headers, 'content-type': 'application/json', ...aiHeaders() },
-        body: JSON.stringify({ orgId: api.orgId, channel: view, body: editing ?? canvas?.body ?? '' }),
+        body: JSON.stringify({ orgId: api.orgId, channel: view, body: from }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setNote(data.message || t('That did not work. Try again in a moment.')); return }
       if (data.byModel) {
-        if (editing === null) setBase(canvas?.version || 0)
-        setEditing(data.body)
+        // Put in only where the words it was written from still stand;
+        // typed on since, it is offered. An edit closed meanwhile is left closed.
+        const now = editingRef.current
+        if (now === null ? !wasEditing : now === from) {
+          if (now === null) setBase(canvas?.version || 0)
+          setEditing(data.body)
+        } else if (now !== null) setSuggestion(data.body)
       }
       setNote(data.note || null)
-    } finally { setBusy(null) }
+    } finally { going.current = false; setBusy(null) }
   }
 
   const openRevision = async (version: number) => {
@@ -139,7 +166,9 @@ export const ChannelCanvas: React.FC<{ api: Api; headers: Record<string, string>
   }
 
   const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '')
-  const startEdit = (text?: string) => { setBase(canvas?.version || 0); setEditing(text ?? (canvas?.body || STARTER(t))); setConflict(null); setNote(null) }
+  const startEdit = (text?: string) => { editRun.current += 1; setBase(canvas?.version || 0); setEditing(text ?? (canvas?.body || STARTER(t))); setConflict(null); setSuggestion(null); setNote(null) }
+  const stopEdit = () => { editRun.current += 1; setEditing(null); setConflict(null); setSuggestion(null); setChangedBy(null) }
+  const working = busy === 'save' || busy === 'ai'
 
   return (
     <aside className="slk-pane slk-canvas" aria-label={t('Canvas')} data-canvas={view}>
@@ -198,7 +227,7 @@ export const ChannelCanvas: React.FC<{ api: Api; headers: Record<string, string>
               )}
             <div className="slk-canvas-actions">
               {canvas.body.trim() && <button type="button" className="pill-btn" onClick={() => startEdit()} data-canvas-edit="1"><Icon name="edit" size={13} /> {t('Edit')}</button>}
-              <button type="button" className="btn-text" disabled={busy === 'ai'} onClick={() => void askAI()} data-canvas-ai="1">
+              <button type="button" className="btn-text" disabled={working} onClick={() => void askAI()} data-canvas-ai="1">
                 <Icon name="sparkle" size={13} /> {busy === 'ai' ? t('Reading the conversation…') : t('Update from the conversation')}
               </button>
             </div>
@@ -214,8 +243,17 @@ export const ChannelCanvas: React.FC<{ api: Api; headers: Record<string, string>
                 <p>{t('{name} changed the canvas while you were editing.', { name: conflict.updatedBy || t('Someone') })}</p>
                 <div className="slk-canvas-conflict-actions">
                   <button type="button" className="pill-btn" onClick={() => { setBase(conflict.version); setConflict(null); setChangedBy(null) }} data-conflict-mine="1">{t('Keep mine')}</button>
-                  <button type="button" className="btn-text" onClick={() => { setCanvas(conflict); setEditing(null); setConflict(null); setChangedBy(null) }}>{t('Use theirs')}</button>
+                  <button type="button" className="btn-text" onClick={() => { setCanvas(conflict); stopEdit() }}>{t('Use theirs')}</button>
                   <button type="button" className="btn-text" onClick={() => { setBase(conflict.version); setEditing(`${conflict.body}\n\n${editing}`); setConflict(null); setChangedBy(null) }}>{t('Put both together')}</button>
+                </div>
+              </div>
+            )}
+            {suggestion !== null && (
+              <div className="slk-canvas-conflict" role="status" data-canvas-suggestion="1">
+                <p>{t('The update was written from the canvas before your latest changes.')}</p>
+                <div className="slk-canvas-conflict-actions">
+                  <button type="button" className="pill-btn" onClick={() => { setEditing(suggestion); setSuggestion(null) }} data-suggestion-use="1">{t('Use the update')}</button>
+                  <button type="button" className="btn-text" onClick={() => setSuggestion(null)} data-suggestion-keep="1">{t('Keep mine')}</button>
                 </div>
               </div>
             )}
@@ -226,10 +264,10 @@ export const ChannelCanvas: React.FC<{ api: Api; headers: Record<string, string>
             />
             <p className="slk-canvas-hint">{t('canvas.syntax', { key: formatCombo('Mod+Enter', isMac) })}</p>
             <div className="slk-canvas-actions">
-              <button type="button" className="pill-btn" disabled={busy === 'save'} onClick={() => void save()} data-canvas-save="1">{busy === 'save' ? t('Saving…') : t('Save')}</button>
-              <button type="button" className="btn-text" onClick={() => { setEditing(null); setConflict(null); setChangedBy(null); setNote(null); if (changedBy) void load() }}>{t('Cancel')}</button>
+              <button type="button" className="pill-btn" disabled={working} onClick={() => void save()} data-canvas-save="1">{busy === 'save' ? t('Saving…') : t('Save')}</button>
+              <button type="button" className="btn-text" onClick={() => { stopEdit(); setNote(null); if (changedBy) void load() }} data-canvas-cancel="1">{t('Cancel')}</button>
               <span style={{ flex: 1 }} />
-              <button type="button" className="btn-text" disabled={busy === 'ai'} onClick={() => void askAI()}>
+              <button type="button" className="btn-text" disabled={working} onClick={() => void askAI()} data-canvas-ai-edit="1">
                 <Icon name="sparkle" size={13} /> {busy === 'ai' ? t('Reading the conversation…') : t('Update from the conversation')}
               </button>
             </div>

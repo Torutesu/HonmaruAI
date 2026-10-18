@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { ChannelMessage } from '../types/card'
-import { arrive, drawUnder, echoOf, forgetOwnOutbox, isDoubleSend, isTemp, keepTemps, keptAsYours, keptUnsent, markFailed, markPending, outboxKey, provenYours, readUnsent, reconcile, refusedOutright, sendDeadline, sendTime, sharedOutboxKey, tempMessage, tempState, unsentAgain, wentAfterAll, withHeld } from './pendingSend'
+import { arrive, drawUnder, echoOf, forgetOwnOutbox, isDoubleSend, isTemp, keepTemps, keptAsYours, keptUnsent, markFailed, markPending, outboxKey, provenYours, readUnsent, reconcile, refreshedReplies, refusedOutright, sendDeadline, sendTime, sharedOutboxKey, tempMessage, tempState, unsentAgain, wentAfterAll, withHeld } from './pendingSend'
 
 const you = { name: 'Aiko', ref: 'm-aiko', avatar: null }
 const at = new Date('2026-09-30T09:00:00.000Z')
@@ -264,6 +264,49 @@ describe('a reload from the server', () => {
     const fresh = [said('a', 'first')]
     expect(keepTemps(fresh, undefined)).toBe(fresh)
     expect(keepTemps(fresh, [said('old', 'gone')])).toBe(fresh)
+  })
+})
+
+describe('a thread read again while it is open', () => {
+  const reply = (id: string, minute: number) => said(id, id, { parentId: 'p1', createdAt: `2026-09-30T09:0${minute}:00.000Z` })
+
+  it('keeps replies on their way and that did not go, after what the server has', () => {
+    const pending = tempMessage({ channel: 'b:hotel', body: 'on its way', parentId: 'p1' }, you, at, () => 't')
+    const failed = markFailed([tempMessage({ channel: 'b:hotel', body: 'did not go', parentId: 'p1' }, you, at, () => 'u')], `tmp-${at.getTime().toString(36)}-u`, 'No')[0]
+    const held = [reply('old', 1), pending, failed]
+    const out = refreshedReplies([reply('old', 1)], held, new Set(ids(held)))
+    expect(ids(out)).toEqual(['old', pending.id, failed.id])
+    expect(out[2].failed).toBe('No')
+  })
+
+  it('keeps a reply the socket brought after the read left, once', () => {
+    const before = new Set(['old'])
+    const held = [reply('old', 1), reply('live', 3)]
+    expect(ids(refreshedReplies([reply('old', 1)], held, before))).toEqual(['old', 'live'])
+    // The answer has it too: drawn once.
+    expect(ids(refreshedReplies([reply('old', 1), reply('live', 3)], held, before))).toEqual(['old', 'live'])
+  })
+
+  it('takes ours that landed meanwhile as the server’s copy, not twice', () => {
+    const temp = tempMessage({ channel: 'b:hotel', body: 'mine', parentId: 'p1' }, you, at, () => 't')
+    const before = new Set(['old', temp.id])
+    // The answer to the send came before the read did: ours is the real one now.
+    const held = [reply('old', 1), reply('mine', 2)]
+    expect(ids(refreshedReplies([reply('old', 1)], held, before))).toEqual(['old', 'mine'])
+    expect(ids(refreshedReplies([reply('old', 1), reply('mine', 2)], held, before))).toEqual(['old', 'mine'])
+  })
+
+  it('leaves out what the server no longer has, and what was deleted here since', () => {
+    const before = new Set(['a', 'b', 'c'])
+    // 'b' was deleted while the connection was down; 'c' deleted live since.
+    const out = refreshedReplies([reply('a', 1), reply('c', 3)], [reply('a', 1), reply('b', 2)], before)
+    expect(ids(out)).toEqual(['a'])
+  })
+
+  it('is the server’s list as it came when nothing changed here', () => {
+    const fresh = [reply('a', 1)]
+    expect(refreshedReplies(fresh, undefined, new Set())).toBe(fresh)
+    expect(refreshedReplies(fresh, [reply('a', 1)], new Set(['a']))).toBe(fresh)
   })
 })
 
