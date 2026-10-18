@@ -255,9 +255,27 @@ export async function policyOf(db, orgId) {
 const domainsOf = (conn) => JSON.parse(conn?.allowed_domains || "[]");
 const covers = (conn, email) => { const d = domainOf(email); return Boolean(d) && domainsOf(conn).some((x) => domainMatches(d, x)); };
 
+/// The domains this workspace has proved, as of now.
+async function verifiedDomainsOf(db, orgId) {
+  const { results } = await db.prepare("SELECT domain FROM org_domains WHERE org_id = ?1 AND verified_at IS NOT NULL").bind(orgId).all().catch(() => ({ results: [] }));
+  return new Set((results || []).map((r) => r.domain));
+}
+
+/// Whether a connection speaks for an address now: one of its domains
+/// covers it, and the workspace still has that domain proved. A connection
+/// is set up only with verified domains, but a domain removed, lost to its
+/// DNS record or proved by another workspace since used to stay on it — and
+/// the old provider kept signing people in, and linking accounts, at a
+/// domain the workspace no longer owned.
+const coversNow = (conn, email, verified) => {
+  const d = domainOf(email);
+  return Boolean(d) && domainsOf(conn).some((x) => verified.has(x) && domainMatches(d, x));
+};
+
 /// The switched-on connection that covers an address, if any.
 export async function connectionFor(db, orgId, email) {
-  return (await connectionsOf(db, orgId)).find((c) => c.status === "active" && covers(c, email)) || null;
+  const verified = await verifiedDomainsOf(db, orgId);
+  return (await connectionsOf(db, orgId)).find((c) => c.status === "active" && coversNow(c, email, verified)) || null;
 }
 
 /// The first connection, as `/orgs/sso` has always shown it.
@@ -401,8 +419,7 @@ async function accountFor(env, conn, identity) {
   // sign-up, or into a profile — loses its hold first (settleProvedAddress).
   // Linking to it as it stood handed whoever registered
   // newhire@corp.example first the new hire's workspace.
-  const domainProved = await env.DB.prepare("SELECT 1 FROM org_domains WHERE org_id = ?1 AND domain = ?2 AND verified_at IS NOT NULL").bind(conn.org_id, domainOf(identity.email)).first()
-    || covers(conn, identity.email);
+  const domainProved = coversNow(conn, identity.email, await verifiedDomainsOf(env.DB, conn.org_id));
   if (domainProved) {
     const owner = await settleProvedAddress(env, identity.email, { orgId: conn.org_id });
     if (owner) return { githubId: owner.githubId, linked: false };
@@ -445,6 +462,10 @@ async function finishSignIn(env, request, row, conn, identity, grant = {}) {
     const tester = row.tester_id ? await getUserByGithubId(env.DB, row.tester_id).catch(() => null) : null;
     await audit(env, request, { orgId: conn.org_id, action: "sso.tested", actor: person(tester) || { type: "system" }, details: { connection: conn.id, provider: conn.provider } });
     return redirect(back(env, "test", { tested: "1", connection: conn.id }));
+  }
+  // The provider speaks only for the domains the workspace still owns.
+  if (!coversNow(conn, identity.email, await verifiedDomainsOf(env.DB, conn.org_id))) {
+    return fail("This email's domain is no longer verified for this workspace.");
   }
   let account;
   try { account = await accountFor(env, conn, identity); } catch (err) { return fail(err?.message || String(err)); }
@@ -600,9 +621,10 @@ async function endNonSsoSessions(env, orgId, conns) {
     `SELECT s.token, s.github_id, s.auth_method, s.sso_org_id, u.email FROM sessions s
        JOIN memberships m ON m.user_github_id = s.github_id AND m.org_id = ?1 JOIN users u ON u.github_id = s.github_id`
   ).bind(orgId).all();
+  const verified = await verifiedDomainsOf(env.DB, orgId);
   let ended = 0;
   for (const s of results || []) {
-    if (!conns.some((c) => covers(c, s.email))) continue;
+    if (!conns.some((c) => coversNow(c, s.email, verified))) continue;
     if (s.auth_method === "sso" && s.sso_org_id === orgId) continue;
     // Out of this workspace, not out of the others the account is in.
     const { endHere } = await import("./sessions.js");
@@ -927,9 +949,10 @@ export async function handleSso(request, env, url) {
       if (!recent) return json({ message: "Sign in with single sign-on in the last 10 minutes before making it required.", code: "sso-recent-required" }, 400);
       // Somebody has to be able to get in if the provider fails.
       let breakGlass = 0;
+      const verified = await verifiedDomainsOf(env.DB, orgId);
       for (const id of await ownersOf(env.DB, orgId)) {
         const email = (await env.DB.prepare("SELECT email FROM users WHERE github_id = ?1").bind(id).first())?.email;
-        if (!conns.some((c) => covers(c, email))) breakGlass += 1;
+        if (!conns.some((c) => coversNow(c, email, verified))) breakGlass += 1;
       }
       const now = new Date().toISOString();
       await env.DB.prepare(`INSERT INTO org_sso_policy (org_id, enforce, enforce_since, updated_at) VALUES (?1, 1, ?2, ?2)

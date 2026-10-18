@@ -118,6 +118,7 @@ test("an address a workspace holds to its SSO cannot be moved out from under it"
   await upsertUser(env.DB, { githubId: "gh-ken", login: "ken", name: "Ken", avatarUrl: null, locale: "en" });
   await env.DB.prepare("UPDATE users SET email = 'ken@acme.jp', email_verified_at = ?1 WHERE github_id = 'gh-ken'").bind(now).run();
   await upsertMembership(env.DB, "team:acme", "gh-ken", "member");
+  await env.DB.prepare("INSERT INTO org_domains (domain, org_id, verify_token, verified_at, created_by, created_at) VALUES ('acme.jp', 'team:acme', 't', ?1, 'gh-ken', ?1)").bind(now).run();
   await env.DB.prepare(
     "INSERT INTO sso_connections (id, org_id, provider, issuer, allowed_domains, status, created_by, created_at, updated_at) VALUES ('c1', 'team:acme', 'okta', 'https://acme.okta.com', '[\"acme.jp\"]', 'active', 'gh-ken', ?1, ?1)"
   ).bind(now).run();
