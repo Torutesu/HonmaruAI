@@ -3,8 +3,9 @@
 // For thirty days the workspace is closed to everyone but its owners, who
 // may take the request back; nothing is gone yet. Then a daily job claims
 // it, after which it can no longer be taken back, and deletes it: every row
-// stored under it, in batches, and its objects in storage (org/<id>/). What
-// is left is a tombstone saying when and at whose request.
+// stored under it, in batches, and its objects in storage (org/<id>/, and
+// those kept by name: its icon, emoji, agents' pictures and Jam
+// recordings). What is left is a tombstone saying when and at whose request.
 //
 // The audit log is the one record kept on: its rows leave D1 by the
 // workspace's audit retention once sealed into the archive, as any other
@@ -23,6 +24,16 @@ const SPARED = new Set(["audit_events", "audit_seals", "audit_principal_keys", "
 /// rest is picked up the next day.
 const BATCH = 2000;
 const BATCHES_PER_RUN = 200;
+
+/// Where a workspace's objects are kept by a name only its rows know: the
+/// key each row names, and how the row lets go of it once it is deleted.
+const NAMED_OBJECTS = [
+  { table: "org_icons", column: "media_id", key: (name) => name, clear: "DELETE FROM org_icons" },
+  { table: "org_emoji", column: "media_id", key: (name) => name, clear: "DELETE FROM org_emoji" },
+  { table: "custom_agents", column: "avatar_url", key: (url) => /\/agents\/avatar\/(agent-avatar-[0-9a-f-]{36})$/.exec(String(url))?.[1] || null, clear: "UPDATE custom_agents SET avatar_url = NULL" },
+];
+/// The Jam recordings have all been looked through.
+const SCANNED = "scanned";
 
 const cache = new Map(); // orgId -> { due, at }
 
@@ -94,6 +105,33 @@ async function workspaceTables(db) {
 /// Returns whether it is all gone.
 export async function purgeWorkspace(env, orgId, { budget = BATCHES_PER_RUN } = {}) {
   let left = budget;
+  if (env.MEDIA) {
+    // Objects kept outside org/<id>/, named only by its rows: deleted while
+    // those rows still say which they are.
+    for (const { table, column, key, clear } of NAMED_OBJECTS) {
+      for (;;) {
+        if (left-- <= 0) return false;
+        const { results: rows = [] } = await env.DB.prepare(`SELECT rowid, ${column} AS name FROM ${table} WHERE org_id = ?1 AND ${column} IS NOT NULL LIMIT 1000`).bind(orgId).all();
+        if (!rows.length) break;
+        const keys = rows.map((r) => key(r.name)).filter(Boolean);
+        if (keys.length) await env.MEDIA.delete(keys);
+        await env.DB.prepare(`${clear} WHERE rowid IN (${rows.map((r) => Number(r.rowid)).join(", ")})`).run();
+      }
+    }
+    // Its Jam recordings, kept as jam/<id> with the workspace in their
+    // metadata: through every one, a page a statement, from wherever the
+    // last run stopped.
+    const state = await env.DB.prepare("SELECT purge_cursor FROM workspace_deletions WHERE org_id = ?1").bind(orgId).first();
+    let cursor = state?.purge_cursor || undefined;
+    while (cursor !== SCANNED) {
+      if (left-- <= 0) return false;
+      const page = await env.MEDIA.list({ prefix: "jam/", limit: 1000, cursor, include: ["customMetadata"] });
+      const keys = (page.objects || []).filter((o) => o.customMetadata?.orgId === orgId).map((o) => o.key);
+      if (keys.length) await env.MEDIA.delete(keys);
+      cursor = page.truncated ? page.cursor : SCANNED;
+      await env.DB.prepare("UPDATE workspace_deletions SET purge_cursor = ?2 WHERE org_id = ?1").bind(orgId, cursor).run();
+    }
+  }
   for (const table of await workspaceTables(env.DB)) {
     for (;;) {
       if (left-- <= 0) return false;
@@ -101,7 +139,7 @@ export async function purgeWorkspace(env, orgId, { budget = BATCHES_PER_RUN } = 
       if (!(out?.meta?.changes >= BATCH)) break;
     }
   }
-  // Its objects: files, videos, exports, icons.
+  // Its objects: files, videos, exports.
   if (env.MEDIA) {
     const prefix = `org/${encodeURIComponent(orgId)}/`;
     for (;;) {

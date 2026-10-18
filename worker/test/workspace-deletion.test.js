@@ -161,3 +161,48 @@ test("a deletion a run claimed and did not finish cannot be taken back, and the 
   expect(await purgeDueWorkspaces(env, { now: later + DAY })).toEqual([ORG]);
   expect(await count("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1")).toBe(0);
 });
+
+// The purge deleted what was stored under org/<id>/ and called that all of
+// it, while the workspace's icon, emoji, agents' pictures and Jam
+// recordings were kept under names of their own, and the rows naming the
+// icon and emoji went first. Those go too now, and nobody else's.
+
+async function keptByName(orgId, tag) {
+  const now = new Date().toISOString();
+  const icon = `org-icon-${tag}`; const emoji = `emoji-${tag}`; const picture = `agent-avatar-00000000-0000-4000-8000-0000000000${tag}`;
+  await env.MEDIA.put(icon, "png");
+  await env.MEDIA.put(emoji, "png");
+  await env.MEDIA.put(picture, "png");
+  await env.MEDIA.put(`jam/rec-${tag}`, "audio", { customMetadata: { orgId, channel: "b:general" } });
+  await env.DB.prepare("INSERT INTO org_icons (org_id, media_id, content_type, updated_at) VALUES (?1, ?2, 'image/png', ?3)").bind(orgId, icon, now).run();
+  await env.DB.prepare("INSERT INTO org_emoji (org_id, name, media_id, content_type, created_by, created_at) VALUES (?1, 'party', ?2, 'image/png', 'own', ?3)").bind(orgId, emoji, now).run();
+  await env.DB.prepare("INSERT INTO custom_agents (org_id, id, handle, name, avatar_url, instructions, owner_login, created_at, updated_at) VALUES (?1, 'a1', 'helper', 'Helper', ?2, 'x', 'own', ?3, ?3)")
+    .bind(orgId, `https://example.com/agents/avatar/${picture}`, now).run();
+  return [icon, emoji, picture, `jam/rec-${tag}`];
+}
+
+test("the purge deletes the icon, emoji, agents' pictures and Jam recordings kept by name, and nobody else's", async () => {
+  const going = await keptByName(ORG, "01");
+  const staying = await keptByName("team:stays", "02");
+  await env.MEDIA.put("jam/rec-old", "audio");
+  await post("/orgs/delete", owner, { orgId: ORG, confirm: "Going Co" });
+  expect(await purgeDueWorkspaces(env, { now: Date.now() + 31 * DAY })).toEqual([ORG]);
+  for (const key of going) expect(await env.MEDIA.get(key)).toBeNull();
+  for (const key of staying) expect(await env.MEDIA.get(key)).not.toBeNull();
+  expect(await env.MEDIA.get("jam/rec-old")).not.toBeNull();
+});
+
+test("a purge that runs out partway through those picks up where it stopped, and finishes only once they are gone", async () => {
+  const going = await keptByName(ORG, "01");
+  await post("/orgs/delete", owner, { orgId: ORG, confirm: "Going Co" });
+  await env.DB.prepare("UPDATE workspace_deletions SET purge_started_at = due_at WHERE org_id = ?1").bind(ORG).run();
+  const { purgeWorkspace } = await import("../src/workspaceDeletion.js");
+  expect(await purgeWorkspace(env, ORG, { budget: 2 })).toBe(false);
+  expect(await env.MEDIA.get(going[0])).toBeNull();
+  expect(await env.MEDIA.get(going[3])).not.toBeNull();
+  expect(await purgeWorkspace(env, ORG, { budget: 6 })).toBe(false);
+  expect(await env.MEDIA.get(going[3])).toBeNull();
+  expect((await env.DB.prepare("SELECT purge_cursor FROM workspace_deletions WHERE org_id = ?1").bind(ORG).first()).purge_cursor).toBe("scanned");
+  expect(await purgeWorkspace(env, ORG)).toBe(true);
+  for (const key of going) expect(await env.MEDIA.get(key)).toBeNull();
+});
