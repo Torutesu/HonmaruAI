@@ -3,7 +3,7 @@ import { act, create } from 'react-test-renderer'
 import { afterEach, expect, test, vi } from 'vitest'
 import { CustomAppFrame } from './CustomApp'
 vi.mock('../utils/appearance', () => ({ useAppearance: () => ({ theme: 'dark' }) }))
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 const table = { id: 'only-this-table', name: 'Tasks', columns: [] }
 test('generated code cannot mutate data before host approval or choose another table', async () => {
   let handler: (e: any) => void = () => {}
@@ -105,7 +105,7 @@ test('writable preview uses only its private fork and keeps the production SDK r
 })
 
 
-test('cached runner load initializes even when its ready message was missed, only once', () => {
+test('runner ready retries early delivery and waits for a matching rendered acknowledgement', () => {
   let handler: (e: any) => void = () => {}
   const contentWindow = { postMessage: vi.fn() }
   vi.stubGlobal('window', { addEventListener: (_: string, fn: any) => { handler = fn }, removeEventListener: vi.fn() })
@@ -114,7 +114,13 @@ test('cached runner load initializes even when its ready message was missed, onl
   act(() => tree!.root.findByType('iframe').props.onLoad())
   expect(contentWindow.postMessage).toHaveBeenCalledWith(expect.objectContaining({type:'honmaru:init',html:expect.stringContaining('<h1>Preview</h1>')}), '*')
   act(() => handler({source: contentWindow, data:{type:'honmaru:ready'}}))
-  expect(contentWindow.postMessage).toHaveBeenCalledTimes(1)
+  expect(contentWindow.postMessage).toHaveBeenCalledTimes(2)
+  const renderId=contentWindow.postMessage.mock.calls[0][0].renderId
+  act(() => handler({source: {}, data:{type:'honmaru:rendered',renderId}}))
+  act(() => handler({source: contentWindow, data:{type:'honmaru:rendered',renderId:'old-frame'}}))
+  expect(tree!.root.findAllByProps({role:'status'})).toHaveLength(1)
+  act(() => handler({source: contentWindow, data:{type:'honmaru:rendered',renderId}}))
+  expect(tree!.root.findAllByProps({role:'status'})).toHaveLength(0)
   act(() => tree!.unmount())
 })
 
@@ -153,4 +159,30 @@ test('secondary preview entities read and write only the private database',async
  expect(databaseChange).toHaveBeenCalledWith('app',expect.objectContaining({entity:'people',operation:'update',rowId:'person',expectedUpdatedAt:'v1'}))
  expect(api.addRow).not.toHaveBeenCalled();expect(api.entityRows).not.toHaveBeenCalled()
  act(()=>tree!.unmount())
+})
+
+
+test('a runner that never renders exposes retry and ignores old acknowledgements', () => {
+  vi.useFakeTimers()
+  let handler:(e:any)=>void=()=>{}
+  const contentWindow={postMessage:vi.fn()}
+  vi.stubGlobal('window',{addEventListener:(_:string,fn:any)=>{handler=fn},removeEventListener:vi.fn()})
+  let tree:ReturnType<typeof create>
+  act(()=>{tree=create(<CustomAppFrame html="test" table={table} rows={[]} httpBase="https://api.example"/>,{createNodeMock:e=>e.type==='iframe'?{contentWindow}:null})})
+  act(()=>tree!.root.findByType('iframe').props.onLoad())
+  const oldId=contentWindow.postMessage.mock.calls[0][0].renderId
+  act(()=>{vi.advanceTimersByTime(15000)})
+  const retry=tree!.root.findByType('button')
+  expect(retry.children.join('')).toBe('再試行')
+  act(()=>retry.props.onClick())
+  expect(tree!.root.findAllByType('button')).toHaveLength(0)
+  act(()=>handler({source:contentWindow,data:{type:'honmaru:rendered',renderId:oldId}}))
+  expect(tree!.root.findAllByProps({role:'status'})).toHaveLength(1)
+  act(()=>tree!.root.findByType('iframe').props.onLoad())
+  const nextId=contentWindow.postMessage.mock.calls.at(-1)![0].renderId
+  expect(nextId).not.toBe(oldId)
+  act(()=>handler({source:contentWindow,data:{type:'honmaru:rendered',renderId:nextId}}))
+  act(()=>{vi.advanceTimersByTime(15000)})
+  expect(tree!.root.findAllByProps({role:'status'})).toHaveLength(0)
+  act(()=>tree!.unmount())
 })
