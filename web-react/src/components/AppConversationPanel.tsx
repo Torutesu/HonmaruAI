@@ -34,6 +34,6 @@ export function AppConversationPanel({api,appId,tableId,rowId,title,context,onCl
   </div>
   {error&&<div className="hx-chat-error" role="alert">{error}<button type="button" onClick={()=>void refresh(epoch.current)}>再読み込み</button></div>}
   {context&&<div className="hx-chat-context">{context}</div>}
-  <form className="hx-chat-compose" onSubmit={e=>void send(e)}><textarea aria-label="メッセージを入力" placeholder="メッセージを入力…" value={draft} maxLength={4000} disabled={sending} rows={3} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)&&!e.nativeEvent.isComposing){e.preventDefault();e.currentTarget.form?.requestSubmit()}}}/><div><span>⌘ / Ctrl + Enter で送信</span><button type="submit" className="hx-chat-send" aria-label="メッセージを送信" disabled={sending||loading||!draft.trim()}><Icon name="arrow-up" size={16}/></button></div></form>
+  <form className="hx-chat-compose" onSubmit={e=>void send(e)}><textarea aria-label="メッセージを入力" placeholder="メッセージを入力…" value={draft} maxLength={4000} disabled={sending} rows={3} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)&&!e.nativeEvent.isComposing){e.preventDefault();e.currentTarget.form?.requestSubmit()}}}/><div><span>⌘ / Ctrl + Enter で送信</span><button type="submit" className="hx-chat-send" aria-label="メッセージを送信" disabled={sending||loading||!draft.trim()}><Icon name="send" size={16}/></button></div></form>
  </section>
 }
