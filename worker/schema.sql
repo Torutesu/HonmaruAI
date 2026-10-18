@@ -1873,3 +1873,18 @@ CREATE TABLE IF NOT EXISTS hx_personal_views (
  settings TEXT NOT NULL,
  PRIMARY KEY(org_id,user_id,app_id)
 );
+
+/* One durable conversation per app or app/entity/record. Access is rechecked on every operation. */
+CREATE TABLE IF NOT EXISTS hx_app_messages (
+ sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+ org_id TEXT NOT NULL,
+ app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+ table_id TEXT NOT NULL DEFAULT '',
+ row_id TEXT NOT NULL DEFAULT '',
+ author_id TEXT NOT NULL,
+ request_id TEXT NOT NULL,
+ body TEXT NOT NULL,
+ created_at TEXT NOT NULL,
+ UNIQUE(org_id,app_id,table_id,row_id,author_id,request_id)
+);
+CREATE INDEX IF NOT EXISTS idx_hx_app_messages_scope ON hx_app_messages(org_id,app_id,table_id,row_id,sequence);

@@ -14,7 +14,7 @@
 | KY-002 | DM・グループ・エージェントDM | 一部 | P1 | [worker/src/channels.js](../../worker/src/channels.js) | 各参加者の可視性と退出後のアクセスを実機で確認 |
 | KY-003 | ホーム・最近・未読・メンション | 一部 | P1 | [web-react/src/components/ClassicList.tsx](../../web-react/src/components/ClassicList.tsx) | 一覧と通知既読位置が複数端末で一致 |
 | KY-004 | ルームガイドライン | 一部 | P0 | [worker/src/harness/guidelines.js](../../worker/src/harness/guidelines.js) | 4096字・競合検知・毎ターン反映。BYOと全AI入口への適用が残る |
-| KY-005 | オブジェクト固定スレッド | 未実装 | P1 | [worker/src/channels.js](../../worker/src/channels.js) | file/app/record/workflowごとに唯一の会話を再利用 |
+| KY-005 | オブジェクト固定スレッド | 一部 | P1 | [worker/src/harness/appConversations.js](../../worker/src/harness/appConversations.js) | アプリ・entity/record単位の会話、現在ACL、再試行重複防止、履歴ページングを実装。作成元ルームスレッド統合・エージェント返信・通知は残る |
 | KY-006 | ルームへのリソース紐付け | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 所有ルームと参照リンクを区別し非公開データが他ルームへ漏れない |
 | KY-007 | ルームメンバーとエージェント権限の分離 | 一部 | P0 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | ルーム追加時に不足するエージェント利用権を表示し明示付与 |
 | KY-008 | ルーム横断検索 | 一部 | P1 | [worker/src/channels.js](../../worker/src/channels.js) | メッセージだけでなくファイル本文・レコードも同じACLで検索 |
@@ -80,7 +80,7 @@
 | KY-040 | 標準CRUD・型検証 | 一部 | P0 | [worker/src/harness/tables.js](../../worker/src/harness/tables.js) | strict値検証・行CAS・HTTP/MCPページングを追加。参照整合性・スキーマ変更との競合は未実装 |
 | KY-041 | 表・ボード・カレンダー | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | table/board/metricsに終日calendarを追加。月移動・日付編集・未設定・閏日を検証。時刻・タイムゾーン付き予定とnative画面は残る |
 | KY-042 | 保存ビュー・列順・幅・フィルタ・グループ | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 共有フィルター・グループに加え、個人ビュー・列順・列幅・選択中ビューのユーザー別保存を追加。権限分離・競合拒否。列の表示切替（タイトル常時表示）もユーザー別保存。ID・作成日時・更新日時の読取専用システム列、ヘッダーの昇順/降順/解除とフィルターを追加（初期非表示、個人設定に保存）。折り返しの個人設定保存・新規レコード入力ダイアログ・全画面表示を追加。全操作の完全一致は引き続き検証対象 |
-| KY-043 | レコードに紐づく会話 | 未実装 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 同一entity/recordの会話が重複しない |
+| KY-043 | レコードに紐づく会話 | 一部 | P1 | [worker/src/harness/appConversations.js](../../worker/src/harness/appConversations.js) | アプリ・entity/record単位の会話、現在ACL、再試行重複防止、履歴ページングを実装。作成元ルームスレッド統合・エージェント返信・通知は残る |
 | KY-044 | App APIの登録・OpenAPI・検証 | 一部 | P1 | [worker/src/harness/tableContract.js](../../worker/src/harness/tableContract.js) | テーブル単位のOpenAPI 3.1とstrict値検証を追加。独自API登録・契約固定・SDK生成は未実装 |
 | KY-045 | Custom Appのソースコードと実行環境 | 一部 | P1 | [worker/src/harness/customRunner.js](../../worker/src/harness/customRunner.js) | HTML/CSS/JS生成・隔離UI・確認付きCRUD、公開済みサーバーJSのMac実行、固定API接続を追加。クラウド任意サーバー配布は残る |
 | KY-046 | 下書き・プレビュー・DB fork | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 個人用DB fork、複数entityのプレビューSDK、差分レビュー付きの一括本番反映を追加。競合は反映を拒否。1回50行まで・反映後は再forkが必要。自動競合解消・選択的マージは残る |

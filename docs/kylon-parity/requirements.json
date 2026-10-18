@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-10-16",
+  "asOf": "2026-10-18",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -52,11 +52,11 @@
       "id": "KY-005",
       "category": "Rooms",
       "requirement": "オブジェクト固定スレッド",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://kylon.io/product/workspace",
-      "code": "worker/src/channels.js",
-      "acceptance": "file/app/record/workflowごとに唯一の会話を再利用"
+      "code": "worker/src/harness/appConversations.js",
+      "acceptance": "アプリ・entity/record単位の固定会話、現在ACL、再試行重複防止、履歴ページングを実装。作成元ルームスレッド統合・エージェント返信・通知は残る"
     },
     {
       "id": "KY-006",
@@ -432,11 +432,11 @@
       "id": "KY-043",
       "category": "Apps",
       "requirement": "レコードに紐づく会話",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/apps.js",
-      "acceptance": "同一entity/recordの会話が重複しない"
+      "code": "worker/src/harness/appConversations.js",
+      "acceptance": "アプリ・entity/record単位の固定会話、現在ACL、再試行重複防止、履歴ページングを実装。作成元ルームスレッド統合・エージェント返信・通知は残る"
     },
     {
       "id": "KY-044",

@@ -1,3 +1,5 @@
+export interface AppMessage { id:number; authorId:string; authorName:string; body:string; createdAt:string }
+export interface AppConversation { threadId:string; messages:AppMessage[]; hasMore:boolean }
 export interface PersonalViews { activeView?: string; revision: number; views: View[]; computed: View[]; layouts: Record<string, {order:string[];widths:Record<string,number>;hidden?:string[];wrapText?:boolean}> }
 import { useCallback, useEffect, useState } from 'react'
 
@@ -96,6 +98,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     return data as T
   }
   return {
+    conversation: (id:string, scope:{tableId?:string;rowId?:string}={}, before?:number) => call<AppConversation>('GET',`/apps/${id}/conversation`,undefined,{...scope,...(before?{before:String(before)}:{})}),
+    postConversation: (id:string, scope:{tableId?:string;rowId?:string}, body:string, requestId:string) => call<{threadId:string;messageId:number}>('POST',`/apps/${id}/conversation`,{...scope,body,requestId}),
     members: () => call<{members:Array<{ref:string;name:string}>}>('GET','/members'),
     personalViews: (id:string) => call<PersonalViews>('GET', `/hx/personal-views/${id}`),
     savePersonalViews: (id:string, state:PersonalViews) => call<PersonalViews>('PUT', `/hx/personal-views/${id}`, {expectedRevision:state.revision,views:state.views,layouts:state.layouts,activeView:state.activeView}),
