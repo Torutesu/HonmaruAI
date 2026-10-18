@@ -347,3 +347,17 @@ test("a decision on a run's first approval, replayed, does not answer its second
   expect(done.status).toBe("done");
   expect((await messages(mika)).map((m) => m.body)).toContain("Reached the final step");
 });
+
+test("a workflow's approval card has a priority every client reads, and old ones are repaired", async () => {
+  const { createWorkflow, startRun } = await import("../src/harness/workflows.js");
+  const { getCard, saveCard } = await import("../src/db.js");
+  const { PRIORITIES } = await import("../src/agui/validate.js");
+  const { workflow } = await createWorkflow(env.DB, ORG, { name: "Gate", trigger: { type: "manual" }, steps: [{ type: "approval", to: "toru", title: "Go?" }] }, "9302");
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: "manual", startedBy: "9302" });
+  expect(PRIORITIES.has((await getCard(env.DB, ORG, run.cardId)).priority)).toBe(true);
+
+  await saveCard(env.DB, ORG, { id: "wf-run_old", recipientUserID: "toru", senderUserID: "toru", type: "approval", title: "Old", summary: "", status: "pending", priority: "normal", createdAt: new Date().toISOString(), workflowApproval: { runId: "run_old" } });
+  await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  expect((await getCard(env.DB, ORG, "wf-run_old")).priority).toBe("medium");
+  expect((await env.DB.prepare("SELECT priority FROM cards WHERE card_id = 'wf-run_old'").first()).priority).toBe("medium");
+});

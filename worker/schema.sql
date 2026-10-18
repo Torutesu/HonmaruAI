@@ -197,6 +197,12 @@ CREATE TABLE IF NOT EXISTS cards (
 );
 CREATE INDEX IF NOT EXISTS idx_cards_recipient ON cards (org_id, recipient_user_id);
 CREATE INDEX IF NOT EXISTS idx_cards_status ON cards (org_id, status);
+/* Workflow approvals were once saved with priority "normal", which is not one
+   of the priorities a card may have (agui/validate.js): the iOS app could not
+   decode them and dropped the card, so the run waited on a decision nobody
+   saw. Replayed on every deploy; a no-op once none are left. */
+UPDATE cards SET priority = 'medium', data = json_set(data, '$.priority', 'medium')
+ WHERE json_extract(data, '$.priority') = 'normal';
 
 CREATE TABLE IF NOT EXISTS contexts (
   org_id  TEXT NOT NULL,

@@ -407,7 +407,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, runId, depth
         title: render(step.title, scope).slice(0, 120),
         summary: render(step.summary || "", scope).slice(0, 600),
         context: `Workflow: ${workflow.name}`,
-        priority: "normal",
+        priority: "medium",
         status: "pending",
         createdAt: now(),
         sourceApp: "Workflow",
