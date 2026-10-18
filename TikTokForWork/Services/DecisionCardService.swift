@@ -35,6 +35,9 @@ final class DecisionCardService: ObservableObject {
     private var persistTask: Task<Void, Never>?
     private var scopeGeneration = UUID()
     @Published private(set) var revision = 0
+    /// How many times the relay has sent the workspace's cards whole: a card
+    /// still missing after one more of these is not coming.
+    @Published private(set) var snapshots = 0
     @Published private(set) var isDemo = false
     private var demoUndo: [String: DecisionCard] = [:]
     private var demoGeneratedIDs: [String: Set<String>] = [:]
@@ -541,6 +544,7 @@ final class DecisionCardService: ObservableObject {
             for card in cardsByUser.values.flatMap({ $0 }) { confirmDelivery(card) }
             for id in rejectedDeliveryIDs { awaitingDeliveryIDs.remove(id); pendingDeliveries.removeValue(forKey: id) }
             rejectedDeliveryIDs = []
+            snapshots += 1
             applySnapshot(cardsByUser)
         case .cardCreated(let card), .cardUpdated(let card):
             confirmDelivery(card)

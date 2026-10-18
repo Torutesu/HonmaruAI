@@ -404,4 +404,16 @@ final class ChatNotificationTargetTests: XCTestCase {
         XCTAssertNil(PushService.MessageTarget(["kind": "read", "orgId": "org1", "channel": "c:general"]))
         XCTAssertNil(PushService.MessageTarget(["kind": "message", "channel": "c:general"]))
     }
+
+    func testACardsNotificationKeepsTheWorkspaceItIsIn() {
+        // As the Worker sends it (worker/src/notify.js).
+        let card = PushService.CardTarget(["cardId": "card1", "kind": "request", "orgId": "org-b"])
+        XCTAssertEqual(card?.cardId, "card1")
+        XCTAssertEqual(card?.orgId, "org-b")
+        XCTAssertNil(PushService.CardTarget(["cardId": "card1"])?.orgId)
+        XCTAssertNil(PushService.CardTarget(["kind": "message", "cardId": "card1", "channel": "c:general", "messageId": "m1"]))
+        XCTAssertNil(PushService.CardTarget(["kind": "read", "orgId": "org1", "channel": "c:general"]))
+        // The same card tapped twice is two taps, each opened.
+        XCTAssertNotEqual(PushService.CardTarget(["cardId": "card1"]), PushService.CardTarget(["cardId": "card1"]))
+    }
 }

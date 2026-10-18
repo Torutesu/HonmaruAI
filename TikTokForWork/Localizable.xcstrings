@@ -43905,6 +43905,62 @@
           }
         }
       }
+    },
+    "That card is no longer available": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このカードはもう表示できません"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta tarjeta ya no está disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette carte n’est plus disponible"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Karte ist nicht mehr verfügbar"
+          }
+        }
+      }
+    },
+    "It may have been deleted, or you are no longer in its workspace.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除されたか、そのワークスペースのメンバーではなくなった可能性があります。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puede que se haya eliminado o que ya no estés en su espacio de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elle a peut-être été supprimée, ou vous ne faites plus partie de son espace de travail."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sie wurde möglicherweise gelöscht, oder du bist nicht mehr in ihrem Workspace."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
