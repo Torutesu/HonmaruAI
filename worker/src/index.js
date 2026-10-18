@@ -445,7 +445,7 @@ async function handle(request, env, url, ctx) {
     // A workflow's webhook: called from outside, its secret is the key.
     const workflowHook = await handleWorkflowHook(request, env, url);
     if (workflowHook) return workflowHook;
-    const harnessed = await handleHarness(request, env, url);
+    const harnessed = await handleHarness(request, env, url, { after: work => after(ctx, work), dispatch: inner => handle(inner, env, new URL(inner.url), ctx) });
     if (harnessed) return harnessed;
 
     // Routines, the playbook, agent tokens and the MCP endpoint.

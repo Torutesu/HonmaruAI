@@ -1,5 +1,5 @@
 export interface AppMessage { id:number; authorId:string; authorName:string; body:string; createdAt:string }
-export interface AppConversation { threadId:string; messages:AppMessage[]; hasMore:boolean }
+export interface AppConversation { threadId:string; messages:AppMessage[]; hasMore:boolean; source?:{channel:string;threadId:string;messages:Array<{id:string;body:string;authorName?:string;kind?:string;createdAt:string}>}|null; aiReplies?:Array<{messageId:number;status:string;error?:string}> }
 export interface PersonalViews { activeView?: string; revision: number; views: View[]; computed: View[]; layouts: Record<string, {order:string[];widths:Record<string,number>;hidden?:string[];wrapText?:boolean}> }
 import { useCallback, useEffect, useState } from 'react'
 
@@ -100,6 +100,10 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
   return {
     conversation: (id:string, scope:{tableId?:string;rowId?:string}={}, before?:number) => call<AppConversation>('GET',`/apps/${id}/conversation`,undefined,{...(scope.tableId?{tableId:scope.tableId}:{}),...(scope.rowId?{rowId:scope.rowId}:{}),...(before?{before:String(before)}:{})}),
     postConversation: (id:string, scope:{tableId?:string;rowId?:string}, body:string, requestId:string) => call<{threadId:string;messageId:number}>('POST',`/apps/${id}/conversation`,{...scope,body,requestId}),
+    conversationSources: (id:string) => call<{candidates:Array<{id:string;body:string;channel:string;createdAt:string}>}>('GET',`/apps/${id}/conversation-source`),
+    inheritConversation: (id:string,messageId:string) => call('POST',`/apps/${id}/conversation-source`,{messageId}),
+    conversationNotifications: (id:string) => call<{items:Array<{messageId:number;body:string;tableId:string;rowId:string;readAt:string|null;kind:string}>}>('GET',`/apps/${id}/conversation-notifications`),
+    readConversationNotification: (id:string,messageId:number) => call('POST',`/apps/${id}/conversation-notifications`,{messageId}),
     members: () => call<{members:Array<{ref:string;name:string}>}>('GET','/members'),
     personalViews: (id:string) => call<PersonalViews>('GET', `/hx/personal-views/${id}`),
     savePersonalViews: (id:string, state:PersonalViews) => call<PersonalViews>('PUT', `/hx/personal-views/${id}`, {expectedRevision:state.revision,views:state.views,layouts:state.layouts,activeView:state.activeView}),
