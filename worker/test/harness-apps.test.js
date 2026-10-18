@@ -499,3 +499,24 @@ test('shared and personal metadata queries persist with independent layouts and 
  expect((await (await get(`${path}?orgId=${ORG}`,toru)).json()).views).toEqual([]);
  expect((await (await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app.definition.views).toEqual(shared.app.definition.views);
 });
+
+test("a shared app's definition is changed or restored only by its maker or an admin", async () => {
+  const { app } = await (await send("POST", "/apps", toru, { orgId: ORG, template: "tracker", sample: false })).json();
+  await send("PUT", `/apps/${app.id}`, toru, { orgId: ORG, name: "Launch checklist", expectedVersion: 1 });
+  const before = await (await get(`/apps/${app.id}?orgId=${ORG}`, mika)).json();
+  expect(before.canCustomize).toBe(false);
+  const views = before.app.definition.views.map((v, i) => (i === 0 ? { ...v, name: "Hidden by Mika" } : v));
+
+  const edit = await send("PUT", `/apps/${app.id}`, mika, { orgId: ORG, expectedVersion: before.app.version, definition: { ...before.app.definition, views }, columns: [...before.table.columns, { name: "Extra", type: "text" }] });
+  expect(edit.status).toBe(403);
+  expect((await send("POST", `/apps/${app.id}/versions`, mika, { orgId: ORG, version: 1 })).status).toBe(403);
+  const after = await (await get(`/apps/${app.id}?orgId=${ORG}`, toru)).json();
+  expect(after.app).toEqual(before.app);
+  expect(after.table.columns).toEqual(before.table.columns);
+  expect((await (await get(`/apps/${app.id}/versions?orgId=${ORG}`, toru)).json()).versions.map((v) => v.version)).toEqual([2, 1]);
+
+  // Its maker still can, and the app stays usable by everyone.
+  expect((await send("PUT", `/apps/${app.id}`, toru, { orgId: ORG, expectedVersion: 2, definition: { ...before.app.definition, views } })).status).toBe(200);
+  expect((await (await send("POST", `/apps/${app.id}/versions`, toru, { orgId: ORG, version: 1 })).json()).app).toMatchObject({ name: "Tracker", version: 4 });
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, mika)).status).toBe(200);
+});
