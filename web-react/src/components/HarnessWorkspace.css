@@ -520,3 +520,5 @@
  :root .shell.harness-workspace .hx-app-detail .hx-head-actions{max-width:100%;flex-wrap:wrap;gap:4px}
  :root .shell.harness-workspace .hx-app-detail .screen-head .hx-head-actions .pill-btn{font-size:0;gap:0;width:30px;min-width:30px;padding:6px}
 }
+
+.hx-object-chat .hx-chat-compose .mention-menu:not(.emoji){min-width:0;max-width:100%}
