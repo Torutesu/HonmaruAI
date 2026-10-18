@@ -7,8 +7,11 @@
 ///
 /// Kept per channel with the time of the newest message it read, so opening
 /// the record again costs nothing until somebody says something new.
+///
+/// A guest reads only the decisions they are on, as in the record itself, so
+/// theirs is written from those alone and kept apart from everyone else's.
 
-import { NOT_PERSONAL_SQL } from "./access.js";
+import { NOT_PERSONAL_SQL, accessFor, mayReadCard } from "./access.js";
 import { providerFor } from "./orgAI.js";
 import { allowanceFor } from "./gate.js";
 import { settleUsage, noteUsage } from "./ledger.js";
@@ -37,7 +40,7 @@ Write in Markdown with exactly these sections, in this order, each with "## " he
 ## Open questions — what the material does not answer.`;
 
 /// The material a channel holds, as the model reads it.
-async function gather(db, orgId, key, locale) {
+async function gather(db, orgId, key, locale, access) {
   const skip = await agentTalkFilter(db, orgId);
   const [info, messages, canvas, bookmarks, cards] = await Promise.all([
     db.prepare("SELECT name, description, created_at FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, key.slice(2)).first().catch(() => null),
@@ -72,7 +75,7 @@ async function gather(db, orgId, key, locale) {
   for (const r of cards.results || []) {
     let c;
     try { c = JSON.parse(r.data); } catch { continue; }
-    if (!c) continue;
+    if (!c || !mayReadCard(c, access)) continue;
     const local = c.localized?.[locale] || {};
     const title = local.title || c.title || "";
     const state = c.decision?.action
@@ -106,12 +109,16 @@ ${lines.join("\n") || "(none)"}
 /// The context of one channel, in the reader's language: from the cache
 /// while nothing new was said, else written now. { markdown, generatedAt,
 /// fresh } — markdown null when there is no model and nothing to say.
-export async function channelContext(env, { orgId, key, locale = "en", githubId = null, refresh = false }) {
-  const material = await gather(env.DB, orgId, key, locale);
+export async function channelContext(env, { orgId, key, locale = "en", viewer = null, githubId = null, refresh = false }) {
+  const access = await accessFor(env.DB, orgId, viewer || "");
+  const material = await gather(env.DB, orgId, key, locale, access);
   const lang = String(locale || "en").slice(0, 2);
+  // Everyone but a guest may read every decision in a channel they can see,
+  // so they share one context per language; a guest's is theirs alone.
+  const scope = access.guest ? `${lang}|${access.login}` : lang;
   const cached = await env.DB.prepare(
     "SELECT body, generated_at, last_message_at FROM channel_context_cache WHERE org_id = ?1 AND channel = ?2 AND locale = ?3"
-  ).bind(orgId, key, lang).first().catch(() => null);
+  ).bind(orgId, key, scope).first().catch(() => null);
   if (!refresh && cached && cached.last_message_at === material.lastAt) {
     return { markdown: cached.body, generatedAt: cached.generated_at, fresh: false };
   }
@@ -137,7 +144,7 @@ export async function channelContext(env, { orgId, key, locale = "en", githubId 
   await env.DB.prepare(
     `INSERT INTO channel_context_cache (org_id, channel, locale, body, generated_at, last_message_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
      ON CONFLICT(org_id, channel, locale) DO UPDATE SET body = excluded.body, generated_at = excluded.generated_at, last_message_at = excluded.last_message_at`
-  ).bind(orgId, key, lang, markdown, now, material.lastAt || "").run().catch(() => {});
+  ).bind(orgId, key, scope, markdown, now, material.lastAt || "").run().catch(() => {});
   return { markdown, generatedAt: now, fresh: true };
 }
 

@@ -195,3 +195,61 @@ test("one channel's record: only that channel, its context written out in full, 
   fetchMock.assertNoPendingInterceptors();
   fetchMock.deactivate();
 });
+
+test("a guest's channel context is written from the decisions they are on, never from a teammate's kept one", async () => {
+  await seed();
+  const { fetchMock } = await import("./helpers/fetch-mock.js");
+  const { default: worker } = await import("../src/index.js");
+  const { postMessage } = await import("../src/channels.js");
+  const { createSession, upsertUser, upsertMembership, saveCard } = await import("../src/db.js");
+  const { addMembers } = await import("../src/access.js");
+  await upsertUser(env.DB, { githubId: "7304", login: "guest", name: "Guest", avatarUrl: null, locale: "ja" });
+  await upsertMembership(env.DB, ORG, "7304", "guest");
+  await addMembers(env.DB, { orgId: ORG, key: "b:hotel-本丸", logins: ["guest"], addedBy: "owner" });
+  const guestToken = await createSession(env.DB, "7304", "gho_guest");
+  await saveCard(env.DB, ORG, {
+    id: "r4", recipientUserID: "guest", senderUserID: "owner", type: "task", status: "pending", priority: "low",
+    title: "Send the floor plans", createdAt: "2026-09-06T00:00:00Z", business: "hotel-本丸",
+  });
+  fetchMock.activate();
+  await postMessage(env.DB, { orgId: ORG, key: "b:hotel-本丸", authorLogin: "owner", body: "Lease signed; opening in April." });
+  const call = (token, q, keyed = true) => worker.fetch(new Request(`https://example.com/record?${new URLSearchParams({ orgId: ORG, locale: "ja", channel: "b:hotel-本丸", ...q })}`, { headers: { "x-session-token": token } }), keyed ? { ...env, OPENAI_API_KEY: "sk-test" } : env, { waitUntil() {}, passThroughOnException() {} });
+  const asked = [];
+  const answer = (text) => fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    asked.push(JSON.parse(opts.body));
+    return { id: "r", output_text: text, output: [] };
+  });
+  // A member's context reads every decision in the channel, and is kept.
+  answer("## 目的\nTwo floors only — the member's context.");
+  const member = await (await call(ownerToken, {})).json();
+  expect(member.context).toContain("the member's context");
+  expect(asked[0].input).toContain("Two floors only");
+
+  // With no model to write theirs, the guest is not handed the member's.
+  const bare = await call(guestToken, {}, false);
+  expect(bare.status).toBe(200);
+  const bareBody = await bare.json();
+  expect(bareBody.context ?? null).toBeNull();
+  expect(JSON.stringify(bareBody)).not.toContain("the member's context");
+  expect(await (await call(guestToken, { format: "md" }, false)).text()).not.toContain("the member's context");
+
+  // Theirs is written from what they may read: the channel's messages and
+  // their own card, not the lease the other two decided.
+  answer("## 目的\nThe guest's context.");
+  const guest = await (await call(guestToken, {})).json();
+  expect(guest.context).toContain("The guest's context");
+  expect(guest.businesses[0].decided).toEqual([]);
+  expect(asked).toHaveLength(2);
+  expect(asked[1].input).toContain("Lease signed; opening in April.");
+  expect(asked[1].input).toContain("Send the floor plans");
+  expect(asked[1].input).not.toContain("Two floors only");
+  expect(asked[1].input).not.toContain("賃貸契約の承認");
+  expect(asked[1].input).not.toContain("Fix the booking form");
+
+  // Each is kept apart: nothing new said, no model call, each their own.
+  expect((await (await call(guestToken, {})).json()).context).toContain("The guest's context");
+  expect((await (await call(ownerToken, {})).json()).context).toContain("the member's context");
+  expect(asked).toHaveLength(2);
+  fetchMock.assertNoPendingInterceptors();
+  fetchMock.deactivate();
+});

@@ -1558,7 +1558,7 @@ async function handle(request, env, url, ctx) {
       let context = null;
       if (channel && record.businesses.length) {
         const { channelContext } = await import("./channelContext.js");
-        context = await channelContext(env, { orgId, key: `b:${channel}`, locale, githubId: session.github_id, refresh: url.searchParams.get("refresh") === "1" })
+        context = await channelContext(env, { orgId, key: `b:${channel}`, locale, viewer: me?.login || null, githubId: session.github_id, refresh: url.searchParams.get("refresh") === "1" })
           .catch((err) => { console.error("channel context failed", err?.message || err); return null; });
       }
       if (channel && !record.businesses.length) return json({ message: "No such channel." }, 404);
