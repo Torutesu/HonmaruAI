@@ -41,6 +41,12 @@ describe('what can be done to a message', () => {
     expect(item(list, 'forward')).toBeDefined()
   })
 
+  it('answers one reply inside a thread, quoted, where a reply is offered', () => {
+    const list = messageMenuEntries({ body: 'a reply', pinned: false }, { ...teammates, inThread: true, onQuote: noop, t })
+    expect(item(list, 'quote')?.label).toBe('Reply')
+    expect(item(list, 'reply')).toBeUndefined()
+  })
+
   it('says what a second press would do: unpin a pinned one, take a clipped one out', () => {
     const list = messageMenuEntries({ body: 'x', pinned: true }, { ...teammates, clipped: true, t })
     expect(item(list, 'pin')?.label).toBe('Unpin')

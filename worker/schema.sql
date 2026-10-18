@@ -71,12 +71,16 @@ CREATE TABLE IF NOT EXISTS orgs (
 );
 
 /* A workspace an owner asked to delete (workspaceDeletion.js): closed to all
-   but its owners until due_at, then deleted by the daily job. */
+   but its owners until due_at, then deleted by the daily job. purge_started_at:
+   when that job claimed it; from then on it can no longer be taken back.
+   purge_cursor: how far through the Jam recordings a run that stopped got. */
 CREATE TABLE IF NOT EXISTS workspace_deletions (
   org_id        TEXT PRIMARY KEY,
   due_at        TEXT NOT NULL,
   requested_by  TEXT NOT NULL,
-  requested_at  TEXT NOT NULL
+  requested_at  TEXT NOT NULL,
+  purge_started_at TEXT,
+  purge_cursor  TEXT
 );
 
 /* Each workspace's own data key, random, wrapped under DATA_KEY
@@ -197,6 +201,12 @@ CREATE TABLE IF NOT EXISTS cards (
 );
 CREATE INDEX IF NOT EXISTS idx_cards_recipient ON cards (org_id, recipient_user_id);
 CREATE INDEX IF NOT EXISTS idx_cards_status ON cards (org_id, status);
+/* Workflow approvals were once saved with priority "normal", which is not one
+   of the priorities a card may have (agui/validate.js): the iOS app could not
+   decode them and dropped the card, so the run waited on a decision nobody
+   saw. Replayed on every deploy; a no-op once none are left. */
+UPDATE cards SET priority = 'medium', data = json_set(data, '$.priority', 'medium')
+ WHERE json_extract(data, '$.priority') = 'normal';
 
 CREATE TABLE IF NOT EXISTS contexts (
   org_id  TEXT NOT NULL,
@@ -360,6 +370,17 @@ CREATE TABLE IF NOT EXISTS ai_usage (
   used           INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (user_github_id, day)
 );
+/* A metered call's place in the day's allowance, held from the check until
+   the call is counted in ai_usage or let go (gate.js). Counted with `used`
+   when the next call is checked, so two calls checked at once cannot both
+   take the last one. One never settled lapses at expires_at (ms). */
+CREATE TABLE IF NOT EXISTS ai_reservations (
+  id             TEXT PRIMARY KEY,
+  user_github_id TEXT NOT NULL,
+  day            TEXT NOT NULL,
+  expires_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_reservations_user ON ai_reservations (user_github_id, day, expires_at);
 
 /* When each user last ran through the connector cron. The run is capped, so
    ordering candidates by this — never-synced first — is what keeps the cap a
@@ -671,7 +692,11 @@ CREATE TABLE IF NOT EXISTS scheduled_messages (
   send_at       TEXT NOT NULL,
   created_at    TEXT NOT NULL,
   sent_at       TEXT,
-  also_channel  INTEGER NOT NULL DEFAULT 0
+  also_channel  INTEGER NOT NULL DEFAULT 0,
+  /* A cron run sending it holds it until then (later.js). `sent_at` is
+     written only once it is posted; a run that fails or dies leaves this
+     to run out, and it is tried again. */
+  lease_until   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_scheduled_due ON scheduled_messages(sent_at, send_at);
 
@@ -1089,9 +1114,10 @@ CREATE TABLE IF NOT EXISTS message_translations (
   PRIMARY KEY (org_id, message_id, locale)
 );
 
-/* A channel's context, written by the model for the record: kept with the
-   newest message it read, so it is written again only after something new
-   was said (channelContext.js). One per reader language. */
+/* A channel's context, written by the model for the record: kept with a
+   fingerprint of what it read (in last_message_at, a name from when it held
+   the newest message's time), so it is written again only after something
+   it read changed (channelContext.js). One per reader language. */
 CREATE TABLE IF NOT EXISTS channel_context_cache (
   org_id           TEXT NOT NULL,
   channel          TEXT NOT NULL,
@@ -1189,7 +1215,8 @@ CREATE TABLE IF NOT EXISTS org_key_ips (
   PRIMARY KEY (key_id, ip)
 );
 
-/* The admin API's answers to an Idempotency-Key, for a day. */
+/* The admin API's answers to an Idempotency-Key, for a day (adminApi.js).
+   status 0: claimed by a request still being carried out. */
 CREATE TABLE IF NOT EXISTS admin_idempotency (
   key_id        TEXT NOT NULL,
   idem_key      TEXT NOT NULL,
@@ -1216,7 +1243,10 @@ CREATE TABLE IF NOT EXISTS org_domains (
 );
 CREATE INDEX IF NOT EXISTS idx_org_domains_org ON org_domains(org_id);
 
-/* People at a workspace's domain asking to join it, when joining asks. */
+/* People at a workspace's domain asking to join it, when joining asks. One
+   held from an invitation (via 'invite') keeps the channels it named (JSON)
+   and who sent it, so approving it lets them in where the invitation would
+   have. */
 CREATE TABLE IF NOT EXISTS join_requests (
   org_id          TEXT NOT NULL,
   user_github_id  TEXT NOT NULL,
@@ -1227,6 +1257,8 @@ CREATE TABLE IF NOT EXISTS join_requests (
   outcome         TEXT,
   role            TEXT,
   via             TEXT,
+  channels        TEXT,
+  invited_by      TEXT,
   PRIMARY KEY (org_id, user_github_id)
 );
 
@@ -1290,7 +1322,9 @@ CREATE TABLE IF NOT EXISTS sso_states (
   tester_id       TEXT,
   created_at      TEXT NOT NULL,
   expires_at      TEXT NOT NULL,
-  connection_id   TEXT
+  connection_id   TEXT,
+  /* The hash of the secret the web page that started this keeps (sso.js). */
+  browser_hash    TEXT
 );
 
 /* The one-time code a finished SSO sign-in is handed back with, in place
@@ -1300,7 +1334,8 @@ CREATE TABLE IF NOT EXISTS sso_handoffs (
   token           TEXT NOT NULL,
   org_id          TEXT NOT NULL,
   client          TEXT NOT NULL,
-  expires_at      TEXT NOT NULL
+  expires_at      TEXT NOT NULL,
+  browser_hash    TEXT
 );
 
 /* Each hour of a workspace's audit log sealed into the archive

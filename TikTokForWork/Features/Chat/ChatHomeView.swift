@@ -35,7 +35,7 @@ struct ChatHomeView: View {
             root
             .navigationDestination(for: ChatRoute.self) { route in
                 switch route {
-                case let .conversation(view, jump): ConversationView(view: view, jump: jump, store: store)
+                case let .conversation(view, jump, thread): ConversationView(view: view, jump: jump, thread: thread, store: store)
                 case .activity: ChatActivityView(store: store)
                 case .later: ChatLaterView(store: store)
                 case .threads: ChatThreadsView(store: store)
@@ -110,7 +110,7 @@ struct ChatHomeView: View {
 
     private func openPending() {
         guard mode == .activity, let target = store.pendingOpen else { return }
-        path = [.conversation(view: target.channel, jump: target.parentId ?? target.messageId)]
+        path = [.conversation(view: target.channel, jump: target.messageId, thread: target.parentId)]
     }
 
     // MARK: Roots

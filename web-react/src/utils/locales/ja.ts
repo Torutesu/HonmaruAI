@@ -140,6 +140,8 @@ const table: Record<string, string> = {
   'Show': '表示',
   'Shrink': '元に戻す',
   'Stop sharing': '共有を停止',
+  'The screen could not be shared.': '画面を共有できませんでした。',
+  'Your system settings do not allow screen sharing. Allow it and try again.': 'システムの設定で画面の共有が許可されていません。許可してから、もう一度お試しください。',
   'This Jam is not recorded, so nothing is written down.': 'このJamは記録しない設定なので、文字起こしはされません。',
   'This browser cannot write down what you say; others’ words still appear here.': 'このブラウザではあなたの発言を文字にできません。ほかの人の発言はここに表示されます。',
   'Turn camera off': 'カメラをオフ',
@@ -1007,6 +1009,8 @@ const table: Record<string, string> = {
     'ここを変えても他には影響しません。メールの届き先だけです。',
   'This is the address you sign in with, so it cannot be changed here.':
     'サインインに使っているアドレスなので、ここでは変更できません。',
+  'Your company manages this address, so it cannot be changed here.':
+    '会社が管理しているアドレスなので、ここでは変更できません。',
 
   // Notifications
   'On this device': 'この端末で',
@@ -1730,6 +1734,9 @@ const table: Record<string, string> = {
   'Keep mine': '自分の版を残す',
   'Use theirs': '相手の版を使う',
   'Put both together': '両方をつなげる',
+  'Saved. What you wrote since is not saved yet.': '保存しました。その後に書いた分はまだ保存されていません。',
+  'The update was written from the canvas before your latest changes.': 'この更新は、最後に書き足す前のキャンバスから作られました。',
+  'Use the update': '更新を使う',
   'Someone else changed the canvas just now. Here is theirs.': 'たった今ほかの人がキャンバスを変更しました。その版を表示しています。',
   'The canvas did not load. Try again.': 'キャンバスを読み込めませんでした。もう一度お試しください。',
   'What this channel is for': 'このチャンネルの目的',
@@ -1788,6 +1795,7 @@ const table: Record<string, string> = {
   '{team} signs in only with {provider}.': '{team}は{provider}でのみログインします。',
   '{team} uses {provider} for sign-in.': '{team}は{provider}でログインします。',
   'That sign-in did not finish. Try again.': 'ログインが完了しませんでした。もう一度お試しください。',
+  'That sign-in was not started in this browser. Start it again here.': 'このログインはこのブラウザで始めたものではありません。ここからもう一度始めてください。',
   'Workspace keys': 'ワークスペースのキー',
   'For an HR system or Terraform: add and remove people, set up channels, read the audit log. The key belongs to the workspace, not to whoever made it, and never reads messages.': '人事システムやTerraform向けです。人の追加・削除、チャンネルの用意、監査ログの取得ができます。キーは作った人ではなくワークスペースのもので、メッセージは読めません。',
   'Make a key': 'キーを作る',
@@ -2178,6 +2186,7 @@ const table: Record<string, string> = {
   'Replying to {name}': '{name}に返信',
   'Cancel reply': '返信をやめる',
   'The message you were replying to is gone. Send again to post this on its own.': '返信先のメッセージは削除されました。もう一度送ると、返信ではない通常のメッセージとして投稿されます。',
+  'That thread was deleted, so your reply was not sent. It is in the conversation’s box instead.': 'スレッドが削除されたため、返信は送信されませんでした。代わりに会話の入力欄に戻してあります。',
   'A scheduled message cannot be a reply yet.': '予約送信はまだ返信にできません。',
   'Could not find the original message.': '元のメッセージが見つかりませんでした。',
   'replied to you': 'があなたに返信',

@@ -59,6 +59,31 @@ test('claim is exclusive, submissions idempotent, finish rejects replay and wron
   expect((await api('POST', `/jobs/${job.id}/finish`, null, body, token)).status).toBe(409);
   expect(await claim(token)).not.toBeNull();
 });
+test('a node whose finish reply was lost is told its result is in, and nothing changes', async () => {
+  const { gateway, token } = await node();
+  const second = await node();
+  await enqueue(gateway.id);
+  const running = await claim(token);
+  const body = { lease: running.lease, status: 'succeeded', stdout: '42', exitCode: 0 };
+  expect((await api('POST', `/jobs/${running.id}/finish`, null, body, token)).status).toBe(200);
+  const before = await env.DB.prepare('SELECT status, result, finished_at FROM hx_gateway_jobs WHERE id = ?').bind(running.id).first();
+  const again = await api('POST', `/jobs/${running.id}/finish`, null, body, token);
+  expect(again.status).toBe(409);
+  expect((await again.json()).code).toBe('already_finished');
+  expect(await env.DB.prepare('SELECT status, result, finished_at FROM hx_gateway_jobs WHERE id = ?').bind(running.id).first()).toEqual(before);
+  // A different result, another node, or another lease is refused as before.
+  for (const [b, t] of [[{ ...body, stdout: '43' }, token], [body, second.token], [{ ...body, lease: 'not-the-lease' }, token]]) {
+    const r = await api('POST', `/jobs/${running.id}/finish`, null, b, t);
+    expect(r.status).toBe(409);
+    expect((await r.json()).code).toBeUndefined();
+  }
+  // A cancelled job is never reported as delivered.
+  await enqueue(gateway.id);
+  const next = await claim(token);
+  expect((await api('POST', `/jobs/${next.id}/cancel`, member)).status).toBe(200);
+  const late = await api('POST', `/jobs/${next.id}/finish`, null, { lease: next.lease, status: 'succeeded', stdout: '42', exitCode: 0 }, token);
+  expect((await late.json()).code).toBeUndefined();
+});
 test('cancellation and revocation immediately reject leases and tokens', async () => {
   const { gateway, token } = await node();
   await enqueue(gateway.id);

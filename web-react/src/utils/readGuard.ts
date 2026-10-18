@@ -7,7 +7,8 @@
 // Read only ever moves forward here: an item marked read stays read for
 // this session (each Activity item is one event, it cannot be new again),
 // a conversation is read up to a time, a thread up to its newest reply
-// read. A reply that comes after that is new, and stays new.
+// read. A reply that comes after that is new, and stays new. The one way
+// back is "Mark unread", which sets a thread's mark to where it was put.
 
 interface ActivityLike { key?: string; unread: boolean; at?: string; message: { channel: string; parentId?: string | null; createdAt: string } }
 interface ThreadLike { unread: boolean; lastReplyAt: string; parent: { id: string } }
@@ -30,6 +31,9 @@ export class ReadGuard {
   readChannel(channel: string, at: string) { this.channels.set(channel, later(this.channels.get(channel), at)) }
   /// A thread read up to `at`: its replies to then, in Threads and Activity.
   readThread(parentId: string, at: string) { this.threads.set(parentId, later(this.threads.get(parentId), at)) }
+  /// A thread marked unread from a reply: read only up to `at`, even if it
+  /// was read further before, so its replies after that are new again.
+  unreadThread(parentId: string, at: string) { this.threads.set(parentId, at) }
 
   /// A load of `kind` leaving now; pass what it returns to `fresh`.
   ask(kind: string): number { const n = ++this.tick; this.asked.set(kind, n); return n }

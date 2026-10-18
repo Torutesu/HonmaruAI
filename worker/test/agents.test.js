@@ -295,6 +295,28 @@ test("in its own conversation an agent reads the team's past decisions; in a cha
   expect(prompts[1]).not.toContain("Switch roaster supplier");
 });
 
+test("in a guest's own conversation an agent reads only the decisions the guest is on", async () => {
+  const made = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json();
+  const { saveCard } = await import("../src/db.js");
+  const { addMembers } = await import("../src/access.js");
+  await addMembers(env.DB, { orgId: ORG, key: "b:cafe", logins: ["gus"], addedBy: "toru" });
+  const decided = { status: "approved", createdAt: new Date().toISOString(), decision: { action: "approve", actorUserID: "mika", decidedAt: new Date().toISOString() } };
+  await saveCard(env.DB, ORG, { ...decided, id: "c-roast", recipientUserID: "mika", senderUserID: "kenji", title: "Switch roaster supplier", business: "cafe" });
+  await saveCard(env.DB, ORG, { ...decided, id: "c-other", recipientUserID: "mika", senderUserID: "kenji", title: "Roaster contract for the hotel" });
+  await saveCard(env.DB, ORG, { ...decided, id: "c-gus", recipientUserID: "gus", senderUserID: "toru", title: "Roaster tasting with Gus", business: "cafe" });
+  const prompts = [];
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(200, (opts) => {
+    prompts.push(JSON.parse(opts.body).messages[1].content);
+    return { choices: [{ message: { content: "ok" } }] };
+  });
+  const sent = await send("POST", "/channels/messages", guest, { orgId: ORG, channel: `ag:${made.agent.id}`, body: "What did we decide about the roaster?" }, { OPENAI_API_KEY: "sk-test" });
+  expect(sent.status).toBe(201);
+  expect(prompts).toHaveLength(1);
+  expect(prompts[0]).toContain("Roaster tasting with Gus");
+  expect(prompts[0]).not.toContain("Switch roaster supplier");
+  expect(prompts[0]).not.toContain("Roaster contract for the hotel");
+});
+
 test("an agent researches with a reasoning model, web search and its own tools, and answers with what it found, and where", async () => {
   const made = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json();
   const asked = [];
@@ -635,4 +657,34 @@ test("in a thread an agent answered, the person who called it goes on without na
   await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", parentId: asked.id, body: "@kenji thoughts?" }, { OPENAI_API_KEY: "sk-test" });
   const thread = await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:cafe", messageId: asked.id })}`, mika)).json();
   expect(thread.replies.filter((r) => r.kind === "agent").map((r) => r.body)).toEqual(["Amber.", "A rounded serif."]);
+});
+
+test("a queued agent job answers only someone still in the workspace and within its sign-in rules", async () => {
+  await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
+  const { getSession, createSession } = await import("../src/db.js");
+  const { postMessage } = await import("../src/channels.js");
+  const { runQueuedAgents } = await import("../src/agentRunner.js");
+  const { endHere } = await import("../src/sessions.js");
+  const ask = async (token) => {
+    const { row } = await postMessage(env.DB, { orgId: ORG, key: "b:cafe", authorLogin: "kenji", body: "@hayao poster ideas?" });
+    await runQueuedAgents(env, { orgId: ORG, token, rowId: row.id, locale: "en" });
+    return { row };
+  };
+  const replies = async (row) => (await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:cafe", messageId: row.id })}`, toru)).json()).replies;
+
+  // Queued as the request does it: by the session's stored key.
+  const key = (await getSession(env.DB, kenji)).token;
+  const allowed = await ask(key);
+  expect(await replies(allowed.row)).toEqual([expect.objectContaining({ kind: "agent", authorName: "Hayao" })]);
+
+  // Signed out of this workspace by its rules: the session is still good elsewhere.
+  await endHere(env, ORG, [key]);
+  const ended = await ask(key);
+  expect(await replies(ended.row)).toEqual([]);
+
+  // Removed from the workspace after the job was queued.
+  const fresh = await createSession(env.DB, "8803", "gho_k2");
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = '8803'").bind(ORG).run();
+  const removed = await ask(fresh);
+  expect(await replies(removed.row)).toEqual([]);
 });

@@ -68,10 +68,25 @@ test("a card from someone's own mail is theirs: nobody else opens, finds or reco
 
 test("a routine's report said in a channel is the channel's, though its owner made it for themselves", async () => {
   const { isPersonal } = await import("../src/access.js");
-  expect(isPersonal({ recipientUserID: "a", senderUserID: "a", sourceApp: "Routine", visibility: "team" })).toBe(false);
+  expect(isPersonal({ recipientUserID: "a", senderUserID: "a", sourceApp: "Routine", visibility: "team", business: "sales" })).toBe(false);
   const { saveCard } = await import("../src/db.js");
-  await saveCard(env.DB, ORG, { id: "weekly", type: "notification", title: "Budget weekly", status: "pending", priority: "low", createdAt: new Date().toISOString(),
-    recipientUserID: "owner", senderUserID: "owner", sourceApp: "Routine", visibility: "team" });
+  const report = { type: "notification", status: "pending", priority: "low", createdAt: new Date().toISOString(),
+    recipientUserID: "owner", senderUserID: "owner", sourceApp: "Routine", visibility: "team", report: { markdown: "x" } };
+  await saveCard(env.DB, ORG, { ...report, id: "weekly", title: "Budget weekly", business: "sales" });
   expect((await get(q("/cards/weekly"), member)).status).toBe(200);
   expect((await (await get(q("/search?q=Budget"), member)).json()).hits.map((h) => h.id)).toContain("weekly");
+
+  // Said in a private channel: its members'.
+  await saveCard(env.DB, ORG, { ...report, id: "weekly-board", title: "Budget board weekly", business: "board" });
+  expect((await get(q("/cards/weekly-board"), owner)).status).toBe(200);
+  expect((await get(q("/cards/weekly-board"), member)).status).toBe(404);
+  expect((await (await get(q("/search?q=Budget"), member)).json()).hits.map((h) => h.id)).not.toContain("weekly-board");
+
+  // One said before reports were filed under their channel cannot say whose
+  // it is: its owner's alone.
+  expect(isPersonal({ recipientUserID: "a", senderUserID: "a", sourceApp: "Routine", visibility: "team" })).toBe(true);
+  await saveCard(env.DB, ORG, { ...report, id: "weekly-old", title: "Budget old weekly" });
+  expect((await get(q("/cards/weekly-old"), owner)).status).toBe(200);
+  expect((await get(q("/cards/weekly-old"), member)).status).toBe(404);
+  expect((await (await get(q("/search?q=Budget"), member)).json()).hits.map((h) => h.id)).not.toContain("weekly-old");
 });

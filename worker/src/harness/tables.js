@@ -142,7 +142,20 @@ export async function listTables(db, orgId) {
   return (results || []).map(publicTable);
 }
 
-export async function updateTable(db, orgId, id, { name, columns }) {
+export async function updateTable(db, orgId, id, input) {
+  const plan = await planTableUpdate(db, orgId, id, input);
+  if (plan.error) return plan;
+  const changed = await plan.statement.run();
+  if(!changed.meta?.changes)return {error:'Table schema changed. Reload before editing.',status:409};
+  return { table: await getTable(db, orgId, id) };
+}
+
+/// A table edit checked but not yet written: the columns it makes, and the
+/// statement that writes them only while nobody else has changed the table.
+/// `guard` is one more condition the write waits on, as SQL whose own
+/// parameters start at ?9 — an app's save writes its table only while the
+/// app is still the version that save was made from.
+export async function planTableUpdate(db, orgId, id, { name, columns }, guard = { sql: "1", binds: [] }) {
   const table = await getTable(db, orgId, id);
   if (!table) return { error: "No such table.", status: 404 };
   const next = { name: table.name, columns: table.columns };
@@ -158,13 +171,12 @@ export async function updateTable(db, orgId, id, { name, columns }) {
     if (cols.error) return cols;
     next.columns = cols.columns;
   }
-  const changed = await db
+  const statement = db
     .prepare(`UPDATE hx_tables SET name = ?1, columns = ?2, updated_at = ?3 WHERE id = ?4 AND org_id = ?5 AND columns=?6 AND updated_at=?7
-      AND (?8=0 OR NOT EXISTS (SELECT 1 FROM hx_apps a JOIN hx_app_database_state s ON s.app_id=a.id AND s.org_id=a.org_id WHERE a.org_id=?5 AND s.version>0 AND (a.table_id=?4 OR EXISTS (SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=?4))))`)
-    .bind(next.name, JSON.stringify(next.columns), new Date(Math.max(Date.now(),Date.parse(table.updatedAt)+1)).toISOString(), id, orgId, JSON.stringify(table.columns),table.updatedAt,columns===undefined?0:1)
-    .run();
-  if(!changed.meta?.changes)return {error:'Table schema changed. Reload before editing.',status:409};
-  return { table: await getTable(db, orgId, id) };
+      AND (?8=0 OR NOT EXISTS (SELECT 1 FROM hx_apps a JOIN hx_app_database_state s ON s.app_id=a.id AND s.org_id=a.org_id WHERE a.org_id=?5 AND s.version>0 AND (a.table_id=?4 OR EXISTS (SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=?4))))
+      AND (${guard.sql})`)
+    .bind(next.name, JSON.stringify(next.columns), new Date(Math.max(Date.now(),Date.parse(table.updatedAt)+1)).toISOString(), id, orgId, JSON.stringify(table.columns),table.updatedAt,columns===undefined?0:1, ...guard.binds);
+  return { table: { ...table, ...next }, statement };
 }
 
 export async function deleteTable(db, orgId, id) {

@@ -5,16 +5,20 @@
 /// its canvas, its bookmarks and pins — and written by the research model
 /// with no web access: only what the team said and decided.
 ///
-/// Kept per channel with the time of the newest message it read, so opening
-/// the record again costs nothing until somebody says something new.
+/// Kept per channel with a fingerprint of everything it read, so opening the
+/// record again costs nothing until something it was written from changes.
+///
+/// A guest reads only the decisions they are on, as in the record itself, so
+/// theirs is written from those alone and kept apart from everyone else's.
 
-import { NOT_PERSONAL_SQL } from "./access.js";
+import { NOT_PERSONAL_SQL, accessFor, mayReadCard } from "./access.js";
 import { providerFor } from "./orgAI.js";
 import { allowanceFor } from "./gate.js";
 import { settleUsage, noteUsage } from "./ledger.js";
 import { agentTalkFilter } from "./customAgents.js";
 import { research, canResearch } from "./agentResearch.js";
 import { languageName } from "./language.js";
+import { sha256Hex } from "./auth.js";
 
 const MAX_MESSAGES = 400;
 const MAX_INPUT = 60000;
@@ -37,7 +41,7 @@ Write in Markdown with exactly these sections, in this order, each with "## " he
 ## Open questions — what the material does not answer.`;
 
 /// The material a channel holds, as the model reads it.
-async function gather(db, orgId, key, locale) {
+async function gather(db, orgId, key, locale, access) {
   const skip = await agentTalkFilter(db, orgId);
   const [info, messages, canvas, bookmarks, cards] = await Promise.all([
     db.prepare("SELECT name, description, created_at FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, key.slice(2)).first().catch(() => null),
@@ -72,7 +76,7 @@ async function gather(db, orgId, key, locale) {
   for (const r of cards.results || []) {
     let c;
     try { c = JSON.parse(r.data); } catch { continue; }
-    if (!c) continue;
+    if (!c || !mayReadCard(c, access)) continue;
     const local = c.localized?.[locale] || {};
     const title = local.title || c.title || "";
     const state = c.decision?.action
@@ -99,20 +103,32 @@ ${(bookmarks.results || []).map((b) => `- ${b.title}: ${b.url}`).join("\n") || "
 <messages oldest_first="true">
 ${lines.join("\n") || "(none)"}
 </messages>`;
+  // What the context was written from, whole: any change to it — an edit,
+  // a message unsent, a decision made or changed, the canvas or a bookmark
+  // — is a different version, where the newest message's time alone was not.
+  const version = `v2:${await sha256Hex(text)}`;
   if (text.length > MAX_INPUT) text = `${text.slice(0, 20000)}\n…\n${text.slice(text.length - (MAX_INPUT - 20000))}`;
-  return { text, lastAt: kept.length ? kept[kept.length - 1].created_at : (info?.created_at || ""), count: kept.length, decisions: decisions.length, name: info?.name || key.slice(2) };
+  return { text, version, count: kept.length, decisions: decisions.length, name: info?.name || key.slice(2) };
 }
 
 /// The context of one channel, in the reader's language: from the cache
-/// while nothing new was said, else written now. { markdown, generatedAt,
-/// fresh } — markdown null when there is no model and nothing to say.
-export async function channelContext(env, { orgId, key, locale = "en", githubId = null, refresh = false }) {
-  const material = await gather(env.DB, orgId, key, locale);
+/// while what it was written from is unchanged, else written now.
+/// { markdown, generatedAt, fresh } — markdown null when there is no model
+/// and nothing to say.
+///
+/// The cache's `last_message_at` holds the version of the material it was
+/// written from (gather's `version`), not a time any more.
+export async function channelContext(env, { orgId, key, locale = "en", viewer = null, githubId = null, refresh = false }) {
+  const access = await accessFor(env.DB, orgId, viewer || "");
+  const material = await gather(env.DB, orgId, key, locale, access);
   const lang = String(locale || "en").slice(0, 2);
+  // Everyone but a guest may read every decision in a channel they can see,
+  // so they share one context per language; a guest's is theirs alone.
+  const scope = access.guest ? `${lang}|${access.login}` : lang;
   const cached = await env.DB.prepare(
     "SELECT body, generated_at, last_message_at FROM channel_context_cache WHERE org_id = ?1 AND channel = ?2 AND locale = ?3"
-  ).bind(orgId, key, lang).first().catch(() => null);
-  if (!refresh && cached && cached.last_message_at === material.lastAt) {
+  ).bind(orgId, key, scope).first().catch(() => null);
+  if (!refresh && cached && cached.last_message_at === material.version) {
     return { markdown: cached.body, generatedAt: cached.generated_at, fresh: false };
   }
   if (!material.count && !material.decisions) return { markdown: null, generatedAt: null, fresh: false };
@@ -134,10 +150,16 @@ export async function channelContext(env, { orgId, key, locale = "en", githubId 
   await settleUsage(env.DB, provider, { orgId, githubId });
   if (!markdown) return { markdown: cached?.body || null, generatedAt: cached?.generated_at || null, fresh: false };
   const now = new Date().toISOString();
-  await env.DB.prepare(
-    `INSERT INTO channel_context_cache (org_id, channel, locale, body, generated_at, last_message_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-     ON CONFLICT(org_id, channel, locale) DO UPDATE SET body = excluded.body, generated_at = excluded.generated_at, last_message_at = excluded.last_message_at`
-  ).bind(orgId, key, lang, markdown, now, material.lastAt || "").run().catch(() => {});
+  // Kept only while it is still the channel as it now stands: writing takes
+  // a minute or two, and a write begun before a change that finishes after
+  // a newer one must not put the older context back in the cache.
+  const still = await gather(env.DB, orgId, key, locale, access).catch(() => null);
+  if (still?.version === material.version) {
+    await env.DB.prepare(
+      `INSERT INTO channel_context_cache (org_id, channel, locale, body, generated_at, last_message_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(org_id, channel, locale) DO UPDATE SET body = excluded.body, generated_at = excluded.generated_at, last_message_at = excluded.last_message_at`
+    ).bind(orgId, key, scope, markdown, now, material.version).run().catch(() => {});
+  }
   return { markdown, generatedAt: now, fresh: true };
 }
 

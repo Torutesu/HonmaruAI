@@ -41,3 +41,16 @@ it('an answer to an older load that comes back after a newer one is not drawn', 
   // Each kind on its own.
   expect(g.fresh('threads', g.ask('threads'))).toBe(true)
 })
+
+it('"Mark unread" in a thread takes its mark back; a reply read again moves it on', () => {
+  const g = new ReadGuard()
+  g.readThread('p1', '2026-10-05T10:06:00Z')
+  const fetched = [{ unread: true, lastReplyAt: '2026-10-05T10:06:00Z', parent: { id: 'p1' } }]
+  expect(g.threadList(fetched)[0].unread).toBe(false)
+  g.unreadThread('p1', '2026-10-05T10:01:59.999Z')
+  expect(g.threadList(fetched)[0].unread).toBe(true)
+  expect(g.activity([item('r:4', 'b:a', '2026-10-05T10:06:00Z', 'p1')], keyOf)[0].unread).toBe(true)
+  expect(g.activity([item('r:3', 'b:a', '2026-10-05T10:00:00Z', 'p1')], keyOf)[0].unread).toBe(false)
+  g.readThread('p1', '2026-10-05T10:06:00Z')
+  expect(g.threadList(fetched)[0].unread).toBe(false)
+})

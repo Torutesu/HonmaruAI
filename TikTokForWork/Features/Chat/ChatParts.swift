@@ -214,10 +214,28 @@ final class ChatTranslations: ObservableObject {
     }
 
     private static func key(_ m: ChatMessage) -> String { "\(m.id):\(m.body)" }
-    /// The translation known for a message as it now reads, in the reader's language.
+    /// A short fingerprint of a message's words, the same on every launch
+    /// (the Worker's sourceHash) — Swift's own hash is not.
+    static func wordsHash(_ text: String) -> String {
+        var h: UInt32 = 0x811c9dc5
+        for c in text.unicodeScalars {
+            h ^= c.value
+            h = h &* 0x01000193
+        }
+        return String(h, radix: 16)
+    }
+    /// Where one version of a message's translation is kept: by the message,
+    /// the language and the words it was made from, so a slow answer for
+    /// words since edited never takes the place of the words as they are.
+    static func textKey(_ id: String, lang: String, from: String) -> String { "\(id):\(lang):\(wordsHash(from))" }
+    /// The translation known for a message as it now reads, in the reader's
+    /// language. (Kept before versions were, by message and language alone:
+    /// still read.)
     func known(_ m: ChatMessage) -> String? {
-        guard let t = texts["\(m.id):\(reader)"], t.from == m.body else { return nil }
-        return t.text
+        for k in [Self.textKey(m.id, lang: reader, from: m.body), "\(m.id):\(reader)"] {
+            if let t = texts[k], t.from == m.body { return t.text }
+        }
+        return nil
     }
     func isPending(_ m: ChatMessage) -> Bool { !off && pending.contains(Self.key(m)) }
     /// Failed, and no translation known to show instead: a failed refresh
@@ -244,7 +262,7 @@ final class ChatTranslations: ObservableObject {
     }
 
     func store(_ id: String, from: String, text: String, lang: String? = nil) {
-        texts["\(id):\(lang ?? reader)"] = Kept(from: from, text: text, at: Date().timeIntervalSince1970)
+        texts[Self.textKey(id, lang: lang ?? reader, from: from)] = Kept(from: from, text: text, at: Date().timeIntervalSince1970)
         save()
     }
     func shown(_ m: ChatMessage) -> (text: String, translated: Bool) {
@@ -286,8 +304,15 @@ final class ChatTranslations: ObservableObject {
         }
         return true
     }
+    /// Requests of at most `size`, for every one of `list`: a request is
+    /// bounded, the work is not.
+    static func batches<T>(_ list: [T], size: Int = 60) -> [[T]] {
+        stride(from: 0, to: list.count, by: size).map { Array(list[$0..<min($0 + size, list.count)]) }
+    }
     /// The ones still to ask for, marked as asked: none known already, in
-    /// this reader's language.
+    /// this reader's language. Every one returned is to be asked for (in
+    /// `batches`) — one marked asked and never sent would never be asked
+    /// for again.
     func wanted(_ list: [ChatMessage], reader: String) -> [ChatMessage] {
         let to = String(reader.prefix(2)).lowercased()
         if to != self.reader { self.reader = to; asked = [] }
@@ -519,11 +544,21 @@ struct ChatEmojiGlyph: View {
 /// Files' addresses kept fresh: each file is kept by its id, and a minute
 /// before its address runs out a new one is asked for (POST /media/urls),
 /// with the others due about then.
+///
+/// Asking can fail — no connection, or the server down for a moment. Then
+/// it is asked again, ten seconds on and twice as long each time up to a
+/// minute, for as long as the files are on screen. One the server answers
+/// without (not the reader's to see any more, or gone) is not asked for
+/// again until a newer address for it comes with the message.
 @MainActor
 final class ChatMediaURLs: ObservableObject {
     static let shared = ChatMediaURLs()
     @Published private(set) var fresh: [String: ChatService.FreshFile] = [:]
     private var asked: [String: Date] = [:]
+    /// Renewals that failed in a row, by file.
+    private var failures: [String: Int] = [:]
+    /// Files the server would not renew, by the expiry they had then.
+    private var refused: [String: Double] = [:]
     private var orgId: String?
 
     /// The best address known for a file.
@@ -536,24 +571,66 @@ final class ChatMediaURLs: ObservableObject {
         max(fresh[f.id]?.expiresAt ?? 0, f.expiresAt ?? 0).nonZero
     }
 
+    /// Whether the server would not renew this file's address as it is now.
+    private func isRefused(_ f: ChatFile) -> Bool {
+        guard let no = refused[f.id], let at = expiry(f) else { return false }
+        return at <= no
+    }
+
+    /// How long to wait after `count` renewals of a file failed in a row:
+    /// ten seconds, doubling, up to a minute.
+    nonisolated static func retryDelay(afterFailures count: Int) -> TimeInterval {
+        min(10 * pow(2, Double(max(count, 1) - 1)), 60)
+    }
+
+    /// A new address for one file now, for a player whose address stopped
+    /// opening; nil when there is none newer than the one it had (the server
+    /// would not renew it, or could not be reached).
+    func renewNow(_ f: ChatFile, base: URL) async -> URL? {
+        guard let org = SessionStore.orgId, org == orgId else { return nil }
+        let had = expiry(f) ?? 0
+        asked[f.id] = Date()
+        guard let got = try? await ChatService.freshFileURLs(orgId: org, ids: [f.id], base: base), let one = got[f.id] else { return nil }
+        if one.expiresAt > (fresh[f.id]?.expiresAt ?? 0) { fresh[f.id] = one }
+        return one.expiresAt > had ? address(f, base: base) : nil
+    }
+
     /// Renews the ones due within a minute; returns how long until the next
-    /// one is, in seconds.
+    /// one is, or until a failed one is tried again, in seconds. Nil only
+    /// when nothing on screen runs out, or the server would renew none of it.
     func renewDue(_ files: [ChatFile], base: URL) async -> TimeInterval? {
         let now = Date().timeIntervalSince1970 * 1000
         let org = SessionStore.orgId
-        if org != orgId { fresh = [:]; orgId = org }
+        if org != orgId { fresh = [:]; failures = [:]; refused = [:]; orgId = org }
         let due = files.filter { f in
-            guard let at = expiry(f) else { return false }
+            guard !isRefused(f), let at = expiry(f) else { return false }
             return at - 60_000 <= now && Date().timeIntervalSince(asked[f.id] ?? .distantPast) > 10
         }
+        var retry: TimeInterval?
         if let org, !due.isEmpty {
             for f in due { asked[f.id] = Date() }
-            if let got = try? await ChatService.freshFileURLs(orgId: org, ids: due.map(\.id), base: base) {
+            do {
+                let got = try await ChatService.freshFileURLs(orgId: org, ids: due.map(\.id), base: base)
                 for (id, f) in got { fresh[id] = f }
+                for f in due {
+                    failures[f.id] = nil
+                    if got[f.id] == nil { refused[f.id] = expiry(f) ?? 0 }
+                }
+            } catch ChatService.Failure.server(let code, _) where code == 403 || code == 404 {
+                // Not this reader's workspace any more: nothing here is renewed.
+                for f in due { failures[f.id] = nil; refused[f.id] = expiry(f) ?? 0 }
+            } catch {
+                for f in due { failures[f.id, default: 0] += 1 }
+                retry = Self.retryDelay(afterFailures: due.compactMap { failures[$0.id] }.max() ?? 1)
             }
         }
-        let next = files.compactMap { expiry($0) }.map { ($0 - 60_000 - Date().timeIntervalSince1970 * 1000) / 1000 }.filter { $0 > 0 }.min()
-        return next
+        // In steps: as one expression it is more than the compiler will check.
+        let nowMs: Double = Date().timeIntervalSince1970 * 1000
+        let expiries: [Double] = files.filter { !isRefused($0) }.compactMap { expiry($0) }
+        let waits: [Double] = expiries.map { ($0 - 60_000 - nowMs) / 1000 }.filter { $0 > 0 }
+        let next: Double? = waits.min()
+        guard let retry else { return next }
+        return min(next ?? retry, retry)
     }
 }
 
@@ -613,7 +690,10 @@ struct ChatAttachments: View {
         }
         .sheet(item: $preview) { file in
             if let url = assets.base.flatMap({ media.address(file, base: $0) }) {
-                ChatFilePreview(file: file, url: url)
+                ChatFilePreview(file: file, url: url) {
+                    guard let base = assets.base else { return nil }
+                    return await media.renewNow(file, base: base)
+                }
             }
         }
     }
@@ -848,7 +928,11 @@ struct ChatMessageRow: View {
                                 Text(verbatim: "@\(handle)").font(.caption).foregroundStyle(Theme.Colors.textTertiary).lineLimit(1)
                             }
                         }
-                        Text(message.date, style: .time).font(.caption).foregroundStyle(Theme.Colors.textTertiary)
+                        if inThread {
+                            Text(message.date, format: ChatDates.threadStyle(for: message.date)).font(.caption).foregroundStyle(Theme.Colors.textTertiary)
+                        } else {
+                            Text(message.date, style: .time).font(.caption).foregroundStyle(Theme.Colors.textTertiary)
+                        }
                     }
                 }
                 if message.isDeleted {

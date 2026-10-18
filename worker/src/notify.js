@@ -104,15 +104,15 @@ export async function notifyCardNow(env, { card, kind = "created", excludeLogin,
   // it. The phone (and the inbox) stay quiet, as in Slack.
   if (kind !== "digest" && await isActive(env.DB, orgId || null, recipient)) return { sent: 0, skipped: "active", channels };
   // Paused, or outside the hours they set: it waits in the feed and Activity.
-  if (kind !== "digest") {
-    const quiet = await quietFor(env.DB, recipient);
-    if (quiet) {
-      // Held until it ends, when that is soon enough (quiet.js); the job
-      // runs again then and finds out whether it is still news.
-      const ends = deliveryJobId ? await quietEnds(env.DB, recipient) : null;
-      if (ends) return { sent: 0, deferUntil: ends.getTime(), channels };
-      return { sent: 0, skipped: `quiet:${quiet.reason}`, channels };
-    }
+  // A digest too — the pause promises nothing reaches them, whatever the
+  // size of the batch.
+  const quiet = await quietFor(env.DB, recipient);
+  if (quiet) {
+    // Held until it ends, when that is soon enough (quiet.js); the job
+    // runs again then and finds out whether it is still news.
+    const ends = deliveryJobId ? await quietEnds(env.DB, recipient) : null;
+    if (ends) return { sent: 0, deferUntil: ends.getTime(), channels };
+    return { sent: 0, skipped: `quiet:${quiet.reason}`, channels };
   }
 
   const user = await getUserByLogin(env.DB, recipient);

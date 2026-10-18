@@ -9,13 +9,14 @@
 // app's pages, navigation kept to the app, the API and sign-in, and every
 // other link sent to the browser.
 
-import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, powerMonitor, screen, session, shell } from 'electron'
+import { app, BrowserWindow, Menu, Tray, desktopCapturer, dialog, ipcMain, nativeImage, powerMonitor, screen, session, shell, systemPreferences } from 'electron'
 import { isAway } from './attention.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { allowedOrigins, apiOriginsFrom, appUrlFrom, updatesEnabled } from './config.js'
 import { buildCsp, withCsp } from './csp.js'
+import { SCREEN_SETTINGS, captureAllowed, captureBlocked, captureBlockedMessage, captureChoices } from './capture.js'
 import { PROTOCOL, deepLinkToHash, deepLinkToUrl, goMenuItems, modeMenuItems, setModeScript, isSafeExternal, linkFromArgv, navigationDecision, windowTitle } from './links.js'
 import { countFromTitle, shouldAttract, trayTooltip } from './badge.js'
 import { fitBounds, loadWindowState, saveWindowState, MIN_SIZE } from './windowState.js'
@@ -40,8 +41,9 @@ const API_ORIGINS = apiOriginsFrom(process.env, { packaged: PACKAGED })
 /// them.
 const CSP = buildCsp({ apiOrigins: API_ORIGINS, dev: !PACKAGED && APP_URL.startsWith('http:') })
 /// What the app's own pages may ask for: notifications, a microphone and
-/// camera for Jam calls, full screen, and writing to the clipboard.
-const PERMISSIONS = new Set(['notifications', 'media', 'fullscreen', 'clipboard-sanitized-write'])
+/// camera for Jam calls and a screen to share in them, full screen, and
+/// writing to the clipboard.
+const PERMISSIONS = new Set(['notifications', 'media', 'display-capture', 'fullscreen', 'clipboard-sanitized-write'])
 /// How long a blank window a page opened may wait to be pointed somewhere
 /// before it is closed.
 const BLANK_CHILD_MS = 30 * 1000
@@ -269,6 +271,36 @@ function lockPermissions() {
   session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin) => {
     return PERMISSIONS.has(permission) && ours(requestingOrigin || contents?.getURL() || '')
   })
+  allowScreenSharing()
+}
+
+/// Sharing a screen in a Jam (src/capture.js): macOS 15 and later show the
+/// system's picker; elsewhere the app asks which screen or window. Only the
+/// app's own page may ask, and closing the question shares nothing.
+function allowScreenSharing() {
+  const japanese = () => app.getLocale().startsWith('ja')
+  const ask = (options) => (win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options))
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    const deny = () => { try { callback({}) } catch { /* the page has gone */ } }
+    if (!captureAllowed(request, APP_ORIGIN)) { deny(); return }
+    void (async () => {
+      if (process.platform === 'darwin' && captureBlocked(systemPreferences.getMediaAccessStatus('screen'))) {
+        const { response } = await ask(captureBlockedMessage({ appName: APP_NAME, japanese: japanese() }))
+        if (response === 0) void shell.openExternal(SCREEN_SETTINGS)
+        deny()
+        return
+      }
+      const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 0, height: 0 } })
+      const choices = captureChoices(sources, { japanese: japanese() })
+      // A single source is one the system already chose (Linux under
+      // Wayland asks in its own picker), or the only screen there is.
+      if (choices.sources.length === 1) { callback({ video: choices.sources[0] }); return }
+      const { response } = await ask(choices.options)
+      const chosen = choices.pick(response)
+      if (chosen) callback({ video: chosen })
+      else deny()
+    })().catch(deny)
+  }, { useSystemPicker: true })
 }
 
 // ---- The window ----

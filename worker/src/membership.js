@@ -29,6 +29,9 @@ function headers(token) {
 /// collaborator apart from a stranger — so `pull` alone would make every public
 /// repository a joinable organization.
 export async function authorizeOrgAccess(env, session, orgId) {
+  // Turned off by the company's directory: not in, by membership or by GitHub.
+  const { deactivatedHere } = await import("./scim.js");
+  if (await deactivatedHere(env.DB, orgId, session.github_id)) return { ok: false, login: null };
   const known = await getUserByGithubId(env.DB, session.github_id);
   if (known?.login && (await isMember(env.DB, orgId, session.github_id))) {
     return { ok: true, login: known.login };

@@ -9,13 +9,14 @@ import { Onboarding } from './screens/Onboarding'
 import { PickRepository } from './screens/PickRepository'
 import { githubWebConfig, beginGitHubSignIn, readCallback, finishGitHubSignIn } from './utils/githubAuth'
 import type { GitHubWebConfig } from './utils/githubAuth'
-import { clearCardCache, clearAccountData } from './utils/cardCache'
+import { clearCardCache, accountOwner, claimAccountData, adoptAccountData, releaseAccountData } from './utils/cardCache'
 import { resetEmojiAccount } from './utils/emojiSearch'
 import { parseRoute } from './utils/route'
 import { onboardingKey, needsOnboarding, completeOnboarding } from './utils/onboardingProgress'
 import { t, adoptAccountLocale } from './utils/i18n'
 import type { InvitePeek } from './screens/SignIn'
-import { disableWebPush } from './utils/push'
+import { disableWebPush, sessionIsCurrent } from './utils/push'
+import { boundSsoStart, takeSsoVerifier } from './utils/ssoBinding'
 import { forgetOwnOutbox } from './utils/pendingSend'
 import './theme.css'
 import './App.css'
@@ -132,7 +133,11 @@ function App() {
           // here, fails its next push and is pruned.
           disableWebPush(httpBase(savedHost), savedToken).catch(() => {})
           for (const key of ['sessionToken', 'userId', 'orgId']) localStorage.removeItem(key)
-          clearCardCache()
+          // Everything the account kept here goes, as on signing out: the
+          // next person to sign in on this browser is not shown its drafts
+          // or handed its AI key.
+          releaseAccountData()
+          resetEmojiAccount()
           setUserId(null); setSessionToken(''); setOrgId(''); setStage('welcome'); setRestoring(false)
           return
         }
@@ -142,6 +147,7 @@ function App() {
         if (typeof me.login !== 'string' || !Array.isArray(me.orgs)) throw new Error('Invalid session response')
         const workspace = me.orgs.some((org: { id: string }) => org.id === savedOrg) ? savedOrg! : me.orgs[0]?.id || ''
         setSessionToken(savedToken); setUserId(me.login); setOrgId(workspace)
+        adoptAccountData(accountOwner(httpBase(savedHost), me.login))
         localStorage.setItem('userId', me.login); localStorage.setItem('orgId', workspace)
         setStage(needsOnboarding(localStorage, httpBase(savedHost), me.login) ? 'onboarding' : 'app')
         setRestoring(false)
@@ -213,17 +219,27 @@ function App() {
   }, [restoring])
   // Back from the company's identity provider: #/sso/done?code=… is a
   // one-time code, traded here for the session (the token itself never
-  // rides in a URL); #/sso/done?error=… says why it did not work.
+  // rides in a URL); #/sso/done?error=… says why it did not work. Only a
+  // sign-in this browser started is finished (utils/ssoBinding): a code
+  // that arrives without one is someone else's, and whoever is signed in
+  // here stays signed in.
   useEffect(() => {
     const hash = location.hash
     if (!hash.startsWith('#/sso/done')) return
     const q = new URLSearchParams(hash.split('?')[1] || '')
     try { history.replaceState(null, '', location.pathname + location.search + '#/feed') } catch { /* cosmetic */ }
+    const verifier = takeSsoVerifier()
     if (q.get('error')) { setGithubError(q.get('error')); setStage('welcome'); return }
     const code = q.get('code')
     if (!code) return
+    if (!verifier) {
+      const text = t('That sign-in was not started in this browser. Start it again here.')
+      if (localStorage.getItem('sessionToken')) setNotice({ text, error: true })
+      else setGithubError(text)
+      return
+    }
     const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
-    fetch(`${base}/sso/exchange`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, client: 'web' }) })
+    fetch(`${base}/sso/exchange`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, client: 'web', verifier }) })
       .then(async (r) => {
         const data = await r.json().catch(() => ({}))
         if (!r.ok || !data.token) { setGithubError(data.message || t('That sign-in did not finish. Try again.')); return }
@@ -239,7 +255,7 @@ function App() {
       const { start } = (e as CustomEvent<{ start?: string }>).detail || {}
       if (!start) return
       const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
-      window.location.href = `${base}${start}&client=web`
+      void boundSsoStart(base, `${start}&client=web`).then((href) => { window.location.href = href })
     }
     window.addEventListener('honmaru:sso-required', on)
     return () => window.removeEventListener('honmaru:sso-required', on)
@@ -284,6 +300,7 @@ function App() {
     setSessionToken(token)
     setUserId(uid)
     setOrgId(workspace)
+    claimAccountData(accountOwner(httpBase(host), uid))
     localStorage.setItem('sessionToken', token)
     localStorage.setItem('userId', uid)
     localStorage.setItem('orgId', workspace)
@@ -357,30 +374,61 @@ function App() {
   // Signed out by a workspace's login rules: said on the way out.
   const [signedOutWhy, setSignedOutWhy] = useState<string | null>(null)
   const handleLogout = () => {
-    // Who this browser belongs to now. A tab left open from before someone
-    // else signed in (in another tab) must not wipe that person's things.
-    const stillOurs = localStorage.getItem('userId') === userId
-    // This browser stops receiving this account's decisions before the
-    // session is dropped — the Worker needs the token to forget the subscription.
-    // Then the session itself ends on the server, so the token left in this
-    // browser's history opens nothing.
     const base = httpBase(host)
     const token = sessionToken
-    disableWebPush(base, token).catch(() => {}).finally(() => {
+    // Who this browser belongs to now, by session rather than by name. A tab
+    // left open from before someone else signed in (in another tab) — or the
+    // same person again, with a newer session — ends only its own session:
+    // the newer one's saved sign-in, push subscription and things stay.
+    const current = sessionIsCurrent(token)
+    // The session ends on the server either way, so the token left in this
+    // browser's history opens nothing. When it is this browser's own, the
+    // browser first stops receiving its decisions — the Worker needs the
+    // token to forget the subscription.
+    const revoke = () => {
       if (token) fetch(`${base}/auth/logout`, { method: 'POST', headers: { 'x-session-token': token } }).catch(() => {})
-    })
+    }
+    if (current) disableWebPush(base, token).catch(() => {}).finally(revoke)
+    else revoke()
     setUserId(null)
     setSessionToken('')
     setStage('welcome')
-    localStorage.removeItem('sessionToken')
-    localStorage.removeItem('userId')
-    // The workspace's cards, drafts, notes and unsent messages (outbox:*)
-    // stay readable on this machine otherwise.
-    if (stillOurs) clearAccountData()
-    else if (userId) forgetOwnOutbox(localStorage, userId)
-    // Recently used emoji, kept and in memory, are this person's too.
-    resetEmojiAccount()
+    if (current) {
+      localStorage.removeItem('sessionToken')
+      localStorage.removeItem('userId')
+      // The workspace's cards, drafts, notes and unsent messages (outbox:*)
+      // stay readable on this machine otherwise.
+      releaseAccountData()
+      // Recently used emoji, kept and in memory, are this person's too.
+      resetEmojiAccount()
+    } else if (userId && localStorage.getItem('userId') !== userId) {
+      forgetOwnOutbox(localStorage, userId)
+    }
   }
+
+  // Another tab signed in or out. This tab's session, held in memory, is
+  // then no longer the browser's, and an old account's view must not go on
+  // acting as if it were: a new sign-in is opened here as well (checked
+  // with the Worker, as on opening), and a sign-out ends this tab's view of
+  // the account too — the tab that signed out has already cleared what the
+  // account kept.
+  const sessionRef = useRef({ token: sessionToken, stage })
+  sessionRef.current = { token: sessionToken, stage }
+  useEffect(() => {
+    const on = (e: StorageEvent) => {
+      if (e.key !== 'sessionToken' && e.key !== null) return
+      let saved = ''
+      try { saved = localStorage.getItem('sessionToken') || '' } catch { return }
+      const mine = sessionRef.current
+      if (saved === mine.token) return
+      if (saved) { setRestoreAttempt((value) => value + 1); return }
+      if (mine.stage === 'app' || mine.stage === 'onboarding') {
+        setUserId(null); setSessionToken(''); setStage('welcome')
+      }
+    }
+    window.addEventListener('storage', on)
+    return () => window.removeEventListener('storage', on)
+  }, [])
 
   // A workspace's login rules ended this sign-in (utils/authGuard): out,
   // with the reason, to sign in again.

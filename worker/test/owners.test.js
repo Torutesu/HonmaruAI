@@ -183,3 +183,67 @@ test("the one-off script settles every workspace at once, and leaves one that ha
   expect(await role("acme/app", "7301")).toBe("admin");
   expect(await role("team:held", "7301")).toBe("admin");
 });
+
+// Two owners stepping down or leaving at once each read the other one still
+// there, and both went: nobody was left to hold the workspace. The write
+// itself now requires another owner to remain.
+
+/// The env with env.DB stopping once, right after its first member listing,
+/// to let `during` happen there.
+function pausedAfterListing(during) {
+  let fired = false;
+  const listing = /m\.status_emoji/;
+  const wrap = (stmt) => new Proxy(stmt, {
+    get(t, p) {
+      if (p === "bind") return (...args) => wrap(t.bind(...args));
+      if (p === "all") {
+        return async (...args) => {
+          const out = await t.all(...args);
+          if (!fired) { fired = true; await during(); }
+          return out;
+        };
+      }
+      const v = Reflect.get(t, p);
+      return typeof v === "function" ? v.bind(t) : v;
+    },
+  });
+  const DB = new Proxy(env.DB, {
+    get(t, p) {
+      if (p === "prepare") return (sql) => (listing.test(sql) ? wrap(t.prepare(sql)) : t.prepare(sql));
+      const v = Reflect.get(t, p);
+      return typeof v === "function" ? v.bind(t) : v;
+    },
+  });
+  return { ...env, DB };
+}
+
+test("two owners stepping down at once: one of them stays an owner, and the other is told why", async () => {
+  const { changeRole } = await import("../src/team.js");
+  await env.DB.prepare("UPDATE memberships SET role = CASE user_github_id WHEN '7301' THEN 'owner' WHEN '7302' THEN 'owner' ELSE 'member' END WHERE org_id = ?1").bind(ORG).run();
+  const tRef = await memberRef(ORG, "7301"); const mRef = await memberRef(ORG, "7302");
+  let other;
+  const racing = pausedAfterListing(async () => { other = await changeRole(env, { orgId: ORG, actorId: "7302", ref: mRef, role: "member" }); });
+  const first = await changeRole(racing, { orgId: ORG, actorId: "7301", ref: tRef, role: "member" });
+  expect(other).toMatchObject({ ok: true });
+  expect(first).toMatchObject({ status: 409, code: "last-owner" });
+  expect(await roleOf("7301")).toBe("owner");
+  expect(await roleOf("7302")).toBe("member");
+});
+
+test("two owners leaving at once, or one leaving while the other steps down: one owner remains", async () => {
+  const { changeRole, removeMember } = await import("../src/team.js");
+  for (const second of ["leave", "step down"]) {
+    await env.DB.prepare("UPDATE memberships SET role = CASE user_github_id WHEN '7301' THEN 'owner' WHEN '7302' THEN 'owner' ELSE 'member' END WHERE org_id = ?1").bind(ORG).run();
+    const { upsertMembership } = await import("../src/db.js");
+    await upsertMembership(env.DB, ORG, "7302", "owner");
+    const tRef = await memberRef(ORG, "7301"); const mRef = await memberRef(ORG, "7302");
+    let other;
+    const racing = pausedAfterListing(async () => {
+      other = second === "leave" ? await removeMember(env, { orgId: ORG, actorId: "7302", ref: mRef }) : await changeRole(env, { orgId: ORG, actorId: "7302", ref: mRef, role: "member" });
+    });
+    const first = await removeMember(racing, { orgId: ORG, actorId: "7301", ref: tRef });
+    expect(other.error).toBeUndefined();
+    expect(first).toMatchObject({ status: 409, code: "last-owner" });
+    expect(await roleOf("7301")).toBe("owner");
+  }
+});

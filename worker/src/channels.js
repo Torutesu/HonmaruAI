@@ -3,7 +3,7 @@ import { businessSlug } from "./db.js";
 import { resolveMentions, MENTION_BEFORE } from "./threads.js";
 
 const NOBODY = new Set();
-import { filesFor, toFile } from "./files.js";
+import { filesFor, toFile, claimFiles } from "./files.js";
 import { accessFor, mayRead, membersOf, isGroupKey, hasGuests, publicAudience } from "./access.js";
 import { parseKeywords, keywordHit } from "./quiet.js";
 import { messageLanguage } from "./translate.js";
@@ -328,15 +328,26 @@ export async function present(db, orgId, rows, viewerLogin, view, members) {
 /// `PAGE`, one unsent message made the page short, and a short page read as
 /// the start of the conversation — the history above it could not be
 /// reached. One row past the page says outright whether there is more.
-export async function listMessages(db, orgId, resolved, viewerLogin, view, members, { before } = {}) {
+///
+/// `beforeId`, the oldest message the reader holds, makes `before` exact:
+/// two messages can share a millisecond, and a page cut between them left
+/// the older one out of every page, since `created_at < before` skipped it.
+/// With the id, messages at that same moment that come before it in the
+/// page order are read too. Without it (or with an id not in this
+/// conversation) `before` alone is the cursor, as it always was.
+export async function listMessages(db, orgId, resolved, viewerLogin, view, members, { before, beforeId } = {}) {
+  const exact = before && typeof beforeId === "string" && beforeId ? beforeId : null;
+  const older = !before ? ""
+    : exact ? "AND (m.created_at < ?4 OR (m.created_at = ?4 AND m.rowid < (SELECT b.rowid FROM channel_messages b WHERE b.org_id = ?1 AND b.channel = ?2 AND b.id = ?5)))"
+      : "AND m.created_at < ?4";
   const { results } = await db
     .prepare(
       `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
-        WHERE m.org_id = ?1 AND m.channel = ?2 AND (m.parent_id IS NULL OR m.also_channel = 1) AND m.deleted_at IS NULL ${before ? "AND m.created_at < ?4" : ""}
+        WHERE m.org_id = ?1 AND m.channel = ?2 AND (m.parent_id IS NULL OR m.also_channel = 1) AND m.deleted_at IS NULL ${older}
         ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?3`
     )
-    .bind(...[orgId, resolved.key, PAGE + 1, ...(before ? [before] : [])])
+    .bind(...[orgId, resolved.key, PAGE + 1, ...(before ? [before] : []), ...(exact ? [exact] : [])])
     .all();
   const more = (results || []).length > PAGE;
   const rows = (results || []).slice(0, PAGE).reverse();
@@ -411,12 +422,26 @@ export async function deleteMessage(db, { orgId, id, authorLogin, withThread = f
   if (others && !withThread) return { error: "Others replied in this thread. Delete it with their replies?", status: 409, code: "thread_has_replies", others };
   for (const r of under || []) await keepIfHeld(db, orgId, r, "delete");
   const now = new Date().toISOString();
-  const gone = [id, ...(under || []).map((r) => r.id)];
-  await db.batch(gone.flatMap((mid) => [
+  const tombstone = (mids) => db.batch(mids.flatMap((mid) => [
     db.prepare("UPDATE channel_messages SET body = '', deleted_at = ?3, pinned_at = NULL, pinned_by = NULL WHERE org_id = ?1 AND id = ?2")
       .bind(orgId, mid, now),
     db.prepare("DELETE FROM message_reactions WHERE org_id = ?1 AND message_id = ?2").bind(orgId, mid),
   ]));
+  const gone = [id, ...(under || []).map((r) => r.id)];
+  await tombstone(gone);
+  // A reply that landed between the read above and the parent going is
+  // taken too: once the parent is a tombstone no further reply can land
+  // (postMessage), so this second look is the last.
+  if (!row.parent_id) {
+    const { results: late } = await db.prepare(
+      "SELECT * FROM channel_messages WHERE org_id = ?1 AND parent_id = ?2 AND deleted_at IS NULL"
+    ).bind(orgId, id).all();
+    if (late?.length) {
+      for (const r of late) await keepIfHeld(db, orgId, r, "delete");
+      await tombstone(late.map((r) => r.id));
+      gone.push(...late.map((r) => r.id));
+    }
+  }
   await mirrorIds(db, orgId, gone);
   return { row: await getMessage(db, orgId, id), replies: gone.slice(1) };
 }
@@ -442,10 +467,23 @@ export async function toggleReaction(db, { orgId, id, login, emoji, row: known =
   if (had) {
     await db.prepare("DELETE FROM message_reactions WHERE message_id = ?1 AND emoji = ?2 AND login = ?3").bind(id, clean, login).run();
   } else {
-    const count = await db.prepare("SELECT COUNT(DISTINCT emoji) AS n FROM message_reactions WHERE message_id = ?1").bind(id).first();
-    if ((count?.n || 0) >= 20) return { error: "That message has all the reactions it can hold.", status: 400 };
-    await db.prepare("INSERT INTO message_reactions (org_id, message_id, emoji, login, created_at) VALUES (?1, ?2, ?3, ?4, ?5)")
-      .bind(orgId, id, clean, login, new Date().toISOString()).run();
+    // The cap is on kinds of emoji, not on people: joining an emoji already
+    // there is always allowed, and only a 21st kind is refused. One statement
+    // checks and inserts, so two people adding different new kinds at once
+    // cannot take a message past twenty between them.
+    const added = await db.prepare(
+      `INSERT INTO message_reactions (org_id, message_id, emoji, login, created_at)
+       SELECT ?1, ?2, ?3, ?4, ?5
+       WHERE EXISTS (SELECT 1 FROM message_reactions WHERE message_id = ?2 AND emoji = ?3)
+          OR (SELECT COUNT(DISTINCT emoji) FROM message_reactions WHERE message_id = ?2) < 20
+       ON CONFLICT DO NOTHING`
+    ).bind(orgId, id, clean, login, new Date().toISOString()).run();
+    if (!added.meta?.changes) {
+      // Nothing inserted because this person's reaction landed a moment ago
+      // (a double tap) is not the cap.
+      const now = await db.prepare("SELECT 1 FROM message_reactions WHERE message_id = ?1 AND emoji = ?2 AND login = ?3").bind(id, clean, login).first();
+      if (!now) return { error: "That message has all the reactions it can hold.", status: 400 };
+    }
   }
   return { row };
 }
@@ -479,6 +517,8 @@ export async function getMessage(db, orgId, id) {
 const CLIENT_ID = /^tmp-[0-9a-z-]{1,76}$/;
 export const clientIdOk = (id) => typeof id === "string" && CLIENT_ID.test(id);
 
+const THREAD_GONE = "That thread is not here any more.";
+
 async function messageByClientId(db, orgId, authorLogin, clientId) {
   const hit = await db
     .prepare("SELECT id FROM channel_messages WHERE org_id = ?1 AND author_login = ?2 AND client_id = ?3")
@@ -487,24 +527,33 @@ async function messageByClientId(db, orgId, authorLogin, clientId) {
   return hit ? getMessage(db, orgId, hit.id) : null;
 }
 
-export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, clientId = null, alsoChannel = false, onBehalfOf = null }) {
+/// A send naming an upload that is not there any more: swept unsent, or
+/// gone with its message. Said, so the file can be attached again, rather
+/// than sent without it.
+const FILES_GONE = "A file in this message is no longer there. Attach it again.";
+
+export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null }) {
   const text = String(body || "").replace(/\r\n/g, "\n").trim();
-  // A picture on its own is something said.
-  if (!text && !withFiles) return { error: "Write something first." };
+  const remembered = clientIdOk(clientId) ? clientId : null;
+  // A picture on its own is something said. A retry of one has had its
+  // files claimed already, and is answered below with what it made.
+  if (!text && !withFiles && !files?.gone && !remembered) return { error: "Write something first." };
   if (text.length > MAX_MESSAGE_CHARS) return { error: `That is longer than ${MAX_MESSAGE_CHARS} characters.` };
   if (clientId != null && clientId !== "" && !clientIdOk(clientId)) return { error: "That send cannot be tried again.", status: 400 };
   if (parentId) {
     // A reply goes under a message in this same conversation, one level deep.
+    // A deleted one is a tombstone, not a thread: nothing new goes under it.
     const parent = await getMessage(db, orgId, parentId);
-    if (!parent || parent.channel !== key || parent.parent_id) return { error: "That thread is not here any more." };
+    if (!parent || parent.deleted_at || parent.channel !== key || parent.parent_id) return { error: THREAD_GONE, code: "thread_gone" };
   }
   // A retry of a send that already landed gets that message back, before
   // anything about it is checked again: it was fine when it was written.
-  const remembered = clientIdOk(clientId) ? clientId : null;
   if (remembered && authorLogin) {
     const prior = await messageByClientId(db, orgId, authorLogin, remembered);
     if (prior) return { row: prior, replay: true };
   }
+  if (files?.gone) return { error: FILES_GONE, code: "files_gone", status: 409 };
+  if (!text && !withFiles) return { error: "Write something first." };
   if (replyTo) {
     // An inline reply answers a message where it is read: the conversation
     // for a message, the same thread for a reply in one. Gone, unsent or
@@ -521,14 +570,38 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
   // Strictly after the channel's last message, so two sent in the same
   // millisecond still read in the order they were sent.
   const now = new Date().toISOString();
+  const columns = "id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of";
+  const values = [id, orgId, key, authorLogin, kind, text, cardId, now, parentId, replyTo || null, remembered, parentId && alsoChannel ? 1 : 0, kind === "agent" && onBehalfOf ? onBehalfOf : null];
+  const marks = values.map((_, i) => `?${i + 1}`).join(", ");
   try {
-    await db
-      .prepare(
-        `INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`
-      )
-      .bind(id, orgId, key, authorLogin, kind, text, cardId, now, parentId, replyTo || null, remembered, parentId && alsoChannel ? 1 : 0, kind === "agent" && onBehalfOf ? onBehalfOf : null)
-      .run();
+    // A reply is written only while its parent is still there, in the same
+    // statement: a thread deleted after the check above takes no reply.
+    const parentLive = "(?9 IS NULL OR EXISTS (SELECT 1 FROM channel_messages WHERE org_id = ?2 AND id = ?9 AND deleted_at IS NULL))";
+    if (files?.ids?.length) {
+      // The message and its files in one step, all or none: its uploads are
+      // claimed, the message is written only if every one of them still
+      // could be (the sweep of unsent ones may have taken one since they
+      // were looked at), and a claim whose message was not written is let
+      // go. A send that fails part way leaves no message missing its files,
+      // and a retry of it is a send like the first.
+      const done = await db.batch([
+        claimFiles(db, { orgId, key, login: files.login, messageId: id, ids: files.ids }),
+        db.prepare(`INSERT INTO channel_messages (${columns}) SELECT ${marks}
+                    WHERE ${parentLive} AND (SELECT COUNT(*) FROM message_files WHERE org_id = ?2 AND message_id = ?1) = ?${values.length + 1}`)
+          .bind(...values, files.ids.length),
+        db.prepare("UPDATE message_files SET message_id = NULL WHERE org_id = ?1 AND message_id = ?2 AND NOT EXISTS (SELECT 1 FROM channel_messages WHERE org_id = ?1 AND id = ?2)")
+          .bind(orgId, id),
+      ]);
+      if (!done[1].meta?.changes) {
+        if (parentId && !(await db.prepare("SELECT 1 FROM channel_messages WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, parentId).first())) {
+          return { error: THREAD_GONE, code: "thread_gone" };
+        }
+        return { error: FILES_GONE, code: "files_gone", status: 409 };
+      }
+    } else {
+      const put = await db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}`).bind(...values).run();
+      if (parentId && !put.meta?.changes) return { error: THREAD_GONE, code: "thread_gone" };
+    }
   } catch (err) {
     if (remembered && authorLogin) {
       const prior = await messageByClientId(db, orgId, authorLogin, remembered);
@@ -732,12 +805,18 @@ export async function readsFor(db, orgId, login, members) {
 }
 
 /// Where this person can read: every public channel and the private ones
-/// they are in, their own DMs, and their group DMs. (`?1` the workspace,
-/// `?2` the login.) viewOf with their access checks each row again.
+/// they are in — for a guest, only the channels they were let into — their
+/// own DMs, and their group DMs. (`?1` the workspace, `?2` the login.)
+/// viewOf with their access checks each row again, but the rule is whole
+/// here, as mayRead has it, so it holds before a LIMIT: a guest's search
+/// was cut to its newest 30 matches first, and matches in public channels
+/// they cannot read could fill them and hide every one they can.
 const VISIBLE = `(
-  (m.channel LIKE 'b:%' AND NOT EXISTS (
-     SELECT 1 FROM businesses b WHERE b.org_id = ?1 AND 'b:' || b.slug = m.channel AND b.private = 1
-        AND NOT EXISTS (SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = m.channel AND c.login = ?2)))
+  (m.channel LIKE 'b:%' AND (
+     EXISTS (SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = m.channel AND c.login = ?2)
+     OR (NOT EXISTS (SELECT 1 FROM businesses b WHERE b.org_id = ?1 AND 'b:' || b.slug = m.channel AND b.private = 1)
+         AND NOT EXISTS (SELECT 1 FROM memberships ms JOIN users gu ON gu.github_id = ms.user_github_id
+                          WHERE ms.org_id = ?1 AND gu.login = ?2 AND LOWER(ms.role) = 'guest'))))
   OR m.channel LIKE 'dm:' || ?2 || '|%' OR m.channel LIKE 'dm:%|' || ?2
   OR (m.channel LIKE 'g:%' AND EXISTS (SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = m.channel AND c.login = ?2)))`;
 

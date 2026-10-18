@@ -1,5 +1,5 @@
 import { isPro } from "./entitlements.js";
-import { usedToday, countAIUse } from "./db.js";
+import { countAIUse, reserveAIUse, releaseAIUse } from "./db.js";
 import { loadAISettings } from "./orgAI.js";
 
 export const FREE_DAILY_ROUTES = 3;
@@ -9,8 +9,8 @@ export const FREE_DAILY_ROUTES = 3;
 // enough that one leaked session cannot run up an unbounded model bill.
 export const UNBILLED_DAILY_ROUTES = 200;
 
-const DENIED = { allowed: false, metered: false, quotaExceeded: true, consume: async () => {} };
-const DENIED_QUOTA = { allowed: false, metered: true, quotaExceeded: true, consume: async () => {} };
+const DENIED = { allowed: false, metered: false, quotaExceeded: true, consume: async () => {}, release: async () => {} };
+const DENIED_QUOTA = { allowed: false, metered: true, quotaExceeded: true, consume: async () => {}, release: async () => {} };
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -18,13 +18,16 @@ function today() {
 
 /// The one place that decides whether an AI call may happen on our key.
 ///
-/// Returns `{ allowed, metered, quotaExceeded, remaining?, consume() }`.
+/// Returns `{ allowed, metered, quotaExceeded, remaining?, consume(), release() }`.
 /// `remaining` is how many calls are left of a metered day, so a caller that
 /// spends on the person's behalf can leave them the last one. `consume()` is
 /// called only after a model call actually happened, so a failed call does not
-/// burn someone's allowance.
+/// burn someone's allowance. A metered allowance holds its call's place from
+/// the check, so concurrent checks cannot all take the day's last call;
+/// `release()` gives the place back when no call was made, and a place
+/// neither consumed nor released lapses within a minute (db.js).
 export async function checkAIAllowance(env, { githubId, userKey, workspaceKey }) {
-  const free = { allowed: true, metered: false, quotaExceeded: false, consume: async () => {} };
+  const free = { allowed: true, metered: false, quotaExceeded: false, consume: async () => {}, release: async () => {} };
 
   // Their key, their bill — the person's own, or the workspace's (entered
   // once from Tools). Neither is metered against our budget.
@@ -44,30 +47,31 @@ export async function checkAIAllowance(env, { githubId, userKey, workspaceKey })
   // entitlement to read. Metering someone against a paywall that does not
   // exist would only punish them — but "not metered" is not "unlimited", so a
   // signed-in caller still gets a per-day ceiling well above normal use.
-  if (!env.REVENUECAT_SECRET_KEY) {
-    const day = today();
-    const used = await usedToday(env.DB, githubId, day);
-    if (used >= UNBILLED_DAILY_ROUTES) return DENIED_QUOTA;
-    return {
-      allowed: true,
-      metered: true,
-      quotaExceeded: false,
-      remaining: UNBILLED_DAILY_ROUTES - used,
-      consume: async () => countAIUse(env.DB, githubId, day),
-    };
-  }
+  if (!env.REVENUECAT_SECRET_KEY) return metered(env, githubId, UNBILLED_DAILY_ROUTES);
 
+  return metered(env, githubId, FREE_DAILY_ROUTES);
+}
+
+/// A day of `limit` calls: this call's place taken now, counted by
+/// `consume()` (and every further call it makes counted too), or given back
+/// by `release()`.
+async function metered(env, githubId, limit) {
   const day = today();
-  const used = await usedToday(env.DB, githubId, day);
-  if (used >= FREE_DAILY_ROUTES) {
-    return { allowed: false, metered: true, quotaExceeded: true, consume: async () => {} };
-  }
+  const held = await reserveAIUse(env.DB, githubId, day, limit);
+  if (!held) return DENIED_QUOTA;
+  let reservation = held.id;
+  const settle = async () => {
+    const id = reservation;
+    reservation = null;
+    if (id) await releaseAIUse(env.DB, id);
+  };
   return {
     allowed: true,
     metered: true,
     quotaExceeded: false,
-    remaining: FREE_DAILY_ROUTES - used,
-    consume: async () => countAIUse(env.DB, githubId, day),
+    remaining: held.remaining,
+    consume: async () => { await countAIUse(env.DB, githubId, day); await settle(); },
+    release: settle,
   };
 }
 

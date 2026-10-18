@@ -562,6 +562,9 @@ export async function handleHarness(request, env, url, context = {}) {
         return r.error ? fail(r) : json({ ...r, canCustomize: await mayChange(env, orgId, who, app.createdBy) });
       }
       if (request.method === "PUT") {
+        // The shared definition is its maker's or an admin's to change, as
+        // canCustomize says; everyone else keeps personal views of their own.
+        if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: "Only its maker or an admin can change this app." }, 403);
         const r = await updateApp(env.DB, orgId, appId, input, me);
         return r.error ? fail(r) : json(r);
       }
@@ -579,6 +582,7 @@ export async function handleHarness(request, env, url, context = {}) {
         return r.error ? fail(r) : json(r);
       }
       if (request.method === "POST") {
+        if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: "Only its maker or an admin can change this app." }, 403);
         const r = await restoreVersion(env.DB, orgId, appId, input.version, me);
         return r.error ? fail(r) : json(r);
       }

@@ -72,6 +72,21 @@ function listResponse(items, startIndex, count) {
 
 // ---- Users ----
 
+/// Whether the company's directory has turned this person off here. The
+/// SCIM row outlives the membership it removed, so it is what keeps them
+/// out: a fresh sign-in at the domain, an invitation or SSO used to put the
+/// membership straight back while the directory still said inactive.
+/// Another workspace the account is in is not this directory's to close.
+export async function deactivatedHere(db, orgId, githubId) {
+  if (!orgId || !githubId) return false;
+  const row = await db.prepare("SELECT 1 FROM scim_users WHERE org_id = ?1 AND user_github_id = ?2 AND active = 0")
+    .bind(orgId, String(githubId)).first().catch(() => null);
+  return Boolean(row);
+}
+
+/// What someone the directory turned off is told.
+export const DEACTIVATED_MESSAGE = "Your company's directory has turned off your access to this workspace.";
+
 async function verifiedDomains(db, orgId) {
   const { results } = await db.prepare("SELECT domain FROM org_domains WHERE org_id = ?1 AND verified_at IS NOT NULL").bind(orgId).all().catch(() => ({ results: [] }));
   return (results || []).map((r) => r.domain);
@@ -102,7 +117,7 @@ async function presentUser(env, base, row) {
 /// it stood made whoever registered the address before the company
 /// provisioned it a member of the company's workspace.
 async function accountFor(env, orgId, email, name) {
-  const existing = await settleProvedAddress(env, email, { orgId });
+  const existing = await settleProvedAddress(env, email);
   if (existing) return { githubId: existing.githubId, created: false };
   const githubId = `scim:${orgId}:${(await sha256Hex(`scim\u0000${orgId}\u0000${email}`)).slice(0, 24)}`;
   await upsertUser(env.DB, { githubId, login: `u:${email}`, name: name || email.split("@")[0], avatarUrl: null, locale: "en" });
@@ -136,7 +151,7 @@ async function setActive(env, request, key, row, active) {
   if (out.error && out.status !== 404) return scimError(out.status || 400, out.error);
   // Signed out here; a deactivation in one company's directory does not
   // sign the person out of the other workspaces they are in.
-  const ended = await endAccountHere(env.DB, orgId, row.user_github_id);
+  const ended = await endAccountHere(env, orgId, row.user_github_id);
   if (user?.login) {
     const { evictMember } = await import("./announce.js");
     await evictMember(env, orgId, user.login).catch(() => {});
@@ -245,7 +260,9 @@ async function users(request, env, url, key, base, rest, body) {
     active: change.active === undefined ? row.active : change.active ? 1 : 0,
     updated_at: new Date().toISOString(),
   };
-  if (Boolean(next.active) !== Boolean(row.active)) {
+  // Inactive said again is inactive made true again: a membership that came
+  // back some other way since goes once more.
+  if (Boolean(next.active) !== Boolean(row.active) || !next.active) {
     const refused = await setActive(env, request, key, row, Boolean(next.active));
     if (refused) return refused;
   }

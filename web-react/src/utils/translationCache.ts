@@ -25,17 +25,39 @@ function load(orgId: string): Record<string, Entry> {
   return kept
 }
 
+/// A short fingerprint of a message's words — the Worker's sourceHash.
+function wordsHash(text: string): string {
+  let h = 0x811c9dc5
+  for (const c of String(text || '')) {
+    h ^= c.codePointAt(0) || 0
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h.toString(16)
+}
+
+/// Where one version of a message's translation is kept: by the message,
+/// the language and the words it was made from. One version never takes
+/// another's place — a slow answer for words since edited cannot put out
+/// the translation of the words as they are now.
+export function translationKey(id: string, lang: string, from: string): string {
+  return `${id}:${lang}:${wordsHash(from)}`
+}
+
 /// The kept translation of a message, when it was made from these very
-/// words into this language.
+/// words into this language. (Kept before versions were, under the message
+/// and language alone: still read.)
 export function keptTranslation(orgId: string, id: string, lang: string, body: string): string | null {
-  const e = load(orgId)[`${id}:${lang}`]
-  return Array.isArray(e) && e[0] === body && typeof e[1] === 'string' ? e[1] : null
+  const all = load(orgId)
+  for (const e of [all[translationKey(id, lang, body)], all[`${id}:${lang}`]]) {
+    if (Array.isArray(e) && e[0] === body && typeof e[1] === 'string') return e[1]
+  }
+  return null
 }
 
 export function keepTranslations(orgId: string, lang: string, items: { id: string; from: string; text: string }[], now = Date.now()): void {
   if (!items.length) return
   const all = { ...load(orgId) }
-  for (const i of items) all[`${i.id}:${lang}`] = [i.from, i.text, now]
+  for (const i of items) all[translationKey(i.id, lang, i.from)] = [i.from, i.text, now]
   // Newest kept, capped: a long history is not worth a quota error.
   const keys = Object.keys(all)
   const trimmed = keys.length > MAX
@@ -43,6 +65,14 @@ export function keepTranslations(orgId: string, lang: string, items: { id: strin
     : all
   memory.set(orgId, trimmed)
   try { localStorage.setItem(PREFIX + orgId, JSON.stringify(trimmed)) } catch { /* full or blocked: kept for this page */ }
+}
+
+/// The messages to ask about, in requests of at most `size`: every one of
+/// them, however long the history — a request is bounded, the work is not.
+export function translationBatches<T>(list: T[], size = 60): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size))
+  return out
 }
 
 export function forgetTranslations(): void {

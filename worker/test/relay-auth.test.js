@@ -1,4 +1,4 @@
-import {env} from "cloudflare:test";
+import { env, runInDurableObject } from "cloudflare:test";
 import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
@@ -254,4 +254,62 @@ test("context belongs to the session that published it", async () => {
   });
   expect(contexts.alice).toEqual({ text: "I approve everything" });
   expect(contexts.bob).toBeUndefined();
+});
+
+test("a socket that never joined hears nothing the room hears", async () => {
+  // Opened first, so everything that follows is something it could have
+  // heard: Bob arriving, Alice arriving, a card made, a decision on it, an
+  // event announced from the Worker.
+  const lurker = await open(ORG);
+  const overheard = collect(lurker);
+
+  const bob = await joined(ORG, globalThis.__bob);
+  const { ws } = await asAlice();
+  ws.send(JSON.stringify({ type: "card_created", payload: { card: {
+    id: "c-room", recipientUserID: "bob", senderUserID: "alice",
+    status: "pending", title: "Room-wide news", priority: "high",
+    createdAt: "2026-08-11T00:00:00Z",
+  } } }));
+  expect(await message(bob.messages, (m) => JSON.stringify(m).includes("Room-wide news"))).toBeTruthy();
+
+  const { announceEvents } = await import("../src/announce.js");
+  await announceEvents(env, ORG, [{ type: "CUSTOM", name: "channel_message", value: { message: { text: "Public words" } } }]);
+  expect(await message(bob.messages, (m) => JSON.stringify(m).includes("Public words"))).toBeTruthy();
+
+  expect(overheard).toEqual([]);
+  expect(lurker.readyState).toBe(WebSocket.OPEN);
+});
+
+test("a join that fails leaves the socket out of the room", async () => {
+  const { messages: refusedHeard } = await refused({ sessionToken: "not-a-session" });
+  refusedHeard.length = 0;
+
+  const bob = await joined(ORG, globalThis.__bob);
+  const { ws } = await asAlice();
+  ws.send(JSON.stringify({ type: "card_created", payload: { card: {
+    id: "c-after-refusal", recipientUserID: "bob", senderUserID: "alice",
+    status: "pending", title: "After the refusal", priority: "high",
+    createdAt: "2026-08-11T00:00:00Z",
+  } } }));
+  expect(await message(bob.messages, (m) => JSON.stringify(m).includes("After the refusal"))).toBeTruthy();
+  expect(refusedHeard).toEqual([]);
+});
+
+test("a socket that does not join in time is closed", async () => {
+  const lurker = await open(ORG);
+  const heard = collect(lurker);
+  const member = await joined(ORG, globalThis.__bob);
+
+  // Past the grace for every socket here: only the one that never joined goes.
+  const stub = env.ORG_RELAY.get(env.ORG_RELAY.idFromName(ORG));
+  await runInDurableObject(stub, async (instance, state) => {
+    for (const socket of state.getWebSockets()) {
+      socket.serializeAttachment({ ...socket.deserializeAttachment(), openedAt: 1 });
+    }
+    await instance.alarm();
+  });
+
+  expect(await until(async () => lurker.readyState !== WebSocket.OPEN)).toBe(true);
+  expect(heard).toEqual([]);
+  expect(member.ws.readyState).toBe(WebSocket.OPEN);
 });

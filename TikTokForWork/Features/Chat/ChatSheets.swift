@@ -18,6 +18,8 @@ struct ChatThreadSheet: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var attached: [ChatFile] = []
     @State private var uploading = 0
+    /// Photos were picked past what one reply carries, and left out.
+    @State private var photoLimitNote = false
     @FocusState private var focused: Bool
     /// Whether the newest reply is in view. There, what arrives is scrolled
     /// to; up in the earlier replies, the place is kept and what arrived is
@@ -28,6 +30,8 @@ struct ChatThreadSheet: View {
     @State private var replyingTo: ChatMessage?
     /// A quote pressed: the reply it quotes, to scroll to.
     @State private var quoteJump: String?
+    /// The reply the thread was opened at, marked for a moment.
+    @State private var highlight: String?
 
     var body: some View {
         NavigationStack {
@@ -86,6 +90,19 @@ struct ChatThreadSheet: View {
                 quoteJump = nil
                 withAnimation { proxy.scrollTo(id, anchor: .center) }
             }
+            // Opened at one reply (Search, Activity, Sent, a notification):
+            // there, marked for a moment, once the replies have been read.
+            .onChange(of: jumpReplyIsHere, initial: true) { _, found in
+                guard found, let id = store.threadJump else { return }
+                store.threadJump = nil
+                highlight = id
+                Task {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    withAnimation { proxy.scrollTo(id, anchor: .center) }
+                    try? await Task.sleep(for: .seconds(1.6))
+                    if highlight == id { withAnimation { highlight = nil } }
+                }
+            }
             .overlay(alignment: .bottom) {
                 if !atBottom && store.thread != nil {
                     Button {
@@ -117,24 +134,35 @@ struct ChatThreadSheet: View {
                     if !attached.isEmpty || uploading > 0 {
                         ChatAttachedStrip(store: store, attached: $attached, uploading: uploading).padding(.horizontal, 12)
                     }
+                    if photoLimitNote {
+                        Text("A message can carry at most 10 files.")
+                            .font(.footnote).foregroundStyle(Theme.Colors.textSecondary)
+                            .padding(.horizontal, 16)
+                    }
                     // "@" offers names here too, as in the conversation.
                     if let channel = store.thread?.parent.channel {
                         ChatMentionSuggestions(store: store, view: channel, draft: $draft)
                     }
                     HStack(alignment: .bottom, spacing: 8) {
-                        PhotosPicker(selection: $photoItems, maxSelectionCount: 10, matching: .images) {
+                        let photoRoom = ChatPhotos.room(attached: attached.count, uploading: uploading)
+                        PhotosPicker(selection: $photoItems, maxSelectionCount: max(photoRoom, 1), matching: .images) {
                             Image(systemName: "plus").font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(Theme.Colors.textSecondary)
+                                .foregroundStyle(photoRoom == 0 ? Theme.Colors.textTertiary : Theme.Colors.textSecondary)
                                 .frame(width: 44, height: 44).glassCircle()
                         }
+                        .disabled(photoRoom == 0)
                         .accessibilityLabel("Add photos")
                         .onChange(of: photoItems) { _, items in
                             guard !items.isEmpty, let channel = store.thread?.parent.channel else { return }
                             photoItems = []
+                            let taken = Array(items.prefix(ChatPhotos.room(attached: attached.count, uploading: uploading)))
+                            photoLimitNote = taken.count < items.count
+                            guard !taken.isEmpty else { return }
+                            // Their places are kept from now, before the first has gone up.
+                            uploading += taken.count
                             Task {
-                                uploading += items.count
-                                for file in await ChatPhotos.upload(items, to: channel, store: store) { attached.append(file) }
-                                uploading -= items.count
+                                for file in await ChatPhotos.upload(taken, to: channel, store: store) { attached.append(file) }
+                                uploading -= taken.count
                             }
                         }
                         TextField("Reply… — @AI to ask the AI", text: $draft, axis: .vertical)
@@ -154,6 +182,7 @@ struct ChatThreadSheet: View {
                             draft = ""
                             alsoChannel = false
                             attached = []
+                            photoLimitNote = false
                             Task {
                                 let went = await store.send(t.parent.channel, text: text, parentId: t.parent.id, alsoChannel: both, replyTo: quote, files: files, clientId: clientId)
                                 if went || store.isHeld(clientId) {
@@ -202,6 +231,12 @@ struct ChatThreadSheet: View {
 
     private static let bottom = "threadBottom"
 
+    /// Whether the reply the thread was opened at has been read yet.
+    private var jumpReplyIsHere: Bool {
+        guard let id = store.threadJump else { return false }
+        return store.thread?.replies.contains { $0.id == id } ?? false
+    }
+
     /// "Also send to #name" in a channel; elsewhere, to the conversation.
     private var alsoChannelLabel: String {
         guard let view = store.thread?.parent.channel else { return String(localized: "Also send to the conversation") }
@@ -239,7 +274,7 @@ struct ChatThreadSheet: View {
     }
 
     private func row(_ m: ChatMessage) -> some View {
-        ChatMessageRow(message: m, inThread: true, nameOf: store.nameOf(ref:),
+        ChatMessageRow(message: m, inThread: true, highlighted: highlight == m.id, nameOf: store.nameOf(ref:),
                        onReact: { e in Task { await store.react(m, e) } },
                        onAddReaction: { reactingTo = m },
                        onOpenThread: {}, onOpenCard: onOpenCard, onProfile: { _ in },
@@ -363,7 +398,7 @@ struct ChatActivityView: View {
                                        description: Text("When somebody writes @ your name, or replies in a thread you are part of, it shows up here."))
             }
             ForEach(store.inbox) { item in
-                NavigationLink(value: ChatRoute.conversation(view: item.message.channel, jump: item.message.parentId ?? item.message.id)) {
+                NavigationLink(value: ChatRoute.conversation(view: item.message.channel, jump: item.message.id, thread: item.message.parentId)) {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             if item.unread { Circle().fill(Theme.Colors.interactive).frame(width: 8, height: 8) }
@@ -432,7 +467,7 @@ struct ChatLaterView: View {
                                        description: Text("Long-press any message and pick Save for later."))
             }
             ForEach(store.saved) { item in
-                NavigationLink(value: ChatRoute.conversation(view: item.message.channel, jump: item.message.id)) {
+                NavigationLink(value: ChatRoute.conversation(view: item.message.channel, jump: item.message.id, thread: item.message.parentId)) {
                     VStack(alignment: .leading, spacing: 4) {
                         if let at = ChatDates.parse(item.remindAt) {
                             Label(item.remindedAt == nil ? String(localized: "Reminder \(at.formatted(date: .abbreviated, time: .shortened))") : String(localized: "Reminded"), systemImage: "alarm")
@@ -754,7 +789,7 @@ struct ChatSentView: View {
                         .listRowBackground(Color.clear)
                 }
                 ForEach(sent) { m in
-                    NavigationLink(value: ChatRoute.conversation(view: m.channel, jump: m.parentId ?? m.id)) {
+                    NavigationLink(value: ChatRoute.conversation(view: m.channel, jump: m.id, thread: m.parentId)) {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
                                 Text(verbatim: store.conversation(for: m.channel).map(Self.place) ?? "").font(.caption).foregroundStyle(.secondary)
@@ -801,7 +836,7 @@ struct ChatSearchView: View {
                 ContentUnavailableView.search(text: query).listRowBackground(Color.clear)
             }
             ForEach(results) { m in
-                NavigationLink(value: ChatRoute.conversation(view: m.channel, jump: m.parentId ?? m.id)) {
+                NavigationLink(value: ChatRoute.conversation(view: m.channel, jump: m.id, thread: m.parentId)) {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
                             Text(place(m.channel)).font(.caption.weight(.semibold)).foregroundStyle(Theme.Colors.textSecondary)
@@ -1042,6 +1077,16 @@ struct ChatCatchUpView: View {
 /// Pictures picked from the camera roll, made JPEGs (a HEIC would not show
 /// everywhere) and uploaded to the conversation they are for.
 enum ChatPhotos {
+    /// How many files one message carries; the Worker refuses a send with more.
+    static let maxPerMessage = 10
+
+    /// How many more can be picked for a message holding `attached` files
+    /// with `uploading` more on their way up. Those going up keep their
+    /// places, so picking again before they arrive cannot add up to more.
+    static func room(attached: Int, uploading: Int) -> Int {
+        max(0, maxPerMessage - attached - uploading)
+    }
+
     @MainActor
     static func upload(_ items: [PhotosPickerItem], to view: String, store: ChatStore) async -> [ChatFile] {
         var out: [ChatFile] = []

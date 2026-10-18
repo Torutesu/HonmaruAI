@@ -1,10 +1,10 @@
 import { SoundChoice } from '../components/SoundChoice'
 import { DesktopNotificationSettings } from '../components/DesktopNotificationSettings'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { enableWebPush, disableWebPush, pushSupport, currentSubscription, prefetchVapidKey } from '../utils/push'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
-import { setQuietState, DEFAULT_SCHEDULE, tomorrowAt, type NotifySchedule } from '../utils/quiet'
+import { setQuietState, DEFAULT_SCHEDULE, tomorrowAt, scheduleSaver, type NotifySchedule } from '../utils/quiet'
 import { playSound, loadSoundSettings, saveSoundSettings, type SoundKind, type SoundSettings } from '../utils/sound'
 import { enterKey } from '../utils/keys'
 
@@ -17,6 +17,8 @@ interface Props {
 interface Me {
   email: string | null
   emailEditable: boolean
+  /// The address is the one a company's sign-on or directory gave it.
+  emailManaged?: boolean
   notifyEmail: boolean
   pushWhileActive?: boolean
   notifyPausedUntil?: string | null
@@ -173,13 +175,19 @@ export const NotificationSettings: React.FC<Props> = ({ httpBase, sessionToken, 
               value={email}
               disabled={!me.emailEditable}
               onChange={(e) => setEmail(e.target.value)}
-              onBlur={() => { if (me.emailEditable && email !== (me.email || '')) patch({ email }) }}
+              onBlur={() => {
+                if (!me.emailEditable || email === (me.email || '')) return
+                // Refused, the field goes back to the address mail still goes to.
+                void patch({ email }).then((saved) => { if (!saved) setEmail(me.email || '') })
+              }}
               placeholder={t('you@company.com')}
             />
             <div className="hint">
               {me.emailEditable
                 ? t('Changing this changes nothing else — it is only where mail lands.')
-                : t('This is the address you sign in with, so it cannot be changed here.')}
+                : me.emailManaged
+                  ? t('Your company manages this address, so it cannot be changed here.')
+                  : t('This is the address you sign in with, so it cannot be changed here.')}
             </div>
           </div>
         )}
@@ -249,8 +257,25 @@ const QuietRows: React.FC<{ me: Me | null; patch: (body: Record<string, unknown>
   const t = useT()
   const locale = typeof navigator !== 'undefined' ? navigator.language : 'en'
   const paused = me?.notifyPausedUntil && Date.parse(me.notifyPausedUntil) > Date.now() ? me.notifyPausedUntil : null
-  const schedule = me?.notifySchedule || DEFAULT_SCHEDULE
-  const setSchedule = (next: Partial<NotifySchedule>) => void patch({ notifySchedule: { ...schedule, ...next } })
+  // What the controls show is the latest change, saved or on its way; once
+  // every save has answered it is the server's again (the last one taken, or
+  // what stands when that one was refused).
+  const [draft, setDraft] = useState<NotifySchedule | null>(null)
+  const latest = useRef<NotifySchedule | null>(null)
+  const patchRef = useRef(patch)
+  patchRef.current = patch
+  const save = useMemo(() => scheduleSaver(
+    (notifySchedule) => patchRef.current({ notifySchedule }),
+    () => { latest.current = null; setDraft(null) },
+  ), [])
+  const schedule = draft || me?.notifySchedule || DEFAULT_SCHEDULE
+  const setSchedule = (change: (current: NotifySchedule) => Partial<NotifySchedule>) => {
+    const current = latest.current || schedule
+    const next = { ...current, ...change(current) }
+    latest.current = next
+    setDraft(next)
+    save(next)
+  }
   const DAYS = [1, 2, 3, 4, 5, 6, 0]
   const dayName = (d: number) => new Date(2026, 8, 20 + d).toLocaleDateString(locale, { weekday: 'short' })
   return (
@@ -282,22 +307,22 @@ const QuietRows: React.FC<{ me: Me | null; patch: (body: Record<string, unknown>
             {t('Only notify me during these hours')}
             <span className="row-sub">{t('In your own time zone. Outside them it is quiet, as if paused.')}</span>
           </span>
-          <button className="switch" role="switch" aria-checked={schedule.enabled} aria-label={t('Only notify me during these hours')} disabled={!me} onClick={() => setSchedule({ enabled: !schedule.enabled })} data-schedule="1" />
+          <button className="switch" role="switch" aria-checked={schedule.enabled} aria-label={t('Only notify me during these hours')} disabled={!me} onClick={() => setSchedule((s) => ({ enabled: !s.enabled }))} data-schedule="1" />
         </div>
         {schedule.enabled && (
           <div className="row static quiet-hours">
             <span className="quiet-days" role="group" aria-label={t('Days')}>
               {DAYS.map((d) => (
                 <button key={d} type="button" className={`quiet-day${schedule.days.includes(d) ? ' on' : ''}`} aria-pressed={schedule.days.includes(d)}
-                  onClick={() => setSchedule({ days: schedule.days.includes(d) ? schedule.days.filter((x) => x !== d) : [...schedule.days, d] })}>
+                  onClick={() => setSchedule((s) => ({ days: s.days.includes(d) ? s.days.filter((x) => x !== d) : [...s.days, d] }))}>
                   {dayName(d)}
                 </button>
               ))}
             </span>
             <span className="quiet-times">
-              <input type="time" value={schedule.from} aria-label={t('From')} onChange={(e) => e.target.value && setSchedule({ from: e.target.value })} data-schedule-from="1" />
+              <input type="time" value={schedule.from} aria-label={t('From')} onChange={(e) => { const from = e.target.value; if (from) setSchedule(() => ({ from })) }} data-schedule-from="1" />
               <span>–</span>
-              <input type="time" value={schedule.to} aria-label={t('To')} onChange={(e) => e.target.value && setSchedule({ to: e.target.value })} data-schedule-to="1" />
+              <input type="time" value={schedule.to} aria-label={t('To')} onChange={(e) => { const to = e.target.value; if (to) setSchedule(() => ({ to })) }} data-schedule-to="1" />
             </span>
           </div>
         )}

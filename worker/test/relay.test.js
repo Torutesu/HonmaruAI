@@ -48,6 +48,32 @@ test("a joiner is told who is already online", async () => {
   expect(presence).toBeTruthy();
 });
 
+test("closing one of someone's tabs leaves them online; closing the last takes them offline", async () => {
+  const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "1003", login: "third", name: "Third", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, "core-team", "1003", "Engineer");
+  const tokenC = await createSession(env.DB, "1003", "gho_z");
+  // realdev on two tabs; somebody else in another workspace on a third.
+  const { ws: tab1 } = await joined("core-team", globalThis.__tokenA);
+  const { ws: tab2 } = await joined("core-team", globalThis.__tokenA);
+  await joined("notion-org", globalThis.__tokenA);
+  const { ws: c } = await joined("core-team", tokenC);
+  const { messages: watching } = await joined("core-team", globalThis.__tokenB);
+  const offline = (login) => (m) => m.type === "CUSTOM" && m.name === "presence" && m.value?.userId === login && m.value?.status === "offline";
+
+  // One tab closes, then Third leaves: by Third's offline, the tab's close
+  // has been heard too — and said nothing.
+  tab1.close();
+  c.close();
+  expect(await message(watching, offline("third"))).toBeTruthy();
+  expect(await message(watching, offline("realdev"), 15)).toBeNull();
+
+  // The last tab here closes: now realdev is offline, although they are
+  // still connected to another workspace.
+  tab2.close();
+  expect(await message(watching, offline("realdev"))).toBeTruthy();
+});
+
 test("join is bounded per socket", async () => {
   const { ws, messages } = await joined("core-team", globalThis.__tokenA);
   for (let i = 0; i < 5; i += 1) {
@@ -176,6 +202,34 @@ test("a decision sent as tool_result is written to Notion, same as card_updated"
 
   expect(await until(() => notionCalled)).toBe(true);
   expect(await untilNoThrow(() => fetchMock.assertNoPendingInterceptors())).toBe(true);
+});
+
+test("a decided card published again writes no second Notion page", async () => {
+  const { saveCard } = await import("../src/db.js");
+  const pending = { id: "c-again", recipientUserID: "realdev", senderUserID: "watcher", status: "pending", title: "Approve the deploy", priority: "high", createdAt: "2026-08-10T00:00:00Z" };
+  await saveCard(env.DB, "notion-org", pending);
+  fetchMock.activate();
+  let inserts = 0;
+  fetchMock.get("https://backend.composio.dev")
+    .intercept({ path: (p) => p.includes("NOTION_INSERT_ROW_DATABASE"), method: "POST", body: () => { inserts += 1; return true; } })
+    .reply(200, { successful: true, data: { id: "page-again" } })
+    .persist();
+  const { ws: a } = await joined("notion-org", globalThis.__tokenA);
+  const decided = { ...pending, status: "approved", decision: { action: "approve", actorUserID: "realdev", decidedAt: "2026-08-10T02:00:00Z" } };
+  a.send(JSON.stringify({ type: "card_updated", payload: { card: decided } }));
+  expect(await until(() => inserts === 1)).toBe(true);
+  // The phone republishes the decided card whole, and again with an
+  // unrelated change: neither is a new decision.
+  a.send(JSON.stringify({ type: "card_updated", payload: { card: decided } }));
+  a.send(JSON.stringify({ type: "card_updated", payload: { card: { ...decided, priority: "low" } } }));
+  const events = await until(async () => {
+    const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM card_events WHERE org_id='notion-org' AND card_id='c-again'").first();
+    return row.n >= 3 ? row.n : null;
+  });
+  expect(events).toBe(3);
+  await new Promise((r) => setTimeout(r, 200));
+  expect(inserts).toBe(1);
+  fetchMock.deactivate();
 });
 
 // The public handler forwards to the stub only for `Upgrade: websocket`, so the

@@ -82,6 +82,8 @@ ALTER TABLE sessions ADD COLUMN sso_org_id TEXT;
 ALTER TABLE audit_principal_keys ADD COLUMN shred_pending INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE sessions ADD COLUMN sso_connection_id TEXT;
 ALTER TABLE sso_states ADD COLUMN connection_id TEXT;
+ALTER TABLE sso_states ADD COLUMN browser_hash TEXT;
+ALTER TABLE sso_handoffs ADD COLUMN browser_hash TEXT;
 ALTER TABLE join_requests ADD COLUMN role TEXT;
 ALTER TABLE join_requests ADD COLUMN via TEXT;
 ALTER TABLE sessions ADD COLUMN sso_subject TEXT;
@@ -163,3 +165,12 @@ CREATE TABLE IF NOT EXISTS hx_skill_access (org_id TEXT NOT NULL, skill_id TEXT 
 CREATE TABLE IF NOT EXISTS hx_gateways (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, last_seen_at INTEGER, revoked_at INTEGER);
 CREATE TABLE IF NOT EXISTS hx_gateway_jobs (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, gateway_id TEXT NOT NULL REFERENCES hx_gateways(id), created_by TEXT NOT NULL, request_id TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL, result TEXT, lease_hash TEXT, lease_until INTEGER, deadline INTEGER, created_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER, UNIQUE(org_id, created_by, request_id));
 CREATE INDEX IF NOT EXISTS hx_gateway_jobs_queue ON hx_gateway_jobs(gateway_id, status, created_at);
+/* When the daily job claimed a workspace's deletion, and how far through the
+   Jam recordings it got (workspaceDeletion.js). */
+ALTER TABLE workspace_deletions ADD COLUMN purge_started_at TEXT;
+ALTER TABLE workspace_deletions ADD COLUMN purge_cursor TEXT;
+/* An invitation held for approval keeps its channels and its sender (schema.sql). */
+ALTER TABLE join_requests ADD COLUMN channels TEXT;
+ALTER TABLE join_requests ADD COLUMN invited_by TEXT;
+/* A scheduled message held by the cron run sending it (schema.sql). */
+ALTER TABLE scheduled_messages ADD COLUMN lease_until TEXT;

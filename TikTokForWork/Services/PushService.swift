@@ -31,10 +31,27 @@ final class PushService: NSObject, ObservableObject {
     @Published private(set) var bannersOff = false
     @Published private(set) var inScheduledSummary = false
 
-    /// Set when a notification is tapped, so the feed can scroll to that card.
-    @Published var pendingCardID: String?
+    /// A card's notification tapped: the card and its workspace, for Home
+    /// to open once both are there.
+    @Published var pendingCard: CardTarget?
     /// A chat notification tapped: where its message is, to open it there.
     @Published var pendingMessage: MessageTarget?
+
+    /// The card a notification is about, and the workspace it is in, as the
+    /// Worker sends it (worker/src/notify.js).
+    struct CardTarget: Equatable {
+        let orgId: String?
+        let cardId: String
+        /// Each tap is its own: the same card tapped again is opened again.
+        let tap = UUID()
+
+        init?(_ info: [AnyHashable: Any]) {
+            guard info["kind"] as? String != "message",
+                  let cardId = info["cardId"] as? String, !cardId.isEmpty else { return nil }
+            self.cardId = cardId
+            self.orgId = (info["orgId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
+    }
 
     /// Where a chat notification's message lives, as the Worker sends it.
     struct MessageTarget: Equatable {
@@ -289,12 +306,13 @@ extension PushService: UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let info = response.notification.request.content.userInfo
-        let cardID = info["cardId"] as? String
         // A message's notification carries its place, not a card: opening
-        // the feed for it left you on Home with nothing to show.
+        // the feed for it left you on Home with nothing to show. A card's
+        // carries its workspace, which may not be the one on screen.
         let message = MessageTarget(info)
+        let card = CardTarget(info)
         Task { @MainActor in
-            if let message { PushService.shared.pendingMessage = message } else { PushService.shared.pendingCardID = cardID }
+            if let message { PushService.shared.pendingMessage = message } else if let card { PushService.shared.pendingCard = card }
         }
         // Answered immediately rather than inside the hop: the system wants to
         // know we handled the tap, not to wait for the feed to scroll.

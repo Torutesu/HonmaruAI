@@ -183,6 +183,30 @@ test("a card's video plays from the media origin only for someone who may read t
   expect((await fetchMedia(got.url, {}, Date.now() + 2 * WINDOW_SECONDS * 1000)).status).toBe(404);
 });
 
+test("a video named again on another card plays only for someone who may read the card it came on", async () => {
+  const { saveCard } = await import("../src/db.js");
+  const id = "0b9a1d6e-3c2f-4a51-9e7d-2f6b8c1a4d02";
+  const videoURL = `https://api.example.com/media/${id}?o=${encodeURIComponent(ORG)}`;
+  await env.MEDIA.put(`org/${encodeURIComponent(ORG)}/media/${id}`, MP4, { httpMetadata: { contentType: "video/mp4" } });
+  const now = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO businesses (org_id, slug, name, private, created_at) VALUES (?1, 'board', 'Board', 1, ?2)").bind(ORG, now).run();
+  for (const login of ["mika", "kenji"]) {
+    await env.DB.prepare("INSERT INTO conversation_members (org_id, channel, login, added_at) VALUES (?1, 'b:board', ?2, ?3)").bind(ORG, login, now).run();
+  }
+  const card = { type: "approval", summary: "", status: "pending", createdAt: now };
+  await saveCard(env.DB, ORG, { ...card, id: "card-board", recipientUserID: "kenji", senderUserID: "mika", title: "Board video", business: "board", videoURL });
+  // Toru, outside the board, puts the same video on a card of his own —
+  // dated earlier and spelled in capitals, which changes nothing.
+  await saveCard(env.DB, ORG, { ...card, id: "card-copy", recipientUserID: "mika", senderUserID: "toru", title: "Look",
+    videoURL: `https://api.example.com/media/${id.toUpperCase()}?o=${encodeURIComponent(ORG)}`, createdAt: "2020-01-01T00:00:00Z" });
+  const ask = (token, cardId) => call("/media/video", { method: "POST", headers: auth(token, { "content-type": "application/json" }), body: JSON.stringify({ orgId: ORG, cardId }) });
+  expect((await ask(toru, "card-board")).status).toBe(404);
+  expect((await ask(toru, "card-copy")).status).toBe(404);
+  // Whoever may read the board's card plays it from either.
+  expect((await ask(kenji, "card-board")).status).toBe(200);
+  expect((await ask(mika, "card-copy")).status).toBe(200);
+});
+
 test("the bare video address can be retired", async () => {
   const id = "0b9a1d6e-3c2f-4a51-9e7d-2f6b8c1a4d01";
   await env.MEDIA.put(id, MP4, { httpMetadata: { contentType: "video/mp4" } });

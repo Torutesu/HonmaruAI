@@ -43,7 +43,7 @@ import { channelDetails, setDescription, channelRow } from "./channelDetails.js"
 import { channelJournal, forgetJournalDay, validDay, validZone } from "./journal.js";
 import { settleUsage } from "./ledger.js";
 import { readCapped } from "./media.js";
-import { uploadFile, attachFiles, claimable, dropFiles } from "./files.js";
+import { uploadFile, sendable, dropFiles, MAX_FILES_PER_MESSAGE } from "./files.js";
 import { queueMessagePushes, clearDelivered, clearDeliveredMessages } from "./pushes.js";
 import { audit, person } from "./audit.js";
 import { getCanvas, toClientCanvas, listRevisions, getRevision, saveCanvas, draftCanvas } from "./canvas.js";
@@ -126,6 +126,24 @@ async function readEverywhere(env, orgId, login, { view, key, thread, lastReadAt
     const ids = items.filter((k) => k.startsWith("m:")).map((k) => k.slice(2));
     await clearDeliveredMessages(env, orgId, login, ids).catch((err) => console.error("clear push failed", safe(err?.message)));
   }
+}
+
+/// Several replies of one thread as they are now, in one announcement:
+/// a thread deleted with fifty replies is one message to the relay, not
+/// fifty.
+async function broadcastReplies(env, orgId, resolved, ids, members) {
+  if (!ids.length) return;
+  const rows = (await Promise.all(ids.map((id) => getMessage(env.DB, orgId, id)))).filter(Boolean);
+  if (!rows.length) return;
+  if (resolved.kind === "business" && !resolved.logins) {
+    const messages = await present(env.DB, orgId, rows, null, resolved.key, members);
+    await announceEvents(env, orgId, messages.map((message) => customEvent("channel_message", { message })));
+    return;
+  }
+  await announceTo(env, orgId, (await Promise.all(resolved.logins.map(async (login) => {
+    const messages = await present(env.DB, orgId, rows, login, viewOf(resolved.key, login, members), members);
+    return messages.map((message) => ({ to: login, event: customEvent("channel_message", { message }) }));
+  }))).flat());
 }
 
 /// A reply changes its parent too: the count and faces under it.
@@ -439,8 +457,11 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     try {
       const terms = searchTermsFor(row.body, null);
       const available = await connectedSources(env, session, orgId);
+      // The decisions this person may open, as their own search finds them:
+      // a guest's are the ones they are on.
+      const access = terms ? await accessFor(env.DB, orgId, user.login) : null;
       const [decisions, notion, github] = await Promise.all([
-        terms ? searchDecisions(env.DB, orgId, terms).catch(() => []) : [],
+        terms ? searchDecisions(env.DB, orgId, terms, { viewer: user.login, access }).catch(() => []) : [],
         available.notion && terms ? searchNotion(env, session.github_id, terms).catch(() => []) : [],
         available.github && terms ? searchGithubIssues(session, orgId, terms, env).catch(() => []) : [],
       ]);
@@ -969,9 +990,12 @@ export async function handleChannels(request, env, url, { route, after }) {
     const view = viewOf(resolved.key, who.user.login, members);
     if (request.method === "GET") {
       const before = url.searchParams.get("before") || undefined;
+      // The oldest message held, with `before` its time: a cursor that does
+      // not skip a message sharing that millisecond.
+      const beforeId = url.searchParams.get("beforeId") || undefined;
       // `{ messages, more }`: `more` says whether older messages are there
       // to page back to, so a client need not guess it from the count.
-      return json(await listMessages(env.DB, orgId, resolved, who.user.login, view, members, { before }));
+      return json(await listMessages(env.DB, orgId, resolved, who.user.login, view, members, { before, beforeId }));
     }
     const parentId = typeof body.parentId === "string" && body.parentId ? body.parentId : null;
     // An inline reply: the message it answers (postMessage checks it is here).
@@ -992,20 +1016,21 @@ export async function handleChannels(request, env, url, { route, after }) {
       if (sched.error) return json({ message: sched.error }, 400);
       return json({ scheduled: { ...sched.scheduled, channel: view } }, 201);
     }
-    // Files uploaded for this message come with it — yours, uploaded here.
-    const fileIds = Array.isArray(body.files) ? body.files : [];
-    const withFiles = fileIds.length > 0 && (await claimable(env.DB, { orgId, key: resolved.key, login: who.user.login, ids: fileIds })) > 0;
+    // Files uploaded for this message come with it — yours, uploaded here —
+    // claimed with it in one step (postMessage).
+    const uploads = await sendable(env.DB, { orgId, key: resolved.key, login: who.user.login, ids: body.files });
+    if (uploads.over) return json({ message: `A message can carry at most ${MAX_FILES_PER_MESSAGE} files.`, code: "too_many_files" }, 400);
+    const withFiles = uploads.ids.length > 0;
     if (body.clientId != null && body.clientId !== "" && (typeof body.clientId !== "string" || !clientIdOk(body.clientId))) {
       return json({ message: "That send cannot be tried again." }, 400);
     }
     const clientId = typeof body.clientId === "string" && body.clientId ? body.clientId : null;
-    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId, replyTo, withFiles, clientId, alsoChannel });
+    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId, replyTo, withFiles, files: { login: who.user.login, ...uploads }, clientId, alsoChannel });
     if (out.error) return json({ message: out.error, ...(out.code ? { code: out.code } : {}) }, out.status || 400);
     if (out.replay) {
       const [message] = await present(env.DB, orgId, [out.row], who.user.login, view, members);
       return json({ message });
     }
-    if (withFiles) await attachFiles(env.DB, { orgId, key: resolved.key, login: who.user.login, messageId: out.row.id, ids: fileIds });
     // A message to an agent is the agent's to do: it never becomes a card
     // for a person, whatever else it says.
     //
@@ -1088,6 +1113,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     }
     after(async () => {
       await broadcastWithParent(env, body.orgId, ctx.resolved, out.row, ctx.members);
+      // The replies that went with it are gone wherever they show — those
+      // sent to the conversation too are in it as well as in the thread.
+      await broadcastReplies(env, body.orgId, ctx.resolved, out.replies || [], ctx.members);
       await emitMessage(env, body.orgId, out.row, { updated: true });
       // The journal said what this message said; its day is written again.
       await forgetJournalDay(env.DB, body.orgId, ctx.resolved.key, current.created_at);
@@ -1368,6 +1396,8 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (!target || !ctx.resolved.logins.includes(target.login)) return json({ message: "They are not in this channel." }, 404);
     await removeMember(env.DB, { orgId, key, login: target.login });
     await announceTo(env, orgId, [await listFor(target.login)]);
+    const { evictFromJam } = await import("./announce.js");
+    await evictFromJam(env, orgId, target.login, key);
     await note(target.login === me.login
       ? serverText(locale, "channel.left", { who: nameOf(me.login) })
       : serverText(locale, "channel.removed", { who: nameOf(me.login), name: target.name }));

@@ -20,6 +20,10 @@ ipcRenderer.on('honmaru:attention', (_event, value) => {
 contextBridge.exposeInMainWorld('honmaruDesktop', Object.freeze({
   isDesktop: true,
   platform: process.platform,
+  // This shell answers getDisplayMedia() with a picker (src/capture.js).
+  // One built before it refuses every request, so the page offers no
+  // screen sharing there.
+  screenShare: true,
   away: () => away,
   show: () => ipcRenderer.send('honmaru:show'),
   openNotificationSettings: () => ipcRenderer.send('honmaru:notification-settings'),

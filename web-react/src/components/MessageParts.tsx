@@ -10,7 +10,7 @@ import type { Announced } from '../utils/typing'
 import { excerptParts } from '../utils/replies'
 import { messageMenuEntries, type MessageMenuActions } from '../utils/messageMenu'
 import { keepOnScreen, focusGoesBack } from './RowMenu'
-import { recordingAddress } from '../utils/mediaUrls'
+import { recordingSource, type RecordingSource } from '../utils/mediaUrls'
 import { emojiDataState, gridStep, isEmojiOnly, loadEmojiData, pickerSections, rememberEmoji, useEmojiData, useEmojiDataState, useQuickReactions, useRecentEmoji } from '../utils/emojiSearch'
 import { composing } from '../utils/keys'
 import { safeHref } from '../utils/markdown'
@@ -764,15 +764,84 @@ const Spoiler: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
 const JAM_AUDIO = /^https?:\/\/[^\s]+\/channels\/jam\/audio\/[0-9a-f-]{36}$/
 
+/// What a Jam player is doing about its address, for one link.
+interface JamLife {
+  gone: boolean
+  asking: boolean
+  /// Not this reader's to hear any more, or deleted: not asked for again.
+  denied: boolean
+  /// New addresses asked for after one would not open, since it last played.
+  tries: number
+  playing: boolean
+  /// Where it had got to when its address was replaced, in seconds.
+  reached: number
+  /// A new address is on its way, and it plays on when it comes.
+  playOn: boolean
+}
+const jamLife = (): JamLife => ({ gone: false, asking: false, denied: false, tries: 0, playing: false, reached: 0, playOn: false })
+
 /// A Jam's recording, played from an address signed for whoever is looking.
+/// That address is good for minutes and a message stays on the page far
+/// longer, so the player keeps the recording by its link, and asks for a
+/// new address when it is played after its own has run out, or when the one
+/// it has will not open — going on from where it had got to, and playing if
+/// it was. Asking that fails is tried again a few times, and again whenever
+/// it is played; a recording no longer this reader's is not asked for again.
 function JamAudio({ link }: { link: string }) {
-  const [src, setSrc] = useState<string | null>(null)
+  const [source, setSource] = useState<RecordingSource | null>(null)
+  const player = useRef<HTMLAudioElement>(null)
+  const life = useRef<JamLife>(jamLife())
+  /// Asks for an address for this link, and twice more after a failure.
+  const ask = useRef<(attempt?: number) => void>(() => {})
   useEffect(() => {
-    let live = true
-    void recordingAddress(link).then((url) => { if (live) setSrc(url) })
-    return () => { live = false }
+    const now = jamLife()
+    life.current = now
+    ask.current = (attempt = 0) => {
+      if (now.gone || now.asking || now.denied) return
+      now.asking = true
+      void recordingSource(link).then((got) => {
+        now.asking = false
+        if (now.gone) return
+        if (got === 'denied') now.denied = true
+        else if (got) setSource(got)
+        else if (attempt < 2) setTimeout(() => ask.current(attempt + 1), 2000 * 2 ** attempt)
+      })
+    }
+    setSource(null)
+    ask.current()
+    return () => { now.gone = true }
   }, [link])
-  return <audio className="slk-jam-audio" controls preload="none" src={src || undefined} />
+  useEffect(() => {
+    const now = life.current
+    if (!source || !now.playOn) return
+    now.playOn = false
+    void player.current?.play()?.catch(() => {})
+  }, [source])
+  const renew = (el: HTMLAudioElement) => {
+    const now = life.current
+    if (el.currentTime > 0) now.reached = el.currentTime
+    now.playOn = now.playing
+    ask.current()
+  }
+  /// No address yet, or one about to run out, as it is played.
+  const expired = () => !source || (source.expiresAt !== null && source.expiresAt - 60_000 <= Date.now())
+  return (
+    <audio ref={player} className="slk-jam-audio" controls preload="none" src={source?.url || undefined}
+      onPlay={(e) => { life.current.playing = true; if (expired()) renew(e.currentTarget) }}
+      onPause={() => { life.current.playing = false; life.current.playOn = false }}
+      onPlaying={() => { life.current.tries = 0 }}
+      onError={(e) => {
+        const now = life.current
+        if (now.denied || now.tries >= 2) return
+        now.tries += 1
+        renew(e.currentTarget)
+      }}
+      onLoadedMetadata={(e) => {
+        const now = life.current
+        if (now.reached > 0) e.currentTarget.currentTime = now.reached
+        now.reached = 0
+      }} />
+  )
 }
 
 /// `nested`: the words inside a *bold* or an _italic_, which are never a

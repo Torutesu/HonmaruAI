@@ -92,6 +92,19 @@ jobs:
           for want in latest-mac.yml universal-mac.zip universal.dmg; do
             case "$assets" in *"$want"*) ;; *) echo "missing $want" >&2; exit 1 ;; esac
           done
+      # Every installed app reads the latest release's feed for its own
+      # platform, with no fallback: a Mac-only latest release left Windows
+      # and Linux unable to update (v1.3.5). Their feeds and installers come
+      # over from the newest release that has them, so they stay on the
+      # version they have (scripts/feed.mjs).
+      - name: Keep Windows and Linux on their current version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/feed.mjs carry "v$VERSION"
+      - name: Check the draft holds every platform's update
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/feed.mjs check "v$VERSION"
       - name: Publish
         if: ${{ inputs.publish }}
         env:

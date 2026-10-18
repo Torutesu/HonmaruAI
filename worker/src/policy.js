@@ -109,6 +109,11 @@ export async function policyDenial(env, session, orgId) {
   const { ipDenial } = await import("./governance.js");
   const offNetwork = await ipDenial(env, orgId, currentIp());
   if (offNetwork) return offNetwork;
+  // Turned off by the company's directory, however they came back in.
+  const { deactivatedHere, DEACTIVATED_MESSAGE } = await import("./scim.js");
+  if (await deactivatedHere(env.DB, orgId, session.github_id)) {
+    return { status: 403, body: { message: DEACTIVATED_MESSAGE, code: "deactivated", orgId } };
+  }
   // Signed out of this workspace (by its admin, or its rules), whatever
   // the session may still open elsewhere.
   if (await endedHere(env.DB, session.token, orgId)) {
@@ -176,7 +181,7 @@ export async function applyPolicyNow(env, orgId) {
     `SELECT s.token, s.github_id, s.created_at, s.last_seen_at, s.client, s.longest_idle_ms FROM sessions s
        JOIN memberships m ON m.user_github_id = s.github_id AND m.org_id = ?1`
   ).bind(orgId).all();
-  return endHere(env.DB, orgId, (results || []).filter((s) => brokenRule(policy, s)).map((s) => s.token));
+  return endHere(env, orgId, (results || []).filter((s) => brokenRule(policy, s)).map((s) => s.token));
 }
 
 /// GET/PUT /orgs/session-policy · POST /orgs/session-policy/apply ·

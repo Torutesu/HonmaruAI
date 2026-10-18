@@ -82,10 +82,22 @@ export async function searchNotion(env, githubId, query) {
   }));
 }
 
+/// Search words that would name another place to look. A token can often
+/// read more than the workspace's repository, and GitHub searches every
+/// repository a query names, so these are taken out of what was asked.
+const SCOPE_QUALIFIER = /-?\b(?:repo|org|user|owner):(?:"[^"]*"|\S*)/gi;
+
+/// Which repository an issue in GitHub's answer belongs to, as owner/repo.
+function issueRepo(it) {
+  const m = String(it?.repository_url || "").match(/\/repos\/([^/]+\/[^/]+)$/) || String(it?.html_url || "").match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\//);
+  return m ? m[1].toLowerCase() : null;
+}
+
 /// Issues and pull requests in the workspace's repository that match, as
-/// the person — their token, their visibility.
+/// the person — their token, their visibility. Only that repository's: a
+/// hit from anywhere else is dropped, whatever the query said.
 export async function searchGithubIssues(session, orgId, query, env) {
-  const q = String(query || "").trim().slice(0, 200);
+  const q = String(query || "").replace(SCOPE_QUALIFIER, " ").replace(/\s+/g, " ").trim().slice(0, 200);
   const access = env ? await githubAccess(env, session, orgId) : null;
   const repo = access?.repo || String(orgId || "");
   const token = access?.token || (session?.github_access_token !== EMAIL_AUTH_TOKEN ? session?.github_access_token : null);
@@ -103,7 +115,7 @@ export async function searchGithubIssues(session, orgId, query, env) {
   });
   if (!res.ok) throw new Error(`GitHub search ${res.status}`);
   const data = await res.json();
-  return (data?.items || []).slice(0, MAX_HITS).map((it) => ({
+  return (data?.items || []).filter((it) => issueRepo(it) === repo.toLowerCase()).slice(0, MAX_HITS).map((it) => ({
     app: "GitHub",
     title: `#${it.number} ${String(it.title || "").slice(0, 160)}`,
     url: typeof it.html_url === "string" ? it.html_url : null,

@@ -57,6 +57,21 @@ test("only users with a session, an org and a connector are picked up", async ()
   expect(calls).toBe(2);
 });
 
+test("a sync that finds nothing new still moves the person to the back of the queue", async () => {
+  fetchMock.get("https://backend.composio.dev")
+    .intercept({ path: (p) => p.includes("/tools/execute/"), method: "POST" })
+    .reply(200, { successful: true, data: { results: [] } })
+    .times(2);
+
+  const result = await runScheduledSync(cronEnv());
+  expect(result.synced).toBe(2);
+  expect(result.created).toBe(0);
+  // Otherwise fifty empty inboxes hold the front of every run and the
+  // fifty-first person is never reached.
+  const { results } = await env.DB.prepare("SELECT user_github_id FROM connector_sync_state ORDER BY user_github_id").all();
+  expect(results.map((r) => r.user_github_id)).toEqual(["7001", "7004"]);
+});
+
 test("one user's broken connector does not stop the run", async () => {
   fetchMock.get("https://backend.composio.dev")
     .intercept({ path: (p) => p.includes("/tools/execute/"), method: "POST" })

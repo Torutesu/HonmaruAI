@@ -166,3 +166,70 @@ test("a workspace's key signs a person out of that workspace, not out of every o
   expect((await call(`/businesses?orgId=${encodeURIComponent(ORG)}`, { token: aya })).status).toBe(401);
   expect((await call(`/businesses?orgId=${encodeURIComponent("team:other")}`, { token: aya })).status).toBe(200);
 });
+
+// An Idempotency-Key was written down only once its request had finished, so
+// two copies sent together both made an invitation; and one older than a day
+// was ignored on reading but kept the new answer from being written, so every
+// retry after that made another.
+
+const invite = (key, idem, over = env) => worker.fetch(new Request("https://example.com/admin/v1/invites", {
+  method: "POST",
+  headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.5", authorization: `Bearer ${key}`, "idempotency-key": idem },
+  body: JSON.stringify({ role: "member" }),
+}), over, ctx);
+const invites = async () => (await env.DB.prepare("SELECT COUNT(*) AS n FROM invites WHERE org_id = ?1").bind(ORG).first()).n;
+
+test("an Idempotency-Key used again after its day is a new request, and its retries replay that one", async () => {
+  const { key } = await makeKey();
+  const keyId = (await env.DB.prepare("SELECT id FROM org_keys WHERE org_id = ?1").bind(ORG).first()).id;
+  await env.DB.prepare("INSERT INTO admin_idempotency (key_id, idem_key, status, body, created_at) VALUES (?1, 'daily-onboarding', 201, '{\"old\":true}', ?2)")
+    .bind(keyId, new Date(Date.now() - 25 * 3_600_000).toISOString()).run();
+  const fresh = await invite(key, "daily-onboarding");
+  expect(fresh.status).toBe(201);
+  expect(fresh.headers.get("idempotent-replayed")).toBeNull();
+  const retry = await invite(key, "daily-onboarding");
+  expect(retry.headers.get("idempotent-replayed")).toBe("true");
+  expect((await retry.json()).data.code).toBe((await fresh.json()).data.code);
+  expect(await invites()).toBe(1);
+});
+
+test("two copies of one request sent together make one invitation; the second is told to try again, and then gets the first's answer", async () => {
+  const { key } = await makeKey();
+  let second;
+  let held = false;
+  const DB = new Proxy(env.DB, {
+    get(t, p) {
+      if (p === "prepare") {
+        return (sql) => {
+          const stmt = t.prepare(sql);
+          if (held || !/^INSERT INTO invites/.test(sql)) return stmt;
+          held = true;
+          // The first is making its invitation when the copy arrives.
+          return { bind: (...args) => ({ run: async () => { second = await invite(key, "invite-onboarding-123"); return stmt.bind(...args).run(); } }) };
+        };
+      }
+      const v = Reflect.get(t, p);
+      return typeof v === "function" ? v.bind(t) : v;
+    },
+  });
+  const first = await invite(key, "invite-onboarding-123", { ...env, DB });
+  expect(first.status).toBe(201);
+  expect(second.status).toBe(409);
+  expect((await second.json()).error.code).toBe("idempotency_in_progress");
+  const later = await invite(key, "invite-onboarding-123");
+  expect(later.headers.get("idempotent-replayed")).toBe("true");
+  expect((await later.json()).data.code).toBe((await first.json()).data.code);
+  expect(await invites()).toBe(1);
+});
+
+test("a claim on an Idempotency-Key that nobody finished is taken over after ten minutes", async () => {
+  const { key } = await makeKey();
+  const keyId = (await env.DB.prepare("SELECT id FROM org_keys WHERE org_id = ?1").bind(ORG).first()).id;
+  await env.DB.prepare("INSERT INTO admin_idempotency (key_id, idem_key, status, body, created_at) VALUES (?1, 'stuck', 0, '', ?2)")
+    .bind(keyId, new Date(Date.now() - 60_000).toISOString()).run();
+  expect((await invite(key, "stuck")).status).toBe(409);
+  await env.DB.prepare("UPDATE admin_idempotency SET created_at = ?2 WHERE key_id = ?1").bind(keyId, new Date(Date.now() - 11 * 60_000).toISOString()).run();
+  expect((await invite(key, "stuck")).status).toBe(201);
+  expect((await invite(key, "stuck")).headers.get("idempotent-replayed")).toBe("true");
+  expect(await invites()).toBe(1);
+});

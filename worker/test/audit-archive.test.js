@@ -68,6 +68,65 @@ test("each hour is sealed once: the archive, a signed digest, and a chain from o
   expect(shown).toMatchObject({ ok: true, archive: { ok: true, checked_hours: 2 } });
 });
 
+/// The database, but a seal cannot be recorded.
+const sealsDown = () => ({
+  ...env,
+  DB: new Proxy(env.DB, {
+    get(target, key) {
+      if (key === "prepare") {
+        return (sql) => (/INSERT OR IGNORE INTO audit_seals/.test(sql)
+          ? { bind: () => ({ run: async () => { throw new Error("D1 is down"); } }) }
+          : target.prepare(sql));
+      }
+      const value = target[key];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }),
+});
+
+// A seal that wrote its archive and digest but not its row was sealed again
+// with a new digest — a new sealed_at — whose hash D1 recorded while the
+// bucket kept the first one: the chain broke at the next hour.
+test("a seal retried after its objects were written records the digest in the bucket, and the next hour chains to it", async () => {
+  await write(3, T0 + 5 * 60_000);
+  const now = T0 + HOUR + 60_000;
+  expect(await sealPending(sealsDown(), { now })).toEqual([]);
+  const path = archivePath(ORG, T0);
+  const kept = await (await env.AUDIT_ARCHIVE.get(`${path}.digest.json`)).text();
+  await new Promise((r) => setTimeout(r, 5));
+  expect((await sealPending(env, { now })).map((s) => s.count)).toEqual([3]);
+  expect(await (await env.AUDIT_ARCHIVE.get(`${path}.digest.json`)).text()).toBe(kept);
+  const seal = await env.DB.prepare("SELECT digest_sha256, sealed_at FROM audit_seals WHERE org_id = ?1").bind(ORG).first();
+  const { sha256Hex } = await import("../src/auth.js");
+  expect(seal.digest_sha256).toBe(await sha256Hex(kept));
+  expect(seal.sealed_at).toBe(JSON.parse(kept).sealed_at);
+  // Again: nothing more.
+  expect(await sealPending(env, { now })).toEqual([]);
+  await write(2, T0 + HOUR + 60_000);
+  await sealPending(env, { now: T0 + 2 * HOUR + 60_000 });
+  const next = JSON.parse(await (await env.AUDIT_ARCHIVE.get(`${archivePath(ORG, T0 + HOUR)}.digest.json`)).text());
+  expect(next.prev_digest).toBe(await sha256Hex(kept));
+  expect(await verifyArchive(env, ORG)).toMatchObject({ ok: true, checked_hours: 2 });
+});
+
+test("a seal that stopped after the archive alone writes one digest for that archive; a digest that is not this hour's is refused", async () => {
+  await write(2, T0 + 5 * 60_000);
+  const now = T0 + HOUR + 60_000;
+  await sealPending(sealsDown(), { now });
+  const path = archivePath(ORG, T0);
+  await env.AUDIT_ARCHIVE.delete(`${path}.digest.json`);
+  expect((await sealPending(env, { now })).map((s) => s.count)).toEqual([2]);
+  expect(await verifyArchive(env, ORG)).toMatchObject({ ok: true, checked_hours: 1 });
+
+  // An hour whose bucket already holds something else: not sealed over it.
+  await write(1, T0 + HOUR + 60_000);
+  const other = archivePath(ORG, T0 + HOUR);
+  await env.AUDIT_ARCHIVE.put(`${other}.digest.json`, JSON.stringify({ v: 1, org: ORG, count: 99 }));
+  expect(await sealPending(env, { now: T0 + 2 * HOUR + 60_000 })).toEqual([]);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_seals WHERE org_id = ?1").bind(ORG).first()).n).toBe(1);
+  expect((await env.DB.prepare("SELECT last_error FROM audit_seal_failures WHERE org_id = ?1").bind(ORG).first()).last_error).toContain("does not seal");
+});
+
 test("verification finds a changed row, a changed archive, and a missing digest", async () => {
   await write(3, T0 + 60_000);
   await sealPending(env, { now: T0 + HOUR + 60_000 });
@@ -99,6 +158,43 @@ test("past their retention and sealed, rows leave D1; unsealed ones and a hold k
   expect(left.filter((a) => a === "emoji.added")).toHaveLength(2);
   const verify = await (await call(`/audit/verify?orgId=${ORG}`, owner)).json();
   expect(verify.ok).toBe(true);
+});
+
+// A failed read of the settings was taken for no settings: the 180-day
+// default and no hold, and rows a hold or a longer retention kept went.
+test("a workspace whose retention and hold cannot be read is not pruned; once they can be, its rules apply", async () => {
+  await write(2, T0 + 60_000);
+  await sealPending(env, { now: T0 + HOUR + 60_000 });
+  const later = T0 + 200 * 24 * HOUR;
+  await env.DB.prepare("INSERT INTO org_audit_settings (org_id, retention_days, legal_hold, updated_by, updated_at) VALUES (?1, 365, 0, 'ops', ?2)").bind(ORG, new Date().toISOString()).run();
+  const settingsDown = {
+    ...env,
+    DB: new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "prepare") {
+          return (sql) => (/FROM org_audit_settings/.test(sql)
+            ? { bind: () => ({ first: async () => { throw new Error("D1 is down"); } }) }
+            : target.prepare(sql));
+        }
+        const value = target[key];
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }),
+  };
+  const count = async () => (await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_events WHERE org_id = ?1 AND action = 'emoji.added'").bind(ORG).first()).n;
+  expect(await pruneAudit(settingsDown, { now: later })).toEqual([]);
+  expect(await count()).toBe(2);
+  // Read: 365 days keeps them at 200.
+  expect(await pruneAudit(env, { now: later })).toEqual([]);
+  expect(await count()).toBe(2);
+  // With no settings at all, the default applies.
+  await env.DB.prepare("DELETE FROM org_audit_settings WHERE org_id = ?1").bind(ORG).run();
+  expect(await pruneAudit(env, { now: later })).toEqual([{ orgId: ORG, count: 2 }]);
+  // And the operator's door does not write over settings it could not read.
+  const ops = { ...settingsDown, OPS_TOKEN: "ops-secret" };
+  const res = await call("/ops/audit/settings", null, { method: "POST", body: { orgId: ORG, retentionDays: 90, reason: "Case 1" }, headers: { "x-ops-token": "ops-secret" }, withEnv: ops });
+  expect(res.status).toBe(500);
+  expect(await env.DB.prepare("SELECT 1 FROM org_audit_settings WHERE org_id = ?1").bind(ORG).first()).toBe(null);
 });
 
 test("nothing but pruning deletes from the audit log", async () => {
@@ -161,6 +257,67 @@ test("a stream sends what is new, in order and signed; a failure backs off; Splu
   const dd = requestFor({ kind: "datadog", region: "eu1", org_id: ORG }, "key", events);
   expect(dd.url).toBe("https://http-intake.logs.datadoghq.eu/api/v2/logs");
   expect(JSON.parse(dd.body)[0]).toMatchObject({ ddsource: "honmaru", service: "audit" });
+});
+
+// A replay from before the oldest row D1 still kept started at that row and
+// moved the stream past the pruned range: the archive was never read.
+test("a replay from entries retention has pruned sends them from the archive, then the live ones; a missing archive stops the stream instead", async () => {
+  await write(4, T0 + 60_000);
+  await sealPending(env, { now: T0 + HOUR + 60_000 });
+  await write(2, T0 + 2 * HOUR + 60_000);
+  expect(await pruneAudit(env, { now: T0 + 200 * 24 * HOUR })).toEqual([{ orgId: ORG, count: 4 }]);
+  expect((await call("/audit/streams", owner, { method: "POST", body: { orgId: ORG, kind: "https", endpoint: "https://siem.example.com/in", secret: "whsec" } })).status).toBe(201);
+  const stream = await env.DB.prepare("SELECT id FROM audit_streams WHERE org_id = ?1").bind(ORG).first();
+  const sent = [];
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url.startsWith("https://siem.example.com")) { sent.push(...init.body.trim().split("\n").map((l) => JSON.parse(l))); return new Response("ok"); }
+    return realFetch(input, init);
+  };
+  // Without the archive there is nothing to send them from: refused, and the earliest that can be.
+  const noArchive = await call(`/audit/streams/${stream.id}/replay`, owner, { method: "POST", body: { orgId: ORG, fromSeq: 1 }, withEnv: { ...env, AUDIT_ARCHIVE: undefined } });
+  expect(noArchive.status).toBe(409);
+  expect(await noArchive.json()).toMatchObject({ code: "replay-unavailable", earliestSeq: 5 });
+
+  expect((await call(`/audit/streams/${stream.id}/replay`, owner, { method: "POST", body: { orgId: ORG, fromSeq: 2 } })).status).toBe(200);
+  for (let run = 0; run < 3; run += 1) await deliverStreams(env);
+  const newest = (await env.DB.prepare("SELECT MAX(seq) AS s FROM audit_events WHERE org_id = ?1").bind(ORG).first()).s;
+  expect(sent.map((e) => e.seq)).toEqual(Array.from({ length: newest - 1 }, (_, i) => i + 2));
+  expect(sent.slice(0, 3).map((e) => e.action)).toEqual(["emoji.added", "emoji.added", "emoji.added"]);
+  expect(sent[0].actor.name).toBe("Toru");
+
+  // The archive gone: the stream fails where it is and says why.
+  await env.AUDIT_ARCHIVE.delete(`${archivePath(ORG, T0)}.jsonl.gz`);
+  expect((await call(`/audit/streams/${stream.id}/replay`, owner, { method: "POST", body: { orgId: ORG, fromSeq: 1 } })).status).toBe(200);
+  sent.length = 0;
+  await deliverStreams(env);
+  expect(sent).toEqual([]);
+  const row = await env.DB.prepare("SELECT delivered_seq, failures, last_error FROM audit_streams WHERE id = ?1").bind(stream.id).first();
+  expect(row).toMatchObject({ delivered_seq: 0, failures: 1 });
+  expect(row.last_error).toContain("archive");
+});
+
+// Twenty due streams, LIMIT 20, no order and no memory of the last run: the
+// same twenty had every run, idle or not, and a twenty-first never sent.
+test("streams take turns: twenty idle ones do not keep a twenty-first from sending", async () => {
+  for (let i = 0; i < 20; i += 1) {
+    await env.DB.prepare(
+      "INSERT INTO audit_streams (id, org_id, kind, endpoint, secret, min_severity, delivered_seq, status, failures, created_by, created_at) VALUES (?1, 'team:quiet', 'https', 'https://quiet.example.com/in', 'x', 'info', 0, 'active', 0, '1', ?2)"
+    ).bind(`as_${String(i).padStart(2, "0")}`, new Date().toISOString()).run();
+  }
+  expect((await call("/audit/streams", owner, { method: "POST", body: { orgId: ORG, kind: "https", endpoint: "https://siem.example.com/in", secret: "whsec" } })).status).toBe(201);
+  const sent = [];
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url.startsWith("https://siem.example.com")) { sent.push(init.body); return new Response("ok"); }
+    return realFetch(input, init);
+  };
+  for (let run = 0; run < 2 && !sent.length; run += 1) await deliverStreams(env, { limit: 20 });
+  expect(sent).toHaveLength(1);
+  // And round again: the idle ones are visited, the busy one comes back.
+  await write(1, Date.now());
+  for (let run = 0; run < 2 && sent.length < 2; run += 1) await deliverStreams(env, { limit: 20 });
+  expect(sent).toHaveLength(2);
 });
 
 test("each workspace is sealed on its own: the ones with a finished hour, not the ones already sealed or still in their hour", async () => {

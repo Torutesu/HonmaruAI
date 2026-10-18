@@ -33,3 +33,31 @@ test('local runtime failures do not leak host error details', async () => {
   assert.equal(result.status, 'failed');
   assert.ok(!result.stderr.includes('/Users'));
 });
+test('a result whose upload fails is handed in again, without running the code again', async () => {
+  const job = { id: 'job', lease: 'lease', payload: { code: 'return input * 2', input: 21 } };
+  const result = { status: 'succeeded', stdout: '42', stderr: '', exitCode: 0 };
+  let runs = 0;
+  const run = async () => { runs += 1; return result; };
+  const finishing = (reply) => {
+    const sent = [];
+    return { sent, call: async (path, body) => { if (path === 'claim') return { job }; sent.push(body); return reply(sent.length); } };
+  };
+  const failure = (status, code) => Object.assign(new Error('refused'), { status, code });
+  // Fails before reaching the server, then lands.
+  let f = finishing((n) => { if (n === 1) throw new TypeError('fetch failed'); return { ok: true }; });
+  assert.equal(await processOne(f.call, { run, retryMs: [0, 0] }), true);
+  assert.equal(runs, 1);
+  assert.deepEqual(f.sent, [{ lease: 'lease', ...result }, { lease: 'lease', ...result }]);
+  // Landed, but the reply was lost: the server says it already has it.
+  f = finishing((n) => { throw n === 1 ? failure(502) : failure(409, 'already_finished'); });
+  assert.equal(await processOne(f.call, { run, retryMs: [0, 0] }), true);
+  assert.equal(f.sent.length, 2);
+  // A refusal ends it at once; failures that go on stop at the bound.
+  f = finishing(() => { throw failure(409); });
+  await assert.rejects(processOne(f.call, { run, retryMs: [0, 0] }), { status: 409 });
+  assert.equal(f.sent.length, 1);
+  f = finishing(() => { throw new TypeError('fetch failed'); });
+  await assert.rejects(processOne(f.call, { run, retryMs: [0, 0] }), TypeError);
+  assert.equal(f.sent.length, 3);
+  assert.equal(runs, 4);
+});

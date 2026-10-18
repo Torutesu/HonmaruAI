@@ -22,6 +22,10 @@ final class HarnessServiceTests: XCTestCase {
         """
         let r = try JSONDecoder().decode(HarnessService.RenderedApp.self, from: Data(json.utf8))
         XCTAssertEqual(r.app.channels, ["b:sales"])
+        // An older Worker does not say; the current one does.
+        XCTAssertNil(r.canCustomize)
+        let ordinary = json.replacingOccurrences(of: "\"views\":[\n", with: "\"canCustomize\":false,\"views\":[\n")
+        XCTAssertEqual(try JSONDecoder().decode(HarnessService.RenderedApp.self, from: Data(ordinary.utf8)).canCustomize, false)
         XCTAssertEqual(r.views.map(\.type), ["board", "table", "metrics"])
         XCTAssertEqual(r.views[0].lanes?.map(\.id), ["Lead", "—"])
         XCTAssertEqual(r.views[2].values?.first?.value, 42000)

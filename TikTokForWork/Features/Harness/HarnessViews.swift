@@ -318,7 +318,7 @@ struct HarnessAppDetailView: View {
                             .buttonStyle(.bordered)
                     }
                     rooms(data.app, at)
-                    versionList(data.app, at)
+                    versionList(data.app, at, canRestore: data.canCustomize != false)
                     Button(String(localized: "Delete app"), role: .destructive) { confirmDelete = true }
                         .padding(.top, Theme.Spacing.sm)
                 }
@@ -433,7 +433,7 @@ struct HarnessAppDetailView: View {
         }
     }
 
-    private func versionList(_ app: HarnessService.App, _ at: HarnessWhere) -> some View {
+    private func versionList(_ app: HarnessService.App, _ at: HarnessWhere, canRestore: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(String(localized: "Versions")).font(Theme.TypeScale.label).foregroundStyle(Theme.Colors.textTertiary)
             if let versions {
@@ -441,7 +441,7 @@ struct HarnessAppDetailView: View {
                     HStack {
                         Text("v\(v.version)\(v.note.map { " · \($0)" } ?? "")").font(.subheadline)
                         Spacer()
-                        if v.version != app.version {
+                        if canRestore && v.version != app.version {
                             Button(String(localized: "Restore")) {
                                 Task {
                                     do { try await HarnessService.restore(app.id, version: v.version, orgId: at.orgId, base: at.base); self.versions = nil; await load(at) }

@@ -11,6 +11,7 @@ import { audit } from "./audit.js";
 import { safeEqual, sha256Hex } from "./auth.js";
 import { orgsInTurn } from "./orgCursor.js";
 import { principalOf } from "./auditCrypto.js";
+import { safe } from "./log.js";
 
 /// The retention a workspace gets when nobody has said otherwise. Plans are
 /// per person today, so there is one default until workspaces have plans.
@@ -21,8 +22,10 @@ function json(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "cache-control": "no-store", "content-type": "application/json" } });
 }
 
+/// A workspace's retention and hold. No row is the default; a read that
+/// fails throws, so nothing deletes or rewrites under a hold it could not see.
 export async function auditSettings(db, orgId) {
-  const row = await db.prepare("SELECT * FROM org_audit_settings WHERE org_id = ?1").bind(orgId).first().catch(() => null);
+  const row = await db.prepare("SELECT * FROM org_audit_settings WHERE org_id = ?1").bind(orgId).first();
   return {
     retentionDays: row?.retention_days || DEFAULT_RETENTION_DAYS,
     legalHold: Boolean(row?.legal_hold),
@@ -38,8 +41,12 @@ export async function pruneAudit(env, { now = Date.now(), perRun = 500 } = {}) {
   ).bind(after, limit), { perRun });
   const pruned = [];
   for (const r of results) {
-    const settings = await auditSettings(env.DB, r.org_id);
-    if (settings.legalHold) continue;
+    // Its rules unread, a workspace is left as it is until a later run.
+    const settings = await auditSettings(env.DB, r.org_id).catch((err) => {
+      console.error("audit pruning skipped", r.org_id, safe(err?.message));
+      return null;
+    });
+    if (!settings || settings.legalHold) continue;
     const cutoff = Math.floor((now - settings.retentionDays * DAY) / 1000);
     const range = await env.DB.prepare(
       "SELECT MIN(seq) AS lo, MAX(seq) AS hi, COUNT(*) AS n FROM audit_events WHERE org_id = ?1 AND created_at < ?2 AND seq <= ?3"

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
+import { boundSsoStart } from '../utils/ssoBinding'
 
 export interface InvitePeek { team: string | null; inviter: string | null; role: string }
 
@@ -103,7 +104,7 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, initialInviteCode, inv
   const continueWithSso = () => {
     if (!sso) return
     const q = new URLSearchParams({ orgId: sso.orgId, client: 'web', email: email.trim(), ...(sso.connectionId ? { connection: sso.connectionId } : {}) })
-    window.location.href = `${httpBase}/sso/start?${q.toString()}`
+    void boundSsoStart(httpBase, `/sso/start?${q.toString()}`).then((href) => { window.location.href = href })
   }
 
   return (
