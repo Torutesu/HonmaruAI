@@ -8,7 +8,7 @@ import { SYSTEM_COLUMN_IDS, isSystemTimestamp, queryValue } from './systemColumn
 // without one it still lands on the closest template.
 
 import { TEMPLATES, matchTemplate } from "./templates.js";
-import { createTable, getTable, listRows, addRow, updateTable, MAX_ROWS } from "./tables.js";
+import { createTable, getTable, listRows, addRow, planTableUpdate, MAX_ROWS } from "./tables.js";
 
 export const VIEW_TYPES = ["table", "board", "metrics", "calendar"];
 export const METRIC_OPS = ["count", "sum", "avg", "min", "max"];
@@ -243,10 +243,13 @@ export async function updateApp(db, orgId, id, { name, description, icon, column
   if (!app) return { error: "No such app.", status: 404 };
   if (expectedVersion !== undefined && expectedVersion !== app.version) return { error: "This app changed. Reload before saving.", status: 409 };
   let table = await getTable(db, orgId, app.tableId);
+  // The table's new columns, written only in the same transaction as the
+  // app's new version below: a save that loses to another leaves both alone.
+  let schema = null;
   if (columns !== undefined) {
-    const changed = await updateTable(db, orgId, app.tableId, { columns });
-    if (changed.error) return changed;
-    table = changed.table;
+    schema = await planTableUpdate(db, orgId, app.tableId, { columns }, { sql: "EXISTS (SELECT 1 FROM hx_apps WHERE id = ?9 AND org_id = ?5 AND version = ?10)", binds: [id, app.version] });
+    if (schema.error) return schema;
+    table = schema.table;
   }
   const def = normalizeDefinition(definition ?? app.definition, table.columns);
   if (app.definition.custom) def.custom = app.definition.custom;
@@ -257,15 +260,17 @@ export async function updateApp(db, orgId, id, { name, description, icon, column
   };
   const version = app.version + 1;
   const at = now();
-  const changed = await db
-    .prepare("UPDATE hx_apps SET name = ?1, description = ?2, icon = ?3, definition = ?4, version = ?5, updated_at = ?6 WHERE id = ?7 AND org_id = ?8 AND version = ?9")
-    .bind(next.name, next.description, next.icon, JSON.stringify(def), version, at, id, orgId, app.version)
-    .run();
-  if (!changed.meta?.changes) return { error: "This app changed. Reload before saving.", status: 409 };
-  await db
-    .prepare("INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) VALUES (?1, ?7, ?2, ?3, ?4, ?5, ?6)")
-    .bind(id, version, JSON.stringify({ name: next.name, columns: table.columns, ...def }), note ? String(note).slice(0, 200) : null, String(by), at, orgId)
-    .run();
+  // One D1 transaction, in order: the table (only while the app is still
+  // this version), the app (only when the table was written, if it was to
+  // be), then the version's snapshot (only when the app was).
+  const results = await db.batch([
+    ...(schema ? [schema.statement] : []),
+    db.prepare(`UPDATE hx_apps SET name = ?1, description = ?2, icon = ?3, definition = ?4, version = ?5, updated_at = ?6 WHERE id = ?7 AND org_id = ?8 AND version = ?9${schema ? " AND changes() = 1" : ""}`)
+      .bind(next.name, next.description, next.icon, JSON.stringify(def), version, at, id, orgId, app.version),
+    db.prepare("INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) SELECT ?1, ?7, ?2, ?3, ?4, ?5, ?6 WHERE changes() = 1")
+      .bind(id, version, JSON.stringify({ name: next.name, columns: table.columns, ...def }), note ? String(note).slice(0, 200) : null, String(by), at, orgId),
+  ]);
+  if (!results[schema ? 1 : 0].meta?.changes) return { error: "This app changed. Reload before saving.", status: 409 };
   return { app: await getApp(db, orgId, id) };
 }
 

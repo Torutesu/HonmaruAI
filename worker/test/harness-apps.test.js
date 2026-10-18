@@ -520,3 +520,36 @@ test("a shared app's definition is changed or restored only by its maker or an a
   expect((await (await send("POST", `/apps/${app.id}/versions`, toru, { orgId: ORG, version: 1 })).json()).app).toMatchObject({ name: "Tracker", version: 4 });
   expect((await get(`/apps/${app.id}?orgId=${ORG}`, mika)).status).toBe(200);
 });
+
+test("a save that loses to another leaves the app's table, definition and history as the winner left them", async () => {
+  const { updateApp, getApp, listVersions } = await import("../src/harness/apps.js");
+  const { getTable } = await import("../src/harness/tables.js");
+  const { app } = await (await send("POST", "/apps", toru, { orgId: ORG, template: "tracker", sample: false })).json();
+  const columns = (await getTable(env.DB, ORG, app.tableId)).columns;
+  // Save B commits just before save A writes the app: A has already read it
+  // and planned its new column, as two editors on one revision would.
+  let competitor = null;
+  const beat = () => (competitor ||= updateApp(env.DB, ORG, app.id, { name: "B wins" }, "9101"));
+  const real = new WeakMap();
+  const racing = new Proxy(env.DB, {
+    get(db, key) {
+      if (key === "batch") return async (statements) => { await beat(); return db.batch(statements.map((s) => real.get(s) || s)); };
+      if (key !== "prepare") return typeof db[key] === "function" ? db[key].bind(db) : db[key];
+      return (sql) => {
+        const prepared = db.prepare(sql);
+        if (!sql.startsWith("UPDATE hx_apps SET name")) return prepared;
+        return { bind: (...args) => { const bound = prepared.bind(...args); const late = { run: async () => { await beat(); return bound.run(); } }; real.set(late, bound); return late; } };
+      };
+    },
+  });
+  const extra = [...columns, { name: "Extra", type: "text" }];
+  expect(await updateApp(racing, ORG, app.id, { expectedVersion: 1, columns: extra }, "9102")).toMatchObject({ status: 409 });
+  expect((await getTable(env.DB, ORG, app.tableId)).columns).toEqual(columns);
+  expect(await getApp(env.DB, ORG, app.id)).toMatchObject({ name: "B wins", version: 2 });
+  expect((await listVersions(env.DB, ORG, app.id)).versions.map((v) => v.version)).toEqual([2, 1]);
+
+  // Uncontested, the same save writes the column and the version together.
+  const won = await updateApp(env.DB, ORG, app.id, { expectedVersion: 2, columns: extra }, "9102");
+  expect(won.app.version).toBe(3);
+  expect((await getTable(env.DB, ORG, app.tableId)).columns.map((c) => c.name)).toContain("Extra");
+});
