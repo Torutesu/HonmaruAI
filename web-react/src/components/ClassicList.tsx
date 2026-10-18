@@ -1,3 +1,4 @@
+import { MessageAppCards } from './MessageAppCards'
 import { AppView } from '../screens/Harness'
 import { harnessApi } from '../utils/harness'
 import { HarnessRoomResources } from './HarnessRoomResources'
@@ -3972,6 +3973,7 @@ export const ClassicList: React.FC<Props> = ({
         <LinkCards text={m.body} httpBase={api.httpBase} orgId={api.orgId} token={api.sessionToken}
           onHide={m.mine ? () => void act('POST', '/channels/previews', channel, { messageId: m.id, hidden: true }) : undefined} />
       )}
+      {harness && !m.deleted && !m.previewsHidden && !isTemp(m) && <MessageAppCards text={m.body} api={resourceClient} onOpen={id=>setSide({kind:'app',id,conversation:true})}/>}
       {!m.deleted && (
         <Reactions message={m} nameOf={nameOfRef} onToggle={(e) => react(channel, m, e)} onAdd={() => setPickerFor(pickerKey(m, inThread))} />
       )}

@@ -212,7 +212,7 @@ export async function appCreationSource(db, orgId, by, sourceThreadId) {
   return { source, private: !room || Boolean(room.private) };
 }
 
-export async function createApp(db, { orgId, by, name, description, icon, columns, definition, template, sample = [], channel, sourceThreadId, privateByDefault = false }, { commitGuard } = {}) {
+export async function createApp(db, { orgId, by, name, description, icon, columns, definition, template, sample = [], channel, sourceThreadId, privateByDefault = false }, { commitGuard, announceInSource = false } = {}) {
   let source=null, sourcePrivate=false;
   if(sourceThreadId){
     const origin = await appCreationSource(db, orgId, by, sourceThreadId);
@@ -248,9 +248,20 @@ export async function createApp(db, { orgId, by, name, description, icon, column
     'INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
   ).bind(newId('row'),table.id,orgId,JSON.stringify(cleanValues(table.columns,values)),position+1,String(by),String(by),at,at));
   if(channel) statements.push(db.prepare('INSERT INTO hx_app_links(app_id,org_id,channel,created_by,created_at) VALUES (?,?,?,?,?)').bind(id,orgId,String(channel).trim().slice(0,200),String(by),at));
-  if(source) statements.push(db.prepare("INSERT INTO hx_app_conversation_sources(org_id,app_id,channel,thread_id,created_by) VALUES (?,?,?,?,?)").bind(orgId,id,source.channel,source.id,String(by)));
+  if(source) statements.push(db.prepare(`INSERT INTO hx_app_conversation_sources(org_id,app_id,channel,thread_id,created_by)
+    VALUES (?,?,?,(SELECT id FROM channel_messages WHERE org_id=? AND id=? AND channel=? AND deleted_at IS NULL AND parent_id IS NULL),?)`)
+    .bind(orgId,id,source.channel,orgId,source.id,source.channel,String(by)));
+  // The result lives in the same transaction as the app: retries cannot
+  // announce it twice, and failed publication cannot leave a success reply.
+  const announcementId = source && announceInSource ? `app-created-${id}` : null;
+  if(announcementId){
+    const label=clean.replace(/[\\\[\]()*`]/g,'\\$&');
+    const body=`[${label}](#/apps/${encodeURIComponent(id)}/${encodeURIComponent(orgId)}) を作成しました。\n${table.columns.map(column=>column.name).join('・')}の項目を設定しました。`;
+    statements.push(db.prepare(`INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at,parent_id)
+      VALUES (?,?,?,NULL,'ai',?,?,?)`).bind(announcementId,orgId,source.channel,body,at,source.id));
+  }
   await db.batch(statements);
-  return { app: await getApp(db, orgId, id) };
+  return { app: await getApp(db, orgId, id), ...(announcementId ? {announcementId} : {}) };
 }
 
 export async function createFromTemplate(db, { orgId, by, template, name, channel, sourceThreadId, withSample = true }) {

@@ -23,11 +23,16 @@ export function HarnessAppPreview({ app, api, httpBase }: { app: App; api: Harne
   }, [app.id, app.version, api, visible])
   return <span ref={host} className="hx-app-live-preview" aria-hidden="true">
     {error ? <span className="hx-preview-state">プレビューを読み込めません</span> : !data ? <span className="hx-preview-state">プレビューを読み込み中…</span> : <span className="hx-preview-viewport">
-      {data.app.definition.custom?.published ? <CustomAppFrame decorative html={data.app.definition.custom.published} table={data.table} rows={data.rows} httpBase={httpBase} /> : <span className="hx-preview-table-surface">
+      <HarnessAppPreviewContent data={data} httpBase={httpBase}/>
+    </span>}
+  </span>
+}
+
+
+export function HarnessAppPreviewContent({data,httpBase}:{data:Awaited<ReturnType<HarnessApi['app']>>;httpBase:string}) {
+  return <>{data.app.definition.custom?.published ? <CustomAppFrame decorative html={data.app.definition.custom.published} table={data.table} rows={data.rows} httpBase={httpBase} /> : <span className="hx-preview-table-surface">
         <strong>{data.table.name}</strong>
         <table className="hx-table"><thead><tr>{data.table.columns.slice(0, 6).map(column => <th key={column.id}>{column.name}</th>)}</tr></thead><tbody>{data.rows.slice(0, 6).map(row => <tr key={row.id}>{data.table.columns.slice(0, 6).map(column => <td key={column.id}>{cellText(column, row.values[column.id]) || '—'}</td>)}</tr>)}</tbody></table>
         {!data.rows.length && <span className="hx-preview-table-empty"><b>レコードがありません</b><span>この表示に一致するレコードはありません。</span></span>}
-      </span>}
-    </span>}
-  </span>
+      </span>}</>
 }
