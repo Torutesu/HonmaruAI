@@ -109,6 +109,20 @@ option needs `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_API_KEY_P8`,
 for Apple silicon and Intel. The `all` option also requires `WIN_CSC_LINK`
 and `WIN_CSC_KEY_PASSWORD` and builds Windows and Linux. Both create the
 `v<version>` draft once; verify signing, notarization and launch before publishing.
+*Mac signed release* (`.github/workflows/mac-release.yml`) builds and, if
+asked, publishes the Mac app alone.
+
+**Every release carries every platform's update.** An installed app reads
+its own platform's feed file (`latest-mac.yml`, `latest.yml` for Windows,
+`latest-linux.yml`) from the latest published release only, with no fallback
+to an older one, so a latest release without one leaves that platform unable
+to update. Before a draft can be published, both workflows run
+`scripts/feed.mjs`: `carry` copies each feed file the draft lacks, with the
+installers it names, from the newest published release that has one (that
+platform stays on the version it has), and `check` fails unless every
+platform a published release has shipped has its feed in the draft and every
+file a feed names is there. Publish a draft by hand only after its *Every
+platform's update* job has passed.
 
 **Microphone and camera (Jam) on a Mac.** The hardened runtime needs the app
 to claim them: `resources/entitlements.mac.plist`, with the usage descriptions
