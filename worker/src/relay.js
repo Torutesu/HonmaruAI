@@ -1017,7 +1017,9 @@ export class OrgRelay {
       const { forEveryone } = upsertEvents(out.card, { isNew: false });
       for (const ev of forEveryone) await this.broadcastCard(orgId, out.card, ev);
     }
-    if (toolCallId) this.broadcast(orgId, toolCallResult(toolCallId, out.card));
+    // The answer to the tool call carries the whole card, so it goes where the
+    // card's own news goes and no further.
+    if (toolCallId) await this.broadcastCard(orgId, out.card, toolCallResult(toolCallId, out.card));
   }
 
   /// A workspace's login rules end sockets at their deadline: each one past

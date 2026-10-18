@@ -67,6 +67,33 @@ test("a card made in a private channel is heard by its members, not the whole wo
   expect(JSON.stringify(out)).not.toContain("Close the Osaka office");
 });
 
+test("the answer to a decision's tool call reaches only the card's audience", async () => {
+  const { saveCard } = await import("../src/db.js");
+  const pending = { type: "approval", status: "pending", priority: "high", createdAt: new Date().toISOString(), senderUserID: "owner", recipientUserID: "insider" };
+  await saveCard(env.DB, ORG, { ...pending, id: "p-board", title: "Sell the Kobe site", business: "board" });
+  await saveCard(env.DB, ORG, { ...pending, id: "p-mine", title: "Insider's own reminder", visibility: "personal" });
+  await saveCard(env.DB, ORG, { ...pending, id: "p-open", title: "Order team lunch" });
+  const { ws } = await joined(ORG, insider);
+  const { messages: sender } = await joined(ORG, owner);
+  const { messages: out } = await joined(ORG, outsider);
+  const decide = (toolCallId, cardId, note) => ws.send(JSON.stringify({ type: "tool_result", payload: {
+    toolCallId, content: { cardId, action: "approve", note, decidedAt: new Date().toISOString() },
+  } }));
+  const result = (messages, id) => message(messages, (m) => m.type === "TOOL_CALL_RESULT" && m.toolCallId === id);
+
+  decide("tc-board", "p-board", "Sell it in March");
+  decide("tc-mine", "p-mine", "Done before the trip");
+  expect(await result(sender, "tc-board")).toBeTruthy();
+  expect(await result(sender, "tc-mine")).toBeTruthy();
+  // A public card's answer after them: once the outsider has heard that one,
+  // they would have heard the first two.
+  decide("tc-open", "p-open", "Sushi is fine");
+  expect(await result(out, "tc-open")).toBeTruthy();
+  expect(JSON.stringify(out)).not.toContain("Sell it in March");
+  expect(JSON.stringify(out)).not.toContain("Done before the trip");
+  expect(out.some((m) => m.toolCallId === "tc-board" || m.toolCallId === "tc-mine")).toBe(false);
+});
+
 test("a decision lookup that cannot say who it is for leaves a private channel out", async () => {
   const titles = (hits) => hits.map((h) => h.title);
   expect(titles(await searchDecisions(env.DB, ORG, "Budget"))).toEqual(["Budget offsite"]);
