@@ -53,6 +53,10 @@ const MAX_JOINS_PER_SOCKET = 5;
 // How long a socket may stay open without completing `join`. Every client
 // joins the moment its socket opens; one that has not by now never will.
 const JOIN_GRACE_MS = 30_000;
+// How often a joined socket's session is looked up again. Signing a session
+// out closes its sockets at once (announce.js); this is what bounds the
+// time one of those closes could be missed for.
+const RECHECK_EVERY_MS = 10 * 60_000;
 /// Each kind of traffic's allowance per window, counted apart.
 const BUDGETS = { chat: MESSAGE_BUDGET, jam: JAM_SIGNAL_BUDGET, typing: TYPING_BUDGET };
 
@@ -124,8 +128,21 @@ export class OrgRelay {
     if (url.pathname === EVICT_PATH && request.headers.get("Upgrade") !== "websocket") {
       if (request.method !== "POST") return new Response("not found", { status: 404 });
       let login = null;
-      try { ({ login = null } = await request.json()); } catch { return new Response("bad request", { status: 400 }); }
+      let sessions = null;
+      let here = false;
+      try { ({ login = null, sessions = null, here = false } = await request.json()); } catch { return new Response("bad request", { status: 400 }); }
       let evicted = 0;
+      // Sessions signed out: everywhere, or of this workspace only. Only the
+      // sockets those sessions hold go; the same person's other devices stay.
+      if (Array.isArray(sessions) && sessions.length) {
+        const ended = new Set(sessions);
+        for (const ws of this.state.getWebSockets()) {
+          const att = ws.deserializeAttachment();
+          if (att?.orgId !== orgId || !att.session || !ended.has(att.session)) continue;
+          this.refuse(ws, att.agui, ...OrgRelay.signedOut(here));
+          evicted += 1;
+        }
+      }
       if (login) {
         for (const ws of this.state.getWebSockets()) {
           const att = ws.deserializeAttachment();
@@ -163,6 +180,33 @@ export class OrgRelay {
     } catch (err) {
       console.warn("ws send skipped", err?.message || err);
     }
+  }
+
+  /// What a socket whose session ended is told: signed out of this
+  /// workspace, or signed out altogether.
+  static signedOut(here) {
+    return here
+      ? ["This workspace asks you to sign in again.", "session-policy"]
+      : ["You were signed out. Sign in again.", "sign-in-required"];
+  }
+
+  /// Whether the session a socket joined with still stands here: not signed
+  /// out, not expired, not signed out of this workspace. A lookup that fails
+  /// is not taken as a sign-out; the next one decides.
+  async stillSignedIn(orgId, att) {
+    if (!att.session) return { ok: true };
+    try {
+      const row = await this.db.prepare(
+        `SELECT s.expires_at, w.ended_at FROM sessions s
+           LEFT JOIN session_workspaces w ON w.token = s.token AND w.org_id = ?2
+          WHERE s.token = ?1`
+      ).bind(att.session, orgId).first();
+      if (!row || (row.expires_at && row.expires_at <= new Date().toISOString())) return { ok: false, here: false };
+      if (row.ended_at) return { ok: false, here: true };
+    } catch (err) {
+      console.warn("session recheck failed", err?.message || err);
+    }
+    return { ok: true };
   }
 
   /// Set the alarm for `at`, unless it already rings sooner.
@@ -341,6 +385,14 @@ export class OrgRelay {
     if (type !== "join" && !att.authed) {
       return this.refuse(ws, att.agui, "Join with a valid session before sending anything.");
     }
+    // And the session it joined with is still signed in, looked up again
+    // every little while rather than on every message.
+    if (type !== "join" && att.session && Date.now() - (att.checkedAt || 0) >= RECHECK_EVERY_MS) {
+      const still = await this.stillSignedIn(orgId, att);
+      if (!still.ok) return this.refuse(ws, att.agui, ...OrgRelay.signedOut(still.here));
+      att.checkedAt = Date.now();
+      ws.serializeAttachment(att);
+    }
     const kind = JAM_TYPES.has(type) ? "jam" : TYPING_TYPES.has(type) ? "typing" : "chat";
     if (type !== "join" && this.overBudget(att.userId, kind)) {
       // Typing past its allowance is dropped without a word: the next one, a
@@ -392,7 +444,8 @@ export class OrgRelay {
       const offNetwork = await ipDenial(this.env, orgId, att.ip);
       if (offNetwork) return this.refuse(ws, agui, offNetwork.body.message, offNetwork.body.code);
       const deadline = sessionDeadline(policy, session);
-      if (deadline) await this.wakeBy(deadline);
+      const checkedAt = Date.now();
+      await this.wakeBy(deadline ? Math.min(deadline, checkedAt + RECHECK_EVERY_MS) : checkedAt + RECHECK_EVERY_MS);
       // The legacy dialect is refused rather than half-served. A client that
       // joined without `agui/1` used to get a snapshot and then silence: every
       // broadcast below this line is an AG-UI event, so its feed froze at the
@@ -404,7 +457,9 @@ export class OrgRelay {
 
       const userId = access.login;
       const guest = await isGuest(this.db, orgId, session.github_id);
-      ws.serializeAttachment({ ...att, joins, userId, githubId: String(session.github_id), agui, authed: true, guest, deadline: deadline || null });
+      // The session's row (its hash, never the token) names this device, so
+      // signing that one session out closes this socket and no other.
+      ws.serializeAttachment({ ...att, joins, userId, githubId: String(session.github_id), agui, authed: true, guest, deadline: deadline || null, session: session.token, checkedAt });
       const store = await loadStore(this.db, orgId);
       // A guest's feed is the decisions they are on, nobody else's; nobody's
       // feed carries another person's personal cards, or a private channel's
@@ -1046,10 +1101,12 @@ export class OrgRelay {
 
   /// A workspace's login rules end sockets at their deadline: each one past
   /// it is told why and closed, and the next deadline is set. A socket that
-  /// has not joined within its grace is closed the same way.
+  /// has not joined within its grace is closed the same way, and one whose
+  /// session is due a look is looked up again.
   async alarm() {
     const now = Date.now();
     let next = null;
+    const soonest = (at) => { if (!next || at < next) next = at; };
     for (const ws of this.state.getWebSockets()) {
       const att = ws.deserializeAttachment() || {};
       if (!att.authed && att.openedAt) {
@@ -1058,12 +1115,21 @@ export class OrgRelay {
         // a bad network than turned away, and a 1008 would stop it dialling
         // again.
         if (expires <= now) { try { ws.close(1001, "join timed out"); } catch {} }
-        else if (!next || expires < next) next = expires;
+        else soonest(expires);
         continue;
       }
-      if (!att.deadline) continue;
-      if (att.deadline <= now) this.refuse(ws, att.agui, "This workspace asks you to sign in again.", "session-policy");
-      else if (!next || att.deadline < next) next = att.deadline;
+      if (att.deadline && att.deadline <= now) {
+        this.refuse(ws, att.agui, "This workspace asks you to sign in again.", "session-policy");
+        continue;
+      }
+      if (att.deadline) soonest(att.deadline);
+      if (!att.authed || !att.session) continue;
+      if ((att.checkedAt || 0) + RECHECK_EVERY_MS <= now) {
+        const still = await this.stillSignedIn(att.orgId, att);
+        if (!still.ok) { this.refuse(ws, att.agui, ...OrgRelay.signedOut(still.here)); continue; }
+        ws.serializeAttachment({ ...att, checkedAt: now });
+        soonest(now + RECHECK_EVERY_MS);
+      } else soonest(att.checkedAt + RECHECK_EVERY_MS);
     }
     if (next) await this.state.storage.setAlarm(next).catch(() => {});
   }

@@ -176,7 +176,7 @@ export async function applyPolicyNow(env, orgId) {
     `SELECT s.token, s.github_id, s.created_at, s.last_seen_at, s.client, s.longest_idle_ms FROM sessions s
        JOIN memberships m ON m.user_github_id = s.github_id AND m.org_id = ?1`
   ).bind(orgId).all();
-  return endHere(env.DB, orgId, (results || []).filter((s) => brokenRule(policy, s)).map((s) => s.token));
+  return endHere(env, orgId, (results || []).filter((s) => brokenRule(policy, s)).map((s) => s.token));
 }
 
 /// GET/PUT /orgs/session-policy · POST /orgs/session-policy/apply ·

@@ -136,7 +136,7 @@ async function setActive(env, request, key, row, active) {
   if (out.error && out.status !== 404) return scimError(out.status || 400, out.error);
   // Signed out here; a deactivation in one company's directory does not
   // sign the person out of the other workspaces they are in.
-  const ended = await endAccountHere(env.DB, orgId, row.user_github_id);
+  const ended = await endAccountHere(env, orgId, row.user_github_id);
   if (user?.login) {
     const { evictMember } = await import("./announce.js");
     await evictMember(env, orgId, user.login).catch(() => {});

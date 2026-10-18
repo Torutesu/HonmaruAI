@@ -103,3 +103,45 @@ export async function evictMember(env, orgId, login) {
     return { evicted: 0, error: true };
   }
 }
+
+/// Close the sockets these sessions are holding, once the sessions are
+/// signed out: in `orgId` only, when they were signed out of one workspace,
+/// or everywhere they were used. Keyed by the session's row (its hash), the
+/// one thing a socket carries that names the device rather than the person,
+/// so the account's other devices stay where they are.
+///
+/// Where a session was used is `session_workspaces`, written as it joins a
+/// room and kept after the session itself is deleted.
+export async function evictSessions(env, tokens, { orgId = null } = {}) {
+  const list = [...new Set((tokens || []).filter(Boolean))];
+  if (!list.length || !env.ORG_RELAY) return { evicted: 0 };
+  let orgs = orgId ? [orgId] : [];
+  if (!orgId) {
+    const seen = new Set();
+    for (let i = 0; i < list.length; i += 50) {
+      const part = list.slice(i, i + 50);
+      const { results } = await env.DB.prepare(
+        `SELECT DISTINCT org_id FROM session_workspaces WHERE token IN (${part.map((_, n) => `?${n + 1}`).join(", ")})`
+      ).bind(...part).all().catch(() => ({ results: [] }));
+      for (const r of results || []) seen.add(r.org_id);
+    }
+    orgs = [...seen];
+  }
+  let evicted = 0;
+  for (const org of orgs) {
+    try {
+      const stub = env.ORG_RELAY.get(env.ORG_RELAY.idFromName(org));
+      const res = await stub.fetch(`https://relay.internal${EVICT_PATH}?orgId=${encodeURIComponent(org)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessions: list, here: Boolean(orgId) }),
+      });
+      evicted += Number((await res.json())?.evicted) || 0;
+    } catch (err) {
+      // The sessions are already signed out, so they cannot join again, and
+      // the relay checks the session a socket holds again as it goes.
+      console.error("session evict failed", org, err?.message || err);
+    }
+  }
+  return { evicted };
+}

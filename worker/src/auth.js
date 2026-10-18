@@ -451,7 +451,7 @@ export async function settleProvedAddress(env, email, { orgId } = {}) {
   if (id.startsWith("email:")) {
     await env.DB.prepare("UPDATE users SET password_hash = NULL, password_salt = NULL WHERE github_id = ?1").bind(id).run();
     const { endSessions } = await import("./sessions.js");
-    await endSessions(env.DB, id);
+    await endSessions(env, id);
     return { githubId: id, reclaimed: true };
   }
   await env.DB.prepare("UPDATE users SET email = NULL WHERE github_id = ?1 AND email_verified_at IS NULL").bind(id).run();

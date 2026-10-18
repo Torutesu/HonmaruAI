@@ -19,6 +19,7 @@ import { allowed, ownersOf } from "./permissions.js";
 import { memberGate, reauthDenial } from "./policy.js";
 import { domainOf, domainMatches } from "./domains.js";
 import { enforce } from "./ratelimit.js";
+import { evictSessions } from "./announce.js";
 import { spEntityId, acsUrl, sloUrl, spMetadata, redirectUrl, verifyResponse, parseIdpMetadata, normalizeCert, verifyLogoutRequest, logoutResponseUrl } from "./saml.js";
 
 export const PROVIDERS = {
@@ -565,6 +566,7 @@ async function samlLogout(env, request, url, connectionId) {
   ).bind(conn.id, said.nameId, ...indexes).all();
   const gone = results || [];
   if (gone.length) await env.DB.batch(gone.map((r) => env.DB.prepare("DELETE FROM sessions WHERE token = ?1").bind(r.token)));
+  if (gone.length) await evictSessions(env, gone.map((r) => r.token)).catch(() => {});
   const who = gone[0] ? await getUserByGithubId(env.DB, gone[0].github_id).catch(() => null) : null;
   await audit(env, request, {
     orgId: conn.org_id, action: "sso.idp_signed_out", actor: { type: "system" }, entity: person(who) || undefined,
@@ -604,7 +606,7 @@ async function endNonSsoSessions(env, orgId, conns) {
     if (s.auth_method === "sso" && s.sso_org_id === orgId) continue;
     // Out of this workspace, not out of the others the account is in.
     const { endHere } = await import("./sessions.js");
-    ended += await endHere(env.DB, orgId, [s.token]);
+    ended += await endHere(env, orgId, [s.token]);
   }
   return ended;
 }
@@ -719,6 +721,7 @@ async function backchannelLogout(env, request, connectionId) {
   ).bind(conn.id, sid, sub).all();
   const gone = results || [];
   if (gone.length) await env.DB.batch(gone.map((r) => env.DB.prepare("DELETE FROM sessions WHERE token = ?1").bind(r.token)));
+  if (gone.length) await evictSessions(env, gone.map((r) => r.token)).catch(() => {});
   const who = gone[0] ? await getUserByGithubId(env.DB, gone[0].github_id).catch(() => null) : null;
   await audit(env, request, {
     orgId: conn.org_id, action: "sso.idp_signed_out", actor: { type: "system" }, entity: person(who) || undefined,
@@ -757,6 +760,7 @@ export async function checkSsoGrants(env, { now = Date.now(), limit = 50 } = {})
     const { conn, discovery, secret } = conns.get(s.sso_connection_id);
     const ending = async (reason) => {
       await env.DB.prepare("DELETE FROM sessions WHERE token = ?1").bind(s.token).run();
+      await evictSessions(env, [s.token]).catch(() => {});
       ended += 1;
       const who = await getUserByGithubId(env.DB, s.github_id).catch(() => null);
       await audit(env, null, { orgId: s.sso_org_id, action: "sso.session_revoked", actor: { type: "system" }, entity: person(who) || undefined, details: { connection: s.sso_connection_id, reason } });

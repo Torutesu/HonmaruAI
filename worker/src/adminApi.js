@@ -86,7 +86,7 @@ async function route(request, env, url, key) {
     if (memberMatch[2] && request.method === "POST") {
       // Out of this workspace. A workspace's key used to sign the person out
       // of every workspace they belong to — anyone's, not only this one.
-      const ended = await endAccountHere(env.DB, orgId, target.userId);
+      const ended = await endAccountHere(env, orgId, target.userId);
       await audit(env, request, { orgId, action: "auth.session_revoked", actor, entity, details: { count: ended, everywhere: false } });
       return json({ data: { ended } });
     }
@@ -107,7 +107,7 @@ async function route(request, env, url, key) {
       if (!owner) return apiError(409, "no_owner", "This workspace has no owner to act for.");
       const out = await removeMember(env, { orgId, actorId: owner, targetId: target.userId });
       if (out.error) return apiError(out.status || 400, "invalid_request", out.error);
-      const ended = await endAccountHere(env.DB, orgId, target.userId);
+      const ended = await endAccountHere(env, orgId, target.userId);
       const { evictMember } = await import("./announce.js");
       await evictMember(env, orgId, target.login).catch(() => {});
       await audit(env, request, { orgId, action: "member.removed", actor, entity, details: { sessions_ended: ended } });
