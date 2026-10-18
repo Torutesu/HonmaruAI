@@ -6,7 +6,7 @@
 // The record is looked for again every day: a domain that loses it stops
 // letting people in, so a company that is sold cannot keep adding strangers.
 
-import { getSession, getUserByGithubId, upsertMembership } from "./db.js";
+import { addMembership, getSession, getUserByGithubId, upsertMembership } from "./db.js";
 import { audit, person } from "./audit.js";
 import { allowed } from "./permissions.js";
 import { memberGate, reauthDenial } from "./policy.js";
@@ -231,7 +231,9 @@ export async function handleDomains(request, env, url) {
     if (request.method === "GET") {
       const { results } = await env.DB.prepare(
         `SELECT j.user_github_id, j.requested_at, u.name, u.login FROM join_requests j LEFT JOIN users u ON u.github_id = j.user_github_id
-          WHERE j.org_id = ?1 AND j.outcome IS NULL ORDER BY j.requested_at`
+          WHERE j.org_id = ?1 AND j.outcome IS NULL
+            AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.org_id = j.org_id AND m.user_github_id = j.user_github_id)
+          ORDER BY j.requested_at`
       ).bind(orgId).all();
       const out = [];
       for (const r of results || []) out.push({ ref: await memberRef(orgId, String(r.user_github_id)), name: r.name || r.login, requestedAt: r.requested_at });
@@ -252,7 +254,12 @@ export async function handleDomains(request, env, url) {
         const domain = asked?.via === "invite" ? null : await verifiedDomainFor(env.DB, joiner?.email);
         const role = asked?.via === "invite" ? (asked.role === "guest" ? "guest" : "member") : (domain?.join_role === "guest" ? "guest" : "member");
         const via = asked?.via === "invite" ? "invite" : "domain";
-        await upsertMembership(env.DB, orgId, target, role, via);
+        // Someone who came in another way since asking keeps the role they
+        // hold now: approving lets a person in, it never changes a role.
+        if (!(await addMembership(env.DB, orgId, target, role, via))) {
+          await env.DB.prepare("UPDATE join_requests SET outcome = 'joined' WHERE org_id = ?1 AND user_github_id = ?2").bind(orgId, target).run();
+          return json({ ok: true, approved: false, alreadyMember: true });
+        }
         await audit(env, request, { orgId, action: "member.joined", actor: person(joiner), details: { via, approved: true, role } });
       }
       await audit(env, request, { orgId, action: approve ? "member.join_approved" : "member.join_declined", actor: person(user), entity: person(joiner) });
