@@ -149,6 +149,9 @@ final class ChatStore: ObservableObject {
     /// A tapped notification's message, in this workspace, waiting for
     /// Activity to open its conversation (and the conversation its thread).
     @Published var pendingOpen: PushService.MessageTarget?
+    /// The reply a thread is being opened at, for the thread to scroll to
+    /// once it has been read.
+    @Published var threadJump: String?
     /// What was last shown, in memory, for this account and workspace: a
     /// thread's replies and a teammate's profile, drawn at once when opened
     /// again and replaced by what the server says behind them.
@@ -253,7 +256,7 @@ final class ChatStore: ObservableObject {
         inbox = []; saved = []; scheduled = []; cancelling = []
         thinking = [:]; agentTyping = [:]
         thread = nil; threadLoading = false; threadFailed = false; threadReadTo = [:]
-        pendingOpen = nil; dataWarning = nil; dataBlocked = nil; error = nil
+        pendingOpen = nil; threadJump = nil; dataWarning = nil; dataBlocked = nil; error = nil
         if next.hasPrefix("|") {
             // Signed out: signing out has taken them off the phone.
             outboxLoaded = false
@@ -684,6 +687,23 @@ final class ChatStore: ObservableObject {
             if scope == self.scope { olderFailed.insert(view) }
             return false
         }
+    }
+
+    /// Older pages, read until a message is among them — a search result or
+    /// an Activity entry further back than the newest page — for at most
+    /// `pages` of them. False when it is not found that far back.
+    @discardableResult
+    func loadUntil(_ view: String, contains id: String, pages: Int = 20) async -> Bool {
+        func here() -> Bool { messages[view]?.contains(where: { $0.id == id }) == true }
+        for _ in 0..<pages {
+            if here() { return true }
+            // A page the top of the list already asked for is waited for,
+            // not asked for twice.
+            while olderLoading.contains(view) && !Task.isCancelled { try? await Task.sleep(for: .milliseconds(100)) }
+            if here() { return true }
+            guard !Task.isCancelled, await loadOlder(view) else { break }
+        }
+        return here()
     }
 
     /// A message one of the workspace's data rules warned about, held while

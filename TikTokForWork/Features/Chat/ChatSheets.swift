@@ -28,6 +28,8 @@ struct ChatThreadSheet: View {
     @State private var replyingTo: ChatMessage?
     /// A quote pressed: the reply it quotes, to scroll to.
     @State private var quoteJump: String?
+    /// The reply the thread was opened at, marked for a moment.
+    @State private var highlight: String?
 
     var body: some View {
         NavigationStack {
@@ -85,6 +87,19 @@ struct ChatThreadSheet: View {
                 guard let id else { return }
                 quoteJump = nil
                 withAnimation { proxy.scrollTo(id, anchor: .center) }
+            }
+            // Opened at one reply (Search, Activity, Sent, a notification):
+            // there, marked for a moment, once the replies have been read.
+            .onChange(of: jumpReplyIsHere, initial: true) { _, found in
+                guard found, let id = store.threadJump else { return }
+                store.threadJump = nil
+                highlight = id
+                Task {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    withAnimation { proxy.scrollTo(id, anchor: .center) }
+                    try? await Task.sleep(for: .seconds(1.6))
+                    if highlight == id { withAnimation { highlight = nil } }
+                }
             }
             .overlay(alignment: .bottom) {
                 if !atBottom && store.thread != nil {
@@ -202,6 +217,12 @@ struct ChatThreadSheet: View {
 
     private static let bottom = "threadBottom"
 
+    /// Whether the reply the thread was opened at has been read yet.
+    private var jumpReplyIsHere: Bool {
+        guard let id = store.threadJump else { return false }
+        return store.thread?.replies.contains { $0.id == id } ?? false
+    }
+
     /// "Also send to #name" in a channel; elsewhere, to the conversation.
     private var alsoChannelLabel: String {
         guard let view = store.thread?.parent.channel else { return String(localized: "Also send to the conversation") }
@@ -239,7 +260,7 @@ struct ChatThreadSheet: View {
     }
 
     private func row(_ m: ChatMessage) -> some View {
-        ChatMessageRow(message: m, inThread: true, nameOf: store.nameOf(ref:),
+        ChatMessageRow(message: m, inThread: true, highlighted: highlight == m.id, nameOf: store.nameOf(ref:),
                        onReact: { e in Task { await store.react(m, e) } },
                        onAddReaction: { reactingTo = m },
                        onOpenThread: {}, onOpenCard: onOpenCard, onProfile: { _ in },
@@ -363,7 +384,7 @@ struct ChatActivityView: View {
                                        description: Text("When somebody writes @ your name, or replies in a thread you are part of, it shows up here."))
             }
             ForEach(store.inbox) { item in
-                NavigationLink(value: ChatRoute.conversation(view: item.message.channel, jump: item.message.parentId ?? item.message.id)) {
+                NavigationLink(value: ChatRoute.conversation(view: item.message.channel, jump: item.message.id, thread: item.message.parentId)) {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             if item.unread { Circle().fill(Theme.Colors.interactive).frame(width: 8, height: 8) }
@@ -432,7 +453,7 @@ struct ChatLaterView: View {
                                        description: Text("Long-press any message and pick Save for later."))
             }
             ForEach(store.saved) { item in
-                NavigationLink(value: ChatRoute.conversation(view: item.message.channel, jump: item.message.id)) {
+                NavigationLink(value: ChatRoute.conversation(view: item.message.channel, jump: item.message.id, thread: item.message.parentId)) {
                     VStack(alignment: .leading, spacing: 4) {
                         if let at = ChatDates.parse(item.remindAt) {
                             Label(item.remindedAt == nil ? String(localized: "Reminder \(at.formatted(date: .abbreviated, time: .shortened))") : String(localized: "Reminded"), systemImage: "alarm")
@@ -754,7 +775,7 @@ struct ChatSentView: View {
                         .listRowBackground(Color.clear)
                 }
                 ForEach(sent) { m in
-                    NavigationLink(value: ChatRoute.conversation(view: m.channel, jump: m.parentId ?? m.id)) {
+                    NavigationLink(value: ChatRoute.conversation(view: m.channel, jump: m.id, thread: m.parentId)) {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
                                 Text(verbatim: store.conversation(for: m.channel).map(Self.place) ?? "").font(.caption).foregroundStyle(.secondary)
@@ -801,7 +822,7 @@ struct ChatSearchView: View {
                 ContentUnavailableView.search(text: query).listRowBackground(Color.clear)
             }
             ForEach(results) { m in
-                NavigationLink(value: ChatRoute.conversation(view: m.channel, jump: m.parentId ?? m.id)) {
+                NavigationLink(value: ChatRoute.conversation(view: m.channel, jump: m.id, thread: m.parentId)) {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
                             Text(place(m.channel)).font(.caption.weight(.semibold)).foregroundStyle(Theme.Colors.textSecondary)

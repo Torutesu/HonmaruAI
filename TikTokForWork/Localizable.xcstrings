@@ -44073,6 +44073,34 @@
           }
         }
       }
+    },
+    "That message could not be shown. It may have been deleted, or you may no longer have access to it.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このメッセージを表示できませんでした。削除されたか、アクセスできなくなった可能性があります。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo mostrar ese mensaje. Puede que se haya eliminado o que ya no tengas acceso a él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce message n’a pas pu être affiché. Il a peut-être été supprimé, ou vous n’y avez peut-être plus accès."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Nachricht konnte nicht angezeigt werden. Sie wurde möglicherweise gelöscht, oder du hast keinen Zugriff mehr darauf."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

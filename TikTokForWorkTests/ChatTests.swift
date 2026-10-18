@@ -324,6 +324,16 @@ final class ChatTranslationTests: XCTestCase {
         XCTAssertEqual(t.wanted([m], reader: "en").map(\.id), ["m2"])
     }
 
+    func testAReplyIsOpenedAtItselfInItsThread() {
+        // Search, Activity and Sent keep both: the reply, and the thread it is in.
+        let route = ChatRoute.conversation(view: "b:general", jump: "r1", thread: "p1")
+        guard case let .conversation(view, jump, thread) = route else { return XCTFail("Not a conversation") }
+        XCTAssertEqual(view, "b:general")
+        XCTAssertEqual(jump, "r1")
+        XCTAssertEqual(thread, "p1")
+        XCTAssertEqual(ChatRoute.conversation(view: "b:general", jump: "m1"), ChatRoute.conversation(view: "b:general", jump: "m1", thread: nil))
+    }
+
     func testOnlyNewMessagesAtTheBottomMoveAReaderDown() {
         // The first page: to its newest, unless opened at a message.
         XCTAssertTrue(ConversationView.followsNewest(previous: nil, openedAt: nil, atBottom: false, newestIsMine: false))
@@ -520,6 +530,14 @@ final class ChatStoreFailureTests: XCTestCase {
         XCTAssertNil(store.error)
         XCTAssertNil(store.pendingOpen)
         XCTAssertTrue(store.messages.isEmpty)
+    }
+
+    func testAMessageThatCannotBeReachedIsReportedNotFound() async {
+        let (store, app) = offline()
+        await store.open("b:general")
+        let found = await store.loadUntil("b:general", contains: "far-back")
+        XCTAssertFalse(found)
+        XCTAssertEqual(app.currentUser?.teamID, "org-offline")
     }
 
     func testACancellationTheServerDidNotTakeIsNotReportedDone() async {

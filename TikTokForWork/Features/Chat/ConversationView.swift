@@ -3,7 +3,9 @@ import SwiftUI
 import UIKit
 
 enum ChatRoute: Hashable {
-    case conversation(view: String, jump: String?)
+    /// A conversation, opened at a message when `jump` is set; a reply's
+    /// thread is `thread`, opened at that reply.
+    case conversation(view: String, jump: String?, thread: String? = nil)
     case activity
     case later
     case threads
@@ -25,7 +27,10 @@ enum ChatRoute: Hashable {
 /// threads in a sheet, and the AI's steps while it makes a card.
 struct ConversationView: View {
     let view: String
+    /// The message to show: one in the conversation, or a reply in `thread`.
     var jump: String?
+    /// The thread `jump` is a reply in, opened with it.
+    var thread: String? = nil
     @EnvironmentObject private var appState: AppState
     @ObservedObject var store: ChatStore
 
@@ -128,7 +133,7 @@ struct ConversationView: View {
             // Followed only by someone already at the bottom, or after their
             // own send: reading further up is not interrupted.
             .onChange(of: list.last?.id) { old, _ in
-                if Self.followsNewest(previous: old, openedAt: jump, atBottom: atBottom, newestIsMine: list.last?.mine == true) {
+                if Self.followsNewest(previous: old, openedAt: jump ?? thread, atBottom: atBottom, newestIsMine: list.last?.mine == true) {
                     withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
             }
@@ -152,15 +157,26 @@ struct ConversationView: View {
                 newSince = store.reads[view]
                 draft = store.draft(view)
                 await store.open(view)
-                // Opened from a notification for a reply: its thread too.
-                if let target = store.pendingOpen, target.channel == view {
-                    store.pendingOpen = nil
-                    if let parent = target.parentId, await store.openThread(channel: view, parentId: parent) { showThread = true }
+                // Opened from a notification: here now.
+                if store.pendingOpen?.channel == view { store.pendingOpen = nil }
+                // Opened at a reply (Search, Activity, Sent, a notification):
+                // its thread, at that reply, over the message it answers.
+                var shown = true
+                if let thread {
+                    store.threadJump = jump
+                    if await store.openThread(channel: view, parentId: thread) { showThread = true } else { store.threadJump = nil; shown = false }
                 }
-                if let jump {
-                    highlight = jump
+                if let target = thread ?? jump {
+                    // Further back than the newest page: read back to it. A
+                    // reply's thread shows the message it answers already.
+                    if thread == nil && !list.contains(where: { $0.id == target }) { await store.loadUntil(view, contains: target) }
+                    guard !Task.isCancelled else { return }
+                    if thread == nil && !list.contains(where: { $0.id == target }) { shown = false }
+                    if !shown { notes.append(String(localized: "That message could not be shown. It may have been deleted, or you may no longer have access to it.")) }
+                    guard list.contains(where: { $0.id == target }) else { return }
+                    highlight = target
                     try? await Task.sleep(for: .milliseconds(250))
-                    withAnimation { proxy.scrollTo(jump, anchor: .center) }
+                    withAnimation { proxy.scrollTo(target, anchor: .center) }
                     try? await Task.sleep(for: .seconds(1.6))
                     withAnimation { highlight = nil }
                 } else {
