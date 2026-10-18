@@ -68,6 +68,65 @@ test("each hour is sealed once: the archive, a signed digest, and a chain from o
   expect(shown).toMatchObject({ ok: true, archive: { ok: true, checked_hours: 2 } });
 });
 
+/// The database, but a seal cannot be recorded.
+const sealsDown = () => ({
+  ...env,
+  DB: new Proxy(env.DB, {
+    get(target, key) {
+      if (key === "prepare") {
+        return (sql) => (/INSERT OR IGNORE INTO audit_seals/.test(sql)
+          ? { bind: () => ({ run: async () => { throw new Error("D1 is down"); } }) }
+          : target.prepare(sql));
+      }
+      const value = target[key];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }),
+});
+
+// A seal that wrote its archive and digest but not its row was sealed again
+// with a new digest — a new sealed_at — whose hash D1 recorded while the
+// bucket kept the first one: the chain broke at the next hour.
+test("a seal retried after its objects were written records the digest in the bucket, and the next hour chains to it", async () => {
+  await write(3, T0 + 5 * 60_000);
+  const now = T0 + HOUR + 60_000;
+  expect(await sealPending(sealsDown(), { now })).toEqual([]);
+  const path = archivePath(ORG, T0);
+  const kept = await (await env.AUDIT_ARCHIVE.get(`${path}.digest.json`)).text();
+  await new Promise((r) => setTimeout(r, 5));
+  expect((await sealPending(env, { now })).map((s) => s.count)).toEqual([3]);
+  expect(await (await env.AUDIT_ARCHIVE.get(`${path}.digest.json`)).text()).toBe(kept);
+  const seal = await env.DB.prepare("SELECT digest_sha256, sealed_at FROM audit_seals WHERE org_id = ?1").bind(ORG).first();
+  const { sha256Hex } = await import("../src/auth.js");
+  expect(seal.digest_sha256).toBe(await sha256Hex(kept));
+  expect(seal.sealed_at).toBe(JSON.parse(kept).sealed_at);
+  // Again: nothing more.
+  expect(await sealPending(env, { now })).toEqual([]);
+  await write(2, T0 + HOUR + 60_000);
+  await sealPending(env, { now: T0 + 2 * HOUR + 60_000 });
+  const next = JSON.parse(await (await env.AUDIT_ARCHIVE.get(`${archivePath(ORG, T0 + HOUR)}.digest.json`)).text());
+  expect(next.prev_digest).toBe(await sha256Hex(kept));
+  expect(await verifyArchive(env, ORG)).toMatchObject({ ok: true, checked_hours: 2 });
+});
+
+test("a seal that stopped after the archive alone writes one digest for that archive; a digest that is not this hour's is refused", async () => {
+  await write(2, T0 + 5 * 60_000);
+  const now = T0 + HOUR + 60_000;
+  await sealPending(sealsDown(), { now });
+  const path = archivePath(ORG, T0);
+  await env.AUDIT_ARCHIVE.delete(`${path}.digest.json`);
+  expect((await sealPending(env, { now })).map((s) => s.count)).toEqual([2]);
+  expect(await verifyArchive(env, ORG)).toMatchObject({ ok: true, checked_hours: 1 });
+
+  // An hour whose bucket already holds something else: not sealed over it.
+  await write(1, T0 + HOUR + 60_000);
+  const other = archivePath(ORG, T0 + HOUR);
+  await env.AUDIT_ARCHIVE.put(`${other}.digest.json`, JSON.stringify({ v: 1, org: ORG, count: 99 }));
+  expect(await sealPending(env, { now: T0 + 2 * HOUR + 60_000 })).toEqual([]);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_seals WHERE org_id = ?1").bind(ORG).first()).n).toBe(1);
+  expect((await env.DB.prepare("SELECT last_error FROM audit_seal_failures WHERE org_id = ?1").bind(ORG).first()).last_error).toContain("does not seal");
+});
+
 test("verification finds a changed row, a changed archive, and a missing digest", async () => {
   await write(3, T0 + 60_000);
   await sealPending(env, { now: T0 + HOUR + 60_000 });
