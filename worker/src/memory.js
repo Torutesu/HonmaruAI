@@ -32,9 +32,18 @@ const row = (r) => ({
   updatedAt: r.updated_at,
 });
 
+/// The playbook is the whole workspace's, so a rule learned from a card filed
+/// under a private channel is left out of it — also one learned before the
+/// channel was made private.
 export async function listMemories(db, orgId, { limit = MAX_MEMORIES_PER_ORG } = {}) {
   const { results } = await db
-    .prepare("SELECT * FROM memories WHERE org_id = ?1 ORDER BY updated_at DESC LIMIT ?2")
+    .prepare(
+      `SELECT m.* FROM memories m
+        WHERE m.org_id = ?1 AND NOT (m.origin = 'learned' AND m.card_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM cards c JOIN businesses b ON b.org_id = c.org_id AND b.slug = json_extract(c.data, '$.business')
+           WHERE c.org_id = ?1 AND c.card_id = m.card_id AND b.private = 1))
+        ORDER BY m.updated_at DESC LIMIT ?2`
+    )
     .bind(orgId, limit)
     .all();
   return (results || []).map(row);
@@ -166,6 +175,23 @@ export function reasonOf(card) {
   return text.length >= 8 ? text.slice(0, 600) : "";
 }
 
+/// Whether a card's reasons may teach the whole workspace: not when it is
+/// filed under a private channel, as it is now or as it is stored. A read
+/// that fails answers "no".
+async function teachesEveryone(db, orgId, card) {
+  try {
+    const stored = await db.prepare("SELECT json_extract(data, '$.business') AS business FROM cards WHERE org_id = ?1 AND card_id = ?2")
+      .bind(orgId, String(card.id || "")).first();
+    for (const slug of new Set([card.business, stored?.business].filter(Boolean))) {
+      const channel = await db.prepare("SELECT private FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, String(slug)).first();
+      if (channel?.private) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /// Read one decision for a rule. Never throws; returns the stored memory or
 /// null. Paid from the decider's allowance, like everything else the model
 /// does on their behalf, and skipped where there is no model.
@@ -176,6 +202,9 @@ export async function learnFromDecision(env, { orgId, card, actorLogin, actorGit
     // A proposal or a report is the AI's own card; its "reason" is not the
     // team's rule.
     if (card.proposal || card.report) return null;
+    // A private channel's decisions are its members'; the playbook is
+    // everyone's.
+    if (!(await teachesEveryone(env.DB, orgId, card))) return null;
     const provider = await providerFor(env, orgId);
     if (!provider) return null;
     const allowance = actorGithubId
@@ -234,6 +263,9 @@ ${JSON.stringify({
     // The model was told not to repeat a rule; an exact repeat is refused
     // here too.
     if (existing.some((m) => m.text.toLowerCase() === rule.toLowerCase())) return null;
+    // The channel may have been made private, or the card filed under one,
+    // while the model was reading it.
+    if (!(await teachesEveryone(env.DB, orgId, card))) return null;
     return await addMemory(env.DB, orgId, { text: rule, origin: "learned", cardId: card.id, createdBy: actorLogin || null });
   } catch (err) {
     console.error("learn failed", err?.message || err);
