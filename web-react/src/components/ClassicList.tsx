@@ -1458,6 +1458,8 @@ export const ClassicList: React.FC<Props> = ({
   const resourceBuildLock = useRef(false)
   const appGenerationRequest = useRef<{key:string;id:string}|null>(null)
   const resourceClient = useMemo(() => harnessApi(api.httpBase, api.orgId, api.sessionToken), [api.httpBase, api.orgId, api.sessionToken])
+  const resourceClientNow = useRef(resourceClient)
+  resourceClientNow.current = resourceClient
   // Set by the boxes' own handlers, and gone by the end of the same event
   // (a microtask): the render it causes changes only what is being
   // written, so the conversation's rows are the ones already drawn. Set
@@ -2016,20 +2018,39 @@ export const ClassicList: React.FC<Props> = ({
       if (resourceBuildLock.current) return
       if (sendAt || up.ids.length) { setProblem(t('Describe the resource without attachments or scheduled sending.')); return }
       resourceBuildLock.current = true; setResourceBuilding(true); setProblem(null)
+      const clearGeneratedDraft = () => {
+        try {
+          const kept=draftView.current===channel?boxes.current.draft:localStorage.getItem(draftKey(channel))
+          if(kept?.trim()===body)clearDraftOf(channel)
+        } catch { /* A newer or inaccessible draft is retained. */ }
+      }
       try {
-        const client = harnessApi(api.httpBase, api.orgId, api.sessionToken)
+        const client = resourceClient
         if (resourceBuild.kind === 'apps') {
           const prompt = body.replace(/^@AI\s*/i, '')
           const key = JSON.stringify([api.orgId, channel, prompt])
           if (appGenerationRequest.current?.key !== key) appGenerationRequest.current = {key,id:crypto.randomUUID()}
           const made = await client.generate(prompt, channel, {requestId:appGenerationRequest.current.id,captureSource:true})
+          if(resourceClientNow.current!==client || cacheScope.current!==messageCache)return
           appGenerationRequest.current = null
-          clearDraftOf(channel); setResourceBuild(null); setSide({ kind: 'app', id: made.app.id, conversation:true })
+          clearGeneratedDraft()
+          setResourceBuild(null)
+          // Read the saved, authorized origin rather than inventing a local
+          // prompt. A failed origin fetch must not turn publication into a retry.
+          const source=(await client.conversation(made.app.id).catch(()=>null))?.source
+          if(resourceClientNow.current!==client || cacheScope.current!==messageCache || shownNow.current.view!==channel)return
+          const root=source?.messages.find(message=>message.id===source.threadId)
+          if(source && root){
+            setSide({kind:'app',id:made.app.id})
+            void openThread(source.channel,{...root,channel:source.channel,kind:root.kind||'message'} as ChannelMessage)
+          }else openSide({kind:'app',id:made.app.id,conversation:true})
         } else {
           const made = await client.generateWorkflow(body.replace(/^@AI\s*/i, ''), channel)
-          clearDraftOf(channel); setResourceBuild(null); onWorkflow?.(made.workflow.id)
+          if(resourceClientNow.current!==client || cacheScope.current!==messageCache)return
+          clearGeneratedDraft()
+          setResourceBuild(null); if(shownNow.current.view===channel)onWorkflow?.(made.workflow.id)
         }
-      } catch (e) { setProblem(e instanceof Error ? e.message : String(e)) }
+      } catch (e) { if(resourceClientNow.current===resourceClient && cacheScope.current===messageCache)setProblem(e instanceof Error ? e.message : String(e)) }
       finally { resourceBuildLock.current = false; setResourceBuilding(false) }
       return
     }
