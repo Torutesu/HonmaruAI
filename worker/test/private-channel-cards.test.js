@@ -128,6 +128,22 @@ test("a report said in a private channel is filed under it, and heard only by it
   expect(JSON.stringify(member.find((m) => m.type === "STATE_SNAPSHOT"))).toContain("Kestrel board digest");
 });
 
+test("a card's video is the one it was made with: republishing it cannot put another on it", async () => {
+  const { saveCard, getCard } = await import("../src/db.js");
+  const createdAt = new Date().toISOString();
+  await saveCard(env.DB, ORG, { id: "p-plain", type: "approval", status: "pending", priority: "high", createdAt, senderUserID: "owner", recipientUserID: "outsider", title: "Plain card" });
+  const { ws, messages } = await joined(ORG, outsider);
+  ws.send(JSON.stringify({ type: "card_updated", payload: { card: {
+    id: "p-plain", type: "approval", status: "approved", priority: "high", createdAt, recipientUserID: "outsider", title: "Plain card",
+    videoURL: `https://example.com/media/0b9a1d6e-3c2f-4a51-9e7d-2f6b8c1a4d03?o=${encodeURIComponent(ORG)}`,
+    decision: { action: "approve", actorUserID: "outsider", decidedAt: new Date().toISOString() },
+  } } }));
+  expect(await message(messages, (m) => m.type === "STATE_DELTA" && JSON.stringify(m).includes("approved"))).toBeTruthy();
+  const stored = await getCard(env.DB, ORG, "p-plain");
+  expect(stored.decision.action).toBe("approve");
+  expect(stored.videoURL).toBeUndefined();
+});
+
 test("a decision lookup that cannot say who it is for leaves a private channel out", async () => {
   const titles = (hits) => hits.map((h) => h.title);
   expect(titles(await searchDecisions(env.DB, ORG, "Budget"))).toEqual(["Budget offsite"]);

@@ -2858,13 +2858,24 @@ export function isDatabaseLimit(err) {
 /// Where to play a card's video from, for someone who may read the card:
 /// a signed address on the media origin when it is on, else the address
 /// the card was saved with. Only the video the card itself names.
+///
+/// A video belongs to the first card it came on. Another card naming the
+/// same video — anyone can paste an address into a new card — plays it only
+/// for someone who may also read that first one, so a reader who lost a
+/// private channel does not get the channel's videos back through a card of
+/// their own.
 async function cardVideoUrl(env, { orgId, login, cardId }) {
   const card = await getCard(env.DB, orgId, cardId);
-  if (!card?.videoURL || !mayReadCard(card, await accessFor(env.DB, orgId, login))) return null;
+  const access = await accessFor(env.DB, orgId, login);
+  if (!card?.videoURL || !mayReadCard(card, access)) return null;
   const m = /\/media\/([0-9a-fA-F-]{36})(?:\?o=([^&#]+))?/.exec(String(card.videoURL));
   if (!m) return { url: card.videoURL, expiresAt: null };
   const stored = m[2] ? decodeURIComponent(m[2]) : null;
   if (stored && stored !== orgId) return null;
+  const first = await env.DB.prepare(
+    "SELECT card_id FROM cards WHERE org_id = ?1 AND instr(lower(json_extract(data, '$.videoURL')), ?2) > 0 ORDER BY rowid LIMIT 1"
+  ).bind(orgId, `/media/${m[1].toLowerCase()}`).first();
+  if (first?.card_id && first.card_id !== cardId && !mayReadCard(await getCard(env.DB, orgId, first.card_id), access)) return null;
   if (mediaOriginOn(env)) {
     const signed = await signVideoUrl(env, { orgId: stored, id: m[1] });
     if (signed) return signed;
