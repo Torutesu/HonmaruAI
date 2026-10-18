@@ -196,6 +196,29 @@ test("reactions toggle, count per person, and name nobody by login", async () =>
   expect((await react(outsider, "👍")).status).toBe(403);
 });
 
+test("at twenty kinds of reaction, people still join the ones there; only a new kind is refused", async () => {
+  const m = await say(mika, "Shipped!");
+  const react = (token, emoji) => post("/channels/reactions", token, { orgId: ORG, channel: "b:cafe", messageId: m.id, emoji });
+  const kinds = [..."😀😃😄😁😆😅😂🤣😊😇🙂🙃😉😌😍🥰😘😗😙😚"];
+  expect(kinds).toHaveLength(20);
+  for (const e of kinds.slice(0, 19)) expect((await react(toru, e)).status).toBe(200);
+  // Below the cap a new kind is still welcome.
+  expect((await react(toru, kinds[19])).status).toBe(200);
+  // Kenji joins one already there: the kinds stay at twenty.
+  expect((await react(kenji, "😀")).status).toBe(200);
+  let [seen] = await list(toru);
+  expect(seen.reactions).toHaveLength(20);
+  expect(seen.reactions.find((r) => r.emoji === "😀")).toMatchObject({ count: 2 });
+  // A twenty-first kind is not.
+  const full = await react(kenji, "🎉");
+  expect(full.status).toBe(400);
+  expect((await full.json()).message).toMatch(/all the reactions/);
+  // Taking one's own back still works.
+  expect((await react(kenji, "😀")).status).toBe(200);
+  [seen] = await list(toru);
+  expect(seen.reactions.find((r) => r.emoji === "😀")).toMatchObject({ count: 1 });
+});
+
 test("an emoji is an emoji, not a message", () => {
   expect(cleanEmoji("👍")).toBe("👍");
   expect(cleanEmoji("👨‍👩‍👧")).toBe("👨‍👩‍👧");

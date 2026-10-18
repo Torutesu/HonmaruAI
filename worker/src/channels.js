@@ -442,10 +442,23 @@ export async function toggleReaction(db, { orgId, id, login, emoji, row: known =
   if (had) {
     await db.prepare("DELETE FROM message_reactions WHERE message_id = ?1 AND emoji = ?2 AND login = ?3").bind(id, clean, login).run();
   } else {
-    const count = await db.prepare("SELECT COUNT(DISTINCT emoji) AS n FROM message_reactions WHERE message_id = ?1").bind(id).first();
-    if ((count?.n || 0) >= 20) return { error: "That message has all the reactions it can hold.", status: 400 };
-    await db.prepare("INSERT INTO message_reactions (org_id, message_id, emoji, login, created_at) VALUES (?1, ?2, ?3, ?4, ?5)")
-      .bind(orgId, id, clean, login, new Date().toISOString()).run();
+    // The cap is on kinds of emoji, not on people: joining an emoji already
+    // there is always allowed, and only a 21st kind is refused. One statement
+    // checks and inserts, so two people adding different new kinds at once
+    // cannot take a message past twenty between them.
+    const added = await db.prepare(
+      `INSERT INTO message_reactions (org_id, message_id, emoji, login, created_at)
+       SELECT ?1, ?2, ?3, ?4, ?5
+       WHERE EXISTS (SELECT 1 FROM message_reactions WHERE message_id = ?2 AND emoji = ?3)
+          OR (SELECT COUNT(DISTINCT emoji) FROM message_reactions WHERE message_id = ?2) < 20
+       ON CONFLICT DO NOTHING`
+    ).bind(orgId, id, clean, login, new Date().toISOString()).run();
+    if (!added.meta?.changes) {
+      // Nothing inserted because this person's reaction landed a moment ago
+      // (a double tap) is not the cap.
+      const now = await db.prepare("SELECT 1 FROM message_reactions WHERE message_id = ?1 AND emoji = ?2 AND login = ?3").bind(id, clean, login).first();
+      if (!now) return { error: "That message has all the reactions it can hold.", status: 400 };
+    }
   }
   return { row };
 }
