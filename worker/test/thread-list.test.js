@@ -266,3 +266,12 @@ test('thread rename rejects replies, deleted roots, guests, wrong rooms and malf
   await env.DB.prepare('UPDATE channel_messages SET deleted_at = ?1 WHERE id = ?2').bind(new Date().toISOString(),root.id).run();
   expect((await renameThread(toru, root.id, 'Deleted title', 0)).status).toBe(404);
 });
+
+test('unsending a root removes its saved name with the original message', async () => {
+  const root = await say(toru, 'Disposable local test root');
+  expect((await renameThread(toru, root.id, 'Private thread name', 0)).status).toBe(200);
+  const response = await call('/channels/messages', toru, { method:'DELETE', body:{orgId:ORG,channel:'b:cafe',messageId:root.id} });
+  expect(response.status).toBe(200);
+  expect(await env.DB.prepare('SELECT title FROM channel_thread_details WHERE message_id = ?1').bind(root.id).first()).toBeNull();
+  expect((await renameThread(toru, root.id, 'Restore name', 0)).status).toBe(404);
+});
