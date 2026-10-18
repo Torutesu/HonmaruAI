@@ -154,6 +154,34 @@ test("SCIM provisioning does not hand the company's new hire to whoever register
   expect((await login("newhire@acme.jp", "squatter-password")).status).toBe(401);
 });
 
+test("a new hire the directory provisioned signs in with their first email code as that same account", async () => {
+  const { upsertUser, upsertMembership, createSession } = await import("../src/db.js");
+  const now = new Date().toISOString();
+  await upsertUser(env.DB, { githubId: "gh-owner", login: "owner", name: "Owner", avatarUrl: null, locale: "en" });
+  await env.DB.prepare("UPDATE users SET email = 'owner@acme.jp', email_verified_at = ?1 WHERE github_id = 'gh-owner'").bind(now).run();
+  await upsertMembership(env.DB, "team:acme", "gh-owner", "owner");
+  await env.DB.prepare("INSERT INTO org_domains (domain, org_id, verify_token, verified_at, created_by, created_at) VALUES ('acme.jp', 'team:acme', 't', ?1, 'gh-owner', ?1)").bind(now).run();
+  const owner = await createSession(env.DB, "gh-owner", "x");
+  const key = (await (await call("/orgs/keys", { token: owner, method: "POST", body: { orgId: "team:acme", name: "Okta", scopes: ["scim:write"] } })).json()).key;
+  const provisioned = await call("/scim/v2/Users", {
+    key, method: "POST",
+    body: { schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"], userName: "fresh@acme.jp", emails: [{ value: "fresh@acme.jp", primary: true }], active: true },
+  });
+  expect(provisioned.status).toBe(201);
+  const { user_github_id: made } = await env.DB.prepare("SELECT user_github_id FROM scim_users WHERE user_name = 'fresh@acme.jp'").first();
+  expect(made).toMatch(/^scim:/);
+
+  const first = await codeSignIn("fresh@acme.jp");
+  expect(first.userId).toBe(made);
+  expect(await signedIn(first.token)).toBe(true);
+  expect((await userOf(made)).email).toBe("fresh@acme.jp");
+  expect((await userOf(made)).email_verified_at).toBeTruthy();
+  expect(await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id = 'team:acme' AND user_github_id = ?1").bind(made).first()).toBeTruthy();
+  // And again: the same account, never a second one.
+  expect((await codeSignIn("fresh@acme.jp")).userId).toBe(made);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE email = 'fresh@acme.jp' OR login = 'u:fresh@acme.jp'").first()).n).toBe(1);
+});
+
 test("an invitation used at sign-up answers to the workspace's invite rule", async () => {
   const { upsertUser, upsertMembership, createSession } = await import("../src/db.js");
   const now = new Date().toISOString();

@@ -189,6 +189,40 @@ test("required: only after the owner came through it; then an email-code sign-in
   expect((await stale.json()).code).toBe("sso-reauth");
 });
 
+// ---- Accounts that claimed an address before it was proved ----
+
+test("an unproved member at the address keeps nothing of the registrant's once SSO proves it", async () => {
+  await activate();
+  const { upsertUser, upsertMembership, createSession } = await import("../src/db.js");
+  // Registered with a password by someone who never proved the address, and
+  // let in by an invitation.
+  await upsertUser(env.DB, { githubId: "email:pat@acme.co.jp", login: "u:pat@acme.co.jp", name: "Pat", avatarUrl: null, locale: "en" });
+  await env.DB.prepare("UPDATE users SET email = 'pat@acme.co.jp', password_hash = 'h', password_salt = 's' WHERE github_id = 'email:pat@acme.co.jp'").run();
+  await upsertMembership(env.DB, ORG, "email:pat@acme.co.jp", "member", "invite");
+  const registrant = await createSession(env.DB, "email:pat@acme.co.jp", "x");
+
+  const session = await ssoSession({ sub: "okta-pat", email: "pat@acme.co.jp", name: "Pat" });
+  expect((await call(`/members?orgId=${ORG}`, session)).status).toBe(200);
+  expect((await call("/sessions", registrant)).status).toBe(401);
+  const pat = await env.DB.prepare("SELECT password_hash, email_verified_at FROM users WHERE github_id = 'email:pat@acme.co.jp'").first();
+  expect(pat.password_hash).toBeNull();
+  expect(pat.email_verified_at).toBeTruthy();
+});
+
+test("a GitHub member who only typed the address in is not linked to the provider's person", async () => {
+  await activate();
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "9901", login: "patgh", name: "Pat", avatarUrl: null, locale: "en" });
+  await env.DB.prepare("UPDATE users SET email = 'pat@acme.co.jp' WHERE github_id = '9901'").run();
+  await upsertMembership(env.DB, ORG, "9901", "member", "invite");
+
+  const back = await signIn({ sub: "okta-pat", email: "pat@acme.co.jp", name: "Pat" });
+  const session = await (await call("/sso/exchange", null, { method: "POST", body: { code: hashParams(back).get("code"), client: "web" } })).json();
+  expect(session.userId).not.toBe("9901");
+  expect(session.userId).toMatch(/^sso:/);
+  expect((await env.DB.prepare("SELECT email FROM users WHERE github_id = '9901'").first()).email).toBeNull();
+});
+
 // ---- A domain the workspace stops owning ----
 
 for (const [how, lose] of [

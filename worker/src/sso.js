@@ -421,7 +421,7 @@ async function accountFor(env, conn, identity) {
   // newhire@corp.example first the new hire's workspace.
   const domainProved = coversNow(conn, identity.email, await verifiedDomainsOf(env.DB, conn.org_id));
   if (domainProved) {
-    const owner = await settleProvedAddress(env, identity.email, { orgId: conn.org_id });
+    const owner = await settleProvedAddress(env, identity.email);
     if (owner) return { githubId: owner.githubId, linked: false };
   } else {
     const byEmail = await env.DB.prepare("SELECT github_id, email_verified_at FROM users WHERE email = ?1").bind(identity.email).first();

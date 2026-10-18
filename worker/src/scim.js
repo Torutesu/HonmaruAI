@@ -117,7 +117,7 @@ async function presentUser(env, base, row) {
 /// it stood made whoever registered the address before the company
 /// provisioned it a member of the company's workspace.
 async function accountFor(env, orgId, email, name) {
-  const existing = await settleProvedAddress(env, email, { orgId });
+  const existing = await settleProvedAddress(env, email);
   if (existing) return { githubId: existing.githubId, created: false };
   const githubId = `scim:${orgId}:${(await sha256Hex(`scim\u0000${orgId}\u0000${email}`)).slice(0, 24)}`;
   await upsertUser(env.DB, { githubId, login: `u:${email}`, name: name || email.split("@")[0], avatarUrl: null, locale: "en" });
