@@ -1956,3 +1956,14 @@ CREATE TABLE IF NOT EXISTS hx_app_generation_jobs (
   PRIMARY KEY(org_id,user_id,request_id),
   CHECK(status != 'complete' OR (app_id IS NOT NULL AND generated IS NOT NULL))
 );
+
+/* Shared thread names are separate from the original message and its history. */
+CREATE TABLE IF NOT EXISTS channel_thread_details (
+  org_id TEXT NOT NULL,
+  message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, message_id)
+);

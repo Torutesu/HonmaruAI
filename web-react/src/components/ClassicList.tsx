@@ -1,3 +1,4 @@
+import { HarnessThreadHeader } from './HarnessThreadHeader'
 import { RoomThreadDirectory } from './RoomThreadDirectory'
 import { MessageAppCards } from './MessageAppCards'
 import { AppView } from '../screens/Harness'
@@ -1825,7 +1826,7 @@ export const ClassicList: React.FC<Props> = ({
         return { ...prev, [m.channel]: refreshQuotes(arrive(list, msg), msg) }
       })
       setReplyingTo((prev) => (prev?.quote.id === m.id ? { ...prev, quote: quoteOf(msg) } : prev))
-      setThread((prev) => (prev && prev.parent.id === m.id ? (m.deleted ? null : { ...prev, parent: msg }) : prev))
+      setThread((prev) => (prev && prev.parent.id === m.id ? (m.deleted ? null : { ...prev, parent: { ...msg, canRenameThread: prev.parent.canRenameThread } }) : prev))
       if (!m.deleted && !m.editedAt && (isNew || !messagesRef.current[m.channel])) {
         setActivity((prev) => ({ ...prev, [m.channel]: { channel: m.channel, lastAt: m.createdAt, preview: m.body.slice(0, 120), lastBy: mine ? 'me' : m.authorName, last: msg } }))
       }
@@ -2834,7 +2835,7 @@ export const ClassicList: React.FC<Props> = ({
       return { ...prev, [channel]: refreshQuotes(list.map((x) => (x.id === msg.id ? msg : x)), msg) }
     })
     setReplyingTo((prev) => (prev?.quote.id === msg.id ? { ...prev, quote: quoteOf(msg) } : prev))
-    setThread((prev) => (prev && prev.parent.id === msg.id ? { ...prev, parent: msg } : prev))
+    setThread((prev) => (prev && prev.parent.id === msg.id ? { ...prev, parent: { ...msg, canRenameThread: prev.parent.canRenameThread } } : prev))
     setPins((prev) => (prev ? (msg.pinned ? (prev.some((x) => x.id === msg.id) ? prev.map((x) => (x.id === msg.id ? msg : x)) : [msg, ...prev]) : prev.filter((x) => x.id !== msg.id)) : prev))
   }
   const act = async (method: 'POST' | 'PUT' | 'DELETE', path: string, channel: string, extra: Record<string, unknown>) => {
@@ -5805,12 +5806,12 @@ export const ClassicList: React.FC<Props> = ({
           onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setThreadDropping(false) }}
           onDrop={(e) => { setThreadDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); e.stopPropagation(); threadUploads.add([...e.dataTransfer.files], thread.channel) } }}>
           {wide && !harness && !sourceThreadApp && <PaneResizer pane={threadPane} label={t('Resize thread')} title={t('Drag to resize · double-click to reset')} onWidth={keepThreadWidth} onReset={() => keepThreadWidth(null)} />}
-          <header className="slk-pane-head">
+          {harness ? <HarnessThreadHeader key={`${api.orgId}:${api.sessionToken}:${thread.parent.id}`} api={api} channel={thread.channel} parent={thread.parent} room={current?.name||'ルーム'} onClose={()=>setThread(null)} onParent={parent=>setThread(previous=>previous?.parent.id===parent.id?{...previous,parent}:previous)}/> : <header className="slk-pane-head">
             <button className="slk-back pane" onClick={() => setThread(null)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
             <h2>{t('Thread')}</h2>
             {current && <span className="slk-pane-where">{current.kind === 'channel' ? `#${current.name}` : current.name}</span>}
             <button className="slk-pane-close" onClick={() => setThread(null)} aria-label={t('Close')}><Icon name="x" size={16} /></button>
-          </header>
+          </header>}
           {threadBody(thread)}
         </aside>
       )}

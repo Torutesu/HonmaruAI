@@ -161,6 +161,8 @@ export function toMessage(row, viewerLogin, view, members, extra = {}) {
     // fetches it by id), and in what the unsend sends out to take it off
     // the screens it is on.
     body: deleted ? "" : row.body,
+    threadTitle: deleted ? null : (row.thread_title || null),
+    threadTitleVersion: deleted ? 0 : (row.thread_version || 0),
     // The language it is written in, for a reader in another to ask for it
     // translated (translate.js). Null when there is nothing to translate.
     lang: deleted ? null : messageLanguage(row.body),
@@ -508,7 +510,7 @@ export async function setPinned(db, { orgId, id, login, pinned }) {
 
 export async function getMessage(db, orgId, id) {
   return db
-    .prepare("SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2")
+    .prepare("SELECT m.*, td.title AS thread_title, td.version AS thread_version, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login LEFT JOIN channel_thread_details td ON td.org_id = m.org_id AND td.message_id = m.id WHERE m.org_id = ?1 AND m.id = ?2")
     .bind(orgId, id)
     .first();
 }
@@ -934,9 +936,10 @@ export async function roomThreads(db, orgId, key, login, view, members, { limit 
       WHERE m.org_id = ?1 AND m.channel = ?2 AND m.parent_id IS NULL AND m.deleted_at IS NULL
       GROUP BY m.id
     )
-    SELECT m.*, u.name AS author_name, s.reply_count, s.activity_at, s.mine_at, s.others_at,
+    SELECT m.*, td.title AS thread_title, td.version AS thread_version, u.name AS author_name, s.reply_count, s.activity_at, s.mine_at, s.others_at,
       COALESCE(cr.last_read_at, '') AS thread_read_at
     FROM summaries s JOIN channel_messages m ON m.id = s.id AND m.org_id = ?1
+    LEFT JOIN channel_thread_details td ON td.org_id = m.org_id AND td.message_id = m.id
     LEFT JOIN users u ON u.login = m.author_login
     LEFT JOIN channel_reads cr ON cr.org_id = ?1 AND cr.login = ?3 AND cr.channel = 't:' || m.id
     WHERE (?4 IS NULL OR s.activity_at < ?4 OR (s.activity_at = ?4 AND m.id < ?5))

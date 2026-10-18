@@ -1230,6 +1230,36 @@ export async function handleChannels(request, env, url, { route, after }) {
     return json({ card: saved, text: next, note });
   }
 
+  if (path === "/channels/thread/title" && request.method === "PUT") {
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body.messageId !== "string" || !/^[\w-]{1,80}$/.test(body.messageId) || typeof body.title !== "string" || !body.title.trim() || body.title.trim().length > 160 || /[\u0000-\u001f\u007f]/.test(body.title) || !Number.isSafeInteger(body.version) || body.version < 0) return json({ message: "A title of 1–160 characters and a current version are required." }, 400);
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    if (await isGuest(env.DB, body.orgId, ctx.who.session.github_id)) return json({ message: "A guest cannot rename threads." }, 403);
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const root = await getMessage(env.DB, body.orgId, body.messageId);
+    if (!root || root.deleted_at || root.parent_id || root.channel !== ctx.resolved.key) return json({ message: "No such thread." }, 404);
+    const title = body.title.trim(), at = new Date().toISOString();
+    const result = body.version === 0
+      ? await env.DB.prepare(`INSERT OR IGNORE INTO channel_thread_details (org_id, message_id, title, version, updated_by, updated_at)
+          SELECT ?1, ?2, ?3, 1, ?4, ?5 FROM channel_messages
+          WHERE org_id = ?1 AND id = ?2 AND channel = ?6 AND parent_id IS NULL AND deleted_at IS NULL`)
+        .bind(body.orgId, root.id, title, ctx.who.user.login, at, ctx.resolved.key).run()
+      : await env.DB.prepare(`UPDATE channel_thread_details SET title = ?3, version = version + 1, updated_by = ?4, updated_at = ?5
+          WHERE org_id = ?1 AND message_id = ?2 AND version = ?7 AND EXISTS (
+            SELECT 1 FROM channel_messages WHERE org_id = ?1 AND id = ?2 AND channel = ?6 AND parent_id IS NULL AND deleted_at IS NULL)`)
+        .bind(body.orgId, root.id, title, ctx.who.user.login, at, ctx.resolved.key, body.version).run();
+    if (!result.meta?.changes) return json({ message: "The thread changed. Reload before saving." }, 409);
+    const saved = await getMessage(env.DB, body.orgId, root.id);
+    const [parent] = await present(env.DB, body.orgId, [saved], ctx.who.user.login, ctx.view, ctx.members);
+    after(async () => {
+      await broadcast(env, body.orgId, ctx.resolved, saved, ctx.members);
+      await audit(env, request, { orgId: body.orgId, action: "thread.renamed", actor: person(ctx.who.user), entity: { type: "thread", id: root.id } });
+    });
+    return json({ parent: { ...parent, canRenameThread: true } });
+  }
+
   // A thread: the message and its replies.
   if (path === "/channels/thread" && request.method === "GET") {
     const orgId = url.searchParams.get("orgId");
@@ -1237,7 +1267,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (ctx.denied) return ctx.denied;
     const thread = await listThread(env.DB, orgId, ctx.resolved.key, url.searchParams.get("messageId") || "", ctx.who.user.login, ctx.view, ctx.members);
     if (!thread) return json({ message: "No such thread." }, 404);
-    return json(thread);
+    return json({ ...thread, parent: { ...thread.parent, canRenameThread: !thread.parent.deleted && !(await isGuest(env.DB, orgId, ctx.who.session.github_id)) } });
   }
 
   // A file or a picture, uploaded into a conversation you can read, for the
