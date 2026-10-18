@@ -54,14 +54,17 @@ export async function runCardNotification(env, id, send, now = Date.now()) {
   let result;
   try {
     const input = JSON.parse(job.payload);
-    if (job.attempts > 1) {
-      const user = await getUserByLogin(env.DB, job.login);
-      if (!user) result = {sent:0, skipped:'recipient removed'};
-      if (!result && job.org_id) {
-        const member = await env.DB.prepare('SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2').bind(job.org_id, user.github_id).first();
-        const card = await getCard(env.DB, job.org_id, job.card_id);
-        if (!member || !card || !mayReadCard(card, await accessFor(env.DB, job.org_id, job.login))) result = {sent:0, skipped:'no longer accessible'};
-        else if ((job.kind === 'created' || job.kind === 'nudged') && (card.status !== 'pending' || card.recipientUserID !== job.login)) result = {sent:0, skipped:'request changed'};
+    // Whoever it is for must still be in the workspace and able to read the
+    // card, on the first try as on a retry. A retry also checks the card is
+    // still the news it was, and sends it as it is now.
+    const user = await getUserByLogin(env.DB, job.login);
+    if (!user) result = {sent:0, skipped:'recipient removed'};
+    if (!result && job.org_id) {
+      const member = await env.DB.prepare('SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2').bind(job.org_id, user.github_id).first();
+      const card = await getCard(env.DB, job.org_id, job.card_id);
+      if (!member || !card || !mayReadCard(card, await accessFor(env.DB, job.org_id, job.login))) result = {sent:0, skipped:'no longer accessible'};
+      else if (job.attempts > 1) {
+        if ((job.kind === 'created' || job.kind === 'nudged') && (card.status !== 'pending' || card.recipientUserID !== job.login)) result = {sent:0, skipped:'request changed'};
         else if (job.kind === 'decided' && (card.status === 'pending' || card.decision?.decidedAt !== input.card.decision?.decidedAt)) result = {sent:0, skipped:'response changed'};
         else input.card = card;
       }

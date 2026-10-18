@@ -67,6 +67,83 @@ test("a card made in a private channel is heard by its members, not the whole wo
   expect(JSON.stringify(out)).not.toContain("Close the Osaka office");
 });
 
+test("the answer to a decision's tool call reaches only the card's audience", async () => {
+  const { saveCard } = await import("../src/db.js");
+  const pending = { type: "approval", status: "pending", priority: "high", createdAt: new Date().toISOString(), senderUserID: "owner", recipientUserID: "insider" };
+  await saveCard(env.DB, ORG, { ...pending, id: "p-board", title: "Sell the Kobe site", business: "board" });
+  await saveCard(env.DB, ORG, { ...pending, id: "p-mine", title: "Insider's own reminder", visibility: "personal" });
+  await saveCard(env.DB, ORG, { ...pending, id: "p-open", title: "Order team lunch" });
+  const { ws } = await joined(ORG, insider);
+  const { messages: sender } = await joined(ORG, owner);
+  const { messages: out } = await joined(ORG, outsider);
+  const decide = (toolCallId, cardId, note) => ws.send(JSON.stringify({ type: "tool_result", payload: {
+    toolCallId, content: { cardId, action: "approve", note, decidedAt: new Date().toISOString() },
+  } }));
+  const result = (messages, id) => message(messages, (m) => m.type === "TOOL_CALL_RESULT" && m.toolCallId === id);
+
+  decide("tc-board", "p-board", "Sell it in March");
+  decide("tc-mine", "p-mine", "Done before the trip");
+  expect(await result(sender, "tc-board")).toBeTruthy();
+  expect(await result(sender, "tc-mine")).toBeTruthy();
+  // A public card's answer after them: once the outsider has heard that one,
+  // they would have heard the first two.
+  decide("tc-open", "p-open", "Sushi is fine");
+  expect(await result(out, "tc-open")).toBeTruthy();
+  expect(JSON.stringify(out)).not.toContain("Sell it in March");
+  expect(JSON.stringify(out)).not.toContain("Done before the trip");
+  expect(out.some((m) => m.toolCallId === "tc-board" || m.toolCallId === "tc-mine")).toBe(false);
+});
+
+test("a report said in a private channel is filed under it, and heard only by its members", async () => {
+  const { default: worker } = await import("../src/index.js");
+  const { getCard } = await import("../src/db.js");
+  const post = (path, body) => worker.fetch(new Request(`https://example.com${path}`, {
+    method: "POST", headers: { "content-type": "application/json", "x-session-token": owner }, body: JSON.stringify(body),
+  }), { ...env, OPENAI_API_KEY: undefined }, { waitUntil() {}, passThroughOnException() {} });
+  const { ws } = await joined(ORG, owner);
+  const { messages: inside } = await joined(ORG, insider);
+  const { messages: out } = await joined(ORG, outsider);
+
+  const made = await post("/routines", { orgId: ORG, title: "Kestrel board digest", instruction: "Summarise the board's week", cadence: "weekly", weekday: 1, hour: 9, channel: "b:board" });
+  expect(made.status).toBe(201);
+  const { routine } = await made.json();
+  const ran = await post(`/routines/${routine.id}/run`, { orgId: ORG });
+  expect(ran.status).toBe(200);
+  const card = await getCard(env.DB, ORG, (await ran.json()).cardId);
+  expect(card).toMatchObject({ visibility: "team", business: "board", sourceDetail: "Kestrel board digest" });
+  expect(await message(inside, (m) => m.type === "STATE_DELTA" && JSON.stringify(m).includes("Kestrel board digest"))).toBeTruthy();
+
+  // A public card after it: once the outsider has heard that one, they would
+  // have heard the report.
+  ws.send(JSON.stringify({ type: "card_created", payload: { card: {
+    id: "c-after", type: "approval", status: "pending", priority: "high", createdAt: new Date().toISOString(), senderUserID: "owner", recipientUserID: "owner", title: "Order team lunch",
+  } } }));
+  expect(await message(out, (m) => m.type === "STATE_DELTA" && JSON.stringify(m).includes("Order team lunch"))).toBeTruthy();
+  expect(JSON.stringify(out)).not.toContain("Kestrel board digest");
+
+  // Nor is it in their feed when they come back.
+  const { messages: again } = await joined(ORG, outsider);
+  expect(JSON.stringify(again.find((m) => m.type === "STATE_SNAPSHOT"))).not.toContain("Kestrel board digest");
+  const { messages: member } = await joined(ORG, insider);
+  expect(JSON.stringify(member.find((m) => m.type === "STATE_SNAPSHOT"))).toContain("Kestrel board digest");
+});
+
+test("a card's video is the one it was made with: republishing it cannot put another on it", async () => {
+  const { saveCard, getCard } = await import("../src/db.js");
+  const createdAt = new Date().toISOString();
+  await saveCard(env.DB, ORG, { id: "p-plain", type: "approval", status: "pending", priority: "high", createdAt, senderUserID: "owner", recipientUserID: "outsider", title: "Plain card" });
+  const { ws, messages } = await joined(ORG, outsider);
+  ws.send(JSON.stringify({ type: "card_updated", payload: { card: {
+    id: "p-plain", type: "approval", status: "approved", priority: "high", createdAt, recipientUserID: "outsider", title: "Plain card",
+    videoURL: `https://example.com/media/0b9a1d6e-3c2f-4a51-9e7d-2f6b8c1a4d03?o=${encodeURIComponent(ORG)}`,
+    decision: { action: "approve", actorUserID: "outsider", decidedAt: new Date().toISOString() },
+  } } }));
+  expect(await message(messages, (m) => m.type === "STATE_DELTA" && JSON.stringify(m).includes("approved"))).toBeTruthy();
+  const stored = await getCard(env.DB, ORG, "p-plain");
+  expect(stored.decision.action).toBe("approve");
+  expect(stored.videoURL).toBeUndefined();
+});
+
 test("a decision lookup that cannot say who it is for leaves a private channel out", async () => {
   const titles = (hits) => hits.map((h) => h.title);
   expect(titles(await searchDecisions(env.DB, ORG, "Budget"))).toEqual(["Budget offsite"]);

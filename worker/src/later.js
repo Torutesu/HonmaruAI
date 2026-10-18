@@ -135,7 +135,7 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
   // Messages that waited a minute to see whether they were read.
   await sendDuePushes(env, now.getTime()).catch((err) => console.error("message pushes failed", err?.message || err));
   const { results: remind } = await db.prepare(
-    `SELECT s.*, m.body, m.author_login, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name, me.locale AS reader_locale FROM saved_items s
+    `SELECT s.*, m.body, m.author_login, m.channel AS message_channel, m.deleted_at AS message_deleted_at, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name, me.locale AS reader_locale FROM saved_items s
        JOIN channel_messages m ON m.id = s.message_id AND m.org_id = s.org_id
        LEFT JOIN users u ON u.login = m.author_login
        LEFT JOIN users me ON me.login = s.login
@@ -145,6 +145,15 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
     try {
       const claim = await db.prepare("UPDATE saved_items SET reminded_at = ?2 WHERE id = ?1 AND reminded_at IS NULL").bind(r.id, at).run();
       if (!(claim.meta?.changes > 0)) continue;
+      // The message as it is now, so only for someone who may still read it:
+      // still in the workspace, still in its conversation, and the message
+      // not deleted — as the Later screen shows it.
+      if (r.message_deleted_at) continue;
+      const member = await db.prepare(
+        "SELECT 1 FROM memberships ms JOIN users u ON u.github_id = ms.user_github_id WHERE ms.org_id = ?1 AND u.login = ?2"
+      ).bind(r.org_id, r.login).first();
+      if (!member) continue;
+      if (!mayRead(r.message_channel, await accessFor(db, r.org_id, r.login))) continue;
       const lang = await loadCopy(env, r.reader_locale || "en", { orgId: r.org_id });
       const card = {
         id: `card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

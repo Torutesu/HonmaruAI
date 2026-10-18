@@ -618,6 +618,10 @@ export class OrgRelay {
           // A daily report's state is the Worker's: posted only through Post.
           if (existing.dailyReport !== undefined) card.dailyReport = existing.dailyReport;
           else delete card.dailyReport;
+          // A card's video is the one it was made with: who may play a video
+          // is decided by the first card it came on (index.js cardVideoUrl).
+          if (existing.videoURL !== undefined) card.videoURL = existing.videoURL;
+          else delete card.videoURL;
           // An unposted draft is not put away by deciding it — from any
           // client, however old: the only way off the feed is to post it.
           if (existing.dailyReport?.status === "draft" && card.decision?.action) {
@@ -1017,7 +1021,9 @@ export class OrgRelay {
       const { forEveryone } = upsertEvents(out.card, { isNew: false });
       for (const ev of forEveryone) await this.broadcastCard(orgId, out.card, ev);
     }
-    if (toolCallId) this.broadcast(orgId, toolCallResult(toolCallId, out.card));
+    // The answer to the tool call carries the whole card, so it goes where the
+    // card's own news goes and no further.
+    if (toolCallId) await this.broadcastCard(orgId, out.card, toolCallResult(toolCallId, out.card));
   }
 
   /// A workspace's login rules end sockets at their deadline: each one past

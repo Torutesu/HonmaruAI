@@ -57,3 +57,20 @@ test('workspace access is rechecked before retrying private content',async()=>{
  const send=vi.fn();await runCardNotification(env,id,send,Date.now()+61000);
  expect(send).not.toHaveBeenCalled();expect((await job(id)).state).toBe('skipped');
 });
+test('the first delivery is held to the same access as a retry',async()=>{
+ const {saveCard,upsertMembership}=await import('../src/db.js');
+ const card={...input.card,id:'first-card'};
+ // Not in the workspace: not even the first try goes out.
+ const gone=await enqueueCardNotification(env,{...input,card,orgId:'first-workspace'});
+ const send=vi.fn().mockResolvedValue({sent:1});
+ await runCardNotification(env,gone,send);
+ expect(send).not.toHaveBeenCalled();expect((await job(gone)).state).toBe('skipped');
+ // In it, with the card there to read: it does.
+ await upsertMembership(env.DB,'first-workspace','reader-id','member');
+ await saveCard(env.DB,'first-workspace',card);
+ const kept=await enqueueCardNotification(env,{...input,card:{...card,title:'Again'},kind:'nudged',orgId:'first-workspace'});
+ await runCardNotification(env,kept,send);
+ expect(send).toHaveBeenCalledOnce();expect((await job(kept)).state).toBe('sent');
+ // The first try sends what it was given, not the stored copy.
+ expect(send.mock.calls[0][1].card.title).toBe('Again');
+});

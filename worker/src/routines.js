@@ -566,8 +566,9 @@ export async function runRoutine(env, routine, { now = new Date(), manual = fals
         sourceDetail: routine.title,
         requestedBy,
         originalLanguage: locale,
-        // Said in a channel: the channel's to see, not only its owner's.
-        ...(routine.channel ? { visibility: "team" } : {}),
+        // Said in a channel: the channel's to see, not only its owner's —
+        // filed under it, so a private channel's report is its members'.
+        ...(routine.channel ? { visibility: "team", business: routine.channel.slice(2) } : {}),
         report: {
           markdown: written.report.markdown,
           routineId: routine.id,

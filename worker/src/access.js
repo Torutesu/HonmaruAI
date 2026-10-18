@@ -93,17 +93,19 @@ export function mayRead(key, access) {
 /// workspace's: nobody else's feed, search, record or playbook.
 ///
 /// A report a routine says in a channel is the channel's (`visibility:
-/// "team"`), even when its owner made it for themselves.
+/// "team"`, filed under it), even when its owner made it for themselves. One
+/// said before reports were filed under their channel does not say which
+/// channel's it is, so it stays its two people's.
 export function isPersonal(card) {
   if (!card) return false;
-  if (card.visibility === "team") return false;
+  if (card.visibility === "team") return !card.business;
   if (card.visibility === "personal") return true;
   return Boolean(card.sourceApp) && Boolean(card.recipientUserID) && card.recipientUserID === card.senderUserID;
 }
 
 /// The same, in SQL over the cards table : a team-wide
 /// lookup leaves these rows out.
-export const NOT_PERSONAL_SQL = "(COALESCE(json_extract(data, '$.visibility'), '') = 'team' OR NOT (COALESCE(json_extract(data, '$.visibility'), '') = 'personal' OR (json_extract(data, '$.sourceApp') IS NOT NULL AND json_extract(data, '$.sourceApp') != '' AND recipient_user_id = sender_user_id)))";
+export const NOT_PERSONAL_SQL = "(CASE WHEN COALESCE(json_extract(data, '$.visibility'), '') = 'team' THEN COALESCE(json_extract(data, '$.business'), '') != '' ELSE NOT (COALESCE(json_extract(data, '$.visibility'), '') = 'personal' OR (json_extract(data, '$.sourceApp') IS NOT NULL AND json_extract(data, '$.sourceApp') != '' AND recipient_user_id = sender_user_id)) END)";
 
 /// The same, but a person still finds their own (`?n` binds their login).
 export const visibleToSql = (n) => `(${NOT_PERSONAL_SQL} OR recipient_user_id = ?${n} OR sender_user_id = ?${n})`;

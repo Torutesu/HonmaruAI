@@ -295,6 +295,28 @@ test("in its own conversation an agent reads the team's past decisions; in a cha
   expect(prompts[1]).not.toContain("Switch roaster supplier");
 });
 
+test("in a guest's own conversation an agent reads only the decisions the guest is on", async () => {
+  const made = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json();
+  const { saveCard } = await import("../src/db.js");
+  const { addMembers } = await import("../src/access.js");
+  await addMembers(env.DB, { orgId: ORG, key: "b:cafe", logins: ["gus"], addedBy: "toru" });
+  const decided = { status: "approved", createdAt: new Date().toISOString(), decision: { action: "approve", actorUserID: "mika", decidedAt: new Date().toISOString() } };
+  await saveCard(env.DB, ORG, { ...decided, id: "c-roast", recipientUserID: "mika", senderUserID: "kenji", title: "Switch roaster supplier", business: "cafe" });
+  await saveCard(env.DB, ORG, { ...decided, id: "c-other", recipientUserID: "mika", senderUserID: "kenji", title: "Roaster contract for the hotel" });
+  await saveCard(env.DB, ORG, { ...decided, id: "c-gus", recipientUserID: "gus", senderUserID: "toru", title: "Roaster tasting with Gus", business: "cafe" });
+  const prompts = [];
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(200, (opts) => {
+    prompts.push(JSON.parse(opts.body).messages[1].content);
+    return { choices: [{ message: { content: "ok" } }] };
+  });
+  const sent = await send("POST", "/channels/messages", guest, { orgId: ORG, channel: `ag:${made.agent.id}`, body: "What did we decide about the roaster?" }, { OPENAI_API_KEY: "sk-test" });
+  expect(sent.status).toBe(201);
+  expect(prompts).toHaveLength(1);
+  expect(prompts[0]).toContain("Roaster tasting with Gus");
+  expect(prompts[0]).not.toContain("Switch roaster supplier");
+  expect(prompts[0]).not.toContain("Roaster contract for the hotel");
+});
+
 test("an agent researches with a reasoning model, web search and its own tools, and answers with what it found, and where", async () => {
   const made = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json();
   const asked = [];

@@ -1579,7 +1579,7 @@ async function handle(request, env, url, ctx) {
       let context = null;
       if (channel && record.businesses.length) {
         const { channelContext } = await import("./channelContext.js");
-        context = await channelContext(env, { orgId, key: `b:${channel}`, locale, githubId: session.github_id, refresh: url.searchParams.get("refresh") === "1" })
+        context = await channelContext(env, { orgId, key: `b:${channel}`, locale, viewer: me?.login || null, githubId: session.github_id, refresh: url.searchParams.get("refresh") === "1" })
           .catch((err) => { console.error("channel context failed", err?.message || err); return null; });
       }
       if (channel && !record.businesses.length) return json({ message: "No such channel." }, 404);
@@ -1907,6 +1907,16 @@ async function handle(request, env, url, ctx) {
         const held = await policyDenial(env, session, m.org_id);
         if (held) withheld.push({ orgId: m.org_id, code: held.body?.code || "session-policy" });
       }
+      // A workspace this person has left keeps what was said in it, and what
+      // happened to their cards after they went: only the workspaces they are
+      // in now are exported.
+      const current = new Set((data.memberships || []).map((m) => m.org_id));
+      const former = new Set();
+      for (const rows of Object.values(data)) {
+        if (!Array.isArray(rows)) continue;
+        for (const r of rows) if (r && typeof r === "object" && r.org_id != null && !current.has(r.org_id)) former.add(r.org_id);
+      }
+      for (const orgId of former) withheld.push({ orgId, code: "not-a-member" });
       if (withheld.length) {
         const out = new Set(withheld.map((w) => w.orgId));
         for (const [key, rows] of Object.entries(data)) {
@@ -2867,13 +2877,24 @@ export function isDatabaseLimit(err) {
 /// Where to play a card's video from, for someone who may read the card:
 /// a signed address on the media origin when it is on, else the address
 /// the card was saved with. Only the video the card itself names.
+///
+/// A video belongs to the first card it came on. Another card naming the
+/// same video — anyone can paste an address into a new card — plays it only
+/// for someone who may also read that first one, so a reader who lost a
+/// private channel does not get the channel's videos back through a card of
+/// their own.
 async function cardVideoUrl(env, { orgId, login, cardId }) {
   const card = await getCard(env.DB, orgId, cardId);
-  if (!card?.videoURL || !mayReadCard(card, await accessFor(env.DB, orgId, login))) return null;
+  const access = await accessFor(env.DB, orgId, login);
+  if (!card?.videoURL || !mayReadCard(card, access)) return null;
   const m = /\/media\/([0-9a-fA-F-]{36})(?:\?o=([^&#]+))?/.exec(String(card.videoURL));
   if (!m) return { url: card.videoURL, expiresAt: null };
   const stored = m[2] ? decodeURIComponent(m[2]) : null;
   if (stored && stored !== orgId) return null;
+  const first = await env.DB.prepare(
+    "SELECT card_id FROM cards WHERE org_id = ?1 AND instr(lower(json_extract(data, '$.videoURL')), ?2) > 0 ORDER BY rowid LIMIT 1"
+  ).bind(orgId, `/media/${m[1].toLowerCase()}`).first();
+  if (first?.card_id && first.card_id !== cardId && !mayReadCard(await getCard(env.DB, orgId, first.card_id), access)) return null;
   if (mediaOriginOn(env)) {
     const signed = await signVideoUrl(env, { orgId: stored, id: m[1] });
     if (signed) return signed;

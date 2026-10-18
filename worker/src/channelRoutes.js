@@ -438,8 +438,11 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     try {
       const terms = searchTermsFor(row.body, null);
       const available = await connectedSources(env, session, orgId);
+      // The decisions this person may open, as their own search finds them:
+      // a guest's are the ones they are on.
+      const access = terms ? await accessFor(env.DB, orgId, user.login) : null;
       const [decisions, notion, github] = await Promise.all([
-        terms ? searchDecisions(env.DB, orgId, terms).catch(() => []) : [],
+        terms ? searchDecisions(env.DB, orgId, terms, { viewer: user.login, access }).catch(() => []) : [],
         available.notion && terms ? searchNotion(env, session.github_id, terms).catch(() => []) : [],
         available.github && terms ? searchGithubIssues(session, orgId, terms, env).catch(() => []) : [],
       ]);
