@@ -3,7 +3,7 @@ import React from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { MessageFiles } from './Attachments'
+import { MessageFiles, shrinkPlan, PHOTO_MAX_PIXELS } from './Attachments'
 import { renderRich } from './MessageParts'
 import type { FileRef } from '../types/card'
 import { configureMediaUrls } from '../utils/mediaUrls'
@@ -400,5 +400,23 @@ describe('MessageFiles, kept fresh', () => {
       configureMediaUrls(null)
       vi.useRealTimers()
     }
+  })
+})
+
+// A phone's photo is several megabytes and twelve megapixels or more: that
+// is what made it slow to go up. It is redrawn at a sensible size first.
+describe('which pictures are made smaller before they go up', () => {
+  it('redraws a large photo at the long side the app sends, keeping its shape', () => {
+    expect(shrinkPlan('image/jpeg', 4_800_000, { width: 4032, height: 3024 })).toEqual({ width: PHOTO_MAX_PIXELS, height: 1920 })
+    expect(shrinkPlan('image/heic', 2_000_000, { width: 3024, height: 4032 })).toEqual({ width: 1920, height: PHOTO_MAX_PIXELS })
+  })
+  it('recompresses a heavy photo already small enough in pixels, without making it larger', () => {
+    expect(shrinkPlan('image/jpeg', 3_000_000, { width: 2000, height: 1500 })).toEqual({ width: 2000, height: 1500 })
+  })
+  it('sends a light photo, a screenshot and a moving picture as they are', () => {
+    expect(shrinkPlan('image/jpeg', 400_000, { width: 1600, height: 1200 })).toBeNull()
+    expect(shrinkPlan('image/png', 6_000_000, { width: 3000, height: 2000 })).toBeNull()
+    expect(shrinkPlan('image/gif', 6_000_000, { width: 3000, height: 2000 })).toBeNull()
+    expect(shrinkPlan('application/pdf', 6_000_000, { width: 3000, height: 2000 })).toBeNull()
   })
 })

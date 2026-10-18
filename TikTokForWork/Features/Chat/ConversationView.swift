@@ -557,20 +557,12 @@ struct ConversationView: View {
         uploading == 0 && !savingEdit && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (!attached.isEmpty && editing == nil))
     }
 
-    /// Picked photos: each made a JPEG (a HEIC would not show everywhere),
-    /// uploaded, and held for the message you are about to send. Each is
-    /// already counted in `uploading`, and given back as it is done.
+    /// Picked photos, made ready and uploaded (ChatPhotos.upload) and held
+    /// for the message you are about to send. They are already counted in
+    /// `uploading`, and given back once they are up.
     private func attach(_ items: [PhotosPickerItem]) async {
-        for (i, item) in items.enumerated() {
-            defer { uploading -= 1 }
-            guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data),
-                  let jpeg = image.jpegData(compressionQuality: 0.85) else { continue }
-            let w = Int(image.size.width * image.scale), h = Int(image.size.height * image.scale)
-            let name = "photo-\(Int(Date().timeIntervalSince1970))-\(i + 1).jpg"
-            if let file = await store.upload(view, data: jpeg, type: "image/jpeg", name: name, width: w, height: h) {
-                attached.append(file)
-            }
-        }
+        for file in await ChatPhotos.upload(items, to: view, store: store) { attached.append(file) }
+        uploading -= items.count
     }
 
     @ViewBuilder

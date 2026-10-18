@@ -54,6 +54,49 @@ async function dimensions(file: File): Promise<Size | null> {
   return null
 }
 
+/// The long side a photo is sent at, and the size a photo has to pass
+/// before it is redrawn: a phone's photos run to several megabytes, which
+/// is what made them slow to go up. Anything smaller goes as it is.
+export const PHOTO_MAX_PIXELS = 2560
+const PHOTO_SHRINK_BYTES = 1_500_000
+/// Kinds redrawn as a JPEG: photographs. A PNG may be see-through or a
+/// screenshot whose text should stay sharp, and a GIF may move, so those go
+/// as they are.
+const SHRINKABLE = new Set(['image/jpeg', 'image/jpg', 'image/webp', 'image/heic', 'image/heif'])
+
+/// The size to redraw a picked picture at before it goes up, or null to
+/// send it as it is.
+export function shrinkPlan(type: string, bytes: number, size: Size): Size | null {
+  if (!SHRINKABLE.has(type.toLowerCase())) return null
+  const long = Math.max(size.width, size.height)
+  if (!(long > 0) || (long <= PHOTO_MAX_PIXELS && bytes <= PHOTO_SHRINK_BYTES)) return null
+  const scale = Math.min(1, PHOTO_MAX_PIXELS / long)
+  return { width: Math.max(1, Math.round(size.width * scale)), height: Math.max(1, Math.round(size.height * scale)) }
+}
+
+/// What goes up for a picked file: a large photo redrawn at its plan as a
+/// JPEG, anything else — or anything the browser cannot redraw, or that
+/// would come out no smaller — as it is.
+async function readyToSend(file: File): Promise<{ body: Blob; type: string; name: string; size: Size | null }> {
+  const size = await dimensions(file)
+  const original = { body: file as Blob, type: file.type || 'application/octet-stream', name: file.name || 'file', size }
+  const plan = size ? shrinkPlan(file.type, file.size, size) : null
+  if (!plan || typeof document === 'undefined' || typeof createImageBitmap !== 'function') return original
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image', resizeWidth: plan.width, resizeHeight: plan.height, resizeQuality: 'high' })
+    const canvas = document.createElement('canvas')
+    canvas.width = plan.width
+    canvas.height = plan.height
+    canvas.getContext('2d')?.drawImage(bmp, 0, 0, plan.width, plan.height)
+    bmp.close?.()
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85))
+    if (!blob || blob.size >= file.size) return original
+    return { body: blob, type: 'image/jpeg', name: `${(file.name || 'photo').replace(/\.[^.]+$/, '')}.jpg`, size: plan }
+  } catch {
+    return original
+  }
+}
+
 /// A video's size, from its header: the browser reads only as far as that,
 /// and the upload does not wait more than a few seconds for it.
 function videoDimensions(file: File): Promise<Size | null> {
@@ -97,18 +140,21 @@ export function useUploads(api: { httpBase: string; orgId: string; sessionToken:
     const room = MAX_FILES - itemsRef.current.length
     if (files.length > room) onProblem(t('Up to {n} files in one message.', { n: MAX_FILES }))
     for (const f of files.slice(0, Math.max(0, room))) {
-      if (f.size > MAX_BYTES) { onProblem(t('{name} is larger than 25 MB.', { name: f.name })); continue }
+      // A photo over the limit may still go once it is redrawn smaller.
+      if (f.size > MAX_BYTES && !SHRINKABLE.has((f.type || '').toLowerCase())) { onProblem(t('{name} is larger than 25 MB.', { name: f.name })); continue }
       if (!f.size) continue
       const key = `${Date.now()}-${Math.random().toString(36).slice(2)}`
       const type = f.type || 'application/octet-stream'
       const up: Upload = { key, name: f.name || 'file', type, size: f.size, preview: mediaKind(type, f.name) === 'image' ? URL.createObjectURL(f) : null, state: 'up' }
       setItems((prev) => [...prev, up])
       void (async () => {
-        const dim = await dimensions(f)
-        const qs = new URLSearchParams({ orgId: api.orgId, channel, name: up.name, ...(dim ? { width: String(dim.width), height: String(dim.height) } : {}) })
         try {
+          const ready = await readyToSend(f)
+          if (ready.body.size > MAX_BYTES) throw new Error(t('{name} is larger than 25 MB.', { name: up.name }))
+          const dim = ready.size
+          const qs = new URLSearchParams({ orgId: api.orgId, channel, name: ready.name, ...(dim ? { width: String(dim.width), height: String(dim.height) } : {}) })
           const res = await fetch(`${api.httpBase}/channels/files?${qs}`, {
-            method: 'POST', headers: { 'x-session-token': api.sessionToken, 'content-type': type }, body: f,
+            method: 'POST', headers: { 'x-session-token': api.sessionToken, 'content-type': ready.type }, body: ready.body,
           })
           const data = await res.json().catch(() => ({}))
           if (!res.ok) throw new Error(data.message || '')
