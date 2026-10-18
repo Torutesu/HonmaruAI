@@ -418,3 +418,5 @@
 
 .hx-column-setting.is-hidden .hx-column-label {color:var(--hx-muted);text-decoration:line-through}
 .hx-column-visibility {display:inline-flex;align-items:center;justify-content:center;min-width:28px;min-height:28px}
+
+.hx-system-cell {display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:7px 8px;color:var(--hx-muted);font-variant-numeric:tabular-nums;user-select:text}

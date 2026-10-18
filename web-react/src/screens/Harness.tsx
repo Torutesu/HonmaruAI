@@ -1,3 +1,4 @@
+import {displayLayout, isSystemColumn, systemCellText} from '../utils/systemColumns'
 import { ColumnResize } from '../components/ColumnResize'
 import { PersonalViewControls } from '../components/PersonalViewControls'
 import type { PersonalViews } from '../utils/harness'
@@ -248,8 +249,8 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const allViews = [...data.views,...personal.computed]
   const view = allViews[Math.min(viewIndex, allViews.length - 1)]
   const savePersonal = async (next:PersonalViews) => {const saved=await api.savePersonalViews(appId,next);if(currentApi.current!==api)return;setPersonal(saved);setViewIndex(Math.max(0,[...data.views,...saved.computed].findIndex(v=>v.id===saved.activeView)))}
-  const layout = personal.layouts[view.id]
-  const orderedColumns = [...(layout?.order || []),...table.columns.map(c=>c.id)].filter((id,i,ids)=>ids.indexOf(id)===i).map(id=>table.columns.find(c=>c.id===id)).filter((c):c is Column=>!!c)
+  const layout = displayLayout(table.columns,personal.layouts[view.id])
+  const orderedColumns = [...(layout?.order || []),...layout.columns.map(c=>c.id)].filter((id,i,ids)=>ids.indexOf(id)===i).map(id=>layout.columns.find(c=>c.id===id)).filter((c):c is Column=>!!c)
   const displayColumns = orderedColumns.filter(c=>c.id===table.columns[0]?.id || !layout?.hidden?.includes(c.id))
   const shownRows = (view.rows || []).filter(row => !search || table.columns.some(c => cellText(c, row.values[c.id]).toLowerCase().includes(search.toLowerCase())))
 
@@ -342,7 +343,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
           <table className="hx-table hx-personal-table" style={{width:displayColumns.reduce((n,c)=>n+(layout?.widths[c.id]||180),48)}}>
             <colgroup>{displayColumns.map(c=><col key={c.id} style={{width:layout?.widths[c.id]||180}}/>)}<col style={{width:48}}/></colgroup>
             <thead>
-              <tr>{displayColumns.map((c) => <th key={c.id}>{c.name}<ColumnResize name={c.name} width={layout?.widths[c.id]||180} save={width=>act('layout',()=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{...layout,order:orderedColumns.map(c=>c.id),widths:{...layout?.widths,[c.id]:width}}}}))}/></th>)}<th aria-label={t('Actions')} /></tr>
+              <tr>{displayColumns.map((c) => <th key={c.id}>{c.name}<ColumnResize name={c.name} width={layout?.widths[c.id]||180} save={width=>act('layout',()=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{hidden:layout.hidden,order:orderedColumns.map(c=>c.id),widths:{...layout?.widths,[c.id]:width}}}}))}/></th>)}<th aria-label={t('Actions')} /></tr>
             </thead>
             <tbody>
               {(view.groupBy ? (view.lanes || []).map(lane=>({...lane,rows:lane.rows.filter(row=>shownRows.some(r=>r.id===row.id))})) : [{key:null,rows:shownRows}]).map((group,groupIndex)=><React.Fragment key={group.key ?? groupIndex}>
@@ -350,7 +351,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
               {group.rows.map((row) => (
                 <tr key={row.id} data-row={row.id}>
                   {displayColumns.map((c) => (
-                    <td key={c.id}><CellInput column={c} value={row.values[c.id]} onSave={(v) => save(row, c, v)} /></td>
+                    <td key={c.id}>{isSystemColumn(c.id)?<span className="hx-system-cell" title={c.id==='$row.id'?row.id:c.id==='$row.createdAt'?row.createdAt:row.updatedAt}>{systemCellText(row,c.id)}</span>:<CellInput column={c} value={row.values[c.id]} onSave={(v) => save(row, c, v)} />}</td>
                   ))}
                   <td><button className="btn-text danger" onClick={() => removeRow(row)} disabled={busy === `del:${row.id}`} aria-label={t('Delete row')}><Icon name="trash" size={14} /></button></td>
                 </tr>

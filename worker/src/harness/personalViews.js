@@ -1,11 +1,13 @@
 import { renderApp, normalizeDefinition, computeView } from './apps.js';
 import { mayUseApp } from './resourceAccess.js';
 
+export const SYSTEM_COLUMN_IDS = ['$row.id', '$row.createdAt', '$row.updatedAt'];
+
 export function normalizeLayout(raw, columns) {
-  const ids = columns.map(c => c.id);
+  const ids = [...columns.map(c => c.id), ...SYSTEM_COLUMN_IDS];
   const order = [...new Set((Array.isArray(raw?.order) ? raw.order : []).filter(id => ids.includes(id)))];
   const widths = Object.fromEntries(ids.filter(id => Number.isFinite(raw?.widths?.[id])).map(id => [id, Math.max(80, Math.min(600, Math.round(raw.widths[id])))]));
-  const hidden = [...new Set((Array.isArray(raw?.hidden) ? raw.hidden : []).filter(id => ids.includes(id) && id !== ids[0]))];
+  const hidden = [...new Set([...(Array.isArray(raw?.hidden) ? raw.hidden : []), ...SYSTEM_COLUMN_IDS.filter(id => !order.includes(id))])].filter(id => ids.includes(id) && id !== columns[0]?.id);
   return { order: [...order, ...ids.filter(id => !order.includes(id))], widths, hidden };
 }
 export async function personalViews(db, orgId, userId, appId, input) {

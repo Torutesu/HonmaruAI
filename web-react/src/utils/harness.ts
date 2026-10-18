@@ -11,7 +11,7 @@ export type WorkspaceMode = 'simple' | 'harness'
 export type ColumnType = 'text' | 'number' | 'date' | 'select' | 'checkbox' | 'url' | 'person' | 'email'
 export interface Column { id: string; name: string; type: ColumnType; options?: string[] }
 export interface Table { id: string; name: string; columns: Column[] }
-export interface Row { id: string; values: Record<string, unknown>; updatedAt: string }
+export interface Row { createdAt?: string; id: string; values: Record<string, unknown>; updatedAt: string }
 export interface Metric { label: string; op: string; column?: string; value: number | null }
 export interface View {
   id: string
