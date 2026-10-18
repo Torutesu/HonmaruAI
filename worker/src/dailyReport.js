@@ -3,7 +3,7 @@ import { zonedParts, zonedTime, describeSchedule } from "./schedule.js";
 import { serverText } from "./serverCopy.js";
 import { actionLabel, displayName } from "./notifyCopy.js";
 import { noteUsage } from "./ledger.js";
-import { getCard, saveCard } from "./db.js";
+import { getCard } from "./db.js";
 import { announceCards } from "./announce.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { safe } from "./log.js";
@@ -81,7 +81,7 @@ export async function moveDailyToDailyChannel(env, { limit = 50 } = {}) {
     moved += 1;
   }
   const { results: drafts } = await db.prepare(
-    `SELECT c.org_id, c.data FROM cards c WHERE json_extract(c.data, '$.dailyReport.status') = 'draft'
+    `SELECT c.org_id, c.card_id, c.data FROM cards c WHERE json_extract(c.data, '$.dailyReport.status') = 'draft'
       AND ${onDefault("c.org_id", "json_extract(c.data, '$.dailyReport.channel')")} LIMIT ${limit}`
   ).bind(...daily).all().catch(() => ({ results: [] }));
   const changed = new Map();
@@ -98,7 +98,12 @@ export async function moveDailyToDailyChannel(env, { limit = 50 } = {}) {
     if (card.localized && typeof card.localized === "object") {
       next.localized = Object.fromEntries(Object.entries(card.localized).map(([k, v]) => [k, v && typeof v === "object" ? { ...v, summary: rename(v.summary) } : v]));
     }
-    await saveCard(db, row.org_id, next);
+    // Written only over the card as it was read. Its owner may have edited,
+    // posted or discarded it (or chosen another channel) since; then that
+    // stands, and a draft still on the old channel is moved on a later run.
+    const res = await db.prepare("UPDATE cards SET data = ?4, updated_at = ?5 WHERE org_id = ?1 AND card_id = ?2 AND data = ?3")
+      .bind(row.org_id, row.card_id, row.data, JSON.stringify(next), new Date().toISOString()).run();
+    if (!(res?.meta?.changes > 0)) continue;
     if (!changed.has(row.org_id)) changed.set(row.org_id, []);
     changed.get(row.org_id).push(next);
     moved += 1;
