@@ -57,9 +57,15 @@ export async function handleGateways(request, env, url, input) {
     if (!['succeeded', 'failed', 'timed_out'].includes(input.status)) return failure('Invalid execution status.');
     const result = { stdout: String(input.stdout || ''), stderr: String(input.stderr || ''), exitCode: Number.isInteger(input.exitCode) ? input.exitCode : null };
     if (new TextEncoder().encode(JSON.stringify(result)).length > 70000) return failure('Result is too large.', 413);
-    const r = await db.prepare(`UPDATE hx_gateway_jobs SET status = ?5, result = ?6, finished_at = ?4, lease_hash = NULL WHERE ${guard}`)
+    // The lease's hash stays on a finished job, so the same node sending the
+    // same result again (its first reply was lost) is told it is already
+    // in rather than that it was refused. Nothing about the job changes.
+    const r = await db.prepare(`UPDATE hx_gateway_jobs SET status = ?5, result = ?6, finished_at = ?4 WHERE ${guard}`)
       .bind(parts[2], g.id, leaseHash, at, input.status, JSON.stringify(result)).run();
-    return r.meta?.changes ? json({ ok: true }) : failure('Execution is no longer authorized.', 409);
+    if (r.meta?.changes) return json({ ok: true });
+    const done = await db.prepare('SELECT 1 FROM hx_gateway_jobs WHERE id = ?1 AND gateway_id = ?2 AND lease_hash = ?3 AND status = ?4 AND result = ?5')
+      .bind(parts[2], g.id, leaseHash, input.status, JSON.stringify(result)).first();
+    return done ? json({ message: 'This execution already has this result.', code: 'already_finished' }, 409) : failure('Execution is no longer authorized.', 409);
   }
 
   const orgId = input?.orgId || url.searchParams.get('orgId');

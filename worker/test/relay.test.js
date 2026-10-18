@@ -48,6 +48,32 @@ test("a joiner is told who is already online", async () => {
   expect(presence).toBeTruthy();
 });
 
+test("closing one of someone's tabs leaves them online; closing the last takes them offline", async () => {
+  const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "1003", login: "third", name: "Third", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, "core-team", "1003", "Engineer");
+  const tokenC = await createSession(env.DB, "1003", "gho_z");
+  // realdev on two tabs; somebody else in another workspace on a third.
+  const { ws: tab1 } = await joined("core-team", globalThis.__tokenA);
+  const { ws: tab2 } = await joined("core-team", globalThis.__tokenA);
+  await joined("notion-org", globalThis.__tokenA);
+  const { ws: c } = await joined("core-team", tokenC);
+  const { messages: watching } = await joined("core-team", globalThis.__tokenB);
+  const offline = (login) => (m) => m.type === "CUSTOM" && m.name === "presence" && m.value?.userId === login && m.value?.status === "offline";
+
+  // One tab closes, then Third leaves: by Third's offline, the tab's close
+  // has been heard too — and said nothing.
+  tab1.close();
+  c.close();
+  expect(await message(watching, offline("third"))).toBeTruthy();
+  expect(await message(watching, offline("realdev"), 15)).toBeNull();
+
+  // The last tab here closes: now realdev is offline, although they are
+  // still connected to another workspace.
+  tab2.close();
+  expect(await message(watching, offline("realdev"))).toBeTruthy();
+});
+
 test("join is bounded per socket", async () => {
   const { ws, messages } = await joined("core-team", globalThis.__tokenA);
   for (let i = 0; i < 5; i += 1) {

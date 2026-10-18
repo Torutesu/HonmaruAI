@@ -692,7 +692,11 @@ CREATE TABLE IF NOT EXISTS scheduled_messages (
   send_at       TEXT NOT NULL,
   created_at    TEXT NOT NULL,
   sent_at       TEXT,
-  also_channel  INTEGER NOT NULL DEFAULT 0
+  also_channel  INTEGER NOT NULL DEFAULT 0,
+  /* A cron run sending it holds it until then (later.js). `sent_at` is
+     written only once it is posted; a run that fails or dies leaves this
+     to run out, and it is tried again. */
+  lease_until   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_scheduled_due ON scheduled_messages(sent_at, send_at);
 

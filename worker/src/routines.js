@@ -40,6 +40,9 @@ export const MAX_ROUTINE_TITLE = 80;
 const MAX_REPORT_CHARS = 8000;
 /// How many routines one cron tick runs. The rest wait fifteen minutes.
 const MAX_RUNS_PER_TICK = 25;
+/// How long a tick holds a routine it is running before another may take it
+/// up: past any one invocation's run, so it only ever comes due after a crash.
+const RUN_LEASE_MS = 30 * 60_000;
 
 /// `daily_plan` (morning) and `daily_report` (evening): the owner's own day,
 /// written in their voice — today's plan in the morning; what they did, how
@@ -496,21 +499,33 @@ ${JSON.stringify({
   }
 }
 
+/// SQL that holds while a routine's row still stands as `routine` was read:
+/// on, due at the same time, on the same schedule. Only then does a run of
+/// it move it to its next time; otherwise someone changed the schedule (or
+/// paused it) while it ran, and that stands. Parameters ?n to ?n+6, bound
+/// from `asReadBinds`.
+function asRead(n) {
+  return `enabled = 1 AND next_run_at = ?${n} AND cadence = ?${n + 1} AND weekday IS ?${n + 2} AND monthday IS ?${n + 3}
+    AND hour = ?${n + 4} AND minute = ?${n + 5} AND timezone = ?${n + 6}`;
+}
+const asReadBinds = (r) => [r.next_run_at ?? null, r.cadence, r.weekday ?? null, r.monthday ?? null, r.hour, r.minute ?? 0, r.timezone];
+
 /// Run one routine now: write the report, deliver it as a card, and move
-/// the routine to its next run whatever happened. Returns the card, or
-/// `{ error }`.
+/// the routine to its next run whatever happened — a scheduled run only,
+/// and only from the schedule it ran on. Run now leaves the schedule alone.
+/// Returns the card, or `{ error }`.
 export async function runRoutine(env, routine, { now = new Date(), manual = false } = {}) {
   const db = env.DB;
   const finish = async (fields) => {
-    const next = routine.enabled ? nextRunAt(routine, now) : null;
     await db
       .prepare(
-        `UPDATE routines SET next_run_at = ?3, last_run_at = COALESCE(?4, last_run_at), last_card_id = COALESCE(?5, last_card_id),
+        `UPDATE routines SET next_run_at = CASE WHEN ?10 = 0 AND ${asRead(11)} THEN ?3 ELSE next_run_at END,
+           last_run_at = COALESCE(?4, last_run_at), last_card_id = COALESCE(?5, last_card_id),
            last_error = ?6, last_usd = COALESCE(?7, last_usd), runs = runs + ?8, updated_at = ?9
          WHERE org_id = ?1 AND id = ?2`
       )
-      .bind(routine.org_id, routine.id, manual ? routine.next_run_at : next, fields.ranAt ?? null, fields.cardId ?? null,
-        fields.error ?? null, fields.usd ?? null, fields.cardId ? 1 : 0, now.toISOString())
+      .bind(routine.org_id, routine.id, manual ? null : nextRunAt(routine, now), fields.ranAt ?? null, fields.cardId ?? null,
+        fields.error ?? null, fields.usd ?? null, fields.cardId ? 1 : 0, now.toISOString(), manual ? 1 : 0, ...asReadBinds(routine))
       .run();
   };
 
@@ -631,18 +646,32 @@ export async function runDueRoutines(env, { now = new Date() } = {}) {
     .bind(now.toISOString(), MAX_RUNS_PER_TICK)
     .all();
   let delivered = 0;
-  for (const routine of results || []) {
+  for (const row of results || []) {
+    let routine = row;
     try {
+      // Claimed before any work: its due time moves to a lease, and only
+      // the tick whose move took it runs it. Another tick that read the same
+      // row finds it moved and leaves it. A tick that dies mid-run leaves the
+      // lease, which comes due in turn: late, not lost.
+      const lease = new Date(now.getTime() + RUN_LEASE_MS).toISOString();
+      const claim = await env.DB
+        .prepare("UPDATE routines SET next_run_at = ?3 WHERE org_id = ?1 AND id = ?2 AND enabled = 1 AND next_run_at = ?4")
+        .bind(row.org_id, row.id, lease, row.next_run_at)
+        .run();
+      if (!claim.meta?.changes) continue;
+      routine = { ...row, next_run_at: lease };
       const out = await runRoutine(env, routine, { now });
       if (out.card) delivered += 1;
     } catch (err) {
       // One routine that cannot run must not hold up the ones behind it —
       // and must not stay first in the queue forever: it moves on to its
-      // next time, with what went wrong on it.
+      // next time, with what went wrong on it — unless its schedule changed
+      // meanwhile, which stands.
       console.error("routine run threw", routine.id, safe(err?.message));
       await env.DB
-        .prepare("UPDATE routines SET next_run_at = ?3, last_error = ?4, updated_at = ?5 WHERE org_id = ?1 AND id = ?2")
-        .bind(routine.org_id, routine.id, nextRunAt(routine, now), clip(safe(err?.message) || "failed", 200), now.toISOString())
+        .prepare(`UPDATE routines SET next_run_at = CASE WHEN ${asRead(6)} THEN ?3 ELSE next_run_at END, last_error = ?4, updated_at = ?5
+          WHERE org_id = ?1 AND id = ?2`)
+        .bind(routine.org_id, routine.id, nextRunAt(routine, now), clip(safe(err?.message) || "failed", 200), now.toISOString(), ...asReadBinds(routine))
         .run()
         .catch(() => {});
     }

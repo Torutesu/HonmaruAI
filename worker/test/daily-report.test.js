@@ -411,6 +411,59 @@ test("with a daily-report channel, a report set up for #general goes there — n
   expect(row.channel).toBe("b:daily-reports");
 });
 
+test("the sweep moving a draft does not undo what its owner did to it meanwhile", async () => {
+  const { moveDailyToDailyChannel, saveDraftText } = await import("../src/dailyReport.js");
+  const { getCard } = await import("../src/db.js");
+  const { data } = await makeDaily();
+  const routine = await getRoutine(env.DB, ORG, data.routine.id);
+  await channels("general");
+  const { card: edited } = await runRoutine(ENV({ OPENAI_API_KEY: undefined }), routine, { now: NOW, manual: true });
+  const { card: posted } = await runRoutine(ENV({ OPENAI_API_KEY: undefined }), routine, { now: new Date(NOW.getTime() + 60000), manual: true });
+  // The newer draft closed the older one; open it again, so both wait.
+  await env.DB.prepare("UPDATE cards SET status = 'pending', data = json_set(data, '$.status', 'pending', '$.dailyReport.status', 'draft') WHERE card_id = ?1").bind(edited.id).run();
+  await channels("general", "daily-reports");
+
+  // The sweep reads both drafts; before it writes, one is edited and the
+  // other posted.
+  const realPrepare = env.DB.prepare.bind(env.DB);
+  let acted = false;
+  const db = new Proxy(env.DB, {
+    get(target, prop) {
+      if (prop === "prepare") {
+        return (sql) => {
+          const stmt = realPrepare(sql);
+          if (acted || !/^SELECT c\.org_id, (c\.card_id, )?c\.data FROM cards/.test(sql)) return stmt;
+          return { bind: (...args) => ({ all: async () => {
+            const read = await stmt.bind(...args).all();
+            acted = true;
+            expect(await saveDraftText(env.DB, ORG, edited.id, "書き直した日報")).toBe(true);
+            expect((await post("/channels/daily-report/post", toru, { orgId: ORG, cardId: posted.id, text: "送った日報" })).status).toBe(201);
+            return read;
+          } }) };
+        };
+      }
+      const v = target[prop];
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+  await moveDailyToDailyChannel({ ...env, DB: db });
+  expect(acted).toBe(true);
+  expect((await getCard(env.DB, ORG, edited.id)).dailyReport.text).toBe("書き直した日報");
+  const sent = await getCard(env.DB, ORG, posted.id);
+  expect(sent.status).toBe("completed");
+  expect(sent.dailyReport.status).toBe("posted");
+  // Not reopened, so not posted twice.
+  expect((await post("/channels/daily-report/post", toru, { orgId: ORG, cardId: posted.id, text: "もう一度" })).status).toBe(409);
+  const posts = await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id = ?1 AND body LIKE '%日報'").bind(ORG).first();
+  expect(posts.n).toBe(1);
+
+  // The edited draft, untouched since, is moved by the next run, its words kept.
+  expect(await moveDailyToDailyChannel(env)).toBeGreaterThan(0);
+  const moved = await getCard(env.DB, ORG, edited.id);
+  expect(moved.dailyReport).toMatchObject({ channel: "b:daily-reports", text: "書き直した日報" });
+  expect(moved.summary).toContain("#daily-reports");
+});
+
 test("a draft still naming #general is posted to the daily-report channel even before the sweep", async () => {
   const { data } = await makeDaily();
   const routine = await getRoutine(env.DB, ORG, data.routine.id);

@@ -172,3 +172,5 @@ ALTER TABLE workspace_deletions ADD COLUMN purge_cursor TEXT;
 /* An invitation held for approval keeps its channels and its sender (schema.sql). */
 ALTER TABLE join_requests ADD COLUMN channels TEXT;
 ALTER TABLE join_requests ADD COLUMN invited_by TEXT;
+/* A scheduled message held by the cron run sending it (schema.sql). */
+ALTER TABLE scheduled_messages ADD COLUMN lease_until TEXT;
