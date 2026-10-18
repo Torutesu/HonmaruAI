@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import ImageIO
 
 /// A thread, as a sheet over the conversation: the message, its replies,
 /// and a composer that answers under it.
@@ -1087,17 +1088,47 @@ enum ChatPhotos {
         max(0, maxPerMessage - attached - uploading)
     }
 
+    /// The long side a photo is sent at: plenty to read on a phone or a
+    /// laptop, a fraction of the bytes of a camera's full twelve megapixels
+    /// or more — which is what made a photo slow to go up.
+    static let maxPixels = 2560
+
+    /// A picked photo made ready to send: no larger than `maxPixels` on its
+    /// long side, upright, as a JPEG (a HEIC would not show everywhere).
+    /// Read straight from the file at that size, so a full-size image is
+    /// never decoded; done off the main thread by `upload`.
+    static func prepared(_ data: Data) -> (jpeg: Data, width: Int, height: Int)? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+              let jpeg = UIImage(cgImage: image).jpegData(compressionQuality: 0.85) else { return nil }
+        return (jpeg, image.width, image.height)
+    }
+
+    /// Picked photos, each made ready and uploaded at the same time rather
+    /// than one after another; the files come back in the order picked.
     @MainActor
     static func upload(_ items: [PhotosPickerItem], to view: String, store: ChatStore) async -> [ChatFile] {
-        var out: [ChatFile] = []
-        for (i, item) in items.enumerated() {
-            guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data),
-                  let jpeg = image.jpegData(compressionQuality: 0.85) else { continue }
-            let w = Int(image.size.width * image.scale), h = Int(image.size.height * image.scale)
-            let name = "photo-\(Int(Date().timeIntervalSince1970))-\(i + 1).jpg"
-            if let file = await store.upload(view, data: jpeg, type: "image/jpeg", name: name, width: w, height: h) { out.append(file) }
+        let stamp = Int(Date().timeIntervalSince1970)
+        return await withTaskGroup(of: (Int, ChatFile?).self) { group in
+            for (i, item) in items.enumerated() {
+                group.addTask { @MainActor in
+                    guard let data = try? await item.loadTransferable(type: Data.self) else { return (i, nil) }
+                    let ready = await Task.detached(priority: .userInitiated) { ChatPhotos.prepared(data) }.value
+                    guard let photo = ready else { return (i, nil) }
+                    let name = "photo-\(stamp)-\(i + 1).jpg"
+                    return (i, await store.upload(view, data: photo.jpeg, type: "image/jpeg", name: name, width: photo.width, height: photo.height))
+                }
+            }
+            var done: [(Int, ChatFile)] = []
+            for await (i, file) in group { if let file { done.append((i, file)) } }
+            return done.sorted { $0.0 < $1.0 }.map(\.1)
         }
-        return out
     }
 }
 

@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import TikTokForWork
 
 /// The chat tab's pure parts: what /schedule understands, how Slack's marks
@@ -297,6 +298,28 @@ final class ChannelRecordTests: XCTestCase {
         // Taking one off gives back exactly one place.
         XCTAssertEqual(ChatPhotos.room(attached: 9, uploading: 0), 1)
         XCTAssertEqual(ChatPhotos.room(attached: 12, uploading: 0), 0)
+    }
+
+    func testAPhotoGoesUpNoLargerThanItNeedsToBe() throws {
+        // A camera-sized photo: sent at the long side's limit, its shape kept.
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let big = UIGraphicsImageRenderer(size: CGSize(width: 4000, height: 3000), format: format).image { ctx in
+            UIColor.systemTeal.setFill(); ctx.fill(CGRect(x: 0, y: 0, width: 4000, height: 3000))
+        }
+        let original = try XCTUnwrap(big.jpegData(compressionQuality: 0.95))
+        let sent = try XCTUnwrap(ChatPhotos.prepared(original))
+        XCTAssertEqual(sent.width, ChatPhotos.maxPixels)
+        XCTAssertEqual(sent.height, 1920)
+        XCTAssertLessThan(sent.jpeg.count, original.count)
+        // One already small enough is not made larger.
+        let small = UIGraphicsImageRenderer(size: CGSize(width: 800, height: 600), format: format).image { ctx in
+            UIColor.systemPink.setFill(); ctx.fill(CGRect(x: 0, y: 0, width: 800, height: 600))
+        }
+        let kept = try XCTUnwrap(ChatPhotos.prepared(try XCTUnwrap(small.jpegData(compressionQuality: 0.9))))
+        XCTAssertEqual(kept.width, 800)
+        XCTAssertEqual(kept.height, 600)
+        XCTAssertNil(ChatPhotos.prepared(Data("not a picture".utf8)))
     }
 
     func testAFailedRenewalIsTriedAgainSoonAndNeverLeftForGood() {
