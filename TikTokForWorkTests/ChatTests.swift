@@ -417,3 +417,27 @@ final class ChatNotificationTargetTests: XCTestCase {
         XCTAssertNotEqual(PushService.CardTarget(["cardId": "card1"]), PushService.CardTarget(["cardId": "card1"]))
     }
 }
+
+/// What the chat store does when the server cannot be reached. With no
+/// session on the phone every request fails before it leaves it.
+@MainActor
+final class ChatStoreFailureTests: XCTestCase {
+    /// The store holds the app state weakly: each test keeps it, and says
+    /// so last, to the end.
+    private func offline() -> (store: ChatStore, app: AppState) {
+        SessionStore.clear()
+        let app = AppState(startServices: false)
+        app.currentUser = User(id: "offline-reader", name: "Reader", role: "Member", teamID: "org-offline", githubUsername: nil)
+        let store = ChatStore()
+        store.bind(app)
+        return (store, app)
+    }
+
+    func testAConversationThatCouldNotBeLoadedIsNotMarkedRead() async {
+        let (store, app) = offline()
+        await store.open("b:general")
+        XCTAssertNil(store.readAt("b:general"))
+        XCTAssertNotNil(store.error)
+        XCTAssertEqual(app.currentUser?.teamID, "org-offline")
+    }
+}

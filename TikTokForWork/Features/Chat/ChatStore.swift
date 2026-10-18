@@ -431,7 +431,12 @@ final class ChatStore: ObservableObject {
             let list = try await ChatService.messages(orgId: orgId, channel: view, base: base)
             messages[view] = list
             more[view] = list.count >= page
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            // Not read: what was never shown stays new, here, on the other
+            // devices and on the lock screen. Opening it again reads it.
+            self.error = error.localizedDescription
+            return
+        }
         await markRead(view)
         await translate(view, messages[view] ?? [])
     }
@@ -792,7 +797,10 @@ final class ChatStore: ObservableObject {
         let read = await readThread(channel: m.channel, parentId: m.id)
         guard thread?.parent.id == m.id else { return }
         threadLoading = false
-        if let read { thread = read } else { threadFailed = true }
+        // Not read, it is not marked read: its replies stay new until they
+        // have been shown (Try again reads them).
+        guard let read else { threadFailed = true; return }
+        thread = read
         if let t = thread { await translate(m.channel, [t.parent] + t.replies) }
         // A thread opened is a thread read: Threads and Activity both stop
         // calling its replies new.
