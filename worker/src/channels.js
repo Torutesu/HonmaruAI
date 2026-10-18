@@ -328,15 +328,26 @@ export async function present(db, orgId, rows, viewerLogin, view, members) {
 /// `PAGE`, one unsent message made the page short, and a short page read as
 /// the start of the conversation — the history above it could not be
 /// reached. One row past the page says outright whether there is more.
-export async function listMessages(db, orgId, resolved, viewerLogin, view, members, { before } = {}) {
+///
+/// `beforeId`, the oldest message the reader holds, makes `before` exact:
+/// two messages can share a millisecond, and a page cut between them left
+/// the older one out of every page, since `created_at < before` skipped it.
+/// With the id, messages at that same moment that come before it in the
+/// page order are read too. Without it (or with an id not in this
+/// conversation) `before` alone is the cursor, as it always was.
+export async function listMessages(db, orgId, resolved, viewerLogin, view, members, { before, beforeId } = {}) {
+  const exact = before && typeof beforeId === "string" && beforeId ? beforeId : null;
+  const older = !before ? ""
+    : exact ? "AND (m.created_at < ?4 OR (m.created_at = ?4 AND m.rowid < (SELECT b.rowid FROM channel_messages b WHERE b.org_id = ?1 AND b.channel = ?2 AND b.id = ?5)))"
+      : "AND m.created_at < ?4";
   const { results } = await db
     .prepare(
       `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
-        WHERE m.org_id = ?1 AND m.channel = ?2 AND (m.parent_id IS NULL OR m.also_channel = 1) AND m.deleted_at IS NULL ${before ? "AND m.created_at < ?4" : ""}
+        WHERE m.org_id = ?1 AND m.channel = ?2 AND (m.parent_id IS NULL OR m.also_channel = 1) AND m.deleted_at IS NULL ${older}
         ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?3`
     )
-    .bind(...[orgId, resolved.key, PAGE + 1, ...(before ? [before] : [])])
+    .bind(...[orgId, resolved.key, PAGE + 1, ...(before ? [before] : []), ...(exact ? [exact] : [])])
     .all();
   const more = (results || []).length > PAGE;
   const rows = (results || []).slice(0, PAGE).reverse();

@@ -115,6 +115,29 @@ test("an unsent message does not end the history early: a page says outright whe
   expect(start.more).toBe(false);
 });
 
+test("messages sharing the millisecond a page ends on are all read, each once", async () => {
+  // 154 messages: four of them in one millisecond, across where the newest
+  // page of 150 ends.
+  const at = (i) => new Date(Date.UTC(2026, 0, 1) + (i >= 2 && i <= 5 ? 2 : i) * 1000).toISOString();
+  await env.DB.batch(Array.from({ length: 154 }, (_, i) => env.DB.prepare(
+    "INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at) VALUES (?1, ?2, 'b:cafe', 'u:mika@example.com', 'message', ?3, ?4)"
+  ).bind(`h${i}`, ORG, `line ${i}`, at(i))));
+  const page = async (extra = {}) => (await (await get(`/channels/messages?${q({ orgId: ORG, channel: "b:cafe", ...extra })}`, toru)).json());
+  const first = await page();
+  expect(first.messages[0].id).toBe("h4");
+  expect(first.more).toBe(true);
+  const oldest = first.messages[0];
+  const next = await page({ before: oldest.createdAt, beforeId: oldest.id });
+  expect(next.messages.map((m) => m.id)).toEqual(["h0", "h1", "h2", "h3"]);
+  expect(next.more).toBe(false);
+  const seen = [...next.messages, ...first.messages].map((m) => m.id);
+  expect(seen).toEqual(Array.from({ length: 154 }, (_, i) => `h${i}`));
+  // A client that sends only the time still gets what it always did.
+  expect((await page({ before: oldest.createdAt })).messages.map((m) => m.id)).toEqual(["h0", "h1"]);
+  // An id from somewhere else is no cursor: the time alone is.
+  expect((await page({ before: oldest.createdAt, beforeId: "nope" })).messages.map((m) => m.id)).toEqual(["h0", "h1"]);
+});
+
 test("a whole page of unsent messages is skipped, not taken for the start", async () => {
   const at = (i) => new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString();
   // Two said long ago, then 160 unsent, then one said since. Cut to a

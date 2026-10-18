@@ -555,7 +555,7 @@ final class ChatStore: ObservableObject {
     func loadOlder(_ view: String) async {
         guard more[view] == true, let first = messages[view]?.first, let orgId, let base else { return }
         more[view] = false
-        guard let older = try? await ChatService.messages(orgId: orgId, channel: view, before: first.createdAt, base: base) else { return }
+        guard let older = try? await ChatService.messages(orgId: orgId, channel: view, before: first.createdAt, beforeId: first.id, base: base) else { return }
         let known = Set((messages[view] ?? []).map(\.id))
         messages[view] = older.filter { !known.contains($0.id) } + (messages[view] ?? [])
         more[view] = older.count >= page

@@ -60,7 +60,7 @@ import { useUploads, PendingUploads, MessageFiles } from './Attachments'
 import { configureMediaUrls } from '../utils/mediaUrls'
 import { playSound, setOpenView, rememberLevels, rememberLevel, startRing, stopRing } from '../utils/sound'
 import { closeMessageNotifications, closeThreadNotifications } from '../utils/notifications'
-import { hasOlder } from '../utils/historyPage'
+import { hasOlder, olderThan } from '../utils/historyPage'
 import { foldedRows, sectionBadge, visibleRows, stepRow, readFolds, writeFolds, withSectionFolds, withFold, unplacedAgents } from '../utils/sidebarSections'
 import { placesFrom } from '../utils/places'
 import type { Place as Conversation } from '../utils/places'
@@ -1528,7 +1528,7 @@ export const ClassicList: React.FC<Props> = ({
     if (loadingOlder.current || !list?.length || !more[channel]) return
     loadingOlder.current = true
     try {
-      const res = await fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&before=${encodeURIComponent(list[0].createdAt)}`, { headers: authHeaders })
+      const res = await fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&${olderThan(list[0])}`, { headers: authHeaders })
       const data = res.ok ? await res.json() : null
       if (!data) return
       const older = (data.messages || []) as ChannelMessage[]
@@ -3300,7 +3300,7 @@ export const ClassicList: React.FC<Props> = ({
     let list = messagesRef.current[channel] || []
     let older = more[channel]
     for (let page = 0; page < 20 && older && list.length && !list.some((m) => m.id === cite.id); page += 1) {
-      const res = await fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&before=${encodeURIComponent(list[0].createdAt)}`, { headers: authHeaders }).catch(() => null)
+      const res = await fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&${olderThan(list[0])}`, { headers: authHeaders }).catch(() => null)
       const data = res?.ok ? await res.json().catch(() => null) : null
       if (!data) break
       const got = (data.messages || []) as ChannelMessage[]

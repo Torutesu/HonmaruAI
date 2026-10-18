@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { hasOlder } from './historyPage'
+import { hasOlder, olderThan } from './historyPage'
 
 const page = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `m${i}` }))
 
@@ -31,5 +31,11 @@ describe('hasOlder', () => {
     expect(hasOlder({ messages: null }, 150)).toBe(false)
     expect(hasOlder(null, 150)).toBe(false)
     expect(hasOlder(undefined, 150)).toBe(false)
+  })
+})
+
+describe('olderThan', () => {
+  it('asks from the oldest message by its time and its id', () => {
+    expect(olderThan({ createdAt: '2026-01-01T00:00:02.000Z', id: 'm 1' })).toBe('before=2026-01-01T00%3A00%3A02.000Z&beforeId=m%201')
   })
 })

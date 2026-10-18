@@ -984,9 +984,12 @@ export async function handleChannels(request, env, url, { route, after }) {
     const view = viewOf(resolved.key, who.user.login, members);
     if (request.method === "GET") {
       const before = url.searchParams.get("before") || undefined;
+      // The oldest message held, with `before` its time: a cursor that does
+      // not skip a message sharing that millisecond.
+      const beforeId = url.searchParams.get("beforeId") || undefined;
       // `{ messages, more }`: `more` says whether older messages are there
       // to page back to, so a client need not guess it from the count.
-      return json(await listMessages(env.DB, orgId, resolved, who.user.login, view, members, { before }));
+      return json(await listMessages(env.DB, orgId, resolved, who.user.login, view, members, { before, beforeId }));
     }
     const parentId = typeof body.parentId === "string" && body.parentId ? body.parentId : null;
     // An inline reply: the message it answers (postMessage checks it is here).
