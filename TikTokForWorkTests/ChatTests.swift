@@ -451,4 +451,17 @@ final class ChatStoreFailureTests: XCTestCase {
         XCTAssertNotNil(store.error)
         XCTAssertEqual(app.currentUser?.teamID, "org-offline")
     }
+
+    private func mine(_ id: String, _ body: String) throws -> ChatMessage {
+        let json = #"{"id":"\#(id)","channel":"b:general","kind":"message","body":"\#(body)","mine":true,"createdAt":"2026-10-01T09:00:00.000Z"}"#
+        return try JSONDecoder().decode(ChatMessage.self, from: Data(json.utf8))
+    }
+
+    func testAnEditTheServerDidNotTakeIsNotReportedSaved() async throws {
+        let (store, app) = offline()
+        let m = try mine("m1", "before")
+        let saved = await store.edit(m, to: "after")
+        XCTAssertFalse(saved, "A failed save must leave the edit open")
+        XCTAssertEqual(app.currentUser?.teamID, "org-offline")
+    }
 }

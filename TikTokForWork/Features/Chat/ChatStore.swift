@@ -728,10 +728,18 @@ final class ChatStore: ObservableObject {
         } catch { self.error = error.localizedDescription; return nil }
     }
 
-    func edit(_ m: ChatMessage, to text: String) async {
-        guard let orgId, let base else { return }
-        do { if let out = try await ChatService.edit(orgId: orgId, channel: m.channel, messageId: m.id, body: text, base: base) { upsert(out) } }
-        catch { self.error = error.localizedDescription }
+    /// True only when the server has the new words: anything else leaves
+    /// the edit open, its words where they were, to save again.
+    func edit(_ m: ChatMessage, to text: String) async -> Bool {
+        guard let orgId, let base else { return false }
+        do {
+            guard let out = try await ChatService.edit(orgId: orgId, channel: m.channel, messageId: m.id, body: text, base: base) else { return false }
+            upsert(out)
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
     }
     func delete(_ m: ChatMessage) async {
         guard let orgId, let base else { return }

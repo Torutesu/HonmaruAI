@@ -39,6 +39,9 @@ struct ConversationView: View {
     @State private var unsent: (text: String, clientId: String)?
     @FocusState private var focused: Bool
     @State private var editing: ChatMessage?
+    /// An edit on its way to the server, and one the server did not take.
+    @State private var savingEdit = false
+    @State private var editFailed = false
     /// The message the next one answers, inline (swiped, or Reply).
     @State private var replyingTo: ChatMessage?
     /// A reply's quote pressed: the message it quotes, to scroll to.
@@ -405,8 +408,14 @@ struct ConversationView: View {
                     Label("Editing", systemImage: "pencil").font(.caption.weight(.semibold)).foregroundStyle(.orange)
                     Text(editing.body).font(.caption).lineLimit(1).foregroundStyle(Theme.Colors.textSecondary)
                     Spacer()
+                    if savingEdit { ProgressView().controlSize(.mini) }
                     Button("Cancel") { endEdit() }.font(.caption)
                 }.padding(.horizontal, 14)
+                if editFailed {
+                    Label("That did not save.", systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(Theme.Colors.reject)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14)
+                }
             } else if let quote = replyQuote {
                 ChatReplyingBar(quote: quote, nameOf: store.nameOf(ref:)) { replyingTo = nil }
             }
@@ -515,7 +524,7 @@ struct ConversationView: View {
     }
 
     private var canSend: Bool {
-        uploading == 0 && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (!attached.isEmpty && editing == nil))
+        uploading == 0 && !savingEdit && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (!attached.isEmpty && editing == nil))
     }
 
     /// Picked photos: each made a JPEG (a HEIC would not show everywhere),
@@ -631,8 +640,18 @@ struct ConversationView: View {
             return
         }
         if let editing {
-            await store.edit(editing, to: text)
-            endEdit()
+            guard !savingEdit else { return }
+            savingEdit = true
+            editFailed = false
+            let saved = await store.edit(editing, to: text)
+            savingEdit = false
+            // Another message taken up meanwhile is left as it is.
+            guard self.editing?.id == editing.id else { return }
+            // Not saved: the edit stays open with every word, to save again.
+            guard saved else { editFailed = true; return }
+            // Saved as it stands: done. Words written while it went stay,
+            // still an edit, for one more save.
+            if draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { endEdit() }
             return
         }
         // A command, not a message.
@@ -706,12 +725,14 @@ struct ConversationView: View {
         replyingTo = nil
         if editing == nil { keptDraft = draft }
         editing = m
+        editFailed = false
         draft = m.body
         focused = true
     }
 
     private func endEdit() {
         editing = nil
+        editFailed = false
         draft = keptDraft ?? store.draft(view)
         keptDraft = nil
     }
