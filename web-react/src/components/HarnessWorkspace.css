@@ -535,3 +535,5 @@
 }
 
 .hx-object-chat .hx-chat-compose .mention-menu:not(.emoji){min-width:0;max-width:100%}
+
+.hx-custom-status{display:flex;align-items:center;justify-content:center;gap:12px;padding:16px;color:var(--text-secondary);font-size:13px}.hx-custom-status button{border:1px solid var(--border-subtle);border-radius:8px;padding:6px 12px;background:var(--surface);color:var(--text-primary);cursor:pointer}
