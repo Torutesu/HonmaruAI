@@ -32,3 +32,23 @@ test('late data after a scope change or collapse does not repopulate the room',a
  act(()=>tree!.root.findByProps({'aria-label':'generalを折りたたむ'}).props.onClick())
  expect(tree!.root.findAllByProps({className:'hx-room-thread'})).toHaveLength(0);act(()=>tree!.unmount())
 })
+
+test('read events retain revealed pages and ignore unrelated rooms',async()=>{
+ vi.useFakeTimers()
+ const listeners=new Map<string,(event:any)=>void>()
+ vi.stubGlobal('window',{addEventListener:(type:string,fn:any)=>listeners.set(type,fn),removeEventListener:(type:string)=>listeners.delete(type)})
+ const cursor={before:'2026-01-01T00:00:00.000Z',beforeId:'first'}
+ const fetch=vi.fn().mockResolvedValueOnce(ok([item('first')],cursor)).mockResolvedValueOnce(ok([item('second')]))
+  .mockResolvedValueOnce(ok([item('first')],cursor)).mockResolvedValueOnce(ok([{...item('second'),unread:false}]))
+ vi.stubGlobal('fetch',fetch);let tree:ReturnType<typeof create>
+ try {
+  await act(async()=>{tree=create(<RoomThreadDirectory api={api} channel="b:general" name="general" selected activeId="second" onOpen={()=>{}}><li>general</li></RoomThreadDirectory>)})
+  await act(async()=>tree!.root.findByProps({className:'hx-room-thread-more'}).props.onClick())
+  await act(async()=>{listeners.get('honmaru:reads-changed')!({detail:{view:'b:other',thread:'unrelated'}});await vi.advanceTimersByTimeAsync(300)})
+  expect(fetch).toHaveBeenCalledTimes(2)
+  await act(async()=>{listeners.get('honmaru:reads-changed')!({detail:{view:'b:general',thread:'second'}});await vi.advanceTimersByTimeAsync(300)})
+  expect(fetch).toHaveBeenCalledTimes(4)
+  expect(tree!.root.findAllByProps({className:'hx-room-thread'})).toHaveLength(2)
+  expect(tree!.root.findByProps({'aria-current':'page'}).findByType('strong').children).toEqual(['second'])
+ } finally {act(()=>tree!.unmount());vi.useRealTimers()}
+})
