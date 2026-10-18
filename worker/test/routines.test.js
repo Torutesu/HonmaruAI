@@ -168,6 +168,42 @@ test("the cron runs what is due, advances it, and leaves the rest", async () => 
   expect(tick.proposals).toBeNull();
 });
 
+test("a schedule changed while a run is under way keeps its new next run", async () => {
+  const { runRoutine } = await import("../src/routines.js");
+  const { routine } = await (await post("/routines", toru, { orgId: ORG, kind: "brief", cadence: "weekly", weekday: 1, hour: 9 })).json();
+  const read = () => env.DB.prepare("SELECT * FROM routines WHERE id = ?1").bind(routine.id).first();
+  const put = async (body) => (await (await call(`/routines/${routine.id}`, { method: "PUT", headers: headers(toru), body: JSON.stringify({ orgId: ORG, ...body }) })).json()).routine;
+  const quiet = ENV({ OPENAI_API_KEY: undefined });
+
+  // Run now, read before the change to Friday and finished after it.
+  let running = await read();
+  const friday = await put({ weekday: 5 });
+  expect(friday.nextRunAt).not.toBe(running.next_run_at);
+  expect((await runRoutine(quiet, running, { manual: true })).card).toBeTruthy();
+  expect(await read()).toMatchObject({ weekday: 5, next_run_at: friday.nextRunAt, runs: 1 });
+
+  // A scheduled run of a due Monday, the same way: Friday stands.
+  await env.DB.prepare("UPDATE routines SET weekday = 1, next_run_at = '2026-01-05T09:00:00.000Z' WHERE id = ?1").bind(routine.id).run();
+  running = await read();
+  const again = await put({ weekday: 5 });
+  expect((await runRoutine(quiet, running, { now: new Date() })).card).toBeTruthy();
+  expect(await read()).toMatchObject({ weekday: 5, next_run_at: again.nextRunAt, runs: 2 });
+
+  // Paused meantime: it stays paused.
+  await env.DB.prepare("UPDATE routines SET weekday = 1, next_run_at = '2026-01-05T09:00:00.000Z' WHERE id = ?1").bind(routine.id).run();
+  running = await read();
+  await put({ enabled: false });
+  await runRoutine(quiet, running, { now: new Date() });
+  expect(await read()).toMatchObject({ enabled: 0, next_run_at: null, runs: 3 });
+
+  // Run now never puts back a time a scheduled run has moved on from.
+  await env.DB.prepare("UPDATE routines SET enabled = 1, next_run_at = '2026-01-05T09:00:00.000Z' WHERE id = ?1").bind(routine.id).run();
+  running = await read();
+  await env.DB.prepare("UPDATE routines SET next_run_at = '2026-01-12T09:00:00.000Z' WHERE id = ?1").bind(routine.id).run();
+  await runRoutine(quiet, running, { manual: true });
+  expect((await read()).next_run_at).toBe("2026-01-12T09:00:00.000Z");
+});
+
 test("a routine whose recipient left the workspace pauses instead of reporting into it", async () => {
   const members = await (await call(`/members?orgId=${encodeURIComponent(ORG)}`, { headers: headers(toru) })).json();
   const mikaRef = members.members.find((m) => m.name === "Mika").ref;
