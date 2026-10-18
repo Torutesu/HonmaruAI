@@ -45,7 +45,7 @@ import { DailyReportDraft } from './DailyReport'
 import { MessageActions, CardActions, Reactions, EmojiPicker, EmojiPickerAt, EmojiGlyph, FormatBar, bulletOnSpace, continueBlock, renderRich, LinkCards, SlashMenu, SchedulePicker, parseScheduleCommand, TypingLine, ReplyQuoteLine, ThreadReplyLine, ReplyingBar, UnsentNote } from './MessageParts'
 import { heard as heardTyping, said, expire, nextExpiry as nextTypingExpiry, typistsIn, typedIn, stoppedIn, sendTyping } from '../utils/typing'
 import type { Typist, TypingEvent, Outgoing as TypingOut, Place, Signal } from '../utils/typing'
-import { quoteOf, refreshQuotes } from '../utils/replies'
+import { quoteOf, refreshQuotes, withoutThread } from '../utils/replies'
 import { ChannelJournal, ChannelDetails, JamButton, JamBar } from './ChannelPanes'
 import type { DetailsTab, JournalCite, NotifyLevel } from './ChannelPanes'
 import { JamCall } from '../utils/jam'
@@ -1764,10 +1764,11 @@ export const ClassicList: React.FC<Props> = ({
         if (!list) return prev
         const has = list.some((x) => x.id === m.id)
         isNew = !has
-        // Deleted is gone — its thread with it — never a "was deleted" line;
-        // a reply quoting it says so instead, and one quoting an edit
-        // quotes the new words.
-        if (m.deleted) return { ...prev, [m.channel]: refreshQuotes(list.filter((x) => x.id !== m.id), msg) }
+        // Deleted is gone — its thread with it, replies sent to the
+        // conversation too included — never a "was deleted" line; a reply
+        // quoting it says so instead, and one quoting an edit quotes the
+        // new words.
+        if (m.deleted) return { ...prev, [m.channel]: refreshQuotes(withoutThread(list, m.id), msg) }
         // Our own, back before the answer to the send, takes the place of
         // the copy on its way rather than showing twice.
         const held = echoOf(list, msg)
@@ -2864,7 +2865,7 @@ export const ClassicList: React.FC<Props> = ({
     // Gone here at once, and its thread with it.
     if (m.alsoChannel) setMessages((prev) => (prev[channel] ? { ...prev, [channel]: prev[channel].filter((x) => x.id !== m.id) } : prev))
     if (!m.parentId) {
-      setMessages((prev) => (prev[channel] ? { ...prev, [channel]: prev[channel].filter((x) => x.id !== m.id) } : prev))
+      setMessages((prev) => (prev[channel] ? { ...prev, [channel]: withoutThread(prev[channel], m.id) } : prev))
       setThread((prev) => (prev && prev.parent.id === m.id ? null : prev))
     }
     return { gone: true }

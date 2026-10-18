@@ -168,6 +168,17 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(ChatStore.messageIds(["m:abc", "r:abc:1x", "m:def", "local-1"]), ["abc", "def"])
     }
 
+    /// A deleted thread's replies sent to the conversation too leave it with
+    /// the thread; another thread's stay.
+    func testADeletedThreadTakesItsRepliesFromTheConversation() throws {
+        func message(_ id: String, parent: String?) throws -> ChatMessage {
+            let parentField = parent.map { #","parentId":"\#($0)","alsoChannel":true"# } ?? ""
+            return try JSONDecoder().decode(ChatMessage.self, from: Data(#"{"id":"\#(id)","channel":"b:cafe","kind":"message","body":"x","mine":false,"createdAt":"2026-09-28T09:00:00.000Z"\#(parentField)}"#.utf8))
+        }
+        let list = [try message("p1", parent: nil), try message("r1", parent: "p1"), try message("r2", parent: "p2"), try message("m9", parent: nil)]
+        XCTAssertEqual(ChatStore.withoutReplies(of: "p1", in: list).map(\.id), ["p1", "r2", "m9"])
+    }
+
     func testTheCanvasDecodesAsTheWorkerSendsIt() throws {
         let canvas = try JSONDecoder().decode(ChatCanvas.self, from: ###"{"body":"## Opening\n- [ ] Unlock at 7","version":3,"updatedBy":"Mika","updatedAt":"2026-09-26T01:00:00.000Z"}"###.data(using: .utf8)!)
         XCTAssertEqual(canvas.version, 3)

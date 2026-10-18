@@ -509,6 +509,12 @@ final class ChatStore: ObservableObject {
         keys.filter { $0.hasPrefix("m:") }.map { String($0.dropFirst(2)) }
     }
 
+    /// A conversation once a thread in it is deleted: the replies sent to
+    /// the conversation too went with the thread, so they go from here.
+    nonisolated static func withoutReplies(of parentId: String, in list: [ChatMessage]) -> [ChatMessage] {
+        list.filter { $0.parentId != parentId }
+    }
+
     /// Activity's "Mark all as read": everything new there, and the threads
     /// its replies are in.
     func markAllInboxRead() async {
@@ -957,6 +963,7 @@ final class ChatStore: ObservableObject {
             list.append(m)
             if !m.mine { activity[m.channel] = ChatActivity(channel: m.channel, lastAt: m.createdAt, preview: String(m.body.prefix(120)), lastBy: m.authorName) }
         }
+        if m.isDeleted, m.parentId == nil { list = Self.withoutReplies(of: m.id, in: list) }
         if messages[m.channel] != nil { messages[m.channel] = list }
         if thread?.parent.id == m.id {
             if m.isDeleted { thread = nil } else { thread?.parent = m }

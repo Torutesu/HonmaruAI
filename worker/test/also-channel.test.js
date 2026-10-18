@@ -103,6 +103,28 @@ test("the thread it answers, once unsent, is said to be gone", async () => {
   expect((await list(kenji)).map((m) => m.body)).toEqual([]);
 });
 
+test("a thread deleted with its replies is said to be gone, every reply with it, to the open apps", async () => {
+  const parent = await say(toru, "Draft rota");
+  const shared = await say(mika, "Looks fine", { parentId: parent.id, alsoChannel: true });
+  const kept = await say(kenji, "Only in the thread", { parentId: parent.id });
+  const other = await say(toru, "Another thread");
+  const sibling = await say(mika, "Unrelated", { parentId: other.id, alsoChannel: true });
+  const told = [];
+  const relay = { idFromName: (n) => n, get: () => ({ fetch: async (_url, init) => { const b = JSON.parse(init.body); told.push(...(b.events || []), ...(b.deliveries || []).map((d) => d.event)); return new Response("{}"); } }) };
+  const res = await worker.fetch(new Request("https://example.com/channels/messages", {
+    method: "DELETE", headers: headers(toru), body: JSON.stringify({ orgId: ORG, channel: "b:cafe", messageId: parent.id, withThread: true }),
+  }), { ...env, ORG_RELAY: relay }, ctx);
+  await settle();
+  expect(res.status).toBe(200);
+  const gone = told.filter((e) => e.name === "channel_message" && e.value.message.deleted).map((e) => e.value.message);
+  expect(gone.map((m) => m.id).sort()).toEqual([parent.id, shared.id, kept.id].sort());
+  // The one in the conversation too says so, so the conversation drops it.
+  expect(gone.find((m) => m.id === shared.id)).toMatchObject({ parentId: parent.id, alsoChannel: true, body: "" });
+  // Another thread's reply is untouched, and a fresh page agrees.
+  expect(gone.some((m) => m.id === sibling.id)).toBe(false);
+  expect((await list(kenji)).map((m) => m.id)).toEqual([other.id, sibling.id]);
+});
+
 test("a scheduled thread reply can be sent to the conversation too", async () => {
   const parent = await say(mika, "Stock check");
   const res = await send(toru, "Done", { parentId: parent.id, alsoChannel: true, sendAt: new Date(Date.now() + 3600000).toISOString() });
