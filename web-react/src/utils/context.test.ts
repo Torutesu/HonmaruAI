@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { getSenderContext, setSenderContext, MAX_CONTEXT_CHARS } from './context'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { getSenderContext, setSenderContext, loadSenderContext, saveSenderContext, MAX_CONTEXT_CHARS } from './context'
 
 // "How I work" lives in this browser and rides on every instruction sent.
 // The tests run in Node, which has no localStorage; the smallest one that
@@ -44,5 +44,70 @@ describe('sender context', () => {
     expect(getSenderContext('team:b')).toBe('I run the hotel.')
     expect(getSenderContext('team:c')).toBe('')
     expect(getSenderContext()).toBe('')
+  })
+})
+
+// The server's copy, read when the profile opens. Its answer can arrive
+// after the account that asked has signed out, or after it was edited here.
+describe('loading the server copy', () => {
+  const W = 'team:w'
+  let answer: (body: Record<string, unknown>) => void = () => {}
+  let sent: Array<{ url: string; init?: RequestInit }> = []
+  beforeEach(() => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage()
+    localStorage.setItem('sessionToken', 'tok-a')
+    sent = []
+    globalThis.fetch = vi.fn((url: string, init?: RequestInit) => {
+      sent.push({ url, init })
+      if (init?.method === 'PUT') return Promise.resolve(new Response('{}'))
+      return new Promise<Response>((resolve) => { answer = (body) => resolve(new Response(JSON.stringify(body))) })
+    }) as unknown as typeof fetch
+  })
+  const realFetch = globalThis.fetch
+  afterEach(() => { globalThis.fetch = realFetch })
+
+  it('refreshes the local copy from the server for the account still signed in', async () => {
+    setSenderContext('old', W)
+    const loading = loadSenderContext('https://api', W, 'tok-a')
+    answer({ orgId: W, text: 'I run the cafe.' })
+    expect(await loading).toBe('I run the cafe.')
+    expect(getSenderContext(W)).toBe('I run the cafe.')
+  })
+
+  it('writes nothing when it answers after that account signed out', async () => {
+    setSenderContext('A-only context', W)
+    const loading = loadSenderContext('https://api', W, 'tok-a')
+    // Sign out: the session and the account's copies go.
+    localStorage.removeItem('sessionToken')
+    localStorage.removeItem(`senderContext:${W}`)
+    answer({ orgId: W, text: 'A-only context' })
+    expect(await loading).toBeNull()
+    expect(localStorage.getItem(`senderContext:${W}`)).toBeNull()
+  })
+
+  it('writes nothing, and sends nothing up, when another account signed in meanwhile', async () => {
+    const loading = loadSenderContext('https://api', W, 'tok-a')
+    localStorage.setItem('sessionToken', 'tok-b')
+    localStorage.setItem(`senderContext:${W}`, 'B works mornings.')
+    answer({ orgId: W, text: '' })
+    expect(await loading).toBeNull()
+    expect(getSenderContext(W)).toBe('B works mornings.')
+    expect(sent.filter((r) => r.init?.method === 'PUT')).toEqual([])
+  })
+
+  it('does not put back an older answer over an edit made while it was on its way', async () => {
+    setSenderContext('before', W)
+    const loading = loadSenderContext('https://api', W, 'tok-a')
+    setSenderContext('typed meanwhile', W)
+    answer({ orgId: W, text: 'before' })
+    expect(await loading).toBeNull()
+    expect(getSenderContext(W)).toBe('typed meanwhile')
+  })
+
+  it('saves to the account, but not into this browser, once it has signed out', async () => {
+    localStorage.removeItem('sessionToken')
+    expect(await saveSenderContext('https://api', W, 'tok-a', 'A-only context')).toBe(true)
+    expect(sent).toHaveLength(1)
+    expect(localStorage.getItem(`senderContext:${W}`)).toBeNull()
   })
 })

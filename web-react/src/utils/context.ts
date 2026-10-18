@@ -24,16 +24,29 @@ export function setSenderContext(text: string, orgId?: string): void {
   } catch { /* a browser that keeps nothing keeps nothing */ }
 }
 
+/// Whether `sessionToken` is still the session this browser is signed in
+/// with. An answer that set out under an account since signed out — or
+/// replaced by another, in this tab or another — must not write that
+/// account's words where the next one reads them.
+function stillSignedIn(sessionToken: string): boolean {
+  try { return Boolean(sessionToken) && localStorage.getItem('sessionToken') === sessionToken } catch { return false }
+}
+
 /// The server's copy, which is the truth; the local one is refreshed from it.
 ///
 /// With one exception: a local copy the server has never seen — written
 /// before this existed, or typed and closed before the save landed — is sent
 /// up rather than thrown away. The server wins only once it has something.
+/// Null when there is no answer to show: the request failed, the session it
+/// was asked under is over, or the local copy was edited while it was on its
+/// way (that edit is newer than the answer).
 export async function loadSenderContext(httpBase: string, orgId: string, sessionToken: string): Promise<string | null> {
+  const before = getSenderContext(orgId)
   try {
     const res = await fetch(`${httpBase}/me/context?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
     if (!res.ok) return null
     const data = await res.json().catch(() => ({}))
+    if (!stillSignedIn(sessionToken) || getSenderContext(orgId) !== before) return null
     const text = typeof data.text === 'string' ? data.text : ''
     if (!text.trim()) {
       const local = getSenderContext(orgId) || legacyContext()
@@ -60,7 +73,9 @@ function legacyContext(): string {
 }
 
 export async function saveSenderContext(httpBase: string, orgId: string, sessionToken: string, text: string): Promise<boolean> {
-  setSenderContext(text, orgId)
+  // Saved on the way out of a profile after its account signed out, the
+  // words still go to that account's own row, but not into this browser.
+  if (stillSignedIn(sessionToken)) setSenderContext(text, orgId)
   try {
     const res = await fetch(`${httpBase}/me/context`, {
       method: 'PUT',
