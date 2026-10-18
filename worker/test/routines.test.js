@@ -168,6 +168,73 @@ test("the cron runs what is due, advances it, and leaves the rest", async () => 
   expect(tick.proposals).toBeNull();
 });
 
+test("two ticks that read the same due routine run it once", async () => {
+  const { routine } = await (await post("/routines", toru, { orgId: ORG, kind: "brief", cadence: "daily", hour: 9 })).json();
+  await env.DB.prepare("UPDATE routines SET next_run_at = '2026-01-01T00:00:00.000Z' WHERE id = ?1").bind(routine.id).run();
+  const quiet = ENV({ OPENAI_API_KEY: undefined });
+  const now = new Date();
+  // The first tick reads the due row, and the second runs it start to end
+  // before the first goes on: both at the same instant.
+  const realPrepare = env.DB.prepare.bind(env.DB);
+  let second;
+  const db = new Proxy(env.DB, {
+    get(target, prop) {
+      if (prop === "prepare") {
+        return (sql) => {
+          const stmt = realPrepare(sql);
+          if (second || !/^SELECT \* FROM routines WHERE enabled = 1/.test(sql)) return stmt;
+          return { bind: (...args) => ({ all: async () => {
+            const read = await stmt.bind(...args).all();
+            second = await runDueRoutines(quiet, { now });
+            return read;
+          } }) };
+        };
+      }
+      const v = target[prop];
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+  const first = await runDueRoutines({ ...quiet, DB: db }, { now });
+  expect(second).toEqual({ due: 1, delivered: 1 });
+  expect(first).toEqual({ due: 1, delivered: 0 });
+  const row = await env.DB.prepare("SELECT runs, next_run_at FROM routines WHERE id = ?1").bind(routine.id).first();
+  expect(row.runs).toBe(1);
+  expect(Date.parse(row.next_run_at)).toBeGreaterThan(now.getTime());
+  const cards = await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE card_id LIKE 'routine-%'").first();
+  expect(cards.n).toBe(1);
+});
+
+test("a tick that dies mid-run leaves the routine to run when its claim runs out", async () => {
+  const { routine } = await (await post("/routines", toru, { orgId: ORG, kind: "brief", cadence: "daily", hour: 9 })).json();
+  await env.DB.prepare("UPDATE routines SET next_run_at = '2026-01-01T00:00:00.000Z' WHERE id = ?1").bind(routine.id).run();
+  const quiet = ENV({ OPENAI_API_KEY: undefined });
+  const now = new Date("2026-01-01T00:05:00.000Z");
+  // Claimed, then the invocation is gone before the report is written: the
+  // claim is all it left.
+  const realPrepare = env.DB.prepare.bind(env.DB);
+  const db = new Proxy(env.DB, {
+    get(target, prop) {
+      if (prop === "prepare") {
+        return (sql) => {
+          const stmt = realPrepare(sql);
+          if (!/^UPDATE routines SET next_run_at = \?3 WHERE/.test(sql)) return stmt;
+          return { bind: (...args) => ({ run: async () => { await stmt.bind(...args).run(); throw new Error("evicted"); } }) };
+        };
+      }
+      const v = target[prop];
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+  await runDueRoutines({ ...quiet, DB: db }, { now }).catch(() => {});
+  const claimed = await env.DB.prepare("SELECT runs, next_run_at FROM routines WHERE id = ?1").bind(routine.id).first();
+  expect(claimed.runs).toBe(0);
+  expect(Date.parse(claimed.next_run_at)).toBeGreaterThan(now.getTime());
+  // The next tick leaves it alone; the one after the claim runs out runs it.
+  expect(await runDueRoutines(quiet, { now: new Date(now.getTime() + 15 * 60_000) })).toEqual({ due: 0, delivered: 0 });
+  expect(await runDueRoutines(quiet, { now: new Date(now.getTime() + 45 * 60_000) })).toEqual({ due: 1, delivered: 1 });
+  expect((await env.DB.prepare("SELECT runs FROM routines WHERE id = ?1").bind(routine.id).first()).runs).toBe(1);
+});
+
 test("a schedule changed while a run is under way keeps its new next run", async () => {
   const { runRoutine } = await import("../src/routines.js");
   const { routine } = await (await post("/routines", toru, { orgId: ORG, kind: "brief", cadence: "weekly", weekday: 1, hour: 9 })).json();

@@ -40,6 +40,9 @@ export const MAX_ROUTINE_TITLE = 80;
 const MAX_REPORT_CHARS = 8000;
 /// How many routines one cron tick runs. The rest wait fifteen minutes.
 const MAX_RUNS_PER_TICK = 25;
+/// How long a tick holds a routine it is running before another may take it
+/// up: past any one invocation's run, so it only ever comes due after a crash.
+const RUN_LEASE_MS = 30 * 60_000;
 
 /// `daily_plan` (morning) and `daily_report` (evening): the owner's own day,
 /// written in their voice — today's plan in the morning; what they did, how
@@ -642,8 +645,20 @@ export async function runDueRoutines(env, { now = new Date() } = {}) {
     .bind(now.toISOString(), MAX_RUNS_PER_TICK)
     .all();
   let delivered = 0;
-  for (const routine of results || []) {
+  for (const row of results || []) {
+    let routine = row;
     try {
+      // Claimed before any work: its due time moves to a lease, and only
+      // the tick whose move took it runs it. Another tick that read the same
+      // row finds it moved and leaves it. A tick that dies mid-run leaves the
+      // lease, which comes due in turn: late, not lost.
+      const lease = new Date(now.getTime() + RUN_LEASE_MS).toISOString();
+      const claim = await env.DB
+        .prepare("UPDATE routines SET next_run_at = ?3 WHERE org_id = ?1 AND id = ?2 AND enabled = 1 AND next_run_at = ?4")
+        .bind(row.org_id, row.id, lease, row.next_run_at)
+        .run();
+      if (!claim.meta?.changes) continue;
+      routine = { ...row, next_run_at: lease };
       const out = await runRoutine(env, routine, { now });
       if (out.card) delivered += 1;
     } catch (err) {
