@@ -422,36 +422,33 @@ export async function peekInvite(env, code) {
 /// identity provider or directory of the company whose domain it is. An
 /// account that only claimed the address, never proving it, loses its hold:
 ///
-/// - an email account (the address is its login) stays, for the person who
-///   proved it, but every session it has ends and its password goes. Whoever
-///   registered it first may not have been them, and a password set by
-///   someone else, or a session they kept, would be a way back in.
-/// - any other account (GitHub, SSO, SCIM) that typed the address in stops
-///   naming it.
+/// - an account made for the address (an email account, or one a company's
+///   directory or identity provider made for it: its login is the address)
+///   stays, for the person who proved it, but every session it has ends and
+///   its password goes. Whoever registered it first may not have been them,
+///   and a password set by someone else, or a session they kept, would be a
+///   way back in. One a directory made is the company's for that person, so
+///   it keeps its id, its memberships and its SCIM link.
+/// - any other account (GitHub) that typed the address in stops naming it.
 ///
 /// Returns the account that now answers to the address, or null for none.
 /// Without this, registering newhire@corp.example before the real person
 /// arrived was enough to be handed their sign-in, their company's SSO link
 /// and their SCIM provisioning.
 ///
-/// `orgId`: the workspace whose identity provider or directory proved it. An
-/// account at the address that is already one of its members is linked as it
-/// is: the workspace let it in already, so linking gives it nothing new.
-export async function settleProvedAddress(env, email, { orgId } = {}) {
-  if (orgId) {
-    const member = await env.DB.prepare(
-      "SELECT u.github_id FROM users u JOIN memberships m ON m.user_github_id = u.github_id AND m.org_id = ?2 WHERE u.email = ?1"
-    ).bind(email, orgId).first();
-    if (member) return { githubId: String(member.github_id) };
-  }
-  const row = await env.DB.prepare("SELECT github_id, email_verified_at FROM users WHERE email = ?1").bind(email).first();
+/// Being a member of the workspace whose provider or directory proved the
+/// address is not proof of it: an unproved account let in by an invitation
+/// used to be linked as it stood, and whoever registered it kept its
+/// password and sessions beside the real person.
+export async function settleProvedAddress(env, email) {
+  const row = await env.DB.prepare("SELECT github_id, login, email_verified_at FROM users WHERE email = ?1").bind(email).first();
   if (!row) return null;
   const id = String(row.github_id);
   if (row.email_verified_at) return { githubId: id };
-  if (id.startsWith("email:")) {
+  if (id.startsWith("email:") || id.startsWith("scim:") || row.login === `u:${email}`) {
     await env.DB.prepare("UPDATE users SET password_hash = NULL, password_salt = NULL WHERE github_id = ?1").bind(id).run();
     const { endSessions } = await import("./sessions.js");
-    await endSessions(env.DB, id);
+    await endSessions(env, id);
     return { githubId: id, reclaimed: true };
   }
   await env.DB.prepare("UPDATE users SET email = NULL WHERE github_id = ?1 AND email_verified_at IS NULL").bind(id).run();

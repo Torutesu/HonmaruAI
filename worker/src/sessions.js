@@ -118,8 +118,10 @@ export async function endedHere(db, token, orgId) {
   return false;
 }
 
-/// Sign these sessions out of one workspace only.
-export async function endHere(db, orgId, tokens) {
+/// Sign these sessions out of one workspace only, and close the sockets
+/// they hold there.
+export async function endHere(env, orgId, tokens) {
+  const db = env.DB;
   const now = new Date().toISOString();
   const list = [...new Set(tokens.filter(Boolean))];
   if (!list.length) return 0;
@@ -127,15 +129,17 @@ export async function endHere(db, orgId, tokens) {
     `INSERT INTO session_workspaces (token, org_id, last_seen_at, ended_at) VALUES (?1, ?2, ?3, ?3)
      ON CONFLICT(token, org_id) DO UPDATE SET ended_at = COALESCE(session_workspaces.ended_at, excluded.ended_at)`
   ).bind(t, orgId, now)));
+  const { evictSessions } = await import("./announce.js");
+  await evictSessions(env, list, { orgId }).catch(() => {});
   return list.length;
 }
 
 /// Sign one account out of one workspace, on every device — what a
 /// workspace's admin, API key or identity provider may do. Their other
 /// workspaces are not that workspace's to end.
-export async function endAccountHere(db, orgId, githubId) {
-  const { results } = await db.prepare("SELECT token FROM sessions WHERE github_id = ?1").bind(String(githubId)).all();
-  return endHere(db, orgId, (results || []).map((r) => r.token));
+export async function endAccountHere(env, orgId, githubId) {
+  const { results } = await env.DB.prepare("SELECT token FROM sessions WHERE github_id = ?1").bind(String(githubId)).all();
+  return endHere(env, orgId, (results || []).map((r) => r.token));
 }
 
 /// Every live session of one account, the one asking first — or, for a
@@ -166,8 +170,10 @@ export async function sessionsOf(db, githubId, currentToken = null, { orgId = nu
 }
 
 /// Sign out sessions of one account: the ones named, or all of them but
-/// (when given) the one to keep. Returns how many went.
-export async function endSessions(db, githubId, { refs = null, keep = null } = {}) {
+/// (when given) the one to keep, along with the sockets they hold. Returns
+/// how many went.
+export async function endSessions(env, githubId, { refs = null, keep = null } = {}) {
+  const db = env.DB;
   const { results } = await db.prepare("SELECT token FROM sessions WHERE github_id = ?1").bind(String(githubId)).all();
   const gone = [];
   for (const r of results || []) {
@@ -178,6 +184,8 @@ export async function endSessions(db, githubId, { refs = null, keep = null } = {
   if (!gone.length) return 0;
   await db.batch(gone.map((t) => db.prepare("DELETE FROM sessions WHERE token = ?1").bind(t)));
   // Their pushes stop with them: a browser signed out is no longer theirs.
+  const { evictSessions } = await import("./announce.js");
+  await evictSessions(env, gone).catch(() => {});
   return gone.length;
 }
 
@@ -199,7 +207,7 @@ export async function handleSessions(request, env, url) {
   const user = await getUserByGithubId(env.DB, session.github_id);
 
   if (path === "/auth/logout" && request.method === "POST") {
-    await endSessions(env.DB, session.github_id, { refs: [await sessionRef(token)] });
+    await endSessions(env, session.github_id, { refs: [await sessionRef(token)] });
     await auditEverywhere(env, request, session.github_id, { action: "auth.logout", actor: person(user) });
     return json({ ok: true });
   }
@@ -212,7 +220,7 @@ export async function handleSessions(request, env, url) {
     const body = await request.json().catch(() => ({}));
     const refs = typeof body.ref === "string" ? [body.ref] : null;
     if (!refs && body.others !== true) return json({ message: "Say which session, or all the others." }, 400);
-    const ended = await endSessions(env.DB, session.github_id, refs ? { refs, keep: token } : { keep: token });
+    const ended = await endSessions(env, session.github_id, refs ? { refs, keep: token } : { keep: token });
     if (ended) await auditEverywhere(env, request, session.github_id, { action: "auth.session_revoked", actor: person(user), entity: person(user), details: { count: ended, others: !refs } });
     return json({ ended, sessions: await sessionsOf(env.DB, session.github_id, token) });
   }
@@ -249,9 +257,9 @@ export async function handleSessions(request, env, url) {
       // of this workspace, every session they have — their other workspaces
       // are not this admin's to end.
       let ended;
-      if (self) ended = await endSessions(env.DB, target.userId, { keep: token });
+      if (self) ended = await endSessions(env, target.userId, { keep: token });
       else {
-        ended = await endAccountHere(env.DB, orgId, target.userId);
+        ended = await endAccountHere(env, orgId, target.userId);
       }
       await audit(env, request, { orgId, action: "auth.session_revoked", actor: person(user), entity: { type: "user", id: target.login, name: target.name }, details: { count: ended, everywhere: self } });
       // And, if asked, their link to this workspace's identity provider:

@@ -214,6 +214,82 @@ test("required: only after the owner came through it; then an email-code sign-in
   expect((await stale.json()).code).toBe("sso-reauth");
 });
 
+// ---- Accounts that claimed an address before it was proved ----
+
+test("an unproved member at the address keeps nothing of the registrant's once SSO proves it", async () => {
+  await activate();
+  const { upsertUser, upsertMembership, createSession } = await import("../src/db.js");
+  // Registered with a password by someone who never proved the address, and
+  // let in by an invitation.
+  await upsertUser(env.DB, { githubId: "email:pat@acme.co.jp", login: "u:pat@acme.co.jp", name: "Pat", avatarUrl: null, locale: "en" });
+  await env.DB.prepare("UPDATE users SET email = 'pat@acme.co.jp', password_hash = 'h', password_salt = 's' WHERE github_id = 'email:pat@acme.co.jp'").run();
+  await upsertMembership(env.DB, ORG, "email:pat@acme.co.jp", "member", "invite");
+  const registrant = await createSession(env.DB, "email:pat@acme.co.jp", "x");
+
+  const session = await ssoSession({ sub: "okta-pat", email: "pat@acme.co.jp", name: "Pat" });
+  expect((await call(`/members?orgId=${ORG}`, session)).status).toBe(200);
+  expect((await call("/sessions", registrant)).status).toBe(401);
+  const pat = await env.DB.prepare("SELECT password_hash, email_verified_at FROM users WHERE github_id = 'email:pat@acme.co.jp'").first();
+  expect(pat.password_hash).toBeNull();
+  expect(pat.email_verified_at).toBeTruthy();
+});
+
+test("a GitHub member who only typed the address in is not linked to the provider's person", async () => {
+  await activate();
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "9901", login: "patgh", name: "Pat", avatarUrl: null, locale: "en" });
+  await env.DB.prepare("UPDATE users SET email = 'pat@acme.co.jp' WHERE github_id = '9901'").run();
+  await upsertMembership(env.DB, ORG, "9901", "member", "invite");
+
+  const back = await signIn({ sub: "okta-pat", email: "pat@acme.co.jp", name: "Pat" });
+  const session = await (await call("/sso/exchange", null, { method: "POST", body: { code: hashParams(back).get("code"), client: "web" } })).json();
+  expect(session.userId).not.toBe("9901");
+  expect(session.userId).toMatch(/^sso:/);
+  expect((await env.DB.prepare("SELECT email FROM users WHERE github_id = '9901'").first()).email).toBeNull();
+});
+
+// ---- A domain the workspace stops owning ----
+
+for (const [how, lose] of [
+  ["removed", () => env.DB.prepare("DELETE FROM org_domains WHERE domain = 'acme.co.jp'").run()],
+  ["no longer verified", () => env.DB.prepare("UPDATE org_domains SET verified_at = NULL WHERE domain = 'acme.co.jp'").run()],
+]) {
+  test(`a domain ${how}: its provider no longer signs anyone in, links anyone, or is required`, async () => {
+    await activate();
+    await env.DB.prepare("INSERT INTO org_sso_policy (org_id, enforce, enforce_since, updated_at) VALUES (?1, 1, ?2, ?2)").bind(ORG, new Date().toISOString()).run();
+    await lose();
+
+    expect(await (await call("/auth/discover", null, { method: "POST", body: { email: "aya@acme.co.jp" } })).json()).toEqual({});
+    const back = await signIn({ sub: "okta-aya", email: "aya@acme.co.jp", name: "Aya" });
+    expect(hashParams(back).get("error")).toMatch(/no longer verified/);
+    expect(await env.DB.prepare("SELECT 1 FROM users WHERE email = 'aya@acme.co.jp'").first()).toBeNull();
+    expect(await env.DB.prepare("SELECT 1 FROM sso_identities WHERE subject = 'okta-aya'").first()).toBeNull();
+    // An existing member at the domain is not linked to the provider either.
+    const mika = await signIn({ sub: "okta-mika", email: "mika@acme.co.jp", name: "Mika" });
+    expect(hashParams(mika).get("error")).toMatch(/no longer verified/);
+    expect(await env.DB.prepare("SELECT 1 FROM sso_identities WHERE subject = 'okta-mika'").first()).toBeNull();
+
+    // And, as the owners were told, it is no longer required.
+    const { createSession } = await import("../src/db.js");
+    expect((await call(`/members?orgId=${ORG}`, await createSession(env.DB, "7803", "x"))).status).toBe(200);
+  });
+}
+
+test("a connection over two domains keeps the one still verified", async () => {
+  await activate();
+  const now = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO org_domains (domain, org_id, verify_token, verified_at, created_by, created_at) VALUES ('acme-group.jp', ?1, 't2', ?2, '7801', ?2)").bind(ORG, now).run();
+  await env.DB.prepare("UPDATE sso_connections SET allowed_domains = ?2 WHERE org_id = ?1").bind(ORG, JSON.stringify(["acme.co.jp", "acme-group.jp"])).run();
+  // Proved by another workspace since: this one's provider no longer speaks for it.
+  await env.DB.prepare("UPDATE org_domains SET org_id = 'team:buyer' WHERE domain = 'acme.co.jp'").run();
+
+  const lost = await signIn({ sub: "okta-aya", email: "aya@acme.co.jp", name: "Aya" });
+  expect(hashParams(lost).get("error")).toMatch(/no longer verified/);
+  const kept = await signIn({ sub: "okta-ken", email: "ken@acme-group.jp", name: "Ken" });
+  expect(kept.headers.get("location")).toContain("/sso/done?code=");
+  expect((await (await call("/auth/discover", null, { method: "POST", body: { email: "ken@acme-group.jp" } })).json()).sso).toMatchObject({ orgId: ORG });
+});
+
 // ---- The provider ending sign-ins (back-channel logout, refresh check) ----
 
 async function ssoSession(who) {

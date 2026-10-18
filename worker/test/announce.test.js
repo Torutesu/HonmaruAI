@@ -59,9 +59,10 @@ test("a relay that will not answer does not fail the sync that produced the card
   await expect(announceCards({ ORG_RELAY }, "acme/web", [CARD])).resolves.toMatchObject({ announced: 0 });
 });
 
+/// A socket that has completed `join`, as the relay sees one.
 function fakeSocket(orgId, userId) {
   const sent = [];
-  return { sent, deserializeAttachment: () => ({ orgId, userId, agui: true }), send: (t) => sent.push(t) };
+  return { sent, deserializeAttachment: () => ({ orgId, userId, agui: true, authed: true }), send: (t) => sent.push(t) };
 }
 
 test("the relay pushes an announced card to the sockets already open", async () => {

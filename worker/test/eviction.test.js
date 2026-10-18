@@ -1,8 +1,18 @@
-import { env } from "cloudflare:test";
+import { env, runInDurableObject } from "cloudflare:test";
 import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { joined, message, until } from "./helpers.js";
+
+const gone = (ws) => ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING;
+const call = (path, token, { method = "GET", body } = {}) => worker.fetch(
+  new Request(`https://example.com${path}`, {
+    method,
+    headers: { "content-type": "application/json", "x-session-token": token },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }),
+  env
+);
 
 // Taking somebody out of a workspace has to take them out of the room.
 //
@@ -92,4 +102,80 @@ test("deleting your account closes the socket it was holding", async () => {
 
   const closed = await until(async () => ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING);
   expect(closed).toBeTruthy();
+});
+
+// Signing a session out has to sign its sockets out too. The relay checked
+// the session once, at join; a device signed out from another one, or by an
+// admin, kept hearing the workspace and could still decide its cards.
+
+test("signing one device out closes that device's socket and no other", async () => {
+  const { createSession, sessionKey } = await import("../src/db.js");
+  const { sessionRef } = await import("../src/sessions.js");
+  const phone = await createSession(env.DB, "3002", "gho_guest_phone");
+  const laptop = await joined(TEAM, guestToken);
+  const lost = await joined(TEAM, phone);
+
+  const res = await call("/sessions", guestToken, { method: "DELETE", body: { ref: await sessionRef(await sessionKey(phone)) } });
+  expect((await res.json()).ended).toBe(1);
+
+  expect(await message(lost.messages, (m) => JSON.stringify(m).includes("sign-in-required"))).toBeTruthy();
+  expect(await until(async () => gone(lost.ws))).toBe(true);
+  expect(laptop.ws.readyState).toBe(WebSocket.OPEN);
+});
+
+test("an admin's sign-out closes the member's sockets in that workspace only", async () => {
+  const OTHER = "personal:evictiontest-other";
+  const { upsertMembership } = await import("../src/db.js");
+  await upsertMembership(env.DB, OTHER, "3002", "member");
+  const here = await joined(TEAM, guestToken);
+  const elsewhere = await joined(OTHER, guestToken);
+  const watching = await joined(TEAM, adminToken);
+
+  const members = await (await call(`/members?orgId=${encodeURIComponent(TEAM)}`, adminToken)).json();
+  const ref = members.members.find((m) => m.name === "Guest").ref;
+  const res = await call("/members/sessions", adminToken, { method: "DELETE", body: { orgId: TEAM, ref } });
+  expect((await res.json()).ended).toBe(1);
+
+  expect(await message(here.messages, (m) => JSON.stringify(m).includes("session-policy"))).toBeTruthy();
+  expect(await until(async () => gone(here.ws))).toBe(true);
+  expect(elsewhere.ws.readyState).toBe(WebSocket.OPEN);
+  expect(watching.ws.readyState).toBe(WebSocket.OPEN);
+});
+
+test("a session ended without a word to the relay is still found out", async () => {
+  // A sign-out whose eviction never arrived: the row is gone, the socket is
+  // not. The relay's own look at the session is what ends it.
+  const { saveCard, getCard, sessionKey } = await import("../src/db.js");
+  await saveCard(env.DB, TEAM, {
+    id: "c-revoked", recipientUserID: "guest", senderUserID: "boss",
+    status: "pending", title: "Sign off the spend", priority: "high", createdAt: "2026-08-11T00:00:00Z",
+  });
+  const { ws, messages } = await joined(TEAM, guestToken);
+  await env.DB.prepare("DELETE FROM sessions WHERE token = ?1").bind(await sessionKey(guestToken)).run();
+  const stub = env.ORG_RELAY.get(env.ORG_RELAY.idFromName(TEAM));
+  await runInDurableObject(stub, async (_, state) => {
+    for (const socket of state.getWebSockets()) socket.serializeAttachment({ ...socket.deserializeAttachment(), checkedAt: 1 });
+  });
+
+  ws.send(JSON.stringify({ type: "tool_result", payload: {
+    toolCallId: "t-revoked", content: { cardId: "c-revoked", action: "approve", actorUserID: "guest" },
+  } }));
+  expect(await message(messages, (m) => JSON.stringify(m).includes("sign-in-required"))).toBeTruthy();
+  expect(await until(async () => gone(ws))).toBe(true);
+  expect((await getCard(env.DB, TEAM, "c-revoked")).status).toBe("pending");
+});
+
+test("the relay's alarm finds a socket whose session ended while it sat idle", async () => {
+  const { sessionKey } = await import("../src/db.js");
+  const idle = await joined(TEAM, guestToken);
+  const kept = await joined(TEAM, adminToken);
+  await env.DB.prepare("DELETE FROM sessions WHERE token = ?1").bind(await sessionKey(guestToken)).run();
+  const stub = env.ORG_RELAY.get(env.ORG_RELAY.idFromName(TEAM));
+  await runInDurableObject(stub, async (instance, state) => {
+    for (const socket of state.getWebSockets()) socket.serializeAttachment({ ...socket.deserializeAttachment(), checkedAt: 1 });
+    await instance.alarm();
+  });
+
+  expect(await until(async () => gone(idle.ws))).toBe(true);
+  expect(kept.ws.readyState).toBe(WebSocket.OPEN);
 });

@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
@@ -152,6 +153,34 @@ test("a follow-up is listed where it was made, may be cancelled, and posts when 
   expect((await messages(mika)).map((m) => m.body)).toContain("⏰ Follow-up: Check whether Acme paid");
   expect((await (await get(`/followups?${q({ orgId: ORG, status: "done" })}`, toru)).json()).followups.map((f) => f.id)).toEqual([made.followup.id]);
   expect((await send("POST", "/followups", mika, { orgId: ORG, channel: "b:ops", instruction: "past", dueAt: "2020-01-01T00:00:00Z" })).status).toBe(400);
+});
+
+test("a follow-up made by an account from SSO or the directory is answered by the AI, on its maker's allowance", async () => {
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  const { scheduleFollowup } = await import("../src/harness/followups.js");
+  const makers = ["sso:personal:hxflows:aaaa", "scim:personal:hxflows:bbbb"];
+  for (const [i, id] of makers.entries()) {
+    await upsertUser(env.DB, { githubId: id, login: `u:maker${i}@corp.example`, name: `Maker ${i}`, avatarUrl: null, locale: "en" });
+    await upsertMembership(env.DB, ORG, id, "member", i ? "scim" : "sso");
+    const made = await scheduleFollowup(env.DB, { orgId: ORG, channel: "b:ops", instruction: `Say the test phrase ${i}`, dueAt: new Date(Date.now() + 60_000).toISOString(), by: id });
+    expect(made.followup).toBeTruthy();
+  }
+  // Nobody's account: a synthetic maker gets the reminder and spends nothing.
+  await env.DB.prepare(`INSERT INTO hx_followups (id, org_id, channel, instruction, due_at, status, created_by, created_at)
+    VALUES ('fu_synthetic', ?1, 'b:ops', 'Synthetic', ?2, 'scheduled', 'workflow:wf_1', ?2)`).bind(ORG, new Date(Date.now() + 60_000).toISOString()).run();
+  fetchMock.activate();
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(200, { choices: [{ message: { content: "FOLLOWUP COMPLETE" } }], usage: { prompt_tokens: 5, completion_tokens: 3 } }).times(2);
+  try {
+    await runDueFollowups({ ...env, OPENAI_API_KEY: "sk-test" }, { now: new Date(Date.now() + 2 * 60_000) });
+    fetchMock.assertNoPendingInterceptors();
+  } finally {
+    fetchMock.deactivate();
+  }
+  const { results } = await env.DB.prepare("SELECT created_by, status, result FROM hx_followups WHERE org_id = ?1 ORDER BY created_by").bind(ORG).all();
+  const byMaker = Object.fromEntries(results.map((r) => [r.created_by, r]));
+  for (const id of makers) expect(byMaker[id]).toMatchObject({ status: "done", result: "FOLLOWUP COMPLETE" });
+  expect(byMaker["workflow:wf_1"].result).not.toBe("FOLLOWUP COMPLETE");
 });
 
 test("asked in the chat, an agent schedules its own follow-up in the thread", async () => {

@@ -181,6 +181,8 @@ export async function domainJoin(env, githubId, { via = "domain" } = {}) {
   if (!row || row.join_policy !== "auto") return null;
   const already = await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2").bind(row.org_id, String(githubId)).first();
   if (already) return null;
+  const { deactivatedHere } = await import("./scim.js");
+  if (await deactivatedHere(env.DB, row.org_id, githubId)) return null;
   await upsertMembership(env.DB, row.org_id, githubId, row.join_role === "guest" ? "guest" : "member", via);
   await joinDomainChannels(env, row, user.login);
   const joiner = await getUserByGithubId(env.DB, githubId);
@@ -195,6 +197,8 @@ export async function joinableFor(db, githubId) {
   const row = await verifiedDomainFor(db, user.email);
   if (!row || row.join_policy !== "request") return [];
   if (await db.prepare("SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2").bind(row.org_id, String(githubId)).first()) return [];
+  const { deactivatedHere } = await import("./scim.js");
+  if (await deactivatedHere(db, row.org_id, githubId)) return [];
   const org = await db.prepare("SELECT name FROM orgs WHERE id = ?1").bind(row.org_id).first();
   const asked = await db.prepare("SELECT outcome FROM join_requests WHERE org_id = ?1 AND user_github_id = ?2").bind(row.org_id, String(githubId)).first();
   return [{ orgId: row.org_id, name: org?.name || row.domain, domain: row.domain, requested: Boolean(asked && !asked.outcome), declined: asked?.outcome === "declined" }];
@@ -251,6 +255,10 @@ export async function handleDomains(request, env, url) {
       for (const r of results || []) if ((await memberRef(orgId, String(r.user_github_id))) === body.ref) { target = String(r.user_github_id); asked = r; }
       if (!target) return json({ message: "No such request." }, 404);
       const approve = body.approve === true;
+      const { deactivatedHere } = await import("./scim.js");
+      if (approve && await deactivatedHere(env.DB, orgId, target)) {
+        return json({ message: "Your company's directory has turned this person off. Turn them on there to let them in." }, 409);
+      }
       await env.DB.prepare("UPDATE join_requests SET outcome = ?3, decided_by = ?4, decided_at = ?5 WHERE org_id = ?1 AND user_github_id = ?2")
         .bind(orgId, target, approve ? "approved" : "declined", String(session.github_id), new Date().toISOString()).run();
       const joiner = await getUserByGithubId(env.DB, target);
