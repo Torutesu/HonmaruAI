@@ -50,6 +50,9 @@ const MAX_MESSAGE_BYTES = 256 * 1024;
 // a handful of attempts per socket, each of which costs a session lookup and
 // a membership check against D1.
 const MAX_JOINS_PER_SOCKET = 5;
+// How long a socket may stay open without completing `join`. Every client
+// joins the moment its socket opens; one that has not by now never will.
+const JOIN_GRACE_MS = 30_000;
 /// Each kind of traffic's allowance per window, counted apart.
 const BUDGETS = { chat: MESSAGE_BUDGET, jam: JAM_SIGNAL_BUDGET, typing: TYPING_BUDGET };
 
@@ -139,8 +142,11 @@ export class OrgRelay {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.state.acceptWebSocket(server); // hibernation API
-    // Where the socket came from, for the workspace's allowed networks.
-    server.serializeAttachment({ orgId, userId: null, agui: false, ip: request.headers.get("cf-connecting-ip") || null });
+    // Where the socket came from, for the workspace's allowed networks, and
+    // when, so one that never joins is closed rather than held open.
+    const openedAt = Date.now();
+    server.serializeAttachment({ orgId, userId: null, agui: false, ip: request.headers.get("cf-connecting-ip") || null, openedAt });
+    await this.wakeBy(openedAt + JOIN_GRACE_MS);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -159,6 +165,20 @@ export class OrgRelay {
     }
   }
 
+  /// Set the alarm for `at`, unless it already rings sooner.
+  async wakeBy(at) {
+    const current = await this.state.storage.getAlarm().catch(() => null);
+    if (!current || at < current) await this.state.storage.setAlarm(at).catch(() => {});
+  }
+
+  /// Only a socket that has completed `join` hears anything. The orgId on a
+  /// socket is whatever its URL said, proved by nothing: a connection that
+  /// names a workspace and never joins it used to receive every room-wide
+  /// event there — each public message, each card, who came and went.
+  static listening(att, orgId) {
+    return att?.orgId === orgId && att.authed === true && Boolean(att.userId);
+  }
+
   broadcast(orgId, obj, exclude) {
     const text = typeof obj === "string" ? obj : JSON.stringify(obj);
     // A guest hears only what is sent to them by name, and who is online:
@@ -167,7 +187,7 @@ export class OrgRelay {
     const forGuests = typeof obj === "object" && obj?.name === "presence";
     for (const ws of this.state.getWebSockets()) {
       const att = ws.deserializeAttachment();
-      if (att?.orgId === orgId && ws !== exclude && (!att.guest || forGuests)) OrgRelay.deliver(ws, text);
+      if (OrgRelay.listening(att, orgId) && ws !== exclude && (!att.guest || forGuests)) OrgRelay.deliver(ws, text);
     }
   }
 
@@ -200,17 +220,18 @@ export class OrgRelay {
     const text = typeof obj === "string" ? obj : JSON.stringify(obj);
     for (const ws of this.state.getWebSockets()) {
       const att = ws.deserializeAttachment();
-      if (att?.orgId !== orgId || !att.userId) continue;
+      if (!OrgRelay.listening(att, orgId)) continue;
       // A guest only as one of the two on the card, as everywhere else.
       if (parties.has(att.userId) || (!att.guest && members.has(att.userId))) OrgRelay.deliver(ws, text);
     }
   }
 
   sendTo(orgId, userId, obj) {
+    if (!userId) return;
     const text = typeof obj === "string" ? obj : JSON.stringify(obj);
     for (const ws of this.state.getWebSockets()) {
       const att = ws.deserializeAttachment();
-      if (att?.orgId === orgId && att?.userId === userId) OrgRelay.deliver(ws, text);
+      if (OrgRelay.listening(att, orgId) && att.userId === userId) OrgRelay.deliver(ws, text);
     }
   }
 
@@ -220,6 +241,12 @@ export class OrgRelay {
   /// client can tell "you are not allowed in" apart from "the network died" and
   /// stop retrying a connection that will never be accepted.
   refuse(ws, agui, message, code) {
+    // Out of the room before it is told, so nothing broadcast while it
+    // closes reaches it. Who it was stays, for the presence its close sends.
+    try {
+      const att = ws.deserializeAttachment();
+      if (att?.authed) ws.serializeAttachment({ ...att, authed: false });
+    } catch {}
     try {
       ws.send(JSON.stringify(agui ? runError(message, code) : { type: "error", payload: { message, code } }));
     } catch {}
@@ -365,10 +392,7 @@ export class OrgRelay {
       const offNetwork = await ipDenial(this.env, orgId, att.ip);
       if (offNetwork) return this.refuse(ws, agui, offNetwork.body.message, offNetwork.body.code);
       const deadline = sessionDeadline(policy, session);
-      if (deadline) {
-        const current = await this.state.storage.getAlarm().catch(() => null);
-        if (!current || deadline < current) await this.state.storage.setAlarm(deadline).catch(() => {});
-      }
+      if (deadline) await this.wakeBy(deadline);
       // The legacy dialect is refused rather than half-served. A client that
       // joined without `agui/1` used to get a snapshot and then silence: every
       // broadcast below this line is an AG-UI event, so its feed froze at the
@@ -1021,12 +1045,22 @@ export class OrgRelay {
   }
 
   /// A workspace's login rules end sockets at their deadline: each one past
-  /// it is told why and closed, and the next deadline is set.
+  /// it is told why and closed, and the next deadline is set. A socket that
+  /// has not joined within its grace is closed the same way.
   async alarm() {
     const now = Date.now();
     let next = null;
     for (const ws of this.state.getWebSockets()) {
       const att = ws.deserializeAttachment() || {};
+      if (!att.authed && att.openedAt) {
+        const expires = att.openedAt + JOIN_GRACE_MS;
+        // Closed, not refused: a client this slow to join is more likely on
+        // a bad network than turned away, and a 1008 would stop it dialling
+        // again.
+        if (expires <= now) { try { ws.close(1001, "join timed out"); } catch {} }
+        else if (!next || expires < next) next = expires;
+        continue;
+      }
       if (!att.deadline) continue;
       if (att.deadline <= now) this.refuse(ws, att.agui, "This workspace asks you to sign in again.", "session-policy");
       else if (!next || att.deadline < next) next = att.deadline;
