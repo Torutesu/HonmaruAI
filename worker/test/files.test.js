@@ -490,6 +490,21 @@ test("a send whose files could not be claimed writes no message, and its retry s
   expect(await list(kenji, "b:cafe")).toHaveLength(1);
 });
 
+test("more files than a message carries are refused, not cut short", async () => {
+  const ids = [];
+  for (let i = 0; i < 11; i += 1) ids.push((await (await upload(mika, "b:cafe", { name: `p${i}.png` })).json()).file.id);
+  const res = await say(mika, "b:cafe", "the set", ids);
+  expect(res.status).toBe(400);
+  expect((await res.json()).code).toBe("too_many_files");
+  expect(await list(mika, "b:cafe")).toEqual([]);
+  // The same one twice is one file; ten go together.
+  const sent = await say(mika, "b:cafe", "the set", [...ids.slice(0, 10), ids[0]]);
+  expect(sent.status).toBe(201);
+  expect((await sent.json()).message.files.map((f) => f.id).sort()).toEqual(ids.slice(0, 10).sort());
+  const { n } = await env.DB.prepare("SELECT COUNT(*) AS n FROM message_files WHERE message_id IS NULL").first();
+  expect(n).toBe(1);
+});
+
 test("an upload whose row cannot be written leaves no bytes behind", async () => {
   const down = { ...env, DB: failing(/^INSERT INTO message_files/) };
   const res = await worker.fetch(new Request(`https://example.com/channels/files?${q({ orgId: ORG, channel: "b:cafe", name: "p.png" })}`, {

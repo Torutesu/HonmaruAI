@@ -200,9 +200,11 @@ export function claimFiles(db, { orgId, key, login, messageId, ids }) {
 /// The uploads a send names, before its message is written: `ids`, the ones
 /// it can claim (yours, in this conversation, unsent); `gone`, how many are
 /// not there at all — swept unsent, or deleted with their message — which
-/// the send is told of rather than going without them.
+/// the send is told of rather than going without them; and `over`, more
+/// than a message carries, refused rather than cut short.
 export async function sendable(db, { orgId, key, login, ids }) {
-  const wanted = [...new Set((Array.isArray(ids) ? ids : []).filter((x) => typeof x === "string" && ID.test(x)))].slice(0, MAX_FILES_PER_MESSAGE);
+  const wanted = [...new Set((Array.isArray(ids) ? ids : []).filter((x) => typeof x === "string" && ID.test(x)))];
+  if (wanted.length > MAX_FILES_PER_MESSAGE) return { ids: [], gone: 0, over: true };
   if (!wanted.length) return { ids: [], gone: 0 };
   const marks = wanted.map((_, j) => `?${j + 2}`).join(", ");
   const { results = [] } = await db

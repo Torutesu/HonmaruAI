@@ -42,7 +42,7 @@ import { channelDetails, setDescription, channelRow } from "./channelDetails.js"
 import { channelJournal, forgetJournalDay, validDay, validZone } from "./journal.js";
 import { settleUsage } from "./ledger.js";
 import { readCapped } from "./media.js";
-import { uploadFile, sendable, dropFiles } from "./files.js";
+import { uploadFile, sendable, dropFiles, MAX_FILES_PER_MESSAGE } from "./files.js";
 import { queueMessagePushes, clearDelivered, clearDeliveredMessages } from "./pushes.js";
 import { audit, person } from "./audit.js";
 import { getCanvas, toClientCanvas, listRevisions, getRevision, saveCanvas, draftCanvas } from "./canvas.js";
@@ -992,6 +992,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     // Files uploaded for this message come with it — yours, uploaded here —
     // claimed with it in one step (postMessage).
     const uploads = await sendable(env.DB, { orgId, key: resolved.key, login: who.user.login, ids: body.files });
+    if (uploads.over) return json({ message: `A message can carry at most ${MAX_FILES_PER_MESSAGE} files.`, code: "too_many_files" }, 400);
     const withFiles = uploads.ids.length > 0;
     if (body.clientId != null && body.clientId !== "" && (typeof body.clientId !== "string" || !clientIdOk(body.clientId))) {
       return json({ message: "That send cannot be tried again." }, 400);

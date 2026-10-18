@@ -43905,6 +43905,35 @@
           }
         }
       }
+    },
+    "A message can carry at most 10 files.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1つのメッセージに添付できるファイルは10個までです。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un mensaje puede llevar como máximo 10 archivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un message peut contenir au plus 10 fichiers."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Nachricht kann höchstens 10 Dateien enthalten."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

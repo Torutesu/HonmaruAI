@@ -408,17 +408,25 @@ struct ConversationView: View {
                     }
                 }
                 HStack(alignment: .bottom, spacing: 8) {
-                    // Photos from the camera roll, uploaded as soon as they are picked.
-                    PhotosPicker(selection: $photoItems, maxSelectionCount: 10, matching: .images) {
+                    // Photos from the camera roll, uploaded as soon as they are picked:
+                    // no more, all told, than one message carries.
+                    let photoRoom = ChatPhotos.room(attached: attached.count, uploading: uploading)
+                    PhotosPicker(selection: $photoItems, maxSelectionCount: max(photoRoom, 1), matching: .images) {
                         Image(systemName: "plus").font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .foregroundStyle(photoRoom == 0 ? Theme.Colors.textTertiary : Theme.Colors.textSecondary)
                             .frame(width: 44, height: 44).glassCircle()
                     }
+                    .disabled(photoRoom == 0)
                     .accessibilityLabel("Add photos")
                     .onChange(of: photoItems) { _, items in
                         guard !items.isEmpty else { return }
                         photoItems = []
-                        Task { await attach(items) }
+                        let taken = Array(items.prefix(ChatPhotos.room(attached: attached.count, uploading: uploading)))
+                        if taken.count < items.count { notes.append(String(localized: "A message can carry at most 10 files.")) }
+                        guard !taken.isEmpty else { return }
+                        // Their places are kept from now, before the first has gone up.
+                        uploading += taken.count
+                        Task { await attach(taken) }
                     }
                     // Quote, list, numbered list, bold and the rest, as on the web.
                     Menu {
@@ -474,10 +482,10 @@ struct ConversationView: View {
     }
 
     /// Picked photos: each made a JPEG (a HEIC would not show everywhere),
-    /// uploaded, and held for the message you are about to send.
+    /// uploaded, and held for the message you are about to send. Each is
+    /// already counted in `uploading`, and given back as it is done.
     private func attach(_ items: [PhotosPickerItem]) async {
         for (i, item) in items.enumerated() {
-            uploading += 1
             defer { uploading -= 1 }
             guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data),
                   let jpeg = image.jpegData(compressionQuality: 0.85) else { continue }
