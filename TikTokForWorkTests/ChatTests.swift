@@ -45,6 +45,20 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(m.date, ChatDates.parse("2026-09-24T09:00:00.000Z"))
     }
 
+    func testThreadTimesCarryTheirDateBeforeToday() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let now = try XCTUnwrap(ChatDates.parse("2026-10-01T18:00:00.000Z"))
+        let today = try XCTUnwrap(ChatDates.parse("2026-10-01T05:41:00.000Z"))
+        let earlier = try XCTUnwrap(ChatDates.parse("2026-09-28T19:28:00.000Z"))
+        let lastYear = try XCTUnwrap(ChatDates.parse("2025-12-31T19:28:00.000Z"))
+        let timeOnly = Date.FormatStyle.dateTime.hour().minute()
+        let dated = Date.FormatStyle.dateTime.month(.abbreviated).day().hour().minute()
+        XCTAssertEqual(ChatDates.threadStyle(for: today, now: now, calendar: calendar), timeOnly)
+        XCTAssertEqual(ChatDates.threadStyle(for: earlier, now: now, calendar: calendar), dated)
+        XCTAssertEqual(ChatDates.threadStyle(for: lastYear, now: now, calendar: calendar), dated.year())
+    }
+
     func testFilesGroupsPrivateChannelsAndEmojiDecode() throws {
         let message = """
         {"id":"m2","channel":"g:0123456789abcdef","kind":"message","body":"","mine":true,"createdAt":"2026-09-26T01:00:00.000Z",

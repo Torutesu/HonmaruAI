@@ -848,7 +848,11 @@ struct ChatMessageRow: View {
                                 Text(verbatim: "@\(handle)").font(.caption).foregroundStyle(Theme.Colors.textTertiary).lineLimit(1)
                             }
                         }
-                        Text(message.date, style: .time).font(.caption).foregroundStyle(Theme.Colors.textTertiary)
+                        if inThread {
+                            Text(message.date, format: ChatDates.threadStyle(for: message.date)).font(.caption).foregroundStyle(Theme.Colors.textTertiary)
+                        } else {
+                            Text(message.date, style: .time).font(.caption).foregroundStyle(Theme.Colors.textTertiary)
+                        }
                     }
                 }
                 if message.isDeleted {

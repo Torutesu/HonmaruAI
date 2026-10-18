@@ -372,6 +372,15 @@ enum ChatDates {
         return withFraction.date(from: s) ?? plain.date(from: s)
     }
     static func string(_ d: Date) -> String { withFraction.string(from: d) }
+    /// A message's time where nothing around it says which day it was (a
+    /// thread, unlike a conversation, has no day lines): the time alone
+    /// today, the date with it on an earlier day, and the year too in an
+    /// earlier year — each in the reader's own order and words.
+    static func threadStyle(for d: Date, now: Date = .now, calendar: Calendar = .current) -> Date.FormatStyle {
+        if calendar.isDate(d, inSameDayAs: now) { return Date.FormatStyle.dateTime.hour().minute() }
+        let dated = Date.FormatStyle.dateTime.month(.abbreviated).day().hour().minute()
+        return calendar.isDate(d, equalTo: now, toGranularity: .year) ? dated : dated.year()
+    }
 }
 
 enum ChatService {
