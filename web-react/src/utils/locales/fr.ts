@@ -229,6 +229,8 @@ const table: Record<string, string> = {
   'Show': 'Afficher',
   'Shrink': 'Réduire',
   'Stop sharing': 'Arrêter le partage',
+  'The screen could not be shared.': 'Impossible de partager l’écran.',
+  'Your system settings do not allow screen sharing. Allow it and try again.': 'Les réglages du système n’autorisent pas le partage d’écran. Autorisez-le, puis réessayez.',
   'This Jam is not recorded, so nothing is written down.': 'Ce Jam n’est pas enregistré : rien n’est transcrit.',
   'This browser cannot write down what you say; others’ words still appear here.': 'Ce navigateur ne peut pas vous transcrire ; les autres apparaissent ici.',
   'Turn camera off': 'Couper la caméra',

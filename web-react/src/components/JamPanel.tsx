@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from './Icon'
 import { Avatar } from './Avatar'
-import { JAM_REACTIONS, audioDevices, canShareScreen, canTranscribe, type JamCall, type JamParticipant } from '../utils/jam'
+import { JAM_REACTIONS, audioDevices, canShareScreen, canTranscribe, screenShareProblem, type JamCall, type JamParticipant } from '../utils/jam'
 import type { ChannelMessage } from '../types/card'
 import './JamPanel.css'
 import { composing } from '../utils/keys'
@@ -91,9 +91,12 @@ export const JamPanel: React.FC<Props> = ({ call, where, api, faceOf, me, onLeav
     )
   }
 
-  const act = async (fn: () => Promise<void>, fail: string) => {
+  const act = async (fn: () => Promise<void>, fail: string | ((error: unknown) => string | null)) => {
     setProblem(null)
-    try { await fn() } catch { setProblem(t(fail)) }
+    try { await fn() } catch (error) {
+      const say = typeof fail === 'string' ? fail : fail(error)
+      if (say) setProblem(t(say))
+    }
   }
 
   const transcriptEnd = useRef<HTMLDivElement>(null)
@@ -166,7 +169,7 @@ export const JamPanel: React.FC<Props> = ({ call, where, api, faceOf, me, onLeav
           )}
         </span>
         {canShareScreen() && (
-          <button type="button" className={`jam-ctl${call.screen ? ' on' : ''}`} onClick={() => void act(() => call.setScreen(!call.screen), 'The screen could not be shared.')} aria-pressed={Boolean(call.screen)} aria-label={call.screen ? t('Stop sharing') : t('Share your screen')} title={call.screen ? t('Stop sharing') : t('Share your screen')} data-jam-screen="1">
+          <button type="button" className={`jam-ctl${call.screen ? ' on' : ''}`} onClick={() => void act(() => call.setScreen(!call.screen), screenShareProblem)} aria-pressed={Boolean(call.screen)} aria-label={call.screen ? t('Stop sharing') : t('Share your screen')} title={call.screen ? t('Stop sharing') : t('Share your screen')} data-jam-screen="1">
             <Icon name="monitor" size={17} />
           </button>
         )}
