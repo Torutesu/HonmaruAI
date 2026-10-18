@@ -24,10 +24,10 @@ beforeEach(() => {
 })
 afterEach(() => { if (tree) act(() => tree!.unmount()); tree = undefined; vi.unstubAllGlobals() })
 const button = (label: string) => tree!.root.findAllByType('button').find(node => node.props.children === label)!
-async function start() {
+async function start(prompt='First request') {
   await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
   act(() => button('Build an app').props.onClick())
-  act(() => tree!.root.findByType('textarea').props.onChange({ target: { value: 'First request' } }))
+  act(() => tree!.root.findByType('textarea').props.onChange({ target: { value: prompt } }))
   let completion!: Promise<void>
   act(() => { completion = button('Build').props.onClick() })
   return { completion }
@@ -36,6 +36,12 @@ test('generation still opens its app when the same screen is active', async () =
   const { completion } = await start()
   await act(async () => { finish({ app: { id: 'created' }, source: 'template' }); await completion })
   expect(location.hash).toBe('#/apps/created/team%3Aone')
+})
+test('room generation opens the saved source route rather than a detached app panel',async()=>{
+ const {completion}=await start('Build a tracker for #general')
+ await act(async()=>{finish({app:{id:'created'},source:'template'});await completion})
+ expect(state.api.generate).toHaveBeenCalledWith('Build a tracker for #general','b:general',expect.objectContaining({captureSource:true}))
+ expect(location.hash).toBe('#/apps/created/team%3Aone?source=1')
 })
 test('late completion retains another destination and a revised prompt', async () => {
   const { completion } = await start()

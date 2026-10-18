@@ -12,7 +12,7 @@
 |---|---|---|---|---|---|
 | KY-001 | 公開・非公開ルーム | 一部 | P0 | [worker/src/access.js](../../worker/src/access.js) | 非メンバー・管理者・ゲストのHTTP/WS/検索すべてで隔離を検証 |
 | KY-002 | DM・グループ・エージェントDM | 一部 | P1 | [worker/src/channels.js](../../worker/src/channels.js) | 各参加者の可視性と退出後のアクセスを実機で確認 |
-| KY-003 | ホーム・最近・未読・メンション | 一部 | P1 | [web-react/src/components/ClassicList.tsx](../../web-react/src/components/ClassicList.tsx) | 左一覧だけのメンション／DM絞り込み、会話・下書き・アプリを維持する切替をローカル実画面で確認（公開前）。一覧と通知既読位置の全端末一致は残る |
+| KY-003 | ホーム・最近・未読・メンション | 一部 | P1 | [web-react/src/components/ClassicList.tsx](../../web-react/src/components/ClassicList.tsx) | PR #443で左一覧のメンション絞り込みを公開。本番Macの空状態とローカル非空一覧・会話・下書き・アプリ維持を確認。一覧と通知既読位置の全端末一致は残る |
 | KY-004 | ルームガイドライン | 一部 | P0 | [worker/src/harness/guidelines.js](../../worker/src/harness/guidelines.js) | 4096字・競合検知・毎ターン反映。BYOと全AI入口への適用が残る |
 | KY-005 | オブジェクト固定スレッド | 一部 | P1 | [worker/src/harness/appConversations.js](../../worker/src/harness/appConversations.js) | 作成元スレッドの履歴・返信・既読を共用。独立アプリ／レコード会話に明示的AI返信・メンション・アプリ内通知・既読同期を追加。全体Activityの表示・既読・対象会話への移動を統合。独立会話のOSプッシュと実機比較未確認部分は残る |
 | KY-006 | ルームへのリソース紐付け | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 所有ルームと参照リンクを区別し非公開データが他ルームへ漏れない |
@@ -75,7 +75,7 @@
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-038 | 会話・テンプレートからDatabase App | 一部 | P1 | [worker/src/harness/appGeneration.js](../../worker/src/harness/appGeneration.js) | PR #443で元の依頼文の自動保存、元会話の表示、要求IDによる再送、保存済み生成定義の再利用、非公開元スレッドの公開範囲継承を追加（CI待ち・公開前）。テンプレート照合とAI生成の区別、業務要件を保持する全体比較は継続 |
+| KY-038 | 会話・テンプレートからDatabase App | 一部 | P1 | [worker/src/harness/appGeneration.js](../../worker/src/harness/appGeneration.js) | PR #443で元の依頼文の自動保存、元会話の表示、要求IDによる再送、保存済み生成定義の再利用、非公開元スレッドの公開範囲継承を追加（本番反映済み）。テンプレート照合とAI生成の区別、業務要件を保持する全体比較は継続 |
 | KY-039 | アプリ単位のDBと複数entity | 一部 | P0 | [worker/src/harness/tables.js](../../worker/src/harness/tables.js) | アプリACLを継承する複数entityと型付きテーブルを追加。relationと参照整合性は残る |
 | KY-040 | 標準CRUD・型検証 | 一部 | P0 | [worker/src/harness/tables.js](../../worker/src/harness/tables.js) | strict値検証・行CAS・HTTP/MCPページングを追加。参照整合性・スキーマ変更との競合は未実装 |
 | KY-041 | 表・ボード・カレンダー | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | table/board/metricsに終日calendarを追加。月移動・日付編集・未設定・閏日を検証。時刻・タイムゾーン付き予定とnative画面は残る |
@@ -136,7 +136,7 @@
 |---|---|---|---|---|---|
 | KY-076 | 連携カタログとOAuth接続 | 一部 | P1 | 該当実装は未特定 | 掲載件数ではなく認証/検索/読取/書込/解除を連携ごとに検証 |
 | KY-077 | Remote MCP任意サーバー | 未実装 | P1 | 該当実装は未特定 | OAuth/API key・tool一覧・schema・SSRF制限・失効 |
-| KY-078 | Custom API service | 一部 | P1 | 該当実装は未特定 | 6種の公式API host・固定URL/操作・暗号化secret・応答上限・redirect禁止・write再送抑止を追加。任意hostとMCPは未対応 |
+| KY-078 | Custom API service | 一部 | P1 | [worker/src/harness/appCapabilities.js](../../worker/src/harness/appCapabilities.js) | 6種の公式API host・固定URL/操作・暗号化secret・応答上限・redirect禁止・write再送抑止を追加。任意hostとMCPは未対応 |
 | KY-079 | Agent単位のConnection grant | 一部 | P0 | [worker/src/agentTools.js](../../worker/src/agentTools.js) | 人の接続とagent/app/workflowの利用権を分離 |
 | KY-080 | Tools discovery/execute/native proxy/upload | 一部 | P1 | [worker/src/mcp.js](../../worker/src/mcp.js) | 同一principalとスコープでREST/CLI/MCPを提供 |
 | KY-081 | LINE公式アカウント受信 | 未実装 | P1 | 該当実装は未特定 | 署名検証・接続単位のイベント保存・LINE Inbox |
