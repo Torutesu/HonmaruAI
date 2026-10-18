@@ -4,6 +4,7 @@ import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MessageFiles } from './Attachments'
+import { renderRich } from './MessageParts'
 import type { FileRef } from '../types/card'
 import { configureMediaUrls } from '../utils/mediaUrls'
 
@@ -94,6 +95,9 @@ class El {
   /// MediaError's number, and how far it had played.
   error: { code: number } | null = null
   currentTime = 0
+  /// How many times it was told to play.
+  played = 0
+  play() { this.played += 1; return Promise.resolve() }
   constructor(public tagName: string, public ownerDocument: Page) {}
   get nodeName() { return this.tagName }
   get firstChild() { return this.childNodes[0] ?? null }
@@ -277,6 +281,95 @@ describe('MessageFiles, when the connection drops', () => {
     expect(box.all('video')).toHaveLength(0)
     expect(box.all('a')[0].attrs.class).toBe('att-file')
     close()
+  })
+})
+
+// A Jam's recording in a message left open far longer than its address lasts.
+describe('a Jam recording, left open', () => {
+  onPage()
+  const link = 'https://api.example/channels/jam/audio/0f8b3c3e-1111-4222-8333-944455556666'
+  const settled = () => new Promise((r) => setTimeout(r, 20))
+
+  it('asks for a new address when played after its own ran out, and when one will not open', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const start = Date.now()
+    let n = 0
+    let answer: (n: number) => Response = (i) => new Response(JSON.stringify({ url: `${link}?v=2&e=${i}&s=x`, expiresAt: Date.now() + 600_000 }))
+    const fetching = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => answer(++n))
+    configureMediaUrls({ httpBase: BASE, orgId: 'team:jam', sessionToken: 'tok' })
+    const box = new Page().createElement('div')
+    const root = createRoot(box as unknown as Element)
+    try {
+      flushSync(() => root.render(<>{renderRich(`Recording: ${link}`, () => 'mention')}</>))
+      await settled()
+      const audio = box.all('audio')[0]
+      expect(audio.attrs.src).toBe(`${link}?v=2&e=1&s=x`)
+      // Played well before it runs out: nothing asked.
+      tell(audio, 'play')
+      tell(audio, 'pause')
+      await settled()
+      expect(n).toBe(1)
+
+      // Played for the first time an hour later: a new address, and it plays.
+      vi.setSystemTime(start + 3_600_000)
+      tell(audio, 'play')
+      await settled()
+      expect(n).toBe(2)
+      expect(audio.attrs.src).toBe(`${link}?v=2&e=2&s=x`)
+      expect(audio.played).toBe(1)
+      tell(audio, 'playing')
+
+      // Its address refused part way through: a new one, from where it was.
+      tell(audio, 'error', { code: UNPLAYABLE, at: 31.5 })
+      await settled()
+      expect(audio.attrs.src).toBe(`${link}?v=2&e=3&s=x`)
+      expect(audio.played).toBe(2)
+      tell(audio, 'loadedmetadata', { at: 0 })
+      expect(audio.currentTime).toBe(31.5)
+
+      // No longer this reader's: asked once, and never again.
+      answer = () => new Response(JSON.stringify({ message: 'No such recording.' }), { status: 404 })
+      tell(audio, 'error', { code: UNPLAYABLE })
+      await settled()
+      expect(n).toBe(4)
+      expect(audio.attrs.src).toBe(`${link}?v=2&e=3&s=x`)
+      tell(audio, 'error', { code: UNPLAYABLE })
+      vi.setSystemTime(start + 7_200_000)
+      tell(audio, 'play')
+      await settled()
+      expect(n).toBe(4)
+    } finally {
+      flushSync(() => root.unmount())
+      fetching.mockRestore()
+      configureMediaUrls(null)
+      vi.useRealTimers()
+    }
+  })
+
+  it('gets an address on being played when asking for one failed before', async () => {
+    let up = false
+    const fetching = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      if (!up) throw new TypeError('Failed to fetch')
+      return new Response(JSON.stringify({ url: `${link}?v=2&e=9&s=x`, expiresAt: Date.now() + 600_000 }))
+    })
+    configureMediaUrls({ httpBase: BASE, orgId: 'team:jam', sessionToken: 'tok' })
+    const box = new Page().createElement('div')
+    const root = createRoot(box as unknown as Element)
+    try {
+      flushSync(() => root.render(<>{renderRich(`Recording: ${link}`, () => 'mention')}</>))
+      await settled()
+      const audio = box.all('audio')[0]
+      expect(audio.attrs.src).toBeUndefined()
+      up = true
+      tell(audio, 'play')
+      await settled()
+      expect(audio.attrs.src).toBe(`${link}?v=2&e=9&s=x`)
+      expect(audio.played).toBe(1)
+    } finally {
+      flushSync(() => root.unmount())
+      fetching.mockRestore()
+      configureMediaUrls(null)
+    }
   })
 })
 

@@ -133,17 +133,31 @@ export function useFileUrls(base: string, files: FileRef[] | undefined) {
   }
 }
 
+/// A recording's address and until when it opens (ms; null for one that
+/// does not run out).
+export interface RecordingSource { url: string; expiresAt: number | null }
+
 /// Where to play a Jam's recording from: an address signed for whoever is
-/// looking, asked for when the player is drawn (POST /channels/jam/audio-url).
-/// The link in the message itself opens nothing once recordings are signed;
-/// a recording from before plays from it as it is.
-export async function recordingAddress(link: string): Promise<string> {
+/// looking (POST /channels/jam/audio-url), good for minutes, so a player
+/// left open asks again. `denied` when it is not this reader's to hear, or
+/// gone; null when the asking failed (offline, the server down for a
+/// moment) and may be tried again. A recording from before, which is not
+/// signed, plays from its link as it is.
+export async function recordingSource(link: string): Promise<RecordingSource | 'denied' | null> {
   const id = link.split('/').pop() || ''
-  if (!api) return link
+  if (!api) return { url: link, expiresAt: null }
   const res = await fetch(`${api.httpBase}/channels/jam/audio-url`, {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': api.sessionToken },
     body: JSON.stringify({ orgId: api.orgId, id }),
   }).catch(() => null)
+  if (res && (res.status === 403 || res.status === 404)) return 'denied'
   const data = res?.ok ? await res.json().catch(() => null) : null
-  return typeof data?.url === 'string' ? data.url : link
+  return typeof data?.url === 'string' ? { url: data.url, expiresAt: Number(data.expiresAt) || null } : null
+}
+
+/// Where to play a Jam's recording from, as an address alone: its link
+/// when no signed one could be had.
+export async function recordingAddress(link: string): Promise<string> {
+  const source = await recordingSource(link)
+  return source && source !== 'denied' ? source.url : link
 }
