@@ -19,3 +19,16 @@ test('pending creation blocks duplicate submit and dismissal',async()=>{
  act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={columns} save={save} onClose={onClose}/>)});
  act(()=>{void tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()});void tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})});act(()=>tree!.root.findAllByType('button')[0].props.onClick());expect(save).toHaveBeenCalledOnce();expect(onClose).not.toHaveBeenCalled();await act(async()=>resolve());expect(onClose).toHaveBeenCalledOnce();act(()=>tree!.unmount())
 })
+test('editing sends only changed fields and explicitly clears values without losing legacy owners',async()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const save=vi.fn().mockResolvedValue(undefined);let tree:ReturnType<typeof create>
+ const record={id:'row_1',values:{title:'Existing',count:12,owner:'former-member'},createdAt:'2026-10-01T00:00:00Z',updatedAt:'2026-10-18T00:00:00Z'}
+ act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={[...columns,{id:'owner',name:'担当者',type:'person'}]} record={record} members={[{ref:'user_1',name:'メンバー'}]} save={save} onClose={()=>{}}/>)});
+ expect(tree!.root.findAllByType('option').some(o=>o.props.value==='former-member')).toBe(true)
+ act(()=>tree!.root.findByType('input').props.onChange({target:{value:''}}))
+ await act(async()=>{await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})});expect(save).toHaveBeenCalledWith({count:null});expect(record.values.count).toBe(12);act(()=>tree!.unmount())
+})
+test('conflicting edit keeps the draft and does not close',async()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const save=vi.fn().mockRejectedValue(new Error('別のユーザーが更新しました')),onClose=vi.fn();let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={columns} record={{id:'row_1',values:{title:'Original'},updatedAt:'2026-10-18T00:00:00Z'}} save={save} onClose={onClose}/>)});
+ act(()=>tree!.root.findByType('textarea').props.onChange({target:{value:'My changes'}}));await act(async()=>{await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})});expect(onClose).not.toHaveBeenCalled();expect(tree!.root.findByType('textarea').props.value).toBe('My changes');expect(tree!.root.findByProps({role:'alert'}).children).toContain('別のユーザーが更新しました');act(()=>tree!.unmount())
+})

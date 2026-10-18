@@ -241,9 +241,10 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const [section, setSection] = useState<'overview' | 'data' | 'settings' | 'custom' | 'backend'>('overview')
   const [search, setSearch] = useState('')
   const [creating,setCreating]=useState(false),[fullscreen,setFullscreen]=useState(false)
+  const [editingRecord,setEditingRecord]=useState<Row|null>(null)
   const [recordMembers,setRecordMembers]=useState<Array<{ref:string;name:string}>>([])
-  useEffect(()=>{if(!creating&&!data?.table.columns.some(c=>c.type==='person'))return;let active=true;setRecordMembers([]);void api.members().then(result=>{if(active)setRecordMembers(result.members)},()=>{if(active)setRecordMembers([])});return()=>{active=false}},[creating,api,data?.table.columns])
-  useEffect(()=>{if(!fullscreen)return;const exit=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!creating){e.stopPropagation();setFullscreen(false)}};document.addEventListener('keydown',exit);return()=>document.removeEventListener('keydown',exit)},[fullscreen,creating])
+  useEffect(()=>{if(!creating&&!editingRecord&&!data?.table.columns.some(c=>c.type==='person'))return;let active=true;setRecordMembers([]);void api.members().then(result=>{if(active)setRecordMembers(result.members)},()=>{if(active)setRecordMembers([])});return()=>{active=false}},[creating,editingRecord,api,data?.table.columns])
+  useEffect(()=>{if(!fullscreen)return;const exit=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!creating&&!editingRecord){e.stopPropagation();setFullscreen(false)}};document.addEventListener('keydown',exit);return()=>document.removeEventListener('keydown',exit)},[fullscreen,creating,editingRecord])
   const [newColumn, setNewColumn] = useState('')
   const [newColumnType, setNewColumnType] = useState<Column['type']>('text')
   const [versions, setVersions] = useState<Array<{ version: number; note: string | null; createdAt: string }> | null>(null)
@@ -252,7 +253,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const { busy, error, act } = useAct()
 
   const load = useCallback(() => act('load', async () => { const sequence=++loadSequence.current; const [next,preferences] = await Promise.all([api.app(appId),api.personalViews(appId)]); if(sequence!==loadSequence.current)return;setLoadedApi(api);setData(next); setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(next.app.definition.custom?.published ? 'overview' : 'data') } }), [api, appId, act])
-  useEffect(() => { load();return()=>{loadSequence.current++;initializedSection.current=false} }, [load])
+  useEffect(() => { setEditingRecord(null);setCreating(false);load();return()=>{loadSequence.current++;initializedSection.current=false} }, [load])
 
   if (!data || loadedApi!==api) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
   const { app, table } = data
@@ -283,6 +284,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
     >
       {section !== 'overview' && section !== 'data' && <nav className="hx-app-sections" aria-label={t('App sections')}>{(['overview', 'data', 'custom', 'backend', 'settings'] as const).map(tab => <button key={tab} aria-current={section === tab ? 'page' : undefined} className={section === tab ? 'on' : ''} onClick={() => setSection(tab)}>{t(tab === 'overview' ? 'Overview' : tab === 'data' ? 'Data viewer' : tab === 'custom' ? 'Customize app' : tab === 'backend' ? '実行基盤' : 'Settings')}</button>)}</nav>}
       {creating&&<AppRecordDialog appName={app.name} columns={table.columns} members={recordMembers} save={async values=>{await api.addRow(table.id,values,'strict');await load()}} onClose={()=>setCreating(false)}/>}
+      {editingRecord&&<AppRecordDialog key={editingRecord.id} appName={app.name} columns={table.columns} members={recordMembers} record={editingRecord} save={async values=>{if(Object.keys(values).length)await api.updateRow(table.id,editingRecord.id,values,editingRecord.updatedAt);await load()}} onClose={()=>setEditingRecord(null)}/>}
       {section === 'backend' && <CompanyApp app={app} api={api} canManage={data.canCustomize !== false} reload={load} />}
       {section === 'custom' && data.canCustomize === false && <p>カスタムコードの編集・公開は、作成者または管理者が行えます。</p>}
       {section === 'custom' && data.canCustomize !== false && <CustomAppEditor httpBase={httpBase} app={app} table={table} rows={data.rows} api={api} reload={load} />}
@@ -306,7 +308,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
         await load()
       })}>{t('Add calendar view')}</button>}
 
-      {view.type === 'calendar' && <AppCalendar key={view.id} view={view} table={table} onMove={(row, date) => { const column = table.columns.find(c => c.id === view.dateColumn); if (column) void save(row, column, date) }} />}
+      {view.type === 'calendar' && <AppCalendar key={view.id} view={view} table={table} onOpen={setEditingRecord} onMove={(row, date) => { const column = table.columns.find(c => c.id === view.dateColumn); if (column) void save(row, column, date) }} />}
 
       {view.type === 'metrics' && (
         <div className="hx-metrics">
@@ -329,7 +331,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
                 const title = table.columns[0]
                 return (
                   <div className="hx-card" key={row.id}>
-                    <div className="hx-card-title">{title ? cellText(title, row.values[title.id]) || '—' : row.id}</div>
+                    <button className="hx-card-title hx-record-title" onClick={()=>setEditingRecord(row)} aria-label={`${title ? cellText(title,row.values[title.id]) || '無題' : row.id}の詳細を開く`}>{title ? cellText(title, row.values[title.id]) || '—' : row.id}<Icon name="maximize" size={13}/></button>
                     {table.columns.slice(1, 4).filter((c) => c.id !== view.groupBy && row.values[c.id] != null).map((c) => (
                       <div className="hx-card-field" key={c.id}><span>{c.name}</span> {cellText(c, row.values[c.id])}</div>
                     ))}
@@ -344,8 +346,8 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
 
       {view.type === 'table' && (
         <div className="hx-table-wrap">
-          <table className={`hx-table hx-personal-table${layout.wrapText?' hx-wrap-text':''}`} style={{width:displayColumns.reduce((n,c)=>n+(layout?.widths[c.id]||180),48)}}>
-            <colgroup>{displayColumns.map(c=><col key={c.id} style={{width:layout?.widths[c.id]||180}}/>)}<col style={{width:48}}/></colgroup>
+          <table className={`hx-table hx-personal-table${layout.wrapText?' hx-wrap-text':''}`} style={{width:displayColumns.reduce((n,c)=>n+(layout?.widths[c.id]||180),80)}}>
+            <colgroup>{displayColumns.map(c=><col key={c.id} style={{width:layout?.widths[c.id]||180}}/>)}<col style={{width:80}}/></colgroup>
             <thead>
               <tr>{displayColumns.map((c) => <th key={c.id} aria-sort={view.sort===c.id?'ascending':view.sort===`-${c.id}`?'descending':'none'}><button className="hx-column-sort" disabled={!canEditView||busy!==null} aria-label={`${c.name}で${view.sort===c.id?'降順に並べ替え':view.sort===`-${c.id}`?'並べ替えを解除':'昇順に並べ替え'}`} onClick={()=>void act('sort',()=>saveView({sort:nextColumnSort(view.sort,c.id)}))}>{c.name}<Icon name={view.sort===c.id?'arrow-up':view.sort===`-${c.id}`?'arrow-down':'sort'} size={12}/></button><ColumnResize name={c.name} width={layout?.widths[c.id]||180} save={width=>act('layout',()=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{...personal.layouts[view.id],hidden:layout.hidden,order:orderedColumns.map(c=>c.id),widths:{...layout?.widths,[c.id]:width}}}}))}/></th>)}<th aria-label={t('Actions')} /></tr>
             </thead>
@@ -357,7 +359,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
                   {displayColumns.map((c) => (
                     <td key={c.id}>{isSystemColumn(c.id)?<span className="hx-system-cell" title={c.id==='$row.id'?row.id:c.id==='$row.createdAt'?row.createdAt:row.updatedAt}>{systemCellText(row,c.id)}</span>:<CellInput members={recordMembers} width={layout.widths[c.id]||180} wrap={layout.wrapText===true} column={c} value={row.values[c.id]} onSave={(v) => save(row, c, v)} />}</td>
                   ))}
-                  <td><button className="btn-text danger" onClick={() => removeRow(row)} disabled={busy === `del:${row.id}`} aria-label={t('Delete row')}><Icon name="trash" size={14} /></button></td>
+                  <td><div className="hx-record-actions"><button className="hx-app-icon-button" aria-label={`${cellText(table.columns[0],row.values[table.columns[0].id])||'無題'}の詳細を開く`} onClick={()=>setEditingRecord(row)}><Icon name="maximize" size={14}/></button><button className="btn-text danger" onClick={() => removeRow(row)} disabled={busy === `del:${row.id}`} aria-label={t('Delete row')}><Icon name="trash" size={14} /></button></div></td>
                 </tr>
               ))}</React.Fragment>)}
             </tbody>
