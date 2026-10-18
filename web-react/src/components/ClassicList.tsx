@@ -808,6 +808,14 @@ export const ClassicList: React.FC<Props> = ({
       return i.unread && at && (i.at || i.message.createdAt) <= at ? { ...i, unread: false } : i
     }))
   }, [])
+  /// A thread marked unread from one of its replies, here or elsewhere: new
+  /// again in Threads at once, and a list fetched before then, or this
+  /// device's own earlier read, does not take that back.
+  const threadUnreadFrom = (parentId: string, at: string) => {
+    readGuard.unreadThread(parentId, at)
+    setThreadItems((prev) => prev && prev.map((x) => (x.parent.id === parentId && x.lastReplyAt > at ? { ...x, unread: true } : x)))
+    void loadThreads()
+  }
   const [activityItems, setActivityItems] = useState<ActivityItem[] | null>(() => views.get<ActivityItem[]>('activity') ?? null)
   useEffect(() => { if (activityItems) views.set('activity', activityItems, { read: false }) }, [activityItems, views])
   // What the Unread tab showed when you came to it stays in the list while
@@ -2655,7 +2663,7 @@ export const ClassicList: React.FC<Props> = ({
     }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) as { lastReadAt: string; thread: string | null } | null : null
     if (!data) { setProblem(t('That did not save.')); return }
-    if (data.thread) { void loadThreads(); setToast(t('Marked unread')); return }
+    if (data.thread) { threadUnreadFrom(data.thread, data.lastReadAt); setToast(t('Marked unread')); return }
     heldUnread.current = channel
     try { localStorage.setItem(seenKey(api.orgId, channel), data.lastReadAt) } catch { /* the server remembers */ }
     setServerReads((prev) => ({ ...prev, [channel]: data.lastReadAt }))
@@ -3022,7 +3030,7 @@ export const ClassicList: React.FC<Props> = ({
       if (!v || !at) return
       if (d.thread) {
         const parentId = d.thread
-        if (d.unread) { void loadThreads(); return }
+        if (d.unread) { threadUnreadFrom(parentId, at); return }
         closeThreadNotifications(parentId)
         setThreadItems((prev) => prev && prev.map((x) => (x.parent.id === parentId ? { ...x, unread: false } : x)))
         setActivityItems((prev) => prev && prev.map((i) => (i.unread && i.message.parentId === parentId && (i.at || i.message.createdAt) <= at ? { ...i, unread: false } : i)))
