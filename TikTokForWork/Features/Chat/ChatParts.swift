@@ -848,6 +848,98 @@ struct ChatAgentTypingRow: View {
     }
 }
 
+/// What is on its way, lit from left to right while it waits; still with
+/// Reduce Motion.
+struct ChatShimmer: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var phase: CGFloat = 0
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if !reduceMotion {
+                    GeometryReader { geo in
+                        LinearGradient(colors: [.clear, .white.opacity(0.12), .clear], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: geo.size.width * 0.5)
+                            .offset(x: -geo.size.width * 0.5 + phase * geo.size.width * 1.5)
+                    }
+                    .mask(content)
+                    .allowsHitTesting(false)
+                }
+            }
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { phase = 1 }
+            }
+    }
+}
+
+/// A grey line where words will be.
+struct ChatSkeletonBar: View {
+    let width: CGFloat
+    var height: CGFloat = 12
+    var body: some View {
+        RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+            .fill(Theme.Colors.surfaceRaised)
+            .frame(width: width, height: height)
+    }
+}
+
+/// Messages on their way, in the shape of the ones coming: a face, a name,
+/// a line or two of uneven length — rather than a spinner over an empty
+/// conversation that reads as one with nothing in it.
+struct ChatSkeletonMessages: View {
+    var count = 6
+    private static let lines: [[CGFloat]] = [[230, 150], [180], [250, 210, 90], [140], [220, 120], [190]]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(0..<count, id: \.self) { i in
+                HStack(alignment: .top, spacing: 10) {
+                    Circle().fill(Theme.Colors.surfaceRaised).frame(width: 36, height: 36)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            ChatSkeletonBar(width: i.isMultiple(of: 2) ? 84 : 64, height: 11)
+                            ChatSkeletonBar(width: 32, height: 9)
+                        }
+                        ForEach(Array(Self.lines[i % Self.lines.count].enumerated()), id: \.offset) { _, w in
+                            ChatSkeletonBar(width: w)
+                        }
+                    }
+                    .padding(.top, 3)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+            }
+        }
+        .modifier(ChatShimmer())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Loading…"))
+    }
+}
+
+/// Rows of a list on their way: Home, DMs, Activity, Threads.
+struct ChatSkeletonRows: View {
+    var count = 7
+    private static let widths: [CGFloat] = [150, 110, 180, 130, 160, 100, 140]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(0..<count, id: \.self) { i in
+                HStack(spacing: 12) {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.Colors.surfaceRaised).frame(width: 36, height: 36)
+                    VStack(alignment: .leading, spacing: 7) {
+                        ChatSkeletonBar(width: Self.widths[i % Self.widths.count], height: 12)
+                        ChatSkeletonBar(width: Self.widths[(i + 3) % Self.widths.count] + 40, height: 9)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+            }
+        }
+        .modifier(ChatShimmer())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Loading…"))
+    }
+}
+
 /// One message: who, when, the words (or a tombstone), what is under them.
 struct ChatMessageRow: View {
     let message: ChatMessage

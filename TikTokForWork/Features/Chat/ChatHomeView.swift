@@ -139,7 +139,10 @@ struct ChatHomeView: View {
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
-                if store.channels.isEmpty && store.people.isEmpty {
+                if !store.loaded.contains("overview") && store.channels.isEmpty && store.people.isEmpty {
+                    ChatSkeletonRows()
+                        .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Color.clear)
+                } else if store.channels.isEmpty && store.people.isEmpty {
                     gettingStarted
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 12, trailing: 16))
                         .listRowSeparator(.hidden).listRowBackground(Color.clear)
@@ -219,7 +222,10 @@ struct ChatHomeView: View {
         List {
             let dms = (store.groupConversations + store.people + store.agentConversations)
                 .sorted { (store.activity[$0.view]?.lastAt ?? "") > (store.activity[$1.view]?.lastAt ?? "") }
-            if dms.isEmpty {
+            if dms.isEmpty && !store.loaded.contains("overview") {
+                ChatSkeletonRows()
+                    .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Color.clear)
+            } else if dms.isEmpty {
                 ContentUnavailableView("No direct messages yet", systemImage: "bubble.left.and.bubble.right",
                                        description: Text("Invite teammates and they show up here. Write to one, or to a few at once."))
                     .listRowBackground(Color.clear).listRowSeparator(.hidden)

@@ -58,6 +58,10 @@ struct ChatThreadSheet: View {
                         }.padding(.horizontal, 16).padding(.vertical, 8)
                         if store.threadFailed { failedNote(t.parent) }
                         ForEach(t.replies) { row($0) }
+                        // The replies still on their way, in their shape.
+                        if store.threadLoading, (t.parent.replyCount ?? 0) > t.replies.count {
+                            ChatSkeletonMessages(count: min((t.parent.replyCount ?? 0) - t.replies.count, 3))
+                        }
                         if let step = store.thinking[t.parent.channel] { ChatAISteps(step: step).padding(.vertical, 6) }
                         ForEach((store.agentTyping[t.parent.channel] ?? []).filter { $0.parentId == nil || $0.parentId == t.parent.id }, id: \.agent.id) { typing in
                             ChatAgentTypingRow(agent: typing.agent).padding(.vertical, 6)
@@ -67,7 +71,7 @@ struct ChatThreadSheet: View {
                 } else if store.threadFailed {
                     failedNote(nil)
                 } else {
-                    ProgressView().padding(40)
+                    ChatSkeletonMessages(count: 4).padding(.top, 8)
                 }
             }
             .defaultScrollAnchor(.bottom)
@@ -396,7 +400,10 @@ struct ChatActivityView: View {
     @ObservedObject private var translations = ChatTranslations.shared
     var body: some View {
         List {
-            if store.inbox.isEmpty {
+            if store.inbox.isEmpty && !store.loaded.contains("inbox") {
+                ChatSkeletonRows()
+                    .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Color.clear)
+            } else if store.inbox.isEmpty {
                 ContentUnavailableView("Nothing for you yet", systemImage: "bell",
                                        description: Text("When somebody writes @ your name, or replies in a thread you are part of, it shows up here."))
             }
@@ -1022,7 +1029,7 @@ struct ChatCatchUpView: View {
             }
             Divider()
             if loaded[view] == nil {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                ChatSkeletonMessages(count: 4).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {

@@ -140,6 +140,11 @@ final class ChatStore: ObservableObject {
     @Published private(set) var agents: [ChatAgent] = []
     /// Agents writing answers, by conversation, until each one has.
     @Published var agentTyping: [String: [ChatAgentTyping]] = [:]
+    /// What has been asked for at least once in this workspace — the list
+    /// ("overview"), Activity ("inbox"), Threads ("threads") — answered or
+    /// not. Until then an empty list is one still on its way, and drawn as
+    /// one, not as "nothing here yet".
+    @Published var loaded: Set<String> = []
     @Published var thread: ChatThread? {
         // The thread as it stands — replies sent, edited, arrived live —
         // kept for the next time it is opened (#209).
@@ -254,7 +259,7 @@ final class ChatStore: ObservableObject {
         sidebar = ChatSidebar(); activity = [:]; reads = [:]; prefs = [:]; mine = nil; agents = []
         messages = [:]; more = [:]; olderLoading = []; olderFailed = []
         inbox = []; saved = []; scheduled = []; cancelling = []
-        thinking = [:]; agentTyping = [:]
+        thinking = [:]; agentTyping = [:]; loaded = []
         thread = nil; threadLoading = false; threadFailed = false; threadReadTo = [:]
         pendingOpen = nil; threadJump = nil; dataWarning = nil; dataBlocked = nil; error = nil
         if next.hasPrefix("|") {
@@ -354,8 +359,10 @@ final class ChatStore: ObservableObject {
             groups = overview.groups ?? []
             agents = overview.agents ?? []
             businesses = list
+            loaded.insert("overview")
         } catch {
             guard scope == self.scope else { return }
+            loaded.insert("overview")
             self.error = error.localizedDescription
         }
         let emojiList = try? await ChatService.emoji(orgId: orgId, base: base)
@@ -413,7 +420,10 @@ final class ChatStore: ObservableObject {
     func loadThreads() async {
         guard let orgId, let base else { return }
         let scope = self.scope
-        if let list = try? await ChatService.threads(orgId: orgId, base: base), scope == self.scope { threads = list }
+        let list = try? await ChatService.threads(orgId: orgId, base: base)
+        guard scope == self.scope else { return }
+        if let list { threads = list }
+        loaded.insert("threads")
         // Behind, so what waits on the list does not wait on this too.
         Task { await readAhead() }
     }
@@ -518,7 +528,10 @@ final class ChatStore: ObservableObject {
     func loadInbox() async {
         guard let orgId, let base else { return }
         let scope = self.scope
-        if let items = try? await ChatService.activity(orgId: orgId, base: base), scope == self.scope { inbox = items }
+        let items = try? await ChatService.activity(orgId: orgId, base: base)
+        guard scope == self.scope else { return }
+        if let items { inbox = items }
+        loaded.insert("inbox")
     }
     func loadLater() async {
         guard let orgId, let base else { return }
