@@ -470,7 +470,7 @@ struct ConversationView: View {
                                         AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Theme.Colors.surfaceRaised }
                                             .frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                                     } else {
-                                        Image(systemName: "doc").frame(width: 56, height: 56)
+                                        Image(systemName: f.type.hasPrefix("video/") ? "film" : "doc").frame(width: 56, height: 56)
                                             .background(Theme.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                                     }
                                     Button { attached.removeAll { $0.id == f.id } } label: {
@@ -484,16 +484,16 @@ struct ConversationView: View {
                     }
                 }
                 HStack(alignment: .bottom, spacing: 8) {
-                    // Photos from the camera roll, uploaded as soon as they are picked:
+                    // Photos and videos from the camera roll, uploaded as soon as they are picked:
                     // no more, all told, than one message carries.
                     let photoRoom = ChatPhotos.room(attached: attached.count, uploading: uploading)
-                    PhotosPicker(selection: $photoItems, maxSelectionCount: max(photoRoom, 1), matching: .images) {
+                    PhotosPicker(selection: $photoItems, maxSelectionCount: max(photoRoom, 1), matching: .any(of: [.images, .videos])) {
                         Image(systemName: "plus").font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(photoRoom == 0 ? Theme.Colors.textTertiary : Theme.Colors.textSecondary)
                             .frame(width: 44, height: 44).glassCircle()
                     }
                     .disabled(photoRoom == 0)
-                    .accessibilityLabel("Add photos")
+                    .accessibilityLabel("Add photos or videos")
                     .onChange(of: photoItems) { _, items in
                         guard !items.isEmpty else { return }
                         photoItems = []
@@ -557,7 +557,7 @@ struct ConversationView: View {
         uploading == 0 && !savingEdit && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (!attached.isEmpty && editing == nil))
     }
 
-    /// Picked photos, made ready and uploaded (ChatPhotos.upload) and held
+    /// Picked photos and videos, made ready and uploaded (ChatPhotos.upload) and held
     /// for the message you are about to send. They are already counted in
     /// `uploading`, and given back once they are up.
     private func attach(_ items: [PhotosPickerItem]) async {

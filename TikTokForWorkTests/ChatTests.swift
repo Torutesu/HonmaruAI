@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import AVFoundation
 @testable import TikTokForWork
 
 /// The chat tab's pure parts: what /schedule understands, how Slack's marks
@@ -320,6 +321,50 @@ final class ChannelRecordTests: XCTestCase {
         XCTAssertEqual(kept.width, 800)
         XCTAssertEqual(kept.height, 600)
         XCTAssertNil(ChatPhotos.prepared(Data("not a picture".utf8)))
+    }
+
+    func testAVideoGoesUpAsAnMp4ThatFits() async throws {
+        // A second of 640x360 from the camera roll, as a .mov.
+        let source = FileManager.default.temporaryDirectory.appendingPathComponent("clip-\(UUID().uuidString).mov")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let writer = try AVAssetWriter(outputURL: source, fileType: .mov)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 640, AVVideoHeightKey: 360,
+        ])
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: 640,
+            kCVPixelBufferHeightKey as String: 360,
+        ])
+        writer.add(input)
+        XCTAssertTrue(writer.startWriting())
+        writer.startSession(atSourceTime: .zero)
+        let pool = try XCTUnwrap(adaptor.pixelBufferPool)
+        for frame in 0..<30 {
+            while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(10)) }
+            var buffer: CVPixelBuffer?
+            CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
+            let pixels = try XCTUnwrap(buffer)
+            XCTAssertTrue(adaptor.append(pixels, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: 30)))
+        }
+        input.markAsFinished()
+        await writer.finishWriting()
+        XCTAssertEqual(writer.status, .completed)
+
+        // Sent as an mp4 under the Worker's limit, at the shape it is seen at.
+        let prepared = await ChatPhotos.preparedVideo(source)
+        let sent = try XCTUnwrap(prepared)
+        XCTAssertEqual(sent.width, 640)
+        XCTAssertEqual(sent.height, 360)
+        XCTAssertLessThanOrEqual(sent.mp4.count, ChatPhotos.maxBytes)
+        XCTAssertEqual(sent.mp4.subdata(in: 4..<8), Data("ftyp".utf8))
+
+        // Something that is not a video is not sent as one.
+        let text = FileManager.default.temporaryDirectory.appendingPathComponent("not-\(UUID().uuidString).mov")
+        defer { try? FileManager.default.removeItem(at: text) }
+        try Data("not a video".utf8).write(to: text)
+        let refused = await ChatPhotos.preparedVideo(text)
+        XCTAssertNil(refused)
     }
 
     func testAFailedRenewalIsTriedAgainSoonAndNeverLeftForGood() {
