@@ -1242,11 +1242,10 @@ final class ChatStore: ObservableObject {
         guard let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let channel = json["channel"] as? String, let step = json["step"] as? String else { return }
         // One of the team's agents, not @AI: its own line, not the card steps.
-        if let a = json["agent"] as? [String: Any], let id = a["id"] as? String {
+        if let a = json["agent"] as? [String: Any], let face = ChatAgentFace.live(a) {
             var list = agentTyping[channel] ?? []
-            list.removeAll { $0.agent.id == id }
+            list.removeAll { $0.agent.id == face.id }
             if step != "done" && step != "failed" {
-                let face = ChatAgentFace(id: id, handle: a["handle"] as? String ?? "", name: a["name"] as? String ?? "", emoji: a["emoji"] as? String)
                 list.append(ChatAgentTyping(agent: face, parentId: json["parentId"] as? String))
             }
             agentTyping[channel] = list.isEmpty ? nil : list

@@ -323,6 +323,21 @@ final class ChannelRecordTests: XCTestCase {
         XCTAssertNil(ChatPhotos.prepared(Data("not a picture".utf8)))
     }
 
+    func testAnAgentWritingShowsItsOwnPicture() throws {
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(#"""
+        {"channel":"c:research","step":"writing","agent":{"id":"ag_1","handle":"hayao","name":"Hayao","emoji":null,"avatarUrl":"/channels/agents/ag_1/avatar?v=2"}}
+        """#.utf8)) as? [String: Any])
+        let face = try XCTUnwrap(ChatAgentFace.live(try XCTUnwrap(json["agent"] as? [String: Any])))
+        XCTAssertEqual(face.id, "ag_1")
+        XCTAssertEqual(face.name, "Hayao")
+        XCTAssertEqual(face.avatarUrl, "/channels/agents/ag_1/avatar?v=2")
+        // One with no picture keeps its emoji, and one with no id is no agent.
+        let plain = try XCTUnwrap(ChatAgentFace.live(["id": "ag_2", "handle": "rin", "name": "Rin", "emoji": "🎨"]))
+        XCTAssertNil(plain.avatarUrl)
+        XCTAssertEqual(plain.glyph, "🎨")
+        XCTAssertNil(ChatAgentFace.live(["name": "Nobody"]))
+    }
+
     func testAVideoGoesUpAsAnMp4ThatFits() async throws {
         // A second of 640x360 from the camera roll, as a .mov.
         let source = FileManager.default.temporaryDirectory.appendingPathComponent("clip-\(UUID().uuidString).mov")
