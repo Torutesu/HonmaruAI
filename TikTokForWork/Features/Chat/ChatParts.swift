@@ -662,7 +662,7 @@ struct ChatAttachments: View {
                             .accessibilityLabel(Text(verbatim: f.name))
                         } else {
                             HStack(spacing: 10) {
-                                Image(systemName: "doc").font(.system(size: 18)).foregroundStyle(Theme.Colors.textSecondary)
+                                Image(systemName: f.type.hasPrefix("video/") ? "play.rectangle" : "doc").font(.system(size: 18)).foregroundStyle(Theme.Colors.textSecondary)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(verbatim: f.name).font(.subheadline.weight(.semibold)).lineLimit(1).foregroundStyle(Theme.Colors.textPrimary)
                                     Text(ByteCountFormatter.string(fromByteCount: Int64(f.size), countStyle: .file)).font(.caption).foregroundStyle(Theme.Colors.textSecondary)
