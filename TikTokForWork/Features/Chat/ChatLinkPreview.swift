@@ -68,4 +68,11 @@ enum ChatHash {
     static func short(_ login: String) -> String {
         SHA256.hash(data: Data(login.utf8)).map { String(format: "%02x", $0) }.joined().prefix(16).map { String($0) }.joined()
     }
+
+    /// Whether the member whose `loginHash` this is has the app open now,
+    /// by the logins the relay says are here.
+    static func online(_ hash: String?, among logins: Set<String>) -> Bool {
+        guard let hash, !hash.isEmpty else { return false }
+        return logins.contains { short($0) == hash }
+    }
 }

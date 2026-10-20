@@ -375,7 +375,12 @@ struct ChatHomeView: View {
                 } else {
                     ChatAvatar(name: c.name, size: face, url: c.member?.avatarUrl)
                         .overlay(alignment: .bottomTrailing) {
-                            if ChatDates.parse(c.member?.awayUntil).map({ $0 > Date() }) == true {
+                            // Here now: green, as on the web and the desktop.
+                            if ChatHash.online(c.member?.loginHash, among: appState.onlineLogins) {
+                                Circle().fill(Theme.Colors.approve).overlay(Circle().stroke(Theme.Colors.surface, lineWidth: 2))
+                                    .frame(width: 10, height: 10).offset(x: 2, y: 2)
+                                    .accessibilityLabel("Online")
+                            } else if ChatDates.parse(c.member?.awayUntil).map({ $0 > Date() }) == true {
                                 Circle().stroke(Theme.Colors.textTertiary, lineWidth: 2).background(Circle().fill(Theme.Colors.surface))
                                     .frame(width: 9, height: 9).offset(x: 2, y: 2)
                             }
