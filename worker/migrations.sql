@@ -177,3 +177,14 @@ ALTER TABLE scheduled_messages ADD COLUMN lease_until TEXT;
 CREATE TABLE IF NOT EXISTS channel_thread_details (org_id TEXT NOT NULL, message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE, title TEXT NOT NULL, version INTEGER NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (org_id, message_id));
 
 CREATE TABLE IF NOT EXISTS channel_thread_pins (org_id TEXT NOT NULL, user_id TEXT NOT NULL, message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE, created_at TEXT NOT NULL, PRIMARY KEY (org_id,user_id,message_id));
+CREATE TABLE IF NOT EXISTS channel_thread_shares (
+  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel TEXT NOT NULL,
+  message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE,
+  created_by TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, snapshot TEXT NOT NULL,
+  digest TEXT NOT NULL, access_digest TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_thread_shares_org ON channel_thread_shares(org_id,message_id);
+CREATE TABLE IF NOT EXISTS channel_thread_share_policy (
+  org_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0,
+  version INTEGER NOT NULL DEFAULT 1, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL
+);

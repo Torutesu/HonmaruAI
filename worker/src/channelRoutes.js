@@ -1,6 +1,7 @@
 import { threadPins, setThreadPin } from "./threadPins.js";
 import { threadReferences } from "./threadReferences.js";
 import { searchThread } from "./threadSearch.js";
+import { previewThreadShare, threadSharePolicy, setThreadSharePolicy, storeThreadShare, readThreadShare, revokeOwnThreadShare } from "./threadShares.js";
 import { appActivity, readAppActivity } from './harness/appActivity.js';
 import { checkOutgoing } from "./dlp.js";
 import { prepareAgent, rememberRequest, addAgentMemory } from "./harness/agents.js";
@@ -684,6 +685,17 @@ async function previewsInLanguage(env, orgId, user, items) {
 export async function handleChannels(request, env, url, { route, after }) {
   const path = url.pathname;
 
+  if (path.startsWith("/channels/shared/") && request.method === "GET") {
+    const limited = await enforce(env, request, "thread-share/read");
+    if (limited) return limited;
+    const result = await readThreadShare(env.DB, path.slice("/channels/shared/".length));
+    const response = json(result || { message: "This share is unavailable." }, result ? 200 : 404);
+    response.headers.set("x-robots-tag", "noindex, nofollow, noarchive");
+    response.headers.set("referrer-policy", "no-referrer");
+    response.headers.set("x-content-type-options", "nosniff");
+    return response;
+  }
+
   if (path === "/channels" && request.method === "GET") {
     const orgId = url.searchParams.get("orgId");
     const who = await caller(env, request, orgId);
@@ -1273,6 +1285,72 @@ export async function handleChannels(request, env, url, { route, after }) {
     const limited = await enforce(env, request, "chat");
     if (limited) return limited;
     const result = await setThreadPin(env.DB, orgId, who.user, body.messageId, body.pinned);
+    return result.error ? json({ message: result.error }, result.status) : json(result);
+  }
+
+  if (path === "/channels/thread/shares" && request.method === "GET") {
+    const orgId = url.searchParams.get("orgId");
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    const { results = [] } = await env.DB.prepare(`SELECT id,message_id AS threadId,created_at AS createdAt,expires_at AS expiresAt
+      FROM channel_thread_shares WHERE org_id=?1 AND created_by=?2 AND revoked_at IS NULL AND expires_at>?3
+        AND (?4 IS NULL OR message_id=?4) ORDER BY created_at DESC,id`)
+      .bind(orgId, String(who.session.github_id), new Date().toISOString(), url.searchParams.get("messageId")).all();
+    return json({ shares: results });
+  }
+
+  if (path === "/channels/thread/shares" && request.method === "POST") {
+    const body = await request.json().catch(() => null);
+    if (!body || body.confirmPublic !== true) return json({ message: "Confirm that this snapshot will be publicly readable." }, 400);
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    const limited = await enforce(env, request, "thread-share/create");
+    if (limited) return limited;
+    const result = await storeThreadShare(env.DB, {
+      orgId: body.orgId, channel: ctx.resolved.key, threadId: body.messageId,
+      userId: ctx.who.session.github_id, digest: body.digest, acknowledgeWarnings: body.acknowledgeWarnings,
+    });
+    if (result.error) return json({ message: result.error, dlp: result.dlp }, result.status);
+    try {
+      await audit(env, request, { orgId: body.orgId, action: "thread.shared", actor: person(ctx.who.user),
+        entity: { type: "thread", id: body.messageId }, details: { shareId: result.id, expiresAt: result.expiresAt } });
+    } catch (error) {
+      await revokeOwnThreadShare(env.DB, body.orgId, ctx.who.session.github_id, result.id);
+      throw error;
+    }
+    return json(result, 201);
+  }
+
+  if (path === "/channels/thread/shares" && request.method === "DELETE") {
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body.id !== "string") return json({ message: "A share ID is required." }, 400);
+    const who = await caller(env, request, body.orgId);
+    if (who.denied) return who.denied;
+    const result = await revokeOwnThreadShare(env.DB, body.orgId, who.session.github_id, body.id);
+    if (result.error) return json({ message: result.error }, result.status);
+    await audit(env, request, { orgId: body.orgId, action: "thread.share_revoked", actor: person(who.user), entity: { type: "thread_share", id: body.id } });
+    return json(result);
+  }
+
+  if (path === "/channels/thread-sharing" && ["GET", "PUT"].includes(request.method)) {
+    const body = request.method === "PUT" ? await request.json().catch(() => null) : null;
+    const orgId = body?.orgId || url.searchParams.get("orgId");
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    const canManage = await allowed(env.DB, orgId, who.session.github_id, "governance.manage");
+    if (request.method === "GET") return json({ policy: await threadSharePolicy(env.DB, orgId), canManage });
+    if (!canManage) return json({ message: "Only an admin can change sharing policy." }, 403);
+    const result = await setThreadSharePolicy(env.DB, orgId, who.session.github_id, body?.enabled, body?.version);
+    if (result.error) return json({ message: result.error }, result.status);
+    await audit(env, request, { orgId, action: "thread_sharing.updated", actor: person(who.user), entity: { type: "workspace", id: orgId }, details: result.policy });
+    return json(result);
+  }
+
+  if (path === "/channels/thread/share-preview" && request.method === "GET") {
+    const orgId = url.searchParams.get("orgId");
+    const ctx = await inChannel(env, request, { orgId, channel: url.searchParams.get("channel") });
+    if (ctx.denied) return ctx.denied;
+    const result = await previewThreadShare(env.DB, orgId, ctx.resolved.key, url.searchParams.get("messageId") || "");
     return result.error ? json({ message: result.error }, result.status) : json(result);
   }
 
