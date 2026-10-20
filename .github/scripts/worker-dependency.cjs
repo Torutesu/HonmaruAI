@@ -14,6 +14,7 @@ async function workerDependency({ github, repo, revision, ancestry = new Map() }
   const exact = (await list({ head_sha: revision })).find(run => run.head_sha === revision)
   // A failed exact deployment is a failure, not permission to bypass a gate.
   if (exact && !(exact.status === 'completed' && exact.conclusion === 'cancelled')) return stateOf(exact)
+  let pending = null
   for (const run of await list({ branch: 'main' })) {
     if (exact && run.id <= exact.id) continue
     if (run.status === 'completed' && run.conclusion === 'cancelled') continue
@@ -24,9 +25,16 @@ async function workerDependency({ github, repo, revision, ancestry = new Map() }
       })
       ancestry.set(key, ['ahead', 'identical'].includes(data.status))
     }
-    if (ancestry.get(key)) return stateOf(run)
+    if (ancestry.get(key)) {
+      const result = stateOf(run)
+      // A newer queued build must not hide a successfully deployed revision
+      // that already contains everything this Web build requires.
+      if (result.state === 'ready') return result
+      if (!pending && result.state === 'failed') return result
+      if (!pending) pending = result
+    }
   }
-  return { state: 'pending', run: null }
+  return pending || { state: 'pending', run: null }
 }
 
 module.exports = { workerDependency }

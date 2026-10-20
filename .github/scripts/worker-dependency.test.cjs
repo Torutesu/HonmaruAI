@@ -57,3 +57,17 @@ test('API errors fail closed', async () => {
   f.github.rest.repos.compareCommitsWithBasehead = async () => { throw new Error('unavailable') }
   await assert.rejects(workerDependency(f), /unavailable/)
 })
+test('a newer running descendant does not hide a proven successful deployment', async () => {
+  const f = fixture([run(4, 'next', 'in_progress', null), run(3, 'deployed')], {
+    'required...next': 'ahead', 'required...deployed': 'ahead',
+  })
+  const result = await workerDependency(f)
+  assert.equal(result.state, 'ready')
+  assert.equal(result.run.id, 3)
+})
+test('a newer failed descendant is not ignored in favor of an older success', async () => {
+  const f = fixture([run(4, 'next', 'completed', 'failure'), run(3, 'deployed')], {
+    'required...next': 'ahead', 'required...deployed': 'ahead',
+  })
+  assert.equal((await workerDependency(f)).state, 'failed')
+})
