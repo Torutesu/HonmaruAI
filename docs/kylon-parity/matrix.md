@@ -122,10 +122,10 @@
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
 | KY-070 | アップロード・フォルダ・生成者フィルタ | 一部 | P1 | [worker/src/files.js](../../worker/src/files.js) | 作成者/アップロード者・最近/フォルダの両表示 |
-| KY-071 | PDF・画像・CSV・テキストのプレビュー | 一部 | P1 | [web-react/src/components/DocumentPreview.tsx](../../web-react/src/components/DocumentPreview.tsx) | PR #476/#481を本番反映。PDF選択・検索ハイライト・拡大とCSV/テキスト検索を実装。PR #486でCSVダーク文字色を実画面修正（CI中）。全形式・大容量・モバイルの比較は残る |
+| KY-071 | PDF・画像・CSV・テキストのプレビュー | 一部 | P1 | [web-react/src/components/DocumentPreview.tsx](../../web-react/src/components/DocumentPreview.tsx) | PR #476/#481を本番反映。PDF選択・検索ハイライト・拡大とCSV/テキスト検索を実装。PR #486でCSVダーク文字色を実画面修正し、後続のWeb/Workerデプロイ成功で公開を確認。全形式・大容量・モバイルの比較は残る |
 | KY-072 | PDF/Word/Markdown/HTML書き出し | 一部 | P1 | [worker/src/files.js](../../worker/src/files.js) | 単なる元ファイルDLと形式変換を区別 |
 | KY-073 | ファイルの版管理・復元 | 要検証 | P1 | [worker/src/files.js](../../worker/src/files.js) | コンテンツ版・競合・復元後の新しい版・参照履歴 |
-| KY-074 | ファイルへの固定会話 | 一部（PR #486、未公開） | P1 | [PR #486](https://github.com/Torutesu/HonmaruAI/pull/486) | ファイル単位の固定ID・同時初回作成・送信元ACLを実装。Web 887件／Workerファイル27件を検証。再読込E2EはCI中。添付削除後も会話は通常履歴に残る。Kylonのファイルと会話の同時表示・全端末比較は残る |
+| KY-074 | ファイルへの固定会話 | 一部（PR #486、公開済み） | P1 | [PR #486](https://github.com/Torutesu/HonmaruAI/pull/486) | ファイル単位の固定ID・同時初回作成・送信元ACLを実装。Web 887件／Workerファイル27件を検証。後続デプロイへの包含はコミット祖先関係で確認。再読込E2Eの当該ケース結果は要再確認。添付削除後も会話は通常履歴に残る。Kylonのファイルと会話の同時表示・全端末比較は残る |
 | KY-075 | 公開共有の承認と失効 | 一部 | P0 | [worker/src/files.js](../../worker/src/files.js) | 共有範囲・承認者・リンク失効と監査を検証 |
 
 ## Connections

@@ -745,3 +745,9 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Audit found profile/skills editing restricted to maker/admin while persona and avatar routes still allowed any callable team agent to be changed. Saved Harness profiles now enforce the same maker/admin policy in those routes, independently of Simple/Harness presentation. Legacy unprofiled shared agents retain collaborative editing.
 - Agent listings now expose canEdit consistently with this policy. Avatar permissions are checked before storing bytes and again before updating the agent. Existing private-agent visibility checks remain in force.
 - Agents/Harness-agent regression: 49 tests pass, including persona refusal, avatar upload/delete refusal, no stored rejected upload, both modes, maker/admin success, and legacy shared editing. This closes a bypass; it does not implement independent Agent Admin/Member grants, transfer or last-admin invariants.
+
+### Evidence reconciliation (2026-10-21)
+
+- Japanese profile label update passes all 929 Web tests.
+- GitHub confirms PR #486 merged at 2026-10-20 13:58 UTC, commit 82132822a6019ec5f97efa4287163e0318ca8d99. Git ancestry confirms it is included in both successfully deployed Web ccc64f0e and Worker e43500f0. Removed stale “unpublished/CI running” wording for its file-conversation and CSV-dark fixes without upgrading overall parity acceptance.
+- New editing-policy full Worker suite remains live in session 96006, fixed source 66d2975c. No Worker source/test changes during that run.
