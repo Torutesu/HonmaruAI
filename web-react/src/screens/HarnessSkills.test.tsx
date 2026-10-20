@@ -31,3 +31,17 @@ test('late preview from the previous workspace never opens a draft', async () =>
   expect(state.api.createSkill).not.toHaveBeenCalled()
   act(() => tree.unmount())
 })
+test('late list failures from an old session cannot replace the current skills or error state', async () => {
+  state.api = api()
+  let reject!: (reason: Error) => void
+  state.api.skills.mockReturnValue(new Promise((_, fail) => { reject = fail }))
+  let tree!: ReturnType<typeof create>
+  await act(async () => { tree = create(<HarnessSkills {...props} />) })
+  state.api = api()
+  state.api.skills.mockResolvedValue({ skills: [{ id: 'new', name: 'Current skill', description: 'Current session', body: '', visibility: 'private' }] })
+  await act(async () => { tree.update(<HarnessSkills {...props} sessionToken="new-session" />) })
+  await act(async () => { reject(new Error('Previous session error')) })
+  expect(JSON.stringify(tree.toJSON())).toContain('Current skill')
+  expect(JSON.stringify(tree.toJSON())).not.toContain('Previous session error')
+  act(() => tree.unmount())
+})

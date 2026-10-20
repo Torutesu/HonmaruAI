@@ -202,7 +202,11 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
   )
 }
 
-export const HarnessSkills: React.FC<HarnessProps> = (props) => {
+export const HarnessSkills: React.FC<HarnessProps> = (props) => (
+  <ScopedHarnessSkills key={JSON.stringify([props.httpBase, props.orgId, props.sessionToken])} {...props} />
+)
+
+const ScopedHarnessSkills: React.FC<HarnessProps> = (props) => {
   const t = useT()
   const api = useApi(props)
   const [skills, setSkills] = useState<Skill[] | null>(null)
