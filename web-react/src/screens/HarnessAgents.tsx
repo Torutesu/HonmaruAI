@@ -1,3 +1,4 @@
+import { AgentSkillCatalog } from '../components/AgentSkillCatalog'
 import { Markdown } from '../utils/markdown'
 import { useMembers, type Mentionable } from '../utils/mentions'
 import { Avatar } from '../components/Avatar'
@@ -92,7 +93,6 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
   })
 
   if (!profile) return <Shell title={agent.name} onClose={props.onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
-  const has = new Set(skills.map((s) => s.id))
   return (
     <Shell title={`${agent.emoji || '🤖'} ${agent.name}`} onClose={props.onBack} nested actions={saved ? <span className="row-sub">{t('Saved.')}</span> : null}>
       {error && <div className="form-error">{error}</div>}
@@ -146,18 +146,12 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
       {section === 'skills' && <>
       <div className="rows-title">{t('Skills')}</div>
       <p className="row-sub">{t('Private skills run only in their owner’s direct agent conversation, including follow-ups. They are excluded from shared rooms and workflows.')}</p>
-      <div className="rows">
-        {allSkills.length === 0 && <div className="row static"><span className="row-sub">{t('No skills in this workspace yet. Write one on the Skills screen.')}</span></div>}
-        {allSkills.map((s) => (
-          <label key={s.id} className="row static">
-            <span className="row-main">{s.name}<span className="row-sub">{s.description}</span></span>
-            <input type="checkbox" disabled={!canEdit} checked={has.has(s.id)} onChange={(e) => act(`skill:${s.id}`, async () => {
-              if (e.target.checked) await api.giveSkill(agent.id, s.id); else await api.takeSkill(agent.id, s.id)
-              setSkills((await api.agentSkills(agent.id)).skills)
-            })} />
-          </label>
-        ))}
-      </div>
+      <AgentSkillCatalog key={`${props.orgId}:${agent.id}`} skills={allSkills} installed={skills} canEdit={canEdit} onToggle={async (id, install) => {
+        const version = memoryLoad.current
+        if (install) await api.giveSkill(agent.id, id); else await api.takeSkill(agent.id, id)
+        const result = await api.agentSkills(agent.id)
+        if (version === memoryLoad.current) setSkills(result.skills)
+      }} />
 
       </>}
       {section === 'memory' && <>
