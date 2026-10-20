@@ -23,7 +23,14 @@ const TIER_HINT: Record<AgentProfile['tier'], string> = {
   max: 'The strongest model, for hard work.',
 }
 
-export const HarnessAgents: React.FC<HarnessProps & { onMessage?: (id: string) => void; onManageAgents?: () => void; onManageTeam?: () => void }> = (props) => {
+type AgentsProps = HarnessProps & { onMessage?: (id: string) => void; onManageAgents?: () => void; onManageTeam?: () => void }
+
+// Keep selections and pending responses inside their authenticated workspace.
+export const HarnessAgents: React.FC<AgentsProps> = (props) => (
+  <ScopedHarnessAgents key={JSON.stringify([props.httpBase, props.orgId, props.sessionToken])} {...props} />
+)
+
+const ScopedHarnessAgents: React.FC<AgentsProps> = (props) => {
   const t = useT()
   const api = useApi(props)
   const [agents, setAgents] = useState<AgentFace[] | null>(null)
@@ -88,7 +95,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
     setMemories(m.memories); setSkills(s.skills); setAllSkills(all.skills)
     setFollowups(f.followups.filter((x) => x.agentId === agent.id))
   }), [api, act, agent.id, memoryChannel])
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(); return () => { ++memoryLoad.current } }, [load])
 
   const save = (patch: Partial<AgentProfile>) => act('save', async () => {
     const r = await api.saveProfile(agent.id, patch)
