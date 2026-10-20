@@ -179,6 +179,7 @@ export function toMessage(row, viewerLogin, view, members, extra = {}) {
     lastReplyAt: extra.lastReplyAt || null,
     replyRefs: extra.replyRefs || [],
     pinned: !deleted && Boolean(row.pinned_at),
+    pinVersion: Number(row.pin_version || 0),
     ...(row.previews_hidden ? { previewsHidden: true } : {}),
     reactions: deleted ? [] : reactions,
     files: deleted ? [] : (extra.files || []),
@@ -511,8 +512,9 @@ export async function setPinned(db, { orgId, id, login, pinned }) {
   const row = await getMessage(db, orgId, id);
   if (!row || row.deleted_at) return { error: "No such message.", status: 404 };
   if (row.parent_id) return { error: "Pin the message a thread hangs off, not a reply.", status: 400 };
-  await db.prepare("UPDATE channel_messages SET pinned_at = ?3, pinned_by = ?4 WHERE org_id = ?1 AND id = ?2")
+  const result = await db.prepare("UPDATE channel_messages SET pinned_at = ?3, pinned_by = ?4, pin_version = pin_version + 1 WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL AND parent_id IS NULL")
     .bind(orgId, id, pinned ? new Date().toISOString() : null, pinned ? login : null).run();
+  if (!result.meta?.changes) return { error: "No such message.", status: 404 };
   return { row: await getMessage(db, orgId, id) };
 }
 

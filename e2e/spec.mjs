@@ -1796,8 +1796,20 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     await d.click('.slk-thread-pane .slk-pane-close')
     // Pinned, and listed under the pin.
     await d.hover(msg)
-    await d.click(`${msg} .slk-tools [aria-label="Pin to channel"]`)
+    const [pinResponse] = await Promise.all([
+      d.waitForResponse(response => new URL(response.url()).pathname === '/channels/pins' && response.request().method() === 'POST'),
+      d.click(`${msg} .slk-tools [aria-label="Pin to channel"]`),
+    ])
+    const pinResult = await pinResponse.json()
+    if (!pinResponse.ok() || !(pinResult.message?.pinVersion > 0)) throw new Error(`pin request failed: HTTP ${pinResponse.status()}`)
     await d.waitForSelector(`${msg}.pinned`, { timeout: 10000 }).catch(() => { throw new Error('pinning did not mark the message') })
+    // A delayed socket snapshot must not undo the acknowledged mutation.
+    // The body marker proves React processed that event before asserting.
+    await d.evaluate(message => window.dispatchEvent(new CustomEvent('honmaru:channel-message', { detail: {
+      ...message, pinned: false, pinVersion: message.pinVersion - 1, body: message.body + ' [late update]',
+    } })), pinResult.message)
+    await d.waitForSelector(`${msg}.pinned:has-text("[late update]")`, { timeout: 10000 })
+      .catch(() => { throw new Error('a delayed message event undid the confirmed pin') })
     await d.click('.slk-pins-button')
     await d.waitForSelector('.slk-pins .slk-pin-row:has-text("Check-in")', { timeout: 10000 }).catch(() => { throw new Error('the pin list does not hold it') })
     await d.click('.slk-pins .slk-pane-close')

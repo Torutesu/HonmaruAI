@@ -183,4 +183,5 @@ CREATE TABLE IF NOT EXISTS channel_thread_share_policy ( org_id TEXT PRIMARY KEY
 
 CREATE TABLE IF NOT EXISTS channel_thread_mutes (org_id TEXT NOT NULL, login TEXT NOT NULL, message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE, PRIMARY KEY (org_id,login,message_id));
 CREATE INDEX IF NOT EXISTS idx_channel_thread_mutes_message ON channel_thread_mutes(org_id,message_id,login);
+ALTER TABLE channel_messages ADD COLUMN pin_version INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE hx_skills ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';

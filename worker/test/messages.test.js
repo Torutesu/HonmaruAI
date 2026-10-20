@@ -3,7 +3,7 @@ import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
-import { cleanEmoji, transcriptUpTo, channelActivity } from "../src/channels.js";
+import { cleanEmoji, transcriptUpTo, channelActivity, setPinned } from "../src/channels.js";
 
 // What Slack lets you do to a message, here too: edit it, unsend it, react
 // to it, reply under it in a thread, pin it.
@@ -252,13 +252,26 @@ test("an emoji is an emoji, not a message", () => {
 
 test("pins: anyone in the channel pins and unpins, and the channel lists them", async () => {
   const m = await say(mika, "Wi-Fi password is on the fridge");
-  expect((await post("/channels/pins", kenji, { orgId: ORG, channel: "b:cafe", messageId: m.id })).status).toBe(200);
+  expect(m.pinVersion).toBe(0);
+  const pinned = await post("/channels/pins", kenji, { orgId: ORG, channel: "b:cafe", messageId: m.id });
+  expect(pinned.status).toBe(200);
+  expect((await pinned.json()).message).toMatchObject({ pinned: true, pinVersion: 1 });
   let pins = (await (await get(`/channels/pins?${q({ orgId: ORG, channel: "b:cafe" })}`, toru)).json()).messages;
   expect(pins.map((p) => p.id)).toEqual([m.id]);
-  expect((await list(toru))[0].pinned).toBe(true);
-  await post("/channels/pins", toru, { orgId: ORG, channel: "b:cafe", messageId: m.id, pinned: false });
+  expect((await list(toru))[0]).toMatchObject({ pinned: true, pinVersion: 1 });
+  const unpinned = await post("/channels/pins", toru, { orgId: ORG, channel: "b:cafe", messageId: m.id, pinned: false });
+  expect((await unpinned.json()).message).toMatchObject({ pinned: false, pinVersion: 2 });
   pins = (await (await get(`/channels/pins?${q({ orgId: ORG, channel: "b:cafe" })}`, toru)).json()).messages;
   expect(pins).toHaveLength(0);
+  expect((await list(mika))[0]).toMatchObject({ pinned: false, pinVersion: 2 });
+});
+
+test("concurrent pin writes advance atomically and a deleted message cannot be pinned again", async () => {
+  const m = await say(mika, "Shared instructions");
+  await Promise.all(Array.from({ length: 6 }, () => setPinned(env.DB, { orgId: ORG, id: m.id, login: "toru", pinned: true })));
+  expect((await list(toru))[0]).toMatchObject({ pinned: true, pinVersion: 6 });
+  await del("/channels/messages", mika, { orgId: ORG, channel: "b:cafe", messageId: m.id });
+  expect(await setPinned(env.DB, { orgId: ORG, id: m.id, login: "toru", pinned: true })).toMatchObject({ status: 404 });
 });
 
 test("a direct conversation's messages cannot be touched from outside it", async () => {

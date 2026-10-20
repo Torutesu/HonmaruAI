@@ -1,4 +1,5 @@
 import type { ChannelMessage, FileRef } from '../types/card'
+import { newerPin } from './messagePin'
 
 // Sending as Discord does: what you write is in the conversation the moment
 // you press Enter, under an id of its own ("tmp-…") and marked as on its way,
@@ -150,7 +151,7 @@ export const echoOf = (list: ChannelMessage[], msg: ChannelMessage): ChannelMess
 /// the socket beating the answer to the send never shows them twice; any
 /// other message is new, at the end.
 export function arrive(list: ChannelMessage[], msg: ChannelMessage): ChannelMessage[] {
-  if (list.some((x) => x.id === msg.id)) return list.map((x) => (x.id === msg.id ? msg : x))
+  if (list.some((x) => x.id === msg.id)) return list.map((x) => (x.id === msg.id ? newerPin(x, msg) : x))
   const held = echoOf(list, msg)
   return held ? list.map((x) => (x === held ? msg : x)) : [...list, msg]
 }
