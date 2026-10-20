@@ -29,3 +29,15 @@ test('failed writes leave the preference unknown until reread, without claiming 
  await act(async()=>{await state.toggle()});expect(state.muted).toBeNull();expect(state.error).toContain('保存できません');expect(state.busy).toBe(false)
  act(()=>tree!.unmount())
 })
+test('returning to a thread during its write waits and rereads rather than drawing an old response',async()=>{
+ let resolve!:(v:any)=>void
+ const fetch=vi.fn().mockResolvedValueOnce(ok(false)).mockImplementationOnce(()=>new Promise(r=>resolve=r)).mockResolvedValueOnce(ok(false)).mockResolvedValueOnce(ok(false))
+ vi.stubGlobal('fetch',fetch)
+ let tree:ReturnType<typeof create>;await act(async()=>{tree=create(<Probe/>)})
+ let write!:Promise<void>;act(()=>{write=state.toggle()})
+ await act(async()=>tree!.update(<Probe id="other"/>))
+ await act(async()=>tree!.update(<Probe/>));expect(state.busy).toBe(true);expect(fetch).toHaveBeenCalledTimes(3)
+ await act(async()=>{resolve(ok(true));await write})
+ expect(fetch).toHaveBeenCalledTimes(4);expect(state.muted).toBe(false);expect(state.busy).toBe(false)
+ act(()=>tree!.unmount())
+})
