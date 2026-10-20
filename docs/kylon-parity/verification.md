@@ -782,3 +782,12 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Native Japanese preview exposed a real layout defect: generic dlg-input height 36px overrode textarea rows, reducing the body to one line. Added dedicated editor theme/size styles, 72px description and 240px body, and a visible kind label with matching select styling.
 - A new native light-theme screenshot shows multiline Japanese body, paragraph breaks, all fields and footer within the 1200×900 window. Cancel returned to the preview controls without saving. Dark-mode button automation then failed with elementHasNoFrame/noWindowsAvailable; dark visual acceptance remains pending. No production data or provider calls were used. Temporary preview files/server/process were removed.
 - Structured memory full Worker run remains live in session 8595 at fixed Worker source 8e2840a6. These follow-up changes are Web-only.
+
+### Dark native rendering and intelligence interaction verified (2026-10-21)
+
+- Identified a preview-only difference: production desktop already sets backgroundThrottling:false, but the temporary Electron preview did not. Matching that setting restored stable AX and completed animation frames. Earlier dim screenshots are consistent with a paused preview animation, not evidence of wrong production theme tokens.
+- Captured native dark memory editor with readable Japanese labels/body, preserved paragraphs, full-height textarea and olive action. Combined with the previous light screenshot, both themes are visually checked for this form at 1200×900.
+- Captured the dark intelligence menu with descriptions, selected checkmark and upward placement. Found Max was incorrectly translated to 最大 through a generic dictionary key; tier labels now stay Fast/Pro/Max. Verified updated Max text, ArrowDown/Enter selection updating the draft and enabling Save, and Escape closing only the list while preserving the draft. No production data/model calls occurred.
+- Temporary fixtures and preview processes were removed. Worker source remains fixed for full suite 8595.
+
+- Final Web validation after native repairs: 128 files / 933 tests pass; TypeScript and Vite build pass.

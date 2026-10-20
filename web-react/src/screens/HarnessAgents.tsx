@@ -147,7 +147,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
         <dt><Icon name="briefcase" size={14}/>{t('Specialty')}</dt><dd>{profile.specialty || t('Not set')}</dd>
         <dt><Icon name="brain" size={14}/>{t('Intelligence')}</dt><dd>{canEdit
           ? <AgentTierSelect compact value={profile.tier} disabled={busy === 'save'} onChange={tier => void save({ tier })}/>
-          : t(profile.tier === 'lite' ? 'Fast' : profile.tier === 'max' ? 'Max' : 'Pro')}</dd>
+          : (profile.tier === 'lite' ? 'Fast' : profile.tier === 'max' ? 'Max' : 'Pro')}</dd>
         <dt><Icon name="you" size={14}/>{t('Created by')}</dt><dd>{agent.createdByName || '—'}</dd>
         <dt><Icon name="calendar" size={14}/>{t('Created at')}</dt><dd>{agent.createdAt && Number.isFinite(Date.parse(agent.createdAt)) ? new Date(agent.createdAt).toLocaleDateString(getLocale(), { year: 'numeric', month: 'long', day: 'numeric' }) : '—'}</dd>
         <dt><Icon name="lock" size={14}/>{t('Who may call it')}</dt><dd>{t(agent.scope === 'personal' || profile.access === 'private' ? 'Only its maker' : profile.access === 'people' ? 'Some people' : 'Everyone')}</dd>
@@ -164,7 +164,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
           <span className="row-main">{t('Intelligence')}<span className="row-sub">{t(TIER_HINT[profile.tier])}</span></span>
           <span className="hx-seg">
             {(['lite', 'standard', 'max'] as const).map((tier) => (
-              <button key={tier} className={profile.tier === tier ? 'on' : ''} disabled={!canEdit || busy === 'save'} onClick={() => save({ tier })}>{t(tier === 'lite' ? 'Fast' : tier === 'max' ? 'Max' : 'Pro')}</button>
+              <button key={tier} className={profile.tier === tier ? 'on' : ''} disabled={!canEdit || busy === 'save'} onClick={() => save({ tier })}>{tier === 'lite' ? 'Fast' : tier === 'max' ? 'Max' : 'Pro'}</button>
             ))}
           </span>
         </div>

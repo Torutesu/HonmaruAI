@@ -64,13 +64,13 @@ export function AgentTierSelect({ value, onChange, disabled = false, compact = f
         } else if (open && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); choose(tiers[active]) }
         else if (event.key === 'Tab') close()
       }}>
-      <span><strong>{t(names[value])}</strong>{!compact && <small>{t(hints[value])}</small>}</span><Icon name="chevron-down" size={14}/>
+      <span><strong>{names[value]}</strong>{!compact && <small>{t(hints[value])}</small>}</span><Icon name="chevron-down" size={14}/>
     </button>
     {open && <div id={id} style={position} role="listbox" aria-label={t('Intelligence')} className={`hx-tier-options${above ? ' above' : ''}`}>
       {tiers.map((tier, index) => <button key={tier} type="button" role="option" id={`${id}-${tier}`} tabIndex={-1}
         aria-selected={tier === value} className={index === active ? 'active' : ''}
         onMouseDown={event => event.preventDefault()} onMouseMove={() => setActive(index)} onClick={() => choose(tier)}>
-        <span><strong>{t(names[tier])}</strong><small>{t(hints[tier])}</small></span>
+        <span><strong>{names[tier]}</strong><small>{t(hints[tier])}</small></span>
         {tier === value && <Icon name="check" size={14}/>}
       </button>)}
     </div>}

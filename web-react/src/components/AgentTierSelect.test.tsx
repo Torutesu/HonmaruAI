@@ -2,7 +2,7 @@ import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { expect, test, vi } from 'vitest'
 import { AgentTierSelect } from './AgentTierSelect'
-vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text }))
+vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text === 'Max' ? '最大' : text }))
 test('tier list navigates without saving, commits explicitly and closes before its parent on Escape', () => {
   const listeners = new Map<string, any>(), changed = vi.fn(), focus = vi.fn()
   const triggerNode = { focus, getBoundingClientRect: () => ({ top: 500, bottom: 570, left: 650, width: 440 }) }
@@ -16,6 +16,7 @@ test('tier list navigates without saving, commits explicitly and closes before i
     act(() => combo().props.onClick())
     expect(tree.root.findByProps({ role: 'listbox' }).props.className).toContain('above')
     expect(tree.root.findByProps({ role: 'listbox' }).props.style).toMatchObject({ left: 448, top: 496, width: 440, transform: 'translateY(-100%)' })
+    expect(tree.root.findAllByType('strong').map(item => item.children.join(''))).toContain('Max')
     key('ArrowDown')
     expect(changed).not.toHaveBeenCalled()
     key('Enter')
