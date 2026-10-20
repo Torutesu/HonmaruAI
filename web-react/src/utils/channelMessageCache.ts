@@ -1,6 +1,7 @@
 import type { ChannelMessage } from '../types/card'
 import { isTemp } from './pendingSend'
 import { ViewCache } from './viewCache'
+import { newerPin } from './messagePin'
 
 // Memory only: message contents and session identities never go to disk.
 // A bounded cache survives switching away from the chat screen in this tab.
@@ -66,7 +67,7 @@ export function mergeLatestMessages(current: ChannelMessage[], page: ChannelMess
   if (!reset && !complete && page.length) for (const m of current) {
     if (m.createdAt < page[0].createdAt) merged.set(m.id, m)
   }
-  for (const m of page) merged.set(m.id, m)
+  for (const m of page) merged.set(m.id, newerPin(now.get(m.id), m))
   for (const m of current) if (isTemp(m) || baseline.get(m.id) !== m) merged.set(m.id, m)
   for (const m of before) if (!now.has(m.id)) merged.delete(m.id)
   return [...merged.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt))

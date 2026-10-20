@@ -7,6 +7,7 @@ import { AppView } from '../screens/Harness'
 import { harnessApi, type AppConversation } from '../utils/harness'
 import { HarnessRoomResources } from './HarnessRoomResources'
 import { channelMessageCache, mergeLatestMessages } from '../utils/channelMessageCache'
+import { newerPin } from '../utils/messagePin'
 import { ReadGuard } from '../utils/readGuard'
 import { ReadWrites } from '../utils/readWrites'
 import { toggleReaction } from '../utils/reactions'
@@ -1852,7 +1853,7 @@ export const ClassicList: React.FC<Props> = ({
         return { ...prev, [m.channel]: refreshQuotes(arrive(list, msg), msg) }
       })
       setReplyingTo((prev) => (prev?.quote.id === m.id ? { ...prev, quote: quoteOf(msg) } : prev))
-      setThread((prev) => (prev && prev.parent.id === m.id ? (m.deleted ? null : { ...prev, parent: { ...msg, canRenameThread: prev.parent.canRenameThread } }) : prev))
+      setThread((prev) => (prev && prev.parent.id === m.id ? (m.deleted ? null : { ...prev, parent: { ...newerPin(prev.parent, msg), canRenameThread: prev.parent.canRenameThread } }) : prev))
       if (!m.deleted && !m.editedAt && (isNew || !messagesRef.current[m.channel])) {
         setActivity((prev) => ({ ...prev, [m.channel]: { channel: m.channel, lastAt: m.createdAt, preview: m.body.slice(0, 120), lastBy: mine ? 'me' : m.authorName, last: msg } }))
       }
@@ -2866,11 +2867,15 @@ export const ClassicList: React.FC<Props> = ({
     setMessages((prev) => {
       const list = prev[channel] || []
       if (msg.deleted && !msg.replyCount) return { ...prev, [channel]: refreshQuotes(list.filter((x) => x.id !== msg.id), msg) }
-      return { ...prev, [channel]: refreshQuotes(list.map((x) => (x.id === msg.id ? msg : x)), msg) }
+      return { ...prev, [channel]: refreshQuotes(list.map((x) => (x.id === msg.id ? newerPin(x, msg) : x)), msg) }
     })
     setReplyingTo((prev) => (prev?.quote.id === msg.id ? { ...prev, quote: quoteOf(msg) } : prev))
-    setThread((prev) => (prev && prev.parent.id === msg.id ? { ...prev, parent: { ...msg, canRenameThread: prev.parent.canRenameThread } } : prev))
-    setPins((prev) => (prev ? (msg.pinned ? (prev.some((x) => x.id === msg.id) ? prev.map((x) => (x.id === msg.id ? msg : x)) : [msg, ...prev]) : prev.filter((x) => x.id !== msg.id)) : prev))
+    setThread((prev) => (prev && prev.parent.id === msg.id ? { ...prev, parent: { ...newerPin(prev.parent, msg), canRenameThread: prev.parent.canRenameThread } } : prev))
+    setPins((prev) => {
+      if (!prev) return prev
+      const next = newerPin(prev.find(x => x.id === msg.id), msg)
+      return next.pinned ? (prev.some(x => x.id === next.id) ? prev.map(x => x.id === next.id ? next : x) : [next, ...prev]) : prev.filter(x => x.id !== next.id)
+    })
   }
   const act = async (method: 'POST' | 'PUT' | 'DELETE', path: string, channel: string, extra: Record<string, unknown>) => {
     setProblem(null)
@@ -3091,7 +3096,7 @@ export const ClassicList: React.FC<Props> = ({
     // Replies of yours still on their way, or that did not go — sent while
     // it was open before, or before this page loaded — back in it.
     const back = data ? heldFor(channel, m.id, data.replies || []) : []
-    if (data) setThread((prev) => (prev && prev.parent.id === m.id ? { channel, parent: data.parent, replies: withHeld(refreshedReplies(data.replies || [], prev.replies, before), back) } : prev))
+    if (data) setThread((prev) => (prev && prev.parent.id === m.id ? { channel, parent: newerPin(prev.parent, data.parent), replies: withHeld(refreshedReplies(data.replies || [], prev.replies, before), back) } : prev))
     if (data?.parent) views.set(`threadHead:${channel}:${m.id}`, data.parent)
     requestAnimationFrame(() => threadComposer.current?.focus())
     markThreadRead(channel, m.id)

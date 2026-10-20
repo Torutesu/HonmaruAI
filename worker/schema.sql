@@ -618,6 +618,7 @@ CREATE TABLE IF NOT EXISTS channel_messages (
   parent_id     TEXT,
   pinned_at     TEXT,
   pinned_by     TEXT,
+  pin_version   INTEGER NOT NULL DEFAULT 0,
   /* The author took the link cards off this message. */
   previews_hidden INTEGER NOT NULL DEFAULT 0,
   /* An inline reply, as Discord has: the message this one answers, in the

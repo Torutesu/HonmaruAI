@@ -201,6 +201,7 @@ export interface ChannelMessage {
   /// Who has replied, by member ref, first few only.
   replyRefs?: string[]
   pinned?: boolean
+  pinVersion?: number
   /// Who reacted, by member ref. `mine` is only set on a message fetched
   /// by this person; a live event is shared, so the refs decide.
   reactions?: Array<{ emoji: string; count: number; refs: string[]; mine: boolean }>
