@@ -55,17 +55,21 @@ export async function createSkill(db, orgId, input, by) {
   if (!['workspace', 'private'].includes(visibility)) return { error: 'Invalid visibility.' };
   const c = clean(input);
   if (c.error) return c;
+  const { prepareSkillFiles, skillFileInserts } = await import('./skillFiles.js');
+  const assets = input.files === undefined ? {files:[]} : prepareSkillFiles(c,input.files);
+  if(assets.error)return assets;
   const n = await db.prepare("SELECT COUNT(*) AS n FROM hx_skills WHERE org_id = ?1").bind(orgId).first();
   if (Number(n?.n || 0) >= MAX_SKILLS) return { error: "This workspace has as many skills as it can hold." };
   const id = newId("skill");
   const at = now();
   const insert = db.prepare("INSERT INTO hx_skills (id, org_id, name, description, body, created_by, created_at, updated_at, metadata) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)")
     .bind(id, orgId, c.name, c.description, c.body, String(by), at, JSON.stringify(c.metadata));
-  await db.batch([insert, db.prepare("INSERT INTO hx_skill_access (org_id, skill_id, visibility, version) VALUES (?1, ?2, ?3, 1)").bind(orgId, id, visibility)]);
+  await db.batch([insert, db.prepare("INSERT INTO hx_skill_access (org_id, skill_id, visibility, version) VALUES (?1, ?2, ?3, 1)").bind(orgId, id, visibility), ...skillFileInserts(db,orgId,id,assets.files)]);
   return { skill: await getSkill(db, orgId, id, by) };
 }
 
 export async function updateSkill(db, orgId, id, input, userId = "") {
+  if (input.files !== undefined) return {error:"Replace support files by importing a new skill package."};
   const existing = await getSkill(db, orgId, id, userId);
   if (!existing) return { error: "No such skill.", status: 404 };
   const c = clean({ ...existing, ...input });

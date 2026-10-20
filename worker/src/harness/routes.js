@@ -1,3 +1,4 @@
+import { listSkillFiles, readSkillFile } from './skillFiles.js';
 import { generateApp } from './appGeneration.js';
 import { announceTo } from '../announce.js';
 import { custom as appActivityEvent } from '../agui/events.js';
@@ -327,6 +328,13 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     const skill = await getSkill(env.DB, orgId, skillId, me);
     if (!skill) return json({ message: "No such skill." }, 404);
+    if (parts[2] === 'files' && parts.length === 3 && request.method === 'GET') {
+      const path = url.searchParams.get('path');
+      if (!path) return json({ files: await listSkillFiles(env.DB,orgId,skillId,me) });
+      const file = await readSkillFile(env.DB,orgId,skillId,path,me);
+      if (!file) return json({message:'No such skill file.'},404);
+      return new Response(file.bytes,{headers:{...CORS_HEADERS,'cache-control':'private, no-store','content-type':'application/octet-stream','x-content-type-options':'nosniff','content-disposition':`attachment; filename*=UTF-8''${encodeURIComponent(file.path.split('/').pop())}`}});
+    }
     if (parts[2] === 'export' && parts.length === 3 && request.method === 'GET') {
       if (!skill.description.trim()) return json({ message: 'Add a description before exporting SKILL.md.' }, 400);
       return json({ filename: 'SKILL.md', markdown: skillMarkdown(skill) });

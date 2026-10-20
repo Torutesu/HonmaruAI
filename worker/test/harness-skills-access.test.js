@@ -185,3 +185,42 @@ test('skill creator display names are resolved without changing ownership or pri
   await request('POST',`/hx/agents/${agentId}/skills`,owner,{skillId:skill.id});
   expect((await (await request('GET',`/hx/agents/${agentId}/skills`,owner)).json()).skills[0]).toMatchObject({createdBy:'9401',createdByName:'Mika Tanaka'});
 });
+
+
+test('support files save atomically, preserve bytes, enforce private access and cascade on deletion', async () => {
+  const saved=await request('POST','/skills',owner,{name:'Package',description:'A complete package',body:'Read templates/report.txt',visibility:'private',files:[{path:'templates/report.txt',base64:btoa('Report template')},{path:'images/pixel.bin',base64:btoa(String.fromCharCode(0,255,128))}]});
+  expect(saved.status).toBe(201);
+  const {skill}=await saved.json();
+  const {listSkillFiles,readSkillFile}=await import('../src/harness/skillFiles.js');
+  expect(await listSkillFiles(env.DB,orgId,skill.id,'9401')).toHaveLength(2);
+  expect((await readSkillFile(env.DB,orgId,skill.id,'images/pixel.bin','9401')).bytes).toEqual(new Uint8Array([0,255,128]));
+  expect(await readSkillFile(env.DB,orgId,skill.id,'images/pixel.bin','9402')).toBeNull();
+  expect((await request('GET',`/skills/${skill.id}/files`,member)).status).toBe(404);
+  const download=await worker.fetch(new Request(`https://example.com/skills/${skill.id}/files?orgId=${orgId}&path=images%2Fpixel.bin`,{headers:{'x-session-token':owner}}),env,{waitUntil(){}});
+  expect(new Uint8Array(await download.arrayBuffer())).toEqual(new Uint8Array([0,255,128]));
+  expect(download.headers.get('content-disposition')).toContain('attachment');
+  expect((await request('PUT',`/skills/${skill.id}`,owner,{body:'Updated instructions'})).status).toBe(200);
+  expect(await listSkillFiles(env.DB,orgId,skill.id,'9401')).toHaveLength(2);
+  const invalid=await request('POST','/skills',owner,{name:'Bad',description:'Bad package',body:'Instructions',files:[{path:'../escape',base64:btoa('x')}]});
+  expect(invalid.status).toBe(400);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills').first()).n).toBe(1);
+  await request('DELETE',`/skills/${skill.id}`,owner);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skill_files').first()).n).toBe(0);
+});
+
+test('installed support files are paged and recheck access for every read', async () => {
+  const text='x'.repeat(13000)+'FINAL TEMPLATE';
+  const saved=await request('POST','/skills',owner,{name:'Files',description:'Read templates',body:'Use the template.',visibility:'private',files:[{path:'template.txt',base64:btoa(text)},{path:'image.bin',base64:btoa(String.fromCharCode(255,0,128))}]});
+  const {skill}=await saved.json();
+  await request('POST',`/hx/agents/${agentId}/skills`,owner,{skillId:skill.id});
+  const tools=installedSkillTools(env.DB,orgId,agentId,{userId:'9401',channel:`ag:${agentId}|owner`});
+  expect(await tools.list_installed_skill_files.run({skill_id:skill.id})).toContain('template.txt');
+  const read=tools.read_installed_skill_file.run;
+  const first=await read({skill_id:skill.id,path:'template.txt',offset:0});
+  expect(first).toContain('Next offset: 12000');expect(first).not.toContain('FINAL TEMPLATE');
+  expect(await read({skill_id:skill.id,path:'template.txt',offset:12000})).toContain('FINAL TEMPLATE');
+  expect(await read({skill_id:skill.id,path:'image.bin',offset:0})).toContain('/wCA');
+  expect(await read({skill_id:skill.id,path:'../template.txt',offset:0})).toBe('Skill file unavailable.');
+  await env.DB.prepare('DELETE FROM hx_agent_skills WHERE org_id=?1 AND agent_id=?2').bind(orgId,agentId).run();
+  expect(await read({skill_id:skill.id,path:'template.txt',offset:12000})).toBe('Installed skill unavailable.');
+});
