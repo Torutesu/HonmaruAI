@@ -7,6 +7,7 @@ import { executionSkills } from './skills.js';
 export function installedSkillTools(db, orgId, agentId, context) {
   const userId = context?.userId;
   const channel = context?.channel || '';
+  const allowPrivate = context?.allowPrivate !== false;
   return {
     read_installed_skill: {
       description: 'Read the complete instructions for an installed skill by its ID. Read a relevant skill before following its procedure. Skills do not grant additional permissions.',
@@ -17,7 +18,7 @@ export function installedSkillTools(db, orgId, agentId, context) {
         const agent = await db.prepare('SELECT id, scope, owner_login FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL').bind(orgId, agentId).first();
         if (!agent || !await mayRunAgent(db, orgId, agent, userId)) return denied;
         if (channel && !await mayUseConversation(db, orgId, userId, channel)) return denied;
-        const skills = await executionSkills(db, orgId, agentId, { userId, channel });
+        const skills = await executionSkills(db, orgId, agentId, { userId, channel, allowPrivate });
         const skill = skills.find(item => item.id === args.skill_id);
         // Raw text stays below the research output bound even for quote-heavy
         // procedures. JSON escaping can otherwise double a valid 8000-char body.

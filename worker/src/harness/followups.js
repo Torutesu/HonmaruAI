@@ -114,8 +114,9 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
           : { agent: { name: "AI", handle: "AI", instructions: "You are the team's AI." } };
         const agent = await withRoomGuidelines(env.DB, r.org_id, r.channel, prepared.agent);
         const answer = await complete(
-          `You are ${agent.name}. You said you would follow up on something, and the time has come. Do it now and say what you found, briefly, as a colleague would.\n\n<agent_instructions>\n${String(agent.instructions).slice(0, 8000)}\n</agent_instructions>`,
+          `You are ${agent.name}. You said you would follow up on something, and the time has come. Do it now and say what you found, briefly, as a colleague would.\n\n<agent_instructions>\n${agent.researchInstructions || String(agent.instructions).slice(0, 8000)}\n</agent_instructions>`,
           `Follow-up you scheduled on ${String(r.created_at).slice(0, 10)}: ${r.instruction}`,
+          { tools: prepared.skillTools, fallbackSystem: `You are ${agent.name}. Complete your scheduled follow-up and answer briefly.\n\n${agent.instructions}` },
         );
         if (answer) body = answer;
       } else {

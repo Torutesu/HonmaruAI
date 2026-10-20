@@ -3,6 +3,7 @@
 // where there is no model or no allowance left — every caller has a
 // model-free path.
 
+import { completeWithTools } from "./modelToolLoop.js";
 import { providerFor } from "../orgAI.js";
 import { allowanceFor } from "../gate.js";
 import { noteUsage, settleUsage } from "../ledger.js";
@@ -12,22 +13,15 @@ export async function completer(env, orgId, githubId, purpose, { maxTokens = 900
   if (!provider) return null;
   const allowance = await allowanceFor(env, orgId, { githubId: String(githubId) });
   if (!allowance.allowed) return null;
-  return async (system, user) => {
+  return async (system, user, { tools = {}, fallbackSystem = system } = {}) => {
+    let consumed = false;
     try {
-      const res = await fetch(provider.endpoint, {
-        method: "POST", signal: AbortSignal.timeout(timeoutMs),
-        headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: provider.model, temperature: 0.2, max_tokens: maxTokens,
-          ...(json ? { response_format: { type: "json_object" } } : {}),
-          messages: [{ role: "system", content: system }, { role: "user", content: user }],
-        }),
+      return await completeWithTools({provider, system, user, tools, fallbackSystem, maxTokens, json, timeoutMs,
+        onUsage: async data => {
+          noteUsage(provider, purpose, data);
+          if (!consumed && allowance.metered) { await allowance.consume(); consumed = true; }
+        },
       });
-      if (!res.ok) return null;
-      const data = await res.json();
-      noteUsage(provider, purpose, data);
-      if (allowance.metered) await allowance.consume();
-      return data?.choices?.[0]?.message?.content ?? null;
     } finally {
       // A call that failed gives its place in the day back (gate.js).
       await allowance.release().catch(() => {});

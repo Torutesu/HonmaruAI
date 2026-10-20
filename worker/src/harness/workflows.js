@@ -380,11 +380,12 @@ async function runStep(env, { orgId, workflow, step, number, scope, runId, depth
       if (!(await mayRunAgent(db, orgId, agentRow, owner))) return { status: "failed", error: "Agent access required." };
       const complete = await completer(env, orgId, owner, "workflow_agent", { json: false, maxTokens: 1200 });
       if (!complete) return { status: "failed", error: "No AI model, or none left today." };
-      const prepared = await prepareAgent(env, orgId, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: step.channel || "" });
+      const prepared = await prepareAgent(env, orgId, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: step.channel || "", userId: owner, allowPrivate: false });
       const agent = await withRoomGuidelines(db, orgId, step.channel, prepared.agent);
       const answer = await complete(
-        `You are ${agent.name} (@${agent.handle}), doing one step of the workflow "${workflow.name}". Do what the step asks and answer with the result only.\n\n<agent_instructions>\n${String(agent.instructions).slice(0, 12000)}\n</agent_instructions>`,
+        `You are ${agent.name} (@${agent.handle}), doing one step of the workflow "${workflow.name}". Do what the step asks and answer with the result only.\n\n<agent_instructions>\n${agent.researchInstructions || String(agent.instructions).slice(0, 12000)}\n</agent_instructions>`,
         `${render(step.prompt, scope)}\n\n<context>\n${JSON.stringify({ input: scope.input, row: scope.row || null }).slice(0, 6000)}\n</context>`,
+        { tools: prepared.skillTools, fallbackSystem: `You are ${agent.name}, doing a step of "${workflow.name}". Answer with the result only.\n\n${agent.instructions}` },
       );
       if (!answer) return { status: "failed", error: "The agent gave no answer." };
       if (step.channel) await say(env, orgId, step.channel, answer, { authorLogin: `agent:${agentRow.id}`, kind: "agent" });

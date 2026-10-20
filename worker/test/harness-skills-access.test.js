@@ -164,3 +164,13 @@ test('on-demand output preserves a maximum-length procedure without JSON expansi
   expect(output.length).toBeLessThan(20000);
   expect(output.endsWith('FINAL CHECK')).toBe(true);
 });
+
+test('workflow skill readers retain private-skill exclusion even for the owner', async () => {
+  const skill=await create();
+  await request('POST',`/hx/agents/${agentId}/skills`,owner,{skillId:skill.id});
+  const context={userId:'9401',channel:`ag:${agentId}|owner`,allowPrivate:false};
+  const prepared=await prepareAgent(env,orgId,{id:agentId,instructions:'Help'},null,context);
+  expect(prepared.agent.instructions).not.toContain('Confidential instructions');
+  const read=installedSkillTools(env.DB,orgId,agentId,context).read_installed_skill.run;
+  expect(await read({skill_id:skill.id,allowPrivate:true})).toBe('Installed skill unavailable.');
+});

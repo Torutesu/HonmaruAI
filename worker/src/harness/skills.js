@@ -112,7 +112,7 @@ export async function skillsOf(db, orgId, agentId, userId = "") {
 // Shared rooms and workflow logs must never inherit a private skill.
 export async function executionSkills(db, orgId, agentId, context = {}) {
   let privateOwner = '';
-  if (context.userId) {
+  if (context.userId && context.allowPrivate !== false) {
     const u = await db.prepare(`SELECT u.login FROM users u JOIN memberships m ON m.user_github_id = u.github_id
       WHERE m.org_id = ?1 AND u.github_id = ?2 AND m.role != 'guest'`).bind(orgId, String(context.userId)).first();
     if (u && context.channel === `ag:${agentId}|${u.login}`) privateOwner = String(context.userId);
