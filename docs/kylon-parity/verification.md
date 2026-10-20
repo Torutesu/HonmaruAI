@@ -751,3 +751,9 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Japanese profile label update passes all 929 Web tests.
 - GitHub confirms PR #486 merged at 2026-10-20 13:58 UTC, commit 82132822a6019ec5f97efa4287163e0318ca8d99. Git ancestry confirms it is included in both successfully deployed Web ccc64f0e and Worker e43500f0. Removed stale “unpublished/CI running” wording for its file-conversation and CSV-dark fixes without upgrading overall parity acceptance.
 - New editing-policy full Worker suite remains live in session 96006, fixed source 66d2975c. No Worker source/test changes during that run.
+
+### Descriptive intelligence chooser (2026-10-21)
+
+- Native Kylon profile edit screenshot shows Fast/Pro/Max listbox options with descriptive text, selected checkmark, and a description in the selected field. Closed list then cancelled without modifying the reference agent.
+- Replaced the plain select in Honmaru creation/edit/profile with a shared themed combobox. Added descriptions, selected checkmark, compact profile trigger, arrow/Home/End navigation, explicit commit, outside dismissal, first-Escape list dismissal and disabled protection. Fixed-position menu is clamped to the viewport to escape dialog scroll clipping, opens upward when needed and closes on surrounding scroll/resize. No reference cost ratios are asserted for Honmaru's configurable providers.
+- Web 930 tests passed; added geometry and navigation/commit/Escape/outside/disabled tests. Subsequent resize-event guard targeted test passed. Native candidate preview was blank on this attempt, so visual acceptance remains pending. Temporary preview entrypoints/processes removed.

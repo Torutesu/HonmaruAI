@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { AgentTierSelect } from './AgentTierSelect'
 import { Dialog } from './Dialog'
 import { AgentAvatar } from './AgentAvatar'
 import { useT } from '../utils/i18n'
@@ -50,9 +51,7 @@ export function EditAgentProfile({ agent, profile, onClose, onSave }: Props) {
     </div>
     <label><span className="dlg-label">{t('Display name')}</span><input className="dlg-input" autoFocus maxLength={40} value={name} disabled={busy} onChange={e => setName(e.target.value)}/></label>
     <label><span className="dlg-label">{t('Specialty')}</span><input className="dlg-input" maxLength={120} value={specialty} disabled={busy} onChange={e => setSpecialty(e.target.value)} placeholder={t('e.g. Research and synthesis')}/><p className="dlg-hint">{t('Help teammates understand what this agent is good at.')}</p></label>
-    <label><span className="dlg-label">{t('Intelligence')}</span><select className="dlg-input" disabled={busy} value={tier} onChange={e => setTier(e.target.value as AgentProfile['tier'])}>
-      <option value="lite">{t('Fast')}</option><option value="standard">{t('Pro')}</option><option value="max">{t('Max')}</option>
-    </select></label>
+    <div><span className="dlg-label">{t('Intelligence')}</span><AgentTierSelect value={tier} disabled={busy} onChange={setTier}/></div>
     {error && <p role="alert" className="form-error">{error}</p>}
   </Dialog>
 }

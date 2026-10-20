@@ -1,3 +1,4 @@
+import { AgentTierSelect } from '../components/AgentTierSelect'
 import { skillImportInput } from '../utils/skillImport'
 import type { SkillDraft } from '../utils/harness'
 import { AgentMemoryList, MemoryKindSelect } from '../components/AgentMemoryList'
@@ -143,9 +144,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
       <dl>
         <dt><Icon name="briefcase" size={14}/>{t('Specialty')}</dt><dd>{profile.specialty || t('Not set')}</dd>
         <dt><Icon name="brain" size={14}/>{t('Intelligence')}</dt><dd>{canEdit
-          ? <select className="hx-profile-tier" aria-label={t('Intelligence')} disabled={busy === 'save'} value={profile.tier} onChange={e => save({ tier: e.target.value as AgentProfile['tier'] })}>
-            <option value="lite">{t('Fast')}</option><option value="standard">{t('Pro')}</option><option value="max">{t('Max')}</option>
-          </select>
+          ? <AgentTierSelect compact value={profile.tier} disabled={busy === 'save'} onChange={tier => void save({ tier })}/>
           : t(profile.tier === 'lite' ? 'Fast' : profile.tier === 'max' ? 'Max' : 'Pro')}</dd>
         <dt><Icon name="you" size={14}/>{t('Created by')}</dt><dd>{agent.createdByName || '—'}</dd>
         <dt><Icon name="calendar" size={14}/>{t('Created at')}</dt><dd>{agent.createdAt && Number.isFinite(Date.parse(agent.createdAt)) ? new Date(agent.createdAt).toLocaleDateString(getLocale(), { year: 'numeric', month: 'long', day: 'numeric' }) : '—'}</dd>

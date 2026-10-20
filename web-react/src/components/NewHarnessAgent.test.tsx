@@ -1,6 +1,7 @@
 import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { expect, test, vi } from 'vitest'
+import { AgentTierSelect } from './AgentTierSelect'
 import { NewHarnessAgent } from './NewHarnessAgent'
 vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text }))
 vi.mock('./Dialog', () => ({ Dialog: ({ children, footer, onClose }: any) => <section><button aria-label="Close dialog" onClick={onClose}/>{children}{footer}</section> }))
@@ -17,7 +18,7 @@ test('creates a private agent with one atomic profile request and prevents dupli
     act(() => {
       tree.root.findByProps({ placeholder: 'e.g. Atlas' }).props.onChange({ target: { value: '調査担当' } })
       tree.root.findByProps({ placeholder: 'e.g. Research and synthesis' }).props.onChange({ target: { value: '調査と統合' } })
-      tree.root.findByType('select').props.onChange({ target: { value: 'max' } })
+      tree.root.findByType(AgentTierSelect).props.onChange('max')
     })
     await act(async () => { button().props.onClick(); button().props.onClick() })
     expect(fetcher).toHaveBeenCalledTimes(1)
