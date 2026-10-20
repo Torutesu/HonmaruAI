@@ -123,28 +123,44 @@ test('on-demand skill reader rechecks installation, agent access and membership 
   const skill = await create();
   await request('POST', `/hx/agents/${agentId}/skills`, owner, {skillId:skill.id});
   const read = installedSkillTools(env.DB, orgId, agentId, {userId:'9401',channel:`ag:${agentId}|owner`}).read_installed_skill.run;
-  expect(await read({skill_id:skill.id})).toMatchObject({body:'Confidential instructions'});
+  expect(await read({skill_id:skill.id})).toContain('Confidential instructions');
   await env.DB.prepare('DELETE FROM hx_agent_skills WHERE org_id = ?1 AND agent_id = ?2 AND skill_id = ?3').bind(orgId,agentId,skill.id).run();
-  expect(await read({skill_id:skill.id})).toEqual({error:'Installed skill unavailable.'});
+  expect(await read({skill_id:skill.id})).toBe('Installed skill unavailable.');
   await request('POST', `/hx/agents/${agentId}/skills`, owner, {skillId:skill.id});
   await env.DB.prepare('DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = ?2').bind(orgId,'9401').run();
-  expect(await read({skill_id:skill.id})).toEqual({error:'Installed skill unavailable.'});
+  expect(await read({skill_id:skill.id})).toBe('Installed skill unavailable.');
 });
 
 test('on-demand reader cannot borrow identity or private context through model arguments', async () => {
   const skill = await create();
   await request('POST', `/hx/agents/${agentId}/skills`, owner, {skillId:skill.id});
   const read = installedSkillTools(env.DB, orgId, agentId, {userId:'9402',channel:`ag:${agentId}|member`}).read_installed_skill.run;
-  expect(await read({skill_id:skill.id,userId:'9401',channel:`ag:${agentId}|owner`})).toEqual({error:'Installed skill unavailable.'});
+  expect(await read({skill_id:skill.id,userId:'9401',channel:`ag:${agentId}|owner`})).toBe('Installed skill unavailable.');
   const unbound = installedSkillTools(env.DB, orgId, agentId, {}).read_installed_skill.run;
-  expect(await unbound({skill_id:skill.id})).toEqual({error:'Installed skill unavailable.'});
+  expect(await unbound({skill_id:skill.id})).toBe('Installed skill unavailable.');
 });
 
 test('on-demand reader stops serving a shared skill when the agent grant is revoked', async () => {
   const skill = await create('workspace');
   await request('POST', `/hx/agents/${agentId}/skills`, owner, {skillId:skill.id});
   const read = installedSkillTools(env.DB, orgId, agentId, {userId:'9402'}).read_installed_skill.run;
-  expect(await read({skill_id:skill.id})).toMatchObject({id:skill.id});
+  expect(await read({skill_id:skill.id})).toContain(`Skill ID: ${skill.id}`);
   expect((await request('PUT', `/hx/agents/${agentId}/profile`, owner, {access:'private'})).status).toBe(200);
-  expect(await read({skill_id:skill.id})).toEqual({error:'Installed skill unavailable.'});
+  expect(await read({skill_id:skill.id})).toBe('Installed skill unavailable.');
+});
+
+
+test('on-demand output preserves a maximum-length procedure without JSON expansion', async () => {
+  const body = `${'"\n'.repeat(3990)}FINAL CHECK`;
+  const result = await request('POST','/skills',owner,{name:'Long procedure',description:'Complete instructions',body,visibility:'private'});
+  expect(result.status).toBe(201);
+  const {skill}=await result.json();
+  await request('POST',`/hx/agents/${agentId}/skills`,owner,{skillId:skill.id});
+  const prepared=await prepareAgent(env,orgId,{id:agentId,instructions:'Help'},null,{userId:'9401',channel:`ag:${agentId}|owner`});
+  expect(prepared.agent.researchInstructions).toContain(skill.id);
+  expect(prepared.agent.researchInstructions).not.toContain('FINAL CHECK');
+  const output=await prepared.skillTools.read_installed_skill.run({skill_id:skill.id});
+  expect(output).toContain(body);
+  expect(output.length).toBeLessThan(20000);
+  expect(output.endsWith('FINAL CHECK')).toBe(true);
 });
