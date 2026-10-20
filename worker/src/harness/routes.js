@@ -47,6 +47,7 @@ import { onRowChange } from "./workflows.js";
 import { profilesFor, mayAccessAgent } from "./agents.js";
 import { listAgents } from "../customAgents.js";
 import { resolveChannel, viewOf } from "../channels.js";
+import { roomResponses, saveRoomResponses } from "./roomResponses.js";
 import { getGuidelines, saveGuidelines, MAX_GUIDELINES } from "./guidelines.js";
 
 const CORS_HEADERS = {
@@ -129,6 +130,22 @@ export async function handleHarness(request, env, url, context = {}) {
     return r.error ? fail(r) : json(r);
   }
   if (!read && !(await allowed(env.DB, orgId, me, "harness.build"))) return json({ message: "You cannot build in this workspace." }, 403);
+
+  if (url.pathname === "/hx/rooms/responses") {
+    const channel = read ? url.searchParams.get("channel") : input.channel;
+    const room = await resolveChannel(env.DB, orgId, who.user, channel);
+    if (!room || room.kind !== "business") return json({ message: "No such room." }, 404);
+    const exists = await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, room.slug).first();
+    if (!exists) return json({ message: "No such room." }, 404);
+    if (request.method === "GET") return json({ responses: await roomResponses(env.DB, orgId, room.key) });
+    if (request.method === "PUT") {
+      const result = await saveRoomResponses(env.DB, orgId, room.key, input, me);
+      if (result.error) return fail(result);
+      await audit(env, request, { orgId, action: "room.responses_changed", actor: person(who.user), entity: { type: "channel", id: room.key }, details: result.responses });
+      return json(result);
+    }
+    return json({ message: "Method not allowed." }, 405);
+  }
 
   if (url.pathname === "/hx/rooms/guidelines") {
     const channel = read ? url.searchParams.get("channel") : input.channel;

@@ -1,6 +1,11 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "How agents respond": "エージェントの応答方法",
+  "Mentioned only": "メンション時のみ",
+  "When enabled, unmentioned room messages do not continue an agent response. Direct messages are unchanged.": "オンにすると、ルームでメンションされていない発言にはエージェントが続けて返信しません。直接会話には影響しません。",
+  "A response setting and its current version are required.": "応答設定と現在のバージョンが必要です。",
+  "The response setting changed. Reload before saving.": "応答設定が変更されました。再読み込みしてから保存してください。",
   "Show {name}’s avatar": "{name}のアバターを表示",
   "{name}’s avatar": "{name}のアバター",
   "Zoomable image preview": "ズーム可能な画像プレビュー",

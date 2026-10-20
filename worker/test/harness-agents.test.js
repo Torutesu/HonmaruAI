@@ -280,3 +280,22 @@ test('profile dialog updates identity and profile together while preserving inst
   expect((await (await get(`${path}?${q({ orgId: ORG })}`, mika)).json()).profile).toMatchObject({ specialty: 'Accounting', tier: 'max' });
   expect((await send('PUT', path, kenji, { orgId: ORG, name: 'Unauthorized' })).status).toBe(403);
 });
+test('room mentioned-only policy blocks continuation, retains explicit mentions and does not change agent DMs', async () => {
+  const { respondingAgents } = await import('../src/customAgents.js');
+  const { saveRoomResponses } = await import('../src/harness/roomResponses.js');
+  await env.DB.prepare("INSERT INTO channel_agents (org_id, channel, agent_id, added_by, added_at) VALUES (?1, 'b:ops', ?2, 'mika', ?3)").bind(ORG, agentId, new Date().toISOString()).run();
+  for (const [id, author, body, parent, at] of [
+    ['root-response', 'mika', '@billy help', null, '2026-01-01T00:00:00Z'],
+    ['answer-response', `agent:${agentId}`, 'Ready', 'root-response', '2026-01-01T00:00:01Z'],
+    ['follow-response', 'mika', 'Continue', 'root-response', '2026-01-01T00:00:02Z'],
+  ]) await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, body, parent_id, created_at) VALUES (?1, ?2, 'b:ops', ?3, ?4, ?5, ?6)").bind(id, ORG, author, body, parent, at).run();
+  const row = await env.DB.prepare("SELECT * FROM channel_messages WHERE id = 'follow-response'").first();
+  const args = { orgId: ORG, login: 'mika', resolved: { kind: 'business', key: 'b:ops' }, row };
+  expect((await respondingAgents(env.DB, args)).map(x => x.id)).toEqual([agentId]);
+  await saveRoomResponses(env.DB, ORG, 'b:ops', { mentionedOnly: true, version: 0 }, 'mika');
+  expect(await respondingAgents(env.DB, args)).toEqual([]);
+  expect((await respondingAgents(env.DB, { ...args, row: { ...row, body: '@billy Continue' } })).map(x => x.id)).toEqual([agentId]);
+  expect((await respondingAgents(env.DB, { ...args, resolved: { kind: 'agent', key: `agent:${agentId}`, agent: { id: agentId } } })).map(x => x.id)).toEqual([agentId]);
+  await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' });
+  expect(await respondingAgents(env.DB, args)).toEqual([]);
+});

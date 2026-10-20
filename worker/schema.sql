@@ -1987,3 +1987,10 @@ CREATE TABLE IF NOT EXISTS channel_thread_mutes (org_id TEXT NOT NULL, login TEX
 CREATE INDEX IF NOT EXISTS idx_channel_thread_mutes_message ON channel_thread_mutes(org_id,message_id,login);
 
 CREATE TABLE IF NOT EXISTS hx_skill_files (org_id TEXT NOT NULL, skill_id TEXT NOT NULL REFERENCES hx_skills(id) ON DELETE CASCADE, path TEXT NOT NULL, size INTEGER NOT NULL CHECK (size >= 0 AND size <= 1048576), content BLOB NOT NULL, PRIMARY KEY (org_id, skill_id, path));
+
+/* Room-level explicit addressing policy, independent of presentation mode. */
+CREATE TABLE IF NOT EXISTS hx_room_responses (
+  org_id TEXT NOT NULL, channel TEXT NOT NULL, mentioned_only INTEGER NOT NULL DEFAULT 0,
+  version INTEGER NOT NULL DEFAULT 1, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, channel)
+);

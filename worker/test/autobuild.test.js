@@ -133,3 +133,13 @@ test("off, or already someone's to answer, nothing starts on its own", async () 
   const seen = (await (await get(`/teammates?${q({ orgId: ORG, provider: "claude" })}`, toru)).json()).teammate;
   expect(seen.autoBuild).toBe(false);
 });
+test('room mentioned-only setting prevents automatic issue work even for an enabled teammate', async () => {
+  await launch();
+  const { saveRoomResponses } = await import('../src/harness/roomResponses.js');
+  await saveRoomResponses(env.DB, ORG, 'b:cafe', { mentionedOnly: true, version: 0 }, 'toru');
+  const response = await send('POST', '/channels/messages', mika, { orgId: ORG, channel: 'b:cafe', body: 'https://github.com/acme/app/issues/205 これ修正して' });
+  expect(response.status).toBe(201);
+  expect(await runs()).toBe(0);
+  const message = (await response.json()).message;
+  expect(await thread(mika, message.id)).toHaveLength(0);
+});

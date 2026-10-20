@@ -163,3 +163,9 @@
 2026-10-16追記: 会話スコープ記憶、予約実行の会話アクセス再検証、フォローアップの一覧・ホーム・MCPの隔離、run定義固定を追加。詳細は [検証記録](verification.md)。
 
 2026-10-18追記（レコード詳細）: テーブル・ボード・カレンダーから全項目の編集ダイアログを開き、ID・作成日時・更新日時を確認可能。変更フィールドのみを既存の競合検知付きAPIに保存。その後、アプリ／レコード固定会話（KY-005 / KY-043）、元スレッド、AI返信、メンション、全体Activity統合を追加して本番反映。上記行と検証記録に残差を記載し、完全一致とは扱わない。
+
+### Room response update (2026-10-21)
+
+KY-017 remains partial: implemented room-level Mentioned only with versioned saves, suppressing implicit continuations, proxy replies and automatic issue work while retaining explicit mentions and DMs. Production and native verification are pending.
+
+Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing and a Mentioned only switch; it explicitly has no separate user-facing Orchestrator role. KY-018 remains an unfulfilled tracking requirement for leadership/handoff/concurrency, but no unobserved leader-selection UI is invented. Automatic suitable-agent routing and explicit agent-to-agent handoff remain gaps.

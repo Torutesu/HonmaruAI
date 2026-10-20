@@ -1,3 +1,4 @@
+import { roomResponses } from "./harness/roomResponses.js";
 import { threadPins, setThreadPin } from "./threadPins.js";
 import { sentFile, fileConversation } from "./fileConversations.js";
 import { threadNotificationPreference } from "./threadNotifications.js";
@@ -1069,6 +1070,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     // report. Nothing answers that nobody called.
     const responders = await respondingAgents(env.DB, { orgId, login: who.user.login, resolved, row: out.row }).catch(() => []);
     const toAgent = resolved.kind === "agent" || responders.length > 0;
+    const roomMentionedOnly = resolved.kind === "business" && (await roomResponses(env.DB, orgId, resolved.key)).mentionedOnly;
     // A card only when asked for one: sent as a decision, or "@AI" asked,
     // in words, for an approval or a card. Any other "@AI" is a question,
     // and the AI answers it in the thread.
@@ -1090,7 +1092,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       if (responders.length) await answerAsAgents(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, locale, agents: responders });
       // The people it names who let their agent answer for them — when no
       // agent and no @AI is answering it already.
-      if (!toAgent && !wantsDecision && !wantsAnswer) {
+      if (!roomMentionedOnly && !toAgent && !wantsDecision && !wantsAnswer) {
         await answerAsProxies(env, { orgId, resolved, row: out.row, members, locale })
           .catch((err) => console.error("proxies failed", safe(err?.message)));
       }
@@ -1100,7 +1102,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       const named = mentionedPeople(out.row.body, members, who.user.login).length > 0;
       await autoBuild(env, {
         orgId, resolved, row: out.row, user: who.user, members, locale,
-        skip: toAgent || wantsDecision || wantsAnswer || named,
+        skip: roomMentionedOnly || toAgent || wantsDecision || wantsAnswer || named,
         deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000),
       }).catch((err) => console.error("auto-build failed", safe(err?.message)));
     });

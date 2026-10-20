@@ -1,3 +1,4 @@
+import { roomResponses } from "./harness/roomResponses.js";
 // Agents a team writes for itself.
 //
 // "@hayao" in a channel is a teammate that is instructions: a Markdown file
@@ -515,7 +516,8 @@ export async function respondingAgents(db, { orgId, login, resolved, row }) {
     const own = (await listAgents(db, orgId, login)).find((a) => a.id === resolved.agent.id);
     if (own) agents = [own, ...agents].slice(0, MAX_CALLED);
   }
-  if (!agents.length && row.parent_id && resolved.kind !== "agent" && !mentionTokens(callingText(row.body)).length) {
+  const mentionedOnly = resolved.kind === "business" && (await roomResponses(db, orgId, resolved.key)).mentionedOnly;
+  if (!mentionedOnly && !agents.length && row.parent_id && resolved.kind !== "agent" && !mentionTokens(callingText(row.body)).length) {
     const going = await continuingAgent(db, { orgId, key: resolved.key, row, login, here });
     if (going) agents = [going];
   }
