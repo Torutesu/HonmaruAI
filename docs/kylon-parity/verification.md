@@ -763,3 +763,16 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Frozen Worker suite at source 66d2975c completed: 204 files / 1510 tests passed in 459.84s. Web chooser final TypeScript and Vite build also passed.
 - Restarted isolated native preview using explicit loopback IPv4. The new descriptive field rendered in the light-theme screenshot; AX showed all listbox candidates after activation. The subsequent screenshot did not show the menu, and the native tool later returned noWindowsAvailable. This is not sufficient to certify menu painting/placement; acceptance remains pending. Preview process/server and temporary entrypoints were removed.
 - Prior ca4dd1af CI E2E completed successfully; Worker tests and matching deployment remained running at the latest inspection.
+
+### Structured agent memory (2026-10-21)
+
+- Added hx_memory_entries beside existing memory rows: title, description, multiline body (16,000 characters), version and update metadata. Existing short notes retain text/source/scope and read as version 0. Full-body deduplication prevents different long entries with identical 500-character prefixes from collapsing.
+- Added maker/admin-only PUT editing with expectedVersion and atomic scope/text/metadata updates. Shared-vs-conversation identity must match exactly; stale writes return 409. FK cascade removes structured data on forgetting.
+- Research-capable execution receives a bounded recent-memory index and read_agent_memory. The reader binds workspace/agent/user/room on the server and rechecks membership, agent grant and room access on every call. The non-research execution path keeps its legacy bounded short notes; complete equivalence across all providers remains unproven.
+- Added detailed memory editor and expandable body, search across title/description/body, legacy conversion, failure draft retention and versioned client requests. Existing quick-add remains. Native visual acceptance and production deployment for this feature remain pending.
+- Worker agents/Harness/research regression 57 tests passed; subsequent Harness suite with full-body deduplication and concurrent-writer test passed 20 tests. Web full suite 932 passed; final memory component/API suites 6 passed after one additional API serialization test.
+
+### Deployment wait investigation (2026-10-21)
+
+- ca4dd1af CI and Worker deployment succeeded. Its Web job still awaited the backend because the dependency helper, with no exact run for a Worker-path commit inside a multi-commit push, selected a newer pending descendant before the already deployed compatible descendant.
+- Updated the helper to accept a proven successful descendant while newer compatible builds are pending. Exact failures and newest compatible failed runs remain failures; unrelated branches and commits never satisfy the gate. All 10 helper tests pass. Existing running workflows retain their checked-out helper, so this does not claim they were updated in place.

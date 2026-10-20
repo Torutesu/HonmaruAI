@@ -82,7 +82,8 @@ export interface HomeData {
   followups: Followup[]
 }
 export type MemoryKind = 'context' | 'preference' | 'feedback' | 'reference'
-export interface AgentMemory { id: string; text: string; source: string; createdAt: string; channel?: string | null; kind?: string }
+export interface MemoryEntryInput { title: string; description: string; body: string; kind: MemoryKind }
+export interface AgentMemory { title?: string; description?: string; body?: string; version?: number; updatedAt?: string; id: string; text: string; source: string; createdAt: string; channel?: string | null; kind?: string }
 
 /// One client for every harness route: the session on each call, the
 /// server's own message on a refusal.
@@ -187,6 +188,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     memoryScopes: (agentId: string) => call<{ scopes: Array<{ channel: string; label: string }> }>('GET', `/hx/agents/${agentId}/memory/scopes`),
     memory: (agentId: string, channel = '') => call<{ memories: AgentMemory[]; canEdit: boolean }>('GET', `/hx/agents/${agentId}/memory`, undefined, { channel }),
     remember: (agentId: string, text: string, channel = '', kind: MemoryKind = 'context') => call<{ memory: AgentMemory }>('POST', `/hx/agents/${agentId}/memory`, { text, channel, kind }),
+    rememberEntry: (agentId: string, entry: MemoryEntryInput, channel = '') => call<{ memory: AgentMemory }>('POST', `/hx/agents/${agentId}/memory`, { ...entry, channel }),
+    updateMemory: (agentId: string, memory: AgentMemory, entry: MemoryEntryInput, channel = '') => call<{ memory: AgentMemory }>('PUT', `/hx/agents/${agentId}/memory`, { ...entry, id: memory.id, expectedVersion: memory.version ?? 0, channel }),
     forget: (agentId: string, id: string, channel = '') => call<{ deleted: number }>('DELETE', `/hx/agents/${agentId}/memory`, undefined, { id, channel }),
     agentSkills: (agentId: string) => call<{ skills: Skill[] }>('GET', `/hx/agents/${agentId}/skills`),
     giveSkill: (agentId: string, skillId: string) => call<{ given: boolean }>('POST', `/hx/agents/${agentId}/skills`, { skillId }),

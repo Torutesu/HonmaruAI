@@ -1,3 +1,4 @@
+import { updateMemoryEntry } from './memoryEntries.js';
 import { previewSkillImport } from './skillImport.js';
 import { writeSkillZip } from './skillZip.js';
 import { listSkillFiles, readSkillFile } from './skillFiles.js';
@@ -441,8 +442,12 @@ export async function handleHarness(request, env, url, context = {}) {
       const context = { channel };
       if (request.method === "GET") return json({ memories: await listAgentMemories(env.DB, orgId, agentId, context), canEdit });
       if (request.method === "POST") {
-        const r = await addAgentMemory(env.DB, orgId, agentId, input.text, { by: me, channel, kind: input.kind || "context" });
+        const r = await addAgentMemory(env.DB, orgId, agentId, input.body !== undefined ? { title: input.title, description: input.description, body: input.body } : input.text, { by: me, channel, kind: input.kind || "context" });
         return r.error ? fail(r) : json(r, 201);
+      }
+      if (request.method === "PUT") {
+        const r = await updateMemoryEntry(env.DB, orgId, agentId, parts[4] || input.id || "", input, { channel, by: me });
+        return r.error ? fail(r) : json(r);
       }
       if (request.method === "DELETE") {
         if (!canEdit) return json({ message: "Only the agent's maker or an admin can make it forget." }, 403);

@@ -46,3 +46,29 @@ test('memory creation sends selected kind and conversation without changing lega
   expect(JSON.parse(fetcher.mock.calls[1][1].body).kind).toBe('context')
  } finally {vi.unstubAllGlobals()}
 })
+
+test('structured entries search title, description and full body and preserve edit identity',()=>{
+ const entry={...memories[0],title:'Invoice procedure',description:'Accounting',body:'First\n\nSecond detailed step',version:2}
+ const edit=vi.fn();let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<AgentMemoryList memories={[entry]} canEdit busy={false} onForget={vi.fn()} onEdit={edit}/>)})
+ act(()=>tree.root.findByProps({'aria-label':'Search memories'}).props.onChange({target:{value:'accounting'}}))
+ expect(tree.root.findByType('summary').children).toEqual(['Invoice procedure'])
+ act(()=>tree.root.findAllByType('button').find(b=>b.children.includes('Edit memory'))!.props.onClick())
+ expect(edit).toHaveBeenCalledWith(entry)
+ act(()=>tree.root.findByProps({'aria-label':'Search memories'}).props.onChange({target:{value:'detailed'}}))
+ expect(tree.root.findByProps({className:'memory-text'}).children.join('')).toBe(entry.body)
+ act(()=>tree.unmount())
+})
+
+test('structured memory API preserves full fields and sends the loaded version and exact scope',async()=>{
+ const {harnessApi}=await import('../utils/harness')
+ const fetcher=vi.fn().mockResolvedValue({ok:true,json:async()=>({memory:{}})})
+ vi.stubGlobal('fetch',fetcher)
+ try {
+  const api=harnessApi('https://example.test','org','session'),entry={title:'Policy',description:'Team rules',body:'Line one\n\nLine two',kind:'reference' as const}
+  await api.rememberEntry('a',entry,'b:ops')
+  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({orgId:'org',...entry,channel:'b:ops'})
+  await api.updateMemory('a',{...memories[0],version:7},entry,'')
+  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({orgId:'org',...entry,id:'1',expectedVersion:7,channel:''})
+ } finally {vi.unstubAllGlobals()}
+})

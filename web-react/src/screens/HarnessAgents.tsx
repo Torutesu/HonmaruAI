@@ -1,3 +1,4 @@
+import { AgentMemoryEditor } from '../components/AgentMemoryEditor'
 import { AgentTierSelect } from '../components/AgentTierSelect'
 import { skillImportInput } from '../utils/skillImport'
 import type { SkillDraft } from '../utils/harness'
@@ -86,6 +87,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
   const [profile, setProfile] = useState<AgentProfile | null>(null)
   const [canEdit, setCanEdit] = useState(false)
   const [memories, setMemories] = useState<AgentMemory[]>([])
+  const [memoryDraft, setMemoryDraft] = useState<AgentMemory | 'new' | null>(null)
   const [skills, setSkills] = useState<Skill[]>([])
   const [allSkills, setAllSkills] = useState<Skill[]>([])
   const [followups, setFollowups] = useState<Followup[]>([])
@@ -209,7 +211,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
       </>}
       {section === 'memory' && <>
       <div className="rows-title">{t('Memory')}</div>
-      <select aria-label={t('Memory conversation')} value={memoryChannel} disabled={busy !== null} onChange={e => { memoryLoad.current++; setMemories([]); setMemoryChannel(e.target.value) }}>
+      <select aria-label={t('Memory conversation')} value={memoryChannel} disabled={busy !== null} onChange={e => { memoryLoad.current++; setMemoryDraft(null); setMemories([]); setMemoryChannel(e.target.value) }}>
         <option value="">{t('Shared knowledge')}</option>
         {memoryScopes.map(scope => <option key={scope.channel} value={scope.channel}>{scope.label}</option>)}
       </select>
@@ -224,7 +226,14 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
             </span>
           </span>
         </div>
-        <AgentMemoryList key={`${props.orgId}:${agent.id}:${memoryChannel}`} memories={memories} canEdit={canEdit} busy={busy !== null} onForget={m => act(`forget:${m.id}`, async () => { await api.forget(agent.id, m.id, m.channel ? memoryChannel : ''); setMemories(x => x.filter(y => y.id !== m.id)) })} />
+        <button className="btn-text" disabled={busy !== null} onClick={() => setMemoryDraft('new')}>{t('Add detailed memory')}</button>
+        {memoryDraft && <AgentMemoryEditor memory={memoryDraft === 'new' ? undefined : memoryDraft} onClose={() => { setMemoryDraft(null); load() }} onSave={async entry => {
+          const version = memoryLoad.current
+          const result = memoryDraft === 'new' ? await api.rememberEntry(agent.id, entry, memoryChannel)
+            : await api.updateMemory(agent.id, memoryDraft, entry, memoryDraft.channel ? memoryChannel : '')
+          if (version === memoryLoad.current) setMemories(current => [result.memory, ...current.filter(item => item.id !== result.memory.id)])
+        }}/>}
+        <AgentMemoryList key={`${props.orgId}:${agent.id}:${memoryChannel}`} memories={memories} canEdit={canEdit} busy={busy !== null} onEdit={setMemoryDraft} onForget={m => act(`forget:${m.id}`, async () => { await api.forget(agent.id, m.id, m.channel ? memoryChannel : ''); setMemories(x => x.filter(y => y.id !== m.id)) })} />
       </div>
 
       </>}

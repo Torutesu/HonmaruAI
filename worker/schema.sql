@@ -1994,3 +1994,15 @@ CREATE TABLE IF NOT EXISTS hx_room_responses (
   version INTEGER NOT NULL DEFAULT 1, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL,
   PRIMARY KEY (org_id, channel)
 );
+
+/* Full structured memory alongside the backwards-compatible short note. */
+CREATE TABLE IF NOT EXISTS hx_memory_entries (
+  memory_id TEXT PRIMARY KEY REFERENCES hx_agent_memories(id) ON DELETE CASCADE,
+  org_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  updated_by TEXT,
+  updated_at TEXT NOT NULL
+);

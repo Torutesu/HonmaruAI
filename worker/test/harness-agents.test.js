@@ -320,3 +320,60 @@ test('Harness routes clear new requests only to accessible room members, leaving
   await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' });
   expect(await respondingAgents(env.DB, args)).toEqual([]);
 });
+
+test("structured memory preserves multiline bodies, scopes edits and refuses stale or unauthorized updates", async () => {
+  const path = `/hx/agents/${agentId}/memory`;
+  const body = '# Billing\n\n' + 'Detailed procedure. '.repeat(100);
+  const made = await send('POST', path, mika, { orgId: ORG, title: 'Billing procedure', description: 'Monthly invoices', body, kind: 'reference', channel: 'b:ops' });
+  expect(made.status).toBe(201);
+  const { memory } = await made.json();
+  expect(memory).toMatchObject({ title: 'Billing procedure', description: 'Monthly invoices', body: body.trim(), version: 1 });
+  expect(memory.text.length).toBeLessThanOrEqual(500);
+  const payload = { orgId: ORG, id: memory.id, title: 'Updated billing', description: 'New procedure', body: 'New\n\nbody', kind: 'feedback', expectedVersion: 1, channel: 'b:ops' };
+  expect((await send('PUT', path, kenji, payload)).status).toBe(403);
+  expect((await send('PUT', path, mika, { ...payload, channel: '' })).status).toBe(404);
+  const changed = await send('PUT', path, mika, payload);
+  expect(changed.status).toBe(200);
+  expect((await changed.json()).memory).toMatchObject({ body: 'New\n\nbody', version: 2, kind: 'feedback' });
+  expect((await send('PUT', path, mika, { ...payload, body: 'Stale overwrite' })).status).toBe(409);
+  const listed = await (await get(`${path}?${q({ orgId: ORG, channel: 'b:ops' })}`, mika)).json();
+  expect(listed.memories.find(m => m.id === memory.id)).toMatchObject({ body: 'New\n\nbody', text: 'New body', title: 'Updated billing', version: 2, kind: 'feedback' });
+  expect((await send('POST', path, mika, { orgId: ORG, title: 'Too long', body: 'x'.repeat(16001) })).status).toBe(400);
+  const legacy = (await (await send('POST', path, mika, { orgId: ORG, text: 'Old note' })).json()).memory;
+  expect(legacy).toMatchObject({ body: 'Old note', title: 'Old note', version: 0 });
+  expect((await send('PUT', path, mika, { ...payload, id: legacy.id, channel: '', expectedVersion: 0 })).status).toBe(200);
+  expect((await call(`${path}?${q({ orgId: ORG, id: memory.id, channel: 'b:ops' })}`, { method: 'DELETE', headers: headers(mika) })).status).toBe(200);
+  expect(await env.DB.prepare('SELECT * FROM hx_memory_entries WHERE memory_id=?1').bind(memory.id).first()).toBeNull();
+});
+
+test("structured memory reader rechecks identity and conversation and keeps full bodies out of the research index", async () => {
+  const { addAgentMemory, prepareAgent } = await import('../src/harness/agents.js');
+  const { agentMemoryTools } = await import('../src/harness/memoryReader.js');
+  const body = '# Full instructions\n\n' + 'private detail '.repeat(100);
+  const { memory } = await addAgentMemory(env.DB, ORG, agentId, { title: 'Procedure', description: 'Useful index', body }, { channel: 'b:ops', by: '9202' });
+  const context = { userId: '9202', channel: 'b:ops' };
+  const tools = agentMemoryTools(env.DB, ORG, agentId, context);
+  expect(JSON.parse(await tools.read_agent_memory.run({ memory_id: memory.id })).body).toBe(body.trim());
+  expect(await agentMemoryTools(env.DB, ORG, agentId, { ...context, channel: '' }).read_agent_memory.run({ memory_id: memory.id })).toBe('Memory unavailable.');
+  const ready = await prepareAgent(env, ORG, { id: agentId, instructions: 'You help.' }, null, context);
+  expect(ready.agent.researchInstructions).toContain('read_agent_memory');
+  expect(ready.agent.researchInstructions).toContain('Useful index');
+  expect(ready.agent.researchInstructions).not.toContain('private detail');
+  expect(ready.skillTools.read_agent_memory).toBeDefined();
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(ORG, '9202').run();
+  expect(await tools.read_agent_memory.run({ memory_id: memory.id })).toBe('Memory unavailable.');
+});
+
+test('memory bodies with the same short preview stay distinct and concurrent edits have one winner', async () => {
+  const path = `/hx/agents/${agentId}/memory`;
+  const prefix = 'x'.repeat(600);
+  const first = (await (await send('POST', path, mika, { orgId: ORG, title: 'One', body: prefix + 'one' })).json()).memory;
+  const second = (await (await send('POST', path, mika, { orgId: ORG, title: 'Two', body: prefix + 'two' })).json()).memory;
+  expect(first.id).not.toBe(second.id);
+  const requests = ['A', 'B'].map(letter => send('PUT', path, mika, { orgId: ORG, id: first.id, expectedVersion: 1, title: letter, description: letter, body: letter, kind: 'context' }));
+  const replies = await Promise.all(requests);
+  expect(replies.map(r => r.status).sort()).toEqual([200, 409]);
+  const winner = (await replies.find(r => r.status === 200).json()).memory;
+  const listed = (await (await get(`${path}?${q({ orgId: ORG })}`, mika)).json()).memories.find(m => m.id === first.id);
+  expect(listed).toMatchObject({ title: winner.title, description: winner.title, body: winner.title, text: winner.title, version: 2 });
+});

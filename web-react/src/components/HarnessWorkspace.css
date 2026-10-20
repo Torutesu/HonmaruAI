@@ -644,3 +644,7 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-thread-share-link input { flex:1; min-width:0; }
 .hx-thread-share-owned span { flex:1; }
 @media(max-width:600px) { .hx-thread-share-publish,.hx-thread-share-link { align-items:stretch; flex-direction:column; } }
+
+.hx-memory-entry summary { cursor:pointer; font-weight:500; }
+.hx-memory-entry .memory-text { white-space:pre-wrap; overflow-wrap:anywhere; margin-top:10px; max-height:420px; overflow:auto; }
+.hx-memory-editor textarea { resize:vertical; }
