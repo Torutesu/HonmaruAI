@@ -102,3 +102,17 @@ test('skill and initial visibility are atomic', async () => {
   await expect(createSkill(env.DB, orgId, { name: 'Must not remain', body: 'Secret', visibility: 'private' }, '9401')).rejects.toThrow();
   expect(await env.DB.prepare("SELECT id FROM hx_skills WHERE org_id = ?1 AND name = 'Must not remain'").bind(orgId).first()).toBeNull();
 });
+
+test('installed skill procedures retain instructions beyond the old 4000-character cutoff', async () => {
+  const body = `${'Step details. '.repeat(390)}\nFINAL CHECK: Require the owner to review the result before publishing.`;
+  expect(body.length).toBeGreaterThan(4000);
+  expect(body.length).toBeLessThan(8000);
+  const result = await request('POST', '/skills', owner, { name: 'Complete procedure', body, visibility: 'private' });
+  expect(result.status).toBe(201);
+  const { skill } = await result.json();
+  expect((await request('POST', `/hx/agents/${agentId}/skills`, owner, { skillId: skill.id })).status).toBe(200);
+  const prepared = await prepareAgent(env, orgId, { id: agentId, instructions: 'Help' }, null, { userId: '9401', channel: `ag:${agentId}|owner` });
+  expect(prepared.agent.instructions).toContain(body);
+  const shared = await prepareAgent(env, orgId, { id: agentId, instructions: 'Help' }, null, { userId: '9401', channel: 'b:public' });
+  expect(shared.agent.instructions).not.toContain('FINAL CHECK');
+});

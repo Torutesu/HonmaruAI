@@ -193,7 +193,7 @@ export async function prepareAgent(env, orgId, agent, provider, context = {}) {
   ]);
   const blocks = [];
   if (profile.specialty) blocks.push(`Your specialty: ${profile.specialty}`);
-  if (skills.length) blocks.push(`<skills>\n${skills.map((s) => `## ${s.name}\n${String(s.body).slice(0, 4000)}`).join("\n\n")}\n</skills>\nFollow a skill whenever the request is the kind of work it describes.`);
+  if (skills.length) blocks.push(`<skills>\n${skills.map((s) => `## ${s.name}\n${String(s.body)}`).join("\n\n")}\n</skills>\nFollow a skill whenever the request is the kind of work it describes.`);
   if (memories.length) blocks.push(`<your_memory>\n${memories.slice(0, 40).map((m) => `- ${m.text}`).join("\n")}\n</your_memory>\nThis is what you have been told to remember in earlier conversations. Use it.`);
   const prepared = blocks.length ? { ...agent, instructions: `${agent.instructions}\n\n${blocks.join("\n\n")}` } : agent;
   const model = modelForTier(env, provider, profile.tier);
