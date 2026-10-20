@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, expect, test } from 'vitest';
 import worker from '../src/index.js';
+import { installedSkillTools } from '../src/harness/skillReader.js';
 import { prepareAgent } from '../src/harness/agents.js';
 import { createSkill, executionSkills, getSkill } from '../src/harness/skills.js';
 
@@ -115,4 +116,35 @@ test('installed skill procedures retain instructions beyond the old 4000-charact
   expect(prepared.agent.instructions).toContain(body);
   const shared = await prepareAgent(env, orgId, { id: agentId, instructions: 'Help' }, null, { userId: '9401', channel: 'b:public' });
   expect(shared.agent.instructions).not.toContain('FINAL CHECK');
+});
+
+
+test('on-demand skill reader rechecks installation, agent access and membership each time', async () => {
+  const skill = await create();
+  await request('POST', `/hx/agents/${agentId}/skills`, owner, {skillId:skill.id});
+  const read = installedSkillTools(env.DB, orgId, agentId, {userId:'9401',channel:`ag:${agentId}|owner`}).read_installed_skill.run;
+  expect(await read({skill_id:skill.id})).toMatchObject({body:'Confidential instructions'});
+  await env.DB.prepare('DELETE FROM hx_agent_skills WHERE org_id = ?1 AND agent_id = ?2 AND skill_id = ?3').bind(orgId,agentId,skill.id).run();
+  expect(await read({skill_id:skill.id})).toEqual({error:'Installed skill unavailable.'});
+  await request('POST', `/hx/agents/${agentId}/skills`, owner, {skillId:skill.id});
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = ?2').bind(orgId,'9401').run();
+  expect(await read({skill_id:skill.id})).toEqual({error:'Installed skill unavailable.'});
+});
+
+test('on-demand reader cannot borrow identity or private context through model arguments', async () => {
+  const skill = await create();
+  await request('POST', `/hx/agents/${agentId}/skills`, owner, {skillId:skill.id});
+  const read = installedSkillTools(env.DB, orgId, agentId, {userId:'9402',channel:`ag:${agentId}|member`}).read_installed_skill.run;
+  expect(await read({skill_id:skill.id,userId:'9401',channel:`ag:${agentId}|owner`})).toEqual({error:'Installed skill unavailable.'});
+  const unbound = installedSkillTools(env.DB, orgId, agentId, {}).read_installed_skill.run;
+  expect(await unbound({skill_id:skill.id})).toEqual({error:'Installed skill unavailable.'});
+});
+
+test('on-demand reader stops serving a shared skill when the agent grant is revoked', async () => {
+  const skill = await create('workspace');
+  await request('POST', `/hx/agents/${agentId}/skills`, owner, {skillId:skill.id});
+  const read = installedSkillTools(env.DB, orgId, agentId, {userId:'9402'}).read_installed_skill.run;
+  expect(await read({skill_id:skill.id})).toMatchObject({id:skill.id});
+  expect((await request('PUT', `/hx/agents/${agentId}/profile`, owner, {access:'private'})).status).toBe(200);
+  expect(await read({skill_id:skill.id})).toEqual({error:'Installed skill unavailable.'});
 });
