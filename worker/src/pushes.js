@@ -166,7 +166,7 @@ export async function queueMessagePushes(env, orgId, row, { members = null, now 
     // they go now, without the minute's wait to see whether it was read.
     console.error("push queue unavailable; pushing directly", err?.message || err);
     const membersOf = new Map([[orgId, list]]);
-    await Promise.all(to.map(({ login }) => deliverMessagePush(env, { org_id: orgId, login, message_id: row.id }, { now, membersOf })
+    await Promise.all(to.map(({ login, reason }) => deliverMessagePush(env, { org_id: orgId, login, message_id: row.id, reason }, { now, membersOf })
       .catch((e) => console.error("direct push failed", e?.message || e))));
   }
   return to.length;
@@ -204,6 +204,14 @@ async function deliverMessagePush(env, job, { now = Date.now(), membersOf = new 
     "SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2"
   ).bind(job.org_id, job.message_id).first();
   if (!msg || msg.deleted_at) return { skipped: true };
+  // Access and preferences may have changed during the delay or quiet hours.
+  // Recheck before translating or sending any of the message's contents.
+  const audience = await audienceOf(db, job.org_id, msg.channel);
+  if (audience && !audience.includes(job.login)) return { skipped: true };
+  const pref = await db.prepare(
+    "SELECT level FROM channel_prefs WHERE org_id = ?1 AND login = ?2 AND channel = ?3"
+  ).bind(job.org_id, job.login, msg.channel).first();
+  if (pref?.level === "mute" || (pref?.level === "mentions" && job.reason === "thread")) return { skipped: true };
   // Read it already, here or anywhere: in its conversation, in its
   // thread, or looked at in Activity.
   if (await readAlready(db, job.org_id, job.login, msg)) return { skipped: true };
