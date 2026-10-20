@@ -54,6 +54,13 @@ describe('renderRich, the Discord way', () => {
     expect(html('_it_ ~s~')).toBe('<i>it</i> <s>s</s>')
   })
 
+  it('preserves underscores in identifiers instead of joining unrelated italic spans', () => {
+    const source = 'add_numbers list_app_actions run_app_action get_app_execution file_name.txt';
+    expect(html(source)).toBe(source)
+    expect(html('foo__bar__baz 日本語_項目_名')).toBe('foo__bar__baz 日本語_項目_名')
+    expect(html('(_italic_) and __under__')).toBe('(<i>italic</i>) and <u>under</u>')
+  })
+
   it('draws #, ## and ### headings and -# subtext as lines of their own', () => {
     expect(html('# Big\ntext')).toBe('<div class="slk-h slk-h1" role="heading" aria-level="3">Big</div>text')
     expect(html('### Small')).toBe('<div class="slk-h slk-h3" role="heading" aria-level="5">Small</div>')
