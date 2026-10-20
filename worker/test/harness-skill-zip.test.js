@@ -6,12 +6,12 @@ const markdown='---\nname: report\ndescription: Write reports\n---\nRead templat
 function zip(files,method=8) {
  const locals=[],centrals=[];let offset=0;
  for(const file of files) {
-  const name=encoder.encode(file.path),bytes=typeof file.body==='string'?encoder.encode(file.body):file.body;
+  const name=file.nameBytes??encoder.encode(file.path),bytes=typeof file.body==='string'?encoder.encode(file.body):file.body;
   const packed=method===8?new Uint8Array(deflateRawSync(bytes)):bytes,crc=skillFileCrc(bytes),size=file.declared??bytes.length;
   const local=new Uint8Array(30+name.length+packed.length),l=new DataView(local.buffer);
-  l.setUint32(0,0x04034b50,true);l.setUint16(4,20,true);l.setUint16(6,0x800,true);l.setUint16(8,method,true);l.setUint32(14,crc,true);l.setUint32(18,packed.length,true);l.setUint32(22,size,true);l.setUint16(26,name.length,true);local.set(name,30);local.set(packed,30+name.length);
+  l.setUint32(0,0x04034b50,true);l.setUint16(4,20,true);l.setUint16(6,file.flags??0x800,true);l.setUint16(8,method,true);l.setUint32(14,crc,true);l.setUint32(18,packed.length,true);l.setUint32(22,size,true);l.setUint16(26,name.length,true);local.set(name,30);local.set(packed,30+name.length);
   const central=new Uint8Array(46+name.length),c=new DataView(central.buffer);
-  c.setUint32(0,0x02014b50,true);c.setUint16(4,0x314,true);c.setUint16(6,20,true);c.setUint16(8,0x800,true);c.setUint16(10,method,true);c.setUint32(16,crc,true);c.setUint32(20,packed.length,true);c.setUint32(24,size,true);c.setUint16(28,name.length,true);c.setUint32(38,(file.mode??0x8000)<<16,true);c.setUint32(42,offset,true);central.set(name,46);
+  c.setUint32(0,0x02014b50,true);c.setUint16(4,0x314,true);c.setUint16(6,20,true);c.setUint16(8,file.flags??0x800,true);c.setUint16(10,method,true);c.setUint32(16,crc,true);c.setUint32(20,packed.length,true);c.setUint32(24,size,true);c.setUint16(28,name.length,true);c.setUint32(38,(file.mode??0x8000)<<16,true);c.setUint32(42,offset,true);central.set(name,46);
   locals.push(local);centrals.push(central);offset+=local.length;
  }
  const centralSize=centrals.reduce((n,b)=>n+b.length,0),end=new Uint8Array(22),e=new DataView(end.buffer);
@@ -45,6 +45,20 @@ test('Finder sidecars do not reduce the supported 64-file package limit',()=>{
  const sidecars=files.map(file=>({path:`__MACOSX/${file.path.replace(/([^/]+)$/,'._$1')}`,body:'metadata'}));
  const result=parseSkillZip(zip([...files,...sidecars,{path:'reports/',body:'',mode:0x4000},{path:'reports/assets/',body:'',mode:0x4000}]));
  expect(result.files).toHaveLength(63);
+});
+test('imports strict UTF-8 Finder names without a language flag and normalizes decomposed names',()=>{
+ const result=parseSkillZip(zip([
+  {path:'報告/SKILL.md',body:markdown,flags:0},
+  {path:'報告/ガイド.txt'.normalize('NFD'),body:'日本語の手順',flags:0},
+  {path:'__MACOSX/報告/._ガイド.txt'.normalize('NFD'),body:'metadata',flags:0},
+ ]));
+ expect(result.files?.map(f=>f.path)).toEqual(['ガイド.txt']);
+ expect(new TextDecoder().decode(result.files?.[0].bytes)).toBe('日本語の手順');
+});
+test('rejects ambiguous normalized duplicates and non-UTF-8 legacy filenames',()=>{
+ const root={path:'SKILL.md',body:markdown};
+ expect(parseSkillZip(zip([root,{path:'ガイド.txt',body:'a'},{path:'ガイド.txt'.normalize('NFD'),body:'b'}])).error).toBeTruthy();
+ expect(parseSkillZip(zip([root,{nameBytes:new Uint8Array([0xff,0x2e,0x74,0x78,0x74]),body:'legacy',flags:0}])).error).toBeTruthy();
 });
 test('metadata exclusion never bypasses unsafe path, link or expansion checks',()=>{
  const root={path:'reports/SKILL.md',body:markdown};

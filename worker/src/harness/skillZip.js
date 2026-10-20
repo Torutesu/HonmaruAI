@@ -35,12 +35,15 @@ export function parseSkillZip(input) {
       if(flags&~(0x800|8|6) || ![0,8].includes(method) || u16(at+34)!==0 || ![0,0x8000,0x4000].includes(type))invalid();
       if(at+46+nameSize+extraSize+commentSize>end || size>MAX_SKILL_ASSET_BYTES)invalid();
       const nameBytes=input.subarray(at+46,at+46+nameSize);
-      if(!(flags&0x800)&&nameBytes.some(byte=>byte>=128))invalid();
-      const name=decoder.decode(nameBytes),directory=name.endsWith('/');
+      // Finder writes UTF-8 names without setting the UTF-8 bit and often
+      // uses decomposed Unicode. Decode strictly (never guess a legacy code
+      // page), then canonicalize at the import boundary. Package validation
+      // still rejects duplicate names that collapse to the same NFC path.
+      const rawName=decoder.decode(nameBytes),name=rawName.normalize('NFC'),directory=name.endsWith('/');
       if(!skillPackagePath(directory?name.slice(0,-1):name) || type===0x4000&&!directory || type===0x8000&&directory || directory&&size!==0)invalid();
       if(start+30>centralStart || u32(start)!==0x04034b50 || u16(start+6)!==flags || u16(start+8)!==method)invalid();
       const localName=u16(start+26),localExtra=u16(start+28),dataStart=start+30+localName+localExtra,dataEnd=dataStart+packed;
-      if(dataEnd>centralStart || localName!==nameSize || decoder.decode(input.subarray(start+30,start+30+localName))!==name)invalid();
+      if(dataEnd>centralStart || localName!==nameSize || decoder.decode(input.subarray(start+30,start+30+localName))!==rawName)invalid();
       if(!(flags&8)&&(u32(start+14)!==crc||u32(start+18)!==packed||u32(start+22)!==size))invalid();
       if(ranges.some(([a,b])=>start<b&&dataEnd>a))invalid();ranges.push([start,dataEnd]);
       total+=size;if(total>MAX_SKILL_PACKAGE_BYTES)invalid();

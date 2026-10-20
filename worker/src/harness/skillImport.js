@@ -15,7 +15,9 @@ export function previewSkillImport(input) {
   } else {
     const decoded=decodeSkillFiles(input.files);
     if(decoded.error)return decoded;
-    const files=decoded.files;
+    // Folder pickers on macOS may return decomposed names, just like Finder
+    // ZIPs. Store one canonical spelling; duplicate checks run after this.
+    const files=decoded.files.map(file=>({...file,path:typeof file.path==='string'?file.path.normalize('NFC'):file.path}));
     if(files.some(file=>!skillPackagePath(file.path)))return {error:'Invalid package path.'};
     if(!files.some(file=>file.path==='SKILL.md')) {
       const prefix=files[0]?.path.split('/')[0]+'/';

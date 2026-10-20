@@ -245,7 +245,7 @@ const ScopedHarnessSkills: React.FC<HarnessProps> = (props) => {
       <input ref={importFolder} type="file" multiple {...{ webkitdirectory: '' }} hidden aria-label={t('Skill folder')} onChange={e=>{const files=Array.from(e.target.files || []);e.target.value='';if(files.length)previewImport(files,true)}}/>
       <p className="lede">{t('How your team does a thing, written once in Markdown. Give it to any agent and it follows it.')}</p>
       {busy === 'import' && <p role="status">スキルを読み込んでいます…</p>}
-      {error && <div className="form-error">{error}</div>}
+      {error && <div className="form-error">{t(error)}</div>}
       {draft && (
         <div className="hx-builder">
           {!draft.id && <p className="row-sub">{t('New skills are private. Share them with the workspace after saving.')}</p>}

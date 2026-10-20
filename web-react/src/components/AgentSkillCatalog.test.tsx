@@ -7,6 +7,16 @@ vi.mock('../utils/i18n',()=>({useT:()=> (s:string)=>s}))
 const a={id:'a',name:'Review',description:'Check releases',body:'Review',createdBy:'alice'} as Skill
 const b={id:'b',name:'Report',description:'Weekly summary',body:'Report',createdBy:'bob'} as Skill
 const nodes=()=>({showModal:vi.fn(),close:vi.fn(),focus:vi.fn(),querySelector:vi.fn()})
+test('an empty catalog does not claim that skills have already been installed',()=>{
+ let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<AgentSkillCatalog skills={[]} installed={[]} canEdit onToggle={vi.fn()}/>,{createNodeMock:nodes})})
+ act(()=>tree.root.findAllByType('button').find(n=>n.children.includes('Add skills'))!.props.onClick())
+ expect(JSON.stringify(tree.toJSON())).toContain('No skills available yet. Import a local skill to get started.')
+ expect(JSON.stringify(tree.toJSON())).not.toContain('All available skills are installed.')
+ act(()=>tree.update(<AgentSkillCatalog skills={[a]} installed={[a]} canEdit onToggle={vi.fn()}/>))
+ expect(JSON.stringify(tree.toJSON())).toContain('All available skills are installed.')
+ act(()=>tree.unmount())
+})
 test('catalog separates installed skills and searches available descriptions and authors',async()=>{
  let tree!:ReturnType<typeof create>;const toggle=vi.fn().mockResolvedValue(undefined)
  act(()=>{tree=create(<AgentSkillCatalog skills={[a,b]} installed={[a]} canEdit onToggle={toggle}/>,{createNodeMock:nodes})})

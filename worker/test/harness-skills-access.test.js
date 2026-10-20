@@ -257,3 +257,13 @@ test('malformed or ambiguous package previews cannot create skills',async()=>{
   }
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills').first()).n).toBe(0);
 });
+test('folder preview canonicalizes Mac filenames and refuses normalized collisions without saving',async()=>{
+  const root={path:'報告/SKILL.md',base64:encodeSkillBytes(new TextEncoder().encode('---\nname: report\ndescription: Report helper\n---\nRead ガイド.txt.'))};
+  const file={path:'報告/ガイド.txt'.normalize('NFD'),base64:encodeSkillBytes(new TextEncoder().encode('手順'))};
+  const response=await request('POST','/skills/preview-import',owner,{files:[root,file]});
+  expect(response.status).toBe(200);
+  expect((await response.json()).draft.files.map(f=>f.path)).toEqual(['ガイド.txt']);
+  const collision=await request('POST','/skills/preview-import',owner,{files:[root,file,{...file,path:'報告/ガイド.txt'}]});
+  expect(collision.status).toBe(400);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills').first()).n).toBe(0);
+});

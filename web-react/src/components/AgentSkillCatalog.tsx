@@ -54,7 +54,7 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
   </div>
   return <section className="hx-agent-skills">
     <header><p>{t('Add skills to extend this agent’s capabilities.')}</p><button className="hx-skill-add" ref={trigger} disabled={!canEdit || busy !== null} onClick={() => {setQuery('');setTab('available');setError('');setDraft(null);setOpen(true)}}><Icon name="plus" size={16}/>{t('Add skills')}</button></header>
-    {!open && error && <p role="alert" className="form-error">{error}</p>}
+    {!open && error && <p role="alert" className="form-error">{t(error)}</p>}
     <div className="hx-installed-skills">{installed.map(s => row(s))}{!installed.length && <p className="empty">{t('No skills installed for this agent.')}</p>}</div>
     {open && <dialog ref={dialog} className="hx-skill-dialog" aria-labelledby={titleId} onDragOver={e => e.preventDefault()} onDrop={e => {e.preventDefault();void importInput(() => skillDropInput(e.dataTransfer, t))}} onCancel={e => {e.preventDefault();close()}} onClick={e => {if(e.target === e.currentTarget) {const r=e.currentTarget.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close()}}}>
       <header><h2 id={titleId}>{t('Add skills')}</h2><button disabled={busy !== null} aria-label={t('Close')} onClick={close}><Icon name="x" size={18}/></button></header>
@@ -71,8 +71,8 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
       <div className="hx-skill-catalog-tabs" role="tablist" aria-label={t('Skills')}>
         {(['available','installed'] as const).map(key => <button key={key} role="tab" id={`${panelId}-${key}`} aria-controls={panelId} aria-selected={tab===key} tabIndex={tab===key?0:-1} onClick={()=>setTab(key)} onKeyDown={e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?'available':e.key==='End'?'installed':key==='available'?'installed':'available';setTab(next);e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role=tab]')[next==='available'?0:1]?.focus()}}}>{t(key==='available'?'Available':'Installed')} ({key==='available'?available.length:installed.length})</button>)}
       </div>
-      {error && <p role="alert" className="form-error">{error}</p>}
-      <div id={panelId} role="tabpanel" aria-labelledby={`${panelId}-${tab}`} className="hx-skill-catalog-results">{visible.map(s=>row(s,true))}{!visible.length&&<p className="empty">{t(query.trim()?'No skills match your search.':tab==='available'?'All available skills are installed.':'No skills installed for this agent.')}</p>}</div>
+      {error && <p role="alert" className="form-error">{t(error)}</p>}
+      <div id={panelId} role="tabpanel" aria-labelledby={`${panelId}-${tab}`} className="hx-skill-catalog-results">{visible.map(s=>row(s,true))}{!visible.length&&<p className="empty">{t(query.trim()?'No skills match your search.':tab==='available'?(skills.length?'All available skills are installed.':'No skills available yet. Import a local skill to get started.'):'No skills installed for this agent.')}</p>}</div>
     </dialog>}
   </section>
 }
