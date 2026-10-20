@@ -101,6 +101,35 @@ test("file conversations enforce the source DM's access and do not revive delete
   expect((await fileThread(toru,file.id)).status).toBe(404);
 });
 
+test("file conversation creation and reopening sync only to the source DM participants", async () => {
+  const channel = `dm:${refs.Mika}`;
+  const file = (await (await upload(toru,channel)).json()).file;
+  await say(toru,channel,"Private source",[file.id]);
+  const announcements = [];
+  const observed = { ...env, ORG_RELAY: {
+    idFromName: name => name,
+    get: () => ({ fetch: async (_url, init) => { announcements.push(JSON.parse(init.body)); return new Response("{}"); } }),
+  } };
+  const open = async (token, method = "POST") => {
+    const path = method === "GET" ? `/channels/files/conversation?${q({orgId:ORG,fileId:file.id})}` : "/channels/files/conversation";
+    return worker.fetch(new Request(`https://example.com${path}`, { method, headers:auth(token,{"content-type":"application/json"}),
+      ...(method === "POST" ? {body:JSON.stringify({orgId:ORG,fileId:file.id})} : {}) }), observed, ctx);
+  };
+  expect((await open(kenji)).status).toBe(404);
+  expect(announcements).toHaveLength(0);
+  const first = await (await open(toru)).json();
+  const second = await (await open(mika)).json();
+  expect(second.threadId).toBe(first.threadId);
+  expect(announcements).toHaveLength(2);
+  for (const announcement of announcements) {
+    expect(announcement.events).toBeUndefined();
+    expect(announcement.deliveries.map(d=>d.to).sort()).toEqual(["mika","toru"]);
+    expect(announcement.deliveries.every(d=>d.event.name === "channel_message" && d.event.value.message.id === first.threadId)).toBe(true);
+  }
+  expect((await open(mika,"GET")).status).toBe(200);
+  expect(announcements).toHaveLength(2);
+});
+
 test("a picture goes up, rides a message, and everyone in the channel can see it", async () => {
   const up = await upload(mika, "b:cafe");
   expect(up.status).toBe(201);
