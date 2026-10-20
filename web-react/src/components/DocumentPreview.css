@@ -7,6 +7,17 @@
 .document-tools button:disabled{opacity:.45}
 .document-content{flex:1;min-height:0;overflow:auto;padding:18px;background:var(--mist,#f4f4f4)}
 .document-content canvas{display:block;margin:0 auto;background:white;box-shadow:0 2px 12px #0002}
+.document-pdf-page{position:relative;margin:0 auto;flex-shrink:0}
+/* TextLayer geometry follows PDF.js (Apache-2.0; bundled in /pdfjs/LICENSE). */
+.document-pdf-text{position:absolute;inset:0;overflow:clip;line-height:1;letter-spacing:normal;word-spacing:normal;text-align:initial;transform-origin:0 0;text-size-adjust:none;forced-color-adjust:none;color-scheme:only light;--scale-round-x:1px;--scale-round-y:1px;--min-font-size:1;--text-scale-factor:calc(var(--total-scale-factor)*var(--min-font-size));--min-font-size-inv:calc(1/var(--min-font-size))}
+.document-pdf-text :is(span,br){color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0 0;user-select:text;-webkit-user-select:text}
+.document-pdf-text>span,.document-pdf-text .markedContent span:not(.markedContent){--font-height:0;--scale-x:1;--rotate:0deg;font-size:calc(var(--text-scale-factor)*var(--font-height));transform:rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv))}
+.document-pdf-text .markedContent{display:contents}
+.document-pdf-text[data-main-rotation="90"]{transform:rotate(90deg) translateY(-100%)}
+.document-pdf-text[data-main-rotation="180"]{transform:rotate(180deg) translate(-100%,-100%)}
+.document-pdf-text[data-main-rotation="270"]{transform:rotate(270deg) translateX(-100%)}
+.document-preview .document-pdf-text mark{color:transparent;background:#ffce4680;padding:0}
+.document-pdf-text ::selection{color:transparent;background:#5588ff66}
 .document-text,.document-extracted pre{white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4;font:13px/1.6 ui-monospace,monospace;margin:0}
 .document-preview mark{color:#222;background:#ffe07a}
 .document-csv{border-collapse:collapse;font-size:13px;background:var(--signal-white,#fff)}
