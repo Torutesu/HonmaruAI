@@ -1,6 +1,14 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Show {name}’s avatar": "{name}のアバターを表示",
+  "{name}’s avatar": "{name}のアバター",
+  "Zoomable image preview": "ズーム可能な画像プレビュー",
+  "Zoom in": "拡大",
+  "Zoom out": "縮小",
+  "Reset zoom": "倍率をリセット",
+  "Zoom": "ズーム",
+  "The picture could not be loaded.": "画像を読み込めませんでした。",
   "Remove picture": "写真を外す",
   "Edit agent profile": "エージェントプロフィールを編集",
   "Display name": "表示名",

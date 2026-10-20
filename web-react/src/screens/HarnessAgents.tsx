@@ -9,6 +9,7 @@ import { AgentPersona } from '../components/AgentPersona'
 import type { ClientAgent } from '../utils/agents'
 import { useMembers, type Mentionable } from '../utils/mentions'
 import { Avatar } from '../components/Avatar'
+import { AgentAvatarPreview } from '../components/AgentAvatarPreview'
 import { AgentAvatar } from '../components/AgentAvatar'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
@@ -80,6 +81,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
   const [section, setSection] = useState<'profile' | 'skills' | 'memory' | 'followups'>('profile')
   const [editingProfile, setEditingProfile] = useState(false)
   const [profileDialog, setProfileDialog] = useState(false)
+  const [avatarPreview, setAvatarPreview] = useState(false)
   const [profile, setProfile] = useState<AgentProfile | null>(null)
   const [canEdit, setCanEdit] = useState(false)
   const [memories, setMemories] = useState<AgentMemory[]>([])
@@ -115,8 +117,9 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
   return (
     <Shell title={`${agent.emoji || '🤖'} ${agent.name}`} onClose={props.onBack} nested actions={saved ? <span className="row-sub">{t('Saved.')}</span> : null}>
       {error && <div className="form-error">{error}</div>}
-      <div className="hx-profile-heading"><AgentAvatar agent={agent} className="hx-profile-avatar" /><h1>{agent.name}</h1><button className="pill-btn quiet" onClick={props.onMessage} aria-label={t('Message')}><Icon name="message" size={18} /></button></div>
+      <div className="hx-profile-heading"><button className="hx-profile-avatar-trigger" aria-label={t("Show {name}’s avatar", { name: agent.name })} aria-haspopup="dialog" onClick={() => setAvatarPreview(true)}><AgentAvatar agent={agent} className="hx-profile-avatar" /></button><h1>{agent.name}</h1><button className="pill-btn quiet" onClick={props.onMessage} aria-label={t('Message')}><Icon name="message" size={18} /></button></div>
       <div className="hx-profile-tabs" role="tablist">{(['profile','skills','memory','followups'] as const).map(key => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)}>{t(key === 'profile' ? 'Profile' : key === 'skills' ? 'Skills' : key === 'memory' ? 'Memory' : 'Follow-ups')}</button>)}</div>
+      {avatarPreview && <AgentAvatarPreview agent={agent} onClose={() => setAvatarPreview(false)}/>}
       {profileDialog && <EditAgentProfile agent={agent} profile={profile} onClose={() => setProfileDialog(false)} onSave={async (patch, picture) => {
         const result = await api.saveProfile(agent.id, patch)
         setProfile(result.profile)

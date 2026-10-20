@@ -674,3 +674,10 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Profile and media writes use separate existing endpoints: on media failure, the already saved profile remains visible and the dialog explicitly reports partial success, retains the image and permits retry. This is not an atomic media/profile transaction.
 - Web 925 tests, TypeScript and Vite pass. New regression checks reject SVG, confirm no upload before Save, and verify local preview cleanup. Existing server image validation/ACL remain unchanged. Native live rendering remains pending deployment.
 - Latest known release jobs: e43500f0 CI 39466316845, Web 39466316606 and Worker 39466316407 were pending behind 2491ceb2 Worker 39463912416. c07fa992 pending deploys were superseded/cancelled by the newer main revision. Public HTTP probes returned 403 from this environment, so they did not establish production bundle contents.
+
+### Avatar preview parity (2026-10-21)
+
+- Observed native Kylon avatar viewer: square 768px dialog, contain-fit image, close control and bottom-centered minus/reset/plus toolbar. Closed reference without changing data.
+- Added Harness avatar preview using existing image or emoji, 50–400% zoom, reset, bounded pointer pan above 100%, keyboard +/-/0 and fallback on image errors. Responsive viewport bounds and existing light/dark tokens retained.
+- Web 926 tests, TypeScript and Vite pass. Native rendering awaits publication; drag/zoom bounds and image failure are covered by component regression.
+- Current release queue: ccc64f0e CI 39466618112 running, Web 39466618065 pending. e43500f0 Worker 39466316407 pending behind 2491ceb2 Worker 39463912416 (still running). Avatar-preview commit is held locally to avoid repeatedly cancelling the running main CI while additional UI work is prepared.
