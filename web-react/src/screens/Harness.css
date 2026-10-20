@@ -154,3 +154,8 @@
 .hx-calendar-day { min-height: 110px; padding: 6px; border: 1px solid var(--border, #ddd); border-radius: 6px; }
 .hx-calendar-day .hx-card { margin-top: 6px; padding: 6px; }
 .hx-calendar-day time { font-size: 12px; opacity: .7; }
+
+.hx-memory-filters { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0 0; }
+.hx-memory-filters .hx-cell-input { flex: 1 1 180px; border-color: var(--hx-border, var(--bone)); }
+.hx-memory-filters .hx-cell-select, .hx-memory-compose .hx-cell-select { flex: 0 1 160px; width: auto; border-color: var(--hx-border, var(--bone)); }
+.hx-memory-compose { flex-wrap: wrap; }
