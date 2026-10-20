@@ -1,6 +1,7 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Remove picture": "写真を外す",
   "Edit agent profile": "エージェントプロフィールを編集",
   "Display name": "表示名",
   "Advanced settings": "詳細設定",

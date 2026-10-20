@@ -12,3 +12,8 @@
 .hx-new-agent .dlg-input { border-radius:12px; }
 .hx-new-agent button:focus-visible { outline:2px solid var(--hx-text); outline-offset:3px; }
 .hx-new-agent button:disabled { cursor:default; opacity:.5; }
+
+.hx-edit-agent-avatar { display:flex; flex-direction:column; align-items:center; gap:6px; }
+.hx-edit-agent-avatar .hx-new-agent-face { padding:4px 0; }
+.hx-edit-agent-avatar .agent-picture { overflow:hidden; }
+.hx-edit-agent-avatar .agent-picture img { width:100%; height:100%; object-fit:cover; }

@@ -117,10 +117,22 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
       {error && <div className="form-error">{error}</div>}
       <div className="hx-profile-heading"><AgentAvatar agent={agent} className="hx-profile-avatar" /><h1>{agent.name}</h1><button className="pill-btn quiet" onClick={props.onMessage} aria-label={t('Message')}><Icon name="message" size={18} /></button></div>
       <div className="hx-profile-tabs" role="tablist">{(['profile','skills','memory','followups'] as const).map(key => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)}>{t(key === 'profile' ? 'Profile' : key === 'skills' ? 'Skills' : key === 'memory' ? 'Memory' : 'Follow-ups')}</button>)}</div>
-      {profileDialog && <EditAgentProfile agent={agent} profile={profile} onClose={() => setProfileDialog(false)} onSave={async patch => {
+      {profileDialog && <EditAgentProfile agent={agent} profile={profile} onClose={() => setProfileDialog(false)} onSave={async (patch, picture) => {
         const result = await api.saveProfile(agent.id, patch)
         setProfile(result.profile)
         if (result.identity) props.onUpdated({ id: agent.id, ...result.identity })
+        if (picture !== undefined) {
+          try {
+            const response = await fetch(`${props.httpBase}/channels/agents/avatar?orgId=${encodeURIComponent(props.orgId)}&id=${encodeURIComponent(agent.id)}`, {
+              method: picture ? 'POST' : 'DELETE', headers: { 'x-session-token': props.sessionToken, ...(picture ? { 'content-type': picture.type } : {}) }, ...(picture ? { body: picture } : {}),
+            })
+            const data = await response.json().catch(() => ({}))
+            if (!response.ok || !data.agent?.id) throw new Error(data.message || t('That did not save.'))
+            props.onUpdated({ id: agent.id, avatarUrl: data.agent.avatarUrl || null })
+          } catch (cause) {
+            throw new Error(t('Saved, but the picture did not upload: {why}', { why: cause instanceof Error ? cause.message : String(cause) }))
+          }
+        }
         try { window.dispatchEvent(new Event('honmaru:agents-changed')) } catch { /* no listeners */ }
       }}/>}
       {section === 'profile' && <>
