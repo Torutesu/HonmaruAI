@@ -1,8 +1,9 @@
 import { EventEmitter } from 'node:events'
-import { expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { installLoadRecovery } from '../src/loadRecovery.js'
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0))
+afterEach(() => { vi.clearAllTimers(); vi.useRealTimers() })
 function setup(ask = vi.fn(async () => true)) {
   const contents = new EventEmitter()
   const retry = vi.fn(async () => {})
@@ -41,4 +42,32 @@ it('does not retry a destroyed window', async () => {
   const { alive, retry, fail } = setup(vi.fn(() => new Promise(r => { resolve = r })))
   fail(); alive.mockReturnValue(false); resolve(true); await settle()
   expect(retry).not.toHaveBeenCalled()
+})
+it('offers one recovery prompt when main-frame loading stalls without an error', async () => {
+  vi.useFakeTimers()
+  const { contents, ask, retry } = setup(vi.fn(async () => false))
+  contents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+  await vi.advanceTimersByTimeAsync(29999)
+  expect(ask).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(1)
+  expect(ask).toHaveBeenCalledExactlyOnceWith(-7)
+  expect(retry).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(60000)
+  expect(ask).toHaveBeenCalledOnce()
+})
+it.each(['did-finish-load', 'destroyed', 'abort'])('cancels the watchdog on %s', async event => {
+  vi.useFakeTimers()
+  const { contents, ask, fail } = setup()
+  contents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+  if (event === 'abort') fail(-3); else contents.emit(event)
+  await vi.advanceTimersByTimeAsync(30000)
+  expect(ask).not.toHaveBeenCalled()
+})
+it('does not start the watchdog for hash navigation or embedded frames', async () => {
+  vi.useFakeTimers()
+  const { contents, ask } = setup()
+  contents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: true })
+  contents.emit('did-start-navigation', { isMainFrame: false, isSameDocument: false })
+  await vi.advanceTimersByTimeAsync(30000)
+  expect(ask).not.toHaveBeenCalled()
 })
