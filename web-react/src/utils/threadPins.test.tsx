@@ -46,3 +46,31 @@ test('Simple mode makes no pin requests, and failed writes retain saved state wi
  expect(latest!.pins).toEqual([pin]);expect(latest!.error).toBe('Unavailable')
  act(()=>tree!.unmount())
 })
+
+test('independent clients converge after focus and polling, and a hidden client refreshes on return',async()=>{
+ vi.useFakeTimers();const listeners=new Map<string,Set<()=>void>>()
+ const add=(name:string,fn:()=>void)=>{if(!listeners.has(name))listeners.set(name,new Set());listeners.get(name)!.add(fn)}
+ const remove=(name:string,fn:()=>void)=>listeners.get(name)?.delete(fn)
+ const doc={visibilityState:'visible',addEventListener:add,removeEventListener:remove}
+ vi.stubGlobal('window',{setInterval,clearInterval,addEventListener:add,removeEventListener:remove});vi.stubGlobal('document',doc)
+ let saved:any[]=[];const fetch=vi.fn(async(_url:string,init:any)=>{if(init?.method==='PUT'){const body=JSON.parse(init.body);saved=body.pinned?[pin]:[]}return ok(saved.map(value=>({...value})))})
+ vi.stubGlobal('fetch',fetch)
+ const clients:Record<string,ReturnType<typeof useThreadPins>>={}
+ function Client({name}:{name:string}){clients[name]=useThreadPins(api,true);return null}
+ let tree:ReturnType<typeof create>
+ try{
+  await act(async()=>{tree=create(<><Client name="first"/><Client name="second"/></>)})
+  await act(async()=>clients.first.toggle('root'))
+  expect(clients.second.pins).toEqual([])
+  await act(async()=>listeners.get('focus')!.forEach(fn=>fn()))
+  expect(clients.second.pins).toEqual([pin])
+  saved=[{...pin,title:'Renamed elsewhere'}]
+  await act(async()=>vi.advanceTimersByTimeAsync(30000))
+  expect(clients.second.pins[0].title).toBe('Renamed elsewhere')
+  doc.visibilityState='hidden';saved=[];const before=fetch.mock.calls.length
+  await act(async()=>vi.advanceTimersByTimeAsync(30000))
+  expect(fetch).toHaveBeenCalledTimes(before)
+  doc.visibilityState='visible';await act(async()=>listeners.get('visibilitychange')!.forEach(fn=>fn()))
+  expect(clients.first.pins).toEqual([]);expect(clients.second.pins).toEqual([])
+ }finally{act(()=>tree!.unmount());vi.useRealTimers()}
+})
