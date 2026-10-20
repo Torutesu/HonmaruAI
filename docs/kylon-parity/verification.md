@@ -757,3 +757,9 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Native Kylon profile edit screenshot shows Fast/Pro/Max listbox options with descriptive text, selected checkmark, and a description in the selected field. Closed list then cancelled without modifying the reference agent.
 - Replaced the plain select in Honmaru creation/edit/profile with a shared themed combobox. Added descriptions, selected checkmark, compact profile trigger, arrow/Home/End navigation, explicit commit, outside dismissal, first-Escape list dismissal and disabled protection. Fixed-position menu is clamped to the viewport to escape dialog scroll clipping, opens upward when needed and closes on surrounding scroll/resize. No reference cost ratios are asserted for Honmaru's configurable providers.
 - Web 930 tests passed; added geometry and navigation/commit/Escape/outside/disabled tests. Subsequent resize-event guard targeted test passed. Native candidate preview was blank on this attempt, so visual acceptance remains pending. Temporary preview entrypoints/processes removed.
+
+### Managed-policy full regression and chooser observation (2026-10-21)
+
+- Frozen Worker suite at source 66d2975c completed: 204 files / 1510 tests passed in 459.84s. Web chooser final TypeScript and Vite build also passed.
+- Restarted isolated native preview using explicit loopback IPv4. The new descriptive field rendered in the light-theme screenshot; AX showed all listbox candidates after activation. The subsequent screenshot did not show the menu, and the native tool later returned noWindowsAvailable. This is not sufficient to certify menu painting/placement; acceptance remains pending. Preview process/server and temporary entrypoints were removed.
+- Prior ca4dd1af CI E2E completed successfully; Worker tests and matching deployment remained running at the latest inspection.
