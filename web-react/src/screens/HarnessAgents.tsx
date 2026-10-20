@@ -4,7 +4,8 @@ import { AgentMemoryList, MemoryKindSelect } from '../components/AgentMemoryList
 import type { MemoryKind } from '../utils/harness'
 import { AgentSkillCatalog } from '../components/AgentSkillCatalog'
 import { NewHarnessAgent } from '../components/NewHarnessAgent'
-import { Markdown } from '../utils/markdown'
+import { AgentPersona } from '../components/AgentPersona'
+import type { ClientAgent } from '../utils/agents'
 import { useMembers, type Mentionable } from '../utils/mentions'
 import { Avatar } from '../components/Avatar'
 import { AgentAvatar } from '../components/AgentAvatar'
@@ -65,13 +66,13 @@ const ScopedHarnessAgents: React.FC<AgentsProps> = (props) => {
       {agents === null && <p className="hx-members-note">{t('Loading…')}</p>}
     </aside>
     <main className="hx-member-detail">
-      {open ? <AgentMember key={open.id} {...props} agent={open} onBack={() => setOpen(null)} onMessage={() => props.onMessage?.(open.id)} onEdit={props.onManageAgents} /> : person ? <div className="hx-person-profile"><Avatar name={person.name} url={person.avatarUrl} round size={64} /><h1>{person.name}</h1>{person.handle && <p>@{person.handle}</p>}<button className="pill-btn" onClick={props.onManageTeam}>{t('Team settings')}</button></div> : <div className="hx-member-empty"><Icon name="you" size={32} /><p>{t('Choose a member')}</p></div>}
+      {open ? <AgentMember key={open.id} {...props} agent={open} onBack={() => setOpen(null)} onMessage={() => props.onMessage?.(open.id)} onUpdated={updated => { setAgents(current => current?.map(agent => agent.id === updated.id ? updated : agent) || null); setOpen(current => current?.id === updated.id ? updated : current) }} /> : person ? <div className="hx-person-profile"><Avatar name={person.name} url={person.avatarUrl} round size={64} /><h1>{person.name}</h1>{person.handle && <p>@{person.handle}</p>}<button className="pill-btn" onClick={props.onManageTeam}>{t('Team settings')}</button></div> : <div className="hx-member-empty"><Icon name="you" size={32} /><p>{t('Choose a member')}</p></div>}
     </main>
     {creating && <NewHarnessAgent {...props} onClose={() => setCreating(false)} onAdvanced={props.onManageAgents} onCreated={(agent, all) => { setAgents(all); setOpen(agent); setPerson(null); setFilter('all'); setCreating(false) }} />}
   </div>
 }
 
-const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => void; onMessage?: () => void; onEdit?: () => void }> = (props) => {
+const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => void; onMessage?: () => void; onUpdated: (agent: ClientAgent) => void }> = (props) => {
   const t = useT()
   const api = useApi(props)
   const { agent } = props
@@ -167,8 +168,8 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
       </>}
       {saved && <p role="status">{t('Saved.')}</p>}
       </section>
-      <section className="hx-persona"><header><span>{t('Persona')}</span>{canEdit && <button onClick={props.onEdit} aria-label={t('Edit')}><Icon name="edit" size={16} /></button>}</header><p>{agent.description}</p><div className="hx-persona-text"><Markdown source={agent.instructions || t('Edit this agent to set its instructions.')} /></div></section>
       </>}
+      <div hidden={section !== 'profile'}><AgentPersona agent={agent} httpBase={props.httpBase} orgId={props.orgId} sessionToken={props.sessionToken} canEdit={canEdit} onUpdated={props.onUpdated} onDiscuss={props.onMessage}/></div>
       {section === 'skills' && <>
       <AgentSkillCatalog key={`${props.orgId}:${agent.id}`} skills={allSkills} installed={skills} canEdit={canEdit} onPreviewImport={async markdown => (await api.previewSkillImport(markdown)).draft} onSaveImport={async draft => {
         const version = memoryLoad.current

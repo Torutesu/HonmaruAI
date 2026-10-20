@@ -1,6 +1,16 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Edit persona": "ペルソナを編集",
+  "Edit yourself": "自分で編集",
+  "Discuss changes with the agent": "エージェントに変更を相談",
+  "Save persona": "ペルソナを保存",
+  "Persona Markdown": "ペルソナの Markdown",
+  "Markdown is supported. Saved changes apply to future replies.": "Markdown が使えます。保存した変更は今後の返信に適用されます。",
+  "Discard my draft and reload the latest persona": "下書きを破棄して最新のペルソナを読み込む",
+  "The persona changed elsewhere. Reload it before saving.": "別の場所でペルソナが変更されました。最新の内容を読み込んでから保存してください。",
+  "A persona update must contain only its instructions and expected version.": "ペルソナの更新には、指示と更新前の内容だけを指定してください。",
+  "Could not load the agent.": "エージェントを読み込めませんでした。",
   "Created at": "作成日時",
   "Not set": "未設定",
   "Give your agent a name and a face. It starts private and has no access to existing rooms. Add it to a room after creation.": "エージェントの名前とアイコンを設定します。非公開で作成され、既存のルームにはアクセスできません。参加させる場合は作成後に追加してください。",

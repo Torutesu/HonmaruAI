@@ -1,0 +1,13 @@
+.hx-persona-actions { display:flex; align-items:center; gap:10px; }
+.hx-persona-actions button { font:inherit; }
+.hx-persona-actions .hx-persona-save { background:var(--hx-text); color:var(--hx-surface); padding:4px 8px; border-radius:5px; }
+.hx-persona-actions button:disabled { opacity:.45; cursor:default; }
+.hx-persona-editor { box-sizing:border-box; display:block; margin-top:14px; padding:12px; width:100%; min-height:360px; height:min(54vh,580px); resize:vertical; border:1px solid var(--hx-border); border-radius:12px; color:var(--hx-text); background:var(--hx-surface); font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.hx-persona .hx-persona-hint { font-size:12px; color:var(--hx-muted); margin:10px 0 0; }
+.hx-persona-menu { position:relative; }
+.hx-persona-menu summary { list-style:none; cursor:pointer; padding:2px; }
+.hx-persona-menu summary::-webkit-details-marker { display:none; }
+.hx-persona-menu > div { position:absolute; right:0; top:28px; z-index:3; width:max-content; max-width:260px; padding:5px; border:1px solid var(--hx-border); border-radius:12px; background:var(--hx-surface); box-shadow:0 8px 24px #0002; }
+.hx-persona-menu > div button { display:flex; gap:8px; align-items:center; width:100%; padding:9px; text-align:left; border-radius:7px; font:inherit; color:var(--hx-text); }
+.hx-persona-menu > div button:hover { background:var(--hx-hover); }
+.hx-persona-menu summary:focus-visible, .hx-persona-editor:focus-visible { outline:2px solid var(--hx-text); outline-offset:3px; }

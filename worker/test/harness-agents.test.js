@@ -250,3 +250,19 @@ test("Harness creation saves specialty and tier with the private agent, and reje
   expect((await get(`/hx/agents/${agent.id}/profile?${q({ orgId: ORG })}`, toru)).status).toBe(404);
   expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_agents WHERE agent_id = ?1").bind(agent.id).first()).n).toBe(0);
 });
+test("inline persona edits reject concurrent writers and do not overwrite profile fields", async () => {
+  const base = { orgId: ORG, id: agentId, expectedInstructions: "You chase invoices." };
+  const responses = await Promise.all([
+    send("PUT", "/channels/agents", mika, { ...base, instructions: "First edit" }),
+    send("PUT", "/channels/agents", mika, { ...base, instructions: "Second edit" }),
+  ]);
+  expect(responses.map(r => r.status).sort()).toEqual([200, 409]);
+  const stored = await env.DB.prepare("SELECT instructions FROM custom_agents WHERE org_id = ?1 AND id = ?2").bind(ORG, agentId).first();
+  await send("PUT", "/channels/agents", mika, { orgId: ORG, id: agentId, name: "Renamed teammate" });
+  const saved = await send("PUT", "/channels/agents", mika, { ...base, expectedInstructions: stored.instructions, instructions: "Reconciled edit" });
+  expect(saved.status).toBe(200);
+  expect((await saved.json()).agent).toMatchObject({ name: "Renamed teammate", instructions: "Reconciled edit", scope: "team" });
+  expect((await send("PUT", "/channels/agents", mika, { ...base, expectedInstructions: "Reconciled edit", instructions: "Mixed edit", name: "Overwrite" })).status).toBe(400);
+  await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, access: "private" });
+  expect((await send("PUT", "/channels/agents", kenji, { ...base, expectedInstructions: "Reconciled edit", instructions: "Unauthorized" })).status).toBe(404);
+});

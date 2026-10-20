@@ -263,6 +263,19 @@ export async function saveAgent(db, orgId, { id = null, input, login, members, i
   const taken = await handleTaken(db, orgId, handle, { members, scope, ownerLogin, exceptId: existing?.id });
   if (taken) return { error: taken, status: 409 };
   const now = new Date().toISOString();
+  if (existing && input?.expectedInstructions !== undefined) {
+    if (typeof input.expectedInstructions !== "string" || typeof input.instructions !== "string"
+      || ["name", "handle", "emoji", "description", "scope", "markdown"].some(key => input[key] !== undefined)) {
+      return { error: "A persona update must contain only its instructions and expected version.", status: 400 };
+    }
+    // An inline persona edit must not overwrite a concurrent profile change.
+    // Compare the source text atomically, and update only persona fields.
+    const result = await db.prepare(`UPDATE custom_agents SET instructions = ?3, updated_by = ?4, updated_at = ?5
+      WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL AND instructions = ?6 RETURNING *`)
+      .bind(orgId, existing.id, instructions, login, now, input.expectedInstructions).all();
+    if (!result.results?.[0]) return { error: "The persona changed elsewhere. Reload it before saving.", status: 409 };
+    return { agent: toAgent(result.results[0]), created: false };
+  }
   if (!existing) {
     const count = await db.prepare("SELECT COUNT(*) AS n FROM custom_agents WHERE org_id = ?1 AND deleted_at IS NULL").bind(orgId).first();
     if ((count?.n || 0) >= MAX_AGENTS) return { error: "This workspace has all the agents it can hold.", status: 400 };
