@@ -3421,9 +3421,9 @@ export const ClassicList: React.FC<Props> = ({
 
   // ---- What the header opens ----
   // The journal ("Context"), or the channel's details on one of its tabs.
-  const [side, setSide] = useState<null | { kind: 'references' } | { kind: 'journal' } | { kind: 'app'; id: string; conversation?:boolean } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
+  const [side, setSide] = useState<null | { kind: 'references' } | { kind: 'journal' } | { kind: 'app'; id: string; conversation?:boolean; fromReferences?:boolean } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
   const sourceThreadApp = Boolean(harness && thread && (side?.kind==='app'||side?.kind==='references') && !detail && !profile && !activityOpen && current?.view)
-  const openSide = (next: { kind: 'references' } | { kind: 'journal' } | { kind: 'app'; id: string; conversation?:boolean } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
+  const openSide = (next: { kind: 'references' } | { kind: 'journal' } | { kind: 'app'; id: string; conversation?:boolean; fromReferences?:boolean } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
     setDetailId(null); setThread(null); setProfile(null); setPins(null)
     setSide((prev) => (prev && prev.kind === next.kind && (prev.kind === 'journal' || prev.kind === 'canvas' || (next.kind === 'resources' && prev.kind === 'resources' && prev.resource === next.resource) || (next.kind === 'details' && prev.kind === 'details' && prev.tab === next.tab)) ? null : next))
   }
@@ -5898,9 +5898,9 @@ export const ClassicList: React.FC<Props> = ({
       )}
       {!detail && (!thread || sourceThreadApp) && !profile && side && current?.view && (
         side.kind === 'references'
-          ? thread&&<ThreadReferences key={`${api.orgId}:${api.sessionToken}:${thread.parent.id}`} api={resourceClient} sessionToken={api.sessionToken} channel={thread.channel} threadId={thread.parent.id} onClose={()=>setSide(null)} onOpen={id=>setSide({kind:'app',id})}/>
+          ? thread&&<ThreadReferences key={`${api.orgId}:${api.sessionToken}:${thread.parent.id}`} api={resourceClient} sessionToken={api.sessionToken} channel={thread.channel} threadId={thread.parent.id} onClose={()=>setSide(null)} onOpen={id=>setSide({kind:'app',id,fromReferences:true})}/>
           : side.kind === 'app'
-          ? <aside className="hx-app-pane slk-pane"><AppView key={`${api.orgId}:${side.id}`} httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} api={resourceClient} appId={side.id} openConversation={side.conversation} onClose={() => setSide(null)} onBack={() => setSide({ kind: 'resources', resource: 'apps' })} /></aside>
+          ? <aside className="hx-app-pane slk-pane"><AppView key={`${api.orgId}:${side.id}`} httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} api={resourceClient} appId={side.id} openConversation={side.conversation} onClose={() => setSide(null)} onBack={() => setSide(side.fromReferences&&thread?{kind:'references'}:{ kind: 'resources', resource: 'apps' })} /></aside>
           : side.kind === 'resources'
           ? <HarnessRoomResources key={`${api.orgId}:${userId}:${current.view}:${side.resource}`} api={api} channel={current.view} kind={side.resource}
               onClose={() => setSide(null)} onOpenApp={id => { if (id) setSide({ kind: 'app', id }); else { setSide(null); onApps?.() } }} onOpenWorkflow={id => { setSide(null); onWorkflow?.(id) }}
