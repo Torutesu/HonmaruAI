@@ -1,4 +1,5 @@
 import { threadPins, setThreadPin } from "./threadPins.js";
+import { threadReferences } from "./threadReferences.js";
 import { appActivity, readAppActivity } from './harness/appActivity.js';
 import { checkOutgoing } from "./dlp.js";
 import { prepareAgent, rememberRequest, addAgentMemory } from "./harness/agents.js";
@@ -1271,6 +1272,15 @@ export async function handleChannels(request, env, url, { route, after }) {
     const limited = await enforce(env, request, "chat");
     if (limited) return limited;
     const result = await setThreadPin(env.DB, orgId, who.user, body.messageId, body.pinned);
+    return result.error ? json({ message: result.error }, result.status) : json(result);
+  }
+
+  if (path === "/channels/thread/references" && request.method === "GET") {
+    const orgId = url.searchParams.get("orgId");
+    const ctx = await inChannel(env, request, { orgId, channel: url.searchParams.get("channel") });
+    if (ctx.denied) return ctx.denied;
+    const result = await threadReferences(env.DB, orgId, ctx.resolved.key,
+      url.searchParams.get("messageId") || "", ctx.who.user.github_id, url.searchParams.get("after"));
     return result.error ? json({ message: result.error }, result.status) : json(result);
   }
 
