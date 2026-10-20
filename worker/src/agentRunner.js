@@ -34,9 +34,23 @@ export class AgentRunner {
     // A proxy's job carries whose agent it is, not a session: it works for
     // the person mentioned, not the person who wrote.
     if (!job?.orgId || !job?.rowId || (job.kind === "proxy" ? !job.owner : !job.token)) return new Response("Bad job", { status: 400 });
-    const waiting = await this.state.storage.list({ prefix: "job:", limit: MAX_JOBS + 1 });
-    if (waiting.size >= MAX_JOBS) return new Response("Busy", { status: 503 });
-    await this.state.storage.put(`job:${Date.now()}:${job.rowId}${job.kind === "proxy" ? `:${job.owner}` : ""}`, { ...job, queuedAt: Date.now() });
+    // The same message may reach enqueue again after a response is lost.
+    // Keep the receipt after dequeue too: a running or completed request must
+    // not start another paid run. A new request uses a new message ID.
+    const receipt = `accepted:${JSON.stringify([job.orgId, job.kind === "proxy" ? "proxy" : "agent", job.rowId, job.kind === "proxy" ? job.owner : null])}`;
+    const accepted = await this.state.storage.transaction(async storage => {
+      if (await storage.get(receipt)) return true;
+      const waiting = await storage.list({ prefix: "job:", limit: MAX_JOBS + 1 });
+      // Recognize jobs queued by the previous version before receipts existed.
+      const existing = [...waiting.values()].some(value => value.orgId === job.orgId && value.rowId === job.rowId &&
+        (value.kind === "proxy") === (job.kind === "proxy") && (job.kind !== "proxy" || value.owner === job.owner));
+      if (!existing && waiting.size >= MAX_JOBS) return false;
+      const queuedAt = Date.now();
+      if (!existing) await storage.put(`job:${queuedAt}:${job.rowId}${job.kind === "proxy" ? `:${job.owner}` : ""}`, { ...job, queuedAt });
+      await storage.put(receipt, { acceptedAt: queuedAt });
+      return true;
+    });
+    if (!accepted) return new Response("Busy", { status: 503 });
     if (!(await this.state.storage.getAlarm())) await this.state.storage.setAlarm(Date.now());
     return new Response("Queued", { status: 202 });
   }
