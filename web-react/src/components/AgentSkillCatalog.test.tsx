@@ -38,3 +38,18 @@ test('failed installs remain visible with an error and readonly agents cannot in
  expect(tree.root.findAllByType('button').find(n=>n.children.includes('Add skills'))!.props.disabled).toBe(true)
  act(()=>tree.unmount())
 })
+test('file import is reviewed and saved privately through the caller before explicit installation',async()=>{
+ let tree!:ReturnType<typeof create>
+ const preview=vi.fn().mockResolvedValue({name:'Imported',description:'Check inputs',body:'Instructions',metadata:{license:'MIT'}})
+ const save=vi.fn().mockResolvedValue(undefined),toggle=vi.fn()
+ act(()=>{tree=create(<AgentSkillCatalog skills={[]} installed={[]} canEdit onToggle={toggle} onPreviewImport={preview} onSaveImport={save}/>,{createNodeMock:nodes})})
+ act(()=>tree.root.findAllByType('button').find(n=>n.children.includes('Add skills'))!.props.onClick())
+ await act(async()=>{tree.root.findByProps({type:'file'}).props.onChange({target:{files:[{name:'SKILL.md',size:100,text:async()=> 'markdown'}],value:'file'}})})
+ expect(preview).toHaveBeenCalledWith('markdown');expect(save).not.toHaveBeenCalled();expect(toggle).not.toHaveBeenCalled()
+ expect(JSON.stringify(tree.toJSON())).toContain('Instructions')
+ await act(async()=>{tree.root.findAllByType('button').find(n=>n.children.includes('Save'))!.props.onClick()})
+ expect(save).toHaveBeenCalledWith({name:'Imported',description:'Check inputs',body:'Instructions',metadata:{license:'MIT'}})
+ expect(toggle).not.toHaveBeenCalled()
+ expect(tree.root.findAllByProps({'aria-label':'取り込み内容の確認'})).toHaveLength(0)
+ act(()=>tree.unmount())
+})

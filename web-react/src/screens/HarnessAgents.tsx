@@ -156,7 +156,11 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
       {section === 'skills' && <>
       <div className="rows-title">{t('Skills')}</div>
       <p className="row-sub">{t('Private skills run only in their owner’s direct agent conversation, including follow-ups. They are excluded from shared rooms and workflows.')}</p>
-      <AgentSkillCatalog key={`${props.orgId}:${agent.id}`} skills={allSkills} installed={skills} canEdit={canEdit} onToggle={async (id, install) => {
+      <AgentSkillCatalog key={`${props.orgId}:${agent.id}`} skills={allSkills} installed={skills} canEdit={canEdit} onPreviewImport={async markdown => (await api.previewSkillImport(markdown)).draft} onSaveImport={async draft => {
+        const version = memoryLoad.current
+        const result = await api.createSkill({ ...draft, visibility: 'private' })
+        if (version === memoryLoad.current) setAllSkills(current => [...current.filter(s => s.id !== result.skill.id), result.skill])
+      }} onToggle={async (id, install) => {
         const version = memoryLoad.current
         if (install) await api.giveSkill(agent.id, id); else await api.takeSkill(agent.id, id)
         const result = await api.agentSkills(agent.id)

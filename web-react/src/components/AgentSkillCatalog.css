@@ -28,3 +28,10 @@
 .hx-skill-action { border:1px solid var(--hx-border); background:var(--hx-surface); color:inherit; border-radius:8px; padding:6px 8px; cursor:pointer; font:inherit; font-size:12px; flex:none; }
 .hx-agent-skills button:disabled { opacity:.5; cursor:default; }
 @media(max-width:540px) { .hx-agent-skills > header { align-items:flex-start; } .hx-skill-author { display:block; margin:3px 0 0; } .hx-skill-dialog { padding:16px; } }
+.hx-skill-import { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:16px; border:1px dashed var(--hx-border); border-radius:12px; }
+.hx-skill-import > div { flex:1; min-width:180px; }
+.hx-skill-import strong, .hx-skill-import-review strong { font-size:13px; }
+.hx-skill-import p, .hx-skill-import-review p { color:var(--hx-muted); font-size:12px; line-height:1.5; margin:5px 0; }
+.hx-skill-import-review { border:1px solid var(--hx-border); border-radius:12px; padding:12px; overflow:auto; max-height:260px; flex-shrink:0; }
+.hx-skill-import-review pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; }
+.hx-skill-import-review > div { display:flex; justify-content:flex-end; gap:8px; }
