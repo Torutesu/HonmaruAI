@@ -30,3 +30,20 @@ test('invalid links make no request',async()=>{
  expect(fetch).not.toHaveBeenCalled();expect(JSON.stringify(tree.toJSON())).toContain('この共有リンクは利用できません')
  act(()=>tree.unmount())
 })
+test('formats reviewed text without activating HTML, images or internal app links',async()=>{
+ environment()
+ const rich={...snapshot,messages:[{...snapshot.messages[0],body:'## Summary\n\n- **Ready**\n- `status`\n\n[Source](https://example.com/report) [App](#/apps/private/preview)\n\n<img src="https://example.com/track"> ![image](https://example.com/image.png) [Bad](javascript:alert(1))'}]}
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,status:200,json:async()=>({snapshot:rich,expiresAt:'2099-01-01T00:00:00Z'})}))
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<SharedThread httpBase="https://api.example" token={token}/>)})
+ expect(tree.root.findByType('h2').children).toEqual(['Summary'])
+ expect(tree.root.findAllByType('li')).toHaveLength(2)
+ expect(tree.root.findByType('code').children).toEqual(['status'])
+ expect(tree.root.findAllByType('img')).toHaveLength(0)
+ const links=tree.root.findAllByType('a')
+ expect(links.filter(link=>link.props.href.includes('/apps/'))).toHaveLength(0)
+ expect(links.some(link=>String(link.props.href).startsWith('javascript:'))).toBe(false)
+ expect(links.find(link=>link.props.href==='https://example.com/report')?.props.rel).toBe('noopener noreferrer')
+ expect(JSON.stringify(tree.toJSON())).toContain('<img src=')
+ act(()=>tree.unmount())
+})
