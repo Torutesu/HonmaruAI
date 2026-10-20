@@ -111,6 +111,12 @@ and `WIN_CSC_KEY_PASSWORD` and builds Windows and Linux. Both create the
 `v<version>` draft once; verify signing, notarization and launch before publishing.
 *Mac signed release* (`.github/workflows/mac-release.yml`) builds and, if
 asked, publishes the Mac app alone.
+It also accepts an explicit `mac-release/v<version>` Git tag. Push that tag
+only after the same commit is on `main` and its main CI run succeeds.
+The workflow checks the version, main ancestry and latest exact-commit CI
+before signing, then retains the existing notarization and update-feed
+checks before publishing. A normal branch push does not publish a desktop
+release. Tag releases use the existing Mac signing configuration.
 
 **Every release carries every platform's update.** An installed app reads
 its own platform's feed file (`latest-mac.yml`, `latest.yml` for Windows,

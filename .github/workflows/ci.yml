@@ -24,7 +24,7 @@ jobs:
           node-version: "22"
       - run: node --test gateway/test/*.test.mjs
       - name: Release dependency and migration checks
-        run: node --test .github/scripts/worker-dependency.test.cjs .github/scripts/migrate-columns.test.cjs
+        run: node --test .github/scripts/worker-dependency.test.cjs .github/scripts/migrate-columns.test.cjs .github/scripts/mac-release-gate.test.cjs
 
   # The Worker suite runs against real workerd, so a pass here means the relay,
   # the gate and the connectors behave the way they will in production — not the
