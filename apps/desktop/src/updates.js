@@ -10,6 +10,8 @@ export async function startUpdates({ appName, getWindow, beforeRestart, version,
   autoUpdater.allowPrerelease = false
   let pending = null
   let downloaded = null
+  let installing = false
+  let failureShown = false
   const show = (options) => {
     const win = getWindow()
     return win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options)
@@ -22,11 +24,30 @@ export async function startUpdates({ appName, getWindow, beforeRestart, version,
       buttons: japanese ? ['再起動して更新', '後で'] : ['Restart and update', 'Later'],
       defaultId: 0, cancelId: 1, noLink: true,
     })
-    if (response.response === 0) { beforeRestart(); autoUpdater.quitAndInstall() }
+    if (response.response === 0) {
+      failureShown = false
+      installing = true
+      try { beforeRestart(); autoUpdater.quitAndInstall() }
+      catch { await failed() }
+    }
   }
-  autoUpdater.on('error', error => console.warn('Update check failed:', error?.message || error))
+  const failed = async () => {
+    installing = false
+    downloaded = null
+    if (failureShown) return
+    failureShown = true
+    await show({ type: 'error', title: appName,
+      message: japanese ? 'アップデートを完了できませんでした' : 'Could not finish the update',
+      detail: japanese ? '現在のバージョンを引き続き使えます。アプリのメニューからアップデートを再確認してください。' : 'You can keep using the current version. Check for updates again from the app menu.',
+    })
+  }
+  autoUpdater.on('error', error => {
+    console.warn('Update check failed:', error?.message || error)
+    if (installing) void failed().catch(console.warn)
+  })
   autoUpdater.on('update-downloaded', info => { downloaded = info; void ready().catch(console.warn) })
   const check = async (manual = false) => {
+    if (manual) failureShown = false
     if (manual && downloaded) return ready()
     if (!pending) {
       pending = autoUpdater.checkForUpdates()
@@ -34,6 +55,7 @@ export async function startUpdates({ appName, getWindow, beforeRestart, version,
     }
     try {
       const result = await pending
+      if (manual && result?.downloadPromise) void result.downloadPromise.catch(() => failed()).catch(console.warn)
       if (!manual || downloaded) return
       const next = result?.updateInfo?.version
       await show({ type: 'info', title: appName,
