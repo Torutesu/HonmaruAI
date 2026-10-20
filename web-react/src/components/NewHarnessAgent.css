@@ -4,7 +4,12 @@
   --dlg-faint:var(--hx-muted); --dlg-line:var(--hx-border); --dlg-field:var(--hx-surface);
   --dlg-hover:var(--hx-hover); --dlg-accent:var(--hx-text);
 }
-.hx-new-agent .dialog-body { gap:18px; }
+.hx-new-agent .dialog-head { padding:22px 24px 8px; }
+.hx-new-agent .dialog-head h2 { font-size:18px; line-height:1.4; }
+.hx-new-agent .dialog-body { gap:20px; padding:10px 24px 4px; }
+.hx-new-agent .dialog-foot { padding:24px; border-top:0; }
+.hx-new-agent .dlg-btn.primary { background:var(--hx-action); color:var(--hx-action-text); border-color:var(--hx-action); }
+.hx-new-agent .dlg-btn.primary:hover:not(:disabled) { background:var(--hx-action); }
 .hx-new-agent-face { align-self:center; display:flex; align-items:center; flex-direction:column; gap:10px; padding:10px 0; background:none; border:0; color:var(--hx-muted); cursor:pointer; }
 .hx-new-agent-face > span { width:80px; height:80px; display:grid; place-items:center; border-radius:50%; background:var(--hx-chip-surface); font-size:34px; }
 .hx-new-agent-face > small { font-size:12px; }

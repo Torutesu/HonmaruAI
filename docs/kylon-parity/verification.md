@@ -687,3 +687,9 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - The shared Dialog focused the first matching input even when hidden and let Tab reach the obscured page. It also captured the initial close callback and could close multiple nested dialogs.
 - Added visible/enabled focus-stop filtering, Tab/Shift-Tab containment, topmost-only Escape handling and the current close callback. IME composition is respected; prior focus is restored. Used by the new profile/avatar dialogs and existing Simple dialogs without removing their controls.
 - Web 927 tests, TypeScript and Vite pass. Regression covers hidden file inputs, wrapping in both directions, nested modal exclusion, updated callbacks, IME Escape and focus restoration. Native keyboard verification remains pending publication.
+
+### Theme refinement and production recovery evidence (2026-10-21)
+
+- Profile/new-agent dialogs now use the reference-sized title, 24px inner spacing, borderless footer and theme-aware olive action colors; profile/persona outlines use the border role instead of hover fill. Removed empty description spacing. Web 927 tests and Vite pass.
+- Verified Worker 2491ceb2 job 39463912416: full tests, D1 migrations, deployment and verification all succeeded; completed 2026-10-20 17:32:33 UTC. This proves that backend revision only, not newer queued revisions. GitHub public REST quota then reached zero until epoch 1792518783.
+- Installed app still 1.3.8: Cmd-R yielded an empty dark content area although diagnostics recorded navigation/DOM/finish/stop. Force-reload did not restore it immediately. Quit/relaunch restored the signed app through its loading fallback into authenticated chat, and Members retrieved the existing agent. No unlock issue, account reset or data deletion. New desktop recovery source is prepared in 1.3.9; signed release remains unverified.

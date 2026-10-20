@@ -70,7 +70,7 @@ export function AgentPersona({ agent, httpBase, orgId, sessionToken, canEdit, on
       <textarea className="hx-persona-editor" aria-label={t('Persona Markdown')} autoFocus disabled={busy || !canEdit} maxLength={MAX_INSTRUCTIONS} value={text} onChange={e => setText(e.target.value)} />
       <p className="hx-persona-hint">{t('Markdown is supported. Saved changes apply to future replies.')}</p>
       {conflict && <button className="btn-text" disabled={busy} onClick={() => void submit(true)}>{t('Discard my draft and reload the latest persona')}</button>}
-    </> : <><p>{agent.description}</p><div className="hx-persona-text"><Markdown source={agent.instructions || t('Edit this agent to set its instructions.')} /></div></>}
+    </> : <>{agent.description && <p>{agent.description}</p>}<div className="hx-persona-text"><Markdown source={agent.instructions || t('Edit this agent to set its instructions.')} /></div></>}
     {error && <p role="alert" className="form-error">{error}</p>}
   </section>
 }

@@ -148,7 +148,7 @@
 .hx-member-empty { height: 100%; min-height: 400px; display: flex; flex-direction: column; justify-content: center; align-items: center; color: var(--hx-subtle); font-size: 13px; }
 .hx-person-profile { max-width: 750px; margin: 64px auto; padding: 24px; }
 .hx-person-profile h1 { font-size: 20px; }
-.hx-persona { border: 1px solid var(--hx-hover); border-radius: 12px; padding: 18px; }
+.hx-persona { border: 1px solid var(--hx-border); border-radius: 12px; padding: 18px; }
 .hx-persona header { display: flex; align-items: center; justify-content: space-between; color: var(--hx-muted); font-size: 12px; }
 .hx-persona header button { border: 0; background: none; color: inherit; cursor: pointer; }
 .hx-persona-text { white-space: pre-wrap; line-height: 1.8; font-size: 14px; }
@@ -179,7 +179,7 @@
 :root .shell.harness-workspace .screen .row { box-sizing: border-box; }
 .hx-chat-group { margin: 0 0 12px; padding: 0; list-style: none; }
 :root .shell.harness-workspace .screen .hx-persona-text .md { white-space: normal; }
-.hx-profile-card { border: 1px solid var(--hx-hover); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+.hx-profile-card { border: 1px solid var(--hx-border); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
 .hx-profile-card header { display: flex; align-items: center; justify-content: space-between; color: var(--hx-muted); font-size: 12px; }
 .hx-profile-card header button { border: 0; background: none; color: inherit; cursor: pointer; }
 .hx-profile-card dl { display: grid; grid-template-columns: minmax(100px, 145px) 1fr; gap: 14px 0; font-size: 13px; margin: 22px 0 0; }
