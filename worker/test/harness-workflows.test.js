@@ -440,3 +440,44 @@ test("what starts a run is kept whole: a large webhook body still renders, and o
   expect(cut.log[0]).toMatchObject({ status: "failed", error: "What started this run can no longer be read." });
   expect((await messages(mika)).some((m) => m.body.startsWith("Got "))).toBe(false);
 });
+
+test.each(['workflow', 'followup'])('%s reads an installed skill through its execution entry and records both model rounds', async kind => {
+  const agent = (await (await send('POST','/channels/agents',mika,{orgId:ORG,name:'Procedure helper',handle:'procedure',instructions:'Follow the installed procedure.',scope:'team'})).json()).agent;
+  const skill = (await (await send('POST','/skills',mika,{orgId:ORG,name:'Release procedure',description:'Review a release',body:'CHECK THE FINAL RELEASE RESULT',visibility:'workspace'})).json()).skill;
+  expect((await send('POST',`/hx/agents/${agent.id}/skills`,mika,{orgId:ORG,skillId:skill.id})).status).toBe(200);
+  const bodies=[];
+  fetchMock.activate();
+  fetchMock.get('https://api.openai.com').intercept({path:'/v1/chat/completions',method:'POST'}).reply(200,opts=>{
+    bodies.push(JSON.parse(opts.body));
+    return {choices:[{message:{role:'assistant',content:null,tool_calls:[{id:'read-procedure',type:'function',function:{name:'read_installed_skill',arguments:JSON.stringify({skill_id:skill.id})}}]}}],usage:{prompt_tokens:10,completion_tokens:4}};
+  });
+  fetchMock.get('https://api.openai.com').intercept({path:'/v1/chat/completions',method:'POST'}).reply(200,opts=>{
+    bodies.push(JSON.parse(opts.body));
+    return {choices:[{message:{content:'PROCEDURE VERIFIED'}}],usage:{prompt_tokens:20,completion_tokens:6}};
+  });
+  try {
+    const modelEnv={...env,OPENAI_API_KEY:'sk-test'};
+    if(kind==='workflow') {
+      const {createWorkflow,startRun}=await import('../src/harness/workflows.js');
+      const {workflow}=await createWorkflow(env.DB,ORG,{name:'Review release',trigger:{type:'manual'},steps:[{type:'agent',agentId:agent.id,channel:'b:ops',prompt:'Review the release'}]},'9302');
+      const result=await startRun(modelEnv,{orgId:ORG,workflow,trigger:'manual',startedBy:'9302'});
+      expect(result.status).toBe('done');
+      expect(result.log[0].output).toBe('PROCEDURE VERIFIED');
+    } else {
+      const {scheduleFollowup}=await import('../src/harness/followups.js');
+      const {followup}=await scheduleFollowup(env.DB,{orgId:ORG,channel:'b:ops',agentId:agent.id,instruction:'Review the release',dueAt:new Date(Date.now()+60000).toISOString(),by:'9302'});
+      await runDueFollowups(modelEnv,{now:new Date(Date.now()+120000)});
+      expect(await env.DB.prepare('SELECT status,result FROM hx_followups WHERE id=?').bind(followup.id).first()).toMatchObject({status:'done',result:'PROCEDURE VERIFIED'});
+    }
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+  expect(bodies[0].messages[0].content).toContain(skill.id);
+  expect(bodies[0].messages[0].content).not.toContain('CHECK THE FINAL RELEASE RESULT');
+  expect(bodies[1].messages.find(m=>m.role==='tool').content).toContain('CHECK THE FINAL RELEASE RESULT');
+  const {results:calls}=await env.DB.prepare('SELECT purpose,input_tokens,output_tokens,user_github_id FROM ai_calls WHERE org_id=? ORDER BY id').bind(ORG).all();
+  expect(calls).toEqual([
+    {purpose:kind==='workflow'?'workflow_agent':'followup',input_tokens:10,output_tokens:4,user_github_id:'9302'},
+    {purpose:kind==='workflow'?'workflow_agent':'followup',input_tokens:20,output_tokens:6,user_github_id:'9302'},
+  ]);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM ai_reservations').first()).n).toBe(0);
+});
