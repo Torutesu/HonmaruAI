@@ -1021,7 +1021,9 @@ export const ClassicList: React.FC<Props> = ({
     const err = await onDeleteChannel(thread.slug)
     setBusy(false)
     if (err) { setProblem(err); return }
-    choose(null)
+    // The room update can remove the channel before the DELETE reply arrives.
+    // Do not close another conversation the person opened in that interval.
+    if (chosenKey.current === thread.key) choose(null)
   }
 
 
