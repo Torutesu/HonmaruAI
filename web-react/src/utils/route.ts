@@ -34,6 +34,8 @@ export type Screen = 'tools' | 'history' | 'notifications' | 'plans' | 'profile'
 export type Mode = 'cards' | 'classic'
 
 export interface Route {
+  threadId?: string | null
+  threadOrg?: string | null
   appSource?: boolean
   appConversation?: {tableId?:string;rowId?:string}
   appId?: string | null
@@ -84,6 +86,12 @@ export function parseRoute(hash: string): Route {
     return { screen: null, mode: 'cards', cardId, join: null, ...(cardId && org && isOrgId(org) ? { cardOrg: org } : {}) }
   }
   if (head === 'list') return { screen: null, mode: 'classic', cardId: null, join: null }
+  if (head === 't') {
+    const decode = (value: string) => { try { return decodeURIComponent(value) } catch { return '' } }
+    const id = decode(rest[0] || ''), org = decode(rest[1] || '')
+    const valid = /^[\w-]{1,80}$/.test(id) && rest.length <= 2 && (!rest[1] || isOrgId(org))
+    return { screen: null, mode: 'classic', cardId: null, join: null, threadId: valid ? id : null, threadOrg: valid && org ? org : null }
+  }
   if (head === 'm') {
     let id = rest[0] || ''
     try { id = decodeURIComponent(id) } catch { /* as written */ }
@@ -141,6 +149,9 @@ export function pathToHash(pathAndQuery: string): string | null {
 }
 export function hashForJoin(code: string): string { return `#/join/${encodeURIComponent(code)}` }
 /// A message, to paste anywhere: opens where it is, in its workspace.
+export function hashForThread(id: string, orgId: string): string {
+  return `#/t/${encodeURIComponent(id)}/${encodeURIComponent(orgId)}`
+}
 export function hashForMessage(messageId: string, orgId?: string | null): string {
   return `#/m/${encodeURIComponent(messageId)}${orgId ? `/${encodeURIComponent(orgId)}` : ''}`
 }

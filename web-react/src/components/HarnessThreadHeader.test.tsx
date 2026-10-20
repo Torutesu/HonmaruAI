@@ -34,3 +34,11 @@ test('a save resolving after leaving the thread does not update another screen',
  begin(tree!);act(()=>button(tree!,'保存').props.onClick());act(()=>tree!.unmount())
  await act(async()=>resolve(ok({parent:{...parent,threadTitle:'Late'}})));expect(onParent).not.toHaveBeenCalled()
 })
+
+test('thread copy excludes login query parameters and shows the link when clipboard access fails',async()=>{
+ globals();vi.stubGlobal('location',{origin:'https://app.example',pathname:'/',search:'?code=secret'});const writeText=vi.fn().mockRejectedValue(new Error('denied'));vi.stubGlobal('navigator',{clipboard:{writeText}})
+ let tree:ReturnType<typeof create>;act(()=>{tree=create(<HarnessThreadHeader api={api} channel="b:general" parent={parent} room="general" onClose={()=>{}} onParent={()=>{}}/>)})
+ await act(async()=>tree!.root.findByProps({'aria-label':'スレッドのリンクをコピー'}).props.onClick())
+ expect(writeText).toHaveBeenCalledWith('https://app.example/#/t/root/team%3Atest');expect(tree!.root.findByProps({'aria-label':'スレッドのリンク'}).props.value).toBe('https://app.example/#/t/root/team%3Atest')
+ expect(JSON.stringify(tree!.toJSON())).toContain('コピーできませんでした');act(()=>tree!.unmount())
+})

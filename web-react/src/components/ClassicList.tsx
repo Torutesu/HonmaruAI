@@ -94,6 +94,7 @@ interface Props {
   harness?: boolean
   newRequest?: number
   homeRequest?: number
+  linkedThreadId?: string | null
   sourceAppId?: string | null
   userId: string
   orgName: string
@@ -315,7 +316,7 @@ function when(iso?: string): string {
 /// the relay's, not invented. On a phone it is one pane at a time: the
 /// sidebar, then the conversation with a way back.
 export const ClassicList: React.FC<Props> = ({
-  harness = false, newRequest = 0, homeRequest = 0, sourceAppId = null, userId, orgName, pending, sent, decided, businesses, presence,
+  harness = false, newRequest = 0, homeRequest = 0, sourceAppId = null, linkedThreadId = null, userId, orgName, pending, sent, decided, businesses, presence,
   onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, onApps, onWorkflow, workspaceMenu,
   onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen, onPlaces, onStatus, statusOpen, active = true,
 }) => {
@@ -711,7 +712,13 @@ export const ClassicList: React.FC<Props> = ({
   const sourceIntent = useRef(0)
   const sourceRoute = useRef<string|null>(null)
   const pendingSource = useRef<{appId:string;source:NonNullable<AppConversation['source']>}|null>(null)
+  const linkedIntent = useRef(0)
+  const linkedRoute = useRef<string|null>(null)
+  const pendingLinkedThread = useRef<{view:string;id:string}|null>(null)
   const forgetWanted = () => {
+    linkedIntent.current++;pendingLinkedThread.current=null
+    if(linkedRoute.current && location.hash===linkedRoute.current){history.replaceState(history.state,'','#/list');window.dispatchEvent(new HashChangeEvent('hashchange'))}
+    linkedRoute.current=null
     wantedView.current=null;sourceIntent.current++;pendingSource.current=null
     if(sourceRoute.current && location.hash===sourceRoute.current){history.replaceState(history.state,'','#/list');window.dispatchEvent(new HashChangeEvent('hashchange'))}
     sourceRoute.current=null
@@ -3229,6 +3236,24 @@ export const ClassicList: React.FC<Props> = ({
   // Leaving a conversation closes what was open on it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { setEditing(null); setThread(null); setPins(null); setPickerFor(null); setReplyingTo(null); setMsgMenu(null); setReactAt(null); uploads.clear() }, [current?.key])
+  // A thread link resolves only within the signed-in workspace. Manual navigation
+  // invalidates the request, including when the directory is still loading.
+  useEffect(()=>{
+    if(!linkedThreadId)return
+    const intent=++linkedIntent.current,client=resourceClient,originalHash=location.hash,controller=new AbortController()
+    linkedRoute.current=originalHash
+    const currentRequest=()=>linkedIntent.current===intent && resourceClientNow.current===client && location.hash===originalHash
+    const fallback=()=>{if(currentRequest()){linkedIntent.current++;pendingLinkedThread.current=null;linkedRoute.current=null;setToast(t('That message is not somewhere you can read.'));history.replaceState(history.state,'','#/list');window.dispatchEvent(new HashChangeEvent('hashchange'))}controller.abort()}
+    const timer=setTimeout(fallback,10000)
+    const query=new URLSearchParams({orgId:api.orgId,messageId:linkedThreadId})
+    void fetch(`${api.httpBase}/channels/locate?${query}`,{headers:authHeaders,signal:controller.signal}).then(response=>response.ok?response.json():null).then(where=>{
+      if(!currentRequest())return
+      if(!where?.view || !where?.id){fallback();return}
+      pendingLinkedThread.current={view:where.view,id:where.parentId||where.id};setTick(n=>n+1)
+    },fallback)
+    return()=>{clearTimeout(timer);controller.abort();if(linkedIntent.current===intent){linkedIntent.current++;pendingLinkedThread.current=null;linkedRoute.current=null}}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[linkedThreadId,resourceClient,api.orgId])
   // App-library links enter through the saved, permission-checked source.
   // Wait for the sidebar to know the room, then open its actual thread.
   useEffect(()=>{
@@ -3418,6 +3443,18 @@ export const ClassicList: React.FC<Props> = ({
   // Navigation is an intent consumed once; new sidebar data only resolves it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[harness,sourceAppId,current?.key,everything,tick])
+  useEffect(()=>{
+    const pending=pendingLinkedThread.current
+    if(!pending || !linkedThreadId || location.hash!==linkedRoute.current)return
+    const target=everything.find(item=>item.view===pending.view)
+    if(!target){if(pending.view.startsWith('ag:'))setStartedAgents(previous=>previous.includes(pending.view.slice(3))?previous:[...previous,pending.view.slice(3)]);return}
+    if(current?.key!==target.key){choose(target.key,true);return}
+    pendingLinkedThread.current=null;linkedIntent.current++;linkedRoute.current=null
+    const root=messagesRef.current[pending.view]?.find(message=>message.id===pending.id)||{id:pending.id,channel:pending.view,kind:'message',body:'',createdAt:''} as ChannelMessage
+    setSide(null);void openThread(pending.view,root)
+    history.replaceState(history.state,'','#/list');window.dispatchEvent(new HashChangeEvent('hashchange'))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[linkedThreadId,current?.key,everything,tick])
   // A card stands beside something in the conversation that was left.
   useEffect(() => { setPopout(null) }, [current?.key])
   // Back closes what was opened last, not the list (utils/backStack): on a

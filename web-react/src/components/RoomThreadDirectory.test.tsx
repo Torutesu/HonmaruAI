@@ -52,3 +52,12 @@ test('read events retain revealed pages and ignore unrelated rooms',async()=>{
   expect(tree!.root.findByProps({'aria-current':'page'}).findByType('strong').children).toEqual(['second'])
  } finally {act(()=>tree!.unmount());vi.useRealTimers()}
 })
+
+test('a thread opened from a link reveals its room without reopening a manual collapse on unrelated renders',async()=>{
+ globals();vi.stubGlobal('fetch',vi.fn().mockResolvedValue(ok([item('root')])));let tree:ReturnType<typeof create>
+ const render=(selected:boolean,activeId?:string)=><RoomThreadDirectory api={api} channel="b:general" name="general" selected={selected} activeId={activeId} onOpen={()=>{}}><li>general</li></RoomThreadDirectory>
+ await act(async()=>{tree=create(render(false))});await act(async()=>tree!.update(render(true,'root')))
+ expect(tree!.root.findByProps({'aria-label':'generalを折りたたむ'})).toBeTruthy()
+ act(()=>tree!.root.findByProps({'aria-label':'generalを折りたたむ'}).props.onClick());await act(async()=>tree!.update(render(true,'root')))
+ expect(tree!.root.findByProps({'aria-label':'generalを展開'})).toBeTruthy();act(()=>tree!.unmount())
+})
