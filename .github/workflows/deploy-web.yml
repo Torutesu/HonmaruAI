@@ -29,6 +29,7 @@ on:
       - ".github/workflows/deploy-web.yml"
       - ".github/scripts/attach-pages-domain.sh"
       - ".github/scripts/worker-dependency.cjs"
+      - ".github/scripts/migrate-columns.cjs"
   workflow_dispatch:
     inputs:
       api_host:
@@ -98,7 +99,7 @@ jobs:
         id: backend
         if: github.event_name == 'push'
         run: |
-          revision=$(git log --first-parent -1 --format=%H HEAD -- ../worker ../.github/workflows/deploy-worker.yml)
+          revision=$(git log --first-parent -1 --format=%H HEAD -- ../worker ../.github/workflows/deploy-worker.yml ../.github/scripts/migrate-columns.cjs)
           [ -n "$revision" ] || { echo "::error::Cannot identify the Worker dependency."; exit 1; }
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
 

@@ -23,6 +23,7 @@ on:
     paths:
       - "worker/**"
       - ".github/workflows/deploy-worker.yml"
+      - ".github/scripts/migrate-columns.cjs"
   workflow_dispatch:
     inputs:
       environment:
@@ -116,21 +117,7 @@ jobs:
       # running them together meant one expected failure skipped the rest, and
       # anything placed after it silently never ran.
       - name: Migrate D1 (column additions)
-        run: |
-          set -o pipefail
-          status=0
-          while IFS= read -r stmt; do
-            [ -z "$stmt" ] && continue
-            echo "-> $stmt"
-            if ! npx -y wrangler@4 d1 execute ${{ steps.target.outputs.db }} ${{ steps.target.outputs.flag }} --remote --command "$stmt" --yes 2>&1 | tee /tmp/migrate.log; then
-              if grep -qi "duplicate column name" /tmp/migrate.log; then
-                echo "   already applied"
-              else
-                status=1
-              fi
-            fi
-          done < <(grep -E '^(ALTER TABLE|CREATE )' migrations.sql)
-          exit $status
+        run: node ../.github/scripts/migrate-columns.cjs ${{ steps.target.outputs.db }} ${{ steps.target.outputs.flag }}
 
 
       # The web app's address lives in a Worker secret. Changing it here keeps
