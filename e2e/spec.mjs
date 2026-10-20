@@ -524,6 +524,22 @@ await step('the list view shows the same decisions', async () => {
   await page.waitForSelector('.slk-head h1:has-text("Suppliers & logistics")', { timeout: 15000 })
     .catch(() => { throw new Error('the channel did not take its new name') })
   await shot('09c-classic-channel')
+  // Let the real room event arrive first, but hold the HTTP completion until
+  // another conversation is open. This used to close that new conversation.
+  let releaseDelete
+  const deleteGate = new Promise((resolve) => { releaseDelete = resolve })
+  let deleteDelivered
+  const deleteDone = new Promise((resolve) => { deleteDelivered = resolve })
+  const delayDelete = async (route) => {
+    if (route.request().method() !== 'DELETE') return route.continue()
+    try {
+      const response = await route.fetch()
+      await deleteGate
+      await route.fulfill({ response })
+    } finally { deleteDelivered() }
+  }
+  await page.route('**/businesses', delayDelete)
+  try {
   page.once('dialog', (d) => d.accept())
   await page.click('.cl-channel-tools .cl-danger')
   // Deleted, the conversation closes and the sidebar is back.
@@ -537,11 +553,19 @@ await step('the list view shows the same decisions', async () => {
   const convo = '.cl-thread:has(.cl-own-mark) .cl-open'
   await page.click(convo)
   await page.waitForSelector('.slk-head', { timeout: 5000 })
+  releaseDelete()
+  await deleteDone
+  // Allow the completed fetch and React update to run before testing the UI.
+  await page.waitForTimeout(250)
   // The effect that hides it runs after the conversation renders; wait
   // for it rather than read the first frame, which a slow runner catches.
   await page.waitForSelector('.cl-tabs', { state: 'hidden', timeout: 5000 })
     .catch(() => { throw new Error('the tab bar sits under a conversation on a phone') })
   if (await page.isVisible('.tabbar')) throw new Error('the feed’s tab bar shows in the list on a phone')
+  } finally {
+    releaseDelete()
+    await page.unroute('**/businesses', delayDelete)
+  }
   if (await page.$('.slk-msg .slk-title')) {
     await page.click('.slk-msg .slk-title >> nth=0')
     await page.waitForSelector('.slk-pane .card', { timeout: 10000 })
