@@ -1,6 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react'
 import type {ChannelMessage} from '../types/card'
 import {Icon} from './Icon'
+import {textMatchRanges} from '../utils/textMatches'
 type Api={httpBase:string;orgId:string;sessionToken:string}
 export function ThreadSearch({api,channel,threadId,onClose,onSelect}:{api:Api;channel:string;threadId:string;onClose:()=>void;onSelect:(message:ChannelMessage)=>void}){
  const [query,setQuery]=useState(''),[messages,setMessages]=useState<ChannelMessage[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState(false),[index,setIndex]=useState(0),[retry,setRetry]=useState(0)
@@ -33,11 +34,11 @@ export function ThreadSearch({api,channel,threadId,onClose,onSelect}:{api:Api;ch
   if(!registry||!HighlightClass)return
   const pane=host.current?.closest('.slk-thread-pane');if(!pane)return
   const paint=()=>{
-   const ranges:Range[]=[],needle=query.trim().toLocaleLowerCase()
+   const ranges:Range[]=[],needle=query.trim()
    if(needle)for(const body of pane.querySelectorAll('.slk-thread-log .slk-text')){
     const walker=document.createTreeWalker(body,NodeFilter.SHOW_TEXT);let node:Node|null
-    while((node=walker.nextNode())){const text=node.textContent?.toLocaleLowerCase()||'';let at=0
-     while((at=text.indexOf(needle,at))>=0){const range=document.createRange();range.setStart(node,at);range.setEnd(node,at+needle.length);ranges.push(range);at+=needle.length}
+    while((node=walker.nextNode())){
+     for(const [start,end] of textMatchRanges(node.textContent||'',needle)){const range=document.createRange();range.setStart(node,start);range.setEnd(node,end);ranges.push(range)}
     }
    }
    registry.set('thread-search',new HighlightClass(...ranges))
