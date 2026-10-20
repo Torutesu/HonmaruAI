@@ -712,6 +712,9 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229) return
+      // Native dialogs own Escape, including after a file picker returns focus
+      // to the document. Their cancel event closes the dialog, not this screen.
+      if (e.key === 'Escape' && (e.defaultPrevented || document.querySelector('dialog[open]'))) return
       const mod = hasPrimaryMod(e, isMac)
       // The shortcuts sheet is on top. ⌘K must not open the palette over it.
       if (shortcuts) {
