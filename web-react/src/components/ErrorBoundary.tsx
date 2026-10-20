@@ -1,5 +1,6 @@
 import React from 'react'
 import { t } from '../utils/i18n'
+import { recoverMissingAppChunk } from '../utils/chunkRecovery'
 
 interface State { error: Error | null }
 
@@ -18,6 +19,11 @@ export class ErrorBoundary extends React.Component<React.PropsWithChildren, Stat
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
     console.error('Uncaught render error', error, info.componentStack)
+    // A tab opened before a Pages deployment may still request the old hash.
+    // Keep its route and session, and attempt at most one reload per five minutes.
+    try {
+      recoverMissingAppChunk(error, { origin: window.location.origin, online: navigator.onLine, storage: window.sessionStorage, reload: () => window.location.reload() })
+    } catch { /* Storage may be blocked; retain the manual recovery screen. */ }
   }
 
   render() {
