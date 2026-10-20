@@ -681,3 +681,9 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Added Harness avatar preview using existing image or emoji, 50–400% zoom, reset, bounded pointer pan above 100%, keyboard +/-/0 and fallback on image errors. Responsive viewport bounds and existing light/dark tokens retained.
 - Web 926 tests, TypeScript and Vite pass. Native rendering awaits publication; drag/zoom bounds and image failure are covered by component regression.
 - Current release queue: ccc64f0e CI 39466618112 running, Web 39466618065 pending. e43500f0 Worker 39466316407 pending behind 2491ceb2 Worker 39463912416 (still running). Avatar-preview commit is held locally to avoid repeatedly cancelling the running main CI while additional UI work is prepared.
+
+### Shared dialog keyboard behavior (2026-10-21)
+
+- The shared Dialog focused the first matching input even when hidden and let Tab reach the obscured page. It also captured the initial close callback and could close multiple nested dialogs.
+- Added visible/enabled focus-stop filtering, Tab/Shift-Tab containment, topmost-only Escape handling and the current close callback. IME composition is respected; prior focus is restored. Used by the new profile/avatar dialogs and existing Simple dialogs without removing their controls.
+- Web 927 tests, TypeScript and Vite pass. Regression covers hidden file inputs, wrapping in both directions, nested modal exclusion, updated callbacks, IME Escape and focus restoration. Native keyboard verification remains pending publication.
