@@ -1,3 +1,4 @@
+import { ThreadReferences } from './ThreadReferences'
 import {useThreadPins} from '../utils/threadPins'
 import { HarnessThreadHeader } from './HarnessThreadHeader'
 import { RoomThreadDirectory } from './RoomThreadDirectory'
@@ -3442,9 +3443,9 @@ export const ClassicList: React.FC<Props> = ({
 
   // ---- What the header opens ----
   // The journal ("Context"), or the channel's details on one of its tabs.
-  const [side, setSide] = useState<null | { kind: 'journal' } | { kind: 'app'; id: string; conversation?:boolean } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
-  const sourceThreadApp = Boolean(harness && thread && side?.kind==='app' && !detail && !profile && !activityOpen && current?.view)
-  const openSide = (next: { kind: 'journal' } | { kind: 'app'; id: string; conversation?:boolean } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
+  const [side, setSide] = useState<null | { kind: 'references' } | { kind: 'journal' } | { kind: 'app'; id: string; conversation?:boolean; fromReferences?:boolean } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
+  const sourceThreadApp = Boolean(harness && thread && (side?.kind==='app'||side?.kind==='references') && !detail && !profile && !activityOpen && current?.view)
+  const openSide = (next: { kind: 'references' } | { kind: 'journal' } | { kind: 'app'; id: string; conversation?:boolean; fromReferences?:boolean } | { kind: 'canvas' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
     setDetailId(null); setThread(null); setProfile(null); setPins(null)
     setSide((prev) => (prev && prev.kind === next.kind && (prev.kind === 'journal' || prev.kind === 'canvas' || (next.kind === 'resources' && prev.kind === 'resources' && prev.resource === next.resource) || (next.kind === 'details' && prev.kind === 'details' && prev.tab === next.tab)) ? null : next))
   }
@@ -5908,7 +5909,7 @@ export const ClassicList: React.FC<Props> = ({
           onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setThreadDropping(false) }}
           onDrop={(e) => { setThreadDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); e.stopPropagation(); threadUploads.add([...e.dataTransfer.files], thread.channel) } }}>
           {wide && !harness && !sourceThreadApp && <PaneResizer pane={threadPane} label={t('Resize thread')} title={t('Drag to resize · double-click to reset')} onWidth={keepThreadWidth} onReset={() => keepThreadWidth(null)} />}
-          {harness ? <HarnessThreadHeader key={`${api.orgId}:${api.sessionToken}:${thread.parent.id}`} api={api} pin={{error:threadPins.error,onRetry:()=>void threadPins.refresh(),pinned:threadPins.pins.some(pin=>pin.id===thread.parent.id),disabled:!threadPins.loaded||threadPins.busy||!!thread.parent.deleted,onToggle:()=>void threadPins.toggle(thread.parent.id)}} channel={thread.channel} parent={thread.parent} room={current?.name||'ルーム'} onClose={()=>setThread(null)} onParent={parent=>{setThread(previous=>previous?.parent.id===parent.id?{...previous,parent}:previous);void threadPins.refresh()}}/> : <header className="slk-pane-head">
+          {harness ? <HarnessThreadHeader key={`${api.orgId}:${api.sessionToken}:${thread.parent.id}`} api={api} references={{open:side?.kind==='references',onToggle:()=>setSide(previous=>previous?.kind==='references'?null:{kind:'references'})}} pin={{error:threadPins.error,onRetry:()=>void threadPins.refresh(),pinned:threadPins.pins.some(pin=>pin.id===thread.parent.id),disabled:!threadPins.loaded||threadPins.busy||!!thread.parent.deleted,onToggle:()=>void threadPins.toggle(thread.parent.id)}} channel={thread.channel} parent={thread.parent} room={current?.name||'ルーム'} onClose={()=>setThread(null)} onParent={parent=>{setThread(previous=>previous?.parent.id===parent.id?{...previous,parent}:previous);void threadPins.refresh()}}/> : <header className="slk-pane-head">
             <button className="slk-back pane" onClick={() => setThread(null)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
             <h2>{t('Thread')}</h2>
             {current && <span className="slk-pane-where">{current.kind === 'channel' ? `#${current.name}` : current.name}</span>}
@@ -5918,8 +5919,10 @@ export const ClassicList: React.FC<Props> = ({
         </aside>
       )}
       {!detail && (!thread || sourceThreadApp) && !profile && side && current?.view && (
-        side.kind === 'app'
-          ? <aside className="hx-app-pane slk-pane"><AppView key={`${api.orgId}:${side.id}`} httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} api={resourceClient} appId={side.id} openConversation={side.conversation} onClose={() => setSide(null)} onBack={() => setSide({ kind: 'resources', resource: 'apps' })} /></aside>
+        side.kind === 'references'
+          ? thread&&<ThreadReferences key={`${api.orgId}:${api.sessionToken}:${thread.parent.id}`} api={resourceClient} sessionToken={api.sessionToken} channel={thread.channel} threadId={thread.parent.id} onClose={()=>setSide(null)} onOpen={id=>setSide({kind:'app',id,fromReferences:true})}/>
+          : side.kind === 'app'
+          ? <aside className="hx-app-pane slk-pane"><AppView key={`${api.orgId}:${side.id}`} httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} api={resourceClient} appId={side.id} openConversation={side.conversation} onClose={() => setSide(null)} onBack={() => setSide(side.fromReferences&&thread?{kind:'references'}:{ kind: 'resources', resource: 'apps' })} /></aside>
           : side.kind === 'resources'
           ? <HarnessRoomResources key={`${api.orgId}:${userId}:${current.view}:${side.resource}`} api={api} channel={current.view} kind={side.resource}
               onClose={() => setSide(null)} onOpenApp={id => { if (id) setSide({ kind: 'app', id }); else { setSide(null); onApps?.() } }} onOpenWorkflow={id => { setSide(null); onWorkflow?.(id) }}

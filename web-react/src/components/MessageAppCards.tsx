@@ -12,7 +12,7 @@ export function MessageAppCards({text,api,onOpen}:{text:string;api:HarnessApi;on
  const links=appLinksIn(text,api.orgId)
  return links.length?<div className="hx-message-app-cards">{links.map(link=><MessageAppCard key={`${api.orgId}:${link.id}`} id={link.id} api={api} onOpen={onOpen}/>)}</div>:null
 }
-function MessageAppCard({id,api,onOpen}:{id:string;api:HarnessApi;onOpen?:(id:string)=>void}) {
+export function MessageAppCard({id,api,onOpen}:{id:string;api:HarnessApi;onOpen?:(id:string)=>void}) {
  const host=useRef<HTMLDivElement>(null),[visible,setVisible]=useState(false),[attempt,setAttempt]=useState(0)
  const [data,setData]=useState<Snapshot|null>(null),[loadedApi,setLoadedApi]=useState<HarnessApi|null>(null),[error,setError]=useState(false)
  useEffect(()=>{if(!host.current)return;if(typeof IntersectionObserver==='undefined'){setVisible(true);return}const observer=new IntersectionObserver(([entry])=>setVisible(entry.isIntersecting),{rootMargin:'80px'});observer.observe(host.current);return()=>observer.disconnect()},[])
