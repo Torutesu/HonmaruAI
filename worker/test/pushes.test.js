@@ -161,6 +161,42 @@ test("a muted conversation is nobody's push", async () => {
     .toEqual([{ login: "mika", reason: "mention" }]);
 });
 
+test.each(["mute", "private", "guest"])("queued push honors a later %s change before delivery", async (change) => {
+  const { registerDevice } = await import("../src/db.js");
+  const token = ({ mute: "b", private: "c", guest: "d" })[change].repeat(64);
+  await registerDevice(env.DB, { deviceToken: token, githubId: "8803", login: "kenji", environment: "production", platform: "ios" });
+  const pushed = [];
+  fetchMock.activate();
+  fetchMock.get("https://api.push.apple.com")
+    .intercept({ path: `/3/device/${token}`, method: "POST" })
+    .reply((opts) => { pushed.push(JSON.parse(opts.body)); return { statusCode: 200, data: "" }; }).persist();
+  const penv = { ...env, APNS_KEY_ID: "ABC1234567", APNS_TEAM_ID: "TEAM123456", APNS_TOPIC: "com.honmaru.ai", APNS_PRIVATE_KEY: TEST_P8 };
+  const members = await listMembers(env.DB, ORG, null);
+  const now = Date.now();
+  const say = async (id, at) => {
+    const row = { id, kind: "message", channel: "b:cafe", author_login: "toru", body: "@Kenji confidential", created_at: new Date(at).toISOString() };
+    await env.DB.prepare("INSERT INTO channel_messages (id,org_id,channel,author_login,body,kind,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)")
+      .bind(id, ORG, row.channel, row.author_login, row.body, row.kind, row.created_at).run();
+    await queueMessagePushes(penv, ORG, row, { members, now: at });
+  };
+  try {
+    await say("before-change", now);
+    expect(await queued()).toHaveLength(1);
+    if (change === "mute") await env.DB.prepare("INSERT INTO channel_prefs (org_id,login,channel,level) VALUES (?1,'kenji','b:cafe','mute')").bind(ORG).run();
+    if (change === "private") await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='cafe'").bind(ORG).run();
+    if (change === "guest") await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=?1 AND user_github_id='8803'").bind(ORG).run();
+    expect(await sendDuePushes(penv, now + PUSH_DELAY_MS + 1000)).toEqual({ sent: 0, skipped: 1 });
+    expect(pushed).toHaveLength(0);
+    // Restoring access/preferences allows new notifications, but never replays the skipped message.
+    await env.DB.prepare("DELETE FROM channel_prefs WHERE org_id=?1").bind(ORG).run();
+    await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1").bind(ORG).run();
+    await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='8803'").bind(ORG).run();
+    await say("after-change", now + 2 * PUSH_DELAY_MS);
+    expect(await sendDuePushes(penv, now + 3 * PUSH_DELAY_MS + 1000)).toEqual({ sent: 1, skipped: 0 });
+    expect(pushed).toHaveLength(1);
+  } finally { fetchMock.deactivate(); }
+});
+
 test("a lock screen never gives a spoiler away, and a push stays one short line", () => {
   expect(pushPreview("the killer is ||the butler|| and ||his twin||")).toBe("the killer is ▇▇▇ and ▇▇▇");
   expect(pushPreview("line one\n\nline two")).toBe("line one line two");
