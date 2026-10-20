@@ -8,6 +8,7 @@ import { harnessApi, type AppConversation } from '../utils/harness'
 import { HarnessRoomResources } from './HarnessRoomResources'
 import { channelMessageCache, mergeLatestMessages } from '../utils/channelMessageCache'
 import { ReadGuard } from '../utils/readGuard'
+import { ReadWrites } from '../utils/readWrites'
 import { toggleReaction } from '../utils/reactions'
 import { sameWords, wantsTranslation } from '../utils/translationRule'
 import { FAILURE_LABEL, failureOf, keepTranslations, keptTranslation, translationBatches, translationKey, type TranslateFailure } from '../utils/translationCache'
@@ -1687,16 +1688,20 @@ export const ClassicList: React.FC<Props> = ({
   // Opened is read — here, and on the server for your other devices —
   // unless you just marked it unread and are still looking at it.
   const heldUnread = useRef<string | null>(null)
+  const readWrites = useRef(new ReadWrites()).current
   useEffect(() => { if (heldUnread.current && heldUnread.current !== view) heldUnread.current = null }, [view])
   /// Read up to now, here and on the server for your other devices: the
   /// conversation's count goes, its notifications close, and what was said
   /// in it is no longer new in Activity (a reply waits for its thread).
   const readOnServer = (v: string, now: string) => {
     readGuard.readChannel(v, now)
-    fetch(`${api.httpBase}/channels/read`, {
-      method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
-      body: JSON.stringify({ orgId: api.orgId, channel: v, at: now }),
-    }).then(() => setServerReads((prev) => ({ ...prev, [v]: now }))).catch(() => { /* this device still remembers */ })
+    void readWrites.run(`${api.orgId}:${v}`, async latest => {
+      const response = await fetch(`${api.httpBase}/channels/read`, {
+        method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId: api.orgId, channel: v, at: now }),
+      })
+      if (response.ok && latest() && heldUnread.current !== v) setServerReads((prev) => ({ ...prev, [v]: now }))
+    }).catch(() => { /* this device still remembers */ })
     closeNotifications(api.orgId, v)
     setActivityItems((prev) => prev && prev.map((i) => (i.unread && i.message.channel === v && !i.message.parentId && (i.at || i.message.createdAt) <= now ? { ...i, unread: false } : i)))
   }
@@ -2791,12 +2796,20 @@ export const ClassicList: React.FC<Props> = ({
   /// "Mark unread from here": the conversation (or the thread) is read only
   /// up to just before this message, on every device.
   const markUnread = async (channel: string, m: ChannelMessage) => {
-    const res = await fetch(`${api.httpBase}/channels/unread`, {
+    const previousHold = heldUnread.current
+    if (!m.parentId) {
+      heldUnread.current = channel
+      if (serverRead.current?.view === channel) dropServerRead()
+    }
+    const res = await readWrites.run(`${api.orgId}:${channel}`, () => fetch(`${api.httpBase}/channels/unread`, {
       method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
       body: JSON.stringify({ orgId: api.orgId, channel, messageId: m.id }),
-    }).catch(() => null)
+    })).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) as { lastReadAt: string; thread: string | null } | null : null
-    if (!data) { setProblem(t('That did not save.')); return }
+    if (!data) {
+      if (!m.parentId && heldUnread.current === channel) heldUnread.current = previousHold
+      setProblem(t('That did not save.')); return
+    }
     if (data.thread) { threadUnreadFrom(data.thread, data.lastReadAt); setToast(t('Marked unread')); return }
     heldUnread.current = channel
     try { localStorage.setItem(seenKey(api.orgId, channel), data.lastReadAt) } catch { /* the server remembers */ }
