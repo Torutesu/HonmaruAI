@@ -50,6 +50,25 @@ test('file import is reviewed and saved privately through the caller before expl
  await act(async()=>{tree.root.findAllByType('button').find(n=>n.children.includes('Save'))!.props.onClick()})
  expect(save).toHaveBeenCalledWith({name:'Imported',description:'Check inputs',body:'Instructions',metadata:{license:'MIT'}})
  expect(toggle).not.toHaveBeenCalled()
- expect(tree.root.findAllByProps({'aria-label':'取り込み内容の確認'})).toHaveLength(0)
+ expect(tree.root.findAllByProps({'aria-label':'Review skill import'})).toHaveLength(0)
+ act(()=>tree.unmount())
+})
+test('invalid files do not reach the server and a failed save retains the reviewed draft for retry',async()=>{
+ let tree!:ReturnType<typeof create>
+ const preview=vi.fn().mockResolvedValue({name:'Imported',description:'Review',body:'Keep this'})
+ const save=vi.fn().mockRejectedValueOnce(new Error('Network unavailable')).mockResolvedValue(undefined)
+ act(()=>{tree=create(<AgentSkillCatalog skills={[]} installed={[]} canEdit onToggle={vi.fn()} onPreviewImport={preview} onSaveImport={save}/>,{createNodeMock:nodes})})
+ act(()=>tree.root.findAllByType('button').find(n=>n.children.includes('Add skills'))!.props.onClick())
+ const choose=async(name:string,size:number)=>{await act(async()=>{tree.root.findByProps({type:'file'}).props.onChange({target:{files:[{name,size,text:async()=> 'markdown'}],value:'file'}})})}
+ await choose('archive.zip',100);await choose('SKILL.md',65537)
+ expect(preview).not.toHaveBeenCalled()
+ await choose('SKILL.md',100)
+ const saveButton=()=>tree.root.findAllByType('button').find(n=>n.children.includes('Save'))!
+ await act(async()=>{saveButton().props.onClick()})
+ expect(tree.root.findByProps({role:'alert'}).children).toContain('Network unavailable')
+ expect(tree.root.findAllByProps({'aria-label':'Review skill import'})).toHaveLength(1)
+ await act(async()=>{saveButton().props.onClick()})
+ expect(save).toHaveBeenCalledTimes(2)
+ expect(tree.root.findAllByProps({'aria-label':'Review skill import'})).toHaveLength(0)
  act(()=>tree.unmount())
 })

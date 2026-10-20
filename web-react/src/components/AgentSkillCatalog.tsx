@@ -33,7 +33,7 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
     if (!canEdit || !onPreviewImport || pending.current) return
     pending.current = true; setBusy('import'); setError('')
     try {
-      if (!/\.md$/i.test(file.name) || file.size > 65536) throw new Error('64 KiB以内のSKILL.mdファイルを選択してください。')
+      if (!/\.md$/i.test(file.name) || file.size > 65536) throw new Error(t('Choose a SKILL.md file no larger than 64 KiB.'))
       setDraft(await onPreviewImport(await file.text()))
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { pending.current = false; setBusy(null) }
@@ -57,11 +57,12 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
     {open && <dialog ref={dialog} className="hx-skill-dialog" aria-labelledby={titleId} onCancel={e => {e.preventDefault();close()}} onClick={e => {if(e.target === e.currentTarget) {const r=e.currentTarget.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close()}}}>
       <header><h2 id={titleId}>{t('Add skills')}</h2><button disabled={busy !== null} aria-label={t('Close')} onClick={close}><Icon name="x" size={18}/></button></header>
       {canEdit && onPreviewImport && onSaveImport && <section className="hx-skill-import" onDragOver={e => e.preventDefault()} onDrop={e => {e.preventDefault();const file=e.dataTransfer.files[0];if(file)void importFile(file)}}>
-        <Icon name="file" size={22}/><div><strong>スキルを取り込む</strong><p>SKILL.mdをドロップ、またはファイルを選択</p></div>
-        <input ref={fileInput} type="file" accept=".md,text/markdown" hidden aria-label="スキルファイル" onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)void importFile(file)}}/>
-        <button className="hx-skill-action" disabled={busy!==null} onClick={()=>fileInput.current?.click()}>ファイルを選択</button>
+        <Icon name="file" size={22}/><div><strong>{t('Import a skill')}</strong><p>{t('Drop SKILL.md here or choose a file')}</p></div>
+        <input ref={fileInput} type="file" accept=".md,text/markdown" hidden aria-label={t('Skill file')} onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)void importFile(file)}}/>
+        <button className="hx-skill-action" disabled={busy!==null} onClick={()=>fileInput.current?.click()}>{t('Choose file')}</button>
       </section>}
-      {draft && <section className="hx-skill-import-review" aria-label="取り込み内容の確認"><strong>{draft.name}</strong><p>{draft.description}</p><pre>{draft.body}</pre><p>個人用スキルとして保存します。保存後に「Install」でこのエージェントへ追加できます。</p><div><button className="hx-skill-action" disabled={busy!==null} onClick={()=>setDraft(null)}>{t('Cancel')}</button><button className="hx-skill-action" disabled={busy!==null} onClick={()=>void saveImport()}>{t('Save')}</button></div></section>}
+      {busy === 'import' && <p role="status">{t('Processing skill…')}</p>}
+      {draft && <section className="hx-skill-import-review" aria-label={t('Review skill import')}><strong>{draft.name}</strong><p>{draft.description}</p><pre>{draft.body}</pre><p>{t('Save as a private skill, then install it for this agent from the catalog.')}</p><div><button className="hx-skill-action" disabled={busy!==null} onClick={()=>setDraft(null)}>{t('Cancel')}</button><button className="hx-skill-action" disabled={busy!==null} onClick={()=>void saveImport()}>{t('Save')}</button></div></section>}
       <input type="search" autoFocus value={query} aria-label={t('Search skills by name, author or description')} placeholder={t('Search skills by name, author or description')} onChange={e => setQuery(e.target.value)}/>
       <div className="hx-skill-catalog-tabs" role="tablist" aria-label={t('Skills')}>
         {(['available','installed'] as const).map(key => <button key={key} role="tab" id={`${panelId}-${key}`} aria-controls={panelId} aria-selected={tab===key} tabIndex={tab===key?0:-1} onClick={()=>setTab(key)} onKeyDown={e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?'available':e.key==='End'?'installed':key==='available'?'installed':'available';setTab(next);e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role=tab]')[next==='available'?0:1]?.focus()}}}>{t(key==='available'?'Available':'Installed')} ({key==='available'?available.length:installed.length})</button>)}
