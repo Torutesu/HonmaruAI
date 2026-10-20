@@ -40,3 +40,29 @@ export function csvRows(source:string):{rows:string[][];truncated:boolean}{
  if(field||row.length||!atStart)line()
  return {rows,truncated:false}
 }
+// Keep match offsets in the original string: lowercasing can change its length.
+export function documentMatches(text:string,query:string,limit=1000,flexibleWhitespace=false){
+ const ranges:Array<{start:number;end:number}>=[]
+ if(!query||limit<1)return ranges
+ let pattern=query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')
+ if(flexibleWhitespace)pattern=pattern.replace(/\s+/g,'\\s+')
+ const expression=new RegExp(pattern,'giu')
+ for(const match of text.matchAll(expression)){
+  ranges.push({start:match.index!,end:match.index!+match[0].length})
+  if(ranges.length>=limit)break
+ }
+ return ranges
+}
+
+export function pdfTextRuns(items:readonly unknown[]){
+ let text=''
+ const runs:Array<{text:string;start:number;end:number}>=[]
+ for(const item of items){
+  if(!item||typeof item!=='object'||!('str'in item)||typeof item.str!=='string')continue
+  const start=text.length
+  text+=item.str
+  runs.push({text:item.str,start,end:text.length})
+  text+='hasEOL'in item&&item.hasEOL?'\n':' '
+ }
+ return {text,runs}
+}

@@ -1,10 +1,10 @@
 import React,{useEffect,useRef,useState} from 'react'
-import type {PDFDocumentProxy,RenderTask} from 'pdfjs-dist'
+import type {PDFDocumentProxy,RenderTask,TextLayer} from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type {FileRef} from '../types/card'
 import {Dialog} from './Dialog'
 import {Icon} from './Icon'
-import {documentBytes,documentKind,csvRows} from '../utils/documentPreview'
+import {documentBytes,documentKind,csvRows,documentMatches,pdfTextRuns} from '../utils/documentPreview'
 import {downloadUrl} from '../utils/media'
 import './DocumentPreview.css'
 
@@ -38,11 +38,12 @@ export default function DocumentPreview({file,href,onClose}:{file:FileRef;href:s
  </Dialog>
 }
 
-function Highlight({text,query,firstOnly=false}:{text:string;query:string;firstOnly?:boolean}){
+function Highlight({text,query,firstOnly=false,flexibleWhitespace=false}:{text:string;query:string;firstOnly?:boolean;flexibleWhitespace?:boolean}){
  if(!query)return <>{text}</>
- const out:React.ReactNode[]=[];const lower=text.toLocaleLowerCase(),needle=query.toLocaleLowerCase()
- let from=0,at=lower.indexOf(needle)
- while(at>=0&&out.length<(firstOnly?2:2000)){out.push(text.slice(from,at),<mark key={at}>{text.slice(at,at+query.length)}</mark>);from=at+query.length;at=lower.indexOf(needle,from)}
+ const out:React.ReactNode[]=[];let from=0
+ for(const {start,end} of documentMatches(text,query,firstOnly?1:1000,flexibleWhitespace)){
+  out.push(text.slice(from,start),<mark key={start}>{text.slice(start,end)}</mark>);from=end
+ }
  out.push(text.slice(from));return <>{out}</>
 }
 function TextDocument({bytes,csv}:{bytes:Uint8Array;csv:boolean}){
@@ -96,16 +97,16 @@ function PdfDocument({bytes}:{bytes:Uint8Array}){
  },[bytes])
  const search=async(event:React.FormEvent)=>{
   event.preventDefault();if(!pdf)return
-  const ticket=++searchSequence.current,needle=query.trim().toLocaleLowerCase()
+  const ticket=++searchSequence.current,needle=query.trim()
   setHits([]);setSearched(false);setPartial(false);if(!needle){setSearching(false);return}setSearching(true)
   const found:number[]=[];let count=0,limited=pdf.numPages>1000
   try{
    for(let i=1;i<=Math.min(pdf.numPages,1000);i++){
     if(ticket!==searchSequence.current)return
     let text=texts.current.get(i)
-    if(text===undefined){const item=await pdf.getPage(i),content=await item.getTextContent();text=content.items.map(value=>'str'in value?value.str:'').join(' ');texts.current.set(i,text)}
+    if(text===undefined){const item=await pdf.getPage(i),content=await item.getTextContent();text=pdfTextRuns(content.items).text;texts.current.set(i,text)}
     count+=text.length;if(count>10_000_000){limited=true;break}
-    if(text.toLocaleLowerCase().includes(needle))found.push(i)
+    if(documentMatches(text,needle,1,true).length)found.push(i)
    }
    if(ticket===searchSequence.current){setHits(found);setPartial(limited);setSearched(true);if(found.length)setPage(found[0])}
   }catch{if(ticket===searchSequence.current){setPartial(true);setHits(found);setSearched(true)}}
@@ -126,23 +127,54 @@ function PdfDocument({bytes}:{bytes:Uint8Array}){
  </>
 }
 function PdfPage({pdf,page,zoom,query}:{pdf:PDFDocumentProxy;page:number;zoom:number;query:string}){
- const canvas=useRef<HTMLCanvasElement>(null),[text,setText]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(true)
+ const canvas=useRef<HTMLCanvasElement>(null),overlay=useRef<HTMLDivElement>(null),surface=useRef<HTMLDivElement>(null)
+ const [layerData,setLayerData]=useState<({layer:TextLayer}&ReturnType<typeof pdfTextRuns>)|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(true)
  useEffect(()=>{
-  let live=true,task:RenderTask|undefined
+  if(!layerData)return
+  const matches=documentMatches(layerData.text,query,1000,true)
+  let next=0
+  layerData.layer.textDivs.forEach((span,i)=>{
+   const run=layerData.runs[i];if(!run)return
+   span.replaceChildren()
+   while(next<matches.length&&matches[next].end<=run.start)next++
+   let from=0
+   for(let j=next;j<matches.length&&matches[j].start<run.end;j++){
+    const start=Math.max(0,matches[j].start-run.start),end=Math.min(run.text.length,matches[j].end-run.start)
+    if(start>=end)continue
+    span.append(document.createTextNode(run.text.slice(from,start)))
+    const mark=document.createElement('mark');mark.textContent=run.text.slice(start,end);span.append(mark);from=end
+   }
+   span.append(document.createTextNode(run.text.slice(from)))
+  })
+ },[query,layerData])
+ useEffect(()=>{
+  let live=true,task:RenderTask|undefined,layer:TextLayer|undefined
   void pdf.getPage(page).then(async item=>{
-   if(!live||!canvas.current)return
+   if(!live||!canvas.current||!overlay.current||!surface.current)return
    const natural=item.getViewport({scale:1}),scale=700*zoom/natural.width
    const viewport=item.getViewport({scale}),ratio=Math.min(devicePixelRatio||1,2,Math.sqrt(8_000_000/(viewport.width*viewport.height)))
    const node=canvas.current;node.width=Math.max(1,Math.floor(viewport.width*ratio));node.height=Math.max(1,Math.floor(viewport.height*ratio))
    node.style.width=`${viewport.width}px`;node.style.height=`${viewport.height}px`
+   surface.current.style.width=`${viewport.width}px`;surface.current.style.height=`${viewport.height}px`
+   overlay.current.style.setProperty('--total-scale-factor',String(viewport.scale*viewport.userUnit))
+   const container=overlay.current
    task=item.render({canvas:node,viewport,transform:[ratio,0,0,ratio,0,0]})
-   await Promise.all([task.promise,item.getTextContent().then(content=>{if(live)setText(content.items.map(value=>'str'in value?value.str+('hasEOL'in value&&value.hasEOL?'\n':' '):'').join(''))})])
+   await Promise.all([task.promise,(async()=>{
+    const [content,lib]=await Promise.all([item.getTextContent(),import('pdfjs-dist')])
+    if(!live)return
+    layer=new lib.TextLayer({textContentSource:content,container,viewport})
+    await layer.render()
+    if(live)setLayerData({layer,...pdfTextRuns(content.items)})
+   })()])
   }).catch(reason=>{if(live&&reason?.name!=='RenderingCancelledException')setError('このページを描画できませんでした。')})
    .finally(()=>{if(live)setBusy(false)})
-  return()=>{live=false;task?.cancel()}
+  return()=>{live=false;task?.cancel();layer?.cancel()}
  },[pdf,page,zoom])
  return <div className="document-content">{busy&&<p role="status">ページを描画しています…</p>}{error&&<p role="alert">{error}</p>}
-  <canvas ref={canvas} aria-label={`${page}ページのプレビュー`} role="img"/>
-  <details className="document-extracted" open={!!query}><summary>ページのテキスト</summary><pre><Highlight text={text} query={query}/></pre></details>
+  <div className="document-pdf-page" ref={surface}>
+   <canvas ref={canvas} aria-label={`${page}ページのプレビュー`} role="img"/>
+   <div className="document-pdf-text" ref={overlay} aria-label={`${page}ページのテキスト`}/>
+  </div>
+  <details className="document-extracted"><summary>ページのテキスト</summary><pre><Highlight text={layerData?.text||''} query={query} flexibleWhitespace/></pre></details>
  </div>
 }

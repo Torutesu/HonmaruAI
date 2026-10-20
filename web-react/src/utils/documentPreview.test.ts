@@ -1,6 +1,18 @@
 import{afterEach,expect,test,vi}from'vitest'
-import{csvRows,documentBytes,documentKind}from'./documentPreview'
+import{csvRows,documentBytes,documentKind,documentMatches,pdfTextRuns}from'./documentPreview'
 afterEach(()=>vi.unstubAllGlobals())
+test('search keeps original Unicode offsets and treats punctuation literally',()=>{
+ expect(documentMatches('İ invoice 84','invoice')).toEqual([{start:2,end:9}])
+ expect(documentMatches('a.b aXb','a.b')).toEqual([{start:0,end:3}])
+ expect(documentMatches('Σ σ ς','σ')).toHaveLength(3)
+ expect(documentMatches('one one','one',1)).toEqual([{start:0,end:3}])
+})
+test('PDF search spans text runs and line breaks with original offsets',()=>{
+ const page=pdfTextRuns([{str:'Invoice',hasEOL:true},{type:'beginMarkedContent'},{str:'84',hasEOL:false}])
+ expect(page.text).toBe('Invoice\n84 ')
+ expect(page.runs).toEqual([{text:'Invoice',start:0,end:7},{text:'84',start:8,end:10}])
+ expect(documentMatches(page.text,'invoice 84',1000,true)).toEqual([{start:0,end:10}])
+})
 test('CSV keeps quoted commas, line breaks, escaped quotes and empty trailing fields',()=>{
  expect(csvRows('name,note,empty\r\n"A, B","first\nsecond ""quoted""",\r\n')).toEqual({rows:[['name','note','empty'],['A, B','first\nsecond "quoted"','']],truncated:false})
  expect(csvRows('""').rows).toEqual([['']]);expect(csvRows('')).toEqual({rows:[],truncated:false})
