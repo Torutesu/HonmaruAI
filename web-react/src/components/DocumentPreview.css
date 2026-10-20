@@ -20,7 +20,7 @@
 .document-pdf-text ::selection{color:transparent;background:#5588ff66}
 .document-text,.document-extracted pre{white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4;font:13px/1.6 ui-monospace,monospace;margin:0}
 .document-preview mark{color:#222;background:#ffe07a}
-.document-csv{border-collapse:collapse;font-size:13px;background:var(--signal-white,#fff)}
+.document-csv{color:inherit;border-collapse:collapse;font-size:13px;background:var(--signal-white,#fff)}
 .document-csv td,.document-csv th{border:1px solid var(--bone,#ddd);padding:8px 12px;min-width:80px;max-width:480px;white-space:pre-wrap;overflow-wrap:anywhere;vertical-align:top}
 .document-csv th{position:sticky;left:0;min-width:35px;background:var(--mist,#f4f4f4);font-weight:400}
 .document-hits{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:8px 18px;max-height:100px;overflow:auto}
