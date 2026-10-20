@@ -1,4 +1,5 @@
 import { deliverOnce, retryable, retryDelay, MAX_ATTEMPTS } from './notificationJobs.js';
+import { threadMuted } from "./threadNotifications.js";
 // A message that needs somebody, pushed to their phone — but only when they
 // are not already looking.
 //
@@ -138,6 +139,11 @@ export async function recipientsOf(db, orgId, row, members, { askedBy = null } =
     const reason = out.get(p.login);
     if (p.level === "mute" || (p.level === "mentions" && reason === "thread")) out.delete(p.login);
   }
+  if (row.parent_id && out.size) {
+    const { results: muted } = await db.prepare("SELECT login FROM channel_thread_mutes WHERE org_id=?1 AND message_id=?2")
+      .bind(orgId, row.parent_id).all();
+    for (const pref of muted || []) out.delete(pref.login);
+  }
   return [...out.entries()].map(([login, reason]) => ({ login, reason }));
 }
 
@@ -204,6 +210,7 @@ async function deliverMessagePush(env, job, { now = Date.now(), membersOf = new 
     "SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2"
   ).bind(job.org_id, job.message_id).first();
   if (!msg || msg.deleted_at) return { skipped: true };
+  if (await threadMuted(db, job.org_id, job.login, msg.parent_id)) return { skipped: true };
   // Access and preferences may have changed during the delay or quiet hours.
   // Recheck before translating or sending any of the message's contents.
   const audience = await audienceOf(db, job.org_id, msg.channel);

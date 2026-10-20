@@ -394,3 +394,22 @@ test("unsending a root removes every user's home pin atomically", async () => {
   expect((await call("/channels/messages",toru,{method:"DELETE",body:{orgId:ORG,channel:"b:cafe",messageId:root.id}})).status).toBe(200);
   expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_thread_pins WHERE message_id=?").bind(root.id).first()).n).toBe(0);
 });
+
+const muteThread = (token, messageId, muted, extra = {}) => call('/channels/thread/notifications', token, { method: 'PUT', body: { orgId: ORG, channel: 'b:cafe', messageId, muted, ...extra } });
+test('thread mute is personal, persists for another session, and does not mute the room', async () => {
+  const root = await say(toru, 'Root'), reply = await say(mika, 'Reply', root.id);
+  expect((await muteThread(toru, root.id, true)).status).toBe(200);
+  const url = `/channels/thread/notifications?${new URLSearchParams({orgId:ORG,channel:'b:cafe',messageId:root.id})}`;
+  const { createSession } = await import('../src/db.js');
+  const otherSession = await createSession(env.DB, '6601', 'other-session');
+  expect(await (await call(url, otherSession)).json()).toEqual({muted:true});
+  expect(await (await call(url, mika)).json()).toEqual({muted:false});
+  expect(await env.DB.prepare('SELECT 1 FROM channel_prefs WHERE org_id=?1').bind(ORG).first()).toBeNull();
+  expect((await muteThread(toru, reply.id, true)).status).toBe(404);
+  expect((await muteThread(toru, root.id, 'true')).status).toBe(400);
+  expect((await muteThread(toru, root.id, true, {orgId:'personal:elsewhere'})).status).not.toBe(200);
+  expect(await (await muteThread(toru, root.id, false)).json()).toEqual({muted:false});
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='cafe'").bind(ORG).run();
+  expect((await call(url, mika)).status).not.toBe(200);
+  expect((await muteThread(mika, root.id, true)).status).not.toBe(200);
+});

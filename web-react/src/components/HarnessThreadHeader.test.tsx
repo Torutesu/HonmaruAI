@@ -3,6 +3,7 @@ import {act,create} from 'react-test-renderer'
 import {afterEach,expect,test,vi} from 'vitest'
 import {HarnessThreadHeader} from './HarnessThreadHeader'
 import {RowMenu} from './RowMenu'
+vi.mock('../utils/useThreadNotifications',()=>({useThreadNotifications:()=>({muted:false,busy:false,error:'',toggle:()=>{}})}))
 vi.mock('./RowMenu',()=>({RowMenu:()=>null}))
 vi.mock('./Dialog',()=>({Dialog:({children,footer}:any)=><section>{children}{footer}</section>}))
 const api={httpBase:'https://api.example',orgId:'team:test',sessionToken:'token'}
