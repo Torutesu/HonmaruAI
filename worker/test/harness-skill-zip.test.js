@@ -25,6 +25,37 @@ test.each([0,8])('imports method %s ZIP with a folder wrapper and binary assets'
 test('rejects traversal even when it looks like a common enclosing folder',()=>{
  expect(parseSkillZip(zip([{path:'../SKILL.md',body:markdown}])).error).toBeTruthy();
 });
+test('imports macOS folder ZIPs without exposing Finder metadata as skill assets',()=>{
+ const result=parseSkillZip(zip([
+  {path:'reports/',body:'',mode:0x4000},
+  {path:'reports/SKILL.md',body:markdown},
+  {path:'__MACOSX/reports/._SKILL.md',body:'resource fork'},
+  {path:'reports/.DS_Store',body:'Finder layout'},
+  {path:'reports/templates/.DS_Store',body:'Finder layout'},
+  {path:'__MACOSX/reports/._templates',body:'directory metadata'},
+  {path:'reports/.config',body:'Keep this hidden asset'},
+  {path:'reports/templates/report.md',body:'Template'},
+ ]));
+ expect(result.draft?.name).toBe('report');
+ expect(result.files?.map(f=>f.path)).toEqual(['.config','templates/report.md']);
+});
+test('Finder sidecars do not reduce the supported 64-file package limit',()=>{
+ const files=[{path:'reports/SKILL.md',body:markdown},
+  ...Array.from({length:63},(_,i)=>({path:`reports/assets/${i}.txt`,body:'asset'}))];
+ const sidecars=files.map(file=>({path:`__MACOSX/${file.path.replace(/([^/]+)$/,'._$1')}`,body:'metadata'}));
+ const result=parseSkillZip(zip([...files,...sidecars,{path:'reports/',body:'',mode:0x4000},{path:'reports/assets/',body:'',mode:0x4000}]));
+ expect(result.files).toHaveLength(63);
+});
+test('metadata exclusion never bypasses unsafe path, link or expansion checks',()=>{
+ const root={path:'reports/SKILL.md',body:markdown};
+ for(const sidecar of [
+  {path:'__MACOSX/../._SKILL.md',body:'bad path'},
+  {path:'__MACOSX/reports/._SKILL.md',body:'target',mode:0xa000},
+  {path:'__MACOSX/reports/._SKILL.md',body:'x'.repeat(2000000),declared:1},
+ ]) expect(parseSkillZip(zip([root,sidecar])).error).toBeTruthy();
+ expect(parseSkillZip(zip([root,{path:'__MACOSX/notes.txt',body:'not metadata'}])).error).toBeTruthy();
+ expect(parseSkillZip(zip([{path:'__MACOSX/reports/._SKILL.md',body:markdown}])).error).toBeTruthy();
+});
 test('rejects links, lying expansion sizes, corruption and truncated directories',()=>{
  const root={path:'SKILL.md',body:markdown};
  expect(parseSkillZip(zip([root,{path:'link',body:'target',mode:0xa000}])).error).toBeTruthy();

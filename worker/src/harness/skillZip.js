@@ -22,7 +22,9 @@ export function parseSkillZip(input) {
     }
     if(end<0 || u16(end+4)!==0 || u16(end+6)!==0 || u16(end+8)!==u16(end+10)) invalid();
     const count=u16(end+10), centralSize=u32(end+12), centralStart=u32(end+16);
-    if(!count || count>MAX_SKILL_PACKAGE_FILES*2 || centralStart+centralSize!==end) invalid();
+    // macOS adds resource-fork sidecars and directory records. These still
+    // count toward archive/expansion bounds, but not the 64 actual skill files.
+    if(!count || count>MAX_SKILL_PACKAGE_FILES*4 || centralStart+centralSize!==end) invalid();
     const decoder=new TextDecoder('utf-8',{fatal:true});
     const entries=[], ranges=[];let at=centralStart,total=0;
     for(let index=0;index<count;index++) {
@@ -45,7 +47,12 @@ export function parseSkillZip(input) {
       const compressed=input.subarray(dataStart,dataEnd);
       const bytes=method===0?compressed:new Uint8Array(inflateRawSync(compressed,{maxOutputLength:Math.max(1,Math.min(size,MAX_SKILL_ASSET_BYTES))}));
       if(bytes.length!==size || skillFileCrc(bytes)!==crc)invalid();
-      if(!directory)entries.push({path:name,bytes});
+      // Validate and decompress even Finder metadata before excluding it:
+      // an ignored sidecar must not bypass path, link, CRC or size checks.
+      // Keep ordinary hidden files and unknown __MACOSX contents.
+      const finderMetadata = name.split('/').at(-1)==='.DS_Store'
+        || /^__MACOSX\/(?:[^/]+\/)*\._[^/]+$/.test(name);
+      if(!directory&&!finderMetadata)entries.push({path:name,bytes});
       at+=46+nameSize+extraSize+commentSize;
     }
     if(at!==end)invalid();
