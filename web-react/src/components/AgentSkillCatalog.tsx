@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from 'react'
 import type { Skill } from '../utils/harness'
 import { useT } from '../utils/i18n'
 import { Icon } from './Icon'
+import { SkillActionsMenu } from './SkillActionsMenu'
 import './AgentSkillCatalog.css'
 
 type SkillDraft = Pick<Skill, 'name' | 'description' | 'body' | 'metadata'>
@@ -48,7 +49,7 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
   const row = (s: Skill, catalog = false) => <div className="hx-skill-entry" key={s.id}>
     <span className="hx-skill-symbol"><Icon name="book" size={19}/></span>
     <div className="hx-skill-entry-copy"><div><strong>{s.name}</strong>{s.createdBy && <span className="hx-skill-author">{t('Created by')}: {s.createdBy}</span>}</div><p>{s.description || s.body.slice(0, 140)}</p></div>
-    {canEdit && (catalog ? <button className="hx-skill-action" disabled={busy !== null} onClick={() => void toggle(s.id, !has.has(s.id))}>{busy === s.id ? t('Saving…') : t(has.has(s.id) ? 'Remove from agent' : 'Install')}</button> : <details className="hx-skill-menu"><summary aria-label={t('Actions for {name}', {name:s.name})}><Icon name="more" size={18}/></summary><button disabled={busy !== null} onClick={e => { e.currentTarget.closest('details')?.removeAttribute('open'); void toggle(s.id, false) }}><Icon name="x" size={14}/>{t('Remove from agent')}</button></details>)}
+    {canEdit && (catalog ? <button className="hx-skill-action" disabled={busy !== null} onClick={() => void toggle(s.id, !has.has(s.id))}>{busy === s.id ? t('Saving…') : t(has.has(s.id) ? 'Remove from agent' : 'Install')}</button> : <SkillActionsMenu name={s.name} disabled={busy !== null} onRemove={() => void toggle(s.id, false)}/>)}
   </div>
   return <section className="hx-agent-skills">
     <header><p>{t('Add skills to extend this agent’s capabilities.')}</p><button className="hx-skill-add" ref={trigger} disabled={!canEdit || busy !== null} onClick={() => {setQuery('');setTab('available');setError('');setDraft(null);setOpen(true)}}><Icon name="plus" size={16}/>{t('Add skills')}</button></header>
