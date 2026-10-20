@@ -118,6 +118,8 @@ export async function listAgents(db, orgId, login) {
       ORDER BY scope = 'personal', name COLLATE NOCASE`
   ).bind(orgId, String(login || "")).all().catch(() => ({ results: [] }));
   const visible = await filterResponders(db, orgId, login, (results || []).map(toAgent));
+  const profiles = await profilesFor(db, orgId, visible.map(agent => agent.id));
+  for (const agent of visible) agent.managedProfile = profiles.has(agent.id);
   return upgradePresets(db, orgId, visible);
 }
 
@@ -204,7 +206,7 @@ export function toClientAgent(agent, members, viewerLogin, { isAdmin = false } =
     createdBy: refOf(agent.ownerLogin), createdByName: nameOf(agent.ownerLogin), createdAt: agent.createdAt, mine,
     updatedByName: nameOf(agent.updatedBy), updatedAt: agent.updatedAt,
     // A teammate is set up in Studio, not on the Agents screen.
-    canEdit: !agent.provider && (agent.scope === "team" || mine),
+    canEdit: !agent.provider && (mine || (agent.scope === "team" && (!agent.managedProfile || isAdmin))),
     canDelete: !agent.provider && (mine || (agent.scope === "team" && isAdmin)),
     markdown: agentMarkdown(agent),
   };
@@ -227,8 +229,16 @@ export async function handleTaken(db, orgId, handle, { members, scope, ownerLogi
   return clash ? `@${handle} is already an agent here.` : null;
 }
 
+// A saved Harness profile owns the editing policy even in Simple mode.
+// Legacy unprofiled team agents retain their shared-document behavior.
+async function mayEditManagedAgent(db, orgId, agent, login, isAdmin) {
+  if (agent.ownerLogin === login || isAdmin) return true;
+  return !(await db.prepare("SELECT agent_id FROM hx_agent_profiles WHERE org_id = ?1 AND agent_id = ?2")
+    .bind(orgId, agent.id).first());
+}
+
 /// Make an agent, or change one. `input` comes from a form or a .md file.
-export async function saveAgent(db, orgId, { id = null, input, login, members, isGuest = false }) {
+export async function saveAgent(db, orgId, { id = null, input, login, members, isGuest = false, isAdmin = false }) {
   if (isGuest) return { error: "A guest cannot make or change agents.", status: 403 };
   let existing = null;
   if (id) {
@@ -238,6 +248,7 @@ export async function saveAgent(db, orgId, { id = null, input, login, members, i
     if (!(await mayAccessAgent(db, orgId, existing, login))) return { error: "No such agent.", status: 404 };
     if (existing.scope === "personal" && existing.ownerLogin !== login) return { error: "No such agent.", status: 404 };
     if (existing.provider) return { error: "This teammate is set up in Studio → AI teammates.", status: 400 };
+    if (!(await mayEditManagedAgent(db, orgId, existing, login, isAdmin))) return { error: "Only the agent's maker or an admin can change it.", status: 403 };
   }
   // A .md file fills what the form did not.
   const fromFile = typeof input?.markdown === "string" ? parseAgentMarkdown(input.markdown) : {};
@@ -308,11 +319,12 @@ export async function saveAgent(db, orgId, { id = null, input, login, members, i
 /// An agent's picture, in place of its emoji: whoever may change the agent
 /// may change it. `avatarUrl` null takes it off. Returns the agent, and the
 /// URL it had before (for its bytes to go).
-export async function setAgentAvatar(db, orgId, { id, login, avatarUrl, isGuest = false, dryRun = false }) {
+export async function setAgentAvatar(db, orgId, { id, login, avatarUrl, isGuest = false, dryRun = false, isAdmin = false }) {
   if (isGuest) return { error: "A guest cannot make or change agents.", status: 403 };
   const row = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, String(id || "")).first();
   if (!row || (row.scope === "personal" && row.owner_login !== login)) return { error: "No such agent.", status: 404 };
   if (!(await mayAccessAgent(db, orgId, toAgent(row), login))) return { error: "No such agent.", status: 404 };
+  if (!(await mayEditManagedAgent(db, orgId, toAgent(row), login, isAdmin))) return { error: "Only the agent's maker or an admin can change it.", status: 403 };
   if (dryRun) return { agent: toAgent(row), previous: row.avatar_url || null };
   await db.prepare("UPDATE custom_agents SET avatar_url = ?3, updated_by = ?4, updated_at = ?5 WHERE org_id = ?1 AND id = ?2")
     .bind(orgId, row.id, avatarUrl || null, login, new Date().toISOString()).run();

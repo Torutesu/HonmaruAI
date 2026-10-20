@@ -846,19 +846,20 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (limited) return limited;
     const guest = await isGuest(env.DB, orgId, who.session.github_id);
     const id = url.searchParams.get("id");
+    const isAdmin = await allowed(env.DB, orgId, who.session.github_id, "agent.manage_others");
     let avatarUrl = null;
     let mediaId = null;
     if (request.method === "POST") {
       const image = await readImage(request);
       if (image.error) return json({ message: image.error }, image.status);
       // Checked before the bytes are kept, so a refusal leaves nothing behind.
-      const check = await setAgentAvatar(env.DB, orgId, { id, login: who.user.login, avatarUrl: undefined, isGuest: guest, dryRun: true });
+      const check = await setAgentAvatar(env.DB, orgId, { id, login: who.user.login, avatarUrl: undefined, isGuest: guest, isAdmin, dryRun: true });
       if (check.error) return json({ message: check.error }, check.status || 400);
       mediaId = `agent-avatar-${crypto.randomUUID()}`;
       await env.MEDIA.put(mediaId, image.bytes, { httpMetadata: { contentType: image.contentType } });
       avatarUrl = `${url.origin}/agents/avatar/${mediaId}`;
     }
-    const out = await setAgentAvatar(env.DB, orgId, { id, login: who.user.login, avatarUrl, isGuest: guest });
+    const out = await setAgentAvatar(env.DB, orgId, { id, login: who.user.login, avatarUrl, isGuest: guest, isAdmin });
     if (out.error) {
       if (mediaId) await env.MEDIA.delete(mediaId).catch(() => {});
       return json({ message: out.error }, out.status || 400);
@@ -869,7 +870,6 @@ export async function handleChannels(request, env, url, { route, after }) {
       await audit(env, request, { orgId, action: "agent.updated", actor: person(who.user), entity: { type: "agent", id: out.agent.id, name: `@${out.agent.handle}` }, details: { picture: avatarUrl ? "set" : "removed" } });
     }
     const members = await listMembers(env.DB, orgId, who.session.github_id);
-    const isAdmin = await allowed(env.DB, orgId, who.session.github_id, "agent.manage_others");
     return json({ agent: toClientAgent(out.agent, members, who.user.login, { isAdmin }) });
   }
 
@@ -901,7 +901,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       return json({ agents: await list() });
     }
     const out = await saveAgent(env.DB, orgId, {
-      id: request.method === "PUT" ? body.id : null, input: body, login, members, isGuest: guest,
+      id: request.method === "PUT" ? body.id : null, input: body, login, members, isGuest: guest, isAdmin,
     });
     if (out.error) return json({ message: out.error }, out.status || 400);
     if (out.agent.scope === "team") {

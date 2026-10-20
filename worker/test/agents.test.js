@@ -688,3 +688,27 @@ test("a queued agent job answers only someone still in the workspace and within 
   const removed = await ask(fresh);
   expect(await replies(removed.row)).toEqual([]);
 });
+
+test("managed agent editing policy also protects persona and avatar in both modes", async () => {
+  const made = await send("POST", "/channels/agents", mika, { orgId: ORG, markdown: HAYAO });
+  const agent = (await made.json()).agent;
+  expect((await send("PUT", `/hx/agents/${agent.id}/profile`, mika, { orgId: ORG, specialty: "Research" })).status).toBe(200);
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+  const avatar = `/channels/agents/avatar?${q({ orgId: ORG, id: agent.id })}`;
+  for (const mode of ["harness", "simple"]) {
+    expect((await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode })).status).toBe(200);
+    const listed = await (await get(`/channels/agents?${q({ orgId: ORG })}`, kenji)).json();
+    expect(listed.agents.find(a => a.id === agent.id).canEdit).toBe(false);
+    expect((await send("PUT", "/channels/agents", kenji, { orgId: ORG, id: agent.id, instructions: "Overwritten" })).status).toBe(403);
+    const before = await env.MEDIA.list();
+    expect((await call(avatar, { method: "POST", headers: { "x-session-token": kenji, "content-type": "image/png" }, body: PNG })).status).toBe(403);
+    expect((await env.MEDIA.list()).objects.map(x => x.key)).toEqual(before.objects.map(x => x.key));
+    expect((await call(avatar, { method: "DELETE", headers: headers(kenji) })).status).toBe(403);
+  }
+  for (const token of [mika, toru]) {
+    const listed = await (await get(`/channels/agents?${q({ orgId: ORG })}`, token)).json();
+    expect(listed.agents.find(a => a.id === agent.id).canEdit).toBe(true);
+    expect((await send("PUT", "/channels/agents", token, { orgId: ORG, id: agent.id, instructions: "Authorized edit" })).status).toBe(200);
+    expect((await call(avatar, { method: "POST", headers: { "x-session-token": token, "content-type": "image/png" }, body: PNG })).status).toBe(200);
+  }
+});

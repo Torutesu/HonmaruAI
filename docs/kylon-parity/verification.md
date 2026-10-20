@@ -739,3 +739,9 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Reopened an isolated native preview using the production appearance/theme/App styles. Screenshot confirms white dialog surface, neutral fields, olive disabled action and 512px layout. Escape closed the dialog; reopening restored it. Subsequent repeated keyboard events did not consistently update focus, so complete native focus-loop acceptance remains unproven. No production data or provider calls were involved. Temporary preview files/processes were removed again.
 - Observed Kylon Japanese profile labels are 専門分野 and インテリジェンス; aligned these translations.
 - ca4dd1af CI shared/core/mobile job now succeeds after the version fix. Web, desktop, relay and gateway jobs also succeeded. Worker and E2E remain running; Deploy Web waits for matching Worker deployment. Run IDs: CI 39471093108, Web 39471093226, Worker 39471093391.
+
+### Managed-agent editing policy consistency (2026-10-21)
+
+- Audit found profile/skills editing restricted to maker/admin while persona and avatar routes still allowed any callable team agent to be changed. Saved Harness profiles now enforce the same maker/admin policy in those routes, independently of Simple/Harness presentation. Legacy unprofiled shared agents retain collaborative editing.
+- Agent listings now expose canEdit consistently with this policy. Avatar permissions are checked before storing bytes and again before updating the agent. Existing private-agent visibility checks remain in force.
+- Agents/Harness-agent regression: 49 tests pass, including persona refusal, avatar upload/delete refusal, no stored rejected upload, both modes, maker/admin success, and legacy shared editing. This closes a bypass; it does not implement independent Agent Admin/Member grants, transfer or last-admin invariants.
