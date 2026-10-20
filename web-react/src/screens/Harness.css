@@ -108,6 +108,19 @@
 .hx-mode-badge { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: #fff; background: var(--brand-violet); border-radius: var(--radius-pill); padding: 3px 9px; }
 .hx-mode-sub { font-size: 13px; color: var(--ash); line-height: 1.45; }
 .hx-mode-action { font-size: 13px; font-weight: 600; color: var(--brand-violet); }
+/* Mode selection also lives in Simple mode, outside the Harness palette. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .hx-modes {
+    --signal-white: #1a1a1a; --ink-black: #f2f2f2; --bone: #343434;
+    --mist: #272727; --ash: #a3a3a3;
+  }
+  :root:not([data-theme="light"]) .hx-mode-action { color: #b6a5ff; }
+}
+:root[data-theme="dark"] .hx-modes {
+  --signal-white: #1a1a1a; --ink-black: #f2f2f2; --bone: #343434;
+  --mist: #272727; --ash: #a3a3a3;
+}
+:root[data-theme="dark"] .hx-mode-action { color: #b6a5ff; }
 
 /* ── Home ────────────────────────────────────────────────────────────── */
 .hx-home .screen-body { max-width: 1080px; }
