@@ -138,7 +138,8 @@ export async function research({ provider, env, instructions, input, tools = {},
         let args = {};
         try { args = JSON.parse(call.arguments || "{}"); } catch { /* the tool says so below */ }
         try {
-          output = tool ? String(await tool.run(args)) : `No tool named ${call.name}.`;
+          const result = tool ? await tool.run(args) : `No tool named ${call.name}.`;
+          output = typeof result === "string" ? result : JSON.stringify(result) ?? String(result);
         } catch (err) {
           output = `The tool failed: ${String(err?.message || err).slice(0, 200)}`;
         }

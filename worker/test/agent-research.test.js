@@ -79,3 +79,34 @@ test("each web search is on the ledger at OpenAI's per-call price, beside the to
   noteSearches(q, "agent", "gpt-4o-mini", 2);
   expect(q.usage[0].usd).toBe(0.05);
 });
+
+test('agent research starts with a skill index and reads the complete procedure only on demand', async () => {
+  const { askAgent } = await import('../src/customAgents.js');
+  const bodies = [];
+  const procedure = 'Private full procedure with final checks';
+  fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(200, opts => {
+    bodies.push(JSON.parse(opts.body));
+    return {id:'skill-round-1',output:[{type:'function_call',call_id:'skill-call',name:'read_installed_skill',arguments:'{"skill_id":"one"}'}]};
+  });
+  fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(200, opts => {
+    bodies.push(JSON.parse(opts.body));
+    return {id:'skill-round-2',output_text:'Completed using the procedure.',output:[]};
+  });
+  const out = await askAgent({provider:provider(),agent:{name:'Helper',handle:'helper',instructions:procedure,researchInstructions:'Catalog: one — Review a release'},request:'Review',transcript:[],tools:{read_installed_skill:{description:'Read skill',parameters:{type:'object',properties:{skill_id:{type:'string'}},required:['skill_id'],additionalProperties:false},run:async()=>({body:procedure})}}});
+  expect(out.answer).toContain('Completed');
+  expect(bodies[0].instructions).toContain('Catalog: one');
+  expect(bodies[0].instructions).not.toContain(procedure);
+  expect(JSON.stringify(bodies[1].input)).toContain(procedure);
+});
+
+test('non-research agent execution retains full instructions instead of an unreadable catalog', async () => {
+  const { askAgent } = await import('../src/customAgents.js');
+  let body;
+  fetchMock.get('https://example.test').intercept({path:'/chat/completions',method:'POST'}).reply(200, opts => {
+    body=JSON.parse(opts.body);
+    return {choices:[{message:{content:'Done'}}]};
+  });
+  await askAgent({provider:{...provider(),providerName:'Other',endpoint:'https://example.test/chat/completions'},agent:{name:'Helper',handle:'helper',instructions:'Full procedure',researchInstructions:'Catalog only'},request:'Review',transcript:[],tools:{}});
+  expect(body.messages[0].content).toContain('Full procedure');
+  expect(body.messages[0].content).not.toContain('Catalog only');
+});

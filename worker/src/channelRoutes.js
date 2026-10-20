@@ -552,7 +552,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         const ready = harness ? await prepareAgent(env, orgId, agent, provider, { channel: resolved.key, userId: session.github_id }) : { agent, provider };
         ready.agent = await withRoomGuidelines(env.DB, orgId, resolved.key, ready.agent);
         const result = await askAgent({
-          provider: ready.provider, agent: ready.agent, request: requestFor(row.body, agent), transcript, playbook, where, research, links, tools, env,
+          provider: ready.provider, agent: ready.agent, request: requestFor(row.body, agent), transcript, playbook, where, research, links, tools: { ...tools, ...ready.skillTools }, env,
           askedBy: user.name || "a teammate", readerLanguage: locale,
           deadline: Date.now() + (env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 25000 : 240000),
           onRound: () => progress(agent, "agent"),

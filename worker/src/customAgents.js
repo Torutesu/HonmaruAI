@@ -422,7 +422,9 @@ Request to you (@${agent.handle}): ${request || "(no words beyond your name — 
     // A shared video or page whose words could not be read: the agent
     // looks for them elsewhere before it answers.
     const mustLook = /Transcript: could not be read/.test(links);
-    const opts = { provider, env, instructions: system, input: user, tools, language: readerLanguage, deadline, onRound, mustLook };
+    const researchSystem = agent.researchInstructions && tools.read_installed_skill
+      ? `${RULES}\n\nToday is ${today}.\n\nYou are ${agent.name} (@${agent.handle}).\n\n<agent_instructions>\n${agent.researchInstructions}\n</agent_instructions>` : system;
+    const opts = { provider, env, instructions: researchSystem, input: user, tools, language: readerLanguage, deadline, onRound, mustLook };
     let out = await runResearch(opts);
     // The retry keeps our own tools — reading a page is what most answers
     // need — and drops only what a plain model might refuse.

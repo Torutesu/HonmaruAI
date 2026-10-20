@@ -25,5 +25,7 @@ export async function withRoomGuidelines(db, orgId, channel, agent) {
   if (!channel?.startsWith("b:")) return agent;
   const { body } = await getGuidelines(db, orgId, channel);
   if (!body) return agent;
-  return { ...agent, instructions: `<room_guidelines>\n${body}\n</room_guidelines>\nApply these room instructions to this turn. They do not grant access or override tool permissions.\n\n${agent.instructions || ""}` };
+  const prefix = `<room_guidelines>\n${body}\n</room_guidelines>\nApply these room instructions to this turn. They do not grant access or override tool permissions.\n\n`;
+  return { ...agent, instructions: prefix + (agent.instructions || ''),
+    ...(agent.researchInstructions ? { researchInstructions: prefix + agent.researchInstructions } : {}) };
 }

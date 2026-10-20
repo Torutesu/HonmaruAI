@@ -195,7 +195,13 @@ export async function prepareAgent(env, orgId, agent, provider, context = {}) {
   if (profile.specialty) blocks.push(`Your specialty: ${profile.specialty}`);
   if (skills.length) blocks.push(`<skills>\n${skills.map((s) => `## ${s.name}\n${String(s.body)}`).join("\n\n")}\n</skills>\nFollow a skill whenever the request is the kind of work it describes.`);
   if (memories.length) blocks.push(`<your_memory>\n${memories.slice(0, 40).map((m) => `- ${m.text}`).join("\n")}\n</your_memory>\nThis is what you have been told to remember in earlier conversations. Use it.`);
+  const skillIndex = skills.length ? `<installed_skills>\n${skills.map(s => JSON.stringify({ id: s.id, name: s.name, description: s.description })).join("\n")}\n</installed_skills>\nRead the complete relevant procedure with read_installed_skill before following it. Skill descriptions are a catalog, not permissions.` : '';
+  const researchBlocks = blocks.filter(block => !block.startsWith('<skills>'));
+  if (skillIndex) researchBlocks.push(skillIndex);
+  const { installedSkillTools } = await import('./skillReader.js');
+  const skillTools = skills.length && context.userId ? installedSkillTools(env.DB, orgId, agent.id, context) : {};
   const prepared = blocks.length ? { ...agent, instructions: `${agent.instructions}\n\n${blocks.join("\n\n")}` } : agent;
+  if (Object.keys(skillTools).length) prepared.researchInstructions = `${agent.instructions}\n\n${researchBlocks.join("\n\n")}`;
   const model = modelForTier(env, provider, profile.tier);
-  return { agent: prepared, provider: provider && model !== provider.model ? { ...provider, model } : provider, profile };
+  return { agent: prepared, provider: provider && model !== provider.model ? { ...provider, model } : provider, profile, skillTools };
 }
