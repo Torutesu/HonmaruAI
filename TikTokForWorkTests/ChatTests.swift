@@ -323,6 +323,17 @@ final class ChannelRecordTests: XCTestCase {
         XCTAssertNil(ChatPhotos.prepared(Data("not a picture".utf8)))
     }
 
+    func testSomeoneWithTheAppOpenIsShownOnline() {
+        // The relay names logins; the member list carries the first 16 hex
+        // digits of each login's SHA-256.
+        let kenji = ChatHash.short("kenji@example.com")
+        XCTAssertEqual(kenji.count, 16)
+        XCTAssertTrue(ChatHash.online(kenji, among: ["anand@example.com", "kenji@example.com"]))
+        XCTAssertFalse(ChatHash.online(kenji, among: ["anand@example.com"]))
+        XCTAssertFalse(ChatHash.online(nil, among: ["kenji@example.com"]))
+        XCTAssertFalse(ChatHash.online("", among: []))
+    }
+
     func testAnAgentWritingShowsItsOwnPicture() throws {
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(#"""
         {"channel":"c:research","step":"writing","agent":{"id":"ag_1","handle":"hayao","name":"Hayao","emoji":null,"avatarUrl":"/channels/agents/ag_1/avatar?v=2"}}

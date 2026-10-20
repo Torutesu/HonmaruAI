@@ -792,6 +792,8 @@ struct ConversationView: View {
                         Text("Away until \(away.formatted(date: .abbreviated, time: .omitted))").font(.caption2).foregroundStyle(.orange)
                     } else if let s = m.status, (s.emoji ?? s.text) != nil {
                         Text(verbatim: "\(s.emoji ?? "") \(s.text ?? "")").font(.caption2).foregroundStyle(Theme.Colors.textSecondary).lineLimit(1)
+                    } else if ChatHash.online(m.loginHash, among: appState.onlineLogins) {
+                        Label("Online", systemImage: "circle.fill").labelStyle(.titleAndIcon).font(.caption2).foregroundStyle(Theme.Colors.approve)
                     }
                 }
             }
