@@ -71,3 +71,26 @@ it('does not start the watchdog for hash navigation or embedded frames', async (
   await vi.advanceTimersByTimeAsync(30000)
   expect(ask).not.toHaveBeenCalled()
 })
+it('records a stalled load and recovery without recording navigation payloads', async () => {
+  vi.useFakeTimers()
+  const contents = new EventEmitter()
+  const record = vi.fn()
+  const retry = vi.fn(async () => {})
+  installLoadRecovery(contents, { record, retry, ask: async () => true, alive: () => true })
+  contents.emit('did-start-loading')
+  contents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false, url: 'https://private/?secret=hidden' })
+  await vi.advanceTimersByTimeAsync(30000)
+  expect(record.mock.calls).toEqual([
+    ['start', undefined], ['navigate', undefined], ['timeout', -7], ['prompt', -7], ['retry', -7],
+  ])
+  expect(retry).toHaveBeenCalledOnce()
+  contents.emit('did-finish-load')
+})
+it('keeps recovery available when diagnostics throws', async () => {
+  const contents = new EventEmitter()
+  const ask = vi.fn(async () => false)
+  installLoadRecovery(contents, { record: () => { throw new Error('disk unavailable') }, retry: vi.fn(), ask, alive: () => true })
+  contents.emit('did-fail-load', {}, -105, 'private', 'https://private/', true)
+  await settle()
+  expect(ask).toHaveBeenCalledExactlyOnceWith(-105)
+})
