@@ -14,6 +14,8 @@
 .shared-thread-message ul,.shared-thread-message ol { margin:0 0 12px; padding-left:24px; }
 .shared-thread-message a { color:var(--carbon); text-decoration:underline; text-underline-offset:3px; }
 .shared-thread-message code { font-family:var(--font-mono); font-size:.9em; background:var(--bone); border-radius:4px; padding:2px 5px; }
+.shared-thread-message pre { max-width:100%; overflow:auto; padding:14px; margin:0 0 12px; background:var(--signal-white); border:1px solid var(--bone); border-radius:8px; line-height:1.6; }
+.shared-thread-message pre code { background:none; border-radius:0; padding:0; white-space:pre; }
 .shared-thread small { color:var(--slate); }
 .shared-thread footer { margin-top:32px; border-top:1px solid var(--bone); padding-top:16px; }
 @media (prefers-color-scheme:dark) {

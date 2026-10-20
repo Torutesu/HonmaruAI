@@ -77,3 +77,23 @@ describe('markdown links', () => {
     )
   })
 })
+
+describe('fenced code', () => {
+  it('keeps HTML and markdown inside fences as literal code', () => {
+    const out = html('Before\n\n```html\n<img src=x>\n**literal**\n  indented\n```\n\nAfter')
+    expect(out).toContain('<pre><code>&lt;img src=x&gt;\n**literal**\n  indented</code></pre>')
+    expect(out).not.toContain('<img')
+    expect(out).not.toContain('<strong>')
+    expect(out).toContain('<p>After</p>')
+  })
+  it('does not close a longer fence with a shorter or different marker', () => {
+    expect(parseBlocks('````js\n```\n~~~\nconst x = 1\n````')).toEqual([
+      { kind: 'code', language: 'js', text: '```\n~~~\nconst x = 1' },
+    ])
+  })
+  it('preserves unfinished generated code and tilde fences', () => {
+    expect(parseBlocks('~~~python\n  print("ready")')).toEqual([
+      { kind: 'code', language: 'python', text: '  print("ready")' },
+    ])
+  })
+})
