@@ -4643,7 +4643,7 @@ export const ClassicList: React.FC<Props> = ({
     const known = Math.max(drawn, thread.parent.replyCount || 0)
     const n = thread.loading || thread.failed ? known : drawn
     const words = n === 1 ? t('1 reply') : t('{n} replies', { n })
-    if (thread.loading && drawn < known) return <span aria-busy="true">{words} · {t('Loading…')}</span>
+    if (thread.loading) return <span aria-busy="true">{known > 0 ? `${words} · ` : ''}{t('Loading…')}</span>
     if (thread.failed) {
       return (
         <span>{words} · {t("Couldn't load the replies.")}{' '}
@@ -4677,7 +4677,7 @@ export const ClassicList: React.FC<Props> = ({
                   </>
                 ))}
                 {i === 0 && (
-                  <div className="slk-thread-count" role="separator">
+                  <div className="slk-thread-count" role={thread.loading || thread.failed ? "status" : "separator"}>
                     {threadCount(thread)}
                   </div>
                 )}
