@@ -9,6 +9,8 @@
 // be a worse failure than the abuse it exists to stop.
 
 export const LIMITS = {
+  "thread-share/create": { max: 10, windowSeconds: 3600 },
+  "thread-share/read": { max: 120, windowSeconds: 300 },
   // The expensive one: every call spends money on someone's model.
   "ai/route": { max: 30, windowSeconds: 300 },
   // A translation is a model call too, but one the client asks for on its

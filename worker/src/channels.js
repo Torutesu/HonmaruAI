@@ -428,6 +428,10 @@ export async function deleteMessage(db, { orgId, id, authorLogin, withThread = f
     db.prepare("UPDATE channel_messages SET body = '', deleted_at = ?3, pinned_at = NULL, pinned_by = NULL WHERE org_id = ?1 AND id = ?2")
       .bind(orgId, mid, now),
     db.prepare("DELETE FROM message_reactions WHERE org_id = ?1 AND message_id = ?2").bind(orgId, mid),
+    // A snapshot may contain this reply. Deleting source content also removes
+    // its public copies, in the same transaction as the tombstone.
+    db.prepare("UPDATE channel_thread_shares SET revoked_at=COALESCE(revoked_at,?3),snapshot='{}' WHERE org_id=?1 AND message_id=?2")
+      .bind(orgId, row.parent_id || id, now),
     ...(mid === id && !row.parent_id ? [
       db.prepare("DELETE FROM channel_thread_details WHERE org_id = ?1 AND message_id = ?2").bind(orgId, mid),
       db.prepare("DELETE FROM channel_thread_pins WHERE org_id = ?1 AND message_id = ?2").bind(orgId, mid),

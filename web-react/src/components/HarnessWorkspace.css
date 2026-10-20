@@ -626,3 +626,18 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-thread-search-bar button { display:grid; place-items:center; padding:2px; border:0; background:transparent; color:inherit; cursor:pointer; }
 .hx-thread-search-bar button:disabled { opacity:.3; cursor:default; }
 ::highlight(thread-search) { background:#f3d68a; color:#30270e; }
+.hx-thread-share.dialog { width:min(680px,100%); }
+.hx-thread-share-preview { max-height:380px; overflow:auto; border:1px solid var(--dlg-line); border-radius:16px; padding:20px; }
+.hx-thread-share-preview article { margin-bottom:20px; }
+.hx-thread-share-preview article:last-child { margin-bottom:0; }
+.hx-thread-share-preview strong { font-size:12px; }
+.hx-thread-share-preview p { white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0; font-size:13px; line-height:1.7; padding:12px; border-radius:12px; background:var(--dlg-field); }
+.hx-thread-share small,.hx-thread-share details p { color:var(--dlg-dim); font-size:12px; }
+.hx-thread-share details { margin-top:16px; font-size:12px; }
+.hx-thread-share summary { cursor:pointer; padding:6px 0; }
+.hx-thread-share-publish { display:flex; gap:12px; align-items:center; margin:20px 0 8px; font-size:12px; }
+.hx-thread-share-publish label { flex:1; line-height:1.6; }
+.hx-thread-share-link,.hx-thread-share-owned { display:flex; gap:8px; align-items:center; margin-top:12px; }
+.hx-thread-share-link input { flex:1; min-width:0; }
+.hx-thread-share-owned span { flex:1; }
+@media(max-width:600px) { .hx-thread-share-publish,.hx-thread-share-link { align-items:stretch; flex-direction:column; } }

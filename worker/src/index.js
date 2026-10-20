@@ -293,6 +293,8 @@ export default {
     if (at.getUTCHours() === 5 && at.getUTCMinutes() < 15) {
       ctx.waitUntil(pruneMessages(env, { now: at.getTime() }).catch((err) => console.error("message retention failed", err?.message || err)));
       ctx.waitUntil(expireExports(env, { now: at.getTime() }).catch((err) => console.error("export expiry failed", err?.message || err)));
+      ctx.waitUntil(import("./threadShares.js").then(({ expireThreadShares }) => expireThreadShares(env.DB, at.getTime()))
+        .catch((err) => console.error("thread share expiry failed", err?.message || err)));
     }
     // Once a day: workspaces whose thirty days are up, deleted.
     if (at.getUTCHours() === 6 && at.getUTCMinutes() < 15) {
