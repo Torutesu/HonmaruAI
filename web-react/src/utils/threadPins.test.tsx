@@ -65,10 +65,10 @@ test('independent clients converge after focus and polling, and a hidden client 
   await act(async()=>listeners.get('focus')!.forEach(fn=>fn()))
   expect(clients.second.pins).toEqual([pin])
   saved=[{...pin,title:'Renamed elsewhere'}]
-  await act(async()=>vi.advanceTimersByTimeAsync(30000))
+  await act(async()=>{await vi.advanceTimersByTimeAsync(30000)})
   expect(clients.second.pins[0].title).toBe('Renamed elsewhere')
   doc.visibilityState='hidden';saved=[];const before=fetch.mock.calls.length
-  await act(async()=>vi.advanceTimersByTimeAsync(30000))
+  await act(async()=>{await vi.advanceTimersByTimeAsync(30000)})
   expect(fetch).toHaveBeenCalledTimes(before)
   doc.visibilityState='visible';await act(async()=>listeners.get('visibilitychange')!.forEach(fn=>fn()))
   expect(clients.first.pins).toEqual([]);expect(clients.second.pins).toEqual([])
