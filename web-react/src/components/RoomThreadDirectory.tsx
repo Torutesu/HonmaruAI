@@ -13,6 +13,7 @@ type Page = {threads:Thread[];nextCursor:Cursor|null}
 type Api = {httpBase:string;orgId:string;sessionToken:string}
 export function RoomThreadDirectory({api,channel,name,selected,activeId,children,onOpen}:{api:Api;channel:string;name:string;selected:boolean;activeId?:string;children:React.ReactNode;onOpen:(id:string)=>void}) {
  const [expanded,setExpanded]=useState(selected),[page,setPage]=useState<Page|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(false)
+ useEffect(()=>{if(selected&&activeId)setExpanded(true)},[selected,activeId])
  const request=useRef(0),controller=useRef<AbortController|null>(null),visibleCount=useRef(0),shown=useRef<Page|null>(null)
  const load=useCallback(async(cursor?:Cursor)=>{
   const intent=++request.current;controller.current?.abort();const abort=new AbortController();controller.current=abort

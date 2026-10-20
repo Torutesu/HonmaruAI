@@ -645,6 +645,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     if (workspaces.some(w => w.id === route.appOrg)) onSwitchOrg(route.appOrg)
     else navigate('#/apps', true)
   }, [route.appId, route.appOrg, orgId, workspaces, onSwitchOrg, navigate])
+  useEffect(() => {
+    if (!route.threadId || !route.threadOrg || route.threadOrg === orgId || !workspaces.length) return
+    if (workspaces.some(w => w.id === route.threadOrg)) onSwitchOrg(route.threadOrg)
+    else navigate('#/list', true)
+  }, [route.threadId, route.threadOrg, orgId, workspaces, onSwitchOrg, navigate])
   // A card in another of your workspaces (a notification from there): go
   // there, and the card opens once it has loaded. One you are not in drops
   // the workspace and looks here, as a plain card link does.
@@ -1047,6 +1052,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           harness={workspaceMode === 'harness'}
           newRequest={harnessNewRequest}
           homeRequest={harnessHomeRequest}
+          linkedThreadId={route.threadId && (!route.threadOrg || route.threadOrg === orgId) ? route.threadId : null}
           sourceAppId={route.appSource && route.appOrg===orgId ? route.appId : null}
           onApps={id => { if (id) sessionStorage.setItem('hx.openApp', id); setScreen('apps') }}
           onWorkflow={id => { if (id) sessionStorage.setItem('hx.openWorkflow', id); setScreen('workflows') }}

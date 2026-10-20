@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseRoute, hashForApp, hashForAppSource, hashForJoin, hashForCard, hashForScreen, hashForView, hashForMessage, pathToHash } from './route'
+import { parseRoute, hashForApp, hashForAppSource, hashForJoin, hashForCard, hashForScreen, hashForView, hashForMessage, hashForThread, pathToHash } from './route'
 
 it('source-app links enter chat in the named workspace, without accepting malformed targets',()=>{
  expect(parseRoute(hashForAppSource('app_one','team:acme'))).toMatchObject({screen:null,mode:'classic',appSource:true,appId:'app_one',appOrg:'team:acme'})
@@ -139,3 +139,9 @@ it('app notification links retain workspace and exact record conversation',()=>{
  expect(parseRoute('#/apps/app_one/team%3Aacme?chat=1&row=row_two').appConversation).toBeUndefined();
  expect(parseRoute('#/apps/app_one/team%3Aacme?chat=1&table=%3Cbad%3E&row=row_two').appConversation).toBeUndefined();
 });
+
+it('thread links open the thread rather than treating its root as a room message',()=>{
+ expect(parseRoute(hashForThread('msg_one','team:acme'))).toMatchObject({screen:null,mode:'classic',threadId:'msg_one',threadOrg:'team:acme'})
+ expect(parseRoute(hashForThread('msg_one','team:acme')).messageId).toBeUndefined()
+ for(const hash of ['#/t/%3Cbad%3E/team%3Aacme','#/t/msg_one/%ZZ','#/t/msg_one/team%3Aacme/extra'])expect(parseRoute(hash).threadId).toBeNull()
+})
