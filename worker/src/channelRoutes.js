@@ -31,7 +31,7 @@ import {
   resolveChannel, listMessages, postMessage, getMessage, linkCard, transcriptUpTo, channelActivity, clientIdOk,
   viewOf, asksTheAI, asksForDecision, withoutAI, MAX_MESSAGE_CHARS,
   present, listThread, listPins, editMessage, deleteMessage, toggleReaction, setPinned, setPreviewsHidden,
-  markRead, markUnreadFrom, markActivitySeen, readThreadsSeenInActivity, readsFor, activityFeed, searchMessages, threadsFor,
+  markRead, markUnreadFrom, markActivitySeen, readThreadsSeenInActivity, readsFor, activityFeed, searchMessages, threadsFor, roomThreads,
 } from "./channels.js";
 import { safe } from "./log.js";
 import { emitMessage, emitCard } from "./webhooks.js";
@@ -942,6 +942,18 @@ export async function handleChannels(request, env, url, { route, after }) {
     const sidebar = await foldSection(env.DB, body.orgId, who.user.login, body.id, body.collapsed === true);
     if (!sidebar) return json({ message: "No such section." }, 404);
     return json({ sidebar });
+  }
+
+  // All root conversations in a room, including unanswered ones.
+  if (path === "/channels/room-threads" && request.method === "GET") {
+    const orgId = url.searchParams.get("orgId"), channel = url.searchParams.get("channel");
+    const access = await inChannel(env, request, { orgId, channel });
+    if (access.denied) return access.denied;
+    const before = url.searchParams.get("before"), beforeId = url.searchParams.get("beforeId");
+    if ((before || beforeId) && (!before || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(before) || !/^[\w-]{1,80}$/.test(beforeId || ''))) return json({ message: "Invalid thread cursor." }, 400);
+    const rawLimit = Number(url.searchParams.get("limit") || 20);
+    const limit = Number.isFinite(rawLimit) ? Math.min(20, Math.max(1, Math.floor(rawLimit))) : 20;
+    return json(await roomThreads(env.DB, orgId, access.resolved.key, access.who.user.login, access.view, access.members, { limit, before, beforeId }));
   }
 
   // Threads: every thread you are in, the newest reply first.

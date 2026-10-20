@@ -552,3 +552,29 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 @media(max-width:1100px){
  :root .shell.harness-workspace .classic.slk.slk.hx-thread-app > .hx-app-pane{z-index:36}
 }
+
+/* Room roots and their conversations share the same hierarchy as the chat UI. */
+.shell.harness-workspace .hx-room-directory{list-style:none;min-width:0}
+.shell.harness-workspace .hx-room-heading{display:flex;align-items:center;min-width:0}
+.shell.harness-workspace .hx-room-heading>ul{flex:1;min-width:0;list-style:none;margin:0;padding:0}
+.shell.harness-workspace .hx-room-fold{display:grid;place-items:center;width:22px;height:28px;padding:0;background:none;border:0;color:var(--slk-faint);border-radius:5px}
+.shell.harness-workspace .hx-room-fold:hover{background:var(--slk-hover)}
+.shell.harness-workspace .hx-room-threads{list-style:none;margin:2px 0 8px;padding:0 0 0 12px}
+.shell.harness-workspace .hx-room-thread{display:flex;align-items:center;gap:8px;width:100%;padding:9px 8px;border:0;border-radius:7px;text-align:left;background:transparent;color:var(--slk-faint);font:inherit;cursor:pointer}
+.shell.harness-workspace .hx-room-thread:hover,.shell.harness-workspace .hx-room-thread[aria-current=page]{background:var(--slk-hover)}
+.shell.harness-workspace .hx-room-thread-text{display:block;flex:1;min-width:0}
+.shell.harness-workspace .hx-room-thread-top{display:flex;align-items:center;gap:6px}
+.shell.harness-workspace .hx-room-thread-top strong{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;color:var(--slk-ink)}
+.shell.harness-workspace .hx-room-thread.unread strong{font-weight:650}
+.shell.harness-workspace .hx-room-thread-top time{font-size:10px;white-space:nowrap}
+.shell.harness-workspace .hx-room-thread-preview{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;margin-top:3px}
+.shell.harness-workspace .hx-room-thread>i{width:5px;height:5px;flex:none;border-radius:50%;background:currentColor}
+.shell.harness-workspace .hx-room-thread-state{padding:8px;font-size:11px;color:var(--slk-faint)}
+.shell.harness-workspace .hx-room-thread-more{border:0;background:none;color:var(--slk-faint);font-size:11px;padding:6px 8px;cursor:pointer}
+
+@media(min-width:901px){
+ :root .shell.harness-workspace .classic.slk.slk.hx-focused-thread > .slk-main{display:none}
+ :root .shell.harness-workspace .classic.slk.slk.hx-focused-thread > .slk-thread-pane{position:static;inset:auto;order:1;flex:1;min-width:0;width:auto!important;max-width:none;border-left:0;animation:none}
+}
+
+.shell.harness-workspace .hx-focused-thread .slk-thread-pane .slk-back.pane{display:flex}

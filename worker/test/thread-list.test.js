@@ -190,3 +190,45 @@ test("named in a thread, its later replies are in Activity, and seeing them ther
   await say(kenji, "nor this", other.id);
   expect((await activity(toru)).some((i) => i.message.body === "nor this")).toBe(false);
 });
+
+const roomDirectory = async (token, params = {}) => call(`/channels/room-threads?${new URLSearchParams({ orgId: ORG, channel: 'b:cafe', ...params })}`, token);
+
+test('room directory includes unanswered and non-participating roots, with exact tie pagination', async () => {
+  const roots = [await say(mika, 'Unanswered'), await say(kenji, 'Another root'), await say(mika, 'Third root')];
+  const at = '2026-01-01T00:00:00.000Z';
+  for (const root of roots) await env.DB.prepare('UPDATE channel_messages SET created_at = ?1 WHERE id = ?2').bind(at, root.id).run();
+  expect(await threads(toru)).toEqual([]);
+  const first = await (await roomDirectory(toru, { limit: '2' })).json();
+  expect(first.threads).toHaveLength(2);
+  expect(first.threads.every(t => t.replyCount === 0 && t.unread && t.replies.length === 0)).toBe(true);
+  const second = await (await roomDirectory(toru, { limit: '2', ...first.nextCursor })).json();
+  expect(second.threads).toHaveLength(1);
+  expect(second.nextCursor).toBeNull();
+  expect([...first.threads, ...second.threads].map(t => t.parent.id).sort()).toEqual(roots.map(r => r.id).sort());
+  expect((await roomDirectory(toru, { before: at })).status).toBe(400);
+});
+
+test('room directory orders by latest reply, reflects reads, and excludes deleted roots', async () => {
+  const old = await say(mika, 'Older root'); await pause();
+  const fresh = await say(kenji, 'Newer root'); await pause();
+  const reply = await say(kenji, 'Latest reply', old.id);
+  let page = await (await roomDirectory(toru)).json();
+  expect(page.threads.map(t => t.parent.id)).toEqual([old.id, fresh.id]);
+  expect(page.threads[0]).toMatchObject({ replyCount: 1, unread: true, replies: [{ id: reply.id }] });
+  await call('/channels/read', toru, { method: 'POST', body: { orgId: ORG, channel: 'b:cafe', thread: old.id } });
+  page = await (await roomDirectory(toru)).json();
+  expect(page.threads[0].unread).toBe(false);
+  await env.DB.prepare('UPDATE channel_messages SET deleted_at = ?1 WHERE id = ?2').bind(new Date().toISOString(), old.id).run();
+  page = await (await roomDirectory(toru)).json();
+  expect(page.threads.map(t => t.parent.id)).toEqual([fresh.id]);
+});
+
+test('room directory requires room membership and never accepts another workspace', async () => {
+  const { upsertBusiness } = await import('../src/db.js');
+  await upsertBusiness(env.DB, ORG, { name: 'Board', createdBy: '6602' });
+  await env.DB.prepare("UPDATE businesses SET private = 1 WHERE org_id = ?1 AND slug = 'board'").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO conversation_members (org_id, channel, login, added_at) VALUES (?1, 'b:board', 'mika', ?2)").bind(ORG, new Date().toISOString()).run().catch(() => {});
+  expect((await roomDirectory(toru, { channel: 'b:board' })).status).toBe(404);
+  expect((await roomDirectory(mika, { channel: 'b:board' })).status).toBe(200);
+  expect((await roomDirectory(toru, { orgId: 'personal:another' })).status).not.toBe(200);
+});
