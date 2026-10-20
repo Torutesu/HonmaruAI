@@ -40,6 +40,27 @@ function isAppShell(html) {
   return /<div id="root"><\/div>/.test(html)
 }
 
+// A connected network can stop answering without rejecting fetch. Bound the
+// document request so an already installed app can still open its saved shell.
+async function navigationResponse(req) {
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  req.signal?.addEventListener('abort', abort, { once: true })
+  if (req.signal?.aborted) controller.abort()
+  let timer
+  try {
+    return await Promise.race([
+      fetch(req, { signal: controller.signal }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => { controller.abort(); reject(new Error('Navigation timed out')) }, 8000)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+    req.signal?.removeEventListener('abort', abort)
+  }
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET') return
@@ -52,7 +73,7 @@ self.addEventListener('fetch', (event) => {
   // network does not answer.
   if (req.mode === 'navigate') {
     event.respondWith(
-      fetch(req).then((res) => {
+      navigationResponse(req).then((res) => {
         // Only a page that actually is the app becomes the shell: a 404 or
         // a 5xx during a bad deploy would otherwise be what every offline
         // open shows until the next good one, and the privacy, support and
@@ -67,7 +88,11 @@ self.addEventListener('fetch', (event) => {
         return res
       }).catch(() => caches.match(req)
         .then((own) => own || caches.match('/'))
-        .then((hit) => hit || caches.match('/index.html')))
+        .then((hit) => hit || caches.match('/index.html'))
+        .then((hit) => hit || new Response(
+          '<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Honmaru AI</title><body><h1>画面を読み込めませんでした</h1><p>The page could not load. 通信状態を確認して、再試行してください。</p><p><a href="">再試行 / Try again</a></p></body></html>',
+          { status: 503, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } },
+        )))
     )
     return
   }
