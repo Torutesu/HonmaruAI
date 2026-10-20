@@ -4,6 +4,7 @@ import { useT } from '../utils/i18n'
 import type { FileRef } from '../types/card'
 import { mediaKind, videoBox, downloadUrl, firstFrameUrl, type MediaKind } from '../utils/media'
 import { Icon, type IconName } from './Icon'
+import {FileConversationButton} from './FileConversationButton'
 import './Attachments.css'
 import { composing } from '../utils/keys'
 import {documentKind} from '../utils/documentPreview'
@@ -267,7 +268,7 @@ const FileCard: React.FC<{ file: FileRef; href: string }> = ({ file, href }) => 
   const [open,setOpen]=useState(false)
   const kind=documentKind(file.type,file.name)
   const content=<><span className="att-file-icon" aria-hidden="true"><Icon name={KIND_ICON[mediaKind(file.type,file.name)]} size={18}/></span><span className="att-file-text"><b>{file.name}</b><small>{(file.type.split('/')[1]||file.type).toUpperCase().slice(0,12)} · {sizeLabel(file.size)}</small></span><Icon name={kind?'external':'download'} size={16}/></>
-  if(!kind)return <a className="att-file" href={href} target="_blank" rel="noopener noreferrer" data-file={file.name}>{content}</a>
+  if(!kind)return <div><a className="att-file" href={href} target="_blank" rel="noopener noreferrer" data-file={file.name}>{content}</a><FileConversationButton fileId={file.id}/></div>
   return <><div className="att-document"><button type="button" className="att-file" data-file={file.name} aria-label={`${file.name}をプレビュー`} onClick={()=>setOpen(true)}>{content}</button><a className="att-document-download" href={downloadUrl(href)} target="_blank" rel="noopener noreferrer" aria-label={`${file.name}をダウンロード`}><Icon name="download" size={16}/></a></div>
     {open&&<DocumentPreviewBoundary onClose={()=>setOpen(false)}><Suspense fallback={<p role="status">プレビューを準備しています…</p>}><DocumentPreview file={file} href={href} onClose={()=>setOpen(false)}/></Suspense></DocumentPreviewBoundary>}
   </>
@@ -352,6 +353,7 @@ const Player: React.FC<{ file: FileRef; kind: 'video' | 'audio'; src: string; on
       <Icon name={KIND_ICON[kind]} size={14} />
       <span className="att-media-name">{file.name}</span>
       <small>{sizeLabel(file.size)}</small>
+      <FileConversationButton fileId={file.id}/>
       <a className="att-media-save" href={downloadUrl(src)} target="_blank" rel="noopener noreferrer" aria-label={t('Download {name}', { name: file.name })} title={t('Download')}>
         <Icon name="download" size={16} />
       </a>
@@ -401,6 +403,7 @@ const Lightbox: React.FC<{ files: FileRef[]; at: number; src: (f: FileRef) => st
       }}>
       <header className="att-light-head" onClick={(e) => e.stopPropagation()}>
         <span>{f.name}{files.length > 1 && <small> · {at + 1} / {files.length}</small>}</span>
+        <FileConversationButton key={f.id} fileId={f.id} onOpen={onClose}/>
         <a href={src(f)} target="_blank" rel="noopener noreferrer" aria-label={t('Download')}><Icon name="download" size={18} /></a>
         <button type="button" onClick={onClose} aria-label={t('Close')}><Icon name="x" size={20} /></button>
       </header>

@@ -1,4 +1,5 @@
 import { threadPins, setThreadPin } from "./threadPins.js";
+import { sentFile, fileConversation } from "./fileConversations.js";
 import { threadNotificationPreference } from "./threadNotifications.js";
 import { threadReferences } from "./threadReferences.js";
 import { searchThread } from "./threadSearch.js";
@@ -1396,6 +1397,26 @@ export async function handleChannels(request, env, url, { route, after }) {
     const thread = await listThread(env.DB, orgId, ctx.resolved.key, url.searchParams.get("messageId") || "", ctx.who.user.login, ctx.view, ctx.members);
     if (!thread) return json({ message: "No such thread." }, 404);
     return json({ ...thread, parent: { ...thread.parent, canRenameThread: !thread.parent.deleted && !(await isGuest(env.DB, orgId, ctx.who.session.github_id)) } });
+  }
+
+  if (path === "/channels/files/conversation" && ["GET", "POST"].includes(request.method)) {
+    const input = request.method === "GET" ? Object.fromEntries(url.searchParams) : await request.json().catch(() => null);
+    if (!input || typeof input !== "object") return json({ message: "Invalid request." }, 400);
+    const who = await caller(env, request, input.orgId);
+    if (who.denied) return who.denied;
+    const file = await sentFile(env.DB, input.orgId, input.fileId);
+    if (!file) return json({ message: "No such file." }, 404);
+    const members = await listMembers(env.DB, input.orgId, who.session.github_id);
+    const view = viewOf(file.channel, who.user.login, members);
+    const resolved = await resolveChannel(env.DB, input.orgId, who.user, view, members);
+    if (!resolved || resolved.key !== file.channel) return json({ message: "No such file." }, 404);
+    if (request.method === "POST") {
+      const limited = await enforce(env, request, "chat");
+      if (limited) return limited;
+    }
+    const result = await fileConversation(env.DB, { orgId: input.orgId, file, login: who.user.login, create: request.method === "POST" });
+    if (result.error) return json({ message: result.error }, result.status);
+    return json({ fileId: file.id, threadId: result.threadId, view });
   }
 
   // A file or a picture, uploaded into a conversation you can read, for the

@@ -18,7 +18,8 @@ import { BookmarksBar } from './BookmarksBar'
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { awaitsPost } from '../utils/automation'
-import { hashForMessage, hashForView, hashForApp } from '../utils/route'
+import { hashForMessage, hashForThread, hashForView, hashForApp } from '../utils/route'
+import type {FileConversationRequest} from '../utils/fileConversation'
 import { RowMenu } from './RowMenu'
 import { SidebarSection } from './SidebarSection'
 import { Dialog } from './Dialog'
@@ -3346,6 +3347,22 @@ export const ClassicList: React.FC<Props> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [awaiting, everything])
   // From search: open the conversation and go to the message.
+  useEffect(()=>{
+    let live=true
+    const open=(event:Event)=>{
+      const request=(event as CustomEvent<FileConversationRequest>).detail
+      if(!request || !/^f_[0-9a-f]{24}$/.test(request.fileId))return
+      void fetch(`${api.httpBase}/channels/files/conversation`,{method:'POST',headers:{...authHeaders,'content-type':'application/json'},body:JSON.stringify({orgId:api.orgId,fileId:request.fileId})})
+        .then(async response=>{
+          const data=await response.json()
+          if(!live)throw new Error('ワークスペースが変更されました。もう一度開いてください。')
+          if(!response.ok||!data.threadId)throw new Error(data.message||'会話を開けませんでした。')
+          request.resolve(hashForThread(data.threadId,api.orgId))
+        }).catch(error=>request.reject(error instanceof Error?error:new Error('会話を開けませんでした。')))
+    }
+    window.addEventListener('honmaru:file-conversation',open)
+    return()=>{live=false;window.removeEventListener('honmaru:file-conversation',open)}
+  },[api.httpBase,api.orgId,authHeaders])
   useEffect(() => {
     const go = (target: { view: string; id: string; parentId?: string | null }) => goWhenListed(target)
     const on = (e: Event) => { try { sessionStorage.removeItem('list.jump') } catch {}; go((e as CustomEvent).detail) }
