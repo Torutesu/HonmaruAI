@@ -1,7 +1,5 @@
 name: Mac signed release
 on:
-  push:
-    tags: ['mac-release/v*']
   workflow_dispatch:
     inputs:
       publish:
@@ -10,7 +8,6 @@ on:
         default: false
 permissions:
   contents: write
-  actions: read
 concurrency:
   group: mac-signed-release
   cancel-in-progress: false
@@ -23,28 +20,6 @@ jobs:
         working-directory: apps/desktop
     steps:
       - uses: actions/checkout@v4
-      # A release tag is an explicit publish request, but only for a version
-      # already on main with a successful CI run for that exact commit.
-      # Run this before accessing signing keys or changing release assets.
-      - name: Verify tagged release version and CI
-        if: github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_REF: ${{ github.ref_name }}
-        run: |
-          version=$(node -p "require('./package.json').version")
-          if [ "$RELEASE_REF" != "mac-release/v$version" ]; then
-            echo "::error::Release tag must match the desktop package version."
-            exit 1
-          fi
-          git fetch --no-tags origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
-          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&branch=main&event=push&per_page=100")
-          if ! printf '%s' "$runs" | jq -e --arg sha "$GITHUB_SHA" \
-            '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "main")] | sort_by(.run_number) | last | .status == "completed" and .conclusion == "success"' >/dev/null; then
-            echo "::error::The latest main CI run for this exact commit must succeed before tagging a Mac release."
-            exit 1
-          fi
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -131,7 +106,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/feed.mjs check "v$VERSION"
       - name: Publish
-        if: ${{ inputs.publish || github.event_name == 'push' }}
+        if: ${{ inputs.publish }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "v$VERSION" --draft=false --latest
