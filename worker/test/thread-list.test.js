@@ -38,6 +38,30 @@ test("references scan the whole thread in pages and enforce app visibility", asy
   expect((await call(url.replace("channel=b:cafe", "channel=general"), toru)).status).toBe(404);
 });
 
+test("references exclude deleted messages, unsent files and files from another room", async () => {
+  const root = await say(toru, "Root with attachments");
+  const reply = await say(toru, "Deleted attachment", root.id);
+  for (const [id, channel, messageId] of [
+    ["ref_root", "b:cafe", root.id],
+    ["ref_deleted", "b:cafe", reply.id],
+    ["ref_other_room", "b:other", root.id],
+    ["ref_unsent", "b:cafe", null],
+  ]) {
+    await env.DB.prepare(`INSERT INTO message_files (id,org_id,channel,message_id,uploader,name,type,size,created_at)
+      VALUES (?1,?2,?3,?4,'toru','notes.txt','text/plain',1,'2026-01-01')`)
+      .bind(id, ORG, channel, messageId).run();
+  }
+  await env.DB.prepare("UPDATE channel_messages SET deleted_at='2026-01-01' WHERE id=?1").bind(reply.id).run();
+  const url = `/channels/thread/references?orgId=${encodeURIComponent(ORG)}&channel=b:cafe&messageId=${root.id}`;
+  const result = await (await call(url, toru)).json();
+  expect(result.files.map(file => file.id)).toEqual(["ref_root"]);
+  expect(result.files[0]).toMatchObject({ name: "notes.txt", messageId: root.id });
+  expect(result.files[0].url).toBeTruthy();
+  expect((await call(url.replace(root.id, reply.id), toru)).status).toBe(404);
+  await env.DB.prepare("UPDATE channel_messages SET deleted_at='2026-01-01' WHERE id=?1").bind(root.id).run();
+  expect((await call(url, toru)).status).toBe(404);
+});
+
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership, upsertBusiness } = await import("../src/db.js");

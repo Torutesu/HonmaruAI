@@ -28,3 +28,10 @@ test('unmount aborts a pending request and prevents continuing pagination',async
  await act(async()=>resolve(page([], '20')))
  expect(fetch).toHaveBeenCalledTimes(1)
 })
+test('file links resolve against the API origin instead of the web app',async()=>{
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({apps:[],files:[{id:'f',name:'Notes.txt',type:'text/plain',size:1,url:'/files/f?token=signed',messageId:'root'}],nextCursor:null})}))
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<ThreadReferences api={api} sessionToken="secret" channel="b:general" threadId="root" onClose={()=>{}} onOpen={()=>{}}/>)})
+ expect(tree.root.findByType('a').props.href).toBe('https://api.example/files/f?token=signed')
+ act(()=>tree.unmount())
+})
