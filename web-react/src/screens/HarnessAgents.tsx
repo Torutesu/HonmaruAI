@@ -156,8 +156,6 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
       <section className="hx-persona"><header><span>{t('Persona')}</span>{canEdit && <button onClick={props.onEdit} aria-label={t('Edit')}><Icon name="edit" size={16} /></button>}</header><p>{agent.description}</p><div className="hx-persona-text"><Markdown source={agent.instructions || t('Edit this agent to set its instructions.')} /></div></section>
       </>}
       {section === 'skills' && <>
-      <div className="rows-title">{t('Skills')}</div>
-      <p className="row-sub">{t('Private skills run only in their owner’s direct agent conversation, including follow-ups. They are excluded from shared rooms and workflows.')}</p>
       <AgentSkillCatalog key={`${props.orgId}:${agent.id}`} skills={allSkills} installed={skills} canEdit={canEdit} onPreviewImport={async markdown => (await api.previewSkillImport(markdown)).draft} onSaveImport={async draft => {
         const version = memoryLoad.current
         const result = await api.createSkill({ ...draft, visibility: 'private' })
@@ -168,6 +166,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
         const result = await api.agentSkills(agent.id)
         if (version === memoryLoad.current) setSkills(result.skills)
       }} />
+      <p className="row-sub">{t('Private skills run only in their owner’s direct agent conversation, including follow-ups. They are excluded from shared rooms and workflows.')}</p>
 
       </>}
       {section === 'memory' && <>
