@@ -3305,9 +3305,31 @@ export const ClassicList: React.FC<Props> = ({
     window.addEventListener('honmaru:channel-message', on)
     return () => { window.removeEventListener('honmaru:channel-message', on); if (timer) clearTimeout(timer) }
   }, [loadActivity, loadThreads])
+  // Where a notification, a link or a search asked to go, kept until its
+  // conversation is in the list. A click that arrives while the list is
+  // still being read (a notification from another screen, a window just
+  // brought forward) used to find no such conversation yet — a direct
+  // message is listed only once the team is read — and was dropped, which
+  // left whatever was open before.
+  const [awaiting, setAwaiting] = useState<{ view: string; id: string; parentId?: string | null; until: number } | null>(null)
+  const goWhenListed = (target: { view: string; id: string; parentId?: string | null }) => setAwaiting({ ...target, until: Date.now() + 15000 })
+  useEffect(() => {
+    if (!awaiting) return
+    if (everything.some((x) => x.view === awaiting.view)) {
+      const { until: _until, ...target } = awaiting
+      setAwaiting(null)
+      openAt(target)
+      return
+    }
+    const left = awaiting.until - Date.now()
+    if (left <= 0) { setAwaiting(null); setToast(t('That message is not somewhere you can read.')); return }
+    const timer = setTimeout(() => setAwaiting((a) => (a ? { ...a } : a)), Math.min(left, 1000))
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [awaiting, everything])
   // From search: open the conversation and go to the message.
   useEffect(() => {
-    const go = (target: { view: string; id: string; parentId?: string | null }) => openAt(target)
+    const go = (target: { view: string; id: string; parentId?: string | null }) => goWhenListed(target)
     const on = (e: Event) => { try { sessionStorage.removeItem('list.jump') } catch {}; go((e as CustomEvent).detail) }
     window.addEventListener('honmaru:open-message', on)
     try {
@@ -3322,14 +3344,14 @@ export const ClassicList: React.FC<Props> = ({
     const go = (id: string) => {
       fetch(`${api.httpBase}/channels/locate?orgId=${encodeURIComponent(api.orgId)}&messageId=${encodeURIComponent(id)}`, { headers: authHeaders })
         .then((r) => (r.ok ? r.json() : null))
-        .then((where) => { if (where?.view) openAt(where); else setToast(t('That message is not somewhere you can read.')) })
+        .then((where) => { if (where?.view) goWhenListed(where); else setToast(t('That message is not somewhere you can read.')) })
         .catch(() => {})
     }
     const on = (e: Event) => { try { sessionStorage.removeItem('list.jumpId') } catch {}; go(String((e as CustomEvent).detail || '')) }
     window.addEventListener('honmaru:open-message-id', on)
     try {
       const saved = sessionStorage.getItem('list.jumpId')
-      if (saved && everything.length) { sessionStorage.removeItem('list.jumpId'); setTimeout(() => go(saved), 300) }
+      if (saved) { sessionStorage.removeItem('list.jumpId'); go(saved) }
     } catch { /* nothing to go to */ }
     return () => window.removeEventListener('honmaru:open-message-id', on)
   // eslint-disable-next-line react-hooks/exhaustive-deps

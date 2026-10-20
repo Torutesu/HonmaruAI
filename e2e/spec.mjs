@@ -2642,6 +2642,50 @@ async function freshSignIn(email, { inviteCode } = {}) {
   return p
 }
 
+// A notification is clicked from another screen: its message opens, and a
+// reply's thread with it. The click lands while the list is still being
+// read, which used to drop the jump and leave whatever was open before.
+await step('a notification clicked from another screen opens its message, and a reply its thread', async () => {
+  await closeEverything()
+  if (!mate) throw new Error('the teammate this step needs is not here')
+  const kenji = await mate.newPage()
+  const desk = await phone.newPage()
+  await desk.setViewportSize({ width: 1280, height: 820 })
+  const asKenji = (method, path, body) => kenji.evaluate(async ({ host, method, path, body }) => {
+    const org = localStorage.getItem('orgId'); const token = localStorage.getItem('sessionToken')
+    const r = await fetch(`${host}${path}${method === 'GET' ? `?orgId=${encodeURIComponent(org)}` : ''}`, { method, headers: { 'x-session-token': token, 'content-type': 'application/json' }, body: method === 'GET' ? undefined : JSON.stringify({ orgId: org, ...body }) })
+    return { org, data: await r.json() }
+  }, { host: API, method, path, body })
+  // A message link switches the list on for good (localStorage, shared with
+  // the phone page the later steps drive): put back how it was.
+  let mode = null
+  try {
+    await kenji.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    mode = await desk.evaluate(() => localStorage.getItem('mode'))
+    await desk.waitForSelector('.slk-side', { timeout: 20000 })
+    const owner = (await asKenji('GET', '/members')).data.members.find((m) => !m.mine)
+    const top = await asKenji('POST', '/channels/messages', { channel: `dm:${owner.ref}`, body: `are you free? ${Date.now()}` })
+    const reply = await asKenji('POST', '/channels/messages', { channel: `dm:${owner.ref}`, body: `after lunch then ${Date.now()}`, parentId: top.data.message.id })
+    // What the notification's click does (utils/notifications.ts), from the feed.
+    const click = async (id) => {
+      await desk.evaluate(() => { location.hash = '#/feed' })
+      await desk.waitForTimeout(800)
+      await desk.evaluate((h) => { location.hash = h }, `#/m/${encodeURIComponent(id)}/${encodeURIComponent(top.org)}`)
+    }
+    await click(top.data.message.id)
+    await desk.waitForSelector(`.slk-main #msg-${top.data.message.id}`, { timeout: 15000 })
+      .catch(() => { throw new Error('a direct message’s notification did not open the message') })
+    await click(reply.data.message.id)
+    await desk.waitForSelector('.slk-thread-pane .slk-msg:has-text("after lunch then")', { timeout: 15000 })
+      .catch(() => { throw new Error('a reply’s notification did not open its thread') })
+    await desk.screenshot({ path: `${SHOTS}/notification-opens.png` })
+  } finally {
+    await desk.evaluate((m) => { if (m === null) localStorage.removeItem('mode'); else localStorage.setItem('mode', m) }, mode).catch(() => {})
+    await kenji.close(); await desk.close()
+  }
+})
+
 await step('signing in on a machine that has never seen you reaches the feed', async () => {
   // No localStorage, and the sign-in reply used to carry no org either, so the
   // client fell back to a hardcoded `web-team` — an org nobody belongs to. The
