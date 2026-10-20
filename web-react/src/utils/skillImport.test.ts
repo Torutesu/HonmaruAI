@@ -13,3 +13,29 @@ test('rejects oversized folders and multiple dropped files before reading bytes'
   await expect(skillImportInput([file, file])).rejects.toThrow('one')
   await expect(skillImportInput(Array(65).fill({ size: 0 }), true)).rejects.toThrow('64 files')
 })
+
+import { skillDropInput } from './skillImport'
+import { vi } from 'vitest'
+function fileEntry(name: string, content: number[]) {
+  return { name, isFile: true, isDirectory: false, file: (done: (file: File) => void) => done({ size: content.length, arrayBuffer: async () => new Uint8Array(content).buffer } as File) }
+}
+function directory(name: string, batches: unknown[][]) {
+  return { name, isFile: false, isDirectory: true, createReader: () => { let at = 0; return { readEntries: (done: (items: unknown[]) => void) => done(batches[at++] || []) } } }
+}
+function transfer(entry: unknown) { return { items: [{ webkitGetAsEntry: () => entry }], files: [] } as unknown as DataTransfer }
+test('a dropped directory reads all directory batches and retains nested paths and binary bytes', async () => {
+  const root = directory('package', [[fileEntry('SKILL.md', [65])], [directory('assets', [[fileEntry('image.bin', [0,255,128])]])]])
+  expect(await skillDropInput(transfer(root))).toEqual({files:[{path:'package/SKILL.md',base64:'QQ=='},{path:'package/assets/image.bin',base64:'AP+A'}]})
+})
+test('oversized directory traversals and stalled permission callbacks are bounded', async () => {
+  const root = directory('package', [Array.from({length:129},(_,i)=>directory(String(i),[]))])
+  await expect(skillDropInput(transfer(root))).rejects.toThrow('large or complex')
+  vi.useFakeTimers()
+  try {
+    const stalled = directory('package',[])
+    stalled.createReader = () => ({readEntries: () => {}})
+    const failed = expect(skillDropInput(transfer(stalled))).rejects.toThrow('Could not read')
+    await vi.advanceTimersByTimeAsync(10000)
+    await failed
+  } finally {vi.useRealTimers()}
+})

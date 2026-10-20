@@ -25,7 +25,7 @@ export type IconName =
   | 'smile' | 'message' | 'reply' | 'paperclip' | 'clock' | 'edit' | 'x' | 'check'
   | 'bell-off' | 'zap' | 'settings' | 'external' | 'list' | 'list-ordered' | 'quote' | 'code' | 'sparkle' | 'refresh' | 'grid' | 'key' | 'link' | 'copy'
   | 'mic-off' | 'video' | 'video-off' | 'monitor' | 'phone-off' | 'maximize' | 'minimize'
-  | 'trash' | 'image' | 'file' | 'lock' | 'users' | 'download' | 'camera' | 'at' | 'star' | 'folder' | 'shield' | 'devices' | 'log-out' | 'crown' | 'eye-off' | 'eye'
+  | 'upload' | 'file-archive' | 'trash' | 'image' | 'file' | 'lock' | 'users' | 'download' | 'camera' | 'at' | 'star' | 'folder' | 'shield' | 'devices' | 'log-out' | 'crown' | 'eye-off' | 'eye'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   'wrap-text': <><path d="M3 6h18M3 12h14a3 3 0 0 1 0 6h-4m3-3-3 3 3 3M3 18h4"/></>,
@@ -439,6 +439,8 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   star: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />,
+  upload: <><path d="M12 16V3m-4 4 4-4 4 4"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></>,
+  'file-archive': <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M10 4h1m-2 3h1m0 3h1m-2 3h1"/><rect x="9" y="16" width="3" height="3" rx="1"/></>,
   folder: <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />,
   shield: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />,
   'eye-off': <><path d="m3 3 18 18M10.6 5.1A12 12 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.1 4M6.2 6.2A19 19 0 0 0 2 12s3.5 7 10 7a13 13 0 0 0 5.8-1.8M10 10a3 3 0 0 0 4 4"/></>,

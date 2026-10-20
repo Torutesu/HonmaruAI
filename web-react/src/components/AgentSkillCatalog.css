@@ -38,3 +38,9 @@
 .hx-skill-menu > button { min-width:160px; border-radius:14px; padding:10px 12px; font:inherit; font-size:12px; }
 .hx-skill-menu summary:focus-visible { outline:2px solid currentColor; outline-offset:3px; border-radius:5px; }
 .hx-skill-import-review ul { margin:10px 0; padding-left:18px; font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.hx-skill-import { display:grid; grid-template-columns:32px 1fr; gap:12px; border-style:solid; padding:16px; }
+.hx-skill-import-symbol { width:32px; height:32px; display:grid; place-items:center; border-radius:50%; background:var(--hx-chip-surface); align-self:center; }
+.hx-skill-import > .hx-skill-import-copy { min-width:0; }
+.hx-skill-import .hx-skill-action { display:inline-flex; align-items:center; justify-self:start; gap:7px; border:0; padding:6px 8px; background:none; }
+.hx-skill-import .hx-skill-action:first-of-type { grid-column:1 / -1; grid-row:2; }
+.hx-skill-import .hx-skill-action:last-of-type { grid-column:1 / -1; grid-row:2; margin-left:106px; }
