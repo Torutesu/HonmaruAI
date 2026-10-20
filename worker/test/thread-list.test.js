@@ -232,3 +232,46 @@ test('room directory requires room membership and never accepts another workspac
   expect((await roomDirectory(mika, { channel: 'b:board' })).status).toBe(200);
   expect((await roomDirectory(toru, { orgId: 'personal:another' })).status).not.toBe(200);
 });
+
+const renameThread = (token, messageId, title, version, extra = {}) => call('/channels/thread/title', token, { method: 'PUT', body: { orgId: ORG, channel: 'b:cafe', messageId, title, version, ...extra } });
+test('thread titles persist separately, appear in the directory, and reject stale versions', async () => {
+  const root = await say(toru, 'Original request stays intact');
+  const response = await renameThread(toru, root.id, '採用面談', 0);
+  expect(response.status).toBe(200);
+  expect((await response.json()).parent).toMatchObject({ id: root.id, body: root.body, threadTitle: '採用面談', threadTitleVersion: 1, canRenameThread: true });
+  const directory = await (await roomDirectory(mika)).json();
+  expect(directory.threads[0].parent.threadTitle).toBe('採用面談');
+  const read = await (await call(`/channels/thread?${new URLSearchParams({ orgId: ORG, channel: 'b:cafe', messageId: root.id })}`, mika)).json();
+  expect(read.parent).toMatchObject({ threadTitle: '採用面談', threadTitleVersion: 1, canRenameThread: true });
+  expect((await renameThread(mika, root.id, 'Newer title', 1)).status).toBe(200);
+  expect((await renameThread(toru, root.id, 'Stale overwrite', 1)).status).toBe(409);
+  expect((await env.DB.prepare('SELECT body FROM channel_messages WHERE id = ?1').bind(root.id).first()).body).toBe(root.body);
+  expect((await env.DB.prepare('SELECT title,version FROM channel_thread_details WHERE message_id = ?1').bind(root.id).first())).toMatchObject({ title: 'Newer title', version: 2 });
+});
+
+test('thread rename rejects replies, deleted roots, guests, wrong rooms and malformed input', async () => {
+  const root = await say(toru, 'Root'), reply = await say(mika, 'Reply', root.id);
+  expect((await renameThread(toru, reply.id, 'Reply title', 0)).status).toBe(404);
+  expect((await renameThread(toru, root.id, '', 0)).status).toBe(400);
+  expect((await renameThread(toru, root.id, 'x'.repeat(161), 0)).status).toBe(400);
+  expect((await renameThread(toru, root.id, 'Line\nbreak', 0)).status).toBe(400);
+  expect((await renameThread(toru, root.id, 'Title', -1)).status).toBe(400);
+  expect((await renameThread(toru, root.id, 'Title', 0, { orgId:'personal:elsewhere' })).status).not.toBe(200);
+  const { upsertBusiness, upsertMembership } = await import('../src/db.js');
+  await upsertBusiness(env.DB, ORG, { name:'Other', createdBy:'6601' });
+  expect((await renameThread(toru, root.id, 'Title', 0, { channel:'b:other' })).status).toBe(404);
+  await upsertMembership(env.DB, ORG, '6603', 'guest');
+  await env.DB.prepare("INSERT OR IGNORE INTO conversation_members (org_id, channel, login, added_at) VALUES (?1, 'b:cafe', 'kenji', ?2)").bind(ORG,new Date().toISOString()).run();
+  expect((await renameThread(kenji, root.id, 'Guest title', 0)).status).toBe(403);
+  await env.DB.prepare('UPDATE channel_messages SET deleted_at = ?1 WHERE id = ?2').bind(new Date().toISOString(),root.id).run();
+  expect((await renameThread(toru, root.id, 'Deleted title', 0)).status).toBe(404);
+});
+
+test('unsending a root removes its saved name with the original message', async () => {
+  const root = await say(toru, 'Disposable local test root');
+  expect((await renameThread(toru, root.id, 'Private thread name', 0)).status).toBe(200);
+  const response = await call('/channels/messages', toru, { method:'DELETE', body:{orgId:ORG,channel:'b:cafe',messageId:root.id} });
+  expect(response.status).toBe(200);
+  expect(await env.DB.prepare('SELECT title FROM channel_thread_details WHERE message_id = ?1').bind(root.id).first()).toBeNull();
+  expect((await renameThread(toru, root.id, 'Restore name', 0)).status).toBe(404);
+});

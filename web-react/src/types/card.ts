@@ -178,6 +178,9 @@ export interface ChannelMessage {
   authorName: string | null
   authorRef: string | null
   /// The author's photo, when they have one.
+  threadTitle?: string | null
+  threadTitleVersion?: number
+  canRenameThread?: boolean
   authorAvatar?: string | null
   /// Its author took the link cards off.
   previewsHidden?: boolean

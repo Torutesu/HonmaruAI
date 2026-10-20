@@ -578,3 +578,6 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 }
 
 .shell.harness-workspace .hx-focused-thread .slk-thread-pane .slk-back.pane{display:flex}
+.shell.harness-workspace .hx-thread-heading h2{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:600}
+.shell.harness-workspace .hx-thread-options{display:grid;place-items:center;flex:none;width:28px;height:28px;padding:0;border:0;border-radius:5px;background:transparent;color:var(--slk-faint)}
+.shell.harness-workspace .hx-thread-options:hover{background:var(--slk-hover);color:var(--slk-ink)}
