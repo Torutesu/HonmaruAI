@@ -16,6 +16,7 @@
          but a home-screen icon costs nothing. -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/startup-v1.css" />
     <link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -44,6 +45,13 @@
   </head>
   <body>
     <div id="root"></div>
+    <section id="app-startup" aria-live="polite" aria-label="Honmaru AI">
+      <img src="/icon.svg" width="40" height="40" alt="" />
+      <h1>Honmaru AI</h1>
+      <p data-startup-message>Opening your workspace…</p>
+      <a href="" data-startup-retry>Reload</a>
+    </section>
+    <script src="/startup-v1.js"></script>
     <noscript>
       <p style="font-family: system-ui, sans-serif; padding: 24px; max-width: 40ch">
         Honmaru AI needs JavaScript to show your feed. Turn it on and reload.
