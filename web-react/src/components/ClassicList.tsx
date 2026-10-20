@@ -4018,10 +4018,10 @@ export const ClassicList: React.FC<Props> = ({
   /// mark sits there. `state`: yours, shown before the server has it — on
   /// its way, or failed. `dated`: where no day line says which day it was
   /// (a thread), an earlier day's time carries its date.
-  const block = (key: string, opts: { joined: boolean; at: string; dated?: boolean; app: string; name: string; face?: Face | null; badge?: string; to?: string; unread?: boolean; tools?: React.ReactNode; msgId?: string; pinned?: boolean; authorRef?: string | null; onHold?: () => void; onMenu?: (at: { x: number; y: number }, anchor: string) => void; mentionsMe?: boolean; quote?: React.ReactNode; state?: 'pending' | 'failed' }, body: React.ReactNode) => (
+  const block = (key: string, opts: { mine?: boolean; joined: boolean; at: string; dated?: boolean; app: string; name: string; face?: Face | null; badge?: string; to?: string; unread?: boolean; tools?: React.ReactNode; msgId?: string; pinned?: boolean; authorRef?: string | null; onHold?: () => void; onMenu?: (at: { x: number; y: number }, anchor: string) => void; mentionsMe?: boolean; quote?: React.ReactNode; state?: 'pending' | 'failed' }, body: React.ReactNode) => (
     <article key={key} id={opts.msgId ? `msg-${opts.msgId}` : undefined} tabIndex={opts.msgId ? -1 : undefined}
       {...(!wide ? longPress(opts.onHold) : messageMenuTriggers(opts.onMenu))}
-      className={`slk-msg${opts.joined ? ' joined' : ''}${opts.unread ? ' unread' : ''}${opts.msgId && toolsOpen === opts.msgId ? ' tools-open' : ''}${opts.msgId && [msgMenu?.anchor, reactAt?.anchor].includes(`msg-${opts.msgId}`) ? ' menu-open' : ''}${opts.msgId && editing?.id === opts.msgId ? ' editing' : ''}${opts.pinned ? ' pinned' : ''}${opts.mentionsMe ? ' mentions-me' : ''}${opts.msgId && flash === opts.msgId ? ' flash' : ''}${opts.state ? ` ${opts.state}` : ''}`}>
+      className={`slk-msg${opts.mine ? ' mine' : ''}${opts.joined ? ' joined' : ''}${opts.unread ? ' unread' : ''}${opts.msgId && toolsOpen === opts.msgId ? ' tools-open' : ''}${opts.msgId && [msgMenu?.anchor, reactAt?.anchor].includes(`msg-${opts.msgId}`) ? ' menu-open' : ''}${opts.msgId && editing?.id === opts.msgId ? ' editing' : ''}${opts.pinned ? ' pinned' : ''}${opts.mentionsMe ? ' mentions-me' : ''}${opts.msgId && flash === opts.msgId ? ' flash' : ''}${opts.state ? ` ${opts.state}` : ''}`}>
       <div className="slk-gutter" aria-hidden={opts.joined || !opts.authorRef ? 'true' : undefined}>
         {opts.joined ? <span className="slk-hover-time" title={fullTime(opts.at, locale)}>{clock(opts.at)}</span>
           : opts.authorRef ? (
@@ -4686,7 +4686,7 @@ export const ClassicList: React.FC<Props> = ({
               <React.Fragment key={keyOf(m)}>
                 {block(keyOf(m), {
                   quote: i > 0 && m.replyTo && !m.deleted ? <ReplyQuoteLine quote={m.replyTo} name={quoteName(m.replyTo)} onJump={() => goToQuotedInThread(thread.parent.id, m.replyTo!.id)} /> : undefined,
-                  joined: false, at: m.createdAt, dated: true, app: m.kind === 'ai' ? 'ai' : '', badge: m.kind === 'ai' ? t('AI') : m.kind === 'agent' ? (m.onBehalfOf?.name ? t("{name}'s agent", { name: m.onBehalfOf.name }) : t('Agent')) : undefined,
+                  mine: m.mine, joined: false, at: m.createdAt, dated: true, app: m.kind === 'ai' ? 'ai' : '', badge: m.kind === 'ai' ? t('AI') : m.kind === 'agent' ? (m.onBehalfOf?.name ? t("{name}'s agent", { name: m.onBehalfOf.name }) : t('Agent')) : undefined,
                   name: whoSaid(m),
                   face: m.kind !== 'ai' ? faceOfMessage(m) : null,
                   authorRef: m.mine ? null : m.authorRef,

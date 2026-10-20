@@ -587,3 +587,22 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-thread-options[aria-pressed="true"] { color: var(--slk-ink); background: var(--slk-hover); }
 
 .hx-thread-pin-error { margin: 8px 16px; font-size: 12px; color: var(--slk-ink); }
+
+.shell.harness-workspace .classic.slk .hx-thread-heading { box-sizing: border-box; height: 64px; min-height: 64px; gap: 6px; padding: 8px 16px; }
+.shell.harness-workspace .hx-thread-heading-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.shell.harness-workspace .classic.slk .hx-thread-heading h2 { margin: 0; padding-left: 18px; font-size: 14px; line-height: 20px; font-weight: 600; }
+.shell.harness-workspace .hx-thread-room { display: flex; align-items: center; gap: 5px; max-width: 100%; width: fit-content; padding: 0; border: 0; background: transparent; color: var(--slk-dim); font: inherit; font-size: 11px; line-height: 16px; cursor: pointer; }
+.shell.harness-workspace .hx-thread-room span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.shell.harness-workspace .hx-thread-room:hover { color: var(--slk-ink); }
+.shell.harness-workspace .classic.slk .hx-thread-heading > .slk-pane-close { margin-left: 0; }
+
+/* Thread logs use a distinct class from room logs; keep the same reading width. */
+:root .shell.harness-workspace .classic.slk.slk .slk-thread-pane .slk-thread-log { box-sizing: border-box; padding: 16px max(24px, calc((100% - 850px)/2)) 0; }
+:root .shell.harness-workspace .classic.slk.slk .slk-thread-pane .slk-msg { margin-bottom: 20px; }
+:root .shell.harness-workspace .classic.slk.slk .slk-thread-pane .slk-text:not(.slk-deleted) { margin-top: 5px; padding: 10px 12px; border-radius: 12px; background: var(--hx-hover); font-size: 14px; line-height: 1.65; }
+:root .shell.harness-workspace .classic.slk.slk .slk-thread-pane .slk-msg.mine .slk-text:not(.slk-deleted) { background: color-mix(in srgb, var(--hx-hover) 82%, var(--hx-accent)); }
+:root .shell.harness-workspace .classic.slk.slk .slk-thread-pane .slk-thread-count { margin: 8px 0 20px; }
+@media(max-width:719px) { :root .shell.harness-workspace .classic.slk.slk .slk-thread-pane .slk-thread-log { padding-left: 14px; padding-right: 14px; } }
+@media(max-width:719px) {
+ :root .shell.harness-workspace .classic.slk.slk .slk-thread-pane { bottom: 52px; }
+}
