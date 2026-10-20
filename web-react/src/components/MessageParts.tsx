@@ -850,7 +850,7 @@ function JamAudio({ link }: { link: string }) {
 function inline(line: string, mentionClass: (name: string) => MentionLook, nested = false): React.ReactNode[] {
   // Doubled marks (Discord's ||spoiler||, __underline__, ~~strike~~) come
   // before their single forms so "__a__" is not read as "_" + "_a_" + "_".
-  const tokens = line.split(/(\[(?:\\.|[^\]\\\n])+\]\(#\/apps\/[^\s)]+\)|`[^`\n]+`|https?:\/\/[^\s<>"）」|]+|:[a-z0-9_+-]{1,30}:|[@＠][^\s@＠,，。、!?！？:;|]+|\|\|[^|\n]+\|\||\*\*[^*\n]+\*\*|\*[^*\n]+\*|__[^_\n]+__|_[^_\n]+_|~~[^~\n]+~~|~[^~\n]+~)/g)
+  const tokens = line.split(/(\[(?:\\.|[^\]\\\n])+\]\(#\/apps\/[^\s)]+\)|`[^`\n]+`|https?:\/\/[^\s<>"）」|]+|:[a-z0-9_+-]{1,30}:|[@＠][^\s@＠,，。、!?！？:;|]+|\|\|[^|\n]+\|\||\*\*[^*\n]+\*\*|\*[^*\n]+\*|(?<![\p{L}\p{N}_])__[^_\n]+__(?![\p{L}\p{N}_])|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_])|~~[^~\n]+~~|~[^~\n]+~)/gu)
   // A line that is nothing but emoji — characters, or this workspace's own
   // — draws them large.
   const onlyEmoji = !nested && isEmojiOnly(line, (token) => Boolean(customEmojiUrl(token)))
