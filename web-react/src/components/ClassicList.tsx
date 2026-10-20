@@ -3506,12 +3506,31 @@ export const ClassicList: React.FC<Props> = ({
     const target=everything.find(item=>item.view===pending.view)
     if(!target){if(pending.view.startsWith('ag:'))setStartedAgents(previous=>previous.includes(pending.view.slice(3))?previous:[...previous,pending.view.slice(3)]);return}
     if(current?.key!==target.key){choose(target.key,true);return}
-    pendingLinkedThread.current=null;linkedIntent.current++;linkedRoute.current=null
+    pendingLinkedThread.current=null;linkedIntent.current++
     const root=messagesRef.current[pending.view]?.find(message=>message.id===pending.id)||{id:pending.id,channel:pending.view,kind:'message',body:'',createdAt:''} as ChannelMessage
     setSide(null);void openThread(pending.view,root)
-    history.replaceState(history.state,'','#/list');window.dispatchEvent(new HashChangeEvent('hashchange'))
+    // A file's conversation is an object destination: retain its URL while
+    // it is open so a reload restores that same conversation.
+    if(!pending.id.startsWith('file-thread-f_')){
+      linkedRoute.current=null
+      history.replaceState(history.state,'','#/list');window.dispatchEvent(new HashChangeEvent('hashchange'))
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[linkedThreadId,current?.key,everything,tick])
+  const displayedFileRoute=useRef<string|null>(null)
+  useEffect(()=>{
+    if(thread?.parent.id.startsWith('file-thread-f_')){
+      displayedFileRoute.current=location.hash===hashForThread(thread.parent.id,api.orgId)?location.hash:null
+      return
+    }
+    // Close, Escape, Back, and opening another thread all consume the old
+    // object URL, without overwriting a newer navigation.
+    if(displayedFileRoute.current && location.hash===displayedFileRoute.current){
+      linkedRoute.current=null
+      history.replaceState(history.state,'','#/list');window.dispatchEvent(new HashChangeEvent('hashchange'))
+    }
+    displayedFileRoute.current=null
+  },[thread?.parent.id,api.orgId])
   // A card stands beside something in the conversation that was left.
   useEffect(() => { setPopout(null) }, [current?.key])
   // Back closes what was opened last, not the list (utils/backStack): on a

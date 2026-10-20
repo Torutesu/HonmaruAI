@@ -3227,6 +3227,9 @@ await step('PDF and CSV attachments preview and search inside the app', async ()
     await desk.waitForSelector('.slk-thread-pane:has-text("preview.csv")', { timeout: 20000 })
     if (new URL(desk.url()).hash !== fileThreadHash) throw new Error('the file conversation changed after reload')
     await desk.screenshot({ path: `${SHOTS}/document-file-conversation.png` })
+    await desk.click('.slk-thread-pane .slk-pane-close')
+    await desk.waitForSelector('.slk-thread-pane', { state: 'hidden' })
+    if (new URL(desk.url()).hash !== '#/list') throw new Error('closing the file conversation left a stale deep link')
   } finally { await desk.close() }
 })
 
