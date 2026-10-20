@@ -137,7 +137,7 @@ export async function handleHarness(request, env, url, context = {}) {
     if (!room || room.kind !== "business") return json({ message: "No such room." }, 404);
     const exists = await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, room.slug).first();
     if (!exists) return json({ message: "No such room." }, 404);
-    if (request.method === "GET") return json({ responses: await roomResponses(env.DB, orgId, room.key) });
+    if (request.method === "GET") return json({ responses: await roomResponses(env.DB, orgId, room.key), canEdit: await allowed(env.DB, orgId, me, "harness.build") });
     if (request.method === "PUT") {
       const result = await saveRoomResponses(env.DB, orgId, room.key, input, me);
       if (result.error) return fail(result);
