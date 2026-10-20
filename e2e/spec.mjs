@@ -2656,9 +2656,13 @@ await step('a notification clicked from another screen opens its message, and a 
     const r = await fetch(`${host}${path}${method === 'GET' ? `?orgId=${encodeURIComponent(org)}` : ''}`, { method, headers: { 'x-session-token': token, 'content-type': 'application/json' }, body: method === 'GET' ? undefined : JSON.stringify({ orgId: org, ...body }) })
     return { org, data: await r.json() }
   }, { host: API, method, path, body })
+  // A message link switches the list on for good (localStorage, shared with
+  // the phone page the later steps drive): put back how it was.
+  let mode = null
   try {
     await kenji.goto(`${WEB}#/list`, { waitUntil: 'load' })
     await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    mode = await desk.evaluate(() => localStorage.getItem('mode'))
     await desk.waitForSelector('.slk-side', { timeout: 20000 })
     const owner = (await asKenji('GET', '/members')).data.members.find((m) => !m.mine)
     const top = await asKenji('POST', '/channels/messages', { channel: `dm:${owner.ref}`, body: `are you free? ${Date.now()}` })
@@ -2677,6 +2681,7 @@ await step('a notification clicked from another screen opens its message, and a 
       .catch(() => { throw new Error('a reply’s notification did not open its thread') })
     await desk.screenshot({ path: `${SHOTS}/notification-opens.png` })
   } finally {
+    await desk.evaluate((m) => { if (m === null) localStorage.removeItem('mode'); else localStorage.setItem('mode', m) }, mode).catch(() => {})
     await kenji.close(); await desk.close()
   }
 })
