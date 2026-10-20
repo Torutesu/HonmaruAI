@@ -8,7 +8,6 @@ const table: Record<string, string> = {
   "All memory types": "すべての種類",
   "Filter memory type": "記憶の種類で絞り込む",
   "Search memories": "記憶を検索",
-  "Context": "文脈",
   "Reference": "参照",
   "Feedback": "フィードバック",
   "Preference": "好み",
