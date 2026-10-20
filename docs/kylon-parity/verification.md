@@ -791,3 +791,5 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Temporary fixtures and preview processes were removed. Worker source remains fixed for full suite 8595.
 
 - Final Web validation after native repairs: 128 files / 933 tests pass; TypeScript and Vite build pass.
+
+- GitHub CI 39473592694 at 56cdf860 completed successfully. Worker deployment 39473592619 was still active; Web 39473592695 pending behind the earlier Web run, which uses the old dependency helper. Held subsequent commits to let these releases drain instead of extending their wait.
