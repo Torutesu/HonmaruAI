@@ -9,7 +9,10 @@ struct ChatThreadsView: View {
 
     var body: some View {
         List {
-            if store.threads.isEmpty {
+            if store.threads.isEmpty && !store.loaded.contains("threads") {
+                ChatSkeletonRows()
+                    .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Color.clear)
+            } else if store.threads.isEmpty {
                 ContentUnavailableView("No threads yet", systemImage: "bubble.left.and.bubble.right", description: Text("Reply in a thread, or be named in one, and it is kept here."))
                     .listRowBackground(Color.clear)
             }

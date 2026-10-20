@@ -2,7 +2,7 @@ import { HarnessThreadHeader } from './HarnessThreadHeader'
 import { RoomThreadDirectory } from './RoomThreadDirectory'
 import { MessageAppCards } from './MessageAppCards'
 import { AppView } from '../screens/Harness'
-import { harnessApi } from '../utils/harness'
+import { harnessApi, type AppConversation } from '../utils/harness'
 import { HarnessRoomResources } from './HarnessRoomResources'
 import { channelMessageCache, mergeLatestMessages } from '../utils/channelMessageCache'
 import { ReadGuard } from '../utils/readGuard'
@@ -94,6 +94,7 @@ interface Props {
   harness?: boolean
   newRequest?: number
   homeRequest?: number
+  sourceAppId?: string | null
   userId: string
   orgName: string
   pending: DecisionCard[]
@@ -314,7 +315,7 @@ function when(iso?: string): string {
 /// the relay's, not invented. On a phone it is one pane at a time: the
 /// sidebar, then the conversation with a way back.
 export const ClassicList: React.FC<Props> = ({
-  harness = false, newRequest = 0, homeRequest = 0, userId, orgName, pending, sent, decided, businesses, presence,
+  harness = false, newRequest = 0, homeRequest = 0, sourceAppId = null, userId, orgName, pending, sent, decided, businesses, presence,
   onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, onApps, onWorkflow, workspaceMenu,
   onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen, onPlaces, onStatus, statusOpen, active = true,
 }) => {
@@ -707,13 +708,20 @@ export const ClassicList: React.FC<Props> = ({
   // conversation, Activity, Later, Threads, Sent, a channel's settings —
   // forgets it, so it does not take the screen from what you went to.
   const wantedView = useRef<{ view: string; until: number } | null>(null)
-  const forgetWanted = () => { wantedView.current = null }
+  const sourceIntent = useRef(0)
+  const sourceRoute = useRef<string|null>(null)
+  const pendingSource = useRef<{appId:string;source:NonNullable<AppConversation['source']>}|null>(null)
+  const forgetWanted = () => {
+    wantedView.current=null;sourceIntent.current++;pendingSource.current=null
+    if(sourceRoute.current && location.hash===sourceRoute.current){history.replaceState(history.state,'','#/list');window.dispatchEvent(new HashChangeEvent('hashchange'))}
+    sourceRoute.current=null
+  }
   // A conversation opened by hand, until the shell has been told. The one
   // the list puts up by itself — on a laptop, the first with something
   // waiting — is not somewhere you went, and ⌘K does not remember it.
   const chosenKey = useRef<string | null>(null)
-  const choose = (key: string | null) => {
-    forgetWanted()
+  const choose = (key: string | null, keepSource = false) => {
+    if(keepSource)wantedView.current=null;else forgetWanted()
     chosenKey.current = key
     setActivityOpen(false)
     setLaterOpen(false)
@@ -3221,6 +3229,23 @@ export const ClassicList: React.FC<Props> = ({
   // Leaving a conversation closes what was open on it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { setEditing(null); setThread(null); setPins(null); setPickerFor(null); setReplyingTo(null); setMsgMenu(null); setReactAt(null); uploads.clear() }, [current?.key])
+  // App-library links enter through the saved, permission-checked source.
+  // Wait for the sidebar to know the room, then open its actual thread.
+  useEffect(()=>{
+    if(!harness || !sourceAppId)return
+    const intent=++sourceIntent.current, client=resourceClient, originalHash=location.hash
+    sourceRoute.current=originalHash
+    const currentRequest=()=>sourceIntent.current===intent && resourceClientNow.current===client && location.hash===originalHash
+    const fallback=()=>{if(currentRequest()){pendingSource.current=null;sourceRoute.current=null;location.hash=hashForApp(sourceAppId,api.orgId,{})}}
+    const timer=setTimeout(fallback,10000)
+    void client.conversation(sourceAppId).then(result=>{
+      if(!currentRequest())return
+      const source=result.source
+      if(!source || !source.messages.some(message=>message.id===source.threadId)){fallback();return}
+      pendingSource.current={appId:sourceAppId,source};setTick(n=>n+1)
+    },fallback)
+    return()=>{clearTimeout(timer);if(sourceIntent.current===intent){sourceIntent.current++;pendingSource.current=null;sourceRoute.current=null}}
+  },[harness,sourceAppId,resourceClient,api.orgId])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { threadUploads.clear(); setThreadReplying(null) }, [thread?.parent.id])
   useEffect(() => {
@@ -3378,6 +3403,21 @@ export const ClassicList: React.FC<Props> = ({
   // sidebar's right-click menu): set before choosing, applied once it opens.
   const sideOnOpen = useRef<null | { kind: 'details'; tab: DetailsTab }>(null)
   useEffect(() => { setSide(sideOnOpen.current); sideOnOpen.current = null }, [current?.key])
+  useEffect(()=>{
+    const pending=pendingSource.current
+    if(!pending || !harness || pending.appId!==sourceAppId)return
+    const target=everything.find(item=>item.view===pending.source.channel)
+    if(!target){if(pending.source.channel.startsWith('ag:'))setStartedAgents(previous=>previous.includes(pending.source.channel.slice(3))?previous:[...previous,pending.source.channel.slice(3)]);return}
+    if(current?.key!==target.key){choose(target.key,true);return}
+    const root=pending.source.messages.find(message=>message.id===pending.source.threadId)!
+    pendingSource.current=null;sourceIntent.current++;sourceRoute.current=null
+    setSide({kind:'app',id:pending.appId})
+    void openThread(pending.source.channel,{...root,channel:pending.source.channel,kind:root.kind||'message'} as ChannelMessage)
+    history.replaceState(history.state,'','#/list')
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+  // Navigation is an intent consumed once; new sidebar data only resolves it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[harness,sourceAppId,current?.key,everything,tick])
   // A card stands beside something in the conversation that was left.
   useEffect(() => { setPopout(null) }, [current?.key])
   // Back closes what was opened last, not the list (utils/backStack): on a

@@ -2,17 +2,18 @@
 // inner document navigating to an external URL to leak its read-only snapshot.
 export function customRunner() {
   const html = `<!doctype html><meta name="color-scheme" content="light dark"><style>html,body,iframe{margin:0;width:100%;height:100%;border:0}iframe{display:block}</style><body><script>
-let child=null;
+let child=null,renderId=null,rendered=false;
 addEventListener('message', e=>{
  if(e.source===parent&&e.data?.type==='honmaru:init'&&typeof e.data.html==='string'&&e.data.html.length<=120000){
  if(child)return;
  child=document.createElement('iframe');child.setAttribute('sandbox','allow-scripts');child.title='Custom app output';
- const renderId=typeof e.data.renderId==='string'?e.data.renderId.slice(0,80):null;
- child.addEventListener('load',()=>parent.postMessage({type:'honmaru:rendered',renderId},'*'),{once:true});
+ renderId=typeof e.data.renderId==='string'?e.data.renderId.slice(0,80):null;
+ const renderToken=JSON.stringify(renderId).replace(/</g,'\\\\u003c');
  child.style.colorScheme=e.data.theme==='dark'?'dark':e.data.theme==='light'?'light':'light dark';
- const bridge='<script>const call=(operation,args)=>new Promise((resolve,reject)=>{const id=crypto.randomUUID();const listener=e=>{if(e.source===parent&&e.data?.type==="honmaru:result"&&e.data.id===id){removeEventListener("message",listener);e.data.error?reject(new Error(e.data.error)):resolve(e.data.value)}};addEventListener("message",listener);parent.postMessage({type:"honmaru:request",id,operation,args},"*")});window.honmaru={read:()=>call("read",{}),create:(values,entity="primary")=>call("create",{values,entity}),update:(id,values,entity="primary")=>call("update",{id,values,entity}),remove:(id,entity="primary")=>call("remove",{id,entity}),entity:entity=>call("entity",{entity}),run:(name,input,gatewayId)=>call("run",{name,input,gatewayId}),job:id=>call("job",{id}),connect:(name,body)=>call("connect",{name,body})};<'+'/script>';
+ const bridge='<script>addEventListener("DOMContentLoaded",()=>parent.postMessage({type:"honmaru:document-ready",renderId:'+renderToken+'},"*"),{once:true});const call=(operation,args)=>new Promise((resolve,reject)=>{const id=crypto.randomUUID();const listener=e=>{if(e.source===parent&&e.data?.type==="honmaru:result"&&e.data.id===id){removeEventListener("message",listener);e.data.error?reject(new Error(e.data.error)):resolve(e.data.value)}};addEventListener("message",listener);parent.postMessage({type:"honmaru:request",id,operation,args},"*")});window.honmaru={read:()=>call("read",{}),create:(values,entity="primary")=>call("create",{values,entity}),update:(id,values,entity="primary")=>call("update",{id,values,entity}),remove:(id,entity="primary")=>call("remove",{id,entity}),entity:entity=>call("entity",{entity}),run:(name,input,gatewayId)=>call("run",{name,input,gatewayId}),job:id=>call("job",{id}),connect:(name,body)=>call("connect",{name,body})};<'+'/script>';
  child.srcdoc=bridge+e.data.html;document.body.append(child);
- } else if(child&&e.source===child.contentWindow&&e.data?.type==='honmaru:request'&&typeof e.data.id==='string'&&e.data.id.length<=80){parent.postMessage({type:'honmaru:request',id:e.data.id,operation:e.data.operation,args:e.data.args},'*')}
+ } else if(child&&e.source===child.contentWindow&&e.data?.type==='honmaru:document-ready'&&e.data.renderId===renderId&&!rendered){rendered=true;parent.postMessage({type:'honmaru:rendered',renderId},'*')}
+ else if(child&&e.source===child.contentWindow&&e.data?.type==='honmaru:request'&&typeof e.data.id==='string'&&e.data.id.length<=80){parent.postMessage({type:'honmaru:request',id:e.data.id,operation:e.data.operation,args:e.data.args},'*')}
  else if(child&&e.source===parent&&e.data?.type==='honmaru:result'){child.contentWindow.postMessage(e.data,'*')}
 });
 parent.postMessage({type:'honmaru:ready'},'*');

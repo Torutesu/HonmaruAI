@@ -3724,8 +3724,15 @@ await step('notifications paused for an hour, said at the top, and resumed', asy
     await w.waitForSelector('[data-pause="60"]', { timeout: 20000 })
     await w.click('[data-pause="60"]')
     await w.waitForSelector('[data-resume-settings]', { timeout: 10000 })
-    // The hours, too: weekdays nine to six.
+    // The controls update optimistically; their appearance does not prove
+    // that the server has committed the schedule yet.
+    const scheduleSaved = w.waitForResponse((response) => {
+      if (response.url() !== `${API}/me` || response.request().method() !== 'PUT') return false
+      try { return response.request().postDataJSON()?.notifySchedule?.enabled === true } catch { return false }
+    }, { timeout: 15000 })
     await w.click('[data-schedule]')
+    const scheduleResponse = await scheduleSaved
+    if (!scheduleResponse.ok()) throw new Error(`saving notification hours returned ${scheduleResponse.status()}`)
     await w.waitForSelector('[data-schedule-from]', { timeout: 10000 })
     await w.screenshot({ path: `${SHOTS}/63-quiet-settings.png` })
     const me = await w.evaluate(async (host) => {

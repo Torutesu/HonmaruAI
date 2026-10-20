@@ -139,7 +139,10 @@ struct ChatHomeView: View {
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
-                if store.channels.isEmpty && store.people.isEmpty {
+                if !store.loaded.contains("overview") && store.channels.isEmpty && store.people.isEmpty {
+                    ChatSkeletonRows()
+                        .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Color.clear)
+                } else if store.channels.isEmpty && store.people.isEmpty {
                     gettingStarted
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 12, trailing: 16))
                         .listRowSeparator(.hidden).listRowBackground(Color.clear)
@@ -219,7 +222,10 @@ struct ChatHomeView: View {
         List {
             let dms = (store.groupConversations + store.people + store.agentConversations)
                 .sorted { (store.activity[$0.view]?.lastAt ?? "") > (store.activity[$1.view]?.lastAt ?? "") }
-            if dms.isEmpty {
+            if dms.isEmpty && !store.loaded.contains("overview") {
+                ChatSkeletonRows()
+                    .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Color.clear)
+            } else if dms.isEmpty {
                 ContentUnavailableView("No direct messages yet", systemImage: "bubble.left.and.bubble.right",
                                        description: Text("Invite teammates and they show up here. Write to one, or to a few at once."))
                     .listRowBackground(Color.clear).listRowSeparator(.hidden)
@@ -369,7 +375,12 @@ struct ChatHomeView: View {
                 } else {
                     ChatAvatar(name: c.name, size: face, url: c.member?.avatarUrl)
                         .overlay(alignment: .bottomTrailing) {
-                            if ChatDates.parse(c.member?.awayUntil).map({ $0 > Date() }) == true {
+                            // Here now: green, as on the web and the desktop.
+                            if ChatHash.online(c.member?.loginHash, among: appState.onlineLogins) {
+                                Circle().fill(Theme.Colors.approve).overlay(Circle().stroke(Theme.Colors.surface, lineWidth: 2))
+                                    .frame(width: 10, height: 10).offset(x: 2, y: 2)
+                                    .accessibilityLabel("Online")
+                            } else if ChatDates.parse(c.member?.awayUntil).map({ $0 > Date() }) == true {
                                 Circle().stroke(Theme.Colors.textTertiary, lineWidth: 2).background(Circle().fill(Theme.Colors.surface))
                                     .frame(width: 9, height: 9).offset(x: 2, y: 2)
                             }

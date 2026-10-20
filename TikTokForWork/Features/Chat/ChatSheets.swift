@@ -2,6 +2,8 @@ import SwiftUI
 import PhotosUI
 import UIKit
 import ImageIO
+import AVFoundation
+import UniformTypeIdentifiers
 
 /// A thread, as a sheet over the conversation: the message, its replies,
 /// and a composer that answers under it.
@@ -56,6 +58,10 @@ struct ChatThreadSheet: View {
                         }.padding(.horizontal, 16).padding(.vertical, 8)
                         if store.threadFailed { failedNote(t.parent) }
                         ForEach(t.replies) { row($0) }
+                        // The replies still on their way, in their shape.
+                        if store.threadLoading, (t.parent.replyCount ?? 0) > t.replies.count {
+                            ChatSkeletonMessages(count: min((t.parent.replyCount ?? 0) - t.replies.count, 3))
+                        }
                         if let step = store.thinking[t.parent.channel] { ChatAISteps(step: step).padding(.vertical, 6) }
                         ForEach((store.agentTyping[t.parent.channel] ?? []).filter { $0.parentId == nil || $0.parentId == t.parent.id }, id: \.agent.id) { typing in
                             ChatAgentTypingRow(agent: typing.agent).padding(.vertical, 6)
@@ -65,7 +71,7 @@ struct ChatThreadSheet: View {
                 } else if store.threadFailed {
                     failedNote(nil)
                 } else {
-                    ProgressView().padding(40)
+                    ChatSkeletonMessages(count: 4).padding(.top, 8)
                 }
             }
             .defaultScrollAnchor(.bottom)
@@ -146,13 +152,13 @@ struct ChatThreadSheet: View {
                     }
                     HStack(alignment: .bottom, spacing: 8) {
                         let photoRoom = ChatPhotos.room(attached: attached.count, uploading: uploading)
-                        PhotosPicker(selection: $photoItems, maxSelectionCount: max(photoRoom, 1), matching: .images) {
+                        PhotosPicker(selection: $photoItems, maxSelectionCount: max(photoRoom, 1), matching: .any(of: [.images, .videos])) {
                             Image(systemName: "plus").font(.system(size: 17, weight: .semibold))
                                 .foregroundStyle(photoRoom == 0 ? Theme.Colors.textTertiary : Theme.Colors.textSecondary)
                                 .frame(width: 44, height: 44).glassCircle()
                         }
                         .disabled(photoRoom == 0)
-                        .accessibilityLabel("Add photos")
+                        .accessibilityLabel("Add photos or videos")
                         .onChange(of: photoItems) { _, items in
                             guard !items.isEmpty, let channel = store.thread?.parent.channel else { return }
                             photoItems = []
@@ -394,7 +400,10 @@ struct ChatActivityView: View {
     @ObservedObject private var translations = ChatTranslations.shared
     var body: some View {
         List {
-            if store.inbox.isEmpty {
+            if store.inbox.isEmpty && !store.loaded.contains("inbox") {
+                ChatSkeletonRows()
+                    .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Color.clear)
+            } else if store.inbox.isEmpty {
                 ContentUnavailableView("Nothing for you yet", systemImage: "bell",
                                        description: Text("When somebody writes @ your name, or replies in a thread you are part of, it shows up here."))
             }
@@ -1020,7 +1029,7 @@ struct ChatCatchUpView: View {
             }
             Divider()
             if loaded[view] == nil {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                ChatSkeletonMessages(count: 4).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
@@ -1075,8 +1084,9 @@ struct ChatCatchUpView: View {
     }
 }
 
-/// Pictures picked from the camera roll, made JPEGs (a HEIC would not show
-/// everywhere) and uploaded to the conversation they are for.
+/// Pictures and videos picked from the camera roll, made JPEGs and mp4s (a
+/// HEIC or an HEVC .mov would not show everywhere) and uploaded to the
+/// conversation they are for.
 enum ChatPhotos {
     /// How many files one message carries; the Worker refuses a send with more.
     static let maxPerMessage = 10
@@ -1110,14 +1120,59 @@ enum ChatPhotos {
         return (jpeg, image.width, image.height)
     }
 
-    /// Picked photos, each made ready and uploaded at the same time rather
-    /// than one after another; the files come back in the order picked.
+    /// The largest file the Worker keeps (MAX_FILE_BYTES).
+    static let maxBytes = 25 * 1024 * 1024
+
+    /// The sizes a video is tried at, largest first: the first whose file
+    /// fits under `maxBytes` is sent. A minute or so goes at 720p, a few
+    /// minutes only smaller.
+    static let videoPresets = [AVAssetExportPreset1280x720, AVAssetExportPreset960x540, AVAssetExportPreset640x480]
+
+    /// A picked video made ready to send: an mp4 no larger than `maxBytes`,
+    /// with the shape it is seen at. Nil when even the smallest size is too
+    /// large, or it cannot be read. Done off the main thread by `upload`.
+    static func preparedVideo(_ source: URL) async -> (mp4: Data, width: Int, height: Int)? {
+        let asset = AVURLAsset(url: source)
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let look = try? await track.load(.naturalSize, .preferredTransform) else { return nil }
+        // Upright: a phone held up records sideways and says so in the transform.
+        let shown = CGRect(origin: .zero, size: look.0).applying(look.1).size
+        for preset in videoPresets {
+            let target = FileManager.default.temporaryDirectory.appendingPathComponent("video-\(UUID().uuidString).mp4")
+            guard await MediaStore.export(source, preset: preset, to: target) else { continue }
+            defer { try? FileManager.default.removeItem(at: target) }
+            let bytes = (try? FileManager.default.attributesOfItem(atPath: target.path))?[.size] as? Int
+            if let bytes, bytes <= maxBytes, let mp4 = try? Data(contentsOf: target) {
+                return (mp4, Int(abs(shown.width).rounded()), Int(abs(shown.height).rounded()))
+            }
+        }
+        return nil
+    }
+
+    /// Whether a picked item is a video rather than a picture.
+    static func isVideo(_ item: PhotosPickerItem) -> Bool {
+        item.supportedContentTypes.contains { $0.conforms(to: .movie) }
+    }
+
+    /// Picked photos and videos, each made ready and uploaded at the same
+    /// time rather than one after another; the files come back in the order
+    /// picked.
     @MainActor
     static func upload(_ items: [PhotosPickerItem], to view: String, store: ChatStore) async -> [ChatFile] {
         let stamp = Int(Date().timeIntervalSince1970)
         return await withTaskGroup(of: (Int, ChatFile?).self) { group in
             for (i, item) in items.enumerated() {
                 group.addTask { @MainActor in
+                    if ChatPhotos.isVideo(item) {
+                        guard let picked = try? await item.loadTransferable(type: PickedVideo.self) else { return (i, nil) }
+                        defer { try? FileManager.default.removeItem(at: picked.url) }
+                        guard let video = await ChatPhotos.preparedVideo(picked.url) else {
+                            store.error = String(localized: "That video is too long to send. A file can be at most 25 MB.")
+                            return (i, nil)
+                        }
+                        let name = "video-\(stamp)-\(i + 1).mp4"
+                        return (i, await store.upload(view, data: video.mp4, type: "video/mp4", name: name, width: video.width, height: video.height))
+                    }
                     guard let data = try? await item.loadTransferable(type: Data.self) else { return (i, nil) }
                     let ready = await Task.detached(priority: .userInitiated) { ChatPhotos.prepared(data) }.value
                     guard let photo = ready else { return (i, nil) }
@@ -1128,6 +1183,23 @@ enum ChatPhotos {
             var done: [(Int, ChatFile)] = []
             for await (i, file) in group { if let file { done.append((i, file)) } }
             return done.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+    }
+}
+
+/// A video picked from the camera roll, as a copy in the temporary
+/// directory: a phone's video can be far too large to hold in memory, and
+/// the file the picker hands over is gone once it returns.
+struct PickedVideo: Transferable {
+    let url: URL
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(contentType: .movie) { video in
+            SentTransferredFile(video.url)
+        } importing: { received in
+            let ext = received.file.pathExtension.isEmpty ? "mov" : received.file.pathExtension
+            let copy = FileManager.default.temporaryDirectory.appendingPathComponent("picked-\(UUID().uuidString).\(ext)")
+            try FileManager.default.copyItem(at: received.file, to: copy)
+            return PickedVideo(url: copy)
         }
     }
 }
@@ -1147,7 +1219,7 @@ struct ChatAttachedStrip: View {
                             AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Theme.Colors.surfaceRaised }
                                 .frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         } else {
-                            Image(systemName: "doc").frame(width: 56, height: 56)
+                            Image(systemName: f.type.hasPrefix("video/") ? "film" : "doc").frame(width: 56, height: 56)
                                 .background(Theme.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
                         Button { attached.removeAll { $0.id == f.id } } label: {

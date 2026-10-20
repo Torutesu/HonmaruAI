@@ -285,7 +285,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
   const relayHttpUrl = relayUrl.replace(/^ws/, 'http')
   // Simple or harness (docs/kylon-gap-plan.md): what the rail offers.
-  const { mode: workspaceMode, simpleOnly } = useWorkspaceMode(relayHttpUrl, orgId, sessionToken)
+  const { mode: workspaceMode, simpleOnly, loaded: workspaceModeLoaded } = useWorkspaceMode(relayHttpUrl, orgId, sessionToken)
+  useEffect(()=>{if(route.appSource && route.appOrg===orgId && workspaceModeLoaded && workspaceMode!=='harness')navigate(hashForMode('classic'),true)},[route.appSource,route.appOrg,orgId,workspaceModeLoaded,workspaceMode,navigate])
   useEffect(() => {
     if (simpleOnly && screen && screen !== 'harness' && HARNESS_SCREENS.has(screen)) closeScreen()
   }, [simpleOnly, screen, closeScreen])
@@ -1046,6 +1047,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           harness={workspaceMode === 'harness'}
           newRequest={harnessNewRequest}
           homeRequest={harnessHomeRequest}
+          sourceAppId={route.appSource && route.appOrg===orgId ? route.appId : null}
           onApps={id => { if (id) sessionStorage.setItem('hx.openApp', id); setScreen('apps') }}
           onWorkflow={id => { if (id) sessionStorage.setItem('hx.openWorkflow', id); setScreen('workflows') }}
           userId={userId}

@@ -34,11 +34,15 @@ enum MediaStore {
     /// for, and a raw phone capture is ~20x larger than it needs to be for a
     /// talking-head clip. Returns the original URL if export is unavailable.
     static func compress(_ source: URL) async -> URL {
-        let asset = AVURLAsset(url: source)
-        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPreset960x540) else {
-            return source
-        }
         let target = source.deletingPathExtension().appendingPathExtension("small.mp4")
+        return await export(source, preset: AVAssetExportPreset960x540, to: target) ? target : source
+    }
+
+    /// Re-encodes `source` with one of AVFoundation's presets, as an mp4 at
+    /// `target`. False when the export is unavailable, fails or is cancelled.
+    static func export(_ source: URL, preset: String, to target: URL) async -> Bool {
+        let asset = AVURLAsset(url: source)
+        guard let export = AVAssetExportSession(asset: asset, presetName: preset) else { return false }
         try? FileManager.default.removeItem(at: target)
         export.shouldOptimizeForNetworkUse = true
 
@@ -49,9 +53,9 @@ enum MediaStore {
         if #available(iOS 18, *) {
             do {
                 try await export.export(to: target, as: .mp4)
-                return target
+                return true
             } catch {
-                return source
+                return false
             }
         }
 
@@ -65,9 +69,8 @@ enum MediaStore {
             export.exportAsynchronously { continuation.resume() }
         }
         // Status, not the absence of an error: a cancelled export reports
-        // `.cancelled` with nothing thrown, and the original file is the right
-        // answer for that as much as for a failure.
-        return export.status == .completed ? target : source
+        // `.cancelled` with nothing thrown, and that is as much a failure.
+        return export.status == .completed
     }
 
     /// Resolves what a card stored back into something playable.

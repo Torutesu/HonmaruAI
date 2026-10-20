@@ -30316,31 +30316,31 @@
         }
       }
     },
-    "Add photos": {
+    "Add photos or videos": {
       "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "写真を追加"
+            "value": "写真や動画を追加"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir fotos"
+            "value": "Añadir fotos o vídeos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajouter des photos"
+            "value": "Ajouter des photos ou des vidéos"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fotos hinzufügen"
+            "value": "Fotos oder Videos hinzufügen"
           }
         }
       }
@@ -44214,6 +44214,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aktualisierung übernehmen"
+          }
+        }
+      }
+    },
+    "That video is too long to send. A file can be at most 25 MB.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この動画は長すぎて送信できません。ファイルは25MBまでです。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este vídeo es demasiado largo para enviarlo. Un archivo puede ocupar como máximo 25 MB."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette vidéo est trop longue pour être envoyée. Un fichier peut faire au plus 25 Mo."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Video ist zu lang zum Senden. Eine Datei darf höchstens 25 MB groß sein."
+          }
+        }
+      }
+    },
+    "Loading…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み中…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird geladen…"
           }
         }
       }
