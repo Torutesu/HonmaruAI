@@ -63,7 +63,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -91,30 +91,32 @@ jobs:
         run: npx vitest run
 
       # New UI may depend on new tables/routes. Never publish it while the
-      # same commit's Worker migration/deploy is still running or has failed.
-      - name: Check whether this release changes the Worker
+      # latest Worker migration/deploy included in this release is pending or
+      # failed, even when a later Web-only commit triggered this release.
+      - name: Find this release's Worker dependency
         id: backend
         if: github.event_name == 'push'
         run: |
-          if git diff --quiet HEAD^ HEAD -- ../worker ../.github/workflows/deploy-worker.yml; then
-            echo "required=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "required=true" >> "$GITHUB_OUTPUT"
-          fi
+          revision=$(git log --first-parent -1 --format=%H HEAD -- ../worker ../.github/workflows/deploy-worker.yml)
+          [ -n "$revision" ] || { echo "::error::Cannot identify the Worker dependency."; exit 1; }
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
 
       - name: Wait for the matching Worker deployment
-        if: steps.backend.outputs.required == 'true'
+        if: github.event_name == 'push'
         uses: actions/github-script@v7
+        env:
+          WORKER_REVISION: ${{ steps.backend.outputs.revision }}
         with:
           script: |
+            const revision = process.env.WORKER_REVISION;
             const deadline = Date.now() + 30 * 60 * 1000;
             while (Date.now() < deadline) {
               const { data } = await github.rest.actions.listWorkflowRuns({
                 ...context.repo, workflow_id: 'deploy-worker.yml',
-                head_sha: context.sha, event: 'push', per_page: 100,
+                head_sha: revision, event: 'push', per_page: 100,
               });
               const run = data.workflow_runs
-                .filter(r => r.head_sha === context.sha && r.head_branch === 'main')
+                .filter(r => r.head_sha === revision && r.head_branch === 'main')
                 .sort((a, b) => b.id - a.id)[0];
               if (run?.status === 'completed') {
                 if (run.conclusion !== 'success') {
@@ -126,7 +128,7 @@ jobs:
               }
               await new Promise(resolve => setTimeout(resolve, 20000));
             }
-            core.setFailed('Timed out waiting for this commit’s Worker deployment; Web remains unchanged.');
+            core.setFailed(`Timed out waiting for Worker dependency ${revision}; Web remains unchanged.`);
 
       - name: Deploy to Pages
         run: npx -y wrangler@4 pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true
