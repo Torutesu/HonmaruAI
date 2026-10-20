@@ -20,7 +20,8 @@ import { noteUsage } from "./ledger.js";
 import { research as researchLoop, canResearch, readResponse } from "./agentResearch.js";
 
 export { readResponse };
-import { filterResponders, mayAccessAgent } from "./harness/agents.js";
+import { chooseRoomAgent } from "./harness/roomRouting.js";
+import { filterResponders, mayAccessAgent, profilesFor } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
 
 export const MAX_INSTRUCTIONS = 20000;
@@ -139,7 +140,7 @@ export async function channelAgents(db, orgId, key) {
   const { results } = await db.prepare(
     `SELECT a.*, ca.added_by AS added_by, ca.added_at AS added_at FROM channel_agents ca
       JOIN custom_agents a ON a.org_id = ca.org_id AND a.id = ca.agent_id
-      WHERE ca.org_id = ?1 AND ca.channel = ?2 AND a.deleted_at IS NULL ORDER BY ca.added_at, a.name COLLATE NOCASE`
+      WHERE ca.org_id = ?1 AND ca.channel = ?2 AND a.deleted_at IS NULL ORDER BY ca.added_at, a.name COLLATE NOCASE, a.id`
   ).bind(orgId, String(key || "")).all().catch(() => ({ results: [] }));
   return upgradePresets(db, orgId, (results || []).map((r) => ({ ...toAgent(r), addedBy: r.added_by, addedAt: r.added_at })));
 }
@@ -496,8 +497,8 @@ export function forChat(text) {
     .trim();
 }
 
-/// Which agents answer a message — at most the ones it calls, and never
-/// one nobody called:
+/// Which agents answer a message. Explicit addressing works in both modes;
+/// Harness additionally routes clear new human requests to a room member:
 /// - the agents it names (@hayao), on lines of its own — not in a quote
 ///   or code;
 /// - in a conversation with an agent, that agent;
@@ -524,7 +525,17 @@ export async function respondingAgents(db, { orgId, login, resolved, row }) {
   // As each agent's profile allows (harness/agents.js): who may call it,
   // and whether it waits to be named.
   const harness = (await getMode(db, orgId)) === "harness";
-  return filterResponders(db, orgId, login, agents, { named: harness ? named : null, channel: resolved.key });
+  const permitted = await filterResponders(db, orgId, login, agents, { named: harness ? named : null, channel: resolved.key });
+  // Automatic routing is Harness-only, for new human requests in rooms.
+  // A thread already between people, an explicit addressee, and an agent's
+  // status message never become a new automatic assignment here.
+  if (permitted.length || agents.length || !harness || mentionedOnly || resolved.kind !== "business" || row.parent_id
+    || row.kind !== "message" || !row.author_login || row.author_login.startsWith("agent:")
+    || mentionTokens(callingText(row.body)).length) return permitted;
+  const members = await channelAgents(db, orgId, resolved.key);
+  const eligible = await filterResponders(db, orgId, login, members, { named: new Set(), channel: resolved.key });
+  const routed = chooseRoomAgent(callingText(row.body), eligible, await profilesFor(db, orgId, eligible.map(agent => agent.id)));
+  return routed ? [routed] : [];
 }
 
 /// The agent a thread is talking with, for this person: the one that

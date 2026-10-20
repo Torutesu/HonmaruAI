@@ -301,3 +301,22 @@ test('room mentioned-only policy blocks continuation, retains explicit mentions 
   await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' });
   expect(await respondingAgents(env.DB, args)).toEqual([]);
 });
+test('Harness routes clear new requests only to accessible room members, leaving Simple and human threads unchanged', async () => {
+  const { respondingAgents } = await import('../src/customAgents.js');
+  const { saveRoomResponses } = await import('../src/harness/roomResponses.js');
+  const args = { orgId: ORG, login: 'mika', resolved: { kind: 'business', key: 'b:ops' }, row: { id: 'routing-request', kind: 'message', author_login: 'mika', body: 'Please review these invoices', parent_id: null } };
+  expect(await respondingAgents(env.DB, args)).toEqual([]);
+  await env.DB.prepare("INSERT INTO channel_agents (org_id, channel, agent_id, added_by, added_at) VALUES (?1, 'b:ops', ?2, 'mika', ?3)").bind(ORG, agentId, new Date().toISOString()).run();
+  expect((await respondingAgents(env.DB, args)).map(x => x.id)).toEqual([agentId]);
+  for (const patch of [{ author_login: `agent:${agentId}` }, { body: '@kenji please review these invoices' }, { body: 'I will review it tomorrow' }, { body: '> Please review these invoices' }, { parent_id: 'human-thread', created_at: new Date().toISOString() }]) {
+    expect(await respondingAgents(env.DB, { ...args, row: { ...args.row, ...patch } })).toEqual([]);
+  }
+  await send('PUT', `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, mentionOnly: true });
+  expect(await respondingAgents(env.DB, args)).toEqual([]);
+  await send('PUT', `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, mentionOnly: false });
+  await saveRoomResponses(env.DB, ORG, 'b:ops', { mentionedOnly: true, version: 0 }, 'mika');
+  expect(await respondingAgents(env.DB, args)).toEqual([]);
+  await saveRoomResponses(env.DB, ORG, 'b:ops', { mentionedOnly: false, version: 1 }, 'mika');
+  await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' });
+  expect(await respondingAgents(env.DB, args)).toEqual([]);
+});

@@ -1,6 +1,7 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Clear new requests can be assigned to an available agent in this room. Mention a specific agent to choose who responds.": "明確な新しい依頼は、このルームで利用できるエージェントに割り当てられます。相手を指定したい場合は、そのエージェントをメンションしてください。",
   "How agents respond": "エージェントの応答方法",
   "Mentioned only": "メンション時のみ",
   "When enabled, unmentioned room messages do not continue an agent response. Direct messages are unchanged.": "オンにすると、ルームでメンションされていない発言にはエージェントが続けて返信しません。直接会話には影響しません。",

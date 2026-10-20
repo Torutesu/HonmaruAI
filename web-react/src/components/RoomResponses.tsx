@@ -42,6 +42,7 @@ function ResponseSetting({ httpBase, orgId, headers, view }: Props) {
     {!saved && !error && <p role="status">{t('Loading…')}</p>}
     <label className="dlg-check"><input type="checkbox" role="switch" disabled={!saved || !canEdit || busy || conflict} checked={saved?.mentionedOnly || false} onChange={e => void save(e.target.checked)}/>{t('Mentioned only')}</label>
     <p className="hx-hint">{t('When enabled, unmentioned room messages do not continue an agent response. Direct messages are unchanged.')}</p>
+    {saved && !saved.mentionedOnly && <p className="hx-hint">{t('Clear new requests can be assigned to an available agent in this room. Mention a specific agent to choose who responds.')}</p>}
     {busy && <p role="status">{t('Saving…')}</p>}
     {error && <div role="alert" className="form-error">{t(error)} <button disabled={busy} onClick={() => reload(n => n + 1)}>{t('Reload')}</button></div>}
   </section>

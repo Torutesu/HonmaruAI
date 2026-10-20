@@ -711,3 +711,10 @@ Additional reference audit: Kylon's empty room automation setup action populates
 
 - GET response settings now returns the existing build capability; the UI disables writes without it. Loading is explicit; 409 disables the stale switch until reload, and failed changes retain the stored state. Session/room/API-origin changes remount the setting to avoid cross-context results.
 - Web 929 tests, TypeScript, Vite and response API test pass. Full Worker session 97774 remains live, not completed.
+
+### Initial suitable-agent routing (2026-10-21)
+
+- Added a local routing pass for clear new human requests in Harness rooms when Mentioned only is off. Only placed, accessible agents that permit unmentioned use are candidates. Specialty/description terms influence selection; stable room-member order provides the fallback. No extra model call is used to classify.
+- Explicit addressees, quoted/code-only requests, status/acknowledgement phrases, agent-authored messages and existing human threads do not create automatic assignments. Simple keeps its previous routing. Room/agent mention-only policies win.
+- This is intentionally recorded as partial routing parity: multilingual/ambiguous intent, complex task selection and agent-to-agent handoff remain incomplete. It is not evidence of a full semantic router.
+- Worker routing/agents/autobuild regression 55 tests passed; after refining named-human/status exclusions, routing/Harness-agent suites 19 passed. Full Worker session 97774 started before this routing change, remains in progress, and cannot establish this new path on its own.
