@@ -733,3 +733,9 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Local native preview displayed the revised dialog spacing and action colors. Keyboard interaction did not reliably change its AX state; do not claim native keyboard verification. Temporary QA entrypoints and preview servers were removed/stopped before the final production build.
 
 - Frozen Worker rerun completed successfully at e2166a6a: 204 files, 1509 tests, 590.12 seconds. The previous mixed-source failure is resolved on the fixed tree. Production native Cancel also returned to the unchanged profile successfully.
+
+### Native light-theme check and CI recovery (2026-10-21)
+
+- Reopened an isolated native preview using the production appearance/theme/App styles. Screenshot confirms white dialog surface, neutral fields, olive disabled action and 512px layout. Escape closed the dialog; reopening restored it. Subsequent repeated keyboard events did not consistently update focus, so complete native focus-loop acceptance remains unproven. No production data or provider calls were involved. Temporary preview files/processes were removed again.
+- Observed Kylon Japanese profile labels are 専門分野 and インテリジェンス; aligned these translations.
+- ca4dd1af CI shared/core/mobile job now succeeds after the version fix. Web, desktop, relay and gateway jobs also succeeded. Worker and E2E remain running; Deploy Web waits for matching Worker deployment. Run IDs: CI 39471093108, Web 39471093226, Worker 39471093391.
