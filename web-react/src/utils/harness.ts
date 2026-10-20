@@ -64,7 +64,7 @@ export interface Run { id: string; trigger: string; status: string; log: RunLog[
 export interface Followup { id: string; channel: string; instruction: string; dueAt: string; status: string; agentId: string | null }
 export interface Gateway { id: string; name: string; createdAt: number; lastSeenAt: number | null; revokedAt: number | null }
 export interface GatewayJob { id: string; gatewayId: string; status: string; createdAt: number; result: { stdout?: string; stderr?: string; error?: string; exitCode?: number | null } | null }
-export interface Skill { visibility?: 'workspace' | 'private'; accessVersion?: number; canShare?: boolean; canEdit?: boolean; id: string; name: string; description: string; body: string; agents?: string[]; createdBy: string }
+export interface Skill { metadata?: Record<string, unknown>; visibility?: 'workspace' | 'private'; accessVersion?: number; canShare?: boolean; canEdit?: boolean; id: string; name: string; description: string; body: string; agents?: string[]; createdBy: string }
 export interface AgentProfile { specialty: string; tier: 'lite' | 'standard' | 'max'; mentionOnly: boolean; access: 'everyone' | 'people' | 'private'; people: string[] }
 export interface HomeData {
   mode: WorkspaceMode
@@ -166,8 +166,10 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     }>('GET', '/approvals'),
 
     skills: () => call<{ skills: Skill[] }>('GET', '/skills'),
+    previewSkillImport: (markdown: string) => call<{ draft: Pick<Skill, 'name' | 'description' | 'body' | 'metadata'> }>('POST', '/skills/preview-import', { markdown }),
+    exportSkill: (id: string) => call<{ filename: string; markdown: string }>('GET', `/skills/${id}/export`),
     setSkillAccess: (id: string, visibility: 'workspace' | 'private', version: number) => call('PUT', `/skills/${id}/access`, { visibility, version }),
-    createSkill: (s: { name: string; description?: string; body: string; visibility?: 'workspace' | 'private' }) => call<{ skill: Skill }>('POST', '/skills', s),
+    createSkill: (s: { name: string; description?: string; body: string; metadata?: Record<string, unknown>; visibility?: 'workspace' | 'private' }) => call<{ skill: Skill }>('POST', '/skills', s),
     updateSkill: (id: string, s: Partial<Skill>) => call<{ skill: Skill }>('PUT', `/skills/${id}`, s as Record<string, unknown>),
     deleteSkill: (id: string) => call<{ deleted: boolean }>('DELETE', `/skills/${id}`),
 

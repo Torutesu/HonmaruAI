@@ -9,7 +9,18 @@ export const MAX_SKILL_CHARS = 8000;
 
 const now = () => new Date().toISOString();
 const newId = (p) => `${p}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
-const pub = (r) => r && ({ id: r.id, name: r.name, description: r.description || "", body: r.body, createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at, visibility: r.visibility, accessVersion: r.access_version });
+export function cleanSkillMetadata(value = {}) {
+  const safe = (v, depth = 0) => depth <= 12 && (v === null || typeof v === 'string' || typeof v === 'boolean'
+    || typeof v === 'number' && Number.isFinite(v) && (!Number.isInteger(v) || Number.isSafeInteger(v))
+    || typeof v === 'object' && v !== null && Object.values(v).every(child => safe(child, depth + 1)));
+  try {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || !safe(value)
+      || Object.hasOwn(value, 'name') || Object.hasOwn(value, 'description') || JSON.stringify(value).length > 8000) throw new Error();
+    return { metadata: value };
+  } catch { return { error: 'Skill metadata must be a JSON-compatible mapping of at most 8000 characters and 12 levels.' }; }
+}
+function savedMetadata(value) { try { return cleanSkillMetadata(JSON.parse(value || '{}')).metadata || {}; } catch { return {}; } }
+const pub = (r) => r && ({ id: r.id, name: r.name, description: r.description || "", body: r.body, metadata: savedMetadata(r.metadata), createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at, visibility: r.visibility, accessVersion: r.access_version });
 
 export async function listSkills(db, orgId, userId = "") {
   const { results } = await db.prepare(`${skillSelect} WHERE s.org_id = ?1 AND (p.visibility IS NULL OR p.visibility = 'workspace' OR s.created_by = ?2) ORDER BY s.name COLLATE NOCASE`).bind(orgId, String(userId)).all();
@@ -34,7 +45,9 @@ function clean(input) {
   const body = String(input?.body || "").trim().slice(0, MAX_SKILL_CHARS);
   if (!name) return { error: "Give the skill a name." };
   if (!body) return { error: "Write what the skill says to do." };
-  return { name, body, description: String(input?.description || "").trim().slice(0, 200) };
+  const checked = cleanSkillMetadata(input?.metadata);
+  if (checked.error) return checked;
+  return { name, body, description: String(input?.description || "").trim().slice(0, 200), metadata: checked.metadata };
 }
 
 export async function createSkill(db, orgId, input, by) {
@@ -46,8 +59,8 @@ export async function createSkill(db, orgId, input, by) {
   if (Number(n?.n || 0) >= MAX_SKILLS) return { error: "This workspace has as many skills as it can hold." };
   const id = newId("skill");
   const at = now();
-  const insert = db.prepare("INSERT INTO hx_skills (id, org_id, name, description, body, created_by, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)")
-    .bind(id, orgId, c.name, c.description, c.body, String(by), at);
+  const insert = db.prepare("INSERT INTO hx_skills (id, org_id, name, description, body, created_by, created_at, updated_at, metadata) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)")
+    .bind(id, orgId, c.name, c.description, c.body, String(by), at, JSON.stringify(c.metadata));
   await db.batch([insert, db.prepare("INSERT INTO hx_skill_access (org_id, skill_id, visibility, version) VALUES (?1, ?2, ?3, 1)").bind(orgId, id, visibility)]);
   return { skill: await getSkill(db, orgId, id, by) };
 }
@@ -57,10 +70,10 @@ export async function updateSkill(db, orgId, id, input, userId = "") {
   if (!existing) return { error: "No such skill.", status: 404 };
   const c = clean({ ...existing, ...input });
   if (c.error) return c;
-  const result = await db.prepare(`UPDATE hx_skills SET name = ?1, description = ?2, body = ?3, updated_at = ?4
+  const result = await db.prepare(`UPDATE hx_skills SET name = ?1, description = ?2, body = ?3, updated_at = ?4, metadata = ?8
     WHERE id = ?5 AND org_id = ?6 AND (created_by = ?7 OR NOT EXISTS
       (SELECT 1 FROM hx_skill_access p WHERE p.org_id = ?6 AND p.skill_id = ?5 AND p.visibility = 'private'))`)
-    .bind(c.name, c.description, c.body, now(), id, orgId, String(userId)).run();
+    .bind(c.name, c.description, c.body, now(), id, orgId, String(userId), JSON.stringify(c.metadata)).run();
   if (!result.meta?.changes) return { error: 'No such skill.', status: 404 };
   return { skill: await getSkill(db, orgId, id, userId) };
 }

@@ -28,6 +28,27 @@ beforeEach(async () => {
   agentId = (await made.json()).agent.id;
 });
 
+test('SKILL.md preview writes nothing; saving and exporting preserve metadata and private access', async () => {
+  const markdown = '---\nname: weekly-report\ndescription: Prepare weekly reports\nallowed-tools: [read_file]\n---\nReview the agreed sources.';
+  const preview = await request('POST', '/skills/preview-import', owner, { markdown });
+  expect(preview.status).toBe(200);
+  const { draft } = await preview.json();
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills').first()).n).toBe(0);
+  const saved = await request('POST', '/skills', owner, { ...draft, visibility: 'private' });
+  expect(saved.status).toBe(201);
+  const { skill } = await saved.json();
+  expect(skill.metadata).toEqual({ 'allowed-tools': ['read_file'] });
+  await request('PUT', `/skills/${skill.id}`, owner, { body: 'Updated procedure.' });
+  const exported = await request('GET', `/skills/${skill.id}/export`, owner);
+  expect(exported.status).toBe(200);
+  const file = await exported.json();
+  expect(file.filename).toBe('SKILL.md');
+  const again = await request('POST', '/skills/preview-import', owner, { markdown: file.markdown });
+  expect((await again.json()).draft).toMatchObject({ body: 'Updated procedure.', metadata: skill.metadata });
+  for (const token of [member, admin]) expect((await request('GET', `/skills/${skill.id}/export`, token)).status).toBe(404);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_agent_skills').first()).n).toBe(0);
+});
+
 test('private skills hide body, links and all direct CRUD routes from members and admins in either mode', async () => {
   const skill = await create();
   expect(skill).toMatchObject({ visibility: 'private', accessVersion: 1, createdBy: '9401' });

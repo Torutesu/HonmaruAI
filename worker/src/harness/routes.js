@@ -35,6 +35,7 @@ import {
 import { templateList } from "./templates.js";
 import { getProfile, saveProfile, listAgentMemories, addAgentMemory, deleteAgentMemory, TIERS, ACCESS } from "./agents.js";
 import { listSkills, createSkill, updateSkill, deleteSkill, getSkill, giveSkill, takeSkill, skillsOf } from "./skills.js";
+import { parseSkillMarkdown, skillMarkdown } from "./skillMarkdown.js";
 import { workflowFromPrompt } from './workflowGeneration.js';
 import { completer } from "./model.js";
 import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
@@ -308,6 +309,10 @@ export async function handleHarness(request, env, url, context = {}) {
   // ── Skills ────────────────────────────────────────────────────────────
   if (parts[0] === "skills") {
     const [, skillId] = parts;
+    if (skillId === 'preview-import' && parts.length === 2 && request.method === 'POST') {
+      const result = parseSkillMarkdown(input.markdown);
+      return result.error ? fail(result) : json(result);
+    }
     if (!skillId) {
       if (request.method === "GET") {
         const skills = await listSkills(env.DB, orgId, me);
@@ -322,6 +327,10 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     const skill = await getSkill(env.DB, orgId, skillId, me);
     if (!skill) return json({ message: "No such skill." }, 404);
+    if (parts[2] === 'export' && parts.length === 3 && request.method === 'GET') {
+      if (!skill.description.trim()) return json({ message: 'Add a description before exporting SKILL.md.' }, 400);
+      return json({ filename: 'SKILL.md', markdown: skillMarkdown(skill) });
+    }
     if (parts[2] === 'access' && request.method === 'PUT') {
       const r = await setSkillAccess(env.DB, orgId, skillId, me, input);
       return r.error ? fail(r) : json(r);

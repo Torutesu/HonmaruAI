@@ -1797,7 +1797,8 @@ CREATE TABLE IF NOT EXISTS hx_skills (
   body          TEXT NOT NULL,
   created_by    TEXT NOT NULL,
   created_at    TEXT NOT NULL,
-  updated_at    TEXT NOT NULL
+  updated_at    TEXT NOT NULL,
+  metadata      TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_hx_skills_org ON hx_skills(org_id);
 

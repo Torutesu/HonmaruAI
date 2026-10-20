@@ -206,13 +206,36 @@ export const HarnessSkills: React.FC<HarnessProps> = (props) => {
   const t = useT()
   const api = useApi(props)
   const [skills, setSkills] = useState<Skill[] | null>(null)
-  const [draft, setDraft] = useState<{ id?: string; name: string; description: string; body: string } | null>(null)
+  const [draft, setDraft] = useState<{ id?: string; name: string; description: string; body: string; metadata?: Record<string, unknown> } | null>(null)
+  const importFile = useRef<HTMLInputElement>(null)
+  const importEpoch = useRef(0)
   const { busy, error, act } = useAct()
   const load = useCallback(() => act('load', async () => setSkills((await api.skills()).skills)), [api, act])
   useEffect(() => { load() }, [load])
+  useEffect(() => { importEpoch.current++; setDraft(null); return () => { importEpoch.current++ } }, [api])
+  const previewImport = (file: File) => {
+    const epoch = ++importEpoch.current
+    void act('import', async () => {
+      if (!/\.md$/i.test(file.name) || file.size > 65536) throw new Error('64 KiB以内のSKILL.mdファイルを選択してください。')
+      const markdown = await file.text()
+      const result = await api.previewSkillImport(markdown)
+      if (epoch === importEpoch.current) setDraft(result.draft)
+    })
+  }
+  const exportSkill = (skill: Skill) => void act(`export:${skill.id}`, async () => {
+    const epoch = importEpoch.current
+    const result = await api.exportSkill(skill.id)
+    if (epoch !== importEpoch.current) return
+    const url = URL.createObjectURL(new Blob([result.markdown], { type: 'text/markdown;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url; link.download = 'SKILL.md'; document.body.appendChild(link); link.click(); link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  })
   return (
-    <Shell title={t('Skills')} onClose={props.onClose} actions={!draft && <button className="pill-btn" onClick={() => setDraft({ name: '', description: '', body: '' })}><Icon name="plus" size={14} /> {t('New')}</button>}>
+    <Shell className="hx-skills" title={t('Skills')} onClose={props.onClose} actions={!draft && <><button className="pill-btn quiet" aria-label="SKILL.mdを取り込む" disabled={busy !== null} onClick={() => importFile.current?.click()}><Icon name="file" size={14} /> 取り込む</button><button className="pill-btn" disabled={busy !== null} onClick={() => setDraft({ name: '', description: '', body: '' })}><Icon name="plus" size={14} /> {t('New')}</button></>}>
+      <input ref={importFile} type="file" accept=".md,text/markdown" aria-label="SKILL.mdを取り込む" hidden onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) previewImport(file) }} />
       <p className="lede">{t('How your team does a thing, written once in Markdown. Give it to any agent and it follows it.')}</p>
+      {busy === 'import' && <p role="status">SKILL.mdを読み込んでいます…</p>}
       {error && <div className="form-error">{error}</div>}
       {draft && (
         <div className="hx-builder">
@@ -220,8 +243,9 @@ export const HarnessSkills: React.FC<HarnessProps> = (props) => {
           <input className="hx-cell-input hx-title-input" placeholder={t('Skill name')} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} aria-label={t('Skill name')} />
           <input className="hx-cell-input" placeholder={t('One line on when to use it')} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} aria-label={t('Description')} />
           <textarea className="context-input" rows={8} placeholder={t('e.g. Day 7: a polite nudge. Day 14: a call. Day 30: escalate to the owner.')} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} aria-label={t('Skill')} />
+          {!!Object.keys(draft.metadata || {}).length && <details className="hx-skill-metadata"><summary>保存するメタデータ</summary><pre>{JSON.stringify(draft.metadata, null, 2)}</pre><p className="row-sub">メタデータは手順と一緒に保存されます。接続やデータのアクセス権は変更しません。</p></details>}
           <div className="playbook-add-foot">
-            <button className="btn-text" onClick={() => setDraft(null)}>{t('Cancel')}</button>
+            <button className="btn-text" onClick={() => { importEpoch.current++; setDraft(null) }}>{t('Cancel')}</button>
             <button className="pill-btn" disabled={busy === 'save' || !draft.name.trim() || !draft.body.trim()} onClick={() => act('save', async () => {
               if (draft.id) await api.updateSkill(draft.id, draft); else await api.createSkill({ ...draft, visibility: 'private' })
               setDraft(null); await load()
@@ -242,7 +266,8 @@ export const HarnessSkills: React.FC<HarnessProps> = (props) => {
               <option value="private">{t('Only me')}</option><option value="workspace">{t('Everyone on the team')}</option>
             </select>
             <span className="row-main">{s.name}<span className="row-sub">{s.description || s.body.slice(0, 100)}{s.agents?.length ? ` · ${t('{n} agents', { n: s.agents.length })}` : ''}</span></span>
-            <button className="btn-text" disabled={s.canEdit === false} onClick={() => setDraft({ id: s.id, name: s.name, description: s.description, body: s.body })}>{t('Edit')}</button>
+            <button className="btn-text" disabled={busy !== null} onClick={() => exportSkill(s)}><Icon name="download" size={14} /> SKILL.md</button>
+            <button className="btn-text" disabled={s.canEdit === false || busy !== null} onClick={() => setDraft({ id: s.id, name: s.name, description: s.description, body: s.body, metadata: s.metadata })}>{t('Edit')}</button>
             <button className="btn-text danger" disabled={s.canEdit === false} onClick={() => act(`del:${s.id}`, async () => { await api.deleteSkill(s.id); await load() })}>{t('Delete')}</button>
           </div>
         ))}
