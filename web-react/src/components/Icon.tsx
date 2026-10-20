@@ -17,6 +17,7 @@ import React from 'react'
 /// Stroke is `currentColor`, so a tab colours its icon by colouring itself.
 
 export type IconName =
+  | 'briefcase' | 'brain'
   | 'wrap-text' | 'sort' | 'arrow-up' | 'arrow-down' | 'filter' | 'group' | 'share' | 'sliders' | 'compose' | 'plug' | 'list-check' | 'workflow' | 'home' | 'you' | 'history' | 'tools' | 'plus'
   | 'record' | 'bell' | 'invite' | 'plan' | 'mail' | 'hash' | 'notion' | 'github' | 'box'
   | 'calendar' | 'drive' | 'insights' | 'search' | 'mic'
@@ -322,6 +323,8 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   // Your AI's mark where a glyph used to stand in for it: four points.
+  briefcase: <><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12a24 24 0 0 0 18 0M10 12h4v3h-4z"/></>,
+  brain: <><path d="M12 5a3 3 0 0 0-5.8-1A4 4 0 0 0 3 10a4 4 0 0 0 0 7 4 4 0 0 0 4 4 3 3 0 0 0 5-2V5ZM12 5a3 3 0 0 1 5.8-1A4 4 0 0 1 21 10a4 4 0 0 1 0 7 4 4 0 0 1-4 4 3 3 0 0 1-5-2"/><path d="M7 4v3M3 10h3M3 17h3M17 4v3M21 10h-3M21 17h-3M8 13a4 4 0 0 0 4-4 4 4 0 0 0 4 4"/></>,
   sparkle: <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" />,
   'mic-off': (
     <>

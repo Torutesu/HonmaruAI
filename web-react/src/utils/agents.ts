@@ -16,6 +16,7 @@ export interface ClientAgent {
   preset: string | null
   createdBy: string | null
   createdByName: string | null
+  createdAt?: string
   mine: boolean
   updatedByName: string | null
   updatedAt: string

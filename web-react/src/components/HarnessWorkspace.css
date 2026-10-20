@@ -183,7 +183,10 @@
 .hx-profile-card header { display: flex; align-items: center; justify-content: space-between; color: var(--hx-muted); font-size: 12px; }
 .hx-profile-card header button { border: 0; background: none; color: inherit; cursor: pointer; }
 .hx-profile-card dl { display: grid; grid-template-columns: minmax(100px, 145px) 1fr; gap: 14px 0; font-size: 13px; margin: 22px 0 0; }
-.hx-profile-card dt { color: var(--hx-muted); }
+.hx-profile-card dt { color: var(--hx-muted); display:flex; align-items:center; gap:6px; }
+.hx-profile-card dt svg { flex:none; }
+.hx-profile-tier { border:0; padding:0 4px 0 0; background:var(--hx-surface); color:var(--hx-text); font:inherit; cursor:pointer; max-width:100%; }
+.hx-profile-tier:focus-visible { outline:2px solid var(--hx-text); outline-offset:4px; border-radius:3px; }
 .hx-profile-card dd { margin: 0; color: var(--hx-text); }
 .hx-profile-card .rows { margin-top: 16px; border: 0; }
 :root .shell.harness-workspace .classic.slk.slk .slk-head-text > p:not(.slk-head-agent) { display: none; }

@@ -199,7 +199,7 @@ export function toClientAgent(agent, members, viewerLogin, { isAdmin = false } =
   return {
     id: agent.id, handle: agent.handle, name: agent.name, emoji: agent.emoji, avatarUrl: agent.avatarUrl || null, description: agent.description,
     instructions: agent.instructions, scope: agent.scope, preset: agent.preset, provider: agent.provider || null,
-    createdBy: refOf(agent.ownerLogin), createdByName: nameOf(agent.ownerLogin), mine,
+    createdBy: refOf(agent.ownerLogin), createdByName: nameOf(agent.ownerLogin), createdAt: agent.createdAt, mine,
     updatedByName: nameOf(agent.updatedBy), updatedAt: agent.updatedAt,
     // A teammate is set up in Studio, not on the Agents screen.
     canEdit: !agent.provider && (agent.scope === "team" || mine),

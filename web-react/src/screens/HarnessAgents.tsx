@@ -10,6 +10,7 @@ import { Avatar } from '../components/Avatar'
 import { AgentAvatar } from '../components/AgentAvatar'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
+import { getLocale } from '../utils/locale'
 import { Icon } from '../components/Icon'
 import type { AgentProfile, AgentMemory, Skill, Followup } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
@@ -18,7 +19,7 @@ import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 // An agent is still written on the Agents screen; this is where it gets a
 // specialty, a tier, a memory, skills, and a say in who may call it.
 
-interface AgentFace { avatarUrl?: string | null; instructions?: string; id: string; handle: string; name: string; emoji?: string | null; description?: string; scope?: string; mine?: boolean }
+interface AgentFace { avatarUrl?: string | null; instructions?: string; id: string; handle: string; name: string; emoji?: string | null; description?: string; scope?: string; mine?: boolean; createdByName?: string | null; createdAt?: string }
 
 const TIER_HINT: Record<AgentProfile['tier'], string> = {
   lite: 'Fast and cheap, for simple work.',
@@ -115,7 +116,17 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
       <div className="hx-profile-tabs" role="tablist">{(['profile','skills','memory','followups'] as const).map(key => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)}>{t(key === 'profile' ? 'Profile' : key === 'skills' ? 'Skills' : key === 'memory' ? 'Memory' : 'Follow-ups')}</button>)}</div>
       {section === 'profile' && <>
       <section className="hx-profile-card"><header><span>{t('Profile')}</span>{canEdit && <button onClick={() => setEditingProfile(v => !v)} aria-label={t(editingProfile ? 'Close' : 'Edit profile')}><Icon name={editingProfile ? 'x' : 'edit'} size={16} /></button>}</header>
-      {!editingProfile && <dl><dt>{t('Specialty')}</dt><dd>{profile.specialty || '—'}</dd><dt>{t('Intelligence')}</dt><dd>{t(profile.tier === 'lite' ? 'Lite' : profile.tier === 'max' ? 'Max' : 'Standard')}</dd><dt>{t('Who may call it')}</dt><dd>{t(agent.scope === 'personal' || profile.access === 'private' ? 'Only its maker' : profile.access === 'people' ? 'Some people' : 'Everyone')}</dd></dl>}
+      {!editingProfile && <dl>
+        <dt><Icon name="briefcase" size={14}/>{t('Specialty')}</dt><dd>{profile.specialty || t('Not set')}</dd>
+        <dt><Icon name="brain" size={14}/>{t('Intelligence')}</dt><dd>{canEdit
+          ? <select className="hx-profile-tier" aria-label={t('Intelligence')} disabled={busy === 'save'} value={profile.tier} onChange={e => save({ tier: e.target.value as AgentProfile['tier'] })}>
+            <option value="lite">{t('Fast')}</option><option value="standard">{t('Pro')}</option><option value="max">{t('Max')}</option>
+          </select>
+          : t(profile.tier === 'lite' ? 'Fast' : profile.tier === 'max' ? 'Max' : 'Pro')}</dd>
+        <dt><Icon name="you" size={14}/>{t('Created by')}</dt><dd>{agent.createdByName || '—'}</dd>
+        <dt><Icon name="calendar" size={14}/>{t('Created at')}</dt><dd>{agent.createdAt && Number.isFinite(Date.parse(agent.createdAt)) ? new Date(agent.createdAt).toLocaleDateString(getLocale(), { year: 'numeric', month: 'long', day: 'numeric' }) : '—'}</dd>
+        <dt><Icon name="lock" size={14}/>{t('Who may call it')}</dt><dd>{t(agent.scope === 'personal' || profile.access === 'private' ? 'Only its maker' : profile.access === 'people' ? 'Some people' : 'Everyone')}</dd>
+      </dl>}
       {editingProfile && <>
       <div className="rows">
         <div className="row static">
@@ -127,7 +138,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
           <span className="row-main">{t('Intelligence')}<span className="row-sub">{t(TIER_HINT[profile.tier])}</span></span>
           <span className="hx-seg">
             {(['lite', 'standard', 'max'] as const).map((tier) => (
-              <button key={tier} className={profile.tier === tier ? 'on' : ''} disabled={!canEdit || busy === 'save'} onClick={() => save({ tier })}>{t(tier === 'lite' ? 'Lite' : tier === 'max' ? 'Max' : 'Standard')}</button>
+              <button key={tier} className={profile.tier === tier ? 'on' : ''} disabled={!canEdit || busy === 'save'} onClick={() => save({ tier })}>{t(tier === 'lite' ? 'Fast' : tier === 'max' ? 'Max' : 'Pro')}</button>
             ))}
           </span>
         </div>

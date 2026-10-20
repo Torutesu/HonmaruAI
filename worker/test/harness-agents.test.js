@@ -240,6 +240,11 @@ test("Harness creation saves specialty and tier with the private agent, and reje
   expect(created.status).toBe(201);
   const agent = (await created.json()).agent;
   expect(agent.scope).toBe("personal");
+  const stored = await env.DB.prepare("SELECT created_at FROM custom_agents WHERE org_id = ?1 AND id = ?2").bind(ORG, agent.id).first();
+  expect(agent.createdAt).toBe(stored.created_at);
+  await env.DB.prepare("UPDATE custom_agents SET updated_at = '2030-01-01T00:00:00Z' WHERE org_id = ?1 AND id = ?2").bind(ORG, agent.id).run();
+  const listed = await (await get(`/channels/agents?${q({ orgId: ORG })}`, mika)).json();
+  expect(listed.agents.find(item => item.id === agent.id).createdAt).toBe(stored.created_at);
   const result = await (await get(`/hx/agents/${agent.id}/profile?${q({ orgId: ORG })}`, mika)).json();
   expect(result.profile).toMatchObject({ specialty: "Research", tier: "max" });
   expect((await get(`/hx/agents/${agent.id}/profile?${q({ orgId: ORG })}`, toru)).status).toBe(404);

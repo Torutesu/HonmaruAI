@@ -1,6 +1,8 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Created at": "作成日時",
+  "Not set": "未設定",
   "Give your agent a name and a face. It starts private and has no access to existing rooms. Add it to a room after creation.": "エージェントの名前とアイコンを設定します。非公開で作成され、既存のルームにはアクセスできません。参加させる場合は作成後に追加してください。",
   "Choose another avatar": "別のアイコンを選ぶ",
   "e.g. Atlas": "例：Atlas",
