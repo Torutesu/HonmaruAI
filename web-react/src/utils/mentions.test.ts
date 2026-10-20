@@ -14,11 +14,11 @@ describe('loadMembers', () => {
     const fetch = vi.fn().mockResolvedValueOnce(answer(429)).mockResolvedValueOnce(answer(200, [me, kenji]))
     vi.stubGlobal('fetch', fetch)
     expect(await loadMembers('https://api', 'org', 't')).toEqual([])
-    expect(membersHeld('https://api', 'org')).toBe(false)
+    expect(membersHeld('https://api', 'org', 't')).toBe(false)
     const team = await loadMembers('https://api', 'org', 't')
     expect(team.map((m) => m.handle)).toEqual(['anand', 'kenji'])
     expect(team[0].mine).toBe(true)
-    expect(membersHeld('https://api', 'org')).toBe(true)
+    expect(membersHeld('https://api', 'org', 't')).toBe(true)
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
@@ -31,7 +31,7 @@ describe('loadMembers', () => {
     await loadMembers('https://api', 'org', 't')
     forgetMembers('org')
     expect((await loadMembers('https://api', 'org', 't')).map((m) => m.ref)).toEqual(['u1', 'u2'])
-    expect(membersHeld('https://api', 'org')).toBe(false)
+    expect(membersHeld('https://api', 'org', 't')).toBe(false)
     expect((await loadMembers('https://api', 'org', 't')).map((m) => m.ref)).toEqual(['u1', 'u2'])
   })
 
@@ -42,4 +42,19 @@ describe('loadMembers', () => {
     expect(a).toBe(b)
     expect(fetch).toHaveBeenCalledTimes(1)
   })
+})
+
+
+it('never reuses another login session’s team or stale fallback', async () => {
+  forgetMembers()
+  const fetch=vi.fn().mockResolvedValueOnce(answer(200,[me,kenji])).mockResolvedValueOnce(answer(503)).mockResolvedValueOnce(answer(200,[kenji]))
+  vi.stubGlobal('fetch',fetch)
+  try {
+    await loadMembers('https://api','org','first')
+    expect(await loadMembers('https://api','org','second')).toEqual([])
+    expect(membersHeld('https://api','org','first')).toBe(true)
+    expect(membersHeld('https://api','org','second')).toBe(false)
+    expect((await loadMembers('https://api','org','second')).map(m=>m.ref)).toEqual(['u2'])
+    expect(fetch).toHaveBeenCalledTimes(3)
+  } finally { forgetMembers();vi.unstubAllGlobals() }
 })

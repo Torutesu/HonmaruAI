@@ -22,11 +22,12 @@ const loadedAt = new Map<string, number>()
 // a mention, and nothing that calls you heard as calling you.
 const lastRead = new Map<string, Mentionable[]>()
 const STALE_MS = 60_000
+const memberKey = (base: string, org: string, token: string) => JSON.stringify([base, org, token])
 
 type MemberRow = { ref: string; name: string; aliases?: string[]; handle?: string | null; mine?: boolean; avatarUrl?: string | null; presence?: string | null }
 
 export function loadMembers(httpBase: string, orgId: string, sessionToken: string): Promise<Mentionable[]> {
-  const key = `${httpBase}|${orgId}`
+  const key = memberKey(httpBase, orgId, sessionToken)
   if (!cache.has(key)) {
     loadedAt.set(key, Date.now())
     const read: Promise<Mentionable[]> = fetch(`${httpBase}/members?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
@@ -47,17 +48,18 @@ export function loadMembers(httpBase: string, orgId: string, sessionToken: strin
 
 /// Whether the team for this workspace is held as read, rather than still
 /// to be asked for again after an answer that was not it.
-export function membersHeld(httpBase: string, orgId: string): boolean {
-  return cache.has(`${httpBase}|${orgId}`)
+export function membersHeld(httpBase: string, orgId: string, sessionToken: string): boolean {
+  return cache.has(memberKey(httpBase, orgId, sessionToken))
 }
 
 export function forgetMembers(orgId?: string): void {
-  if (!orgId) { cache.clear(); lastRead.clear(); return }
-  for (const key of [...cache.keys()]) if (key.endsWith(`|${orgId}`)) cache.delete(key)
+  if (!orgId) { cache.clear(); lastRead.clear(); loadedAt.clear(); return }
+  for (const key of [...cache.keys()]) if (JSON.parse(key)[1] === orgId) cache.delete(key)
 }
 
 export function useMembers(httpBase: string, orgId: string, sessionToken: string): Mentionable[] {
-  const [members, setMembers] = useState<Mentionable[]>([])
+  const key = memberKey(httpBase, orgId, sessionToken)
+  const [state, setState] = useState<{ key: string; members: Mentionable[] }>({ key, members: [] })
   useEffect(() => {
     let ignore = false
     let retry: ReturnType<typeof setTimeout> | undefined
@@ -67,21 +69,21 @@ export function useMembers(httpBase: string, orgId: string, sessionToken: string
     // which in the desktop app can be hours.
     const read = (): Promise<void> => loadMembers(httpBase, orgId, sessionToken).then((list) => {
       if (ignore) return
-      setMembers(list)
+      setState({ key: memberKey(httpBase, orgId, sessionToken), members: list })
       clearTimeout(retry)
-      if (membersHeld(httpBase, orgId)) { wait = 2000; return }
+      if (membersHeld(httpBase, orgId, sessionToken)) { wait = 2000; return }
       retry = setTimeout(() => { void read() }, wait)
       wait = Math.min(wait * 2, STALE_MS)
     })
     // Every box that offers names hears the same word: the first one to
     // hear it reads the team again, the rest share that read.
     const again = () => {
-      if (Date.now() - (loadedAt.get(`${httpBase}|${orgId}`) || 0) > 2000) forgetMembers(orgId)
+      if (Date.now() - (loadedAt.get(memberKey(httpBase, orgId, sessionToken)) || 0) > 2000) forgetMembers(orgId)
       void read()
     }
     const back = () => {
       if (!pageShowing()) return
-      const at = loadedAt.get(`${httpBase}|${orgId}`) || 0
+      const at = loadedAt.get(memberKey(httpBase, orgId, sessionToken)) || 0
       if (Date.now() - at > STALE_MS) again()
     }
     void read()
@@ -96,5 +98,5 @@ export function useMembers(httpBase: string, orgId: string, sessionToken: string
       document.removeEventListener('visibilitychange', back)
     }
   }, [httpBase, orgId, sessionToken])
-  return members
+  return state.key === key ? state.members : []
 }
