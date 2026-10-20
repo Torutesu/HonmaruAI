@@ -98,3 +98,7 @@
 }
 .slk-attach-btn:hover { background: var(--slk-hover, #f0f0f0); color: var(--slk-ink, #1d1c1d); }
 .slk-dropping { outline: 2px dashed var(--slk-accent, #1264a3); outline-offset: -8px; }
+
+.att-document{display:flex;align-items:center;gap:4px}
+.att-document .att-file{flex:1;text-align:left;font:inherit;cursor:pointer}
+.att-document-download{padding:10px;color:inherit}

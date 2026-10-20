@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, {lazy,Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useT } from '../utils/i18n'
 import type { FileRef } from '../types/card'
@@ -6,6 +6,8 @@ import { mediaKind, videoBox, downloadUrl, firstFrameUrl, type MediaKind } from 
 import { Icon, type IconName } from './Icon'
 import './Attachments.css'
 import { composing } from '../utils/keys'
+import {documentKind} from '../utils/documentPreview'
+const DocumentPreview=lazy(()=>import('./DocumentPreview'))
 import { fileSrc, useFileUrls } from '../utils/mediaUrls'
 
 // Files and pictures: going up from the composer, and shown in a message.
@@ -261,13 +263,32 @@ export const MessageFiles: React.FC<{ files?: FileRef[]; base: string }> = ({ fi
 }
 
 /// A file that is not shown: its name, kind and size, and a way to save it.
-const FileCard: React.FC<{ file: FileRef; href: string }> = ({ file, href }) => (
-  <a className="att-file" href={href} target="_blank" rel="noopener noreferrer" data-file={file.name}>
-    <span className="att-file-icon" aria-hidden="true"><Icon name={KIND_ICON[mediaKind(file.type, file.name)]} size={18} /></span>
-    <span className="att-file-text"><b>{file.name}</b><small>{(file.type.split('/')[1] || file.type).toUpperCase().slice(0, 12)} · {sizeLabel(file.size)}</small></span>
-    <Icon name="download" size={16} />
-  </a>
-)
+const FileCard: React.FC<{ file: FileRef; href: string }> = ({ file, href }) => {
+  const [open,setOpen]=useState(false)
+  const kind=documentKind(file.type,file.name)
+  const content=<><span className="att-file-icon" aria-hidden="true"><Icon name={KIND_ICON[mediaKind(file.type,file.name)]} size={18}/></span><span className="att-file-text"><b>{file.name}</b><small>{(file.type.split('/')[1]||file.type).toUpperCase().slice(0,12)} · {sizeLabel(file.size)}</small></span><Icon name={kind?'external':'download'} size={16}/></>
+  if(!kind)return <a className="att-file" href={href} target="_blank" rel="noopener noreferrer" data-file={file.name}>{content}</a>
+  return <><div className="att-document"><button type="button" className="att-file" data-file={file.name} aria-label={`${file.name}をプレビュー`} onClick={()=>setOpen(true)}>{content}</button><a className="att-document-download" href={downloadUrl(href)} target="_blank" rel="noopener noreferrer" aria-label={`${file.name}をダウンロード`}><Icon name="download" size={16}/></a></div>
+    {open&&<DocumentPreviewBoundary onClose={()=>setOpen(false)}><Suspense fallback={<p role="status">プレビューを準備しています…</p>}><DocumentPreview file={file} href={href} onClose={()=>setOpen(false)}/></Suspense></DocumentPreviewBoundary>}
+  </>
+}
+
+class DocumentPreviewBoundary extends React.Component<React.PropsWithChildren<{onClose:()=>void}>,{failed:boolean}>{
+  state={failed:false}
+  static getDerivedStateFromError(){return {failed:true}}
+  render(){return this.state.failed?<p role="alert">プレビューを起動できませんでした。ファイルはダウンロードして確認できます。<button type="button" onClick={this.props.onClose}>閉じる</button></p>:this.props.children}
+}
+
+/// Reference lists keep their compact link layout and use the same reader.
+/// Modified clicks retain the browser's ordinary open/download behavior.
+export function FileReferenceLink({file,href,className,children}:{file:FileRef;href:string;className?:string;children:React.ReactNode}){
+  const [open,setOpen]=useState(false)
+  return <><a href={href} className={className} target="_blank" rel="noopener noreferrer" onClick={event=>{
+    if(documentKind(file.type,file.name)&&!event.metaKey&&!event.ctrlKey&&!event.shiftKey&&!event.altKey&&event.button===0){event.preventDefault();setOpen(true)}
+  }}>{children}</a>
+   {open&&<DocumentPreviewBoundary onClose={()=>setOpen(false)}><Suspense fallback={<p role="status">プレビューを準備しています…</p>}><DocumentPreview file={file} href={href} onClose={()=>setOpen(false)}/></Suspense></DocumentPreviewBoundary>}
+  </>
+}
 
 /// What a player says went wrong, as the browser numbers it (MediaError):
 /// the connection went while it was playing, the bytes would not decode, or

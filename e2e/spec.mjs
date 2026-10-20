@@ -3155,6 +3155,40 @@ await step('on a phone the list has tabs, a long press, pictures, groups and pri
   await page.waitForSelector('.feed', { timeout: 10000 })
 })
 
+await step('PDF and CSV attachments preview and search inside the app', async () => {
+  const desk = await phone.newPage()
+  try {
+    await desk.setViewportSize({ width: 390, height: 844 })
+    await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    await desk.waitForSelector('.cl-thread[data-view^="g:"] .cl-open', { timeout: 20000 })
+    await desk.locator('.cl-thread[data-view^="g:"] .cl-open').first().click()
+    await desk.fill('.slk-composer .slk-input', 'Document preview checks')
+    await desk.setInputFiles('input[data-attach]', [
+      { name: 'preview.pdf', mimeType: 'application/pdf', buffer: readFileSync(new URL('./fixtures/document-preview.pdf', import.meta.url)) },
+      { name: 'preview.csv', mimeType: 'text/csv', buffer: Buffer.from('name,amount,note\nFirst,42000,"comma, inside"\nSecond,84000,"<script>window.previewInjected=true</script>"\n') },
+    ])
+    await desk.waitForFunction(() => document.querySelectorAll('.att-pend[data-upload="done"]').length === 2, null, { timeout: 20000 })
+    await desk.click('.slk-composer .slk-send[type="submit"]')
+    await desk.waitForSelector('button.att-file[data-file="preview.pdf"]', { timeout: 15000 })
+    await desk.click('button.att-file[data-file="preview.pdf"]')
+    await desk.waitForSelector('.document-preview canvas', { timeout: 15000 })
+    await desk.fill('.document-preview input[type="search"]', '84')
+    await desk.click('.document-preview button[type="submit"]')
+    await desk.waitForFunction(() => document.querySelector('.document-preview input[type="number"]')?.value === '2' && document.querySelector('.document-extracted')?.textContent.includes('Invoice 84'), null, { timeout: 15000 })
+    const bounds = await desk.locator('.document-preview').boundingBox()
+    if (!bounds || bounds.x < 0 || bounds.x + bounds.width > 391) throw new Error('the document viewer overflows the phone')
+    await desk.screenshot({ path: `${SHOTS}/document-pdf-search.png` })
+    await desk.click('.document-preview .dialog-close')
+    await desk.click('button.att-file[data-file="preview.csv"]')
+    await desk.waitForSelector('.document-csv td:has-text("comma, inside")', { timeout: 10000 })
+    await desk.fill('.document-preview input[type="search"]', '000')
+    await desk.click('[aria-label="次の一致箇所"]')
+    await desk.waitForSelector('.document-tools [role="status"]:has-text("2 / 2")')
+    if (await desk.evaluate(() => Boolean(window.previewInjected))) throw new Error('CSV executed document markup')
+    await desk.screenshot({ path: `${SHOTS}/document-csv-search.png` })
+  } finally { await desk.close() }
+})
+
 await step('a workspace adds its own emoji, and uses them in a message and a reaction', async () => {
   await closeEverything()
   if (!mate) throw new Error('the teammate this step needs is not here')
