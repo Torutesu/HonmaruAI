@@ -204,6 +204,34 @@ test.each(["mute", "private", "guest", "thread-mute"])("queued push honors a lat
   } finally { fetchMock.deactivate(); }
 });
 
+test("an unavailable privacy lookup holds the queued push and rechecks access after recovery", async () => {
+  const { registerDevice } = await import("../src/db.js");
+  const token="f".repeat(64),pushed=[];
+  await registerDevice(env.DB,{deviceToken:token,githubId:"8803",login:"kenji",environment:"production",platform:"ios"});
+  fetchMock.activate();
+  fetchMock.get("https://api.push.apple.com").intercept({path:`/3/device/${token}`,method:"POST"})
+    .reply(opts=>{pushed.push(opts.body);return {statusCode:200,data:""};}).persist();
+  const penv={...env,APNS_KEY_ID:"ABC1234567",APNS_TEAM_ID:"TEAM123456",APNS_TOPIC:"com.honmaru.ai",APNS_PRIVATE_KEY:TEST_P8};
+  const now=Date.now(),row={id:"acl-outage",kind:"message",channel:"b:cafe",author_login:"toru",body:"@Kenji confidential",created_at:new Date(now).toISOString()};
+  try {
+    await env.DB.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,body,kind,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)")
+      .bind(row.id,ORG,row.channel,row.author_login,row.body,row.kind,row.created_at).run();
+    await queueMessagePushes(penv,ORG,row,{members:await listMembers(env.DB,ORG,null),now});
+    await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='cafe'").bind(ORG).run();
+    const db={prepare(sql) {
+      if(sql.startsWith("SELECT private FROM businesses")) return {bind:()=>({first:async()=>{throw new Error("temporary ACL outage");}})};
+      return env.DB.prepare(sql);
+    }};
+    expect(await sendDuePushes({...penv,DB:db},now+PUSH_DELAY_MS+1000)).toEqual({sent:0,skipped:0});
+    expect(pushed).toHaveLength(0);
+    const held=await env.DB.prepare("SELECT sent_at,due_at,last_error FROM push_queue WHERE message_id=?1").bind(row.id).first();
+    expect(held.sent_at).toBeNull();
+    expect(held.last_error).toBe("delivery exception");
+    expect(await sendDuePushes(penv,Date.parse(held.due_at)+1)).toEqual({sent:0,skipped:1});
+    expect(pushed).toHaveLength(0);
+  } finally {fetchMock.deactivate();}
+});
+
 test("a lock screen never gives a spoiler away, and a push stays one short line", () => {
   expect(pushPreview("the killer is ||the butler|| and ||his twin||")).toBe("the killer is ▇▇▇ and ▇▇▇");
   expect(pushPreview("line one\n\nline two")).toBe("line one line two");

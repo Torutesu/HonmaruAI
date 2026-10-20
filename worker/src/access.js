@@ -46,12 +46,12 @@ export async function isGuestLogin(db, orgId, login) {
   if (!login) return false;
   const row = await db.prepare(
     "SELECT m.role FROM memberships m JOIN users u ON u.github_id = m.user_github_id WHERE m.org_id = ?1 AND u.login = ?2"
-  ).bind(orgId, login).first().catch(() => null);
+  ).bind(orgId, login).first();
   return String(row?.role || "").toLowerCase() === "guest";
 }
 
 export async function isGuest(db, orgId, githubId) {
-  const row = await db.prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2").bind(orgId, String(githubId)).first().catch(() => null);
+  const row = await db.prepare("SELECT role FROM memberships WHERE org_id = ?1 AND user_github_id = ?2").bind(orgId, String(githubId)).first();
   return String(row?.role || "").toLowerCase() === "guest";
 }
 
@@ -138,7 +138,9 @@ export async function audienceOf(db, orgId, key) {
 }
 
 export async function isPrivate(db, orgId, slug) {
-  const row = await db.prepare("SELECT private FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).first().catch(() => null);
+  // Unknown permissions are not public permissions. Propagate read failures
+  // so request handlers stop and background deliveries retry without content.
+  const row = await db.prepare("SELECT private FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).first();
   return Boolean(row?.private);
 }
 
