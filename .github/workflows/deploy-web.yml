@@ -28,6 +28,7 @@ on:
       - "packages/**"
       - ".github/workflows/deploy-web.yml"
       - ".github/scripts/attach-pages-domain.sh"
+      - ".github/scripts/worker-dependency.cjs"
   workflow_dispatch:
     inputs:
       api_host:
@@ -111,18 +112,14 @@ jobs:
           WORKER_REVISION: ${{ steps.backend.outputs.revision }}
         with:
           script: |
+            const { workerDependency } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/worker-dependency.cjs`);
             const revision = process.env.WORKER_REVISION;
+            const ancestry = new Map();
             const deadline = Date.now() + 60 * 60 * 1000;
             while (Date.now() < deadline) {
-              const { data } = await github.rest.actions.listWorkflowRuns({
-                ...context.repo, workflow_id: 'deploy-worker.yml',
-                head_sha: revision, event: 'push', per_page: 100,
-              });
-              const run = data.workflow_runs
-                .filter(r => r.head_sha === revision && r.head_branch === 'main')
-                .sort((a, b) => b.id - a.id)[0];
-              if (run?.status === 'completed') {
-                if (run.conclusion !== 'success') {
+              const { state, run } = await workerDependency({ github, repo: context.repo, revision, ancestry });
+              if (state !== 'pending') {
+                if (state === 'failed') {
                   core.setFailed(`Worker deployment ${run.html_url} ended with ${run.conclusion}; Web remains unchanged.`);
                 } else {
                   core.info(`Worker is ready: ${run.html_url}`);

@@ -23,6 +23,8 @@ jobs:
         with:
           node-version: "22"
       - run: node --test gateway/test/*.test.mjs
+      - name: Web and Worker release dependency checks
+        run: node --test .github/scripts/worker-dependency.test.cjs
 
   # The Worker suite runs against real workerd, so a pass here means the relay,
   # the gate and the connectors behave the way they will in production — not the
