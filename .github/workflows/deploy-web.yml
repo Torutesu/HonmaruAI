@@ -101,7 +101,10 @@ jobs:
           [ -n "$revision" ] || { echo "::error::Cannot identify the Worker dependency."; exit 1; }
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
 
+      # A previous Worker release can be ahead in the serialized queue.
+      # Allow both test/migration runs without deploying an unready backend.
       - name: Wait for the matching Worker deployment
+        timeout-minutes: 65
         if: github.event_name == 'push'
         uses: actions/github-script@v7
         env:
@@ -109,7 +112,7 @@ jobs:
         with:
           script: |
             const revision = process.env.WORKER_REVISION;
-            const deadline = Date.now() + 30 * 60 * 1000;
+            const deadline = Date.now() + 60 * 60 * 1000;
             while (Date.now() < deadline) {
               const { data } = await github.rest.actions.listWorkflowRuns({
                 ...context.repo, workflow_id: 'deploy-worker.yml',
