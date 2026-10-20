@@ -618,3 +618,13 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 @media(max-width:1100px) {
  :root .shell.harness-workspace .hx-thread-references.slk-pane { position:absolute; inset:6px; width:auto; z-index:36; margin:0; }
 }
+.hx-thread-search.dialog { width:min(680px,100%); }
+.hx-thread-search form { display:flex; gap:8px; margin-bottom:16px; }
+.hx-thread-search form label { display:flex; align-items:center; gap:8px; flex:1; min-width:0; }
+.hx-thread-search form input { flex:1; min-width:0; }
+.hx-thread-search-results { display:flex; flex-direction:column; gap:8px; }
+.hx-thread-search-results > button { padding:12px; text-align:left; border:1px solid var(--dlg-line); border-radius:10px; background:var(--dlg-bg); color:var(--dlg-ink); cursor:pointer; }
+.hx-thread-search-results > button:hover { background:var(--dlg-hover); }
+.hx-thread-search-results > button > span { display:flex; justify-content:space-between; gap:12px; font-size:12px; }
+.hx-thread-search-results time { color:var(--dlg-dim); font-size:11px; }
+.hx-thread-search-results p { white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; line-height:1.6; margin:8px 0 0; }
