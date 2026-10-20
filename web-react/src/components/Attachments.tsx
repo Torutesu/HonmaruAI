@@ -279,6 +279,17 @@ class DocumentPreviewBoundary extends React.Component<React.PropsWithChildren<{o
   render(){return this.state.failed?<p role="alert">プレビューを起動できませんでした。ファイルはダウンロードして確認できます。<button type="button" onClick={this.props.onClose}>閉じる</button></p>:this.props.children}
 }
 
+/// Reference lists keep their compact link layout and use the same reader.
+/// Modified clicks retain the browser's ordinary open/download behavior.
+export function FileReferenceLink({file,href,className,children}:{file:FileRef;href:string;className?:string;children:React.ReactNode}){
+  const [open,setOpen]=useState(false)
+  return <><a href={href} className={className} target="_blank" rel="noopener noreferrer" onClick={event=>{
+    if(documentKind(file.type,file.name)&&!event.metaKey&&!event.ctrlKey&&!event.shiftKey&&!event.altKey&&event.button===0){event.preventDefault();setOpen(true)}
+  }}>{children}</a>
+   {open&&<DocumentPreviewBoundary onClose={()=>setOpen(false)}><Suspense fallback={<p role="status">プレビューを準備しています…</p>}><DocumentPreview file={file} href={href} onClose={()=>setOpen(false)}/></Suspense></DocumentPreviewBoundary>}
+  </>
+}
+
 /// What a player says went wrong, as the browser numbers it (MediaError):
 /// the connection went while it was playing, the bytes would not decode, or
 /// nothing at the address is a thing this browser plays.
