@@ -3219,6 +3219,17 @@ await step('PDF and CSV attachments preview and search inside the app', async ()
     await desk.waitForSelector('.document-tools [role="status"]:has-text("2 / 2")')
     if (await desk.evaluate(() => Boolean(window.previewInjected))) throw new Error('CSV executed document markup')
     await desk.screenshot({ path: `${SHOTS}/document-csv-search.png` })
+    await desk.click('.document-preview button:has-text("ファイルの会話")')
+    await desk.waitForSelector('.slk-thread-pane:has-text("preview.csv")', { timeout: 15000 })
+    const fileThreadHash = new URL(desk.url()).hash
+    if (!fileThreadHash.startsWith('#/t/file-thread-f_')) throw new Error('the file did not open its own persistent thread')
+    await desk.reload()
+    await desk.waitForSelector('.slk-thread-pane:has-text("preview.csv")', { timeout: 20000 })
+    if (new URL(desk.url()).hash !== fileThreadHash) throw new Error('the file conversation changed after reload')
+    await desk.screenshot({ path: `${SHOTS}/document-file-conversation.png` })
+    await desk.click('.slk-thread-pane .slk-back.pane')
+    await desk.waitForSelector('.slk-thread-pane', { state: 'hidden' })
+    if (new URL(desk.url()).hash !== '#/list') throw new Error('closing the file conversation left a stale deep link')
   } finally { await desk.close() }
 })
 

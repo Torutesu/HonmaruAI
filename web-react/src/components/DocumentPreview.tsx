@@ -4,6 +4,7 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type {FileRef} from '../types/card'
 import {Dialog} from './Dialog'
 import {Icon} from './Icon'
+import {FileConversationButton} from './FileConversationButton'
 import {documentBytes,documentKind,csvRows,documentMatches,pdfTextRuns} from '../utils/documentPreview'
 import {downloadUrl} from '../utils/media'
 import './DocumentPreview.css'
@@ -31,7 +32,7 @@ export default function DocumentPreview({file,href,onClose}:{file:FileRef;href:s
  },[scope,kind,attempt])
  const bytes=loaded?.scope===scope?loaded.bytes:null
  return <Dialog title={file.name} className="document-preview" onClose={onClose}
-  footer={<a href={downloadUrl(href)} target="_blank" rel="noopener noreferrer"><Icon name="download" size={16}/>ダウンロード</a>}>
+  footer={<><FileConversationButton fileId={file.id} onOpen={onClose}/><a href={downloadUrl(href)} target="_blank" rel="noopener noreferrer"><Icon name="download" size={16}/>ダウンロード</a></>}>
   {error?<p role="alert">{error}<button type="button" onClick={()=>setAttempt(n=>n+1)}>再試行</button></p>
    :bytes?kind==='pdf'?<PdfDocument key={`${scope}:${attempt}`} bytes={bytes}/>:<TextDocument bytes={bytes} csv={kind==='csv'}/>
    :<p role="status">ファイルを読み込んでいます…</p>}

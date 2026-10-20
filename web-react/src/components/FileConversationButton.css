@@ -1,0 +1,4 @@
+.file-conversation-control{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.file-conversation-control button{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--bone,#888);border-radius:7px;background:transparent;color:inherit;padding:7px 10px;font:inherit;cursor:pointer}
+.file-conversation-control button:disabled{opacity:.6;cursor:wait}
+.file-conversation-control [role=alert]{max-width:320px;font-size:12px}

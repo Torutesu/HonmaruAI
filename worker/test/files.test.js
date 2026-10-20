@@ -68,6 +68,39 @@ beforeEach(async () => {
 });
 afterEach(() => fetchMock.assertNoPendingInterceptors());
 
+const fileThread = (token, fileId, method = "GET") => call(
+  method === "GET" ? `/channels/files/conversation?${q({orgId: ORG,fileId})}` : "/channels/files/conversation",
+  { method, headers: auth(token, {"content-type":"application/json"}),
+    ...(method === "POST" ? {body:JSON.stringify({orgId:ORG,fileId})} : {}) },
+);
+test("sent files each keep one shared conversation; reads do not create it", async () => {
+  const a = (await (await upload(mika,"b:cafe")).json()).file;
+  const b = (await (await upload(mika,"b:cafe")).json()).file;
+  expect((await fileThread(mika,a.id,"POST")).status).toBe(404);
+  await say(mika,"b:cafe","Two files",[a.id,b.id]);
+  expect(await (await fileThread(toru,a.id)).json()).toMatchObject({threadId:null});
+  const opened = await Promise.all([toru,mika,kenji].map(async token => (await fileThread(token,a.id,"POST")).json()));
+  expect(new Set(opened.map(x=>x.threadId)).size).toBe(1);
+  expect(opened[0].threadId).toBeTruthy();
+  const other = await (await fileThread(toru,b.id,"POST")).json();
+  expect(other.threadId).not.toBe(opened[0].threadId);
+  expect((await fileThread(outsider,a.id)).status).toBe(403);
+  const count = await env.DB.prepare("SELECT count(*) AS n FROM channel_messages WHERE org_id=? AND id=?").bind(ORG,opened[0].threadId).first();
+  expect(count.n).toBe(1);
+});
+test("file conversations enforce the source DM's access and do not revive deleted threads", async () => {
+  const channel=`dm:${refs.Mika}`;
+  const file=(await (await upload(toru,channel)).json()).file;
+  await say(toru,channel,"Private file",[file.id]);
+  expect((await fileThread(kenji,file.id,"POST")).status).toBe(404);
+  const opened=await (await fileThread(mika,file.id,"POST")).json();
+  expect(opened.threadId).toBeTruthy();
+  await env.DB.prepare("UPDATE channel_messages SET deleted_at=? WHERE id=?").bind(new Date().toISOString(),opened.threadId).run();
+  expect((await fileThread(toru,file.id,"POST")).status).toBe(410);
+  await env.DB.prepare("UPDATE channel_messages SET deleted_at=? WHERE id=(SELECT message_id FROM message_files WHERE id=?)").bind(new Date().toISOString(),file.id).run();
+  expect((await fileThread(toru,file.id)).status).toBe(404);
+});
+
 test("a picture goes up, rides a message, and everyone in the channel can see it", async () => {
   const up = await upload(mika, "b:cafe");
   expect(up.status).toBe(201);

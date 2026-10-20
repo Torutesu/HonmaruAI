@@ -10,6 +10,8 @@ function browser(start = '#/list') {
   const h = {
     get state() { return entries[at].state },
     pushState(data: unknown) { entries.splice(at + 1); entries.push({ hash: entries[at].hash, state: data }); at += 1 },
+    replaceState(data: unknown) { entries[at].state = data },
+    replaceAddress(hash: string) { entries[at].hash = hash },
     go(delta: number) { at = Math.max(0, Math.min(entries.length - 1, at + delta)); pops.push(entries[at].state) },
     navigate(hash: string) { entries.splice(at + 1); entries.push({ hash, state: null }); at += 1; pops.push(null) },
     back() { h.go(-1) },
@@ -21,6 +23,18 @@ function browser(start = '#/list') {
 }
 
 describe('Back in the list', () => {
+  it('closing an object URL does not traverse back into that object through inherited depth markers', () => {
+    const b = browser('#/t/file-thread-f_123')
+    const stack = new BackStack(b, () => b.hash)
+    stack.sync(2)
+    b.replaceAddress('#/list')
+    stack.sync(1)
+    expect(b.hash).toBe('#/list')
+    expect(b.take()).toEqual([])
+    b.back()
+    expect(stack.popped(b.take()[0])).toBe(1)
+    expect(b.hash).toBe('#/list')
+  })
   it('closes the member list first, then the conversation, and only then leaves the list', () => {
     const b = browser()
     const stack = new BackStack(b, () => b.hash)

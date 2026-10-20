@@ -15,6 +15,7 @@ import { useEffect, useRef } from 'react'
 export interface HistoryLike {
   readonly state: unknown
   pushState(data: unknown, unused: string): void
+  replaceState(data: unknown, unused: string): void
   go(delta: number): void
 }
 
@@ -42,6 +43,13 @@ export class BackStack {
     // own link rather than Back): this entry is the base from here on.
     // (Not while our own step back is still on its way.)
     if (this.skip === 0 && (this.where() !== this.hash || this.depthOf(this.history.state) !== this.pushed)) {
+      // Replacing an object URL (for example closing a file conversation)
+      // can retain our old depth marker. Those entries belong to the old
+      // address: stepping back through them would restore the closed object.
+      if (this.where() !== this.hash && this.depthOf(this.history.state) > 0) {
+        const { hmStack: _stack, hmDepth: _depth, ...rest } = (this.history.state || {}) as Mark
+        this.history.replaceState(rest, '')
+      }
       this.hash = this.where()
       this.pushed = this.depthOf(this.history.state)
     }
