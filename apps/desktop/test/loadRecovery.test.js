@@ -119,3 +119,22 @@ it.each(['visible', 'failed', 'navigated', 'destroyed'])('does not mistake %s co
   expect(inspect).toHaveBeenCalledOnce()
   expect(ask).not.toHaveBeenCalled()
 })
+
+it('records only bounded error categories and HTTP status, never private console data', () => {
+  const contents = new EventEmitter(), record = vi.fn()
+  contents.mainFrame = {}
+  installLoadRecovery(contents, { record, ask: vi.fn(), retry: vi.fn(), alive: () => true })
+  contents.emit('did-navigate', {}, 'https://private/?token=secret', 403, 'Private status')
+  contents.emit('did-navigate', {}, 'file:///private', -1)
+  contents.emit('console-message', { level: 'error', frame: contents.mainFrame, message: 'Failed to fetch dynamically imported module https://private/?token=secret' })
+  contents.emit('console-message', { level: 'error', frame: contents.mainFrame, message: 'Module script has invalid MIME type with private text' })
+  contents.emit('console-message', { level: 'info', message: 'private message' })
+  contents.emit('console-message', { level: 'error', frame: {}, message: 'iframe private error' })
+  contents.emit('preload-error', {}, '/private/path', new Error('secret'))
+  expect(record.mock.calls).toEqual([['response', 403], ['script-load-error', undefined], ['preload-error', undefined]])
+  contents.emit('did-start-navigation', {isMainFrame:true,isSameDocument:false})
+  contents.emit('console-message', {}, 3, 'Another module script failure: secret')
+  expect(record.mock.calls.filter(([name])=>name==='script-load-error')).toHaveLength(2)
+  contents.emit('destroyed')
+  expect(JSON.stringify(record.mock.calls)).not.toMatch(/private|secret/)
+})

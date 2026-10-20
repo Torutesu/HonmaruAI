@@ -20,3 +20,16 @@ it('does not fail loading when local diagnostic storage is unavailable or corrup
  expect(()=>createLoadDiagnostics(target,'test')('start')).not.toThrow()
  expect(()=>createLoadDiagnostics(path.join(target,'missing'),'test')('start')).not.toThrow()
 })
+it('persists only classified response and script events across restarts',()=>{
+ const target=file(),record=createLoadDiagnostics(target,'next')
+ record('response',403)
+ record('preload-error')
+ record('script-load-error')
+ record('script-error')
+ createLoadDiagnostics(target,'next')('start')
+ const events=JSON.parse(readFileSync(target,'utf8'))
+ expect(events.map(({event,code})=>({event,...(code===undefined?{}:{code})}))).toEqual([
+  {event:'response',code:403},{event:'preload-error'},{event:'script-load-error'},{event:'script-error'},{event:'start'},
+ ])
+ expect(events.every(event=>Object.keys(event).every(key=>['at','version','event','code'].includes(key)))).toBe(true)
+})

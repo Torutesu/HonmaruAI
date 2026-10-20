@@ -3,6 +3,22 @@
 export function installLoadRecovery(contents, { ask, retry, alive, timeoutMs = 30000, record = () => {}, hasContent }) {
   const note = (event, code) => { try { record(event, code) } catch {} }
   for (const [event, label] of [['did-start-loading','start'],['did-stop-loading','stop'],['dom-ready','dom'],['unresponsive','unresponsive'],['render-process-gone','gone']]) contents.on(event, () => note(label))
+  const reported = new Set()
+  contents.on('did-navigate', (_event, _url, status) => {
+    if (Number.isInteger(status) && status >= 100 && status <= 599) note('response', status)
+  })
+  contents.on('preload-error', () => note('preload-error'))
+  contents.on('console-message', (details, legacyLevel, legacyMessage) => {
+    const level = details?.level ?? (legacyLevel === 3 ? 'error' : undefined)
+    if (level !== 'error') return
+    if (details?.frame && contents.mainFrame && details.frame !== contents.mainFrame) return
+    const message = typeof details?.message === 'string' ? details.message : legacyMessage
+    if (typeof message !== 'string') return
+    // Classify in memory only. Never persist the message/source URL, which
+    // may contain session data, application inputs or third-party content.
+    const event = /dynamically imported module|module script|MIME type|ChunkLoadError/i.test(message.slice(0, 2000)) ? 'script-load-error' : 'script-error'
+    if (!reported.has(event)) { reported.add(event); note(event) }
+  })
   let generation = 0
   let asking = false
   let timer
@@ -26,6 +42,7 @@ export function installLoadRecovery(contents, { ask, retry, alive, timeoutMs = 3
   contents.on('did-start-navigation', (details) => {
     if (!details.isMainFrame || details.isSameDocument) return
     note('navigate')
+    reported.clear()
     generation += 1
     clear()
     // A stalled main-frame request need not emit did-fail-load. Never reload
