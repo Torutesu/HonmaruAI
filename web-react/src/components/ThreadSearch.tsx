@@ -1,40 +1,57 @@
 import React,{useEffect,useRef,useState} from 'react'
 import type {ChannelMessage} from '../types/card'
-import {Dialog} from './Dialog'
 import {Icon} from './Icon'
-import {previewText} from '../utils/messageKeys'
 type Api={httpBase:string;orgId:string;sessionToken:string}
 export function ThreadSearch({api,channel,threadId,onClose,onSelect}:{api:Api;channel:string;threadId:string;onClose:()=>void;onSelect:(message:ChannelMessage)=>void}){
- const [query,setQuery]=useState(''),[messages,setMessages]=useState<ChannelMessage[]>([]),[cursor,setCursor]=useState<string|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(false),[searched,setSearched]=useState(false)
- const request=useRef<AbortController|null>(null),generation=useRef(0)
- const cancel=()=>{generation.current++;request.current?.abort();request.current=null}
- useEffect(()=>()=>cancel(),[])
- const load=async(before:string|null)=>{
-  cancel()
-  const text=query.trim();if(!text)return
-  const current=generation.current,controller=new AbortController();request.current=controller
-  setBusy(true);setError(false);setSearched(true)
-  if(!before){setMessages([]);setCursor(null)}
-  const timer=setTimeout(()=>controller.abort(),15000)
-  try{
-   const params=new URLSearchParams({orgId:api.orgId,channel,messageId:threadId,q:text});if(before)params.set('before',before)
-   const response=await fetch(`${api.httpBase}/channels/thread/search?${params}`,{headers:{'x-session-token':api.sessionToken},signal:controller.signal})
-   if(!response.ok)throw new Error('search')
-   const data=await response.json()
-   if(current!==generation.current)return
-   setMessages(previous=>before?[...new Map([...previous,...data.messages].map((m:ChannelMessage)=>[m.id,m])).values()]:data.messages)
-   setCursor(data.nextCursor)
-  }catch{if(current===generation.current)setError(true)}
-  finally{clearTimeout(timer);if(current===generation.current)setBusy(false)}
- }
- return <Dialog title="スレッド内を検索" lede="このスレッドのメッセージと返信を検索します。" onClose={onClose} className="hx-thread-search">
-  <form onSubmit={event=>{event.preventDefault();void load(null)}}><label><Icon name="search" size={18}/><input autoFocus aria-label="スレッド内の検索語" maxLength={200} value={query} onChange={event=>{cancel();setQuery(event.target.value);setMessages([]);setCursor(null);setBusy(false);setSearched(false);setError(false)}} placeholder="検索語を入力"/></label><button type="submit" disabled={busy||!query.trim()}>検索</button></form>
-  <div className="hx-thread-search-results">
-   {messages.map(message=><button type="button" key={message.id} onClick={()=>onSelect(message)}><span><strong>{message.authorName||(message.kind==='ai'?'AI':'メンバー')}</strong><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleString()}</time></span><p>{previewText(message.body).replace(/\[([^\]]+)\]\([^)]+\)/g,'$1')}</p></button>)}
-   {busy&&<p role="status">検索しています…</p>}
-   {error&&<p role="alert">検索できませんでした。<button type="button" onClick={()=>void load(cursor)}>再試行</button></p>}
-   {searched&&!busy&&!error&&!messages.length&&<p role="status">一致するメッセージはありません。</p>}
-   {cursor&&!busy&&!error&&<button type="button" onClick={()=>void load(cursor)}>さらに表示</button>}
-  </div>
- </Dialog>
+ const [query,setQuery]=useState(''),[messages,setMessages]=useState<ChannelMessage[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState(false),[index,setIndex]=useState(0),[retry,setRetry]=useState(0)
+ const host=useRef<HTMLDivElement>(null),select=useRef(onSelect);select.current=onSelect
+ useEffect(()=>{
+  const controller=new AbortController();let live=true
+  setMessages([]);setIndex(0);setError(false);setBusy(!!query.trim())
+  if(!query.trim())return
+  const timer=setTimeout(()=>{void(async()=>{
+   let cursor:string|null=null;const found=new Map<string,ChannelMessage>()
+   do{
+    const params=new URLSearchParams({orgId:api.orgId,channel,messageId:threadId,q:query.trim()});if(cursor)params.set('before',cursor)
+    const timeout=setTimeout(()=>controller.abort(),15000)
+    try{
+     const response=await fetch(`${api.httpBase}/channels/thread/search?${params}`,{headers:{'x-session-token':api.sessionToken},signal:controller.signal})
+     if(!response.ok)throw new Error('search')
+     const data=await response.json();if(!live)return
+     data.messages.forEach((m:ChannelMessage)=>found.set(m.id,m))
+     if(cursor&&cursor===data.nextCursor)throw new Error('cursor')
+     cursor=data.nextCursor
+    }finally{clearTimeout(timeout)}
+   }while(cursor)
+   if(live){const result=[...found.values()];setMessages(result);if(result[0])select.current(result[0])}
+  })().catch(()=>{if(live)setError(true)}).finally(()=>{if(live)setBusy(false)})},250)
+  return()=>{live=false;clearTimeout(timer);controller.abort()}
+ },[api.httpBase,api.orgId,api.sessionToken,channel,threadId,query,retry])
+ useEffect(()=>{
+  if(typeof CSS==='undefined'||typeof window==='undefined')return
+  const registry=(CSS as any).highlights,HighlightClass=(window as any).Highlight
+  if(!registry||!HighlightClass)return
+  const pane=host.current?.closest('.slk-thread-pane');if(!pane)return
+  const paint=()=>{
+   const ranges:Range[]=[],needle=query.trim().toLocaleLowerCase()
+   if(needle)for(const body of pane.querySelectorAll('.slk-thread-log .slk-text')){
+    const walker=document.createTreeWalker(body,NodeFilter.SHOW_TEXT);let node:Node|null
+    while((node=walker.nextNode())){const text=node.textContent?.toLocaleLowerCase()||'';let at=0
+     while((at=text.indexOf(needle,at))>=0){const range=document.createRange();range.setStart(node,at);range.setEnd(node,at+needle.length);ranges.push(range);at+=needle.length}
+    }
+   }
+   registry.set('thread-search',new HighlightClass(...ranges))
+  }
+  paint();const observer=new MutationObserver(paint);observer.observe(pane,{childList:true,subtree:true,characterData:true})
+  return()=>{observer.disconnect();registry.delete('thread-search')}
+ },[query])
+ const move=(delta:number)=>{if(!messages.length)return;const next=(index+delta+messages.length)%messages.length;setIndex(next);select.current(messages[next])}
+ return <div ref={host} className="hx-thread-search-bar" role="search" aria-label="スレッド内を検索" onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();onClose()}else if(event.key==='Enter'&&!event.nativeEvent.isComposing){event.preventDefault();move(event.shiftKey?-1:1)}}}>
+  <Icon name="search" size={16}/><input autoFocus aria-label="スレッド内の検索語" maxLength={200} placeholder="検索" value={query} onChange={event=>setQuery(event.target.value)}/>
+  <span role="status">{busy?'検索中':error?'取得失敗':query.trim()?`${messages.length?index+1:0} / ${messages.length}`:''}</span>
+  {error&&<button type="button" aria-label="検索を再試行" onClick={()=>setRetry(n=>n+1)}><Icon name="repeat" size={14}/></button>}
+  <button type="button" aria-label="前の結果へ" disabled={busy||!messages.length} onClick={()=>move(1)}><Icon name="arrow-up" size={14}/></button>
+  <button type="button" aria-label="新しい結果へ" disabled={busy||!messages.length} onClick={()=>move(-1)}><Icon name="arrow-down" size={14}/></button>
+  <button type="button" aria-label="検索を閉じる" onClick={onClose}><Icon name="x" size={14}/></button>
+ </div>
 }
