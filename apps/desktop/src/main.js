@@ -22,6 +22,7 @@ import { countFromTitle, shouldAttract, trayTooltip } from './badge.js'
 import { fitBounds, loadWindowState, saveWindowState, MIN_SIZE } from './windowState.js'
 import { crashVerdict } from './crashes.js'
 import { installLoadRecovery } from './loadRecovery.js'
+import { createLoadDiagnostics } from './loadDiagnostics.js'
 import { startUpdates } from './updates.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -346,6 +347,7 @@ function createWindow() {
   })
   const loadingWindow = win
   installLoadRecovery(loadingWindow.webContents, {
+    record: createLoadDiagnostics(path.join(app.getPath('userData'), 'load-diagnostics.json'), app.getVersion()),
     alive: () => !loadingWindow.isDestroyed(),
     retry: () => loadingWindow.loadURL(APP_URL),
     ask: async (code) => {
