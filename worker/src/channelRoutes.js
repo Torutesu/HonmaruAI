@@ -1416,6 +1416,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     }
     const result = await fileConversation(env.DB, { orgId: input.orgId, file, login: who.user.login, create: request.method === "POST" });
     if (result.error) return json({ message: result.error }, result.status);
+    // Reuse the normal per-channel delivery rules. Re-opening also repairs a
+    // missed relay event; clients replace messages by their stable ID.
+    if (request.method === "POST" && result.row) await broadcast(env, input.orgId, resolved, result.row, members);
     return json({ fileId: file.id, threadId: result.threadId, view });
   }
 
