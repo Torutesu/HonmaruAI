@@ -310,3 +310,12 @@ test("thread pins recheck private-room access and workspace membership on every 
   await renameThread(toru,root.id,"Updated thread name",0);
   expect((await (await call(`/channels/thread-pins?orgId=${encodeURIComponent(ORG)}`,toru)).json()).pins[0].title).toBe("Updated thread name");
 });
+
+
+test("unsending a root removes every user's home pin atomically", async () => {
+  const root = await say(toru, "Disposable pinned root");
+  for (const token of [toru,mika]) expect((await call("/channels/thread-pins",token,{method:"PUT",body:{orgId:ORG,messageId:root.id,pinned:true}})).status).toBe(200);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_thread_pins WHERE message_id=?").bind(root.id).first()).n).toBe(2);
+  expect((await call("/channels/messages",toru,{method:"DELETE",body:{orgId:ORG,channel:"b:cafe",messageId:root.id}})).status).toBe(200);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_thread_pins WHERE message_id=?").bind(root.id).first()).n).toBe(0);
+});
