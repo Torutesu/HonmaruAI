@@ -44,7 +44,7 @@ test('file import is reviewed and saved privately through the caller before expl
  const save=vi.fn().mockResolvedValue(undefined),toggle=vi.fn()
  act(()=>{tree=create(<AgentSkillCatalog skills={[]} installed={[]} canEdit onToggle={toggle} onPreviewImport={preview} onSaveImport={save}/>,{createNodeMock:nodes})})
  act(()=>tree.root.findAllByType('button').find(n=>n.children.includes('Add skills'))!.props.onClick())
- await act(async()=>{tree.root.findByProps({type:'file'}).props.onChange({target:{files:[{name:'SKILL.md',size:100,text:async()=> 'markdown'}],value:'file'}})})
+ await act(async()=>{tree.root.findByProps({type:'file',accept:'.md,.zip,text/markdown,application/zip'}).props.onChange({target:{files:[{name:'SKILL.md',size:100,text:async()=> 'markdown'}],value:'file'}})})
  expect(preview).toHaveBeenCalledWith('markdown');expect(save).not.toHaveBeenCalled();expect(toggle).not.toHaveBeenCalled()
  expect(JSON.stringify(tree.toJSON())).toContain('Instructions')
  await act(async()=>{tree.root.findAllByType('button').find(n=>n.children.includes('Save'))!.props.onClick()})
@@ -59,8 +59,8 @@ test('invalid files do not reach the server and a failed save retains the review
  const save=vi.fn().mockRejectedValueOnce(new Error('Network unavailable')).mockResolvedValue(undefined)
  act(()=>{tree=create(<AgentSkillCatalog skills={[]} installed={[]} canEdit onToggle={vi.fn()} onPreviewImport={preview} onSaveImport={save}/>,{createNodeMock:nodes})})
  act(()=>tree.root.findAllByType('button').find(n=>n.children.includes('Add skills'))!.props.onClick())
- const choose=async(name:string,size:number)=>{await act(async()=>{tree.root.findByProps({type:'file'}).props.onChange({target:{files:[{name,size,text:async()=> 'markdown'}],value:'file'}})})}
- await choose('archive.zip',100);await choose('SKILL.md',65537)
+ const choose=async(name:string,size:number)=>{await act(async()=>{tree.root.findByProps({type:'file',accept:'.md,.zip,text/markdown,application/zip'}).props.onChange({target:{files:[{name,size,text:async()=> 'markdown'}],value:'file'}})})}
+ await choose('archive.exe',100);await choose('SKILL.md',65537)
  expect(preview).not.toHaveBeenCalled()
  await choose('SKILL.md',100)
  const saveButton=()=>tree.root.findAllByType('button').find(n=>n.children.includes('Save'))!
@@ -84,5 +84,20 @@ test('creator names display and search without exposing the internal ID as the l
  act(()=>dialog.findAllByProps({role:'tab'})[1].props.onClick())
  act(()=>dialog.findByType('input').props.onChange({target:{value:'MIKA'}}))
  expect(dialog.findAllByType('strong').map(n=>n.children.join(''))).toEqual(['Report'])
+ act(()=>tree.unmount())
+})
+
+test('folder import reviews file names and saves exact assets without automatic installation',async()=>{
+ let tree!:ReturnType<typeof create>
+ const draft={name:'Package',description:'Report',body:'Read assets/image.bin',files:[{path:'assets/image.bin',size:3,base64:'AP+A'}]}
+ const preview=vi.fn().mockResolvedValue(draft),save=vi.fn().mockResolvedValue(undefined),toggle=vi.fn()
+ act(()=>{tree=create(<AgentSkillCatalog skills={[]} installed={[]} canEdit onToggle={toggle} onPreviewImport={preview} onSaveImport={save}/>,{createNodeMock:nodes})})
+ act(()=>tree.root.findAllByType('button').find(n=>n.children.includes('Add skills'))!.props.onClick())
+ await act(async()=>{tree.root.findByProps({'aria-label':'Skill folder'}).props.onChange({target:{files:[{name:'image.bin',webkitRelativePath:'package/assets/image.bin',size:3,arrayBuffer:async()=>new Uint8Array([0,255,128]).buffer}],value:'folder'}})})
+ expect(preview).toHaveBeenCalledWith({files:[{path:'package/assets/image.bin',base64:'AP+A'}]})
+ expect(JSON.stringify(tree.root.findByProps({'aria-label':'Support files'}).children.map(n=>typeof n==='string'?n:n.props.children))).toContain('assets/image.bin')
+ expect(save).not.toHaveBeenCalled()
+ await act(async()=>{tree.root.findAllByType('button').find(n=>n.children.includes('Save'))!.props.onClick()})
+ expect(save).toHaveBeenCalledWith(draft);expect(toggle).not.toHaveBeenCalled()
  act(()=>tree.unmount())
 })

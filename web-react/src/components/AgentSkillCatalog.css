@@ -37,3 +37,4 @@
 .hx-skill-import-review > div { display:flex; justify-content:flex-end; gap:8px; }
 .hx-skill-menu > button { min-width:160px; border-radius:14px; padding:10px 12px; font:inherit; font-size:12px; }
 .hx-skill-menu summary:focus-visible { outline:2px solid currentColor; outline-offset:3px; border-radius:5px; }
+.hx-skill-import-review ul { margin:10px 0; padding-left:18px; font-size:12px; line-height:1.6; overflow-wrap:anywhere; }

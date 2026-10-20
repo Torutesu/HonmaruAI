@@ -1,3 +1,6 @@
+export interface SkillFile { path: string; base64: string; size?: number }
+export type SkillDraft = Pick<Skill, 'name' | 'description' | 'body' | 'metadata'> & { files?: SkillFile[] }
+export type SkillImportInput = string | { zipBase64: string } | { files: SkillFile[] }
 export interface AppMessage { id:number; authorId:string; authorName:string; body:string; createdAt:string }
 export interface AppConversation { threadId:string; messages:AppMessage[]; hasMore:boolean; source?:{channel:string;threadId:string;messages:Array<{id:string;body:string;authorName?:string;kind?:string;createdAt:string}>}|null; aiReplies?:Array<{messageId:number;status:string;error?:string}> }
 export interface PersonalViews { activeView?: string; revision: number; views: View[]; computed: View[]; layouts: Record<string, {order:string[];widths:Record<string,number>;hidden?:string[];wrapText?:boolean}> }
@@ -167,10 +170,15 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     }>('GET', '/approvals'),
 
     skills: () => call<{ skills: Skill[] }>('GET', '/skills'),
-    previewSkillImport: (markdown: string) => call<{ draft: Pick<Skill, 'name' | 'description' | 'body' | 'metadata'> }>('POST', '/skills/preview-import', { markdown }),
+    previewSkillImport: (input: SkillImportInput) => call<{ draft: SkillDraft }>('POST', '/skills/preview-import', typeof input === 'string' ? { markdown: input } : input),
+    exportSkillPackage: async (id: string) => {
+      const response = await fetch(withOrg(`/skills/${encodeURIComponent(id)}/export`, { format: 'zip' }), { headers })
+      if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.message || `${response.status}`) }
+      return response.blob()
+    },
     exportSkill: (id: string) => call<{ filename: string; markdown: string }>('GET', `/skills/${id}/export`),
     setSkillAccess: (id: string, visibility: 'workspace' | 'private', version: number) => call('PUT', `/skills/${id}/access`, { visibility, version }),
-    createSkill: (s: { name: string; description?: string; body: string; metadata?: Record<string, unknown>; visibility?: 'workspace' | 'private' }) => call<{ skill: Skill }>('POST', '/skills', s),
+    createSkill: (s: { files?: SkillFile[]; name: string; description?: string; body: string; metadata?: Record<string, unknown>; visibility?: 'workspace' | 'private' }) => call<{ skill: Skill }>('POST', '/skills', s),
     updateSkill: (id: string, s: Partial<Skill>) => call<{ skill: Skill }>('PUT', `/skills/${id}`, s as Record<string, unknown>),
     deleteSkill: (id: string) => call<{ deleted: boolean }>('DELETE', `/skills/${id}`),
 

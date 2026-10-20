@@ -1,3 +1,5 @@
+import { writeSkillZip, parseSkillZip } from '../src/harness/skillZip.js';
+import { encodeSkillBytes } from '../src/harness/skillFiles.js';
 import { env } from 'cloudflare:test';
 import { beforeEach, expect, test } from 'vitest';
 import worker from '../src/index.js';
@@ -7,7 +9,7 @@ import { createSkill, executionSkills, getSkill } from '../src/harness/skills.js
 
 const orgId = 'skills-access';
 let owner, member, admin, agentId;
-const request = (method, path, token, body) => worker.fetch(new Request(`https://example.com${path}${method === 'GET' || method === 'DELETE' ? `?orgId=${orgId}` : ''}`, {
+const request = (method, path, token, body) => worker.fetch(new Request(`https://example.com${path}${method === 'GET' || method === 'DELETE' ? `${path.includes('?') ? '&' : '?'}orgId=${orgId}` : ''}`, {
   method, headers: { 'x-session-token': token, 'content-type': 'application/json' },
   ...(['GET', 'DELETE'].includes(method) ? {} : { body: JSON.stringify({ orgId, ...body }) }),
 }), env, { waitUntil() {} });
@@ -223,4 +225,35 @@ test('installed support files are paged and recheck access for every read', asyn
   expect(await read({skill_id:skill.id,path:'../template.txt',offset:0})).toBe('Skill file unavailable.');
   await env.DB.prepare('DELETE FROM hx_agent_skills WHERE org_id=?1 AND agent_id=?2').bind(orgId,agentId).run();
   expect(await read({skill_id:skill.id,path:'template.txt',offset:12000})).toBe('Installed skill unavailable.');
+});
+
+
+test('ZIP and folder preview preserve binary assets without saving; private export round-trips', async () => {
+  const entries = [{path:'SKILL.md',bytes:new TextEncoder().encode('---\nname: package\ndescription: Reports\n---\nRead references/report.txt.')}, {path:'references/report.txt',bytes:new TextEncoder().encode('Report template')}, {path:'assets/pixel.bin',bytes:new Uint8Array([0,255,128,13,10])}];
+  const zipped=writeSkillZip(entries);
+  expect(zipped.error).toBeUndefined();
+  const preview=await request('POST','/skills/preview-import',owner,{zipBase64:encodeSkillBytes(zipped.bytes)});
+  expect(preview.status).toBe(200);
+  const {draft}=await preview.json();
+  const folder=await request('POST','/skills/preview-import',owner,{files:entries.map(f=>({path:'package/'+f.path,base64:encodeSkillBytes(f.bytes)}))});
+  expect((await folder.json()).draft).toEqual(draft);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills').first()).n).toBe(0);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skill_files').first()).n).toBe(0);
+  const saved=await request('POST','/skills',owner,{...draft,visibility:'private'});
+  expect(saved.status).toBe(201);
+  const {skill}=await saved.json();
+  const exported=await request('GET',`/skills/${skill.id}/export?format=zip`,owner);
+  expect(exported.status).toBe(200);
+  expect(exported.headers.get('content-type')).toBe('application/zip');
+  const parsed=parseSkillZip(new Uint8Array(await exported.arrayBuffer()));
+  expect(parsed.draft.name).toBe('package');
+  for(const file of entries.slice(1))expect(parsed.files.find(f=>f.path===file.path).bytes).toEqual(file.bytes);
+  expect((await request('GET',`/skills/${skill.id}/export?format=zip`,member)).status).toBe(404);
+});
+
+test('malformed or ambiguous package previews cannot create skills',async()=>{
+  for(const input of [{zipBase64:'broken'}, {files:[{path:'../SKILL.md',base64:btoa('bad')}]}, {markdown:'bad',files:[]}, {files:[]}]) {
+    expect((await request('POST','/skills/preview-import',owner,input)).status).toBe(400);
+  }
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills').first()).n).toBe(0);
 });

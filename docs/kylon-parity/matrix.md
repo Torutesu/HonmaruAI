@@ -63,7 +63,7 @@
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
 | KY-032 | スキル作成・編集・エージェントへの付与 | 一部 | P1 | [worker/src/harness/skills.js](../../worker/src/harness/skills.js) | 付与解除が次回の実行から反映し他エージェントは維持 |
-| KY-033 | SKILL.mdパッケージと補助ファイル | 一部・未配信 | P1 | [worker/src/harness/skills.js](../../worker/src/harness/skills.js) | 単体SKILL.mdのfrontmatter検証・確認後の個人用保存・エクスポート・エージェント追加画面の取り込みは統合ブランチで実装。ZIP・フォルダー・scripts/templatesの相対パス・安全な展開と実画面／本番検証は未完了 |
+| KY-033 | SKILL.mdパッケージと補助ファイル | 一部・未配信 | P1 | [worker/src/harness/skills.js](../../worker/src/harness/skills.js) | 統合ブランチでSKILL.md・ZIP・フォルダーの確認後取り込み、相対パス検証、サイズ制限、補助バイナリ保存、権限付きページ読み込み・ZIP再出力を実装。Web確認画面も接続。配信・実画面検証、補助ファイル編集は未完了 |
 | KY-034 | 必要時にスキル本文を読む | 未実装 | P1 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 全文注入を索引＋必要時読込みへ変更。prepareAgentの個別4000字制限は撤去済みだが、会話20000字・ワークフロー12000字・予約実行8000字の集約後切断が残る。全3経路・非ツール対応モデル・失効後再読込みを検証する |
 | KY-035 | 組み込みスキル群 | 一部 | P1 | [worker/src/agentPresets.js](../../worker/src/agentPresets.js) | アプリ開発・資料・調査・ブラウザ・データ作業を個別検証 |
 | KY-036 | private/publicと人間の所有者 | 一部 | P0 | [worker/src/harness/skills.js](../../worker/src/harness/skills.js) | 本文のprivate/workspace・所有者の共有変更・実行時隔離。パッケージ資産とgrantモデルは残る |

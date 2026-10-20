@@ -1,18 +1,18 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
-import type { Skill } from '../utils/harness'
+import { skillImportInput } from '../utils/skillImport'
+import type { Skill, SkillDraft, SkillImportInput } from '../utils/harness'
 import { useT } from '../utils/i18n'
 import { Icon } from './Icon'
 import { SkillActionsMenu } from './SkillActionsMenu'
 import './AgentSkillCatalog.css'
 
-type SkillDraft = Pick<Skill, 'name' | 'description' | 'body' | 'metadata'>
 
-export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPreviewImport, onSaveImport }: { onPreviewImport?: (markdown: string) => Promise<SkillDraft>; onSaveImport?: (draft: SkillDraft) => Promise<void>; skills: Skill[]; installed: Skill[]; canEdit: boolean; onToggle: (id: string, install: boolean) => Promise<void> }) {
+export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPreviewImport, onSaveImport }: { onPreviewImport?: (input: SkillImportInput) => Promise<SkillDraft>; onSaveImport?: (draft: SkillDraft) => Promise<void>; skills: Skill[]; installed: Skill[]; canEdit: boolean; onToggle: (id: string, install: boolean) => Promise<void> }) {
   const t = useT(), titleId = useId(), panelId = useId()
   const [open, setOpen] = useState(false), [query, setQuery] = useState(''), [tab, setTab] = useState<'available' | 'installed'>('available')
   const [busy, setBusy] = useState<string | null>(null), [error, setError] = useState('')
   const [draft, setDraft] = useState<SkillDraft | null>(null)
-  const fileInput = useRef<HTMLInputElement>(null)
+  const fileInput = useRef<HTMLInputElement>(null), folderInput = useRef<HTMLInputElement>(null)
   const pending = useRef(false), dialog = useRef<HTMLDialogElement>(null), trigger = useRef<HTMLButtonElement>(null)
   const has = new Set(installed.map(s => s.id))
   const available = skills.filter(s => !has.has(s.id))
@@ -30,12 +30,12 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
     try { await onToggle(id, install) } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { pending.current = false; setBusy(null) }
   }
-  const importFile = async (file: File) => {
+  const importFile = async (files: File[], folder = false) => {
     if (!canEdit || !onPreviewImport || pending.current) return
     pending.current = true; setBusy('import'); setError('')
     try {
-      if (!/\.md$/i.test(file.name) || file.size > 65536) throw new Error(t('Choose a SKILL.md file no larger than 64 KiB.'))
-      setDraft(await onPreviewImport(await file.text()))
+      setDraft(null)
+      setDraft(await onPreviewImport(await skillImportInput(files, folder, t)))
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { pending.current = false; setBusy(null) }
   }
@@ -57,13 +57,15 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
     <div className="hx-installed-skills">{installed.map(s => row(s))}{!installed.length && <p className="empty">{t('No skills installed for this agent.')}</p>}</div>
     {open && <dialog ref={dialog} className="hx-skill-dialog" aria-labelledby={titleId} onCancel={e => {e.preventDefault();close()}} onClick={e => {if(e.target === e.currentTarget) {const r=e.currentTarget.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close()}}}>
       <header><h2 id={titleId}>{t('Add skills')}</h2><button disabled={busy !== null} aria-label={t('Close')} onClick={close}><Icon name="x" size={18}/></button></header>
-      {canEdit && onPreviewImport && onSaveImport && <section className="hx-skill-import" onDragOver={e => e.preventDefault()} onDrop={e => {e.preventDefault();const file=e.dataTransfer.files[0];if(file)void importFile(file)}}>
-        <Icon name="file" size={22}/><div><strong>{t('Import a skill')}</strong><p>{t('Drop SKILL.md here or choose a file')}</p></div>
-        <input ref={fileInput} type="file" accept=".md,text/markdown" hidden aria-label={t('Skill file')} onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)void importFile(file)}}/>
+      {canEdit && onPreviewImport && onSaveImport && <section className="hx-skill-import" onDragOver={e => e.preventDefault()} onDrop={e => {e.preventDefault();const files=Array.from(e.dataTransfer.files);if(files.length)void importFile(files)}}>
+        <Icon name="file" size={22}/><div><strong>{t('Import a skill')}</strong><p>{t('Drop SKILL.md or ZIP here, or choose a folder')}</p></div>
+        <input ref={fileInput} type="file" accept=".md,.zip,text/markdown,application/zip" hidden aria-label={t('Skill file')} onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)void importFile([file])}}/>
+        <input ref={folderInput} type="file" multiple {...{ webkitdirectory: '' }} hidden aria-label={t('Skill folder')} onChange={e=>{const files=Array.from(e.target.files || []);e.target.value='';if(files.length)void importFile(files,true)}}/>
+        <button className="hx-skill-action" disabled={busy!==null} onClick={()=>folderInput.current?.click()}>{t('Choose folder')}</button>
         <button className="hx-skill-action" disabled={busy!==null} onClick={()=>fileInput.current?.click()}>{t('Choose file')}</button>
       </section>}
       {busy === 'import' && <p role="status">{t('Processing skill…')}</p>}
-      {draft && <section className="hx-skill-import-review" aria-label={t('Review skill import')}><strong>{draft.name}</strong><p>{draft.description}</p><pre>{draft.body}</pre><p>{t('Save as a private skill, then install it for this agent from the catalog.')}</p><div><button className="hx-skill-action" disabled={busy!==null} onClick={()=>setDraft(null)}>{t('Cancel')}</button><button className="hx-skill-action" disabled={busy!==null} onClick={()=>void saveImport()}>{t('Save')}</button></div></section>}
+      {draft && <section className="hx-skill-import-review" aria-label={t('Review skill import')}><strong>{draft.name}</strong><p>{draft.description}</p><pre>{draft.body}</pre>{!!draft.files?.length && <ul aria-label={t('Support files')}>{draft.files.map(file=><li key={file.path}>{file.path} · {file.size ?? 0} B</li>)}</ul>}<p>{t('Save as a private skill, then install it for this agent from the catalog.')}</p><div><button className="hx-skill-action" disabled={busy!==null} onClick={()=>setDraft(null)}>{t('Cancel')}</button><button className="hx-skill-action" disabled={busy!==null} onClick={()=>void saveImport()}>{t('Save')}</button></div></section>}
       <input type="search" autoFocus value={query} aria-label={t('Search skills by name, author or description')} placeholder={t('Search skills by name, author or description')} onChange={e => setQuery(e.target.value)}/>
       <div className="hx-skill-catalog-tabs" role="tablist" aria-label={t('Skills')}>
         {(['available','installed'] as const).map(key => <button key={key} role="tab" id={`${panelId}-${key}`} aria-controls={panelId} aria-selected={tab===key} tabIndex={tab===key?0:-1} onClick={()=>setTab(key)} onKeyDown={e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?'available':e.key==='End'?'installed':key==='available'?'installed':'available';setTab(next);e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role=tab]')[next==='available'?0:1]?.focus()}}}>{t(key==='available'?'Available':'Installed')} ({key==='available'?available.length:installed.length})</button>)}

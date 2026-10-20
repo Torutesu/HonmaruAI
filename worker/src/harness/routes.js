@@ -1,3 +1,5 @@
+import { previewSkillImport } from './skillImport.js';
+import { writeSkillZip } from './skillZip.js';
 import { listSkillFiles, readSkillFile } from './skillFiles.js';
 import { generateApp } from './appGeneration.js';
 import { announceTo } from '../announce.js';
@@ -36,7 +38,7 @@ import {
 import { templateList } from "./templates.js";
 import { getProfile, saveProfile, listAgentMemories, addAgentMemory, deleteAgentMemory, TIERS, ACCESS } from "./agents.js";
 import { listSkills, createSkill, updateSkill, deleteSkill, getSkill, giveSkill, takeSkill, skillsOf } from "./skills.js";
-import { parseSkillMarkdown, skillMarkdown } from "./skillMarkdown.js";
+import { skillMarkdown } from "./skillMarkdown.js";
 import { workflowFromPrompt } from './workflowGeneration.js';
 import { completer } from "./model.js";
 import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
@@ -311,7 +313,7 @@ export async function handleHarness(request, env, url, context = {}) {
   if (parts[0] === "skills") {
     const [, skillId] = parts;
     if (skillId === 'preview-import' && parts.length === 2 && request.method === 'POST') {
-      const result = parseSkillMarkdown(input.markdown);
+      const result = previewSkillImport(input);
       return result.error ? fail(result) : json(result);
     }
     if (!skillId) {
@@ -337,6 +339,18 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     if (parts[2] === 'export' && parts.length === 3 && request.method === 'GET') {
       if (!skill.description.trim()) return json({ message: 'Add a description before exporting SKILL.md.' }, 400);
+      if (url.searchParams.get('format') === 'zip') {
+        const files = await listSkillFiles(env.DB,orgId,skillId,me);
+        const entries = [{path:'SKILL.md',bytes:new TextEncoder().encode(skillMarkdown(skill))}];
+        for (const file of files || []) {
+          const stored=await readSkillFile(env.DB,orgId,skillId,file.path,me);
+          if(!stored)return json({message:'Skill files changed. Retry the export.'},409);
+          entries.push(stored);
+        }
+        const result=writeSkillZip(entries);
+        if(result.error)return fail(result);
+        return new Response(result.bytes,{headers:{...CORS_HEADERS,'content-type':'application/zip','content-disposition':'attachment; filename="skill.zip"','cache-control':'private, no-store','x-content-type-options':'nosniff'}});
+      }
       return json({ filename: 'SKILL.md', markdown: skillMarkdown(skill) });
     }
     if (parts[2] === 'access' && request.method === 'PUT') {
