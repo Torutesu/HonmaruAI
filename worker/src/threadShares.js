@@ -3,6 +3,18 @@ import { scan } from "./dlp.js";
 import { sha256Hex } from "./auth.js";
 import { accessFor, mayRead } from "./access.js";
 
+// Reused inside INSERT so a deletion/edit between preview and publication
+// cannot leave a public copy after the source mutation has already completed.
+const sourceStateSql = (org, channel, thread) => `SELECT json_group_array(json_array(
+  id,body,kind,author_login,created_at,parent_id,thread_title,name,attachments)) AS state
+  FROM (SELECT m.*,td.title AS thread_title,COALESCE(a.name,u.name,'') AS name,
+    (SELECT COUNT(*) FROM message_files f WHERE f.org_id=m.org_id AND f.channel=m.channel AND f.message_id=m.id) AS attachments
+    FROM channel_messages m LEFT JOIN users u ON u.login=m.author_login
+    LEFT JOIN channel_thread_details td ON td.org_id=m.org_id AND td.message_id=m.id
+    LEFT JOIN custom_agents a ON a.org_id=m.org_id AND 'agent:'||a.id=m.author_login
+    WHERE m.org_id=${org} AND m.channel=${channel} AND (m.id=${thread} OR m.parent_id=${thread})
+      AND m.deleted_at IS NULL ORDER BY m.rowid)`;
+
 async function sharingBoundary(db, orgId, channel, userId) {
   const creator = await db.prepare(`SELECT u.login FROM memberships m JOIN users u ON u.github_id=m.user_github_id
     WHERE m.org_id=?1 AND m.user_github_id=?2 AND m.role!='guest'`).bind(orgId, String(userId)).first();
@@ -88,6 +100,7 @@ export async function storeThreadShare(db, { orgId, channel, threadId, userId, d
   if (!policy.enabled) return { error: "Public sharing is disabled in this workspace.", status: 403 };
   const boundary = await sharingBoundary(db, orgId, channel, userId);
   if (!boundary) return { error: "No such thread.", status: 404 };
+  const sourceState = await db.prepare(sourceStateSql("?1", "?2", "?3")).bind(orgId, channel, threadId).first();
   const preview = await previewThreadShare(db, orgId, channel, threadId);
   if (preview.error) return preview;
   if (preview.blocked) return { error: "Workspace policy blocks this share.", status: 403 };
@@ -104,8 +117,9 @@ export async function storeThreadShare(db, { orgId, channel, threadId, userId, d
     SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?12
     WHERE EXISTS (SELECT 1 FROM channel_messages WHERE org_id=?2 AND channel=?3 AND id=?4 AND deleted_at IS NULL AND parent_id IS NULL)
       AND EXISTS (SELECT 1 FROM channel_thread_share_policy WHERE org_id=?2 AND enabled=1 AND version=?11)
-      AND EXISTS (SELECT 1 FROM memberships WHERE org_id=?2 AND user_github_id=?5 AND role!='guest')`)
-    .bind(id, orgId, channel, threadId, String(userId), await sha256Hex(token), snapshot, digest, createdAt, expiresAt, policy.version, boundary).run();
+      AND EXISTS (SELECT 1 FROM memberships WHERE org_id=?2 AND user_github_id=?5 AND role!='guest')
+      AND ?13=(${sourceStateSql("?2", "?3", "?4")})`)
+    .bind(id, orgId, channel, threadId, String(userId), await sha256Hex(token), snapshot, digest, createdAt, expiresAt, policy.version, boundary, sourceState.state).run();
   if (!result.meta?.changes) return { error: "Sharing access or policy changed. Review before trying again.", status: 409 };
   return { id, token, createdAt, expiresAt };
 }

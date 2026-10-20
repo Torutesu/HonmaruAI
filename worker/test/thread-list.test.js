@@ -7,10 +7,15 @@ import worker from "../src/index.js";
 
 const ORG = "personal:threads";
 let toru; let mika; let kenji;
-const ctx = { waitUntil: () => {} };
-const call = async (path, token, { method = "GET", body } = {}) => worker.fetch(new Request(`https://example.com${path}`, {
-  method, headers: { "content-type": "application/json", "x-session-token": token }, body: body ? JSON.stringify(body) : undefined,
-}), env, ctx);
+const pending = [];
+const ctx = { waitUntil: (promise) => pending.push(promise) };
+const call = async (path, token, { method = "GET", body } = {}) => {
+  const response = await worker.fetch(new Request(`https://example.com${path}`, {
+    method, headers: { "content-type": "application/json", "x-session-token": token }, body: body ? JSON.stringify(body) : undefined,
+  }), env, ctx);
+  while (pending.length) await pending.shift();
+  return response;
+};
 const say = async (token, text, parentId) => (await (await call("/channels/messages", token, { method: "POST", body: { orgId: ORG, channel: "b:cafe", body: text, parentId } })).json()).message;
 const threads = async (token) => (await (await call(`/channels/threads?orgId=${encodeURIComponent(ORG)}`, token)).json()).threads;
 const pause = () => new Promise((r) => setTimeout(r, 5));
@@ -97,6 +102,26 @@ test("sharing refuses a policy change between review and insertion", async () =>
     if (!sql.startsWith("INSERT INTO channel_thread_shares")) return env.DB.prepare(sql);
     return { bind(...values) { return { async run() {
       await setThreadSharePolicy(env.DB, ORG, "6601", false, 1);
+      return env.DB.prepare(sql).bind(...values).run();
+    } }; } };
+  } };
+  const result = await storeThreadShare(racing, { orgId: ORG, channel: "b:cafe", threadId: root.id, userId: "6601", digest: preview.digest });
+  expect(result.status).toBe(409);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_thread_shares WHERE org_id=?").bind(ORG).first()).n).toBe(0);
+});
+
+test.each(["delete", "edit", "reply"])("sharing rejects a concurrent source %s before insertion", async (change) => {
+  const { previewThreadShare, storeThreadShare, setThreadSharePolicy } = await import("../src/threadShares.js");
+  const root = await say(toru, "Reviewed root");
+  const reply = await say(toru, "Reviewed reply", root.id);
+  const preview = await previewThreadShare(env.DB, ORG, "b:cafe", root.id);
+  await setThreadSharePolicy(env.DB, ORG, "6601", true, 0);
+  const racing = { prepare(sql) {
+    if (!sql.startsWith("INSERT INTO channel_thread_shares")) return env.DB.prepare(sql);
+    return { bind(...values) { return { async run() {
+      if (change === "delete") await env.DB.prepare("UPDATE channel_messages SET body='',deleted_at=? WHERE id=?").bind(new Date().toISOString(), reply.id).run();
+      else if (change === "edit") await env.DB.prepare("UPDATE channel_messages SET body='Changed during publication' WHERE id=?").bind(reply.id).run();
+      else await say(toru, "New reply during publication", root.id);
       return env.DB.prepare(sql).bind(...values).run();
     } }; } };
   } };
