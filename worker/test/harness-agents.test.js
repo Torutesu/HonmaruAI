@@ -294,6 +294,8 @@ test('room mentioned-only policy blocks continuation, retains explicit mentions 
   expect((await respondingAgents(env.DB, args)).map(x => x.id)).toEqual([agentId]);
   await saveRoomResponses(env.DB, ORG, 'b:ops', { mentionedOnly: true, version: 0 }, 'mika');
   expect(await respondingAgents(env.DB, args)).toEqual([]);
+  const { runQueuedAgents } = await import('../src/agentRunner.js');
+  expect(await runQueuedAgents(env, { orgId: ORG, token: mika, rowId: row.id, locale: 'en' })).toBe(0);
   expect((await respondingAgents(env.DB, { ...args, row: { ...row, body: '@billy Continue' } })).map(x => x.id)).toEqual([agentId]);
   expect((await respondingAgents(env.DB, { ...args, resolved: { kind: 'agent', key: `agent:${agentId}`, agent: { id: agentId } } })).map(x => x.id)).toEqual([agentId]);
   await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' });

@@ -282,6 +282,12 @@ export async function runProxy(env, { orgId, rowId, owner: ownerLogin, locale = 
   const view = viewOf(row.channel, owner.login, members);
   const resolved = view ? await resolveChannel(db, orgId, owner, view, members) : null;
   if (!resolved || resolved.key !== row.channel) return null;
+  // Recheck at execution time: a queued proxy must respect a room policy
+  // enabled after the human message was accepted.
+  if (resolved.kind === "business") {
+    const { roomResponses } = await import("./harness/roomResponses.js");
+    if ((await roomResponses(db, orgId, resolved.key)).mentionedOnly) return null;
+  }
   const ownerName = owner.name || owner.login;
   const askerName = askerUser.name || askerUser.login;
   locale = await loadCopy(env, locale || owner.locale || "en", { orgId });

@@ -700,3 +700,9 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Enabled policy suppresses implicit thread continuation, human-proxy replies and automatic issue/report work. Explicit agent mentions and agent DMs remain available. Policy continues to apply after switching to Simple; no policy means unchanged legacy behavior. Does not add suitable-agent routing or autonomous handoff.
 - Web 928 tests, TypeScript and Vite pass. Worker response/agents/guidelines tests 51 pass; existing proxy/autobuild/enqueue/channel regressions 26 pass; expanded autobuild suite 5 pass, including a configured provider receiving no automatic run in mentioned-only rooms. All providers mocked; no paid calls.
 - New table hx_room_responses uses the existing schema migration route. This backend/UI change is not published yet; queued production work remains separate.
+
+### Queued response policy revalidation (2026-10-21)
+
+- Found that runProxy rechecked room access but not the new Mentioned only setting at dequeue time. Added a current-policy check before provider/allowance lookup, so queued proxy work cannot bypass a subsequently enabled room setting.
+- Proxy suite 12 tests passes, including no provider request/reply after the setting changes. Harness agents suite 16 tests passes, including runQueuedAgents returning without work after the same setting change.
+- Full Worker suite is running in exec session 97774 with output /tmp/honmaru-room-policy-full-worker.log, started before this final queued-proxy patch; targeted suites above cover the final edits. Do not infer full-suite completion until its process exits.

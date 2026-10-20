@@ -213,3 +213,14 @@ test("a comment for a repository that is not the team's is never proposed", asyn
   expect(replies[0].body).toBe("Here you go.");
   expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM proxy_actions").first()).n).toBe(0);
 });
+test('a queued proxy rechecks mention-only room policy before using the provider', async () => {
+  const { runProxy } = await import('../src/proxy.js');
+  const { postMessage } = await import('../src/channels.js');
+  const { saveRoomResponses } = await import('../src/harness/roomResponses.js');
+  await send('PUT', '/channels/proxy', toru, { orgId: ORG, enabled: true });
+  const posted = await postMessage(env.DB, { orgId: ORG, key: 'b:cafe', authorLogin: 'mika', body: '@toru review this', kind: 'message' });
+  await saveRoomResponses(env.DB, ORG, 'b:cafe', { mentionedOnly: true, version: 0 }, 'toru');
+  expect(await runProxy({ ...env, ...AI }, { orgId: ORG, rowId: posted.row.id, owner: 'toru' })).toBeNull();
+  const result = await thread(mika, posted.row.id);
+  expect(result.replies).toHaveLength(0);
+});
