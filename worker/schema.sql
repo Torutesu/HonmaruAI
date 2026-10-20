@@ -1967,3 +1967,5 @@ CREATE TABLE IF NOT EXISTS channel_thread_details (
   updated_at TEXT NOT NULL,
   PRIMARY KEY (org_id, message_id)
 );
+
+CREATE TABLE IF NOT EXISTS channel_thread_pins (org_id TEXT NOT NULL, user_id TEXT NOT NULL, message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE, created_at TEXT NOT NULL, PRIMARY KEY (org_id,user_id,message_id));

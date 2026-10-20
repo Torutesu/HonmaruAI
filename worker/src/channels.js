@@ -428,7 +428,10 @@ export async function deleteMessage(db, { orgId, id, authorLogin, withThread = f
     db.prepare("UPDATE channel_messages SET body = '', deleted_at = ?3, pinned_at = NULL, pinned_by = NULL WHERE org_id = ?1 AND id = ?2")
       .bind(orgId, mid, now),
     db.prepare("DELETE FROM message_reactions WHERE org_id = ?1 AND message_id = ?2").bind(orgId, mid),
-    ...(mid === id && !row.parent_id ? [db.prepare("DELETE FROM channel_thread_details WHERE org_id = ?1 AND message_id = ?2").bind(orgId, mid)] : []),
+    ...(mid === id && !row.parent_id ? [
+      db.prepare("DELETE FROM channel_thread_details WHERE org_id = ?1 AND message_id = ?2").bind(orgId, mid),
+      db.prepare("DELETE FROM channel_thread_pins WHERE org_id = ?1 AND message_id = ?2").bind(orgId, mid),
+    ] : []),
   ]));
   const gone = [id, ...(under || []).map((r) => r.id)];
   await tombstone(gone);

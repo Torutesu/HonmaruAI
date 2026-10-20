@@ -275,3 +275,47 @@ test('unsending a root removes its saved name with the original message', async 
   expect(await env.DB.prepare('SELECT title FROM channel_thread_details WHERE message_id = ?1').bind(root.id).first()).toBeNull();
   expect((await renameThread(toru, root.id, 'Restore name', 0)).status).toBe(404);
 });
+
+
+test("home thread pins persist per user, are idempotent, and hide deleted roots", async () => {
+  const root = await say(toru, "Pinned work");
+  const reply = await say(mika, "Reply", root.id);
+  const pin = (token, messageId, pinned) => call("/channels/thread-pins", token, {method:"PUT",body:{orgId:ORG,messageId,pinned}});
+  expect((await pin(toru, reply.id, true)).status).toBe(404);
+  expect((await pin(toru, root.id, "yes")).status).toBe(400);
+  expect((await pin(toru, root.id, true)).status).toBe(200);
+  expect((await (await pin(toru, root.id, true)).json()).pins).toHaveLength(1);
+  const read = async token => (await (await call(`/channels/thread-pins?orgId=${encodeURIComponent(ORG)}`,token)).json()).pins;
+  expect(await read(toru)).toMatchObject([{id:root.id,view:"b:cafe",title:"Pinned work"}]);
+  expect(await read(mika)).toEqual([]);
+  await env.DB.prepare("UPDATE channel_messages SET deleted_at=? WHERE id=?").bind(new Date().toISOString(),root.id).run();
+  expect(await read(toru)).toEqual([]);
+  expect((await pin(toru, root.id, true)).status).toBe(404);
+  expect((await pin(toru, root.id, false)).status).toBe(200);
+  expect(await env.DB.prepare("SELECT 1 FROM channel_thread_pins WHERE message_id=?").bind(root.id).first()).toBeNull();
+});
+
+test("thread pins recheck private-room access and workspace membership on every read", async () => {
+  const root = await say(toru, "Confidential work");
+  const pin = (token, orgId, pinned) => call("/channels/thread-pins", token, {method:"PUT",body:{orgId,messageId:root.id,pinned}});
+  expect((await pin(mika, ORG, true)).status).toBe(200);
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=? AND slug='cafe'").bind(ORG).run();
+  await env.DB.prepare("INSERT OR IGNORE INTO conversation_members (org_id,channel,login,added_at) VALUES (?,'b:cafe','toru',?)").bind(ORG,new Date().toISOString()).run();
+  const result = await (await call(`/channels/thread-pins?orgId=${encodeURIComponent(ORG)}`,mika)).json();
+  expect(result.pins).toEqual([]);
+  expect((await pin(mika, ORG, true)).status).toBe(404);
+  expect((await pin(mika, "personal:elsewhere", true)).status).not.toBe(200);
+  expect((await pin(mika, ORG, false)).status).toBe(200);
+  expect((await pin(toru, ORG, true)).status).toBe(200);
+  await renameThread(toru,root.id,"Updated thread name",0);
+  expect((await (await call(`/channels/thread-pins?orgId=${encodeURIComponent(ORG)}`,toru)).json()).pins[0].title).toBe("Updated thread name");
+});
+
+
+test("unsending a root removes every user's home pin atomically", async () => {
+  const root = await say(toru, "Disposable pinned root");
+  for (const token of [toru,mika]) expect((await call("/channels/thread-pins",token,{method:"PUT",body:{orgId:ORG,messageId:root.id,pinned:true}})).status).toBe(200);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_thread_pins WHERE message_id=?").bind(root.id).first()).n).toBe(2);
+  expect((await call("/channels/messages",toru,{method:"DELETE",body:{orgId:ORG,channel:"b:cafe",messageId:root.id}})).status).toBe(200);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_thread_pins WHERE message_id=?").bind(root.id).first()).n).toBe(0);
+});
