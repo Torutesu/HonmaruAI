@@ -731,3 +731,5 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Native production screenshot capture recovered. The authenticated app displayed creator/date and inline persona, and opened the profile dialog with picture/name/specialty/intelligence controls and disabled unchanged Save. No production profile data was changed. The earlier stale-shell inference is not established.
 - Plain HTTP probe still returned Cloudflare 403 / error 1010. Official documentation identifies browser-signature denial; this does not establish an outage for authenticated native users. No security settings were weakened.
 - Local native preview displayed the revised dialog spacing and action colors. Keyboard interaction did not reliably change its AX state; do not claim native keyboard verification. Temporary QA entrypoints and preview servers were removed/stopped before the final production build.
+
+- Frozen Worker rerun completed successfully at e2166a6a: 204 files, 1509 tests, 590.12 seconds. The previous mixed-source failure is resolved on the fixed tree. Production native Cancel also returned to the unchanged profile successfully.
