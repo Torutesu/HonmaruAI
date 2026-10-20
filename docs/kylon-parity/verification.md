@@ -660,3 +660,10 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Persona saves atomically compare the original instructions, reject stale writers with 409, and update only instructions so concurrent name/profile edits survive. Failed saves preserve the draft; explicit reload discards it. Read-only members have no edit controls. Simple mode retains its existing editor/API behavior.
 - Web 923 tests, Worker agents/Harness agents 45 tests, TypeScript and Vite build passed. Native production rendering and deployment of this change are pending.
 - At the latest check, 2491ceb2 main CI and Worker deployment were still running; its Web deployment was pending. No deployment completion inferred.
+
+### Profile edit dialog parity (2026-10-21)
+
+- Read native Kylon profile edit dialog and screenshot: 512px dialog, 80px avatar, display name, specialty/help text, intelligence and explicit Cancel/Save. Closed reference without changing its data.
+- Implemented the same dialog structure in Harness, explicit whole-form save, failed-draft preservation and disabled unchanged save. Existing access/mention controls remain under Advanced settings; Simple editor retained. Existing picture avatars remain unchanged; photo upload and generated avatar parity are not implemented by this change.
+- Extended profile API to save name/emoji and profile fields in one D1 batch. Validation precedes writes; instructions and handle are preserved. Profile patches now update only supplied columns so unrelated concurrent access edits are not overwritten.
+- Web 924 tests, Worker agents/Harness agents 46 tests, TypeScript and Vite passed. Production rendering remains pending deployment; no complete parity claim.

@@ -1,6 +1,11 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Edit agent profile": "エージェントプロフィールを編集",
+  "Display name": "表示名",
+  "Advanced settings": "詳細設定",
+  "Give the agent a name of up to 40 characters.": "40文字以内でエージェントの名前を入力してください。",
+  "The agent avatar must be up to 16 characters.": "アバターは16文字以内で指定してください。",
   "Edit persona": "ペルソナを編集",
   "Edit yourself": "自分で編集",
   "Discuss changes with the agent": "エージェントに変更を相談",

@@ -41,6 +41,12 @@ export async function profilesFor(db, orgId, ids) {
 }
 
 export async function saveProfile(db, orgId, agentId, input, by) {
+  if (input.name !== undefined && (typeof input.name !== "string" || !input.name.trim() || input.name.trim().length > 40)) {
+    return { error: "Give the agent a name of up to 40 characters." };
+  }
+  if (input.emoji !== undefined && (typeof input.emoji !== "string" || input.emoji.length > 16)) {
+    return { error: "The agent avatar must be up to 16 characters." };
+  }
   const current = await getProfile(db, orgId, agentId);
   const next = { ...current };
   if (input.specialty !== undefined) next.specialty = String(input.specialty || "").trim().slice(0, 120);
@@ -56,17 +62,29 @@ export async function saveProfile(db, orgId, agentId, input, by) {
   if (input.people !== undefined) {
     next.people = [...new Set((Array.isArray(input.people) ? input.people : []).map((p) => String(p).replace(/^@/, "").trim()).filter(Boolean))].slice(0, 100);
   }
-  await db
+  const columns = { specialty: "specialty", tier: "tier", mentionOnly: "mention_only", access: "access", people: "people" };
+  const updates = Object.entries(columns).filter(([key]) => input[key] !== undefined)
+    .map(([, column]) => `${column} = excluded.${column}`);
+  const stamp = now();
+  const profileWrite = db
     .prepare(
       `INSERT INTO hx_agent_profiles (org_id, agent_id, specialty, tier, mention_only, access, people, updated_by, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-       ON CONFLICT(org_id, agent_id) DO UPDATE SET specialty = excluded.specialty, tier = excluded.tier,
-         mention_only = excluded.mention_only, access = excluded.access, people = excluded.people,
-         updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+       ON CONFLICT(org_id, agent_id) DO UPDATE SET ${[...updates, "updated_by = excluded.updated_by", "updated_at = excluded.updated_at"].join(", ")}`,
     )
-    .bind(orgId, agentId, next.specialty, next.tier, next.mentionOnly ? 1 : 0, next.access, JSON.stringify(next.people), String(by), now())
-    .run();
-  return { profile: await getProfile(db, orgId, agentId) };
+    .bind(orgId, agentId, next.specialty, next.tier, next.mentionOnly ? 1 : 0, next.access, JSON.stringify(next.people), String(by), stamp);
+  const identity = input.name !== undefined || input.emoji !== undefined;
+  if (identity) {
+    // One transaction: a failed identity write cannot leave half a dialog saved.
+    await db.batch([profileWrite, db.prepare(`UPDATE custom_agents SET
+      name = CASE WHEN ?3 THEN ?4 ELSE name END,
+      emoji = CASE WHEN ?5 THEN ?6 ELSE emoji END, updated_by = ?7, updated_at = ?8
+      WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL`)
+      .bind(orgId, agentId, input.name !== undefined ? 1 : 0, input.name?.trim() || "",
+        input.emoji !== undefined ? 1 : 0, input.emoji?.trim() || null, String(by), stamp)]);
+  } else await profileWrite.run();
+  return { profile: await getProfile(db, orgId, agentId),
+    ...(identity ? { identity: await db.prepare("SELECT name, emoji FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, agentId).first() } : {}) };
 }
 
 /// Whether this person may call this agent. Its maker always may.

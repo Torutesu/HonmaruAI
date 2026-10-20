@@ -4,6 +4,7 @@ import { AgentMemoryList, MemoryKindSelect } from '../components/AgentMemoryList
 import type { MemoryKind } from '../utils/harness'
 import { AgentSkillCatalog } from '../components/AgentSkillCatalog'
 import { NewHarnessAgent } from '../components/NewHarnessAgent'
+import { EditAgentProfile } from '../components/EditAgentProfile'
 import { AgentPersona } from '../components/AgentPersona'
 import type { ClientAgent } from '../utils/agents'
 import { useMembers, type Mentionable } from '../utils/mentions'
@@ -66,18 +67,19 @@ const ScopedHarnessAgents: React.FC<AgentsProps> = (props) => {
       {agents === null && <p className="hx-members-note">{t('Loading…')}</p>}
     </aside>
     <main className="hx-member-detail">
-      {open ? <AgentMember key={open.id} {...props} agent={open} onBack={() => setOpen(null)} onMessage={() => props.onMessage?.(open.id)} onUpdated={updated => { setAgents(current => current?.map(agent => agent.id === updated.id ? updated : agent) || null); setOpen(current => current?.id === updated.id ? updated : current) }} /> : person ? <div className="hx-person-profile"><Avatar name={person.name} url={person.avatarUrl} round size={64} /><h1>{person.name}</h1>{person.handle && <p>@{person.handle}</p>}<button className="pill-btn" onClick={props.onManageTeam}>{t('Team settings')}</button></div> : <div className="hx-member-empty"><Icon name="you" size={32} /><p>{t('Choose a member')}</p></div>}
+      {open ? <AgentMember key={open.id} {...props} agent={open} onBack={() => setOpen(null)} onMessage={() => props.onMessage?.(open.id)} onUpdated={updated => { setAgents(current => current?.map(agent => agent.id === updated.id ? { ...agent, ...updated } : agent) || null); setOpen(current => current?.id === updated.id ? { ...current, ...updated } : current) }} /> : person ? <div className="hx-person-profile"><Avatar name={person.name} url={person.avatarUrl} round size={64} /><h1>{person.name}</h1>{person.handle && <p>@{person.handle}</p>}<button className="pill-btn" onClick={props.onManageTeam}>{t('Team settings')}</button></div> : <div className="hx-member-empty"><Icon name="you" size={32} /><p>{t('Choose a member')}</p></div>}
     </main>
     {creating && <NewHarnessAgent {...props} onClose={() => setCreating(false)} onAdvanced={props.onManageAgents} onCreated={(agent, all) => { setAgents(all); setOpen(agent); setPerson(null); setFilter('all'); setCreating(false) }} />}
   </div>
 }
 
-const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => void; onMessage?: () => void; onUpdated: (agent: ClientAgent) => void }> = (props) => {
+const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => void; onMessage?: () => void; onUpdated: (agent: Partial<ClientAgent> & { id: string }) => void }> = (props) => {
   const t = useT()
   const api = useApi(props)
   const { agent } = props
   const [section, setSection] = useState<'profile' | 'skills' | 'memory' | 'followups'>('profile')
   const [editingProfile, setEditingProfile] = useState(false)
+  const [profileDialog, setProfileDialog] = useState(false)
   const [profile, setProfile] = useState<AgentProfile | null>(null)
   const [canEdit, setCanEdit] = useState(false)
   const [memories, setMemories] = useState<AgentMemory[]>([])
@@ -115,9 +117,15 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
       {error && <div className="form-error">{error}</div>}
       <div className="hx-profile-heading"><AgentAvatar agent={agent} className="hx-profile-avatar" /><h1>{agent.name}</h1><button className="pill-btn quiet" onClick={props.onMessage} aria-label={t('Message')}><Icon name="message" size={18} /></button></div>
       <div className="hx-profile-tabs" role="tablist">{(['profile','skills','memory','followups'] as const).map(key => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)}>{t(key === 'profile' ? 'Profile' : key === 'skills' ? 'Skills' : key === 'memory' ? 'Memory' : 'Follow-ups')}</button>)}</div>
+      {profileDialog && <EditAgentProfile agent={agent} profile={profile} onClose={() => setProfileDialog(false)} onSave={async patch => {
+        const result = await api.saveProfile(agent.id, patch)
+        setProfile(result.profile)
+        if (result.identity) props.onUpdated({ id: agent.id, ...result.identity })
+        try { window.dispatchEvent(new Event('honmaru:agents-changed')) } catch { /* no listeners */ }
+      }}/>}
       {section === 'profile' && <>
-      <section className="hx-profile-card"><header><span>{t('Profile')}</span>{canEdit && <button onClick={() => setEditingProfile(v => !v)} aria-label={t(editingProfile ? 'Close' : 'Edit profile')}><Icon name={editingProfile ? 'x' : 'edit'} size={16} /></button>}</header>
-      {!editingProfile && <dl>
+      <section className="hx-profile-card"><header><span>{t('Profile')}</span>{canEdit && <button onClick={() => setProfileDialog(true)} aria-label={t('Edit profile')}><Icon name="edit" size={16} /></button>}</header>
+      <dl>
         <dt><Icon name="briefcase" size={14}/>{t('Specialty')}</dt><dd>{profile.specialty || t('Not set')}</dd>
         <dt><Icon name="brain" size={14}/>{t('Intelligence')}</dt><dd>{canEdit
           ? <select className="hx-profile-tier" aria-label={t('Intelligence')} disabled={busy === 'save'} value={profile.tier} onChange={e => save({ tier: e.target.value as AgentProfile['tier'] })}>
@@ -127,7 +135,8 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
         <dt><Icon name="you" size={14}/>{t('Created by')}</dt><dd>{agent.createdByName || '—'}</dd>
         <dt><Icon name="calendar" size={14}/>{t('Created at')}</dt><dd>{agent.createdAt && Number.isFinite(Date.parse(agent.createdAt)) ? new Date(agent.createdAt).toLocaleDateString(getLocale(), { year: 'numeric', month: 'long', day: 'numeric' }) : '—'}</dd>
         <dt><Icon name="lock" size={14}/>{t('Who may call it')}</dt><dd>{t(agent.scope === 'personal' || profile.access === 'private' ? 'Only its maker' : profile.access === 'people' ? 'Some people' : 'Everyone')}</dd>
-      </dl>}
+      </dl>
+      {canEdit && <button className="btn-text" onClick={() => setEditingProfile(v => !v)}>{t('Advanced settings')}</button>}
       {editingProfile && <>
       <div className="rows">
         <div className="row static">

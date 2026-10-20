@@ -266,3 +266,17 @@ test("inline persona edits reject concurrent writers and do not overwrite profil
   await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, access: "private" });
   expect((await send("PUT", "/channels/agents", kenji, { ...base, expectedInstructions: "Reconciled edit", instructions: "Unauthorized" })).status).toBe(404);
 });
+test('profile dialog updates identity and profile together while preserving instructions and access', async () => {
+  const path = `/hx/agents/${agentId}/profile`;
+  const before = await env.DB.prepare('SELECT instructions, handle FROM custom_agents WHERE id = ?1').bind(agentId).first();
+  const saved = await send('PUT', path, mika, { orgId: ORG, name: 'Invoice specialist', emoji: '📚', specialty: 'Accounting', tier: 'max' });
+  expect(saved.status).toBe(200);
+  expect(await saved.json()).toMatchObject({ identity: { name: 'Invoice specialist', emoji: '📚' }, profile: { specialty: 'Accounting', tier: 'max' } });
+  const after = await env.DB.prepare('SELECT instructions, handle FROM custom_agents WHERE id = ?1').bind(agentId).first();
+  expect(after).toEqual(before);
+  for (const patch of [{ name: '', specialty: 'Not saved' }, { name: 'Changed', tier: 'invalid' }, { emoji: 'x'.repeat(17), specialty: 'Not saved' }]) {
+    expect((await send('PUT', path, mika, { orgId: ORG, ...patch })).status).toBe(400);
+  }
+  expect((await (await get(`${path}?${q({ orgId: ORG })}`, mika)).json()).profile).toMatchObject({ specialty: 'Accounting', tier: 'max' });
+  expect((await send('PUT', path, kenji, { orgId: ORG, name: 'Unauthorized' })).status).toBe(403);
+});

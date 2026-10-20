@@ -183,7 +183,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     deleteSkill: (id: string) => call<{ deleted: boolean }>('DELETE', `/skills/${id}`),
 
     profile: (agentId: string) => call<{ profile: AgentProfile; canEdit: boolean }>('GET', `/hx/agents/${agentId}/profile`),
-    saveProfile: (agentId: string, p: Partial<AgentProfile>) => call<{ profile: AgentProfile }>('PUT', `/hx/agents/${agentId}/profile`, p as Record<string, unknown>),
+    saveProfile: (agentId: string, p: Partial<AgentProfile> & { name?: string; emoji?: string }) => call<{ profile: AgentProfile; identity?: { name: string; emoji: string | null } }>('PUT', `/hx/agents/${agentId}/profile`, p as Record<string, unknown>),
     memoryScopes: (agentId: string) => call<{ scopes: Array<{ channel: string; label: string }> }>('GET', `/hx/agents/${agentId}/memory/scopes`),
     memory: (agentId: string, channel = '') => call<{ memories: AgentMemory[]; canEdit: boolean }>('GET', `/hx/agents/${agentId}/memory`, undefined, { channel }),
     remember: (agentId: string, text: string, channel = '', kind: MemoryKind = 'context') => call<{ memory: AgentMemory }>('POST', `/hx/agents/${agentId}/memory`, { text, channel, kind }),
