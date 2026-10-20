@@ -776,3 +776,9 @@ Additional reference audit: Kylon's empty room automation setup action populates
 
 - ca4dd1af CI and Worker deployment succeeded. Its Web job still awaited the backend because the dependency helper, with no exact run for a Worker-path commit inside a multi-commit push, selected a newer pending descendant before the already deployed compatible descendant.
 - Updated the helper to accept a proven successful descendant while newer compatible builds are pending. Exact failures and newest compatible failed runs remain failures; unrelated branches and commits never satisfy the gate. All 10 helper tests pass. Existing running workflows retain their checked-out helper, so this does not claim they were updated in place.
+
+### Memory editor visual repair (2026-10-21)
+
+- Native Japanese preview exposed a real layout defect: generic dlg-input height 36px overrode textarea rows, reducing the body to one line. Added dedicated editor theme/size styles, 72px description and 240px body, and a visible kind label with matching select styling.
+- A new native light-theme screenshot shows multiline Japanese body, paragraph breaks, all fields and footer within the 1200×900 window. Cancel returned to the preview controls without saving. Dark-mode button automation then failed with elementHasNoFrame/noWindowsAvailable; dark visual acceptance remains pending. No production data or provider calls were used. Temporary preview files/server/process were removed.
+- Structured memory full Worker run remains live in session 8595 at fixed Worker source 8e2840a6. These follow-up changes are Web-only.

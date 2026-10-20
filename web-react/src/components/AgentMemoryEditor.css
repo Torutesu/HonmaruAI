@@ -1,0 +1,7 @@
+.hx-memory-editor { width:min(640px,100%); --dlg-bg:var(--hx-surface); --dlg-ink:var(--hx-text); --dlg-dim:var(--hx-muted); --dlg-faint:var(--hx-muted); --dlg-line:var(--hx-border); --dlg-field:var(--hx-surface); --dlg-hover:var(--hx-hover); }
+.hx-memory-editor .dlg-btn.primary { background:var(--hx-action); color:var(--hx-action-text); border-color:var(--hx-action); }
+.hx-memory-editor .dlg-btn.primary:hover:not(:disabled) { background:var(--hx-action); }
+.hx-memory-editor textarea { resize:vertical; }
+.hx-memory-editor textarea.dlg-input { height:72px; min-height:72px; padding:8px 11px; line-height:1.6; }
+.hx-memory-editor textarea.dlg-input[rows="12"] { height:240px; min-height:160px; }
+.hx-memory-editor .hx-cell-select { width:100%; height:36px; padding:0 11px; border:1px solid var(--hx-border); border-radius:9px; background:var(--hx-surface); color:var(--hx-text); font:inherit; font-size:13.5px; }

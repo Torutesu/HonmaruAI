@@ -647,4 +647,3 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 
 .hx-memory-entry summary { cursor:pointer; font-weight:500; }
 .hx-memory-entry .memory-text { white-space:pre-wrap; overflow-wrap:anywhere; margin-top:10px; max-height:420px; overflow:auto; }
-.hx-memory-editor textarea { resize:vertical; }

@@ -3,6 +3,7 @@ import { Dialog } from './Dialog'
 import { MemoryKindSelect } from './AgentMemoryList'
 import type { AgentMemory, MemoryEntryInput, MemoryKind } from '../utils/harness'
 import { useT } from '../utils/i18n'
+import './AgentMemoryEditor.css'
 
 export function AgentMemoryEditor({ memory, onClose, onSave }: { memory?: AgentMemory; onClose: () => void; onSave: (entry: MemoryEntryInput) => Promise<void> }) {
   const t = useT(), pending = useRef(false)
@@ -25,7 +26,7 @@ export function AgentMemoryEditor({ memory, onClose, onSave }: { memory?: AgentM
   </>}>
     <label><span className="dlg-label">{t('Title')}</span><input className="dlg-input" value={title} maxLength={120} disabled={busy} onChange={event => setTitle(event.target.value)}/></label>
     <label><span className="dlg-label">{t('Description')}</span><textarea className="dlg-input" value={description} maxLength={500} rows={2} disabled={busy} onChange={event => setDescription(event.target.value)}/></label>
-    <MemoryKindSelect value={kind} onChange={setKind} disabled={busy}/>
+    <label><span className="dlg-label">{t('Memory type')}</span><MemoryKindSelect value={kind} onChange={setKind} disabled={busy}/></label>
     <label><span className="dlg-label">{t('Memory body')}</span><textarea className="dlg-input" value={body} maxLength={16000} rows={12} disabled={busy} onChange={event => setBody(event.target.value)}/></label>
     <p className="dlg-hint">{t('Use a title and description to find this entry. Line breaks in the body are preserved.')}</p>
     {error && <p className="dlg-error" role="alert">{t(error)}</p>}
