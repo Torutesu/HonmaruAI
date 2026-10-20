@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, statSync } from 'node:fs'
-const EVENTS = new Set(['start', 'stop', 'navigate', 'dom', 'finish', 'fail', 'timeout', 'prompt', 'retry', 'destroy', 'unresponsive', 'gone'])
+const EVENTS = new Set(['start', 'stop', 'navigate', 'dom', 'finish', 'blank', 'fail', 'timeout', 'prompt', 'retry', 'destroy', 'unresponsive', 'gone'])
 // Local, bounded support evidence. Never accept a URL, page text or error
 // description. A restart retains the previous load's final events.
 export function createLoadDiagnostics(file, version) {

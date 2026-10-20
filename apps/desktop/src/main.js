@@ -350,6 +350,20 @@ function createWindow() {
     record: createLoadDiagnostics(path.join(app.getPath('userData'), 'load-diagnostics.json'), app.getVersion()),
     alive: () => !loadingWindow.isDestroyed(),
     retry: () => loadingWindow.loadURL(APP_URL),
+    hasContent: async () => {
+      if (!onAppPage()) return true
+      // Return only a boolean; never move page text into native diagnostics.
+      return loadingWindow.webContents.executeJavaScript(`(() => {
+        const body = document.body;
+        if (!body) return false;
+        if (body.innerText.trim()) return true;
+        return [...body.querySelectorAll('img,svg,canvas,video,[role="progressbar"]')].some(element => {
+          const rect = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+        });
+      })()`)
+    },
     ask: async (code) => {
       const japanese = app.getLocale().startsWith('ja')
       const { response } = await dialog.showMessageBox(loadingWindow, {

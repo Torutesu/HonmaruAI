@@ -94,3 +94,28 @@ it('keeps recovery available when diagnostics throws', async () => {
   await settle()
   expect(ask).toHaveBeenCalledExactlyOnceWith(-105)
 })
+it('offers recovery for a completed but empty application document', async () => {
+  vi.useFakeTimers()
+  const contents = new EventEmitter(), ask = vi.fn(async () => false), record = vi.fn()
+  installLoadRecovery(contents, {ask, record, retry: vi.fn(), alive: () => true, hasContent: async () => false})
+  contents.emit('did-finish-load')
+  await vi.advanceTimersByTimeAsync(30000)
+  expect(ask).toHaveBeenCalledExactlyOnceWith(-2)
+  expect(record).toHaveBeenCalledWith('blank', -2)
+  await vi.advanceTimersByTimeAsync(60000)
+  expect(ask).toHaveBeenCalledOnce()
+})
+it.each(['visible', 'failed', 'navigated', 'destroyed'])('does not mistake %s content inspection for a blank current page', async mode => {
+  vi.useFakeTimers()
+  const contents = new EventEmitter(), ask = vi.fn(), inspect = vi.fn(async () => {
+    if (mode === 'failed') throw new Error('inspection unavailable')
+    if (mode === 'navigated') contents.emit('did-start-navigation', {isMainFrame:true,isSameDocument:false})
+    if (mode === 'destroyed') contents.emit('destroyed')
+    return mode === 'visible'
+  })
+  installLoadRecovery(contents, {ask, retry:vi.fn(),alive:()=>true,hasContent:inspect})
+  contents.emit('did-finish-load')
+  await vi.advanceTimersByTimeAsync(30000)
+  expect(inspect).toHaveBeenCalledOnce()
+  expect(ask).not.toHaveBeenCalled()
+})
