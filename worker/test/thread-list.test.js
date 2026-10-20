@@ -15,6 +15,34 @@ const say = async (token, text, parentId) => (await (await call("/channels/messa
 const threads = async (token) => (await (await call(`/channels/threads?orgId=${encodeURIComponent(ORG)}`, token)).json()).threads;
 const pause = () => new Promise((r) => setTimeout(r, 5));
 
+test("thread search includes the root, scopes replies and treats wildcards literally", async () => {
+  const root = await say(toru, "Budget 100%_done");
+  const match = await say(mika, "Confirmed 100%_done", root.id);
+  await say(toru, "Confirmed 100XXdone", root.id);
+  await say(toru, "Other thread 100%_done");
+  const removed = await say(toru, "Deleted 100%_done", root.id);
+  await env.DB.prepare("UPDATE channel_messages SET deleted_at='2026-01-01' WHERE id=?1").bind(removed.id).run();
+  const url = `/channels/thread/search?orgId=${encodeURIComponent(ORG)}&channel=b:cafe&messageId=${root.id}&q=${encodeURIComponent("100%_done")}`;
+  const found = await (await call(url, toru)).json();
+  expect(found.messages.map(m => m.id)).toEqual([match.id, root.id]);
+  expect(found.nextCursor).toBeNull();
+  expect((await call(url.replace(root.id, match.id), toru)).status).toBe(404);
+  expect((await call(`${url}&before=bad`, toru)).status).toBe(400);
+  expect((await call(url.replace("channel=b:cafe", "channel=general"), toru)).status).toBe(404);
+});
+
+test("thread search pages all matches without repeating them", async () => {
+  const root = await say(toru, "Needle root");
+  for (let i = 0; i < 32; i++) await say(toru, `Needle ${i}`, root.id);
+  const url = `/channels/thread/search?orgId=${encodeURIComponent(ORG)}&channel=b:cafe&messageId=${root.id}&q=Needle`;
+  const first = await (await call(url, toru)).json();
+  const last = await (await call(`${url}&before=${first.nextCursor}`, toru)).json();
+  expect(first.messages).toHaveLength(30);
+  expect(last.messages).toHaveLength(3);
+  expect(last.nextCursor).toBeNull();
+  expect(new Set([...first.messages, ...last.messages].map(m => m.id)).size).toBe(33);
+});
+
 test("references scan the whole thread in pages and enforce app visibility", async () => {
   const { referencedAppIds } = await import("../src/threadReferences.js");
   const link = id => `[App](#/apps/${id}/${encodeURIComponent(ORG)})`;
