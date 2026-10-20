@@ -187,6 +187,14 @@ struct ChatAgentFace: Codable, Hashable {
     var avatarUrl: String? = nil
 
     var glyph: String { ChatAgent.glyph(emoji) }
+
+    /// The agent named in a live "is writing" event, picture and all: the
+    /// line it shows is drawn with the same face as its answer will be.
+    static func live(_ a: [String: Any]) -> ChatAgentFace? {
+        guard let id = a["id"] as? String else { return nil }
+        return ChatAgentFace(id: id, handle: a["handle"] as? String ?? "", name: a["name"] as? String ?? "",
+                             emoji: a["emoji"] as? String, avatarUrl: a["avatarUrl"] as? String)
+    }
 }
 
 /// An agent the team wrote: "@hayao" answers as its Markdown instructions

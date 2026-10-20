@@ -104,6 +104,10 @@ struct ConversationView: View {
                                 // for the page above when it is still in view.
                                 .id("older-\(list.first?.id ?? "")")
                         }
+                    } else if store.messages[view] == nil {
+                        // Not read yet: the shape of what is coming, not
+                        // "This is the start of #…" over nothing.
+                        ChatSkeletonMessages()
                     } else {
                         start
                     }
