@@ -20,6 +20,7 @@ import { boundSsoStart, takeSsoVerifier } from './utils/ssoBinding'
 import { forgetOwnOutbox } from './utils/pendingSend'
 import './theme.css'
 import './App.css'
+import {SharedThread} from './screens/SharedThread'
 
 // The web client talks to the backend over HTTP for auth and WebSocket for the
 // feed. We store one base host and derive both.
@@ -43,6 +44,13 @@ function wsBase(host: string) {
 type Stage = 'welcome' | 'auth' | 'otp' | 'onboarding' | 'repo' | 'app'
 
 function App() {
+  const [hash,setHash]=useState(()=>location.hash)
+  useEffect(()=>{const change=()=>setHash(location.hash);window.addEventListener('hashchange',change);return()=>window.removeEventListener('hashchange',change)},[])
+  if(hash.startsWith('#/shared/'))return <SharedThread key={hash} httpBase={httpBase(DEFAULT_HOST)} token={hash.slice('#/shared/'.length)}/>
+  return <AccountApp/>
+}
+
+function AccountApp() {
   const [stage, setStage] = useState<Stage>('welcome')
   const [restoring, setRestoring] = useState(true)
   // Why the session could not be checked: the server did not answer at all,

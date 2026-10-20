@@ -95,6 +95,22 @@ test("retention deletes what is past it, by kind of conversation, but never what
   expect(await env.DB.prepare("SELECT 1 FROM audit_events WHERE org_id = ?1 AND action = 'retention.pruned'").bind(ORG).first()).toBeTruthy();
 });
 
+test("retention erases a public snapshot when an included reply is pruned", async () => {
+  const { setThreadSharePolicy, previewThreadShare, storeThreadShare } = await import("../src/threadShares.js");
+  await put(owner, { retention: { publicDays: 30 } });
+  const root = (await (await post(owner, "b:cafe", "Retained root")).json()).message;
+  await env.DB.prepare("INSERT INTO channel_messages (id,org_id,channel,author_login,kind,body,created_at,parent_id) VALUES ('old-shared-reply',?1,'b:cafe','u:toru@gov.jp','message','Expired reply',?2,?3)").bind(ORG, ago(40), root.id).run();
+  await setThreadSharePolicy(env.DB, ORG, "9501", true, 0);
+  const preview = await previewThreadShare(env.DB, ORG, "b:cafe", root.id);
+  const share = await storeThreadShare(env.DB, { orgId: ORG, channel: "b:cafe", threadId: root.id, userId: "9501", digest: preview.digest });
+  expect(share.token).toBeTruthy();
+  await pruneMessages(env);
+  expect(await env.DB.prepare("SELECT id FROM channel_messages WHERE id='old-shared-reply'").first()).toBeNull();
+  const saved = await env.DB.prepare("SELECT snapshot,revoked_at FROM channel_thread_shares WHERE id=?").bind(share.id).first();
+  expect(saved.snapshot).toBe("{}");
+  expect(saved.revoked_at).toBeTruthy();
+});
+
 test("a hold keeps a held person's words through an edit and an unsend, and the export has them", async () => {
   const members = (await (await call(`/members?${q}`, owner)).json()).members;
   const ken = members.find((m) => m.name === "Ken");

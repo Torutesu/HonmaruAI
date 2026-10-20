@@ -226,6 +226,10 @@ export async function pruneMessages(env, { now = Date.now(), perRun = 500 } = {}
         const { results: files } = await env.DB.prepare(`SELECT id FROM message_files WHERE org_id = ?1 AND message_id IN (${marks})`).bind(orgId, ...ids).all();
         for (const f of files || []) await deleteFileObject(env, orgId, f.id);
         await env.DB.batch([
+          env.DB.prepare(`UPDATE channel_thread_shares SET revoked_at=COALESCE(revoked_at,?),snapshot='{}'
+            WHERE org_id=? AND message_id IN (
+              SELECT COALESCE(parent_id,id) FROM channel_messages WHERE org_id=? AND id IN (${ids.map(() => "?").join(",")})
+            )`).bind(new Date(now).toISOString(), orgId, orgId, ...ids),
           env.DB.prepare(`DELETE FROM message_reactions WHERE org_id = ?1 AND message_id IN (${marks})`).bind(orgId, ...ids),
           env.DB.prepare(`DELETE FROM message_files WHERE org_id = ?1 AND message_id IN (${marks})`).bind(orgId, ...ids),
           env.DB.prepare(`DELETE FROM channel_messages WHERE org_id = ?1 AND id IN (${marks})`).bind(orgId, ...ids),

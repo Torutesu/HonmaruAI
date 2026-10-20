@@ -7,13 +7,203 @@ import worker from "../src/index.js";
 
 const ORG = "personal:threads";
 let toru; let mika; let kenji;
-const ctx = { waitUntil: () => {} };
-const call = async (path, token, { method = "GET", body } = {}) => worker.fetch(new Request(`https://example.com${path}`, {
-  method, headers: { "content-type": "application/json", "x-session-token": token }, body: body ? JSON.stringify(body) : undefined,
-}), env, ctx);
+const pending = [];
+const ctx = { waitUntil: (promise) => pending.push(promise) };
+const call = async (path, token, { method = "GET", body } = {}) => {
+  const response = await worker.fetch(new Request(`https://example.com${path}`, {
+    method, headers: { "content-type": "application/json", "x-session-token": token }, body: body ? JSON.stringify(body) : undefined,
+  }), env, ctx);
+  while (pending.length) await pending.shift();
+  return response;
+};
 const say = async (token, text, parentId) => (await (await call("/channels/messages", token, { method: "POST", body: { orgId: ORG, channel: "b:cafe", body: text, parentId } })).json()).message;
 const threads = async (token) => (await (await call(`/channels/threads?orgId=${encodeURIComponent(ORG)}`, token)).json()).threads;
 const pause = () => new Promise((r) => setTimeout(r, 5));
+
+test("expiry erases snapshot content without expiring newer shares", async () => {
+  const { previewThreadShare, storeThreadShare, setThreadSharePolicy, expireThreadShares } = await import("../src/threadShares.js");
+  await setThreadSharePolicy(env.DB, ORG, "6601", true, 0);
+  const root = await say(toru, "Expires from public storage");
+  const preview = await previewThreadShare(env.DB, ORG, "b:cafe", root.id);
+  const now = Date.now();
+  const input = { orgId: ORG, channel: "b:cafe", threadId: root.id, userId: "6601", digest: preview.digest };
+  const old = await storeThreadShare(env.DB, input, now);
+  const fresh = await storeThreadShare(env.DB, input, now + 1000);
+  await expireThreadShares(env.DB, now + 7 * 86400000);
+  const rows = (await env.DB.prepare("SELECT id,snapshot,revoked_at FROM channel_thread_shares WHERE org_id=?").bind(ORG).all()).results;
+  expect(rows.find(row => row.id === old.id)).toMatchObject({ snapshot: "{}", revoked_at: new Date(now + 7 * 86400000).toISOString() });
+  expect(JSON.parse(rows.find(row => row.id === fresh.id).snapshot)).toEqual(preview.snapshot);
+});
+
+test.each(["root", "reply"])("deleting a %s revokes and erases its public snapshot", async (target) => {
+  const { previewThreadShare, storeThreadShare, setThreadSharePolicy, readThreadShare } = await import("../src/threadShares.js");
+  const { deleteMessage } = await import("../src/channels.js");
+  await setThreadSharePolicy(env.DB, ORG, "6601", true, 0);
+  const root = await say(toru, "Public root");
+  const reply = await say(toru, "Remove this content", root.id);
+  const preview = await previewThreadShare(env.DB, ORG, "b:cafe", root.id);
+  const share = await storeThreadShare(env.DB, { orgId: ORG, channel: "b:cafe", threadId: root.id, userId: "6601", digest: preview.digest });
+  await deleteMessage(env.DB, { orgId: ORG, id: target === "root" ? root.id : reply.id, authorLogin: "toru", withThread: true });
+  expect(await readThreadShare(env.DB, share.token)).toBeNull();
+  expect((await env.DB.prepare("SELECT snapshot FROM channel_thread_shares WHERE id=?").bind(share.id).first()).snapshot).toBe("{}");
+});
+
+test("HTTP sharing requires explicit confirmation and revocation blocks anonymous reads", async () => {
+  const { setThreadSharePolicy } = await import("../src/threadShares.js");
+  await setThreadSharePolicy(env.DB, ORG, "6601", true, 0);
+  const root = await say(toru, "A reviewed public snapshot");
+  const preview = await (await call(`/channels/thread/share-preview?orgId=${encodeURIComponent(ORG)}&channel=b:cafe&messageId=${root.id}`, toru)).json();
+  const body = { orgId: ORG, channel: "b:cafe", messageId: root.id, digest: preview.digest };
+  expect((await call("/channels/thread/shares", toru, { method: "POST", body })).status).toBe(400);
+  const response = await call("/channels/thread/shares", toru, { method: "POST", body: { ...body, confirmPublic: true } });
+  expect(response.status).toBe(201);
+  const share = await response.json();
+  const listUrl = `/channels/thread/shares?orgId=${encodeURIComponent(ORG)}&messageId=${root.id}`;
+  const owned = await (await call(listUrl, toru)).json();
+  expect(owned.shares.map(item => item.id)).toEqual([share.id]);
+  expect(JSON.stringify(owned)).not.toContain(share.token);
+  expect((await (await call(listUrl, mika)).json()).shares).toEqual([]);
+  const publicUrl = `/channels/shared/${share.token}`;
+  const opened = await worker.fetch(new Request(`https://example.com${publicUrl}`), env, ctx);
+  expect(opened.status).toBe(200);
+  expect(opened.headers.get("cache-control")).toBe("no-store");
+  expect(opened.headers.get("x-robots-tag")).toContain("noindex");
+  expect((await opened.json()).snapshot).toEqual(preview.snapshot);
+  expect((await call("/channels/thread/shares", mika, { method: "DELETE", body: { orgId: ORG, id: share.id } })).status).toBe(404);
+  expect((await call("/channels/thread/shares", toru, { method: "DELETE", body: { orgId: ORG, id: share.id } })).status).toBe(200);
+  expect((await worker.fetch(new Request(`https://example.com${publicUrl}`), env, ctx)).status).toBe(404);
+});
+
+test("shared snapshots expire and stop being readable after source access changes", async () => {
+  const { previewThreadShare, storeThreadShare, readThreadShare, setThreadSharePolicy } = await import("../src/threadShares.js");
+  const root = await say(toru, "Fixed public content");
+  await setThreadSharePolicy(env.DB, ORG, "6601", true, 0);
+  const preview = await previewThreadShare(env.DB, ORG, "b:cafe", root.id);
+  const now = Date.now();
+  const share = await storeThreadShare(env.DB, { orgId: ORG, channel: "b:cafe", threadId: root.id, userId: "6601", digest: preview.digest }, now);
+  expect((await readThreadShare(env.DB, share.token, now)).snapshot).toEqual(preview.snapshot);
+  expect(await readThreadShare(env.DB, share.token, now + 7 * 86400000)).toBeNull();
+  expect(await readThreadShare(env.DB, "not-a-token", now)).toBeNull();
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='cafe'").bind(ORG).run();
+  expect(await readThreadShare(env.DB, share.token, now)).toBeNull();
+  await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1 AND slug='cafe'").bind(ORG).run();
+  expect(await readThreadShare(env.DB, share.token, now)).toBeNull();
+  const second = await storeThreadShare(env.DB, { orgId: ORG, channel: "b:cafe", threadId: root.id, userId: "6601", digest: preview.digest }, now);
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='6601'").bind(ORG).run();
+  expect(await readThreadShare(env.DB, second.token, now)).toBeNull();
+});
+
+test("sharing refuses a policy change between review and insertion", async () => {
+  const { previewThreadShare, storeThreadShare, setThreadSharePolicy } = await import("../src/threadShares.js");
+  const root = await say(toru, "Reviewed request");
+  const preview = await previewThreadShare(env.DB, ORG, "b:cafe", root.id);
+  await setThreadSharePolicy(env.DB, ORG, "6601", true, 0);
+  const racing = { prepare(sql) {
+    if (!sql.startsWith("INSERT INTO channel_thread_shares")) return env.DB.prepare(sql);
+    return { bind(...values) { return { async run() {
+      await setThreadSharePolicy(env.DB, ORG, "6601", false, 1);
+      return env.DB.prepare(sql).bind(...values).run();
+    } }; } };
+  } };
+  const result = await storeThreadShare(racing, { orgId: ORG, channel: "b:cafe", threadId: root.id, userId: "6601", digest: preview.digest });
+  expect(result.status).toBe(409);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_thread_shares WHERE org_id=?").bind(ORG).first()).n).toBe(0);
+});
+
+test.each(["delete", "edit", "reply"])("sharing rejects a concurrent source %s before insertion", async (change) => {
+  const { previewThreadShare, storeThreadShare, setThreadSharePolicy } = await import("../src/threadShares.js");
+  const root = await say(toru, "Reviewed root");
+  const reply = await say(toru, "Reviewed reply", root.id);
+  const preview = await previewThreadShare(env.DB, ORG, "b:cafe", root.id);
+  await setThreadSharePolicy(env.DB, ORG, "6601", true, 0);
+  const racing = { prepare(sql) {
+    if (!sql.startsWith("INSERT INTO channel_thread_shares")) return env.DB.prepare(sql);
+    return { bind(...values) { return { async run() {
+      if (change === "delete") await env.DB.prepare("UPDATE channel_messages SET body='',deleted_at=? WHERE id=?").bind(new Date().toISOString(), reply.id).run();
+      else if (change === "edit") await env.DB.prepare("UPDATE channel_messages SET body='Changed during publication' WHERE id=?").bind(reply.id).run();
+      else await say(toru, "New reply during publication", root.id);
+      return env.DB.prepare(sql).bind(...values).run();
+    } }; } };
+  } };
+  const result = await storeThreadShare(racing, { orgId: ORG, channel: "b:cafe", threadId: root.id, userId: "6601", digest: preview.digest });
+  expect(result.status).toBe(409);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_thread_shares WHERE org_id=?").bind(ORG).first()).n).toBe(0);
+});
+
+test("only admins change public sharing policy and stale saves do not revoke links", async () => {
+  const policyUrl = `/channels/thread-sharing?orgId=${encodeURIComponent(ORG)}`;
+  expect((await (await call(policyUrl, toru)).json()).policy).toEqual({ enabled: false, version: 0 });
+  const save = (token, enabled, version) => call("/channels/thread-sharing", token, { method: "PUT", body: { orgId: ORG, enabled, version } });
+  expect((await save(toru, true, 0)).status).toBe(403);
+  await env.DB.prepare("UPDATE memberships SET role='owner' WHERE org_id=?1 AND user_github_id='6601'").bind(ORG).run();
+  expect((await (await save(toru, true, 0)).json()).policy).toEqual({ enabled: true, version: 1 });
+  const { previewThreadShare, storeThreadShare } = await import("../src/threadShares.js");
+  const root = await say(toru, "Public review");
+  const preview = await previewThreadShare(env.DB, ORG, "b:cafe", root.id);
+  const share = await storeThreadShare(env.DB, { orgId: ORG, channel: "b:cafe", threadId: root.id, userId: "6601", digest: preview.digest });
+  expect((await save(toru, false, 0)).status).toBe(409);
+  expect((await env.DB.prepare("SELECT revoked_at FROM channel_thread_shares WHERE id=?").bind(share.id).first()).revoked_at).toBeNull();
+  expect((await save(toru, false, 1)).status).toBe(200);
+  const revoked = await env.DB.prepare("SELECT revoked_at,snapshot FROM channel_thread_shares WHERE id=?").bind(share.id).first();
+  expect(revoked.revoked_at).toBeTruthy();expect(revoked.snapshot).toBe("{}");
+  expect((await save(toru, true, 2)).status).toBe(200);
+  expect((await env.DB.prepare("SELECT revoked_at FROM channel_thread_shares WHERE id=?").bind(share.id).first()).revoked_at).toBe(revoked.revoked_at);
+});
+
+test("share storage binds the reviewed version and stores only a token hash", async () => {
+  const { previewThreadShare, storeThreadShare, revokeOwnThreadShare, setThreadSharePolicy } = await import("../src/threadShares.js");
+  const root = await say(toru, "Reviewed content");
+  const reviewed = await previewThreadShare(env.DB, ORG, "b:cafe", root.id);
+  const input = { orgId: ORG, channel: "b:cafe", threadId: root.id, userId: "6601", digest: reviewed.digest };
+  expect((await storeThreadShare(env.DB, input)).status).toBe(403);
+  await setThreadSharePolicy(env.DB, ORG, "6601", true, 0);
+  const shared = await storeThreadShare(env.DB, input, Date.parse("2026-10-20T00:00:00Z"));
+  expect(shared.token).toMatch(/^[a-f0-9]{64}$/);
+  const saved = await env.DB.prepare("SELECT * FROM channel_thread_shares WHERE id=?").bind(shared.id).first();
+  expect(saved.token_hash).not.toBe(shared.token);
+  expect(JSON.parse(saved.snapshot)).toEqual(reviewed.snapshot);
+  expect(saved.expires_at).toBe("2026-10-27T00:00:00.000Z");
+  await say(mika, "Added after sharing", root.id);
+  expect((await storeThreadShare(env.DB, input)).status).toBe(409);
+  expect(JSON.parse((await env.DB.prepare("SELECT snapshot FROM channel_thread_shares WHERE id=?").bind(shared.id).first()).snapshot).messages).toHaveLength(1);
+  expect((await revokeOwnThreadShare(env.DB, ORG, "6602", shared.id)).status).toBe(404);
+  expect((await revokeOwnThreadShare(env.DB, "other", "6601", shared.id)).status).toBe(404);
+  expect(await revokeOwnThreadShare(env.DB, ORG, "6601", shared.id)).toEqual({ revoked: true });
+  expect(await revokeOwnThreadShare(env.DB, ORG, "6601", shared.id)).toEqual({ revoked: true });
+  const revoked = await env.DB.prepare("SELECT snapshot,revoked_at FROM channel_thread_shares WHERE id=?").bind(shared.id).first();
+  expect(revoked.revoked_at).toBeTruthy();expect(revoked.snapshot).toBe("{}");
+});
+
+test("share preview is authenticated, explicit data only, and reevaluates DLP", async () => {
+  const root = await say(toru, "Internal proposal");
+  await say(mika, "Confidential reply", root.id);
+  await env.DB.prepare(`INSERT INTO message_files (id,org_id,channel,message_id,uploader,name,type,size,created_at)
+    VALUES ('share_file',?1,'b:cafe',?2,'toru','secret-name.txt','text/plain',1,'2026-01-01')`).bind(ORG, root.id).run();
+  const url = `/channels/thread/share-preview?orgId=${encodeURIComponent(ORG)}&channel=b:cafe&messageId=${root.id}`;
+  const before = await (await call(url, toru)).json();
+  expect(before.snapshot.messages).toHaveLength(2);
+  expect(before.snapshot.messages[0]).toEqual({ author: "Toru", body: "Internal proposal", createdAt: root.createdAt, kind: "person", attachmentCount: 1 });
+  expect(JSON.stringify(before.snapshot)).not.toContain("share_file");
+  expect(JSON.stringify(before.snapshot)).not.toContain("secret-name.txt");
+  expect(before.digest).toMatch(/^[a-f0-9]{64}$/);
+  expect((await (await call(url, toru)).json()).digest).toBe(before.digest);
+  await env.DB.prepare(`INSERT INTO dlp_rules (id,org_id,name,kind,pattern,action,created_by,created_at,updated_at)
+    VALUES ('share_policy',?1,'Confidential','keywords','["Confidential"]','block','6601','2026-01-01','2026-01-01')`).bind(ORG).run();
+  const blocked = await (await call(url, toru)).json();
+  expect(blocked.blocked).toBe(true);
+  expect(blocked.dlp).toEqual([{ id: "share_policy", name: "Confidential", action: "block" }]);
+  await say(toru, "Later reply", root.id);
+  expect((await (await call(url, toru)).json()).digest).not.toBe(before.digest);
+  expect(before.snapshot.messages).toHaveLength(2);
+  expect((await call(url.replace("channel=b:cafe", "channel=general"), toru)).status).toBe(404);
+  expect((await call(url, "invalid-token")).status).not.toBe(200);
+  const { previewThreadShare } = await import("../src/threadShares.js");
+  const unavailablePolicy = { prepare(sql) {
+    if (sql.startsWith("SELECT * FROM dlp_rules")) throw new Error("policy unavailable");
+    return env.DB.prepare(sql);
+  } };
+  await expect(previewThreadShare(unavailablePolicy, ORG, "b:cafe", root.id)).rejects.toThrow("policy unavailable");
+});
 
 test("thread search includes the root, scopes replies and treats wildcards literally", async () => {
   const root = await say(toru, "Budget 100%_done");

@@ -21,6 +21,7 @@ import { PROTOCOL, deepLinkToHash, deepLinkToUrl, goMenuItems, modeMenuItems, se
 import { countFromTitle, shouldAttract, trayTooltip } from './badge.js'
 import { fitBounds, loadWindowState, saveWindowState, MIN_SIZE } from './windowState.js'
 import { crashVerdict } from './crashes.js'
+import { installLoadRecovery } from './loadRecovery.js'
 import { startUpdates } from './updates.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -342,6 +343,25 @@ function createWindow() {
   // still there; anything else means it did not load.
   win.webContents.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => {
     if (isMainFrame && code !== -3) appLoaded = false
+  })
+  const loadingWindow = win
+  installLoadRecovery(loadingWindow.webContents, {
+    alive: () => !loadingWindow.isDestroyed(),
+    retry: () => loadingWindow.loadURL(APP_URL),
+    ask: async (code) => {
+      const japanese = app.getLocale().startsWith('ja')
+      const { response } = await dialog.showMessageBox(loadingWindow, {
+        type: 'error',
+        title: APP_NAME,
+        message: japanese ? '画面を読み込めませんでした' : 'The page could not load',
+        detail: japanese
+          ? `通信状態を確認して、再試行してください。保存された会話や設定は削除されません。（エラー ${code}）`
+          : `Check your connection and try again. Saved conversations and settings will not be removed. (Error ${code})`,
+        buttons: japanese ? ['再試行', '閉じる'] : ['Try again', 'Close'],
+        defaultId: 0, cancelId: 1, noLink: true,
+      })
+      return response === 0
+    },
   })
 
   // A renderer that dies is reloaded — unless it keeps dying (src/crashes.js),
