@@ -1,6 +1,17 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "No memories yet.": "記憶はまだありません。",
+  "No memories match these filters.": "条件に一致する記憶はありません。",
+  "Conversation memory": "会話の記憶",
+  "{shown} of {total} memories": "{total}件中{shown}件の記憶",
+  "All memory types": "すべての種類",
+  "Filter memory type": "記憶の種類で絞り込む",
+  "Search memories": "記憶を検索",
+  "Reference": "参照",
+  "Feedback": "フィードバック",
+  "Preference": "好み",
+  "Memory type": "記憶の種類",
   "No mentions or DMs": "メンションやDMはありません",
   "Unread mentions and direct messages appear here.": "未読のメンションとダイレクトメッセージがここに表示されます。",
   "Mentions and DMs": "メンションとDM",

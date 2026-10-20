@@ -1,3 +1,5 @@
+import { AgentMemoryList, MemoryKindSelect } from '../components/AgentMemoryList'
+import type { MemoryKind } from '../utils/harness'
 import { Markdown } from '../utils/markdown'
 import { useMembers, type Mentionable } from '../utils/mentions'
 import { Avatar } from '../components/Avatar'
@@ -71,6 +73,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
   const [memoryChannel, setMemoryChannel] = useState('')
   const [memoryScopes, setMemoryScopes] = useState<Array<{ channel: string; label: string }>>([])
   const [remember, setRemember] = useState('')
+  const [memoryKind, setMemoryKind] = useState<MemoryKind>('context')
   const [people, setPeople] = useState('')
   const [saved, setSaved] = useState(false)
   const { busy, error, act } = useAct()
@@ -170,18 +173,14 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
         <div className="row static">
           <span className="row-main">
             <span className="row-sub">{t('Shared knowledge for this agent. Memories added in chat stay in that conversation: “@{handle} remember that …”.', { handle: agent.handle })}</span>
-            <span className="playbook-add-foot">
+            <span className="playbook-add-foot hx-memory-compose">
+              <MemoryKindSelect value={memoryKind} onChange={setMemoryKind} disabled={busy !== null} />
               <input className="hx-cell-input" value={remember} onChange={(e) => setRemember(e.target.value)} placeholder={t('e.g. Acme pays on the 25th')} aria-label={t('Remember')} />
-              <button className="pill-btn" disabled={!remember.trim()} onClick={() => act('remember', async () => { await api.remember(agent.id, remember, memoryChannel); setRemember(''); setMemories((await api.memory(agent.id, memoryChannel)).memories) })}>{t('Remember')}</button>
+              <button className="pill-btn" disabled={busy !== null || !remember.trim()} onClick={() => act('remember', async () => { await api.remember(agent.id, remember, memoryChannel, memoryKind); setRemember(''); setMemories((await api.memory(agent.id, memoryChannel)).memories) })}>{t('Remember')}</button>
             </span>
           </span>
         </div>
-        {memories.map((m) => (
-          <div key={m.id} className="row static memory-row">
-            <span className="row-main"><span className="memory-text">{m.text}</span><span className="row-sub">{new Date(m.createdAt).toLocaleDateString()}</span></span>
-            {canEdit && <button className="btn-text" onClick={() => act(`forget:${m.id}`, async () => { await api.forget(agent.id, m.id, m.channel ? memoryChannel : ''); setMemories((x) => x.filter((y) => y.id !== m.id)) })}>{t('Forget')}</button>}
-          </div>
-        ))}
+        <AgentMemoryList key={`${props.orgId}:${agent.id}:${memoryChannel}`} memories={memories} canEdit={canEdit} busy={busy !== null} onForget={m => act(`forget:${m.id}`, async () => { await api.forget(agent.id, m.id, m.channel ? memoryChannel : ''); setMemories(x => x.filter(y => y.id !== m.id)) })} />
       </div>
 
       </>}
