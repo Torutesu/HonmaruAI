@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import source from '../public/sw.js?raw'
 import indexHtml from '../index.html?raw'
 import privacyHtml from '../public/privacy.html?raw'
 import supportHtml from '../public/support.html?raw'
 import deleteAccountHtml from '../public/delete-account.html?raw'
+afterEach(() => { vi.clearAllTimers(); vi.useRealTimers() })
 
 // public/sw.js itself, run with just enough of a service worker around it
 // (its globals handed in as parameters): what a push shows, and where a
@@ -226,6 +227,29 @@ describe('the offline shell', () => {
     if (html === undefined) throw new Error('offline')
     return page(html)
   }
+  it('uses the saved shell when the network never answers', async () => {
+    vi.useFakeTimers()
+    const request = vi.fn((_req: { url: string }, _options?: { signal: AbortSignal }) => new Promise<Response>(() => {}))
+    const w = worker({ cached: { 'honmaru-shell-v3': { '/': page(indexHtml) } }, fetch: request })
+    let finished = false
+    const result = w.navigate('/c/example').then(res => { finished = true; return res })
+    await vi.advanceTimersByTimeAsync(7999)
+    expect(finished).toBe(false)
+    await vi.advanceTimersByTimeAsync(2)
+    expect(await (await result).text()).toBe(indexHtml)
+    expect(request.mock.calls[0][1]?.signal.aborted).toBe(true)
+  })
+  it('offers a retry page when no saved shell exists and the network stalls', async () => {
+    vi.useFakeTimers()
+    const w = worker({ fetch: () => new Promise(() => {}) })
+    const result = w.navigate('/')
+    await vi.advanceTimersByTimeAsync(8001)
+    const response = await result
+    expect(response.status).toBe(503)
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(await response.text()).toContain('再試行 / Try again')
+    expect(w.shell()).toBeUndefined()
+  })
 
   it('is kept from the app, and is what an offline open shows — on a deep link too', async () => {
     const w = worker({ fetch: site({ '/': indexHtml }) })
