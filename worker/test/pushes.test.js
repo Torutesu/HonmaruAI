@@ -161,9 +161,9 @@ test("a muted conversation is nobody's push", async () => {
     .toEqual([{ login: "mika", reason: "mention" }]);
 });
 
-test.each(["mute", "private", "guest"])("queued push honors a later %s change before delivery", async (change) => {
+test.each(["mute", "private", "guest", "thread-mute"])("queued push honors a later %s change before delivery", async (change) => {
   const { registerDevice } = await import("../src/db.js");
-  const token = ({ mute: "b", private: "c", guest: "d" })[change].repeat(64);
+  const token = ({ mute: "b", private: "c", guest: "d", "thread-mute": "e" })[change].repeat(64);
   await registerDevice(env.DB, { deviceToken: token, githubId: "8803", login: "kenji", environment: "production", platform: "ios" });
   const pushed = [];
   fetchMock.activate();
@@ -177,11 +177,17 @@ test.each(["mute", "private", "guest"])("queued push honors a later %s change be
     const row = { id, kind: "message", channel: "b:cafe", author_login: "toru", body: "@Kenji confidential", created_at: new Date(at).toISOString() };
     await env.DB.prepare("INSERT INTO channel_messages (id,org_id,channel,author_login,body,kind,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)")
       .bind(id, ORG, row.channel, row.author_login, row.body, row.kind, row.created_at).run();
+    if (change === "thread-mute") {
+      row.parent_id = "queued-mute-root";
+      await env.DB.prepare("UPDATE channel_messages SET parent_id=?1 WHERE id=?2").bind(row.parent_id,id).run();
+    }
     await queueMessagePushes(penv, ORG, row, { members, now: at });
   };
   try {
+    if (change === "thread-mute") await env.DB.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,body,kind,created_at) VALUES ('queued-mute-root',?1,'b:cafe','toru','Root','message','2026-01-01')").bind(ORG).run();
     await say("before-change", now);
     expect(await queued()).toHaveLength(1);
+    if (change === "thread-mute") await env.DB.prepare("INSERT INTO channel_thread_mutes(org_id,login,message_id) VALUES (?1,'kenji','queued-mute-root')").bind(ORG).run();
     if (change === "mute") await env.DB.prepare("INSERT INTO channel_prefs (org_id,login,channel,level) VALUES (?1,'kenji','b:cafe','mute')").bind(ORG).run();
     if (change === "private") await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='cafe'").bind(ORG).run();
     if (change === "guest") await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=?1 AND user_github_id='8803'").bind(ORG).run();
@@ -189,6 +195,7 @@ test.each(["mute", "private", "guest"])("queued push honors a later %s change be
     expect(pushed).toHaveLength(0);
     // Restoring access/preferences allows new notifications, but never replays the skipped message.
     await env.DB.prepare("DELETE FROM channel_prefs WHERE org_id=?1").bind(ORG).run();
+    await env.DB.prepare("DELETE FROM channel_thread_mutes WHERE org_id=?1").bind(ORG).run();
     await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1").bind(ORG).run();
     await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='8803'").bind(ORG).run();
     await say("after-change", now + 2 * PUSH_DELAY_MS);
@@ -225,4 +232,13 @@ test("a translation that lost a spoiler's bars is not what a lock screen shows",
   // No spoiler, or nothing translated: as before.
   expect(pushWords("lunch?", "お昼？")).toBe("お昼？");
   expect(pushWords("lunch?", "")).toBe("lunch?");
+});
+
+test('thread mute suppresses mentions only in that thread for that person', async () => {
+  const members = await listMembers(env.DB, ORG, null);
+  await env.DB.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,body,kind,created_at) VALUES ('mute-root',?1,'b:cafe','toru','Root','message','2026-01-01')").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO channel_thread_mutes(org_id,login,message_id) VALUES (?1,'kenji','mute-root')").bind(ORG).run();
+  const row={id:'reply',kind:'message',channel:'b:cafe',author_login:'toru',body:'@Kenji @Mika',parent_id:'mute-root'};
+  expect(await recipientsOf(env.DB,ORG,row,members)).toEqual([{login:'mika',reason:'mention'}]);
+  expect((await recipientsOf(env.DB,ORG,{...row,parent_id:null},members)).map(r=>r.login)).toEqual(['kenji','mika']);
 });

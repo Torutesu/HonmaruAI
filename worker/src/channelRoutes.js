@@ -1,4 +1,5 @@
 import { threadPins, setThreadPin } from "./threadPins.js";
+import { threadNotificationPreference } from "./threadNotifications.js";
 import { threadReferences } from "./threadReferences.js";
 import { searchThread } from "./threadSearch.js";
 import { previewThreadShare, threadSharePolicy, setThreadSharePolicy, storeThreadShare, readThreadShare, revokeOwnThreadShare } from "./threadShares.js";
@@ -1243,6 +1244,20 @@ export async function handleChannels(request, env, url, { route, after }) {
     const saved = await getCard(env.DB, body.orgId, card.id);
     after(async () => { if (saved) await announceCards(env, body.orgId, [saved], { isNew: false }); });
     return json({ card: saved, text: next, note });
+  }
+
+  if (path === "/channels/thread/notifications" && ["GET", "PUT"].includes(request.method)) {
+    const body = request.method === "PUT" ? await request.json().catch(() => null) : Object.fromEntries(url.searchParams);
+    if (!body || (request.method === "PUT" && typeof body.muted !== "boolean")) return json({ message: "A muted boolean is required." }, 400);
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    if (request.method === "PUT") {
+      const limited = await enforce(env, request, "chat");
+      if (limited) return limited;
+    }
+    const result = await threadNotificationPreference(env.DB, body.orgId, ctx.resolved.key, ctx.who.user.login,
+      body.messageId, request.method === "PUT" ? body.muted : undefined);
+    return result.error ? json({ message: result.error }, result.status) : json(result);
   }
 
   if (path === "/channels/thread/title" && request.method === "PUT") {
