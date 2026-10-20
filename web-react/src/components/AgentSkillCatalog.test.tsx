@@ -44,6 +44,7 @@ test('failed installs remain visible with an error and readonly agents cannot in
  expect(tree.root.findByType('dialog').findAllByType('strong')).toHaveLength(1)
  act(()=>tree.root.findByType('dialog').props.onCancel({preventDefault(){}}))
  expect(tree.root.findAllByType('dialog')).toHaveLength(0)
+ expect(tree.root.findAllByProps({role:'alert'})).toHaveLength(0)
  act(()=>tree.update(<AgentSkillCatalog skills={[b]} installed={[]} canEdit={false} onToggle={toggle}/>))
  expect(tree.root.findAllByType('button').find(n=>n.children.includes('Add skills'))!.props.disabled).toBe(true)
  act(()=>tree.unmount())

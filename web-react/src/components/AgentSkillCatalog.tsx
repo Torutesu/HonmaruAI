@@ -23,7 +23,7 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
     dialog.current?.querySelector<HTMLInputElement>('input[type=search]')?.focus()
     return () => { dialog.current?.close(); trigger.current?.focus() }
   }, [open])
-  const close = () => { if (!pending.current) setOpen(false) }
+  const close = () => { if (!pending.current) { setOpen(false); setDraft(null); setError('') } }
   const toggle = async (id: string, install: boolean) => {
     if (!canEdit || pending.current) return
     pending.current = true; setBusy(id); setError('')

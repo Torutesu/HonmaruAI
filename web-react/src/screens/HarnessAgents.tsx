@@ -3,6 +3,7 @@ import type { SkillDraft } from '../utils/harness'
 import { AgentMemoryList, MemoryKindSelect } from '../components/AgentMemoryList'
 import type { MemoryKind } from '../utils/harness'
 import { AgentSkillCatalog } from '../components/AgentSkillCatalog'
+import { NewHarnessAgent } from '../components/NewHarnessAgent'
 import { Markdown } from '../utils/markdown'
 import { useMembers, type Mentionable } from '../utils/mentions'
 import { Avatar } from '../components/Avatar'
@@ -38,6 +39,7 @@ const ScopedHarnessAgents: React.FC<AgentsProps> = (props) => {
   const [agents, setAgents] = useState<AgentFace[] | null>(null)
   const [open, setOpen] = useState<AgentFace | null>(null)
   const [person, setPerson] = useState<Mentionable | null>(null)
+  const [creating, setCreating] = useState(false)
   const [filter, setFilter] = useState<'all' | 'people' | 'agents'>('all')
   const members = useMembers(props.httpBase, props.orgId, props.sessionToken)
   const { error, act } = useAct()
@@ -52,7 +54,7 @@ const ScopedHarnessAgents: React.FC<AgentsProps> = (props) => {
 
   return <div className="screen hx-members-screen">
     <aside className="hx-members-list">
-      <header className="hx-chat-top"><h1>{t('Members')}</h1><details className="hx-member-add"><summary aria-label={t('New')}><Icon name="plus" size={17} /></summary><div className="hx-rail-menu"><button onClick={props.onManageTeam}>{t('Invite people')}</button><button onClick={props.onManageAgents}>{t('New agent')}</button></div></details></header>
+      <header className="hx-chat-top"><h1>{t('Members')}</h1><details className="hx-member-add"><summary aria-label={t('New')}><Icon name="plus" size={17} /></summary><div className="hx-rail-menu"><button onClick={props.onManageTeam}>{t('Invite people')}</button><button onClick={e => { e.currentTarget.closest('details')?.removeAttribute('open'); setCreating(true) }}>{t('New agent')}</button></div></details></header>
       <div className="hx-chat-filters" role="tablist" aria-label={t('Members')}>
         {(['all', 'people', 'agents'] as const).map(f => <button key={f} role="tab" aria-selected={filter === f} onClick={() => setFilter(f)}>{t(f === 'all' ? 'All' : f === 'people' ? 'People' : 'Agents')}</button>)}
       </div>
@@ -64,6 +66,7 @@ const ScopedHarnessAgents: React.FC<AgentsProps> = (props) => {
     <main className="hx-member-detail">
       {open ? <AgentMember key={open.id} {...props} agent={open} onBack={() => setOpen(null)} onMessage={() => props.onMessage?.(open.id)} onEdit={props.onManageAgents} /> : person ? <div className="hx-person-profile"><Avatar name={person.name} url={person.avatarUrl} round size={64} /><h1>{person.name}</h1>{person.handle && <p>@{person.handle}</p>}<button className="pill-btn" onClick={props.onManageTeam}>{t('Team settings')}</button></div> : <div className="hx-member-empty"><Icon name="you" size={32} /><p>{t('Choose a member')}</p></div>}
     </main>
+    {creating && <NewHarnessAgent {...props} onClose={() => setCreating(false)} onAdvanced={props.onManageAgents} onCreated={(agent, all) => { setAgents(all); setOpen(agent); setPerson(null); setFilter('all'); setCreating(false) }} />}
   </div>
 }
 

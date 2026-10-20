@@ -1,0 +1,14 @@
+.hx-new-agent {
+  width:min(512px,100%); max-height:calc(100dvh - 48px); border-radius:16px;
+  --dlg-bg:var(--hx-surface); --dlg-ink:var(--hx-text); --dlg-dim:var(--hx-muted);
+  --dlg-faint:var(--hx-muted); --dlg-line:var(--hx-border); --dlg-field:var(--hx-surface);
+  --dlg-hover:var(--hx-hover); --dlg-accent:var(--hx-text);
+}
+.hx-new-agent .dialog-body { gap:18px; }
+.hx-new-agent-face { align-self:center; display:flex; align-items:center; flex-direction:column; gap:10px; padding:10px 0; background:none; border:0; color:var(--hx-muted); cursor:pointer; }
+.hx-new-agent-face > span { width:80px; height:80px; display:grid; place-items:center; border-radius:50%; background:var(--hx-chip-surface); font-size:34px; }
+.hx-new-agent-face > small { font-size:12px; }
+.hx-new-agent-runtime { padding:12px; border:1px solid var(--hx-border); border-radius:12px; font-size:13px; }
+.hx-new-agent .dlg-input { border-radius:12px; }
+.hx-new-agent button:focus-visible { outline:2px solid var(--hx-text); outline-offset:3px; }
+.hx-new-agent button:disabled { cursor:default; opacity:.5; }

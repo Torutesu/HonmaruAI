@@ -228,3 +228,20 @@ test("Harness creation is private even when a client requests team scope, and st
   const list = await (await get(`/channels/agents?${q({ orgId: ORG })}`, kenji)).json();
   expect(list.agents.some(x => x.id === a.id)).toBe(true);
 });
+test("Harness creation saves specialty and tier with the private agent, and rejects invalid profiles without partial writes", async () => {
+  const input = { orgId: ORG, name: "Analyst", handle: "analyst-profile", instructions: "Help with research", profile: { specialty: "Research", tier: "max" } };
+  const count = async () => (await env.DB.prepare("SELECT COUNT(*) AS n FROM custom_agents WHERE org_id = ?1").bind(ORG).first()).n;
+  const before = await count();
+  for (const profile of [null, [], { specialty: "Research", tier: "unknown" }, { specialty: "x".repeat(121), tier: "max" }]) {
+    expect((await send("POST", "/channels/agents", mika, { ...input, profile })).status).toBe(400);
+    expect(await count()).toBe(before);
+  }
+  const created = await send("POST", "/channels/agents", mika, input);
+  expect(created.status).toBe(201);
+  const agent = (await created.json()).agent;
+  expect(agent.scope).toBe("personal");
+  const result = await (await get(`/hx/agents/${agent.id}/profile?${q({ orgId: ORG })}`, mika)).json();
+  expect(result.profile).toMatchObject({ specialty: "Research", tier: "max" });
+  expect((await get(`/hx/agents/${agent.id}/profile?${q({ orgId: ORG })}`, toru)).status).toBe(404);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_agents WHERE agent_id = ?1").bind(agent.id).first()).n).toBe(0);
+});

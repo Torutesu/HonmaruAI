@@ -1,6 +1,18 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Give your agent a name and a face. It starts private and has no access to existing rooms. Add it to a room after creation.": "エージェントの名前とアイコンを設定します。非公開で作成され、既存のルームにはアクセスできません。参加させる場合は作成後に追加してください。",
+  "Choose another avatar": "別のアイコンを選ぶ",
+  "e.g. Atlas": "例：Atlas",
+  "e.g. Research and synthesis": "例：リサーチと統合",
+  "Help teammates understand what this agent is good at.": "このエージェントの得意分野をチームメイトに伝えます。",
+  "How it runs": "実行方法",
+  "Workspace AI": "ワークスペースのAI",
+  "Uses this workspace’s configured AI provider. Creation does not run the model.": "設定済みのAIプロバイダーを使います。作成時にはAIを実行しません。",
+  "Starts with basic instructions based on the name and specialty. You can edit its persona after creation.": "名前と専門分野に基づく基本の指示で開始します。作成後にペルソナを編集できます。",
+  "Open the detailed agent editor": "詳細編集画面を開く",
+  "Could not create the agent.": "エージェントを作成できませんでした。",
+  "Invalid initial agent profile.": "専門分野またはインテリジェンスの設定を確認してください。",
   "No skills available yet. Import a local skill to get started.": "利用できるスキルはまだありません。ローカルスキルを取り込んで始めましょう。",
   "Place exactly one SKILL.md at the package root.": "フォルダーの直下にSKILL.mdを1つ配置してください。",
   "Invalid, oversized or unsupported skill ZIP.": "ZIPが破損しているか、サイズ上限を超えているか、未対応の形式です。",

@@ -248,6 +248,12 @@ export async function saveAgent(db, orgId, { id = null, input, login, members, i
   // Only its owner turns a personal agent into the team's, or back.
   const wanted = field("scope") === "personal" ? "personal" : field("scope") === "team" ? "team" : null;
   const privateCreation = !existing && await getMode(db, orgId) === "harness";
+  const initialProfile = input?.profile;
+  if (initialProfile !== undefined && (!privateCreation || !initialProfile || typeof initialProfile !== "object" || Array.isArray(initialProfile)
+    || !["lite", "standard", "max"].includes(initialProfile.tier)
+    || typeof initialProfile.specialty !== "string" || initialProfile.specialty.trim().length > 120)) {
+    return { error: "Invalid initial agent profile.", status: 400 };
+  }
   const scope = privateCreation ? "personal" : existing && existing.ownerLogin !== login ? existing.scope : (wanted || existing?.scope || "team");
   if (!name) return { error: "Give the agent a name.", status: 400 };
   if (!handle) return { error: "Its @name is 2 to 30 letters, numbers, - _ and ., and not a word @ already means.", status: 400 };
@@ -270,8 +276,8 @@ export async function saveAgent(db, orgId, { id = null, input, login, members, i
     // exception. Sharing later remains an explicit owner scope change.
     if (privateCreation) {
       await db.batch([insert, db.prepare(`INSERT INTO hx_agent_profiles
-        (org_id, agent_id, access, people, updated_by, updated_at) VALUES (?1, ?2, 'everyone', '[]', ?3, ?4)`)
-        .bind(orgId, newId, login, now)]);
+        (org_id, agent_id, access, people, updated_by, updated_at, specialty, tier) VALUES (?1, ?2, 'everyone', '[]', ?3, ?4, ?5, ?6)`)
+        .bind(orgId, newId, login, now, initialProfile?.specialty.trim() || "", initialProfile?.tier || "standard")]);
     } else {
       await insert.run();
     }
