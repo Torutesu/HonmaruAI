@@ -718,3 +718,16 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Explicit addressees, quoted/code-only requests, status/acknowledgement phrases, agent-authored messages and existing human threads do not create automatic assignments. Simple keeps its previous routing. Room/agent mention-only policies win.
 - This is intentionally recorded as partial routing parity: multilingual/ambiguous intent, complex task selection and agent-to-agent handoff remain incomplete. It is not evidence of a full semantic router.
 - Worker routing/agents/autobuild regression 55 tests passed; after refining named-human/status exclusions, routing/Harness-agent suites 19 passed. Full Worker session 97774 started before this routing change, remains in progress, and cannot establish this new path on its own.
+
+### Full-suite rerun with fixed sources (2026-10-21)
+
+- Session 97774 completed with 202 files/1505 tests passing and one proxy test failing (expected null; received {act: none}). This run began before queued-proxy source changes but discovered the later-added test; it cannot certify the final tree. The failure matches the old path, but stale loading is a hypothesis until a frozen rerun passes.
+- Started full Worker rerun at source commit e2166a6a, session 25135, log /tmp/honmaru-frozen-worker-suite.log. Worker source/tests must remain unchanged until it finishes. No new deployments are being inferred from local results.
+
+### Version consistency and production screen evidence (2026-10-21)
+
+- Public GitHub Actions confirmed ccc64f0e Web deploy success and e43500f0 Worker deploy success. CI ccc64f0e failed only the shared/mobile version consistency job; Worker, Web, desktop, gateway, relay and end-to-end jobs succeeded.
+- Aligned VERSION, web, mobile and Apple marketing versions with the prepared desktop 1.3.9. Version check, mobile lint/typecheck, core typecheck, final Web TypeScript and Vite build pass. This does not establish a signed 1.3.9 desktop release.
+- Native production screenshot capture recovered. The authenticated app displayed creator/date and inline persona, and opened the profile dialog with picture/name/specialty/intelligence controls and disabled unchanged Save. No production profile data was changed. The earlier stale-shell inference is not established.
+- Plain HTTP probe still returned Cloudflare 403 / error 1010. Official documentation identifies browser-signature denial; this does not establish an outage for authenticated native users. No security settings were weakened.
+- Local native preview displayed the revised dialog spacing and action colors. Keyboard interaction did not reliably change its AX state; do not claim native keyboard verification. Temporary QA entrypoints and preview servers were removed/stopped before the final production build.
