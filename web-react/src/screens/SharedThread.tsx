@@ -1,4 +1,5 @@
 import React,{useEffect,useState} from 'react'
+import {Markdown} from '../utils/markdown'
 import './SharedThread.css'
 type Snapshot={version:1;title:string;messages:Array<{author:string;body:string;createdAt:string;kind:string;attachmentCount:number}>}
 export function SharedThread({httpBase,token}:{httpBase:string;token:string}){
@@ -43,7 +44,7 @@ export function SharedThread({httpBase,token}:{httpBase:string;token:string}){
   {state==='missing'&&<section><h1>この共有リンクは利用できません</h1><p>期限切れ、無効化、または共有範囲が変更された可能性があります。</p></section>}
   {state==='error'&&<section role="alert"><h1>会話を読み込めませんでした</h1><button onClick={()=>setAttempt(n=>n+1)}>再試行</button></section>}
   {state==='ready'&&data&&<><h1>{data.snapshot.title}</h1><p className="shared-thread-note">共有時点の会話です。以後のメッセージは含まれません。</p>
-   {data.snapshot.messages.map((message,index)=><article key={index} className={message.kind==='assistant'?'assistant':'person'}><div><strong>{message.author}</strong><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleString()}</time></div><p>{message.body}</p>{message.attachmentCount>0&&<small>添付 {message.attachmentCount} 件（このリンクでは公開されません）</small>}</article>)}
+   {data.snapshot.messages.map((message,index)=><article key={index} className={message.kind==='assistant'?'assistant':'person'}><div className="shared-thread-author"><strong>{message.author}</strong><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleString()}</time></div><Markdown className="shared-thread-message" source={message.body}/>{message.attachmentCount>0&&<small>添付 {message.attachmentCount} 件（このリンクでは公開されません）</small>}</article>)}
    <footer>有効期限：{new Date(data.expiresAt).toLocaleString()}</footer>
   </>}
  </main>

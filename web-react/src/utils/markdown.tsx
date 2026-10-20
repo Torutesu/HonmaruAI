@@ -14,6 +14,7 @@ export type Inline =
   | { kind: 'link'; href: string; children: Inline[] }
 
 export type Block =
+  | { kind: 'code'; text: string; language: string }
   | { kind: 'heading'; level: 2 | 3; children: Inline[] }
   | { kind: 'list'; ordered: boolean; start: number; items: Inline[][] }
   | { kind: 'paragraph'; children: Inline[] }
@@ -103,6 +104,7 @@ export function parseBlocks(source: string): Block[] {
   const blocks: Block[] = []
   let para: string[] = []
   let list: { ordered: boolean; start: number; items: string[] } | null = null
+  let fence: { marker: string; length: number; language: string; lines: string[] } | null = null
   const endPara = () => {
     if (para.length) blocks.push({ kind: 'paragraph', children: parseInline(para.join('\n')) })
     para = []
@@ -112,6 +114,20 @@ export function parseBlocks(source: string): Block[] {
     list = null
   }
   for (const line of lines) {
+    if (fence) {
+      const close = line.match(/^\s{0,3}(`{3,}|~{3,})\s*$/)
+      if (close && close[1][0] === fence.marker && close[1].length >= fence.length) {
+        blocks.push({ kind: 'code', text: fence.lines.join('\n'), language: fence.language })
+        fence = null
+      } else fence.lines.push(line)
+      continue
+    }
+    const open = line.match(/^\s{0,3}(`{3,}|~{3,})\s*([^`]*)$/)
+    if (open) {
+      endPara(); endList()
+      fence = { marker: open[1][0], length: open[1].length, language: open[2].trim().split(/\s+/)[0] || '', lines: [] }
+      continue
+    }
     if (!line.trim()) { endPara(); endList(); continue }
     const heading = line.match(HEADING)
     if (heading) {
@@ -137,6 +153,7 @@ export function parseBlocks(source: string): Block[] {
     para.push(line.trim())
   }
   endPara(); endList()
+  if (fence) blocks.push({ kind: 'code', text: fence.lines.join('\n'), language: fence.language })
   return blocks
 }
 
@@ -157,6 +174,7 @@ function renderInline(nodes: Inline[]): React.ReactNode[] {
 export const Markdown: React.FC<{ source: string; className?: string }> = ({ source, className }) => (
   <div className={className}>
     {parseBlocks(source).map((block, i) => {
+      if (block.kind === 'code') return <pre key={i}><code>{block.text}</code></pre>
       if (block.kind === 'heading') {
         return block.level === 2
           ? <h2 key={i}>{renderInline(block.children)}</h2>

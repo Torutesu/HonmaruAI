@@ -4,9 +4,18 @@
 .shared-thread h1 { font-size:24px; line-height:1.4; overflow-wrap:anywhere; margin:28px 0 12px; }
 .shared-thread-note,.shared-thread footer { color:var(--slate); font-size:12px; }
 .shared-thread article { margin:28px 0; }
-.shared-thread article > div { display:flex; gap:16px; align-items:baseline; }
+.shared-thread-author { display:flex; gap:16px; align-items:baseline; }
 .shared-thread time { font-size:11px; color:var(--slate); }
-.shared-thread article p { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; padding:16px; border-radius:14px; background:var(--mist); }
+.shared-thread-message { overflow-wrap:anywhere; line-height:1.7; padding:16px; margin:12px 0; border-radius:14px; background:var(--mist); }
+.shared-thread-message p { white-space:pre-wrap; margin:0 0 12px; }
+.shared-thread-message > :last-child { margin-bottom:0; }
+.shared-thread-message h2,.shared-thread-message h3 { margin:0 0 12px; font-size:18px; line-height:1.5; }
+.shared-thread-message h3 { font-size:16px; }
+.shared-thread-message ul,.shared-thread-message ol { margin:0 0 12px; padding-left:24px; }
+.shared-thread-message a { color:var(--carbon); text-decoration:underline; text-underline-offset:3px; }
+.shared-thread-message code { font-family:var(--font-mono); font-size:.9em; background:var(--bone); border-radius:4px; padding:2px 5px; }
+.shared-thread-message pre { max-width:100%; overflow:auto; padding:14px; margin:0 0 12px; background:var(--signal-white); border:1px solid var(--bone); border-radius:8px; line-height:1.6; }
+.shared-thread-message pre code { background:none; border-radius:0; padding:0; white-space:pre; }
 .shared-thread small { color:var(--slate); }
 .shared-thread footer { margin-top:32px; border-top:1px solid var(--bone); padding-top:16px; }
 @media (prefers-color-scheme:dark) {
@@ -15,5 +24,5 @@
 :root[data-theme="dark"] .shared-thread { --signal-white:#101113; --carbon:#eef0f3; --slate:#a2a6af; --bone:#30343b; --mist:#1c1f24; }
 @media (max-width:520px) {
   .shared-thread { padding:24px 18px 48px; }
-  .shared-thread article > div { flex-wrap:wrap; gap:4px 12px; }
+  .shared-thread-author { flex-wrap:wrap; gap:4px 12px; }
 }
