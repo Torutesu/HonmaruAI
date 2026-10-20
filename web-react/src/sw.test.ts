@@ -79,9 +79,9 @@ function worker(opts: { windows?: Array<Record<string, unknown>>; existing?: Exi
   const click = (data: Record<string, unknown>) => fire('notificationclick', { notification: { data, close: () => {} } })
   // A page load: what the worker answers with, once whatever it keeps has
   // been written.
-  const navigate = async (path: string) => {
+  const navigate = async (path: string, mode = 'navigate') => {
     let answered: Promise<Response> | undefined
-    handlers.fetch({ request: { url: `https://app.example${path}`, method: 'GET', mode: 'navigate' }, respondWith: (p: Promise<Response>) => { answered = p } })
+    handlers.fetch({ request: { url: `https://app.example${path}`, method: 'GET', mode }, respondWith: (p: Promise<Response>) => { answered = p } })
     if (!answered) throw new Error(`${path} was not answered`)
     const res = await answered
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -283,4 +283,23 @@ describe('the offline shell', () => {
     await w.navigate('/moved')
     expect(await w.shell()!.clone().text()).toBe(indexHtml)
   })
+})
+
+
+describe('asset cache content validation', () => {
+ it('does not retain HTML fallbacks under a missing JavaScript asset', async () => {
+   const fetch = vi.fn().mockResolvedValue(new Response('<html>fallback</html>', {headers:{'content-type':'text/html'}}))
+   const w = worker({fetch})
+   await w.navigate('/assets/Screen-old.js', 'cors')
+   await w.navigate('/assets/Screen-old.js', 'cors')
+   expect(fetch).toHaveBeenCalledTimes(2)
+ })
+ it('repairs an existing invalid asset entry and then reuses valid JavaScript', async () => {
+   const path = '/assets/Screen-current.js'
+   const fetch = vi.fn().mockImplementation(async () => new Response('export default 1', {headers:{'content-type':'text/javascript; charset=utf-8'}}))
+   const w = worker({fetch,cached:{'honmaru-shell-v3':{[path]:new Response('<html>fallback</html>',{headers:{'content-type':'text/html'}})}}})
+   expect(await (await w.navigate(path,'cors')).clone().text()).toBe('export default 1')
+   await w.navigate(path,'cors')
+   expect(fetch).toHaveBeenCalledTimes(1)
+ })
 })

@@ -61,6 +61,16 @@ async function navigationResponse(req) {
   }
 }
 
+// Pages may return its HTML fallback for a removed chunk with HTTP 200.
+// Never retain or replay that document as executable JS/CSS.
+function validAssetResponse(url, response) {
+  if (!response || !response.ok || response.redirected) return false
+  const mime = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
+  if (url.pathname.startsWith('/assets/') && /\.(?:js|mjs)$/.test(url.pathname)) return ['text/javascript', 'application/javascript', 'application/ecmascript', 'text/ecmascript'].includes(mime)
+  if (url.pathname.startsWith('/assets/') && url.pathname.endsWith('.css')) return mime === 'text/css'
+  return true
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET') return
@@ -101,8 +111,8 @@ self.addEventListener('fetch', (event) => {
   // everything else on this origin is small and safe to keep. Cache first,
   // fill from the network.
   event.respondWith(
-    caches.match(req).then((hit) => hit || fetch(req).then((res) => {
-      if (res.ok) {
+    caches.match(req).then((hit) => validAssetResponse(url, hit) ? hit : fetch(req).then((res) => {
+      if (validAssetResponse(url, res)) {
         const copy = res.clone()
         caches.open(SHELL).then((cache) => cache.put(req, copy)).catch(() => {})
       }
