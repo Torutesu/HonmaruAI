@@ -1,3 +1,4 @@
+import {useThreadPins} from '../utils/threadPins'
 import { HarnessThreadHeader } from './HarnessThreadHeader'
 import { RoomThreadDirectory } from './RoomThreadDirectory'
 import { MessageAppCards } from './MessageAppCards'
@@ -322,6 +323,7 @@ export const ClassicList: React.FC<Props> = ({
 }) => {
   // Files' addresses are renewed for the workspace open now (mediaUrls).
   useEffect(() => { configureMediaUrls(api) }, [api.httpBase, api.orgId, api.sessionToken])
+  const threadPins = useThreadPins(api,harness)
   const t = useT()
   // Cozy or compact, as chosen on You: the stylesheet does the rest.
   const { density } = useAppearance()
@@ -5553,6 +5555,7 @@ export const ClassicList: React.FC<Props> = ({
               </button>
             </li>
           </ul>}
+          {harness && harnessFilter==='home' && (threadPins.pins.length>0 || threadPins.error) && <section className="hx-pinned-threads" aria-label="固定したスレッド"><h2>固定したスレッド</h2>{threadPins.error?<p role="status">{threadPins.error}<button type="button" disabled={threadPins.busy} onClick={()=>void threadPins.refresh()}>再試行</button></p>:null}<ul className="hx-chat-group">{threadPins.pins.map(pin=><li key={pin.id} className="cl-row cl-thread"><button type="button" className="cl-open" aria-current={thread?.parent.id===pin.id?'page':undefined} onClick={()=>openAt({view:pin.view,id:pin.id,parentId:pin.id})}><Icon name="pin" size={14}/><span className="cl-title">{previewText(pin.title)||'スレッド'}</span></button></li>)}</ul></section>}
           {harness && harnessFilter==='mentions' ? harnessMentionsView() : harness && (harnessFilter === 'recent' || harnessFilter === 'unread') ? <ul className="hx-filtered-chats">{everything.filter(th => th.kind !== 'app' && (harnessFilter === 'recent' ? Boolean(th.lastAt) : hasNews(th))).sort((a,b) => (b.lastAt || '').localeCompare(a.lastAt || '')).map(th => row(th))}</ul> : sidebarGroups.filter(g => !harness || g.id !== 'apps').map((g) => (
             <React.Fragment key={g.id}>
               {/* Sections of your own are added just above Apps, which stays last. */}
@@ -5883,7 +5886,7 @@ export const ClassicList: React.FC<Props> = ({
           onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setThreadDropping(false) }}
           onDrop={(e) => { setThreadDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); e.stopPropagation(); threadUploads.add([...e.dataTransfer.files], thread.channel) } }}>
           {wide && !harness && !sourceThreadApp && <PaneResizer pane={threadPane} label={t('Resize thread')} title={t('Drag to resize · double-click to reset')} onWidth={keepThreadWidth} onReset={() => keepThreadWidth(null)} />}
-          {harness ? <HarnessThreadHeader key={`${api.orgId}:${api.sessionToken}:${thread.parent.id}`} api={api} channel={thread.channel} parent={thread.parent} room={current?.name||'ルーム'} onClose={()=>setThread(null)} onParent={parent=>setThread(previous=>previous?.parent.id===parent.id?{...previous,parent}:previous)}/> : <header className="slk-pane-head">
+          {harness ? <HarnessThreadHeader key={`${api.orgId}:${api.sessionToken}:${thread.parent.id}`} api={api} pin={{error:threadPins.error,onRetry:()=>void threadPins.refresh(),pinned:threadPins.pins.some(pin=>pin.id===thread.parent.id),disabled:!threadPins.loaded||threadPins.busy||!!thread.parent.deleted,onToggle:()=>void threadPins.toggle(thread.parent.id)}} channel={thread.channel} parent={thread.parent} room={current?.name||'ルーム'} onClose={()=>setThread(null)} onParent={parent=>{setThread(previous=>previous?.parent.id===parent.id?{...previous,parent}:previous);void threadPins.refresh()}}/> : <header className="slk-pane-head">
             <button className="slk-back pane" onClick={() => setThread(null)} aria-label={t('Back')}><Icon name="chevron-left" size={20} /></button>
             <h2>{t('Thread')}</h2>
             {current && <span className="slk-pane-where">{current.kind === 'channel' ? `#${current.name}` : current.name}</span>}

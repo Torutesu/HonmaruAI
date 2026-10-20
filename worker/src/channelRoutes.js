@@ -1,3 +1,4 @@
+import { threadPins, setThreadPin } from "./threadPins.js";
 import { appActivity, readAppActivity } from './harness/appActivity.js';
 import { checkOutgoing } from "./dlp.js";
 import { prepareAgent, rememberRequest, addAgentMemory } from "./harness/agents.js";
@@ -1258,6 +1259,19 @@ export async function handleChannels(request, env, url, { route, after }) {
       await audit(env, request, { orgId: body.orgId, action: "thread.renamed", actor: person(ctx.who.user), entity: { type: "thread", id: root.id } });
     });
     return json({ parent: { ...parent, canRenameThread: true } });
+  }
+
+  if (path === "/channels/thread-pins" && ["GET", "PUT"].includes(request.method)) {
+    const body = request.method === "PUT" ? await request.json().catch(() => null) : null;
+    if (request.method === "PUT" && (!body || typeof body !== "object")) return json({ message: "Invalid JSON body." }, 400);
+    const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    if (request.method === "GET") return json(await threadPins(env.DB, orgId, who.user));
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const result = await setThreadPin(env.DB, orgId, who.user, body.messageId, body.pinned);
+    return result.error ? json({ message: result.error }, result.status) : json(result);
   }
 
   // A thread: the message and its replies.
