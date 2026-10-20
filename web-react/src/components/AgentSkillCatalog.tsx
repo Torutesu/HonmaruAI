@@ -16,7 +16,7 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
   const pending = useRef(false), dialog = useRef<HTMLDialogElement>(null), trigger = useRef<HTMLButtonElement>(null)
   const has = new Set(installed.map(s => s.id))
   const available = skills.filter(s => !has.has(s.id))
-  const visible = (tab === 'available' ? available : installed).filter(s => `${s.name} ${s.description} ${s.createdBy || ''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+  const visible = (tab === 'available' ? available : installed).filter(s => `${s.name} ${s.description} ${s.createdByName || ''} ${s.createdBy || ''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
   useEffect(() => {
     if (!open) return
     dialog.current?.showModal()
@@ -48,7 +48,7 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
   }
   const row = (s: Skill, catalog = false) => <div className="hx-skill-entry" key={s.id}>
     <span className="hx-skill-symbol"><Icon name="book" size={19}/></span>
-    <div className="hx-skill-entry-copy"><div><strong>{s.name}</strong>{s.createdBy && <span className="hx-skill-author">{t('Created by')}: {s.createdBy}</span>}</div><p>{s.description || s.body.slice(0, 140)}</p></div>
+    <div className="hx-skill-entry-copy"><div><strong>{s.name}</strong>{s.createdBy && <span className="hx-skill-author">{t('Created by')}: {s.createdByName || s.createdBy}</span>}</div><p>{s.description || s.body.slice(0, 140)}</p></div>
     {canEdit && (catalog ? <button className="hx-skill-action" disabled={busy !== null} onClick={() => void toggle(s.id, !has.has(s.id))}>{busy === s.id ? t('Saving…') : t(has.has(s.id) ? 'Remove from agent' : 'Install')}</button> : <SkillActionsMenu name={s.name} disabled={busy !== null} onRemove={() => void toggle(s.id, false)}/>)}
   </div>
   return <section className="hx-agent-skills">

@@ -72,3 +72,17 @@ test('invalid files do not reach the server and a failed save retains the review
  expect(tree.root.findAllByProps({'aria-label':'Review skill import'})).toHaveLength(0)
  act(()=>tree.unmount())
 })
+
+test('creator names display and search without exposing the internal ID as the label',()=>{
+ let tree!:ReturnType<typeof create>
+ const skill={...b,createdBy:'9401',createdByName:'Mika Tanaka'}
+ act(()=>{tree=create(<AgentSkillCatalog skills={[skill]} installed={[skill]} canEdit onToggle={vi.fn()}/>,{createNodeMock:nodes})})
+ expect(tree.root.findByProps({className:'hx-skill-author'}).children.join('')).toContain('Mika Tanaka')
+ expect(tree.root.findByProps({className:'hx-skill-author'}).children.join('')).not.toContain('9401')
+ act(()=>tree.root.findAllByType('button').find(n=>n.children.includes('Add skills'))!.props.onClick())
+ const dialog=tree.root.findByType('dialog')
+ act(()=>dialog.findAllByProps({role:'tab'})[1].props.onClick())
+ act(()=>dialog.findByType('input').props.onChange({target:{value:'MIKA'}}))
+ expect(dialog.findAllByType('strong').map(n=>n.children.join(''))).toEqual(['Report'])
+ act(()=>tree.unmount())
+})

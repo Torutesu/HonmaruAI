@@ -174,3 +174,14 @@ test('workflow skill readers retain private-skill exclusion even for the owner',
   const read=installedSkillTools(env.DB,orgId,agentId,context).read_installed_skill.run;
   expect(await read({skill_id:skill.id,allowPrivate:true})).toBe('Installed skill unavailable.');
 });
+
+
+test('skill creator display names are resolved without changing ownership or private visibility', async () => {
+  await env.DB.prepare('UPDATE users SET name=?1 WHERE github_id=?2').bind('Mika Tanaka','9401').run();
+  const skill=await create();
+  expect(skill).toMatchObject({createdBy:'9401',createdByName:'Mika Tanaka'});
+  expect((await (await request('GET','/skills',owner)).json()).skills[0]).toMatchObject({createdByName:'Mika Tanaka'});
+  expect((await (await request('GET','/skills',member)).json()).skills).toEqual([]);
+  await request('POST',`/hx/agents/${agentId}/skills`,owner,{skillId:skill.id});
+  expect((await (await request('GET',`/hx/agents/${agentId}/skills`,owner)).json()).skills[0]).toMatchObject({createdBy:'9401',createdByName:'Mika Tanaka'});
+});

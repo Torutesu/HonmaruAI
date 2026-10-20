@@ -20,7 +20,7 @@ export function cleanSkillMetadata(value = {}) {
   } catch { return { error: 'Skill metadata must be a JSON-compatible mapping of at most 8000 characters and 12 levels.' }; }
 }
 function savedMetadata(value) { try { return cleanSkillMetadata(JSON.parse(value || '{}')).metadata || {}; } catch { return {}; } }
-const pub = (r) => r && ({ id: r.id, name: r.name, description: r.description || "", body: r.body, metadata: savedMetadata(r.metadata), createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at, visibility: r.visibility, accessVersion: r.access_version });
+const pub = (r) => r && ({ id: r.id, name: r.name, description: r.description || "", body: r.body, metadata: savedMetadata(r.metadata), createdBy: r.created_by, ...(r.created_by_name ? { createdByName: r.created_by_name } : {}), createdAt: r.created_at, updatedAt: r.updated_at, visibility: r.visibility, accessVersion: r.access_version });
 
 export async function listSkills(db, orgId, userId = "") {
   const { results } = await db.prepare(`${skillSelect} WHERE s.org_id = ?1 AND (p.visibility IS NULL OR p.visibility = 'workspace' OR s.created_by = ?2) ORDER BY s.name COLLATE NOCASE`).bind(orgId, String(userId)).all();

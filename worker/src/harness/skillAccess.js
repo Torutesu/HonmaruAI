@@ -1,7 +1,9 @@
 // Legacy skills have no policy row and retain workspace visibility.
 export const skillSelect = `SELECT s.*, COALESCE(p.visibility, 'workspace') AS visibility,
-  COALESCE(p.version, 0) AS access_version FROM hx_skills s
-  LEFT JOIN hx_skill_access p ON p.org_id = s.org_id AND p.skill_id = s.id`;
+  COALESCE(p.version, 0) AS access_version,
+  COALESCE(NULLIF(TRIM(u.name), ''), u.login, '') AS created_by_name FROM hx_skills s
+  LEFT JOIN hx_skill_access p ON p.org_id = s.org_id AND p.skill_id = s.id
+  LEFT JOIN users u ON u.github_id = s.created_by`;
 export const skillVisible = `(COALESCE(p.visibility, 'workspace') = 'workspace' OR s.created_by = ?3)`;
 
 export async function setSkillAccess(db, orgId, id, userId, input) {
