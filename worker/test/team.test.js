@@ -407,7 +407,7 @@ test('member departure requires a current preview and atomically transfers owner
   expect((await missing.json()).code).toBe('agent-handoff-required');
   const response=await del('/members',memberToken,{orgId:TEAM,...input});
   expect(response.status).toBe(200);
-  expect((await response.json()).handoff).toEqual({agents:1,to:input.transferTo});
+  expect((await response.json()).handoff).toEqual({agents:1,skills:0,to:input.transferTo});
   const agent=await env.DB.prepare("SELECT owner_login,created_by_login,instructions,scope FROM custom_agents WHERE org_id=?1 AND id='departure-agent'").bind(TEAM).first();
   expect(agent).toEqual({owner_login:'aya',created_by_login:'kenji',instructions:'Keep this',scope:'personal'});
   expect(await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id='9002'").bind(TEAM).first()).toBeNull();
@@ -462,4 +462,48 @@ test('an agent assigned after a no-responsibilities preview prevents removal ins
   }};
   expect(await removeMember({...env,DB:db},{orgId:TEAM,actorId:'9002',ref})).toMatchObject({status:409,code:'departure-conflict'});
   expect(await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id='9002'").bind(TEAM).first()).not.toBeNull();
+});
+
+test('departure transfers private skills while retaining creators and denying old-owner access after rejoining',async()=>{
+  const {createSkill,getSkill}=await import('../src/harness/skills.js');
+  const {memberRef}=await import('../src/team.js');
+  const {upsertMembership}=await import('../src/db.js');
+  const {skill}=await createSkill(env.DB,TEAM,{name:'Private method',body:'Preserve the method',visibility:'private'},'9002');
+  const ref=await memberRef(TEAM,'9002'),transferTo=await memberRef(TEAM,'9003');
+  const preview=await (await get(`/members/departure?orgId=${encodeURIComponent(TEAM)}&ref=${ref}`,memberToken)).json();
+  expect(preview.agents).toEqual([]);
+  expect(preview.skills).toEqual([{id:skill.id,name:'Private method',visibility:'private',version:1}]);
+  expect(JSON.stringify(preview)).not.toContain('Preserve the method');
+  const response=await del('/members',memberToken,{orgId:TEAM,ref,transferTo,previewVersion:preview.version});
+  expect(response.status).toBe(200);
+  expect((await response.json()).handoff).toEqual({agents:0,skills:1,to:transferTo});
+  expect(await getSkill(env.DB,TEAM,skill.id,'9003')).toMatchObject({createdBy:'9002',canShare:true,body:'Preserve the method',visibility:'private',accessVersion:2});
+  await upsertMembership(env.DB,TEAM,'9002','member');
+  expect(await getSkill(env.DB,TEAM,skill.id,'9002')).toBeNull();
+  expect((await get(`/skills/${skill.id}?orgId=${encodeURIComponent(TEAM)}`,memberToken)).status).toBe(404);
+});
+
+test('departure permanently revokes registered computers and cancels only affected jobs',async()=>{
+  const {memberRef}=await import('../src/team.js');
+  const {upsertMembership,createSession}=await import('../src/db.js');
+  await upsertMembership(env.DB,TEAM,'9001','owner');
+  await upsertMembership(env.DB,TEAM,'9003','owner');
+  const ayaToken=await createSession(env.DB,'9003','test');
+  const api=(path,token,body,nodeToken)=>worker.fetch(new Request(`https://example.com${path}`,{method:'POST',headers:{'content-type':'application/json',...(token?{'x-session-token':token}:{}),...(nodeToken?{authorization:`Bearer ${nodeToken}`}:{})},body:JSON.stringify({orgId:TEAM,...body})}),env);
+  const departing=await (await api('/gateways',adminToken,{name:'Departing computer'})).json();
+  const staying=await (await api('/gateways',ayaToken,{name:'Remaining computer'})).json();
+  const enqueue=async(token,id)=>(await (await api('/gateways/jobs',token,{gatewayId:id,code:'return 1'})).json()).job;
+  const ownedNodeJob=await enqueue(memberToken,departing.gateway.id);
+  const ownJob=await enqueue(adminToken,staying.gateway.id);
+  const unrelatedJob=await enqueue(memberToken,staying.gateway.id);
+  await api('/gateways/claim',null,{},departing.token);
+  const ref=await memberRef(TEAM,'9001');
+  expect((await del('/members',adminToken,{orgId:TEAM,ref})).status).toBe(200);
+  for(const id of [ownedNodeJob.id,ownJob.id]) {
+    expect(await env.DB.prepare('SELECT status,lease_hash FROM hx_gateway_jobs WHERE id=?1').bind(id).first()).toEqual({status:'cancelled',lease_hash:null});
+  }
+  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(unrelatedJob.id).first()).status).toBe('queued');
+  await upsertMembership(env.DB,TEAM,'9001','owner');
+  expect((await api('/gateways/claim',null,{},departing.token)).status).toBe(401);
+  expect((await api('/gateways/claim',null,{},staying.token)).status).toBe(200);
 });

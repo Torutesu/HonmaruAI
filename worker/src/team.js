@@ -7,7 +7,7 @@
 // session to do it — so for everyone who signed in with an email address, in
 // the `personal:` workspace they were given, it answered nothing at all.
 
-import { departureAgents, removeWithAgentHandoff } from "./harness/memberDeparture.js";
+import { departureResponsibilities, removeWithResourceHandoff } from "./harness/memberDeparture.js";
 import { groupHandlesByLogin } from "./people-groups.js";
 import { ROLE_RANK, sha256Hex, inviteLink } from "./auth.js";
 import { saveCard, removeCard, getUserByLogin, parseAliases } from "./db.js";
@@ -207,11 +207,12 @@ export async function previewMemberDeparture(env, input) {
   if (context.error) return context;
   const { target, members, leaving } = context;
   const { orgId } = input;
-  const { agents, version } = await departureAgents(env.DB, orgId, target);
+  const { agents, skills, version } = await departureResponsibilities(env.DB, orgId, target);
   return {
     version,
     member: { ref: target.ref, name: target.name, mine: leaving },
     agents: agents.map(a => ({ id: a.id, name: a.name, owned: a.owner_login === target.login, scope: a.scope, version: a.version })),
+    skills: skills.map(s => ({ id: s.id, name: s.name, visibility: s.visibility, version: s.version })),
     candidates: members.filter(m => m.userId !== target.userId && m.role !== 'guest')
       .map(m => ({ ref: m.ref, name: m.name })),
   };
@@ -223,7 +224,7 @@ export async function removeMember(env, input) {
   const { target, leaving } = context;
   const { orgId } = input;
 
-  const departure = await removeWithAgentHandoff(env.DB, orgId, context, input);
+  const departure = await removeWithResourceHandoff(env.DB, orgId, context, input);
   if (departure.error) return departure;
   // Their app connections in this workspace end with them (smitheryApps.js).
   const { forgetAppConnections } = await import("./smitheryApps.js");

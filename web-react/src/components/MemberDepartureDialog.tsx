@@ -8,6 +8,7 @@ export interface DeparturePreview {
  version:string
  member:{ref:string;name:string;mine:boolean}
  agents:{id:string;name:string;owned:boolean;scope:string;version:number}[]
+ skills?:{id:string;name:string;visibility:string;version:number}[]
  candidates:{ref:string;name:string}[]
 }
 export function MemberDepartureDialog({httpBase,orgId,sessionToken,member,onRemove,onClose}:{
@@ -26,10 +27,11 @@ export function MemberDepartureDialog({httpBase,orgId,sessionToken,member,onRemo
    .catch(e=>{if(!abort.signal.aborted)setError(e instanceof Error?e.message:String(e))})
   return()=>abort.abort()
  },[httpBase,orgId,sessionToken,member.ref,revision])
+ const hasResponsibilities=!!preview&&(preview.agents.length+(preview.skills?.length||0)>0)
  const submit=async()=>{
-  if(pending.current||!preview||(preview.agents.length>0&&!recipient))return
+  if(pending.current||!preview||(hasResponsibilities&&!recipient))return
   pending.current=true;setBusy(true);setError('')
-  try{await onRemove({previewVersion:preview.version,...(preview.agents.length?{transferTo:recipient}:{})})}
+  try{await onRemove({previewVersion:preview.version,...(hasResponsibilities?{transferTo:recipient}:{})})}
   catch(e){setError(e instanceof Error?e.message:String(e))}
   finally{pending.current=false;setBusy(false)}
  }
@@ -38,19 +40,24 @@ export function MemberDepartureDialog({httpBase,orgId,sessionToken,member,onRemo
   footer={<>
    <button className="dlg-btn" disabled={busy} onClick={()=>setRevision(n=>n+1)}>{t('Reload')}</button>
    <button className="dlg-btn" disabled={busy} onClick={onClose}>{t('Cancel')}</button>
-   <button className="dlg-btn danger" disabled={busy||!preview||(preview.agents.length>0&&!recipient)} onClick={()=>void submit()}>{t(busy?'Saving…':member.mine?'Leave':'Remove member')}</button>
+   <button className="dlg-btn danger" disabled={busy||!preview||(hasResponsibilities&&!recipient)} onClick={()=>void submit()}>{t(busy?'Saving…':member.mine?'Leave':'Remove member')}</button>
   </>}>
   {!preview&&!error&&<p role="status">{t('Loading…')}</p>}
-  {preview&&preview.agents.length>0&&<>
+  {preview&&hasResponsibilities&&<>
+   {preview.agents.length>0&&<>
    <details className="member-departure-resources" open><summary><Icon name="terminal" size={16}/>{t('Agents')}<span>{preview.agents.length}</span><Icon name="chevron-down" size={16}/></summary>
     <ul>{preview.agents.map(agent=><li key={agent.id}><span>{agent.name}</span><small>{t(agent.owned?'Owner':'Agent admin')}</small></li>)}</ul>
-   </details>
+   </details></>}
+   {!!preview.skills?.length&&<details className="member-departure-resources" open><summary><Icon name="book" size={16}/>{t('Custom skills')}<span>{preview.skills.length}</span><Icon name="chevron-down" size={16}/></summary>
+    <ul>{preview.skills.map(skill=><li key={skill.id}><span>{skill.name}</span><small>{t('Owner')}</small></li>)}</ul>
+   </details>}
    <label className="member-departure-recipient"><span className="dlg-label">{t('Transfer to')}</span>
     <select className="dlg-input" value={recipient} disabled={busy} onChange={e=>setRecipient(e.target.value)}><option value="">{t('Choose a member')}</option>{preview.candidates.map(person=><option key={person.ref} value={person.ref}>{person.name}</option>)}</select>
    </label>
-   <p className="dlg-hint">{t('The successor receives agent administration and ownership where applicable. Original creators stay unchanged.')}</p>
-   {!preview.candidates.length&&<p role="alert" className="dlg-error">{t('Add another workspace member before transferring these agents.')}</p>}
+   <p className="dlg-hint">{t('The successor receives the listed responsibilities and ownership where applicable. Original creators stay unchanged.')}</p>
+   {!preview.candidates.length&&<p role="alert" className="dlg-error">{t('Add another workspace member before transferring these responsibilities.')}</p>}
   </>}
+  {preview&&<p className="dlg-hint">{t('Computers connected by this member will be disconnected. Their queued or running jobs will be cancelled.')}</p>}
   {error&&<p className="dlg-error" role="alert">{t(error)}</p>}
  </Dialog>
 }

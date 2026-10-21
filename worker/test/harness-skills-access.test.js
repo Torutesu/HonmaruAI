@@ -267,3 +267,42 @@ test('folder preview canonicalizes Mac filenames and refuses normalized collisio
   expect(collision.status).toBe(400);
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills').first()).n).toBe(0);
 });
+
+test('a skill ownership change between read and write blocks the former owner from changing sharing or content',async()=>{
+  const {setSkillAccess}=await import('../src/harness/skillAccess.js');
+  const {updateSkill}=await import('../src/harness/skills.js');
+  for(const operation of ['sharing','content']) {
+    const skill=await create(operation==='content'?'workspace':'private');
+    const db={prepare:sql=>{
+      const statement=env.DB.prepare(sql);
+      if(!(operation==='sharing'?sql.startsWith('UPDATE hx_skill_access'):sql.startsWith('UPDATE hx_skills SET')))return statement;
+      return {bind:(...args)=>{
+        const bound=statement.bind(...args);
+        return {run:async()=>{
+          await env.DB.prepare('UPDATE hx_skills SET owner_id=?2 WHERE id=?1').bind(skill.id,'9402').run();
+          return bound.run();
+        }};
+      }};
+    }};
+    const result=operation==='sharing'
+      ?await setSkillAccess(db,orgId,skill.id,'9401',{visibility:'workspace',version:1})
+      :await updateSkill(db,orgId,skill.id,{body:'Overwritten after transfer'},'9401');
+    expect(result.error).toBeTruthy();
+    expect((await env.DB.prepare('SELECT body FROM hx_skills WHERE id=?1').bind(skill.id).first()).body).toBe('Confidential instructions');
+    if(operation==='sharing')expect((await env.DB.prepare('SELECT visibility FROM hx_skill_access WHERE skill_id=?1').bind(skill.id).first()).visibility).toBe('private');
+  }
+});
+
+test('a new skill owner may edit and share while the creator attribution remains unchanged',async()=>{
+  const skill=await create();
+  await env.DB.prepare('UPDATE hx_skills SET owner_id=?2 WHERE id=?1').bind(skill.id,'9402').run();
+  const listed=(await (await request('GET','/skills',member)).json()).skills.find(s=>s.id===skill.id);
+  expect(listed).toMatchObject({createdBy:'9401',canEdit:true,canShare:true});
+  expect(listed).not.toHaveProperty('ownerId');
+  expect((await request('GET',`/skills/${skill.id}`,owner)).status).toBe(404);
+  expect((await request('PUT',`/skills/${skill.id}`,member,{body:'New owner edit'})).status).toBe(200);
+  expect((await request('PUT',`/skills/${skill.id}/access`,member,{visibility:'workspace',version:1})).status).toBe(200);
+  expect((await request('PUT',`/skills/${skill.id}`,owner,{body:'Former owner edit'})).status).toBe(403);
+  expect((await request('DELETE',`/skills/${skill.id}`,owner)).status).toBe(403);
+  expect((await request('DELETE',`/skills/${skill.id}`,member)).status).toBe(200);
+});

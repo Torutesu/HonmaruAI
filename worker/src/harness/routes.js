@@ -338,7 +338,7 @@ export async function handleHarness(request, env, url, context = {}) {
     if (!skillId) {
       if (request.method === "GET") {
         const skills = await listSkills(env.DB, orgId, me);
-        for (const skill of skills) skill.canEdit = await mayChange(env, orgId, who, skill.createdBy);
+        for (const skill of skills) skill.canEdit = (skill.canShare || await allowed(env.DB, orgId, who.session.github_id, 'harness.delete_others'));
         return json({ skills });
       }
       if (request.method === "POST") {
@@ -377,7 +377,7 @@ export async function handleHarness(request, env, url, context = {}) {
       return r.error ? fail(r) : json(r);
     }
     if (request.method === "GET") return json({ skill });
-    if (!(await mayChange(env, orgId, who, skill.createdBy))) return json({ message: "Only its maker or an admin can change this skill." }, 403);
+    if (!(skill.canShare || await allowed(env.DB, orgId, who.session.github_id, 'harness.delete_others'))) return json({ message: "Only its owner or an admin can change this skill." }, 403);
     if (request.method === "PUT") {
       const r = await updateSkill(env.DB, orgId, skillId, input, me);
       return r.error ? fail(r) : json(r);

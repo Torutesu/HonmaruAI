@@ -1,6 +1,12 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Only its owner or an admin can change this skill.": "このスキルを変更できるのは所有者または管理者だけです。",
+  "Custom skills": "カスタムスキル",
+  "The successor receives the listed responsibilities and ownership where applicable. Original creators stay unchanged.": "一覧の管理権限と、該当する所有権を引き継ぎ先に移します。元の作成者の記録は変わりません。",
+  "Add another workspace member before transferring these responsibilities.": "担当を引き継ぐには、別のワークスペースメンバーを追加してください。",
+  "Review the responsibilities and choose a successor before leaving.": "担当を確認し、引き継ぎ先を選んでから退出してください。",
+  "Computers connected by this member will be disconnected. Their queued or running jobs will be cancelled.": "このメンバーが接続したコンピューターは切断されます。メンバーや端末に紐づく待機中・実行中のジョブは取り消されます。",
   "Leave workspace": "ワークスペースから退出",
   "Remove member": "メンバーを削除",
   "Transfer to": "引き継ぎ先",

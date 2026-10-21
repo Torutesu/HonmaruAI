@@ -1798,6 +1798,7 @@ CREATE TABLE IF NOT EXISTS hx_skills (
   description   TEXT,
   body          TEXT NOT NULL,
   created_by    TEXT NOT NULL,
+  owner_id      TEXT,
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL,
   metadata      TEXT NOT NULL DEFAULT '{}'

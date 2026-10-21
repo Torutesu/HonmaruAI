@@ -20,11 +20,11 @@ export function cleanSkillMetadata(value = {}) {
   } catch { return { error: 'Skill metadata must be a JSON-compatible mapping of at most 8000 characters and 12 levels.' }; }
 }
 function savedMetadata(value) { try { return cleanSkillMetadata(JSON.parse(value || '{}')).metadata || {}; } catch { return {}; } }
-const pub = (r) => r && ({ id: r.id, name: r.name, description: r.description || "", body: r.body, metadata: savedMetadata(r.metadata), createdBy: r.created_by, ...(r.created_by_name ? { createdByName: r.created_by_name } : {}), createdAt: r.created_at, updatedAt: r.updated_at, visibility: r.visibility, accessVersion: r.access_version });
+const pub = (r, userId) => r && ({ id: r.id, name: r.name, description: r.description || "", body: r.body, metadata: savedMetadata(r.metadata), createdBy: r.created_by, canShare: (r.effective_owner || r.created_by) === String(userId), ...(r.created_by_name ? { createdByName: r.created_by_name } : {}), createdAt: r.created_at, updatedAt: r.updated_at, visibility: r.visibility, accessVersion: r.access_version });
 
 export async function listSkills(db, orgId, userId = "") {
-  const { results } = await db.prepare(`${skillSelect} WHERE s.org_id = ?1 AND (p.visibility IS NULL OR p.visibility = 'workspace' OR s.created_by = ?2) ORDER BY s.name COLLATE NOCASE`).bind(orgId, String(userId)).all();
-  const skills = (results || []).map(pub);
+  const { results } = await db.prepare(`${skillSelect} WHERE s.org_id = ?1 AND (p.visibility IS NULL OR p.visibility = 'workspace' OR COALESCE(s.owner_id, s.created_by) = ?2) ORDER BY s.name COLLATE NOCASE`).bind(orgId, String(userId)).all();
+  const skills = (results || []).map(r => pub(r, userId));
   const { results: links } = await db.prepare("SELECT skill_id, agent_id FROM hx_agent_skills WHERE org_id = ?1").bind(orgId).all();
   const user = userId ? await db.prepare("SELECT login FROM users WHERE github_id = ?1").bind(String(userId)).first() : null;
   const visible = new Set();
@@ -32,12 +32,12 @@ export async function listSkills(db, orgId, userId = "") {
     const a = await db.prepare("SELECT id, scope, owner_login FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, id).first();
     if (a && user && await mayAccessAgent(db, orgId, { ...a, ownerLogin: a.owner_login }, user.login)) visible.add(id);
   }
-  for (const s of skills) { s.agents = (links || []).filter(l => l.skill_id === s.id && visible.has(l.agent_id)).map(l => l.agent_id); s.canShare = s.createdBy === String(userId); }
+  for (const s of skills) { s.agents = (links || []).filter(l => l.skill_id === s.id && visible.has(l.agent_id)).map(l => l.agent_id); }
   return skills;
 }
 
 export async function getSkill(db, orgId, id, userId = "") {
-  return pub(await db.prepare(`${skillSelect} WHERE s.org_id = ?1 AND s.id = ?2 AND ${skillVisible}`).bind(orgId, id, String(userId)).first());
+  return pub(await db.prepare(`${skillSelect} WHERE s.org_id = ?1 AND s.id = ?2 AND ${skillVisible}`).bind(orgId, id, String(userId)).first(), userId);
 }
 
 function clean(input) {
@@ -75,8 +75,10 @@ export async function updateSkill(db, orgId, id, input, userId = "") {
   const c = clean({ ...existing, ...input });
   if (c.error) return c;
   const result = await db.prepare(`UPDATE hx_skills SET name = ?1, description = ?2, body = ?3, updated_at = ?4, metadata = ?8
-    WHERE id = ?5 AND org_id = ?6 AND (created_by = ?7 OR NOT EXISTS
-      (SELECT 1 FROM hx_skill_access p WHERE p.org_id = ?6 AND p.skill_id = ?5 AND p.visibility = 'private'))`)
+    WHERE id = ?5 AND org_id = ?6 AND (COALESCE(owner_id, created_by) = ?7 OR NOT EXISTS
+      (SELECT 1 FROM hx_skill_access p WHERE p.org_id = ?6 AND p.skill_id = ?5 AND p.visibility = 'private'))
+      AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?6 AND m.user_github_id=?7 AND m.role!='guest'
+        AND (COALESCE(owner_id,created_by)=?7 OR m.role IN('owner','admin')))`)
     .bind(c.name, c.description, c.body, now(), id, orgId, String(userId), JSON.stringify(c.metadata)).run();
   if (!result.meta?.changes) return { error: 'No such skill.', status: 404 };
   return { skill: await getSkill(db, orgId, id, userId) };
@@ -84,7 +86,9 @@ export async function updateSkill(db, orgId, id, input, userId = "") {
 
 export async function deleteSkill(db, orgId, id, userId = '') {
   const visible = `SELECT s.id FROM hx_skills s LEFT JOIN hx_skill_access p ON p.org_id = s.org_id AND p.skill_id = s.id
-    WHERE s.org_id = ?1 AND s.id = ?2 AND ${skillVisible}`;
+    WHERE s.org_id = ?1 AND s.id = ?2 AND ${skillVisible}
+      AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?3 AND m.role!='guest'
+        AND (COALESCE(s.owner_id,s.created_by)=?3 OR m.role IN('owner','admin')))`;
   const results = await db.batch([
     db.prepare(`DELETE FROM hx_agent_skills WHERE org_id = ?1 AND skill_id IN (${visible})`).bind(orgId, id, String(userId)),
     db.prepare(`DELETE FROM hx_skills WHERE org_id = ?1 AND id IN (${visible})`).bind(orgId, id, String(userId)),
@@ -109,7 +113,7 @@ export async function skillsOf(db, orgId, agentId, userId = "") {
     .prepare(`${skillSelect} JOIN hx_agent_skills l ON l.skill_id = s.id AND l.org_id = s.org_id WHERE s.org_id = ?1 AND l.agent_id = ?2 AND ${skillVisible} ORDER BY s.name COLLATE NOCASE`)
     .bind(orgId, agentId, String(userId))
     .all();
-  return (results || []).map(pub);
+  return (results || []).map(r => pub(r, userId));
 }
 
 // Private bodies are allowed only in their owner's direct agent conversation.

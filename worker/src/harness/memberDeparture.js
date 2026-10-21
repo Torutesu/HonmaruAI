@@ -14,22 +14,31 @@ const responsibilities = `SELECT a.id,a.name,a.owner_login,a.scope,COALESCE(v.ve
   ORDER BY a.id`;
 const snapshotQuery = `SELECT json_group_array(json_array(id,owner_login,scope,version)) FROM (${responsibilities})`;
 
-export async function departureAgents(db, orgId, target) {
+const skillResponsibilities = `SELECT s.id,s.name,COALESCE(s.owner_id,s.created_by) AS owner_id,
+  COALESCE(p.visibility,'workspace') AS visibility,COALESCE(p.version,0) AS version
+  FROM hx_skills s LEFT JOIN hx_skill_access p ON p.org_id=s.org_id AND p.skill_id=s.id
+  WHERE s.org_id=?1 AND COALESCE(s.owner_id,s.created_by)=?2 ORDER BY s.id`;
+const skillSnapshotQuery = `SELECT json_group_array(json_array(id,owner_id,visibility,version)) FROM (${skillResponsibilities})`;
+const completeSnapshotQuery = `SELECT json_object('agents',json((${snapshotQuery})),'skills',json((${skillSnapshotQuery})))`;
+
+export async function departureResponsibilities(db, orgId, target) {
   const {results}=await db.prepare(responsibilities).bind(orgId,target.userId,target.login).all();
-  const snapshot=JSON.stringify(results.map(a=>[a.id,a.owner_login,a.scope,a.version]));
+  const {results:skills}=await db.prepare(skillResponsibilities).bind(orgId,target.userId).all();
+  const snapshot=JSON.stringify({agents:results.map(a=>[a.id,a.owner_login,a.scope,a.version]),skills:skills.map(s=>[s.id,s.owner_id,s.visibility,s.version])});
   const version=await sha256Hex(JSON.stringify([orgId,target.userId,target.joinedAt,snapshot]));
-  return {agents:results,snapshot,version};
+  return {agents:results,skills,snapshot,version};
 }
 
 // A receipt is claimed only while the entire preview and all memberships are
 // still current. Every write in the same D1 transaction is gated by its nonce.
 // A losing race changes neither agents nor membership.
-export async function removeWithAgentHandoff(db, orgId, context, {transferTo,previewVersion}) {
+export async function removeWithResourceHandoff(db, orgId, context, {transferTo,previewVersion}) {
   const {actor,target,members}=context;
-  const plan=await departureAgents(db,orgId,target);
+  const plan=await departureResponsibilities(db,orgId,target);
   const recipient=members.find(m=>m.ref===transferTo&&m.userId!==target.userId&&m.role!=='guest');
-  if(plan.agents.length && (!recipient || previewVersion!==plan.version))
-    return {error:'Review the agent responsibilities and choose a successor before leaving.',code:'agent-handoff-required',status:409};
+  const hasResponsibilities=plan.agents.length+plan.skills.length>0;
+  if(hasResponsibilities && (!recipient || previewVersion!==plan.version))
+    return {error:'Review the responsibilities and choose a successor before leaving.',code:'agent-handoff-required',status:409};
   const nonce=crypto.randomUUID(),at=new Date().toISOString();
   const ids=JSON.stringify(plan.agents.map(a=>a.id));
   const gate='EXISTS (SELECT 1 FROM hx_member_departures WHERE org_id=?1 AND user_id=?2 AND nonce=?3)';
@@ -39,10 +48,10 @@ export async function removeWithAgentHandoff(db, orgId, context, {transferTo,pre
       AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?8 AND role=?9 AND created_at=?10)
       AND (?6!='owner' OR EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND role='owner' AND user_github_id!=?2))
       AND (?11 IS NULL OR EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?11 AND role!='guest' AND created_at=?12))
-      AND (${snapshotQuery})=?13
+      AND (${completeSnapshotQuery})=?13
     ON CONFLICT(org_id,user_id) DO UPDATE SET nonce=excluded.nonce,created_at=excluded.created_at`)
     .bind(orgId,target.userId,target.login,nonce,at,target.role,target.joinedAt,actor.userId,actor.role,actor.joinedAt,
-      plan.agents.length?recipient.userId:null,plan.agents.length?recipient.joinedAt:null,plan.snapshot)];
+      hasResponsibilities?recipient.userId:null,hasResponsibilities?recipient.joinedAt:null,plan.snapshot)];
   if(plan.agents.length) {
     batch.push(
       db.prepare(`INSERT INTO hx_agent_access(org_id,agent_id,version,mutation_id)
@@ -56,10 +65,37 @@ export async function removeWithAgentHandoff(db, orgId, context, {transferTo,pre
         WHERE org_id=?1 AND id IN (SELECT value FROM json_each(?4)) AND owner_login=?8 AND ${gate}`)
         .bind(orgId,target.userId,nonce,ids,recipient.login,actor.login,at,target.login));
   }
+  if(plan.skills.length) {
+    const skillIds=JSON.stringify(plan.skills.map(s=>s.id));
+    batch.push(
+      db.prepare(`INSERT INTO hx_skill_access(org_id,skill_id,visibility,version)
+        SELECT ?1,s.id,COALESCE(p.visibility,'workspace'),COALESCE(p.version,0)+1
+        FROM hx_skills s LEFT JOIN hx_skill_access p ON p.org_id=s.org_id AND p.skill_id=s.id
+        WHERE s.org_id=?1 AND s.id IN(SELECT value FROM json_each(?4)) AND ${gate}
+        ON CONFLICT(org_id,skill_id) DO UPDATE SET version=excluded.version`)
+        .bind(orgId,target.userId,nonce,skillIds),
+      db.prepare(`UPDATE hx_skills SET owner_id=?5,updated_at=?6
+        WHERE org_id=?1 AND id IN(SELECT value FROM json_each(?4)) AND ${gate}`)
+        .bind(orgId,target.userId,nonce,skillIds,recipient.userId,at));
+  }
   batch.push(
+    db.prepare(`UPDATE hx_gateways SET revoked_at=?4 WHERE org_id=?1 AND created_by=?2 AND revoked_at IS NULL AND ${gate}`)
+      .bind(orgId,target.userId,nonce,Date.parse(at)),
+    db.prepare(`UPDATE hx_gateway_jobs SET status='cancelled',lease_hash=NULL,finished_at=?4
+      WHERE org_id=?1 AND status IN('queued','running')
+      AND (created_by=?2 OR gateway_id IN(SELECT id FROM hx_gateways WHERE org_id=?1 AND created_by=?2)) AND ${gate}`)
+      .bind(orgId,target.userId,nonce,Date.parse(at)),
     db.prepare(`DELETE FROM hx_agent_members WHERE org_id=?1 AND user_id=?2 AND ${gate}`).bind(orgId,target.userId,nonce),
     db.prepare(`DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND ${gate}`).bind(orgId,target.userId,nonce));
   const results=await db.batch(batch);
-  if(!results[0]?.meta?.changes) return {error:'Workspace responsibilities changed. Reload before removing this member.',code:'departure-conflict',status:409};
-  return {handoff:plan.agents.length?{agents:plan.agents.length,to:recipient.ref}:null};
+  if(!results[0]?.meta?.changes) {
+    if(target.role==='owner') {
+      const last=await db.prepare(`SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?2 AND m.role='owner'
+        AND NOT EXISTS(SELECT 1 FROM memberships o WHERE o.org_id=m.org_id AND o.role='owner' AND o.user_github_id!=m.user_github_id)`)
+        .bind(orgId,target.userId).first();
+      if(last)return {error:"You are this workspace's only owner. Make someone else an owner first.",code:'last-owner',status:409};
+    }
+    return {error:'Workspace responsibilities changed. Reload before removing this member.',code:'departure-conflict',status:409};
+  }
+  return {handoff:hasResponsibilities?{agents:plan.agents.length,skills:plan.skills.length,to:recipient.ref}:null};
 }

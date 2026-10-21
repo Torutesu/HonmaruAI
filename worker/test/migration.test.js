@@ -136,3 +136,13 @@ test("an existing complimentary grant survives adding provider synchronization c
       rc_operation_until: 0, deletion_requested_at: null,
     });
 });
+
+test('adding skill ownership preserves legacy creator attribution and content',async()=>{
+  await env.DB.exec('DROP TABLE IF EXISTS hx_skills');
+  await env.DB.exec("CREATE TABLE hx_skills (id TEXT PRIMARY KEY,org_id TEXT NOT NULL,name TEXT NOT NULL,description TEXT,body TEXT NOT NULL,created_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,metadata TEXT NOT NULL DEFAULT '{}')");
+  await env.DB.prepare("INSERT INTO hx_skills(id,org_id,name,body,created_by,created_at,updated_at) VALUES ('legacy-skill','legacy-team','Legacy method','Keep this method','original','before','before')").run();
+  await applyDeploy(env.DB);
+  await applyDeploy(env.DB);
+  expect(await env.DB.prepare("SELECT body,created_by,owner_id,COALESCE(owner_id,created_by) AS effective_owner FROM hx_skills WHERE id='legacy-skill'").first())
+    .toEqual({body:'Keep this method',created_by:'original',owner_id:null,effective_owner:'original'});
+});

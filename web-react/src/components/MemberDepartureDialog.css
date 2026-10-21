@@ -9,3 +9,6 @@
 .member-departure-recipient select{width:100%;margin-top:6px}
 
 .member-departure-resources:not([open]) summary>svg:last-child{transform:rotate(-90deg)}
+
+.member-departure-resources+.member-departure-resources{margin-top:12px}
+.member-departure .dlg-hint{color:var(--dlg-dim)}
