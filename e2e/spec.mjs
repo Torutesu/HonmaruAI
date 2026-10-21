@@ -4300,7 +4300,12 @@ await step('removing someone takes them out of the room, not just the table', as
 
   const before = await page.$$eval('.screen .team-member', (els) => els.length)
   await page.click('.screen .team-member:has-text("Aya") .btn-text')
-  await page.click('.screen .team-member:has-text("Aya") .pill-btn')
+  // Removal now loads a versioned departure preview in a dialog. Wait for
+  // that read to succeed before confirming; a failed preview must stay blocked.
+  const departure = page.locator('[role="dialog"].member-departure')
+  await departure.waitFor({ state: 'visible', timeout: 10000 })
+  const confirmRemoval = departure.getByRole('button', { name: 'Remove member', exact: true })
+  await confirmRemoval.click({ timeout: 15000 })
   await page.waitForFunction(
     (n) => document.querySelectorAll('.screen .team-member').length < n,
     before,
