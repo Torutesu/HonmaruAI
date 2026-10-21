@@ -1,5 +1,5 @@
 // Stable user IDs hold explicit roles; active human membership is checked on
-// every read and again in the mutation transaction. The maker remains admin.
+// every read and again in the mutation transaction. The current owner remains admin.
 export async function explicitAgentRoles(db, orgId, agentIds, login) {
   if (!login || !agentIds.length) return new Map();
   const { results } = await db.prepare(`SELECT r.agent_id,r.role FROM hx_agent_members r
@@ -43,7 +43,7 @@ export async function setAgentRole(db, orgId, agentId, { actorId, targetId, role
   if (!profile) return {error:'Set up the agent profile before assigning members.',status:409};
   const target=await db.prepare(`SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND role!='guest'`).bind(orgId,targetId).first();
   if (!target) return {error:'That person is not an active workspace member.',status:404};
-  if (state.members.some(m=>m.userId===targetId&&m.owner)) return {error:'Transfer ownership before changing the maker’s role.',status:409};
+  if (state.members.some(m=>m.userId===targetId&&m.owner)) return {error:'Transfer ownership before changing the owner’s role.',status:409};
   if (state.version!==expectedVersion) return {error:'Agent access changed. Reload before saving.',status:409};
   if (role!=='admin' && !state.members.some(m=>m.userId!==targetId&&m.role==='admin'))
     return {error:'Keep at least one active human agent admin.',status:409};

@@ -371,6 +371,7 @@ const table: Record<string, string> = {
   'The new owner must already be an agent admin. You remain an admin; the original creator stays unchanged.': '移譲先は既存のエージェント管理者に限ります。あなたは管理者として残り、元の作成者の記録は変わりません。',
   'Only the current owner can transfer this agent.': 'このエージェントを移譲できるのは現在の所有者だけです。',
   'Transfer ownership before changing the maker’s role.': '所有者の役割を変更する前に、所有権を移譲してください。',
+  'Transfer ownership before changing the owner’s role.': '所有者の役割を変更する前に、所有権を移譲してください。',
   'A current access version is required.': '最新のアクセス設定を再読み込みしてください。',
   'A valid role and current access version are required.': '有効な役割を選び、最新のアクセス設定を再読み込みしてください。',
   'That person is not an active workspace member.': 'そのユーザーは現在このワークスペースに参加していません。',
