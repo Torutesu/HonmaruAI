@@ -20,7 +20,7 @@ export function AgentAccessDialog({load,save,onClose}:{load:()=>Promise<AgentRol
  const submit=async()=>{
   if(pending.current||needsReload||!data||!allowed||!changed)return
   pending.current=true;setBusy(true);setError('');let saved=false
-  try{await save(ref,role,data.version);saved=true;await refresh()}
+  try{await save(ref,role,data.version);saved=true;if(data.scope==='personal')setData({...data,scope:'team'});await refresh()}
   catch(e){if(saved)setNeedsReload(true);setError(saved?'Saved, but the member list could not refresh. Reload before editing again.':e instanceof Error?e.message:String(e))}
   finally{pending.current=false;setBusy(false)}
  }

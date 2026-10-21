@@ -47,3 +47,14 @@ test('pending saves are deduplicated and a refresh failure is not reported as an
  expect(tree.root.findAllByType('button').find(n=>n.children.includes('Save'))!.props.disabled).toBe(true)
  act(()=>tree.unmount())
 })
+
+test('successful personal sharing updates the parent scope even when its member refresh fails',async()=>{
+ const close=vi.fn(),load=vi.fn().mockResolvedValueOnce({...state,scope:'personal',members:[state.members[0]]}).mockRejectedValue(Error('offline'))
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AgentAccessDialog load={load} save={async()=>({version:2})} onClose={close}/>)})
+ act(()=>tree.root.findAllByType('select')[0].props.onChange({target:{value:'person'}}))
+ await act(async()=>tree.root.findAllByType('button').find(n=>n.children.includes('Share and save'))!.props.onClick())
+ act(()=>tree.root.findAllByType('button').find(n=>n.children.includes('Close'))!.props.onClick())
+ expect(close).toHaveBeenCalledWith('team')
+ act(()=>tree.unmount())
+})
