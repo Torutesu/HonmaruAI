@@ -59,13 +59,17 @@ function nextCompletion(answer = "On it.") {
   return seen;
 }
 
-test("a profile: everyone reads it, its maker or an admin changes it", async () => {
+test("a profile: everyone reads it, only its owner or assigned agent admin changes it", async () => {
   const fresh = await (await get(`/hx/agents/${agentId}/profile?${q({ orgId: ORG })}`, kenji)).json();
   expect(fresh).toMatchObject({ profile: { tier: "standard", mentionOnly: false, access: "everyone" }, canEdit: false, tiers: ["lite", "standard", "max"] });
   expect((await send("PUT", `/hx/agents/${agentId}/profile`, kenji, { orgId: ORG, tier: "max" })).status).toBe(403);
   expect((await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, tier: "huge" })).status).toBe(400);
   const set = await (await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, specialty: "Accounts receivable", tier: "max" })).json();
   expect(set.profile).toMatchObject({ specialty: "Accounts receivable", tier: "max" });
+  expect((await send("PUT", `/hx/agents/${agentId}/profile`, toru, { orgId: ORG, mentionOnly: true })).status).toBe(403);
+  const roles=await(await get(`/hx/agents/${agentId}/members?${q({orgId:ORG})}`,mika)).json();
+  const ref=roles.candidates.find(p=>p.name==='Toru').ref;
+  expect((await send('PUT',`/hx/agents/${agentId}/members`,mika,{orgId:ORG,ref,role:'admin',expectedVersion:0})).status).toBe(200);
   expect((await send("PUT", `/hx/agents/${agentId}/profile`, toru, { orgId: ORG, mentionOnly: true })).status).toBe(200);
 });
 
@@ -507,4 +511,28 @@ test('ownership transfer is owner-only, versioned, and preserves the original cr
  expect(list.agents.find(a=>a.id===agentId)).toMatchObject({mine:true,createdByName:'Mika',createdByMe:false});
  expect((await send('PUT',`${path}/members`,mika,{orgId:ORG,ref:owner,role:'none',expectedVersion:2})).status).toBe(200);
  expect((await get(`${path}/members?${query}`,mika)).status).toBe(404);
+});
+
+test('workspace admin status does not confer edit or delete rights over a managed agent in either mode',async()=>{
+ const path=`/hx/agents/${agentId}`,query=q({orgId:ORG});
+ await send('PUT',`${path}/profile`,mika,{orgId:ORG,access:'people',people:['toru']});
+ const roles=await(await get(`${path}/members?${query}`,mika)).json();
+ const ref=roles.candidates.find(p=>p.name==='Toru').ref;
+ await send('PUT',`${path}/members`,mika,{orgId:ORG,ref,role:'member',expectedVersion:0});
+ for(const mode of ['simple','harness']){
+  await send('PUT','/orgs/mode',toru,{orgId:ORG,mode});
+  expect((await(await get(`${path}/profile?${query}`,toru)).json()).canEdit).toBe(false);
+  const listed=(await(await get(`/channels/agents?${query}`,toru)).json()).agents.find(a=>a.id===agentId);
+  expect(listed).toMatchObject({canEdit:false,canDelete:false});
+  expect((await send('PUT',`${path}/profile`,toru,{orgId:ORG,access:'everyone'})).status).toBe(403);
+  expect((await send('PUT','/channels/agents',toru,{orgId:ORG,id:agentId,instructions:'Unauthorized'})).status).toBe(403);
+  expect((await call(`/channels/agents/avatar?${q({orgId:ORG,id:agentId})}`,{method:'DELETE',headers:headers(toru)})).status).toBe(403);
+  expect((await send('DELETE','/channels/agents',toru,{orgId:ORG,id:agentId})).status).toBe(403);
+ }
+ expect((await send('PUT',`${path}/members`,mika,{orgId:ORG,ref,role:'admin',expectedVersion:1})).status).toBe(200);
+ expect((await send('PUT',`${path}/profile`,toru,{orgId:ORG,specialty:'Authorized'})).status).toBe(200);
+ const updated=await(await send('PUT','/channels/agents',toru,{orgId:ORG,id:agentId,instructions:'Authorized persona'})).json();
+ expect(updated.agent).toMatchObject({canEdit:true,canDelete:true});
+ expect((await send('PUT',`${path}/members`,mika,{orgId:ORG,ref,role:'member',expectedVersion:2})).status).toBe(200);
+ expect((await send('DELETE','/channels/agents',toru,{orgId:ORG,id:agentId})).status).toBe(403);
 });

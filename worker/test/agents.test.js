@@ -705,6 +705,12 @@ test("managed agent editing policy also protects persona and avatar in both mode
     expect((await env.MEDIA.list()).objects.map(x => x.key)).toEqual(before.objects.map(x => x.key));
     expect((await call(avatar, { method: "DELETE", headers: headers(kenji) })).status).toBe(403);
   }
+  const beforeGrant=await(await get(`/channels/agents?${q({orgId:ORG})}`,toru)).json();
+  expect(beforeGrant.agents.find(a=>a.id===agent.id).canEdit).toBe(false);
+  expect((await send('PUT','/channels/agents',toru,{orgId:ORG,id:agent.id,instructions:'Workspace admin is not agent admin'})).status).toBe(403);
+  const roles=await(await get(`/hx/agents/${agent.id}/members?${q({orgId:ORG})}`,mika)).json();
+  const ref=roles.candidates.find(p=>p.name==='Toru').ref;
+  expect((await send('PUT',`/hx/agents/${agent.id}/members`,mika,{orgId:ORG,ref,role:'admin',expectedVersion:0})).status).toBe(200);
   for (const token of [mika, toru]) {
     const listed = await (await get(`/channels/agents?${q({ orgId: ORG })}`, token)).json();
     expect(listed.agents.find(a => a.id === agent.id).canEdit).toBe(true);

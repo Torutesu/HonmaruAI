@@ -208,8 +208,8 @@ export function toClientAgent(agent, members, viewerLogin, { isAdmin = false } =
     createdBy: refOf(agent.creatorLogin || agent.ownerLogin), createdByName: nameOf(agent.creatorLogin || agent.ownerLogin), createdByMe: (agent.creatorLogin || agent.ownerLogin)===viewerLogin, createdAt: agent.createdAt, mine,
     updatedByName: nameOf(agent.updatedBy), updatedAt: agent.updatedAt,
     // A teammate is set up in Studio, not on the Agents screen.
-    canEdit: !agent.provider && (mine || (agent.scope === "team" && (!agent.managedProfile || isAdmin || agent.viewerRole==='admin'))),
-    canDelete: !agent.provider && (mine || (agent.scope === "team" && (isAdmin || agent.viewerRole==='admin'))),
+    canEdit: !agent.provider && (mine || (agent.scope === "team" && (!agent.managedProfile || agent.viewerRole==='admin'))),
+    canDelete: !agent.provider && (mine || (agent.scope === "team" && ((!agent.managedProfile&&isAdmin) || agent.viewerRole==='admin'))),
     markdown: agentMarkdown(agent),
   };
 }
@@ -234,7 +234,7 @@ export async function handleTaken(db, orgId, handle, { members, scope, ownerLogi
 // A saved Harness profile owns the editing policy even in Simple mode.
 // Legacy unprofiled team agents retain their shared-document behavior.
 async function mayEditManagedAgent(db, orgId, agent, login, isAdmin) {
-  if (agent.ownerLogin === login || isAdmin || (await explicitAgentRoles(db,orgId,[agent.id],login)).get(agent.id)==='admin') return true;
+  if (agent.ownerLogin === login || (await explicitAgentRoles(db,orgId,[agent.id],login)).get(agent.id)==='admin') return true;
   return !(await db.prepare("SELECT agent_id FROM hx_agent_profiles WHERE org_id = ?1 AND agent_id = ?2")
     .bind(orgId, agent.id).first());
 }
@@ -346,7 +346,8 @@ export async function deleteAgent(db, orgId, { id, login, isAdmin }) {
   const row = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, String(id || "")).first();
   if (!row || (row.scope === "personal" && row.owner_login !== login)) return { error: "No such agent.", status: 404 };
   if (!(await mayAccessAgent(db, orgId, toAgent(row), login))) return { error: "No such agent.", status: 404 };
-  if (row.owner_login !== login && !isAdmin && (await explicitAgentRoles(db,orgId,[row.id],login)).get(row.id)!=='admin') return { error: "Only whoever made it, or an admin, can delete it.", status: 403 };
+  const managedProfile=!!await db.prepare('SELECT 1 FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(orgId,row.id).first();
+  if (row.owner_login !== login && !(isAdmin&&!managedProfile) && (await explicitAgentRoles(db,orgId,[row.id],login)).get(row.id)!=='admin') return { error: "Only the owner or an agent admin can delete it.", status: 403 };
   if (row.provider) return { error: "Turn this teammate off in Studio → AI teammates.", status: 400 };
   await db.prepare("UPDATE custom_agents SET deleted_at = ?3 WHERE org_id = ?1 AND id = ?2").bind(orgId, row.id, new Date().toISOString()).run();
   return { agent: toAgent(row) };

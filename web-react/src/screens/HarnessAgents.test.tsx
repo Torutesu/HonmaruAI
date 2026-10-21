@@ -15,6 +15,8 @@ test('closing access reloads the directory and dismisses an agent whose grant wa
  try{
   await act(async()=>{tree=create(<HarnessAgents httpBase="https://example.test" orgId="one" sessionToken="first" onClose={vi.fn()}/>)})
   await act(async()=>tree.root.findByProps({'data-agent':'a'}).props.onClick())
+  expect(tree.root.findAllByType('button').some(n=>n.children.includes('Advanced settings'))).toBe(false)
+  expect(tree.root.findAllByProps({'aria-label':'Edit profile'})).toHaveLength(0)
   await act(async()=>tree.root.findAllByType('button').find(n=>n.children.includes('Agent access'))!.props.onClick())
   visible=false
   await act(async()=>tree.root.findByProps({'data-testid':'close-access'}).props.onClick())

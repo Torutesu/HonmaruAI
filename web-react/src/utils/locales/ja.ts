@@ -1731,6 +1731,7 @@ const table: Record<string, string> = {
   'No groups yet. Make one for a team, a shift, or everyone on a project.': 'グループはまだありません。チーム・シフト・プロジェクトのメンバーなどで作れます。',
   'Nobody yet': 'まだ誰もいません',
   'Only whoever made it, or an admin, can delete it.': '削除できるのは、作った人か管理者だけです。',
+  'Only the owner or an agent admin can delete it.': '削除できるのは、所有者かエージェント管理者だけです。',
   'Remove section': 'セクションを削除',
   'Remove the section “{name}”? Its conversations go back where they were.': 'セクション「{name}」を削除しますか？ 中の会話は元の場所に戻ります。',
   'Section name': 'セクション名',

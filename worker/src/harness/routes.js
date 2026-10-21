@@ -401,7 +401,8 @@ export async function handleHarness(request, env, url, context = {}) {
     if (!agent || (agent.scope === "personal" && agent.owner_login !== who.user.login)) return json({ message: "No such agent." }, 404);
     if (!(await mayAccessAgent(env.DB, orgId, { ...agent, ownerLogin: agent.owner_login }, who.user.login))) return json({ message: "No such agent." }, 404);
     const delegatedRole=(await explicitAgentRoles(env.DB,orgId,[agentId],who.user.login)).get(agentId);
-    const canEdit = agent.owner_login === who.user.login || delegatedRole==='admin' || await allowed(env.DB, orgId, me, "agent.manage_others");
+    const managedProfile=!!await env.DB.prepare('SELECT 1 FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(orgId,agentId).first();
+    const canEdit = agent.owner_login === who.user.login || delegatedRole==='admin' || (!managedProfile&&await allowed(env.DB, orgId, me, "agent.manage_others"));
     // Anyone who may talk to it may tell it to remember something, as in
     // the chat; everything else is its maker's or an admin's.
     if (!read && !canEdit && sub !== 'members' && !(sub === "memory" && request.method === "POST")) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
