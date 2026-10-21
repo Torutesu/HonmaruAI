@@ -1,3 +1,4 @@
+import { explicitAgentRoles } from './harness/agentRoles.js';
 import { roomResponses } from "./harness/roomResponses.js";
 import { threadPins, setThreadPin } from "./threadPins.js";
 import { sentFile, fileConversation } from "./fileConversations.js";
@@ -870,6 +871,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       await audit(env, request, { orgId, action: "agent.updated", actor: person(who.user), entity: { type: "agent", id: out.agent.id, name: `@${out.agent.handle}` }, details: { picture: avatarUrl ? "set" : "removed" } });
     }
     const members = await listMembers(env.DB, orgId, who.session.github_id);
+    out.agent.viewerRole=(await explicitAgentRoles(env.DB,orgId,[out.agent.id],who.user.login)).get(out.agent.id)||null;
     return json({ agent: toClientAgent(out.agent, members, who.user.login, { isAdmin }) });
   }
 
@@ -910,6 +912,7 @@ export async function handleChannels(request, env, url, { route, after }) {
         entity: { type: "agent", id: out.agent.id, name: `@${out.agent.handle}` },
       });
     }
+    out.agent.viewerRole=(await explicitAgentRoles(env.DB,orgId,[out.agent.id],login)).get(out.agent.id)||null;
     return json({ agent: toClientAgent(out.agent, members, login, { isAdmin }), agents: await list() }, out.created ? 201 : 200);
   }
 

@@ -438,3 +438,38 @@ test('manual memory mutations audit metadata only, without recording duplicate, 
   for(const secret of [input.title,input.description,input.body,changed.body,'b:ops']) expect(serialized).not.toContain(secret);
   expect((await get(`/audit/logs?${q({orgId:ORG})}`,mika)).status).toBe(403);
 });
+
+test('independent agent roles govern API editing, listing and execution in both presentation modes',async()=>{
+ const {agentMemoryTools}=await import('../src/harness/memoryReader.js');
+ const profilePath=`/hx/agents/${agentId}/profile`,rolesPath=`/hx/agents/${agentId}/members`;
+ await send('PUT',profilePath,mika,{orgId:ORG,access:'private'});
+ expect((await get(`${profilePath}?${q({orgId:ORG})}`,kenji)).status).toBe(404);
+ const initial=await (await get(`${rolesPath}?${q({orgId:ORG})}`,mika)).json();
+ expect(initial).toMatchObject({version:0,canManage:true,scope:'team'});
+ expect(JSON.stringify(initial)).not.toContain('9202');
+ const target=initial.candidates.find(p=>p.name==='Kenji');
+ expect(target.ref).toBeTruthy();
+ expect((await send('PUT',rolesPath,mika,{orgId:ORG,ref:'9203',role:'admin',expectedVersion:0})).status).toBe(404);
+ expect((await send('PUT',rolesPath,mika,{orgId:ORG,ref:target.ref,role:'member',expectedVersion:0})).status).toBe(200);
+ expect((await (await get(`${profilePath}?${q({orgId:ORG})}`,kenji)).json()).canEdit).toBe(false);
+ expect((await send('PUT',rolesPath,kenji,{orgId:ORG,ref:target.ref,role:'admin',expectedVersion:1})).status).toBe(403);
+ expect((await send('PUT',profilePath,kenji,{orgId:ORG,specialty:'Not permitted'})).status).toBe(403);
+ expect((await send('PUT',rolesPath,mika,{orgId:ORG,ref:target.ref,role:'admin',expectedVersion:1})).status).toBe(200);
+ for(const mode of ['simple','harness']) {
+  await send('PUT','/orgs/mode',toru,{orgId:ORG,mode});
+  expect((await send('PUT',profilePath,kenji,{orgId:ORG,specialty:'Delegated editor'})).status).toBe(200);
+  const updated=await send('PUT','/channels/agents',kenji,{orgId:ORG,id:agentId,instructions:'Delegated persona'});
+  expect(updated.status).toBe(200);
+  expect((await updated.json()).agent).toMatchObject({canEdit:true,canDelete:true});
+  const listed=(await (await get(`/channels/agents?${q({orgId:ORG})}`,kenji)).json()).agents.find(a=>a.id===agentId);
+  expect(listed).toMatchObject({canEdit:true,canDelete:true});
+  expect((await call(`/channels/agents/avatar?${q({orgId:ORG,id:agentId})}`,{method:'DELETE',headers:headers(kenji)})).status).toBe(200);
+ }
+ const {memory}=await (await send('POST',`/hx/agents/${agentId}/memory`,mika,{orgId:ORG,text:'Shared procedure'})).json();
+ const tool=agentMemoryTools(env.DB,ORG,agentId,{userId:'9203'}).read_agent_memory;
+ expect(await tool.run({memory_id:memory.id})).toContain('Shared procedure');
+ expect((await send('PUT',rolesPath,mika,{orgId:ORG,ref:target.ref,role:'none',expectedVersion:2})).status).toBe(200);
+ expect(await tool.run({memory_id:memory.id})).toBe('Memory unavailable.');
+ expect((await get(`${profilePath}?${q({orgId:ORG})}`,kenji)).status).toBe(404);
+ expect((await (await get(`/channels/agents?${q({orgId:ORG})}`,kenji)).json()).agents.some(a=>a.id===agentId)).toBe(false);
+});

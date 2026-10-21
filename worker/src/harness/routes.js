@@ -1,3 +1,4 @@
+import { explicitAgentRoles, agentRoleState, setAgentRole } from './agentRoles.js';
 import { updateMemoryEntry } from './memoryEntries.js';
 import { previewSkillImport } from './skillImport.js';
 import { writeSkillZip } from './skillZip.js';
@@ -399,10 +400,29 @@ export async function handleHarness(request, env, url, context = {}) {
     // Someone else's personal agent is theirs alone: it is not here at all.
     if (!agent || (agent.scope === "personal" && agent.owner_login !== who.user.login)) return json({ message: "No such agent." }, 404);
     if (!(await mayAccessAgent(env.DB, orgId, { ...agent, ownerLogin: agent.owner_login }, who.user.login))) return json({ message: "No such agent." }, 404);
-    const canEdit = agent.owner_login === who.user.login || await allowed(env.DB, orgId, me, "agent.manage_others");
+    const delegatedRole=(await explicitAgentRoles(env.DB,orgId,[agentId],who.user.login)).get(agentId);
+    const canEdit = agent.owner_login === who.user.login || delegatedRole==='admin' || await allowed(env.DB, orgId, me, "agent.manage_others");
     // Anyone who may talk to it may tell it to remember something, as in
     // the chat; everything else is its maker's or an admin's.
     if (!read && !canEdit && !(sub === "memory" && request.method === "POST")) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
+    if (sub === 'members') {
+      const state=await agentRoleState(env.DB,orgId,agentId);
+      if (!state) return json({message:'No such agent.'},404);
+      const people=await memoryMembers(env.DB,orgId,me);
+      const canManage=state.members.some(m=>m.userId===String(me)&&m.role==='admin');
+      if (request.method==='GET') {
+        const shown=state.members.flatMap(m=>{const person=people.find(p=>p.userId===m.userId);return person?[{ref:person.ref,name:person.name,role:m.role,owner:!!m.owner}]:[]});
+        return json({version:state.version,scope:state.scope,canManage,members:shown,candidates:canManage?people.filter(p=>p.role!=='guest').map(p=>({ref:p.ref,name:p.name})):[]});
+      }
+      if (request.method==='PUT') {
+        if (!canManage) return json({message:'Only an agent admin can change its members.'},403);
+        const target=people.find(p=>p.ref===input.ref);
+        if (!target) return json({message:'No such workspace member.'},404);
+        const r=await setAgentRole(env.DB,orgId,agentId,{actorId:me,targetId:target.userId,role:input.role,expectedVersion:input.expectedVersion});
+        if (!r.error) await audit(env,request,{orgId,action:'agent.member_role_changed',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memberRef:target.ref,role:input.role,version:r.version}});
+        return r.error?fail(r):json(r);
+      }
+    }
     if (sub === "profile") {
       if (request.method === "GET") return json({ profile: await getProfile(env.DB, orgId, agentId), tiers: TIERS, access: ACCESS, canEdit });
       if (request.method === "PUT") {

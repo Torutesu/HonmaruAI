@@ -2022,6 +2022,7 @@ CREATE TABLE IF NOT EXISTS hx_agent_members (
   agent_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   role TEXT NOT NULL CHECK (role IN ('admin','member')),
+  member_since TEXT NOT NULL,
   updated_by TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   PRIMARY KEY (org_id, agent_id, user_id),

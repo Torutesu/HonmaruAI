@@ -1,3 +1,4 @@
+import { explicitAgentRoles } from './agentRoles.js';
 import { memoryFields, memoryEntry } from './memoryEntries.js';
 // Agents as members (docs/kylon-gap-plan.md): a custom agent gets what a
 // Kylon agent has — a specialty, a tier, its own memory, skills, a setting
@@ -101,6 +102,7 @@ export function mayCall(agent, profile, login) {
 // Access is independent of the presentation mode. Switching to Simple must
 // never make a restricted agent's instructions or memories public.
 export async function mayAccessAgent(db, orgId, agent, login) {
+  if (agent.scope === 'team' && (await explicitAgentRoles(db,orgId,[agent.id],login)).has(agent.id)) return true;
   return mayCall(agent, await getProfile(db, orgId, agent.id), login);
 }
 
@@ -119,7 +121,8 @@ export async function mayRunAgent(db, orgId, row, userId) {
 /// when named is dropped from a thread it was only continuing.
 export async function filterResponders(db, orgId, login, agents, { named = null, channel = null } = {}) {
   if (!agents.length) return agents;
-  const profiles = await profilesFor(db, orgId, agents.map((a) => a.id));
+  const ids=agents.map(a=>a.id);
+  const [profiles,roles] = await Promise.all([profilesFor(db,orgId,ids),explicitAgentRoles(db,orgId,ids,login)]);
   const placed = new Set();
   if (channel) {
     const { results } = await db.prepare("SELECT agent_id FROM channel_agents WHERE org_id = ?1 AND channel = ?2").bind(orgId, channel).all();
@@ -130,7 +133,7 @@ export async function filterResponders(db, orgId, login, agents, { named = null,
     // Preserve explicit legacy room placement for unprofiled Simple agents.
     // It grants use in this resolved room, never direct access to private data.
     if (!p && login && placed.has(a.id)) return true;
-    if (!mayCall(a, p, login)) return false;
+    if (!mayCall(a, p, login) && !(a.scope==='team' && roles.has(a.id))) return false;
     if (p?.mentionOnly && named && !named.has(a.id)) return false;
     return true;
   });

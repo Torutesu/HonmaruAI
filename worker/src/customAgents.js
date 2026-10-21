@@ -1,3 +1,4 @@
+import { explicitAgentRoles } from './harness/agentRoles.js';
 import { roomResponses } from "./harness/roomResponses.js";
 // Agents a team writes for itself.
 //
@@ -119,7 +120,8 @@ export async function listAgents(db, orgId, login) {
   ).bind(orgId, String(login || "")).all().catch(() => ({ results: [] }));
   const visible = await filterResponders(db, orgId, login, (results || []).map(toAgent));
   const profiles = await profilesFor(db, orgId, visible.map(agent => agent.id));
-  for (const agent of visible) agent.managedProfile = profiles.has(agent.id);
+  const roles=await explicitAgentRoles(db,orgId,visible.map(a=>a.id),login);
+  for (const agent of visible) { agent.managedProfile = profiles.has(agent.id); agent.viewerRole=roles.get(agent.id)||null; }
   return upgradePresets(db, orgId, visible);
 }
 
@@ -206,8 +208,8 @@ export function toClientAgent(agent, members, viewerLogin, { isAdmin = false } =
     createdBy: refOf(agent.ownerLogin), createdByName: nameOf(agent.ownerLogin), createdAt: agent.createdAt, mine,
     updatedByName: nameOf(agent.updatedBy), updatedAt: agent.updatedAt,
     // A teammate is set up in Studio, not on the Agents screen.
-    canEdit: !agent.provider && (mine || (agent.scope === "team" && (!agent.managedProfile || isAdmin))),
-    canDelete: !agent.provider && (mine || (agent.scope === "team" && isAdmin)),
+    canEdit: !agent.provider && (mine || (agent.scope === "team" && (!agent.managedProfile || isAdmin || agent.viewerRole==='admin'))),
+    canDelete: !agent.provider && (mine || (agent.scope === "team" && (isAdmin || agent.viewerRole==='admin'))),
     markdown: agentMarkdown(agent),
   };
 }
@@ -232,7 +234,7 @@ export async function handleTaken(db, orgId, handle, { members, scope, ownerLogi
 // A saved Harness profile owns the editing policy even in Simple mode.
 // Legacy unprofiled team agents retain their shared-document behavior.
 async function mayEditManagedAgent(db, orgId, agent, login, isAdmin) {
-  if (agent.ownerLogin === login || isAdmin) return true;
+  if (agent.ownerLogin === login || isAdmin || (await explicitAgentRoles(db,orgId,[agent.id],login)).get(agent.id)==='admin') return true;
   return !(await db.prepare("SELECT agent_id FROM hx_agent_profiles WHERE org_id = ?1 AND agent_id = ?2")
     .bind(orgId, agent.id).first());
 }
@@ -309,10 +311,16 @@ export async function saveAgent(db, orgId, { id = null, input, login, members, i
     }
     return { agent: toAgent(await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2").bind(orgId, newId).first()), created: true };
   }
-  await db.prepare(
+  const update=db.prepare(
     `UPDATE custom_agents SET handle = ?3, name = ?4, emoji = ?5, description = ?6, instructions = ?7, scope = ?8, updated_by = ?9, updated_at = ?10
       WHERE org_id = ?1 AND id = ?2`
-  ).bind(orgId, existing.id, handle, name, emoji, description, instructions, scope, login, now).run();
+  ).bind(orgId, existing.id, handle, name, emoji, description, instructions, scope, login, now);
+  if (scope==='personal' && existing.scope!=='personal') {
+    await db.batch([update,
+      db.prepare('DELETE FROM hx_agent_members WHERE org_id=?1 AND agent_id=?2').bind(orgId,existing.id),
+      db.prepare('UPDATE hx_agent_access SET version=version+1,mutation_id=NULL WHERE org_id=?1 AND agent_id=?2').bind(orgId,existing.id),
+    ]);
+  } else await update.run();
   return { agent: toAgent(await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2").bind(orgId, existing.id).first()), created: false };
 }
 
@@ -338,7 +346,7 @@ export async function deleteAgent(db, orgId, { id, login, isAdmin }) {
   const row = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, String(id || "")).first();
   if (!row || (row.scope === "personal" && row.owner_login !== login)) return { error: "No such agent.", status: 404 };
   if (!(await mayAccessAgent(db, orgId, toAgent(row), login))) return { error: "No such agent.", status: 404 };
-  if (row.owner_login !== login && !isAdmin) return { error: "Only whoever made it, or an admin, can delete it.", status: 403 };
+  if (row.owner_login !== login && !isAdmin && (await explicitAgentRoles(db,orgId,[row.id],login)).get(row.id)!=='admin') return { error: "Only whoever made it, or an admin, can delete it.", status: 403 };
   if (row.provider) return { error: "Turn this teammate off in Studio → AI teammates.", status: 400 };
   await db.prepare("UPDATE custom_agents SET deleted_at = ?3 WHERE org_id = ?1 AND id = ?2").bind(orgId, row.id, new Date().toISOString()).run();
   return { agent: toAgent(row) };

@@ -68,6 +68,7 @@ export interface Followup { id: string; channel: string; instruction: string; du
 export interface Gateway { id: string; name: string; createdAt: number; lastSeenAt: number | null; revokedAt: number | null }
 export interface GatewayJob { id: string; gatewayId: string; status: string; createdAt: number; result: { stdout?: string; stderr?: string; error?: string; exitCode?: number | null } | null }
 export interface Skill { createdByName?: string; metadata?: Record<string, unknown>; visibility?: 'workspace' | 'private'; accessVersion?: number; canShare?: boolean; canEdit?: boolean; id: string; name: string; description: string; body: string; agents?: string[]; createdBy: string }
+export interface AgentRoleState { version: number; scope: 'team' | 'personal'; canManage: boolean; members: Array<{ref: string; name: string; role: 'admin' | 'member'; owner: boolean}>; candidates: Array<{ref: string; name: string}> }
 export interface AgentProfile { specialty: string; tier: 'lite' | 'standard' | 'max'; mentionOnly: boolean; access: 'everyone' | 'people' | 'private'; people: string[] }
 export interface HomeData {
   mode: WorkspaceMode
@@ -183,6 +184,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     updateSkill: (id: string, s: Partial<Skill>) => call<{ skill: Skill }>('PUT', `/skills/${id}`, s as Record<string, unknown>),
     deleteSkill: (id: string) => call<{ deleted: boolean }>('DELETE', `/skills/${id}`),
 
+    agentMembers: (agentId: string) => call<AgentRoleState>('GET', `/hx/agents/${agentId}/members`),
+    setAgentMember: (agentId: string, ref: string, role: 'admin' | 'member' | 'none', expectedVersion: number) => call<{version:number}>('PUT', `/hx/agents/${agentId}/members`, {ref,role,expectedVersion}),
     profile: (agentId: string) => call<{ profile: AgentProfile; canEdit: boolean }>('GET', `/hx/agents/${agentId}/profile`),
     saveProfile: (agentId: string, p: Partial<AgentProfile> & { name?: string; emoji?: string }) => call<{ profile: AgentProfile; identity?: { name: string; emoji: string | null } }>('PUT', `/hx/agents/${agentId}/profile`, p as Record<string, unknown>),
     memoryScopes: (agentId: string) => call<{ scopes: Array<{ channel: string; label: string }> }>('GET', `/hx/agents/${agentId}/memory/scopes`),
