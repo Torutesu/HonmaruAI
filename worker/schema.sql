@@ -2006,3 +2006,24 @@ CREATE TABLE IF NOT EXISTS hx_memory_entries (
   updated_by TEXT,
   updated_at TEXT NOT NULL
 );
+
+/* Explicit human roles for managed agents. The maker is an implicit admin;
+   workspace membership must still be active whenever a role is used. */
+CREATE TABLE IF NOT EXISTS hx_agent_access (
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 0,
+  mutation_id TEXT,
+  PRIMARY KEY (org_id, agent_id),
+  FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS hx_agent_members (
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('admin','member')),
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, agent_id, user_id),
+  FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
+);
