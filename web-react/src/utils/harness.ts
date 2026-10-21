@@ -68,7 +68,7 @@ export interface Followup { id: string; channel: string; instruction: string; du
 export interface Gateway { id: string; name: string; createdAt: number; lastSeenAt: number | null; revokedAt: number | null }
 export interface GatewayJob { id: string; gatewayId: string; status: string; createdAt: number; result: { stdout?: string; stderr?: string; error?: string; exitCode?: number | null } | null }
 export interface Skill { createdByName?: string; metadata?: Record<string, unknown>; visibility?: 'workspace' | 'private'; accessVersion?: number; canShare?: boolean; canEdit?: boolean; id: string; name: string; description: string; body: string; agents?: string[]; createdBy: string }
-export interface AgentRoleState { version: number; scope: 'team' | 'personal'; canManage: boolean; members: Array<{ref: string; name: string; role: 'admin' | 'member'; owner: boolean}>; candidates: Array<{ref: string; name: string}> }
+export interface AgentRoleState { version: number; scope: 'team' | 'personal'; canManage: boolean; canAddMembers?: boolean; members: Array<{ref: string; name: string; role: 'admin' | 'member'; owner: boolean; mine?: boolean}>; candidates: Array<{ref: string; name: string}> }
 export interface AgentProfile { specialty: string; tier: 'lite' | 'standard' | 'max'; mentionOnly: boolean; access: 'everyone' | 'people' | 'private'; people: string[] }
 export interface HomeData {
   mode: WorkspaceMode

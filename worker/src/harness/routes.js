@@ -404,18 +404,19 @@ export async function handleHarness(request, env, url, context = {}) {
     const canEdit = agent.owner_login === who.user.login || delegatedRole==='admin' || await allowed(env.DB, orgId, me, "agent.manage_others");
     // Anyone who may talk to it may tell it to remember something, as in
     // the chat; everything else is its maker's or an admin's.
-    if (!read && !canEdit && !(sub === "memory" && request.method === "POST")) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
+    if (!read && !canEdit && sub !== 'members' && !(sub === "memory" && request.method === "POST")) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
     if (sub === 'members') {
       const state=await agentRoleState(env.DB,orgId,agentId);
       if (!state) return json({message:'No such agent.'},404);
       const people=await memoryMembers(env.DB,orgId,me);
       const canManage=state.members.some(m=>m.userId===String(me)&&m.role==='admin');
+      const canAddMembers=canManage||state.members.some(m=>m.userId===String(me)&&m.role==='member');
       if (request.method==='GET') {
-        const shown=state.members.flatMap(m=>{const person=people.find(p=>p.userId===m.userId);return person?[{ref:person.ref,name:person.name,role:m.role,owner:!!m.owner}]:[]});
-        return json({version:state.version,scope:state.scope,canManage,members:shown,candidates:canManage?people.filter(p=>p.role!=='guest').map(p=>({ref:p.ref,name:p.name})):[]});
+        const shown=state.members.flatMap(m=>{const person=people.find(p=>p.userId===m.userId);return person?[{ref:person.ref,name:person.name,role:m.role,owner:!!m.owner,mine:m.userId===String(me)}]:[]});
+        return json({version:state.version,scope:state.scope,canManage,canAddMembers,members:shown,candidates:canAddMembers?people.filter(p=>p.role!=='guest').map(p=>({ref:p.ref,name:p.name})):[]});
       }
       if (request.method==='PUT') {
-        if (!canManage) return json({message:'Only an agent admin can change its members.'},403);
+        if (!canAddMembers) return json({message:'Only an agent member can manage assigned members.'},403);
         const target=people.find(p=>p.ref===input.ref);
         if (!target) return json({message:'No such workspace member.'},404);
         const r=await setAgentRole(env.DB,orgId,agentId,{actorId:me,targetId:target.userId,role:input.role,expectedVersion:input.expectedVersion});

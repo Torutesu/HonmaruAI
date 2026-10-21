@@ -15,12 +15,12 @@ export function AgentAccessDialog({load,save,onClose}:{load:()=>Promise<AgentRol
  useEffect(()=>{let alive=true;void refresh().catch(e=>{if(alive)setError(e instanceof Error?e.message:String(e))});return()=>{alive=false;generation.current++}},[load])
  const reload=async()=>{if(pending.current)return;pending.current=true;setBusy(true);setError('');try{await refresh()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{pending.current=false;setBusy(false)}}
  const current=data?.members.find(m=>m.ref===ref)
- const allowed=data?.canManage
+ const allowed=data?.canManage||data?.canAddMembers
  const changed=ref&&!current?.owner&&(current?current.role!==role:role!=='none')
  const submit=async()=>{
   if(pending.current||needsReload||!data||!allowed||!changed)return
   pending.current=true;setBusy(true);setError('');let saved=false
-  try{await save(ref,role,data.version);saved=true;if(data.scope==='personal')setData({...data,scope:'team'});await refresh()}
+  try{await save(ref,role,data.version);saved=true;if(current?.mine&&role==='none'){onClose(data.scope);return}if(data.scope==='personal')setData({...data,scope:'team'});await refresh()}
   catch(e){if(saved)setNeedsReload(true);setError(saved?'Saved, but the member list could not refresh. Reload before editing again.':e instanceof Error?e.message:String(e))}
   finally{pending.current=false;setBusy(false)}
  }
@@ -31,12 +31,12 @@ export function AgentAccessDialog({load,save,onClose}:{load:()=>Promise<AgentRol
  </>}>
   {!data&&!error&&<p role="status">{t('Loading…')}</p>}
   {data&&<>
-   <p className="dlg-hint">{t('Assigned roles add to the agent’s existing access setting. Admins can edit the agent and manage assigned roles.')}</p>
-   <ul className="hx-agent-member-list">{data.members.map(m=><li key={m.ref}><Icon name={m.role==='admin'?'shield':'you'} size={18}/><span><strong>{m.name}</strong><small>{t(m.owner?'Maker':m.role==='admin'?'Agent admin':'Agent member')}</small></span>{allowed&&!m.owner&&<button className="dlg-btn" disabled={busy} aria-label={t('Edit role for {name}',{name:m.name})} onClick={()=>{setRef(m.ref);setRole(m.role)}}>{t('Edit')}</button>}</li>)}</ul>
+   <p className="dlg-hint">{t('Members can add or remove ordinary members. Admins can also change roles and edit the agent.')}</p>
+   <ul className="hx-agent-member-list">{data.members.map(m=><li key={m.ref}><Icon name={m.role==='admin'?'shield':'you'} size={18}/><span><strong>{m.name}</strong><small>{t(m.owner?'Maker':m.role==='admin'?'Agent admin':'Agent member')}</small></span>{allowed&&!m.owner&&(data.canManage||m.role==='member')&&<button className="dlg-btn" disabled={busy} aria-label={m.mine?t('Remove myself'):t('Edit role for {name}',{name:m.name})} onClick={()=>{setRef(m.ref);setRole(m.mine?'none':m.role)}}>{t(m.mine?'Remove myself':'Edit')}</button>}</li>)}</ul>
    {data.scope==='personal'&&<p className="dlg-hint">{t('Assigning a role shares this personal agent only with its maker and assigned members.')}</p>}
    {allowed&&<div className="hx-agent-member-form">
-    <label><span className="dlg-label">{t('Person')}</span><select className="dlg-input" value={ref} disabled={busy} onChange={e=>{const value=e.target.value;setRef(value);setRole(data.members.find(m=>m.ref===value)?.role||'member')}}><option value="">{t('Choose a member')}</option>{data.candidates.filter(p=>!data.members.some(m=>m.ref===p.ref&&m.owner)).map(p=><option key={p.ref} value={p.ref}>{p.name}</option>)}</select></label>
-    <label><span className="dlg-label">{t('Agent role')}</span><select className="dlg-input" value={role} disabled={busy||!ref} onChange={e=>setRole(e.target.value as Role)}><option value="member">{t('Agent member')}</option><option value="admin">{t('Agent admin')}</option>{current&&<option value="none">{t('Remove assigned role')}</option>}</select></label>
+    <label><span className="dlg-label">{t('Person')}</span><select className="dlg-input" value={ref} disabled={busy} onChange={e=>{const value=e.target.value;setRef(value);setRole(data.members.find(m=>m.ref===value)?.role||'member')}}><option value="">{t('Choose a member')}</option>{data.candidates.filter(p=>!data.members.some(m=>m.ref===p.ref&&(m.owner||(!data.canManage&&m.role==='admin')))).map(p=><option key={p.ref} value={p.ref}>{p.name}</option>)}</select></label>
+    <label><span className="dlg-label">{t('Agent role')}</span><select className="dlg-input" value={role} disabled={busy||!ref} onChange={e=>setRole(e.target.value as Role)}><option value="member">{t('Agent member')}</option>{data.canManage&&<option value="admin">{t('Agent admin')}</option>}{current&&<option value="none">{t('Remove assigned role')}</option>}</select></label>
     <p className="dlg-hint">{t('Removing an assigned role does not remove access granted to everyone or through the agent’s existing people list.')}</p>
    </div>}
   </>}

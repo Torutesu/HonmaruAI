@@ -48,6 +48,7 @@ const ScopedHarnessAgents: React.FC<AgentsProps> = (props) => {
   const [person, setPerson] = useState<Mentionable | null>(null)
   const [creating, setCreating] = useState(false)
   const [filter, setFilter] = useState<'all' | 'people' | 'agents'>('all')
+  const [accessRevision,setAccessRevision]=useState(0)
   const members = useMembers(props.httpBase, props.orgId, props.sessionToken)
   const { error, act } = useAct()
   useEffect(() => {
@@ -56,8 +57,9 @@ const ScopedHarnessAgents: React.FC<AgentsProps> = (props) => {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.message || String(res.status))
       setAgents(data.agents || [])
+      setOpen(current=>current ? (data.agents || []).find((a:AgentFace)=>a.id===current.id)||null : null)
     })
-  }, [act, props.httpBase, props.orgId, props.sessionToken])
+  }, [act, props.httpBase, props.orgId, props.sessionToken,accessRevision])
 
   return <div className="screen hx-members-screen">
     <aside className="hx-members-list">
@@ -71,13 +73,13 @@ const ScopedHarnessAgents: React.FC<AgentsProps> = (props) => {
       {agents === null && <p className="hx-members-note">{t('Loading…')}</p>}
     </aside>
     <main className="hx-member-detail">
-      {open ? <AgentMember key={open.id} {...props} agent={open} onBack={() => setOpen(null)} onMessage={() => props.onMessage?.(open.id)} onUpdated={updated => { setAgents(current => current?.map(agent => agent.id === updated.id ? { ...agent, ...updated } : agent) || null); setOpen(current => current?.id === updated.id ? { ...current, ...updated } : current) }} /> : person ? <div className="hx-person-profile"><Avatar name={person.name} url={person.avatarUrl} round size={64} /><h1>{person.name}</h1>{person.handle && <p>@{person.handle}</p>}<button className="pill-btn" onClick={props.onManageTeam}>{t('Team settings')}</button></div> : <div className="hx-member-empty"><Icon name="you" size={32} /><p>{t('Choose a member')}</p></div>}
+      {open ? <AgentMember key={open.id} {...props} agent={open} onAccessChanged={()=>setAccessRevision(v=>v+1)} onBack={() => setOpen(null)} onMessage={() => props.onMessage?.(open.id)} onUpdated={updated => { setAgents(current => current?.map(agent => agent.id === updated.id ? { ...agent, ...updated } : agent) || null); setOpen(current => current?.id === updated.id ? { ...current, ...updated } : current) }} /> : person ? <div className="hx-person-profile"><Avatar name={person.name} url={person.avatarUrl} round size={64} /><h1>{person.name}</h1>{person.handle && <p>@{person.handle}</p>}<button className="pill-btn" onClick={props.onManageTeam}>{t('Team settings')}</button></div> : <div className="hx-member-empty"><Icon name="you" size={32} /><p>{t('Choose a member')}</p></div>}
     </main>
     {creating && <NewHarnessAgent {...props} onClose={() => setCreating(false)} onAdvanced={props.onManageAgents} onCreated={(agent, all) => { setAgents(all); setOpen(agent); setPerson(null); setFilter('all'); setCreating(false) }} />}
   </div>
 }
 
-const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => void; onMessage?: () => void; onUpdated: (agent: Partial<ClientAgent> & { id: string }) => void }> = (props) => {
+const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:()=>void; onBack: () => void; onMessage?: () => void; onUpdated: (agent: Partial<ClientAgent> & { id: string }) => void }> = (props) => {
   const t = useT()
   const api = useApi(props)
   const { agent } = props
@@ -125,7 +127,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onBack: () => voi
       {error && <div className="form-error">{error}</div>}
       <div className="hx-profile-heading"><button className="hx-profile-avatar-trigger" aria-label={t("Show {name}’s avatar", { name: agent.name })} aria-haspopup="dialog" onClick={() => setAvatarPreview(true)}><AgentAvatar agent={agent} className="hx-profile-avatar" /></button><h1>{agent.name}</h1><button className="pill-btn quiet" onClick={props.onMessage} aria-label={t('Message')}><Icon name="message" size={18} /></button></div>
       <div className="hx-profile-tabs" role="tablist">{(['profile','skills','memory','followups'] as const).map(key => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)}>{t(key === 'profile' ? 'Profile' : key === 'skills' ? 'Skills' : key === 'memory' ? 'Memory' : 'Follow-ups')}</button>)}</div>
-      {accessDialog && <AgentAccessDialog load={loadAccess} save={(ref,role,version)=>api.setAgentMember(agent.id,ref,role,version)} onClose={scope=>{setAccessDialog(false);if(scope)props.onUpdated({id:agent.id,scope});void load()}}/>}
+      {accessDialog && <AgentAccessDialog load={loadAccess} save={(ref,role,version)=>api.setAgentMember(agent.id,ref,role,version)} onClose={scope=>{setAccessDialog(false);props.onAccessChanged();if(scope)props.onUpdated({id:agent.id,scope});void load()}}/>}
       {avatarPreview && <AgentAvatarPreview agent={agent} onClose={() => setAvatarPreview(false)}/>}
       {profileDialog && <EditAgentProfile agent={agent} profile={profile} onClose={() => setProfileDialog(false)} onSave={async (patch, picture) => {
         const result = await api.saveProfile(agent.id, patch)

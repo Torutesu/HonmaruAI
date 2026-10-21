@@ -6,6 +6,21 @@ import type {AgentRoleState} from '../utils/harness'
 vi.mock('./Dialog',()=>({Dialog:({children,footer}:any)=><section>{children}{footer}</section>}))
 vi.mock('../utils/i18n',()=>({useT:()=> (s:string)=>s}))
 const state:AgentRoleState={version:1,scope:'team',canManage:true,members:[{ref:'maker',name:'Maker Name',role:'admin',owner:true},{ref:'person',name:'Member Name',role:'member',owner:false}],candidates:[{ref:'maker',name:'Maker Name'},{ref:'person',name:'Member Name'}]}
+test('ordinary members can prepare their own removal but cannot select an admin role or edit an admin',async()=>{
+ const save=vi.fn().mockResolvedValue({version:2}),close=vi.fn();let tree!:ReturnType<typeof create>
+ const memberState={...state,canManage:false,canAddMembers:true,members:state.members.map(m=>({...m,mine:m.ref==='person'}))}
+ const load=vi.fn().mockResolvedValue(memberState)
+ await act(async()=>{tree=create(<AgentAccessDialog load={load} save={save} onClose={close}/>)})
+ expect(tree.root.findAllByType('option').some(n=>n.props.value==='admin'||n.props.value==='maker')).toBe(false)
+ act(()=>tree.root.findAllByType('button').find(n=>n.children.includes('Remove myself'))!.props.onClick())
+ expect(save).not.toHaveBeenCalled()
+ expect(tree.root.findAllByType('select')[1].props.value).toBe('none')
+ await act(async()=>tree.root.findAllByType('button').find(n=>n.children.includes('Save'))!.props.onClick())
+ expect(save).toHaveBeenCalledWith('person','none',1)
+ expect(close).toHaveBeenCalledWith('team')
+ expect(load).toHaveBeenCalledTimes(1)
+ act(()=>tree.unmount())
+})
 test('role changes use the loaded version, preserve failed drafts and require explicit reload',async()=>{
  const load=vi.fn().mockResolvedValue(state),save=vi.fn().mockRejectedValueOnce(Error('Agent access changed. Reload before saving.')).mockResolvedValue({version:3})
  let tree!:ReturnType<typeof create>

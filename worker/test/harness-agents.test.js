@@ -473,3 +473,20 @@ test('independent agent roles govern API editing, listing and execution in both 
  expect((await get(`${profilePath}?${q({orgId:ORG})}`,kenji)).status).toBe(404);
  expect((await (await get(`/channels/agents?${q({orgId:ORG})}`,kenji)).json()).agents.some(a=>a.id===agentId)).toBe(false);
 });
+
+test('ordinary agent members manage ordinary grants through opaque refs and can remove themselves',async()=>{
+ const path=`/hx/agents/${agentId}/members`;
+ await send('PUT',`/hx/agents/${agentId}/profile`,mika,{orgId:ORG,access:'private'});
+ const state=await(await get(`${path}?${q({orgId:ORG})}`,mika)).json();
+ const kenjiRef=state.candidates.find(p=>p.name==='Kenji').ref;
+ const toruRef=state.candidates.find(p=>p.name==='Toru').ref;
+ expect((await send('PUT',path,mika,{orgId:ORG,ref:kenjiRef,role:'member',expectedVersion:0})).status).toBe(200);
+ const ordinary=await(await get(`${path}?${q({orgId:ORG})}`,kenji)).json();
+ expect(ordinary).toMatchObject({canManage:false,canAddMembers:true});
+ expect(ordinary.members.find(m=>m.ref===kenjiRef).mine).toBe(true);
+ expect((await send('PUT',path,kenji,{orgId:ORG,ref:toruRef,role:'member',expectedVersion:1})).status).toBe(200);
+ expect((await send('PUT',path,kenji,{orgId:ORG,ref:toruRef,role:'admin',expectedVersion:2})).status).toBe(403);
+ expect((await send('PUT',path,kenji,{orgId:ORG,ref:toruRef,role:'none',expectedVersion:2})).status).toBe(200);
+ expect((await send('PUT',path,kenji,{orgId:ORG,ref:kenjiRef,role:'none',expectedVersion:3})).status).toBe(200);
+ expect((await get(`${path}?${q({orgId:ORG})}`,kenji)).status).toBe(404);
+});

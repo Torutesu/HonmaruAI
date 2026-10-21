@@ -34,7 +34,9 @@ export async function setAgentRole(db, orgId, agentId, { actorId, targetId, role
   const state=await agentRoleState(db,orgId,agentId);
   if (!state) return {error:'No such agent.',status:404};
   const actor=state.members.find(m=>m.userId===actorId);
-  if (actor?.role!=='admin') return {error:'Only an agent admin can change its members.',status:403};
+  const targetRole=state.members.find(m=>m.userId===targetId);
+  const ordinaryChange=actor?.role==='member' && ((role==='member'&&!targetRole)||(role==='none'&&targetRole?.role==='member'&&!targetRole.owner));
+  if (actor?.role!=='admin'&&!ordinaryChange) return {error:'Only an agent admin can change roles or remove an admin.',status:403};
   // Assigning a person is an explicit restricted share, never workspace-wide.
   if (state.scope==='personal' && role==='none') return {error:'Assign a role to share this personal agent.',status:409};
   const profile=await db.prepare('SELECT 1 FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(orgId,agentId).first();
@@ -53,7 +55,11 @@ export async function setAgentRole(db, orgId, agentId, { actorId, targetId, role
       AND EXISTS (SELECT 1 FROM custom_agents a JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
         JOIN users u ON u.github_id=?3 JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=u.github_id AND m.role!='guest'
         WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL AND a.provider IS NULL AND (a.scope='team' OR (a.scope='personal' AND a.owner_login=u.login AND ?7!='none'))
-        AND (a.owner_login=u.login OR EXISTS(SELECT 1 FROM hx_agent_members r WHERE r.org_id=?1 AND r.agent_id=?2 AND r.user_id=?3 AND r.role='admin' AND r.member_since=m.created_at)))
+        AND (a.owner_login=u.login OR EXISTS(SELECT 1 FROM hx_agent_members r WHERE r.org_id=?1 AND r.agent_id=?2 AND r.user_id=?3 AND r.member_since=m.created_at
+          AND (r.role='admin' OR (r.role='member' AND (
+            (?7='member' AND NOT EXISTS(SELECT 1 FROM hx_agent_members t WHERE t.org_id=?1 AND t.agent_id=?2 AND t.user_id=?4 AND t.member_since=?8))
+            OR (?7='none' AND EXISTS(SELECT 1 FROM hx_agent_members t WHERE t.org_id=?1 AND t.agent_id=?2 AND t.user_id=?4 AND t.member_since=?8 AND t.role='member'))
+          ))))))
       AND EXISTS(SELECT 1 FROM users u JOIN memberships m ON m.user_github_id=u.github_id AND m.org_id=?1 AND m.role!='guest'
         JOIN custom_agents a ON a.org_id=?1 AND a.id=?2 WHERE u.github_id=?4 AND u.login!=a.owner_login AND m.created_at=?8)
       AND (?7='admin' OR EXISTS(SELECT 1 FROM users u JOIN memberships m ON m.user_github_id=u.github_id AND m.org_id=?1 AND m.role!='guest'

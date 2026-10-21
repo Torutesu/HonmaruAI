@@ -50,13 +50,37 @@ test('concurrent changes have one winner and a stale writer cannot overwrite gra
 });
 test('personal sharing assigns only the chosen role while unmanaged legacy agents require setup',async()=>{
  await env.DB.prepare("UPDATE custom_agents SET scope='personal' WHERE org_id=?1 AND id=?2").bind(ORG,AGENT).run();
+ await env.DB.prepare("UPDATE hx_agent_profiles SET access='everyone',people='[\"reader\"]' WHERE org_id=?1 AND agent_id=?2").bind(ORG,AGENT).run();
  expect(await change('a','b','admin',0)).toEqual({version:1});
  expect((await env.DB.prepare('SELECT access FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(ORG,AGENT).first()).access).toBe('private');
  expect((await agentRoleState(env.DB,ORG,AGENT)).scope).toBe('team');
+ expect(await mayAccessAgent(env.DB,ORG,{id:AGENT,scope:'team',ownerLogin:'maker'},'reader')).toBe(false);
  await env.DB.prepare("UPDATE custom_agents SET scope='team' WHERE org_id=?1 AND id=?2").bind(ORG,AGENT).run();
  await env.DB.prepare('DELETE FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(ORG,AGENT).run();
  expect((await change('a','b','admin',1)).status).toBe(409);
  expect((await explicitAgentRoles(env.DB,ORG,[AGENT],'delegate')).size).toBe(0);
+});
+
+test('ordinary members add and remove members and leave, without changing admin roles',async()=>{
+ expect(await change('a','b','member',0)).toEqual({version:1});
+ expect(await change('b','c','member',1)).toEqual({version:2});
+ expect((await change('b','c','admin',2)).status).toBe(403);
+ expect((await change('b','a','none',2)).status).toBe(403);
+ expect(await change('b','c','none',2)).toEqual({version:3});
+ expect(await change('b','b','none',3)).toEqual({version:4});
+ expect((await explicitAgentRoles(env.DB,ORG,[AGENT],'delegate')).size).toBe(0);
+ expect((await change('b','c','member',4)).status).toBe(403);
+});
+
+test('a concurrent admin promotion cannot be undone by an ordinary member removal',async()=>{
+ await change('a','b','member',0);await change('a','c','member',1);
+ const results=await Promise.all([change('a','c','admin',2),change('b','c','none',2)]);
+ expect(results.filter(r=>r.version===3)).toHaveLength(1);
+ expect(results.filter(r=>r.status===409)).toHaveLength(1);
+ if(results[0].version===3){
+  expect((await change('b','c','none',3)).status).toBe(403);
+  expect((await explicitAgentRoles(env.DB,ORG,[AGENT],'reader')).get(AGENT)).toBe('admin');
+ }
 });
 
 test('concurrent self-demotions cannot remove every active admin',async()=>{
