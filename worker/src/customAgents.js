@@ -107,7 +107,7 @@ function toAgent(row) {
   return {
     id: row.id, handle: row.handle, name: row.name, emoji: row.emoji || null, avatarUrl: row.avatar_url || null, description: row.description || "",
     instructions: row.instructions, scope: row.scope === "personal" ? "personal" : "team",
-    ownerLogin: row.owner_login, preset: row.preset || null, provider: row.provider || null,
+    ownerLogin: row.owner_login, creatorLogin: row.created_by_login || row.owner_login, preset: row.preset || null, provider: row.provider || null,
     createdAt: row.created_at, updatedBy: row.updated_by || null, updatedAt: row.updated_at,
   };
 }
@@ -205,7 +205,7 @@ export function toClientAgent(agent, members, viewerLogin, { isAdmin = false } =
   return {
     id: agent.id, handle: agent.handle, name: agent.name, emoji: agent.emoji, avatarUrl: agent.avatarUrl || null, description: agent.description,
     instructions: agent.instructions, scope: agent.scope, preset: agent.preset, provider: agent.provider || null,
-    createdBy: refOf(agent.ownerLogin), createdByName: nameOf(agent.ownerLogin), createdAt: agent.createdAt, mine,
+    createdBy: refOf(agent.creatorLogin || agent.ownerLogin), createdByName: nameOf(agent.creatorLogin || agent.ownerLogin), createdByMe: (agent.creatorLogin || agent.ownerLogin)===viewerLogin, createdAt: agent.createdAt, mine,
     updatedByName: nameOf(agent.updatedBy), updatedAt: agent.updatedAt,
     // A teammate is set up in Studio, not on the Agents screen.
     canEdit: !agent.provider && (mine || (agent.scope === "team" && (!agent.managedProfile || isAdmin || agent.viewerRole==='admin'))),

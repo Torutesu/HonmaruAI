@@ -1,6 +1,6 @@
 .hx-agent-access { width:min(512px,calc(100vw - 32px)); }
 .hx-agent-access .dlg-hint { color:var(--hx-muted); }
-.hx-agent-member-list { list-style:none; margin:16px 0; padding:0; border:1px solid var(--hx-border); border-radius:12px; overflow:hidden; }
+.hx-agent-member-list { flex-shrink:0; list-style:none; margin:16px 0; padding:0; border:1px solid var(--hx-border); border-radius:12px; overflow:hidden; }
 .hx-agent-member-list li { display:flex; align-items:center; gap:12px; padding:12px 14px; color:var(--hx-text); }
 .hx-agent-member-list li + li { border-top:1px solid var(--hx-border); }
 .hx-agent-member-list li > span { flex:1; min-width:0; overflow-wrap:anywhere; }
@@ -8,3 +8,6 @@
 .hx-agent-member-list small { display:block; margin-top:3px; color:var(--hx-muted); font-size:12px; }
 .hx-agent-member-form { display:grid; gap:12px; }
 .hx-agent-member-form select { width:100%; background:var(--hx-surface); color:var(--hx-text); }
+.hx-agent-transfer { display:grid; gap:12px; margin-top:20px; padding-top:16px; border-top:1px solid var(--hx-border); }
+.hx-agent-transfer select { width:100%; color:var(--hx-text); background:var(--hx-surface); }
+.hx-agent-transfer > button { justify-self:start; }

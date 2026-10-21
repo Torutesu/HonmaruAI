@@ -81,3 +81,41 @@ export async function setAgentRole(db, orgId, agentId, { actorId, targetId, role
   ]);
   return result[1].results?.length ? {version:result[1].results[0].version} : {error:'Agent access changed. Reload before saving.',status:409};
 }
+
+// Transfer responsibility without rewriting who originally created the agent.
+// The recipient must already be an active human admin; the former owner stays
+// an admin and can remove their own grant afterwards.
+export async function transferAgentOwnership(db, orgId, agentId, {actorId,targetId,expectedVersion}) {
+  actorId=String(actorId||'');targetId=String(targetId||'');
+  if(!Number.isSafeInteger(expectedVersion)||expectedVersion<0) return {error:'A current access version is required.',status:400};
+  const state=await agentRoleState(db,orgId,agentId);
+  if(!state) return {error:'No such agent.',status:404};
+  const actor=state.members.find(m=>m.userId===actorId),target=state.members.find(m=>m.userId===targetId);
+  if(!actor?.owner) return {error:'Only the current owner can transfer this agent.',status:403};
+  if(state.scope!=='team'||!target||target.owner||target.role!=='admin') return {error:'Choose another active human agent admin.',status:409};
+  if(state.version!==expectedVersion) return {error:'Agent access changed. Reload before saving.',status:409};
+  const mutation=crypto.randomUUID(),at=new Date().toISOString();
+  const result=await db.batch([
+    db.prepare('INSERT OR IGNORE INTO hx_agent_access(org_id,agent_id,version) VALUES (?1,?2,0)').bind(orgId,agentId),
+    db.prepare(`UPDATE hx_agent_access SET version=version+1,mutation_id=?5 WHERE org_id=?1 AND agent_id=?2 AND version=?6
+      AND EXISTS(SELECT 1 FROM custom_agents a
+        JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
+        JOIN users u ON u.login=a.owner_login AND u.github_id=?3
+        JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=u.github_id AND m.role!='guest'
+        JOIN hx_agent_members r ON r.org_id=a.org_id AND r.agent_id=a.id AND r.user_id=?4 AND r.role='admin'
+        JOIN memberships t ON t.org_id=r.org_id AND t.user_github_id=r.user_id AND t.role!='guest' AND t.created_at=r.member_since
+        JOIN users recipient ON recipient.github_id=t.user_github_id
+        WHERE a.org_id=?1 AND a.id=?2 AND a.scope='team' AND a.provider IS NULL AND a.deleted_at IS NULL AND ?3!=?4)
+      RETURNING version`).bind(orgId,agentId,actorId,targetId,mutation,expectedVersion),
+    db.prepare(`INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,updated_by,updated_at,member_since)
+      SELECT ?1,?2,?3,'admin',?3,?4,m.created_at FROM memberships m
+      WHERE m.org_id=?1 AND m.user_github_id=?3 AND EXISTS(SELECT 1 FROM hx_agent_access WHERE org_id=?1 AND agent_id=?2 AND mutation_id=?5)
+      ON CONFLICT(org_id,agent_id,user_id) DO UPDATE SET role='admin',updated_by=excluded.updated_by,updated_at=excluded.updated_at,member_since=excluded.member_since`)
+      .bind(orgId,agentId,actorId,at,mutation),
+    db.prepare(`UPDATE custom_agents SET created_by_login=COALESCE(created_by_login,owner_login),
+      owner_login=(SELECT login FROM users WHERE github_id=?3),updated_by=?4,updated_at=?5
+      WHERE org_id=?1 AND id=?2 AND EXISTS(SELECT 1 FROM hx_agent_access WHERE org_id=?1 AND agent_id=?2 AND mutation_id=?6)`)
+      .bind(orgId,agentId,targetId,actor.login,at,mutation),
+  ]);
+  return result[1].results?.length?{version:result[1].results[0].version}:{error:'Agent access changed. Reload before saving.',status:409};
+}

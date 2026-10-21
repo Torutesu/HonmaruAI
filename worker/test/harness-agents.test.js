@@ -490,3 +490,21 @@ test('ordinary agent members manage ordinary grants through opaque refs and can 
  expect((await send('PUT',path,kenji,{orgId:ORG,ref:kenjiRef,role:'none',expectedVersion:3})).status).toBe(200);
  expect((await get(`${path}?${q({orgId:ORG})}`,kenji)).status).toBe(404);
 });
+
+test('ownership transfer is owner-only, versioned, and preserves the original creator in client listings',async()=>{
+ const path=`/hx/agents/${agentId}`,query=q({orgId:ORG});
+ await send('PUT',`${path}/profile`,mika,{orgId:ORG,access:'private'});
+ const state=await(await get(`${path}/members?${query}`,mika)).json();
+ const target=state.candidates.find(p=>p.name==='Kenji').ref;
+ const owner=state.members.find(p=>p.owner).ref;
+ await send('PUT',`${path}/members`,mika,{orgId:ORG,ref:target,role:'admin',expectedVersion:0});
+ expect((await send('PUT',`${path}/ownership`,kenji,{orgId:ORG,ref:owner,expectedVersion:1})).status).toBe(403);
+ expect((await send('PUT',`${path}/ownership`,mika,{orgId:ORG,ref:target,expectedVersion:0})).status).toBe(409);
+ expect((await send('PUT',`${path}/ownership`,mika,{orgId:ORG,ref:target,expectedVersion:1})).status).toBe(200);
+ const next=await(await get(`${path}/members?${query}`,kenji)).json();
+ expect(next.members.find(p=>p.ref===target)).toMatchObject({owner:true,mine:true,role:'admin'});
+ const list=await(await get(`/channels/agents?${query}`,kenji)).json();
+ expect(list.agents.find(a=>a.id===agentId)).toMatchObject({mine:true,createdByName:'Mika',createdByMe:false});
+ expect((await send('PUT',`${path}/members`,mika,{orgId:ORG,ref:owner,role:'none',expectedVersion:2})).status).toBe(200);
+ expect((await get(`${path}/members?${query}`,mika)).status).toBe(404);
+});

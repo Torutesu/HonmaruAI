@@ -127,7 +127,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
       {error && <div className="form-error">{error}</div>}
       <div className="hx-profile-heading"><button className="hx-profile-avatar-trigger" aria-label={t("Show {name}’s avatar", { name: agent.name })} aria-haspopup="dialog" onClick={() => setAvatarPreview(true)}><AgentAvatar agent={agent} className="hx-profile-avatar" /></button><h1>{agent.name}</h1><button className="pill-btn quiet" onClick={props.onMessage} aria-label={t('Message')}><Icon name="message" size={18} /></button></div>
       <div className="hx-profile-tabs" role="tablist">{(['profile','skills','memory','followups'] as const).map(key => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)}>{t(key === 'profile' ? 'Profile' : key === 'skills' ? 'Skills' : key === 'memory' ? 'Memory' : 'Follow-ups')}</button>)}</div>
-      {accessDialog && <AgentAccessDialog load={loadAccess} save={(ref,role,version)=>api.setAgentMember(agent.id,ref,role,version)} onClose={scope=>{setAccessDialog(false);props.onAccessChanged();if(scope)props.onUpdated({id:agent.id,scope});void load()}}/>}
+      {accessDialog && <AgentAccessDialog load={loadAccess} transfer={(ref,version)=>api.transferAgentOwnership(agent.id,ref,version)} save={(ref,role,version)=>api.setAgentMember(agent.id,ref,role,version)} onClose={scope=>{setAccessDialog(false);props.onAccessChanged();if(scope)props.onUpdated({id:agent.id,scope});void load()}}/>}
       {avatarPreview && <AgentAvatarPreview agent={agent} onClose={() => setAvatarPreview(false)}/>}
       {profileDialog && <EditAgentProfile agent={agent} profile={profile} onClose={() => setProfileDialog(false)} onSave={async (patch, picture) => {
         const result = await api.saveProfile(agent.id, patch)
@@ -156,7 +156,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
           : (profile.tier === 'lite' ? 'Fast' : profile.tier === 'max' ? 'Max' : 'Pro')}</dd>
         <dt><Icon name="you" size={14}/>{t('Created by')}</dt><dd>{agent.createdByName || '—'}</dd>
         <dt><Icon name="calendar" size={14}/>{t('Created at')}</dt><dd>{agent.createdAt && Number.isFinite(Date.parse(agent.createdAt)) ? new Date(agent.createdAt).toLocaleDateString(getLocale(), { year: 'numeric', month: 'long', day: 'numeric' }) : '—'}</dd>
-        <dt><Icon name="lock" size={14}/>{t('Who may call it')}</dt><dd>{t(agent.scope === 'personal' ? 'Only its maker' : profile.access === 'private' ? 'Maker and assigned members' : profile.access === 'people' ? 'Some people' : 'Everyone')}</dd>
+        <dt><Icon name="lock" size={14}/>{t('Who may call it')}</dt><dd>{t(agent.scope === 'personal' ? 'Only its owner' : profile.access === 'private' ? 'Owner and assigned members' : profile.access === 'people' ? 'Some people' : 'Everyone')}</dd>
       </dl>
       <button className="btn-text" onClick={()=>setAccessDialog(true)}>{t('Agent access')}</button>
       {canEdit && <button className="btn-text" onClick={() => setEditingProfile(v => !v)}>{t('Advanced settings')}</button>}
@@ -183,7 +183,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
           <span className="row-main">{t('Who may call it')}
             <span className="hx-seg">
               {(['everyone', 'people', 'private'] as const).map((a) => (
-                <button key={a} className={(agent.scope === 'personal' ? 'private' : profile.access) === a ? 'on' : ''} disabled={!canEdit || agent.scope === 'personal'} onClick={() => save({ access: a })}>{t(a === 'everyone' ? 'Everyone' : a === 'people' ? 'Some people' : agent.scope==='personal' ? 'Only its maker' : 'Maker and assigned members')}</button>
+                <button key={a} className={(agent.scope === 'personal' ? 'private' : profile.access) === a ? 'on' : ''} disabled={!canEdit || agent.scope === 'personal'} onClick={() => save({ access: a })}>{t(a === 'everyone' ? 'Everyone' : a === 'people' ? 'Some people' : agent.scope==='personal' ? 'Only its owner' : 'Owner and assigned members')}</button>
               ))}
             </span>
             {agent.scope === 'personal' && <span className="row-sub">{t('This agent is personal. Its owner can share it from the Agents screen.')}</span>}

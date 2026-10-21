@@ -82,6 +82,7 @@ export const AUDIT_ACTIONS = {
   "agent.created": { category: "integration", severity: "notice", text: "{actor} created the agent {entity}" },
   "agent.updated": { category: "integration", severity: "info", text: "{actor} changed the agent {entity}" },
   "agent.member_role_changed": { category: "security", severity: "warning", text: "{actor} changed an agent member’s role for {entity}" },
+  "agent.ownership_transferred": { category: "security", severity: "warning", text: "{actor} transferred ownership of {entity}" },
   "agent.memory_created": { category: "data", severity: "info", text: "{actor} added a memory for {entity}" },
   "agent.memory_updated": { category: "data", severity: "notice", text: "{actor} updated a memory for {entity}" },
   "agent.memory_deleted": { category: "data", severity: "notice", text: "{actor} removed memories from {entity}" },

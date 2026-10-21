@@ -1,4 +1,4 @@
-import { explicitAgentRoles, agentRoleState, setAgentRole } from './agentRoles.js';
+import { explicitAgentRoles, agentRoleState, setAgentRole, transferAgentOwnership } from './agentRoles.js';
 import { updateMemoryEntry } from './memoryEntries.js';
 import { previewSkillImport } from './skillImport.js';
 import { writeSkillZip } from './skillZip.js';
@@ -405,6 +405,14 @@ export async function handleHarness(request, env, url, context = {}) {
     // Anyone who may talk to it may tell it to remember something, as in
     // the chat; everything else is its maker's or an admin's.
     if (!read && !canEdit && sub !== 'members' && !(sub === "memory" && request.method === "POST")) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
+    if (sub === 'ownership' && request.method==='PUT') {
+      const people=await memoryMembers(env.DB,orgId,me);
+      const target=people.find(p=>p.ref===input.ref);
+      if(!target)return json({message:'No such workspace member.'},404);
+      const r=await transferAgentOwnership(env.DB,orgId,agentId,{actorId:me,targetId:target.userId,expectedVersion:input.expectedVersion});
+      if(!r.error)await audit(env,request,{orgId,action:'agent.ownership_transferred',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memberRef:target.ref,version:r.version}});
+      return r.error?fail(r):json(r);
+    }
     if (sub === 'members') {
       const state=await agentRoleState(env.DB,orgId,agentId);
       if (!state) return json({message:'No such agent.'},404);

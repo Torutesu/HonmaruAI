@@ -6,6 +6,20 @@ import type {AgentRoleState} from '../utils/harness'
 vi.mock('./Dialog',()=>({Dialog:({children,footer}:any)=><section>{children}{footer}</section>}))
 vi.mock('../utils/i18n',()=>({useT:()=> (s:string)=>s}))
 const state:AgentRoleState={version:1,scope:'team',canManage:true,members:[{ref:'maker',name:'Maker Name',role:'admin',owner:true},{ref:'person',name:'Member Name',role:'member',owner:false}],candidates:[{ref:'maker',name:'Maker Name'},{ref:'person',name:'Member Name'}]}
+test('only the current owner sees transfer, requires explicit submission and retains a conflicting selection',async()=>{
+ const transfer=vi.fn().mockRejectedValue(Error('Agent access changed. Reload before saving.'))
+ const owned={...state,members:state.members.map(m=>({...m,mine:m.owner,role:'admin' as const}))};let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AgentAccessDialog load={async()=>owned} save={vi.fn()} transfer={transfer} onClose={vi.fn()}/>)})
+ const field=tree.root.findByProps({'aria-label':'New owner'})
+ expect(field.findAllByType('option').map(n=>n.props.value)).toEqual(['','person'])
+ act(()=>field.props.onChange({target:{value:'person'}}));expect(transfer).not.toHaveBeenCalled()
+ await act(async()=>tree.root.findAllByType('button').find(n=>n.children.includes('Transfer ownership'))!.props.onClick())
+ expect(transfer).toHaveBeenCalledWith('person',1)
+ expect(tree.root.findByProps({'aria-label':'New owner'}).props.value).toBe('person')
+ await act(async()=>tree.update(<AgentAccessDialog load={async()=>state} save={vi.fn()} transfer={transfer} onClose={vi.fn()}/>))
+ expect(tree.root.findAllByProps({'aria-label':'New owner'})).toHaveLength(0)
+ act(()=>tree.unmount())
+})
 test('ordinary members can prepare their own removal but cannot select an admin role or edit an admin',async()=>{
  const save=vi.fn().mockResolvedValue({version:2}),close=vi.fn();let tree!:ReturnType<typeof create>
  const memberState={...state,canManage:false,canAddMembers:true,members:state.members.map(m=>({...m,mine:m.ref==='person'}))}

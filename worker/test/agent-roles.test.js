@@ -1,8 +1,8 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,test,expect} from 'vitest';
-import {agentRoleState,explicitAgentRoles,setAgentRole} from '../src/harness/agentRoles.js';
+import {agentRoleState,explicitAgentRoles,setAgentRole,transferAgentOwnership} from '../src/harness/agentRoles.js';
 import {upsertUser,upsertMembership} from '../src/db.js';
-import {saveAgent} from '../src/customAgents.js';
+import {saveAgent,listAgents,toClientAgent} from '../src/customAgents.js';
 import {mayAccessAgent} from '../src/harness/agents.js';
 const ORG='personal:roles',AGENT='roles-agent';
 beforeEach(async()=>{
@@ -14,6 +14,32 @@ beforeEach(async()=>{
  await env.DB.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,access,updated_at) VALUES (?1,?2,'private','now')`).bind(ORG,AGENT).run();
 });
 const change=(actorId,targetId,role,expectedVersion)=>setAgentRole(env.DB,ORG,AGENT,{actorId,targetId,role,expectedVersion});
+const transfer=(actorId,targetId,expectedVersion)=>transferAgentOwnership(env.DB,ORG,AGENT,{actorId,targetId,expectedVersion});
+test('ownership transfer preserves the creator and lets the former owner leave',async()=>{
+ await change('a','b','admin',0);
+ expect(await transfer('a','b',1)).toEqual({version:2});
+ const members=(await agentRoleState(env.DB,ORG,AGENT)).members;
+ expect(members.find(m=>m.userId==='b')).toMatchObject({owner:1,role:'admin'});
+ expect(members.find(m=>m.userId==='a')).toMatchObject({owner:0,role:'admin'});
+ const agent=(await listAgents(env.DB,ORG,'delegate')).find(a=>a.id===AGENT);
+ expect(toClientAgent(agent,[{login:'maker',name:'Original',ref:'original'},{login:'delegate',name:'New owner',ref:'new'}],'delegate')).toMatchObject({mine:true,createdBy:'original',createdByName:'Original',createdByMe:false});
+ expect((await change('a','b','none',2)).status).toBe(409);
+ expect(await change('a','a','none',2)).toEqual({version:3});
+ expect((await explicitAgentRoles(env.DB,ORG,[AGENT],'maker')).size).toBe(0);
+});
+test('only the owner transfers to a current human admin and concurrent transfers have one winner',async()=>{
+ await change('a','b','admin',0);await change('a','c','member',1);
+ expect((await transfer('b','c',2)).status).toBe(403);
+ expect((await transfer('a','c',2)).status).toBe(409);
+ expect((await transfer('a','g',2)).status).toBe(409);
+ await change('a','c','admin',2);
+ const results=await Promise.all([transfer('a','b',3),transfer('a','c',3)]);
+ expect(results.filter(r=>r.version===4)).toHaveLength(1);
+ expect(results.filter(r=>r.status===409||r.status===403)).toHaveLength(1);
+ const state=await agentRoleState(env.DB,ORG,AGENT);
+ expect(state.members.filter(m=>m.owner)).toHaveLength(1);
+ expect((await env.DB.prepare('SELECT created_by_login FROM custom_agents WHERE org_id=?1 AND id=?2').bind(ORG,AGENT).first()).created_by_login).toBe('maker');
+});
 test('the maker delegates independent roles, members cannot administer, and live membership gates roles',async()=>{
  expect((await agentRoleState(env.DB,ORG,AGENT)).members).toMatchObject([{userId:'a',role:'admin',owner:1}]);
  expect(await change('a','b','admin',0)).toEqual({version:1});

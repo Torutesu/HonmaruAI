@@ -932,6 +932,7 @@ CREATE TABLE IF NOT EXISTS custom_agents (
   instructions  TEXT NOT NULL,
   scope         TEXT NOT NULL DEFAULT 'team',
   owner_login   TEXT NOT NULL,
+  created_by_login TEXT,
   preset        TEXT,
   created_at    TEXT NOT NULL,
   updated_by    TEXT,
