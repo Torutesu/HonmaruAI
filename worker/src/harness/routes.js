@@ -443,15 +443,20 @@ export async function handleHarness(request, env, url, context = {}) {
       if (request.method === "GET") return json({ memories: await listAgentMemories(env.DB, orgId, agentId, context), canEdit });
       if (request.method === "POST") {
         const r = await addAgentMemory(env.DB, orgId, agentId, input.body !== undefined ? { title: input.title, description: input.description, body: input.body } : input.text, { by: me, channel, kind: input.kind || "context" });
+        if (!r.error && !r.duplicate) await audit(env, request, { orgId, action: "agent.memory_created", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: channel ? "conversation" : "shared" } });
         return r.error ? fail(r) : json(r, 201);
       }
       if (request.method === "PUT") {
         const r = await updateMemoryEntry(env.DB, orgId, agentId, parts[4] || input.id || "", input, { channel, by: me });
+        if (!r.error) await audit(env, request, { orgId, action: "agent.memory_updated", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: channel ? "conversation" : "shared" } });
         return r.error ? fail(r) : json(r);
       }
       if (request.method === "DELETE") {
         if (!canEdit) return json({ message: "Only the agent's maker or an admin can make it forget." }, 403);
-        return json(await deleteAgentMemory(env.DB, orgId, agentId, parts[4] || url.searchParams.get("id") || "", context));
+        const id = parts[4] || url.searchParams.get("id") || "";
+        const r = await deleteAgentMemory(env.DB, orgId, agentId, id, context);
+        if (r.deleted) await audit(env, request, { orgId, action: "agent.memory_deleted", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: id, count: r.deleted, scope: channel ? "conversation" : "shared" } });
+        return json(r);
       }
     }
     if (sub === "skills") {

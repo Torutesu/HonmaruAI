@@ -413,3 +413,28 @@ test('memory search finds older full-body matches without crossing scopes or exp
   await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(ORG,'9202').run();
   expect(await search.run({query:'invoice-needle'})).toBe('Memory unavailable.');
 });
+
+test('manual memory mutations audit metadata only, without recording duplicate, denied or stale saves as changes', async () => {
+  const path = `/hx/agents/${agentId}/memory`;
+  const input = {orgId:ORG,title:'Secret title',description:'Secret description',body:'Secret memory body',kind:'reference',channel:'b:ops'};
+  const {memory} = await (await send('POST',path,mika,input)).json();
+  await send('POST',path,mika,input);
+  const changed = {...input,id:memory.id,expectedVersion:1,body:'Secret replacement'};
+  expect((await send('PUT',path,kenji,changed)).status).toBe(403);
+  expect((await send('PUT',path,mika,changed)).status).toBe(200);
+  expect((await send('PUT',path,mika,changed)).status).toBe(409);
+  const remove = `${path}?${q({orgId:ORG,id:memory.id,channel:'b:ops'})}`;
+  await call(remove,{method:'DELETE',headers:headers(mika)});
+  await call(remove,{method:'DELETE',headers:headers(mika)});
+  const actions = 'agent.memory_created,agent.memory_updated,agent.memory_deleted';
+  const res = await get(`/audit/logs?${q({orgId:ORG,action:actions})}`,toru);
+  expect(res.status).toBe(200);
+  const {entries} = await res.json();
+  expect(entries.map(e=>e.action).sort()).toEqual(actions.split(',').sort());
+  for (const entry of entries) { expect(entry.actor).toMatchObject({type:'user',name:'Mika'}); expect(entry.entity).toMatchObject({type:'custom_agent',id:agentId}); }
+  expect(entries.find(e=>e.action==='agent.memory_updated').details).toEqual({memoryId:memory.id,kind:'reference',version:2,scope:'conversation'});
+  expect(entries.find(e=>e.action==='agent.memory_deleted').details).toEqual({memoryId:memory.id,count:1,scope:'conversation'});
+  const serialized = JSON.stringify(entries);
+  for(const secret of [input.title,input.description,input.body,changed.body,'b:ops']) expect(serialized).not.toContain(secret);
+  expect((await get(`/audit/logs?${q({orgId:ORG})}`,mika)).status).toBe(403);
+});
