@@ -1,3 +1,4 @@
+import { deleteManagedRoom, roomRoleState } from './harness/roomRoles.js';
 import { customRunner } from "./harness/customRunner.js";
 import { expireGatewayJobs } from './harness/gateways.js';
 import { drainCardNotifications } from './notificationJobs.js';
@@ -1431,6 +1432,7 @@ async function handle(request, env, url, ctx) {
           return json({ message: "A channel by that name already exists." }, 409);
         }
         const business = await upsertBusiness(env.DB, body.orgId, { name: body.name, createdBy: String(session.github_id) });
+        if (!business) return json({message:"A channel by that name already exists."},409);
         await env.DB.prepare("UPDATE businesses SET private = 1 WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, business.slug).run();
         const members = await listMembers(env.DB, body.orgId, session.github_id);
         const refs = Array.isArray(body.members) ? body.members.map(String) : [];
@@ -1443,6 +1445,7 @@ async function handle(request, env, url, ctx) {
       }
       const existed = await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, businessSlug(body.name)).first();
       const business = await upsertBusiness(env.DB, body.orgId, { name: body.name, createdBy: String(session.github_id) });
+        if (!business) return json({message:"A channel by that name already exists."},409);
       if (!existed && business) await audit(env, request, { orgId: body.orgId, action: "channel.created", actor: person(me), entity: { type: "channel", id: business.slug, name: `#${business.name}` } });
       // Everyone with the workspace open sees the new channel now.
       await tellRoom(body.orgId);
@@ -1566,16 +1569,21 @@ async function handle(request, env, url, ctx) {
       const denied = await requireMember(env, request, body.orgId);
       if (denied) return denied;
       const who = await viewerLogin();
-      if (!(await canTouchChannel(env.DB, body.orgId, String(body.slug), who))) return json({ businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }), unfiled: 0 });
+      const managed = (await roomRoleState(env.DB, body.orgId, `b:${String(body.slug)}`, {includeArchived:true}))?.managed;
+      if (!managed && !(await canTouchChannel(env.DB, body.orgId, String(body.slug), who))) return json({ businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }), unfiled: 0 });
       const gone = await env.DB.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, String(body.slug)).first();
       const wasPrivate = await isPrivate(env.DB, body.orgId, String(body.slug));
       const insiders = wasPrivate ? await membersOf(env.DB, body.orgId, `b:${body.slug}`) : [];
-      // Deleting a channel empties it: its cards are unfiled (the decisions
-      // themselves stay), so nothing keeps the channel alive in a list.
-      // Filing a card under the name again brings the channel back.
-      await removeBusiness(env.DB, body.orgId, body.slug);
-      await env.DB.prepare("DELETE FROM conversation_members WHERE org_id = ?1 AND channel = ?2").bind(body.orgId, `b:${body.slug}`).run();
-      const unfiled = await unfileBusiness(env.DB, body.orgId, String(body.slug));
+      // Legacy Simple channels retain their unfile behavior. Managed rooms
+      // retain a closed tombstone so a reused slug cannot expose old content.
+      const deletingSession = await getSession(env.DB, request.headers.get("x-session-token"));
+      const deletion = await deleteManagedRoom(env.DB, body.orgId, `b:${String(body.slug)}`, {actorId:deletingSession.github_id,version:body.version});
+      if (deletion.error) return json({message:deletion.error}, deletion.status);
+      if (!deletion.managed) {
+        await removeBusiness(env.DB, body.orgId, body.slug);
+        await env.DB.prepare("DELETE FROM conversation_members WHERE org_id = ?1 AND channel = ?2").bind(body.orgId, `b:${body.slug}`).run();
+      }
+      const unfiled = deletion.managed ? [] : await unfileBusiness(env.DB, body.orgId, String(body.slug));
       if (gone) {
         const session = await getSession(env.DB, request.headers.get("x-session-token"));
         const me = await getUserByGithubId(env.DB, session.github_id);

@@ -1,7 +1,7 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,test,expect} from 'vitest';
 import {upsertUser,upsertMembership} from '../src/db.js';
-import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject} from '../src/harness/roomRoles.js';
+import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject,deleteManagedRoom} from '../src/harness/roomRoles.js';
 const org='room-roles',channel='b:planning';
 beforeEach(async()=>{
   for(const [id,role] of [['creator','member'],['reader','member'],['outsider','admin'],['guest','guest']]) {
@@ -157,4 +157,60 @@ test('the public managed-room leave endpoint removes joined state without revoki
   expect(response.status).toBe(200);
   expect((await roomRoleState(env.DB,org,channel)).members.some(m=>m.id==='reader')).toBe(false);
   expect(mayRead(channel,await accessFor(env.DB,org,'reader'))).toBe(true);
+});
+
+test('room deletion requires administration and atomically clears membership and role state',async()=>{
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  expect((await deleteManagedRoom(env.DB,org,channel,{actorId:'reader'})).status).toBe(403);
+  expect((await deleteManagedRoom(env.DB,org,channel,{actorId:'guest'})).status).toBe(403);
+  expect(await deleteManagedRoom(env.DB,org,channel,{actorId:'creator',version:1})).toMatchObject({deleted:true});
+  expect(await roomRoleState(env.DB,org,channel,{includeArchived:true})).toBeNull();
+  for(const table of ['conversation_members','channel_agents','hx_room_roles']) {
+    expect(await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE org_id=?1 AND channel=?2`).bind(org,channel).first('n')).toBe(0);
+  }
+});
+test('workspace admins can delete archived private rooms without joining or receiving reading rights',async()=>{
+  const {mayRead,accessFor}=await import('../src/access.js');
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  expect(mayRead(channel,await accessFor(env.DB,org,'outsider'))).toBe(false);
+  await env.DB.prepare("UPDATE businesses SET archived_at='archived' WHERE org_id=?1 AND slug='planning'").bind(org).run();
+  expect(await deleteManagedRoom(env.DB,org,channel,{actorId:'outsider',version:1})).toMatchObject({deleted:true});
+});
+test('deletion fails when the room admin loses their role before the transaction',async()=>{
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  await change('creator','person','reader','admin',1);
+  const db={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+    await change('reader','person','creator','member',2);
+    return env.DB.batch(statements);
+  }};
+  expect(await deleteManagedRoom(db,org,channel,{actorId:'creator',version:2})).toMatchObject({status:409});
+  expect((await roomRoleState(env.DB,org,channel)).managed).toBe(true);
+});
+test('the deletion HTTP endpoint permits lifecycle administration without private-room reading',async()=>{
+  const {default:worker}=await import('../src/index.js');
+  const {createSession}=await import('../src/db.js');
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  const call=async actor=>{
+    const token=await createSession(env.DB,actor,'test'),pending=[];
+    const response=await worker.fetch(new Request('https://example.com/businesses',{method:'DELETE',headers:{'content-type':'application/json','x-session-token':token},body:JSON.stringify({orgId:org,slug:'planning',version:1})}),env,{waitUntil:p=>pending.push(p)});
+    await Promise.all(pending);return response;
+  };
+  expect((await call('reader')).status).toBe(403);
+  expect((await call('outsider')).status).toBe(200);
+  expect(await roomRoleState(env.DB,org,channel,{includeArchived:true})).toBeNull();
+});
+
+test('deleted managed rooms cannot expose old messages or revive by the same name',async()=>{
+  const {accessFor,mayRead,addMembers}=await import('../src/access.js');
+  const {resolveChannel}=await import('../src/channels.js');
+  const {upsertBusiness}=await import('../src/db.js');
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  await deleteManagedRoom(env.DB,org,channel,{actorId:'creator',version:1});
+  expect(await env.DB.prepare('SELECT deleted_at FROM hx_room_access WHERE org_id=?1 AND channel=?2').bind(org,channel).first('deleted_at')).toBeTruthy();
+  expect(await upsertBusiness(env.DB,org,{name:'Planning',createdBy:'outsider'})).toBeNull();
+  expect(await addMembers(env.DB,{orgId:org,key:channel,logins:['outsider'],addedBy:'outsider'})).toBe(0);
+  for(const login of ['creator','reader','outsider']) {
+    expect(mayRead(channel,await accessFor(env.DB,org,login))).toBe(false);
+    expect(await resolveChannel(env.DB,org,{login},channel,[])).toBeNull();
+  }
 });

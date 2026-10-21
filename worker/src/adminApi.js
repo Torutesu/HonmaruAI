@@ -162,7 +162,7 @@ async function route(request, env, url, key) {
     const { results } = await env.DB.prepare(
       `SELECT b.slug, b.name, b.private, b.created_at, b.archived_at,
               (SELECT COUNT(*) FROM conversation_members c WHERE c.org_id = b.org_id AND c.channel = 'b:' || b.slug) AS members
-         FROM businesses b WHERE b.org_id = ?1 ORDER BY b.created_at`
+         FROM businesses b WHERE b.org_id = ?1 AND NOT EXISTS(SELECT 1 FROM hx_room_access p WHERE p.org_id=b.org_id AND p.channel='b:'||b.slug AND p.deleted_at IS NOT NULL) ORDER BY b.created_at`
     ).bind(orgId).all();
     return (results || []).map((r) => ({ slug: r.slug, name: r.name, private: Boolean(r.private), archived: Boolean(r.archived_at), created_at: r.created_at, ...(r.private ? { members: r.members } : {}) }));
   };
@@ -192,7 +192,7 @@ async function route(request, env, url, key) {
     const denied = need("channels:write");
     if (denied) return denied;
     const slug = decodeURIComponent(channelMatch[1]);
-    const row = await env.DB.prepare("SELECT slug, name, private FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).first();
+    const row = await env.DB.prepare("SELECT slug, name, private FROM businesses WHERE org_id = ?1 AND slug = ?2 AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2 AND deleted_at IS NOT NULL)").bind(orgId, slug).first();
     if (!row) return apiError(404, "not_found", "No such channel.");
     const entity = { type: "channel", id: slug, name: `#${row.name}` };
     if (channelMatch[2] && request.method === "PUT") {
@@ -206,11 +206,11 @@ async function route(request, env, url, key) {
     if (!channelMatch[2] && request.method === "PATCH") {
       const details = {};
       if (typeof body.name === "string" && body.name.trim()) {
-        await env.DB.prepare("UPDATE businesses SET name = ?3 WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug, body.name.trim().slice(0, 120)).run();
+        await env.DB.prepare("UPDATE businesses SET name = ?3 WHERE org_id = ?1 AND slug = ?2 AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2 AND deleted_at IS NOT NULL)").bind(orgId, slug, body.name.trim().slice(0, 120)).run();
         details.name = body.name.trim().slice(0, 120);
       }
       if (typeof body.archived === "boolean") {
-        await env.DB.prepare("UPDATE businesses SET archived_at = ?3 WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug, body.archived ? new Date().toISOString() : null).run();
+        await env.DB.prepare("UPDATE businesses SET archived_at = ?3 WHERE org_id = ?1 AND slug = ?2 AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2 AND deleted_at IS NOT NULL)").bind(orgId, slug, body.archived ? new Date().toISOString() : null).run();
         details.archived = body.archived;
       }
       if (!Object.keys(details).length) return apiError(400, "invalid_request", "Nothing to change.");

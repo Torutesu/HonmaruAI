@@ -153,10 +153,10 @@ export async function addMembers(db, { orgId, key, logins, addedBy }) {
   const now = new Date().toISOString();
   const list = [...new Set(logins.filter(Boolean))];
   if (!list.length) return 0;
-  await db.batch(list.map((login) => db
-    .prepare("INSERT OR IGNORE INTO conversation_members (org_id, channel, login, added_by, added_at) VALUES (?1, ?2, ?3, ?4, ?5)")
+  const added = await db.batch(list.map((login) => db
+    .prepare("INSERT OR IGNORE INTO conversation_members (org_id, channel, login, added_by, added_at) SELECT ?1, ?2, ?3, ?4, ?5 WHERE NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2 AND deleted_at IS NOT NULL)")
     .bind(orgId, key, login, addedBy || null, now)));
-  return list.length;
+  return added.reduce((count,result)=>count+(result.meta?.changes||0),0);
 }
 
 export async function removeMember(db, { orgId, key, login }) {

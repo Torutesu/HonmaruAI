@@ -18,14 +18,14 @@ const subjects = `SELECT 'person' AS kind,u.github_id AS id,u.name,u.login,
     AND r.subject_id=a.id AND r.member_since=ca.added_at||'/'||a.created_at
   WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND b.archived_at IS NULL`;
 
-export async function roomRoleState(db, orgId, channel) {
+export async function roomRoleState(db, orgId, channel, {includeArchived=false}={}) {
   if(typeof channel!=='string'||!channel.startsWith('b:'))return null;
   const room=await db.prepare(`SELECT b.created_by,b.private,COALESCE(p.version,0) AS version,
     CASE WHEN p.channel IS NULL THEN 0 ELSE 1 END AS managed
     FROM businesses b LEFT JOIN hx_room_access p ON p.org_id=b.org_id AND p.channel=?2
-    WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND b.archived_at IS NULL`).bind(orgId,channel).first();
+    WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND p.deleted_at IS NULL ${includeArchived?'':'AND b.archived_at IS NULL'}`).bind(orgId,channel).first();
   if(!room)return null;
-  const {results}=await db.prepare(subjects).bind(orgId,channel).all();
+  const {results}=await db.prepare(includeArchived?subjects.replaceAll(' AND b.archived_at IS NULL',''):subjects).bind(orgId,channel).all();
   return {managed:!!room.managed,private:!!room.private,version:room.version,createdBy:room.created_by,members:results};
 }
 
@@ -125,4 +125,35 @@ export async function removeRoomSubject(db, orgId, channel, {actorId,kind,id,ver
     db.prepare(`DELETE FROM hx_room_roles WHERE org_id=?1 AND channel=?2 AND subject_kind=?4 AND subject_id=?5 AND ${gate}`).bind(orgId,channel,nonce,kind,id),
   ]);
   return result[0].meta?.changes?{managed:true,removed:true,version:state.version+1}:{error:'Room roles changed. Reload before saving.',status:409};
+}
+
+// Deletion is a room-admin action; workspace admins have a separate lifecycle
+// permission that does not grant them access to the room's messages. Retain
+// a private, archived tombstone: removing the slug would make historical
+// messages public through legacy access queries and same-name recreation.
+export async function deleteManagedRoom(db,orgId,channel,{actorId,version}) {
+  actorId=String(actorId||'');
+  const state=await roomRoleState(db,orgId,channel,{includeArchived:true});
+  if(!state?.managed)return {managed:false};
+  const membership=await db.prepare("SELECT role,created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId,actorId).first();
+  if(!membership)return {error:'Your workspace membership changed. Reload before deleting.',status:409};
+  const actor=state.members.find(m=>m.kind==='person'&&m.id===actorId);
+  const workspaceAdmin=['admin','owner'].includes(membership?.role);
+  if(!workspaceAdmin&&!(actor?.role==='admin'&&actor.eligible))return {error:'Only a room or workspace admin can delete this room.',status:403};
+  if(version!==undefined&&version!==state.version)return {error:'Room roles changed. Reload before deleting.',status:409};
+  const nonce=crypto.randomUUID();
+  const allSubjects=subjects.replaceAll(' AND b.archived_at IS NULL','');
+  const gate='EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2 AND mutation_id=?3)';
+  const result=await db.batch([
+    db.prepare(`UPDATE hx_room_access SET version=version+1,mutation_id=?4 WHERE org_id=?1 AND channel=?2 AND version=?5
+      AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?3 AND created_at=?6 AND role!='guest')
+      AND (EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?3 AND role IN('admin','owner'))
+        OR EXISTS(SELECT 1 FROM (${allSubjects}) WHERE kind='person' AND id=?3 AND role='admin' AND eligible=1 AND membership=?7))`)
+      .bind(orgId,channel,actorId,nonce,state.version,membership.created_at,actor?.membership||''),
+    db.prepare(`UPDATE businesses SET private=1,archived_at=?4 WHERE org_id=?1 AND 'b:'||slug=?2 AND ${gate}`).bind(orgId,channel,nonce,new Date().toISOString()),
+    ...['conversation_members','channel_agents','hx_room_roles','hx_room_guidelines','hx_room_responses'].map(table=>
+      db.prepare(`DELETE FROM ${table} WHERE org_id=?1 AND channel=?2 AND ${gate}`).bind(orgId,channel,nonce)),
+    db.prepare('UPDATE hx_room_access SET deleted_at=?4 WHERE org_id=?1 AND channel=?2 AND mutation_id=?3').bind(orgId,channel,nonce,new Date().toISOString()),
+  ]);
+  return result[0].meta?.changes?{managed:true,deleted:true}:{error:'Room roles changed. Reload before deleting.',status:409};
 }

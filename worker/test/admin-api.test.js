@@ -233,3 +233,15 @@ test("a claim on an Idempotency-Key that nobody finished is taken over after ten
   expect((await invite(key, "stuck")).headers.get("idempotent-replayed")).toBe("true");
   expect(await invites()).toBe(1);
 });
+
+test('a deleted managed room cannot be restored or repopulated through the admin API',async()=>{
+  const {key}=await makeKey();
+  expect((await call('/admin/v1/channels',{key,method:'POST',body:{name:'Lifecycle',private:true,members:['toru@hr.jp']}})).status).toBe(201);
+  const {initializeRoomRoles,deleteManagedRoom}=await import('../src/harness/roomRoles.js');
+  expect(await initializeRoomRoles(env.DB,ORG,'b:lifecycle','7601')).toEqual({version:1});
+  expect(await deleteManagedRoom(env.DB,ORG,'b:lifecycle',{actorId:'7601',version:1})).toMatchObject({deleted:true});
+  expect((await call('/admin/v1/channels/lifecycle',{key,method:'PATCH',body:{archived:false}})).status).toBe(404);
+  expect((await call('/admin/v1/channels/lifecycle/members',{key,method:'PUT',body:{add:['mika@hr.jp']}})).status).toBe(404);
+  const listed=await (await call('/admin/v1/channels',{key})).json();
+  expect(listed.data.some(room=>room.slug==='lifecycle')).toBe(false);
+});

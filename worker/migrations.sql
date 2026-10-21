@@ -195,3 +195,5 @@ ALTER TABLE hx_skills ADD COLUMN owner_id TEXT;
 
 CREATE TABLE IF NOT EXISTS hx_room_access (org_id TEXT NOT NULL, channel TEXT NOT NULL, version INTEGER NOT NULL, mutation_id TEXT, PRIMARY KEY (org_id,channel));
 CREATE TABLE IF NOT EXISTS hx_room_roles (org_id TEXT NOT NULL, channel TEXT NOT NULL, subject_kind TEXT NOT NULL CHECK(subject_kind IN ('person','agent')), subject_id TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('admin','member')), member_since TEXT NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,channel,subject_kind,subject_id));
+
+ALTER TABLE hx_room_access ADD COLUMN deleted_at TEXT;

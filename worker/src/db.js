@@ -963,13 +963,14 @@ export async function upsertBusiness(db, orgId, { name, createdBy }) {
   if (!slug) return null;
   await db
     .prepare(
-      `INSERT INTO businesses (org_id, slug, name, created_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
+      `INSERT INTO businesses (org_id, slug, name, created_by, created_at) SELECT ?1, ?2, ?3, ?4, ?5
+       WHERE NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2 AND deleted_at IS NOT NULL)
        ON CONFLICT(org_id, slug) DO NOTHING`
     )
     .bind(orgId, slug, String(name).trim().slice(0, 120), createdBy || null, new Date().toISOString())
     .run();
   const row = await db
-    .prepare("SELECT slug, name FROM businesses WHERE org_id = ?1 AND slug = ?2")
+    .prepare("SELECT slug, name FROM businesses WHERE org_id = ?1 AND slug = ?2 AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2 AND deleted_at IS NOT NULL)")
     .bind(orgId, slug)
     .first();
   return row ? { slug: row.slug, name: row.name } : null;
