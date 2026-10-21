@@ -44,3 +44,12 @@
 .hx-skill-import .hx-skill-action { display:inline-flex; align-items:center; justify-self:start; gap:7px; border:0; padding:6px 8px; background:none; }
 .hx-skill-import .hx-skill-action:first-of-type { grid-column:1 / -1; grid-row:2; }
 .hx-skill-import .hx-skill-action:last-of-type { grid-column:1 / -1; grid-row:2; margin-left:106px; }
+
+.hx-skill-symbol[data-icon="globe"], .hx-skill-symbol[data-icon="map-pin"] { color:#527bce; }
+.hx-skill-symbol[data-icon="sparkle"] { color:#9975ac; }
+:root[data-theme="dark"] .hx-skill-symbol[data-icon="globe"], :root[data-theme="dark"] .hx-skill-symbol[data-icon="map-pin"] { color:#8baaff; }
+:root[data-theme="dark"] .hx-skill-symbol[data-icon="sparkle"] { color:#c5a7d8; }
+@media(prefers-color-scheme:dark) {
+ :root:not([data-theme="light"]) .hx-skill-symbol[data-icon="globe"], :root:not([data-theme="light"]) .hx-skill-symbol[data-icon="map-pin"] { color:#8baaff; }
+ :root:not([data-theme="light"]) .hx-skill-symbol[data-icon="sparkle"] { color:#c5a7d8; }
+}

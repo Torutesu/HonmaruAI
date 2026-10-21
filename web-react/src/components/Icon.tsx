@@ -17,7 +17,7 @@ import React from 'react'
 /// Stroke is `currentColor`, so a tab colours its icon by colouring itself.
 
 export type IconName =
-  | 'briefcase' | 'brain'
+  | 'briefcase' | 'brain' | 'globe' | 'palette' | 'rocket' | 'map-pin' | 'file-chart'
   | 'wrap-text' | 'sort' | 'arrow-up' | 'arrow-down' | 'filter' | 'group' | 'share' | 'sliders' | 'compose' | 'plug' | 'list-check' | 'workflow' | 'home' | 'you' | 'history' | 'tools' | 'plus'
   | 'record' | 'bell' | 'invite' | 'plan' | 'mail' | 'hash' | 'notion' | 'github' | 'box'
   | 'calendar' | 'drive' | 'insights' | 'search' | 'mic'
@@ -29,6 +29,11 @@ export type IconName =
   | 'upload' | 'file-archive' | 'trash' | 'image' | 'file' | 'lock' | 'users' | 'download' | 'camera' | 'at' | 'star' | 'folder' | 'shield' | 'devices' | 'log-out' | 'crown' | 'eye-off' | 'eye'
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  'file-chart': <><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6ZM14 3v6h6M8 17v-3m4 3v-6m4 6v-4"/></>,
+  globe: <><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6h14M5 18h14"/></>,
+  palette: <><path d="M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1.4-3.4 1.5 1.5 0 0 1 1.1-2.6H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8Z"/><circle cx="7.5" cy="11" r=".7"/><circle cx="10" cy="7" r=".7"/><circle cx="15" cy="7.5" r=".7"/></>,
+  rocket: <><path d="M9 15 6 12c3-6 8-9 15-9 0 7-3 12-9 15l-3-3ZM7 10H4l-2 5 6 1m6 1v3l-5 2-1-6M5 19l-2 2"/><circle cx="15" cy="9" r="2"/></>,
+  'map-pin': <><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2"/></>,
   'wrap-text': <><path d="M3 6h18M3 12h14a3 3 0 0 1 0 6h-4m3-3-3 3 3 3M3 18h4"/></>,
   sort: <><path d="m8 9 4-4 4 4m-8 6 4 4 4-4"/></>,
   'arrow-up': <path d="M12 20V4m-6 6 6-6 6 6"/>,

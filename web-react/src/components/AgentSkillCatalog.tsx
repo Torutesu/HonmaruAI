@@ -3,6 +3,7 @@ import { skillImportInput, skillDropInput } from '../utils/skillImport'
 import type { Skill, SkillDraft, SkillImportInput } from '../utils/harness'
 import { useT } from '../utils/i18n'
 import { Icon } from './Icon'
+import { SkillIcon, skillType } from './SkillIcon'
 import { SkillActionsMenu } from './SkillActionsMenu'
 import './AgentSkillCatalog.css'
 
@@ -16,7 +17,7 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
   const pending = useRef(false), dialog = useRef<HTMLDialogElement>(null), trigger = useRef<HTMLButtonElement>(null)
   const has = new Set(installed.map(s => s.id))
   const available = skills.filter(s => !has.has(s.id))
-  const visible = (tab === 'available' ? available : installed).filter(s => `${s.name} ${s.description} ${s.createdByName || ''} ${s.createdBy || ''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+  const visible = (tab === 'available' ? available : installed).filter(s => `${s.name} ${s.description} ${s.createdByName || ''} ${s.createdBy || ''} ${skillType(s)}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
   useEffect(() => {
     if (!open) return
     dialog.current?.showModal()
@@ -48,7 +49,7 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
     finally { pending.current = false; setBusy(null) }
   }
   const row = (s: Skill, catalog = false) => <div className="hx-skill-entry" key={s.id}>
-    <span className="hx-skill-symbol"><Icon name="book" size={19}/></span>
+    <SkillIcon skill={s}/>
     <div className="hx-skill-entry-copy"><div><strong>{s.name}</strong>{s.createdBy && <span className="hx-skill-author">{t('Created by')}: {s.createdByName || s.createdBy}</span>}</div><p>{s.description || s.body.slice(0, 140)}</p></div>
     {canEdit && (catalog ? <button className="hx-skill-action" disabled={busy !== null} onClick={() => void toggle(s.id, !has.has(s.id))}>{busy === s.id ? t('Saving…') : t(has.has(s.id) ? 'Remove from agent' : 'Install')}</button> : <SkillActionsMenu name={s.name} disabled={busy !== null} onRemove={() => void toggle(s.id, false)}/>)}
   </div>
@@ -67,7 +68,7 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
       </section>}
       {busy === 'import' && <p role="status">{t('Processing skill…')}</p>}
       {draft && <section className="hx-skill-import-review" aria-label={t('Review skill import')}><strong>{draft.name}</strong><p>{draft.description}</p><pre>{draft.body}</pre>{!!draft.files?.length && <ul aria-label={t('Support files')}>{draft.files.map(file=><li key={file.path}>{file.path} · {file.size ?? 0} B</li>)}</ul>}<p>{t('Save as a private skill, then install it for this agent from the catalog.')}</p><div><button className="hx-skill-action" disabled={busy!==null} onClick={()=>setDraft(null)}>{t('Cancel')}</button><button className="hx-skill-action" disabled={busy!==null} onClick={()=>void saveImport()}>{t('Save')}</button></div></section>}
-      <input type="search" autoFocus value={query} aria-label={t('Search skills by name, author or description')} placeholder={t('Search skills by name, author or description')} onChange={e => setQuery(e.target.value)}/>
+      <input type="search" autoFocus value={query} aria-label={t('Search skills by name, author, type or description')} placeholder={t('Search skills by name, author, type or description')} onChange={e => setQuery(e.target.value)}/>
       <div className="hx-skill-catalog-tabs" role="tablist" aria-label={t('Skills')}>
         {(['available','installed'] as const).map(key => <button key={key} role="tab" id={`${panelId}-${key}`} aria-controls={panelId} aria-selected={tab===key} tabIndex={tab===key?0:-1} onClick={()=>setTab(key)} onKeyDown={e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?'available':e.key==='End'?'installed':key==='available'?'installed':'available';setTab(next);e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role=tab]')[next==='available'?0:1]?.focus()}}}>{t(key==='available'?'Available':'Installed')} ({key==='available'?available.length:installed.length})</button>)}
       </div>

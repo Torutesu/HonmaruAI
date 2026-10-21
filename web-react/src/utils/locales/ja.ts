@@ -359,6 +359,7 @@ const table: Record<string, string> = {
   'One repository for the whole workspace: every member’s decisions are recorded there, written as whoever connected it.': 'リポジトリはワークスペースで1つ。メンバー全員の決定がそこに記録されます（接続した人のアカウントで書き込みます）。',
   'Only you see what it brings in; each member connects their own.': '取り込んだものはあなたにだけ届きます。メンバーはそれぞれ自分のアカウントを接続します。',
   'Optional': '任意',
+  'Search skills by name, author, type or description': '名前、作成者、種類、説明で検索',
   'People': 'メンバー',
   'Permissions': '権限',
   'Personal key': '個人キー',

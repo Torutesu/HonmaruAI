@@ -812,3 +812,10 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Rechecked native Kylon agent detail: Profile/Skills only in this account. Add Skills shows folder/ZIP import, author/name/type/description search and available/installed counts. No data imported or reference settings changed. Honmaru memory UI is functional work, not yet visually accepted against an observed Kylon memory screen.
 
 - Search regression: Harness agents, memory scope, agent research and research suites all pass (4 files / 37 tests). Includes an older entry absent from the prompt, case-insensitive ASCII phrase match, literal wildcard handling, bounded results, cross-room/workspace denial and membership/agent-grant revocation. New search is not yet deployed.
+
+### Skill icons and type search (2026-10-21)
+
+- Native reference inspection showed distinct skill symbols and name/author/type/description search. Honmaru previously rendered every skill as a book and omitted metadata.type from search.
+- Added local vector file-chart, palette, globe, rocket and map-pin symbols, semantic name defaults, and an allowlisted metadata.icon override. Unknown/imported URLs never load external images; no capabilities are inferred or granted from an icon. metadata.type now participates in catalog search; malformed non-string values are ignored.
+- Native isolated 1200×900 preview verified the final list in both light and dark themes, including blue browser/location and purple understanding icons. This matches category distinctions, not proprietary brand artwork. No production skills or paid provider calls were created. Temporary fixture files and preview processes removed before build.
+- Final Web regression: 129 files / 935 tests pass. TypeScript and Vite build pass. Tests cover type filtering and invalid/prototype/remote-URL icon metadata fallback.

@@ -112,3 +112,13 @@ test('folder import reviews file names and saves exact assets without automatic 
  expect(save).toHaveBeenCalledWith(draft);expect(toggle).not.toHaveBeenCalled()
  act(()=>tree.unmount())
 })
+
+test('catalog searches imported type metadata and ignores non-text type values',()=>{
+ let tree!:ReturnType<typeof create>
+ const typed={...a,metadata:{type:'Automation'}}, malformed={...b,metadata:{type:{unsafe:'Automation'}}}
+ act(()=>{tree=create(<AgentSkillCatalog skills={[typed,malformed]} installed={[]} canEdit onToggle={vi.fn()}/>,{createNodeMock:nodes})})
+ act(()=>tree.root.findAllByType('button').find(n=>n.children.includes('Add skills'))!.props.onClick())
+ act(()=>tree.root.findByProps({type:'search'}).props.onChange({target:{value:'automation'}}))
+ expect(tree.root.findAllByType('strong').map(n=>n.children.join(''))).toEqual(['Review'])
+ act(()=>tree.unmount())
+})
