@@ -281,7 +281,7 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/concepts/memory",
       "code": "worker/src/harness/agents.js",
-      "acceptance": "タイトル・説明・最大16,000字の本文を後方互換で保存し、競合検知付き編集と権限再検証付き本文取得を追加。実画面・本番・全実行方式の検証は残る。"
+      "acceptance": "タイトル・説明・最大16,000字の本文を後方互換で保存し、競合検知付き編集と権限再検証付き検索・本文取得を追加。実画面・本番・全実行方式の検証は残る。"
     },
     {
       "id": "KY-028",

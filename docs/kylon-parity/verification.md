@@ -804,3 +804,11 @@ Additional reference audit: Kylon's empty room automation setup action populates
 
 - Native blank reload recovered after ordinary app quit/relaunch, without clearing storage or changing security settings. The latest deployed profile now shows 専門分野 / インテリジェンス and the descriptive dropdown. Dark screenshot verified visible options/checkmark; Escape closed only the dropdown and Cancel returned unchanged. Max still displayed 最大 on deployed 56cdf860, as expected before the queued fix. Reload reliability remains unresolved.
 - Pushed structured-memory/editor/deployment-helper bundle as 66b6e422. CI 39564737472, Worker 39564737446 and Web 39564737444 started; no completion claim yet.
+
+### Scoped memory search and reference recheck (2026-10-21)
+
+- Frozen Worker regression for deployed candidate 66b6e422: 204 files / 1513 tests passed in 543.51 seconds, exit 0.
+- Added search_agent_memory for entries outside the recent 40-entry prompt index. Literal-phrase search covers title/description/full body, returns at most 20 metadata summaries plus truncation flag, and keeps full bodies behind read_agent_memory. Workspace, agent and conversation are server-bound; every call checks current membership, agent grant and conversation access. No external search service or model request is introduced. This is not semantic retrieval or cross-provider completion.
+- Rechecked native Kylon agent detail: Profile/Skills only in this account. Add Skills shows folder/ZIP import, author/name/type/description search and available/installed counts. No data imported or reference settings changed. Honmaru memory UI is functional work, not yet visually accepted against an observed Kylon memory screen.
+
+- Search regression: Harness agents, memory scope, agent research and research suites all pass (4 files / 37 tests). Includes an older entry absent from the prompt, case-insensitive ASCII phrase match, literal wildcard handling, bounded results, cross-room/workspace denial and membership/agent-grant revocation. New search is not yet deployed.
