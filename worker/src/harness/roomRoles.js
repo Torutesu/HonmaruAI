@@ -1,15 +1,15 @@
 // Room roles are independent of workspace and agent roles. A grant belongs
 // to the current membership/assignment, so leaving and returning never revives it.
 const subjects = `SELECT 'person' AS kind,u.github_id AS id,u.name,u.login,
-    m.created_at||'/'||CASE WHEN b.private=1 THEN COALESCE(c.added_at,'') ELSE '' END AS membership,CASE WHEN m.role='guest' THEN 0 ELSE 1 END AS eligible,
+    m.created_at||'/'||c.added_at AS membership,CASE WHEN m.role='guest' THEN 0 ELSE 1 END AS eligible,
     CASE WHEN m.role='guest' THEN 'member' ELSE COALESCE(r.role,'member') END AS role
   FROM businesses b JOIN memberships m ON m.org_id=b.org_id
   JOIN users u ON u.github_id=m.user_github_id
   LEFT JOIN conversation_members c ON c.org_id=b.org_id AND c.channel=?2 AND c.login=u.login
   LEFT JOIN hx_room_roles r ON r.org_id=b.org_id AND r.channel=?2 AND r.subject_kind='person'
-    AND r.subject_id=u.github_id AND r.member_since=m.created_at||'/'||CASE WHEN b.private=1 THEN COALESCE(c.added_at,'') ELSE '' END
+    AND r.subject_id=u.github_id AND r.member_since=m.created_at||'/'||c.added_at
   WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND b.archived_at IS NULL
-    AND ((b.private=0 AND m.role!='guest') OR c.login IS NOT NULL)
+    AND c.login IS NOT NULL
   UNION ALL
   SELECT 'agent',a.id,a.name,NULL,ca.added_at||'/'||a.created_at,1,COALESCE(r.role,'member')
   FROM businesses b JOIN channel_agents ca ON ca.org_id=b.org_id AND ca.channel=?2
@@ -35,15 +35,21 @@ export async function initializeRoomRoles(db, orgId, channel, actorId) {
   actorId=String(actorId||'');
   const state=await roomRoleState(db,orgId,channel);
   if(!state)return {error:'No such room.',status:404};
-  const actor=state.members.find(m=>m.kind==='person'&&m.id===actorId&&m.eligible);
-  if(!actor||String(state.createdBy)!==actorId)return {error:'Only the room creator can initialize its roles.',status:403};
+  const actor=await db.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND role!='guest'").bind(orgId,actorId).first();
+  if(!actor||(state.private&&!state.members.some(m=>m.kind==='person'&&m.id===actorId))||String(state.createdBy)!==actorId)return {error:'Only the room creator can initialize its roles.',status:403};
   if(state.managed)return {version:state.version};
   const nonce=crypto.randomUUID(),at=new Date().toISOString();
   const result=await db.batch([
     db.prepare(`INSERT OR IGNORE INTO hx_room_access(org_id,channel,version,mutation_id)
       SELECT ?1,?2,1,?4 WHERE EXISTS(SELECT 1 FROM businesses WHERE org_id=?1 AND 'b:'||slug=?2 AND created_by=?3 AND archived_at IS NULL)
-      AND EXISTS(SELECT 1 FROM (${subjects}) WHERE kind='person' AND id=?3 AND eligible=1)`)
-      .bind(orgId,channel,actorId,nonce),
+      AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?3 AND role!='guest' AND created_at=?5)
+      AND EXISTS(SELECT 1 FROM businesses b WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND (b.private=0 OR EXISTS(
+        SELECT 1 FROM conversation_members c JOIN users u ON u.login=c.login WHERE c.org_id=?1 AND c.channel=?2 AND u.github_id=?3)))`)
+      .bind(orgId,channel,actorId,nonce,actor.created_at),
+    db.prepare(`INSERT OR IGNORE INTO conversation_members(org_id,channel,login,added_by,added_at)
+      SELECT ?1,?2,login,login,?5 FROM users WHERE github_id=?3
+      AND EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2 AND mutation_id=?4)`)
+      .bind(orgId,channel,actorId,nonce,at),
     db.prepare(`INSERT INTO hx_room_roles(org_id,channel,subject_kind,subject_id,role,member_since,updated_by,updated_at)
       SELECT ?1,?2,'person',id,'admin',membership,?3,?5 FROM (${subjects})
       WHERE kind='person' AND id=?3 AND eligible=1
@@ -98,7 +104,6 @@ export async function removeRoomSubject(db, orgId, channel, {actorId,kind,id,ver
   const target=state.members.find(m=>m.kind===kind&&m.id===id);
   if(!actor?.eligible)return {error:'Only a room member can remove members.',status:403};
   if(!target)return {error:'That member is no longer in the room.',status:404};
-  if(kind==='person'&&!state.private)return {error:'Everyone has access to this public room.',status:409};
   const self=kind==='person'&&actorId===id;
   if(target.role==='admin'&&actor.role!=='admin'&&!self)return {error:'Only a room admin can remove an admin.',status:403};
   if(kind==='person'&&target.role==='admin'&&!state.members.some(m=>m.kind==='person'&&m.id!==id&&m.role==='admin'&&m.eligible))
@@ -112,8 +117,7 @@ export async function removeRoomSubject(db, orgId, channel, {actorId,kind,id,ver
         ON target.kind=?4 AND target.id=?5 AND target.membership=?6
         WHERE actor.kind='person' AND actor.id=?3 AND actor.eligible=1
         AND (target.role!='admin' OR actor.role='admin' OR (?4='person' AND ?3=?5))
-        AND (?4!='person' OR target.role!='admin' OR EXISTS(SELECT 1 FROM (${subjects}) other WHERE other.kind='person' AND other.id!=?5 AND other.role='admin' AND other.eligible=1)))
-      AND (?4!='person' OR EXISTS(SELECT 1 FROM businesses WHERE org_id=?1 AND 'b:'||slug=?2 AND private=1))`)
+        AND (?4!='person' OR target.role!='admin' OR EXISTS(SELECT 1 FROM (${subjects}) other WHERE other.kind='person' AND other.id!=?5 AND other.role='admin' AND other.eligible=1)))`)
       .bind(orgId,channel,actorId,kind,id,target.membership,state.version,nonce),
     kind==='person'
       ? db.prepare(`DELETE FROM conversation_members WHERE org_id=?1 AND channel=?2 AND login=?4 AND ${gate}`).bind(orgId,channel,nonce,target.login)

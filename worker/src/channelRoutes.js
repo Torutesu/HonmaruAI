@@ -1,4 +1,4 @@
-import { removeRoomSubject } from './harness/roomRoles.js';
+import { removeRoomSubject, roomRoleState } from './harness/roomRoles.js';
 import { explicitAgentRoles } from './harness/agentRoles.js';
 import { roomResponses } from "./harness/roomResponses.js";
 import { threadPins, setThreadPin } from "./threadPins.js";
@@ -1571,7 +1571,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
     const ctx = await inChannel(env, request, body);
     if (ctx.denied) return ctx.denied;
-    if (!(ctx.resolved.kind === "business" && ctx.resolved.private)) return json({ message: "Only a private channel has members to add or remove." }, 400);
+    const publicManagedRemoval = ctx.resolved.kind === "business" && !ctx.resolved.private && request.method === "DELETE"
+      && (await roomRoleState(env.DB, body.orgId, ctx.resolved.key))?.managed;
+    if (!(ctx.resolved.kind === "business" && (ctx.resolved.private || publicManagedRemoval))) return json({ message: "Only a private channel has members to add or remove." }, 400);
     const orgId = body.orgId;
     const key = ctx.resolved.key;
     const me = ctx.who.user;
@@ -1598,7 +1600,8 @@ export async function handleChannels(request, env, url, { route, after }) {
       return json({ added: adding.length });
     }
     const target = body.ref ? ctx.members.find((m) => m.ref === String(body.ref)) : ctx.members.find((m) => m.login === me.login);
-    if (!target || !ctx.resolved.logins.includes(target.login)) return json({ message: "They are not in this channel." }, 404);
+    const joinedLogins = publicManagedRemoval ? await membersOf(env.DB, orgId, key) : ctx.resolved.logins;
+    if (!target || !joinedLogins.includes(target.login)) return json({ message: "They are not in this channel." }, 404);
     const removal = await removeRoomSubject(env.DB, orgId, key, { actorId: ctx.who.session.github_id, kind: "person", id: target.userId, version: body.version });
     if (removal.error) return json({ message: removal.error }, removal.status);
     if (!removal.managed) await removeMember(env.DB, { orgId, key, login: target.login });

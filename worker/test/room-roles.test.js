@@ -48,8 +48,7 @@ test('private-room rejoining and agent reassignment do not revive old admin gran
 test('concurrent role changes have one winner and a workspace admin cannot bypass room roles',async()=>{
   await initializeRoomRoles(env.DB,org,channel,'creator');
   await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1 AND slug='planning'").bind(org).run();
-  // A privacy transition must deliberately rebind roles; it never silently
-  // revives a previous private-membership grant.
+  // Public visibility does not make workspace admins joined room admins.
   expect((await change('outsider','person','reader','admin',1)).status).toBe(403);
   await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='planning'").bind(org).run();
   const results=await Promise.all([change('creator','person','reader','admin',1),change('creator','agent','helper','admin',1)]);
@@ -115,4 +114,47 @@ test('channel endpoints enforce managed room roles for both humans and agents',a
   expect((await call('creator','/channels/members',{})).status).toBe(409);
   expect((await call('creator','/channels/channel-agents',{agentId:'helper',version:2})).status).toBe(200);
   expect((await call('creator','/channels/members',{ref:await memberRef(org,'reader'),version:3})).status).toBe(200);
+});
+
+test('public rooms distinguish access from joined membership and revoke roles on leave',async()=>{
+  await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1 AND slug='planning'").bind(org).run();
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=?1 AND channel=?2 AND login='creator'").bind(org,channel).run();
+  expect(await initializeRoomRoles(env.DB,org,channel,'creator')).toEqual({version:1});
+  let state=await roomRoleState(env.DB,org,channel);
+  expect(state.members.some(m=>m.id==='outsider')).toBe(false);
+  expect(state.members.find(m=>m.id==='creator').role).toBe('admin');
+  await change('creator','person','reader','admin',1);
+  expect(await remove('reader','person','reader',2)).toMatchObject({removed:true,version:3});
+  // Public read access remains, but the explicit role and joined state are gone.
+  const {mayRead,accessFor}=await import('../src/access.js');
+  expect(mayRead(channel,await accessFor(env.DB,org,'reader'))).toBe(true);
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?1,?2,'reader','rejoined public')").bind(org,channel).run();
+  state=await roomRoleState(env.DB,org,channel);
+  expect(state.members.find(m=>m.id==='reader').role).toBe('member');
+});
+
+test('visibility changes preserve current joined grants without restoring stale grants',async()=>{
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  await change('creator','person','reader','admin',1);
+  await env.DB.prepare("UPDATE conversation_members SET added_at='new join' WHERE org_id=?1 AND channel=?2 AND login='reader'").bind(org,channel).run();
+  for(const privateRoom of [0,1]) {
+    await env.DB.prepare("UPDATE businesses SET private=?2 WHERE org_id=?1 AND slug='planning'").bind(org,privateRoom).run();
+    const state=await roomRoleState(env.DB,org,channel);
+    expect(state.members.find(m=>m.id==='creator').role).toBe('admin');
+    expect(state.members.find(m=>m.id==='reader').role).toBe('member');
+  }
+});
+
+test('the public managed-room leave endpoint removes joined state without revoking public reading',async()=>{
+  const {default:worker}=await import('../src/index.js');
+  const {createSession}=await import('../src/db.js');
+  const {accessFor,mayRead}=await import('../src/access.js');
+  await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1 AND slug='planning'").bind(org).run();
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  const token=await createSession(env.DB,'reader','test'),pending=[];
+  const response=await worker.fetch(new Request('https://example.com/channels/members',{method:'DELETE',headers:{'content-type':'application/json','x-session-token':token},body:JSON.stringify({orgId:org,channel})}),env,{waitUntil:p=>pending.push(p)});
+  await Promise.all(pending);
+  expect(response.status).toBe(200);
+  expect((await roomRoleState(env.DB,org,channel)).members.some(m=>m.id==='reader')).toBe(false);
+  expect(mayRead(channel,await accessFor(env.DB,org,'reader'))).toBe(true);
 });
