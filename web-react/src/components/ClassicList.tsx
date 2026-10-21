@@ -5238,6 +5238,10 @@ export const ClassicList: React.FC<Props> = ({
           </div>
         ) : (
         <div className={thread.view ? 'slk-log with-typing' : 'slk-log'} ref={logAt} onScroll={(e) => {
+          // React can commit noteWhere's update before the native scroll
+          // listener runs. Release following before that commit triggers the
+          // mutation observer, otherwise it can pull a reader back down.
+          pinned.current = isAtBottom(e.currentTarget)
           if (!thread.view) return
           noteWhere(thread.view, e.currentTarget)
           if (e.currentTarget.scrollTop < 120) void loadOlder(thread.view)
