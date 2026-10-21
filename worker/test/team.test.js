@@ -507,3 +507,15 @@ test('departure permanently revokes registered computers and cancels only affect
   expect((await api('/gateways/claim',null,{},departing.token)).status).toBe(401);
   expect((await api('/gateways/claim',null,{},staying.token)).status).toBe(200);
 });
+
+test('a stale empty departure preview cannot remove a member who rejoined after it was opened',async()=>{
+  const {memberRef}=await import('../src/team.js');
+  const ref=await memberRef(TEAM,'9002');
+  const preview=await (await get(`/members/departure?orgId=${encodeURIComponent(TEAM)}&ref=${ref}`,adminToken)).json();
+  expect(preview.agents).toEqual([]);expect(preview.skills).toEqual([]);
+  await env.DB.prepare("UPDATE memberships SET created_at='new membership after preview' WHERE org_id=?1 AND user_github_id='9002'").bind(TEAM).run();
+  const response=await del('/members',adminToken,{orgId:TEAM,ref,previewVersion:preview.version});
+  expect(response.status).toBe(409);
+  expect((await response.json()).code).toBe('departure-conflict');
+  expect(await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id='9002'").bind(TEAM).first()).not.toBeNull();
+});

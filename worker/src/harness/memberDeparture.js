@@ -35,6 +35,10 @@ export async function departureResponsibilities(db, orgId, target) {
 export async function removeWithResourceHandoff(db, orgId, context, {transferTo,previewVersion}) {
   const {actor,target,members}=context;
   const plan=await departureResponsibilities(db,orgId,target);
+  // Older clients omit a preview for an empty departure. New clients must
+  // still reject a stale preview when the person has left and rejoined.
+  if(previewVersion!==undefined && previewVersion!==plan.version)
+    return {error:'Workspace responsibilities changed. Reload before removing this member.',code:'departure-conflict',status:409};
   const recipient=members.find(m=>m.ref===transferTo&&m.userId!==target.userId&&m.role!=='guest');
   const hasResponsibilities=plan.agents.length+plan.skills.length>0;
   if(hasResponsibilities && (!recipient || previewVersion!==plan.version))
