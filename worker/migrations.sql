@@ -188,3 +188,5 @@ ALTER TABLE hx_skills ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';
 ALTER TABLE custom_agents ADD COLUMN created_by_login TEXT;
 
 CREATE TABLE IF NOT EXISTS hx_skill_files (org_id TEXT NOT NULL, skill_id TEXT NOT NULL REFERENCES hx_skills(id) ON DELETE CASCADE, path TEXT NOT NULL, size INTEGER NOT NULL CHECK (size >= 0 AND size <= 1048576), content BLOB NOT NULL, PRIMARY KEY (org_id, skill_id, path));
+
+CREATE TABLE IF NOT EXISTS hx_member_departures (org_id TEXT NOT NULL, user_id TEXT NOT NULL, nonce TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (org_id, user_id));

@@ -4,6 +4,7 @@ import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import { InviteTeammate } from '../components/InviteTeammate'
 import { Avatar } from '../components/Avatar'
+import { MemberDepartureDialog } from '../components/MemberDepartureDialog'
 
 interface Props {
   httpBase: string
@@ -125,17 +126,17 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
   }, [httpBase, org, sessionToken])
   useEffect(() => { load() }, [load])
 
-  const remove = async (member: Member) => {
+  const remove = async (member: Member, handoff: {transferTo?:string;previewVersion:string}) => {
     setBusy(member.ref)
     setError(null)
     try {
       const res = await fetch(`${httpBase}/members`, {
         method: 'DELETE',
         headers: { ...headers, 'content-type': 'application/json' },
-        body: JSON.stringify({ orgId, ref: member.ref }),
+        body: JSON.stringify({ orgId, ref: member.ref, ...handoff }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data.message || t('That did not work.')); return }
+      if (!res.ok) throw new Error(data.message || t('That did not work.'))
       setConfirm(null)
       if (data.left) { onLeft(); return }
       await load()
@@ -348,20 +349,9 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
                   {m.role === 'guest' && m.channels && ` · ${m.channels.map((c) => `#${allChannels.find((x) => x.slug === c)?.name || c}`).join(' ')}`}
                 </span>
               </span>
-              {editable && (
-                confirm === m.ref ? (
-                  <span className="team-confirm">
-                    <button className="pill-btn" disabled={busy === m.ref} onClick={() => remove(m)}>
-                      {m.mine ? t('Leave') : t('Remove')}
-                    </button>
-                    <button className="btn-text" onClick={() => setConfirm(null)}>{t('Keep')}</button>
-                  </span>
-                ) : (
-                  <button className="btn-text" onClick={() => { setError(null); setConfirm(m.ref) }}>
-                    {m.mine ? t('Leave') : t('Remove')}
-                  </button>
-                )
-              )}
+              {editable && <button className="btn-text" onClick={() => { setError(null); setConfirm(m.ref) }}>
+                {m.mine ? t('Leave') : t('Remove')}
+              </button>}
               {mayManage(m) && (
                 <button className="btn-text team-manage" aria-expanded={managing?.ref === m.ref} onClick={() => manage(m)}>{t('Manage')}</button>
               )}
@@ -506,6 +496,10 @@ export const Team: React.FC<Props> = ({ httpBase, orgId, sessionToken, onLeft, o
             </span>
           </div>
         </div>
+        {confirm && members?.find(m => m.ref === confirm) && <MemberDepartureDialog
+          httpBase={httpBase} orgId={orgId} sessionToken={sessionToken}
+          member={members.find(m => m.ref === confirm)!}
+          onRemove={input => remove(members.find(m => m.ref === confirm)!, input)} onClose={() => setConfirm(null)} />}
         <div style={{ height: 32 }} />
       </div>
     </div>

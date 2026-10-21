@@ -2029,3 +2029,9 @@ CREATE TABLE IF NOT EXISTS hx_agent_members (
   PRIMARY KEY (org_id, agent_id, user_id),
   FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
 );
+
+/* Atomic member departure receipts gate the associated ownership writes. */
+CREATE TABLE IF NOT EXISTS hx_member_departures (
+  org_id TEXT NOT NULL, user_id TEXT NOT NULL, nonce TEXT NOT NULL,
+  created_at TEXT NOT NULL, PRIMARY KEY (org_id, user_id)
+);

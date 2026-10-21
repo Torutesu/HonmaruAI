@@ -340,3 +340,126 @@ test("GitHub sync is claimed only where it can actually run", async () => {
   const noToken = await (await get(`/connectors/github?orgId=${encodeURIComponent(REPO_ORG)}`, emailSession)).json();
   expect(noToken.builtIn).toBe(false);
 });
+
+test('departure preview names only live managed-agent responsibilities and opaque successor refs', async () => {
+  const { memberRef } = await import('../src/team.js');
+  const { upsertUser, upsertMembership } = await import('../src/db.js');
+  await upsertUser(env.DB, { githubId:'9004', login:'guest', name:'Guest', locale:'en' });
+  await upsertMembership(env.DB, TEAM, '9004', 'guest');
+  const add = async (id, owner, scope='team', profiled=true) => {
+    await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES (?1,?2,?2,?2,'private body',?3,?4,'now','now')`).bind(TEAM,id,scope,owner).run();
+    if(profiled) await env.DB.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,access,updated_at) VALUES (?1,?2,'private','now')`).bind(TEAM,id).run();
+  };
+  await add('owned','kenji','personal');
+  await add('administered','aya');
+  await add('ordinary','aya');
+  await add('dormant','aya');
+  await add('deleted','kenji');
+  await add('legacy','kenji','team',false);
+  await env.DB.prepare("UPDATE custom_agents SET deleted_at='now' WHERE org_id=?1 AND id='deleted'").bind(TEAM).run();
+  for (const [id,role] of [['administered','admin'],['ordinary','member'],['dormant','admin']]) {
+    await env.DB.prepare(`INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,updated_by,updated_at,member_since)
+      SELECT ?1,?2,'9002',?3,'9001','now',created_at FROM memberships WHERE org_id=?1 AND user_github_id='9002'`).bind(TEAM,id,role).run();
+  }
+  await env.DB.prepare("UPDATE hx_agent_members SET member_since='old membership' WHERE org_id=?1 AND agent_id='dormant'").bind(TEAM).run();
+  const ref=await memberRef(TEAM,'9002');
+  const response=await get(`/members/departure?orgId=${encodeURIComponent(TEAM)}&ref=${ref}`,adminToken);
+  expect(response.status).toBe(200);
+  const body=await response.json();
+  expect(body.agents).toEqual([
+    {id:'administered',name:'administered',owned:false,scope:'team',version:0},
+    {id:'owned',name:'owned',owned:true,scope:'personal',version:0},
+  ]);
+  expect(body.candidates.map(p=>p.name).sort()).toEqual(['Aya','Dana']);
+  expect(body.candidates.every(p=>Object.keys(p).sort().join(',')==='name,ref')).toBe(true);
+  expect(JSON.stringify(body)).not.toContain('private body');
+  expect(await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id='9002'").bind(TEAM).first()).not.toBeNull();
+  const own=await get(`/members/departure?orgId=${encodeURIComponent(TEAM)}&ref=${ref}`,memberToken);
+  expect((await own.json()).member).toMatchObject({ref,mine:true});
+});
+
+test('departure preview cannot inspect another member without removal authority',async()=>{
+  const {memberRef}=await import('../src/team.js');
+  const ref=await memberRef(TEAM,'9003');
+  const path=`/members/departure?orgId=${encodeURIComponent(TEAM)}&ref=${ref}`;
+  expect((await get(path,memberToken)).status).toBe(403);
+  expect((await get(path,outsiderToken)).status).toBe(403);
+  const ownerRef=await memberRef(TEAM,'9001');
+  const lastOwner=await get(`/members/departure?orgId=${encodeURIComponent(TEAM)}&ref=${ownerRef}`,adminToken);
+  expect(lastOwner.status).toBe(409);
+  expect((await lastOwner.json()).code).toBe('last-owner');
+});
+
+async function departingAgent() {
+  await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES (?1,'departure-agent','departure-agent','Departure agent','Keep this','personal','kenji','now','now')`).bind(TEAM).run();
+  await env.DB.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,access,updated_at) VALUES (?1,'departure-agent','private','now')`).bind(TEAM).run();
+  const {memberRef}=await import('../src/team.js');
+  const ref=await memberRef(TEAM,'9002'),transferTo=await memberRef(TEAM,'9003');
+  const preview=await (await get(`/members/departure?orgId=${encodeURIComponent(TEAM)}&ref=${ref}`,memberToken)).json();
+  return {ref,transferTo,previewVersion:preview.version};
+}
+
+test('member departure requires a current preview and atomically transfers ownership without changing creator or private scope',async()=>{
+  const input=await departingAgent();
+  const missing=await del('/members',memberToken,{orgId:TEAM,ref:input.ref});
+  expect(missing.status).toBe(409);
+  expect((await missing.json()).code).toBe('agent-handoff-required');
+  const response=await del('/members',memberToken,{orgId:TEAM,...input});
+  expect(response.status).toBe(200);
+  expect((await response.json()).handoff).toEqual({agents:1,to:input.transferTo});
+  const agent=await env.DB.prepare("SELECT owner_login,created_by_login,instructions,scope FROM custom_agents WHERE org_id=?1 AND id='departure-agent'").bind(TEAM).first();
+  expect(agent).toEqual({owner_login:'aya',created_by_login:'kenji',instructions:'Keep this',scope:'personal'});
+  expect(await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id='9002'").bind(TEAM).first()).toBeNull();
+  expect((await env.DB.prepare("SELECT role FROM hx_agent_members WHERE org_id=?1 AND agent_id='departure-agent' AND user_id='9003'").bind(TEAM).first()).role).toBe('admin');
+  expect((await env.DB.prepare("SELECT version FROM hx_agent_access WHERE org_id=?1 AND agent_id='departure-agent'").bind(TEAM).first()).version).toBe(1);
+});
+
+test('a changed preview cannot transfer or remove membership',async()=>{
+  const input=await departingAgent();
+  await env.DB.prepare("INSERT INTO hx_agent_access(org_id,agent_id,version) VALUES (?1,'departure-agent',1)").bind(TEAM).run();
+  const response=await del('/members',memberToken,{orgId:TEAM,...input});
+  expect(response.status).toBe(409);
+  expect((await env.DB.prepare("SELECT owner_login FROM custom_agents WHERE org_id=?1 AND id='departure-agent'").bind(TEAM).first()).owner_login).toBe('kenji');
+  expect(await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id='9002'").bind(TEAM).first()).not.toBeNull();
+});
+
+test('recipient departure between preview and transaction makes the whole handoff a no-op',async()=>{
+  const input=await departingAgent();
+  const {removeMember}=await import('../src/team.js');
+  const db={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+    await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9003'").bind(TEAM).run();
+    return env.DB.batch(statements);
+  }};
+  const result=await removeMember({...env,DB:db},{orgId:TEAM,actorId:'9002',...input});
+  expect(result).toMatchObject({status:409,code:'departure-conflict'});
+  expect((await env.DB.prepare("SELECT owner_login FROM custom_agents WHERE org_id=?1 AND id='departure-agent'").bind(TEAM).first()).owner_login).toBe('kenji');
+  expect(await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id='9002'").bind(TEAM).first()).not.toBeNull();
+  expect(await env.DB.prepare("SELECT 1 FROM hx_agent_access WHERE org_id=?1 AND agent_id='departure-agent'").bind(TEAM).first()).toBeNull();
+});
+
+test('an administrator removing a member transfers delegated administration while preserving the existing owner',async()=>{
+  const input=await departingAgent();
+  await env.DB.prepare("UPDATE custom_agents SET owner_login='dana',scope='team' WHERE org_id=?1 AND id='departure-agent'").bind(TEAM).run();
+  await env.DB.prepare(`INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,updated_by,updated_at,member_since)
+    SELECT ?1,'departure-agent','9002','admin','9001','now',created_at FROM memberships WHERE org_id=?1 AND user_github_id='9002'`).bind(TEAM).run();
+  const preview=await (await get(`/members/departure?orgId=${encodeURIComponent(TEAM)}&ref=${input.ref}`,adminToken)).json();
+  const response=await del('/members',adminToken,{orgId:TEAM,...input,previewVersion:preview.version});
+  expect(response.status).toBe(200);
+  expect((await env.DB.prepare("SELECT owner_login FROM custom_agents WHERE org_id=?1 AND id='departure-agent'").bind(TEAM).first()).owner_login).toBe('dana');
+  expect((await env.DB.prepare("SELECT role FROM hx_agent_members WHERE org_id=?1 AND agent_id='departure-agent' AND user_id='9003'").bind(TEAM).first()).role).toBe('admin');
+  expect(await env.DB.prepare("SELECT 1 FROM hx_agent_members WHERE org_id=?1 AND user_id='9002'").bind(TEAM).first()).toBeNull();
+});
+
+test('an agent assigned after a no-responsibilities preview prevents removal inside the transaction',async()=>{
+  const {memberRef,removeMember}=await import('../src/team.js');
+  const ref=await memberRef(TEAM,'9002');
+  const db={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+    await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+      VALUES (?1,'new-agent','new-agent','New agent','Keep','personal','kenji','now','now')`).bind(TEAM).run();
+    await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,updated_at) VALUES (?1,'new-agent','now')").bind(TEAM).run();
+    return env.DB.batch(statements);
+  }};
+  expect(await removeMember({...env,DB:db},{orgId:TEAM,actorId:'9002',ref})).toMatchObject({status:409,code:'departure-conflict'});
+  expect(await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id='9002'").bind(TEAM).first()).not.toBeNull();
+});

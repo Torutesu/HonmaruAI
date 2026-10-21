@@ -7,6 +7,7 @@
 // session to do it — so for everyone who signed in with an email address, in
 // the `personal:` workspace they were given, it answered nothing at all.
 
+import { departureAgents, removeWithAgentHandoff } from "./harness/memberDeparture.js";
 import { groupHandlesByLogin } from "./people-groups.js";
 import { ROLE_RANK, sha256Hex, inviteLink } from "./auth.js";
 import { saveCard, removeCard, getUserByLogin, parseAliases } from "./db.js";
@@ -158,7 +159,7 @@ const ANOTHER_OWNER = " AND role = 'owner' AND EXISTS (SELECT 1 FROM memberships
 /// always let yourself out. Rank alone is what stops a plain member removing
 /// another plain member — 0 is not greater than 0 — without a second rule
 /// saying so.
-export async function removeMember(env, { orgId, actorId, targetId, ref }) {
+async function memberRemovalContext(env, { orgId, actorId, targetId, ref }) {
   targetId = targetId || ref;
   if (!orgId || !targetId) return { error: "Missing team or person.", status: 400 };
   if (!membershipIsOurs(orgId)) {
@@ -196,15 +197,34 @@ export async function removeMember(env, { orgId, actorId, targetId, ref }) {
     return { error: "Only an owner can remove an admin.", status: 403 };
   }
 
-  // An owner goes only while another owner stays, decided by the delete
-  // itself: the count read above may be stale when two owners leave at once.
-  const out = await env.DB
-    .prepare(`DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = ?2${target.role === "owner" ? ANOTHER_OWNER : ""}`)
-    .bind(orgId, target.userId)
-    .run();
-  if (target.role === "owner" && !(out?.meta?.changes > 0)) {
-    return { error: "You are this workspace's only owner. Make someone else an owner first.", status: 409, code: "last-owner" };
-  }
+  return { actor, target, members, leaving };
+}
+
+// The preview uses the same authority checks as the eventual removal. Never
+// expose private agent names through the ordinary workspace-member listing.
+export async function previewMemberDeparture(env, input) {
+  const context = await memberRemovalContext(env, input);
+  if (context.error) return context;
+  const { target, members, leaving } = context;
+  const { orgId } = input;
+  const { agents, version } = await departureAgents(env.DB, orgId, target);
+  return {
+    version,
+    member: { ref: target.ref, name: target.name, mine: leaving },
+    agents: agents.map(a => ({ id: a.id, name: a.name, owned: a.owner_login === target.login, scope: a.scope, version: a.version })),
+    candidates: members.filter(m => m.userId !== target.userId && m.role !== 'guest')
+      .map(m => ({ ref: m.ref, name: m.name })),
+  };
+}
+
+export async function removeMember(env, input) {
+  const context = await memberRemovalContext(env, input);
+  if (context.error) return context;
+  const { target, leaving } = context;
+  const { orgId } = input;
+
+  const departure = await removeWithAgentHandoff(env.DB, orgId, context, input);
+  if (departure.error) return departure;
   // Their app connections in this workspace end with them (smitheryApps.js).
   const { forgetAppConnections } = await import("./smitheryApps.js");
   await forgetAppConnections(env, { orgId, githubId: target.userId }).catch(() => {});
@@ -224,7 +244,7 @@ export async function removeMember(env, { orgId, actorId, targetId, ref }) {
   // `login` travels back because the relay stamps that on a socket, and the
   // caller has to close the one they are holding: the row is gone, but nothing
   // re-reads it for a connection that is already open.
-  return { ok: true, removed: target.userId, login: target.login, left: leaving, ...orphans };
+  return { ok: true, removed: target.userId, login: target.login, left: leaving, handoff: departure.handoff, ...orphans };
 }
 
 /// The codes this workspace has out, and which of them you may read.

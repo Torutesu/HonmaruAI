@@ -1,6 +1,14 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Leave workspace": "ワークスペースから退出",
+  "Remove member": "メンバーを削除",
+  "Transfer to": "引き継ぎ先",
+  "{name} will lose access to this workspace. Historical messages stay visible.": "{name}はこのワークスペースにアクセスできなくなります。過去のメッセージは残ります。",
+  "The successor receives agent administration and ownership where applicable. Original creators stay unchanged.": "引き継ぎ先にエージェントの管理権限と、該当する所有権を移します。元の作成者の記録は変わりません。",
+  "Add another workspace member before transferring these agents.": "エージェントを引き継ぐには、別のワークスペースメンバーを追加してください。",
+  "Review the agent responsibilities and choose a successor before leaving.": "担当エージェントを確認し、引き継ぎ先を選んでから退出してください。",
+  "Workspace responsibilities changed. Reload before removing this member.": "ワークスペースの担当や権限が変更されました。再読み込みしてからメンバーを削除してください。",
   "Clear new requests can be assigned to an available agent in this room. Mention a specific agent to choose who responds.": "明確な新しい依頼は、このルームで利用できるエージェントに割り当てられます。相手を指定したい場合は、そのエージェントをメンションしてください。",
   "How agents respond": "エージェントの応答方法",
   "Mentioned only": "メンション時のみ",

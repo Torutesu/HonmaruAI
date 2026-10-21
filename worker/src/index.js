@@ -27,7 +27,7 @@ import { triageMessage } from "./triage.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { proxyGitHub } from "./githubProxy.js";
 import { deleteAccount, exportAccount } from "./account.js";
-import { listMembers, listMembersForClient, removeMember, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards, changeRole, memberRef } from "./team.js";
+import { listMembers, listMembersForClient, removeMember, previewMemberDeparture, listInvites, revokeInvite, membershipIsOurs, returnOrphanedCards, changeRole, memberRef } from "./team.js";
 import { authorizeOrgAccess } from "./membership.js";
 import { isConfigured, isDeviceToken } from "./apns.js";
 import { isFcmToken, isFcmConfigured } from "./fcm.js";
@@ -904,6 +904,24 @@ async function handle(request, env, url, ctx) {
       });
     }
 
+    if (url.pathname === "/members/departure" && request.method === "GET") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const orgId = url.searchParams.get("orgId"), ref = url.searchParams.get("ref");
+      if (!orgId || !ref) return json({ message: "orgId and ref are required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      if (ref !== await memberRef(orgId, String(session.github_id))) {
+        const recent = await requireRecentAuth(env, request, orgId);
+        if (recent) return recent;
+      }
+      const result = await previewMemberDeparture(env, { orgId, actorId: session.github_id, ref });
+      if (result.error) return json({ message: result.error, code: result.code }, result.status || 400);
+      return json(result);
+    }
+
     if (url.pathname === "/members" && request.method === "DELETE") {
       const limited = await enforce(env, request, "oauth/token");
       if (limited) return limited;
@@ -926,6 +944,8 @@ async function handle(request, env, url, ctx) {
         // has, and the iOS build in the field still sends it.
         targetId: body.userId,
         ref: body.ref,
+        transferTo: body.transferTo,
+        previewVersion: body.previewVersion,
       });
       if (result.error) return json({ message: result.error, code: result.code }, result.status || 400);
       // Out of the table is not out of the room. A socket is authorized once,
@@ -934,8 +954,8 @@ async function handle(request, env, url, ctx) {
       await evictMember(env, body.orgId, result.login);
       const removedName = (await getUserByLogin(env.DB, result.login).catch(() => null))?.name || null;
       await audit(env, request, result.left
-        ? { orgId: body.orgId, action: "member.left", actor: await actorOf(env, session) }
-        : { orgId: body.orgId, action: "member.removed", actor: await actorOf(env, session), entity: { type: "user", id: result.login, name: removedName } });
+        ? { orgId: body.orgId, action: "member.left", actor: await actorOf(env, session), details: result.handoff || {} }
+        : { orgId: body.orgId, action: "member.removed", actor: await actorOf(env, session), entity: { type: "user", id: result.login, name: removedName }, details: result.handoff || {} });
       return json(result);
     }
 

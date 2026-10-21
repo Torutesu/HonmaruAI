@@ -1,0 +1,11 @@
+.member-departure-resources{border:1px solid var(--dlg-line);border-radius:10px;flex-shrink:0}
+.member-departure-resources summary{display:flex;align-items:center;gap:8px;padding:12px;cursor:pointer;font-weight:600}
+.member-departure-resources summary>span{margin-left:auto;color:var(--dlg-dim)}
+.member-departure-resources ul{list-style:none;margin:0;padding:0 12px 8px;max-height:240px;overflow:auto}
+.member-departure-resources li{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:8px 0}
+.member-departure-resources li>span{overflow-wrap:anywhere;min-width:0}
+.member-departure-resources small{color:var(--dlg-dim);flex-shrink:0}
+.member-departure-recipient{display:block;margin-top:16px}
+.member-departure-recipient select{width:100%;margin-top:6px}
+
+.member-departure-resources:not([open]) summary>svg:last-child{transform:rotate(-90deg)}
