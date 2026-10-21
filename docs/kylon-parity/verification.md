@@ -935,3 +935,12 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Two suites / 14 tests pass (`/tmp/honmaru-room-roles-tests.log`), covering migration replay, initialization authority, agent administration, last-human protection, stale membership/assignment grants, concurrent edits and a target rejoining between read and transaction.
 - Required next integration before exposing this publicly: guard member/agent removal and room deletion/privacy controls; preserve/rebind grants during privacy transitions; implement atomic departure handoff; provide capability-driven role menus matching the observed Kylon dialog. Public-room explicit membership versus all-workspace/default-room membership still needs reference verification. Archived-room lifecycle and agent tool actors also remain to be integrated. Do not claim room-role feature parity from these isolated helpers.
 - Departure release a2c32f40 is on main. CI 39580238057 has passed desktop/web/shared-mobile/gateway/relay; Worker and E2E run. Worker deployment 39580238150 and Web deployment 39580238110 are still in progress at this checkpoint.
+
+
+### Managed room membership removal — 2026-10-21
+
+The existing human and agent removal endpoints now apply managed room roles. Ordinary members cannot remove an admin; the last active human admin cannot leave even when an agent is an admin. Membership removal and role cleanup share a versioned D1 transaction, including a live membership fingerprint check so a concurrent rejoin is retained. Unmanaged Simple rooms and group conversations keep their existing removal behavior.
+
+Validation: room role unit and HTTP integration tests plus existing closed-conversation and agent suites: 3 files, 47 tests passed. Covers admin removal rejection, self-departure after handoff, agent admin removal, last-human protection, concurrent rejoin, and unchanged legacy paths. No production members were removed during verification.
+
+This remains backend groundwork: room-role initialization is not exposed in the UI/API until managed room deletion, privacy transitions and workspace departure handoff also enforce the same rules. Therefore this is not a claim of completed room UI or 100% parity.

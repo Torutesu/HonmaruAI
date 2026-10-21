@@ -1,3 +1,4 @@
+import { removeRoomSubject } from './harness/roomRoles.js';
 import { explicitAgentRoles } from './harness/agentRoles.js';
 import { roomResponses } from "./harness/roomResponses.js";
 import { threadPins, setThreadPin } from "./threadPins.js";
@@ -1554,7 +1555,10 @@ export async function handleChannels(request, env, url, { route, after }) {
       return json({ added: true });
     }
     const agent = (await channelAgents(env.DB, orgId, key)).find((a) => a.id === body.agentId);
-    if (!agent || !(await removeChannelAgent(env.DB, { orgId, key, agentId: agent.id }))) return json({ message: "That agent is not here." }, 404);
+    if (!agent) return json({ message: "That agent is not here." }, 404);
+    const removal = await removeRoomSubject(env.DB, orgId, key, { actorId: ctx.who.session.github_id, kind: "agent", id: agent.id, version: body.version });
+    if (removal.error) return json({ message: removal.error }, removal.status);
+    if (!removal.managed && !(await removeChannelAgent(env.DB, { orgId, key, agentId: agent.id }))) return json({ message: "That agent is not here." }, 404);
     await note(serverText(locale, "channel.agentRemoved", { who, name: label(agent) }));
     await audit(env, request, { orgId, action: "channel.agent_removed", actor: person(me), entity: { type: "agent", id: agent.id, name: `@${agent.handle}` }, details: { channel: ctx.resolved.slug ? `#${ctx.resolved.slug}` : "group" } });
     return json({ removed: true });
@@ -1595,7 +1599,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     }
     const target = body.ref ? ctx.members.find((m) => m.ref === String(body.ref)) : ctx.members.find((m) => m.login === me.login);
     if (!target || !ctx.resolved.logins.includes(target.login)) return json({ message: "They are not in this channel." }, 404);
-    await removeMember(env.DB, { orgId, key, login: target.login });
+    const removal = await removeRoomSubject(env.DB, orgId, key, { actorId: ctx.who.session.github_id, kind: "person", id: target.userId, version: body.version });
+    if (removal.error) return json({ message: removal.error }, removal.status);
+    if (!removal.managed) await removeMember(env.DB, { orgId, key, login: target.login });
     await announceTo(env, orgId, [await listFor(target.login)]);
     const { evictFromJam } = await import("./announce.js");
     await evictFromJam(env, orgId, target.login, key);

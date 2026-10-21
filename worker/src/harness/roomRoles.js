@@ -20,13 +20,13 @@ const subjects = `SELECT 'person' AS kind,u.github_id AS id,u.name,u.login,
 
 export async function roomRoleState(db, orgId, channel) {
   if(typeof channel!=='string'||!channel.startsWith('b:'))return null;
-  const room=await db.prepare(`SELECT b.created_by,COALESCE(p.version,0) AS version,
+  const room=await db.prepare(`SELECT b.created_by,b.private,COALESCE(p.version,0) AS version,
     CASE WHEN p.channel IS NULL THEN 0 ELSE 1 END AS managed
     FROM businesses b LEFT JOIN hx_room_access p ON p.org_id=b.org_id AND p.channel=?2
     WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND b.archived_at IS NULL`).bind(orgId,channel).first();
   if(!room)return null;
   const {results}=await db.prepare(subjects).bind(orgId,channel).all();
-  return {managed:!!room.managed,version:room.version,createdBy:room.created_by,members:results};
+  return {managed:!!room.managed,private:!!room.private,version:room.version,createdBy:room.created_by,members:results};
 }
 
 // Existing Simple rooms remain unchanged unless their current creator opts in.
@@ -82,4 +82,43 @@ export async function setRoomRole(db, orgId, channel, {actorId,kind,id,role,vers
       .bind(orgId,channel,actorId,kind,id,role,target.membership,nonce,at),
   ]);
   return result[0].meta?.changes?{version:version+1}:{error:'Room roles changed. Reload before saving.',status:409};
+}
+
+// Remove the membership/assignment and its role under the same version claim.
+// A check followed by the old unconditional DELETE would allow a racing role
+// promotion or rejoin to remove a different membership than the one reviewed.
+export async function removeRoomSubject(db, orgId, channel, {actorId,kind,id,version}) {
+  if(!channel.startsWith('b:'))return {managed:false};
+  actorId=String(actorId||'');id=String(id||'');
+  const state=await roomRoleState(db,orgId,channel);
+  if(!state)return {error:'No such room.',status:404};
+  if(!state.managed)return {managed:false};
+  if(!['person','agent'].includes(kind))return {error:'Invalid room member.',status:400};
+  const actor=state.members.find(m=>m.kind==='person'&&m.id===actorId);
+  const target=state.members.find(m=>m.kind===kind&&m.id===id);
+  if(!actor?.eligible)return {error:'Only a room member can remove members.',status:403};
+  if(!target)return {error:'That member is no longer in the room.',status:404};
+  if(kind==='person'&&!state.private)return {error:'Everyone has access to this public room.',status:409};
+  const self=kind==='person'&&actorId===id;
+  if(target.role==='admin'&&actor.role!=='admin'&&!self)return {error:'Only a room admin can remove an admin.',status:403};
+  if(kind==='person'&&target.role==='admin'&&!state.members.some(m=>m.kind==='person'&&m.id!==id&&m.role==='admin'&&m.eligible))
+    return {error:'Keep at least one active human room admin.',status:409};
+  if(version!==undefined&&version!==state.version)return {error:'Room roles changed. Reload before saving.',status:409};
+  const nonce=crypto.randomUUID();
+  const gate='EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2 AND mutation_id=?3)';
+  const result=await db.batch([
+    db.prepare(`UPDATE hx_room_access SET version=version+1,mutation_id=?8 WHERE org_id=?1 AND channel=?2 AND version=?7
+      AND EXISTS(SELECT 1 FROM (${subjects}) actor JOIN (${subjects}) target
+        ON target.kind=?4 AND target.id=?5 AND target.membership=?6
+        WHERE actor.kind='person' AND actor.id=?3 AND actor.eligible=1
+        AND (target.role!='admin' OR actor.role='admin' OR (?4='person' AND ?3=?5))
+        AND (?4!='person' OR target.role!='admin' OR EXISTS(SELECT 1 FROM (${subjects}) other WHERE other.kind='person' AND other.id!=?5 AND other.role='admin' AND other.eligible=1)))
+      AND (?4!='person' OR EXISTS(SELECT 1 FROM businesses WHERE org_id=?1 AND 'b:'||slug=?2 AND private=1))`)
+      .bind(orgId,channel,actorId,kind,id,target.membership,state.version,nonce),
+    kind==='person'
+      ? db.prepare(`DELETE FROM conversation_members WHERE org_id=?1 AND channel=?2 AND login=?4 AND ${gate}`).bind(orgId,channel,nonce,target.login)
+      : db.prepare(`DELETE FROM channel_agents WHERE org_id=?1 AND channel=?2 AND agent_id=?4 AND ${gate}`).bind(orgId,channel,nonce,id),
+    db.prepare(`DELETE FROM hx_room_roles WHERE org_id=?1 AND channel=?2 AND subject_kind=?4 AND subject_id=?5 AND ${gate}`).bind(orgId,channel,nonce,kind,id),
+  ]);
+  return result[0].meta?.changes?{managed:true,removed:true,version:state.version+1}:{error:'Room roles changed. Reload before saving.',status:409};
 }

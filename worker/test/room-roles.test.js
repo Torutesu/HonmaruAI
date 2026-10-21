@@ -1,7 +1,7 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,test,expect} from 'vitest';
 import {upsertUser,upsertMembership} from '../src/db.js';
-import {roomRoleState,initializeRoomRoles,setRoomRole} from '../src/harness/roomRoles.js';
+import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject} from '../src/harness/roomRoles.js';
 const org='room-roles',channel='b:planning';
 beforeEach(async()=>{
   for(const [id,role] of [['creator','member'],['reader','member'],['outsider','admin'],['guest','guest']]) {
@@ -67,4 +67,52 @@ test('a target rejoining between the role read and transaction receives no stale
   const state=await roomRoleState(env.DB,org,channel);
   expect(state.version).toBe(1);
   expect(state.members.find(m=>m.id==='reader').role).toBe('member');
+});
+
+const remove=(actorId,kind,id,version)=>removeRoomSubject(env.DB,org,channel,{actorId,kind,id,version});
+test('managed removal protects admins and the last human while legacy removal stays unchanged',async()=>{
+  expect(await remove('reader','person','creator')).toEqual({managed:false});
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  expect((await remove('reader','person','creator')).status).toBe(403);
+  expect((await remove('creator','person','creator')).status).toBe(409);
+  await change('creator','agent','helper','admin',1);
+  expect((await remove('reader','agent','helper')).status).toBe(403);
+  expect(await remove('creator','agent','helper',2)).toMatchObject({removed:true,version:3});
+  expect((await roomRoleState(env.DB,org,channel)).members.some(m=>m.id==='helper')).toBe(false);
+  expect(await remove('creator','person','reader',3)).toMatchObject({removed:true,version:4});
+});
+test('members may remove ordinary members and admins may leave after a handoff',async()=>{
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  expect(await remove('reader','agent','helper',1)).toMatchObject({removed:true,version:2});
+  await change('creator','person','reader','admin',2);
+  expect(await remove('creator','person','creator',3)).toMatchObject({removed:true,version:4});
+  expect((await roomRoleState(env.DB,org,channel)).members.find(m=>m.id==='reader').role).toBe('admin');
+});
+test('a rejoin during removal cannot delete the new membership',async()=>{
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  const db={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+    await env.DB.prepare("UPDATE conversation_members SET added_at='rejoined during removal' WHERE org_id=?1 AND channel=?2 AND login='reader'").bind(org,channel).run();
+    return env.DB.batch(statements);
+  }};
+  expect(await removeRoomSubject(db,org,channel,{actorId:'creator',kind:'person',id:'reader',version:1})).toMatchObject({status:409});
+  expect((await roomRoleState(env.DB,org,channel)).members.some(m=>m.id==='reader')).toBe(true);
+});
+
+test('channel endpoints enforce managed room roles for both humans and agents',async()=>{
+  const {default:worker}=await import('../src/index.js');
+  const {createSession}=await import('../src/db.js');
+  const {memberRef}=await import('../src/team.js');
+  const sessions={creator:await createSession(env.DB,'creator','test'),reader:await createSession(env.DB,'reader','test')};
+  const call=async(actor,path,body)=>{
+    const pending=[];
+    const response=await worker.fetch(new Request(`https://example.com${path}`,{method:'DELETE',headers:{'content-type':'application/json','x-session-token':sessions[actor]},body:JSON.stringify({orgId:org,channel,...body})}),env,{waitUntil:p=>pending.push(p)});
+    await Promise.all(pending);return response;
+  };
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  await change('creator','agent','helper','admin',1);
+  expect((await call('reader','/channels/channel-agents',{agentId:'helper'})).status).toBe(403);
+  expect((await call('reader','/channels/members',{ref:await memberRef(org,'creator')})).status).toBe(403);
+  expect((await call('creator','/channels/members',{})).status).toBe(409);
+  expect((await call('creator','/channels/channel-agents',{agentId:'helper',version:2})).status).toBe(200);
+  expect((await call('creator','/channels/members',{ref:await memberRef(org,'reader'),version:3})).status).toBe(200);
 });
