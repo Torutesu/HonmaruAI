@@ -801,3 +801,6 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Fresh Web regression: 933 tests pass. TypeScript and Vite build pass. Deployment dependency helper: 10 tests pass.
 - Before restart, isolated dark memory editor at 390×844 showed title, description, type, multiline body and footer within the viewport. This is narrow desktop preview evidence, not mobile-device acceptance. Temporary QA entrypoints removed.
 - Native production app displayed member/profile screens without changing user data. Reload then yielded a blank window with successful screenshot capture. Latest-shell visual acceptance remains unresolved; this is not a screen-lock finding.
+
+- Native blank reload recovered after ordinary app quit/relaunch, without clearing storage or changing security settings. The latest deployed profile now shows 専門分野 / インテリジェンス and the descriptive dropdown. Dark screenshot verified visible options/checkmark; Escape closed only the dropdown and Cancel returned unchanged. Max still displayed 最大 on deployed 56cdf860, as expected before the queued fix. Reload reliability remains unresolved.
+- Pushed structured-memory/editor/deployment-helper bundle as 66b6e422. CI 39564737472, Worker 39564737446 and Web 39564737444 started; no completion claim yet.
