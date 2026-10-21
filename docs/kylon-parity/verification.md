@@ -793,3 +793,11 @@ Additional reference audit: Kylon's empty room automation setup action populates
 - Final Web validation after native repairs: 128 files / 933 tests pass; TypeScript and Vite build pass.
 
 - GitHub CI 39473592694 at 56cdf860 completed successfully. Worker deployment 39473592619 was still active; Web 39473592695 pending behind the earlier Web run, which uses the old dependency helper. Held subsequent commits to let these releases drain instead of extending their wait.
+
+### Resumed validation and deployment reconciliation (2026-10-21)
+
+- GitHub confirms CI 39473592694, Worker 39473592619 and Web 39473592695 at 56cdf860 all succeeded. Earlier ca4dd1af deployments also completed successfully; the old queue is drained.
+- The previous local Worker session/log did not survive the environment restart. Its completion is unproven. Started a fresh frozen-source full suite; do not count the interrupted run as passing.
+- Fresh Web regression: 933 tests pass. TypeScript and Vite build pass. Deployment dependency helper: 10 tests pass.
+- Before restart, isolated dark memory editor at 390×844 showed title, description, type, multiline body and footer within the viewport. This is narrow desktop preview evidence, not mobile-device acceptance. Temporary QA entrypoints removed.
+- Native production app displayed member/profile screens without changing user data. Reload then yielded a blank window with successful screenshot capture. Latest-shell visual acceptance remains unresolved; this is not a screen-lock finding.
