@@ -634,7 +634,7 @@ test("an agent's lines in what it reads carry its handle", async () => {
   expect(lines).toContain("Hayao (agent @hayao): Amber.");
 });
 
-test("in a thread an agent answered, the person who called it goes on without naming it; anyone else is talking to people", async () => {
+test("in a thread an agent answered, it answers again only when named; a reply that does not name it is to the people", async () => {
   await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
   const answers = [];
   const model = (text) => {
@@ -646,15 +646,17 @@ test("in a thread an agent answered, the person who called it goes on without na
   };
   model("Amber.");
   const asked = (await (await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@hayao a colour for the sign?" }, { OPENAI_API_KEY: "sk-test" })).json()).message;
+  // The person who called it going on without its name: nobody's model is
+  // called (an interceptor left over would fail the test), nor for anyone else.
+  await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", parentId: asked.id, body: "nice, I like amber" }, { OPENAI_API_KEY: "sk-test" });
+  await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", parentId: asked.id, body: "me too" }, { OPENAI_API_KEY: "sk-test" });
+  await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", parentId: asked.id, body: "@kenji thoughts?" }, { OPENAI_API_KEY: "sk-test" });
+  expect(answers).toHaveLength(1);
+  // Named again, it answers, with the thread so far.
   model("A rounded serif.");
-  await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", parentId: asked.id, body: "and the font?" }, { OPENAI_API_KEY: "sk-test" });
+  await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", parentId: asked.id, body: "@hayao and the font?" }, { OPENAI_API_KEY: "sk-test" });
   expect(answers).toHaveLength(2);
   expect(answers[1]).toContain("Hayao (agent @hayao): Amber.");
-  // Kenji's reply is to the people in the thread: nobody's model is called
-  // (an interceptor left over would fail the test).
-  await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:cafe", parentId: asked.id, body: "I like it" }, { OPENAI_API_KEY: "sk-test" });
-  // Mika naming a person in the thread is not talking to the agent either.
-  await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", parentId: asked.id, body: "@kenji thoughts?" }, { OPENAI_API_KEY: "sk-test" });
   const thread = await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:cafe", messageId: asked.id })}`, mika)).json();
   expect(thread.replies.filter((r) => r.kind === "agent").map((r) => r.body)).toEqual(["Amber.", "A rounded serif."]);
 });
