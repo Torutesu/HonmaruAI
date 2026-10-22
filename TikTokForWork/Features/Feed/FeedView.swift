@@ -136,7 +136,7 @@ private struct CardHomeContent: View {
         }
     }
 
-    var body: some View {
+    private var feedContent: some View {
         VStack(spacing: 0) {
             HomeHeader(service: service, list: $list, onProfile: onProfile)
             if cards.isEmpty { emptyState }
@@ -173,6 +173,10 @@ private struct CardHomeContent: View {
             }
         }
         .background(Theme.Colors.surface)
+    }
+
+    private var observedFeed: some View {
+        feedContent
         .onAppear { selectedID = selectedCard?.id; markAppsSeen(); openTappedCard() }
         .onChange(of: service.revision) { _, _ in
             if !cards.contains(where: { $0.id == selectedID }) { selectedID = cards.first?.id }
@@ -184,6 +188,10 @@ private struct CardHomeContent: View {
         .alert("That card is no longer available", isPresented: $tappedCardGone) {
             Button("OK", role: .cancel) {}
         } message: { Text("It may have been deleted, or you are no longer in its workspace.") }
+    }
+
+    private var presentedFeed: some View {
+        observedFeed
         .sheet(item: $detailCard) { card in
             NavigationStack {
                 RequestDetailView(cardID: card.id, service: service)
@@ -201,6 +209,10 @@ private struct CardHomeContent: View {
         }
         .sheet(item: $noteCard) { card in noteSheet(card) }
         .sheet(item: $delegateCard) { card in delegateSheet(card) }
+    }
+
+    private var confirmedFeed: some View {
+        presentedFeed
         .confirmationDialog(pendingAction == .reject ? String(localized: "Decline this request?") : String(localized: "Approve and create a GitHub issue?"), isPresented: $showConfirmation, titleVisibility: .visible) {
             if let card = confirmationCard, let action = pendingAction {
                 Button(action == .reject ? String(localized: "Decline") : String(localized: "Approve"), role: action == .reject ? .destructive : nil) { resolve(card, action: action) }
@@ -215,6 +227,10 @@ private struct CardHomeContent: View {
         .confirmationDialog("Undo this decision?", isPresented: $confirmUndo, titleVisibility: .visible) {
             if let card = lastDecision { Button("Undo decision") { undo(card) } }
         } message: { Text("This reopens the request. Changes already made in GitHub will remain.") }
+    }
+
+    var body: some View {
+        confirmedFeed
         // Waiting cards in the language this person reads, when it changes
         // or a card arrives in another.
         .task(id: "\(appState.language.readerLanguageCode)|\(cards.map(\.id).joined(separator: ","))") {
