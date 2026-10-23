@@ -2724,6 +2724,7 @@ const table: Record<string, string> = {
   "Keep this memory": "この記憶を残す",
   "This permanently deletes the memory. Review evidence remains in the scoped review log.": "この記憶を完全に削除します。確認の根拠は、同じ閲覧範囲の履歴に残ります。",
   "I understand that this memory cannot be restored.": "この記憶を復元できないことを確認しました。",
+  "Describe why this memory should be removed.": "この記憶を削除する理由を記録してください。",
   "Review memory": "記憶を確認",
   "Confirm memory": "確認を記録",
   "Review evidence": "確認の根拠",

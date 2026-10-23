@@ -38,7 +38,7 @@ export function AgentMemoryReview({ memory, onClose, onSave }: { memory: AgentMe
       <label><input type="checkbox" checked={confirmed} disabled={busy} onChange={e => setConfirmed(e.target.checked)}/> {t('I understand that this memory cannot be restored.')}</label>
       <button className="dlg-btn" disabled={busy} onClick={() => { setDeleting(false); setConfirmed(false) }}>{t('Keep this memory')}</button>
     </> : <button className="btn-text" disabled={busy} onClick={() => setDeleting(true)}>{t('Delete memory after review')}</button>}
-    <p className="dlg-hint">{t('Confirm that this content is still correct. Editing alone does not validate a memory.')}</p>
+    <p className="dlg-hint">{t(deleting ? 'Describe why this memory should be removed.' : 'Confirm that this content is still correct. Editing alone does not validate a memory.')}</p>
     <label><span className="dlg-label">{t('Review evidence')}</span><textarea className="dlg-input" rows={4} maxLength={2000} disabled={busy} value={evidence} onChange={e => setEvidence(e.target.value)}/></label>
     {error && <p ref={errorElement} className="dlg-error" role="alert">{t(error)}</p>}
   </Dialog>
