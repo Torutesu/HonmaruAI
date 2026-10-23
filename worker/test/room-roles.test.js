@@ -1,7 +1,7 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,test,expect} from 'vitest';
 import {upsertUser,upsertMembership} from '../src/db.js';
-import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject,deleteManagedRoom,changeManagedRoomMembers,joinPublicRoom} from '../src/harness/roomRoles.js';
+import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject,deleteManagedRoom,changeManagedRoomMembers,joinPublicRoom,publicRooms} from '../src/harness/roomRoles.js';
 const org='room-roles',channel='b:planning';
 beforeEach(async()=>{
   for(const [id,role] of [['creator','member'],['reader','member'],['outsider','admin'],['guest','guest']]) {
@@ -398,4 +398,22 @@ test('a room made private before the join transaction cannot gain a public parti
   expect((await joinPublicRoom(raced,org,channel,'outsider')).status).toBe(404);
   expect((await roomRoleState(env.DB,org,channel)).members.some(m=>m.id==='outsider')).toBe(false);
   expect(await env.DB.prepare("SELECT version FROM hx_room_access WHERE org_id=?1").bind(org).first('version')).toBe(1);
+});
+
+
+test('public room discovery exposes joined state without private rooms or stale workspace members',async()=>{
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  expect(await publicRooms(env.DB,org,'outsider')).toEqual([]);
+  await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1").bind(org).run();
+  expect(await publicRooms(env.DB,org,'outsider')).toEqual([{channel,name:'Planning',joined:false,memberCount:3}]);
+  expect((await publicRooms(env.DB,org,'reader'))[0].joined).toBe(true);
+  expect(await publicRooms(env.DB,org,'guest')).toEqual([]);
+  expect(await publicRooms(env.DB,org,'missing')).toEqual([]);
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='reader'").bind(org).run();
+  expect((await publicRooms(env.DB,org,'outsider'))[0].memberCount).toBe(2);
+  await env.DB.prepare("UPDATE businesses SET archived_at='archived' WHERE org_id=?1").bind(org).run();
+  expect(await publicRooms(env.DB,org,'outsider')).toEqual([]);
+  await env.DB.prepare("UPDATE businesses SET archived_at=NULL WHERE org_id=?1").bind(org).run();
+  await env.DB.prepare("UPDATE hx_room_access SET deleted_at='deleted' WHERE org_id=?1").bind(org).run();
+  expect(await publicRooms(env.DB,org,'outsider')).toEqual([]);
 });

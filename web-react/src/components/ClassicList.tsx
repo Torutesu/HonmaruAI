@@ -1,3 +1,4 @@
+import { RoomJoinDialog } from './RoomJoinDialog'
 import { ThreadReferences } from './ThreadReferences'
 import {useThreadPins} from '../utils/threadPins'
 import { HarnessThreadHeader } from './HarnessThreadHeader'
@@ -985,6 +986,7 @@ export const ClassicList: React.FC<Props> = ({
   /// function: `special` is declared further down.
   const foldContext = () => ({ mentions: mentionsIn, currentKey: special ? null : current?.key ?? null, prefs })
   // Making a channel, renaming one: the box, its text, and what went wrong.
+  const [joiningRoom, setJoiningRoom] = useState(false)
   const [adding, setAdding] = useState(false)
   const [newName, setNewName] = useState('')
   const [newPrivate, setNewPrivate] = useState(false)
@@ -5722,12 +5724,16 @@ export const ClassicList: React.FC<Props> = ({
           onSend={(to, comment) => forwardTo(forwarding.channel, forwarding.m, to, comment)}
         />
       )}
+      {harness && joiningRoom && <RoomJoinDialog key={api.orgId} api={api} onClose={() => setJoiningRoom(false)} onJoined={channel => {
+        setJoiningRoom(false); setChannelsTick(n => n + 1); choose(`channel:${channel.slice(2)}`)
+      }}/>}
       {starting === 'menu' && (
         <Sheet label={t('New')} onClose={() => setStarting(null)}>
           <div className="msheet-rows">
             <SheetRow icon="message" label={t('New message')} onClick={() => setStarting('people')} data="new-message" />
             <SheetRow icon="sparkle" label={t('Tell your AI')} hint={t('It becomes a card')} onClick={() => { setStarting(null); onCompose() }} data="tell-ai" />
             <SheetRow icon="hash" label={t('New channel')} onClick={() => { setStarting(null); setPhoneTab('home'); setAdding(true) }} data="new-channel" />
+            {harness && <SheetRow icon="search" label={t('Join public room')} onClick={() => { setStarting(null); setJoiningRoom(true) }} data="join-public-room" />}
             {agents.length > 0 && <SheetRow icon="terminal" label={t('Talk to an agent')} onClick={() => { setStarting(null); setPhoneTab('home'); setFolded((p) => ({ ...p, agents: false })); setAgentPicking(true) }} data="talk-to-agent" />}
             <SheetRow icon="invite" label={t('Invite people')} onClick={() => { setStarting(null); setInviting('people') }} data="invite" />
           </div>

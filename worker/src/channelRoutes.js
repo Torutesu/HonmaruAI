@@ -1,4 +1,4 @@
-import { joinPublicRoom, removeRoomSubject, roomRoleState } from './harness/roomRoles.js';
+import { publicRooms, joinPublicRoom, removeRoomSubject, roomRoleState } from './harness/roomRoles.js';
 import { explicitAgentRoles } from './harness/agentRoles.js';
 import { roomResponses } from "./harness/roomResponses.js";
 import { threadPins, setThreadPin } from "./threadPins.js";
@@ -1562,6 +1562,13 @@ export async function handleChannels(request, env, url, { route, after }) {
     await note(serverText(locale, "channel.agentRemoved", { who, name: label(agent) }));
     await audit(env, request, { orgId, action: "channel.agent_removed", actor: person(me), entity: { type: "agent", id: agent.id, name: `@${agent.handle}` }, details: { channel: ctx.resolved.slug ? `#${ctx.resolved.slug}` : "group" } });
     return json({ removed: true });
+  }
+
+  if (path === "/channels/public-rooms" && request.method === "GET") {
+    const orgId = url.searchParams.get("orgId");
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    return json({ rooms: await publicRooms(env.DB, orgId, who.session.github_id) });
   }
 
   if (path === "/channels/join" && request.method === "POST") {

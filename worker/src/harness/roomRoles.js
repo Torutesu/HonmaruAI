@@ -259,3 +259,18 @@ export async function joinPublicRoom(db, orgId, channel, actorId) {
     WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND b.private=0 AND b.archived_at IS NULL`).bind(orgId,channel,actorId).first();
   return current?{joined:false}:{error:'No such public room available to join.',status:404};
 }
+
+
+export async function publicRooms(db, orgId, actorId) {
+  const {results}=await db.prepare(`SELECT p.channel,b.name,
+    EXISTS(SELECT 1 FROM conversation_members c WHERE c.org_id=b.org_id AND c.channel=p.channel AND c.login=u.login) AS joined,
+    (SELECT COUNT(*) FROM conversation_members c JOIN users cu ON cu.login=c.login
+      JOIN memberships cm ON cm.org_id=c.org_id AND cm.user_github_id=cu.github_id
+      WHERE c.org_id=b.org_id AND c.channel=p.channel) AS memberCount
+    FROM businesses b JOIN hx_room_access p ON p.org_id=b.org_id AND p.channel='b:'||b.slug AND p.deleted_at IS NULL
+    JOIN memberships m ON m.org_id=b.org_id AND m.user_github_id=?2 AND m.role!='guest'
+    JOIN users u ON u.github_id=m.user_github_id
+    WHERE b.org_id=?1 AND b.private=0 AND b.archived_at IS NULL
+    ORDER BY b.name COLLATE NOCASE,p.channel`).bind(orgId,String(actorId)).all();
+  return results.map(r=>({...r,joined:!!r.joined}));
+}
