@@ -1923,3 +1923,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-24 memory review presentation
 - Grouped review details under the memory body within the main content column, rather than a competing horizontal row column. Evidence uses the existing memory text treatment. Added current/stale review state and non-editor action visibility regression; review/list10 tests, TypeScript/Vite and diff checks pass (/tmp/honmaru-memory-review-state-{ui,types,build}.log). Native tool still reports locked, so visual fidelity is not claimed.
 - Frozen Worker review suite43807 remains live at0382acf4 Worker sources. Prior memory publication CI39982782545/Worker39982782482/Web39982782555 remains in_progress.
+
+### 2026-10-24 memory review full preflight
+- Frozen Worker43807 completed success:217 files/1730 tests,461.75s (/tmp/honmaru-memory-review-full.log), with Worker unchanged from0382acf4. Latest Web151 files/1051 tests pass (/tmp/honmaru-review-final-web.log); latest TypeScript/Vite and version1.3.13 checks pass.
+- Prior memory release CI39982782545 succeeded; Worker39982782482 and Web39982782555 still live. No overlapping push; review publication and native confirmation remain pending.
