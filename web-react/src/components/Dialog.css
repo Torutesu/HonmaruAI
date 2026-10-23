@@ -59,9 +59,10 @@
   font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
   border-radius: 8px; border: 1px solid var(--dlg-line); background: var(--dlg-bg); color: var(--dlg-ink);
 }
-.dlg-btn:hover:not(:disabled) { background: var(--dlg-hover); }
+/* Keep themed primary/background pairs intact when hovering. */
+:where(.dlg-btn):hover:where(:not(:disabled)) { background: var(--dlg-hover); }
 .dlg-btn.primary { background: var(--dlg-ink); color: var(--dlg-bg); border-color: var(--dlg-ink); }
-.dlg-btn.primary:hover:not(:disabled) { opacity: .88; background: var(--dlg-ink); }
+.dlg-btn.primary:hover:not(:disabled) { opacity: .88; }
 .dlg-btn.danger { background: #e5484d; color: #fff; border-color: #e5484d; }
 .dlg-btn.danger:hover:not(:disabled) { opacity: .9; background: #e5484d; }
 .dlg-btn:disabled { opacity: .45; cursor: default; }
