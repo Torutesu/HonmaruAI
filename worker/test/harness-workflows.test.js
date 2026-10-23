@@ -128,6 +128,33 @@ test("a webhook starts a run with what was posted, and only with its secret", as
   expect((await send("PUT", `/workflows/${made.workflow.id}`, kai, { orgId: ORG, enabled: false })).status).toBe(403);
 });
 
+test("changing away from webhook revokes its URL permanently while pause preserves it", async () => {
+  const made = await (await send("POST", "/workflows", mika, {
+    orgId: ORG, name: "Webhook lifecycle", trigger: { type: "webhook" },
+    steps: [{ type: "add_row", tableId: invoices, values: { Client: "Lifecycle", Status: "Draft" } }],
+  })).json();
+  const id = made.workflow.id;
+  const edit = async patch => {
+    const res = await send("PUT", `/workflows/${id}`, mika, { orgId: ORG, ...patch });
+    expect(res.status).toBe(200);
+    return (await res.json()).workflow;
+  };
+  const fire = url => call(new URL(url).pathname + new URL(url).search, {
+    method: "POST", headers: { "content-type": "application/json" }, body: '{}',
+  });
+  expect((await edit({ enabled: false })).hookSecret).toBe(made.workflow.hookSecret);
+  expect((await fire(made.hookUrl)).status).toBe(409);
+  expect((await edit({ enabled: true, name: "Renamed" })).hookSecret).toBe(made.workflow.hookSecret);
+  expect((await edit({ trigger: { type: "manual" } })).hookSecret).toBeUndefined();
+  expect((await fire(made.hookUrl)).status).toBe(404);
+  const restored = await edit({ trigger: { type: "webhook" } });
+  expect(restored.hookSecret).toMatch(/^[0-9a-f]{48}$/);
+  expect(restored.hookSecret).not.toBe(made.workflow.hookSecret);
+  expect((await fire(made.hookUrl)).status).toBe(404);
+  const fresh = new URL(made.hookUrl); fresh.searchParams.set('secret', restored.hookSecret);
+  expect((await fire(fresh.href)).status).toBe(202);
+});
+
 test("a scheduled workflow runs when its time comes, once, and a manual one when asked", async () => {
   const { workflow } = await (await send("POST", "/workflows", mika, {
     orgId: ORG, name: "Monday nudge",

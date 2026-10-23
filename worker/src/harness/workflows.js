@@ -208,13 +208,15 @@ export async function updateWorkflow(db, orgId, id, input) {
   }
   const enabled = input.enabled !== undefined ? Boolean(input.enabled) : wf.enabled;
   const next = trigger.type === "schedule" && enabled ? nextRunAt(trigger) : null;
+  // Change the credential with the trigger in one write. Leaving webhook mode
+  // revokes its URL; returning creates a new one instead of reviving old senders.
+  const hookCandidate = trigger.type === "webhook" ? hex(crypto.getRandomValues(new Uint8Array(24))) : null;
   await db
-    .prepare("UPDATE hx_workflows SET name = ?1, enabled = ?2, trigger = ?3, steps = ?4, next_run_at = ?5, updated_at = ?6 WHERE id = ?7 AND org_id = ?8")
-    .bind(name, enabled ? 1 : 0, JSON.stringify(trigger), JSON.stringify(steps), next, now(), id, orgId)
+    .prepare(`UPDATE hx_workflows SET name = ?1, enabled = ?2, trigger = ?3, steps = ?4, next_run_at = ?5, updated_at = ?6,
+      hook_secret = CASE WHEN ?9 IS NULL THEN NULL WHEN json_extract(trigger, '$.type') = 'webhook' THEN COALESCE(hook_secret, ?9) ELSE ?9 END
+      WHERE id = ?7 AND org_id = ?8`)
+    .bind(name, enabled ? 1 : 0, JSON.stringify(trigger), JSON.stringify(steps), next, now(), id, orgId, hookCandidate)
     .run();
-  if (trigger.type === "webhook") {
-    await db.prepare("UPDATE hx_workflows SET hook_secret = COALESCE(hook_secret, ?1) WHERE id = ?2 AND org_id = ?3").bind(hex(crypto.getRandomValues(new Uint8Array(24))), id, orgId).run();
-  }
   return { workflow: await getWorkflow(db, orgId, id, { withSecret: true }) };
 }
 
