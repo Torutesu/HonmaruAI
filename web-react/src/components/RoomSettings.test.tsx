@@ -134,3 +134,25 @@ test('a stalled read body times out and can explicitly reload',async()=>{
   expect(tree.root.findByProps({'aria-label':'Room name'}).props.value).toBe('Planning')
  }finally{if(tree)act(()=>tree.unmount());vi.useRealTimers()}
 })
+
+test('uncertain visual upload reads back the same version and permits a new attempt',async()=>{
+ vi.useFakeTimers()
+ const fetcher=vi.fn().mockResolvedValueOnce(loaded()).mockImplementationOnce(()=>new Promise(()=>{})).mockResolvedValueOnce(loaded()).mockResolvedValueOnce(reply({version:5,hasVisual:true})).mockResolvedValueOnce(loaded({settings:{...settings,version:5},visualVersion:5}))
+ vi.stubGlobal('fetch',fetcher);let tree!:ReturnType<typeof create>
+ const close=vi.fn()
+ try{
+  await act(async()=>{tree=create(<RoomSettings api={api} view="b:room" onClose={close} onSaved={vi.fn()}/>)})
+  const select=()=>tree.root.findByProps({type:'file'}).props.onChange({target:{files:[new File(['image'],'test.png',{type:'image/png'})],value:'test'}})
+  act(()=>select())
+  expect(find(tree,'Cancel').props.disabled).toBe(true)
+  expect(tree.root.findByProps({'aria-label':'Room name'}).props.disabled).toBe(true)
+  act(()=>tree.root.findByType(Dialog).props.onClose());expect(close).not.toHaveBeenCalled()
+  await act(async()=>{await vi.advanceTimersByTimeAsync(15000)})
+  expect(find(tree,'Cancel').props.disabled).toBe(false)
+  await act(async()=>find(tree,'Reload latest settings').props.onClick())
+  expect(tree.root.findAllByProps({role:'alert'})).toHaveLength(0)
+  await act(async()=>select())
+  expect(fetcher.mock.calls.filter(([,options])=>options?.method==='POST')).toHaveLength(2)
+  expect(find(tree,'Cancel').props.disabled).toBe(false)
+ }finally{if(tree)act(()=>tree.unmount());vi.useRealTimers()}
+})

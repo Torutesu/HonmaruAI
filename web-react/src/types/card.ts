@@ -128,6 +128,7 @@ export interface Proposal {
 
 export interface Business {
   managed?: boolean
+  visualVersion?: number
   color?: string
   slug: string
   name: string

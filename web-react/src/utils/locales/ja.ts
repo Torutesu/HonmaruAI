@@ -1,6 +1,17 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Room icon: {color}": "ルームアイコン: {color}",
+  "Room icon: custom visual": "ルームアイコン: カスタムビジュアル",
+  "Upload visual": "ビジュアルをアップロード",
+  "Remove visual": "ビジュアルを削除",
+  "Choose a PNG, JPEG, WebP or GIF up to 2 MB.": "2 MB以下のPNG、JPEG、WebP、GIFを選択してください。",
+  "The visual could not be changed. Reload the latest settings to check.": "画像を変更できませんでした。最新の設定を読み込んで確認してください。",
+  "The save result could not be confirmed. Reload the latest settings to check.": "保存結果を確認できませんでした。最新の設定を読み込んで確認してください。",
+  "Room visual": "ルームのビジュアル",
+  "Save room settings before changing the visual.": "画像を変更する前に、ルーム設定を保存してください。",
+  "Saving visual…": "画像を保存中…",
+
   "Room settings": "ルーム設定",
   "Room icon": "ルームアイコン",
   "Agents respond when mentioned. When off, clear requests can be assigned to an available agent.": "オンの場合、エージェントはメンションされたときに応答します。オフの場合、明確な依頼をこのルームの利用可能なエージェントへ割り当てます。",

@@ -1,3 +1,5 @@
+import {roomVisualState,setRoomVisual} from './roomVisuals.js';
+import {readRoomVisualImage} from './roomVisualImage.js';
 import {roomRoleState} from './roomRoles.js';
 import {managedRoomSettings,saveManagedRoomSettings} from './roomSettings.js';
 import {listBusinesses} from '../db.js';
@@ -99,10 +101,11 @@ export async function handleHarness(request, env, url, context = {}) {
   const limited = await enforce(env, request, isGatewayNodeRoute(url.pathname) ? "gateway/edge" : "team");
   if (limited) return limited;
 
+  const visualRoute = url.pathname === "/hx/rooms/visual";
   const read = request.method === "GET" || request.method === "DELETE";
-  const input = read ? null : await body(request);
-  if (!read && !input) return json({ message: "Invalid JSON body." }, 400);
-  const orgId = read ? url.searchParams.get("orgId") : input.orgId;
+  const input = read || visualRoute ? null : await body(request);
+  if (!read && !visualRoute && !input) return json({ message: "Invalid JSON body." }, 400);
+  const orgId = read || visualRoute ? url.searchParams.get("orgId") : input.orgId;
   const parts = url.pathname.split("/").filter(Boolean);
 
   if (parts[0] === 'gateways') return handleGateways(request, env, url, input);
@@ -134,6 +137,53 @@ export async function handleHarness(request, env, url, context = {}) {
     const r = await personalViews(env.DB,orgId,me,parts[2],request.method === 'PUT' ? input : undefined);
     return r.error ? fail(r) : json(r);
   }
+  if(visualRoute) {
+    if(!['GET','POST','DELETE'].includes(request.method))return json({message:'Method not allowed.'},405);
+    const channel=url.searchParams.get('channel');
+    const room=await resolveChannel(env.DB,orgId,who.user,channel);
+    if(!room||room.kind!=='business')return json({message:'No such room.'},404);
+    if(request.method==='GET') {
+      const state=await roomRoleState(env.DB,orgId,room.key);
+      if(!state?.managed)return json({message:'No such active managed room.'},404);
+      const visual=await env.DB.prepare('SELECT object_key,content_type FROM hx_room_visuals WHERE org_id=?1 AND channel=?2').bind(orgId,room.key).first();
+      if(!visual)return json({message:'No room visual.'},404);
+      const object=await env.MEDIA.get(visual.object_key);
+      if(!object)return json({message:'No room visual.'},404);
+      // Storage may take time. Revalidate membership/access after fetching it.
+      const again=await member(env,request,orgId);
+      if(again.denied)return again.denied;
+      const currentRoom=await resolveChannel(env.DB,orgId,again.user,channel);
+      const current=await roomRoleState(env.DB,orgId,room.key);
+      if(!currentRoom||!current?.managed||current.version!==state.version)return json({message:'Room access or visual changed. Reload.'},409);
+      return new Response(object.body,{headers:{...CORS_HEADERS,'content-type':visual.content_type,'x-content-type-options':'nosniff','cache-control':'private, no-store','vary':'x-session-token'}});
+    }
+    const version=Number(url.searchParams.get('version'));
+    if(!Number.isSafeInteger(version)||version<1)return json({message:'A current room version is required.'},400);
+    const check=await roomVisualState(env.DB,orgId,room.key,me);
+    if(check.error)return fail(check);
+    if(check.version!==version)return json({message:'Room settings changed. Reload before saving.'},409);
+    let objectKey=null,contentType=null;
+    if(request.method==='POST') {
+      const image=await readRoomVisualImage(request);
+      if(image.error)return fail(image);
+      objectKey=`room-visual-${crypto.randomUUID()}`;contentType=image.contentType;
+      await env.MEDIA.put(objectKey,image.bytes,{httpMetadata:{contentType}});
+    }
+    let result;
+    try {result=await setRoomVisual(env.DB,orgId,room.key,me,{version,objectKey,contentType});}
+    catch(error) {
+      // A storage error can have an uncertain commit outcome. Never delete
+      // bytes still referenced by a committed pointer.
+      if(objectKey)try {const used=await env.DB.prepare('SELECT 1 FROM hx_room_visuals WHERE object_key=?1').bind(objectKey).first();if(!used)await env.MEDIA.delete(objectKey);}catch {}
+      throw error;
+    }
+    if(result.error){if(objectKey)await env.MEDIA.delete(objectKey).catch(()=>{});return fail(result);}
+    if(result.previous&&result.previous!==objectKey)await env.MEDIA.delete(result.previous).catch(()=>{});
+    await audit(env,request,{orgId,action:'room.visual_changed',actor:person(who.user),entity:{type:'channel',id:room.key},details:{version:result.version,picture:objectKey?'set':'removed'}});
+    const members=await memoryMembers(env.DB,orgId,me);
+    await announceTo(env,orgId,await Promise.all(members.map(async m=>({to:m.login,event:appActivityEvent('businesses',{businesses:await listBusinesses(env.DB,orgId,{viewer:m.login})})}))));
+    return json({version:result.version,hasVisual:!!objectKey});
+  }
   if(url.pathname==='/hx/rooms/settings') {
     if(!['GET','PUT'].includes(request.method))return json({message:'Method not allowed.'},405);
     const channel=request.method==='GET'?url.searchParams.get('channel'):input.channel;
@@ -143,7 +193,8 @@ export async function handleHarness(request, env, url, context = {}) {
     if(request.method==='GET'){
       const result=await managedRoomSettings(env.DB,orgId,room.key,me);
       if(result.error)return fail(result);
-      return json({settings:result.settings,canEdit:result.canEdit,canChangeResponses:result.canEdit&&canChangeResponses});
+      const visual=await env.DB.prepare('SELECT 1 FROM hx_room_visuals WHERE org_id=?1 AND channel=?2').bind(orgId,room.key).first();
+      return json({settings:result.settings,canEdit:result.canEdit,canChangeResponses:result.canEdit&&canChangeResponses,...(visual?{visualVersion:result.settings.version}:{})});
     }
     const result=await saveManagedRoomSettings(env.DB,orgId,room.key,me,input,{canChangeResponses});
     if(result.error)return fail(result);

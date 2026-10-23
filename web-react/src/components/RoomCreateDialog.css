@@ -21,3 +21,6 @@
 .room-create-visibility strong{line-height:1.2}.room-create-visibility small{line-height:1.25}
 
 .room-create-colors>button[aria-pressed=true]{border-color:var(--dlg-dim);box-shadow:0 0 0 2px var(--dlg-bg) inset}
+
+.room-create-colors>.room-visual-action{grid-column:1/-1;width:auto;height:auto;min-height:32px;padding:6px 8px;background:transparent;color:var(--dlg-ink);font:inherit;font-size:12px;border:0;border-top:1px solid var(--dlg-line);border-radius:0;text-align:left}
+.room-create-colors>.room-visual-action:disabled{opacity:.5;cursor:default}

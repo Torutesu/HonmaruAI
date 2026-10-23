@@ -1,6 +1,6 @@
 import React,{useCallback,useEffect,useRef,useState} from 'react'
 import {Dialog} from './Dialog'
-import {RoomColorPicker} from './RoomColorPicker'
+import {RoomVisualEditor} from './RoomVisualEditor'
 import {ROOM_COLORS} from '../utils/roomColors'
 import {useT} from '../utils/i18n'
 import './RoomSettings.css'
@@ -10,9 +10,11 @@ async function boundedRequest<T>(work:(signal:AbortSignal)=>Promise<T>):Promise<
  finally{clearTimeout(timer)}
 }
 export interface RoomSettingsValue {name:string;color:keyof typeof ROOM_COLORS;mentionedOnly:boolean;version:number;responseVersion:number}
-interface Loaded {settings:RoomSettingsValue;canEdit:boolean;canChangeResponses:boolean}
+interface Loaded {visualVersion?:number;settings:RoomSettingsValue;canEdit:boolean;canChangeResponses:boolean}
 export function RoomSettings({api,view,onClose,onSaved}:{api:{httpBase:string;orgId:string;sessionToken:string};view:string;onClose:()=>void;onSaved:()=>void}){
  const t=useT(),[data,setData]=useState<Loaded|null>(null),[draft,setDraft]=useState<RoomSettingsValue|null>(null)
+ const [visualBusy,setVisualBusy]=useState(false)
+ const visualScope=JSON.stringify([api.httpBase,api.orgId,api.sessionToken,view]),currentVisualScope=useRef(visualScope);currentVisualScope.current=visualScope
  const [loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[conflict,setConflict]=useState(false)
  const scope=useRef(0),reads=useRef(0),pending=useRef(false)
  const load=useCallback(async()=>{
@@ -29,10 +31,10 @@ export function RoomSettings({api,view,onClose,onSaved}:{api:{httpBase:string;or
   }catch(e){if(generation===scope.current&&read===reads.current){setData(null);setError(e instanceof Error?e.message:String(e))}}
   finally{if(generation===scope.current&&read===reads.current)setLoading(false)}
  },[api.httpBase,api.orgId,api.sessionToken,view])
- useEffect(()=>{scope.current++;pending.current=false;setBusy(false);setData(null);setDraft(null);void load();return()=>{scope.current++;reads.current++}},[load])
+ useEffect(()=>{scope.current++;pending.current=false;setBusy(false);setVisualBusy(false);setData(null);setDraft(null);void load();return()=>{scope.current++;reads.current++}},[load])
  const changed=!!data&&!!draft&&(draft.name.trim()!==data.settings.name||draft.color!==data.settings.color||draft.mentionedOnly!==data.settings.mentionedOnly)
  const save=async()=>{
-  if(pending.current||!data?.canEdit||!draft||!draft.name.trim()||!changed||conflict||loading)return
+  if(visualBusy||pending.current||!data?.canEdit||!draft||!draft.name.trim()||!changed||conflict||loading)return
   pending.current=true;setBusy(true);setError('');const generation=scope.current;let confirmed=false
   try{
    const {response,result}=await boundedRequest(async signal=>{
@@ -45,12 +47,12 @@ export function RoomSettings({api,view,onClose,onSaved}:{api:{httpBase:string;or
   }catch(e){if(generation===scope.current){if(!confirmed){setConflict(true);setError('保存結果を確認できませんでした。入力内容は保持しています。最新の設定を読み込み、保存済みか確認してください。')}else setError(e instanceof Error?e.message:String(e))}}
   finally{if(generation===scope.current){pending.current=false;setBusy(false)}}
  }
- const disabled=busy||loading||!data?.canEdit||conflict
- return <Dialog className="room-settings" title={t('Room settings')} onClose={()=>{if(!pending.current)onClose()}}
-  footer={<><button className="dlg-btn" disabled={busy} onClick={onClose}>{t('Cancel')}</button><button className="dlg-btn primary" disabled={disabled||!draft?.name.trim()||!changed} onClick={()=>void save()}>{t(busy?'Saving…':'Save')}</button></>}>
+ const disabled=visualBusy||busy||loading||!data?.canEdit||conflict
+ return <Dialog className="room-settings" title={t('Room settings')} onClose={()=>{if(!pending.current&&!visualBusy)onClose()}}
+  footer={<><button className="dlg-btn" disabled={busy||visualBusy} onClick={onClose}>{t('Cancel')}</button><button className="dlg-btn primary" disabled={disabled||!draft?.name.trim()||!changed} onClick={()=>void save()}>{t(busy?'Saving…':'Save')}</button></>}>
   {loading&&<p role="status">{t('Loading…')}</p>}
   {draft&&<>
-   <div className="room-settings-field"><span className="dlg-label">{t('Room icon')}</span><RoomColorPicker color={draft.color} disabled={disabled} onChange={color=>setDraft({...draft,color})}/></div>
+   <div className="room-settings-field"><span className="dlg-label">{t('Room icon')}</span><RoomVisualEditor key={`${api.httpBase}:${api.orgId}:${api.sessionToken}:${view}:${data?.settings.version}:${reads.current}`} api={api} channel={view} version={data?.settings.version||0} visualVersion={data?.visualVersion} color={draft.color} disabled={disabled} dirty={changed} onColor={color=>setDraft({...draft,color})} onBusy={value=>{if(currentVisualScope.current===visualScope)setVisualBusy(value)}} onChanged={()=>{if(currentVisualScope.current===visualScope){onSaved();void load()}}}/></div>
    <label className="room-settings-field"><span className="dlg-label">{t('Room name')}</span><input className="dlg-input" aria-label={t('Room name')} value={draft.name} maxLength={120} disabled={disabled} onChange={e=>setDraft({...draft,name:e.target.value})}/></label>
    <section className="room-settings-response" aria-label={t('How agents respond')}><h3>{t('How agents respond')}</h3>
     <div className="room-settings-response-card"><label><span>{t('Mentioned only')}</span><input type="checkbox" role="switch" checked={draft.mentionedOnly} disabled={disabled||!data?.canChangeResponses} onChange={e=>setDraft({...draft,mentionedOnly:e.target.checked})}/></label>

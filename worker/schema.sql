@@ -2045,3 +2045,6 @@ CREATE TABLE IF NOT EXISTS hx_room_roles (org_id TEXT NOT NULL, channel TEXT NOT
 CREATE TABLE IF NOT EXISTS hx_room_creations (org_id TEXT NOT NULL, user_id TEXT NOT NULL, request_id TEXT NOT NULL, channel TEXT NOT NULL, fingerprint TEXT NOT NULL, member_since TEXT NOT NULL, nonce TEXT NOT NULL, color TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(org_id,user_id,request_id), UNIQUE(org_id,channel));
 
 CREATE TABLE IF NOT EXISTS hx_room_appearance (org_id TEXT NOT NULL, channel TEXT NOT NULL, color TEXT NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,channel));
+
+/* Private room visual metadata. Bytes require room ACL checks. */
+CREATE TABLE IF NOT EXISTS hx_room_visuals (org_id TEXT NOT NULL, channel TEXT NOT NULL, object_key TEXT NOT NULL, content_type TEXT NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,channel));

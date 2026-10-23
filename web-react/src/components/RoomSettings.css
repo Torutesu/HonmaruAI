@@ -19,3 +19,6 @@ html[data-theme=dark] .room-settings .dlg-error{color:#ff8b8b}
 .room-settings-response label{font-weight:600}
 .room-settings-response input:checked{background:var(--hx-accent)}
 .room-settings-response input:checked:before{background:var(--hx-surface)}
+
+.room-visual{display:block;width:100%;height:100%;object-fit:cover;border-radius:inherit}
+.room-settings .room-create-color{padding:0;overflow:hidden}

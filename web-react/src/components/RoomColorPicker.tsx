@@ -4,7 +4,7 @@ import {useT} from '../utils/i18n'
 import {composing} from '../utils/keys'
 import {ROOM_COLORS,ROOM_COLOR_OPTIONS} from '../utils/roomColors'
 import './RoomCreateDialog.css'
-export function RoomColorPicker({color,onChange,disabled=false}:{color:keyof typeof ROOM_COLORS;onChange:(color:keyof typeof ROOM_COLORS)=>void;disabled?:boolean}){
+export function RoomColorPicker({color,onChange,disabled=false,visual,onUpload,onRemove,visualDisabled=false}:{visual?:React.ReactNode;onUpload?:()=>void;onRemove?:()=>void;visualDisabled?:boolean;color:keyof typeof ROOM_COLORS;onChange:(color:keyof typeof ROOM_COLORS)=>void;disabled?:boolean}){
  const t=useT(),[open,setOpen]=useState(false),button=useRef<HTMLButtonElement>(null),wrap=useRef<HTMLDivElement>(null)
  useEffect(()=>{
   if(!open||typeof window==='undefined')return
@@ -15,9 +15,9 @@ export function RoomColorPicker({color,onChange,disabled=false}:{color:keyof typ
  },[open])
  useEffect(()=>{if(disabled)setOpen(false)},[disabled])
  return <div ref={wrap} className="room-create-color-wrap"><button ref={button} type="button" className="room-create-color" disabled={disabled}
-  aria-label={t('Room color: {color}',{color:t(ROOM_COLOR_OPTIONS.find(([id])=>id===color)?.[1]||color)})} aria-expanded={open}
-  onClick={()=>setOpen(v=>!v)} style={{'--room-color':ROOM_COLORS[color]} as React.CSSProperties}><Icon name="room" size={18}/></button>
+  aria-label={visual?t('Room icon: custom visual'):t('Room icon: {color}',{color:t(ROOM_COLOR_OPTIONS.find(([id])=>id===color)?.[1]||color)})} aria-expanded={open}
+  onClick={()=>setOpen(v=>!v)} style={{'--room-color':ROOM_COLORS[color]} as React.CSSProperties}>{visual||<Icon name="room" size={18}/>}</button>
   {open&&!disabled&&<div className="room-create-colors" role="group" aria-label={t('Room color')}>{ROOM_COLOR_OPTIONS.map(([id,label])=><button key={id} type="button" aria-label={t(label)} title={t(label)} aria-pressed={id===color} style={{'--room-color':ROOM_COLORS[id]} as React.CSSProperties}
-   onClick={()=>{onChange(id);setOpen(false);button.current?.focus()}}><Icon name="room" size={14}/></button>)}</div>}
+   onClick={()=>{onChange(id);setOpen(false);button.current?.focus()}}><Icon name="room" size={14}/></button>)}{onUpload&&<button type="button" className="room-visual-action" disabled={visualDisabled} onClick={()=>{setOpen(false);onUpload()}}>{t('Upload visual')}</button>}{onRemove&&<button type="button" className="room-visual-action" disabled={visualDisabled} onClick={()=>{setOpen(false);onRemove()}}>{t('Remove visual')}</button>}</div>}
  </div>
 }
