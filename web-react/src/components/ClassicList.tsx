@@ -5016,7 +5016,7 @@ export const ClassicList: React.FC<Props> = ({
     rowsKept.current = { view: thread.view, said, cards: thread.cards, since, out }
     const waitingHere = thread.cards.filter(isUnread).length
     const startingThread=harness && newThreadMode.enabled && !resourceBuild
-    const placeholder = startingThread ? t('Start a new thread') : thread.kind === 'channel'
+    const placeholder = startingThread ? t('Start a new thread') : harness ? t('Type a message…') : thread.kind === 'channel'
       ? t('Message #{name} — @AI to ask the AI', { name: thread.name })
       : thread.kind === 'agent'
         ? t('Message {name}', { name: thread.name })
@@ -5452,11 +5452,11 @@ export const ClassicList: React.FC<Props> = ({
                 canDecide={!resourceBuilding && !uploads.busy && !!draft.trim()} canSchedule={!resourceBuilding && !uploads.busy && !!draft.trim() && !draft.trim().startsWith('/')}>
                 <FormatBar target={composer} value={draft} set={setDraft}/>
               </HarnessComposerMenu> : <FormatBar target={composer} value={draft} set={setDraft} />}
+              {harness && !resourceBuild && <button type="button" className="hx-new-thread" aria-pressed={startingThread} aria-label={t(startingThread?'Exit new thread mode':'New thread')} onClick={()=>{newThreadMode.toggle();composer.current?.focus()}}><Icon name="thread-new" size={16}/>{startingThread && <span>{t('New thread')}</span>}</button>}
               <span className="slk-composer-hint">{t('Enter to send · @AI to ask · ✦ makes it a decision · / for commands')}</span>
               {!harness && <button type="button" className="slk-send ai" disabled={!draft.trim()} onClick={() => void send(thread.view!, true)} aria-label={t('Send as a decision')} title={t('Send as a decision')}>
                 <Icon name="sparkle" size={15} /><span className="slk-send-label">{t('Send as a decision')}</span>
               </button>}
-              {harness && !resourceBuild && <button type="button" className="hx-new-thread" aria-pressed={startingThread} aria-label={t(startingThread?'Exit new thread mode':'New thread')} onClick={()=>{newThreadMode.toggle();composer.current?.focus()}}><Icon name="compose" size={15}/><span>{t('New thread')}</span></button>}
               {harness && <HarnessDictation key={`${api.orgId}:${userId}:${thread.view}`} value={draft} onChange={setDraft} locale={locale} disabled={resourceBuilding || uploads.busy}/>}
               <span className="slk-send-group">
                 <button type="submit" className="slk-send" disabled={resourceBuilding || uploads.busy || (!draft.trim() && !uploads.ids.length)} aria-label={t(startingThread?'Start a new thread':'Send')}>

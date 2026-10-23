@@ -1576,3 +1576,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 production Webhook light theme
 - Native Honmaru1.3.12: changed original System theme to Light in profile, opened QA room settings → advanced → manage. Empty list loaded; input, labels, dividers and disabled create button rendered without clipping. Screenshot /tmp/honmaru-webhook-light-20261023.png. No credential created. Closed child then parent and restored System (AX selected=1) after inspection.
 - Exact 9e71d4c6 CI jobs: gateway, desktop, relay, web, shared/mobile and E2E successful; Worker test in progress. Worker deploy also in Test; Web deploy waiting for matching Worker. These are live waits, not a deployment failure.
+
+### 2026-10-23 composer visual reference correction
+- Re-inspected actual Kylon native screenshot: new-thread control sits immediately after plus, icon-only when inactive; label appears only while active. Replaced edit-pencil icon with branching-lines icon, moved control left, made label conditional, and matched Harness ordinary placeholder. Simple remains unchanged. Reference toggle restored inactive; no messages sent.
+- Web147 files/1014 tests, TypeScript and Vite build passed. Honmaru rendered comparison remains pending deployment.
