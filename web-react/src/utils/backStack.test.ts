@@ -23,6 +23,16 @@ function browser(start = '#/list') {
 }
 
 describe('Back in the list', () => {
+  it('switches thread URLs at the same pane depth and closes Back on the new thread',()=>{
+    const b=browser('#/list'),stack=new BackStack(b,()=>b.hash)
+    stack.sync(1)
+    b.replaceAddress('#/t/first/team%3Aone');stack.sync(2)
+    b.replaceAddress('#/t/second/team%3Aone');stack.sync(2)
+    b.back();expect(stack.popped(b.take()[0])).toBe(1)
+    b.replaceAddress('#/list');stack.sync(1)
+    expect(b.take()).toEqual([]);expect(b.hash).toBe('#/list')
+  })
+
   it('closing an object URL does not traverse back into that object through inherited depth markers', () => {
     const b = browser('#/t/file-thread-f_123')
     const stack = new BackStack(b, () => b.hash)

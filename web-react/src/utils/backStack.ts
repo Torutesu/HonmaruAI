@@ -83,7 +83,8 @@ export function useBackStack(layers: Array<[boolean, () => void]>): void {
   const latest = useRef(layers)
   latest.current = layers
   const depth = layers.filter(([open]) => open).length
-  useEffect(() => { stack.current?.sync(depth) }, [depth])
+  const address = typeof window !== 'undefined' ? window.location.hash : ''
+  useEffect(() => { stack.current?.sync(depth) }, [depth, address])
   useEffect(() => {
     const onPop = (e: PopStateEvent) => {
       let n = stack.current?.popped(e.state) ?? 0

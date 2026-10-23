@@ -32,7 +32,7 @@ import { BookmarksBar } from './BookmarksBar'
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { awaitsPost } from '../utils/automation'
-import { hashForMessage, hashForThread, hashForView, hashForApp } from '../utils/route'
+import { parseRoute, hashForMessage, hashForThread, hashForView, hashForApp } from '../utils/route'
 import type {FileConversationRequest} from '../utils/fileConversation'
 import { RowMenu } from './RowMenu'
 import { SidebarSection } from './SidebarSection'
@@ -3124,6 +3124,11 @@ export const ClassicList: React.FC<Props> = ({
     const kept = views.get<ChannelMessage[]>(`thread:${channel}:${m.id}`) || []
     const before = new Set([...kept, ...(thread?.parent.id === m.id ? thread.replies : [])].map((r) => r.id))
     setThread((prev) => ({ channel, parent: m, replies: prev && prev.parent.id === m.id ? keepTemps(kept, prev.replies) : kept, loading: true }))
+    // Preserve the object destination for reload, without replacing a newer route.
+    if(harness && (location.hash==='#/list' || (thread && location.hash===hashForThread(thread.parent.id,api.orgId)))){
+      history.replaceState(history.state,'',hashForThread(m.id,api.orgId))
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    }
     const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(m.id)}`, { headers: authHeaders }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) : null
     if (ask !== threadAsk.current) return
@@ -3299,6 +3304,7 @@ export const ClassicList: React.FC<Props> = ({
   // invalidates the request, including when the directory is still loading.
   useEffect(()=>{
     if(!linkedThreadId)return
+    if(harness && thread?.parent.id===linkedThreadId){linkedRoute.current=location.hash;return}
     const intent=++linkedIntent.current,client=resourceClient,originalHash=location.hash,controller=new AbortController()
     linkedRoute.current=originalHash
     const currentRequest=()=>linkedIntent.current===intent && resourceClientNow.current===client && location.hash===originalHash
@@ -3549,28 +3555,29 @@ export const ClassicList: React.FC<Props> = ({
     pendingLinkedThread.current=null;linkedIntent.current++
     const root=messagesRef.current[pending.view]?.find(message=>message.id===pending.id)||{id:pending.id,channel:pending.view,kind:'message',body:'',createdAt:''} as ChannelMessage
     setSide(null);void openThread(pending.view,root)
-    // A file's conversation is an object destination: retain its URL while
-    // it is open so a reload restores that same conversation.
-    if(!pending.id.startsWith('file-thread-f_')){
+    // Harness conversations and file conversations retain their object URL
+    // so a reload restores that same conversation.
+    if(!harness && !pending.id.startsWith('file-thread-f_')){
       linkedRoute.current=null
       history.replaceState(history.state,'','#/list');window.dispatchEvent(new HashChangeEvent('hashchange'))
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[linkedThreadId,current?.key,everything,tick])
-  const displayedFileRoute=useRef<string|null>(null)
+  const displayedThreadRoute=useRef<string|null>(null)
   useEffect(()=>{
-    if(thread?.parent.id.startsWith('file-thread-f_')){
-      displayedFileRoute.current=location.hash===hashForThread(thread.parent.id,api.orgId)?location.hash:null
+    if(thread && (harness || thread.parent.id.startsWith('file-thread-f_'))){
+      const route=parseRoute(location.hash)
+      displayedThreadRoute.current=route.threadId===thread.parent.id && (!route.threadOrg || route.threadOrg===api.orgId)?location.hash:null
       return
     }
     // Close, Escape, Back, and opening another thread all consume the old
     // object URL, without overwriting a newer navigation.
-    if(displayedFileRoute.current && location.hash===displayedFileRoute.current){
+    if(displayedThreadRoute.current && location.hash===displayedThreadRoute.current){
       linkedRoute.current=null
       history.replaceState(history.state,'','#/list');window.dispatchEvent(new HashChangeEvent('hashchange'))
     }
-    displayedFileRoute.current=null
-  },[thread?.parent.id,api.orgId])
+    displayedThreadRoute.current=null
+  },[thread?.parent.id,api.orgId,harness])
   // A card stands beside something in the conversation that was left.
   useEffect(() => { setPopout(null) }, [current?.key])
   // Back closes what was opened last, not the list (utils/backStack): on a
