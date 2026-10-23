@@ -530,8 +530,10 @@ export function forChat(text) {
 export async function respondingAgents(db, { orgId, login, resolved, row }) {
   const here = await agentsHere(db, orgId, login, resolved.key);
   let agents = agentsCalled(row.body, here);
-  // Who was asked by name, or by talking to them: an agent that speaks
-  // only when named stays out of a thread it would merely be continuing.
+  // Who was asked by name, or by talking to them in their own
+  // conversation. In a thread an agent answered, a reply that does not name
+  // it is to the people there: it answered every follow-up of the person who
+  // called it, and was in the way of everyone talking about its answer.
   const named = new Set(agents.map((a) => a.id));
   if (resolved.kind === "agent") named.add(resolved.agent.id);
   if (resolved.kind === "agent" && !agents.some((a) => a.id === resolved.agent.id)) {
@@ -539,10 +541,6 @@ export async function respondingAgents(db, { orgId, login, resolved, row }) {
     if (own) agents = [own, ...agents].slice(0, MAX_CALLED);
   }
   const mentionedOnly = resolved.kind === "business" && (await roomResponses(db, orgId, resolved.key)).mentionedOnly;
-  if (!mentionedOnly && !agents.length && row.parent_id && resolved.kind !== "agent" && !mentionTokens(callingText(row.body)).length) {
-    const going = await continuingAgent(db, { orgId, key: resolved.key, row, login, here });
-    if (going) agents = [going];
-  }
   // As each agent's profile allows (harness/agents.js): who may call it,
   // and whether it waits to be named.
   const harness = (await getMode(db, orgId)) === "harness";
@@ -557,28 +555,6 @@ export async function respondingAgents(db, { orgId, login, resolved, row }) {
   const eligible = await filterResponders(db, orgId, login, members, { named: new Set(), channel: resolved.key });
   const routed = chooseRoomAgent(callingText(row.body), eligible, await profilesFor(db, orgId, eligible.map(agent => agent.id)));
   return routed ? [routed] : [];
-}
-
-/// The agent a thread is talking with, for this person: the one that
-/// answered last there, when the last person to speak before that answer
-/// — the one who called it — is this person.
-async function continuingAgent(db, { orgId, key, row, login, here }) {
-  const { results } = await db.prepare(
-    `SELECT id, author_login, kind FROM channel_messages
-      WHERE org_id = ?1 AND channel = ?2 AND (id = ?3 OR parent_id = ?3) AND id != ?4 AND deleted_at IS NULL AND created_at <= ?5
-      ORDER BY created_at ASC, rowid ASC`
-  ).bind(orgId, key, row.parent_id, row.id, row.created_at).all().catch(() => ({ results: [] }));
-  const list = results || [];
-  const isAgent = (m) => String(m.author_login || "").startsWith("agent:");
-  let last = -1;
-  for (let i = list.length - 1; i >= 0; i -= 1) if (isAgent(list[i])) { last = i; break; }
-  if (last < 0) return null;
-  let caller = null;
-  for (let i = last - 1; i >= 0; i -= 1) {
-    if (!isAgent(list[i]) && list[i].author_login && list[i].kind === "message") { caller = list[i].author_login; break; }
-  }
-  if (caller !== login) return null;
-  return here.find((a) => `agent:${a.id}` === list[last].author_login) || null;
 }
 
 /// The conversation an agent reads: what was said up to the message that

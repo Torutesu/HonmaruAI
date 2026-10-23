@@ -284,7 +284,7 @@ test('profile dialog updates identity and profile together while preserving inst
   expect((await (await get(`${path}?${q({ orgId: ORG })}`, mika)).json()).profile).toMatchObject({ specialty: 'Accounting', tier: 'max' });
   expect((await send('PUT', path, kenji, { orgId: ORG, name: 'Unauthorized' })).status).toBe(403);
 });
-test('room mentioned-only policy blocks continuation, retains explicit mentions and does not change agent DMs', async () => {
+test('a thread reply that does not name the agent gets no answer, with or without the room policy; explicit mentions and agent DMs still answer', async () => {
   const { respondingAgents } = await import('../src/customAgents.js');
   const { saveRoomResponses } = await import('../src/harness/roomResponses.js');
   await env.DB.prepare("INSERT INTO channel_agents (org_id, channel, agent_id, added_by, added_at) VALUES (?1, 'b:ops', ?2, 'mika', ?3)").bind(ORG, agentId, new Date().toISOString()).run();
@@ -295,7 +295,7 @@ test('room mentioned-only policy blocks continuation, retains explicit mentions 
   ]) await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, body, parent_id, created_at) VALUES (?1, ?2, 'b:ops', ?3, ?4, ?5, ?6)").bind(id, ORG, author, body, parent, at).run();
   const row = await env.DB.prepare("SELECT * FROM channel_messages WHERE id = 'follow-response'").first();
   const args = { orgId: ORG, login: 'mika', resolved: { kind: 'business', key: 'b:ops' }, row };
-  expect((await respondingAgents(env.DB, args)).map(x => x.id)).toEqual([agentId]);
+  expect(await respondingAgents(env.DB, args)).toEqual([]);
   await saveRoomResponses(env.DB, ORG, 'b:ops', { mentionedOnly: true, version: 0 }, 'mika');
   expect(await respondingAgents(env.DB, args)).toEqual([]);
   const { runQueuedAgents } = await import('../src/agentRunner.js');
