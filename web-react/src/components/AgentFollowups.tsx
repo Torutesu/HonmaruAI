@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { harnessApi, type Followup } from '../utils/harness'
 import { useT } from '../utils/i18n'
+import { hashForThread } from '../utils/route'
 
 export function AgentFollowups({ api, agentId }: { api: ReturnType<typeof harnessApi>; agentId: string }) {
   const t = useT()
@@ -31,6 +32,7 @@ export function AgentFollowups({ api, agentId }: { api: ReturnType<typeof harnes
     {items?.length === 0 && <p className="row-sub">{t('No follow-ups with this status.')}</p>}
     <div className="rows">{items?.map(item => <div key={item.id} className="row static">
       <div className="row-main">{item.instruction}<span className="row-sub">{item.channel.replace(/^b:/, '#')} · {new Date(item.dueAt).toLocaleString()} · {t(labels[item.status] || item.status)}</span>
+        {item.threadId && <a className="btn-text" href={hashForThread(item.threadId, api.orgId)}>{t('View conversation')}</a>}
         {item.result && <details className="hx-run-detail"><summary>{t(item.status === 'failed' ? 'Error' : 'Output')}</summary><pre>{item.result}</pre>{item.doneAt && <time dateTime={item.doneAt}>{new Date(item.doneAt).toLocaleString()}</time>}</details>}
       </div>
       {item.status === 'scheduled' && <button className="btn-text" disabled={busy} onClick={async () => {

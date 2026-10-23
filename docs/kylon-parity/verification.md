@@ -1860,3 +1860,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - Current Worker run18754 completed success:217 files/1723 tests,607.95s (/tmp/honmaru-worker-history-final-full.log). Worker sources remained unchanged throughout this run.
 - Added a delayed additional-page/status-switch regression; all5 AgentFollowups tests pass (/tmp/honmaru-history-status-race.log). Old scheduled results and cursors cannot overwrite the newly selected failed history. This is behavior coverage, not native visual fidelity proof.
 - Preparing corrected frontend/paged-history publication after prior jobs terminated. Final source TypeScript/Vite and version/parity checks pass; native confirmation remains pending.
+
+### 2026-10-24 corrected history release and source conversation links
+- Pushedd2036da7 to main. Deploy Web39977408841, CI39977408288 and Deploy Worker39977408079 are confirmed in_progress. No publication success claimed yet.
+- Added View conversation to follow-up history when the stored threadId exists, using the owning API workspace and the shared thread-route encoder. Threadless records show no invented destination. Six follow-up UI tests, TypeScript and Vite pass (/tmp/honmaru-followup-thread-{links,types,build}.log). Link regression verifies workspace scope and reserved-character encoding. This follow-up remains local until current deployment jobs finish; native verification is pending.

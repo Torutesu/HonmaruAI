@@ -76,3 +76,15 @@ test('a pending additional page cannot leak into a newly selected status', async
  expect(tree.root.findAllByType('button').some(b => b.children.includes('Load more'))).toBe(false)
  expect(api.followupHistory).toHaveBeenLastCalledWith('agent', 'failed')
 })
+
+test('history links to its source thread in the owning workspace only when one exists', async () => {
+ const api = { orgId: 'team:acme', followupHistory: vi.fn().mockResolvedValue({ followups: [
+  { ...item, threadId: 'source/thread' }, { ...item, id: 'no-thread', threadId: null }
+ ], nextCursor: null }), cancelFollowup: vi.fn() }
+ await act(async () => { tree = create(<AgentFollowups api={api as any} agentId="agent" />) })
+ const links = tree.root.findAllByType('a')
+ expect(links).toHaveLength(1)
+ expect(links[0].children).toEqual(['View conversation'])
+ expect(links[0].props.href).toBe('#/t/source%2Fthread/team%3Aacme')
+ expect(api.cancelFollowup).not.toHaveBeenCalled()
+})
