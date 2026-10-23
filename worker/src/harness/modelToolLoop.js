@@ -42,7 +42,20 @@ export async function completeWithTools({ provider, system, user, tools = {}, fa
         try {
           const args = JSON.parse(call.function?.arguments || '{}');
           if (tool && args && typeof args === 'object' && !Array.isArray(args)) {
-            const value = await tool.run(args);
+            const toolRemaining = deadline - Date.now();
+            if (toolRemaining <= 0) return null;
+            const expired = Symbol('tool deadline');
+            let timer;
+            let value;
+            try {
+              value = await Promise.race([
+                Promise.resolve().then(() => tool.run(args)),
+                new Promise(resolve => { timer = setTimeout(() => resolve(expired), toolRemaining); }),
+              ]);
+            } finally { clearTimeout(timer); }
+            // A timeout does not prove the underlying operation stopped. Do
+            // not retry it or ask the model to claim an outcome we did not read.
+            if (value === expired || Date.now() >= deadline) return null;
             output = typeof value === 'string' ? value : JSON.stringify(value) ?? '';
           }
         } catch { output = 'Tool could not be read. Do not assume its contents.'; }

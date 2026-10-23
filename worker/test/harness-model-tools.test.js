@@ -33,3 +33,12 @@ test('tool rounds are bounded and final completion cannot execute another call',
  expect(await completeWithTools({...opts,tools:read(run)})).toBe('Final');
  expect(rounds).toBe(4);expect(run).toHaveBeenCalledTimes(3);
 });
+
+test('an unresponsive tool exhausts the execution deadline without a retry or fabricated result',async()=>{
+ const opts=options(),run=vi.fn(()=>new Promise(()=>{}));
+ opts.provider.endpoint='https://deadline.example/chat';
+ fetchMock.get('https://deadline.example').intercept({path:'/chat',method:'POST'}).reply(200,{choices:[{message:{tool_calls:[call('stalled')]}}]});
+ expect(await completeWithTools({...opts,timeoutMs:50,tools:read(run)})).toBeNull();
+ expect(run).toHaveBeenCalledTimes(1);
+ expect(opts.onUsage).toHaveBeenCalledTimes(1);
+});
