@@ -130,3 +130,31 @@ test('a late detail response from the previous account cannot reopen its secret 
   expect(JSON.stringify(tree.toJSON())).not.toContain(workflow.hookUrl)
   expect(button('Revoke webhook')).toBeUndefined()
 })
+test.each(['resolve', 'reject'] as const)('an older detail request cannot replace the latest selection when it %ss late', async outcome => {
+  const second = { ...workflow, id: 'wf_two', name: 'Current selection', hookUrl: 'https://example.test/current' }
+  state.api.workflows.mockResolvedValue({ workflows: [workflow, second] })
+  let resolve!: (value: any) => void, reject!: (error: Error) => void
+  state.api.workflow.mockImplementation((id: string) => id === workflow.id
+    ? new Promise((yes, no) => { resolve = yes; reject = no })
+    : Promise.resolve({ workflow: second, runs: [], canEdit: true }))
+  await act(async () => { tree = create(<HarnessWorkflows {...props} />) })
+  await act(async () => { tree.root.findByProps({ 'data-workflow': workflow.id }).props.onClick() })
+  await act(async () => { await tree.root.findByProps({ 'data-workflow': second.id }).props.onClick() })
+  await act(async () => {
+    if (outcome === 'resolve') resolve({ workflow, runs: [], canEdit: true })
+    else reject(new Error('Stale detail failure'))
+  })
+  expect(JSON.stringify(tree.toJSON())).toContain(second.hookUrl)
+  expect(JSON.stringify(tree.toJSON())).not.toContain(workflow.hookUrl)
+  expect(JSON.stringify(tree.toJSON())).not.toContain('Stale detail failure')
+})
+test('finishing a manual run after returning to the list does not reopen its detail', async () => {
+  let finish!: (value: any) => void
+  state.api.runWorkflow = vi.fn().mockReturnValue(new Promise(resolve => { finish = resolve }))
+  await open()
+  await act(async () => { button('Run now').props.onClick() })
+  await act(async () => { tree.root.findByProps({ 'aria-label': 'Back' }).props.onClick() })
+  await act(async () => { finish({ run: { id: 'finished' } }) })
+  expect(tree.root.findAllByProps({ 'data-workflow': workflow.id })).toHaveLength(1)
+  expect(JSON.stringify(tree.toJSON())).not.toContain(workflow.hookUrl)
+})

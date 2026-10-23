@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import type { Workflow, Run, Step, StepType, Trigger, TriggerType, Table, HeldWorkflowEvents } from '../utils/harness'
@@ -185,6 +185,7 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
   const [hookAction, setHookAction] = useState<'rotate' | 'revoke' | null>(null)
   const [replaySelection, setReplaySelection] = useState<string[] | null>(null)
   const [discardSelection, setDiscardSelection] = useState<string[] | null>(null)
+  const detailRequest = useRef(0)
   const { busy, error, act } = useAct()
 
   const load = useCallback(() => act('load', async () => {
@@ -196,13 +197,29 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
   }), [api, act, props.httpBase, props.orgId, props.sessionToken])
   useEffect(() => { load() }, [load])
 
-  const openOne = (id: string) => act(`open:${id}`, async () => { setHookAction(null); setReplaySelection(null); setDiscardSelection(null); setOpen(await api.workflow(id)) })
+  const openOne = (id: string) => {
+    const request = ++detailRequest.current
+    return act(`open:${id}`, async () => {
+      setHookAction(null); setReplaySelection(null); setDiscardSelection(null)
+      try {
+        const result = await api.workflow(id)
+        if (detailRequest.current === request) setOpen(result)
+      } catch (error) {
+        if (detailRequest.current === request) throw error
+      }
+    })
+  }
+  const refreshOpen = async (id: string) => {
+    const request = detailRequest.current
+    const result = await api.workflow(id)
+    setOpen(current => detailRequest.current === request && current?.workflow.id === id ? result : current)
+  }
   useEffect(() => { let id: string | null = null; try { id = sessionStorage.getItem('hx.openWorkflow'); sessionStorage.removeItem('hx.openWorkflow') } catch {} if (id) void openOne(id) }, [])
 
   if (open) {
     const w = open.workflow
     return (
-      <Shell className="hx-resource-screen" title={w.name} onClose={() => { setOpen(null); load() }} nested>
+      <Shell className="hx-resource-screen" title={w.name} onClose={() => { detailRequest.current++; setOpen(null); load() }} nested>
         {!w.enabled && <p className="form-note">{t('Automatic triggers are paused. You can still run this workflow manually.')}</p>}
         <div className="hx-flow-diagram"><div className="hx-flow-node"><small>{t('Trigger')}</small><strong>{triggerLabel(t, w.trigger, tables)}</strong></div>{w.steps.map((step, index) => <React.Fragment key={index}><span className="hx-flow-connector">↓</span><div className="hx-flow-node"><small>{index + 1}. {stepLabel(t, step.type)}</small><strong>{step.text || step.prompt || step.title || tables.find(table => table.id === step.tableId)?.name}</strong>{step.channel && <span>{step.channel.startsWith('ag:') || step.channel.startsWith('dm:') ? t('Private chat') : step.channel.replace(/^b:/, '#')}</span>}{step.agentId && <span>{t('Agent')}: {agents.find(agent => agent.id === step.agentId)?.name || step.agentId}</span>}{step.to && <span>@{step.to}</span>}{step.summary && <p>{step.summary}</p>}{step.minutes && <span>{step.minutes} min</span>}{step.values && <pre>{JSON.stringify(step.values, null, 2)}</pre>}</div></React.Fragment>)}</div>
         <div className="rows">
@@ -217,9 +234,9 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
         {error && <div className="form-error">{error}</div>}
         {open.canEdit && (
           <div className="hx-actions">
-            <button className="pill-btn" disabled={!!busy} onClick={() => act('run', async () => { await api.runWorkflow(w.id, ''); setOpen(await api.workflow(w.id)) })}><Icon name="zap" size={14} /> {t('Run now')}</button>
-            <button className="pill-btn quiet" onClick={() => act('toggle', async () => { await api.updateWorkflow(w.id, { enabled: !w.enabled }); setOpen(await api.workflow(w.id)) })}>{w.enabled ? t('Turn off') : t('Turn on')}</button>
-            <button className="btn-text danger" onClick={() => act('delete', async () => { await api.deleteWorkflow(w.id); setOpen(null); load() })}>{t('Delete')}</button>
+            <button className="pill-btn" disabled={!!busy} onClick={() => act('run', async () => { await api.runWorkflow(w.id, ''); await refreshOpen(w.id) })}><Icon name="zap" size={14} /> {t('Run now')}</button>
+            <button className="pill-btn quiet" onClick={() => act('toggle', async () => { await api.updateWorkflow(w.id, { enabled: !w.enabled }); await refreshOpen(w.id) })}>{w.enabled ? t('Turn off') : t('Turn on')}</button>
+            <button className="btn-text danger" onClick={() => act('delete', async () => { await api.deleteWorkflow(w.id); setOpen(current => current?.workflow.id === w.id ? null : current); load() })}>{t('Delete')}</button>
           </div>
         )}
         {open.canEdit && w.trigger.type === 'webhook' && <section aria-label={t('Webhook')}>
@@ -248,7 +265,7 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
               <button className="pill-btn" disabled={!!busy || !w.enabled} onClick={() => act('replay', async () => {
                 await api.replayWorkflowEvents(w.id, replaySelection)
                 setReplaySelection(null)
-                setOpen(await api.workflow(w.id))
+                await refreshOpen(w.id)
               })}>{t('Replay {count} events', { count: replaySelection.length })}</button>
               <button className="btn-text" disabled={!!busy} onClick={() => setReplaySelection(null)}>{t('Cancel')}</button>
             </div> : !discardSelection && <div className="hx-actions">
@@ -261,7 +278,7 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
                 <button className="pill-btn danger" disabled={!!busy} onClick={() => act('discard', async () => {
                   await api.discardWorkflowEvents(w.id, discardSelection)
                   setDiscardSelection(null)
-                  setOpen(await api.workflow(w.id))
+                  await refreshOpen(w.id)
                 })}>{t('Discard {count} events', { count: discardSelection.length })}</button>
                 <button className="btn-text" disabled={!!busy} onClick={() => setDiscardSelection(null)}>{t('Cancel')}</button>
               </div>

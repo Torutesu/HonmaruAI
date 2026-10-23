@@ -1737,3 +1737,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - Workflow screen previously retained open detail and confirmation state across prop scope changes; a late detail response could populate the next scope. Adopted the existing Agents/Skills scoped-component pattern keyed by base URL/workspace/session, remounting all detail, credential and confirmation state on scope changes.
 - Added regressions for each scope field and late prior-account detail resolution; no old URL/controls appear and no mutation is made by switching. Workflow UI11 tests passed; full Web149 files1030 tests, TypeScript/Vite and diff check passed (/tmp/honmaru-workflow-scope-{tests,web,build,vite}.log).
 - Native getApp still reports Mac locked; no visual claim. Production15f24b70 runs39965668546/39965668748/39965668547 were rechecked in_progress; scope/manual/discard follow-ups remain local until these terminate.
+
+### 2026-10-23 workflow detail request ordering (local)
+- Added latest-selection request ownership: delayed success or failure from an older workflow selection cannot replace the latest selected detail or its error. Returning to list invalidates detail ownership. Post-action detail refresh updates only the still-open matching workflow; completion after Back no longer reopens it. Delete completion also preserves a different current workflow.
+- Added delayed resolve/reject selection and finish-after-Back regressions. All14 workflow UI tests, TypeScript/Vite and diff checks passed (/tmp/honmaru-workflow-selection-{tests,build,vite}.log). Native visual check still pending.
+- Rechecked exact15f24b70 CI39965668546, Worker39965668748, Web39965668547: all in_progress. No duplicate deployment or overlapping push.
