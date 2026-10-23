@@ -711,6 +711,8 @@ test("follow-up history pages use visible records and stable tied-date ordering"
   const first=await (await get(`/followups?${q(query)}`,mika)).json();
   expect(first.followups).toHaveLength(50);
   expect(first.nextCursor).not.toContain('hidden_');
+  const { followupHistory } = await import('../src/harness/followups.js');
+  expect(await followupHistory(null, 'another-workspace', { agentId: 'paged-agent', status: 'failed', viewerId: 'maker', cursor: first.nextCursor })).toMatchObject({ status: 400 });
   const second=await (await get(`/followups?${q({...query,cursor:first.nextCursor})}`,mika)).json();
   expect(second.followups).toHaveLength(5);
   expect(second.nextCursor).toBeNull();

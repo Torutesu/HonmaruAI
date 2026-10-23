@@ -55,15 +55,15 @@ export async function listFollowups(db, orgId, { channel, agentId, status = "sch
 }
 
 export async function followupHistory(db, orgId, { channel, agentId, status = "scheduled", viewerId, cursor } = {}) {
-  const scope = [channel || null, agentId || null, status];
+  const scope = [orgId, channel || null, agentId || null, status];
   let after = null;
   if (cursor) {
     try {
       const decoded = JSON.parse(cursor);
-      if (!Array.isArray(decoded) || decoded.length !== 5 || JSON.stringify(decoded.slice(0, 3)) !== JSON.stringify(scope)
-        || typeof decoded[3] !== 'string' || decoded[3].length > 40 || !Number.isFinite(Date.parse(decoded[3]))
-        || typeof decoded[4] !== 'string' || !decoded[4] || decoded[4].length > 100) throw new Error();
-      after = decoded.slice(3);
+      if (!Array.isArray(decoded) || decoded.length !== 6 || JSON.stringify(decoded.slice(0, 4)) !== JSON.stringify(scope)
+        || typeof decoded[4] !== 'string' || decoded[4].length > 40 || !Number.isFinite(Date.parse(decoded[4]))
+        || typeof decoded[5] !== 'string' || !decoded[5] || decoded[5].length > 100) throw new Error();
+      after = decoded.slice(4);
     } catch { return { error: "Invalid follow-up cursor.", status: 400 }; }
   }
   const visible = [], access = new Map();
