@@ -53,8 +53,8 @@ export function RoomSettings({api,view,onClose,onSaved}:{api:{httpBase:string;or
    <div className="room-settings-field"><span className="dlg-label">{t('Room icon')}</span><RoomColorPicker color={draft.color} disabled={disabled} onChange={color=>setDraft({...draft,color})}/></div>
    <label className="room-settings-field"><span className="dlg-label">{t('Room name')}</span><input className="dlg-input" aria-label={t('Room name')} value={draft.name} maxLength={120} disabled={disabled} onChange={e=>setDraft({...draft,name:e.target.value})}/></label>
    <section className="room-settings-response" aria-label={t('How agents respond')}><h3>{t('How agents respond')}</h3>
-    <label><span>{t('Mentioned only')}</span><input type="checkbox" role="switch" checked={draft.mentionedOnly} disabled={disabled||!data?.canChangeResponses} onChange={e=>setDraft({...draft,mentionedOnly:e.target.checked})}/></label>
-    <p>{t('Agents respond when mentioned. When off, clear requests can be assigned to an available agent.')}</p>
+    <div className="room-settings-response-card"><label><span>{t('Mentioned only')}</span><input type="checkbox" role="switch" checked={draft.mentionedOnly} disabled={disabled||!data?.canChangeResponses} onChange={e=>setDraft({...draft,mentionedOnly:e.target.checked})}/></label>
+    <p>{t('Agents respond when mentioned. When off, clear requests can be assigned to an available agent.')}</p></div>
    </section>
    {data&&!data.canEdit&&<p className="room-settings-note">{t('Join this room to edit its settings.')}</p>}
   </>}

@@ -1296,3 +1296,8 @@ Worker creation/room suites passed 54 tests, including real HTTP auth, guest den
 
 - Worker deployment 39927678274 completed successfully. The matching overall CI remains live; do not cancel it with a push.
 - Room settings reads/saves now have a 15-second deadline including JSON-body retrieval. Uncertain writes retain the draft, release busy state, and require explicit readback before resubmission. Regression tests cover stalled read bodies, stalled writes, abort signals, late success and authoritative readback. Full Web 140 files / 988 tests, TypeScript and production build pass. No new provider calls or paid services.
+
+### 2026-10-23 — room settings visual alignment
+
+- Rechecked the actual Kylon settings dialog. Moved the response-method heading outside its bordered card, matched the round room-icon treatment and 18px title, and made primary/switch colors use Harness theme roles instead of a fixed olive fill. Cancel uses the observed transparent treatment. This only changes RoomSettings; Simple dialogs are untouched.
+- Inspected the actual component in a temporary local preview with synthetic data in both light and dark themes; round icon, separate heading/card, readable text and themed switch/buttons rendered correctly. Focused RoomSettings nine tests pass. Preview files/tab/server removed. This visual change is not yet published; current main ebd12338 CI 39929806436 and Web 39929806392 remain the release being checked.
