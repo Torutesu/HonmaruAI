@@ -1,9 +1,10 @@
+import {RoomGuidelinesDialog} from './RoomGuidelinesDialog'
 import React, { useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { useWorkspaceMode } from '../utils/harness'
 
 interface Guidelines { body: string; version: number }
-export function RoomGuidelines({ httpBase, orgId, headers, view }: {
+function LegacyRoomGuidelines({ httpBase, orgId, headers, view }: {
   httpBase: string; orgId: string; headers: Record<string, string>; view: string
 }) {
   const t = useT()
@@ -53,4 +54,22 @@ export function RoomGuidelines({ httpBase, orgId, headers, view }: {
     </>}
     {error && <div role="alert" className="form-error">{error} <button type="button" disabled={busy} onClick={() => reload(n => n + 1)}>{t('Reload')}</button></div>}
   </section>
+}
+
+
+// Managed rooms share the same dialog from both the header menu and details.
+// Keep the existing inline controls for legacy rooms and Simple-mode behavior.
+export function RoomGuidelines(props:{httpBase:string;orgId:string;headers:Record<string,string>;view:string;managed?:boolean}){
+ return props.managed?<ManagedGuidelinesEntry {...props}/>:<LegacyRoomGuidelines {...props}/>
+}
+function ManagedGuidelinesEntry({httpBase,orgId,headers,view}:{httpBase:string;orgId:string;headers:Record<string,string>;view:string}){
+ const [open,setOpen]=useState(false),t=useT()
+ const token=headers['x-session-token']||''
+ const {mode}=useWorkspaceMode(httpBase,orgId,token)
+ if(mode!=='harness')return null
+ return <section className="slk-describe" aria-label={t('Room guidelines')}>
+  <h3>{t('Room guidelines')}</h3>
+  <button type="button" className="dlg-btn" onClick={()=>setOpen(true)}>ガイドラインを開く</button>
+  {open&&<RoomGuidelinesDialog key={`${httpBase}:${orgId}:${token}:${view}`} api={{httpBase,orgId,sessionToken:token}} channel={view} onClose={()=>setOpen(false)}/>}
+ </section>
 }
