@@ -49,3 +49,22 @@ test('deferred conversation checks accept canonical DMs only for their current m
   await env.DB.prepare('DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = ?2').bind(org, 'alice').run();
   expect(await mayUseConversation(env.DB, org, 'alice', 'dm:alice|bob')).toBe(false);
 });
+
+test('adding beyond the recent memory index never deletes saved entries or their full bodies', async () => {
+  const old = await addAgentMemory(env.DB, org, agent, {title:'Retained policy',description:'Long-term reference',body:'Original policy body'}, {channel:'b:ops',kind:'reference'});
+  await env.DB.prepare('UPDATE hx_agent_memories SET created_at=?1 WHERE org_id=?2 AND id=?3').bind('2020-01-01T00:00:00Z',org,old.memory.id).run();
+  const writes=[];
+  for(let i=0;i<200;i++) {
+    writes.push(env.DB.prepare('INSERT INTO hx_agent_memories (id,org_id,agent_id,text,created_at) VALUES (?1,?2,?3,?4,?5)').bind(`retained_${i}`,org,agent,`Note ${i}`,'2026-01-01T00:00:00Z'));
+    writes.push(env.DB.prepare('INSERT INTO hx_memory_scopes (memory_id,org_id,channel,kind) VALUES (?1,?2,?3,?4)').bind(`retained_${i}`,org,'b:ops','context'));
+  }
+  await env.DB.batch(writes);
+  await addAgentMemory(env.DB,org,agent,'Newest note',{channel:'b:ops'});
+  const count=await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_agent_memories WHERE org_id=?1 AND agent_id=?2').bind(org,agent).first();
+  expect(count.n).toBe(202);
+  expect(await env.DB.prepare('SELECT body FROM hx_memory_entries WHERE org_id=?1 AND memory_id=?2').bind(org,old.memory.id).first()).toEqual({body:'Original policy body'});
+  expect(await listAgentMemories(env.DB,org,agent,{channel:'b:ops'})).toHaveLength(200);
+  const repeated=await addAgentMemory(env.DB,org,agent,{title:'Retained policy',description:'Long-term reference',body:'Original policy body'},{channel:'b:ops',kind:'reference'});
+  expect(repeated.duplicate).toBe(true);
+  expect(repeated.memory.id).toBe(old.memory.id);
+});

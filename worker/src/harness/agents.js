@@ -174,12 +174,7 @@ export async function addAgentMemory(db, orgId, agentId, text, { by = null, sour
   if (structured) writes.push(db.prepare("INSERT INTO hx_memory_entries (memory_id, org_id, title, description, body, version, updated_by, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7)")
     .bind(id, orgId, fields.title, fields.description, fields.body, by ? String(by) : null, stamp));
   await db.batch(writes);
-  // The oldest go once the agent holds more than it can read.
-  await db
-    .prepare(`DELETE FROM hx_agent_memories WHERE org_id = ?1 AND agent_id = ?2 AND id IN (SELECT memory_id FROM hx_memory_scopes WHERE org_id = ?1 AND channel = ?4) AND id NOT IN
-      (SELECT m.id FROM hx_agent_memories m JOIN hx_memory_scopes s ON s.memory_id = m.id WHERE m.org_id = ?1 AND m.agent_id = ?2 AND s.channel = ?4 ORDER BY m.created_at DESC LIMIT ?3)`)
-    .bind(orgId, agentId, MAX_MEMORIES, channel)
-    .run();
+  // The recent prompt index is bounded; saved memory is retained until explicitly removed.
   return { memory: memoryEntry({ id, text: clean, source, channel, kind, created_by: by ? String(by) : null, created_at: stamp, ...(structured ? { ...fields, version: 1, updated_at: stamp } : {}) }) };
 }
 
