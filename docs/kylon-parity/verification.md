@@ -1668,3 +1668,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - CI39957222600 completed success for5b29ce89. Revalidated matching CI/Mac workflow success and draft target; published release421844628 (v1.3.13) at2026-10-23T13:14:26Z.
 - Native1.3.12 updater found1.3.13, downloaded, and offered restart. Restart action timed out in CUA, but installed Info.plist now1.3.13 and native app reopened logged in with QA room available. Diagnostics show1.3.13 startup.
 - Signed archive layoutProbe.js/main.js/loadDiagnostics.js byte-for-byte match5b29ce89 source. Blank reload reproduction/diagnostic flag collection remains ongoing. Attachment shortcut and thread URL changes remain local/unpushed.
+
+### 2026-10-23 diagnostic blank reproduction on1.3.13
+- Cmd+R from loaded QA room reproduced blank native viewport and absent HTML accessibility tree. At13:16:31Z diagnostics: window-state5 (visible/focused/not minimized/not loading), layout-state63 (root exists/children/nonzero bounds/visible ancestors, text and visible media; no startup panel), inspect-visible. This contradicts a simple empty DOM/load failure explanation; investigate native painting/compositing or view attachment. No GPU/security settings changed. Screenshot /tmp/honmaru-1.3.13-blank-20261023.png.
+- Quit/reopen initiated to restore usable app; do not claim fix from successful cold start.
