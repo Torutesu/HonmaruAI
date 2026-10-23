@@ -1560,3 +1560,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 native reload follow-up
 - After successful full restart and Webhook inspection, dismissed parent settings and performed normal Cmd-R again. This time AX returned the actual room, messages empty state and composer, with the same signed-in workspace. Reload failure is intermittent, not reliably reproduced on every reload. No renderer fix is claimed.
 - Read loadRecovery/main/CSP/attention implementation; no evidence yet identifies a root cause. Avoid disabling GPU/security or resetting persisted user data based on this observation alone. Current 9e71d4c6 CI/Worker/Web handles were re-polled and all remain in progress.
+
+### 2026-10-23 new-thread composer mode (local)
+- Added Harness-only new-thread toggle, translated placeholder/send label and success opening of delivered root via existing thread API. Simple unchanged. Pending/retry delivery retains only the in-memory navigation intent; navigation, toggle cancellation and unmount invalidate it. Reload does not resurrect an old navigation intent. Scheduled messages do not open a nonexistent root.
+- Web147 files/1012 tests, TypeScript and Vite build passed. Hook regression exercises single opening, changed room, leave/return, off/on and unmount. Full send UI/native production verification remains pending; no 100% parity claim.

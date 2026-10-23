@@ -1,3 +1,4 @@
+import { useComposerThreadMode } from '../utils/useComposerThreadMode'
 import { HarnessDictation } from './HarnessDictation'
 import { HarnessComposerMenu } from './HarnessComposerMenu'
 import {RoomVisual} from './RoomVisual'
@@ -1939,7 +1940,7 @@ export const ClassicList: React.FC<Props> = ({
   type Outgoing = {
     tempId: string; channel: string; body: string; decide: boolean; parentId?: string; files: FileRef[]; said: ChannelMessage
     landing?: Promise<ChannelMessage | null>; abort?: () => void; lateAt?: number; going?: boolean
-    failed?: string; refused?: boolean; restored?: boolean
+    failed?: string; refused?: boolean; restored?: boolean; onDelivered?: (root:ChannelMessage)=>void
   }
   const outbox = useRef(new Map<string, Outgoing>())
   /// Every message this tab has sent, or done something with — Retry,
@@ -2166,6 +2167,7 @@ export const ClassicList: React.FC<Props> = ({
     up.clear()
     if (parentId) threadComposer.current?.focus(); else composer.current?.focus()
     const out: Outgoing = { tempId: temp.id, channel, body, decide, parentId, files, said: temp, lateAt: Date.now() + SEND_TIMEOUT }
+    if(harness && !parentId && !resourceBuild)out.onDelivered=newThreadMode.capture()
     outbox.current.set(temp.id, out)
     out.landing = deliver(out)
     keepOutbox(temp.id)
@@ -2240,6 +2242,7 @@ export const ClassicList: React.FC<Props> = ({
       return { ...prev, [channel]: reconcile(list, tempId, msg) }
     })
     if (data.deciding) setThinking((prev) => ({ ...prev, [channel]: 'reading' }))
+    out.onDelivered?.(msg)
     return msg
   }
 
@@ -2413,6 +2416,7 @@ export const ClassicList: React.FC<Props> = ({
   const special = activityOpen || laterOpen || threadsOpen || sentOpen
   // Which conversation is on screen, for the sound a new message makes.
   const openView = !special ? (current?.view || null) : null
+  const newThreadMode=useComposerThreadMode<ChannelMessage>(`${api.orgId}:${userId}:${openView}:${harness}:${resourceBuild?.kind||''}`,root=>{if(openView)void openThread(openView,root)})
   useEffect(() => { setOpenView(openView); return () => { setOpenView(null) } }, [openView])
   const [laterItems, setLaterItems] = useState<Array<{ id: string; remindAt: string | null; remindedAt: string | null; message: ChannelMessage }> | null>(null)
   // Marked done here: kept out of the list even when a load that began
@@ -5010,7 +5014,8 @@ export const ClassicList: React.FC<Props> = ({
     }
     rowsKept.current = { view: thread.view, said, cards: thread.cards, since, out }
     const waitingHere = thread.cards.filter(isUnread).length
-    const placeholder = thread.kind === 'channel'
+    const startingThread=harness && newThreadMode.enabled && !resourceBuild
+    const placeholder = startingThread ? t('Start a new thread') : thread.kind === 'channel'
       ? t('Message #{name} — @AI to ask the AI', { name: thread.name })
       : thread.kind === 'agent'
         ? t('Message {name}', { name: thread.name })
@@ -5450,9 +5455,10 @@ export const ClassicList: React.FC<Props> = ({
               {!harness && <button type="button" className="slk-send ai" disabled={!draft.trim()} onClick={() => void send(thread.view!, true)} aria-label={t('Send as a decision')} title={t('Send as a decision')}>
                 <Icon name="sparkle" size={15} /><span className="slk-send-label">{t('Send as a decision')}</span>
               </button>}
+              {harness && !resourceBuild && <button type="button" className="hx-new-thread" aria-pressed={startingThread} aria-label={t(startingThread?'Exit new thread mode':'New thread')} onClick={()=>{newThreadMode.toggle();composer.current?.focus()}}><Icon name="compose" size={15}/><span>{t('New thread')}</span></button>}
               {harness && <HarnessDictation key={`${api.orgId}:${thread.view}`} value={draft} onChange={setDraft} locale={locale} disabled={resourceBuilding || uploads.busy}/>}
               <span className="slk-send-group">
-                <button type="submit" className="slk-send" disabled={resourceBuilding || uploads.busy || (!draft.trim() && !uploads.ids.length)} aria-label={t('Send')}>
+                <button type="submit" className="slk-send" disabled={resourceBuilding || uploads.busy || (!draft.trim() && !uploads.ids.length)} aria-label={t(startingThread?'Start a new thread':'Send')}>
                   <Icon name="send" size={16} />
                 </button>
                 {!harness && <button type="button" className="slk-send more" disabled={!draft.trim() || draft.trim().startsWith('/')} onClick={() => setScheduleOpen((o) => !o)} aria-label={t('Schedule message')} title={t('Schedule message')} aria-expanded={scheduleOpen}>

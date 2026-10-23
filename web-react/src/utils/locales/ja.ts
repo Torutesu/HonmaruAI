@@ -1,6 +1,9 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "New thread": "新規スレッド",
+  "Start a new thread": "新しいスレッドを開始",
+  "Exit new thread mode": "新規スレッドモードを終了",
   "Voice input": "音声入力",
   "Stop voice input": "音声入力を停止",
   "Voice input unavailable. Check microphone access.": "音声入力を利用できません。マイクのアクセス許可を確認してください。",
