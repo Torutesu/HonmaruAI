@@ -1908,3 +1908,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-24 retained memory full release preflight
 - Frozen Worker45670 completed success:217 files/1728 tests,460.38s (/tmp/honmaru-memory-retained-full.log), with Worker sources unchanged fromba93fc57. Latest Web150 files/1049 tests and final TypeScript pass (/tmp/honmaru-memory-final-{web,types}.log). Last Vite build also passed after the loading-state change.
 - Priorc1f673ce CI39980117529 and deployments39980117483/39980117365 remain live. Memory retention, management paging/search and loading/retry UI changes are not yet published. Native verification remains pending.
+
+### 2026-10-24 memory review gap confirmation
+- Re-read https://docs.kylon.io/tutorials/use-workspace-memory and https://docs.kylon.io/concepts/memory: review records evidence and a validation date after checking an entry; ordinary editing must not refresh validation. Current memoryEntries/schema/UI have version/updatedAt but no review/evidence state. KY-031 remains missing. Next implementation must bind review to the checked content version, preserve agent/conversation authorization and distinguish edited-since-review from validated content; no review is inferred from successful saving.
+- c1f673ce CI39980117529, Worker39980117483 and Web39980117365 completed success before1edd8100 was pushed. Current memory release CI39982782545, Worker39982782482 and Web39982782555 are confirmed in_progress.
