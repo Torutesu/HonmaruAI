@@ -1672,3 +1672,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 diagnostic blank reproduction on1.3.13
 - Cmd+R from loaded QA room reproduced blank native viewport and absent HTML accessibility tree. At13:16:31Z diagnostics: window-state5 (visible/focused/not minimized/not loading), layout-state63 (root exists/children/nonzero bounds/visible ancestors, text and visible media; no startup panel), inspect-visible. This contradicts a simple empty DOM/load failure explanation; investigate native painting/compositing or view attachment. No GPU/security settings changed. Screenshot /tmp/honmaru-1.3.13-blank-20261023.png.
 - Quit/reopen initiated to restore usable app; do not claim fix from successful cold start.
+
+### 2026-10-23 production thread continuity and attachment shortcut
+- Pushed867b1afa after prior CI/release completion. Deploy Web39960018712 succeeded; CI39960018746 is active. Native1.3.13 opened QA thread and address became canonical #/t/<id>/<org>; Cmd+R restored that same parent and reply. Close returned to #/list and room. Open+Escape also returned to room. Browser Back and cross-workspace restoration remain unverified.
+- In focused reply input Cmd+U opened native file chooser; cancelled with no upload. Main plus menu displayed ⌘U. Screenshot /tmp/honmaru-attachment-shortcut-production-20261023.png. Menu closed with Escape.
+- Two additional reload attempts (empty chat and room) rendered successfully, so room selection alone does not determine blank behavior. No GPU/security changes. Official Electron APIs/issues investigated but no source proved root cause; do not treat older blank-window reports as this diagnosis.
