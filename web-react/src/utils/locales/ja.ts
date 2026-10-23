@@ -1,6 +1,11 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Held events: {count}": "保留中のイベント: {count}件",
+  "Oldest event expires: {when}": "最も古いイベントの保存期限: {when}",
+  "Resuming does not replay held events. Replay runs the saved workflow with real effects, oldest first.": "再開するだけでは保留イベントを実行しません。再実行すると、古い順に保存済みワークフローを実行し、実際の変更や送信が行われます。",
+  "Replay {count} events": "{count}件を再実行",
+  "Review held events": "保留イベントを確認",
   "Generate new webhook URL": "Webhook URLを再発行",
   "Revoke webhook": "Webhookを失効",
   "This webhook is revoked. Generate a new URL to accept events again.": "このWebhookは失効しています。受信を再開するにはURLを再発行してください。",

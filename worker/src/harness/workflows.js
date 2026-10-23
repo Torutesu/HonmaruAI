@@ -1,4 +1,5 @@
 import { mayUseTable } from './resourceAccess.js';
+import { holdWorkflowEvent } from './workflowHeld.js';
 import { mayUseConversation } from './conversationAccess.js';
 // Workflows (docs/kylon-gap-plan.md): a saved piece of work with a trigger
 // and steps, and every run kept where anyone can read what it did.
@@ -301,7 +302,7 @@ async function rowScope(db, orgId, tableId, row) {
 
 /// Start a run. `input` is what started it: { text } by hand, the posted
 /// JSON for a webhook, { row, before } for a row.
-export async function startRun(env, { orgId, workflow, trigger, input = null, startedBy = null, depth = 0 }) {
+export async function startRun(env, { orgId, workflow, trigger, input = null, startedBy = null, depth = 0, heldEventId = null, incomingHookSecret = null }) {
   const id = newId("run");
   // Store the definition and the run atomically. An approval always resumes
   // the same steps that were presented when the run started.
@@ -311,16 +312,38 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
   const stored = input ? JSON.stringify(input) : null;
   const tooLarge = stored !== null && stored.length > MAX_INPUT;
   const failed = tooLarge ? [{ step: 1, type: workflow.steps[0]?.type, at: now(), status: "failed", error: `What started this run is over ${MAX_INPUT} characters.` }] : [];
-  await env.DB.batch([
+  const created = await env.DB.batch([
     env.DB.prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_by, started_at, finished_at)
-      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`)
-      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, now(), tooLarge ? now() : null),
-    env.DB.prepare("INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at) VALUES (?1, ?2, ?3, ?4)")
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
+      WHERE (?12 IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_held_events h JOIN hx_workflows w ON w.id=h.workflow_id AND w.org_id=h.org_id
+        WHERE h.id=?12 AND h.org_id=?2 AND h.workflow_id=?3 AND h.run_id IS NULL AND h.expires_at>?10 AND w.enabled=1 AND json_extract(w.trigger,'$.type')='webhook'))
+      AND (?13 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE id=?3 AND org_id=?2 AND enabled=1 AND hook_secret=?13 AND json_extract(trigger,'$.type')='webhook'))`)
+      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, now(), tooLarge ? now() : null, heldEventId, incomingHookSecret),
+    env.DB.prepare("INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at) SELECT ?1, ?2, ?3, ?4 WHERE EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?2)")
       .bind(id, orgId, JSON.stringify(definition), now()),
+    ...(heldEventId ? [env.DB.prepare(`UPDATE hx_workflow_held_events SET run_id=?1 WHERE id=?2 AND org_id=?3 AND workflow_id=?4 AND run_id IS NULL
+      AND EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?3)`).bind(id, heldEventId, orgId, workflow.id)] : []),
   ]);
+  if (!created[0].meta?.changes) return null;
   await env.DB.prepare("UPDATE hx_workflows SET last_run_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), workflow.id, orgId).run();
   if (tooLarge) return getRun(env.DB, orgId, id);
   return continueRun(env, { orgId, runId: id, workflow, depth });
+}
+
+export async function replayWorkflowEvents(env, orgId, workflow, eventIds, startedBy) {
+  if (!workflow.enabled || workflow.trigger.type !== 'webhook') return { error: 'Resume the webhook workflow before replaying events.', status: 409 };
+  if (!Array.isArray(eventIds) || !eventIds.length || eventIds.length > 100 || eventIds.some(id => typeof id !== 'string') || new Set(eventIds).size !== eventIds.length) {
+    return { error: 'Select between 1 and 100 distinct held events.', status: 400 };
+  }
+  const { results } = await env.DB.prepare(`SELECT id,input FROM hx_workflow_held_events WHERE org_id=?1 AND workflow_id=?2 AND run_id IS NULL AND expires_at>?3 ORDER BY received_at,id`)
+    .bind(orgId, workflow.id, now()).all();
+  const wanted = new Set(eventIds);
+  const runs = [];
+  for (const event of results.filter(event => wanted.has(event.id))) {
+    const run = await startRun(env, { orgId, workflow, trigger: 'webhook', input: JSON.parse(event.input), startedBy, heldEventId: event.id });
+    if (run) runs.push({ eventId: event.id, runId: run.id, status: run.status });
+  }
+  return { runs, skipped: eventIds.length - runs.length };
 }
 
 /// Run steps from where the run stands until it finishes, fails, or waits.
@@ -551,6 +574,7 @@ export async function onRowChange(env, { orgId, table, before, row, by, depth = 
 
 /// The cron's part: scheduled workflows whose time has come.
 export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } = {}) {
+  await env.DB.prepare('DELETE FROM hx_workflow_held_events WHERE expires_at<=?1').bind(at.toISOString()).run();
   const { results } = await env.DB
     // Every workspace's, by design: the cron's sweep. Each run then acts
     // only in its workflow's own org_id.
@@ -589,11 +613,16 @@ export async function handleWorkflowHook(request, env, url) {
   const wf = row && publicWorkflow(row, { withSecret: true });
   const reply = (body, status) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
   if (!wf || wf.trigger.type !== "webhook" || !wf.hookSecret || !timingSafeEqual(secret, wf.hookSecret)) return reply({ message: "No such hook." }, 404);
-  if (!wf.enabled) return reply({ message: "This workflow is off." }, 409);
   const text = await request.text();
   if (text.length > 64000) return reply({ message: "Too large." }, 413);
   const input = parse(text, { text });
-  const run = await startRun(env, { orgId: wf.orgId, workflow: wf, trigger: "webhook", input: input && typeof input === "object" ? input : { text } });
+  const payload = input && typeof input === 'object' ? input : { text };
+  if (!wf.enabled) {
+    const held = await holdWorkflowEvent(env.DB, wf, secret, payload);
+    return held.error ? reply({ message: held.error }, held.status) : reply({ eventId: held.id, status: 'held', expiresAt: held.expiresAt }, 202);
+  }
+  const run = await startRun(env, { orgId: wf.orgId, workflow: wf, trigger: "webhook", input: payload, incomingHookSecret: secret });
+  if (!run) return reply({ message: 'The webhook changed. Retry this delivery with its current URL.' }, 409);
   return reply({ runId: run?.id, status: run?.status }, 202);
 }
 

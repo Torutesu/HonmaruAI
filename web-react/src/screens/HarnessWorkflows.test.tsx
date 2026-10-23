@@ -56,3 +56,25 @@ test('read-only viewers have no credential management controls', async () => {
   expect(button('Revoke webhook')).toBeUndefined()
   expect(JSON.stringify(tree.toJSON())).not.toContain(workflow.hookUrl)
 })
+test('held events are replayed only after confirmation using the reviewed IDs', async () => {
+  const held = { count: 1, oldestExpiry: '2026-10-30T00:00:00Z', events: [{ id: 'held_one', receivedAt: '2026-10-23T00:00:00Z', expiresAt: '2026-10-30T00:00:00Z' }] }
+  state.api.workflow.mockResolvedValue({ workflow, runs: [], canEdit: true, held })
+  state.api.replayWorkflowEvents = vi.fn().mockResolvedValue({ runs: [{ eventId: 'held_one', runId: 'run_one', status: 'done' }], skipped: 0 })
+  await open()
+  expect(state.api.replayWorkflowEvents).not.toHaveBeenCalled()
+  await act(async () => { button('Review held events').props.onClick() })
+  expect(state.api.replayWorkflowEvents).not.toHaveBeenCalled()
+  await act(async () => { button('Cancel').props.onClick() })
+  expect(state.api.replayWorkflowEvents).not.toHaveBeenCalled()
+  await act(async () => { button('Review held events').props.onClick() })
+  state.api.workflow.mockResolvedValue({ workflow, runs: [], canEdit: true, held: { count: 0, oldestExpiry: null, events: [] } })
+  await act(async () => { await button('Replay {count} events').props.onClick() })
+  expect(state.api.replayWorkflowEvents).toHaveBeenCalledWith(workflow.id, ['held_one'])
+  expect(button('Review held events')).toBeUndefined()
+})
+test('held event replay remains disabled while the workflow is paused', async () => {
+  state.api.workflow.mockResolvedValue({ workflow: { ...workflow, enabled: false }, runs: [], canEdit: true,
+    held: { count: 1, oldestExpiry: null, events: [{ id: 'held_one', receivedAt: '2026-10-23T00:00:00Z' }] } })
+  await open()
+  expect(button('Review held events').props.disabled).toBe(true)
+})

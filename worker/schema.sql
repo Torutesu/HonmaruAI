@@ -1835,6 +1835,19 @@ CREATE TABLE IF NOT EXISTS hx_workflows (
 CREATE INDEX IF NOT EXISTS idx_hx_workflows_org ON hx_workflows(org_id);
 CREATE INDEX IF NOT EXISTS idx_hx_workflows_due ON hx_workflows(enabled, next_run_at);
 
+/* Paused webhook input is retained without starting a run. */
+CREATE TABLE IF NOT EXISTS hx_workflow_held_events (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  workflow_id TEXT NOT NULL REFERENCES hx_workflows(id) ON DELETE CASCADE,
+  input TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  run_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_hx_held_workflow ON hx_workflow_held_events(org_id, workflow_id, received_at);
+CREATE INDEX IF NOT EXISTS idx_hx_held_expiry ON hx_workflow_held_events(expires_at);
+
 /* Every run, kept: what started it, each step's outcome, and where it
    stopped — waiting on a person's approval, done, or failed. */
 CREATE TABLE IF NOT EXISTS hx_workflow_runs (

@@ -1,4 +1,5 @@
 import { retryRoomHook } from './roomHookRetryRoute.js';
+import { heldWorkflowSummary } from './workflowHeld.js';
 import { roomHookStatuses } from './roomHookStatus.js';
 import {roomVisualState,setRoomVisual} from './roomVisuals.js';
 import { createRoomHook, listRoomHooks, changeRoomHook } from './roomHooks.js';
@@ -51,7 +52,7 @@ import { listSkills, createSkill, updateSkill, deleteSkill, getSkill, giveSkill,
 import { skillMarkdown } from "./skillMarkdown.js";
 import { workflowFromPrompt } from './workflowGeneration.js';
 import { completer } from "./model.js";
-import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
+import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
 import { listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
 import { onRowChange } from "./workflows.js";
 import { profilesFor, mayAccessAgent } from "./agents.js";
@@ -369,7 +370,8 @@ export async function handleHarness(request, env, url, context = {}) {
     // The hook's secret is for whoever may change the workflow.
     const shown = mine ? { ...wf, hookUrl: hookUrl(url, wf) } : { ...wf, hookSecret: undefined };
     if (!sub) {
-      if (request.method === "GET") return json({ workflow: shown, runs: await listRuns(env.DB, orgId, wfId, 20, me), canEdit: mine });
+      if (request.method === "GET") return json({ workflow: shown, runs: await listRuns(env.DB, orgId, wfId, 20, me), canEdit: mine,
+        ...(mine && wf.trigger.type === 'webhook' ? { held: await heldWorkflowSummary(env.DB, orgId, wfId) } : {}) });
       if (!mine) return json({ message: "Only its maker or an admin can change this workflow." }, 403);
       if (request.method === "PUT") {
         const r = await updateWorkflow(env.DB, orgId, wfId, input);
@@ -383,6 +385,13 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     if (sub === 'webhook' && request.method === 'POST') {
       if (!mine) return json({ message: 'Only its maker or an admin can change this workflow.' }, 403);
+      if (runId === 'replay') {
+        const result = await replayWorkflowEvents(env, orgId, wf, input.eventIds, me);
+        if (result.error) return fail(result);
+        await audit(env, request, { orgId, action: 'workflow.webhook_replayed', actor: person(who.user), entity: { type: 'workflow', id: wfId }, details: { count: result.runs.length } });
+        return json(result);
+      }
+      if (runId) return null;
       const r = await changeWorkflowHook(env.DB, orgId, wfId, input);
       if (r.error) return fail(r);
       await audit(env, request, { orgId, action: `workflow.webhook_${input.action === 'rotate' ? 'rotated' : 'revoked'}`, actor: person(who.user), entity: { type: 'workflow', id: wfId, name: wf.name } });

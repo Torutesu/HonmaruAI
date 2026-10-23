@@ -4,7 +4,7 @@ import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { joined, until } from "./helpers.js";
-import { render, runDueWorkflows, normalizeSteps } from "../src/harness/workflows.js";
+import { render, runDueWorkflows, normalizeSteps, startRun } from "../src/harness/workflows.js";
 import { runDueFollowups, followupRequest } from "../src/harness/followups.js";
 
 // Workflows, follow-ups and approvals (docs/kylon-gap-plan.md): a trigger,
@@ -143,7 +143,7 @@ test("changing away from webhook revokes its URL permanently while pause preserv
     method: "POST", headers: { "content-type": "application/json" }, body: '{}',
   });
   expect((await edit({ enabled: false })).hookSecret).toBe(made.workflow.hookSecret);
-  expect((await fire(made.hookUrl)).status).toBe(409);
+  expect((await fire(made.hookUrl)).status).toBe(202);
   expect((await edit({ enabled: true, name: "Renamed" })).hookSecret).toBe(made.workflow.hookSecret);
   expect((await edit({ trigger: { type: "manual" } })).hookSecret).toBeUndefined();
   expect((await fire(made.hookUrl)).status).toBe(404);
@@ -184,6 +184,65 @@ test("webhook rotation and revocation require an editor and reject stale concurr
   expect((await fire(rotated.hookSecret)).status).toBe(404);
   const resumed = await (await mutate(toru, 'rotate', null)).json();
   expect((await fire(resumed.workflow.hookSecret)).status).toBe(202);
+});
+
+test("paused webhook deliveries are held and explicit replay cannot dispatch the same event twice", async () => {
+  const made = await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'Paused input', enabled: false, trigger: { type: 'webhook' },
+    steps: [{ type: 'add_row', tableId: invoices, values: { Client: '{{input.client}}', Status: 'Draft' } }],
+  })).json();
+  const id = made.workflow.id;
+  const detail = async () => (await get(`/workflows/${id}?${q({ orgId: ORG })}`, toru)).json();
+  const fire = client => call(new URL(made.hookUrl).pathname + new URL(made.hookUrl).search, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client }),
+  });
+  const first = await (await fire('First')).json();
+  const second = await (await fire('Second')).json();
+  expect(first.status).toBe('held');
+  expect((await detail()).runs).toHaveLength(0);
+  expect((await detail()).held.count).toBe(2);
+  const replay = (token, ids) => send('POST', `/workflows/${id}/webhook/replay`, token, { orgId: ORG, eventIds: ids });
+  expect((await replay(toru, [first.eventId])).status).toBe(409);
+  expect((await replay(mika, [first.eventId])).status).toBe(403);
+  await send('PUT', `/workflows/${id}`, toru, { orgId: ORG, enabled: true });
+  expect((await detail()).runs).toHaveLength(0);
+  const attempts = await Promise.all([replay(toru, [first.eventId]), replay(toru, [first.eventId])]);
+  const results = await Promise.all(attempts.map(r => r.json()));
+  expect(results.reduce((n,r) => n + r.runs.length, 0)).toBe(1);
+  expect((await detail()).held.count).toBe(1);
+  expect((await (await replay(toru, [first.eventId])).json()).runs).toHaveLength(0);
+  expect((await (await replay(toru, [second.eventId])).json()).runs).toHaveLength(1);
+  const { rows } = await (await get(`/tables/${invoices}?${q({ orgId: ORG })}`, toru)).json();
+  expect(rows.map(r => r.values.client).sort()).toEqual(['First', 'Second']);
+});
+
+test("paused webhook queue has a hard cap and expires stored payloads", async () => {
+  const made = await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'Bounded input', enabled: false, trigger: { type: 'webhook' },
+    steps: [{ type: 'add_row', tableId: invoices, values: { Client: 'Bounded', Status: 'Draft' } }],
+  })).json();
+  const future = new Date(Date.now() + 86400000).toISOString();
+  await env.DB.prepare(`WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<1000)
+    INSERT INTO hx_workflow_held_events(id,org_id,workflow_id,input,received_at,expires_at)
+    SELECT 'test_held_'||x,?1,?2,'{}',?3,?3 FROM n`).bind(ORG, made.workflow.id, future).run();
+  const fire = () => call(new URL(made.hookUrl).pathname + new URL(made.hookUrl).search, { method: 'POST', body: '{}' });
+  expect((await fire()).status).toBe(429);
+  await env.DB.prepare("UPDATE hx_workflow_held_events SET expires_at='2000-01-01T00:00:00.000Z'").run();
+  expect((await fire()).status).toBe(202);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_held_events').first()).n).toBe(1);
+  await runDueWorkflows(env, { now: new Date(Date.now() + 8 * 86400000) });
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_held_events').first()).n).toBe(0);
+});
+
+test("a webhook checked before credential revocation cannot create a run afterward", async () => {
+  const made = await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'In flight delivery', trigger: { type: 'webhook' },
+    steps: [{ type: 'add_row', tableId: invoices, values: { Client: 'Must not execute', Status: 'Draft' } }],
+  })).json();
+  await send('POST', `/workflows/${made.workflow.id}/webhook`, toru, { orgId: ORG, action: 'revoke', expectedSecret: made.workflow.hookSecret });
+  const run = await startRun(env, { orgId: ORG, workflow: made.workflow, trigger: 'webhook', input: {}, incomingHookSecret: made.workflow.hookSecret });
+  expect(run).toBeNull();
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE workflow_id=?1').bind(made.workflow.id).first()).n).toBe(0);
 });
 
 test("a scheduled workflow runs when its time comes, once, and a manual one when asked", async () => {

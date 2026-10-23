@@ -704,7 +704,7 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
-      "acceptance": "再発行・失効APIと確認UI、編集者権限、旧URL拒否、同時変更のCAS、失効状態の維持をローカル実装。停止中イベント保持・明示再実行、本番反映・実画面検証は残る。"
+      "acceptance": "再発行・失効、停止中イベントの7日/1000件保持、明示IDによる古い順の再実行、二重起動防止を実装。全件破棄UI・中断した実行の復旧・本番と実画面の確認は残る。"
     },
     {
       "id": "KY-064",

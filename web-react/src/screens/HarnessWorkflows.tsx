@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
-import type { Workflow, Run, Step, StepType, Trigger, TriggerType, Table } from '../utils/harness'
+import type { Workflow, Run, Step, StepType, Trigger, TriggerType, Table, HeldWorkflowEvents } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 
 // Workflows (docs/kylon-gap-plan.md): a trigger and the steps after it,
@@ -176,9 +176,10 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
   const [building, setBuilding] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [manual, setManual] = useState(false)
-  const [open, setOpen] = useState<{ workflow: Workflow; runs: Run[]; canEdit: boolean } | null>(null)
+  const [open, setOpen] = useState<{ workflow: Workflow; runs: Run[]; canEdit: boolean; held?: HeldWorkflowEvents } | null>(null)
   const [hook, setHook] = useState<string | null>(null)
   const [hookAction, setHookAction] = useState<'rotate' | 'revoke' | null>(null)
+  const [replaySelection, setReplaySelection] = useState<string[] | null>(null)
   const { busy, error, act } = useAct()
 
   const load = useCallback(() => act('load', async () => {
@@ -190,7 +191,7 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
   }), [api, act, props.httpBase, props.orgId, props.sessionToken])
   useEffect(() => { load() }, [load])
 
-  const openOne = (id: string) => act(`open:${id}`, async () => { setHookAction(null); setOpen(await api.workflow(id)) })
+  const openOne = (id: string) => act(`open:${id}`, async () => { setHookAction(null); setReplaySelection(null); setOpen(await api.workflow(id)) })
   useEffect(() => { let id: string | null = null; try { id = sessionStorage.getItem('hx.openWorkflow'); sessionStorage.removeItem('hx.openWorkflow') } catch {} if (id) void openOne(id) }, [])
 
   if (open) {
@@ -232,6 +233,20 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
           </div> : <div className="hx-actions">
             <button className="pill-btn quiet" disabled={!!busy} onClick={() => setHookAction('rotate')}>{t('Generate new webhook URL')}</button>
             {w.hookUrl && <button className="btn-text danger" disabled={!!busy} onClick={() => setHookAction('revoke')}>{t('Revoke webhook')}</button>}
+          </div>}
+          {!!open.held?.count && <div className="form-note">
+            <p>{t('Held events: {count}', { count: open.held.count })}</p>
+            {open.held.oldestExpiry && <p>{t('Oldest event expires: {when}', { when: new Date(open.held.oldestExpiry).toLocaleString() })}</p>}
+            <p>{t('Resuming does not replay held events. Replay runs the saved workflow with real effects, oldest first.')}</p>
+            {replaySelection && <ul>{open.held.events.filter(event => replaySelection.includes(event.id)).map(event => <li key={event.id}>{new Date(event.receivedAt).toLocaleString()}</li>)}</ul>}
+            {replaySelection ? <div className="hx-actions">
+              <button className="pill-btn" disabled={!!busy || !w.enabled} onClick={() => act('replay', async () => {
+                await api.replayWorkflowEvents(w.id, replaySelection)
+                setReplaySelection(null)
+                setOpen(await api.workflow(w.id))
+              })}>{t('Replay {count} events', { count: replaySelection.length })}</button>
+              <button className="btn-text" disabled={!!busy} onClick={() => setReplaySelection(null)}>{t('Cancel')}</button>
+            </div> : <button className="pill-btn quiet" disabled={!!busy || !w.enabled} onClick={() => setReplaySelection(open.held!.events.map(e => e.id))}>{t('Review held events')}</button>}
           </div>}
         </section>}
         <div className="rows-title">{t('Runs')}</div>
