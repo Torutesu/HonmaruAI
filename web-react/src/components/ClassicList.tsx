@@ -5738,7 +5738,7 @@ export const ClassicList: React.FC<Props> = ({
         />
       )}
       {harness && roomMembersView && <RoomMembers key={`${api.orgId}:${roomMembersView}`} api={api} view={roomMembersView}
-        onClose={()=>setRoomMembersView(null)} onAdd={()=>{setAddingTo(roomMembersView);setRoomMembersView(null)}}
+        onClose={()=>setRoomMembersView(null)} people={members} onInvite={()=>setInviting('people')}
         onProfile={member=>{setRoomMembersView(null);if(member.kind==='person')void openProfile(member.id);else onOpenAgentProfile?.(member.id)}}
         onChanged={()=>{setChannelsTick(n=>n+1);window.dispatchEvent(new Event('honmaru:reload-businesses'));window.dispatchEvent(new Event('honmaru:agents-changed'))}}/>}
       {harness && creatingRoom && onCreateRoom && <RoomCreateDialog key={api.orgId} people={[
