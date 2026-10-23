@@ -1881,3 +1881,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-24 follow-up delivery and memory release preflight
 - Frozen Worker run78774 completed success:217 files/1725 tests,480.62s (/tmp/honmaru-followup-delivery-full.log). Worker sources stayed atf7a90435 throughout. This includes all-status history and thread-destination/delivery failure checks. Latest Web150 files/1045 tests also pass (/tmp/honmaru-memory-and-history-web-full.log), including source thread links and memory terminology.
 - d2036da7 CI39977408288 completed success. Deploy Worker39977408079 remains in Test and Deploy Web39977408841 waits for the matching Worker. Additional local commits are not yet published; no overlapping push. Native visual verification remains unavailable.
+
+### 2026-10-24 history release publication and next deploy
+- d2036da7 CI39977408288, Deploy Worker39977408079 and Deploy Web39977408841 all completed success. Pushedc1f673ce only after those jobs terminated; new CI39980117529, Worker39980117483 and Web39980117365 are in_progress.
+- Direct urllib reads from this machine of app.honmaruai.com, honmaru-web.pages.dev and the configured Worker /health returned403. App response is Cloudflare plain text error1010. This is failed verification from this client, not evidence of an application outage or successful visual rendering. No bypass attempted. Native UI still reports Mac locked.
