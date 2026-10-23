@@ -1,4 +1,4 @@
-import { publicRooms, joinPublicRoom, removeRoomSubject, roomRoleState } from './harness/roomRoles.js';
+import { changeManagedRoomMembers, publicRooms, joinPublicRoom, removeRoomSubject, roomRoleState } from './harness/roomRoles.js';
 import { explicitAgentRoles } from './harness/agentRoles.js';
 import { roomResponses } from "./harness/roomResponses.js";
 import { threadPins, setThreadPin } from "./threadPins.js";
@@ -1591,9 +1591,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
     const ctx = await inChannel(env, request, body);
     if (ctx.denied) return ctx.denied;
-    const publicManagedRemoval = ctx.resolved.kind === "business" && !ctx.resolved.private && request.method === "DELETE"
+    const publicManagedMembership = ctx.resolved.kind === "business" && !ctx.resolved.private
       && (await roomRoleState(env.DB, body.orgId, ctx.resolved.key))?.managed;
-    if (!(ctx.resolved.kind === "business" && (ctx.resolved.private || publicManagedRemoval))) return json({ message: "Only a private channel has members to add or remove." }, 400);
+    if (!(ctx.resolved.kind === "business" && (ctx.resolved.private || publicManagedMembership))) return json({ message: "Only a private channel has members to add or remove." }, 400);
     const orgId = body.orgId;
     const key = ctx.resolved.key;
     const me = ctx.who.user;
@@ -1606,10 +1606,12 @@ export async function handleChannels(request, env, url, { route, after }) {
     };
     if (request.method === "POST") {
       const refs = (Array.isArray(body.refs) ? body.refs : []).map(String);
-      const inside = new Set(ctx.resolved.logins);
+      const inside = new Set(publicManagedMembership ? await membersOf(env.DB, orgId, key) : ctx.resolved.logins);
       const adding = ctx.members.filter((m) => refs.includes(m.ref) && !inside.has(m.login));
       if (!adding.length) return json({ added: 0 });
-      await addMembers(env.DB, { orgId, key, logins: adding.map((m) => m.login), addedBy: me.login });
+      const change = await changeManagedRoomMembers(env.DB, orgId, key, { actorId: ctx.who.session.github_id, adding, removing: [] });
+      if (change.error) return json({ message: change.error }, change.status);
+      if (!change.managed) await addMembers(env.DB, { orgId, key, logins: adding.map((m) => m.login), addedBy: me.login });
       await announceTo(env, orgId, await Promise.all(adding.map((m) => listFor(m.login))));
       await note(serverText(locale, "channel.added", { who: nameOf(me.login), names: adding.map((m) => m.name).join(", ") }));
       // One entry per person, who is the entity — so their name goes under
@@ -1620,7 +1622,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       return json({ added: adding.length });
     }
     const target = body.ref ? ctx.members.find((m) => m.ref === String(body.ref)) : ctx.members.find((m) => m.login === me.login);
-    const joinedLogins = publicManagedRemoval ? await membersOf(env.DB, orgId, key) : ctx.resolved.logins;
+    const joinedLogins = publicManagedMembership ? await membersOf(env.DB, orgId, key) : ctx.resolved.logins;
     if (!target || !joinedLogins.includes(target.login)) return json({ message: "They are not in this channel." }, 404);
     const removal = await removeRoomSubject(env.DB, orgId, key, { actorId: ctx.who.session.github_id, kind: "person", id: target.userId, version: body.version });
     if (removal.error) return json({ message: removal.error }, removal.status);

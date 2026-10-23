@@ -419,3 +419,23 @@ test('public room discovery exposes joined state without private rooms or stale 
   await env.DB.prepare("UPDATE hx_room_access SET deleted_at='deleted' WHERE org_id=?1").bind(org).run();
   expect(await publicRooms(env.DB,org,'outsider')).toEqual([]);
 });
+
+
+test('ordinary joined members can invite people through the managed public-room endpoint, but readers and guests cannot',async()=>{
+  const {default:worker}=await import('../src/index.js');
+  const {createSession}=await import('../src/db.js');
+  const {memberRef}=await import('../src/team.js');
+  await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1").bind(org).run();
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  const ref=await memberRef(org,'outsider'),pending=[];
+  const call=async actor=>worker.fetch(new Request('https://example.com/channels/members',{method:'POST',headers:{'content-type':'application/json','x-session-token':await createSession(env.DB,actor,'test')},body:JSON.stringify({orgId:org,channel,refs:[ref]})}),env,{waitUntil:p=>pending.push(p)});
+  expect((await call('outsider')).status).toBe(403);
+  expect((await call('guest')).status).toBe(403);
+  expect((await roomRoleState(env.DB,org,channel)).members.some(m=>m.id==='outsider')).toBe(false);
+  const added=await call('reader');
+  expect(added.status).toBe(200);
+  expect(await added.json()).toEqual({added:1});
+  expect((await roomRoleState(env.DB,org,channel)).members.find(m=>m.id==='outsider').role).toBe('member');
+  expect(await (await call('reader')).json()).toEqual({added:0});
+  await Promise.all(pending);
+});

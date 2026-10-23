@@ -1060,3 +1060,9 @@ Before this release, GitHub API confirmed production Worker run 39758211720 and 
 Public-room discovery now counts active assigned agents alongside current human workspace members. Deleted agents and stale human membership rows do not inflate the displayed count. This aligns the roster concept with the observed Kylon room header (one human plus Aris = two members). Room role/discovery suite passed 31 tests, including removal of a workspace member and soft deletion of an assigned agent. This follow-up is local while release 4bb40836 deploys; the populated Kylon discovery row remains unobserved.
 
 Release 4bb40836 was pushed to main. GitHub started Worker 39897252414, CI 39897252362, and Web 39897252380. All were in progress at the last check; deployment success is not yet established.
+
+### Managed-room invite route — 2026-10-23
+
+The existing `/channels/members` POST now accepts managed public rooms and uses their explicit membership list instead of their public reading audience. Managed additions go through the same transactional authorization/snapshot helper as admin API changes. A public reader or guest cannot invite someone merely by reading the room; an eligible joined ordinary member can. Existing private Simple additions retain their fallback behavior. Route regression verifies denied outsider/guest attempts, successful ordinary-member invitation, and duplicate invitation returning zero. Room/admin API suites passed 47 tests.
+
+Release 4bb40836 status: Desktop, Reference web client, Shared core/mobile, Reference relay and Local gateway CI jobs passed; Worker and End to end remained in progress, as did Worker/Web deployment. This follow-up is not part of that release. Before managed creation activation, agent-add authorization, legacy initialization races, remaining lifecycle routes and default-room policy still need review.
