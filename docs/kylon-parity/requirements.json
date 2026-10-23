@@ -162,11 +162,11 @@
       "id": "KY-014",
       "category": "Agents",
       "requirement": "独立したAgent Admin/Member",
-      "status": "missing",
+      "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/agents/overview",
-      "code": "worker/src/harness/agents.js",
-      "acceptance": "最後の人間Admin・所有者移譲・自己退出・将来加入者の全社権限を検証"
+      "code": "worker/src/harness/agentRoles.js",
+      "acceptance": "個別役割・制限付き共有・Memberによる通常メンバー追加削除・自己退出・作成者履歴を保持する所有者移譲・競合検出・最後の人間Admin保護を実装。Agent同士の役割・全実行経路のE2E・本番移譲検証は未完了"
     },
     {
       "id": "KY-015",
@@ -352,21 +352,21 @@
       "id": "KY-033",
       "category": "Skills",
       "requirement": "SKILL.mdパッケージと補助ファイル",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/skill",
       "code": "worker/src/harness/skills.js",
-      "acceptance": "frontmatter検証・scripts/templatesの相対パス・安全な展開"
+      "acceptance": "SKILL.md・ZIP・フォルダーの確認後取り込み、相対パス検証、サイズ制限、補助バイナリ保存、権限付きページ読み込み・ZIP再出力を本番反映。Mac本番でZIPとフォルダーの日本語本文・補助ファイル一覧プレビューを確認。保存・再出力は自動テストで検証。補助ファイル編集、全アーカイブ形式、実機ドロップは残る"
     },
     {
       "id": "KY-034",
       "category": "Skills",
       "requirement": "必要時にスキル本文を読む",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/skill",
       "code": "worker/src/harness/agents.js",
-      "acceptance": "現状の全文注入を索引＋必要時読込みへ変更"
+      "acceptance": "会話research・ワークフロー・予約実行に索引と権限再確認付き読込みツールを接続。ワークフロー・予約実行のモデル往復と利用量記録を模擬プロバイダーで検証。非research会話の20000字フォールバック制限、実モデルでの本番検証は残る"
     },
     {
       "id": "KY-035",
@@ -810,11 +810,11 @@
       "id": "KY-074",
       "category": "Files",
       "requirement": "ファイルへの固定会話",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/file",
-      "code": "worker/src/channels.js",
-      "acceptance": "ファイルを開くと同一の会話が復元"
+      "code": "worker/src/fileConversations.js",
+      "acceptance": "ファイル単位の固定ID・同時初回作成・送信元ACLを実装。Web 887件／Workerファイル27件を検証。後続デプロイへの包含はコミット祖先関係で確認。再読込E2Eの当該ケース結果は要再確認。添付削除後も会話は通常履歴に残る。Kylonのファイルと会話の同時表示・全端末比較は残る"
     },
     {
       "id": "KY-075",
