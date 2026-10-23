@@ -29,9 +29,9 @@ export function RoomGuidelinesDialog({api,channel,onClose}:{api:Api;channel:stri
   }catch(e){if(scope===generation.current)setError(e instanceof Error?e.message:String(e))}
   finally{if(pending.current===scope)pending.current=null;if(scope===generation.current)setBusy(false)}
  }
- return <Dialog className="room-guidelines-dialog" title="ガイドライン" lede="このルームで協働するメンバーに共有したい背景、ルール、仕事の進め方を記入してください。" onClose={()=>{if(pending.current===null)onClose()}} footer={<><button className="dlg-btn" disabled={busy} onClick={onClose}>キャンセル</button><button className="dlg-btn primary" disabled={busy||loading||!editable||!saved||conflict||draft===saved.body} onClick={()=>void save()}>{busy?'保存中…':'保存'}</button></>}>
+ return <Dialog className="room-guidelines-dialog" title="ルームガイドライン" lede="このルームで協働するメンバーに共有したい背景、ルール、仕事の進め方を記入してください。" onClose={()=>{if(pending.current===null)onClose()}} footer={<><button className="dlg-btn" disabled={busy} onClick={onClose}>キャンセル</button><button className="dlg-btn primary" disabled={busy||loading||!editable||!saved||conflict||draft===saved.body} onClick={()=>void save()}>{busy?'保存中…':'保存'}</button></>}>
   {loading&&<p role="status">読み込み中…</p>}
-  {saved&&<><textarea autoFocus aria-label="ルームのガイドライン" value={draft} maxLength={4096} disabled={busy||loading} readOnly={!editable||conflict} onChange={event=>setDraft(event.target.value)}/><div className="room-guidelines-count">{draft.length} / 4096</div>{!editable&&<p>編集するには、このルームへの参加と編集権限が必要です。</p>}</>}
+  {saved&&<><textarea autoFocus aria-label="ルームのガイドライン" placeholder="このルームで共同作業するメンバーのために、背景情報やルール、ガイドラインを入力してください" value={draft} maxLength={4096} disabled={busy||loading} readOnly={!editable||conflict} onChange={event=>setDraft(event.target.value)}/><div className="room-guidelines-count">{draft.length} / 4096</div>{!editable&&<p>編集するには、このルームへの参加と編集権限が必要です。</p>}</>}
   {error&&<div role="alert" className="room-guidelines-error">{error}{(!saved||conflict)&&<button type="button" className="dlg-btn" disabled={busy||loading} onClick={()=>void load()}>最新の内容に置き換える</button>}</div>}
  </Dialog>
 }

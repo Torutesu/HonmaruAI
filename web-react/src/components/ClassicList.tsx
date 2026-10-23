@@ -5031,7 +5031,7 @@ export const ClassicList: React.FC<Props> = ({
                   {(() => { const away = awayShown(members.find((x) => thread.view === `dm:${x.ref}`)?.awayUntil, Date.now()); return away ? <span className="slk-head-away"> · {t('Away until {when}', { when: new Date(away).toLocaleDateString(locale, { month: 'short', day: 'numeric' }) })}</span> : null })()}
                 </h1>
               : <h1>{thread.name}</h1>}
-            {thread.view && (
+            {thread.view && !(harness && thread.managed) && (
               <span className="slk-head-tools" onClick={(e) => e.stopPropagation()}>
                 <button
                   type="button"

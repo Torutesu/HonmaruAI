@@ -19,15 +19,15 @@ export function HarnessRoomTools(props:Props){
  },[props.shortcut])
  const closeSearch=()=>{setSearch(false);trigger.current?.focus()}
  return <>
-  <button ref={trigger} type="button" className="slk-more" aria-label="その他のルーム操作" aria-haspopup="menu" aria-expanded={!!menu} onClick={event=>{const rect=event.currentTarget.getBoundingClientRect();setMenu({x:rect.right,y:rect.bottom,anchor:event.currentTarget})}}><Icon name="more" size={16}/></button>
-  {menu&&<RowMenu at={menu} anchor={menu.anchor} label="その他のルーム操作" onClose={()=>setMenu(null)} entries={[
+  <button ref={trigger} type="button" className="slk-more" aria-label="ルームメニュー" aria-haspopup="menu" aria-expanded={!!menu} onClick={event=>{const rect=event.currentTarget.getBoundingClientRect();setMenu({x:rect.right,y:rect.bottom,anchor:event.currentTarget})}}><Icon name="more" size={16}/></button>
+  {menu&&<RowMenu at={menu} anchor={menu.anchor} label="ルームメニュー" onClose={()=>setMenu(null)} entries={[
    {kind:'item',label:'ルーム内を検索',icon:'search',hint:'⌘F',onSelect:openSearch},
    {kind:'item',label:'リンクをコピー',icon:'link',onSelect:props.onCopy},
-   {kind:'item',label:props.pinned?'ホームへの固定を解除':'ホームに固定',icon:'pin',onSelect:props.onPin},
+   {kind:'item',label:props.pinned?'ホームのピン留めを解除':'ホームにピン留め',icon:'pin',onSelect:props.onPin},
    {kind:'sep'},
-   {kind:'item',label:'ガイドライン',icon:'book',onSelect:()=>setGuidelines(true)},
-   {kind:'item',label:'設定',icon:'settings',onSelect:props.onSettings},
-   {kind:'item',label:props.muted?'ミュートを解除':'ミュート',icon:props.muted?'bell':'bell-off',onSelect:props.onMute},
+   {kind:'item',label:'ルームガイドライン',icon:'book',onSelect:()=>setGuidelines(true)},
+   {kind:'item',label:'ルーム設定',icon:'settings',onSelect:props.onSettings},
+   {kind:'item',label:props.muted?'ルームのミュートを解除':'ルームをミュート',icon:props.muted?'bell':'bell-off',onSelect:props.onMute},
   ]}/>}
   {guidelines&&<RoomGuidelinesDialog api={props.api} channel={props.channel} onClose={()=>setGuidelines(false)}/>}
   {search&&<ThreadSearch focusKey={focusKey} api={props.api} channel={props.channel} onSelect={props.onSelect} onClose={closeSearch}/>}

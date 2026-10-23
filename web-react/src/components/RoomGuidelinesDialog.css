@@ -8,3 +8,14 @@
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .room-guidelines-error { color:#ff8b8b; }}
 
 .room-guidelines-error .dlg-btn { margin:6px 0 0; display:block; }
+/* Match the room editor's spacing without changing legacy Simple dialogs. */
+.dialog.room-guidelines-dialog { border-radius:16px; border-color:var(--hx-border); --dlg-bg:var(--hx-surface); --dlg-ink:var(--hx-text); --dlg-dim:var(--hx-muted); --dlg-line:var(--hx-border); --dlg-hover:var(--hx-hover); }
+.room-guidelines-dialog .dialog-head { padding:20px 24px 8px; }
+.room-guidelines-dialog .dialog-head h2 { font-size:18px; }
+.room-guidelines-dialog .dialog-body { padding:8px 24px 0; gap:8px; }
+.room-guidelines-dialog textarea { border-radius:12px; }
+.room-guidelines-dialog textarea::placeholder { color:var(--hx-muted); opacity:.8; }
+.room-guidelines-dialog .dialog-foot { padding:16px 24px 24px; border-top:0; }
+.room-guidelines-dialog .dialog-foot .dlg-btn { border-color:transparent; background:transparent; border-radius:12px; }
+.room-guidelines-dialog .dialog-foot .dlg-btn:hover:not(:disabled) { background:var(--hx-hover); }
+.room-guidelines-dialog .dialog-foot .dlg-btn.primary { background:var(--hx-accent); border-color:var(--hx-accent); color:var(--hx-surface); }
