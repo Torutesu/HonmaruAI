@@ -1027,3 +1027,10 @@ Targeted verification passed 2 suites / 36 tests, including the real admin API's
 Workspace role changes to guest now include a live SQL last-human-room-admin condition. It includes archived, nondeleted managed rooms and valid workspace/room join stamps; agent admins cannot replace the last human. A successful guest change increments affected room policy versions and clears that person's room grants in the same D1 batch, so subsequent promotion to ordinary membership cannot restore old room administration. Existing owner checks and Simple behavior remain in place.
 
 Verification: room roles, team, owners and guest limits suites passed (4 files / 68 tests). The new regression verifies rejection before a successor exists, successful demotion after another human is made admin, and no grant resurrection after promotion. Remaining limitations: automatic membership pruning/account deletion and full workspace departure handoff still need integration; no managed-room creation API is enabled yet.
+
+
+### Room administration in workspace departure — 2026-10-23
+
+Departure responsibilities now include valid human administrator grants in managed nondeleted rooms, including archived rooms. Room policy versions are part of the reviewed snapshot. Eligible successor choices must already belong to every affected room; the server repeats this check, and the departure transaction verifies membership before granting successor administration and removing the departing person's grants/membership. No private-room invitation is implicit. The UI lists room responsibilities and requires a successor even when there are no agents or skills. Existing no-room handoff response shape is preserved.
+
+Validation: Worker room/team/owner suites passed 64 tests; departure UI passed 6 tests; TypeScript passed. Concurrent guest-demotion regression also proves two human admins cannot both become guests in an archived room even when an agent remains admin. Remaining review: successor room rejoin stamps during handoff, automatic pruning/account deletion, creation API and production connection. This is not deployed yet.

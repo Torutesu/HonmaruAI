@@ -19,14 +19,23 @@ const skillResponsibilities = `SELECT s.id,s.name,COALESCE(s.owner_id,s.created_
   FROM hx_skills s LEFT JOIN hx_skill_access p ON p.org_id=s.org_id AND p.skill_id=s.id
   WHERE s.org_id=?1 AND COALESCE(s.owner_id,s.created_by)=?2 ORDER BY s.id`;
 const skillSnapshotQuery = `SELECT json_group_array(json_array(id,owner_id,visibility,version)) FROM (${skillResponsibilities})`;
-const completeSnapshotQuery = `SELECT json_object('agents',json((${snapshotQuery})),'skills',json((${skillSnapshotQuery})))`;
+const roomResponsibilities = `SELECT p.channel,b.name,p.version FROM hx_room_access p
+ JOIN businesses b ON b.org_id=p.org_id AND 'b:'||b.slug=p.channel
+ JOIN hx_room_roles r ON r.org_id=p.org_id AND r.channel=p.channel AND r.subject_kind='person' AND r.subject_id=?2 AND r.role='admin'
+ JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.subject_id AND m.role!='guest'
+ JOIN users u ON u.github_id=m.user_github_id
+ JOIN conversation_members c ON c.org_id=r.org_id AND c.channel=r.channel AND c.login=u.login
+ WHERE p.org_id=?1 AND p.deleted_at IS NULL AND r.member_since=m.created_at||'/'||c.added_at ORDER BY p.channel`;
+const roomSnapshotQuery = `SELECT json_group_array(json_array(channel,version)) FROM (${roomResponsibilities})`;
+const completeSnapshotQuery = `SELECT json_object('agents',json((${snapshotQuery})),'skills',json((${skillSnapshotQuery})),'rooms',json((${roomSnapshotQuery})))`;
 
 export async function departureResponsibilities(db, orgId, target) {
   const {results}=await db.prepare(responsibilities).bind(orgId,target.userId,target.login).all();
   const {results:skills}=await db.prepare(skillResponsibilities).bind(orgId,target.userId).all();
-  const snapshot=JSON.stringify({agents:results.map(a=>[a.id,a.owner_login,a.scope,a.version]),skills:skills.map(s=>[s.id,s.owner_id,s.visibility,s.version])});
+  const {results:rooms}=await db.prepare(roomResponsibilities).bind(orgId,target.userId).all();
+  const snapshot=JSON.stringify({agents:results.map(a=>[a.id,a.owner_login,a.scope,a.version]),skills:skills.map(s=>[s.id,s.owner_id,s.visibility,s.version]),rooms:rooms.map(r=>[r.channel,r.version])});
   const version=await sha256Hex(JSON.stringify([orgId,target.userId,target.joinedAt,snapshot]));
-  return {agents:results,skills,snapshot,version};
+  return {agents:results,skills,rooms,snapshot,version};
 }
 
 // A receipt is claimed only while the entire preview and all memberships are
@@ -40,9 +49,13 @@ export async function removeWithResourceHandoff(db, orgId, context, {transferTo,
   if(previewVersion!==undefined && previewVersion!==plan.version)
     return {error:'Workspace responsibilities changed. Reload before removing this member.',code:'departure-conflict',status:409};
   const recipient=members.find(m=>m.ref===transferTo&&m.userId!==target.userId&&m.role!=='guest');
-  const hasResponsibilities=plan.agents.length+plan.skills.length>0;
+  const hasResponsibilities=plan.agents.length+plan.skills.length+plan.rooms.length>0;
   if(hasResponsibilities && (!recipient || previewVersion!==plan.version))
     return {error:'Review the responsibilities and choose a successor before leaving.',code:'agent-handoff-required',status:409};
+  if(plan.rooms.length&&recipient) {
+    const joined=await db.prepare(`SELECT COUNT(*) AS n FROM conversation_members WHERE org_id=?1 AND login=?2 AND channel IN(SELECT value FROM json_each(?3))`).bind(orgId,recipient.login,JSON.stringify(plan.rooms.map(r=>r.channel))).first('n');
+    if(joined!==plan.rooms.length)return {error:'Choose a successor who already belongs to every listed room.',code:'room-handoff-membership',status:409};
+  }
   const nonce=crypto.randomUUID(),at=new Date().toISOString();
   const ids=JSON.stringify(plan.agents.map(a=>a.id));
   const gate='EXISTS (SELECT 1 FROM hx_member_departures WHERE org_id=?1 AND user_id=?2 AND nonce=?3)';
@@ -53,6 +66,9 @@ export async function removeWithResourceHandoff(db, orgId, context, {transferTo,
       AND (?6!='owner' OR EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND role='owner' AND user_github_id!=?2))
       AND (?11 IS NULL OR EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?11 AND role!='guest' AND created_at=?12))
       AND (${completeSnapshotQuery})=?13
+      AND NOT EXISTS(SELECT 1 FROM (${roomResponsibilities}) room WHERE NOT EXISTS(
+        SELECT 1 FROM conversation_members c JOIN users u ON u.login=c.login
+        WHERE c.org_id=?1 AND c.channel=room.channel AND u.github_id=?11))
     ON CONFLICT(org_id,user_id) DO UPDATE SET nonce=excluded.nonce,created_at=excluded.created_at`)
     .bind(orgId,target.userId,target.login,nonce,at,target.role,target.joinedAt,actor.userId,actor.role,actor.joinedAt,
       hasResponsibilities?recipient.userId:null,hasResponsibilities?recipient.joinedAt:null,plan.snapshot)];
@@ -82,6 +98,20 @@ export async function removeWithResourceHandoff(db, orgId, context, {transferTo,
         WHERE org_id=?1 AND id IN(SELECT value FROM json_each(?4)) AND ${gate}`)
         .bind(orgId,target.userId,nonce,skillIds,recipient.userId,at));
   }
+  if(plan.rooms.length) {
+    const roomIds=JSON.stringify(plan.rooms.map(r=>r.channel));
+    batch.push(
+      db.prepare(`UPDATE hx_room_access SET version=version+1,mutation_id=?3 WHERE org_id=?1 AND channel IN(SELECT value FROM json_each(?4)) AND ${gate}`).bind(orgId,target.userId,nonce,roomIds),
+      db.prepare(`INSERT INTO hx_room_roles(org_id,channel,subject_kind,subject_id,role,member_since,updated_by,updated_at)
+        SELECT ?1,c.channel,'person',?5,'admin',m.created_at||'/'||c.added_at,?6,?7
+        FROM conversation_members c JOIN users u ON u.login=c.login
+        JOIN memberships m ON m.org_id=c.org_id AND m.user_github_id=u.github_id
+        WHERE c.org_id=?1 AND u.github_id=?5 AND c.channel IN(SELECT value FROM json_each(?4)) AND ${gate}
+        ON CONFLICT(org_id,channel,subject_kind,subject_id) DO UPDATE SET role='admin',member_since=excluded.member_since,updated_by=excluded.updated_by,updated_at=excluded.updated_at`)
+        .bind(orgId,target.userId,nonce,roomIds,recipient.userId,actor.userId,at),
+    );
+  }
+  batch.push(db.prepare(`DELETE FROM hx_room_roles WHERE org_id=?1 AND subject_kind='person' AND subject_id=?2 AND ${gate}`).bind(orgId,target.userId,nonce));
   batch.push(
     db.prepare(`UPDATE hx_gateways SET revoked_at=?4 WHERE org_id=?1 AND created_by=?2 AND revoked_at IS NULL AND ${gate}`)
       .bind(orgId,target.userId,nonce,Date.parse(at)),
@@ -101,5 +131,5 @@ export async function removeWithResourceHandoff(db, orgId, context, {transferTo,
     }
     return {error:'Workspace responsibilities changed. Reload before removing this member.',code:'departure-conflict',status:409};
   }
-  return {handoff:hasResponsibilities?{agents:plan.agents.length,skills:plan.skills.length,to:recipient.ref}:null};
+  return {handoff:hasResponsibilities?{agents:plan.agents.length,skills:plan.skills.length,...(plan.rooms.length?{rooms:plan.rooms.length}:{}),to:recipient.ref}:null};
 }

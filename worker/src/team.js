@@ -208,14 +208,19 @@ export async function previewMemberDeparture(env, input) {
   if (context.error) return context;
   const { target, members, leaving } = context;
   const { orgId } = input;
-  const { agents, skills, version } = await departureResponsibilities(env.DB, orgId, target);
+  const { agents, skills, rooms, version } = await departureResponsibilities(env.DB, orgId, target);
+  const eligibleCandidates=[];
+  for(const m of members.filter(m=>m.userId!==target.userId&&m.role!=='guest')) {
+    const count=rooms.length ? await env.DB.prepare('SELECT COUNT(*) AS n FROM conversation_members WHERE org_id=?1 AND login=?2 AND channel IN(SELECT value FROM json_each(?3))').bind(orgId,m.login,JSON.stringify(rooms.map(r=>r.channel))).first('n') : 0;
+    if(count===rooms.length)eligibleCandidates.push({ref:m.ref,name:m.name});
+  }
   return {
     version,
     member: { ref: target.ref, name: target.name, mine: leaving },
     agents: agents.map(a => ({ id: a.id, name: a.name, owned: a.owner_login === target.login, scope: a.scope, version: a.version })),
     skills: skills.map(s => ({ id: s.id, name: s.name, visibility: s.visibility, version: s.version })),
-    candidates: members.filter(m => m.userId !== target.userId && m.role !== 'guest')
-      .map(m => ({ ref: m.ref, name: m.name })),
+    rooms: rooms.map(r=>({channel:r.channel,name:r.name,version:r.version})),
+    candidates: eligibleCandidates,
   };
 }
 

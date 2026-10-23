@@ -83,3 +83,16 @@ test('a skill-only departure still requires a successor',async()=>{
  expect(remove).toHaveBeenCalledWith({previewVersion:'snapshot',transferTo:'successor'})
  act(()=>tree.unmount())
 })
+
+test('room-only departure requires a participant successor and displays room responsibility',async()=>{
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue(response({...preview,agents:[],rooms:[{channel:'b:planning',name:'Planning',version:1}]})))
+ const remove=vi.fn().mockResolvedValue(undefined);let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<MemberDepartureDialog httpBase="https://example.test" orgId="team" sessionToken="test" member={member} onRemove={remove} onClose={vi.fn()}/>)})
+ const button=()=>tree.root.findAllByType('button').find(n=>n.children.includes('Leave'))!
+ expect(button().props.disabled).toBe(true)
+ expect(tree.root.findAllByType('summary')[0].children).toContain('Rooms')
+ act(()=>tree.root.findByType('select').props.onChange({target:{value:'successor'}}))
+ await act(async()=>button().props.onClick())
+ expect(remove).toHaveBeenCalledWith({previewVersion:'snapshot',transferTo:'successor'})
+ act(()=>tree.unmount())
+})

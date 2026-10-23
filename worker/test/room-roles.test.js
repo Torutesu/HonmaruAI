@@ -290,3 +290,35 @@ test('guest demotion cannot strand a room and never revives old admin grants',as
   expect(state.members.find(m=>m.id==='creator').role).toBe('member');
   expect(state.members.find(m=>m.id==='reader').role).toBe('admin');
 });
+
+test('simultaneous guest demotions leave one human admin in an archived room',async()=>{
+  const {changeRole,memberRef}=await import('../src/team.js');
+  await upsertMembership(env.DB,org,'outsider','owner');
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?1,?2,'outsider','owner joined')").bind(org,channel).run();
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  await change('creator','person','reader','admin',1);
+  await change('creator','agent','helper','admin',2);
+  await env.DB.prepare("UPDATE businesses SET archived_at='archived' WHERE org_id=?1 AND slug='planning'").bind(org).run();
+  const refs=await Promise.all(['creator','reader'].map(id=>memberRef(org,id)));
+  const results=await Promise.all(refs.map(ref=>changeRole(env,{orgId:org,actorId:'outsider',ref,role:'guest',channels:['planning']})));
+  expect(results.filter(r=>r.ok)).toHaveLength(1);
+  expect(results.filter(r=>r.code==='last-room-admin')).toHaveLength(1);
+  const state=await roomRoleState(env.DB,org,channel,{includeArchived:true});
+  expect(state.members.filter(m=>m.kind==='person'&&m.role==='admin'&&m.eligible)).toHaveLength(1);
+});
+
+test('workspace departure hands archived room administration only to an existing participant',async()=>{
+  const {previewMemberDeparture,removeMember,memberRef}=await import('../src/team.js');
+  await upsertMembership(env.DB,org,'outsider','owner');
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  await env.DB.prepare("UPDATE businesses SET archived_at='archived' WHERE org_id=?1 AND slug='planning'").bind(org).run();
+  const input={orgId:org,actorId:'outsider',targetId:'creator'};
+  const preview=await previewMemberDeparture(env,input);
+  expect(preview.rooms).toEqual([{channel,name:'Planning',version:1}]);
+  expect(preview.candidates.map(m=>m.ref)).toEqual([await memberRef(org,'reader')]);
+  expect(await removeMember(env,{...input,previewVersion:preview.version,transferTo:await memberRef(org,'outsider')})).toMatchObject({status:409,code:'room-handoff-membership'});
+  expect(await removeMember(env,{...input,previewVersion:preview.version,transferTo:await memberRef(org,'reader')})).toMatchObject({ok:true});
+  const state=await roomRoleState(env.DB,org,channel,{includeArchived:true});
+  expect(state.members.find(m=>m.id==='reader').role).toBe('admin');
+  expect(state.members.some(m=>m.id==='creator')).toBe(false);
+});

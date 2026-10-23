@@ -1,6 +1,8 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Room admin": "ルーム管理者",
+  "Choose a successor who already belongs to every listed room.": "一覧のすべてのルームに参加済みのメンバーを引き継ぎ先に選んでください。",
   "Guidelines": "ガイドライン",
   "Create room": "ルームを作成",
   "Choose who can access this room.": "このルームの公開範囲を選択してください。",

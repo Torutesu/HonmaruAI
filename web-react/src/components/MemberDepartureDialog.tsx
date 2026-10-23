@@ -8,6 +8,7 @@ export interface DeparturePreview {
  version:string
  member:{ref:string;name:string;mine:boolean}
  agents:{id:string;name:string;owned:boolean;scope:string;version:number}[]
+ rooms?:{channel:string;name:string;version:number}[]
  skills?:{id:string;name:string;visibility:string;version:number}[]
  candidates:{ref:string;name:string}[]
 }
@@ -27,7 +28,7 @@ export function MemberDepartureDialog({httpBase,orgId,sessionToken,member,onRemo
    .catch(e=>{if(!abort.signal.aborted)setError(e instanceof Error?e.message:String(e))})
   return()=>abort.abort()
  },[httpBase,orgId,sessionToken,member.ref,revision])
- const hasResponsibilities=!!preview&&(preview.agents.length+(preview.skills?.length||0)>0)
+ const hasResponsibilities=!!preview&&(preview.agents.length+(preview.skills?.length||0)+(preview.rooms?.length||0)>0)
  const submit=async()=>{
   if(pending.current||!preview||(hasResponsibilities&&!recipient))return
   pending.current=true;setBusy(true);setError('')
@@ -50,6 +51,9 @@ export function MemberDepartureDialog({httpBase,orgId,sessionToken,member,onRemo
    </details></>}
    {!!preview.skills?.length&&<details className="member-departure-resources" open><summary><Icon name="book" size={16}/>{t('Custom skills')}<span>{preview.skills.length}</span><Icon name="chevron-down" size={16}/></summary>
     <ul>{preview.skills.map(skill=><li key={skill.id}><span>{skill.name}</span><small>{t('Owner')}</small></li>)}</ul>
+   </details>}
+   {!!preview.rooms?.length&&<details className="member-departure-resources" open><summary><Icon name="room" size={16}/>{t('Rooms')}<span>{preview.rooms.length}</span><Icon name="chevron-down" size={16}/></summary>
+    <ul>{preview.rooms.map(room=><li key={room.channel}><span>{room.name}</span><small>{t('Room admin')}</small></li>)}</ul>
    </details>}
    <label className="member-departure-recipient"><span className="dlg-label">{t('Transfer to')}</span>
     <select className="dlg-input" value={recipient} disabled={busy} onChange={e=>setRecipient(e.target.value)}><option value="">{t('Choose a member')}</option>{preview.candidates.map(person=><option key={person.ref} value={person.ref}>{person.name}</option>)}</select>
