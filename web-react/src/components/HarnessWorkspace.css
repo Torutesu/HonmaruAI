@@ -658,3 +658,6 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-composer-add-menu button:disabled { opacity: .45; cursor: default; }
 .hx-composer-add-menu [role="separator"] { height: 1px; background: var(--hx-border); margin: 5px; }
 .hx-composer-format { position: absolute; bottom: calc(100% + 10px); left: 0; display: flex; padding: 6px; border: 1px solid var(--hx-border); border-radius: 9px; background: var(--hx-surface); box-shadow: 0 8px 24px #0002; }
+.hx-dictation { position: relative; display: inline-flex; }
+.hx-dictation [aria-pressed="true"] { color: var(--hx-accent); background: var(--hx-hover); }
+.hx-dictation-error { position: absolute; bottom: calc(100% + 8px); right: 0; width: 240px; padding: 10px; background: var(--hx-surface); color: var(--hx-text); border: 1px solid var(--hx-border); border-radius: 8px; font-size: 12px; z-index: 40; }

@@ -1543,3 +1543,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 Harness composer compact menu (local)
 - Native Kylon composer inspected: plus menu, mention, connections, new-thread toggle. Harness main composer now puts attach, mention, integration management, formatting, decision and scheduling into a plus menu. Simple toolbar retained. Theme tokens support light/dark; Escape, outside dismissal and keyboard navigation included.
 - Web: 145 files / 1007 tests passed; TypeScript and Vite build passed. Rendered verification and deployment pending. New-thread mode and dictation parity remain incomplete; integration management does not claim per-message connection selection.
+
+### 2026-10-23 Harness composer dictation (local)
+- Added microphone control only where browser speech recognition exists. Stops accepting results after manual edits, draft clearing/sending, room/workspace changes, unmount or disabled state. Recognition failure is visible. No automatic send. Simple remains unchanged.
+- Web 146 files / 1009 tests passed, TypeScript and Vite build passed. Regression tests cover late transcripts after typing, sending and room changes; unsupported clients hide control. Real microphone, rendering and production deployment remain unverified.

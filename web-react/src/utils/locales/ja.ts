@@ -1,6 +1,9 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Voice input": "音声入力",
+  "Stop voice input": "音声入力を停止",
+  "Voice input unavailable. Check microphone access.": "音声入力を利用できません。マイクのアクセス許可を確認してください。",
   "Add to message": "メッセージに追加",
   "Mention someone": "メンションする",
   "Manage integrations": "連携を管理",

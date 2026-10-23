@@ -1,3 +1,4 @@
+import { HarnessDictation } from './HarnessDictation'
 import { HarnessComposerMenu } from './HarnessComposerMenu'
 import {RoomVisual} from './RoomVisual'
 import { receiveChannelActivity } from '../utils/channelActivity'
@@ -5449,6 +5450,7 @@ export const ClassicList: React.FC<Props> = ({
               {!harness && <button type="button" className="slk-send ai" disabled={!draft.trim()} onClick={() => void send(thread.view!, true)} aria-label={t('Send as a decision')} title={t('Send as a decision')}>
                 <Icon name="sparkle" size={15} /><span className="slk-send-label">{t('Send as a decision')}</span>
               </button>}
+              {harness && <HarnessDictation key={`${api.orgId}:${thread.view}`} value={draft} onChange={setDraft} locale={locale} disabled={resourceBuilding || uploads.busy}/>}
               <span className="slk-send-group">
                 <button type="submit" className="slk-send" disabled={resourceBuilding || uploads.busy || (!draft.trim() && !uploads.ids.length)} aria-label={t('Send')}>
                   <Icon name="send" size={16} />
