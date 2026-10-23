@@ -78,3 +78,27 @@ test('memory search requests saved entries and retries additional pages without 
   expect(more()).toBeUndefined()
  }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
 })
+
+vi.mock('../components/Dialog',()=>({Dialog:({children,onClose}:any)=><section role="dialog">{children}<button onClick={onClose}>Close dialog</button></section>}))
+test('read-only members can open memory history with the selected conversation scope',async()=>{
+ let tree!:ReturnType<typeof create>
+ const requests:URL[]=[]
+ vi.stubGlobal('fetch',vi.fn(async(input:string)=>{
+  const url=new URL(input);requests.push(url)
+  if(url.pathname.endsWith('/reviews')) return {ok:true,json:async()=>({reviews:[{id:'r',version:2,by:'owner',reviewerName:'Owner',at:'2026-10-24',verdict:'keep',evidence:'Verified procedure'}],nextCursor:null})}
+  if(url.pathname.endsWith('/memory')) return {ok:true,json:async()=>({memories:url.searchParams.get('channel')?[{id:'m',text:'Scoped memory',channel:'b:private',version:2,source:'person',createdAt:'2026-10-24'}]:[],nextCursor:null})}
+  return {ok:true,json:async()=>({agents:[{id:'a',name:'Memory agent',handle:'memory',scope:'team'}],profile:{tier:'standard',people:[],access:'private'},canEdit:false,skills:[],scopes:[{channel:'business:private',label:'Private room'}]})}
+ }))
+ try {
+  await act(async()=>{tree=create(<HarnessAgents httpBase="https://example.test" orgId="one" sessionToken="session" onClose={vi.fn()}/>)})
+  await act(async()=>tree.root.findByProps({'data-agent':'a'}).props.onClick())
+  await act(async()=>tree.root.findAllByProps({role:'tab'}).find(t=>t.children.includes('Memory'))!.props.onClick())
+  await act(async()=>tree.root.findByProps({'aria-label':'Memory conversation'}).props.onChange({target:{value:'business:private'}}))
+  expect(tree.root.findAllByType('button').some(b=>b.children.includes('Review memory'))).toBe(false)
+  await act(async()=>tree.root.findAllByType('button').find(b=>b.children.includes('Memory review history'))!.props.onClick())
+  expect(requests.find(u=>u.pathname.endsWith('/memory/m/reviews'))?.searchParams.get('channel')).toBe('business:private')
+  expect(JSON.stringify(tree.toJSON())).toContain('Verified procedure')
+  act(()=>tree.root.findAllByType('button').find(b=>b.children.includes('Close dialog'))!.props.onClick())
+  expect(tree.root.findAllByProps({role:'dialog'})).toHaveLength(0)
+ }finally {act(()=>tree?.unmount());vi.unstubAllGlobals()}
+})
