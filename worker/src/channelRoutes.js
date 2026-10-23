@@ -1613,7 +1613,10 @@ export async function handleChannels(request, env, url, { route, after }) {
       if (!adding.length) return json({ added: 0 });
       const change = await changeManagedRoomMembers(env.DB, orgId, key, { actorId: ctx.who.session.github_id, adding, removing: [] });
       if (change.error) return json({ message: change.error }, change.status);
-      if (!change.managed) await addMembers(env.DB, { orgId, key, logins: adding.map((m) => m.login), addedBy: me.login });
+      if (!change.managed) {
+        const count = await addMembers(env.DB, { orgId, key, logins: adding.map((m) => m.login), addedBy: me.login, legacyOnly: true });
+        if (!count) return json({ message: "Room membership changed. Reload before saving." }, 409);
+      }
       await announceTo(env, orgId, await Promise.all(adding.map((m) => listFor(m.login))));
       await note(serverText(locale, "channel.added", { who: nameOf(me.login), names: adding.map((m) => m.name).join(", ") }));
       // One entry per person, who is the entity — so their name goes under

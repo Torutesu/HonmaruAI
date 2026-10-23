@@ -489,3 +489,13 @@ test('legacy agent insertion cannot bypass a managed policy initialized after an
   expect(await addChannelAgent(env.DB,{orgId:org,key:channel,agentId:'helper',login:'outsider'})).toBe(false);
   expect((await roomRoleState(env.DB,org,channel)).members.some(m=>m.id==='helper')).toBe(false);
 });
+
+
+test('legacy-only human invitations cannot bypass newly initialized room roles',async()=>{
+  const {addMembers}=await import('../src/access.js');
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  expect(await addMembers(env.DB,{orgId:org,key:channel,logins:['outsider'],addedBy:'reader',legacyOnly:true})).toBe(0);
+  expect((await roomRoleState(env.DB,org,channel)).members.some(m=>m.id==='outsider')).toBe(false);
+  // Trusted onboarding callers keep their existing invitation behavior.
+  expect(await addMembers(env.DB,{orgId:org,key:channel,logins:['outsider'],addedBy:'creator'})).toBe(1);
+});
