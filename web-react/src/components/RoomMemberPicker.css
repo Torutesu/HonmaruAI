@@ -1,4 +1,4 @@
-.room-member-picker{width:min(512px,100%);--dlg-danger:#b42318;--room-action:#757c4e}
+.room-member-picker{width:min(512px,100%);--dlg-danger:#b42318;--room-action:#697144}
 .room-member-picker .dialog-head{padding:24px 24px 12px}.room-member-picker .dialog-head h2{font-size:18px;line-height:24px}.room-member-picker .dialog-body{padding:12px 24px 24px}
 .room-member-picker-empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:12px;padding:20px 0 24px;font-size:13px}.room-member-picker-empty p{margin:0;line-height:1.6}.room-member-picker-icon{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:#f3ecdc}
 .room-member-picker-search{position:relative;display:flex;align-items:center}.room-member-picker-search>svg{position:absolute;left:10px;color:var(--dlg-dim)}.room-member-picker-search input{padding-left:34px}
@@ -10,4 +10,4 @@
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .room-member-picker-icon{background:#36352a}}
 :root[data-theme="dark"] .room-member-picker-icon{background:#36352a}
 
-.room-member-picker .dlg-btn.primary:hover:not(:disabled){background:var(--room-action);border-color:var(--room-action);color:#fff}
+.room-member-picker .dlg-btn.primary:hover:not(:disabled){background:var(--room-action);border-color:var(--room-action);color:#fff;opacity:1}

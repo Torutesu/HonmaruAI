@@ -1,4 +1,4 @@
-.room-create{width:min(512px,100%);--room-action:#757c4e}
+.room-create{width:min(512px,100%);--room-action:#697144}
 .room-create .dialog-head{padding:20px 20px 12px}.room-create .dialog-head p{margin-top:10px;font-size:12px}
 .room-create .dialog-body{gap:10px;padding:8px 20px 20px}.room-create .dialog-foot{padding:12px 20px}
 .room-create .dlg-btn{height:36px;border-radius:12px}.room-create .dlg-btn.primary{background:var(--room-action);border-color:var(--room-action);color:#fff}
@@ -25,4 +25,4 @@
 .room-create-colors>.room-visual-action{grid-column:1/-1;width:auto;height:auto;min-height:32px;padding:6px 8px;background:transparent;color:var(--dlg-ink);font:inherit;font-size:12px;border:0;border-top:1px solid var(--dlg-line);border-radius:0;text-align:left}
 .room-create-colors>.room-visual-action:disabled{opacity:.5;cursor:default}
 
-.room-create .dlg-btn.primary:hover:not(:disabled){background:var(--room-action);border-color:var(--room-action);color:#fff}
+.room-create .dlg-btn.primary:hover:not(:disabled){background:var(--room-action);border-color:var(--room-action);color:#fff;opacity:1}
