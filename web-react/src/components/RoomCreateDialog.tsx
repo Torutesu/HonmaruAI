@@ -13,10 +13,12 @@ export function RoomCreateDialog({people,onCreate,onClose}:{people:RoomPerson[];
  const key=(p:RoomPerson)=>`${p.kind}:${p.id}`
  const [selected,setSelected]=useState(()=>new Set(people.filter(p=>p.selected).map(key)))
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),pending=useRef(false),request=useRef<{signature:string;id:string}|null>(null)
- const nameField=useRef<HTMLInputElement>(null),searchField=useRef<HTMLInputElement>(null)
+ const nameField=useRef<HTMLInputElement>(null),searchField=useRef<HTMLInputElement>(null),selectAllField=useRef<HTMLInputElement>(null)
  useEffect(()=>{if(step===1)nameField.current?.focus();if(step===2)searchField.current?.focus()},[step])
  const visible=people.filter(p=>p.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
  const chosen=people.filter(p=>selected.has(key(p))),allVisible=visible.length>0&&visible.every(p=>selected.has(key(p)))
+ const someVisible=visible.some(p=>selected.has(key(p)))
+ useEffect(()=>{if(selectAllField.current)selectAllField.current.indeterminate=someVisible&&!allVisible},[someVisible,allVisible,step])
  const toggle=(id:string)=>setSelected(previous=>{const next=new Set(previous);if(next.has(id))next.delete(id);else next.add(id);return next})
  const submit=async()=>{
   if(pending.current||!name.trim())return
@@ -50,7 +52,7 @@ export function RoomCreateDialog({people,onCreate,onClose}:{people:RoomPerson[];
   {step===2&&<>
    <div className="room-create-notice"><Icon name={privateRoom?'lock':'globe'} size={15}/><span>{t(privateRoom?'Only invited members can view this room. Choose the initial members.':'Everyone in the workspace can view this room. Choose the initial members.')}</span></div>
    <label className="room-create-search"><Icon name="search" size={15}/><input ref={searchField} value={query} disabled={busy} aria-label={t('Search members')} placeholder={t('Search members')} onChange={e=>setQuery(e.target.value)}/></label>
-   <div className="room-create-people"><label className="room-create-person room-create-all"><input type="checkbox" checked={allVisible} disabled={busy||!visible.length} onChange={()=>setSelected(previous=>{const next=new Set(previous);for(const p of visible){if(allVisible)next.delete(key(p));else next.add(key(p))}return next})}/><span>{t('Select all')}</span></label>
+   <div className="room-create-people"><label className="room-create-person room-create-all"><input ref={selectAllField} type="checkbox" aria-checked={someVisible&&!allVisible?'mixed':allVisible} checked={allVisible} disabled={busy||!visible.length} onChange={()=>setSelected(previous=>{const next=new Set(previous);for(const p of visible){if(allVisible)next.delete(key(p));else next.add(key(p))}return next})}/><span>{t('Select all')}</span></label>
     {visible.map(p=><label className="room-create-person" key={key(p)}><input type="checkbox" checked={selected.has(key(p))} disabled={busy} onChange={()=>toggle(key(p))}/>{p.avatarUrl?<img src={p.avatarUrl} alt=""/>:<span className="room-create-avatar" aria-hidden="true">{p.name.slice(0,1)}</span>}<span className="room-create-person-name">{p.name}</span>{p.kind==='agent'&&<span aria-label={t('Agent')}><Icon name="bot" size={13}/></span>}</label>)}
     {!visible.length&&<p className="room-create-empty">{t(query?'No matching members.':'No other members yet.')}</p>}
    </div><p className="room-create-count">{t('{count} selected',{count:chosen.length})}</p>

@@ -58,3 +58,21 @@ test('editing a rejected draft creates a new operation rather than replaying old
  expect(save.mock.calls[1][0].requestId).not.toBe(save.mock.calls[0][0].requestId)
  act(()=>tree.unmount())
 })
+
+test('select all reports partial selection and filtering does not clear hidden selections',()=>{
+ let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<RoomCreateDialog people={people} onCreate={vi.fn()} onClose={vi.fn()}/>)})
+ act(()=>button(tree,'Next').props.onClick())
+ act(()=>tree.root.findByProps({id:'room-create-name'}).props.onChange({target:{value:'Planning'}}))
+ act(()=>button(tree,'Next').props.onClick())
+ const all=()=>tree.root.findAllByType('input').find(n=>n.props.type==='checkbox')!
+ expect(all().props['aria-checked']).toBe('mixed')
+ act(()=>tree.root.findByProps({'aria-label':'Search members'}).props.onChange({target:{value:'Alice'}}))
+ expect(all().props['aria-checked']).toBe(false)
+ act(()=>all().props.onChange())
+ expect(all().props['aria-checked']).toBe(true)
+ act(()=>tree.root.findByProps({'aria-label':'Search members'}).props.onChange({target:{value:''}}))
+ const boxes=tree.root.findAllByType('input').filter(n=>n.props.type==='checkbox')
+ expect(boxes.map(n=>n.props.checked)).toEqual([false,true,false,true])
+ act(()=>tree.unmount())
+})
