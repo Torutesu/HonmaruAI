@@ -99,7 +99,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
   const [memories, setMemories] = useState<AgentMemory[]>([])
   const [memoryCursor, setMemoryCursor] = useState<string | null>(null)
   const [memorySearch, setMemorySearch] = useState({ query: '', kind: 'all' })
-  const [historyMemory, setHistoryMemory] = useState<AgentMemory | null>(null)
+  const [historyMemory, setHistoryMemory] = useState<AgentMemory | 'all' | null>(null)
   const [reviewingMemory, setReviewingMemory] = useState<AgentMemory | null>(null)
   const [memoryDraft, setMemoryDraft] = useState<AgentMemory | 'new' | null>(null)
   const [skills, setSkills] = useState<Skill[]>([])
@@ -225,7 +225,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
       </>}
       {section === 'memory' && <>
       <div className="rows-title">{t('Memory')}</div>
-      <select aria-label={t('Memory conversation')} value={memoryChannel} disabled={busy !== null} onChange={e => { memoryLoad.current++; setMemoryDraft(null); setMemories([]); setMemoryCursor(null); setMemorySearch({ query: '', kind: 'all' }); setMemoryChannel(e.target.value) }}>
+      <select aria-label={t('Memory conversation')} value={memoryChannel} disabled={busy !== null} onChange={e => { memoryLoad.current++; setHistoryMemory(null); setReviewingMemory(null); setMemoryDraft(null); setMemories([]); setMemoryCursor(null); setMemorySearch({ query: '', kind: 'all' }); setMemoryChannel(e.target.value) }}>
         <option value="">{t('Agent memory')}</option>
         {memoryScopes.map(scope => <option key={scope.channel} value={scope.channel}>{scope.label}</option>)}
       </select>
@@ -247,8 +247,10 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
             : await api.updateMemory(agent.id, memoryDraft, entry, memoryDraft.channel ? memoryChannel : '')
           if (version === memoryLoad.current) setMemories(current => [result.memory, ...current.filter(item => item.id !== result.memory.id)])
         }}/>}
-        {historyMemory && <AgentMemoryHistory key={historyMemory.id} memory={historyMemory} onClose={() => setHistoryMemory(null)} load={cursor => api.memoryReviews(agent.id, historyMemory.id, historyMemory.channel ? memoryChannel : '', cursor)}/>}
-        {reviewingMemory && <AgentMemoryReview memory={reviewingMemory} onClose={() => { setReviewingMemory(null); void load() }} onSave={(evidence, entry) => api.reviewMemory(agent.id, reviewingMemory, evidence, reviewingMemory.channel ? memoryChannel : '', entry).then(() => {})}/>}
+        <button className="btn-text" onClick={() => setHistoryMemory('all')}>{t('Review log')}</button>
+        {historyMemory === 'all' && <AgentMemoryHistory key={`log:${memoryChannel}`} onClose={() => setHistoryMemory(null)} load={cursor => api.memoryReviewLog(agent.id, memoryChannel, cursor)}/>}
+        {historyMemory && historyMemory !== 'all' && <AgentMemoryHistory key={historyMemory.id} memory={historyMemory} onClose={() => setHistoryMemory(null)} load={cursor => api.memoryReviews(agent.id, historyMemory.id, historyMemory.channel ? memoryChannel : '', cursor)}/>}
+        {reviewingMemory && <AgentMemoryReview memory={reviewingMemory} onClose={() => { setReviewingMemory(null); void load() }} onSave={(evidence, entry, remove) => api.reviewMemory(agent.id, reviewingMemory, evidence, reviewingMemory.channel ? memoryChannel : '', entry, remove).then(() => {})}/>}
         <AgentMemoryList key={`${props.orgId}:${agent.id}:${memoryChannel}`} memories={memories} filtered={Boolean(memorySearch.query || memorySearch.kind !== 'all')} loading={busy === 'load' || busy === 'memory-page'} onSearch={(query, kind) => { memoryLoad.current++; setMemories([]); setMemoryCursor(null); setMemorySearch({ query, kind }) }} canEdit={canEdit} busy={busy !== null} onEdit={setMemoryDraft} onReview={setReviewingMemory} onHistory={setHistoryMemory} onForget={m => act(`forget:${m.id}`, async () => { await api.forget(agent.id, m.id, m.channel ? memoryChannel : ''); setMemories(x => x.filter(y => y.id !== m.id)) })} />
         {memoryCursor && <button className="btn-text" disabled={busy !== null} onClick={() => act('memory-page', async () => {
           const version = memoryLoad.current

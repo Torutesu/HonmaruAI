@@ -5,7 +5,7 @@ import type { AgentMemory, MemoryReview } from '../utils/harness'
 import { useT } from '../utils/i18n'
 
 type Page = { reviews: MemoryReview[]; nextCursor: string | null }
-export function AgentMemoryHistory({ memory, load, onClose }: { memory: AgentMemory; load: (cursor?: string) => Promise<Page>; onClose: () => void }) {
+export function AgentMemoryHistory({ memory, load, onClose }: { memory?: AgentMemory; load: (cursor?: string) => Promise<Page>; onClose: () => void }) {
   const t = useT()
   const [rows, setRows] = useState<MemoryReview[]>([]), [cursor, setCursor] = useState<string | null>(null)
   const [busy, setBusy] = useState(true), [error, setError] = useState('')
@@ -21,10 +21,11 @@ export function AgentMemoryHistory({ memory, load, onClose }: { memory: AgentMem
   }
   useEffect(() => { alive.current = true; void read(); return () => { alive.current = false } }, [])
   return <Dialog title={t('Memory review history')} className="hx-memory-history" onClose={onClose}>
-    <p>{memory.title || memory.text}</p>
+    {memory ? <p>{memory.title || memory.text}</p> : <p className="dlg-hint">{t('Review history includes deleted memories in the selected scope.')}</p>}
     {rows.map(row => <article className="hx-memory-history-entry" key={row.id}>
       <header><strong>{row.reviewerName}</strong><time dateTime={row.at}>{new Date(row.at).toLocaleString()}</time></header>
-      <p className="row-sub">{t(row.verdict === 'update' ? 'Updated and reviewed' : 'Reviewed without changes')} · {t('Reviewed version {version}', { version: row.version })}</p>
+      <p className="row-sub">{t(row.verdict === 'delete' ? 'Deleted after review' : row.verdict === 'update' ? 'Updated and reviewed' : 'Reviewed without changes')} · {t('Reviewed version {version}', { version: row.version })}</p>
+      {!memory && row.memoryId && <p className="row-sub">{t('Memory ID')}: {row.memoryId}</p>}
       <p className="memory-text">{row.evidence}</p>
     </article>)}
     {busy && <p role="status">{t('Loading…')}</p>}

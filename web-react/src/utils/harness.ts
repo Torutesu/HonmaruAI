@@ -85,7 +85,7 @@ export interface HomeData {
 }
 export type MemoryKind = 'context' | 'preference' | 'feedback' | 'reference'
 export interface MemoryEntryInput { title: string; description: string; body: string; kind: MemoryKind }
-export interface MemoryReview { id: string; version: number; verdict: string; evidence: string; by: string; reviewerName: string; at: string }
+export interface MemoryReview { id: string; memoryId?: string; version: number; verdict: string; evidence: string; by: string; reviewerName: string; at: string }
 export interface AgentMemory { review?: { version: number; evidence: string; by: string; at: string; current: boolean } | null; title?: string; description?: string; body?: string; version?: number; updatedAt?: string; id: string; text: string; source: string; createdAt: string; channel?: string | null; kind?: string }
 
 /// One client for every harness route: the session on each call, the
@@ -197,8 +197,9 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     profile: (agentId: string) => call<{ profile: AgentProfile; canEdit: boolean }>('GET', `/hx/agents/${agentId}/profile`),
     saveProfile: (agentId: string, p: Partial<AgentProfile> & { name?: string; emoji?: string }) => call<{ profile: AgentProfile; identity?: { name: string; emoji: string | null } }>('PUT', `/hx/agents/${agentId}/profile`, p as Record<string, unknown>),
     memoryScopes: (agentId: string) => call<{ scopes: Array<{ channel: string; label: string }> }>('GET', `/hx/agents/${agentId}/memory/scopes`),
+    memoryReviewLog: (agentId: string, channel = '', cursor?: string) => call<{ reviews: MemoryReview[]; nextCursor: string | null }>('GET', `/hx/agents/${agentId}/memory/reviews`, undefined, { channel, ...(cursor ? { cursor } : {}) }),
     memoryReviews: (agentId: string, memoryId: string, channel = '', cursor?: string) => call<{ reviews: MemoryReview[]; nextCursor: string | null }>('GET', `/hx/agents/${agentId}/memory/${encodeURIComponent(memoryId)}/reviews`, undefined, { channel, ...(cursor ? { cursor } : {}) }),
-    reviewMemory: (agentId: string, memory: AgentMemory, evidence: string, channel = '', entry?: MemoryEntryInput) => call<{ review: Omit<NonNullable<AgentMemory['review']>, 'current'>; memory?: AgentMemory }>('PUT', `/hx/agents/${agentId}/memory/${encodeURIComponent(memory.id)}/review`, { ...entry, expectedVersion: memory.version ?? 0, evidence, channel, verdict: entry ? 'update' : 'keep' }),
+    reviewMemory: (agentId: string, memory: AgentMemory, evidence: string, channel = '', entry?: MemoryEntryInput, remove = false) => call<{ deleted?: number; review: Omit<NonNullable<AgentMemory['review']>, 'current'>; memory?: AgentMemory }>('PUT', `/hx/agents/${agentId}/memory/${encodeURIComponent(memory.id)}/review`, { ...entry, expectedVersion: memory.version ?? 0, evidence, channel, verdict: remove ? 'delete' : entry ? 'update' : 'keep' }),
     memoryPage: (agentId: string, channel = '', cursor?: string, filters: { query?: string; kind?: string } = {}) => call<{ memories: AgentMemory[]; canEdit: boolean; nextCursor: string | null }>('GET', `/hx/agents/${agentId}/memory`, undefined, { channel, paged: '1', ...filters, ...(cursor ? { cursor } : {}) }),
     memory: (agentId: string, channel = '') => call<{ memories: AgentMemory[]; canEdit: boolean }>('GET', `/hx/agents/${agentId}/memory`, undefined, { channel }),
     remember: (agentId: string, text: string, channel = '', kind: MemoryKind = 'context') => call<{ memory: AgentMemory }>('POST', `/hx/agents/${agentId}/memory`, { text, channel, kind }),

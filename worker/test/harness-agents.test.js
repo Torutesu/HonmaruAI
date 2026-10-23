@@ -585,3 +585,23 @@ test('update review HTTP enforces edit rights and returns the newly validated ve
  expect(history.reviews).toEqual([expect.objectContaining({verdict:'update',version:2,evidence:input.evidence})]);
  expect((await send('PUT',path,mika,input)).status).toBe(409);
 });
+
+test('deleted memory review log retains discoverable scopes but checks current room access',async()=>{
+ await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=? AND slug='ops'").bind(ORG).run();
+ await env.DB.prepare("INSERT INTO conversation_members (org_id,channel,login,added_by,added_at) VALUES (?,'b:ops','mika','mika',?)").bind(ORG,new Date().toISOString()).run();
+ const base=`/hx/agents/${agentId}/memory`;
+ const made=await(await send('POST',base,mika,{orgId:ORG,channel:'b:ops',text:'Retired private memory'})).json();
+ const input={orgId:ORG,channel:'b:ops',expectedVersion:0,verdict:'delete',evidence:'Replaced by approved procedure'};
+ expect((await send('PUT',`${base}/${made.memory.id}/review`,kenji,input)).status).toBe(403);
+ expect((await send('PUT',`${base}/${made.memory.id}/review`,mika,input)).status).toBe(200);
+ const logPath=`${base}/reviews?${q({orgId:ORG,channel:'b:ops'})}`;
+ const log=await get(logPath,mika);
+ expect(log.status).toBe(200);
+ expect((await log.json()).reviews).toEqual([expect.objectContaining({memoryId:made.memory.id,verdict:'delete',evidence:input.evidence})]);
+ expect((await(await get(`${base}/scopes?${q({orgId:ORG})}`,mika)).json()).scopes).toEqual([{channel:'b:ops',label:'Ops'}]);
+ expect((await get(logPath,toru)).status).toBe(404);
+ expect((await(await get(`${base}/reviews?${q({orgId:ORG})}`,mika)).json()).reviews).toEqual([]);
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:ops' AND login='mika'").bind(ORG).run();
+ expect((await get(logPath,mika)).status).toBe(404);
+ expect((await(await get(`${base}/scopes?${q({orgId:ORG})}`,mika)).json()).scopes).toEqual([]);
+});

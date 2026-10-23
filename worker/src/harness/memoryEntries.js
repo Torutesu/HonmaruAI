@@ -147,7 +147,7 @@ export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel
   return { review: { version: results[0].reviewed_version, evidence: results[0].evidence, by: results[0].reviewed_by, at: results[0].reviewed_at } };
 }
 
-export async function memoryReviewHistory(db, orgId, agentId, memoryId, {channel='',cursor}={}) {
+export async function memoryReviewHistory(db, orgId, agentId, memoryId = null, {channel='',cursor}={}) {
   const scope=[orgId,agentId,memoryId,channel];
   let after=null;
   if(cursor) {
@@ -161,11 +161,11 @@ export async function memoryReviewHistory(db, orgId, agentId, memoryId, {channel
   }
   const {results=[]}=await db.prepare(`SELECT h.*, COALESCE(u.name,u.login,h.reviewed_by) AS reviewer_name
     FROM hx_memory_review_audit h LEFT JOIN users u ON u.github_id=h.reviewed_by
-    WHERE h.org_id=?1 AND h.agent_id=?2 AND h.memory_id=?3 AND h.channel=?4
+    WHERE h.org_id=?1 AND h.agent_id=?2 AND (?3 IS NULL OR h.memory_id=?3) AND h.channel=?4
       AND (?5 IS NULL OR h.reviewed_at < ?5 OR (h.reviewed_at = ?5 AND h.id < ?6))
     ORDER BY h.reviewed_at DESC,h.id DESC LIMIT 51`)
     .bind(orgId,agentId,memoryId,channel,after?.[0]||null,after?.[1]||null).all();
-  const reviews=results.slice(0,50).map(r=>({id:r.id,version:r.reviewed_version,verdict:r.verdict,evidence:r.evidence,by:r.reviewed_by,reviewerName:r.reviewer_name,at:r.reviewed_at}));
+  const reviews=results.slice(0,50).map(r=>({id:r.id,memoryId:r.memory_id,version:r.reviewed_version,verdict:r.verdict,evidence:r.evidence,by:r.reviewed_by,reviewerName:r.reviewer_name,at:r.reviewed_at}));
   const last=reviews[reviews.length-1];
   return {reviews,nextCursor:results.length>50?JSON.stringify([...scope,last.at,last.id]):null};
 }

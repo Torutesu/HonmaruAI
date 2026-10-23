@@ -167,6 +167,10 @@ test('review history pages without duplicates and rejects scope changes', async 
   await env.DB.batch(Array.from({length:52}, (_,i) => env.DB.prepare(`INSERT INTO hx_memory_review_history (id,memory_id,org_id,reviewed_version,verdict,evidence,reviewed_by,reviewed_at) VALUES (?,?,?,0,'keep',?,'reviewer','2026-10-24T00:00:00.000Z')`).bind(`history-${String(i).padStart(3,'0')}`,id,org,`Evidence ${i}`)));
   const first = await memoryReviewHistory(env.DB,org,agent,id,{channel:'b:history'});
   expect(first.reviews).toHaveLength(50);
+  const aggregate = await memoryReviewHistory(env.DB,org,agent,null,{channel:'b:history'});
+  expect(aggregate.reviews).toHaveLength(50);
+  expect((await memoryReviewHistory(env.DB,org,agent,null,{channel:'b:history',cursor:first.nextCursor})).status).toBe(400);
+  expect((await memoryReviewHistory(env.DB,org,agent,id,{channel:'b:history',cursor:aggregate.nextCursor})).status).toBe(400);
   const second = await memoryReviewHistory(env.DB,org,agent,id,{channel:'b:history',cursor:first.nextCursor});
   expect(second.reviews).toHaveLength(2);
   expect(second.nextCursor).toBeNull();

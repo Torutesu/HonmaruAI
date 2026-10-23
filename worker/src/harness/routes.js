@@ -579,8 +579,7 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === "memory") {
       if (parts[4] === "scopes" && request.method === "GET") {
         const members = await memoryMembers(env.DB, orgId, me);
-        const { results } = await env.DB.prepare(`SELECT DISTINCT s.channel FROM hx_memory_scopes s JOIN hx_agent_memories m ON m.id = s.memory_id
-          WHERE s.org_id = ?1 AND m.agent_id = ?2 AND s.channel != '' ORDER BY s.channel LIMIT 200`).bind(orgId, agentId).all();
+        const { results } = await env.DB.prepare(`SELECT channel FROM (SELECT s.channel FROM hx_memory_scopes s JOIN hx_agent_memories m ON m.id = s.memory_id AND m.org_id=s.org_id WHERE s.org_id=?1 AND m.agent_id=?2 UNION SELECT channel FROM hx_memory_review_audit WHERE org_id=?1 AND agent_id=?2) WHERE channel != '' ORDER BY channel LIMIT 200`).bind(orgId, agentId).all();
         const scopes = [];
         for (const entry of results || []) {
           const view = viewOf(entry.channel, who.user.login, members);
@@ -605,8 +604,8 @@ export async function handleHarness(request, env, url, context = {}) {
         channel = room.key;
       }
       const context = { channel };
-      if (request.method === 'GET' && parts[5] === 'reviews') {
-        const r = await memoryReviewHistory(env.DB, orgId, agentId, parts[4], { ...context, cursor: url.searchParams.get('cursor') });
+      if (request.method === 'GET' && (parts[5] === 'reviews' || parts[4] === 'reviews')) {
+        const r = await memoryReviewHistory(env.DB, orgId, agentId, parts[4] === 'reviews' ? null : parts[4], { ...context, cursor: url.searchParams.get('cursor') });
         return r.error ? fail(r) : json(r);
       }
       if (request.method === "GET") {

@@ -20,3 +20,13 @@ test('history keeps loaded evidence on page failure and retries the same cursor'
  expect(tree.root.findAllByType('button')).toHaveLength(0)
  act(()=>tree.unmount())
 })
+
+test('aggregate history identifies deleted memories without needing a live memory entry',async()=>{
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AgentMemoryHistory onClose={()=>{}} load={async()=>({reviews:[{id:'r',memoryId:'deleted-memory',version:2,verdict:'delete',evidence:'Superseded',by:'owner',reviewerName:'Owner',at:'2026-10-24'}],nextCursor:null})}/>)})
+ const text=JSON.stringify(tree.toJSON())
+ expect(text).toContain('Deleted after review')
+ expect(text).toContain('deleted-memory')
+ expect(text).toContain('Superseded')
+ act(()=>tree.unmount())
+})
