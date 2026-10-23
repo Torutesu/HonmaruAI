@@ -1850,3 +1850,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-24 history cursor workspace binding and CI diagnosis
 - Bound history cursors to orgId as well as channel/agent/status; a cursor from another workspace is rejected before any database read. Worker/query guard38 tests pass (/tmp/honmaru-followup-cursor-scope.log).
 - Downloaded failed7120d536 CI Web job120485074262 and E2E job120485074298 logs: both fail on the same two ja.ts duplicate keys, not separate runtime regressions. Locally corrected704e90f1 and subsequent type/build checks pass. CI Worker and Deploy Worker39974382976 still in Test. Native tool again reports Mac locked; requested availability asynchronously and continued independent work.
+
+### 2026-10-24 prior release terminal state
+- Rechecked authoritative GitHub run state:7120d536 Deploy Worker39974382976 completed success; CI39974382715 and Deploy Web39974382803 completed failure. Both known failed frontend jobs report duplicate translation keys already corrected in704e90f1. Backend publication is successful, but this does not establish frontend publication or visual verification.
+- Current-head full Worker run18754 remains live with Worker sources frozen. Native Honmaru observation still reports the Mac locked; no actual screen result is claimed. Version1.3.13 and parity inventory consistency pass; the inventory remains74 partial/17 missing/2 implemented/2 unverified and is not a completion percentage.
+- Re-ran TypeScript and Vite against currentabb9ba2f sources successfully (/tmp/honmaru-final-history-{types,build}.log); removed generated compiler metadata. Full Worker still running; release remains held for its result.
