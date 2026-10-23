@@ -1618,3 +1618,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 bounded native layout diagnostics (local)
 - Added renderer probe returning only integer flags0..127: root exists1, child elements2, nonzero root bounds4, root/ancestor visibility8, body text presence16, visible media32, visible startup panel64. Main validates range before recording layout-state. No text/URL/style values/screenshots/credentials persisted. Recovery still uses text/media presence; flags provide evidence, not a root-cause fix.
 - Desktop17 files/125 tests passed, including hidden ancestors/zero-size root/transparent media and output-only flags. Requires a future desktop build/install before collecting new native evidence; web deployment alone cannot enable it.
+
+### 2026-10-23 diagnostic desktop candidate1.3.13
+- Updated required shared version manifests to1.3.13; version consistency passed. Desktop17 files/125 tests passed after bump.
+- Local unsigned arm64 package succeeded at /tmp/honmaru-1.3.13-build/mac-arm64/Honmaru AI.app. Inspected app.asar: version1.3.13 and layoutProbe.js included. Not installed over signed app; not released. Signed/notarized build and native diagnostic collection remain pending.
+- CI39954932158 was confirmed live; source push/release dispatch deferred until it completes.
