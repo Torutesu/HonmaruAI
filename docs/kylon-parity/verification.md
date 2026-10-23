@@ -1761,3 +1761,6 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 corrected release preflight
 - CI39965668546 terminated failure: downloaded Worker job120454772293 log confirms only workspace-queries failure (unscoped expiry DELETE),216 files/1714 tests passed,1 failure. Full log /tmp/honmaru-ci-39965668546-worker.log. The correction at1498c9fe passed the exact guard and regression suite34 tests. Deploy Worker/Web also terminal failure, so no live prior deployment will be overwritten.
 - Current Web full suite149 files1035 tests passed (/tmp/honmaru-workflow-redeploy-web.log). Version check all1.3.13, parity inventory consistency and git diff checks passed. Preparing next main push containing manual pause semantics, discard, scope/selection guards, full step output, refresh, and scoped expiry correction. Full Worker80837 is still live and will be inspected separately.
+
+### 2026-10-23 corrected production deployment dispatched
+- Pushedb5695f71 to main after prior CI/deploys terminated. Exact revision: CI39968582213 queued, Deploy Worker39968582122 in_progress, Deploy Web39968582170 in_progress. Publication remains pending; do not overlap another push.
