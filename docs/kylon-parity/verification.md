@@ -1877,3 +1877,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-24 memory scope terminology
 - Official https://docs.kylon.io/concepts/memory distinguishes individual agent memory from Workspace Knowledge. The agent memory selector, entry label and explanatory copy previously called unscoped agent memory Shared knowledge. Renamed these to Agent memory in English/Japanese to describe the actual storage scope. Conversation labels and all data/access behavior are unchanged. Workspace Knowledge parity remains incomplete.
 - Memory/agent UI7 tests, final TypeScript/Vite and diff checks pass (/tmp/honmaru-memory-scope-labels-{tests,types,build}.log). Worker full78774 remains live with sources frozen atf7a90435.
+
+### 2026-10-24 follow-up delivery and memory release preflight
+- Frozen Worker run78774 completed success:217 files/1725 tests,480.62s (/tmp/honmaru-followup-delivery-full.log). Worker sources stayed atf7a90435 throughout. This includes all-status history and thread-destination/delivery failure checks. Latest Web150 files/1045 tests also pass (/tmp/honmaru-memory-and-history-web-full.log), including source thread links and memory terminology.
+- d2036da7 CI39977408288 completed success. Deploy Worker39977408079 remains in Test and Deploy Web39977408841 waits for the matching Worker. Additional local commits are not yet published; no overlapping push. Native visual verification remains unavailable.
