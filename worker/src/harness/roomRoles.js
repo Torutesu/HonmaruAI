@@ -309,3 +309,28 @@ export async function addManagedRoomAgent(db,orgId,channel,{actorId,agentId}) {
   ]);
   return result[0].meta?.changes?{managed:true,added:true}:{error:'Room membership or agent access changed. Reload before saving.',status:409};
 }
+
+export async function archiveManagedRoom(db,orgId,channel,{actorId,archived,version}) {
+  const state=await roomRoleState(db,orgId,channel,{includeArchived:true});
+  if(!state?.managed){
+    const policy=await db.prepare('SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2').bind(orgId,channel).first();
+    return policy?{error:'No such active room.',status:404}:{managed:false};
+  }
+  actorId=String(actorId);
+  const membership=await db.prepare('SELECT role,created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(orgId,actorId).first();
+  const actor=state.members.find(m=>m.kind==='person'&&m.id===actorId&&m.eligible);
+  if(!membership||membership.role==='guest'||(!actor&&!['admin','owner'].includes(membership.role)))return {error:'Only a room member or workspace admin can archive this room.',status:403};
+  if(version!==undefined&&version!==state.version)return {error:'Room roles changed. Reload before saving.',status:409};
+  const nonce=crypto.randomUUID(),at=archived?new Date().toISOString():null;
+  const allSubjects=subjects.replaceAll(' AND b.archived_at IS NULL','');
+  const result=await db.batch([
+    db.prepare(`UPDATE hx_room_access SET version=version+1,mutation_id=?3 WHERE org_id=?1 AND channel=?2 AND version=?4 AND deleted_at IS NULL
+      AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?5 AND m.created_at=?6 AND m.role!='guest'
+        AND (m.role IN('admin','owner') OR EXISTS(SELECT 1 FROM (${allSubjects}) WHERE kind='person' AND id=?5 AND eligible=1 AND membership=?7)))`)
+      .bind(orgId,channel,nonce,state.version,actorId,membership.created_at,actor?.membership||''),
+    db.prepare(`UPDATE businesses SET archived_at=?4 WHERE org_id=?1 AND 'b:'||slug=?2
+      AND EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2 AND mutation_id=?3 AND deleted_at IS NULL)`)
+      .bind(orgId,channel,nonce,at),
+  ]);
+  return result[0].meta?.changes?{managed:true,archived:!!archived,version:state.version+1}:{error:'Room roles changed. Reload before saving.',status:409};
+}

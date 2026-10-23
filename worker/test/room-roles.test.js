@@ -1,7 +1,7 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,test,expect} from 'vitest';
 import {upsertUser,upsertMembership} from '../src/db.js';
-import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject,deleteManagedRoom,changeManagedRoomMembers,joinPublicRoom,publicRooms,addManagedRoomAgent} from '../src/harness/roomRoles.js';
+import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject,deleteManagedRoom,changeManagedRoomMembers,joinPublicRoom,publicRooms,addManagedRoomAgent,archiveManagedRoom} from '../src/harness/roomRoles.js';
 const org='room-roles',channel='b:planning';
 beforeEach(async()=>{
   for(const [id,role] of [['creator','member'],['reader','member'],['outsider','admin'],['guest','guest']]) {
@@ -498,4 +498,42 @@ test('legacy-only human invitations cannot bypass newly initialized room roles',
   expect((await roomRoleState(env.DB,org,channel)).members.some(m=>m.id==='outsider')).toBe(false);
   // Trusted onboarding callers keep their existing invitation behavior.
   expect(await addMembers(env.DB,{orgId:org,key:channel,logins:['outsider'],addedBy:'creator'})).toBe(1);
+});
+
+
+test('managed room archive and restore distinguish participants from public readers',async()=>{
+ await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1").bind(org).run();
+ await initializeRoomRoles(env.DB,org,channel,'creator');
+ await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='outsider'").bind(org).run();
+ expect((await archiveManagedRoom(env.DB,org,channel,{actorId:'outsider',archived:true})).status).toBe(403);
+ expect((await archiveManagedRoom(env.DB,org,channel,{actorId:'guest',archived:true})).status).toBe(403);
+ expect(await archiveManagedRoom(env.DB,org,channel,{actorId:'reader',archived:true,version:1})).toMatchObject({managed:true,archived:true,version:2});
+ expect(await roomRoleState(env.DB,org,channel)).toBeNull();
+ expect((await archiveManagedRoom(env.DB,org,channel,{actorId:'reader',archived:false,version:1})).status).toBe(409);
+ expect(await archiveManagedRoom(env.DB,org,channel,{actorId:'reader',archived:false,version:2})).toMatchObject({archived:false,version:3});
+ expect((await roomRoleState(env.DB,org,channel)).members.find(m=>m.id==='creator').role).toBe('admin');
+});
+
+test('workspace admin can archive a private room without joining and cannot restore a deleted room',async()=>{
+ await initializeRoomRoles(env.DB,org,channel,'creator');
+ expect((await archiveManagedRoom(env.DB,org,channel,{actorId:'outsider',archived:true})).archived).toBe(true);
+ expect((await roomRoleState(env.DB,org,channel,{includeArchived:true})).members.some(m=>m.id==='outsider')).toBe(false);
+ await deleteManagedRoom(env.DB,org,channel,{actorId:'outsider',version:2});
+ expect((await archiveManagedRoom(env.DB,org,channel,{actorId:'outsider',archived:false})).status).toBe(404);
+ expect(await env.DB.prepare("SELECT archived_at FROM businesses WHERE org_id=?1").bind(org).first('archived_at')).toBeTruthy();
+});
+
+test('archive HTTP route rejects a public reader and permits a joined member to restore',async()=>{
+ const {default:worker}=await import('../src/index.js');
+ const {createSession}=await import('../src/db.js');
+ await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1").bind(org).run();
+ await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='outsider'").bind(org).run();
+ await initializeRoomRoles(env.DB,org,channel,'creator');
+ const pending=[];
+ const call=async(actor,path,body)=>worker.fetch(new Request('https://example.com'+path,{method:'POST',headers:{'content-type':'application/json','x-session-token':await createSession(env.DB,actor,'test')},body:JSON.stringify({orgId:org,...body})}),env,{waitUntil:p=>pending.push(p)});
+ expect((await call('outsider','/businesses/archive',{slugs:['planning']})).status).toBe(403);
+ expect((await call('reader','/businesses/archive',{slugs:['planning']})).status).toBe(200);
+ expect((await call('reader','/businesses/unarchive',{slug:'planning'})).status).toBe(200);
+ expect((await roomRoleState(env.DB,org,channel)).version).toBe(3);
+ await Promise.all(pending);
 });

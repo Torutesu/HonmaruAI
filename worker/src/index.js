@@ -1,4 +1,4 @@
-import { deleteManagedRoom, roomRoleState } from './harness/roomRoles.js';
+import { archiveManagedRoom, deleteManagedRoom, roomRoleState } from './harness/roomRoles.js';
 import { customRunner } from "./harness/customRunner.js";
 import { expireGatewayJobs } from './harness/gateways.js';
 import { drainCardNotifications } from './notificationJobs.js';
@@ -1515,10 +1515,15 @@ async function handle(request, env, url, ctx) {
       const now = new Date().toISOString();
       let archived = 0;
       for (const slug of body.slugs.map(String).slice(0, 100)) {
-        if (!(await canTouchChannel(env.DB, body.orgId, slug, who))) continue;
         const row = await env.DB.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2 AND archived_at IS NULL").bind(body.orgId, slug).first();
         if (!row) continue;
-        await env.DB.prepare("UPDATE businesses SET archived_at = ?3 WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, slug, now).run();
+        const change = await archiveManagedRoom(env.DB, body.orgId, `b:${slug}`, {actorId:session.github_id, archived:true});
+        if (change.error) return json({message:change.error},change.status);
+        if (!change.managed) {
+          if (!(await canTouchChannel(env.DB, body.orgId, slug, who))) continue;
+          const updated = await env.DB.prepare("UPDATE businesses SET archived_at = ?3 WHERE org_id = ?1 AND slug = ?2 AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2)").bind(body.orgId, slug, now).run();
+          if (!updated.meta?.changes) return json({message:"Room roles changed. Reload before saving."},409);
+        }
         await audit(env, request, { orgId: body.orgId, action: "channel.archived", actor: person(me), entity: { type: "channel", id: slug, name: `#${row.name}` } });
         archived += 1;
       }
@@ -1556,8 +1561,14 @@ async function handle(request, env, url, ctx) {
       const who = await viewerLogin();
       const slug = String(body.slug);
       const row = await env.DB.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2 AND archived_at IS NOT NULL").bind(body.orgId, slug).first();
-      if (!row || !(await canTouchChannel(env.DB, body.orgId, slug, who))) return json({ message: "That channel is not archived." }, 404);
-      await env.DB.prepare("UPDATE businesses SET archived_at = NULL WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, slug).run();
+      if (!row) return json({ message: "That channel is not archived." }, 404);
+      const change = await archiveManagedRoom(env.DB, body.orgId, `b:${slug}`, {actorId:session.github_id, archived:false});
+      if (change.error) return json({message:change.error},change.status);
+      if (!change.managed) {
+        if (!(await canTouchChannel(env.DB, body.orgId, slug, who))) return json({ message: "That channel is not archived." }, 404);
+        const updated = await env.DB.prepare("UPDATE businesses SET archived_at = NULL WHERE org_id = ?1 AND slug = ?2 AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2)").bind(body.orgId, slug).run();
+        if (!updated.meta?.changes) return json({message:"Room roles changed. Reload before saving."},409);
+      }
       const me = await getUserByGithubId(env.DB, session.github_id);
       await audit(env, request, { orgId: body.orgId, action: "channel.unarchived", actor: person(me), entity: { type: "channel", id: slug, name: `#${row.name}` } });
       await tellRoom(body.orgId);
