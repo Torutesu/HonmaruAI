@@ -4793,7 +4793,7 @@ export const ClassicList: React.FC<Props> = ({
                   </>
                 ))}
                 {i === 0 && (
-                  <div className="slk-thread-count" role={thread.loading || thread.failed ? "status" : "separator"}>
+                  <div className="slk-thread-count" role={thread.loading || thread.failed ? "status" : harness ? undefined : "separator"}>
                     {threadCount(thread)}
                   </div>
                 )}
