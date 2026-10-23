@@ -11,7 +11,7 @@ test('status selection loads failure history as inert text and offers no cancell
  await act(async () => { tree = create(<AgentFollowups api={api as any} agentId="agent" />) })
  api.followups.mockResolvedValue({ followups: [item, { ...item, id: 'other', agentId: 'other' }] })
  await act(async () => { tree.root.findByType('select').props.onChange({ target: { value: 'failed' } }) })
- expect(api.followups).toHaveBeenLastCalledWith(undefined, 'failed')
+ expect(api.followups).toHaveBeenLastCalledWith(undefined, 'failed', 'agent')
  expect(tree.root.findAllByType('details')).toHaveLength(1)
  expect(tree.root.findByType('pre').children).toEqual([item.result])
  expect(tree.root.findAllByType('script')).toHaveLength(0)

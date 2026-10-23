@@ -689,3 +689,16 @@ test("a follow-up with no model result fails instead of posting its instruction 
   expect(result.result).toContain("did not receive a result");
   expect((await messages(mika)).some(m => m.body.includes("Verify the invoice payment"))).toBe(false);
 });
+
+test("follow-up agent filtering happens before the workspace limit and preserves conversation access", async () => {
+  const at = "2026-10-01T00:00:00Z";
+  const insert = env.DB.prepare("INSERT INTO hx_followups (id,org_id,channel,agent_id,instruction,due_at,status,created_by,created_at) VALUES (?1,?2,?3,?4,'history',?5,'failed','maker',?5)");
+  await env.DB.batch(Array.from({ length: 201 }, (_, i) => insert.bind(`other_${i}`, ORG, 'b:ops', 'other-agent', at)));
+  await env.DB.batch([
+    insert.bind('target_visible', ORG, 'b:ops', 'target-agent', '2026-10-02T00:00:00Z'),
+    insert.bind('target_hidden', ORG, 'b:not-accessible', 'target-agent', '2026-10-02T00:00:00Z'),
+  ]);
+  const response = await get(`/followups?${q({ orgId: ORG, status: 'failed', agentId: 'target-agent' })}`, mika);
+  expect(response.status).toBe(200);
+  expect((await response.json()).followups.map(f => f.id)).toEqual(['target_visible']);
+});

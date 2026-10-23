@@ -41,10 +41,12 @@ export async function scheduleFollowup(db, { orgId, channel, threadId = null, ag
   return { followup: pub(await db.prepare("SELECT * FROM hx_followups WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first()) };
 }
 
-export async function listFollowups(db, orgId, { channel, status = "scheduled", viewerId } = {}) {
-  const { results } = channel
-    ? await db.prepare("SELECT * FROM hx_followups WHERE org_id = ?1 AND channel = ?2 AND status = ?3 ORDER BY due_at").bind(orgId, channel, status).all()
-    : await db.prepare("SELECT * FROM hx_followups WHERE org_id = ?1 AND status = ?2 ORDER BY due_at LIMIT 200").bind(orgId, status).all();
+export async function listFollowups(db, orgId, { channel, agentId, status = "scheduled", viewerId } = {}) {
+  const { results } = await db.prepare(`SELECT * FROM hx_followups
+    WHERE org_id = ?1 AND status = ?2 AND (?3 IS NULL OR channel = ?3)
+      AND (?4 IS NULL OR agent_id = ?4)
+    ORDER BY due_at, id LIMIT ?5`)
+    .bind(orgId, status, channel || null, agentId || null, channel ? -1 : 200).all();
   const visible = [];
   for (const row of results || []) {
     if (viewerId && await mayUseConversation(db, orgId, viewerId, row.channel)) visible.push(pub(row));

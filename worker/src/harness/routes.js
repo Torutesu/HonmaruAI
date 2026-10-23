@@ -428,7 +428,7 @@ export async function handleHarness(request, env, url, context = {}) {
   if (parts[0] === "followups") {
     const [, fuId] = parts;
     if (!fuId && request.method === "GET") {
-      return json({ followups: await listFollowups(env.DB, orgId, { channel: url.searchParams.get("channel") || undefined, status: url.searchParams.get("status") || "scheduled", viewerId: me }) });
+      return json({ followups: await listFollowups(env.DB, orgId, { channel: url.searchParams.get("channel") || undefined, agentId: url.searchParams.get("agentId") || undefined, status: url.searchParams.get("status") || "scheduled", viewerId: me }) });
     }
     if (!fuId && request.method === "POST") {
       const dueAt = input.dueAt || (Number(input.minutes) > 0 ? new Date(Date.now() + Number(input.minutes) * 60000).toISOString() : null);

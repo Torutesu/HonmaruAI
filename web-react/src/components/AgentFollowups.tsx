@@ -12,7 +12,7 @@ export function AgentFollowups({ api, agentId }: { api: ReturnType<typeof harnes
   useEffect(() => {
     let live = true
     setItems(null); setError('')
-    api.followups(undefined, status).then(result => {
+    api.followups(undefined, status, agentId).then(result => {
       if (live) setItems(result.followups.filter(item => item.agentId === agentId))
     }).catch(e => { if (live) setError(e instanceof Error ? e.message : String(e)) })
     return () => { live = false }
