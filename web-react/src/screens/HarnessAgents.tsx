@@ -1,3 +1,4 @@
+import { AgentFollowups } from '../components/AgentFollowups'
 import { AgentAccessDialog } from '../components/AgentAccessDialog'
 import { AgentMemoryEditor } from '../components/AgentMemoryEditor'
 import { AgentTierSelect } from '../components/AgentTierSelect'
@@ -18,7 +19,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { Icon } from '../components/Icon'
-import type { AgentProfile, AgentMemory, Skill, Followup } from '../utils/harness'
+import type { AgentProfile, AgentMemory, Skill } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 
 // Agents as members, and the skills they work by (docs/kylon-gap-plan.md).
@@ -97,7 +98,6 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
   const [memoryDraft, setMemoryDraft] = useState<AgentMemory | 'new' | null>(null)
   const [skills, setSkills] = useState<Skill[]>([])
   const [allSkills, setAllSkills] = useState<Skill[]>([])
-  const [followups, setFollowups] = useState<Followup[]>([])
   const memoryLoad = useRef(0)
   const [memoryChannel, setMemoryChannel] = useState('')
   const [memoryScopes, setMemoryScopes] = useState<Array<{ channel: string; label: string }>>([])
@@ -109,12 +109,11 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
 
   const load = useCallback(() => act('load', async () => {
     const version = ++memoryLoad.current
-    const [p, m, s, all, f, scopes] = await Promise.all([api.profile(agent.id), api.memory(agent.id, memoryChannel), api.agentSkills(agent.id), api.skills(), api.followups(), api.memoryScopes(agent.id)])
+    const [p, m, s, all, scopes] = await Promise.all([api.profile(agent.id), api.memory(agent.id, memoryChannel), api.agentSkills(agent.id), api.skills(), api.memoryScopes(agent.id)])
     if (version !== memoryLoad.current) return
     setMemoryScopes(scopes.scopes)
     setProfile(p.profile); setCanEdit(p.canEdit); setPeople(p.profile.people.map((x) => `@${x}`).join(' '))
     setMemories(m.memories); setSkills(s.skills); setAllSkills(all.skills)
-    setFollowups(f.followups.filter((x) => x.agentId === agent.id))
   }), [api, act, agent.id, memoryChannel])
   useEffect(() => { load(); return () => { ++memoryLoad.current } }, [load])
 
@@ -246,19 +245,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
       </div>
 
       </>}
-      {section === 'followups' && <>
-      <div className="rows-title">{t('Follow-ups')}</div>
-      <div className="rows">
-        {followups.length === 0 && <div className="row static"><span className="row-sub">{t('Nothing scheduled. In a chat: “@{handle} follow up in 3 days: …”.', { handle: agent.handle })}</span></div>}
-        {followups.map((f) => (
-          <div key={f.id} className="row static">
-            <span className="row-icon"><Icon name="clock" size={18} /></span>
-            <span className="row-main">{f.instruction}<span className="row-sub">{f.channel.replace(/^b:/, '#')} · {new Date(f.dueAt).toLocaleString()}</span></span>
-            <button className="btn-text" onClick={() => act(`cancel:${f.id}`, async () => { await api.cancelFollowup(f.id); setFollowups((x) => x.filter((y) => y.id !== f.id)) })}>{t('Cancel')}</button>
-          </div>
-        ))}
-      </div>
-      </>}
+      {section === 'followups' && <AgentFollowups key={agent.id} api={api} agentId={agent.id} />}
     </Shell>
   )
 }

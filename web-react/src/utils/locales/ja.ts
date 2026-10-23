@@ -1,6 +1,15 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Scheduled": "予定中",
+  "Running": "実行中",
+  "Completed": "完了",
+  "Failed": "失敗",
+  "Cancelled": "キャンセル済み",
+
+  "Follow-up status": "フォローアップの状態",
+  "No follow-ups with this status.": "この状態のフォローアップはありません。",
+
   "Delete workflow": "ワークフローを削除",
   "Delete “{name}” and its run history? This cannot be undone. Past changes are not undone.": "「{name}」と実行履歴を削除しますか？ この操作は取り消せません。これまでに実行された変更は元に戻りません。",
   "Received payload": "受信内容",

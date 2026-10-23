@@ -65,7 +65,7 @@ export interface Workflow {
 export interface RunLog { step: number; type: StepType; status: string; output?: string; error?: string; at: string }
 export interface HeldWorkflowEvents { count: number; oldestExpiry: string | null; events: Array<{ id: string; receivedAt: string; expiresAt: string }>; discardEventIds?: string[] }
 export interface Run { id: string; trigger: string; status: string; log: RunLog[]; startedAt: string; finishedAt: string | null; cardId: string | null }
-export interface Followup { id: string; channel: string; instruction: string; dueAt: string; status: string; agentId: string | null }
+export interface Followup { id: string; channel: string; instruction: string; dueAt: string; status: string; agentId: string | null; result?: string | null; doneAt?: string | null }
 export interface Gateway { id: string; name: string; createdAt: number; lastSeenAt: number | null; revokedAt: number | null }
 export interface GatewayJob { id: string; gatewayId: string; status: string; createdAt: number; result: { stdout?: string; stderr?: string; error?: string; exitCode?: number | null } | null }
 export interface Skill { createdByName?: string; metadata?: Record<string, unknown>; visibility?: 'workspace' | 'private'; accessVersion?: number; canShare?: boolean; canEdit?: boolean; id: string; name: string; description: string; body: string; agents?: string[]; createdBy: string }
@@ -169,7 +169,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     deleteWorkflow: (id: string) => call<{ deleted: boolean }>('DELETE', `/workflows/${id}`),
     runWorkflow: (id: string, text: string) => call<{ run: Run }>('POST', `/workflows/${id}/run`, { text }),
 
-    followups: (channel?: string) => call<{ followups: Followup[] }>('GET', '/followups', undefined, channel ? { channel } : {}),
+    followups: (channel?: string, status = 'scheduled') => call<{ followups: Followup[] }>('GET', '/followups', undefined, { ...(channel ? { channel } : {}), status }),
     cancelFollowup: (id: string) => call<{ cancelled: boolean }>('DELETE', `/followups/${id}`),
     approvals: () => call<{
       toDecide: Array<{ id: string; title: string; summary?: string; kind: string; source: string | null; createdAt: string }>
