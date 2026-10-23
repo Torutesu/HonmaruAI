@@ -210,6 +210,8 @@
 .hx-resource-empty h2 { font-size: 14px; line-height: 1.6; font-weight: 600; margin: 18px 0 8px; }
 .hx-resource-empty p { font-size: 12px; line-height: 1.6; color: var(--hx-muted); max-width: 350px; margin: 0 0 20px; }
 .hx-resource-empty > button, .hx-resource-create { border: 0; border-radius: 12px; background: var(--hx-chip-surface); color: var(--hx-text); padding: 9px 14px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.hx-room-resource .hx-resource-empty h2 { font-weight: 500; }
+.hx-room-resource .hx-resource-empty > button { font-size: 14px; line-height: 20px; padding: 6px 12px; }
 .hx-resource-items { padding: 8px 12px; flex: 1; }
 .hx-resource-item { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 6px; border: 0; border-bottom: 1px solid var(--hx-hover); background: var(--hx-surface); text-align: left; color: var(--hx-text); cursor: pointer; }
 .hx-resource-item > span:nth-child(2) { flex: 1; min-width: 0; }
