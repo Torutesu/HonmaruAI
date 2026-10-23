@@ -1959,3 +1959,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-24 memory search empty-state distinction
 - Saved searches and kind filters now render no-matches text when zero rows return, instead of implying there are no saved memories. Uses applied parent filters, so typing an unsubmitted query does not change the empty state. Loading still suppresses premature no-results text. Related UI14 tests, TypeScript/Vite pass (/tmp/honmaru-memory-empty-{filter,types,build}.log).
 - Delete-review audit gap confirmed in current schema: hx_memory_review_history has memory FK ON DELETE CASCADE. A delete verdict must preserve scoped evidence separately before deleting, with current agent/conversation access on reads; generic workspace audit must not receive private evidence. No delete support claimed. Frozen Worker59431 remains live, and history release CI39988318219/Web39988318168/Worker39988317968 remains live.
+
+### 2026-10-24 update-review full preflight
+- Frozen Worker59431 completed success:217 files/1738 tests,484.82s (/tmp/honmaru-review-update-full-worker.log), unchanged Worker sources from3c36b3e8. Final Web152 files/1055 tests pass (/tmp/honmaru-review-release-final-web.log); latest TypeScript/Vite, version1.3.13 and parity inventory checks pass. Native sample verification covers both themes, body contrast and visible conflict errors; production update-review E2E remains pending.
+- History release2ad87cc8 CI39988318219 succeeded; Web39988318168 and Worker39988317968 are still running. Do not push overlapping release.
