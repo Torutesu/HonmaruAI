@@ -558,3 +558,16 @@ test('memory review HTTP requires agent edit rights and preserves validation acr
  expect((await send('PUT',route,mika,{...input,expectedVersion:2})).status).toBe(200);
  expect((await read()).review.current).toBe(true);
 });
+
+test('review history HTTP permits readers and denies them after agent access is removed',async()=>{
+ const base=`/hx/agents/${agentId}/memory`;
+ const made=await(await send('POST',base,mika,{orgId:ORG,title:'History',description:'',body:'Policy',kind:'reference'})).json();
+ expect((await send('PUT',`${base}/${made.memory.id}/review`,mika,{orgId:ORG,expectedVersion:1,evidence:'Checked source'})).status).toBe(200);
+ const history=`${base}/${made.memory.id}/reviews?${q({orgId:ORG})}`;
+ const read=await get(history,kenji);
+ expect(read.status).toBe(200);
+ expect((await read.json()).reviews).toEqual([expect.objectContaining({version:1,evidence:'Checked source',by:'9202',reviewerName:'Mika'})]);
+ expect((await get(`${base}/${made.memory.id}/reviews?${q({orgId:ORG,channel:'dm:toru'})}`,kenji)).status).toBe(404);
+ expect((await send('PUT',`/hx/agents/${agentId}/profile`,mika,{orgId:ORG,access:'private'})).status).toBe(200);
+ expect((await get(history,kenji)).status).toBe(404);
+});
