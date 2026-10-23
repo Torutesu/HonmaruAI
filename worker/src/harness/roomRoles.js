@@ -337,3 +337,22 @@ export async function archiveManagedRoom(db,orgId,channel,{actorId,archived,vers
   ]);
   return result[0].meta?.changes?{managed:true,...(typeof archived==='boolean'?{archived}:{}),version:state.version+1}:{error:'Room roles changed. Reload before saving.',status:409};
 }
+
+export async function setRoomPrivacy(db,orgId,channel,{actorId,private:privateRoom,version}) {
+  if(typeof privateRoom!=='boolean'||!Number.isSafeInteger(version)||version<1)return {error:'A visibility and current room version are required.',status:400};
+  const state=await roomRoleState(db,orgId,channel);
+  if(!state?.managed)return {error:'No such managed room.',status:404};
+  const actor=state.members.find(m=>m.kind==='person'&&m.id===String(actorId)&&m.eligible&&m.role==='admin');
+  if(!actor)return {error:'Only a room admin can change its visibility.',status:403};
+  if(version!==state.version)return {error:'Room roles changed. Reload before saving.',status:409};
+  const nonce=crypto.randomUUID();
+  const result=await db.batch([
+    db.prepare(`UPDATE hx_room_access SET version=version+1,mutation_id=?3 WHERE org_id=?1 AND channel=?2 AND version=?4 AND deleted_at IS NULL
+      AND EXISTS(SELECT 1 FROM (${subjects}) WHERE kind='person' AND id=?5 AND eligible=1 AND role='admin' AND membership=?6)`)
+      .bind(orgId,channel,nonce,version,String(actorId),actor.membership),
+    db.prepare(`UPDATE businesses SET private=?4 WHERE org_id=?1 AND 'b:'||slug=?2 AND archived_at IS NULL
+      AND EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2 AND mutation_id=?3 AND deleted_at IS NULL)`)
+      .bind(orgId,channel,nonce,privateRoom?1:0),
+  ]);
+  return result[0].meta?.changes?{private:privateRoom,version:version+1}:{error:'Room roles changed. Reload before saving.',status:409};
+}

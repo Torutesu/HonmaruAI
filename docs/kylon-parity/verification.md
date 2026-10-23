@@ -1096,3 +1096,9 @@ Admin API PATCH uses the managed-room transaction for archive/restore and option
 ### Interactive managed-room rename — 2026-10-23
 
 The `/businesses` PUT route now uses the managed-room transaction for renaming, requiring eligible explicit membership, incrementing the policy version and retaining archive state. The low-level legacy rename refuses managed policies, preventing fallback races. Existing early guest/read checks remain (the guest route returns its existing 400 before mutation). Room/business suites passed 48 tests; denied operations leave the version unchanged, and a joined member can rename an archived room without restoring it. Release 4bb40836 CI completed successfully; Worker deployment remained active and Web was still waiting for it. This follow-up is local.
+
+### Room privacy mutation core and release completion — 2026-10-23
+
+Added versioned `setRoomPrivacy` for managed active rooms. Only a current eligible human room admin may change visibility; workspace authority alone is insufficient. The transaction rechecks the admin's join stamp and role, preserves explicit people/agent assignments and roles, and rejects stale versions/rejoined admins. Room/private-card suites passed 50 tests, including access becoming public and then private without implicit membership. This core is not exposed to HTTP/UI yet; live websocket eviction/cache updates must accompany activation.
+
+Release 4bb40836 is now deployed: Worker 39897252414 success, CI 39897252362 success (including E2E), Web 39897252380 success after waiting for its Worker dependency. Later commits remain local. Native Honmaru opened the existing Simple workspace and switched back to Select/Harness; the app was reloaded for the latest UI, with final public-room dialog inspection still pending at this entry.

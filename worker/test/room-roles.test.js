@@ -1,7 +1,7 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,test,expect} from 'vitest';
 import {upsertUser,upsertMembership} from '../src/db.js';
-import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject,deleteManagedRoom,changeManagedRoomMembers,joinPublicRoom,publicRooms,addManagedRoomAgent,archiveManagedRoom} from '../src/harness/roomRoles.js';
+import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject,deleteManagedRoom,changeManagedRoomMembers,joinPublicRoom,publicRooms,addManagedRoomAgent,archiveManagedRoom,setRoomPrivacy} from '../src/harness/roomRoles.js';
 const org='room-roles',channel='b:planning';
 beforeEach(async()=>{
   for(const [id,role] of [['creator','member'],['reader','member'],['outsider','admin'],['guest','guest']]) {
@@ -557,4 +557,33 @@ test('interactive renaming requires room membership, preserves archived state an
  expect((await roomRoleState(env.DB,org,channel,{includeArchived:true})).version).toBe(3);
  expect(await renameBusiness(env.DB,org,'planning','Legacy bypass')).toBeNull();
  await Promise.all(pending);
+});
+
+
+test('only a current room admin can change visibility while preserving explicit members and roles',async()=>{
+ const {accessFor,mayRead}=await import('../src/access.js');
+ await initializeRoomRoles(env.DB,org,channel,'creator');
+ const changePrivacy=(actorId,privateRoom,version)=>setRoomPrivacy(env.DB,org,channel,{actorId,private:privateRoom,version});
+ expect((await changePrivacy('outsider',false,1)).status).toBe(403);
+ expect((await changePrivacy('reader',false,1)).status).toBe(403);
+ expect(await changePrivacy('creator',false,1)).toEqual({private:false,version:2});
+ expect(mayRead(channel,await accessFor(env.DB,org,'outsider'))).toBe(true);
+ expect((await changePrivacy('creator',true,1)).status).toBe(409);
+ expect(await changePrivacy('creator',true,2)).toEqual({private:true,version:3});
+ expect(mayRead(channel,await accessFor(env.DB,org,'outsider'))).toBe(false);
+ const state=await roomRoleState(env.DB,org,channel);
+ expect(state.members.find(m=>m.id==='creator').role).toBe('admin');
+ expect(state.members.find(m=>m.id==='reader').role).toBe('member');
+ expect(state.members.find(m=>m.id==='guest').role).toBe('member');
+});
+
+test('visibility cannot change after the authorizing admin leaves and rejoins',async()=>{
+ await initializeRoomRoles(env.DB,org,channel,'creator');
+ const raced={prepare:sql=>env.DB.prepare(sql),batch:async statements=>{
+  await env.DB.prepare("UPDATE conversation_members SET added_at='new creator join' WHERE org_id=?1 AND login='creator'").bind(org).run();
+  return env.DB.batch(statements);
+ }};
+ expect((await setRoomPrivacy(raced,org,channel,{actorId:'creator',private:false,version:1})).status).toBe(409);
+ const state=await roomRoleState(env.DB,org,channel);
+ expect(state.private).toBe(true);expect(state.version).toBe(1);
 });
