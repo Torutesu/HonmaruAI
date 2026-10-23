@@ -1,5 +1,5 @@
 import { createManagedRoom } from './harness/roomCreation.js';
-import { addManagedRoomAgent, changeManagedRoomMembers, publicRooms, joinPublicRoom, removeRoomSubject, roomRoleState } from './harness/roomRoles.js';
+import { addManagedRoomAgent, changeManagedRoomMembers, publicRooms, joinPublicRoom, removeRoomSubject, roomRoleState, setRoomRole } from './harness/roomRoles.js';
 import { explicitAgentRoles } from './harness/agentRoles.js';
 import { roomResponses } from "./harness/roomResponses.js";
 import { threadPins, setThreadPin } from "./threadPins.js";
@@ -1604,6 +1604,21 @@ export async function handleChannels(request, env, url, { route, after }) {
     return json(result);
   }
 
+  if (path === "/channels/room-role" && request.method === "PUT") {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== 'object' || !['person','agent'].includes(body.kind) || typeof body.id !== 'string') return json({message:'A valid room member is required.'},400);
+    const ctx = await inChannel(env, request, body);
+    if (ctx.denied) return ctx.denied;
+    const target = body.kind === 'person' ? ctx.members.find(m=>m.ref===body.id) : null;
+    if(body.kind === 'person' && !target)return json({message:'That member is no longer in the room.'},404);
+    const result = await setRoomRole(env.DB,body.orgId,ctx.resolved.key,{actorId:ctx.who.session.github_id,kind:body.kind,id:target?.userId||body.id,role:body.role,version:body.version});
+    if(result.error)return json({message:result.error},result.status);
+    await audit(env,request,{orgId:body.orgId,action:'channel.member_role_changed',actor:person(ctx.who.user),entity:{type:body.kind==='person'?'user':'agent',id:target?.login||body.id,name:target?.name||null},details:{channel:ctx.resolved.key,role:body.role}});
+    return json(result);
+  }
+
   if (path === "/channels/members" && (request.method === "POST" || request.method === "DELETE")) {
     const limited = await enforce(env, request, "chat");
     if (limited) return limited;
@@ -1889,9 +1904,14 @@ export async function handleChannels(request, env, url, { route, after }) {
     const participant = managed ? roomState.members.find(m => m.kind === 'person' && m.id === String(ctx.who.session.github_id)) : null;
     const canInvite = managed ? Boolean(participant?.eligible) : true;
     const roomPeople = new Map(managed ? roomState.members.filter(m => m.kind === 'person').map(m => [m.login,m]) : []);
-    const people = managed ? details.members.people.filter(p => roomPeople.has(ctx.members.find(m => m.ref === p.ref)?.login)).map(p => ({
-      ...p, roomRole: roomPeople.get(ctx.members.find(m => m.ref === p.ref)?.login).role,
-    })) : details.members.people;
+    const humanAdmins = managed ? roomState.members.filter(m=>m.kind==='person' && m.role==='admin' && m.eligible).length : 0;
+    const people = managed ? details.members.people.filter(p => roomPeople.has(ctx.members.find(m => m.ref === p.ref)?.login)).map(p => {
+      const member = roomPeople.get(ctx.members.find(m => m.ref === p.ref)?.login);
+      const protectedAdmin = member.role==='admin' && member.eligible && humanAdmins===1;
+      return {...p,roomRole:member.role,
+        canChangeRole:Boolean(participant?.eligible && participant.role==='admin' && member.eligible && !p.you && !protectedAdmin),
+        canRemove:Boolean(participant?.eligible && !p.you && !protectedAdmin && (member.role!=='admin'||participant.role==='admin'))};
+    }) : details.members.people;
     // The agents added here, and the ones this person could add.
     const placesAgents = ctx.resolved.kind === "business" || ctx.resolved.kind === "group";
     const guest = placesAgents ? await isGuest(env.DB, orgId, ctx.who.session.github_id) : true;
@@ -1900,7 +1920,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     const custom = here.map((a) => ({
       kind: "custom", id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, avatarUrl: a.avatarUrl || null, description: a.description, scope: a.scope,
       owner: nameOf(a.addedBy), canRemove: !guest && canInvite && (!managed || participant.role === 'admin' || roomState.members.find(m => m.kind === 'agent' && m.id === a.id)?.role !== 'admin'),
-      ...(managed ? {roomRole:roomState.members.find(m => m.kind === 'agent' && m.id === a.id)?.role || 'member'} : {}),
+      ...(managed ? {roomRole:roomState.members.find(m => m.kind === 'agent' && m.id === a.id)?.role || 'member',canChangeRole:Boolean(participant?.eligible && participant.role==='admin')} : {}),
     }));
     const hereIds = new Set(here.map((a) => a.id));
     const hereHandles = new Set(here.map((a) => a.handle));
@@ -1910,7 +1930,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     const agents = managed ? custom : [...details.members.agents.slice(0, 1), ...custom, ...details.members.agents.slice(1)];
     return json({
       ...details,
-      channel: { ...details.channel, view: ctx.view, ...(managed ? {managed:true,canInvite,joined:Boolean(participant)} : {}) },
+      channel: { ...details.channel, view: ctx.view, ...(managed ? {managed:true,version:roomState.version,canInvite,joined:Boolean(participant)} : {}) },
       members: { people, agents },
       counts: { ...details.counts, members: people.length + agents.length },
       addableAgents: placesAgents ? addable : null,

@@ -1134,3 +1134,12 @@ Worker creation/room suites passed 54 tests, including real HTTP auth, guest den
 - Not yet deployed; Kylon's compact member popover and role editing UI remain open.
 
 - Added a draft 448px RoomMembersDialog matching the observed Kylon member modal: round avatars, compact rows, role labels/actions, light/dark tokens. Two component tests cover readonly capability rendering and failed/pending mutation behavior. Native isolated preview confirms Japanese light/dark layout and the failure message/menu; temporary fixture removed. This component is not wired into production navigation yet: the versioned role HTTP controller and lifecycle integration still need completion before publication.
+
+### 2026-10-23 — ec69247f production release and role UI connection
+
+- CI 39900294340, Deploy Worker 39900294328 and Deploy Web 39900294316 all succeeded. The Web job waited for the matching Worker.
+- Native production Mac app: created an empty private room named `UI検証 2026-10-23` in Select, with purple color and no additional people/agents. Creation completed, the conversation opened, and purple locked-room icons appeared in the sidebar/header. Keep this empty room temporarily for subsequent member-dialog verification, then archive it. No AI/provider call was triggered.
+- Cmd+R again produced a blank window after initial content disappeared; quit/relaunch restored the workspace. This is reproducible on installed desktop 1.3.8 and remains unresolved; successful relaunch is not a fix.
+- c70043ab full Worker regression: 207 files / 1601 tests passed in 433.03s. This predates the role HTTP/controller changes below.
+- Connected the compact member dialog to managed-room header/menu/mobile entry points, with role-version mutations and existing person/agent removal APIs. Added authenticated role endpoint resolving human public refs, exposing capability flags without raw user IDs. Self and last-human-admin rows remain static; server protections remain authoritative. Agent profile clicks select the corresponding permitted agent in Harness members.
+- Role HTTP and related regression: 70 tests passed, including unauthorized promotion, raw-ID rejection, stale version, last-admin preservation and agent Admin assignment. Controller/dialog tests cover version submission, failure refresh, duplicate suppression and stale unmount completion. Web full suite: 135 files / 960 tests passed; TypeScript passed after the final entry-point wiring. The new role UI is not yet deployed at this entry.

@@ -124,3 +124,23 @@ test('managed room details show explicit people and assigned agents, with room-s
  expect(joined.counts.members).toBe(4);
  await Promise.all(pending);
 });
+
+test('room role HTTP updates require the current human admin and reviewed version',async()=>{
+ const {default:worker}=await import('../src/index.js');
+ const {createSession}=await import('../src/db.js');
+ const room=await createManagedRoom(env.DB,org,'creator',draft({private:false,memberRefs:[await memberRef(org,'reader')],agentIds:['helper']}));
+ const pending=[],context={waitUntil:p=>pending.push(p)};
+ const change=async(actor,body)=>worker.fetch(new Request('https://example.com/channels/room-role',{method:'PUT',headers:{'content-type':'application/json','x-session-token':await createSession(env.DB,actor,'test')},body:JSON.stringify({orgId:org,channel:room.room.channel,...body})}),env,context);
+ const readerRef=await memberRef(org,'reader'),creatorRef=await memberRef(org,'creator');
+ expect((await change('reader',{kind:'person',id:readerRef,role:'admin',version:1})).status).toBe(403);
+ expect((await change('creator',{kind:'person',id:'reader',role:'admin',version:1})).status).toBe(404);
+ expect((await change('creator',{kind:'person',id:readerRef,role:'admin',version:1})).status).toBe(200);
+ expect((await change('creator',{kind:'person',id:readerRef,role:'member',version:1})).status).toBe(409);
+ expect((await change('creator',{kind:'person',id:creatorRef,role:'member',version:2})).status).toBe(200);
+ expect((await change('reader',{kind:'person',id:readerRef,role:'member',version:3})).status).toBe(409);
+ expect((await change('creator',{kind:'agent',id:'helper',role:'admin',version:3})).status).toBe(403);
+ expect((await change('reader',{kind:'agent',id:'helper',role:'admin',version:3})).status).toBe(200);
+ const state=await roomRoleState(env.DB,org,room.room.channel);
+ expect(state.version).toBe(4);expect(state.members.filter(m=>m.kind==='person'&&m.role==='admin').map(m=>m.id)).toEqual(['reader']);
+ await Promise.all(pending);
+});

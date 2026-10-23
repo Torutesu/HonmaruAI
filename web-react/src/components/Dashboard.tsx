@@ -175,6 +175,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const { route, navigate } = useRoute()
   const desktop = useDesktop()
   const screen: Screen | null = route.screen
+  const [roomAgentProfile,setRoomAgentProfile]=useState<string|null>(null)
   const [businesses, setBusinesses] = useState<Business[]>([])
   // For a notification's "#channel", read from the socket's handler.
   const businessesRef = useRef<Business[]>([])
@@ -1101,6 +1102,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           )}
           onWorkspace={() => setScreen('team')}
           onOpenScreen={(sc) => setScreen(sc)}
+          onOpenAgentProfile={id=>{setRoomAgentProfile(id);setScreen('hxagents')}}
           onStatus={(tab) => { listYou.current = tab; setStatusFrom((f) => (f === 'tabs' ? null : 'tabs')) }}
           statusOpen={statusFrom === 'tabs'}
           active={!panel && !screen && !palette && !shortcuts}
@@ -1391,7 +1393,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       {screen === 'approvals' && <HarnessApprovals httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'skills' && <HarnessSkills httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'gateways' && <HarnessGateways key={`${orgId}:${sessionToken}`} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
-      {screen === 'hxagents' && <HarnessAgents key={orgId} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} onMessage={id => navigate(hashForView(`ag:${id}`))} onManageAgents={() => setScreen('agents')} onManageTeam={() => setScreen('team')} />}
+      {screen === 'hxagents' && <HarnessAgents key={`${orgId}:${roomAgentProfile||''}`} initialAgentId={roomAgentProfile||undefined} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} onMessage={id => navigate(hashForView(`ag:${id}`))} onManageAgents={() => setScreen('agents')} onManageTeam={() => setScreen('team')} />}
       {screen === 'plans' && (
         <Plans httpBase={relayHttpUrl} sessionToken={sessionToken} orgId={orgId} onClose={closeScreen} />
       )}

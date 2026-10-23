@@ -1,3 +1,4 @@
+import { RoomMembers } from './RoomMembers'
 import { ROOM_COLORS } from '../utils/roomColors'
 import { RoomCreateDialog, type RoomCreateInput } from './RoomCreateDialog'
 import { RoomJoinDialog } from './RoomJoinDialog'
@@ -146,6 +147,7 @@ interface Props {
   onRenameChannel: (slug: string, name: string) => Promise<string | null>
   onDeleteChannel: (slug: string) => Promise<string | null>
   /// Another screen: the team to invite, tools to connect, you.
+  onOpenAgentProfile?: (id: string) => void
   onOpenScreen?: (screen: 'team' | 'tools' | 'profile' | 'agents') => void
   /// Every conversation that can be opened, with what is unread in each,
   /// for ⌘K to jump to by name. Told again whenever the sidebar changes.
@@ -329,7 +331,7 @@ function when(iso?: string): string {
 export const ClassicList: React.FC<Props> = ({
   harness = false, newRequest = 0, homeRequest = 0, sourceAppId = null, linkedThreadId = null, userId, orgName, pending, sent, decided, businesses, presence,
   onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, onApps, onWorkflow, workspaceMenu,
-  onCreateRoom, onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen, onPlaces, onStatus, statusOpen, active = true,
+  onCreateRoom, onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen, onOpenAgentProfile, onPlaces, onStatus, statusOpen, active = true,
 }) => {
   // Files' addresses are renewed for the workspace open now (mediaUrls).
   useEffect(() => { configureMediaUrls(api) }, [api.httpBase, api.orgId, api.sessionToken])
@@ -995,6 +997,7 @@ export const ClassicList: React.FC<Props> = ({
   useEffect(()=>{roomCreationScope.current++;return()=>{roomCreationScope.current++}},[api.orgId,api.httpBase,api.sessionToken])
   const [creatingRoom, setCreatingRoom] = useState(false)
   const [joiningRoom, setJoiningRoom] = useState(false)
+  const [roomMembersView,setRoomMembersView]=useState<string|null>(null)
   const [adding, setAdding] = useState(false)
   const [newName, setNewName] = useState('')
   const [newPrivate, setNewPrivate] = useState(false)
@@ -1069,6 +1072,7 @@ export const ClassicList: React.FC<Props> = ({
   // Archiving asks first, and says where to bring the channel back from.
   const [archiveDialog, setArchiveDialog] = useState<null | { thread: Thread; error?: string | null; busy?: boolean }>(null)
   const openBeside = (th: Thread, tab: DetailsTab) => {
+    if(harness&&th.managed&&tab==='members'){setRoomMembersView(th.view!);return}
     if (current?.key === th.key) { setDetailId(null); setThread(null); setProfile(null); setPins(null); setSide({ kind: 'details', tab }); return }
     sideOnOpen.current = { kind: 'details', tab }
     choose(th.key)
@@ -4994,7 +4998,7 @@ export const ClassicList: React.FC<Props> = ({
             <Icon name="chevron-left" size={20} />
           </button>
           {lead(thread, 'head')}
-          <div className="slk-head-text" onClick={!wide && thread.kind === 'channel' && thread.view ? () => openSide({ kind: 'details', tab: 'members' }) : undefined}>
+          <div className="slk-head-text" onClick={!wide && thread.kind === 'channel' && thread.view ? () => harness && thread.managed ? setRoomMembersView(thread.view!) : openSide({ kind: 'details', tab: 'members' }) : undefined}>
             {thread.kind === 'person' && thread.view
               ? <h1><button type="button" className="slk-author link" onClick={() => void openProfile(thread.view!.slice(3))}>{thread.name}</button>
                   {(() => { const s = statusShown(members.find((x) => thread.view === `dm:${x.ref}`)?.status, Date.now()); return s ? <span className="slk-head-status"> {s.emoji} {s.text}</span> : null })()}
@@ -5048,7 +5052,7 @@ export const ClassicList: React.FC<Props> = ({
             {onApps && <button aria-label={t('Apps')} title={t('Apps')} aria-expanded={side?.kind === 'resources' && side.resource === 'apps'} onClick={() => openSide({ kind: 'resources', resource: 'apps' })}><Icon name="grid" size={15} /><span>{t('Apps')}</span></button>}
             <button aria-label={t('Automations')} title={t('Automations')} aria-expanded={side?.kind === 'resources' && side.resource === 'workflows'} onClick={() => openSide({ kind: 'resources', resource: 'workflows' })}><Icon name="repeat" size={15} /><span>{t('Automations')}</span></button>
             <button aria-label={t('Files')} title={t('Files')} onClick={() => openSide({ kind: 'details', tab: 'attachments' })}><Icon name="file" size={15} /><span>{t('Files')}</span></button>
-            <button onClick={() => openSide({ kind: 'details', tab: 'members' })} aria-label={t('Members')}><Icon name="users" size={15} /></button>
+            <button onClick={() => thread.managed ? setRoomMembersView(thread.view!) : openSide({ kind: 'details', tab: 'members' })} aria-label={t('Members ({n})',{n:headCount(thread)})}><Icon name="users" size={15} /><span>{headCount(thread)}</span></button>
           </div>}
           {!harness && thread.view && (
             <div className="slk-head-actions">
@@ -5073,7 +5077,7 @@ export const ClassicList: React.FC<Props> = ({
               {thread.kind !== 'agent' && <button
                 type="button"
                 className={`slk-head-btn slk-members-button${side?.kind === 'details' && side.tab === 'members' ? ' on' : ''}`}
-                onClick={() => openSide({ kind: 'details', tab: 'members' })}
+                onClick={() => harness && thread.managed ? setRoomMembersView(thread.view!) : openSide({ kind: 'details', tab: 'members' })}
                 aria-label={t('Members ({n})', { n: headCount(thread) })} title={t('Members')}
               >
                 <Icon name="you" size={14} /><span>{headCount(thread)}</span>
@@ -5733,6 +5737,10 @@ export const ClassicList: React.FC<Props> = ({
           onSend={(to, comment) => forwardTo(forwarding.channel, forwarding.m, to, comment)}
         />
       )}
+      {harness && roomMembersView && <RoomMembers key={`${api.orgId}:${roomMembersView}`} api={api} view={roomMembersView}
+        onClose={()=>setRoomMembersView(null)} onAdd={()=>{setAddingTo(roomMembersView);setRoomMembersView(null)}}
+        onProfile={member=>{setRoomMembersView(null);if(member.kind==='person')void openProfile(member.id);else onOpenAgentProfile?.(member.id)}}
+        onChanged={()=>{setChannelsTick(n=>n+1);window.dispatchEvent(new Event('honmaru:reload-businesses'));window.dispatchEvent(new Event('honmaru:agents-changed'))}}/>}
       {harness && creatingRoom && onCreateRoom && <RoomCreateDialog key={api.orgId} people={[
         ...members.filter(m=>!m.mine).map(m=>({id:m.ref,kind:'person' as const,name:m.name,avatarUrl:m.avatarUrl||undefined})),
         ...agents.map(a=>({id:a.id,kind:'agent' as const,name:a.name,avatarUrl:a.avatarUrl||undefined})),
@@ -5778,7 +5786,7 @@ export const ClassicList: React.FC<Props> = ({
           <Sheet label={th.name} onClose={() => setConvSheet(false)}>
             <p className="msheet-title">{th.kind === 'channel' && !th.private ? `#${th.name}` : th.name}</p>
             <div className="msheet-rows">
-              {(th.kind === 'channel' || th.kind === 'group') && <SheetRow icon="users" label={t('Members')} hint={String(headCount(th))} onClick={close(() => openSide({ kind: 'details', tab: 'members' }))} data="members" />}
+              {(th.kind === 'channel' || th.kind === 'group') && <SheetRow icon="users" label={t('Members')} hint={String(headCount(th))} onClick={close(() => harness && th.managed ? setRoomMembersView(th.view!) : openSide({ kind: 'details', tab: 'members' }))} data="members" />}
               {th.kind === 'person' && <SheetRow icon="you" label={t('Profile')} onClick={close(() => void openProfile(th.view!.slice(3)))} data="profile" />}
               <SheetRow icon="star" label={isStarred(th.view!) ? t('Unstar') : t('Star')} onClick={close(() => toggleStar(th.view!))} data="star" />
               <SheetRow icon="folder" label={t('Move to a section')} hint={sectionOf(th.view!)?.name} onClick={close(() => setMoveSheet(th.view!))} data="move" />

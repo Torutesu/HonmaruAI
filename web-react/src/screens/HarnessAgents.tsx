@@ -33,7 +33,7 @@ const TIER_HINT: Record<AgentProfile['tier'], string> = {
   max: 'The strongest model, for hard work.',
 }
 
-type AgentsProps = HarnessProps & { onMessage?: (id: string) => void; onManageAgents?: () => void; onManageTeam?: () => void }
+type AgentsProps = HarnessProps & { initialAgentId?: string; onMessage?: (id: string) => void; onManageAgents?: () => void; onManageTeam?: () => void }
 
 // Keep selections and pending responses inside their authenticated workspace.
 export const HarnessAgents: React.FC<AgentsProps> = (props) => (
@@ -46,6 +46,8 @@ const ScopedHarnessAgents: React.FC<AgentsProps> = (props) => {
   const [agents, setAgents] = useState<AgentFace[] | null>(null)
   const [open, setOpen] = useState<AgentFace | null>(null)
   const [person, setPerson] = useState<Mentionable | null>(null)
+  const initialSelected=useRef(false)
+  useEffect(()=>{if(!initialSelected.current && agents!==null){initialSelected.current=true;if(props.initialAgentId)setOpen(agents.find(a=>a.id===props.initialAgentId)||null)}},[agents,props.initialAgentId])
   const [creating, setCreating] = useState(false)
   const [filter, setFilter] = useState<'all' | 'people' | 'agents'>('all')
   const [accessRevision,setAccessRevision]=useState(0)
