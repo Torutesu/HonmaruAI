@@ -398,7 +398,8 @@ export async function handleHarness(request, env, url, context = {}) {
       return json({ workflow: { ...r.workflow, hookUrl: hookUrl(url, r.workflow) } });
     }
     if (sub === "run" && request.method === "POST") {
-      if (!wf.enabled) return json({ message: "This workflow is off." }, 409);
+      // Pausing stops automatic triggers; an explicit manual run does not
+      // enable the workflow or replay its queued webhook deliveries.
       const run = await startRun(env, { orgId, workflow: wf, trigger: "manual", input: input.input && typeof input.input === "object" ? input.input : { text: String(input.text || "") }, startedBy: me });
       return json({ run }, 201);
     }

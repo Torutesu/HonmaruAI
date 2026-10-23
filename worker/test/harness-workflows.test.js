@@ -245,6 +245,22 @@ test("a webhook checked before credential revocation cannot create a run afterwa
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE workflow_id=?1').bind(made.workflow.id).first()).n).toBe(0);
 });
 
+test("a paused workflow can run manually without resuming its schedule", async () => {
+  const made = await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'Explicit trial while paused', enabled: false,
+    trigger: { type: 'schedule', cadence: 'daily', hour: 9, timezone: 'UTC' },
+    steps: [{ type: 'add_row', tableId: invoices, values: { Client: 'Manual trial', Status: 'Draft' } }],
+  })).json();
+  const response = await send('POST', `/workflows/${made.workflow.id}/run`, toru, { orgId: ORG, text: 'Run once' });
+  expect(response.status).toBe(201);
+  expect((await response.json()).run).toMatchObject({ trigger: 'manual', status: 'done' });
+  const detail = await (await get(`/workflows/${made.workflow.id}?${q({ orgId: ORG })}`, toru)).json();
+  expect(detail.workflow.enabled).toBe(false);
+  expect(detail.workflow.nextRunAt).toBeNull();
+  expect(await runDueWorkflows(env, { now: new Date(Date.now() + 86400000) })).toBe(0);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE workflow_id=?1').bind(made.workflow.id).first()).n).toBe(1);
+});
+
 test("a scheduled workflow runs when its time comes, once, and a manual one when asked", async () => {
   const { workflow } = await (await send("POST", "/workflows", mika, {
     orgId: ORG, name: "Monday nudge",
@@ -406,7 +422,10 @@ test('generated workflows are paused and reject inaccessible resources and unsup
   expect(saved.enabled).toBe(false);
   expect(saved.nextRunAt).toBeNull();
   expect(saved.steps[0].text).toBe('Check tasks');
-  expect((await send('POST', `/workflows/${saved.id}/run`, mika, { orgId: ORG })).status).toBe(409);
+  expect((await messages(mika)).some(message => message.body === 'Check tasks')).toBe(false);
+  expect((await send('POST', `/workflows/${saved.id}/run`, mika, { orgId: ORG })).status).toBe(201);
+  expect((await messages(mika)).some(message => message.body === 'Check tasks')).toBe(true);
+  expect((await (await get(`/workflows/${saved.id}?${q({ orgId: ORG })}`, mika)).json()).workflow.enabled).toBe(false);
   spec.steps[0].channel = 'b:nonexistent';
   expect((await workflowFromPrompt(env.DB, ORG, '9302', { prompt: 'Post', complete: async () => JSON.stringify(spec) })).status).toBe(403);
   spec.steps = [{ type: 'shell', command: 'echo unsafe' }];

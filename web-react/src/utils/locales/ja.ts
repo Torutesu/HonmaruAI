@@ -1,6 +1,7 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Automatic triggers are paused. You can still run this workflow manually.": "自動実行は一時停止中です。手動で実行することはできます。",
   "Held events: {count}": "保留中のイベント: {count}件",
   "Oldest event expires: {when}": "最も古いイベントの保存期限: {when}",
   "Resuming does not replay held events. Replay runs the saved workflow with real effects, oldest first.": "再開するだけでは保留イベントを実行しません。再実行すると、古い順に保存済みワークフローを実行し、実際の変更や送信が行われます。",

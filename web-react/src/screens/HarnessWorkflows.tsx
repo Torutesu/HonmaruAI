@@ -198,7 +198,7 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
     const w = open.workflow
     return (
       <Shell className="hx-resource-screen" title={w.name} onClose={() => { setOpen(null); load() }} nested>
-        {!w.enabled && <p className="form-note">{t('Created paused. Review the steps before turning it on.')}</p>}
+        {!w.enabled && <p className="form-note">{t('Automatic triggers are paused. You can still run this workflow manually.')}</p>}
         <div className="hx-flow-diagram"><div className="hx-flow-node"><small>{t('Trigger')}</small><strong>{triggerLabel(t, w.trigger, tables)}</strong></div>{w.steps.map((step, index) => <React.Fragment key={index}><span className="hx-flow-connector">↓</span><div className="hx-flow-node"><small>{index + 1}. {stepLabel(t, step.type)}</small><strong>{step.text || step.prompt || step.title || tables.find(table => table.id === step.tableId)?.name}</strong>{step.channel && <span>{step.channel.startsWith('ag:') || step.channel.startsWith('dm:') ? t('Private chat') : step.channel.replace(/^b:/, '#')}</span>}{step.agentId && <span>{t('Agent')}: {agents.find(agent => agent.id === step.agentId)?.name || step.agentId}</span>}{step.to && <span>@{step.to}</span>}{step.summary && <p>{step.summary}</p>}{step.minutes && <span>{step.minutes} min</span>}{step.values && <pre>{JSON.stringify(step.values, null, 2)}</pre>}</div></React.Fragment>)}</div>
         <div className="rows">
           <div className="row static">
@@ -212,7 +212,7 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
         {error && <div className="form-error">{error}</div>}
         {open.canEdit && (
           <div className="hx-actions">
-            <button className="pill-btn" disabled={busy === 'run' || !w.enabled} onClick={() => act('run', async () => { await api.runWorkflow(w.id, ''); setOpen(await api.workflow(w.id)) })}><Icon name="zap" size={14} /> {t('Run now')}</button>
+            <button className="pill-btn" disabled={!!busy} onClick={() => act('run', async () => { await api.runWorkflow(w.id, ''); setOpen(await api.workflow(w.id)) })}><Icon name="zap" size={14} /> {t('Run now')}</button>
             <button className="pill-btn quiet" onClick={() => act('toggle', async () => { await api.updateWorkflow(w.id, { enabled: !w.enabled }); setOpen(await api.workflow(w.id)) })}>{w.enabled ? t('Turn off') : t('Turn on')}</button>
             <button className="btn-text danger" onClick={() => act('delete', async () => { await api.deleteWorkflow(w.id); setOpen(null); load() })}>{t('Delete')}</button>
           </div>

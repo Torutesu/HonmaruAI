@@ -1721,3 +1721,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 
 ### 2026-10-23 webhook lifecycle production dispatch
 - Pushed15f24b70 to main after prior CI success. Exact-head runs: CI39965668546 queued, Deploy Worker39965668748 in_progress, Deploy Web39965668547 in_progress. Web waits for matching Worker deployment. Production success and native screenshots remain unproven; do not push another revision over these runs.
+
+### 2026-10-23 explicit manual run while paused (local)
+- Aligned pause semantics with observed official workflow CLI documentation: pause prevents automatic triggers, not explicit manual execution. Removed the manual endpoint's enabled gate and enabled Run now in paused detail; the UI explains the distinction. This does not resume schedules or replay held events. Existing ACL checks remain.
+- Added API regression for paused scheduled workflow: explicit run201/done, workflow remains disabled with null nextRunAt, later cron produces zero runs. Updated old generated-workflow409 expectation to verify no message before explicit run, one message afterward, and continued paused state. UI test verifies no update/replay call on manual action.
+- Workflow30 tests and UI6 tests passed; TypeScript/Vite and diff check passed. Logs /tmp/honmaru-paused-manual-{worker,web,build,vite}.log. Changes remain local while exact15f24b70 CI39965668546, Worker39965668748 and Web39965668547 are live.
