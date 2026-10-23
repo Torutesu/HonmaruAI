@@ -37,7 +37,7 @@ export async function saveManagedRoomSettings(db,orgId,channel,actorId,input,{ca
       AND EXISTS(SELECT 1 FROM businesses b JOIN conversation_members c ON c.org_id=b.org_id AND c.channel=?2
         JOIN users u ON u.login=c.login JOIN memberships m ON m.org_id=b.org_id AND m.user_github_id=u.github_id
         WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND b.archived_at IS NULL AND u.github_id=?5
-        AND m.role!='guest' AND m.created_at||'/'||c.added_at=?6)
+        AND LOWER(COALESCE(m.role,'guest'))!='guest' AND m.created_at||'/'||c.added_at=?6)
       AND COALESCE((SELECT version FROM hx_room_responses WHERE org_id=?1 AND channel=?2),0)=?7`)
       .bind(orgId,channel,nonce,input.version,actorId,current.actor.membership,input.responseVersion),
     db.prepare(`UPDATE businesses SET name=?4 WHERE org_id=?1 AND 'b:'||slug=?2 AND ${gate}`).bind(orgId,channel,nonce,input.name.trim()),

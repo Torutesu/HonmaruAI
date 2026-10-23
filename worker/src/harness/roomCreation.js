@@ -24,7 +24,7 @@ export async function createManagedRoom(db,orgId,actorId,input) {
       JOIN hx_room_access p ON p.org_id=b.org_id AND p.channel=?2 AND p.deleted_at IS NULL
       JOIN hx_room_creations r ON r.org_id=b.org_id AND r.channel=p.channel
       JOIN conversation_members c ON c.org_id=b.org_id AND c.channel=p.channel AND c.login=?3
-      JOIN memberships m ON m.org_id=b.org_id AND m.user_github_id=?4 AND m.created_at=?5 AND m.role!='guest'
+      JOIN memberships m ON m.org_id=b.org_id AND m.user_github_id=?4 AND m.created_at=?5 AND LOWER(COALESCE(m.role,'guest'))!='guest'
       WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND b.archived_at IS NULL`).bind(orgId,row.channel,actor.login,actorId,actor.joinedAt).first();
     return live?{room:{...live,channel:row.channel},created:false}:failure('The room created by this request is no longer available.');
   };
@@ -39,12 +39,12 @@ export async function createManagedRoom(db,orgId,actorId,input) {
   const result=await db.batch([
     db.prepare(`INSERT OR IGNORE INTO hx_room_creations(org_id,user_id,request_id,channel,fingerprint,member_since,nonce,color,created_at)
       SELECT ?1,?4,?5,?2,?6,?7,?3,?8,?9
-      WHERE EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id WHERE m.org_id=?1 AND m.user_github_id=?4 AND m.created_at=?7 AND m.role!='guest')
+      WHERE EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id WHERE m.org_id=?1 AND m.user_github_id=?4 AND m.created_at=?7 AND LOWER(COALESCE(m.role,'guest'))!='guest')
       AND (SELECT json_group_array(json_array(id,stamp,login,role)) FROM (
         SELECT CAST(m.user_github_id AS TEXT) AS id,m.created_at AS stamp,u.login,LOWER(COALESCE(m.role,'member')) AS role FROM memberships m JOIN users u ON u.github_id=m.user_github_id
         WHERE m.org_id=?1 AND m.user_github_id IN(SELECT value FROM json_each(?10)) ORDER BY m.user_github_id))=?11
       AND (SELECT COUNT(*) FROM custom_agents a LEFT JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
-        JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?4 AND m.role!='guest' JOIN users u ON u.github_id=m.user_github_id
+        JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?4 AND LOWER(COALESCE(m.role,'guest'))!='guest' JOIN users u ON u.github_id=m.user_github_id
         WHERE a.org_id=?1 AND a.id IN(SELECT value FROM json_each(?12)) AND a.deleted_at IS NULL AND (a.scope='team' OR a.owner_login=u.login)
         AND (p.agent_id IS NULL OR p.access='everyone' OR a.owner_login=u.login
           OR (p.access='people' AND EXISTS(SELECT 1 FROM json_each(p.people) WHERE value=u.login))

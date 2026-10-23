@@ -1519,3 +1519,15 @@ Webhook creation now uses a native submit form. Enter submits a trimmed name, co
 Native Kylon existing app data viewer was inspected: More contains text wrapping, and column header clicks cycle ascending → descending → unsorted. Returned the column to unsorted and closed the app panel. Honmaru source already implements that cycle via nextColumnSort and the wrap-text menu; this source comparison does not prove rendered parity. Native app observation is usable despite intermittent capture/window errors. After full backend validation and normal deployment, use Honmaru native UI to verify the new Webhook screen; local browser setting remains unresolved, but it need not prevent native production verification.
 
 GitHub API confirmed the latest existing main revision 57e5a642 has completed successful CI, Web deploy and Worker deploy. No remote run is live; no new code pushed in this checkpoint.
+
+### 2026-10-23 — Full backend passed and release dispatched
+
+Worker full session 77990 completed successfully: 217 files / 1,707 tests passed, 870.72 seconds. Latest Web suite remains 1,006 passing tests, with successful typecheck and production build. Worktree was clean at code commit cc7ef49d6c175794731432cfbcb83edd2909ffe2. Fetched main, verified fast-forward ancestry, then pushed cc7ef49d to main successfully. No workflow edits or test-gate bypass.
+
+GitHub runs for that exact revision: Deploy Worker 39948523401 in progress; Deploy Web 39948523367 in progress; CI 39948523403 queued. These are release-start evidence, not deployment-completion evidence. Pre-release production /health returned ok:true. Native Honmaru production app was observed on ShogunAI General in Simple mode; no settings changed. New Webhook UI and production behavior still require post-deploy validation. Do not push another revision while these release runs remain active.
+
+### 2026-10-23 — Follow-up managed-room role normalization
+
+While auditing all-member room integration points, found managed-room SQL treated mixed-case Guest as eligible even though central role checks normalize names. Added regressions for Guest/GUEST editing, response changes, archiving and a demotion immediately before the write batch: all three newly added tests failed against cc7ef49d. Normalized role comparisons in roomRoles, roomSettings and roomCreation, including transactional guards; existing custom non-guest titles remain eligible. Four related suites passed 100 tests after the fix. A new full Worker validation is running at /tmp/honmaru-room-guest-worker-full.log; this is a follow-up, not included in the active cc7ef49d release.
+
+Latest cc7ef49d remote status: Web, Desktop, Local gateway, Reference relay and Shared core/mobile CI jobs succeeded; Worker and E2E still running. Worker deployment is testing, Web deployment waits for the matching Worker. No second revision pushed while those runs are active. Default all-member room identity/auto-join remains unimplemented; inspected creation/membership entrypoints but did not alter existing General rooms or silently widen room audiences.

@@ -106,3 +106,23 @@ test('guest downgrade during save prevents all settings writes',async()=>{
  expect((await saveManagedRoomSettings(raced,org,channel,'creator',data)).status).toBe(409);
  expect((await read()).settings).toMatchObject({name:'Original',color:'teal',mentionedOnly:false,version:1});
 });
+
+test.each(['Guest','GUEST'])('mixed-case %s membership cannot edit or archive a managed room',async role=>{
+ const data=await input();
+ await env.DB.prepare('UPDATE memberships SET role=?2 WHERE org_id=?1 AND user_github_id=\'creator\'').bind(org,role).run();
+ expect((await read()).canEdit).toBe(false);
+ expect((await saveManagedRoomSettings(env.DB,org,channel,'creator',data)).status).toBe(403);
+ expect((await saveRoomResponses(env.DB,org,channel,{mentionedOnly:true,version:0},'creator')).status).toBe(403);
+ expect((await archiveManagedRoom(env.DB,org,channel,{actorId:'creator',archived:true})).status).toBe(403);
+ expect((await read()).settings).toMatchObject({name:'Original',mentionedOnly:false,version:1});
+});
+
+test('a guest demotion immediately before the settings transaction blocks every field change',async()=>{
+ const data=await input();
+ const raced={prepare:s=>env.DB.prepare(s),batch:async statements=>{
+  await env.DB.prepare("UPDATE memberships SET role='Guest' WHERE org_id=?1 AND user_github_id='creator'").bind(org).run();
+  return env.DB.batch(statements);
+ }};
+ expect((await saveManagedRoomSettings(raced,org,channel,'creator',data)).status).toBe(409);
+ expect((await read()).settings).toMatchObject({name:'Original',color:'teal',mentionedOnly:false,version:1,responseVersion:0});
+});
