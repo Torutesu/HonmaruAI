@@ -1551,3 +1551,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 release gates and dictation boundaries
 - cc7ef49d: CI39948523403, Worker39948523401, Web39948523367 all completed success. Guest normalization follow-up: Worker217 files/1710 tests passed.
 - Dictation caps text at the composer 4000-character boundary and stops capture on recognition error; 4 focused tests and TypeScript passed. Physical microphone verification remains pending.
+
+### 2026-10-23 production Webhook native verification
+- Native Honmaru AI 1.3.12, Select private room QA Webhook 2026-10-23 (1 member): opened room settings → advanced → manage. Live Webhook list loaded empty; input enabled and empty-name creation disabled. Dark screenshot: /tmp/honmaru-webhook-production-20261023.png. Escape closed child only and restored focus to Manage in parent. No credentials created, no message or model execution.
+- Reload/Force Reload produced blank native surface; diagnostics recorded inspect-visible despite blank screenshot/AX. Full app quit and launch restored actual web UI. Root cause remains unresolved; restart is recovery evidence only, not a fix.
+- New revision 9e71d4c6 runs: Worker39950951411, CI39950951389, Web39950951507 confirmed in progress. Do not overlap with another push.
