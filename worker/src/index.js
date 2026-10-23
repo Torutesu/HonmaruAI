@@ -1463,7 +1463,11 @@ async function handle(request, env, url, ctx) {
       // not there.
       if (!(await canTouchChannel(env.DB, body.orgId, String(body.slug), who))) return json({ message: "A channel needs a name, and this one must exist." }, 400);
       const before = await env.DB.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, String(body.slug)).first();
-      const renamed = await renameBusiness(env.DB, body.orgId, String(body.slug), body.name);
+      if (typeof body.name !== 'string' || !body.name.trim()) return json({message:"A channel needs a name, and this one must exist."},400);
+      const renamingSession = await getSession(env.DB, request.headers.get("x-session-token"));
+      const change = await archiveManagedRoom(env.DB, body.orgId, `b:${String(body.slug)}`, {actorId:renamingSession.github_id,name:body.name.trim().slice(0,120),version:body.version});
+      if (change.error) return json({message:change.error},change.status);
+      const renamed = change.managed ? {slug:String(body.slug),name:body.name.trim().slice(0,120)} : await renameBusiness(env.DB, body.orgId, String(body.slug), body.name);
       if (!renamed) return json({ message: "A channel needs a name, and this one must exist." }, 400);
       if (before?.name !== renamed.name) {
         const session = await getSession(env.DB, request.headers.get("x-session-token"));

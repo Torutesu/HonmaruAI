@@ -537,3 +537,24 @@ test('archive HTTP route rejects a public reader and permits a joined member to 
  expect((await roomRoleState(env.DB,org,channel)).version).toBe(3);
  await Promise.all(pending);
 });
+
+
+test('interactive renaming requires room membership, preserves archived state and increments the policy version',async()=>{
+ const {default:worker}=await import('../src/index.js');
+ const {createSession,renameBusiness}=await import('../src/db.js');
+ await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1").bind(org).run();
+ await initializeRoomRoles(env.DB,org,channel,'creator');
+ const pending=[];
+ const call=async(actor,name)=>worker.fetch(new Request('https://example.com/businesses',{method:'PUT',headers:{'content-type':'application/json','x-session-token':await createSession(env.DB,actor,'test')},body:JSON.stringify({orgId:org,slug:'planning',name})}),env,{waitUntil:p=>pending.push(p)});
+ expect((await call('outsider','Unauthorized')).status).toBe(403);
+ // The legacy guest guard rejects before the managed mutation.
+ expect((await call('guest','Unauthorized')).status).toBe(400);
+ expect((await roomRoleState(env.DB,org,channel)).version).toBe(1);
+ await archiveManagedRoom(env.DB,org,channel,{actorId:'reader',archived:true});
+ expect((await call('reader','Renamed planning')).status).toBe(200);
+ const room=await env.DB.prepare("SELECT name,archived_at FROM businesses WHERE org_id=?1").bind(org).first();
+ expect(room.name).toBe('Renamed planning');expect(room.archived_at).toBeTruthy();
+ expect((await roomRoleState(env.DB,org,channel,{includeArchived:true})).version).toBe(3);
+ expect(await renameBusiness(env.DB,org,'planning','Legacy bypass')).toBeNull();
+ await Promise.all(pending);
+});

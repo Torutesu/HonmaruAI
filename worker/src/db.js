@@ -988,7 +988,7 @@ export async function renameBusiness(db, orgId, slug, name) {
   const clean = String(name || "").trim().slice(0, 120);
   if (!clean) return null;
   const { meta } = await db
-    .prepare("UPDATE businesses SET name = ?3 WHERE org_id = ?1 AND slug = ?2")
+    .prepare("UPDATE businesses SET name = ?3 WHERE org_id = ?1 AND slug = ?2 AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2)")
     .bind(orgId, slug, clean)
     .run();
   return meta?.changes ? { slug, name: clean } : null;

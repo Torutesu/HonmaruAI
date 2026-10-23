@@ -1092,3 +1092,7 @@ Room, businesses and audit-archive suites passed 60 tests, including an HTTP pub
 ### Admin API lifecycle consistency — 2026-10-23
 
 Admin API PATCH uses the managed-room transaction for archive/restore and optional rename, incrementing the same room policy version. Combined rename/archive checks all permissions before either write. A workspace owner outside a room may archive/restore it but cannot rename it or gain membership. A stale supplied version leaves both fields unchanged. Legacy combined updates use a D1 batch guarded against managed-policy initialization. Room/admin API suites passed 56 tests, including mixed changes, stale versions, unauthorized mixed patches and private restoration without enrollment. Release 4bb40836 was still in progress at the last check; this follow-up remains local.
+
+### Interactive managed-room rename — 2026-10-23
+
+The `/businesses` PUT route now uses the managed-room transaction for renaming, requiring eligible explicit membership, incrementing the policy version and retaining archive state. The low-level legacy rename refuses managed policies, preventing fallback races. Existing early guest/read checks remain (the guest route returns its existing 400 before mutation). Room/business suites passed 48 tests; denied operations leave the version unchanged, and a joined member can rename an archived room without restoring it. Release 4bb40836 CI completed successfully; Worker deployment remained active and Web was still waiting for it. This follow-up is local.
