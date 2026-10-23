@@ -167,7 +167,7 @@ export async function agentChannels(db, orgId) {
 }
 
 export async function addChannelAgent(db, { orgId, key, agentId, login }) {
-  const out = await db.prepare("INSERT OR IGNORE INTO channel_agents (org_id, channel, agent_id, added_by, added_at) VALUES (?1, ?2, ?3, ?4, ?5)")
+  const out = await db.prepare("INSERT OR IGNORE INTO channel_agents (org_id, channel, agent_id, added_by, added_at) SELECT ?1, ?2, ?3, ?4, ?5 WHERE NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2)")
     .bind(orgId, key, agentId, login, new Date().toISOString()).run();
   return Number(out?.meta?.changes || 0) > 0;
 }

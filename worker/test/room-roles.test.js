@@ -1,7 +1,7 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,test,expect} from 'vitest';
 import {upsertUser,upsertMembership} from '../src/db.js';
-import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject,deleteManagedRoom,changeManagedRoomMembers,joinPublicRoom,publicRooms} from '../src/harness/roomRoles.js';
+import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject,deleteManagedRoom,changeManagedRoomMembers,joinPublicRoom,publicRooms,addManagedRoomAgent} from '../src/harness/roomRoles.js';
 const org='room-roles',channel='b:planning';
 beforeEach(async()=>{
   for(const [id,role] of [['creator','member'],['reader','member'],['outsider','admin'],['guest','guest']]) {
@@ -438,4 +438,54 @@ test('ordinary joined members can invite people through the managed public-room 
   expect((await roomRoleState(env.DB,org,channel)).members.find(m=>m.id==='outsider').role).toBe('member');
   expect(await (await call('reader')).json()).toEqual({added:0});
   await Promise.all(pending);
+});
+
+
+test('managed agent invitations require a current participant and never resurrect old agent admin grants',async()=>{
+  await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1").bind(org).run();
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  await change('creator','agent','helper','admin',1);
+  await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1").bind(org).run();
+  expect((await addManagedRoomAgent(env.DB,org,channel,{actorId:'outsider',agentId:'helper'})).status).toBe(403);
+  expect(await addManagedRoomAgent(env.DB,org,channel,{actorId:'reader',agentId:'helper'})).toEqual({managed:true,added:true});
+  expect((await roomRoleState(env.DB,org,channel)).members.find(m=>m.id==='helper').role).toBe('member');
+  expect(await addManagedRoomAgent(env.DB,org,channel,{actorId:'reader',agentId:'helper'})).toEqual({managed:true,added:false});
+});
+
+test('agent access revoked before the invitation transaction rejects every write',async()=>{
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1").bind(org).run();
+  const raced={prepare:sql=>env.DB.prepare(sql),batch:async statements=>{
+    await env.DB.prepare("UPDATE custom_agents SET scope='personal' WHERE org_id=?1 AND id='helper'").bind(org).run();
+    return env.DB.batch(statements);
+  }};
+  expect((await addManagedRoomAgent(raced,org,channel,{actorId:'reader',agentId:'helper'})).status).toBe(409);
+  const state=await roomRoleState(env.DB,org,channel);
+  expect(state.version).toBe(1);expect(state.members.some(m=>m.id==='helper')).toBe(false);
+});
+
+test('restricted agent invitations honor people sharing and current explicit grants',async()=>{
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1").bind(org).run();
+  await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES (?1,'helper','private','[]','now')").bind(org).run();
+  const add=()=>addManagedRoomAgent(env.DB,org,channel,{actorId:'reader',agentId:'helper'});
+  expect((await add()).status).toBe(409);
+  await env.DB.prepare("UPDATE hx_agent_profiles SET access='people',people='[\"reader\"]' WHERE org_id=?1").bind(org).run();
+  expect(await add()).toEqual({managed:true,added:true});
+  await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1").bind(org).run();
+  await env.DB.prepare("UPDATE hx_agent_profiles SET access='private',people='[]' WHERE org_id=?1").bind(org).run();
+  await env.DB.prepare("INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,updated_by,updated_at,member_since) SELECT ?1,'helper','reader','member','creator','now',created_at FROM memberships WHERE org_id=?1 AND user_github_id='reader'").bind(org).run();
+  expect(await add()).toEqual({managed:true,added:true});
+  await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1").bind(org).run();
+  await env.DB.prepare("UPDATE hx_agent_members SET member_since='obsolete' WHERE org_id=?1").bind(org).run();
+  expect((await add()).status).toBe(409);
+});
+
+
+test('legacy agent insertion cannot bypass a managed policy initialized after an earlier read',async()=>{
+  const {addChannelAgent}=await import('../src/customAgents.js');
+  await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1").bind(org).run();
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  expect(await addChannelAgent(env.DB,{orgId:org,key:channel,agentId:'helper',login:'outsider'})).toBe(false);
+  expect((await roomRoleState(env.DB,org,channel)).members.some(m=>m.id==='helper')).toBe(false);
 });

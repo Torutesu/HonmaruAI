@@ -276,3 +276,36 @@ export async function publicRooms(db, orgId, actorId) {
     ORDER BY b.name COLLATE NOCASE,p.channel`).bind(orgId,String(actorId)).all();
   return results.map(r=>({...r,joined:!!r.joined}));
 }
+
+export async function addManagedRoomAgent(db,orgId,channel,{actorId,agentId}) {
+  const state=await roomRoleState(db,orgId,channel);
+  if(!state?.managed) {
+    const policy=await db.prepare('SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2').bind(orgId,channel).first();
+    return policy?{error:'Room membership changed. Reload before saving.',status:409}:{managed:false};
+  }
+  const actor=state.members.find(m=>m.kind==='person'&&m.id===String(actorId)&&m.eligible);
+  if(!actor)return {error:'Only a room member can add agents.',status:403};
+  if(state.members.some(m=>m.kind==='agent'&&m.id===agentId))return {managed:true,added:false};
+  const nonce=crypto.randomUUID(),at=new Date().toISOString();
+  const gate='EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2 AND mutation_id=?3 AND deleted_at IS NULL)';
+  const result=await db.batch([
+    db.prepare(`UPDATE hx_room_access SET version=version+1,mutation_id=?3
+      WHERE org_id=?1 AND channel=?2 AND version=?4 AND deleted_at IS NULL
+      AND EXISTS(SELECT 1 FROM (${subjects}) WHERE kind='person' AND id=?5 AND eligible=1 AND membership=?6)
+      AND EXISTS(SELECT 1 FROM custom_agents a LEFT JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
+        JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?5 AND m.role!='guest'
+        JOIN users u ON u.github_id=m.user_github_id
+        WHERE a.org_id=?1 AND a.id=?7 AND a.deleted_at IS NULL AND (a.scope='team' OR a.owner_login=u.login)
+        AND (p.agent_id IS NULL OR p.access='everyone' OR a.owner_login=u.login
+          OR (p.access='people' AND EXISTS(SELECT 1 FROM json_each(p.people) WHERE value=u.login))
+          OR (a.scope='team' AND a.provider IS NULL AND EXISTS(SELECT 1 FROM hx_agent_members r
+            WHERE r.org_id=a.org_id AND r.agent_id=a.id AND r.user_id=?5 AND r.member_since=m.created_at)))
+        AND NOT EXISTS(SELECT 1 FROM channel_agents ca JOIN custom_agents other ON other.org_id=ca.org_id AND other.id=ca.agent_id AND other.deleted_at IS NULL
+          WHERE ca.org_id=?1 AND ca.channel=?2 AND (other.handle=a.handle OR other.id=a.id)))`)
+      .bind(orgId,channel,nonce,state.version,String(actorId),actor.membership,agentId),
+    db.prepare(`DELETE FROM hx_room_roles WHERE org_id=?1 AND channel=?2 AND subject_kind='agent' AND subject_id=?4 AND ${gate}`).bind(orgId,channel,nonce,agentId),
+    db.prepare(`INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) SELECT ?1,?2,?4,?5,?6 WHERE ${gate}`)
+      .bind(orgId,channel,nonce,agentId,actor.login,at),
+  ]);
+  return result[0].meta?.changes?{managed:true,added:true}:{error:'Room membership or agent access changed. Reload before saving.',status:409};
+}

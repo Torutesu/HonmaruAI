@@ -1,4 +1,4 @@
-import { changeManagedRoomMembers, publicRooms, joinPublicRoom, removeRoomSubject, roomRoleState } from './harness/roomRoles.js';
+import { addManagedRoomAgent, changeManagedRoomMembers, publicRooms, joinPublicRoom, removeRoomSubject, roomRoleState } from './harness/roomRoles.js';
 import { explicitAgentRoles } from './harness/agentRoles.js';
 import { roomResponses } from "./harness/roomResponses.js";
 import { threadPins, setThreadPin } from "./threadPins.js";
@@ -1549,7 +1549,9 @@ export async function handleChannels(request, env, url, { route, after }) {
       if ((await channelAgents(env.DB, orgId, key)).some((a) => a.handle === agent.handle && a.id !== agent.id)) {
         return json({ message: `An agent called @${agent.handle} is already here.` }, 409);
       }
-      if (!(await addChannelAgent(env.DB, { orgId, key, agentId: agent.id, login: me.login }))) return json({ added: false });
+      const addition = await addManagedRoomAgent(env.DB, orgId, key, { actorId: ctx.who.session.github_id, agentId: agent.id });
+      if (addition.error) return json({ message: addition.error }, addition.status);
+      if (addition.managed ? !addition.added : !(await addChannelAgent(env.DB, { orgId, key, agentId: agent.id, login: me.login }))) return json({ added: false });
       await note(serverText(locale, "channel.agentAdded", { who, name: label(agent) }));
       await audit(env, request, { orgId, action: "channel.agent_added", actor: person(me), entity: { type: "agent", id: agent.id, name: `@${agent.handle}` }, details: { channel: ctx.resolved.slug ? `#${ctx.resolved.slug}` : "group" } });
       return json({ added: true });
