@@ -1583,3 +1583,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 
 ### 2026-10-23 room header reference alignment
 - Actual Kylon screenshot shows cube for Apps, lightning for Automation, folder for Files and @自分 filter. Updated only Harness room actions/filter accordingly; Simple toolbar and translation of its Automations unchanged. TypeScript and diff check passed. Rendered Honmaru check pending.
+
+### 2026-10-23 composer production regression
+- 9e71d4c6 CI/Worker/Web all successful. Pushed33263ecf; Web39953346717 succeeded, CI39953346715 remains active.
+- Native 9e71d4c6 showed increasing plus controls (AX2→7; screenshot5) after restart. Found duplicate sibling React keys for HarnessComposerMenu and HarnessDictation in that revision.33263ecf already differentiates dictation with userId; follow-up now gives explicit menu:/dictation: prefixes plus account scope. Native verification of corrected revision remains pending, so root-cause resolution is not yet proven.
+- Cmd-R blank surface recurred; full restart recovered. This is a separate unresolved issue.
