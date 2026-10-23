@@ -1,7 +1,7 @@
 {
   "name": "@honmaru/desktop",
   "productName": "Honmaru AI",
-  "version": "1.3.10",
+  "version": "1.3.11",
   "private": true,
   "description": "Honmaru AI for Windows, macOS and Linux: the web app in its own window, in the tray, with a badge and honmaru:// links.",
   "type": "module",
@@ -16,7 +16,7 @@
     "dist:mas": "electron-builder --config electron-builder.mas.yml --mac mas --universal --publish never"
   },
   "devDependencies": {
-    "electron": "^44.5.1",
+    "electron": "44.9.3",
     "electron-builder": "^26.15.3",
     "vitest": "^5.0.2"
   },
