@@ -4,6 +4,8 @@
 
 全93項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
+2026-10-23 release status: room discovery/join and the initial room-role lifecycle shipped in 4bb40836. Atomic room creation, its connected three-step UI, saved room colors and additional mutation guards are under release verification in ec69247f. Entries below that still say unpublished for the initial lifecycle refer to the earlier snapshot; neither release establishes full parity. Default-room identity, role/privacy editing UI, automatic-removal recovery and multi-user production verification remain open.
+
 ## Rooms
 
 [比較元の公式仕様](https://kylon.io/product/workspace)

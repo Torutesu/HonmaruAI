@@ -1121,3 +1121,6 @@ Worker creation/room suites passed 54 tests, including real HTTP auth, guest den
 - Local native Electron preview verified dark and light creation steps, palette opening, member selection, Japanese labels/input and final callback payload (name, public visibility, color, human/agent IDs and retry ID). This was an isolated UI fixture, not a production room creation or an integrated API test. Temporary preview source files were removed afterward.
 - Full Web regression: 133 files, 955 tests pass. TypeScript project build and Vite production build pass. Existing bundle-size/dynamic-import warnings remain.
 - Full Worker regression is running against this code snapshot; production deployment is still pending at this entry.
+
+- ec69247f full Worker regression completed: 207 files / 1600 tests pass in 471.95s (`/tmp/honmaru-managed-rooms-worker-full.log`). Release-dependency and migration tooling: 18 tests pass.
+- ec69247f pushed to main; release runs: CI 39900294340, Worker 39900294328, Web 39900294316. The normal push path preserves the matching-Worker gate before Web publication. Completion is not yet established by this entry.
