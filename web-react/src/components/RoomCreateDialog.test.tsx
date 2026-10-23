@@ -90,3 +90,24 @@ test('offers the ten observed room colors and submits the chosen palette key',as
  expect(save).toHaveBeenCalledWith(expect.objectContaining({color:'lake'}))
  act(()=>tree.unmount())
 })
+
+test('Escape dismisses only the palette and returns focus while preserving the room draft',()=>{
+ const listeners=new Map<string,Function>(),focus=vi.fn(),close=vi.fn()
+ vi.stubGlobal('window',{addEventListener:vi.fn((name,fn)=>listeners.set(name,fn)),removeEventListener:vi.fn((name)=>listeners.delete(name))})
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
+ let tree!:ReturnType<typeof create>
+ try{
+  act(()=>{tree=create(<RoomCreateDialog people={[]} onCreate={vi.fn()} onClose={close}/>,{createNodeMock:element=>element.props.className==='room-create-color'?{focus}:null})})
+  act(()=>button(tree,'Next').props.onClick())
+  act(()=>tree.root.findByProps({id:'room-create-name'}).props.onChange({target:{value:'Keep this draft'}}))
+  act(()=>tree.root.findByProps({className:'room-create-color'}).props.onClick())
+  const event={key:'Escape',preventDefault:vi.fn(),stopImmediatePropagation:vi.fn()}
+  act(()=>listeners.get('keydown')!(event))
+  expect(close).not.toHaveBeenCalled()
+  expect(tree.root.findByProps({id:'room-create-name'}).props.value).toBe('Keep this draft')
+  expect(tree.root.findAllByProps({'aria-label':'Room color'})).toHaveLength(0)
+  expect(focus).toHaveBeenCalledOnce()
+  expect(event.stopImmediatePropagation).toHaveBeenCalledOnce()
+  expect(listeners.has('keydown')).toBe(false)
+ }finally{if(tree)act(()=>tree.unmount());vi.unstubAllGlobals()}
+})

@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState} from 'react'
 import {Dialog} from './Dialog'
 import {Icon} from './Icon'
 import {useT} from '../utils/i18n'
+import {composing} from '../utils/keys'
 import './RoomCreateDialog.css'
 
 import {ROOM_COLORS,ROOM_COLOR_OPTIONS} from '../utils/roomColors'
@@ -14,6 +15,16 @@ export function RoomCreateDialog({people,onCreate,onClose}:{people:RoomPerson[];
  const key=(p:RoomPerson)=>`${p.kind}:${p.id}`
  const [selected,setSelected]=useState(()=>new Set(people.filter(p=>p.selected).map(key)))
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),pending=useRef(false),request=useRef<{signature:string;id:string}|null>(null)
+ const colorButton=useRef<HTMLButtonElement>(null),colorWrap=useRef<HTMLDivElement>(null)
+ useEffect(()=>{
+  if(!colorsOpen||typeof window==='undefined')return
+  const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'&&!composing(event)){event.preventDefault();event.stopImmediatePropagation();setColorsOpen(false);colorButton.current?.focus()}}
+  const outside=(event:PointerEvent)=>{if(event.target instanceof Node&&!colorWrap.current?.contains(event.target))setColorsOpen(false)}
+  // Window capture precedes Dialog's document capture: Escape closes only
+  // this popover, preserving the room draft and returning keyboard focus.
+  window.addEventListener('keydown',escape,true);document.addEventListener('pointerdown',outside,true)
+  return()=>{window.removeEventListener('keydown',escape,true);document.removeEventListener('pointerdown',outside,true)}
+ },[colorsOpen])
  const nameField=useRef<HTMLInputElement>(null),searchField=useRef<HTMLInputElement>(null),selectAllField=useRef<HTMLInputElement>(null)
  useEffect(()=>{if(step===1)nameField.current?.focus();if(step===2)searchField.current?.focus()},[step])
  const visible=people.filter(p=>p.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
@@ -44,8 +55,8 @@ export function RoomCreateDialog({people,onCreate,onClose}:{people:RoomPerson[];
   </button>)}</div>}
   {step===1&&<>
    <label className="dlg-label" htmlFor="room-create-name">{t('Room name')}</label>
-   <div className="room-create-name-row"><div className="room-create-color-wrap"><button type="button" className="room-create-color" aria-label={t('Room color: {color}',{color:t(ROOM_COLOR_OPTIONS.find(([id])=>id===color)?.[1]||color)})} aria-expanded={colorsOpen} onClick={()=>setColorsOpen(v=>!v)} style={{'--room-color':ROOM_COLORS[color]} as React.CSSProperties}><Icon name="room" size={18}/></button>
-    {colorsOpen&&<div className="room-create-colors" role="group" aria-label={t('Room color')}>{ROOM_COLOR_OPTIONS.map(([id,label])=><button key={id} type="button" aria-label={t(label)} title={t(label)} aria-pressed={id===color} style={{'--room-color':ROOM_COLORS[id]} as React.CSSProperties} onClick={()=>{setColor(id);setColorsOpen(false)}}><Icon name="room" size={14}/></button>)}</div>}
+   <div className="room-create-name-row"><div ref={colorWrap} className="room-create-color-wrap"><button ref={colorButton} type="button" className="room-create-color" aria-label={t('Room color: {color}',{color:t(ROOM_COLOR_OPTIONS.find(([id])=>id===color)?.[1]||color)})} aria-expanded={colorsOpen} onClick={()=>setColorsOpen(v=>!v)} style={{'--room-color':ROOM_COLORS[color]} as React.CSSProperties}><Icon name="room" size={18}/></button>
+    {colorsOpen&&<div className="room-create-colors" role="group" aria-label={t('Room color')}>{ROOM_COLOR_OPTIONS.map(([id,label])=><button key={id} type="button" aria-label={t(label)} title={t(label)} aria-pressed={id===color} style={{'--room-color':ROOM_COLORS[id]} as React.CSSProperties} onClick={()=>{setColor(id);setColorsOpen(false);colorButton.current?.focus()}}><Icon name="room" size={14}/></button>)}</div>}
    </div><input ref={nameField} id="room-create-name" className="dlg-input" maxLength={120} value={name} placeholder={t('e.g. design-review')} onChange={e=>setName(e.target.value)}/></div>
    <label className="dlg-label" htmlFor="room-create-guidelines">{t('Guidelines')}</label><textarea id="room-create-guidelines" className="dlg-input room-create-guidelines" value={guidelines} maxLength={4096} onChange={e=>setGuidelines(e.target.value)} placeholder={t('Add context, rules, and guidelines for members collaborating in this room.')}/>
    <div className="room-create-count">{guidelines.length} / 4096</div>
