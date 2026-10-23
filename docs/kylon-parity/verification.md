@@ -1623,3 +1623,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - Updated required shared version manifests to1.3.13; version consistency passed. Desktop17 files/125 tests passed after bump.
 - Local unsigned arm64 package succeeded at /tmp/honmaru-1.3.13-build/mac-arm64/Honmaru AI.app. Inspected app.asar: version1.3.13 and layoutProbe.js included. Not installed over signed app; not released. Signed/notarized build and native diagnostic collection remain pending.
 - CI39954932158 was confirmed live; source push/release dispatch deferred until it completes.
+
+### 2026-10-23 native reply broadcast toggle verification
+- Production3eaa287c, self-only QA thread: plus menu exposed attachment, mention, integrations, formatting and Also send to conversation. Toggling the latter changed accessible checked state0→1 and showed the composer indicator. Toggled back to0; Escape closed menu and returned focus to plus. No message sent and original preference restored. Actual broadcast delivery remains unverified.
+- Browser control still reports disabled despite user enabling it; native Mac accessibility remains usable. This is not a Mac lock diagnosis.
