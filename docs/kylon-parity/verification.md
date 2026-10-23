@@ -1784,3 +1784,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 room resource empty-state fidelity follow-up
 - Compared native Kylon and Honmaru empty automation panels: same360px panel and44px icon tile; Honmaru's22px icon and12px CTA were visibly larger/smaller respectively. Set empty-state icon18px, room-only heading weight500, and CTA14px/20px with6px12px padding to match the reference proportions. Simple and global empty states remain unchanged. Vite production build and diff check passed. Native verification of this local adjustment awaits deployment.
 - b5695f71 Deploy Worker39968582122 and Deploy Web39968582170 both completed success. CI39968582213 remains live in Worker tests; hold follow-up push until terminal.
+
+### 2026-10-23 Mac reload blank reproduction after successful web deployment
+- Cmd+R on installed1.3.13 again produced a blank native viewport with no AX HTML. Invoking the advertised window enlarge action restored the AX HTML tree but the screenshot remained blank. Resizing is therefore not a verified recovery. Full quit/reopen restored visible chat. This strengthens the native-painting hypothesis but does not identify a root cause or prove a fix. No GPU/security flags changed.
+
+- After relaunch, native production workflow detail visibly shows Refresh, enabled manual-run button while automatic execution remains paused, and expandable stored output. Expanded an existing run successfully; screenshot /tmp/honmaru-workflow-production-output-20261023.png. No run or destructive action submitted. This verifies rendering/disclosure only, not end-to-end replay or external effects.
