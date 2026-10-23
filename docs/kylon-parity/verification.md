@@ -1605,3 +1605,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 narrow composer popover correction
 - Existing ClassicList.css hides .slk-format below719px; new Harness formatting popover inherited that rule and would show no controls. Added more-specific popover-only display override, wrapping, width bound, scrollable menu height and larger coarse-pointer targets. Simple mobile toolbar remains unchanged.
 - Vite production build and diff check passed. Physical mobile/keyboard viewport verification remains pending; desktop screenshot is not evidence for mobile usability.
+
+### 2026-10-23 main composer formatting native verification
+- Production33263ecf native Mac: typed local draft Formatting check, selected only check, opened plus → Formatting → Bold. Actual textarea became Formatting *check*, with check still selected. Confirms selection survives both menu transitions and formatting applies to selected range. Cleared draft afterward; did not send it. One plus remained throughout.
+- CI39953346715 job audit: gateway/E2E/relay/shared-mobile/desktop/web succeeded; Worker npm test remains active. Reply changes not pushed over live CI.
