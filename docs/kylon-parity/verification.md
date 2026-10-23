@@ -1764,3 +1764,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 
 ### 2026-10-23 corrected production deployment dispatched
 - Pushedb5695f71 to main after prior CI/deploys terminated. Exact revision: CI39968582213 queued, Deploy Worker39968582122 in_progress, Deploy Web39968582170 in_progress. Publication remains pending; do not overlap another push.
+
+### 2026-10-23 lazy held webhook payload inspection (local)
+- Added editor-only GET /workflows/:id/webhook/events/:eventId scoped by workspace/workflow/event and pending/unexpired state. Summary continues to omit bodies. It returns stored parsed input only, never starts a run.
+- Replay confirmation now offers per-event received-payload disclosure; content is requested only on expansion, deduplicates in-flight loads, remains React text, and clears with the scoped screen. Closing/reopening a failed disclosure permits retry.
+- Added owner/member, wrong-workflow, expired input, no-run, no eager load, cached expansion and HTML-as-text regressions. Worker+query guard35 tests, UI17 tests, TypeScript/Vite and diff check passed (/tmp/honmaru-held-preview-{worker,web,build,vite}.log). Native visual comparison remains pending. Full Worker80837 predates these changes and is still live; do not treat its result as current preview coverage.

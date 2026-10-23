@@ -245,6 +245,25 @@ test("a webhook checked before credential revocation cannot create a run afterwa
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE workflow_id=?1').bind(made.workflow.id).first()).n).toBe(0);
 });
 
+test("held payload preview is scoped to the editor and exact workflow and never starts a run", async () => {
+  const make = async name => (await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name, enabled: false, trigger: { type: 'webhook' },
+    steps: [{ type: 'add_row', tableId: invoices, values: { Client: 'No preview effects', Status: 'Draft' } }],
+  })).json());
+  const a = await make('Payload preview'), b = await make('Other preview');
+  const input = { note: '<script>untrusted()</script>', amount: 12, items: ['one', 'two'] };
+  const held = await (await call(new URL(a.hookUrl).pathname + new URL(a.hookUrl).search, { method: 'POST', body: JSON.stringify(input) })).json();
+  const path = `/workflows/${a.workflow.id}/webhook/events/${held.eventId}?${q({ orgId: ORG })}`;
+  expect((await get(path, mika)).status).toBe(403);
+  expect((await (await get(path, toru)).json()).event.input).toEqual(input);
+  expect((await get(path.replace(a.workflow.id,b.workflow.id),toru)).status).toBe(404);
+  const summary = await (await get(`/workflows/${a.workflow.id}?${q({orgId:ORG})}`,toru)).json();
+  expect(summary.held.events[0].input).toBeUndefined();
+  expect(summary.runs).toHaveLength(0);
+  await env.DB.prepare("UPDATE hx_workflow_held_events SET expires_at='2000-01-01T00:00:00Z' WHERE id=?1 AND org_id=?2").bind(held.eventId,ORG).run();
+  expect((await get(path,toru)).status).toBe(404);
+});
+
 test("scheduled expiry cleanup removes old payloads across workspaces and preserves unexpired events", async () => {
   const made = await (await send('POST', '/workflows', toru, {
     orgId: ORG, name: 'Expiry sweep', enabled: false, trigger: { type: 'webhook' },

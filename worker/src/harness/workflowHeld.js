@@ -2,6 +2,13 @@
 export const HELD_LIMIT = 1000;
 export const HELD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+export async function readHeldWorkflowEvent(db, orgId, workflowId, eventId) {
+  const row = await db.prepare(`SELECT id,input,received_at AS receivedAt,expires_at AS expiresAt
+    FROM hx_workflow_held_events WHERE org_id=?1 AND workflow_id=?2 AND id=?3 AND run_id IS NULL AND expires_at>?4`)
+    .bind(orgId, workflowId, eventId, new Date().toISOString()).first();
+  return row ? { ...row, input: JSON.parse(row.input) } : null;
+}
+
 export async function heldWorkflowSummary(db, orgId, workflowId) {
   const at = new Date().toISOString();
   const { results } = await db.prepare(`SELECT id,received_at AS receivedAt,expires_at AS expiresAt

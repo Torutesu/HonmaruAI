@@ -1,6 +1,7 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Received payload": "受信内容",
   "Refresh": "更新",
   "Output": "出力",
   "Error": "エラー",

@@ -187,3 +187,18 @@ test('refresh updates run results and held counts without starting work or keepi
   expect(state.api.runWorkflow).not.toHaveBeenCalled()
   expect(state.api.replayWorkflowEvents).not.toHaveBeenCalled()
 })
+test('held payload is fetched only when expanded and remains inert text', async () => {
+  state.api.workflow.mockResolvedValue({ workflow, runs: [], canEdit: true,
+    held: { count: 1, oldestExpiry: null, events: [{ id: 'preview_one', receivedAt: '2026-10-23T00:00:00Z' }], discardEventIds: ['preview_one'] } })
+  const input = { text: '<script>untrusted()</script>', amount: 12 }
+  state.api.heldWorkflowEvent = vi.fn().mockResolvedValue({ event: { input } })
+  await open()
+  await act(async () => { button('Review held events').props.onClick() })
+  expect(state.api.heldWorkflowEvent).not.toHaveBeenCalled()
+  await act(async () => { tree.root.findByType('details').props.onToggle({ currentTarget: { open: true } }) })
+  expect(state.api.heldWorkflowEvent).toHaveBeenCalledWith(workflow.id, 'preview_one')
+  expect(tree.root.findByType('pre').children.join('')).toBe(JSON.stringify(input,null,2))
+  expect(tree.root.findAllByType('script')).toHaveLength(0)
+  await act(async () => { tree.root.findByType('details').props.onToggle({ currentTarget: { open: true } }) })
+  expect(state.api.heldWorkflowEvent).toHaveBeenCalledTimes(1)
+})

@@ -11,6 +11,25 @@ import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 const CADENCES = ['daily', 'weekdays', 'weekly', 'monthly']
 const STEP_TYPES: StepType[] = ['post', 'agent', 'add_row', 'update_row', 'approval', 'followup']
 
+function HeldEventPreview({ receivedAt, load }: { receivedAt: string; load: () => Promise<{ event: { input: unknown } }> }) {
+  const t = useT()
+  const [payload, setPayload] = useState<{ input: unknown } | null>(null)
+  const pending = useRef(false)
+  const { busy, error, act } = useAct()
+  return <details className="hx-run-detail" onToggle={event => {
+    if (!event.currentTarget.open || payload || pending.current) return
+    pending.current = true
+    void act('payload', async () => {
+      try { setPayload((await load()).event) } finally { pending.current = false }
+    })
+  }}>
+    <summary>{new Date(receivedAt).toLocaleString()} · {t('Received payload')}</summary>
+    {busy && <p role="status">{t('Loading…')}</p>}
+    {error && <p role="alert">{error}</p>}
+    {payload && <pre>{JSON.stringify(payload.input, null, 2)}</pre>}
+  </details>
+}
+
 interface AgentFace { id: string; handle: string; name: string; emoji?: string | null }
 
 function stepLabel(t: (k: string) => string, type: StepType) {
@@ -265,7 +284,7 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
             <p>{t('Held events: {count}', { count: open.held.count })}</p>
             {open.held.oldestExpiry && <p>{t('Oldest event expires: {when}', { when: new Date(open.held.oldestExpiry).toLocaleString() })}</p>}
             <p>{t('Resuming does not replay held events. Replay runs the saved workflow with real effects, oldest first.')}</p>
-            {replaySelection && <ul>{open.held.events.filter(event => replaySelection.includes(event.id)).map(event => <li key={event.id}>{new Date(event.receivedAt).toLocaleString()}</li>)}</ul>}
+            {replaySelection && <ul>{open.held.events.filter(event => replaySelection.includes(event.id)).map(event => <li key={event.id}><HeldEventPreview receivedAt={event.receivedAt} load={() => api.heldWorkflowEvent(w.id, event.id)} /></li>)}</ul>}
             {replaySelection ? <div className="hx-actions">
               <button className="pill-btn" disabled={!!busy || !w.enabled} onClick={() => act('replay', async () => {
                 await api.replayWorkflowEvents(w.id, replaySelection)

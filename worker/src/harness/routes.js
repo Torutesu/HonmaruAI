@@ -1,5 +1,5 @@
 import { retryRoomHook } from './roomHookRetryRoute.js';
-import { heldWorkflowSummary, discardWorkflowEvents } from './workflowHeld.js';
+import { heldWorkflowSummary, discardWorkflowEvents, readHeldWorkflowEvent } from './workflowHeld.js';
 import { roomHookStatuses } from './roomHookStatus.js';
 import {roomVisualState,setRoomVisual} from './roomVisuals.js';
 import { createRoomHook, listRoomHooks, changeRoomHook } from './roomHooks.js';
@@ -382,6 +382,11 @@ export async function handleHarness(request, env, url, context = {}) {
         return json(await deleteWorkflow(env.DB, orgId, wfId));
       }
       return null;
+    }
+    if (sub === 'webhook' && runId === 'events' && parts[4] && request.method === 'GET') {
+      if (!mine) return json({ message: 'Only its maker or an admin can inspect held input.' }, 403);
+      const event = await readHeldWorkflowEvent(env.DB, orgId, wfId, parts[4]);
+      return event ? json({ event }) : json({ message: 'No such held event.' }, 404);
     }
     if (sub === 'webhook' && request.method === 'POST') {
       if (!mine) return json({ message: 'Only its maker or an admin can change this workflow.' }, 403);
