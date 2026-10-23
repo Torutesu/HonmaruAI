@@ -171,3 +171,19 @@ test('run history preserves complete multiline output and errors as text in coll
   expect(tree.root.findAllByType('script')).toHaveLength(0)
   expect(detail.findByType('time').props.dateTime).toBe('2026-10-23T00:01:00Z')
 })
+test('refresh updates run results and held counts without starting work or keeping stale confirmations', async () => {
+  await open()
+  await act(async () => { button('Revoke webhook').props.onClick() })
+  state.api.runWorkflow = vi.fn()
+  state.api.replayWorkflowEvents = vi.fn()
+  state.api.workflow.mockResolvedValue({ workflow, canEdit: true,
+    runs: [{ id: 'run_new', status: 'done', trigger: 'manual', startedAt: '2026-10-23T00:00:00Z', log: [] }],
+    held: { count: 1, oldestExpiry: null, events: [{ id: 'new_event', receivedAt: '2026-10-23T00:00:00Z' }], discardEventIds: ['new_event'] } })
+  await act(async () => { await button('Refresh').props.onClick() })
+  expect(tree.root.findAllByProps({ 'data-run': 'run_new' })).toHaveLength(1)
+  expect(button('Review held events')).toBeDefined()
+  expect(button('Cancel')).toBeUndefined()
+  expect(state.api.changeWorkflowHook).not.toHaveBeenCalled()
+  expect(state.api.runWorkflow).not.toHaveBeenCalled()
+  expect(state.api.replayWorkflowEvents).not.toHaveBeenCalled()
+})

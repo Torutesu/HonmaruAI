@@ -1,6 +1,7 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Refresh": "更新",
   "Output": "出力",
   "Error": "エラー",
   "Discard held events": "保留イベントを破棄",
