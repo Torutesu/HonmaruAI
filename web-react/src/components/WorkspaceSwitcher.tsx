@@ -85,7 +85,7 @@ export const WorkspaceSwitcher: React.FC<Props> = ({ workspaces, currentId, onSw
   useEffect(() => {
     if (!open) return
     const onDown = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false) }
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !composing(e)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !composing(e)) { e.preventDefault(); e.stopPropagation(); setOpen(false); box.current?.querySelector<HTMLButtonElement>('.ws-button')?.focus() } }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }

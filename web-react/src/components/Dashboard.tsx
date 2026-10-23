@@ -982,12 +982,19 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     return () => window.removeEventListener('keydown', onKey)
   }, [workbench, panel, screen, shortcuts, inboxCards, selectedId, navigate])
   const api = { httpBase: relayHttpUrl, orgId, sessionToken }
+  const switchWorkspaceByHand = (next: string) => {
+    if(next===orgId)return
+    // Drop the previous workspace's object destination before Dashboard remounts.
+    // External-link effects still call onSwitchOrg directly to preserve their target.
+    navigate(hashForMode(mode),true)
+    onSwitchOrg(next)
+  }
   const workspaceSwitcher = (variant: 'rail' | 'header') => (
     <WorkspaceSwitcher
       variant={variant}
       workspaces={workspaces.length ? workspaces : [{ id: orgId, name: orgName || null, role: 'member' }]}
       currentId={orgId}
-      onSwitch={onSwitchOrg}
+      onSwitch={switchWorkspaceByHand}
       onSettings={() => setScreen('team')}
       onCreate={() => setScreen('profile')}
       onJoin={() => setScreen('profile')}
@@ -1411,7 +1418,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             else setScreen(where, 'profile')
           }}
           onLocaleChange={() => setLocaleVersion((v) => v + 1)}
-          onSwitchOrg={(next) => { setScreen(null); onSwitchOrg(next) }}
+          onSwitchOrg={switchWorkspaceByHand}
           onLogout={onLogout}
           onClose={closeScreen}
         />
