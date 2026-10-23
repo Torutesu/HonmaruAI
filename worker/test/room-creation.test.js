@@ -144,3 +144,9 @@ test('room role HTTP updates require the current human admin and reviewed versio
  expect(state.version).toBe(4);expect(state.members.filter(m=>m.kind==='person'&&m.role==='admin').map(m=>m.id)).toEqual(['reader']);
  await Promise.all(pending);
 });
+test.each(['rose','yellow','green','lake','indigo'])('persists the added %s color through room listing and a creation retry',async color=>{
+ const input=draft({color});const created=await createManagedRoom(env.DB,org,'creator',input);
+ expect(created.created).toBe(true);expect(created.room.color).toBe(color);
+ expect((await listBusinesses(env.DB,org,{viewer:'creator'})).find(room=>room.slug===created.room.slug)?.color).toBe(color);
+ const retry=await createManagedRoom(env.DB,org,'creator',input);expect(retry.created).toBe(false);expect(retry.room.color).toBe(color);
+});

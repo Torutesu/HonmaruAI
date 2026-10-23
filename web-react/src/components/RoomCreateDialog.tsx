@@ -4,7 +4,7 @@ import {Icon} from './Icon'
 import {useT} from '../utils/i18n'
 import './RoomCreateDialog.css'
 
-import {ROOM_COLORS} from '../utils/roomColors'
+import {ROOM_COLORS,ROOM_COLOR_OPTIONS} from '../utils/roomColors'
 export {ROOM_COLORS} from '../utils/roomColors'
 export interface RoomPerson {id:string;kind:'person'|'agent';name:string;avatarUrl?:string;selected?:boolean}
 export interface RoomCreateInput {requestId:string;name:string;private:boolean;guidelines:string;color:keyof typeof ROOM_COLORS;memberRefs:string[];agentIds:string[]}
@@ -44,8 +44,8 @@ export function RoomCreateDialog({people,onCreate,onClose}:{people:RoomPerson[];
   </button>)}</div>}
   {step===1&&<>
    <label className="dlg-label" htmlFor="room-create-name">{t('Room name')}</label>
-   <div className="room-create-name-row"><div className="room-create-color-wrap"><button type="button" className="room-create-color" aria-label={t('Room color: {color}',{color:t(color)})} aria-expanded={colorsOpen} onClick={()=>setColorsOpen(v=>!v)} style={{'--room-color':ROOM_COLORS[color]} as React.CSSProperties}><Icon name="room" size={18}/></button>
-    {colorsOpen&&<div className="room-create-colors" role="group" aria-label={t('Room color')}>{Object.entries(ROOM_COLORS).map(([id,value])=><button key={id} type="button" aria-label={t(id)} aria-pressed={id===color} style={{background:value}} onClick={()=>{setColor(id as keyof typeof ROOM_COLORS);setColorsOpen(false)}}>{id===color&&<Icon name="check" size={14}/>}</button>)}</div>}
+   <div className="room-create-name-row"><div className="room-create-color-wrap"><button type="button" className="room-create-color" aria-label={t('Room color: {color}',{color:t(ROOM_COLOR_OPTIONS.find(([id])=>id===color)?.[1]||color)})} aria-expanded={colorsOpen} onClick={()=>setColorsOpen(v=>!v)} style={{'--room-color':ROOM_COLORS[color]} as React.CSSProperties}><Icon name="room" size={18}/></button>
+    {colorsOpen&&<div className="room-create-colors" role="group" aria-label={t('Room color')}>{ROOM_COLOR_OPTIONS.map(([id,label])=><button key={id} type="button" aria-label={t(label)} title={t(label)} aria-pressed={id===color} style={{'--room-color':ROOM_COLORS[id]} as React.CSSProperties} onClick={()=>{setColor(id);setColorsOpen(false)}}><Icon name="room" size={14}/></button>)}</div>}
    </div><input ref={nameField} id="room-create-name" className="dlg-input" maxLength={120} value={name} placeholder={t('e.g. design-review')} onChange={e=>setName(e.target.value)}/></div>
    <label className="dlg-label" htmlFor="room-create-guidelines">{t('Guidelines')}</label><textarea id="room-create-guidelines" className="dlg-input room-create-guidelines" value={guidelines} maxLength={4096} onChange={e=>setGuidelines(e.target.value)} placeholder={t('Add context, rules, and guidelines for members collaborating in this room.')}/>
    <div className="room-create-count">{guidelines.length} / 4096</div>

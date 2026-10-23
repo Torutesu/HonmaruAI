@@ -9,7 +9,7 @@
 .room-create .dlg-label{margin:4px 0 0;color:var(--dlg-ink);font-weight:500}
 .room-create-name-row{display:flex;gap:8px;align-items:center}.room-create-name-row>.dlg-input{min-width:0;flex:1;background:var(--dlg-bg)}
 .room-create-color-wrap{position:relative}.room-create-color{width:36px;height:36px;border-radius:9px;border:1px solid var(--dlg-line);color:var(--room-color);background:var(--dlg-bg);display:grid;place-items:center;cursor:pointer}
-.room-create-colors{position:absolute;top:42px;left:0;z-index:1;display:grid;grid-template-columns:repeat(4,24px);gap:7px;background:var(--dlg-bg);border:1px solid var(--dlg-line);border-radius:10px;padding:10px;box-shadow:0 6px 18px #0002}.room-create-colors>button{width:24px;height:24px;border:0;border-radius:50%;display:grid;place-items:center;color:#fff;cursor:pointer}
+.room-create-colors{position:absolute;top:42px;left:0;z-index:1;display:grid;grid-template-columns:repeat(5,28px);gap:10px;background:var(--dlg-bg);border:1px solid var(--dlg-line);border-radius:10px;padding:10px;box-shadow:0 6px 18px #0002}.room-create-colors>button{width:28px;height:28px;border:2px solid transparent;border-radius:7px;display:grid;place-items:center;color:var(--room-color);background:color-mix(in srgb,var(--room-color) 20%,var(--dlg-bg));cursor:pointer}
 .room-create-guidelines{height:116px;min-height:80px;padding:10px;resize:vertical;line-height:1.5;background:var(--dlg-bg)}
 .room-create-count{margin:0;font-size:12px;color:var(--dlg-dim)}.room-create-guidelines+.room-create-count{text-align:right}
 .room-create-notice{display:flex;gap:8px;border:1px solid var(--dlg-line);border-radius:12px;padding:10px;font-size:11px;color:var(--dlg-dim);line-height:1.5}.room-create-notice>svg{flex:none;margin-top:1px}
@@ -19,3 +19,5 @@
 
 .room-create .room-create-search input:focus-visible{outline:none}.room-create-search:focus-within{border-color:var(--dlg-accent);box-shadow:0 0 0 1px var(--dlg-accent)}
 .room-create-visibility strong{line-height:1.2}.room-create-visibility small{line-height:1.25}
+
+.room-create-colors>button[aria-pressed=true]{border-color:var(--dlg-dim);box-shadow:0 0 0 2px var(--dlg-bg) inset}

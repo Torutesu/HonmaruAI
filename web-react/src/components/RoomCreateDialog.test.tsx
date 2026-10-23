@@ -76,3 +76,17 @@ test('select all reports partial selection and filtering does not clear hidden s
  expect(boxes.map(n=>n.props.checked)).toEqual([false,true,false,true])
  act(()=>tree.unmount())
 })
+test('offers the ten observed room colors and submits the chosen palette key',async()=>{
+ const save=vi.fn().mockResolvedValue(undefined);let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<RoomCreateDialog people={[]} onCreate={save} onClose={vi.fn()}/>)})
+ act(()=>button(tree,'Next').props.onClick())
+ act(()=>tree.root.findByProps({className:'room-create-color'}).props.onClick())
+ const palette=tree.root.findByProps({'aria-label':'Room color'})
+ expect(palette.findAllByType('button').map(node=>node.props['aria-label'])).toEqual(['Rose','Orange','Yellow','Green','Teal','Lake','Blue','Indigo','Purple','Pink'])
+ act(()=>palette.findByProps({'aria-label':'Lake'}).props.onClick())
+ act(()=>tree.root.findByProps({id:'room-create-name'}).props.onChange({target:{value:'Lake room'}}))
+ act(()=>button(tree,'Next').props.onClick())
+ await act(async()=>button(tree,'Create').props.onClick())
+ expect(save).toHaveBeenCalledWith(expect.objectContaining({color:'lake'}))
+ act(()=>tree.unmount())
+})

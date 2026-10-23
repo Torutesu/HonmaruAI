@@ -1,7 +1,7 @@
 import {listMembers} from '../team.js';
 import {sha256Hex} from '../auth.js';
 
-const colors=new Set(['teal','olive','blue','purple','pink','orange','red','gray']);
+const colors=new Set(['teal','olive','blue','purple','pink','orange','red','gray','rose','yellow','green','lake','indigo']);
 const failure=(error,status=409)=>({error,status});
 export async function createManagedRoom(db,orgId,actorId,input) {
   if(!input||typeof input!=='object'||typeof input.requestId!=='string'||!/^[A-Za-z0-9_-]{16,100}$/.test(input.requestId)
