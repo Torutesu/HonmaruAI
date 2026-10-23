@@ -1,4 +1,4 @@
-import {changeManagedRoomMembers} from './harness/roomRoles.js';
+import {archiveManagedRoom,changeManagedRoomMembers} from './harness/roomRoles.js';
 // The admin API, v1: what a workspace key (orgKeys.js) opens.
 //
 // docs/admin-controls.md §2.4. Stable paths under /admin/v1/, JSON in and
@@ -206,15 +206,19 @@ async function route(request, env, url, key) {
     }
     if (!channelMatch[2] && request.method === "PATCH") {
       const details = {};
-      if (typeof body.name === "string" && body.name.trim()) {
-        await env.DB.prepare("UPDATE businesses SET name = ?3 WHERE org_id = ?1 AND slug = ?2 AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2 AND deleted_at IS NOT NULL)").bind(orgId, slug, body.name.trim().slice(0, 120)).run();
-        details.name = body.name.trim().slice(0, 120);
-      }
-      if (typeof body.archived === "boolean") {
-        await env.DB.prepare("UPDATE businesses SET archived_at = ?3 WHERE org_id = ?1 AND slug = ?2 AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2 AND deleted_at IS NOT NULL)").bind(orgId, slug, body.archived ? new Date().toISOString() : null).run();
-        details.archived = body.archived;
-      }
+      if (typeof body.name === "string" && body.name.trim()) details.name=body.name.trim().slice(0,120);
+      if (typeof body.archived === "boolean") details.archived=body.archived;
       if (!Object.keys(details).length) return apiError(400, "invalid_request", "Nothing to change.");
+      const change=await archiveManagedRoom(env.DB,orgId,`b:${slug}`,{actorId:await actingOwner(env.DB,key),...details,version:body.version});
+      if(change.error)return apiError(change.status||409,"invalid_request",change.error);
+      if(!change.managed) {
+        const updates=[];
+        const guard="NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2)";
+        if(details.name!==undefined)updates.push(env.DB.prepare(`UPDATE businesses SET name=?3 WHERE org_id=?1 AND slug=?2 AND ${guard}`).bind(orgId,slug,details.name));
+        if(details.archived!==undefined)updates.push(env.DB.prepare(`UPDATE businesses SET archived_at=?3 WHERE org_id=?1 AND slug=?2 AND ${guard}`).bind(orgId,slug,details.archived?new Date().toISOString():null));
+        const changed=await env.DB.batch(updates);
+        if(!changed.some(r=>r.meta?.changes))return apiError(409,"invalid_request","Room roles changed. Reload before saving.");
+      }
       await audit(env, request, { orgId, action: "channel.updated", actor, entity, details });
       return json({ data: (await channelList()).find((c) => c.slug === slug) });
     }

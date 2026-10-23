@@ -258,3 +258,21 @@ test('managed room bulk edits protect the last admin before adding other members
   expect((await call('/admin/v1/channels/managed/members',{key,method:'PUT',body:{add:['mika@hr.jp']}})).status).toBe(200);
   expect(await membersOf(env.DB,ORG,'b:managed')).toContain('u:mika@hr.jp');
 });
+
+test('managed archive API updates the room version and rejects a mixed unauthorized rename without partial changes',async()=>{
+ const {key}=await makeKey();
+ await call('/admin/v1/channels',{key,method:'POST',body:{name:'Lifecycle edit',private:true,members:['toru@hr.jp']}});
+ const {initializeRoomRoles}=await import('../src/harness/roomRoles.js');
+ await initializeRoomRoles(env.DB,ORG,'b:lifecycle-edit','7601');
+ const patch=body=>call('/admin/v1/channels/lifecycle-edit',{key,method:'PATCH',body});
+ expect((await patch({name:'Renamed',archived:true,version:1})).status).toBe(200);
+ expect(await env.DB.prepare("SELECT version FROM hx_room_access WHERE org_id=?1 AND channel='b:lifecycle-edit'").bind(ORG).first('version')).toBe(2);
+ expect((await patch({name:'Stale rename',archived:false,version:1})).status).toBe(409);
+ expect(await env.DB.prepare("SELECT name FROM businesses WHERE org_id=?1 AND slug='lifecycle-edit'").bind(ORG).first('name')).toBe('Renamed');
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=?1 AND channel='b:lifecycle-edit'").bind(ORG).run();
+ expect((await patch({name:'Not allowed',archived:false,version:2})).status).toBe(403);
+ expect(await env.DB.prepare("SELECT archived_at FROM businesses WHERE org_id=?1 AND slug='lifecycle-edit'").bind(ORG).first('archived_at')).toBeTruthy();
+ // Workspace ownership allows restoration but does not enroll or grant reading.
+ expect((await patch({archived:false,version:2})).status).toBe(200);
+ expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM conversation_members WHERE org_id=?1 AND channel='b:lifecycle-edit'").bind(ORG).first('n')).toBe(0);
+});
