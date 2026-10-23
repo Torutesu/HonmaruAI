@@ -56,7 +56,7 @@
 | KY-028 | preference/feedback/reference/context | 一部 | P1 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 4種のkind、型別・全文検索、詳細編集を追加。本文全体で重複を判定。意味的な重複統合・レビュー状態は残る |
 | KY-029 | ルーム・人単位の記憶スコープ | 一部 | P0 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 新規チャット記憶を会話で分離。直接API・一覧・削除・実行時の隔離を検証。既存記憶の出典復元と人単位の横断設定は残る |
 | KY-030 | 共有ナレッジと個人記憶の分離 | 一部 | P0 | [worker/src/memory.js](../../worker/src/memory.js) | Playbookと同一視せず出典・ACL・更新責任を保持 |
-| KY-031 | 記憶のレビュー・スキル変換 | 未実装 | P2 | [worker/src/harness/skills.js](../../worker/src/harness/skills.js) | 手順をスキルへ変換して記憶との二重更新を防止 |
+| KY-031 | 記憶のレビュー・スキル変換 | 一部 | P2 | [worker/src/harness/memoryEntries.js](../../worker/src/harness/memoryEntries.js) | 確認根拠・確認者・検証日・本文版の記録と、編集後の再確認表示を追加（本番未反映）。全体テスト・実画面・期限による再確認判定・スキル変換は残る |
 
 ## Skills
 

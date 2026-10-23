@@ -332,11 +332,11 @@
       "id": "KY-031",
       "category": "Memory",
       "requirement": "記憶のレビュー・スキル変換",
-      "status": "missing",
+      "status": "partial",
       "priority": "P2",
       "source": "https://docs.kylon.io/concepts/memory",
-      "code": "worker/src/harness/skills.js",
-      "acceptance": "手順をスキルへ変換して記憶との二重更新を防止"
+      "code": "worker/src/harness/memoryEntries.js",
+      "acceptance": "確認根拠・確認者・検証日・本文版の記録と、編集後の再確認表示を追加（本番未反映）。全体テスト・実画面・期限による再確認判定・スキル変換は残る"
     },
     {
       "id": "KY-032",
