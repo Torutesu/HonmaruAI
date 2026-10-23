@@ -1556,3 +1556,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - Native Honmaru AI 1.3.12, Select private room QA Webhook 2026-10-23 (1 member): opened room settings → advanced → manage. Live Webhook list loaded empty; input enabled and empty-name creation disabled. Dark screenshot: /tmp/honmaru-webhook-production-20261023.png. Escape closed child only and restored focus to Manage in parent. No credentials created, no message or model execution.
 - Reload/Force Reload produced blank native surface; diagnostics recorded inspect-visible despite blank screenshot/AX. Full app quit and launch restored actual web UI. Root cause remains unresolved; restart is recovery evidence only, not a fix.
 - New revision 9e71d4c6 runs: Worker39950951411, CI39950951389, Web39950951507 confirmed in progress. Do not overlap with another push.
+
+### 2026-10-23 native reload follow-up
+- After successful full restart and Webhook inspection, dismissed parent settings and performed normal Cmd-R again. This time AX returned the actual room, messages empty state and composer, with the same signed-in workspace. Reload failure is intermittent, not reliably reproduced on every reload. No renderer fix is claimed.
+- Read loadRecovery/main/CSP/attention implementation; no evidence yet identifies a root cause. Avoid disabling GPU/security or resetting persisted user data based on this observation alone. Current 9e71d4c6 CI/Worker/Web handles were re-polled and all remain in progress.
