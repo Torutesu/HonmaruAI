@@ -1,3 +1,4 @@
+import {roomRoleState} from './roomRoles.js';
 import {managedRoomSettings,saveManagedRoomSettings} from './roomSettings.js';
 import {listBusinesses} from '../db.js';
 import { explicitAgentRoles, agentRoleState, setAgentRole, transferAgentOwnership } from './agentRoles.js';
@@ -180,7 +181,12 @@ export async function handleHarness(request, env, url, context = {}) {
     if (!room || room.kind !== "business") return json({ message: "No such room." }, 404);
     const exists = await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, room.slug).first();
     if (!exists) return json({ message: "No such room." }, 404);
-    if (request.method === "GET") return json({ guidelines: await getGuidelines(env.DB, orgId, room.key), maxLength: MAX_GUIDELINES });
+    if (request.method === "GET") {
+      const state=await roomRoleState(env.DB,orgId,room.key);
+      if(!state)return json({message:'No such active room.'},404);
+      const joined=!state.managed||state.members.some(member=>member.kind==='person'&&member.id===String(me)&&member.eligible);
+      return json({guidelines:await getGuidelines(env.DB,orgId,room.key),maxLength:MAX_GUIDELINES,canEdit:joined&&await allowed(env.DB,orgId,me,'harness.build')});
+    }
     if (request.method === "PUT") {
       const result = await saveGuidelines(env.DB, orgId, room.key, input, me);
       if (result.error) return fail(result);

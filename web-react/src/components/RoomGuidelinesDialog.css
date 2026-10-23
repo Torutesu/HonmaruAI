@@ -1,0 +1,10 @@
+.dialog.room-guidelines-dialog { width:512px; max-width:calc(100vw - 32px); background:var(--hx-surface); color:var(--hx-text); }
+.room-guidelines-dialog .dialog-head p { color:var(--hx-muted); font-size:13px; line-height:1.6; }
+.room-guidelines-dialog textarea { display:block; width:100%; min-height:280px; max-height:50vh; box-sizing:border-box; resize:vertical; padding:12px; font:inherit; font-size:14px; line-height:1.6; border:1px solid var(--hx-border); border-radius:8px; background:var(--hx-surface); color:var(--hx-text); }
+.room-guidelines-dialog textarea:focus { outline:2px solid var(--hx-accent); outline-offset:1px; }
+.room-guidelines-count { color:var(--hx-muted); text-align:right; font-size:12px; margin-top:8px; }
+.room-guidelines-error { color:#b4232c; margin-top:12px; font-size:13px; }
+:root[data-theme="dark"] .room-guidelines-error { color:#ff8b8b; }
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .room-guidelines-error { color:#ff8b8b; }}
+
+.room-guidelines-error .dlg-btn { margin:6px 0 0; display:block; }

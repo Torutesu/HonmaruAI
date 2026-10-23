@@ -5143,7 +5143,7 @@ export const ClassicList: React.FC<Props> = ({
               </button>
             </div>
           )}
-          {harness&&thread.managed&&thread.view ? <HarnessRoomTools key={`${api.orgId}:${api.sessionToken}:${thread.view}`} api={api} channel={thread.view} shortcut={roomSearchShortcut} pinned={isStarred(thread.view)} muted={prefs[thread.view]==='mute'} onSelect={(message,signal)=>goToRoomResult(thread.view!,message,signal)} onCopy={()=>copyText(`${location.origin}${location.pathname}${hashForView(thread.view!)}`,t('Link copied'))} onPin={()=>toggleStar(thread.view!)} onGuidelines={()=>openSide({kind:'details',tab:'automations'})} onSettings={()=>{forgetWanted();setSettings(true);setRenaming(null)}} onMute={()=>void setPref(thread.view!,prefs[thread.view!]==='mute'?'default':'mute')}/> : thread.kind === 'channel' && thread.slug && (
+          {harness&&thread.managed&&thread.view ? <HarnessRoomTools key={`${api.orgId}:${api.sessionToken}:${thread.view}`} api={api} channel={thread.view} shortcut={roomSearchShortcut} pinned={isStarred(thread.view)} muted={prefs[thread.view]==='mute'} onSelect={(message,signal)=>goToRoomResult(thread.view!,message,signal)} onCopy={()=>copyText(`${location.origin}${location.pathname}${hashForView(thread.view!)}`,t('Link copied'))} onPin={()=>toggleStar(thread.view!)} onSettings={()=>{forgetWanted();setSettings(true);setRenaming(null)}} onMute={()=>void setPref(thread.view!,prefs[thread.view!]==='mute'?'default':'mute')}/> : thread.kind === 'channel' && thread.slug && (
             <button
               className="slk-more"
               onClick={() => { forgetWanted(); setSettings((v) => !v); setRenaming(null) }}
