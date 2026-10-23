@@ -25,3 +25,20 @@ test('unsupported clients have no nonfunctional microphone control',()=>{
  speech.available=false;let tree!:ReturnType<typeof create>
  try{act(()=>{tree=create(<HarnessDictation value="" onChange={vi.fn()} locale="ja"/>)});expect(tree.toJSON()).toBeNull();act(()=>tree.unmount())}finally{speech.available=true}
 })
+test('recognition respects the composer limit and stops capturing at the boundary',()=>{
+ const change=vi.fn();let tree!:ReturnType<typeof create>;speech.stop.mockClear()
+ act(()=>{tree=create(<HarnessDictation value="1234" onChange={change} locale="ja" maxLength={8}/>)})
+ act(()=>tree.root.findByType('button').props.onClick())
+ act(()=>speech.text('567890'))
+ expect(change).toHaveBeenLastCalledWith('1234 567');expect(speech.stop).toHaveBeenCalledOnce()
+ change.mockClear();act(()=>speech.text('late'));expect(change).not.toHaveBeenCalled()
+ expect(tree.root.findByType('button').props['aria-pressed']).toBe(false)
+ act(()=>tree.unmount())
+})
+test('recognition errors stop the active microphone and expose failure',()=>{
+ let tree!:ReturnType<typeof create>;speech.stop.mockClear()
+ act(()=>{tree=create(<HarnessDictation value="" onChange={vi.fn()} locale="ja"/>)})
+ act(()=>tree.root.findByType('button').props.onClick());act(()=>speech.end('network'))
+ expect(speech.stop).toHaveBeenCalledOnce();expect(tree.root.findByProps({role:'status'}).children).toContain('Voice input unavailable. Check microphone access.')
+ act(()=>tree.unmount())
+})

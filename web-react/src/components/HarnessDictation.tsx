@@ -3,7 +3,7 @@ import {Icon} from './Icon'
 import {dictationAvailable,startDictation,type Dictation} from '../utils/dictation'
 import {useT} from '../utils/i18n'
 
-export function HarnessDictation({value,onChange,locale,disabled=false}:{value:string;onChange:(text:string)=>void;locale:string;disabled?:boolean}){
+export function HarnessDictation({value,onChange,locale,disabled=false,maxLength=4000}:{value:string;onChange:(text:string)=>void;locale:string;disabled?:boolean;maxLength?:number}){
  const t=useT(),[listening,setListening]=useState(false),[error,setError]=useState(false)
  const current=useRef(value),run=useRef<{handle:Dictation|null;expected:string;active:boolean}|null>(null)
  current.current=value
@@ -19,9 +19,12 @@ export function HarnessDictation({value,onChange,locale,disabled=false}:{value:s
    session.handle=startDictation(locale,text=>{
     if(run.current!==session||!session.active)return
     if(current.current!==session.expected){stop();return}
-    const next=base+(base&&!/\s$/.test(base)?' ':'')+text
+    const combined=base+(base&&!/\s$/.test(base)?' ':'')+text
+    const next=combined.slice(0,maxLength)
     session.expected=next;current.current=next;onChange(next)
-   },reason=>{if(run.current!==session||!session.active)return;session.active=false;run.current=null;setListening(false);if(reason)setError(true)})
+    if(combined.length>=maxLength)stop()
+   },reason=>{if(run.current!==session||!session.active)return;session.active=false;run.current=null;setListening(false);if(reason){session.handle?.stop();setError(true)}})
+   if(session.handle&&!session.active)session.handle.stop()
    if(!session.handle){session.active=false;run.current=null;setListening(false);setError(true)}
   }}><Icon name={listening?'mic-off':'mic'} size={17}/></button>
   {error&&<span className="hx-dictation-error" role="status">{t('Voice input unavailable. Check microphone access.')}</span>}
