@@ -1654,3 +1654,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - Direct Harness thread opening now retains canonical workspace/thread URL from list/current-thread destinations, without replacing unrelated navigation. Incoming Harness thread links are retained; already-open matching thread avoids duplicate locate/reopen. Close consumes only the displayed matching thread URL; Simple ordinary-thread behavior remains unchanged. File route matching also accepts valid unqualified thread links.
 - BackStack now syncs on address changes as well as layer depth, so switching threads at the same pane depth still permits Back to close the new pane. Added regression case for same-depth thread URL switch and close without stale object traversal.
 - Related route/file/backstack28 tests passed; TypeScript, Vite build and full Web147 files1017 tests passed (/tmp/honmaru-thread-route-web.log). Real reload, Close/Escape/Back and workspace-switch verification still required after deployment. CI39957222600 and Mac release39957249737 remain active, no overlapping push.
+
+### 2026-10-23 signed1.3.13 artifact verification
+- Mac signed release39957249737 completed success. Draft421844628 remains unpublished at exact target5b29ce89eeaf00454cbd8bcdf78349f03013ac4d; ZIP/DMG/blockmaps/latest-mac.yml present.
+- Downloaded ZIP /tmp/Honmaru-AI-1.3.13-universal-mac.zip:224215388 bytes, SHA512 matches /tmp/latest-mac-1.3.13.yml. Extracted app /tmp/honmaru-signed-1.3.13/Honmaru AI.app reports1.3.13. codesign --verify --deep --strict succeeded; spctl accepted Notarized Developer ID.
+- CI39957222600 still in progress. Do not publish draft or install until matching CI succeeds. Diagnostic collection and actual blank-screen fix remain pending.
