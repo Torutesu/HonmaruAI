@@ -39,7 +39,7 @@ import { SidebarSection } from './SidebarSection'
 import { Dialog } from './Dialog'
 import type { MenuEntry } from './RowMenu'
 import type { DecisionCard, Business, ChannelMessage, FileRef, ReplyQuote } from '../types/card'
-import { arrive, drawUnder, echoOf, isDoubleSend, isTemp, keepTemps, keptAsYours, keptUnsent, landedCopy, markFailed, markPending, outboxKey, provenYours, readUnsent, reconcile, refreshedReplies, refusedOutright, SEND_TIMEOUT, sendDeadline, sendTime, sharedOutboxKey, tempMessage, tempState, unsentAgain, wentAfterAll, withHeld } from '../utils/pendingSend'
+import { arrive, drawUnder, echoOf, isDoubleSend, isTemp, keepTemps, keptAsYours, keptUnsent, landedCopy, markFailed, markPending, outboxKey, provenYours, readUnsent, reconcile, refreshedReplies, refusedOutright, SEND_TIMEOUT, sendDeadline, sendTime, sharedOutboxKey, tempMessage, tempState, unsentAgain, withHeld } from '../utils/pendingSend'
 import type { Unsent } from '../utils/pendingSend'
 import { askingAboutData } from '../utils/authGuard'
 import { draftToClear, withoutDraft } from '../utils/drafts'
@@ -1857,7 +1857,7 @@ export const ClassicList: React.FC<Props> = ({
           const held = echoOf(prev.replies, msg)
           if (held) drawnAs.current.set(m.id, held.id)
           // One that looked failed got there: not kept to send again.
-          if (held?.failed) queueMicrotask(() => settle(held.id))
+          if (held?.failed) queueMicrotask(() => settle(held.id, msg))
           return { ...prev, replies: refreshQuotes(arrive(prev.replies, msg), msg) }
         })
         setThreadReplying((prev) => (prev?.quote.id === m.id ? { ...prev, quote: quoteOf(msg) } : prev))
@@ -1880,7 +1880,7 @@ export const ClassicList: React.FC<Props> = ({
         // the copy on its way rather than showing twice.
         const held = echoOf(list, msg)
         if (held) drawnAs.current.set(m.id, held.id)
-        if (held?.failed) queueMicrotask(() => settle(held.id))
+        if (held?.failed) queueMicrotask(() => settle(held.id, msg))
         return { ...prev, [m.channel]: refreshQuotes(arrive(list, msg), msg) }
       })
       setReplyingTo((prev) => (prev?.quote.id === m.id ? { ...prev, quote: quoteOf(msg) } : prev))
@@ -2038,8 +2038,11 @@ export const ClassicList: React.FC<Props> = ({
       if (o.restored) o.restored = false
       // Failed, and not on its way: a page that already has it means the
       // send landed and the answer was lost. Sending it again would post it twice.
-      if (!o.going && !o.refused && (fromBefore || o.failed) && wentAfterAll(o.said, fresh)) {
-        outbox.current.delete(o.tempId); heldHere.current.add(o.tempId); settled = true; continue
+      const landed=!o.going && !o.refused && (fromBefore || o.failed) ? landedCopy(o.said,fresh) : undefined
+      if (landed) {
+        outbox.current.delete(o.tempId); heldHere.current.add(o.tempId); settled = true
+        if(!landed.parentId && o.onDelivered)queueMicrotask(()=>o.onDelivered?.(landed))
+        continue
       }
       back.push(o.failed ? unsentAgain(o, o.failed) : { ...o.said, pending: true, failed: undefined, refused: undefined })
     }
@@ -2048,11 +2051,12 @@ export const ClassicList: React.FC<Props> = ({
   }
   /// One that looked failed but got there: the socket's copy has taken its
   /// place, so it is no longer kept to be sent again.
-  const settle = (tempId: string) => {
+  const settle = (tempId: string, landed?:ChannelMessage) => {
     const o = outbox.current.get(tempId)
     if (!o || o.going) return
     outbox.current.delete(tempId)
     keepOutbox(tempId)
+    if(landed && !landed.parentId)o.onDelivered?.(landed)
   }
   /// The same words to the same place a moment ago: a second Enter or a
   /// double tap before the box has cleared does not send them twice. Said
@@ -2312,7 +2316,7 @@ export const ClassicList: React.FC<Props> = ({
       if (m.parentId) setThread((prev) => (prev && prev.parent.id === m.parentId ? { ...prev, replies: reconcile(prev.replies, m.id, real) } : prev))
       if (m.parentId && real.alsoChannel) inConversationToo(m.channel, real)
       else if (!m.parentId) setMessages((prev) => (prev[m.channel] ? { ...prev, [m.channel]: reconcile(prev[m.channel], m.id, real) } : prev))
-      settle(m.id)
+      settle(m.id, real)
       return
     }
     const out: Outgoing = outbox.current.get(m.id) || { tempId: m.id, channel: m.channel, body: m.body, decide: false, parentId: m.parentId || undefined, files: m.files || [], said: m }

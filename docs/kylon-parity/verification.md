@@ -1597,3 +1597,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 compact reply composer (local)
 - Inspected Kylon actual existing thread: reply placeholder, plus, mic and send. Harness reply composer now uses shared plus menu and guarded dictation, with unique scoped sibling keys. Formatting and Also-send-to-conversation retained in menu; active broadcast visible in bar. Simple unchanged. Unsupported decision/scheduling actions omitted.
 - Web147 files/1015 tests, TypeScript and Vite build passed. Native production reply verification pending.
+
+### 2026-10-23 new-thread recovered delivery follow-up
+- Failed-send settlement from socket, fresh history, or retry now passes the confirmed server message to the scoped new-thread intent. Existing matching/dedup rules retained; restored outbox entries have no resurrected navigation callback. Microtask for history settlement avoids state changes during render. Scope invalidation still prevents unrelated navigation.
+- Web147 files/1015 tests, TypeScript and Vite build passed. Actual network-loss delivery E2E not yet verified.
