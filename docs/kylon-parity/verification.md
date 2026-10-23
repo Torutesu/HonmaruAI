@@ -1904,3 +1904,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 
 ### 2026-10-24 memory browser integration regression
 - Added agent-profile integration test navigating to Memory, submitting query/kind, fetching a saved result, failing the next-page request, and retrying while retaining the first page. HarnessAgents3 tests pass (/tmp/honmaru-memory-browser-ui.log). This verifies component/API wiring and retry behavior; it does not replace native visual verification. Frozen Worker45670 andc1f673ce deployment remain live.
+
+### 2026-10-24 retained memory full release preflight
+- Frozen Worker45670 completed success:217 files/1728 tests,460.38s (/tmp/honmaru-memory-retained-full.log), with Worker sources unchanged fromba93fc57. Latest Web150 files/1049 tests and final TypeScript pass (/tmp/honmaru-memory-final-{web,types}.log). Last Vite build also passed after the loading-state change.
+- Priorc1f673ce CI39980117529 and deployments39980117483/39980117365 remain live. Memory retention, management paging/search and loading/retry UI changes are not yet published. Native verification remains pending.
