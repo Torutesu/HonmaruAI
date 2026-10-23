@@ -2079,3 +2079,21 @@ CREATE TABLE IF NOT EXISTS hx_memory_reviews (
   reviewed_by TEXT NOT NULL,
   reviewed_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS hx_memory_review_history (
+  id TEXT PRIMARY KEY,
+  memory_id TEXT NOT NULL REFERENCES hx_agent_memories(id) ON DELETE CASCADE,
+  org_id TEXT NOT NULL,
+  reviewed_version INTEGER NOT NULL,
+  verdict TEXT NOT NULL,
+  evidence TEXT NOT NULL,
+  reviewed_by TEXT NOT NULL,
+  reviewed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hx_memory_review_history ON hx_memory_review_history(org_id,memory_id,reviewed_at,id);
+
+INSERT OR IGNORE INTO hx_memory_review_history (id,memory_id,org_id,reviewed_version,verdict,evidence,reviewed_by,reviewed_at)
+SELECT 'legacy:' || r.memory_id,r.memory_id,r.org_id,r.reviewed_version,'keep',r.evidence,r.reviewed_by,r.reviewed_at
+FROM hx_memory_reviews r WHERE NOT EXISTS (
+  SELECT 1 FROM hx_memory_review_history h WHERE h.org_id=r.org_id AND h.memory_id=r.memory_id
+);

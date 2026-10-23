@@ -135,3 +135,27 @@ test('unsupported review verdicts are rejected before reading or changing memory
   expect(await reviewMemoryEntry(null,org,agent,'m',{verdict,expectedVersion:1,evidence:'Checked'},{by:'owner'})).toMatchObject({status:400});
  }
 });
+
+test('successful reviews append history while stale or out-of-scope attempts append nothing',async()=>{
+ const {reviewMemoryEntry}=await import('../src/harness/memoryEntries.js');
+ const made=await addAgentMemory(env.DB,org,agent,'Durable policy');
+ const review=(evidence,expectedVersion=0,channel='')=>reviewMemoryEntry(env.DB,org,agent,made.memory.id,{evidence,expectedVersion},{channel,by:'owner'});
+ expect((await review('First check')).review.evidence).toBe('First check');
+ expect((await review('Second check')).review.evidence).toBe('Second check');
+ expect(await review('Stale',1)).toMatchObject({status:409});
+ expect(await review('Wrong scope',0,'b:other')).toMatchObject({status:409});
+ const history=await env.DB.prepare('SELECT evidence FROM hx_memory_review_history WHERE org_id=?1 AND memory_id=?2').bind(org,made.memory.id).all();
+ expect(history.results.map(r=>r.evidence).sort()).toEqual(['First check','Second check']);
+ const latest=await env.DB.prepare('SELECT evidence FROM hx_memory_reviews WHERE org_id=?1 AND memory_id=?2').bind(org,made.memory.id).first();
+ expect(latest.evidence).toBe('Second check');
+});
+
+test('existing latest reviews are migrated to history once without changing their evidence',async()=>{
+ const made=await addAgentMemory(env.DB,org,agent,'Legacy reviewed policy');
+ await env.DB.prepare('INSERT INTO hx_memory_reviews (memory_id,org_id,reviewed_version,evidence,reviewed_by,reviewed_at) VALUES (?1,?2,0,?3,?4,?5)').bind(made.memory.id,org,'Original evidence','owner','2026-01-01T00:00:00Z').run();
+ const {default:schema}=await import('../schema.sql?raw');
+ await env.DB.exec(schema.replace(/\n/g,' '));
+ await env.DB.exec(schema.replace(/\n/g,' '));
+ const rows=await env.DB.prepare('SELECT evidence,reviewed_at FROM hx_memory_review_history WHERE org_id=?1 AND memory_id=?2').bind(org,made.memory.id).all();
+ expect(rows.results).toEqual([{evidence:'Original evidence',reviewed_at:'2026-01-01T00:00:00Z'}]);
+});

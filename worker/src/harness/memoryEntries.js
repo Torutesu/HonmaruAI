@@ -85,16 +85,21 @@ export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel
   if (!Number.isSafeInteger(input?.expectedVersion) || input.expectedVersion < 0
     || typeof input.evidence !== 'string' || !input.evidence.trim() || input.evidence.length > 2000
     || !by) return { error: 'A memory version and review evidence are required.', status: 400 };
-  const stamp = new Date().toISOString();
-  const {results = []} = await db.prepare(`INSERT INTO hx_memory_reviews (memory_id,org_id,reviewed_version,evidence,reviewed_by,reviewed_at)
-    SELECT m.id,m.org_id,COALESCE(d.version,0),?6,?7,?8 FROM hx_agent_memories m
-    LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
-    LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
-    WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'')=?4 AND COALESCE(d.version,0)=?5
-    ON CONFLICT(memory_id) DO UPDATE SET reviewed_version=excluded.reviewed_version,evidence=excluded.evidence,
-      reviewed_by=excluded.reviewed_by,reviewed_at=excluded.reviewed_at WHERE hx_memory_reviews.org_id=excluded.org_id
-    RETURNING reviewed_version,evidence,reviewed_by,reviewed_at`)
-    .bind(orgId,agentId,id,channel,input.expectedVersion,input.evidence.trim(),String(by),stamp).all();
+  const stamp = new Date().toISOString(), reviewId = crypto.randomUUID();
+  const writes = await db.batch([
+    db.prepare(`INSERT INTO hx_memory_review_history (id,memory_id,org_id,reviewed_version,verdict,evidence,reviewed_by,reviewed_at)
+      SELECT ?9,m.id,m.org_id,COALESCE(d.version,0),'keep',?6,?7,?8 FROM hx_agent_memories m
+      LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
+      LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
+      WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'')=?4 AND COALESCE(d.version,0)=?5`)
+      .bind(orgId,agentId,id,channel,input.expectedVersion,input.evidence.trim(),String(by),stamp,reviewId),
+    db.prepare(`INSERT INTO hx_memory_reviews (memory_id,org_id,reviewed_version,evidence,reviewed_by,reviewed_at)
+      SELECT memory_id,org_id,reviewed_version,evidence,reviewed_by,reviewed_at FROM hx_memory_review_history WHERE org_id=?1 AND id=?2
+      ON CONFLICT(memory_id) DO UPDATE SET reviewed_version=excluded.reviewed_version,evidence=excluded.evidence,
+        reviewed_by=excluded.reviewed_by,reviewed_at=excluded.reviewed_at WHERE hx_memory_reviews.org_id=excluded.org_id
+      RETURNING reviewed_version,evidence,reviewed_by,reviewed_at`).bind(orgId,reviewId),
+  ]);
+  const results = writes[1].results || [];
   if (!results.length) return { error: 'The memory changed or is unavailable. Reload before reviewing.', status: 409 };
   return { review: { version: results[0].reviewed_version, evidence: results[0].evidence, by: results[0].reviewed_by, at: results[0].reviewed_at } };
 }
