@@ -6,12 +6,13 @@ interface RoomDetails {
  channel:{managed?:boolean;version?:number;canInvite?:boolean}
  members:{people:Array<{ref:string;name:string;avatarUrl?:string;roomRole:'admin'|'member';canChangeRole?:boolean;canRemove?:boolean;you?:boolean}>;agents:Array<{id:string;name:string;avatarUrl?:string;roomRole:'admin'|'member';canChangeRole?:boolean;canRemove?:boolean}>}
 }
-export function RoomMembers({api,view,onClose,onInvite,onProfile,onChanged,people=[]}:{
+export function RoomMembers({api,view,onClose,onInvite,onProfile,onChanged,people=[],initialAdding=false}:{
  api:{httpBase:string;orgId:string;sessionToken:string};view:string;onClose:()=>void;onInvite:()=>void;people?:Array<{ref:string;name:string;avatarUrl?:string|null}>
+ initialAdding?:boolean
  onProfile:(member:RoomMemberRow)=>void;onChanged:()=>void
 }){
  const[data,setData]=useState<RoomDetails|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true)
- const [adding,setAdding]=useState(false)
+ const [adding,setAdding]=useState(initialAdding)
  const addingPending=useRef(false)
  const scope=useRef(0),reads=useRef(0)
  const load=useCallback(async()=>{
@@ -24,7 +25,7 @@ export function RoomMembers({api,view,onClose,onInvite,onProfile,onChanged,peopl
    setData(result);setError('');setLoading(false);return result as RoomDetails
   }catch(e){if(generation===scope.current&&read===reads.current){setError(e instanceof Error?e.message:String(e));setLoading(false)}}
  },[api.httpBase,api.orgId,api.sessionToken,view])
- useEffect(()=>{scope.current++;setAdding(false);setData(null);setLoading(true);setError('');void load();return()=>{scope.current++;reads.current++}},[load])
+ useEffect(()=>{scope.current++;setAdding(initialAdding);setData(null);setLoading(true);setError('');void load();return()=>{scope.current++;reads.current++}},[load,initialAdding])
  const mutate=async(member:RoomMemberRow,role?:'admin'|'member')=>{
   const generation=scope.current,version=data?.channel.version
   if(!Number.isSafeInteger(version))throw Error('Reload before saving.')
@@ -68,6 +69,6 @@ export function RoomMembers({api,view,onClose,onInvite,onProfile,onChanged,peopl
    await load();throw e
   }finally{addingPending.current=false}
  }
- if(adding)return <RoomMemberPicker candidates={candidates} error={error||(!data?.channel.canInvite?'Reload before saving.':'')} onReload={()=>void load()} onAdd={add} onClose={()=>setAdding(false)} onInvite={()=>{onClose();onInvite()}}/>
+ if(adding&&!loading)return <RoomMemberPicker candidates={candidates} error={error||(!data?.channel.canInvite?'Reload before saving.':'')} onReload={()=>void load()} onAdd={add} onClose={()=>setAdding(false)} onInvite={()=>{onClose();onInvite()}}/>
  return <RoomMembersDialog members={members} loading={loading} error={error} onReload={()=>void load()} onClose={onClose} onAdd={data?.channel.canInvite?()=>setAdding(true):undefined} onProfile={onProfile} onRole={(member,role)=>mutate(member,role)} onRemove={member=>mutate(member)}/>
 }

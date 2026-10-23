@@ -5567,6 +5567,10 @@ export const ClassicList: React.FC<Props> = ({
     setPhoneTab('dms')
     choose(`group:${data.view}`)
   }
+  const roomMemberDialog=(view:string,onClose:()=>void,initialAdding=false)=><RoomMembers key={`${api.orgId}:${view}`} api={api} view={view} initialAdding={initialAdding}
+    onClose={onClose} people={members} onInvite={()=>setInviting('people')}
+    onProfile={member=>{onClose();if(member.kind==='person')void openProfile(member.id);else onOpenAgentProfile?.(member.id)}}
+    onChanged={()=>{setChannelsTick(n=>n+1);window.dispatchEvent(new Event('honmaru:reload-businesses'));window.dispatchEvent(new Event('honmaru:agents-changed'))}}/>
   /// A private channel's people: bring somebody in, or leave.
   const [addingTo, setAddingTo] = useState<string | null>(null)
   const addToChannel = async (view: string, refs: string[]) => {
@@ -5737,10 +5741,7 @@ export const ClassicList: React.FC<Props> = ({
           onSend={(to, comment) => forwardTo(forwarding.channel, forwarding.m, to, comment)}
         />
       )}
-      {harness && roomMembersView && <RoomMembers key={`${api.orgId}:${roomMembersView}`} api={api} view={roomMembersView}
-        onClose={()=>setRoomMembersView(null)} people={members} onInvite={()=>setInviting('people')}
-        onProfile={member=>{setRoomMembersView(null);if(member.kind==='person')void openProfile(member.id);else onOpenAgentProfile?.(member.id)}}
-        onChanged={()=>{setChannelsTick(n=>n+1);window.dispatchEvent(new Event('honmaru:reload-businesses'));window.dispatchEvent(new Event('honmaru:agents-changed'))}}/>}
+      {harness && roomMembersView && roomMemberDialog(roomMembersView,()=>setRoomMembersView(null))}
       {harness && creatingRoom && onCreateRoom && <RoomCreateDialog key={api.orgId} people={[
         ...members.filter(m=>!m.mine).map(m=>({id:m.ref,kind:'person' as const,name:m.name,avatarUrl:m.avatarUrl||undefined})),
         ...agents.map(a=>({id:a.id,kind:'agent' as const,name:a.name,avatarUrl:a.avatarUrl||undefined})),
@@ -5769,8 +5770,8 @@ export const ClassicList: React.FC<Props> = ({
           onStart={startWith}
         />
       )}
-      {addingTo && (
-        <PeoplePicker
+      {addingTo && (harness && everything.some(item=>item.view===addingTo&&item.managed)
+        ? roomMemberDialog(addingTo,()=>setAddingTo(null),true) : <PeoplePicker
           members={members.filter((m) => !m.mine)}
           onClose={() => setAddingTo(null)}
           onStart={(refs) => void addToChannel(addingTo, refs)}

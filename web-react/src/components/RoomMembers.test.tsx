@@ -72,3 +72,19 @@ test('leaving the room during a multi-step addition prevents subsequent agent re
  await act(async()=>{complete(response({added:1}));await pending})
  expect(fetcher).toHaveBeenCalledTimes(2);expect(changed).not.toHaveBeenCalled()
 })
+
+test('direct Add entry waits for authoritative details and returns to the member list on Back',async()=>{
+ let complete!:(value:any)=>void
+ const fetcher=vi.fn(()=>new Promise(resolve=>{complete=resolve}));vi.stubGlobal('fetch',fetcher)
+ let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<RoomMembers api={api} view="b:room" initialAdding onClose={vi.fn()} onInvite={vi.fn()} onProfile={vi.fn()} onChanged={vi.fn()}/>)})
+ expect(tree.root.findByType('member-dialog' as any).props.loading).toBe(true)
+ expect(tree.root.findAllByType(RoomMemberPicker)).toHaveLength(0)
+ await act(async()=>complete(response({...detail(),addableAgents:[{id:'agent',name:'Assistant'}]})))
+ const picker=tree.root.findByType(RoomMemberPicker)
+ expect(picker.props.candidates).toHaveLength(1)
+ act(()=>picker.props.onClose())
+ expect(tree.root.findAllByType(RoomMemberPicker)).toHaveLength(0)
+ expect(tree.root.findByType('member-dialog' as any).props.loading).toBe(false)
+ act(()=>tree.unmount())
+})
