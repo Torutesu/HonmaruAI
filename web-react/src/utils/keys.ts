@@ -72,3 +72,8 @@ export function composing(e: KeyLike): boolean {
 
 /// An Enter the person meant: not one that picked a conversion.
 export const enterKey = (e: KeyLike): boolean => e.key === 'Enter' && !composing(e)
+
+/// Scoped to a composer, never installed as a global browser shortcut.
+export function attachmentShortcut(e: KeyLike & {metaKey:boolean;ctrlKey:boolean;altKey?:boolean;shiftKey?:boolean;defaultPrevented?:boolean;repeat?:boolean}, mac = isMacPlatform()): boolean {
+  return !e.defaultPrevented && !e.repeat && !composing(e) && !e.altKey && !e.shiftKey && hasPrimaryMod(e,mac) && e.key?.toLowerCase() === "u"
+}

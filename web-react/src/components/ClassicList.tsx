@@ -88,7 +88,7 @@ import type { Place as Conversation } from '../utils/places'
 import { useAppearance } from '../utils/appearance'
 import { visibleOrder, step, foldedHome } from '../utils/sidebarOrder'
 import type { SidebarGroup } from '../utils/sidebarOrder'
-import { isMacPlatform, formatCombo, hasPrimaryMod, composing, enterKey } from '../utils/keys'
+import { isMacPlatform, formatCombo, hasPrimaryMod, composing, enterKey, attachmentShortcut } from '../utils/keys'
 import { formatDate } from '../utils/dateFormat'
 import './ClassicList.css'
 
@@ -4803,7 +4803,7 @@ export const ClassicList: React.FC<Props> = ({
             {agentLines(thread.channel, { parentId: thread.parent.id })}
           </FollowingLog>
           <TypingLine names={typingHere(thread.channel, thread.parent.id)} />
-          <form className="slk-composer thread" onSubmit={(e) => { e.preventDefault(); void send(thread.channel, false, thread.parent.id) }}>
+          <form className="slk-composer thread" onKeyDown={e=>{if(harness&&attachmentShortcut(e)){e.preventDefault();threadAttachInput.current?.click()}}} onSubmit={(e) => { e.preventDefault(); void send(thread.channel, false, thread.parent.id) }}>
             {threadReplying?.parentId === thread.parent.id && (
               <ReplyingBar quote={threadReplying.quote} name={quoteName(threadReplying.quote)} textId="slk-thread-replying-text" onCancel={() => { setThreadReplying(null); threadComposer.current?.focus() }} />
             )}
@@ -5399,7 +5399,7 @@ export const ClassicList: React.FC<Props> = ({
         {/* Right above the box, under whatever else sits between it and the log. */}
         {thread.view && <TypingLine names={typingHere(thread.view, null)} />}
         {thread.view ? (
-          <form className="slk-composer" onSubmit={(e) => { e.preventDefault(); void send(thread.view!, false) }}>
+          <form className="slk-composer" onKeyDown={e=>{if(harness&&attachmentShortcut(e)){e.preventDefault();attachInput.current?.click()}}} onSubmit={(e) => { e.preventDefault(); void send(thread.view!, false) }}>
             {harness && resourceBuild?.channel === thread.view && <div className="hx-build-status" role="status"><Icon name={resourceBuild.kind === 'apps' ? 'grid' : 'zap'} size={15} /><span>{t(resourceBuilding ? 'Building…' : resourceBuild.kind === 'apps' ? 'Describe an app' : 'Describe an automation')}</span><button type="button" disabled={resourceBuilding} onClick={() => setResourceBuild(null)}>{t('Cancel')}</button></div>}
             {replying && <ReplyingBar quote={replying} name={quoteName(replying)} textId="slk-replying-text" onCancel={() => { setReplyingTo(null); composer.current?.focus() }} />}
             <PendingUploads items={uploads.items} onRemove={uploads.remove} />

@@ -677,3 +677,5 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
   .hx-composer-add-menu button { min-height: 44px; }
   .classic.slk.slk .hx-composer-format .slk-fmt { min-width: 36px; min-height: 40px; }
 }
+
+.hx-composer-add-menu kbd { margin-left: auto; color: var(--hx-muted); font: inherit; font-size: 11px; white-space: nowrap; }

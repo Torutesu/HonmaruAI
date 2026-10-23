@@ -1,7 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react'
 import {Icon,type IconName} from './Icon'
 import {useT} from '../utils/i18n'
-import {composing} from '../utils/keys'
+import {composing,attachmentShortcut,formatCombo,isMacPlatform} from '../utils/keys'
 
 type Props={onAttach:()=>void;onMention:()=>void;onConnections?:()=>void;onDecision?:()=>void;onSchedule?:()=>void;canDecide?:boolean;canSchedule?:boolean;extraActions?:React.ReactNode;children:React.ReactNode}
 export function HarnessComposerMenu({onAttach,onMention,onConnections,onDecision,onSchedule,canDecide=false,canSchedule=false,extraActions,children}:Props){
@@ -22,6 +22,7 @@ export function HarnessComposerMenu({onAttach,onMention,onConnections,onDecision
  const action=(label:string,icon:IconName,run:()=>void,disabled=false)=><button key={label} type="button" role="menuitem" tabIndex={-1} disabled={disabled} onClick={()=>{close(true);run()}}><Icon name={icon} size={16}/>{t(label)}</button>
  return <div className="hx-composer-add" ref={root} onBlur={event=>{if(event.relatedTarget&&!event.currentTarget.contains(event.relatedTarget as Node)){close();setFormat(false)}}} onKeyDown={event=>{
   if(composing(event))return
+  if(attachmentShortcut(event)){event.preventDefault();event.stopPropagation();close(true);setFormat(false);onAttach();return}
   if(!open&&event.target===trigger.current&&['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();initialFocus.current=event.key==='ArrowUp'?'last':'first';setFormat(false);setOpen(true);return}
   if(event.key==='Escape'&&(open||format)){event.preventDefault();event.stopPropagation();close(true);setFormat(false)}
   if(event.key==='Tab'&&open)close(true)
@@ -36,7 +37,7 @@ export function HarnessComposerMenu({onAttach,onMention,onConnections,onDecision
  }}>
   <button ref={trigger} type="button" className="slk-attach-btn" aria-label={t('Add to message')} title={t('Add to message')} aria-haspopup="menu" aria-expanded={open} onClick={()=>{initialFocus.current='first';setFormat(false);setOpen(value=>!value)}}><Icon name="plus" size={18}/></button>
   {open&&<div className="hx-composer-add-menu" role="menu" aria-label={t('Add to message')}>
-   {action('Attach files','paperclip',onAttach)}
+   <button type="button" role="menuitem" tabIndex={-1} aria-keyshortcuts={isMacPlatform()?'Meta+U':'Control+U'} onClick={()=>{close(true);onAttach()}}><Icon name="paperclip" size={16}/>{t('Attach files')}<kbd>{formatCombo('Mod+U',isMacPlatform())}</kbd></button>
    {action('Mention someone','at',onMention)}
    {onConnections&&action('Manage integrations','plug',onConnections)}
    <div role="separator"/>

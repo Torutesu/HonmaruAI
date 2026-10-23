@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isMacPlatform, formatCombo, hasPrimaryMod, composing, enterKey } from './keys'
+import { isMacPlatform, formatCombo, hasPrimaryMod, composing, enterKey, attachmentShortcut } from './keys'
 
 // ⌘ on a Mac, Ctrl everywhere else: what the shortcuts sheet, the search
 // button and the workspace menu print.
@@ -82,4 +82,12 @@ describe('keys typed through an input method', () => {
     expect(composing({ key: 'Enter', isComposing: true })).toBe(true)
     expect(composing({ key: 'a', keyCode: 65 })).toBe(false)
   })
+})
+
+it("scopes attachment shortcut to primary modifier and deliberate non-IME input",()=>{
+ const e={key:"u",metaKey:true,ctrlKey:false};
+ expect(attachmentShortcut(e,true)).toBe(true);
+ expect(attachmentShortcut(e,false)).toBe(false);
+ expect(attachmentShortcut({...e,metaKey:false,ctrlKey:true},false)).toBe(true);
+ for(const guard of [{isComposing:true},{nativeEvent:{keyCode:229}},{altKey:true},{shiftKey:true},{repeat:true},{defaultPrevented:true}])expect(attachmentShortcut({...e,...guard},true)).toBe(false);
 })
