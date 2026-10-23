@@ -88,3 +88,12 @@ test('history links to its source thread in the owning workspace only when one e
  expect(links[0].props.href).toBe('#/t/source%2Fthread/team%3Aacme')
  expect(api.cancelFollowup).not.toHaveBeenCalled()
 })
+
+test('all status history retains cancellation only for pending follow-ups', async () => {
+ const api = { followupHistory: vi.fn().mockResolvedValueOnce({followups:[]}).mockResolvedValue({followups:[{...item,status:'scheduled'}, {...item,id:'done',status:'done'}],nextCursor:null}), cancelFollowup:vi.fn() }
+ await act(async () => {tree=create(<AgentFollowups api={api as any} agentId="agent" />)})
+ await act(async () => {tree.root.findByType('select').props.onChange({target:{value:'all'}})})
+ expect(api.followupHistory).toHaveBeenLastCalledWith('agent','all')
+ expect(tree.root.findAllByType('option').some(o=>o.props.value==='all')).toBe(true)
+ expect(tree.root.findAllByType('button').filter(b=>b.children.includes('Cancel'))).toHaveLength(1)
+})

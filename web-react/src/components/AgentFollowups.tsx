@@ -22,7 +22,7 @@ export function AgentFollowups({ api, agentId }: { api: ReturnType<typeof harnes
     }).catch(e => { if (live) setError(e instanceof Error ? e.message : String(e)) })
     return () => { live = false; ++generation.current }
   }, [api, agentId, status, refresh])
-  const labels: Record<string, string> = { scheduled: 'Scheduled', running: 'Running', done: 'Completed', failed: 'Failed', cancelled: 'Cancelled' }
+  const labels: Record<string, string> = { all: 'All', scheduled: 'Scheduled', running: 'Running', done: 'Completed', failed: 'Failed', cancelled: 'Cancelled' }
   return <section aria-label={t('Follow-ups')}>
     <div className="playbook-add-foot"><select aria-label={t('Follow-up status')} value={status} disabled={busy} onChange={e => setStatus(e.target.value)}>
       {Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}

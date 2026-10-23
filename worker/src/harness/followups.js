@@ -43,7 +43,7 @@ export async function scheduleFollowup(db, { orgId, channel, threadId = null, ag
 
 export async function listFollowups(db, orgId, { channel, agentId, status = "scheduled", viewerId } = {}) {
   const { results } = await db.prepare(`SELECT * FROM hx_followups
-    WHERE org_id = ?1 AND status = ?2 AND (?3 IS NULL OR channel = ?3)
+    WHERE org_id = ?1 AND (?2 = 'all' OR status = ?2) AND (?3 IS NULL OR channel = ?3)
       AND (?4 IS NULL OR agent_id = ?4)
     ORDER BY due_at, id LIMIT ?5`)
     .bind(orgId, status, channel || null, agentId || null, channel ? -1 : 200).all();
@@ -69,7 +69,7 @@ export async function followupHistory(db, orgId, { channel, agentId, status = "s
   const visible = [], access = new Map();
   let scanned = 0;
   while (scanned < 10000) {
-    const { results = [] } = await db.prepare(`SELECT * FROM hx_followups WHERE org_id = ?1 AND status = ?2
+    const { results = [] } = await db.prepare(`SELECT * FROM hx_followups WHERE org_id = ?1 AND (?2 = 'all' OR status = ?2)
       AND (?3 IS NULL OR channel = ?3) AND (?4 IS NULL OR agent_id = ?4)
       AND (?5 IS NULL OR due_at > ?5 OR (due_at = ?5 AND id > ?6))
       ORDER BY due_at, id LIMIT 200`).bind(orgId, status, channel || null, agentId || null, after?.[0] || null, after?.[1] || null).all();

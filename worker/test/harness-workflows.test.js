@@ -720,3 +720,23 @@ test("follow-up history pages use visible records and stable tied-date ordering"
   expect((await get(`/followups?${q({...query,status:'done',cursor:first.nextCursor})}`,mika)).status).toBe(400);
   expect((await get(`/followups?${q({...query,cursor:'not-json'})}`,mika)).status).toBe(400);
 });
+
+test('all follow-up statuses retain agent, workspace and conversation scope', async () => {
+  const statuses = ['scheduled', 'running', 'done', 'failed', 'cancelled'];
+  const insert = env.DB.prepare("INSERT INTO hx_followups (id,org_id,channel,agent_id,instruction,due_at,status,created_by,created_at) VALUES (?1,?2,?3,?4,'all history','2026-10-01T00:00:00Z',?5,'maker','2026-10-01T00:00:00Z')");
+  await env.DB.batch([
+    ...statuses.map((status,i)=>insert.bind(`all_${i}`,ORG,'b:ops','all-agent',status)),
+    insert.bind('all_hidden',ORG,'b:not-accessible','all-agent','done'),
+    insert.bind('all_other_agent',ORG,'b:ops','other-agent','done'),
+    insert.bind('all_other_workspace','other-org','b:ops','all-agent','done'),
+  ]);
+  for (const paged of [undefined, '1']) {
+    const response = await get(`/followups?${q({orgId:ORG,status:'all',agentId:'all-agent',...(paged?{paged}:{})})}`,mika);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.followups.map(f=>f.status)).toEqual(statuses);
+    expect(body.followups.map(f=>f.id)).toEqual(statuses.map((_,i)=>`all_${i}`));
+  }
+  const defaults = await (await get(`/followups?${q({orgId:ORG,agentId:'all-agent'})}`,mika)).json();
+  expect(defaults.followups.map(f=>f.status)).toEqual(['scheduled']);
+});
