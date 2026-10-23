@@ -2069,3 +2069,13 @@ CREATE TABLE IF NOT EXISTS hx_room_hook_events (event_key TEXT PRIMARY KEY, hook
 
 CREATE TABLE IF NOT EXISTS hx_room_hook_dispatch (message_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_hx_room_hook_dispatch_due ON hx_room_hook_dispatch(status,next_attempt,lease_until);
+
+/* Validation is independent from editing and belongs to the reviewed version. */
+CREATE TABLE IF NOT EXISTS hx_memory_reviews (
+  memory_id TEXT PRIMARY KEY REFERENCES hx_agent_memories(id) ON DELETE CASCADE,
+  org_id TEXT NOT NULL,
+  reviewed_version INTEGER NOT NULL,
+  evidence TEXT NOT NULL,
+  reviewed_by TEXT NOT NULL,
+  reviewed_at TEXT NOT NULL
+);

@@ -8,7 +8,7 @@ import {roomRoleState} from './roomRoles.js';
 import {managedRoomSettings,saveManagedRoomSettings} from './roomSettings.js';
 import {listBusinesses} from '../db.js';
 import { explicitAgentRoles, agentRoleState, setAgentRole, transferAgentOwnership } from './agentRoles.js';
-import { memoryPage, updateMemoryEntry } from './memoryEntries.js';
+import { memoryPage, reviewMemoryEntry, updateMemoryEntry } from './memoryEntries.js';
 import { previewSkillImport } from './skillImport.js';
 import { writeSkillZip } from './skillZip.js';
 import { listSkillFiles, readSkillFile } from './skillFiles.js';
@@ -616,6 +616,11 @@ export async function handleHarness(request, env, url, context = {}) {
         const r = await addAgentMemory(env.DB, orgId, agentId, input.body !== undefined ? { title: input.title, description: input.description, body: input.body } : input.text, { by: me, channel, kind: input.kind || "context" });
         if (!r.error && !r.duplicate) await audit(env, request, { orgId, action: "agent.memory_created", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: channel ? "conversation" : "shared" } });
         return r.error ? fail(r) : json(r, 201);
+      }
+      if (request.method === "PUT" && parts[5] === 'review') {
+        const r = await reviewMemoryEntry(env.DB, orgId, agentId, parts[4], input, { channel, by: me });
+        if (!r.error) await audit(env, request, { orgId, action: 'agent.memory_reviewed', actor: person(who.user), entity: { type: 'custom_agent', id: agentId }, details: { memoryId: parts[4], version: r.review.version, scope: channel ? 'conversation' : 'shared' } });
+        return r.error ? fail(r) : json(r);
       }
       if (request.method === "PUT") {
         const r = await updateMemoryEntry(env.DB, orgId, agentId, parts[4] || input.id || "", input, { channel, by: me });

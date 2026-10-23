@@ -107,3 +107,23 @@ test('memory management search uses full saved bodies and intersects kind with a
  const cursor=JSON.stringify([org,agent,'','old','reference','2026-01-01T00:00:00Z','id']);
  expect(await memoryPage(null,org,agent,{query:'new',kind:'reference',cursor})).toMatchObject({status:400});
 });
+
+test('review records evidence for the checked memory version, independently of editing',async()=>{
+ const {memoryPage,reviewMemoryEntry,updateMemoryEntry}=await import('../src/harness/memoryEntries.js');
+ const made=await addAgentMemory(env.DB,org,agent,{title:'Policy',description:'',body:'Original'},{channel:'b:ops'});
+ const input={expectedVersion:1,evidence:'Confirmed with the owner'};
+ expect(await reviewMemoryEntry(env.DB,org,agent,made.memory.id,input,{channel:'b:other',by:'reviewer'})).toMatchObject({status:409});
+ expect(await reviewMemoryEntry(env.DB,'other',agent,made.memory.id,input,{channel:'b:ops',by:'reviewer'})).toMatchObject({status:409});
+ const checked=await reviewMemoryEntry(env.DB,org,agent,made.memory.id,input,{channel:'b:ops',by:'reviewer'});
+ expect(checked.review.evidence).toBe(input.evidence);
+ const before=(await memoryPage(env.DB,org,agent,{channel:'b:ops'})).memories[0];
+ expect(before.review.current).toBe(true);
+ expect(before.version).toBe(1);
+ await updateMemoryEntry(env.DB,org,agent,made.memory.id,{expectedVersion:1,title:'Policy',description:'',body:'Changed',kind:'context'},{channel:'b:ops',by:'editor'});
+ const after=(await memoryPage(env.DB,org,agent,{channel:'b:ops'})).memories[0];
+ expect(after.review.current).toBe(false);
+ expect(after.review.at).toBe(before.review.at);
+ expect(await reviewMemoryEntry(env.DB,org,agent,made.memory.id,input,{channel:'b:ops',by:'reviewer'})).toMatchObject({status:409});
+ expect(await reviewMemoryEntry(env.DB,org,agent,made.memory.id,{...input,expectedVersion:2,evidence:' '},{channel:'b:ops',by:'reviewer'})).toMatchObject({status:400});
+ expect((await reviewMemoryEntry(env.DB,org,agent,made.memory.id,{...input,expectedVersion:2},{channel:'b:ops',by:'reviewer'})).review.version).toBe(2);
+});

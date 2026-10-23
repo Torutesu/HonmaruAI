@@ -1,3 +1,4 @@
+import { AgentMemoryReview } from '../components/AgentMemoryReview'
 import { AgentFollowups } from '../components/AgentFollowups'
 import { AgentAccessDialog } from '../components/AgentAccessDialog'
 import { AgentMemoryEditor } from '../components/AgentMemoryEditor'
@@ -97,6 +98,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
   const [memories, setMemories] = useState<AgentMemory[]>([])
   const [memoryCursor, setMemoryCursor] = useState<string | null>(null)
   const [memorySearch, setMemorySearch] = useState({ query: '', kind: 'all' })
+  const [reviewingMemory, setReviewingMemory] = useState<AgentMemory | null>(null)
   const [memoryDraft, setMemoryDraft] = useState<AgentMemory | 'new' | null>(null)
   const [skills, setSkills] = useState<Skill[]>([])
   const [allSkills, setAllSkills] = useState<Skill[]>([])
@@ -243,7 +245,8 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
             : await api.updateMemory(agent.id, memoryDraft, entry, memoryDraft.channel ? memoryChannel : '')
           if (version === memoryLoad.current) setMemories(current => [result.memory, ...current.filter(item => item.id !== result.memory.id)])
         }}/>}
-        <AgentMemoryList key={`${props.orgId}:${agent.id}:${memoryChannel}`} memories={memories} loading={busy === 'load' || busy === 'memory-page'} onSearch={(query, kind) => { memoryLoad.current++; setMemories([]); setMemoryCursor(null); setMemorySearch({ query, kind }) }} canEdit={canEdit} busy={busy !== null} onEdit={setMemoryDraft} onForget={m => act(`forget:${m.id}`, async () => { await api.forget(agent.id, m.id, m.channel ? memoryChannel : ''); setMemories(x => x.filter(y => y.id !== m.id)) })} />
+        {reviewingMemory && <AgentMemoryReview memory={reviewingMemory} onClose={() => { setReviewingMemory(null); void load() }} onSave={evidence => api.reviewMemory(agent.id, reviewingMemory, evidence, reviewingMemory.channel ? memoryChannel : '').then(() => {})}/>}
+        <AgentMemoryList key={`${props.orgId}:${agent.id}:${memoryChannel}`} memories={memories} loading={busy === 'load' || busy === 'memory-page'} onSearch={(query, kind) => { memoryLoad.current++; setMemories([]); setMemoryCursor(null); setMemorySearch({ query, kind }) }} canEdit={canEdit} busy={busy !== null} onEdit={setMemoryDraft} onReview={setReviewingMemory} onForget={m => act(`forget:${m.id}`, async () => { await api.forget(agent.id, m.id, m.channel ? memoryChannel : ''); setMemories(x => x.filter(y => y.id !== m.id)) })} />
         {memoryCursor && <button className="btn-text" disabled={busy !== null} onClick={() => act('memory-page', async () => {
           const version = memoryLoad.current
           const page = await api.memoryPage(agent.id, memoryChannel, memoryCursor, memorySearch)

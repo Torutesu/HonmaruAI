@@ -12,7 +12,8 @@ export function memoryFields(input) {
 export function memoryEntry(row) {
   return { id: row.id, text: row.text, source: row.source, createdBy: row.created_by, createdAt: row.created_at,
     channel: row.channel || null, kind: row.kind || "context", title: row.title ?? row.text.slice(0, 120),
-    description: row.description || "", body: row.body ?? row.text, version: row.version ?? 0, updatedAt: row.updated_at || row.created_at };
+    description: row.description || "", body: row.body ?? row.text, version: row.version ?? 0, updatedAt: row.updated_at || row.created_at,
+    review: row.reviewed_at ? { version: row.reviewed_version, evidence: row.review_evidence, by: row.reviewed_by, at: row.reviewed_at, current: row.reviewed_version === (row.version ?? 0) } : null };
 }
 export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel = "", by = null } = {}) {
   const fields = memoryFields(input);
@@ -64,9 +65,10 @@ export async function memoryPage(db, orgId, agentId, { channel = '', cursor, que
       after = value.slice(5);
     } catch { return { error: 'Invalid memory cursor.', status: 400 }; }
   }
-  const {results = []} = await db.prepare(`SELECT m.*, s.channel, s.kind, d.title, d.description, d.body, d.version, d.updated_at
+  const {results = []} = await db.prepare(`SELECT m.*, s.channel, s.kind, d.title, d.description, d.body, d.version, d.updated_at, r.reviewed_version, r.evidence AS review_evidence, r.reviewed_by, r.reviewed_at
     FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
     LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
+    LEFT JOIN hx_memory_reviews r ON r.memory_id=m.id AND r.org_id=m.org_id
     WHERE m.org_id=?1 AND m.agent_id=?2 AND COALESCE(s.channel,'') IN ('',?3)
       AND (?4 IS NULL OR m.created_at < ?4 OR (m.created_at = ?4 AND m.id < ?5))
       AND (?6 = '' OR instr(lower(COALESCE(d.title,'')),lower(?6))>0
@@ -76,4 +78,22 @@ export async function memoryPage(db, orgId, agentId, { channel = '', cursor, que
     .bind(orgId,agentId,channel,after?.[0] || null,after?.[1] || null,query,kind).all();
   const memories = results.slice(0,50).map(memoryEntry), last = memories[memories.length-1];
   return { memories, nextCursor: results.length > 50 ? JSON.stringify([...scope,last.createdAt,last.id]) : null };
+}
+
+export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel = '', by } = {}) {
+  if (!Number.isSafeInteger(input?.expectedVersion) || input.expectedVersion < 0
+    || typeof input.evidence !== 'string' || !input.evidence.trim() || input.evidence.length > 2000
+    || !by) return { error: 'A memory version and review evidence are required.', status: 400 };
+  const stamp = new Date().toISOString();
+  const {results = []} = await db.prepare(`INSERT INTO hx_memory_reviews (memory_id,org_id,reviewed_version,evidence,reviewed_by,reviewed_at)
+    SELECT m.id,m.org_id,COALESCE(d.version,0),?6,?7,?8 FROM hx_agent_memories m
+    LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
+    LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
+    WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'')=?4 AND COALESCE(d.version,0)=?5
+    ON CONFLICT(memory_id) DO UPDATE SET reviewed_version=excluded.reviewed_version,evidence=excluded.evidence,
+      reviewed_by=excluded.reviewed_by,reviewed_at=excluded.reviewed_at WHERE hx_memory_reviews.org_id=excluded.org_id
+    RETURNING reviewed_version,evidence,reviewed_by,reviewed_at`)
+    .bind(orgId,agentId,id,channel,input.expectedVersion,input.evidence.trim(),String(by),stamp).all();
+  if (!results.length) return { error: 'The memory changed or is unavailable. Reload before reviewing.', status: 409 };
+  return { review: { version: results[0].reviewed_version, evidence: results[0].evidence, by: results[0].reviewed_by, at: results[0].reviewed_at } };
 }

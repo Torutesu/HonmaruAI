@@ -7,7 +7,7 @@ export function MemoryKindSelect({ value, onChange, disabled = false }: { value:
   const t = useT()
   return <select className="hx-cell-select" aria-label={t('Memory type')} value={value} disabled={disabled} onChange={e => onChange(e.target.value as MemoryKind)}>{kinds.map(k => <option key={k} value={k}>{t(labels[k])}</option>)}</select>
 }
-export function AgentMemoryList({ memories, canEdit, busy, onForget, onEdit, onSearch, loading = false }: { memories: AgentMemory[]; canEdit: boolean; busy: boolean; onForget: (memory: AgentMemory) => void; onEdit?: (memory: AgentMemory) => void; onSearch?: (query: string, kind: string) => void; loading?: boolean }) {
+export function AgentMemoryList({ memories, canEdit, busy, onForget, onEdit, onReview, onSearch, loading = false }: { memories: AgentMemory[]; canEdit: boolean; busy: boolean; onForget: (memory: AgentMemory) => void; onEdit?: (memory: AgentMemory) => void; onReview?: (memory: AgentMemory) => void; onSearch?: (query: string, kind: string) => void; loading?: boolean }) {
   const t = useT()
   const [query, setQuery] = useState('')
   const [kind, setKind] = useState('all')
@@ -21,6 +21,8 @@ export function AgentMemoryList({ memories, canEdit, busy, onForget, onEdit, onS
     <p className="row-sub" role="status">{onSearch ? t('{count} memories loaded', { count: memories.length }) : t('{shown} of {total} memories', { shown: visible.length, total: memories.length })}</p>
     {visible.map(m => <div key={m.id} className="row static memory-row">
       <span className="row-main">{m.body && (m.body !== m.text || m.description || m.title !== m.text) ? <details className="hx-memory-entry"><summary>{m.title || m.text}</summary>{m.description && <p className="row-sub">{m.description}</p>}<div className="memory-text">{m.body}</div></details> : <span className="memory-text">{m.text}</span>}<span className="row-sub">{t(labels[(m.kind || 'context') as MemoryKind] || m.kind!)} · {t(m.channel ? 'Conversation memory' : 'Agent memory')} · {new Date(m.createdAt).toLocaleDateString()}</span></span>
+      {m.review && <details className="hx-run-detail"><summary>{t(m.review.current ? 'Memory reviewed' : 'Changed since review')}</summary><p>{m.review.evidence}</p><time dateTime={m.review.at}>{new Date(m.review.at).toLocaleString()}</time></details>}
+      {canEdit && onReview && <button className="btn-text" disabled={busy} onClick={() => onReview(m)}>{t('Review memory')}</button>}
       {canEdit && onEdit && <button className="btn-text" disabled={busy} onClick={() => onEdit(m)}>{t('Edit memory')}</button>}
       {canEdit && <button className="btn-text" disabled={busy} onClick={() => onForget(m)}>{t('Forget')}</button>}
     </div>)}
