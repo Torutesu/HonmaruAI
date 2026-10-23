@@ -7,7 +7,7 @@ export function MemoryKindSelect({ value, onChange, disabled = false }: { value:
   const t = useT()
   return <select className="hx-cell-select" aria-label={t('Memory type')} value={value} disabled={disabled} onChange={e => onChange(e.target.value as MemoryKind)}>{kinds.map(k => <option key={k} value={k}>{t(labels[k])}</option>)}</select>
 }
-export function AgentMemoryList({ memories, canEdit, busy, onForget, onEdit, onReview, onHistory, onSearch, loading = false }: { memories: AgentMemory[]; canEdit: boolean; busy: boolean; onForget: (memory: AgentMemory) => void; onEdit?: (memory: AgentMemory) => void; onReview?: (memory: AgentMemory) => void; onHistory?: (memory: AgentMemory) => void; onSearch?: (query: string, kind: string) => void; loading?: boolean }) {
+export function AgentMemoryList({ memories, canEdit, busy, onForget, onEdit, onReview, onHistory, onSearch, filtered = false, loading = false }: { memories: AgentMemory[]; canEdit: boolean; busy: boolean; onForget: (memory: AgentMemory) => void; onEdit?: (memory: AgentMemory) => void; onReview?: (memory: AgentMemory) => void; onHistory?: (memory: AgentMemory) => void; onSearch?: (query: string, kind: string) => void; filtered?: boolean; loading?: boolean }) {
   const t = useT()
   const [query, setQuery] = useState('')
   const [kind, setKind] = useState('all')
@@ -29,6 +29,6 @@ export function AgentMemoryList({ memories, canEdit, busy, onForget, onEdit, onR
       {canEdit && <button className="btn-text" disabled={busy} onClick={() => onForget(m)}>{t('Forget')}</button>}
     </div>)}
     {loading && <p role="status">{t('Loading…')}</p>}
-    {!loading && !visible.length && <p className="empty">{t(memories.length ? 'No memories match these filters.' : 'No memories yet.')}</p>}
+    {!loading && !visible.length && <p className="empty">{t(memories.length || filtered || (!onSearch && (query.trim() || kind !== 'all')) ? 'No memories match these filters.' : 'No memories yet.')}</p>}
   </>
 }

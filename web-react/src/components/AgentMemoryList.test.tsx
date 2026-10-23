@@ -123,3 +123,18 @@ test('review details distinguish checked content from later changes and restrict
  expect(tree.root.findByType('time').props.dateTime).toBe(checked.review.at)
  act(()=>tree.unmount())
 })
+
+test('empty saved search distinguishes no matches from an agent with no memories',()=>{
+ let tree!:ReturnType<typeof create>
+ const props={memories:[],canEdit:false,busy:false,onForget:vi.fn(),onSearch:vi.fn()}
+ act(()=>{tree=create(<AgentMemoryList {...props}/> )})
+ expect(JSON.stringify(tree.toJSON())).toContain('No memories yet.')
+ act(()=>tree.root.findByProps({'aria-label':'Search memories'}).props.onChange({target:{value:'Not submitted'}}))
+ expect(JSON.stringify(tree.toJSON())).toContain('No memories yet.')
+ act(()=>tree.update(<AgentMemoryList {...props} filtered/>))
+ expect(JSON.stringify(tree.toJSON())).toContain('No memories match these filters.')
+ expect(JSON.stringify(tree.toJSON())).not.toContain('No memories yet.')
+ act(()=>tree.update(<AgentMemoryList {...props} filtered loading/>))
+ expect(JSON.stringify(tree.toJSON())).not.toContain('No memories match these filters.')
+ act(()=>tree.unmount())
+})
