@@ -9,3 +9,5 @@
 .room-member-picker .dlg-btn.primary{background:var(--room-action);border-color:var(--room-action);color:#fff;height:36px;border-radius:12px}
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .room-member-picker-icon{background:#36352a}}
 :root[data-theme="dark"] .room-member-picker-icon{background:#36352a}
+
+.room-member-picker .dlg-btn.primary:hover:not(:disabled){background:var(--room-action);border-color:var(--room-action);color:#fff}

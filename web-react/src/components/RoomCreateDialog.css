@@ -24,3 +24,5 @@
 
 .room-create-colors>.room-visual-action{grid-column:1/-1;width:auto;height:auto;min-height:32px;padding:6px 8px;background:transparent;color:var(--dlg-ink);font:inherit;font-size:12px;border:0;border-top:1px solid var(--dlg-line);border-radius:0;text-align:left}
 .room-create-colors>.room-visual-action:disabled{opacity:.5;cursor:default}
+
+.room-create .dlg-btn.primary:hover:not(:disabled){background:var(--room-action);border-color:var(--room-action);color:#fff}
