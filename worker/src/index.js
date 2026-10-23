@@ -1580,7 +1580,7 @@ async function handle(request, env, url, ctx) {
       const deletion = await deleteManagedRoom(env.DB, body.orgId, `b:${String(body.slug)}`, {actorId:deletingSession.github_id,version:body.version});
       if (deletion.error) return json({message:deletion.error}, deletion.status);
       if (!deletion.managed) {
-        await removeBusiness(env.DB, body.orgId, body.slug);
+        if (!(await removeBusiness(env.DB, body.orgId, body.slug))) return json({message:"Room roles changed. Reload before deleting."},409);
         await env.DB.prepare("DELETE FROM conversation_members WHERE org_id = ?1 AND channel = ?2").bind(body.orgId, `b:${body.slug}`).run();
       }
       const unfiled = deletion.managed ? [] : await unfileBusiness(env.DB, body.orgId, String(body.slug));

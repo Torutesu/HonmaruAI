@@ -134,7 +134,13 @@ export async function removeRoomSubject(db, orgId, channel, {actorId,kind,id,ver
 export async function deleteManagedRoom(db,orgId,channel,{actorId,version}) {
   actorId=String(actorId||'');
   const state=await roomRoleState(db,orgId,channel,{includeArchived:true});
-  if(!state?.managed)return {managed:false};
+  if(!state?.managed) {
+    // A concurrently deleted managed room must never fall back to the legacy
+    // physical DELETE, which would erase its private historical boundary.
+    const policy=await db.prepare('SELECT deleted_at FROM hx_room_access WHERE org_id=?1 AND channel=?2').bind(orgId,channel).first();
+    if(policy)return {error:'Room roles changed. Reload before deleting.',status:409};
+    return {managed:false};
+  }
   const membership=await db.prepare("SELECT role,created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId,actorId).first();
   if(!membership)return {error:'Your workspace membership changed. Reload before deleting.',status:409};
   const actor=state.members.find(m=>m.kind==='person'&&m.id===actorId);

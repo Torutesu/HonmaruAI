@@ -214,3 +214,19 @@ test('deleted managed rooms cannot expose old messages or revive by the same nam
     expect(await resolveChannel(env.DB,org,{login},channel,[])).toBeNull();
   }
 });
+
+test('a deletion retry never falls back to physically deleting a managed tombstone',async()=>{
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  await deleteManagedRoom(env.DB,org,channel,{actorId:'creator',version:1});
+  expect(await deleteManagedRoom(env.DB,org,channel,{actorId:'outsider',version:1})).toMatchObject({status:409});
+  expect(await env.DB.prepare("SELECT private FROM businesses WHERE org_id=?1 AND slug='planning'").bind(org).first('private')).toBe(1);
+});
+
+test('legacy physical removal cannot race with managed initialization',async()=>{
+  const {removeBusiness}=await import('../src/db.js');
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  expect(await removeBusiness(env.DB,org,'planning')).toBe(false);
+  expect((await roomRoleState(env.DB,org,channel)).managed).toBe(true);
+  await deleteManagedRoom(env.DB,org,channel,{actorId:'creator',version:1});
+  expect(await removeBusiness(env.DB,org,'planning')).toBe(false);
+});

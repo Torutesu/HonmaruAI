@@ -991,3 +991,10 @@ Added RoomCreateDialog as a not-yet-connected component, following the observed 
 Native Electron fixture verification covered light and dark appearance, visibility steps, name/guidelines entry, color selection and a deliberately rejected local save retaining members. No production API was called by the fixture. The temporary fixture files and Vite/Electron processes were removed/stopped. All Web tests passed (132 files / 949 tests), TypeScript and production Vite build passed. The component is intentionally not presented as a working production creation flow until its atomic backend and remaining role lifecycle paths are connected.
 
 Release b3de38b4: Worker run 39581977613 and its CI Worker job in run 39581977628 completed successfully; the E2E job already passed. Web run 39582144951 had completed successfully. The newer local room-deletion/explicit-membership changes and RoomCreateDialog are separate, not part of that deployed revision.
+
+
+### Resume validation and deletion races — 2026-10-23
+
+The frozen 5f84c223 full Worker run completed successfully: 206 suites / 1,561 tests in 540.71 seconds. A subsequent review found that a deletion retry could treat a managed tombstone as an unmanaged room because active role-state reads exclude deleted rooms. Added an explicit policy check before returning a legacy fallback. Also guarded the legacy physical DELETE in SQL against any managed policy initialized after the route's initial read; a rejected delete now stops before membership cleanup or card unfiling. Three targeted suites / 39 tests passed, including retry and initialization-race regression coverage.
+
+Fetched origin/main on resumption: remote advanced to eb2e7e36 with agent-thread mention behavior and signed iOS release changes. These must be integrated without overwriting their changes before publishing this branch. The previous full-suite evidence predates that integration.

@@ -977,7 +977,10 @@ export async function upsertBusiness(db, orgId, { name, createdBy }) {
 }
 
 export async function removeBusiness(db, orgId, slug) {
-  await db.prepare("DELETE FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).run();
+  // The managed policy can be initialized after the route's initial read.
+  // Never physically delete a room that acquired that policy in between.
+  const result = await db.prepare("DELETE FROM businesses WHERE org_id = ?1 AND slug = ?2 AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2)").bind(orgId, slug).run();
+  return Boolean(result.meta?.changes);
 }
 
 /// A channel's new name. The slug — what cards are filed under — stays.
