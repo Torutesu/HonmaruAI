@@ -2,9 +2,7 @@
 
 const table: Record<string, string> = {
   "Scheduled": "予定中",
-  "Running": "実行中",
   "Completed": "完了",
-  "Failed": "失敗",
   "Cancelled": "キャンセル済み",
 
   "Follow-up status": "フォローアップの状態",
