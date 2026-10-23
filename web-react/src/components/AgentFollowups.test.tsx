@@ -56,3 +56,23 @@ test('load more appends distinct history and preserves the first page on failure
  expect(tree.root.findAllByType('details')).toHaveLength(2)
  expect(more()).toBeUndefined()
 })
+
+test('a pending additional page cannot leak into a newly selected status', async () => {
+ let resolvePage: (value: any) => void = () => {}
+ const api = { followupHistory: vi.fn()
+  .mockResolvedValueOnce({ followups: [{ ...item, status: 'scheduled' }], nextCursor: 'scheduled-page' })
+  .mockImplementationOnce(() => new Promise(resolve => { resolvePage = resolve }))
+  .mockResolvedValueOnce({ followups: [{ ...item, id: 'failed-one' }], nextCursor: null }), cancelFollowup: vi.fn() }
+ await act(async () => { tree = create(<AgentFollowups api={api as any} agentId="agent" />) })
+ let pending: Promise<void> = Promise.resolve()
+ act(() => { pending = tree.root.findAllByType('button').find(b => b.children.includes('Load more'))!.props.onClick() })
+ await act(async () => { tree.root.findByType('select').props.onChange({ target: { value: 'failed' } }) })
+ await act(async () => {
+  resolvePage({ followups: [{ ...item, id: 'old-page', instruction: 'Old scheduled page', status: 'scheduled' }], nextCursor: 'obsolete-cursor' })
+  await pending
+ })
+ expect(tree.root.findAllByType('details')).toHaveLength(1)
+ expect(JSON.stringify(tree.toJSON())).not.toContain('Old scheduled page')
+ expect(tree.root.findAllByType('button').some(b => b.children.includes('Load more'))).toBe(false)
+ expect(api.followupHistory).toHaveBeenLastCalledWith('agent', 'failed')
+})

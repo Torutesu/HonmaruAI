@@ -1855,3 +1855,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - Rechecked authoritative GitHub run state:7120d536 Deploy Worker39974382976 completed success; CI39974382715 and Deploy Web39974382803 completed failure. Both known failed frontend jobs report duplicate translation keys already corrected in704e90f1. Backend publication is successful, but this does not establish frontend publication or visual verification.
 - Current-head full Worker run18754 remains live with Worker sources frozen. Native Honmaru observation still reports the Mac locked; no actual screen result is claimed. Version1.3.13 and parity inventory consistency pass; the inventory remains74 partial/17 missing/2 implemented/2 unverified and is not a completion percentage.
 - Re-ran TypeScript and Vite against currentabb9ba2f sources successfully (/tmp/honmaru-final-history-{types,build}.log); removed generated compiler metadata. Full Worker still running; release remains held for its result.
+
+### 2026-10-24 frozen history release preflight
+- Current Worker run18754 completed success:217 files/1723 tests,607.95s (/tmp/honmaru-worker-history-final-full.log). Worker sources remained unchanged throughout this run.
+- Added a delayed additional-page/status-switch regression; all5 AgentFollowups tests pass (/tmp/honmaru-history-status-race.log). Old scheduled results and cursors cannot overwrite the newly selected failed history. This is behavior coverage, not native visual fidelity proof.
+- Preparing corrected frontend/paged-history publication after prior jobs terminated. Final source TypeScript/Vite and version/parity checks pass; native confirmation remains pending.
