@@ -1572,3 +1572,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 composer keyboard menu follow-up
 - Plus trigger ArrowDown/ArrowUp opens first/last enabled menu action; Home/End/arrows navigate. Tab restores the trigger before native traversal, formatting receives keyboard focus, blur closes stale popovers. IME events retain existing guard.
 - Web147 files/1014 tests and TypeScript passed. Native production verification pending. Prior 9e71d4c6 CI/Worker/Web confirmed still in progress; no overlapping push.
+
+### 2026-10-23 production Webhook light theme
+- Native Honmaru1.3.12: changed original System theme to Light in profile, opened QA room settings → advanced → manage. Empty list loaded; input, labels, dividers and disabled create button rendered without clipping. Screenshot /tmp/honmaru-webhook-light-20261023.png. No credential created. Closed child then parent and restored System (AX selected=1) after inspection.
+- Exact 9e71d4c6 CI jobs: gateway, desktop, relay, web, shared/mobile and E2E successful; Worker test in progress. Worker deploy also in Test; Web deploy waiting for matching Worker. These are live waits, not a deployment failure.
