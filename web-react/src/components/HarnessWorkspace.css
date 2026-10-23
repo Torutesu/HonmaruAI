@@ -667,3 +667,12 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-new-thread { min-width: 28px; min-height: 28px; justify-content: center; padding: 5px 6px; }
 .hx-new-thread[aria-pressed="true"] { border-radius: 7px; padding-inline: 8px; }
 .hx-reply-broadcast { color: var(--hx-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The compact menu keeps formatting reachable when the always-visible Simple
+   toolbar is hidden on phones. Scope this override to the explicit popover. */
+.classic.slk.slk .hx-composer-format .slk-format { display: flex; flex-wrap: wrap; }
+.hx-composer-format { max-width: calc(100vw - 48px); z-index: 40; }
+.hx-composer-add-menu { max-height: min(360px, 60dvh); overflow-y: auto; overscroll-behavior: contain; }
+@media (pointer: coarse) {
+  .hx-composer-add-menu button { min-height: 44px; }
+  .classic.slk.slk .hx-composer-format .slk-fmt { min-width: 36px; min-height: 40px; }
+}

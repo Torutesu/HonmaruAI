@@ -1601,3 +1601,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 new-thread recovered delivery follow-up
 - Failed-send settlement from socket, fresh history, or retry now passes the confirmed server message to the scoped new-thread intent. Existing matching/dedup rules retained; restored outbox entries have no resurrected navigation callback. Microtask for history settlement avoids state changes during render. Scope invalidation still prevents unrelated navigation.
 - Web147 files/1015 tests, TypeScript and Vite build passed. Actual network-loss delivery E2E not yet verified.
+
+### 2026-10-23 narrow composer popover correction
+- Existing ClassicList.css hides .slk-format below719px; new Harness formatting popover inherited that rule and would show no controls. Added more-specific popover-only display override, wrapping, width bound, scrollable menu height and larger coarse-pointer targets. Simple mobile toolbar remains unchanged.
+- Vite production build and diff check passed. Physical mobile/keyboard viewport verification remains pending; desktop screenshot is not evidence for mobile usability.
