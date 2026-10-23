@@ -935,7 +935,7 @@ await step('a laptop shows the inbox beside the card, and the URL says where you
 // in it. Enter takes the highlighted row.
 await step('⌘K finds a card by a word and a screen by its name', async () => {
   const d = desk.pages()[0]
-  await d.keyboard.press('Control+k')
+  await d.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k')
   await d.waitForSelector('.palette-input', { timeout: 5000 })
     .catch(() => { throw new Error('⌘K did not open the palette') })
   await d.fill('.palette-input', 'Revision')
@@ -946,7 +946,7 @@ await step('⌘K finds a card by a word and a screen by its name', async () => {
   await d.waitForFunction(() => /Revision/.test(document.querySelector('.workbench .card-title')?.textContent || ''), null, { timeout: 10000 })
     .catch(() => { throw new Error('Enter in the palette did not open the card') })
   if (await d.$('.palette')) throw new Error('the palette stayed open after Enter')
-  await d.keyboard.press('Control+k')
+  await d.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k')
   await d.waitForSelector('.palette-input', { timeout: 5000 })
   await d.fill('.palette-input', 'Insight')
   await d.keyboard.press('Enter')
@@ -1262,14 +1262,27 @@ await step('the workbench reads in Japanese', async () => {
       }), API)
       throw new Error(`the inbox heading is not in Japanese: ${JSON.stringify(seen)}`)
     })
-  await d.keyboard.press('Control+k')
+  await d.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k')
   await d.waitForSelector('.palette-input', { timeout: 5000 })
   const placeholder = await d.$eval('.palette-input', (el) => el.placeholder)
   if (!/決定/.test(placeholder)) throw new Error(`the palette placeholder is not in Japanese: ${placeholder}`)
   await d.keyboard.press('Escape')
   await d.screenshot({ path: `${SHOTS}/20f-desktop-ja.png` })
-  await setAccountLocale('en')
-  await d.evaluate(() => { localStorage.removeItem('locale') })
+}, {
+  after: async () => {
+    // Restore shared account state even if a Japanese assertion fails.
+    // Otherwise later English-label checks report unrelated failures.
+    const d = desk.pages()[0]
+    await d.evaluate(async (api) => {
+      const response = await fetch(`${api}/me`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') || '' },
+        body: JSON.stringify({ locale: 'en' }),
+      })
+      if (!response.ok) throw new Error('Could not restore the account language')
+      localStorage.removeItem('locale')
+    }, API)
+  },
 })
 
 await step('the workbench holds up in the dark', async () => {
@@ -1979,11 +1992,14 @@ await step('a long reply with an @mention keeps the caret on its words once the 
     const m = await d.evaluate((sel) => {
       const ta = document.querySelector(sel)
       const layer = ta.parentElement.querySelector('.mention-layer')
-      return { bar: ta.offsetWidth - ta.clientWidth, height: ta.offsetHeight, box: ta.scrollHeight, layer: layer.scrollHeight, top: [ta.scrollTop, layer.scrollTop] }
+      return { bar: ta.offsetWidth - ta.clientWidth, height: ta.offsetHeight, clientHeight: ta.clientHeight, box: ta.scrollHeight, layer: layer.scrollHeight, top: [ta.scrollTop, layer.scrollTop] }
     }, box)
     // It grows first, as the channel's box does, and only then scrolls.
     if (m.height < 200) throw new Error(`the reply box does not grow with a long reply: ${JSON.stringify(m)}`)
-    if (m.bar <= 0) throw new Error(`the reply box never scrolled, so this proves nothing: ${JSON.stringify(m)}`)
+    if (m.box <= m.clientHeight || m.top[0] <= 0) throw new Error(`the reply box never scrolled, so this proves nothing: ${JSON.stringify(m)}`)
+    // macOS overlay scrollbars consume no layout width even while scrolling.
+    // Linux CI must still exercise the original width-consuming scrollbar bug.
+    if (process.platform !== 'darwin' && m.bar <= 0) throw new Error(`no width-consuming scrollbar was exercised: ${JSON.stringify(m)}`)
     if (m.box !== m.layer) throw new Error(`the coloured words wrap differently from the box (the caret drifts off them): ${JSON.stringify(m)}`)
     if (m.top[0] !== m.top[1]) throw new Error(`the coloured words do not scroll with the box: ${JSON.stringify(m)}`)
     await d.screenshot({ path: `${SHOTS}/39b-thread-long-reply.png` })

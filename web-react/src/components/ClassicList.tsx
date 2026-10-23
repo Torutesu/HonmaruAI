@@ -1,4 +1,5 @@
 import {RoomVisual} from './RoomVisual'
+import { receiveChannelActivity } from '../utils/channelActivity'
 import {findRoomMessage} from '../utils/findRoomMessage'
 import {HarnessRoomTools} from './HarnessRoomTools'
 import {ReadPositions} from '../utils/readPositions'
@@ -1864,12 +1865,9 @@ export const ClassicList: React.FC<Props> = ({
         return
       }
       if (m.channel.startsWith('g:') && !groupsRef.current.some((g) => g.view === m.channel)) setChannelsTick((n) => n + 1)
-      let isNew = false
       setMessages((prev) => {
         const list = prev[m.channel]
         if (!list) return prev
-        const has = list.some((x) => x.id === m.id)
-        isNew = !has
         // Deleted is gone — its thread with it, replies sent to the
         // conversation too included — never a "was deleted" line; a reply
         // quoting it says so instead, and one quoting an edit quotes the
@@ -1884,9 +1882,7 @@ export const ClassicList: React.FC<Props> = ({
       })
       setReplyingTo((prev) => (prev?.quote.id === m.id ? { ...prev, quote: quoteOf(msg) } : prev))
       setThread((prev) => (prev && prev.parent.id === m.id ? (m.deleted ? null : { ...prev, parent: { ...newerPin(prev.parent, msg), canRenameThread: prev.parent.canRenameThread } }) : prev))
-      if (!m.deleted && !m.editedAt && (isNew || !messagesRef.current[m.channel])) {
-        setActivity((prev) => ({ ...prev, [m.channel]: { channel: m.channel, lastAt: m.createdAt, preview: m.body.slice(0, 120), lastBy: mine ? 'me' : m.authorName, last: msg } }))
-      }
+      setActivity((prev) => receiveChannelActivity(prev, msg))
       if (m.kind === 'ai') {
         setThinking((prev) => ({ ...prev, [m.channel]: false }))
         void loadMessages(m.channel)
