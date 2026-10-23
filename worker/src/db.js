@@ -923,11 +923,14 @@ export function businessSlug(name) {
 export async function listBusinesses(db, orgId, { viewer = null } = {}) {
   const { results } = await db
     .prepare(
-      `SELECT b.slug, b.name, b.created_by, b.created_at, b.private,
+      `SELECT b.slug, b.name, b.created_by, b.created_at, b.private, p.channel AS managed_room,
               (SELECT rc.color FROM hx_room_creations rc WHERE rc.org_id=b.org_id AND rc.channel='b:'||b.slug) AS room_color,
-              CASE WHEN b.private = 1 THEN (SELECT COUNT(*) FROM conversation_members c2 WHERE c2.org_id = ?1 AND c2.channel = 'b:' || b.slug) END AS member_count,
+              CASE WHEN p.channel IS NOT NULL THEN
+                (SELECT COUNT(*) FROM conversation_members c JOIN users cu ON cu.login=c.login JOIN memberships cm ON cm.org_id=c.org_id AND cm.user_github_id=cu.github_id WHERE c.org_id=b.org_id AND c.channel=p.channel)
+                + (SELECT COUNT(*) FROM channel_agents ca JOIN custom_agents a ON a.org_id=ca.org_id AND a.id=ca.agent_id AND a.deleted_at IS NULL WHERE ca.org_id=b.org_id AND ca.channel=p.channel)
+                WHEN b.private = 1 THEN (SELECT COUNT(*) FROM conversation_members c2 WHERE c2.org_id = ?1 AND c2.channel = 'b:' || b.slug) END AS member_count,
               CASE WHEN b.private = 1 AND ?2 IS NOT NULL THEN (SELECT GROUP_CONCAT(c3.login, char(10)) FROM conversation_members c3 WHERE c3.org_id = ?1 AND c3.channel = 'b:' || b.slug) END AS member_logins
-         FROM businesses b
+         FROM businesses b LEFT JOIN hx_room_access p ON p.org_id=b.org_id AND p.channel='b:'||b.slug AND p.deleted_at IS NULL
         WHERE b.org_id = ?1 AND b.archived_at IS NULL AND ((b.private = 0 AND (?2 IS NULL OR NOT EXISTS (
           SELECT 1 FROM memberships gm JOIN users gu ON gu.github_id = gm.user_github_id
            WHERE gm.org_id = ?1 AND gu.login = ?2 AND gm.role = 'guest'))) OR (?2 IS NOT NULL AND EXISTS (
@@ -946,6 +949,7 @@ export async function listBusinesses(db, orgId, { viewer = null } = {}) {
   return Promise.all((results || []).map(async (r) => ({
     slug: r.slug, name: r.name, createdBy: r.created_by, createdAt: r.created_at,
     ...(r.room_color ? { color: r.room_color } : {}),
+    ...(r.managed_room ? { managed: true, memberCount: r.member_count || 0 } : {}),
     ...(r.private ? { private: true, memberCount: r.member_count || 0 } : {}),
     ...(r.private && r.member_logins ? { memberKeys: await Promise.all(String(r.member_logins).split("\n").filter(Boolean).map(key)) } : {}),
   })));

@@ -1124,3 +1124,11 @@ Worker creation/room suites passed 54 tests, including real HTTP auth, guest den
 
 - ec69247f full Worker regression completed: 207 files / 1600 tests pass in 471.95s (`/tmp/honmaru-managed-rooms-worker-full.log`). Release-dependency and migration tooling: 18 tests pass.
 - ec69247f pushed to main; release runs: CI 39900294340, Worker 39900294328, Web 39900294316. The normal push path preserves the matching-Worker gate before Web publication. Completion is not yet established by this entry.
+
+### 2026-10-23 — explicit managed-room membership in details
+
+- Room details now list explicit human participants and assigned custom agents for managed rooms. Workspace-wide connected tools and the synthetic personal AI no longer inflate that room's membership. Legacy Simple details retain their existing behavior.
+- Saved business metadata and the conversation header count active humans plus assigned agents. Detail rows display room roles; invite controls require an eligible participant and agent removal controls distinguish Admin from Member. These controls supplement, rather than replace, existing server mutation authorization.
+- Managed public-room invitations now open the room member picker instead of the workspace invitation flow.
+- Focused Worker regression: room creation, channel panels and businesses, 31 tests pass. Added HTTP assertions cover explicit membership, public nonparticipant and invited guest capabilities, Admin agent removal restrictions, and joining/count changes. Full Web regression: 955 tests pass; TypeScript and Vite builds pass (final role-label adjustment also typechecked/built).
+- Not yet deployed; Kylon's compact member popover and role editing UI remain open.

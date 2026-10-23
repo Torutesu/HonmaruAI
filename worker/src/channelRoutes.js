@@ -1884,6 +1884,14 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (ctx.denied) return ctx.denied;
     const locale = await loadCopy(env, ctx.who.user.locale || "en", { orgId });
     const details = await channelDetails(env.DB, orgId, { resolved: ctx.resolved, viewer: ctx.who.user, members: ctx.members, locale });
+    const roomState = await roomRoleState(env.DB, orgId, ctx.resolved.key);
+    const managed = Boolean(roomState?.managed);
+    const participant = managed ? roomState.members.find(m => m.kind === 'person' && m.id === String(ctx.who.session.github_id)) : null;
+    const canInvite = managed ? Boolean(participant?.eligible) : true;
+    const roomPeople = new Map(managed ? roomState.members.filter(m => m.kind === 'person').map(m => [m.login,m]) : []);
+    const people = managed ? details.members.people.filter(p => roomPeople.has(ctx.members.find(m => m.ref === p.ref)?.login)).map(p => ({
+      ...p, roomRole: roomPeople.get(ctx.members.find(m => m.ref === p.ref)?.login).role,
+    })) : details.members.people;
     // The agents added here, and the ones this person could add.
     const placesAgents = ctx.resolved.kind === "business" || ctx.resolved.kind === "group";
     const guest = placesAgents ? await isGuest(env.DB, orgId, ctx.who.session.github_id) : true;
@@ -1891,19 +1899,20 @@ export async function handleChannels(request, env, url, { route, after }) {
     const nameOf = (login) => ctx.members.find((m) => m.login === login)?.name || null;
     const custom = here.map((a) => ({
       kind: "custom", id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, avatarUrl: a.avatarUrl || null, description: a.description, scope: a.scope,
-      owner: nameOf(a.addedBy), canRemove: !guest,
+      owner: nameOf(a.addedBy), canRemove: !guest && canInvite && (!managed || participant.role === 'admin' || roomState.members.find(m => m.kind === 'agent' && m.id === a.id)?.role !== 'admin'),
+      ...(managed ? {roomRole:roomState.members.find(m => m.kind === 'agent' && m.id === a.id)?.role || 'member'} : {}),
     }));
     const hereIds = new Set(here.map((a) => a.id));
     const hereHandles = new Set(here.map((a) => a.handle));
-    const addable = guest ? [] : (await listAgents(env.DB, orgId, ctx.who.user.login))
+    const addable = guest || !canInvite ? [] : (await listAgents(env.DB, orgId, ctx.who.user.login))
       .filter((a) => !hereIds.has(a.id) && !hereHandles.has(a.handle))
       .map((a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, avatarUrl: a.avatarUrl || null, description: a.description, scope: a.scope }));
-    const agents = [...details.members.agents.slice(0, 1), ...custom, ...details.members.agents.slice(1)];
+    const agents = managed ? custom : [...details.members.agents.slice(0, 1), ...custom, ...details.members.agents.slice(1)];
     return json({
       ...details,
-      channel: { ...details.channel, view: ctx.view },
-      members: { ...details.members, agents },
-      counts: { ...details.counts, members: details.counts.members + custom.length },
+      channel: { ...details.channel, view: ctx.view, ...(managed ? {managed:true,canInvite,joined:Boolean(participant)} : {}) },
+      members: { people, agents },
+      counts: { ...details.counts, members: people.length + agents.length },
       addableAgents: placesAgents ? addable : null,
     });
   }

@@ -31,10 +31,10 @@ export type DetailsTab = 'members' | 'attachments' | 'automations'
 export type NotifyLevel = 'all' | 'default' | 'mentions' | 'mute'
 
 interface Details {
-  channel: { key: string; view: string; kind: 'channel' | 'dm' | 'group'; private?: boolean; name: string; slug: string | null; description: string | null; createdAt: string | null; createdBy: string | null }
+  channel: { key: string; view: string; kind: 'channel' | 'dm' | 'group'; private?: boolean; managed?: boolean; canInvite?: boolean; name: string; slug: string | null; description: string | null; createdAt: string | null; createdBy: string | null }
   members: {
-    people: Array<{ ref: string; name: string; handle: string | null; title: string | null; status: { emoji?: string | null; text?: string | null; until?: string | null } | null; awayUntil: string | null; you: boolean; avatarUrl?: string | null }>
-    agents: Array<{ name: string; kind: 'ai' | 'agent' | 'custom'; owner: string | null; lastSeenAt?: string | null; id?: string; handle?: string; emoji?: string | null; avatarUrl?: string | null; description?: string; canRemove?: boolean }>
+    people: Array<{ roomRole?: 'admin' | 'member'; ref: string; name: string; handle: string | null; title: string | null; status: { emoji?: string | null; text?: string | null; until?: string | null } | null; awayUntil: string | null; you: boolean; avatarUrl?: string | null }>
+    agents: Array<{ roomRole?: 'admin' | 'member'; name: string; kind: 'ai' | 'agent' | 'custom'; owner: string | null; lastSeenAt?: string | null; id?: string; handle?: string; emoji?: string | null; avatarUrl?: string | null; description?: string; canRemove?: boolean }>
   }
   /// The agents you could add here — yours and the team's — or null where
   /// agents are not added (a DM).
@@ -210,7 +210,7 @@ export function ChannelDetails({
   onLevel: (level: NotifyLevel) => void
   /// The channel's own controls — rename, delete — or null in a direct one.
   onSettings: (() => void) | null
-  onInvite: () => void
+  onInvite: (managed?: boolean) => void
   onProfile: (ref: string) => void
   onJump: (messageId: string) => void
   /// What the header counts, as the panel last read it.
@@ -311,7 +311,7 @@ export function ChannelDetails({
           </span>
           <span className="slk-member-main">
             <span className="slk-member-name">{p.name}{p.you && <span className="slk-member-you"> {t('(you)')}</span>}{status?.emoji && <span title={status.text || undefined}> {status.emoji}</span>}</span>
-            {p.title && <span className="slk-member-title">{p.title}</span>}
+            {(p.roomRole || p.title) && <span className="slk-member-title">{p.roomRole ? t(p.roomRole === 'admin' ? 'Admin' : 'Member') : p.title}</span>}
           </span>
         </button>
       </li>
@@ -383,7 +383,7 @@ export function ChannelDetails({
                       <AgentAvatar className="cl-lead cl-app sz-row slk-agent-face" agent={a} />
                       <span className="slk-member-main">
                         <span className="slk-member-name">{a.name} <span className="slk-member-handle">@{a.handle}</span></span>
-                        <span className="slk-member-title">{a.description || (a.owner ? t('Added by {name}', { name: a.owner }) : t('Agent'))}</span>
+                        <span className="slk-member-title">{a.roomRole ? t(a.roomRole === 'admin' ? 'Admin' : 'Member') : a.description || (a.owner ? t('Added by {name}', { name: a.owner }) : t('Agent'))}</span>
                       </span>
                       {a.canRemove && a.id && (
                         <button type="button" className="slk-member-remove" onClick={() => void placeAgent(a.id!, false)} aria-label={t('Remove {name} from here', { name: a.name })} title={t('Remove from here')}>
@@ -405,7 +405,7 @@ export function ChannelDetails({
                 </li>
               ))}
             </ul>
-            {isChannel && <button type="button" className="slk-send slk-details-add" onClick={onInvite}>{t('Add members')}</button>}
+            {isChannel && d?.channel.canInvite !== false && <button type="button" className="slk-send slk-details-add" onClick={()=>onInvite(d?.channel.managed)}>{t('Add members')}</button>}
             {d.addableAgents && d.addableAgents.length > 0 && (
               pickingAgent ? (
                 <div className="slk-agent-picker" role="group" aria-label={t('Add an agent')}>

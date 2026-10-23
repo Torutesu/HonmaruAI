@@ -95,3 +95,32 @@ test('creation HTTP API authenticates, replays the same room, and keeps private 
  expect((await listing.json()).businesses).toEqual([]);
  await Promise.all(pending);
 });
+
+test('managed room details show explicit people and assigned agents, with room-specific capabilities',async()=>{
+ const {default:worker}=await import('../src/index.js');
+ const {createSession}=await import('../src/db.js');
+ const {setRoomRole,joinPublicRoom}=await import('../src/harness/roomRoles.js');
+ const room=await createManagedRoom(env.DB,org,'creator',draft({private:false,agentIds:['helper'],memberRefs:[await memberRef(org,'guest')]}));
+ const pending=[],context={waitUntil:p=>pending.push(p)};
+ const read=async id=>{
+  const token=await createSession(env.DB,id,'test');
+  const response=await worker.fetch(new Request('https://example.com/channels/details?'+new URLSearchParams({orgId:org,channel:room.room.channel}),{headers:{'x-session-token':token}}),env,context);
+  expect(response.status).toBe(200);return response.json();
+ };
+ const creator=await read('creator');
+ expect(creator.channel).toMatchObject({managed:true,joined:true,canInvite:true});
+ expect(creator.members.people.map(p=>[p.name,p.roomRole]).sort()).toEqual([['creator','admin'],['guest','member']]);
+ expect(creator.members.agents.map(a=>[a.id,a.kind,a.canRemove])).toEqual([['helper','custom',true]]);
+ expect(creator.counts.members).toBe(3);
+ expect((await listBusinesses(env.DB,org,{viewer:'creator'})).find(b=>b.slug===room.room.slug)).toMatchObject({managed:true,memberCount:3});
+ const reader=await read('reader');
+ expect(reader.channel).toMatchObject({joined:false,canInvite:false});
+ expect(reader.members.agents[0].canRemove).toBe(false);expect(reader.addableAgents).toEqual([]);
+ const guest=await read('guest');expect(guest.channel.canInvite).toBe(false);expect(guest.members.agents[0].canRemove).toBe(false);
+ await setRoomRole(env.DB,org,room.room.channel,{actorId:'creator',kind:'agent',id:'helper',role:'admin',version:1});
+ await joinPublicRoom(env.DB,org,room.room.channel,'reader');
+ const joined=await read('reader');expect(joined.channel.canInvite).toBe(true);
+ expect(joined.members.agents[0]).toMatchObject({roomRole:'admin',canRemove:false});
+ expect(joined.counts.members).toBe(4);
+ await Promise.all(pending);
+});

@@ -165,6 +165,7 @@ interface Props {
 
 /// One conversation in the sidebar: a channel (a business), a person, or an app.
 interface Thread {
+  managed?: boolean
   color?: string
   key: string
   /// A group is a DM with several people (`g:<id>`).
@@ -593,7 +594,7 @@ export const ClassicList: React.FC<Props> = ({
     const channels = slugs
       .map((slug) => {
         const b = businesses.find((x) => x.slug === slug)
-        return build('channel', `channel:${slug}`, nameOfBusiness(slug), { slug, view: `b:${slug}`, private: Boolean(b?.private), memberCount: b?.memberCount, color: b?.color }, bySlug.get(slug) || [], true)
+        return build('channel', `channel:${slug}`, nameOfBusiness(slug), { slug, view: `b:${slug}`, private: Boolean(b?.private), memberCount: b?.memberCount, managed: b?.managed, color: b?.color }, bySlug.get(slug) || [], true)
       })
       .filter((x): x is Thread => x !== null)
       .map(withTalk)
@@ -4835,7 +4836,7 @@ export const ClassicList: React.FC<Props> = ({
   )
   /// How many people a conversation has: a public channel is everyone.
   const headCount = (th: Thread) => th.kind === 'group' ? (th.refs || []).length + 1
-    : th.kind === 'channel' ? (th.private ? (th.memberCount || 1) : members.length) : 2
+    : th.kind === 'channel' ? (th.managed ? (th.memberCount ?? 0) : th.private ? (th.memberCount || 1) : members.length) : 2
   /// A card in a conversation: react to it, open it, take it back.
   const [cardReacted, setCardReacted] = useState<Record<string, Array<{ emoji: string; count: number; mine?: boolean }>>>({})
   const reactCard = async (c: DecisionCard, emoji: string) => {
@@ -6033,7 +6034,7 @@ export const ClassicList: React.FC<Props> = ({
               level={(prefs[current.view] || 'default') as NotifyLevel}
               onLevel={(lv) => void setPref(current.view!, lv)}
               onSettings={current.kind === 'channel' && current.slug ? () => { forgetWanted(); setSettings(true); setRenaming(null) } : null}
-              onInvite={() => (current.private ? setAddingTo(current.view!) : setInviting('people'))}
+              onInvite={(managed) => ((current.private || managed) ? setAddingTo(current.view!) : setInviting('people'))}
               onProfile={(ref) => void openProfile(ref)}
               onlineRefs={onlineRefs}
               onJump={(id) => void goToCite(current.view!, { id, parentId: null, at: '' })}

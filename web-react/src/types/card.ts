@@ -127,6 +127,7 @@ export interface Proposal {
 }
 
 export interface Business {
+  managed?: boolean
   color?: string
   slug: string
   name: string
