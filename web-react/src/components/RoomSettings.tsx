@@ -4,6 +4,11 @@ import {RoomColorPicker} from './RoomColorPicker'
 import {ROOM_COLORS} from '../utils/roomColors'
 import {useT} from '../utils/i18n'
 import './RoomSettings.css'
+async function boundedRequest<T>(work:(signal:AbortSignal)=>Promise<T>):Promise<T>{
+ const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined
+ try{return await Promise.race([work(controller.signal),new Promise<never>((_,reject)=>{timer=setTimeout(()=>{reject(Error('通信がタイムアウトしました。最新の設定を読み込んでください。'));controller.abort()},15000)})])}
+ finally{clearTimeout(timer)}
+}
 export interface RoomSettingsValue {name:string;color:keyof typeof ROOM_COLORS;mentionedOnly:boolean;version:number;responseVersion:number}
 interface Loaded {settings:RoomSettingsValue;canEdit:boolean;canChangeResponses:boolean}
 export function RoomSettings({api,view,onClose,onSaved}:{api:{httpBase:string;orgId:string;sessionToken:string};view:string;onClose:()=>void;onSaved:()=>void}){
@@ -14,8 +19,11 @@ export function RoomSettings({api,view,onClose,onSaved}:{api:{httpBase:string;or
   const generation=scope.current,read=++reads.current
   setLoading(true);setError('');setConflict(false)
   try{
-   const response=await fetch(`${api.httpBase}/hx/rooms/settings?${new URLSearchParams({orgId:api.orgId,channel:view})}`,{headers:{'x-session-token':api.sessionToken}})
+   const result=await boundedRequest(async signal=>{
+   const response=await fetch(`${api.httpBase}/hx/rooms/settings?${new URLSearchParams({orgId:api.orgId,channel:view})}`,{headers:{'x-session-token':api.sessionToken},signal})
    const result=await response.json();if(!response.ok)throw Error(result.message||'Room settings could not be loaded.')
+   return result
+   })
    if(generation!==scope.current||read!==reads.current)return
    setData(result);setDraft(result.settings)
   }catch(e){if(generation===scope.current&&read===reads.current){setData(null);setError(e instanceof Error?e.message:String(e))}}
@@ -25,14 +33,16 @@ export function RoomSettings({api,view,onClose,onSaved}:{api:{httpBase:string;or
  const changed=!!data&&!!draft&&(draft.name.trim()!==data.settings.name||draft.color!==data.settings.color||draft.mentionedOnly!==data.settings.mentionedOnly)
  const save=async()=>{
   if(pending.current||!data?.canEdit||!draft||!draft.name.trim()||!changed||conflict||loading)return
-  pending.current=true;setBusy(true);setError('');const generation=scope.current
+  pending.current=true;setBusy(true);setError('');const generation=scope.current;let confirmed=false
   try{
-   const response=await fetch(`${api.httpBase}/hx/rooms/settings`,{method:'PUT',headers:{'content-type':'application/json','x-session-token':api.sessionToken},body:JSON.stringify({orgId:api.orgId,channel:view,...draft,name:draft.name.trim()})})
-   const result=await response.json()
+   const {response,result}=await boundedRequest(async signal=>{
+   const response=await fetch(`${api.httpBase}/hx/rooms/settings`,{method:'PUT',headers:{'content-type':'application/json','x-session-token':api.sessionToken},body:JSON.stringify({orgId:api.orgId,channel:view,...draft,name:draft.name.trim()}),signal})
+   const result=await response.json();return {response,result}
+   });confirmed=true
    if(generation!==scope.current)return
    if(!response.ok){if(response.status===409)setConflict(true);throw Error(result.message||'That did not save.')}
    onSaved();onClose()
-  }catch(e){if(generation===scope.current)setError(e instanceof Error?e.message:String(e))}
+  }catch(e){if(generation===scope.current){if(!confirmed){setConflict(true);setError('保存結果を確認できませんでした。入力内容は保持しています。最新の設定を読み込み、保存済みか確認してください。')}else setError(e instanceof Error?e.message:String(e))}}
   finally{if(generation===scope.current){pending.current=false;setBusy(false)}}
  }
  const disabled=busy||loading||!data?.canEdit||conflict

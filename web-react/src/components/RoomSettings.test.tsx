@@ -97,3 +97,40 @@ test('switching rooms releases the old save without allowing it to unlock the ne
  expect(saved).toHaveBeenCalledOnce();expect(close).toHaveBeenCalledOnce()
  act(()=>tree.unmount())
 })
+
+test('stalled saves retain the draft and require readback before retrying',async()=>{
+ vi.useFakeTimers()
+ let finish!:(value:any)=>void
+ const fetcher=vi.fn().mockResolvedValueOnce(loaded()).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve})).mockResolvedValueOnce(loaded({settings:{...settings,name:'Saved remotely',version:5}}))
+ vi.stubGlobal('fetch',fetcher)
+ const close=vi.fn(),saved=vi.fn();let tree!:ReturnType<typeof create>
+ try{
+  await act(async()=>{tree=create(<RoomSettings api={api} view="b:room" onClose={close} onSaved={saved}/>)})
+  act(()=>tree.root.findByProps({'aria-label':'Room name'}).props.onChange({target:{value:'My draft'}}))
+  act(()=>find(tree,'Save').props.onClick())
+  await act(async()=>{await vi.advanceTimersByTimeAsync(15000)})
+  expect(fetcher.mock.calls[1][1].signal.aborted).toBe(true)
+  expect(tree.root.findByProps({'aria-label':'Room name'}).props.value).toBe('My draft')
+  expect(find(tree,'Cancel').props.disabled).toBe(false)
+  expect(find(tree,'Save').props.disabled).toBe(true)
+  await act(async()=>finish(reply({settings})))
+  expect(close).not.toHaveBeenCalled();expect(saved).not.toHaveBeenCalled()
+  await act(async()=>find(tree,'Reload latest settings').props.onClick())
+  expect(tree.root.findByProps({'aria-label':'Room name'}).props.value).toBe('Saved remotely')
+ }finally{if(tree)act(()=>tree.unmount());vi.useRealTimers()}
+})
+
+test('a stalled read body times out and can explicitly reload',async()=>{
+ vi.useFakeTimers()
+ const fetcher=vi.fn().mockResolvedValueOnce({ok:true,json:()=>new Promise(()=>{})}).mockResolvedValueOnce(loaded())
+ vi.stubGlobal('fetch',fetcher);let tree!:ReturnType<typeof create>
+ try{
+  await act(async()=>{tree=create(<RoomSettings api={api} view="b:room" onClose={vi.fn()} onSaved={vi.fn()}/>)})
+  await act(async()=>{await vi.advanceTimersByTimeAsync(15000)})
+  expect(fetcher.mock.calls[0][1].signal.aborted).toBe(true)
+  expect(find(tree,'Save').props.disabled).toBe(true)
+  expect(find(tree,'Reload latest settings').props.disabled).toBe(false)
+  await act(async()=>find(tree,'Reload latest settings').props.onClick())
+  expect(tree.root.findByProps({'aria-label':'Room name'}).props.value).toBe('Planning')
+ }finally{if(tree)act(()=>tree.unmount());vi.useRealTimers()}
+})

@@ -1293,3 +1293,6 @@ Worker creation/room suites passed 54 tests, including real HTTP auth, guest den
 
 - Reset busy/pending state when the settings dialog changes room or account scope. Only the matching save generation can release its pending guard, so an older request cannot unlock or close a newer room's in-flight save.
 - Added a two-room/two-pending-save regression covering editable destination state, stale completion, guarded dismissal and current completion callbacks. Focused seven tests and TypeScript pass. Full Web suite passed; deployment remains pending the previous live CI gates.
+
+- Worker deployment 39927678274 completed successfully. The matching overall CI remains live; do not cancel it with a push.
+- Room settings reads/saves now have a 15-second deadline including JSON-body retrieval. Uncertain writes retain the draft, release busy state, and require explicit readback before resubmission. Regression tests cover stalled read bodies, stalled writes, abort signals, late success and authoritative readback. Full Web 140 files / 988 tests, TypeScript and production build pass. No new provider calls or paid services.
