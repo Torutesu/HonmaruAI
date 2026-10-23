@@ -186,3 +186,22 @@ test("a bad key is said plainly, and nothing is saved as on", async () => {
   const seen = await (await get(`/teammates?${q({ orgId: ORG, provider: "claude" })}`, toru)).json();
   expect(seen.teammate.enabled).toBe(false);
 });
+
+test('external teammates receive current room rules on each turn without changing shared configuration or leaking into other rooms',async()=>{
+ const {loadTeammate,startTeammateRun}=await import('../src/teammates.js');await launch();
+ await env.DB.prepare("INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES (?1,'b:cafe','Cafe rules only',1,'9701',datetime('now'))").bind(ORG).run();
+ await env.DB.prepare("INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES ('personal:other-org','b:cafe','Other workspace secret',1,'9701',datetime('now'))").run();
+ const t=await loadTeammate(env.DB,ORG,'claude');let first,follow,other;
+ anthropic().intercept({path:'/v1/sessions?beta=true',method:'POST'}).reply(200,opts=>{first=JSON.parse(opts.body);return{id:'sesn_rules'}});
+ const args={orgId:ORG,t,key:'b:cafe',threadId:'rules-thread',where:'Cafe',askedBy:'Toru',transcript:[],request:'Do the task',login:'toru'};
+ await startTeammateRun(env,args);
+ expect(first.initial_events[0].content[0].text).toContain('Cafe rules only');expect(first.title).not.toContain('Cafe rules only');expect(first.initial_events[0].content[0].text).not.toContain('Other workspace secret');
+ await env.DB.prepare("UPDATE hx_room_guidelines SET body='',version=2 WHERE org_id=?1 AND channel='b:cafe'").bind(ORG).run();
+ anthropic().intercept({path:'/v1/sessions/sesn_rules/events?beta=true',method:'POST'}).reply(200,opts=>{follow=JSON.parse(opts.body);return{data:[]}});
+ await startTeammateRun(env,{...args,request:'Continue'});
+ const text=follow.events[0].content[0].text;expect(text).toContain('revision 2');expect(text).toContain('empty string means no room-specific rules');expect(text).not.toContain('Cafe rules only');
+ anthropic().intercept({path:'/v1/sessions?beta=true',method:'POST'}).reply(200,opts=>{other=JSON.parse(opts.body);return{id:'sesn_other'}});
+ await startTeammateRun(env,{...args,key:'b:other',threadId:'other-thread'});
+ expect(other.initial_events[0].content[0].text).not.toContain('Current room guidelines');
+ expect((await loadTeammate(env.DB,ORG,'claude')).instructions).toBe('Keep answers short.');
+});

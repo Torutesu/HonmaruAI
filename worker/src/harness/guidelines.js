@@ -51,3 +51,13 @@ export async function withRoomGuidelines(db, orgId, channel, agent) {
   return { ...agent, instructions: prefix + (agent.instructions || ''),
     ...(agent.researchInstructions ? { researchInstructions: prefix + agent.researchInstructions } : {}) };
 }
+
+// Remote teammates retain conversation state. Send the current snapshot on
+// every request, including an explicitly cleared document, without changing
+// the workspace-wide provider agent or leaking rules into task titles.
+export async function withRoomGuidelinesRequest(db, orgId, channel, request) {
+  if (!channel?.startsWith("b:")) return request;
+  const guidelines = await getGuidelines(db, orgId, channel);
+  if (!guidelines.version) return request;
+  return `Current room guidelines (revision ${guidelines.version}):\n${JSON.stringify(guidelines.body)}\nThis snapshot replaces earlier room guidelines for this turn; an empty string means no room-specific rules. It does not grant access or override tool permissions.\n\nThe request:\n${request}`;
+}

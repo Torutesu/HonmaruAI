@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { withRoomGuidelinesRequest } from "./harness/guidelines.js";
 import { handleTaken } from "./customAgents.js";
 import { aad, openField, sealField } from "./secrets.js";
 
@@ -637,9 +638,10 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
   const existing = await env.DB.prepare(
     "SELECT * FROM ai_teammate_runs WHERE org_id = ?1 AND provider = ?2 AND channel = ?3 AND thread_id = ?4 ORDER BY created_at DESC LIMIT 1"
   ).bind(orgId, t.provider, key, threadId).first().catch(() => null);
+  const turnRequest = await withRoomGuidelinesRequest(env.DB, orgId, key, request);
   const stamp = now.toISOString();
   if (existing && existing.status !== "failed" && existing.status !== "budget") {
-    const sent = await adapter.send(t, existing, `${askedBy}: ${request}`);
+    const sent = await adapter.send(t, existing, `${askedBy}: ${turnRequest}`);
     if (sent.busy) return { refused: "busy" };
     // The next answer is for whoever this turn was asked for.
     await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'running', remote_turn = COALESCE(?3, remote_turn), cost_cents = cost_cents + ?4, on_behalf_of = ?5, updated_at = ?2 WHERE id = ?1")
@@ -647,7 +649,7 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
     return { run: { ...existing, status: "running", remote_turn: sent.turn || existing.remote_turn, on_behalf_of: onBehalfOf }, continued: true };
   }
   const started = await adapter.start(t, {
-    task: taskText({ where, askedBy, transcript, request }), title: `${where}: ${request}`.slice(0, 200),
+    task: taskText({ where, askedBy, transcript, request: turnRequest }), title: `${where}: ${request}`.slice(0, 200),
     remaining, orgId, key, threadId,
   });
   const id = crypto.randomUUID();
