@@ -118,7 +118,8 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
           `Follow-up you scheduled on ${String(r.created_at).slice(0, 10)}: ${r.instruction}`,
           { tools: prepared.skillTools, fallbackSystem: `You are ${agent.name}. Complete your scheduled follow-up and answer briefly.\n\n${agent.instructions}` },
         );
-        if (answer) body = answer;
+        if (!answer) throw new Error("The follow-up did not receive a result. No completion was posted.");
+        body = answer;
       } else {
         body = `⏰ Follow-up: ${r.instruction}`;
       }

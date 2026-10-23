@@ -675,3 +675,17 @@ test.each(['workflow', 'followup'])('%s reads an installed skill through its exe
   ]);
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM ai_reservations').first()).n).toBe(0);
 });
+
+test("a follow-up with no model result fails instead of posting its instruction as a completed answer", async () => {
+  const made = await (await send("POST", "/followups", mika, { orgId: ORG, channel: "b:ops", instruction: "Verify the invoice payment", minutes: 1 })).json();
+  fetchMock.activate();
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(503, "Unavailable");
+  try {
+    expect(await runDueFollowups({ ...env, OPENAI_API_KEY: "sk-test" }, { now: new Date(Date.now() + 120000) })).toBe(0);
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+  const result = await env.DB.prepare("SELECT status, result FROM hx_followups WHERE org_id = ?1 AND id = ?2").bind(ORG, made.followup.id).first();
+  expect(result.status).toBe("failed");
+  expect(result.result).toContain("did not receive a result");
+  expect((await messages(mika)).some(m => m.body.includes("Verify the invoice payment"))).toBe(false);
+});
