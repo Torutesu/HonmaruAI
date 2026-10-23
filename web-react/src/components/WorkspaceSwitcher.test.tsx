@@ -22,3 +22,22 @@ it('Escape dismisses only the workspace menu, restores focus and leaves IME inpu
   act(()=>tree.unmount())
  }finally{vi.unstubAllGlobals()}
 })
+
+it('Escape from workspace creation does not close the underlying conversation',()=>{
+ const listeners=new Map<string,(e:any)=>void>(),focus=vi.fn()
+ vi.stubGlobal('window',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
+ vi.stubGlobal('document',{addEventListener:(type:string,fn:any)=>listeners.set(type,fn),removeEventListener:(type:string)=>listeners.delete(type)})
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({workspaces:[]})}))
+ let tree!:ReturnType<typeof create>
+ try{
+  act(()=>{tree=create(<WorkspaceSwitcher workspaces={[]} currentId="team:one" api={{httpBase:'https://example.test',sessionToken:'test'}} onSwitch={vi.fn()} onSettings={vi.fn()} onCreate={vi.fn()} onJoin={vi.fn()} onLogout={vi.fn()}/>,{createNodeMock:()=>({querySelector:()=>({focus})})})})
+  act(()=>tree.root.findByProps({className:'ws-button'}).props.onClick())
+  act(()=>tree.root.findByProps({'data-add-workspace':'1'}).props.onClick())
+  expect(tree.root.findAllByProps({'data-ws-create':'1'})).toHaveLength(1)
+  const event={key:'Escape',preventDefault:vi.fn(),stopPropagation:vi.fn()}
+  act(()=>listeners.get('keydown')!(event))
+  expect(event.preventDefault).toHaveBeenCalledOnce();expect(event.stopPropagation).toHaveBeenCalledOnce()
+  expect(focus).toHaveBeenCalledOnce();expect(tree.root.findAllByProps({'data-ws-create':'1'})).toHaveLength(0)
+  act(()=>tree.unmount())
+ }finally{vi.unstubAllGlobals()}
+})

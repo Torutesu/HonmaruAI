@@ -165,7 +165,7 @@ export const WorkspaceSwitcher: React.FC<Props> = ({ workspaces, currentId, onSw
         </div>
       )}
       {adding && api && (
-        <AddWorkspace api={api} onClose={() => setAdding(false)} onDone={(orgId) => { setAdding(false); onSwitch(orgId) }} onJoin={onJoin} />
+        <AddWorkspace api={api} onClose={() => { setAdding(false); box.current?.querySelector<HTMLButtonElement>('.ws-button')?.focus() }} onDone={(orgId) => { setAdding(false); onSwitch(orgId) }} onJoin={onJoin} />
       )}
     </div>
   )
@@ -187,7 +187,7 @@ const AddWorkspace: React.FC<{
   const input = useRef<HTMLInputElement>(null)
   useEffect(() => { if (mode !== 'choose') requestAnimationFrame(() => input.current?.focus()) }, [mode])
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !composing(e)) onClose() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !composing(e)) { e.preventDefault(); e.stopPropagation(); onClose() } }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
