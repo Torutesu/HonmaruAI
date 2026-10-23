@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { harnessApi, type Followup } from '../utils/harness'
 import { useT } from '../utils/i18n'
 
@@ -9,13 +9,17 @@ export function AgentFollowups({ api, agentId }: { api: ReturnType<typeof harnes
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [refresh, setRefresh] = useState(0)
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [pageBusy, setPageBusy] = useState(false)
+  const generation = useRef(0)
   useEffect(() => {
+    const version = ++generation.current
     let live = true
-    setItems(null); setError('')
-    api.followups(undefined, status, agentId).then(result => {
-      if (live) setItems(result.followups.filter(item => item.agentId === agentId))
+    setItems(null); setError(''); setNextCursor(null); setPageBusy(false)
+    api.followupHistory(agentId, status).then(result => {
+      if (live && version === generation.current) { setItems(result.followups.filter(item => item.agentId === agentId)); setNextCursor(result.nextCursor) }
     }).catch(e => { if (live) setError(e instanceof Error ? e.message : String(e)) })
-    return () => { live = false }
+    return () => { live = false; ++generation.current }
   }, [api, agentId, status, refresh])
   const labels: Record<string, string> = { scheduled: 'Scheduled', running: 'Running', done: 'Completed', failed: 'Failed', cancelled: 'Cancelled' }
   return <section aria-label={t('Follow-ups')}>
@@ -36,5 +40,16 @@ export function AgentFollowups({ api, agentId }: { api: ReturnType<typeof harnes
         finally { setBusy(false) }
       }}>{t('Cancel')}</button>}
     </div>)}</div>
+    {nextCursor && <button className="btn-text" disabled={busy || pageBusy} onClick={async () => {
+      const version = generation.current
+      setPageBusy(true); setError('')
+      try {
+        const result = await api.followupHistory(agentId, status, nextCursor)
+        if (version !== generation.current) return
+        setItems(current => [...new Map([...(current || []), ...result.followups.filter(item => item.agentId === agentId)].map(item => [item.id, item])).values()])
+        setNextCursor(result.nextCursor)
+      } catch (e) { if (version === generation.current) setError(e instanceof Error ? e.message : String(e)) }
+      finally { if (version === generation.current) setPageBusy(false) }
+    }}>{t(pageBusy ? 'Loading…' : 'Load more')}</button>}
   </section>
 }

@@ -53,7 +53,7 @@ import { skillMarkdown } from "./skillMarkdown.js";
 import { workflowFromPrompt } from './workflowGeneration.js';
 import { completer } from "./model.js";
 import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
-import { listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
+import { followupHistory, listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
 import { onRowChange } from "./workflows.js";
 import { profilesFor, mayAccessAgent } from "./agents.js";
 import { listAgents } from "../customAgents.js";
@@ -428,6 +428,10 @@ export async function handleHarness(request, env, url, context = {}) {
   if (parts[0] === "followups") {
     const [, fuId] = parts;
     if (!fuId && request.method === "GET") {
+      if (url.searchParams.get("paged") === "1") {
+        const result = await followupHistory(env.DB, orgId, { channel: url.searchParams.get("channel") || undefined, agentId: url.searchParams.get("agentId") || undefined, status: url.searchParams.get("status") || "scheduled", viewerId: me, cursor: url.searchParams.get("cursor") });
+        return result.error ? json({ message: result.error }, result.status) : json(result);
+      }
       return json({ followups: await listFollowups(env.DB, orgId, { channel: url.searchParams.get("channel") || undefined, agentId: url.searchParams.get("agentId") || undefined, status: url.searchParams.get("status") || "scheduled", viewerId: me }) });
     }
     if (!fuId && request.method === "POST") {

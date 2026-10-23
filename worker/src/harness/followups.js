@@ -54,6 +54,40 @@ export async function listFollowups(db, orgId, { channel, agentId, status = "sch
   return visible;
 }
 
+export async function followupHistory(db, orgId, { channel, agentId, status = "scheduled", viewerId, cursor } = {}) {
+  const scope = [channel || null, agentId || null, status];
+  let after = null;
+  if (cursor) {
+    try {
+      const decoded = JSON.parse(cursor);
+      if (!Array.isArray(decoded) || decoded.length !== 5 || JSON.stringify(decoded.slice(0, 3)) !== JSON.stringify(scope)
+        || typeof decoded[3] !== 'string' || decoded[3].length > 40 || !Number.isFinite(Date.parse(decoded[3]))
+        || typeof decoded[4] !== 'string' || !decoded[4] || decoded[4].length > 100) throw new Error();
+      after = decoded.slice(3);
+    } catch { return { error: "Invalid follow-up cursor.", status: 400 }; }
+  }
+  const visible = [], access = new Map();
+  let scanned = 0;
+  while (scanned < 10000) {
+    const { results = [] } = await db.prepare(`SELECT * FROM hx_followups WHERE org_id = ?1 AND status = ?2
+      AND (?3 IS NULL OR channel = ?3) AND (?4 IS NULL OR agent_id = ?4)
+      AND (?5 IS NULL OR due_at > ?5 OR (due_at = ?5 AND id > ?6))
+      ORDER BY due_at, id LIMIT 200`).bind(orgId, status, channel || null, agentId || null, after?.[0] || null, after?.[1] || null).all();
+    for (const row of results) {
+      scanned++; after = [row.due_at, row.id];
+      if (!access.has(row.channel)) access.set(row.channel, Boolean(viewerId && await mayUseConversation(db, orgId, viewerId, row.channel)));
+      if (!access.get(row.channel)) continue;
+      visible.push(pub(row));
+      if (visible.length > 50) {
+        const last = visible[49];
+        return { followups: visible.slice(0, 50), nextCursor: JSON.stringify([...scope, last.dueAt, last.id]) };
+      }
+    }
+    if (results.length < 200) return { followups: visible, nextCursor: null };
+  }
+  return { error: "Too many inaccessible follow-ups. Narrow the history to a conversation.", status: 503 };
+}
+
 export async function cancelFollowup(db, orgId, id) {
   const res = await db.prepare("UPDATE hx_followups SET status = 'cancelled', done_at = ?1 WHERE id = ?2 AND org_id = ?3 AND status = 'scheduled'").bind(now(), id, orgId).run();
   return res.meta?.changes ? { cancelled: true } : { error: "Nothing scheduled by that id.", status: 404 };

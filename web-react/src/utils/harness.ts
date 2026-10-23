@@ -170,6 +170,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     runWorkflow: (id: string, text: string) => call<{ run: Run }>('POST', `/workflows/${id}/run`, { text }),
 
     followups: (channel?: string, status = 'scheduled', agentId?: string) => call<{ followups: Followup[] }>('GET', '/followups', undefined, { ...(channel ? { channel } : {}), ...(agentId ? { agentId } : {}), status }),
+    followupHistory: (agentId: string, status: string, cursor?: string) => call<{ followups: Followup[]; nextCursor: string | null }>('GET', '/followups', undefined, { agentId, status, paged: '1', ...(cursor ? { cursor } : {}) }),
     cancelFollowup: (id: string) => call<{ cancelled: boolean }>('DELETE', `/followups/${id}`),
     approvals: () => call<{
       toDecide: Array<{ id: string; title: string; summary?: string; kind: string; source: string | null; createdAt: string }>

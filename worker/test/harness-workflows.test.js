@@ -702,3 +702,19 @@ test("follow-up agent filtering happens before the workspace limit and preserves
   expect(response.status).toBe(200);
   expect((await response.json()).followups.map(f => f.id)).toEqual(['target_visible']);
 });
+
+test("follow-up history pages use visible records and stable tied-date ordering", async () => {
+  const insert = env.DB.prepare("INSERT INTO hx_followups (id,org_id,channel,agent_id,instruction,due_at,status,created_by,created_at) VALUES (?1,?2,?3,'paged-agent','history','2026-10-01T00:00:00Z','failed','maker','2026-10-01T00:00:00Z')");
+  await env.DB.batch(Array.from({length:55},(_,i)=>insert.bind(`visible_${String(i).padStart(3,'0')}`,ORG,'b:ops')));
+  await env.DB.batch(Array.from({length:201},(_,i)=>insert.bind(`hidden_${i}`,ORG,'b:not-accessible')));
+  const query={orgId:ORG,status:'failed',agentId:'paged-agent',paged:'1'};
+  const first=await (await get(`/followups?${q(query)}`,mika)).json();
+  expect(first.followups).toHaveLength(50);
+  expect(first.nextCursor).not.toContain('hidden_');
+  const second=await (await get(`/followups?${q({...query,cursor:first.nextCursor})}`,mika)).json();
+  expect(second.followups).toHaveLength(5);
+  expect(second.nextCursor).toBeNull();
+  expect(new Set([...first.followups,...second.followups].map(x=>x.id)).size).toBe(55);
+  expect((await get(`/followups?${q({...query,status:'done',cursor:first.nextCursor})}`,mika)).status).toBe(400);
+  expect((await get(`/followups?${q({...query,cursor:'not-json'})}`,mika)).status).toBe(400);
+});
