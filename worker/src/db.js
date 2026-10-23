@@ -924,6 +924,7 @@ export async function listBusinesses(db, orgId, { viewer = null } = {}) {
   const { results } = await db
     .prepare(
       `SELECT b.slug, b.name, b.created_by, b.created_at, b.private,
+              (SELECT rc.color FROM hx_room_creations rc WHERE rc.org_id=b.org_id AND rc.channel='b:'||b.slug) AS room_color,
               CASE WHEN b.private = 1 THEN (SELECT COUNT(*) FROM conversation_members c2 WHERE c2.org_id = ?1 AND c2.channel = 'b:' || b.slug) END AS member_count,
               CASE WHEN b.private = 1 AND ?2 IS NOT NULL THEN (SELECT GROUP_CONCAT(c3.login, char(10)) FROM conversation_members c3 WHERE c3.org_id = ?1 AND c3.channel = 'b:' || b.slug) END AS member_logins
          FROM businesses b
@@ -944,6 +945,7 @@ export async function listBusinesses(db, orgId, { viewer = null } = {}) {
   };
   return Promise.all((results || []).map(async (r) => ({
     slug: r.slug, name: r.name, createdBy: r.created_by, createdAt: r.created_at,
+    ...(r.room_color ? { color: r.room_color } : {}),
     ...(r.private ? { private: true, memberCount: r.member_count || 0 } : {}),
     ...(r.private && r.member_logins ? { memberKeys: await Promise.all(String(r.member_logins).split("\n").filter(Boolean).map(key)) } : {}),
   })));

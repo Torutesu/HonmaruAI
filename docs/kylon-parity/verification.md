@@ -1114,3 +1114,10 @@ The admin API's unmanaged-room fallback now performs additions/removals in one D
 Added authenticated/rate-limited POST `/channels/rooms`, calling the atomic creation core and returning the caller's authorized business list. Creation announcements compute a separate visible list for each workspace member; private room names are not broadcast to outsiders. Identical retries return 200 with the same identity; a first successful creation returns 201. Harness New room and the room-section add button open the three-step dialog; Dashboard submits the draft, updates the business list and selects the new conversation. Simple keeps its inline channel form. Late completion after the workspace changes does not navigate the next workspace.
 
 Worker creation/room suites passed 54 tests, including real HTTP auth, guest denial, idempotent replay and private-room exclusion from another member's list. Dialog suites passed 7 tests; TypeScript passed. This is local wiring, not a production activation claim. Integrated native creation, color display, remaining lifecycle/security paths and full regression are still required before publishing this batch.
+
+### 2026-10-23 — room color restoration and creation UI verification
+
+- Managed room creation colors now survive business-list reloads; Harness renders the corresponding room/locked-room glyph in that color. Simple mode retains its existing hash/lock rendering. The API test checks saved color and private-room exclusion for a nonparticipant.
+- Local native Electron preview verified dark and light creation steps, palette opening, member selection, Japanese labels/input and final callback payload (name, public visibility, color, human/agent IDs and retry ID). This was an isolated UI fixture, not a production room creation or an integrated API test. Temporary preview source files were removed afterward.
+- Full Web regression: 133 files, 955 tests pass. TypeScript project build and Vite production build pass. Existing bundle-size/dynamic-import warnings remain.
+- Full Worker regression is running against this code snapshot; production deployment is still pending at this entry.

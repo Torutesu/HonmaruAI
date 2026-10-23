@@ -1,3 +1,4 @@
+import { ROOM_COLORS } from '../utils/roomColors'
 import { RoomCreateDialog, type RoomCreateInput } from './RoomCreateDialog'
 import { RoomJoinDialog } from './RoomJoinDialog'
 import { ThreadReferences } from './ThreadReferences'
@@ -164,6 +165,7 @@ interface Props {
 
 /// One conversation in the sidebar: a channel (a business), a person, or an app.
 interface Thread {
+  color?: string
   key: string
   /// A group is a DM with several people (`g:<id>`).
   kind: 'channel' | 'person' | 'group' | 'app' | 'agent'
@@ -591,7 +593,7 @@ export const ClassicList: React.FC<Props> = ({
     const channels = slugs
       .map((slug) => {
         const b = businesses.find((x) => x.slug === slug)
-        return build('channel', `channel:${slug}`, nameOfBusiness(slug), { slug, view: `b:${slug}`, private: Boolean(b?.private), memberCount: b?.memberCount }, bySlug.get(slug) || [], true)
+        return build('channel', `channel:${slug}`, nameOfBusiness(slug), { slug, view: `b:${slug}`, private: Boolean(b?.private), memberCount: b?.memberCount, color: b?.color }, bySlug.get(slug) || [], true)
       })
       .filter((x): x is Thread => x !== null)
       .map(withTalk)
@@ -1283,6 +1285,7 @@ export const ClassicList: React.FC<Props> = ({
   const lead = (thread: Thread, size: 'row' | 'head') => {
     const online = thread.login ? presence[thread.login] === 'online' : false
     if (thread.kind === 'channel') {
+      if (harness) return <span className={`cl-lead cl-hash sz-${size}`} style={{color: ROOM_COLORS[thread.color as keyof typeof ROOM_COLORS] || ROOM_COLORS.teal}} aria-hidden="true"><Icon name={thread.private ? 'room-lock' : 'room'} size={size === 'head' ? 18 : 16}/></span>
       return thread.private
         ? <span className={`cl-lead cl-hash cl-lock sz-${size}`} aria-hidden="true"><Icon name="lock" size={size === 'head' ? 16 : 13} /></span>
         : <span className={`cl-lead cl-hash sz-${size}`} aria-hidden="true">#</span>

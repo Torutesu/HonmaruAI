@@ -4,7 +4,8 @@ import {Icon} from './Icon'
 import {useT} from '../utils/i18n'
 import './RoomCreateDialog.css'
 
-export const ROOM_COLORS={teal:'#4b8b80',olive:'#7b8056',blue:'#668ec1',purple:'#9978b9',pink:'#bd799b',orange:'#c48b57',red:'#bb7474',gray:'#858585'} as const
+import {ROOM_COLORS} from '../utils/roomColors'
+export {ROOM_COLORS} from '../utils/roomColors'
 export interface RoomPerson {id:string;kind:'person'|'agent';name:string;avatarUrl?:string;selected?:boolean}
 export interface RoomCreateInput {requestId:string;name:string;private:boolean;guidelines:string;color:keyof typeof ROOM_COLORS;memberRefs:string[];agentIds:string[]}
 export function RoomCreateDialog({people,onCreate,onClose}:{people:RoomPerson[];onCreate:(input:RoomCreateInput)=>Promise<void>;onClose:()=>void}) {

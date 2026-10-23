@@ -1,6 +1,6 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,test,expect} from 'vitest';
-import {upsertUser,upsertMembership} from '../src/db.js';
+import {upsertUser,upsertMembership,listBusinesses} from '../src/db.js';
 import {memberRef} from '../src/team.js';
 import {createManagedRoom} from '../src/harness/roomCreation.js';
 import {roomRoleState,deleteManagedRoom} from '../src/harness/roomRoles.js';
@@ -21,6 +21,8 @@ test('creates a complete private room with selected people, agents, color, guide
  expect(state.members.map(m=>[m.id,m.role]).sort()).toEqual([['creator','admin'],['helper','member'],['reader','member']]);
  expect(await env.DB.prepare('SELECT body FROM hx_room_guidelines WHERE org_id=?1 AND channel=?2').bind(org,result.room.channel).first('body')).toBe('Use clear decisions.');
  expect(result.room.color).toBe('teal');
+ expect((await listBusinesses(env.DB,org,{viewer:'creator'})).find(room=>room.slug===result.room.slug)?.color).toBe('teal');
+ expect(await listBusinesses(env.DB,org,{viewer:'guest'})).toEqual([]);
 });
 test('concurrent identical retries create only one room; changed payload cannot reuse the request',async()=>{
  const results=await Promise.all([createManagedRoom(env.DB,org,'creator',draft()),createManagedRoom(env.DB,org,'creator',draft())]);
