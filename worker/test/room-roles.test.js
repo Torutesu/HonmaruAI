@@ -274,3 +274,19 @@ test('bulk edits compare the exact transaction snapshot to the authorized member
   expect(state.members.some(m=>m.id==='reader')).toBe(true);
   expect(state.members.some(m=>m.id==='outsider')).toBe(false);
 });
+
+test('guest demotion cannot strand a room and never revives old admin grants',async()=>{
+  const {changeRole,memberRef}=await import('../src/team.js');
+  await upsertMembership(env.DB,org,'outsider','owner');
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?1,?2,'outsider','owner joined')").bind(org,channel).run();
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  const input={orgId:org,actorId:'outsider',ref:await memberRef(org,'creator'),role:'guest',channels:['planning']};
+  expect(await changeRole(env,input)).toMatchObject({status:409,code:'last-room-admin'});
+  expect(await env.DB.prepare("SELECT role FROM memberships WHERE org_id=?1 AND user_github_id='creator'").bind(org).first('role')).toBe('member');
+  await change('creator','person','reader','admin',1);
+  expect(await changeRole(env,input)).toMatchObject({ok:true});
+  expect(await changeRole(env,{...input,role:'member'})).toMatchObject({ok:true});
+  const state=await roomRoleState(env.DB,org,channel);
+  expect(state.members.find(m=>m.id==='creator').role).toBe('member');
+  expect(state.members.find(m=>m.id==='reader').role).toBe('admin');
+});

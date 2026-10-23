@@ -208,3 +208,23 @@ export async function changeManagedRoomMembers(db,orgId,channel,{actorId,adding=
   ]);
   return result[0].meta?.changes?{managed:true}:{error:'Room membership changed. Reload before saving.',status:409};
 }
+
+// Parameters: ?1 workspace, ?2 departing/demoted human. Archived rooms still
+// need an administrator; deleted rooms do not. Agent admins cannot substitute.
+export const LAST_HUMAN_ROOM_ADMIN = `EXISTS(
+ SELECT 1 FROM hx_room_roles r
+ JOIN hx_room_access p ON p.org_id=r.org_id AND p.channel=r.channel AND p.deleted_at IS NULL
+ JOIN businesses b ON b.org_id=r.org_id AND 'b:'||b.slug=r.channel
+ JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.subject_id AND m.role!='guest'
+ JOIN users u ON u.github_id=m.user_github_id
+ JOIN conversation_members c ON c.org_id=r.org_id AND c.channel=r.channel AND c.login=u.login
+ WHERE r.org_id=?1 AND r.subject_kind='person' AND r.subject_id=?2 AND r.role='admin'
+ AND r.member_since=m.created_at||'/'||c.added_at
+ AND NOT EXISTS(
+  SELECT 1 FROM hx_room_roles other
+  JOIN memberships om ON om.org_id=other.org_id AND om.user_github_id=other.subject_id AND om.role!='guest'
+  JOIN users ou ON ou.github_id=om.user_github_id
+  JOIN conversation_members oc ON oc.org_id=other.org_id AND oc.channel=other.channel AND oc.login=ou.login
+  WHERE other.org_id=r.org_id AND other.channel=r.channel AND other.subject_kind='person'
+   AND other.subject_id!=?2 AND other.role='admin' AND other.member_since=om.created_at||'/'||oc.added_at
+ ))`;

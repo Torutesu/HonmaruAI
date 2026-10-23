@@ -1020,3 +1020,10 @@ RoomCreateDialog now preserves the request identifier for identical retries and 
 Merged Worker snapshot 09450d93 passed all 206 suites / 1,563 tests in 437.73s. Subsequent implementation adds managed-room member edits to the admin API: adding and removing are gated by one room-version claim, the full live role/membership snapshot, and the added members' workspace membership stamps. A rejected removal cannot leave additions partially applied. The last eligible human admin is retained; an ordinary room member cannot remove admins; archived/deleted managed rooms never fall back to legacy mutation. Workspace API authority does not implicitly grant room-admin membership.
 
 Targeted verification passed 2 suites / 36 tests, including the real admin API's rejected last-admin removal with an addition, subsequent successful addition, and a rejoining add target causing no partial changes. Remaining activation dependencies in the prior audit still apply, especially guest demotion and workspace departure handoff. These changes are not yet deployed.
+
+
+### Guest demotion and room administration — 2026-10-23
+
+Workspace role changes to guest now include a live SQL last-human-room-admin condition. It includes archived, nondeleted managed rooms and valid workspace/room join stamps; agent admins cannot replace the last human. A successful guest change increments affected room policy versions and clears that person's room grants in the same D1 batch, so subsequent promotion to ordinary membership cannot restore old room administration. Existing owner checks and Simple behavior remain in place.
+
+Verification: room roles, team, owners and guest limits suites passed (4 files / 68 tests). The new regression verifies rejection before a successor exists, successful demotion after another human is made admin, and no grant resurrection after promotion. Remaining limitations: automatic membership pruning/account deletion and full workspace departure handoff still need integration; no managed-room creation API is enabled yet.

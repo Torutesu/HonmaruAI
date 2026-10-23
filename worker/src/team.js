@@ -1,3 +1,4 @@
+import { LAST_HUMAN_ROOM_ADMIN } from './harness/roomRoles.js';
 // Seeing a team, not only adding to it.
 //
 // Inviting someone was the whole of team management: there was no way to see
@@ -493,10 +494,20 @@ export async function changeRole(env, { orgId, actorId, ref, role, channels }) {
   if (to !== target.role) {
     // An owner stops being one only while another owner stays, decided by the
     // write itself: two owners stepping down at once cannot both go.
-    const out = await env.DB.prepare(`UPDATE memberships SET role = ?3 WHERE org_id = ?1 AND user_github_id = ?2${target.role === "owner" ? ANOTHER_OWNER : ""}`)
-      .bind(orgId, target.userId, to).run();
+    const update = env.DB.prepare(`UPDATE memberships SET role = ?3 WHERE org_id = ?1 AND user_github_id = ?2${target.role === "owner" ? ANOTHER_OWNER : ""}${to === "guest" ? ` AND NOT ${LAST_HUMAN_ROOM_ADMIN}` : ""}`)
+      .bind(orgId, target.userId, to);
+    const out = to === "guest" ? (await env.DB.batch([
+      update,
+      env.DB.prepare(`UPDATE hx_room_access SET version=version+1 WHERE org_id=?1 AND channel IN(SELECT channel FROM hx_room_roles WHERE org_id=?1 AND subject_kind='person' AND subject_id=?2)
+        AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND role='guest')`).bind(orgId,target.userId),
+      env.DB.prepare(`DELETE FROM hx_room_roles WHERE org_id=?1 AND subject_kind='person' AND subject_id=?2
+        AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND role='guest')`).bind(orgId,target.userId),
+    ]))[0] : await update.run();
     if (target.role === "owner" && !(out?.meta?.changes > 0)) {
       return { error: self ? "You are this workspace's only owner. Make someone else an owner first." : "This is the workspace's only owner. Make someone else an owner first.", status: 409, code: "last-owner" };
+    }
+    if (to === "guest" && !(out?.meta?.changes > 0)) {
+      return {error:"Assign another human room admin before changing this member to a guest.",status:409,code:"last-room-admin"};
     }
   }
   if (chosen) {
