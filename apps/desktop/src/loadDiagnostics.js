@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, statSync } from 'node:fs'
-const EVENTS = new Set(['inspect-start', 'inspect-visible', 'inspect-error', 'inspect-timeout', 'window-state', 'policy-error', 'javascript-error', 'response', 'preload-error', 'script-load-error', 'script-error', 'start', 'stop', 'navigate', 'dom', 'finish', 'blank', 'fail', 'timeout', 'prompt', 'retry', 'destroy', 'unresponsive', 'gone'])
+const EVENTS = new Set(['gpu-gone', 'renderer-gone', 'inspect-start', 'inspect-visible', 'inspect-error', 'inspect-timeout', 'window-state', 'policy-error', 'javascript-error', 'response', 'preload-error', 'script-load-error', 'script-error', 'start', 'stop', 'navigate', 'dom', 'finish', 'blank', 'fail', 'timeout', 'prompt', 'retry', 'destroy', 'unresponsive', 'gone'])
 // Local, bounded support evidence. Never accept a URL, page text or error
 // description. A restart retains the previous load's final events.
 export function createLoadDiagnostics(file, version) {

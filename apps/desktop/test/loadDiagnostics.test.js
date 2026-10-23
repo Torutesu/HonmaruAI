@@ -42,3 +42,11 @@ it('retains inspection outcomes and finite window flags across a restart',()=>{
  expect(events.map(e=>e.event)).toEqual(['inspect-start','inspect-visible','inspect-error','inspect-timeout','policy-error','javascript-error','window-state','start'])
  expect(events.find(e=>e.event==='window-state').code).toBe(5)
 })
+it('retains classified native process failures without additional payload fields',()=>{
+ const target=file(),record=createLoadDiagnostics(target,'next')
+ record('gpu-gone',4);record('renderer-gone',5)
+ createLoadDiagnostics(target,'next')('start')
+ expect(JSON.parse(readFileSync(target,'utf8')).map(({event,code})=>[event,code])).toEqual([
+  ['gpu-gone',4],['renderer-gone',5],['start',undefined],
+ ])
+})

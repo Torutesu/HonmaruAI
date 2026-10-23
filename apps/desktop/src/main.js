@@ -23,6 +23,7 @@ import { fitBounds, loadWindowState, saveWindowState, MIN_SIZE } from './windowS
 import { crashVerdict } from './crashes.js'
 import { installLoadRecovery } from './loadRecovery.js'
 import { createLoadDiagnostics } from './loadDiagnostics.js'
+import { installProcessDiagnostics } from './processDiagnostics.js'
 import { startUpdates } from './updates.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -346,8 +347,10 @@ function createWindow() {
     if (isMainFrame && code !== -3) appLoaded = false
   })
   const loadingWindow = win
+  const recordLoad = createLoadDiagnostics(path.join(app.getPath('userData'), 'load-diagnostics.json'), app.getVersion())
+  installProcessDiagnostics(app, loadingWindow.webContents, recordLoad)
   installLoadRecovery(loadingWindow.webContents, {
-    record: createLoadDiagnostics(path.join(app.getPath('userData'), 'load-diagnostics.json'), app.getVersion()),
+    record: recordLoad,
     alive: () => !loadingWindow.isDestroyed(),
     retry: () => loadingWindow.loadURL(APP_URL),
     // Bounded flags only: visible=1, minimized=2, focused=4, renderer-loading=8.
