@@ -740,3 +740,21 @@ test('all follow-up statuses retain agent, workspace and conversation scope', as
   const defaults = await (await get(`/followups?${q({orgId:ORG,agentId:'all-agent'})}`,mika)).json();
   expect(defaults.followups.map(f=>f.status)).toEqual(['scheduled']);
 });
+
+test('follow-ups reject invalid thread destinations and fail if their root is deleted before delivery', async () => {
+  const { postMessage } = await import('../src/channels.js');
+  const root = await postMessage(env.DB, {orgId:ORG,key:'b:ops',authorLogin:'mika',body:'Follow-up source'});
+  const reply = await postMessage(env.DB, {orgId:ORG,key:'b:ops',authorLogin:'mika',body:'Reply',parentId:root.row.id});
+  const other = await postMessage(env.DB, {orgId:ORG,key:'b:other',authorLogin:'mika',body:'Other conversation'});
+  for (const threadId of ['missing-root', reply.row.id, other.row.id]) {
+    const res = await send('POST','/followups',mika,{orgId:ORG,channel:'b:ops',threadId,instruction:'Do not deliver',minutes:60});
+    expect(res.status).toBe(404);
+  }
+  const made = await (await send('POST','/followups',mika,{orgId:ORG,channel:'b:ops',threadId:root.row.id,instruction:'Check delivery',minutes:60})).json();
+  expect(made.followup.threadId).toBe(root.row.id);
+  await env.DB.prepare('UPDATE channel_messages SET deleted_at = ?1 WHERE org_id = ?2 AND id = ?3').bind(new Date().toISOString(),ORG,root.row.id).run();
+  expect(await runDueFollowups(env,{now:new Date(Date.now()+120*60000)})).toBe(0);
+  const stored = await env.DB.prepare('SELECT status,result FROM hx_followups WHERE org_id = ?1 AND id = ?2').bind(ORG,made.followup.id).first();
+  expect(stored.status).toBe('failed');
+  expect(stored.result).toContain('thread is unavailable');
+});

@@ -4,7 +4,7 @@ import { mayUseConversation } from './conversationAccess.js';
 // time, does it, and says what it found where the thread is. Anyone in the
 // conversation sees what is scheduled there and may cancel it.
 
-import { postMessage } from "../channels.js";
+import { getMessage, postMessage } from "../channels.js";
 import { completer } from "./model.js";
 import { prepareAgent, mayRunAgent } from "./agents.js";
 import { withRoomGuidelines } from "./guidelines.js";
@@ -19,6 +19,12 @@ const pub = (r) => r && ({
   dueAt: r.due_at, status: r.status, createdBy: r.created_by, createdAt: r.created_at, doneAt: r.done_at, result: r.result,
 });
 
+async function validThread(db, orgId, channel, threadId) {
+  if (!threadId) return true;
+  const root = await getMessage(db, orgId, threadId);
+  return Boolean(root && !root.deleted_at && !root.parent_id && root.channel === channel);
+}
+
 export async function scheduleFollowup(db, { orgId, channel, threadId = null, agentId = null, instruction, dueAt, by }) {
   const text = String(instruction || "").trim().slice(0, 2000);
   if (!text) return { error: "Say what to follow up on." };
@@ -26,6 +32,7 @@ export async function scheduleFollowup(db, { orgId, channel, threadId = null, ag
   if (Number.isNaN(due.getTime()) || due.getTime() <= Date.now()) return { error: "A follow-up is for a time still to come." };
   if (!channel) return { error: "channel is required" };
   if (!(await mayUseConversation(db, orgId, by, channel))) return { error: "No such conversation.", status: 404 };
+  if (!(await validThread(db, orgId, channel, threadId))) return { error: "Follow-up thread is unavailable.", status: 404 };
   if (agentId) {
     const agent = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, agentId).first();
     if (!agent || !(await mayRunAgent(db, orgId, agent, by))) return { error: "No such agent.", status: 404 };
@@ -131,6 +138,7 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
     let kind = "ai";
     try {
       if (!(await mayUseConversation(env.DB, r.org_id, r.created_by, r.channel))) throw new Error("Conversation access required.");
+      if (!(await validThread(env.DB, r.org_id, r.channel, r.thread_id))) throw new Error("Follow-up thread is unavailable.");
       const agentRow = r.agent_id
         ? await env.DB.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(r.org_id, r.agent_id).first()
         : null;
@@ -160,7 +168,8 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
         body = `⏰ Follow-up: ${r.instruction}`;
       }
       const out = await postMessage(env.DB, { orgId: r.org_id, key: r.channel, authorLogin: author, body: String(body).slice(0, 8000), kind, parentId: r.thread_id || null });
-      if (out?.row) {
+      if (!out?.row) throw new Error(out?.error || "The follow-up could not be delivered.");
+      if (out.row) {
         const { broadcastStored } = await import("../channelRoutes.js");
         await broadcastStored(env, r.org_id, r.channel, out.row).catch(() => {});
       }
