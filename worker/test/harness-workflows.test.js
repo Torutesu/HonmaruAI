@@ -245,6 +245,28 @@ test("a webhook checked before credential revocation cannot create a run afterwa
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE workflow_id=?1').bind(made.workflow.id).first()).n).toBe(0);
 });
 
+test("discard removes only reviewed pending events in the authorized workflow", async () => {
+  const make = async name => (await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name, enabled: false, trigger: { type: 'webhook' },
+    steps: [{ type: 'add_row', tableId: invoices, values: { Client: 'Not executed', Status: 'Draft' } }],
+  })).json()).workflow;
+  const a = await make('Discard target'), b = await make('Other workflow');
+  const at = new Date().toISOString(), expires = new Date(Date.now()+86400000).toISOString();
+  for (const [id,wf,runId] of [['reviewed',a,null],['new_arrival',a,null],['already_dispatched',a,'existing_run'],['other_workflow',b,null]]) {
+    await env.DB.prepare('INSERT INTO hx_workflow_held_events(id,org_id,workflow_id,input,received_at,expires_at,run_id) VALUES(?1,?2,?3,?4,?5,?6,?7)')
+      .bind(id,ORG,wf.id,'{}',at,expires,runId).run();
+  }
+  const discard = (token, eventIds) => send('POST', `/workflows/${a.id}/webhook/discard`, token, { orgId: ORG, eventIds });
+  expect((await discard(mika, ['reviewed'])).status).toBe(403);
+  expect((await discard(toru, [])).status).toBe(400);
+  expect((await discard(toru, ['reviewed','reviewed'])).status).toBe(400);
+  expect(await (await discard(toru, ['reviewed','already_dispatched','other_workflow'])).json()).toEqual({ discarded: 1 });
+  const { results } = await env.DB.prepare('SELECT id FROM hx_workflow_held_events ORDER BY id').all();
+  expect(results.map(x=>x.id)).toEqual(['already_dispatched','new_arrival','other_workflow']);
+  expect(await (await discard(toru, ['reviewed'])).json()).toEqual({ discarded: 0 });
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs').first()).n).toBe(0);
+});
+
 test("a paused workflow can run manually without resuming its schedule", async () => {
   const made = await (await send('POST', '/workflows', toru, {
     orgId: ORG, name: 'Explicit trial while paused', enabled: false,

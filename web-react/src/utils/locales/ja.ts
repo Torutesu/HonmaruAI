@@ -1,6 +1,9 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Discard held events": "保留イベントを破棄",
+  "Discard {count} events": "{count}件を破棄",
+  "These held events will be permanently discarded without running. New arrivals and existing runs are kept.": "対象の保留イベントを実行せずに完全に破棄します。この操作は取り消せません。新しく届いたイベントと開始済みの実行は残ります。",
   "Automatic triggers are paused. You can still run this workflow manually.": "自動実行は一時停止中です。手動で実行することはできます。",
   "Held events: {count}": "保留中のイベント: {count}件",
   "Oldest event expires: {when}": "最も古いイベントの保存期限: {when}",

@@ -63,7 +63,7 @@ export interface Workflow {
   nextRunAt: string | null; lastRunAt: string | null; createdBy: string; hookUrl?: string; hookSecret?: string
 }
 export interface RunLog { step: number; type: StepType; status: string; output?: string; error?: string; at: string }
-export interface HeldWorkflowEvents { count: number; oldestExpiry: string | null; events: Array<{ id: string; receivedAt: string; expiresAt: string }> }
+export interface HeldWorkflowEvents { count: number; oldestExpiry: string | null; events: Array<{ id: string; receivedAt: string; expiresAt: string }>; discardEventIds?: string[] }
 export interface Run { id: string; trigger: string; status: string; log: RunLog[]; startedAt: string; finishedAt: string | null; cardId: string | null }
 export interface Followup { id: string; channel: string; instruction: string; dueAt: string; status: string; agentId: string | null }
 export interface Gateway { id: string; name: string; createdAt: number; lastSeenAt: number | null; revokedAt: number | null }
@@ -164,6 +164,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     updateWorkflow: (id: string, patch: Record<string, unknown>) => call<{ workflow: Workflow }>('PUT', `/workflows/${id}`, patch),
     changeWorkflowHook: (id: string, action: 'rotate' | 'revoke', expectedSecret: string | null) => call<{ workflow: Workflow }>('POST', `/workflows/${id}/webhook`, { action, expectedSecret }),
     replayWorkflowEvents: (id: string, eventIds: string[]) => call<{ runs: Array<{ eventId: string; runId: string; status: string }>; skipped: number }>('POST', `/workflows/${id}/webhook/replay`, { eventIds }),
+    discardWorkflowEvents: (id: string, eventIds: string[]) => call<{ discarded: number }>('POST', `/workflows/${id}/webhook/discard`, { eventIds }),
     deleteWorkflow: (id: string) => call<{ deleted: boolean }>('DELETE', `/workflows/${id}`),
     runWorkflow: (id: string, text: string) => call<{ run: Run }>('POST', `/workflows/${id}/run`, { text }),
 

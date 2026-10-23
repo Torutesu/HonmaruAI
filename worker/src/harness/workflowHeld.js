@@ -4,13 +4,21 @@ export const HELD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function heldWorkflowSummary(db, orgId, workflowId) {
   const at = new Date().toISOString();
-  const row = await db.prepare(`SELECT COUNT(*) AS count, MIN(expires_at) AS oldestExpiry
-    FROM hx_workflow_held_events WHERE org_id=?1 AND workflow_id=?2 AND run_id IS NULL AND expires_at>?3`)
-    .bind(orgId, workflowId, at).first();
   const { results } = await db.prepare(`SELECT id,received_at AS receivedAt,expires_at AS expiresAt
-    FROM hx_workflow_held_events WHERE org_id=?1 AND workflow_id=?2 AND run_id IS NULL AND expires_at>?3 ORDER BY received_at,id LIMIT 25`)
+    FROM hx_workflow_held_events WHERE org_id=?1 AND workflow_id=?2 AND run_id IS NULL AND expires_at>?3 ORDER BY received_at,id LIMIT 1000`)
     .bind(orgId, workflowId, at).all();
-  return { count: Number(row?.count || 0), oldestExpiry: row?.oldestExpiry || null, events: results };
+  // One read keeps the count, review batch and discard snapshot consistent.
+  return { count: results.length, oldestExpiry: results[0]?.expiresAt || null, events: results.slice(0, 25), discardEventIds: results.map(event => event.id) };
+}
+
+export async function discardWorkflowEvents(db, orgId, workflowId, eventIds) {
+  if (!Array.isArray(eventIds) || !eventIds.length || eventIds.length > HELD_LIMIT ||
+    eventIds.some(id => typeof id !== 'string' || id.length > 100) || new Set(eventIds).size !== eventIds.length) {
+    return { error: 'Select between 1 and 1000 distinct held events.', status: 400 };
+  }
+  const result = await db.prepare(`DELETE FROM hx_workflow_held_events WHERE org_id=?1 AND workflow_id=?2 AND run_id IS NULL
+    AND id IN (SELECT value FROM json_each(?3))`).bind(orgId, workflowId, JSON.stringify(eventIds)).run();
+  return { discarded: Number(result.meta?.changes || 0) };
 }
 
 export async function holdWorkflowEvent(db, workflow, secret, input) {

@@ -180,6 +180,7 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
   const [hook, setHook] = useState<string | null>(null)
   const [hookAction, setHookAction] = useState<'rotate' | 'revoke' | null>(null)
   const [replaySelection, setReplaySelection] = useState<string[] | null>(null)
+  const [discardSelection, setDiscardSelection] = useState<string[] | null>(null)
   const { busy, error, act } = useAct()
 
   const load = useCallback(() => act('load', async () => {
@@ -191,7 +192,7 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
   }), [api, act, props.httpBase, props.orgId, props.sessionToken])
   useEffect(() => { load() }, [load])
 
-  const openOne = (id: string) => act(`open:${id}`, async () => { setHookAction(null); setReplaySelection(null); setOpen(await api.workflow(id)) })
+  const openOne = (id: string) => act(`open:${id}`, async () => { setHookAction(null); setReplaySelection(null); setDiscardSelection(null); setOpen(await api.workflow(id)) })
   useEffect(() => { let id: string | null = null; try { id = sessionStorage.getItem('hx.openWorkflow'); sessionStorage.removeItem('hx.openWorkflow') } catch {} if (id) void openOne(id) }, [])
 
   if (open) {
@@ -246,7 +247,21 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
                 setOpen(await api.workflow(w.id))
               })}>{t('Replay {count} events', { count: replaySelection.length })}</button>
               <button className="btn-text" disabled={!!busy} onClick={() => setReplaySelection(null)}>{t('Cancel')}</button>
-            </div> : <button className="pill-btn quiet" disabled={!!busy || !w.enabled} onClick={() => setReplaySelection(open.held!.events.map(e => e.id))}>{t('Review held events')}</button>}
+            </div> : !discardSelection && <div className="hx-actions">
+              <button className="pill-btn quiet" disabled={!!busy || !w.enabled} onClick={() => setReplaySelection(open.held!.events.map(e => e.id))}>{t('Review held events')}</button>
+              <button className="btn-text danger" disabled={!!busy || !open.held.discardEventIds?.length} onClick={() => setDiscardSelection([...open.held!.discardEventIds!])}>{t('Discard held events')}</button>
+            </div>}
+            {discardSelection && <div>
+              <p>{t('These held events will be permanently discarded without running. New arrivals and existing runs are kept.')}</p>
+              <div className="hx-actions">
+                <button className="pill-btn danger" disabled={!!busy} onClick={() => act('discard', async () => {
+                  await api.discardWorkflowEvents(w.id, discardSelection)
+                  setDiscardSelection(null)
+                  setOpen(await api.workflow(w.id))
+                })}>{t('Discard {count} events', { count: discardSelection.length })}</button>
+                <button className="btn-text" disabled={!!busy} onClick={() => setDiscardSelection(null)}>{t('Cancel')}</button>
+              </div>
+            </div>}
           </div>}
         </section>}
         <div className="rows-title">{t('Runs')}</div>

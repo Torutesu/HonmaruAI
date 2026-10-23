@@ -1,5 +1,5 @@
 import { retryRoomHook } from './roomHookRetryRoute.js';
-import { heldWorkflowSummary } from './workflowHeld.js';
+import { heldWorkflowSummary, discardWorkflowEvents } from './workflowHeld.js';
 import { roomHookStatuses } from './roomHookStatus.js';
 import {roomVisualState,setRoomVisual} from './roomVisuals.js';
 import { createRoomHook, listRoomHooks, changeRoomHook } from './roomHooks.js';
@@ -385,6 +385,12 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     if (sub === 'webhook' && request.method === 'POST') {
       if (!mine) return json({ message: 'Only its maker or an admin can change this workflow.' }, 403);
+      if (runId === 'discard') {
+        const result = await discardWorkflowEvents(env.DB, orgId, wfId, input.eventIds);
+        if (result.error) return fail(result);
+        await audit(env, request, { orgId, action: 'workflow.webhook_discarded', actor: person(who.user), entity: { type: 'workflow', id: wfId }, details: { count: result.discarded } });
+        return json(result);
+      }
       if (runId === 'replay') {
         const result = await replayWorkflowEvents(env, orgId, wf, input.eventIds, me);
         if (result.error) return fail(result);
