@@ -19,7 +19,7 @@ export function AgentMemoryList({ memories, canEdit, busy, onForget, onEdit }: {
     </div>
     <p className="row-sub" role="status">{t('{shown} of {total} memories', { shown: visible.length, total: memories.length })}</p>
     {visible.map(m => <div key={m.id} className="row static memory-row">
-      <span className="row-main">{m.body && (m.body !== m.text || m.description || m.title !== m.text) ? <details className="hx-memory-entry"><summary>{m.title || m.text}</summary>{m.description && <p className="row-sub">{m.description}</p>}<div className="memory-text">{m.body}</div></details> : <span className="memory-text">{m.text}</span>}<span className="row-sub">{t(labels[(m.kind || 'context') as MemoryKind] || m.kind!)} · {t(m.channel ? 'Conversation memory' : 'Shared knowledge')} · {new Date(m.createdAt).toLocaleDateString()}</span></span>
+      <span className="row-main">{m.body && (m.body !== m.text || m.description || m.title !== m.text) ? <details className="hx-memory-entry"><summary>{m.title || m.text}</summary>{m.description && <p className="row-sub">{m.description}</p>}<div className="memory-text">{m.body}</div></details> : <span className="memory-text">{m.text}</span>}<span className="row-sub">{t(labels[(m.kind || 'context') as MemoryKind] || m.kind!)} · {t(m.channel ? 'Conversation memory' : 'Agent memory')} · {new Date(m.createdAt).toLocaleDateString()}</span></span>
       {canEdit && onEdit && <button className="btn-text" disabled={busy} onClick={() => onEdit(m)}>{t('Edit memory')}</button>}
       {canEdit && <button className="btn-text" disabled={busy} onClick={() => onForget(m)}>{t('Forget')}</button>}
     </div>)}

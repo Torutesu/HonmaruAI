@@ -1873,3 +1873,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-24 follow-up thread delivery integrity
 - Found runDueFollowups marked done even when postMessage returned a failed delivery (such as a deleted thread root). Scheduling now rejects missing/deleted/reply/cross-conversation roots, execution rechecks the root before model work, and absence of a posted row is recorded as failure instead of done. Existing room-level reminders remain supported.
 - Workflow/query-guard40 tests pass (/tmp/honmaru-followup-delivery.log), including invalid target rejection and a root deleted between reservation and execution. Initial new test used the wrong clock option (at rather than now); corrected and reran. No production data changed. Full cross-feature regression remains to run for this new validation.
+
+### 2026-10-24 memory scope terminology
+- Official https://docs.kylon.io/concepts/memory distinguishes individual agent memory from Workspace Knowledge. The agent memory selector, entry label and explanatory copy previously called unscoped agent memory Shared knowledge. Renamed these to Agent memory in English/Japanese to describe the actual storage scope. Conversation labels and all data/access behavior are unchanged. Workspace Knowledge parity remains incomplete.
+- Memory/agent UI7 tests, final TypeScript/Vite and diff checks pass (/tmp/honmaru-memory-scope-labels-{tests,types,build}.log). Worker full78774 remains live with sources frozen atf7a90435.

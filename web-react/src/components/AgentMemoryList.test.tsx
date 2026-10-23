@@ -21,7 +21,7 @@ test('search and kind filter intersect; legacy entries are context and scope rem
   act(()=>tree.root.findByProps({'aria-label':'Search memories'}).props.onChange({target:{value:''}}))
   act(()=>tree.root.findByProps({'aria-label':'Filter memory type'}).props.onChange({target:{value:'context'}}))
   expect(texts()).toEqual(['Legacy note'])
-  expect(JSON.stringify(tree.toJSON())).toContain('Shared knowledge')
+  expect(JSON.stringify(tree.toJSON())).toContain('Agent memory')
   act(()=>tree.update(<AgentMemoryList memories={memories} canEdit={false} busy={false} onForget={forget}/>))
   expect(tree.root.findAllByType('button')).toHaveLength(0)
   act(()=>tree.unmount())

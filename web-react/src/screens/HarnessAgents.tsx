@@ -220,13 +220,13 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
       {section === 'memory' && <>
       <div className="rows-title">{t('Memory')}</div>
       <select aria-label={t('Memory conversation')} value={memoryChannel} disabled={busy !== null} onChange={e => { memoryLoad.current++; setMemoryDraft(null); setMemories([]); setMemoryChannel(e.target.value) }}>
-        <option value="">{t('Shared knowledge')}</option>
+        <option value="">{t('Agent memory')}</option>
         {memoryScopes.map(scope => <option key={scope.channel} value={scope.channel}>{scope.label}</option>)}
       </select>
       <div className="rows">
         <div className="row static">
           <span className="row-main">
-            <span className="row-sub">{t('Shared knowledge for this agent. Memories added in chat stay in that conversation: “@{handle} remember that …”.', { handle: agent.handle })}</span>
+            <span className="row-sub">{t('Memory for this agent. Memories added in chat stay in that conversation: “@{handle} remember that …”.', { handle: agent.handle })}</span>
             <span className="playbook-add-foot hx-memory-compose">
               <MemoryKindSelect value={memoryKind} onChange={setMemoryKind} disabled={busy !== null} />
               <input className="hx-cell-input" value={remember} onChange={(e) => setRemember(e.target.value)} placeholder={t('e.g. Acme pays on the 25th')} aria-label={t('Remember')} />
