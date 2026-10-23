@@ -217,3 +217,19 @@ test('workflow deletion requires confirmation and cancellation preserves the wor
   expect(state.api.deleteWorkflow).toHaveBeenCalledWith(workflow.id)
   expect(tree.root.findAllByProps({ 'data-workflow': workflow.id })).toHaveLength(0)
 })
+
+test('failed held-payload inspection can retry without replaying the event', async () => {
+  state.api.workflow.mockResolvedValue({ workflow, runs: [], canEdit: true,
+    held: { count: 1, oldestExpiry: null, events: [{ id: 'retry_one', receivedAt: '2026-10-23T00:00:00Z' }] } })
+  state.api.heldWorkflowEvent = vi.fn().mockRejectedValueOnce(new Error('Network unavailable')).mockResolvedValue({ event: { input: { ok: true } } })
+  state.api.replayWorkflowEvents = vi.fn()
+  await open()
+  await act(async () => { button('Review held events').props.onClick() })
+  await act(async () => { tree.root.findByType('details').props.onToggle({ currentTarget: { open: true } }) })
+  expect(tree.root.findByProps({ role: 'alert' }).children).toContain('Network unavailable')
+  await act(async () => { button('Retry').props.onClick() })
+  expect(state.api.heldWorkflowEvent).toHaveBeenCalledTimes(2)
+  expect(tree.root.findByType('pre').children.join('')).toContain('"ok": true')
+  expect(tree.root.findAllByProps({ role: 'alert' })).toHaveLength(0)
+  expect(state.api.replayWorkflowEvents).not.toHaveBeenCalled()
+})

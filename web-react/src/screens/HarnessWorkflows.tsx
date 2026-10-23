@@ -16,16 +16,17 @@ function HeldEventPreview({ receivedAt, load }: { receivedAt: string; load: () =
   const [payload, setPayload] = useState<{ input: unknown } | null>(null)
   const pending = useRef(false)
   const { busy, error, act } = useAct()
-  return <details className="hx-run-detail" onToggle={event => {
-    if (!event.currentTarget.open || payload || pending.current) return
+  const readPayload = () => {
+    if (payload || pending.current) return
     pending.current = true
     void act('payload', async () => {
       try { setPayload((await load()).event) } finally { pending.current = false }
     })
-  }}>
+  }
+  return <details className="hx-run-detail" onToggle={event => { if (event.currentTarget.open) readPayload() }}>
     <summary>{new Date(receivedAt).toLocaleString()} · {t('Received payload')}</summary>
     {busy && <p role="status">{t('Loading…')}</p>}
-    {error && <p role="alert">{error}</p>}
+    {error && <div><p role="alert">{error}</p><button type="button" disabled={!!busy} onClick={readPayload}>{t('Retry')}</button></div>}
     {payload && <pre>{JSON.stringify(payload.input, null, 2)}</pre>}
   </details>
 }
