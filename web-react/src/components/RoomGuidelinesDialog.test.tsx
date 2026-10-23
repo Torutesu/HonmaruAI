@@ -37,3 +37,29 @@ test('late saves cannot close a different room or unlock its pending save',async
  await act(async()=>first(reply({})));act(()=>tree.root.findByType(Dialog).props.onClose());expect(close).not.toHaveBeenCalled()
  await act(async()=>second(reply({},503)));expect(tree.root.findByType('textarea').props.value).toBe('Second draft');expect(button(tree,'保存').props.disabled).toBe(false);act(()=>tree.unmount())
 })
+test('a stalled read releases loading and can be explicitly retried',async()=>{
+ vi.useFakeTimers();const fetch=vi.fn().mockImplementationOnce(()=>new Promise(()=>{})).mockResolvedValueOnce(loaded());vi.stubGlobal('fetch',fetch)
+ let tree!:ReturnType<typeof create>
+ try{
+  await act(async()=>{tree=create(<RoomGuidelinesDialog api={api} channel="b:room" onClose={()=>{}}/>)})
+  await act(async()=>{await vi.advanceTimersByTimeAsync(15000)})
+  expect(fetch.mock.calls[0][1].signal.aborted).toBe(true)
+  expect(button(tree,'最新の内容に置き換える').props.disabled).toBe(false)
+  await act(async()=>button(tree,'最新の内容に置き換える').props.onClick())
+  expect(tree.root.findByType('textarea').props.value).toBe('Rules')
+ }finally{act(()=>tree.unmount());vi.useRealTimers()}
+})
+test('a timed out save preserves the draft and requires readback, even if its response arrives later',async()=>{
+ vi.useFakeTimers();let finish!:(v:any)=>void;const fetch=vi.fn().mockResolvedValueOnce(loaded()).mockImplementationOnce(()=>new Promise(r=>finish=r)).mockResolvedValueOnce(loaded(true,'Saved remotely',4));vi.stubGlobal('fetch',fetch)
+ const close=vi.fn();let tree!:ReturnType<typeof create>
+ try{
+  await act(async()=>{tree=create(<RoomGuidelinesDialog api={api} channel="b:room" onClose={close}/>)})
+  act(()=>tree.root.findByType('textarea').props.onChange({target:{value:'My draft'}}));act(()=>button(tree,'保存').props.onClick())
+  await act(async()=>{await vi.advanceTimersByTimeAsync(15000)})
+  expect(fetch.mock.calls[1][1].signal.aborted).toBe(true)
+  expect(tree.root.findByType('textarea').props.value).toBe('My draft');expect(button(tree,'保存').props.disabled).toBe(true);expect(button(tree,'キャンセル').props.disabled).toBe(false)
+  await act(async()=>finish(reply({})));expect(close).not.toHaveBeenCalled()
+  await act(async()=>button(tree,'最新の内容に置き換える').props.onClick())
+  expect(tree.root.findByType('textarea').props.value).toBe('Saved remotely');expect(tree.root.findByType('textarea').props.readOnly).toBe(false)
+ }finally{act(()=>tree.unmount());vi.useRealTimers()}
+})
