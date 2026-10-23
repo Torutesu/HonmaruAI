@@ -100,7 +100,7 @@ export async function memoryPage(db, orgId, agentId, { channel = '', cursor, que
 }
 
 export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel = '', by } = {}) {
-  if (input?.verdict !== undefined && !['keep','update'].includes(input.verdict)) return { error: 'Only keep and update reviews are supported by this endpoint.', status: 400 };
+  if (input?.verdict !== undefined && !['keep','update','delete'].includes(input.verdict)) return { error: 'Invalid memory review verdict.', status: 400 };
   if (!Number.isSafeInteger(input?.expectedVersion) || input.expectedVersion < 0
     || typeof input.evidence !== 'string' || !input.evidence.trim() || input.evidence.length > 2000
     || !by) return { error: 'A memory version and review evidence are required.', status: 400 };
@@ -114,6 +114,21 @@ export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel
     return updateMemoryEntry(db,orgId,agentId,id,{title:current.title,description:current.description,body:current.body,kind:current.kind,...input},{channel,by,reviewEvidence:input.evidence});
   }
   const stamp = new Date().toISOString(), reviewId = crypto.randomUUID();
+  if (input.verdict === 'delete') {
+    const results = await db.batch([
+      db.prepare(`INSERT INTO hx_memory_review_history (id,memory_id,org_id,reviewed_version,verdict,evidence,reviewed_by,reviewed_at)
+        SELECT ?9,m.id,m.org_id,COALESCE(d.version,0),'delete',?6,?7,?8 FROM hx_agent_memories m
+        LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
+        LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
+        WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'')=?4 AND COALESCE(d.version,0)=?5`)
+        .bind(orgId,agentId,id,channel,input.expectedVersion,input.evidence.trim(),String(by),stamp,reviewId),
+      db.prepare(`DELETE FROM hx_agent_memories WHERE org_id=?1 AND agent_id=?2 AND id=?3
+        AND EXISTS (SELECT 1 FROM hx_memory_review_audit WHERE org_id=?1 AND agent_id=?2 AND memory_id=?3 AND id=?4 AND verdict='delete') RETURNING id`)
+        .bind(orgId,agentId,id,reviewId),
+    ]);
+    if (!results[1].results?.length) return {error:'The memory changed or is unavailable. Reload before reviewing.',status:409};
+    return {deleted:1,review:{version:input.expectedVersion,evidence:input.evidence.trim(),by:String(by),at:stamp}};
+  }
   const writes = await db.batch([
     db.prepare(`INSERT INTO hx_memory_review_history (id,memory_id,org_id,reviewed_version,verdict,evidence,reviewed_by,reviewed_at)
       SELECT ?9,m.id,m.org_id,COALESCE(d.version,0),'keep',?6,?7,?8 FROM hx_agent_memories m
@@ -145,10 +160,8 @@ export async function memoryReviewHistory(db, orgId, agentId, memoryId, {channel
     } catch {return {error:'Invalid review history cursor.',status:400};}
   }
   const {results=[]}=await db.prepare(`SELECT h.*, COALESCE(u.name,u.login,h.reviewed_by) AS reviewer_name
-    FROM hx_memory_review_history h JOIN hx_agent_memories m ON m.id=h.memory_id AND m.org_id=h.org_id
-    LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
-    LEFT JOIN users u ON u.github_id=h.reviewed_by
-    WHERE h.org_id=?1 AND m.agent_id=?2 AND h.memory_id=?3 AND COALESCE(s.channel,'')=?4
+    FROM hx_memory_review_audit h LEFT JOIN users u ON u.github_id=h.reviewed_by
+    WHERE h.org_id=?1 AND h.agent_id=?2 AND h.memory_id=?3 AND h.channel=?4
       AND (?5 IS NULL OR h.reviewed_at < ?5 OR (h.reviewed_at = ?5 AND h.id < ?6))
     ORDER BY h.reviewed_at DESC,h.id DESC LIMIT 51`)
     .bind(orgId,agentId,memoryId,channel,after?.[0]||null,after?.[1]||null).all();

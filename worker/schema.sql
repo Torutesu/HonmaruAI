@@ -2097,3 +2097,30 @@ SELECT 'legacy:' || r.memory_id,r.memory_id,r.org_id,r.reviewed_version,'keep',r
 FROM hx_memory_reviews r WHERE NOT EXISTS (
   SELECT 1 FROM hx_memory_review_history h WHERE h.org_id=r.org_id AND h.memory_id=r.memory_id
 );
+
+/* Review evidence survives memory deletion; body content is not copied. */
+CREATE TABLE IF NOT EXISTS hx_memory_review_audit (
+  id TEXT PRIMARY KEY,
+  memory_id TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  reviewed_version INTEGER NOT NULL,
+  verdict TEXT NOT NULL,
+  evidence TEXT NOT NULL,
+  reviewed_by TEXT NOT NULL,
+  reviewed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hx_memory_review_audit_scope ON hx_memory_review_audit(org_id,agent_id,channel,reviewed_at,id);
+CREATE INDEX IF NOT EXISTS idx_hx_memory_review_audit_memory ON hx_memory_review_audit(org_id,memory_id,reviewed_at,id);
+INSERT OR IGNORE INTO hx_memory_review_audit (id,memory_id,org_id,agent_id,channel,reviewed_version,verdict,evidence,reviewed_by,reviewed_at)
+SELECT h.id,h.memory_id,h.org_id,m.agent_id,COALESCE(s.channel,''),h.reviewed_version,h.verdict,h.evidence,h.reviewed_by,h.reviewed_at
+FROM hx_memory_review_history h JOIN hx_agent_memories m ON m.id=h.memory_id AND m.org_id=h.org_id
+LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id;
+CREATE TRIGGER IF NOT EXISTS hx_memory_review_audit_insert AFTER INSERT ON hx_memory_review_history
+BEGIN
+  INSERT INTO hx_memory_review_audit (id,memory_id,org_id,agent_id,channel,reviewed_version,verdict,evidence,reviewed_by,reviewed_at)
+  SELECT NEW.id,NEW.memory_id,NEW.org_id,m.agent_id,COALESCE(s.channel,''),NEW.reviewed_version,NEW.verdict,NEW.evidence,NEW.reviewed_by,NEW.reviewed_at
+  FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
+  WHERE m.id=NEW.memory_id AND m.org_id=NEW.org_id;
+END;

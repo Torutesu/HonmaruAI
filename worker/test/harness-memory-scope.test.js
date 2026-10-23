@@ -131,7 +131,7 @@ test('review records evidence for the checked memory version, independently of e
 
 test('unsupported review verdicts are rejected before reading or changing memory',async()=>{
  const {reviewMemoryEntry}=await import('../src/harness/memoryEntries.js');
- for(const verdict of ['delete','unknown']) {
+ for(const verdict of ['unknown']) {
   expect(await reviewMemoryEntry(null,org,agent,'m',{verdict,expectedVersion:1,evidence:'Checked'},{by:'owner'})).toMatchObject({status:400});
  }
 });
@@ -203,6 +203,54 @@ test('update-review transaction rolls back evidence when the content write fails
  try {
   await expect(reviewMemoryEntry(env.DB,org,agent,made.memory.id,{verdict:'update',expectedVersion:1,title:'Reject this update',body:'Changed',evidence:'Checked'},{by:'reviewer'})).rejects.toThrow();
   expect((await memoryReviewHistory(env.DB,org,agent,made.memory.id)).reviews).toEqual([]);
+  expect((await env.DB.prepare('SELECT count(*) AS n FROM hx_memory_review_audit WHERE memory_id=?').bind(made.memory.id).first()).n).toBe(0);
   expect((await memoryPage(env.DB,org,agent)).memories.find(m=>m.id===made.memory.id)).toMatchObject({body:'Original',version:1,review:null});
  } finally {await env.DB.exec('DROP TRIGGER reject_review_update');}
+});
+
+test('review audit retains scope and evidence after removal without copying the memory body',async()=>{
+ const {reviewMemoryEntry}=await import('../src/harness/memoryEntries.js');
+ const made=await addAgentMemory(env.DB,org,agent,{title:'Audit policy',description:'',body:'Private original body'},{channel:'b:private-audit'});
+ expect((await reviewMemoryEntry(env.DB,org,agent,made.memory.id,{expectedVersion:1,evidence:'Checked policy source'},{channel:'b:private-audit',by:'reviewer'})).error).toBeUndefined();
+ await deleteAgentMemory(env.DB,org,agent,made.memory.id,{channel:'b:private-audit'});
+ expect(await env.DB.prepare('SELECT 1 FROM hx_memory_review_history WHERE memory_id=?').bind(made.memory.id).first()).toBeNull();
+ const retained=await env.DB.prepare('SELECT * FROM hx_memory_review_audit WHERE memory_id=?').bind(made.memory.id).first();
+ expect(retained).toMatchObject({org_id:org,agent_id:agent,channel:'b:private-audit',reviewed_version:1,evidence:'Checked policy source',reviewed_by:'reviewer'});
+ expect(JSON.stringify(retained)).not.toContain('Private original body');
+ const {memoryReviewHistory}=await import('../src/harness/memoryEntries.js');
+ expect((await memoryReviewHistory(env.DB,org,agent,made.memory.id,{channel:'b:private-audit'})).reviews).toHaveLength(1);
+ expect((await memoryReviewHistory(env.DB,org,agent,made.memory.id,{channel:'b:other'})).reviews).toEqual([]);
+ expect((await memoryReviewHistory(env.DB,org,'another-agent',made.memory.id,{channel:'b:private-audit'})).reviews).toEqual([]);
+ const {default:schema}=await import('../schema.sql?raw');
+ await env.DB.exec(schema.replace(/\n/g,' '));
+ expect((await env.DB.prepare('SELECT count(*) AS n FROM hx_memory_review_audit WHERE memory_id=?').bind(made.memory.id).first()).n).toBe(1);
+});
+
+ test('existing review evidence is backfilled into scoped audit exactly once',async()=>{
+ const {reviewMemoryEntry}=await import('../src/harness/memoryEntries.js');
+ const made=await addAgentMemory(env.DB,org,agent,'Backfill audit',{channel:'b:legacy-audit'});
+ await reviewMemoryEntry(env.DB,org,agent,made.memory.id,{expectedVersion:0,evidence:'Legacy evidence'},{channel:'b:legacy-audit',by:'reviewer'});
+ await env.DB.prepare('DELETE FROM hx_memory_review_audit WHERE memory_id=?').bind(made.memory.id).run();
+ const {default:schema}=await import('../schema.sql?raw');
+ await env.DB.exec(schema.replace(/\n/g,' '));
+ await env.DB.exec(schema.replace(/\n/g,' '));
+ const {results}=await env.DB.prepare('SELECT * FROM hx_memory_review_audit WHERE memory_id=?').bind(made.memory.id).all();
+ expect(results).toHaveLength(1);
+ expect(results[0]).toMatchObject({channel:'b:legacy-audit',agent_id:agent,evidence:'Legacy evidence'});
+ });
+
+test('delete review removes only the checked version and retains its scoped audit',async()=>{
+ const {reviewMemoryEntry,memoryReviewHistory}=await import('../src/harness/memoryEntries.js');
+ const made=await addAgentMemory(env.DB,org,agent,'Retired policy',{channel:'b:delete-review'});
+ const input={verdict:'delete',expectedVersion:0,evidence:'Superseded by current procedure'};
+ expect((await reviewMemoryEntry(env.DB,org,agent,made.memory.id,{...input,expectedVersion:1},{channel:'b:delete-review',by:'reviewer'})).status).toBe(409);
+ expect((await reviewMemoryEntry(env.DB,org,agent,made.memory.id,input,{channel:'b:other',by:'reviewer'})).status).toBe(409);
+ expect((await reviewMemoryReviewCount()).n).toBe(0);
+ const result=await reviewMemoryEntry(env.DB,org,agent,made.memory.id,input,{channel:'b:delete-review',by:'reviewer'});
+ expect(result.deleted).toBe(1);
+ expect(await env.DB.prepare('SELECT 1 FROM hx_agent_memories WHERE id=?').bind(made.memory.id).first()).toBeNull();
+ expect((await memoryReviewHistory(env.DB,org,agent,made.memory.id,{channel:'b:delete-review'})).reviews).toEqual([expect.objectContaining({verdict:'delete',evidence:input.evidence,version:0})]);
+ expect((await reviewMemoryEntry(env.DB,org,agent,made.memory.id,input,{channel:'b:delete-review',by:'reviewer'})).status).toBe(409);
+ expect((await reviewMemoryReviewCount()).n).toBe(1);
+ function reviewMemoryReviewCount(){return env.DB.prepare('SELECT count(*) AS n FROM hx_memory_review_audit WHERE memory_id=?').bind(made.memory.id).first()}
 });
