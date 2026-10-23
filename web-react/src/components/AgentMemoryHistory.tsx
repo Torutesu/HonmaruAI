@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import './AgentMemoryHistory.css'
 import { Dialog } from './Dialog'
 import type { AgentMemory, MemoryReview } from '../utils/harness'
 import { useT } from '../utils/i18n'
@@ -19,10 +20,10 @@ export function AgentMemoryHistory({ memory, load, onClose }: { memory: AgentMem
     finally { pending.current = false; if (alive.current) setBusy(false) }
   }
   useEffect(() => { alive.current = true; void read(); return () => { alive.current = false } }, [])
-  return <Dialog title={t('Memory review history')} onClose={onClose}>
+  return <Dialog title={t('Memory review history')} className="hx-memory-history" onClose={onClose}>
     <p>{memory.title || memory.text}</p>
-    {rows.map(row => <article className="hx-run-detail" key={row.id}>
-      <strong>{row.reviewerName}</strong> · <time dateTime={row.at}>{new Date(row.at).toLocaleString()}</time>
+    {rows.map(row => <article className="hx-memory-history-entry" key={row.id}>
+      <header><strong>{row.reviewerName}</strong><time dateTime={row.at}>{new Date(row.at).toLocaleString()}</time></header>
       <p className="row-sub">{t('Reviewed version {version}', { version: row.version })}</p>
       <p className="memory-text">{row.evidence}</p>
     </article>)}

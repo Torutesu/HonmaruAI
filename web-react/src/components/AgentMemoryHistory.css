@@ -1,0 +1,9 @@
+.hx-memory-history .hx-memory-history-entry {
+  border-top: 1px solid var(--dlg-line);
+  padding-top: 16px;
+  margin-top: 8px;
+}
+.hx-memory-history-entry header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.hx-memory-history-entry time, .hx-memory-history-entry .row-sub { font-size: 13px; color: var(--dlg-dim); }
+.hx-memory-history-entry p { margin: 8px 0 0; }
+.hx-memory-history-entry .memory-text { white-space: pre-wrap; overflow-wrap: anywhere; }
