@@ -15,7 +15,7 @@ export function memoryEntry(row) {
     description: row.description || "", body: row.body ?? row.text, version: row.version ?? 0, updatedAt: row.updated_at || row.created_at,
     review: row.reviewed_at ? { version: row.reviewed_version, evidence: row.review_evidence, by: row.reviewed_by, at: row.reviewed_at, current: row.reviewed_version === (row.version ?? 0) } : null };
 }
-export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel = "", by = null } = {}) {
+export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel = "", by = null, reviewEvidence } = {}) {
   const fields = memoryFields(input);
   if (fields.error) return fields;
   if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 0) return { error: "Expected memory version is required." };
@@ -28,7 +28,7 @@ export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel
   if (!row) return { error: "No such memory.", status: 404 };
   if ((row.version ?? 0) !== input.expectedVersion) return { error: "This memory changed. Reload before saving.", status: 409 };
   const stamp = new Date().toISOString();
-  const results = await db.batch([
+  const statements = [
     db.prepare(`INSERT OR IGNORE INTO hx_memory_entries (memory_id, org_id, title, description, body, version, updated_by, updated_at)
       SELECT id, org_id, substr(text,1,120), '', text, 0, created_by, created_at FROM hx_agent_memories WHERE org_id = ?1 AND agent_id = ?2 AND id = ?3`)
       .bind(orgId, agentId, id),
@@ -46,9 +46,28 @@ export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel
       WHERE org_id = ?1 AND memory_id = ?3 AND version = ?9 AND EXISTS
       (SELECT 1 FROM hx_agent_memories m JOIN hx_memory_scopes s ON s.memory_id = m.id WHERE m.id = ?3 AND m.agent_id = ?2 AND m.org_id = ?1 AND s.channel = ?10)
       RETURNING version`).bind(orgId, agentId, id, fields.title, fields.description, fields.body, by ? String(by) : null, stamp, input.expectedVersion, channel),
-  ]);
-  if (!results[4].results?.length) return { error: "This memory changed. Reload before saving.", status: 409 };
-  return { memory: { ...memoryEntry(row), ...fields, text: fields.body.replace(/\s+/g, " ").slice(0, 500), kind: input.kind, version: results[4].results[0].version, updatedAt: stamp } };
+  ];
+  let reviewId;
+  if (reviewEvidence !== undefined) {
+    if (typeof reviewEvidence !== 'string' || !reviewEvidence.trim() || reviewEvidence.length > 2000 || !by)
+      return { error: 'Review evidence is required.', status: 400 };
+    reviewId = crypto.randomUUID();
+    statements.unshift(db.prepare(`INSERT INTO hx_memory_review_history (id,memory_id,org_id,reviewed_version,verdict,evidence,reviewed_by,reviewed_at)
+      SELECT ?9,m.id,m.org_id,?5+1,'update',?6,?7,?8 FROM hx_agent_memories m
+      LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
+      LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
+      WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'')=?4 AND COALESCE(d.version,0)=?5`)
+      .bind(orgId,agentId,id,channel,input.expectedVersion,reviewEvidence.trim(),String(by),stamp,reviewId));
+    statements.push(db.prepare(`INSERT INTO hx_memory_reviews (memory_id,org_id,reviewed_version,evidence,reviewed_by,reviewed_at)
+      SELECT memory_id,org_id,reviewed_version,evidence,reviewed_by,reviewed_at FROM hx_memory_review_history WHERE org_id=?1 AND id=?2
+      ON CONFLICT(memory_id) DO UPDATE SET reviewed_version=excluded.reviewed_version,evidence=excluded.evidence,
+      reviewed_by=excluded.reviewed_by,reviewed_at=excluded.reviewed_at WHERE hx_memory_reviews.org_id=excluded.org_id`).bind(orgId,reviewId));
+  }
+  const results = await db.batch(statements);
+  const saved = results[reviewId ? 5 : 4].results?.[0];
+  if (!saved) return { error: "This memory changed. Reload before saving.", status: 409 };
+  const review = reviewId ? {version:saved.version,evidence:reviewEvidence.trim(),by:String(by),at:stamp,current:true} : undefined;
+  return { ...(review ? {review} : {}), memory: { ...memoryEntry(row), ...(review ? {review} : {}), ...fields, text: fields.body.replace(/\s+/g, " ").slice(0, 500), kind: input.kind, version: saved.version, updatedAt: stamp } };
 }
 
 export async function memoryPage(db, orgId, agentId, { channel = '', cursor, query = '', kind = 'all' } = {}) {
@@ -81,10 +100,19 @@ export async function memoryPage(db, orgId, agentId, { channel = '', cursor, que
 }
 
 export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel = '', by } = {}) {
-  if (input?.verdict !== undefined && input.verdict !== 'keep') return { error: 'Only keep reviews are supported by this endpoint.', status: 400 };
+  if (input?.verdict !== undefined && !['keep','update'].includes(input.verdict)) return { error: 'Only keep and update reviews are supported by this endpoint.', status: 400 };
   if (!Number.isSafeInteger(input?.expectedVersion) || input.expectedVersion < 0
     || typeof input.evidence !== 'string' || !input.evidence.trim() || input.evidence.length > 2000
     || !by) return { error: 'A memory version and review evidence are required.', status: 400 };
+  if (input.verdict === 'update') {
+    const row = await db.prepare(`SELECT m.*,s.channel,s.kind,d.title,d.description,d.body,d.version FROM hx_agent_memories m
+      LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
+      LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
+      WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'')=?4`).bind(orgId,agentId,id,channel).first();
+    if (!row) return {error:'No such memory.',status:404};
+    const current = memoryEntry(row);
+    return updateMemoryEntry(db,orgId,agentId,id,{title:current.title,description:current.description,body:current.body,kind:current.kind,...input},{channel,by,reviewEvidence:input.evidence});
+  }
   const stamp = new Date().toISOString(), reviewId = crypto.randomUUID();
   const writes = await db.batch([
     db.prepare(`INSERT INTO hx_memory_review_history (id,memory_id,org_id,reviewed_version,verdict,evidence,reviewed_by,reviewed_at)

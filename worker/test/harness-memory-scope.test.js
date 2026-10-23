@@ -131,7 +131,7 @@ test('review records evidence for the checked memory version, independently of e
 
 test('unsupported review verdicts are rejected before reading or changing memory',async()=>{
  const {reviewMemoryEntry}=await import('../src/harness/memoryEntries.js');
- for(const verdict of ['update','delete','unknown']) {
+ for(const verdict of ['delete','unknown']) {
   expect(await reviewMemoryEntry(null,org,agent,'m',{verdict,expectedVersion:1,evidence:'Checked'},{by:'owner'})).toMatchObject({status:400});
  }
 });
@@ -175,4 +175,34 @@ test('review history pages without duplicates and rejects scope changes', async 
   expect((await memoryReviewHistory(env.DB,org,agent,id)).reviews).toEqual([]);
   expect((await memoryReviewHistory(env.DB,'other',agent,id,{channel:'b:history'})).reviews).toEqual([]);
   expect((await memoryReviewHistory(env.DB,org,agent,id,{channel:'b:other',cursor:first.nextCursor})).status).toBe(400);
+});
+
+test('update review changes content and validation atomically, preserving omitted fields',async()=>{
+ const {reviewMemoryEntry,memoryPage,memoryReviewHistory}=await import('../src/harness/memoryEntries.js');
+ const made=await addAgentMemory(env.DB,org,agent,{title:'Policy',description:'Keep description',body:'Original'},{kind:'reference'});
+ const id=made.memory.id;
+ const input={verdict:'update',expectedVersion:1,body:'Revised',evidence:'Checked revised procedure'};
+ const result=await reviewMemoryEntry(env.DB,org,agent,id,input,{by:'reviewer'});
+ expect(result.memory).toMatchObject({title:'Policy',description:'Keep description',body:'Revised',version:2,kind:'reference'});
+ expect(result.review).toMatchObject({version:2,current:true});
+ expect((await memoryPage(env.DB,org,agent)).memories.find(m=>m.id===id).review.current).toBe(true);
+ expect((await memoryReviewHistory(env.DB,org,agent,id)).reviews).toEqual([expect.objectContaining({verdict:'update',version:2,evidence:input.evidence})]);
+ expect((await reviewMemoryEntry(env.DB,org,agent,id,{...input,body:'Stale content'},{by:'reviewer'})).status).toBe(409);
+ expect((await memoryReviewHistory(env.DB,org,agent,id)).reviews).toHaveLength(1);
+ expect((await memoryPage(env.DB,org,agent)).memories.find(m=>m.id===id).body).toBe('Revised');
+ const concurrent=await Promise.all(['First','Second'].map(body=>reviewMemoryEntry(env.DB,org,agent,id,{...input,expectedVersion:2,body},{by:'reviewer'})));
+ expect(concurrent.filter(r=>!r.error)).toHaveLength(1);
+ expect(concurrent.filter(r=>r.status===409)).toHaveLength(1);
+ expect((await memoryReviewHistory(env.DB,org,agent,id)).reviews).toHaveLength(2);
+});
+
+test('update-review transaction rolls back evidence when the content write fails',async()=>{
+ const {reviewMemoryEntry,memoryReviewHistory,memoryPage}=await import('../src/harness/memoryEntries.js');
+ const made=await addAgentMemory(env.DB,org,agent,{title:'Rollback',description:'',body:'Original'});
+ await env.DB.exec("CREATE TRIGGER reject_review_update BEFORE UPDATE ON hx_memory_entries WHEN NEW.title='Reject this update' BEGIN SELECT RAISE(ABORT,'test content failure'); END");
+ try {
+  await expect(reviewMemoryEntry(env.DB,org,agent,made.memory.id,{verdict:'update',expectedVersion:1,title:'Reject this update',body:'Changed',evidence:'Checked'},{by:'reviewer'})).rejects.toThrow();
+  expect((await memoryReviewHistory(env.DB,org,agent,made.memory.id)).reviews).toEqual([]);
+  expect((await memoryPage(env.DB,org,agent)).memories.find(m=>m.id===made.memory.id)).toMatchObject({body:'Original',version:1,review:null});
+ } finally {await env.DB.exec('DROP TRIGGER reject_review_update');}
 });

@@ -24,7 +24,7 @@ export function AgentMemoryHistory({ memory, load, onClose }: { memory: AgentMem
     <p>{memory.title || memory.text}</p>
     {rows.map(row => <article className="hx-memory-history-entry" key={row.id}>
       <header><strong>{row.reviewerName}</strong><time dateTime={row.at}>{new Date(row.at).toLocaleString()}</time></header>
-      <p className="row-sub">{t('Reviewed version {version}', { version: row.version })}</p>
+      <p className="row-sub">{t(row.verdict === 'update' ? 'Updated and reviewed' : 'Reviewed without changes')} · {t('Reviewed version {version}', { version: row.version })}</p>
       <p className="memory-text">{row.evidence}</p>
     </article>)}
     {busy && <p role="status">{t('Loading…')}</p>}

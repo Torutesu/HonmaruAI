@@ -623,7 +623,7 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (request.method === "PUT" && parts[5] === 'review') {
         const r = await reviewMemoryEntry(env.DB, orgId, agentId, parts[4], input, { channel, by: me });
-        if (!r.error) await audit(env, request, { orgId, action: 'agent.memory_reviewed', actor: person(who.user), entity: { type: 'custom_agent', id: agentId }, details: { memoryId: parts[4], version: r.review.version, scope: channel ? 'conversation' : 'shared' } });
+        if (!r.error) await audit(env, request, { orgId, action: 'agent.memory_reviewed', actor: person(who.user), entity: { type: 'custom_agent', id: agentId }, details: { memoryId: parts[4], version: r.review.version, verdict: input.verdict || 'keep', scope: channel ? 'conversation' : 'shared' } });
         return r.error ? fail(r) : json(r);
       }
       if (request.method === "PUT") {

@@ -571,3 +571,17 @@ test('review history HTTP permits readers and denies them after agent access is 
  expect((await send('PUT',`/hx/agents/${agentId}/profile`,mika,{orgId:ORG,access:'private'})).status).toBe(200);
  expect((await get(history,kenji)).status).toBe(404);
 });
+
+test('update review HTTP enforces edit rights and returns the newly validated version',async()=>{
+ const base=`/hx/agents/${agentId}/memory`;
+ const made=await(await send('POST',base,mika,{orgId:ORG,title:'Policy',description:'Summary',body:'Original',kind:'reference'})).json();
+ const input={orgId:ORG,verdict:'update',expectedVersion:1,body:'Revised',evidence:'Checked new procedure'};
+ const path=`${base}/${made.memory.id}/review`;
+ expect((await send('PUT',path,kenji,input)).status).toBe(403);
+ const response=await send('PUT',path,mika,input);
+ expect(response.status).toBe(200);
+ expect(await response.json()).toMatchObject({memory:{body:'Revised',description:'Summary',version:2},review:{version:2,current:true}});
+ const history=await(await get(`${base}/${made.memory.id}/reviews?${q({orgId:ORG})}`,kenji)).json();
+ expect(history.reviews).toEqual([expect.objectContaining({verdict:'update',version:2,evidence:input.evidence})]);
+ expect((await send('PUT',path,mika,input)).status).toBe(409);
+});
