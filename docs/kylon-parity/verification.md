@@ -1054,3 +1054,9 @@ Validation: room roles/discovery 31 tests and RoomJoinDialog 3 tests passed; Typ
 At code revision 4ccfd36c (subsequent 623fa4e9 changes documentation only), full Worker regression completed successfully: 206 files / 1,576 tests, 701.63 seconds, exit 0 (`/tmp/honmaru-room-join-worker-full.log`). Full Web regression: 133 files / 955 tests (`/tmp/honmaru-room-join-web-full.log`). TypeScript and Vite build also passed. No Worker source/test edits occurred during the full run.
 
 Before this release, GitHub API confirmed production Worker run 39758211720 and CI 39758211514 on eb2e7e36 succeeded; the latest Web deployment remained 39582144951 on b3de38b4. Pushing this release must be followed by its own Worker, Web and CI result checks; local tests do not prove production deployment.
+
+### Room member count follow-up — 2026-10-23
+
+Public-room discovery now counts active assigned agents alongside current human workspace members. Deleted agents and stale human membership rows do not inflate the displayed count. This aligns the roster concept with the observed Kylon room header (one human plus Aris = two members). Room role/discovery suite passed 31 tests, including removal of a workspace member and soft deletion of an assigned agent. This follow-up is local while release 4bb40836 deploys; the populated Kylon discovery row remains unobserved.
+
+Release 4bb40836 was pushed to main. GitHub started Worker 39897252414, CI 39897252362, and Web 39897252380. All were in progress at the last check; deployment success is not yet established.

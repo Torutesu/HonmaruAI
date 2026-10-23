@@ -405,11 +405,13 @@ test('public room discovery exposes joined state without private rooms or stale 
   await initializeRoomRoles(env.DB,org,channel,'creator');
   expect(await publicRooms(env.DB,org,'outsider')).toEqual([]);
   await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1").bind(org).run();
-  expect(await publicRooms(env.DB,org,'outsider')).toEqual([{channel,name:'Planning',joined:false,memberCount:3}]);
+  expect(await publicRooms(env.DB,org,'outsider')).toEqual([{channel,name:'Planning',joined:false,memberCount:4}]);
   expect((await publicRooms(env.DB,org,'reader'))[0].joined).toBe(true);
   expect(await publicRooms(env.DB,org,'guest')).toEqual([]);
   expect(await publicRooms(env.DB,org,'missing')).toEqual([]);
   await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='reader'").bind(org).run();
+  expect((await publicRooms(env.DB,org,'outsider'))[0].memberCount).toBe(3);
+  await env.DB.prepare("UPDATE custom_agents SET deleted_at='deleted' WHERE org_id=?1 AND id='helper'").bind(org).run();
   expect((await publicRooms(env.DB,org,'outsider'))[0].memberCount).toBe(2);
   await env.DB.prepare("UPDATE businesses SET archived_at='archived' WHERE org_id=?1").bind(org).run();
   expect(await publicRooms(env.DB,org,'outsider')).toEqual([]);

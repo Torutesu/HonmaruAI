@@ -266,7 +266,9 @@ export async function publicRooms(db, orgId, actorId) {
     EXISTS(SELECT 1 FROM conversation_members c WHERE c.org_id=b.org_id AND c.channel=p.channel AND c.login=u.login) AS joined,
     (SELECT COUNT(*) FROM conversation_members c JOIN users cu ON cu.login=c.login
       JOIN memberships cm ON cm.org_id=c.org_id AND cm.user_github_id=cu.github_id
-      WHERE c.org_id=b.org_id AND c.channel=p.channel) AS memberCount
+      WHERE c.org_id=b.org_id AND c.channel=p.channel)
+    + (SELECT COUNT(*) FROM channel_agents ca JOIN custom_agents a ON a.org_id=ca.org_id AND a.id=ca.agent_id AND a.deleted_at IS NULL
+      WHERE ca.org_id=b.org_id AND ca.channel=p.channel) AS memberCount
     FROM businesses b JOIN hx_room_access p ON p.org_id=b.org_id AND p.channel='b:'||b.slug AND p.deleted_at IS NULL
     JOIN memberships m ON m.org_id=b.org_id AND m.user_github_id=?2 AND m.role!='guest'
     JOIN users u ON u.github_id=m.user_github_id
