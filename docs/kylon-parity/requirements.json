@@ -18,9 +18,9 @@
       "code": "worker/src/access.js",
       "acceptance": "非メンバー・管理者・ゲストのHTTP/WS/検索すべてで隔離を検証",
       "evidence": {
-        "release": "Atomic creation and connected UI deployed; member UI e8e5af3d/93c400d7 and direct entry 1dcf52cb deployed. Ten-color palette and keyboard dismissal deployed in a673f31e (CI/Worker/Web success).",
-        "verified": "Room creation persistence/idempotency and permission snapshots tested. Native production member picker observed; temporary empty private QA room archived through normal UI. Native production private room creation with Lake color and no additional members/agents succeeded; saved room/icon remained after reload.",
-        "remaining": "Default-room identity, privacy editing with WebSocket eviction, comprehensive multi-user production isolation."
+        "release": "Atomic creation and connected UI deployed; member UI e8e5af3d/93c400d7 and direct entry 1dcf52cb deployed. Ten-color palette and keyboard dismissal deployed in a673f31e (CI/Worker/Web success). Managed-room settings 310fb06e deployed (Worker/Web success); CI E2E attempts 1 and 2 failed different existing pin/unread scenarios; other required jobs passed.",
+        "verified": "Room creation persistence/idempotency and permission snapshots tested. Native production member picker observed; temporary empty private QA room archived through normal UI. Native production private room creation with Lake color and no additional members/agents succeeded; saved room/icon remained after reload. Native production atomic name/color/response save and full app restart persistence verified; original QA settings restored and room re-archived. Local Web 974 and Worker 1624 tests pass.",
+        "remaining": "Default-room identity, privacy editing with WebSocket eviction, comprehensive multi-user production isolation. Custom room visuals, complete room menu, guideline dialog/membership guard alignment; intermittent Mac reload blank and delayed-pin E2E diagnosis."
       }
     },
     {
