@@ -1,3 +1,5 @@
+import {managedRoomSettings,saveManagedRoomSettings} from './roomSettings.js';
+import {listBusinesses} from '../db.js';
 import { explicitAgentRoles, agentRoleState, setAgentRole, transferAgentOwnership } from './agentRoles.js';
 import { updateMemoryEntry } from './memoryEntries.js';
 import { previewSkillImport } from './skillImport.js';
@@ -131,6 +133,24 @@ export async function handleHarness(request, env, url, context = {}) {
     const r = await personalViews(env.DB,orgId,me,parts[2],request.method === 'PUT' ? input : undefined);
     return r.error ? fail(r) : json(r);
   }
+  if(url.pathname==='/hx/rooms/settings') {
+    if(!['GET','PUT'].includes(request.method))return json({message:'Method not allowed.'},405);
+    const channel=request.method==='GET'?url.searchParams.get('channel'):input.channel;
+    const room=await resolveChannel(env.DB,orgId,who.user,channel);
+    if(!room||room.kind!=='business')return json({message:'No such room.'},404);
+    const canChangeResponses=await allowed(env.DB,orgId,me,'harness.build');
+    if(request.method==='GET'){
+      const result=await managedRoomSettings(env.DB,orgId,room.key,me);
+      if(result.error)return fail(result);
+      return json({settings:result.settings,canEdit:result.canEdit,canChangeResponses:result.canEdit&&canChangeResponses});
+    }
+    const result=await saveManagedRoomSettings(env.DB,orgId,room.key,me,input,{canChangeResponses});
+    if(result.error)return fail(result);
+    await audit(env,request,{orgId,action:'room.settings_changed',actor:person(who.user),entity:{type:'channel',id:room.key},details:{version:result.settings.version,responseVersion:result.settings.responseVersion}});
+    const members=await memoryMembers(env.DB,orgId,me);
+    await announceTo(env,orgId,await Promise.all(members.map(async m=>({to:m.login,event:appActivityEvent('businesses',{businesses:await listBusinesses(env.DB,orgId,{viewer:m.login})})}))));
+    return json({...result,businesses:await listBusinesses(env.DB,orgId,{viewer:who.user.login})});
+  }
   if (!read && !(await allowed(env.DB, orgId, me, "harness.build"))) return json({ message: "You cannot build in this workspace." }, 403);
 
   if (url.pathname === "/hx/rooms/responses") {
@@ -139,7 +159,12 @@ export async function handleHarness(request, env, url, context = {}) {
     if (!room || room.kind !== "business") return json({ message: "No such room." }, 404);
     const exists = await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, room.slug).first();
     if (!exists) return json({ message: "No such room." }, 404);
-    if (request.method === "GET") return json({ responses: await roomResponses(env.DB, orgId, room.key), canEdit: await allowed(env.DB, orgId, me, "harness.build") });
+    if (request.method === "GET") {
+      const managed=await env.DB.prepare('SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2').bind(orgId,room.key).first();
+      const settings=managed?await managedRoomSettings(env.DB,orgId,room.key,me):null;
+      if(settings?.error)return fail(settings);
+      return json({responses:await roomResponses(env.DB,orgId,room.key),canEdit:(!managed||settings.canEdit)&&await allowed(env.DB,orgId,me,'harness.build')});
+    }
     if (request.method === "PUT") {
       const result = await saveRoomResponses(env.DB, orgId, room.key, input, me);
       if (result.error) return fail(result);

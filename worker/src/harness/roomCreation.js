@@ -1,7 +1,7 @@
 import {listMembers} from '../team.js';
 import {sha256Hex} from '../auth.js';
 
-const colors=new Set(['teal','olive','blue','purple','pink','orange','red','gray','rose','yellow','green','lake','indigo']);
+import {ROOM_COLOR_KEYS as colors} from './roomColors.js';
 const failure=(error,status=409)=>({error,status});
 export async function createManagedRoom(db,orgId,actorId,input) {
   if(!input||typeof input!=='object'||typeof input.requestId!=='string'||!/^[A-Za-z0-9_-]{16,100}$/.test(input.requestId)
@@ -20,7 +20,7 @@ export async function createManagedRoom(db,orgId,actorId,input) {
   const existing=await db.prepare('SELECT channel,fingerprint,member_since FROM hx_room_creations WHERE org_id=?1 AND user_id=?2 AND request_id=?3').bind(orgId,actorId,input.requestId).first();
   const replay=async row=>{
     if(row.fingerprint!==fingerprint||row.member_since!==actor.joinedAt)return failure('This creation request belongs to a different draft or membership. Start a new room.');
-    const live=await db.prepare(`SELECT b.slug,b.name,p.version,r.color FROM businesses b
+    const live=await db.prepare(`SELECT b.slug,b.name,p.version,COALESCE((SELECT a.color FROM hx_room_appearance a WHERE a.org_id=b.org_id AND a.channel=?2),r.color) AS color FROM businesses b
       JOIN hx_room_access p ON p.org_id=b.org_id AND p.channel=?2 AND p.deleted_at IS NULL
       JOIN hx_room_creations r ON r.org_id=b.org_id AND r.channel=p.channel
       JOIN conversation_members c ON c.org_id=b.org_id AND c.channel=p.channel AND c.login=?3

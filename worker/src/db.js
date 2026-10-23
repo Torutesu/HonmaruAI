@@ -924,7 +924,7 @@ export async function listBusinesses(db, orgId, { viewer = null } = {}) {
   const { results } = await db
     .prepare(
       `SELECT b.slug, b.name, b.created_by, b.created_at, b.private, p.channel AS managed_room,
-              (SELECT rc.color FROM hx_room_creations rc WHERE rc.org_id=b.org_id AND rc.channel='b:'||b.slug) AS room_color,
+              COALESCE((SELECT a.color FROM hx_room_appearance a WHERE a.org_id=b.org_id AND a.channel='b:'||b.slug),(SELECT rc.color FROM hx_room_creations rc WHERE rc.org_id=b.org_id AND rc.channel='b:'||b.slug)) AS room_color,
               CASE WHEN p.channel IS NOT NULL THEN
                 (SELECT COUNT(*) FROM conversation_members c JOIN users cu ON cu.login=c.login JOIN memberships cm ON cm.org_id=c.org_id AND cm.user_github_id=cu.github_id WHERE c.org_id=b.org_id AND c.channel=p.channel)
                 + (SELECT COUNT(*) FROM channel_agents ca JOIN custom_agents a ON a.org_id=ca.org_id AND a.id=ca.agent_id AND a.deleted_at IS NULL WHERE ca.org_id=b.org_id AND ca.channel=p.channel)

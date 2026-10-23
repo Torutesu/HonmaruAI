@@ -1,0 +1,12 @@
+.room-settings{width:min(448px,100%);border-radius:14px}
+.room-settings .dialog-head{padding:22px 24px 12px}.room-settings .dialog-body{padding:8px 24px 24px;gap:20px}.room-settings .dialog-foot{padding:14px 24px}
+.room-settings .dlg-btn{height:36px;border-radius:12px}.room-settings .dlg-btn.primary{background:#757c4e;border-color:#757c4e;color:#fff}
+.room-settings-field{display:flex;flex-direction:column;align-items:flex-start;gap:8px}.room-settings-field>.dlg-label{margin:0;font-weight:500;color:var(--dlg-ink)}.room-settings-field>.dlg-input{width:100%;box-sizing:border-box;background:var(--dlg-bg);border-radius:11px}
+.room-settings .room-create-color{width:40px;height:40px;border-radius:10px;background:color-mix(in srgb,var(--room-color) 20%,var(--dlg-bg))}.room-settings .room-create-colors{top:46px}
+.room-settings-response{border:1px solid var(--dlg-line);border-radius:12px;padding:12px}.room-settings-response h3{font-size:12px;font-weight:500;margin:0 0 12px;color:var(--dlg-dim)}.room-settings-response label{display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:13px}.room-settings-response p{font-size:12px;line-height:1.6;color:var(--dlg-dim);margin:8px 0 0}
+.room-settings-response input{appearance:none;flex:none;width:30px;height:18px;border-radius:10px;margin:0;background:var(--dlg-line);position:relative;cursor:pointer}.room-settings-response input:before{content:'';position:absolute;top:3px;left:3px;width:12px;height:12px;background:var(--dlg-bg);border-radius:50%;transition:transform .12s}.room-settings-response input:checked{background:#757c4e}.room-settings-response input:checked:before{transform:translateX(12px);background:#fff}.room-settings-response input:focus-visible{outline:2px solid var(--dlg-dim);outline-offset:3px}.room-settings-response input:disabled{cursor:default;opacity:.6}
+.room-settings-note{color:var(--dlg-dim);font-size:12px;margin:0}.room-settings .dlg-error{font-size:12px;line-height:1.5}.room-settings .dlg-error button{font:inherit;color:inherit;background:none;border:0;text-decoration:underline;cursor:pointer}
+html[data-theme=dark] .room-settings .dlg-error{color:#ff8b8b}
+.room-settings .dlg-btn.primary:hover:not(:disabled){background:#757c4e}
+.room-settings .dlg-error{color:#b4232c}
+@media(prefers-color-scheme:dark){html:not([data-theme=light]) .room-settings .dlg-error{color:#ff8b8b}}

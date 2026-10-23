@@ -1,3 +1,4 @@
+import {RoomSettings} from './RoomSettings'
 import { RoomMembers } from './RoomMembers'
 import { ROOM_COLORS } from '../utils/roomColors'
 import { RoomCreateDialog, type RoomCreateInput } from './RoomCreateDialog'
@@ -5121,7 +5122,8 @@ export const ClassicList: React.FC<Props> = ({
             <button
               className="slk-more"
               onClick={() => { forgetWanted(); setSettings((v) => !v); setRenaming(null) }}
-              aria-label={t('Channel settings')}
+              aria-label={t(harness&&thread.managed?'Room settings':'Channel settings')}
+              aria-haspopup={harness&&thread.managed?'dialog':undefined}
               aria-expanded={settings}
             >
               <Icon name="more" size={16} />
@@ -5165,7 +5167,7 @@ export const ClassicList: React.FC<Props> = ({
             {t('Decisions')}{thread.cards.length > 0 && <span className="slk-tab-count">{thread.cards.length}</span>}
           </button>
         </nav>
-        {settings && thread.kind === 'channel' && thread.slug && (
+        {settings && !(harness&&thread.managed) && thread.kind === 'channel' && thread.slug && (
           <div className="cl-channel-tools">
             {renaming === thread.slug ? (
               <form className="cl-inline-form" onSubmit={(e) => { e.preventDefault(); void renameChannel(thread.slug!) }}>
@@ -5741,6 +5743,7 @@ export const ClassicList: React.FC<Props> = ({
           onSend={(to, comment) => forwardTo(forwarding.channel, forwarding.m, to, comment)}
         />
       )}
+      {harness&&settings&&current?.managed&&current.view&&<RoomSettings key={`${api.httpBase}:${api.orgId}:${api.sessionToken}:${current.view}`} api={api} view={current.view} onClose={()=>setSettings(false)} onSaved={()=>{setChannelsTick(n=>n+1);window.dispatchEvent(new Event('honmaru:reload-businesses'))}}/>}
       {harness && roomMembersView && roomMemberDialog(roomMembersView,()=>setRoomMembersView(null))}
       {harness && creatingRoom && onCreateRoom && <RoomCreateDialog key={api.orgId} people={[
         ...members.filter(m=>!m.mine).map(m=>({id:m.ref,kind:'person' as const,name:m.name,avatarUrl:m.avatarUrl||undefined})),

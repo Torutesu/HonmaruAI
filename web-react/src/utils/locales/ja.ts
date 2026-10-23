@@ -1,6 +1,18 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Room settings": "ルーム設定",
+  "Room icon": "ルームアイコン",
+  "Agents respond when mentioned. When off, clear requests can be assigned to an available agent.": "オンの場合、エージェントはメンションされたときに応答します。オフの場合、明確な依頼をこのルームの利用可能なエージェントへ割り当てます。",
+  "Join this room to edit its settings.": "設定を編集するには、このルームに参加してください。",
+  "Reload latest settings": "最新の設定を読み込む",
+  "Room settings could not be loaded.": "ルーム設定を読み込めませんでした。",
+  "Room settings changed. Reload before saving.": "別の場所でルーム設定が変更されました。最新の設定を読み込んでから保存してください。",
+  "Room settings or membership changed. Reload before saving.": "ルーム設定またはメンバーが変更されました。最新の設定を読み込んでから保存してください。",
+  "Only a room member can change its settings.": "ルームのメンバーのみ設定を変更できます。",
+  "You cannot change how agents respond in this workspace.": "このワークスペースでエージェントの応答設定を変更する権限がありません。",
+  "No such active managed room.": "このルームは存在しないか、アーカイブされています。",
+  "A room name, color, response setting and current versions are required.": "ルーム名、色、応答設定と最新のバージョンが必要です。",
   "Room admin": "ルーム管理者",
   "Choose a successor who already belongs to every listed room.": "一覧のすべてのルームに参加済みのメンバーを引き継ぎ先に選んでください。",
   "Guidelines": "ガイドライン",
