@@ -102,3 +102,31 @@ test('read-only members can open memory history with the selected conversation s
   expect(tree.root.findAllByProps({role:'dialog'})).toHaveLength(0)
  }finally {act(()=>tree?.unmount());vi.unstubAllGlobals()}
 })
+
+test('late review-log responses cannot cross a changed conversation scope',async()=>{
+ let tree!:ReturnType<typeof create>, resolveOld!:(value:any)=>void
+ const queries:string[]=[]
+ vi.stubGlobal('fetch',vi.fn(async(input:string)=>{
+  const url=new URL(input)
+  if(url.pathname.endsWith('/memory/reviews')) {
+   queries.push(url.searchParams.get('channel')||'')
+   if(!url.searchParams.get('channel')) return new Promise(resolve=>{resolveOld=resolve})
+   return {ok:true,json:async()=>({reviews:[{id:'current',memoryId:'m',verdict:'delete',version:1,evidence:'Current conversation evidence',by:'owner',reviewerName:'Owner',at:'2026-10-24'}],nextCursor:null})}
+  }
+  return {ok:true,json:async()=>({agents:[{id:'a',name:'Memory agent',handle:'memory',scope:'team'}],profile:{tier:'standard',people:[],access:'private'},canEdit:false,memories:[],nextCursor:null,skills:[],scopes:[{channel:'b:ops',label:'Ops'}]})}
+ }))
+ try {
+  await act(async()=>{tree=create(<HarnessAgents httpBase="https://example.test" orgId="one" sessionToken="session" onClose={vi.fn()}/>)})
+  await act(async()=>tree.root.findByProps({'data-agent':'a'}).props.onClick())
+  await act(async()=>tree.root.findAllByProps({role:'tab'}).find(t=>t.children.includes('Memory'))!.props.onClick())
+  const click=(label:string)=>tree.root.findAllByType('button').find(b=>b.children.includes(label))!.props.onClick()
+  await act(async()=>click('Review log'))
+  act(()=>click('Close dialog'))
+  await act(async()=>tree.root.findByProps({'aria-label':'Memory conversation'}).props.onChange({target:{value:'b:ops'}}))
+  await act(async()=>click('Review log'))
+  await act(async()=>resolveOld({ok:true,json:async()=>({reviews:[{id:'old',evidence:'Previous scope evidence'}],nextCursor:null})}))
+  expect(queries).toEqual(['','b:ops'])
+  expect(JSON.stringify(tree.toJSON())).toContain('Current conversation evidence')
+  expect(JSON.stringify(tree.toJSON())).not.toContain('Previous scope evidence')
+ } finally {act(()=>tree?.unmount());vi.unstubAllGlobals()}
+})

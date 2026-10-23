@@ -336,7 +336,7 @@
       "priority": "P2",
       "source": "https://docs.kylon.io/concepts/memory",
       "code": "worker/src/harness/memoryEntries.js",
-      "acceptance": "確認根拠・確認者・検証日・本文版の記録と、編集後の再確認表示を追加（本番未反映）。全体テスト・実画面・期限による再確認判定・スキル変換は残る"
+      "acceptance": "保持レビュー・版に紐づく確認履歴は本番反映済み。修正/削除レビュー・削除後の範囲付き証跡・履歴一覧は実装/検証中。期限による再確認判定・本文を欠落させず閲覧範囲を維持するスキル変換は未対応"
     },
     {
       "id": "KY-032",
