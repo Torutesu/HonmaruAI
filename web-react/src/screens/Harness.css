@@ -167,3 +167,5 @@
 .hx-memory-filters .hx-cell-input { flex: 1 1 180px; border-color: var(--hx-border, var(--bone)); }
 .hx-memory-filters .hx-cell-select, .hx-memory-compose .hx-cell-select { flex: 0 1 160px; width: auto; border-color: var(--hx-border, var(--bone)); }
 .hx-memory-compose { flex-wrap: wrap; }
+
+.hx-memory-scope { width: min(100%, 320px); margin: 8px 0 12px; min-height: 36px; border-color: var(--hx-border); background: var(--hx-surface); color: var(--hx-text); }

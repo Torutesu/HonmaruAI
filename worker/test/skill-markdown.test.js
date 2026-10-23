@@ -32,7 +32,7 @@ test.each([
   '---\nname: test\ndescription: !unknown tag\n---\nBody',
   '---\nname: &name test\ndescription: *name\n---\nBody',
   '---\nname: test\ndescription: test\n---\n',
-  '---\nname: test\ndescription: test\n---\n' + 'a'.repeat(8001),
+  '---\nname: test\ndescription: test\n---\n' + 'a'.repeat(16001),
   'a'.repeat(65537),
 ])('rejects invalid or oversized files without creating a partial draft (%#)', input => {
   expect(parseSkillMarkdown(input)).toHaveProperty('error');
@@ -43,4 +43,9 @@ test('untrusted fields remain metadata, never import identity or permissions', (
   expect(draft.id).toBeUndefined();
   expect(draft.visibility).toBeUndefined();
   expect(draft.metadata).toEqual({ id: 'another-skill', visibility: 'workspace', createdBy: 'admin' });
+});
+
+test('round trips full length Japanese memory fields without truncation', () => {
+  const draft = { name: '名'.repeat(120), description: '説'.repeat(500), body: '記'.repeat(16000), metadata: {} };
+  expect(parseSkillMarkdown(skillMarkdown(draft)).draft).toEqual(draft);
 });

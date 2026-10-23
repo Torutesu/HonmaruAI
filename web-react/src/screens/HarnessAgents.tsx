@@ -225,7 +225,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
       </>}
       {section === 'memory' && <>
       <div className="rows-title">{t('Memory')}</div>
-      <select aria-label={t('Memory conversation')} value={memoryChannel} disabled={busy !== null} onChange={e => { memoryLoad.current++; setHistoryMemory(null); setReviewingMemory(null); setMemoryDraft(null); setMemories([]); setMemoryCursor(null); setMemorySearch({ query: '', kind: 'all' }); setMemoryChannel(e.target.value) }}>
+      <select className="hx-cell-select hx-memory-scope" aria-label={t('Memory conversation')} value={memoryChannel} disabled={busy !== null} onChange={e => { memoryLoad.current++; setHistoryMemory(null); setReviewingMemory(null); setMemoryDraft(null); setMemories([]); setMemoryCursor(null); setMemorySearch({ query: '', kind: 'all' }); setMemoryChannel(e.target.value) }}>
         <option value="">{t('Agent memory')}</option>
         {memoryScopes.map(scope => <option key={scope.channel} value={scope.channel}>{scope.label}</option>)}
       </select>

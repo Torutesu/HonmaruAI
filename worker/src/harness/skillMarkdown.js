@@ -1,5 +1,5 @@
 import { parseDocument, stringify } from 'yaml';
-import { MAX_SKILL_CHARS, cleanSkillMetadata } from './skills.js';
+import { MAX_SKILL_CHARS, MAX_SKILL_NAME_CHARS, MAX_SKILL_DESCRIPTION_CHARS, cleanSkillMetadata } from './skills.js';
 
 export const MAX_SKILL_FILE_BYTES = 65536;
 export function parseSkillMarkdown(source) {
@@ -15,8 +15,8 @@ export function parseSkillMarkdown(source) {
   } catch { return { error: 'Invalid YAML frontmatter. Aliases and custom tags are not supported.' }; }
   if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return { error: 'Frontmatter must be a mapping.' };
   const { name, description, ...metadata } = fields;
-  if (typeof name !== 'string' || !name.trim() || name.trim().length > 80) return { error: 'The skill name must contain 1–80 characters.' };
-  if (typeof description !== 'string' || !description.trim() || description.trim().length > 200) return { error: 'The description must contain 1–200 characters.' };
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > MAX_SKILL_NAME_CHARS) return { error: `The skill name must contain 1–${MAX_SKILL_NAME_CHARS} characters.` };
+  if (typeof description !== 'string' || !description.trim() || description.trim().length > MAX_SKILL_DESCRIPTION_CHARS) return { error: `The description must contain 1–${MAX_SKILL_DESCRIPTION_CHARS} characters.` };
   const body = text.slice(front[0].length).trim();
   if (!body || body.length > MAX_SKILL_CHARS) return { error: `The skill instructions must contain 1–${MAX_SKILL_CHARS} characters.` };
   const checked = cleanSkillMetadata(metadata);

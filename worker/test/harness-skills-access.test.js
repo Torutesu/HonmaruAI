@@ -306,3 +306,29 @@ test('a new skill owner may edit and share while the creator attribution remains
   expect((await request('DELETE',`/skills/${skill.id}`,owner)).status).toBe(403);
   expect((await request('DELETE',`/skills/${skill.id}`,member)).status).toBe(200);
 });
+
+test('preserves full memory-sized skill fields and rejects oversized writes without mutation', async () => {
+  const fields = { name: '名'.repeat(120), description: '説'.repeat(500), body: '記'.repeat(16000), visibility: 'private' };
+  const made = await request('POST', '/skills', owner, fields);
+  expect(made.status).toBe(201);
+  const { skill } = await made.json();
+  expect(skill).toMatchObject(fields);
+  const exported = await request('GET', `/skills/${skill.id}/export`, owner);
+  const preview = await request('POST', '/skills/preview-import', owner, { markdown: (await exported.json()).markdown });
+  expect((await preview.json()).draft).toMatchObject({ name: fields.name, description: fields.description, body: fields.body });
+  for (const key of ['name', 'description', 'body']) {
+    const invalid = { ...fields, [key]: fields[key] + '超' };
+    expect((await request('POST', '/skills', owner, invalid)).status).toBe(400);
+    expect((await request('PUT', `/skills/${skill.id}`, owner, invalid)).status).toBe(400);
+    expect(await getSkill(env.DB, orgId, skill.id, '9401')).toMatchObject(fields);
+  }
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills WHERE org_id = ?').bind(orgId).first()).n).toBe(1);
+});
+
+test('rejects an unexportable combined metadata and body size before writing', async () => {
+  const input = { name: 'Limit', description: 'Combined byte limit', body: '記'.repeat(16000), metadata: { note: '説'.repeat(7900) } };
+  const made = await request('POST', '/skills', owner, input);
+  expect(made.status).toBe(400);
+  expect((await createSkill(env.DB, orgId, input, '9401')).error).toContain('64 KiB');
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills WHERE org_id = ?').bind(orgId).first()).n).toBe(0);
+});

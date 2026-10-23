@@ -1,3 +1,4 @@
+import { skillMarkdown, MAX_SKILL_FILE_BYTES } from './skillMarkdown.js';
 import { skillSelect, skillVisible } from './skillAccess.js';
 import { mayAccessAgent } from './agents.js';
 // Skills (docs/kylon-gap-plan.md): how the team does a thing, written once
@@ -5,7 +6,9 @@ import { mayAccessAgent } from './agents.js';
 // when it answers (agents.js prepareAgent).
 
 export const MAX_SKILLS = 100;
-export const MAX_SKILL_CHARS = 8000;
+export const MAX_SKILL_CHARS = 16000;
+export const MAX_SKILL_NAME_CHARS = 120;
+export const MAX_SKILL_DESCRIPTION_CHARS = 500;
 
 const now = () => new Date().toISOString();
 const newId = (p) => `${p}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
@@ -41,13 +44,19 @@ export async function getSkill(db, orgId, id, userId = "") {
 }
 
 function clean(input) {
-  const name = String(input?.name || "").trim().slice(0, 80);
-  const body = String(input?.body || "").trim().slice(0, MAX_SKILL_CHARS);
+  const name = String(input?.name || "").trim();
+  const body = String(input?.body || "").trim();
+  const description = String(input?.description || "").trim();
+  if (name.length > MAX_SKILL_NAME_CHARS) return {error:`The skill name must contain at most ${MAX_SKILL_NAME_CHARS} characters.`};
+  if (description.length > MAX_SKILL_DESCRIPTION_CHARS) return {error:`The skill description must contain at most ${MAX_SKILL_DESCRIPTION_CHARS} characters.`};
+  if (body.length > MAX_SKILL_CHARS) return {error:`The skill instructions must contain at most ${MAX_SKILL_CHARS} characters.`};
   if (!name) return { error: "Give the skill a name." };
   if (!body) return { error: "Write what the skill says to do." };
   const checked = cleanSkillMetadata(input?.metadata);
   if (checked.error) return checked;
-  return { name, body, description: String(input?.description || "").trim().slice(0, 200), metadata: checked.metadata };
+  const fields = { name, body, description, metadata: checked.metadata };
+  if (new TextEncoder().encode(skillMarkdown(fields)).length > MAX_SKILL_FILE_BYTES) return { error: "SKILL.md must be at most 64 KiB including metadata." };
+  return fields;
 }
 
 export async function createSkill(db, orgId, input, by) {
