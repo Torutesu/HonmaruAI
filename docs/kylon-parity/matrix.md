@@ -171,4 +171,4 @@ KY-017 remains partial: implemented room-level Mentioned only with versioned sav
 Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing and a Mentioned only switch; it explicitly has no separate user-facing Orchestrator role. KY-018 remains an unfulfilled tracking requirement for leadership/handoff/concurrency, but no unobserved leader-selection UI is invented. Automatic suitable-agent routing and explicit agent-to-agent handoff remain gaps.
 
 
-2026-10-23追記（公開ルーム参加・管理）: 管理対象ルームの検索・参加UIをHarnessの新規メニューに接続。Kylon実画面で未参加のみの候補表示と512pxダイアログを確認し反映。RoomCreateDialogは未接続であり、既存ルームを自動的に管理対象へ移行しない。Web全体133スイート955テスト通過。Worker全体は実行中（結果は検証記録で更新）。この追記時点では本番未反映で、KY-001/009を完了扱いしない。
+2026-10-23追記（公開ルーム参加・管理）: 管理対象ルームの検索・参加UIをHarnessの新規メニューに接続。Kylon実画面で未参加のみの候補表示と512pxダイアログを確認し反映。RoomCreateDialogは未接続であり、既存ルームを自動的に管理対象へ移行しない。Web全体133スイート955テスト通過。Worker全体206スイート1,576テストも通過。この追記時点では本番未反映で、KY-001/009を完了扱いしない。

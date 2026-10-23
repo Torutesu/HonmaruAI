@@ -1048,3 +1048,9 @@ Harness New menu now opens a search dialog backed by authenticated `/channels/pu
 Native Kylon inspection confirmed the public-room entry uses a search icon, a 512px centered dialog, public-room search input, no ordinary footer, and an empty state when there are no unjoined rooms (general was already joined). Updated our initial implementation to exclude joined rooms and match that structure. Locally inspected the real component in an isolated Electron fixture in light/dark themes and searched for an already-joined room; corrected clipped focus styling. Fixture made no production API requests and was removed afterwards. Kylon had no unjoined room rows available, so populated-row visual parity is not yet verified.
 
 Validation: room roles/discovery 31 tests and RoomJoinDialog 3 tests passed; TypeScript and Vite build passed. Full regression and production deployment remain pending. Managed creation and remaining lifecycle protections are still incomplete; the UI does not imply 100% parity.
+
+### Release regression checkpoint — 2026-10-23
+
+At code revision 4ccfd36c (subsequent 623fa4e9 changes documentation only), full Worker regression completed successfully: 206 files / 1,576 tests, 701.63 seconds, exit 0 (`/tmp/honmaru-room-join-worker-full.log`). Full Web regression: 133 files / 955 tests (`/tmp/honmaru-room-join-web-full.log`). TypeScript and Vite build also passed. No Worker source/test edits occurred during the full run.
+
+Before this release, GitHub API confirmed production Worker run 39758211720 and CI 39758211514 on eb2e7e36 succeeded; the latest Web deployment remained 39582144951 on b3de38b4. Pushing this release must be followed by its own Worker, Web and CI result checks; local tests do not prove production deployment.
