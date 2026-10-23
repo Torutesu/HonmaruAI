@@ -603,3 +603,32 @@ test('thread mute is personal, persists for another session, and does not mute t
   expect((await call(url, mika)).status).not.toBe(200);
   expect((await muteThread(mika, root.id, true)).status).not.toBe(200);
 });
+
+
+test("room search excludes other rooms, deleted messages and thread-only replies, with literal matching", async () => {
+  const root = await say(toru, "Room 100%_done");
+  await say(mika, "Thread only 100%_done", root.id);
+  const broadcast = await say(mika, "Also visible 100%_done", root.id);
+  await env.DB.prepare("UPDATE channel_messages SET also_channel=1 WHERE id=?1").bind(broadcast.id).run();
+  const deleted = await say(toru, "Deleted 100%_done");
+  await env.DB.prepare("UPDATE channel_messages SET deleted_at='2026-01-01' WHERE id=?1").bind(deleted.id).run();
+  await say(toru, "Not literal 100XXdone");
+  await call("/channels/messages",toru,{method:"POST",body:{orgId:ORG,channel:"general",body:"Elsewhere 100%_done"}});
+  const url = `/channels/room/search?orgId=${encodeURIComponent(ORG)}&channel=b:cafe&q=${encodeURIComponent("100%_done")}`;
+  const found=await (await call(url,toru)).json();
+  expect(found.messages.map(m=>m.id)).toEqual([broadcast.id,root.id]);
+  expect((await call(url+"&before=invalid",toru)).status).toBe(400);
+  expect((await call(url.replace("q=100%25_done","q="),toru)).status).toBe(400);
+  expect((await call(url,"invalid")).status).not.toBe(200);
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='cafe'").bind(ORG).run();
+  expect((await call(url,kenji)).status).toBe(404);
+});
+
+test("room search pages every match without repeats or timestamp ties dropping messages",async()=>{
+  for(let i=0;i<33;i++)await say(toru,`Room needle ${i}`);
+  const url=`/channels/room/search?orgId=${encodeURIComponent(ORG)}&channel=b:cafe&q=needle`;
+  const first=await(await call(url,toru)).json();
+  const last=await(await call(url+`&before=${first.nextCursor}`,toru)).json();
+  expect(first.messages).toHaveLength(30);expect(last.messages).toHaveLength(3);expect(last.nextCursor).toBeNull();
+  expect(new Set([...first.messages,...last.messages].map(m=>m.id)).size).toBe(33);
+});

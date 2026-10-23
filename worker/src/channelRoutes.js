@@ -1,3 +1,4 @@
+import { searchRoom } from './roomSearch.js';
 import { createManagedRoom } from './harness/roomCreation.js';
 import { addManagedRoomAgent, changeManagedRoomMembers, publicRooms, joinPublicRoom, removeRoomSubject, roomRoleState, setRoomRole } from './harness/roomRoles.js';
 import { explicitAgentRoles } from './harness/agentRoles.js';
@@ -1378,6 +1379,15 @@ export async function handleChannels(request, env, url, { route, after }) {
     const ctx = await inChannel(env, request, { orgId, channel: url.searchParams.get("channel") });
     if (ctx.denied) return ctx.denied;
     const result = await previewThreadShare(env.DB, orgId, ctx.resolved.key, url.searchParams.get("messageId") || "");
+    return result.error ? json({ message: result.error }, result.status) : json(result);
+  }
+
+  if (path === "/channels/room/search" && request.method === "GET") {
+    const orgId = url.searchParams.get("orgId");
+    const ctx = await inChannel(env, request, { orgId, channel: url.searchParams.get("channel") });
+    if (ctx.denied) return ctx.denied;
+    const result = await searchRoom(env.DB, orgId, ctx.resolved.key, ctx.who.user.login, ctx.view, ctx.members,
+      url.searchParams.get("q") || "", url.searchParams.get("before"));
     return result.error ? json({ message: result.error }, result.status) : json(result);
   }
 

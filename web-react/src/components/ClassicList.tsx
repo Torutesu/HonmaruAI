@@ -1,3 +1,5 @@
+import {findRoomMessage} from '../utils/findRoomMessage'
+import {HarnessRoomTools} from './HarnessRoomTools'
 import {ReadPositions} from '../utils/readPositions'
 import {RoomSettings} from './RoomSettings'
 import { RoomMembers } from './RoomMembers'
@@ -4892,6 +4894,21 @@ export const ClassicList: React.FC<Props> = ({
     )
   }
 
+  const goToRoomResult = async (channel:string, message:ChannelMessage, signal:AbortSignal) => {
+    const found=await findRoomMessage(messagesRef.current[channel]||[],!!more[channel],message.id,signal,async first=>{
+      const response=await fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&${olderThan(first)}`,{headers:authHeaders,signal})
+      if(!response.ok)throw new Error('History unavailable')
+      const data=await response.json();return {messages:data.messages as ChannelMessage[],more:hasOlder(data,PAGE)}
+    })
+    signal.throwIfAborted()
+    setMessages(previous=>{
+      const current=previous[channel]||[],known=new Set(current.map(m=>m.id))
+      return {...previous,[channel]:[...found.messages.filter(m=>!known.has(m.id)),...current]}
+    })
+    setMore(previous=>({...previous,[channel]:found.more}))
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{if(!signal.aborted)jumpTo(message.id)}))
+  }
+  const roomSearchShortcut = !thread
   const conversation = (thread: Thread) => {
     const said = thread.view ? (messages[thread.view] || []) : []
     // The red line: the first thing somebody else said since you last read.
@@ -5126,7 +5143,7 @@ export const ClassicList: React.FC<Props> = ({
               </button>
             </div>
           )}
-          {thread.kind === 'channel' && thread.slug && (
+          {harness&&thread.managed&&thread.view ? <HarnessRoomTools key={`${api.orgId}:${api.sessionToken}:${thread.view}`} api={api} channel={thread.view} shortcut={roomSearchShortcut} pinned={isStarred(thread.view)} muted={prefs[thread.view]==='mute'} onSelect={(message,signal)=>goToRoomResult(thread.view!,message,signal)} onCopy={()=>copyText(`${location.origin}${location.pathname}${hashForView(thread.view!)}`,t('Link copied'))} onPin={()=>toggleStar(thread.view!)} onGuidelines={()=>openSide({kind:'details',tab:'automations'})} onSettings={()=>{forgetWanted();setSettings(true);setRenaming(null)}} onMute={()=>void setPref(thread.view!,prefs[thread.view!]==='mute'?'default':'mute')}/> : thread.kind === 'channel' && thread.slug && (
             <button
               className="slk-more"
               onClick={() => { forgetWanted(); setSettings((v) => !v); setRenaming(null) }}
