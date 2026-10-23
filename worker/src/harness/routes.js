@@ -8,7 +8,7 @@ import {roomRoleState} from './roomRoles.js';
 import {managedRoomSettings,saveManagedRoomSettings} from './roomSettings.js';
 import {listBusinesses} from '../db.js';
 import { explicitAgentRoles, agentRoleState, setAgentRole, transferAgentOwnership } from './agentRoles.js';
-import { updateMemoryEntry } from './memoryEntries.js';
+import { memoryPage, updateMemoryEntry } from './memoryEntries.js';
 import { previewSkillImport } from './skillImport.js';
 import { writeSkillZip } from './skillZip.js';
 import { listSkillFiles, readSkillFile } from './skillFiles.js';
@@ -605,7 +605,13 @@ export async function handleHarness(request, env, url, context = {}) {
         channel = room.key;
       }
       const context = { channel };
-      if (request.method === "GET") return json({ memories: await listAgentMemories(env.DB, orgId, agentId, context), canEdit });
+      if (request.method === "GET") {
+        if (url.searchParams.get('paged') === '1') {
+          const result = await memoryPage(env.DB, orgId, agentId, { ...context, cursor: url.searchParams.get('cursor') });
+          return result.error ? fail(result) : json({ ...result, canEdit });
+        }
+        return json({ memories: await listAgentMemories(env.DB, orgId, agentId, context), canEdit });
+      }
       if (request.method === "POST") {
         const r = await addAgentMemory(env.DB, orgId, agentId, input.body !== undefined ? { title: input.title, description: input.description, body: input.body } : input.text, { by: me, channel, kind: input.kind || "context" });
         if (!r.error && !r.duplicate) await audit(env, request, { orgId, action: "agent.memory_created", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: channel ? "conversation" : "shared" } });

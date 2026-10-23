@@ -72,3 +72,17 @@ test('structured memory API preserves full fields and sends the loaded version a
   expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({orgId:'org',...entry,id:'1',expectedVersion:7,channel:''})
  } finally {vi.unstubAllGlobals()}
 })
+
+test('memory paging carries the exact conversation and opaque continuation', async()=>{
+ const {harnessApi}=await import('../utils/harness')
+ const fetcher=vi.fn().mockResolvedValue({ok:true,json:async()=>({memories:[],nextCursor:null,canEdit:false})})
+ vi.stubGlobal('fetch',fetcher)
+ try {
+  await harnessApi('https://example.test','workspace','session').memoryPage('agent','dm:a|b','["scope","time","id"]')
+  const url=new URL(fetcher.mock.calls[0][0])
+  expect(url.searchParams.get('orgId')).toBe('workspace')
+  expect(url.searchParams.get('channel')).toBe('dm:a|b')
+  expect(url.searchParams.get('paged')).toBe('1')
+  expect(url.searchParams.get('cursor')).toBe('["scope","time","id"]')
+ } finally {vi.unstubAllGlobals()}
+})

@@ -95,6 +95,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
   const [profile, setProfile] = useState<AgentProfile | null>(null)
   const [canEdit, setCanEdit] = useState(false)
   const [memories, setMemories] = useState<AgentMemory[]>([])
+  const [memoryCursor, setMemoryCursor] = useState<string | null>(null)
   const [memoryDraft, setMemoryDraft] = useState<AgentMemory | 'new' | null>(null)
   const [skills, setSkills] = useState<Skill[]>([])
   const [allSkills, setAllSkills] = useState<Skill[]>([])
@@ -109,11 +110,11 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
 
   const load = useCallback(() => act('load', async () => {
     const version = ++memoryLoad.current
-    const [p, m, s, all, scopes] = await Promise.all([api.profile(agent.id), api.memory(agent.id, memoryChannel), api.agentSkills(agent.id), api.skills(), api.memoryScopes(agent.id)])
+    const [p, m, s, all, scopes] = await Promise.all([api.profile(agent.id), api.memoryPage(agent.id, memoryChannel), api.agentSkills(agent.id), api.skills(), api.memoryScopes(agent.id)])
     if (version !== memoryLoad.current) return
     setMemoryScopes(scopes.scopes)
     setProfile(p.profile); setCanEdit(p.canEdit); setPeople(p.profile.people.map((x) => `@${x}`).join(' '))
-    setMemories(m.memories); setSkills(s.skills); setAllSkills(all.skills)
+    setMemories(m.memories); setMemoryCursor(m.nextCursor); setSkills(s.skills); setAllSkills(all.skills)
   }), [api, act, agent.id, memoryChannel])
   useEffect(() => { load(); return () => { ++memoryLoad.current } }, [load])
 
@@ -219,7 +220,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
       </>}
       {section === 'memory' && <>
       <div className="rows-title">{t('Memory')}</div>
-      <select aria-label={t('Memory conversation')} value={memoryChannel} disabled={busy !== null} onChange={e => { memoryLoad.current++; setMemoryDraft(null); setMemories([]); setMemoryChannel(e.target.value) }}>
+      <select aria-label={t('Memory conversation')} value={memoryChannel} disabled={busy !== null} onChange={e => { memoryLoad.current++; setMemoryDraft(null); setMemories([]); setMemoryCursor(null); setMemoryChannel(e.target.value) }}>
         <option value="">{t('Agent memory')}</option>
         {memoryScopes.map(scope => <option key={scope.channel} value={scope.channel}>{scope.label}</option>)}
       </select>
@@ -230,7 +231,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
             <span className="playbook-add-foot hx-memory-compose">
               <MemoryKindSelect value={memoryKind} onChange={setMemoryKind} disabled={busy !== null} />
               <input className="hx-cell-input" value={remember} onChange={(e) => setRemember(e.target.value)} placeholder={t('e.g. Acme pays on the 25th')} aria-label={t('Remember')} />
-              <button className="pill-btn" disabled={busy !== null || !remember.trim()} onClick={() => act('remember', async () => { await api.remember(agent.id, remember, memoryChannel, memoryKind); setRemember(''); setMemories((await api.memory(agent.id, memoryChannel)).memories) })}>{t('Remember')}</button>
+              <button className="pill-btn" disabled={busy !== null || !remember.trim()} onClick={() => act('remember', async () => { await api.remember(agent.id, remember, memoryChannel, memoryKind); setRemember(''); const page = await api.memoryPage(agent.id, memoryChannel); setMemories(page.memories); setMemoryCursor(page.nextCursor) })}>{t('Remember')}</button>
             </span>
           </span>
         </div>
@@ -242,6 +243,13 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
           if (version === memoryLoad.current) setMemories(current => [result.memory, ...current.filter(item => item.id !== result.memory.id)])
         }}/>}
         <AgentMemoryList key={`${props.orgId}:${agent.id}:${memoryChannel}`} memories={memories} canEdit={canEdit} busy={busy !== null} onEdit={setMemoryDraft} onForget={m => act(`forget:${m.id}`, async () => { await api.forget(agent.id, m.id, m.channel ? memoryChannel : ''); setMemories(x => x.filter(y => y.id !== m.id)) })} />
+        {memoryCursor && <button className="btn-text" disabled={busy !== null} onClick={() => act('memory-page', async () => {
+          const version = memoryLoad.current
+          const page = await api.memoryPage(agent.id, memoryChannel, memoryCursor)
+          if (version !== memoryLoad.current) return
+          setMemories(current => [...new Map([...current, ...page.memories].map(item => [item.id, item])).values()])
+          setMemoryCursor(page.nextCursor)
+        })}>{t('Load more')}</button>}
       </div>
 
       </>}

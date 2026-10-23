@@ -49,3 +49,26 @@ export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel
   if (!results[4].results?.length) return { error: "This memory changed. Reload before saving.", status: 409 };
   return { memory: { ...memoryEntry(row), ...fields, text: fields.body.replace(/\s+/g, " ").slice(0, 500), kind: input.kind, version: results[4].results[0].version, updatedAt: stamp } };
 }
+
+export async function memoryPage(db, orgId, agentId, { channel = '', cursor } = {}) {
+  const scope = [orgId, agentId, channel];
+  let after = null;
+  if (cursor) {
+    try {
+      const value = JSON.parse(cursor);
+      if (!Array.isArray(value) || value.length !== 5 || JSON.stringify(value.slice(0,3)) !== JSON.stringify(scope)
+        || typeof value[3] !== 'string' || value[3].length > 40 || !Number.isFinite(Date.parse(value[3]))
+        || typeof value[4] !== 'string' || !value[4] || value[4].length > 100) throw new Error();
+      after = value.slice(3);
+    } catch { return { error: 'Invalid memory cursor.', status: 400 }; }
+  }
+  const {results = []} = await db.prepare(`SELECT m.*, s.channel, s.kind, d.title, d.description, d.body, d.version, d.updated_at
+    FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
+    LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
+    WHERE m.org_id=?1 AND m.agent_id=?2 AND COALESCE(s.channel,'') IN ('',?3)
+      AND (?4 IS NULL OR m.created_at < ?4 OR (m.created_at = ?4 AND m.id < ?5))
+    ORDER BY m.created_at DESC, m.id DESC LIMIT 51`)
+    .bind(orgId,agentId,channel,after?.[0] || null,after?.[1] || null).all();
+  const memories = results.slice(0,50).map(memoryEntry), last = memories[memories.length-1];
+  return { memories, nextCursor: results.length > 50 ? JSON.stringify([...scope,last.createdAt,last.id]) : null };
+}

@@ -68,3 +68,28 @@ test('adding beyond the recent memory index never deletes saved entries or their
   expect(repeated.duplicate).toBe(true);
   expect(repeated.memory.id).toBe(old.memory.id);
 });
+
+test('memory management pages include retained notes without crossing scope and bind cursors', async () => {
+  const {memoryPage}=await import('../src/harness/memoryEntries.js');
+  const writes=[];
+  for(let i=0;i<205;i++) {
+    writes.push(env.DB.prepare('INSERT INTO hx_agent_memories (id,org_id,agent_id,text,created_at) VALUES (?1,?2,?3,?4,?5)').bind(`page_${String(i).padStart(3,'0')}`,org,agent,`Saved ${i}`,'2026-01-01T00:00:00Z'));
+    writes.push(env.DB.prepare('INSERT INTO hx_memory_scopes (memory_id,org_id,channel,kind) VALUES (?1,?2,?3,?4)').bind(`page_${String(i).padStart(3,'0')}`,org,i===0?'b:private':'','context'));
+  }
+  await env.DB.batch(writes);
+  let cursor, ids=[];
+  do {
+    const page=await memoryPage(env.DB,org,agent,{cursor});
+    expect(page.memories.length).toBeLessThanOrEqual(50);
+    ids.push(...page.memories.map(m=>m.id));
+    cursor=page.nextCursor;
+  } while(cursor);
+  expect(ids).toHaveLength(204);
+  expect(new Set(ids).size).toBe(204);
+  expect(ids).not.toContain('page_000');
+  const first=await memoryPage(env.DB,org,agent);
+  for(const [workspace,agentId,channel] of [['other',agent,''],[org,'other',''],[org,agent,'b:private']]) {
+    expect(await memoryPage(null,workspace,agentId,{channel,cursor:first.nextCursor})).toMatchObject({status:400});
+  }
+  expect(await memoryPage(null,org,agent,{cursor:'invalid'})).toMatchObject({status:400});
+});
