@@ -228,3 +228,34 @@ export const LAST_HUMAN_ROOM_ADMIN = `EXISTS(
   WHERE other.org_id=r.org_id AND other.channel=r.channel AND other.subject_kind='person'
    AND other.subject_id!=?2 AND other.role='admin' AND other.member_since=om.created_at||'/'||oc.added_at
  ))`;
+
+// Public reading does not enroll a person. Joining claims a new membership,
+// clears obsolete grants, and changes the room version in one transaction.
+export async function joinPublicRoom(db, orgId, channel, actorId) {
+  if(typeof channel!=='string'||!channel.startsWith('b:'))return {error:'No such public room.',status:404};
+  actorId=String(actorId||'');
+  const nonce=crypto.randomUUID(),at=new Date().toISOString();
+  const gate="EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2 AND mutation_id=?4 AND deleted_at IS NULL)";
+  const result=await db.batch([
+    db.prepare(`UPDATE hx_room_access SET version=version+1,mutation_id=?4
+      WHERE org_id=?1 AND channel=?2 AND deleted_at IS NULL
+      AND EXISTS(SELECT 1 FROM businesses WHERE org_id=?1 AND 'b:'||slug=?2 AND private=0 AND archived_at IS NULL)
+      AND EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id
+        WHERE m.org_id=?1 AND m.user_github_id=?3 AND m.role!='guest'
+        AND NOT EXISTS(SELECT 1 FROM conversation_members c WHERE c.org_id=?1 AND c.channel=?2 AND c.login=u.login))`)
+      .bind(orgId,channel,actorId,nonce),
+    db.prepare(`DELETE FROM hx_room_roles WHERE org_id=?1 AND channel=?2 AND subject_kind='person' AND subject_id=?3 AND ${gate}`)
+      .bind(orgId,channel,actorId,nonce),
+    db.prepare(`INSERT INTO conversation_members(org_id,channel,login,added_by,added_at)
+      SELECT ?1,?2,login,login,?5 FROM users WHERE github_id=?3 AND ${gate}`)
+      .bind(orgId,channel,actorId,nonce,at),
+  ]);
+  if(result[0].meta?.changes)return {joined:true};
+  const current=await db.prepare(`SELECT c.login FROM businesses b
+    JOIN hx_room_access p ON p.org_id=b.org_id AND p.channel=?2 AND p.deleted_at IS NULL
+    JOIN memberships m ON m.org_id=b.org_id AND m.user_github_id=?3 AND m.role!='guest'
+    JOIN users u ON u.github_id=m.user_github_id
+    JOIN conversation_members c ON c.org_id=b.org_id AND c.channel=?2 AND c.login=u.login
+    WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND b.private=0 AND b.archived_at IS NULL`).bind(orgId,channel,actorId).first();
+  return current?{joined:false}:{error:'No such public room available to join.',status:404};
+}

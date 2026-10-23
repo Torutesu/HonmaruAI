@@ -1,7 +1,7 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,test,expect} from 'vitest';
 import {upsertUser,upsertMembership} from '../src/db.js';
-import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject,deleteManagedRoom,changeManagedRoomMembers} from '../src/harness/roomRoles.js';
+import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject,deleteManagedRoom,changeManagedRoomMembers,joinPublicRoom} from '../src/harness/roomRoles.js';
 const org='room-roles',channel='b:planning';
 beforeEach(async()=>{
   for(const [id,role] of [['creator','member'],['reader','member'],['outsider','admin'],['guest','guest']]) {
@@ -340,4 +340,62 @@ test('departure rejects a successor rejoining a room between preview validation 
   expect(state.members.find(m=>m.id==='creator').role).toBe('admin');
   expect(state.members.find(m=>m.id==='reader').role).toBe('member');
   expect(state.version).toBe(1);
+});
+
+
+test('public joining is idempotent and returning never revives an obsolete admin grant',async()=>{
+  await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1").bind(org).run();
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  await change('creator','person','reader','admin',1);
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=?1 AND login='reader'").bind(org).run();
+  const results=await Promise.all([joinPublicRoom(env.DB,org,channel,'reader'),joinPublicRoom(env.DB,org,channel,'reader')]);
+  expect(results.map(r=>r.joined).sort()).toEqual([false,true]);
+  const state=await roomRoleState(env.DB,org,channel);
+  expect(state.version).toBe(3);
+  expect(state.members.find(m=>m.id==='reader').role).toBe('member');
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_room_roles WHERE org_id=?1 AND subject_id='reader'").bind(org).first('n')).toBe(0);
+});
+
+test('self-joining cannot enroll guests, nonmembers, or anyone into private, archived, deleted or legacy rooms',async()=>{
+  expect((await joinPublicRoom(env.DB,org,channel,'outsider')).status).toBe(404);
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  expect((await joinPublicRoom(env.DB,org,channel,'outsider')).status).toBe(404);
+  await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1").bind(org).run();
+  for(const id of ['guest','missing'])expect((await joinPublicRoom(env.DB,org,channel,id)).status).toBe(404);
+  await env.DB.prepare("UPDATE businesses SET archived_at='archived' WHERE org_id=?1").bind(org).run();
+  expect((await joinPublicRoom(env.DB,org,channel,'outsider')).status).toBe(404);
+  await env.DB.prepare("UPDATE businesses SET archived_at=NULL WHERE org_id=?1").bind(org).run();
+  await env.DB.prepare("UPDATE hx_room_access SET deleted_at='deleted' WHERE org_id=?1").bind(org).run();
+  expect((await joinPublicRoom(env.DB,org,channel,'outsider')).status).toBe(404);
+  expect(await env.DB.prepare("SELECT version FROM hx_room_access WHERE org_id=?1").bind(org).first('version')).toBe(1);
+});
+
+test('join endpoint enrolls only the authenticated caller and requires workspace membership',async()=>{
+  const {default:worker}=await import('../src/index.js');
+  const {createSession}=await import('../src/db.js');
+  await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1").bind(org).run();
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  const token=await createSession(env.DB,'outsider','test'),pending=[];
+  const call=(token,orgId=org)=>worker.fetch(new Request('https://example.com/channels/join',{method:'POST',headers:{'content-type':'application/json','x-session-token':token},body:JSON.stringify({orgId,channel,userId:'guest'})}),env,{waitUntil:p=>pending.push(p)});
+  expect((await call('invalid')).status).toBe(401);
+  expect((await call(token,'different-workspace')).status).toBe(403);
+  const first=await call(token);
+  expect(first.status).toBe(200);
+  expect(await first.json()).toEqual({joined:true});
+  expect(await (await call(token)).json()).toEqual({joined:false});
+  await Promise.all(pending);
+  expect((await roomRoleState(env.DB,org,channel)).members.find(m=>m.id==='outsider').role).toBe('member');
+});
+
+
+test('a room made private before the join transaction cannot gain a public participant',async()=>{
+  await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1").bind(org).run();
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  const raced={prepare:sql=>env.DB.prepare(sql),batch:async statements=>{
+    await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1").bind(org).run();
+    return env.DB.batch(statements);
+  }};
+  expect((await joinPublicRoom(raced,org,channel,'outsider')).status).toBe(404);
+  expect((await roomRoleState(env.DB,org,channel)).members.some(m=>m.id==='outsider')).toBe(false);
+  expect(await env.DB.prepare("SELECT version FROM hx_room_access WHERE org_id=?1").bind(org).first('version')).toBe(1);
 });

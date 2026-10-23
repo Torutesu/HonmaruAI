@@ -58,8 +58,9 @@ export function MemberDepartureDialog({httpBase,orgId,sessionToken,member,onRemo
    <label className="member-departure-recipient"><span className="dlg-label">{t('Transfer to')}</span>
     <select className="dlg-input" value={recipient} disabled={busy} onChange={e=>setRecipient(e.target.value)}><option value="">{t('Choose a member')}</option>{preview.candidates.map(person=><option key={person.ref} value={person.ref}>{person.name}</option>)}</select>
    </label>
+   {!!preview.rooms?.length&&<p className="dlg-hint">{t('Only non-guest members who already belong to every listed room can receive these responsibilities.')}</p>}
    <p className="dlg-hint">{t('The successor receives the listed responsibilities and ownership where applicable. Original creators stay unchanged.')}</p>
-   {!preview.candidates.length&&<p role="alert" className="dlg-error">{t('Add another workspace member before transferring these responsibilities.')}</p>}
+   {!preview.candidates.length&&<p role="alert" className="dlg-error">{t(preview.rooms?.length?'Ask a room admin to add an eligible workspace member to every listed room, then reload to choose a successor.':'Add another workspace member before transferring these responsibilities.')}</p>}
   </>}
   {preview&&<p className="dlg-hint">{t('Computers connected by this member will be disconnected. Their queued or running jobs will be cancelled.')}</p>}
   {error&&<p className="dlg-error" role="alert">{t(error)}</p>}

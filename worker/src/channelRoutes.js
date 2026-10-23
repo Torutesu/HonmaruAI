@@ -1,4 +1,4 @@
-import { removeRoomSubject, roomRoleState } from './harness/roomRoles.js';
+import { joinPublicRoom, removeRoomSubject, roomRoleState } from './harness/roomRoles.js';
 import { explicitAgentRoles } from './harness/agentRoles.js';
 import { roomResponses } from "./harness/roomResponses.js";
 import { threadPins, setThreadPin } from "./threadPins.js";
@@ -1562,6 +1562,19 @@ export async function handleChannels(request, env, url, { route, after }) {
     await note(serverText(locale, "channel.agentRemoved", { who, name: label(agent) }));
     await audit(env, request, { orgId, action: "channel.agent_removed", actor: person(me), entity: { type: "agent", id: agent.id, name: `@${agent.handle}` }, details: { channel: ctx.resolved.slug ? `#${ctx.resolved.slug}` : "group" } });
     return json({ removed: true });
+  }
+
+  if (path === "/channels/join" && request.method === "POST") {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+    const who = await caller(env, request, body.orgId);
+    if (who.denied) return who.denied;
+    const result = await joinPublicRoom(env.DB, body.orgId, body.channel, who.session.github_id);
+    if (result.error) return json({ message: result.error }, result.status);
+    if (result.joined) await audit(env, request, { orgId: body.orgId, action: "channel.member_added", actor: person(who.user), entity: person(who.user), details: { channel: body.channel, joined: true } });
+    return json(result);
   }
 
   if (path === "/channels/members" && (request.method === "POST" || request.method === "DELETE")) {

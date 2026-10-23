@@ -34,6 +34,8 @@ const table: Record<string, string> = {
   "Only its owner or an admin can change this skill.": "このスキルを変更できるのは所有者または管理者だけです。",
   "Custom skills": "カスタムスキル",
   "The successor receives the listed responsibilities and ownership where applicable. Original creators stay unchanged.": "一覧の管理権限と、該当する所有権を引き継ぎ先に移します。元の作成者の記録は変わりません。",
+  "Ask a room admin to add an eligible workspace member to every listed room, then reload to choose a successor.": "ルーム管理者に依頼して、ゲスト以外のワークスペースメンバーを一覧のすべてのルームに追加してください。その後、再読み込みして後任を選択してください。",
+  "Only non-guest members who already belong to every listed room can receive these responsibilities.": "一覧のすべてのルームに参加している、ゲスト以外のメンバーを後任に選べます。",
   "Add another workspace member before transferring these responsibilities.": "担当を引き継ぐには、別のワークスペースメンバーを追加してください。",
   "Review the responsibilities and choose a successor before leaving.": "担当を確認し、引き継ぎ先を選んでから退出してください。",
   "Computers connected by this member will be disconnected. Their queued or running jobs will be cancelled.": "このメンバーが接続したコンピューターは切断されます。メンバーや端末に紐づく待機中・実行中のジョブは取り消されます。",
