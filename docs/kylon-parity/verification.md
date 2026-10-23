@@ -1732,3 +1732,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - Summary is one bounded read so count/oldest batch/discard snapshot agree. UI confirms permanent removal without execution, allows cancellation, and sends the exact snapshot rather than an unrestricted delete-all. Paused workflows can discard without enabling.
 - Workflow31 tests, UI7 tests, TypeScript/Vite and diff check passed (/tmp/honmaru-held-discard-{worker,web,build,vite}.log). Native visual verification remains pending.
 - Older full Worker exec91518 completed success:217 files1712 tests,702s. Because later edits occurred during its run, treat it as prior baseline evidence, not current-head proof. Current production runs39965668546/39965668748/39965668547 were rechecked in_progress; no overlapping push.
+
+### 2026-10-23 workflow detail account/workspace isolation (local)
+- Workflow screen previously retained open detail and confirmation state across prop scope changes; a late detail response could populate the next scope. Adopted the existing Agents/Skills scoped-component pattern keyed by base URL/workspace/session, remounting all detail, credential and confirmation state on scope changes.
+- Added regressions for each scope field and late prior-account detail resolution; no old URL/controls appear and no mutation is made by switching. Workflow UI11 tests passed; full Web149 files1030 tests, TypeScript/Vite and diff check passed (/tmp/honmaru-workflow-scope-{tests,web,build,vite}.log).
+- Native getApp still reports Mac locked; no visual claim. Production15f24b70 runs39965668546/39965668748/39965668547 were rechecked in_progress; scope/manual/discard follow-ups remain local until these terminate.

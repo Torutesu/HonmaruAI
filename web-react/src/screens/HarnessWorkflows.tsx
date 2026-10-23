@@ -167,7 +167,11 @@ function Builder({ tables, agents, onSave, onCancel, busy }: { tables: Table[]; 
   )
 }
 
-export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
+export const HarnessWorkflows: React.FC<HarnessProps> = (props) => (
+  <ScopedHarnessWorkflows key={JSON.stringify([props.httpBase, props.orgId, props.sessionToken])} {...props} />
+)
+
+const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
   const t = useT()
   const api = useApi(props)
   const [workflows, setWorkflows] = useState<Workflow[] | null>(null)

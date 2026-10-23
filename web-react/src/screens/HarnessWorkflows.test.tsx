@@ -109,3 +109,24 @@ test('discard requires confirmation and sends the displayed snapshot rather than
   expect(state.api.discardWorkflowEvents).toHaveBeenCalledWith(workflow.id, ['reviewed'])
   expect(button('Discard held events')).toBeUndefined()
 })
+test.each(['orgId', 'sessionToken', 'httpBase'] as const)('changing %s clears credentials and pending confirmation', async field => {
+  await open()
+  await act(async () => { button('Revoke webhook').props.onClick() })
+  const previous = state.api
+  state.api = { ...previous, workflows: vi.fn().mockResolvedValue({ workflows: [] }) }
+  await act(async () => { tree.update(<HarnessWorkflows {...props} {...{ [field]: 'next-scope' }} />) })
+  expect(JSON.stringify(tree.toJSON())).not.toContain(workflow.hookUrl)
+  expect(button('Revoke webhook')).toBeUndefined()
+  expect(previous.changeWorkflowHook).not.toHaveBeenCalled()
+})
+test('a late detail response from the previous account cannot reopen its secret in the current account', async () => {
+  let finish!: (value: any) => void
+  state.api.workflow.mockReturnValue(new Promise(resolve => { finish = resolve }))
+  await act(async () => { tree = create(<HarnessWorkflows {...props} />) })
+  await act(async () => { tree.root.findByProps({ 'data-workflow': workflow.id }).props.onClick() })
+  state.api = { ...state.api, workflows: vi.fn().mockResolvedValue({ workflows: [] }) }
+  await act(async () => { tree.update(<HarnessWorkflows {...props} sessionToken="next-account" />) })
+  await act(async () => { finish({ workflow, runs: [], canEdit: true }) })
+  expect(JSON.stringify(tree.toJSON())).not.toContain(workflow.hookUrl)
+  expect(button('Revoke webhook')).toBeUndefined()
+})
