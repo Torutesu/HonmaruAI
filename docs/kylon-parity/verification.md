@@ -1609,3 +1609,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 main composer formatting native verification
 - Production33263ecf native Mac: typed local draft Formatting check, selected only check, opened plus → Formatting → Bold. Actual textarea became Formatting *check*, with check still selected. Confirms selection survives both menu transitions and formatting applies to selected range. Cleared draft afterward; did not send it. One plus remained throughout.
 - CI39953346715 job audit: gateway/E2E/relay/shared-mobile/desktop/web succeeded; Worker npm test remains active. Reply changes not pushed over live CI.
+
+### 2026-10-23 production compact reply delivery
+- CI39953346715 succeeded; pushed3eaa287c. Web39954932116 succeeded; CI39954932158 remains active.
+- Native Mac restart loaded new reply composer: one plus, microphone and send, with スレッドに返信… placeholder; old always-visible formatting/attachment controls absent. Sent one plain reply in self-only QA thread. Pending marker disappeared, reply count became1 and sidebar preview updated. Evidence /tmp/honmaru-reply-production-20261023.png. No external recipients/AI invocation requested.
+- Physical microphone, mobile viewport, network-loss send and intermittent reload blank remain unverified/unresolved; reply delivery success is not full parity.
