@@ -353,7 +353,7 @@ test("a reply read in Activity is read in Threads, and a thread read clears its 
 
   // Looked at in Activity: gone from Threads too, and said so for other devices.
   const seen = await (await call("/channels/read", toru, { method: "POST", body: { orgId: ORG, channel: "activity", items: [item.key] } })).json();
-  expect(seen.threads).toEqual([{ thread: beans.id, lastReadAt: first.createdAt }]);
+  expect(seen.threads).toEqual([{ thread: beans.id, lastReadAt: first.createdAt, readVersion: 1 }]);
   expect((await threads(toru))[0].unread).toBe(false);
 
   // A later reply is new in both, until read in either.
@@ -402,7 +402,7 @@ test("Mark all as read, in Activity or in Threads, clears both; a thread read cl
   const later = await say(kenji, "or Kenyan", beans.id);
   expect((await threads(toru))[0].unread).toBe(true);
   const fromThreads = await (await read(toru, { channel: "threads" })).json();
-  expect(fromThreads.threads).toEqual([{ thread: beans.id, lastReadAt: later.createdAt }]);
+  expect(fromThreads.threads).toEqual([{ thread: beans.id, lastReadAt: later.createdAt, readVersion: 2 }]);
   expect((await threads(toru))[0].unread).toBe(false);
   expect((await activity(toru)).find((i) => i.message.id === later.id).unread).toBe(false);
 

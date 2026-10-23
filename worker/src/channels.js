@@ -736,16 +736,17 @@ export async function channelActivity(db, orgId, viewerLogin, members) {
 // ---- Reading: where each person is up to, what is new for them ----
 
 /// Read up to `at` (now, if not given). Never moves backwards.
-export async function markRead(db, orgId, login, key, at) {
+export async function markRead(db, orgId, login, key, at, versioned = false) {
   const parsed = at ? Date.parse(at) : NaN;
   // A clock ahead of the server must not mark a message read that has not
   // been written yet. A clock behind keeps the earlier moment the person saw.
   const when = Number.isNaN(parsed) ? new Date().toISOString() : new Date(Math.min(parsed, Date.now())).toISOString();
-  await db.prepare(
-    `INSERT INTO channel_reads (org_id, login, channel, last_read_at) VALUES (?1, ?2, ?3, ?4)
-     ON CONFLICT (org_id, login, channel) DO UPDATE SET last_read_at = MAX(last_read_at, excluded.last_read_at)`
-  ).bind(orgId, login, key, when).run();
-  return when;
+  const state = await db.prepare(
+    `INSERT INTO channel_reads (org_id, login, channel, last_read_at, read_version) VALUES (?1, ?2, ?3, ?4, 1)
+     ON CONFLICT (org_id, login, channel) DO UPDATE SET last_read_at = MAX(last_read_at, excluded.last_read_at), read_version = read_version + 1
+     RETURNING last_read_at AS lastReadAt, read_version AS readVersion`
+  ).bind(orgId, login, key, when).first();
+  return versioned ? state : state.lastReadAt;
 }
 
 /// An Activity item's name, the same on every device: `m:<message>` for a
@@ -784,34 +785,33 @@ export async function readThreadsSeenInActivity(db, orgId, login, keys) {
   ).bind(orgId, login, ...ids).all();
   const out = [];
   for (const r of results || []) {
-    await markRead(db, orgId, login, `t:${r.parent_id}`, r.at);
-    const now = await db.prepare("SELECT last_read_at FROM channel_reads WHERE org_id = ?1 AND login = ?2 AND channel = ?3")
-      .bind(orgId, login, `t:${r.parent_id}`).first();
-    out.push({ thread: r.parent_id, lastReadAt: now?.last_read_at || r.at });
+    const state = await markRead(db, orgId, login, `t:${r.parent_id}`, r.at, true);
+    out.push({ thread: r.parent_id, ...state });
   }
   return out;
 }
 
 /// "Mark unread from here": read only up to just before this message,
 /// even if that is further back than before.
-export async function markUnreadFrom(db, orgId, login, key, createdAt) {
+export async function markUnreadFrom(db, orgId, login, key, createdAt, versioned = false) {
   const when = new Date(Date.parse(createdAt) - 1).toISOString();
-  await db.prepare(
-    `INSERT INTO channel_reads (org_id, login, channel, last_read_at) VALUES (?1, ?2, ?3, ?4)
-     ON CONFLICT (org_id, login, channel) DO UPDATE SET last_read_at = excluded.last_read_at`
-  ).bind(orgId, login, key, when).run();
-  return when;
+  const state = await db.prepare(
+    `INSERT INTO channel_reads (org_id, login, channel, last_read_at, read_version) VALUES (?1, ?2, ?3, ?4, 1)
+     ON CONFLICT (org_id, login, channel) DO UPDATE SET last_read_at = excluded.last_read_at, read_version = read_version + 1
+     RETURNING last_read_at AS lastReadAt, read_version AS readVersion`
+  ).bind(orgId, login, key, when).first();
+  return versioned ? state : state.lastReadAt;
 }
 
 /// Every read position this person has, as they name the conversations.
-export async function readsFor(db, orgId, login, members) {
-  const { results } = await db.prepare("SELECT channel, last_read_at FROM channel_reads WHERE org_id = ?1 AND login = ?2")
+export async function readsFor(db, orgId, login, members, versioned = false) {
+  const { results } = await db.prepare("SELECT channel, last_read_at, read_version FROM channel_reads WHERE org_id = ?1 AND login = ?2")
     .bind(orgId, login).all();
   const access = await accessFor(db, orgId, login);
   const out = {};
   for (const r of results || []) {
     const view = r.channel === "activity" || /^app:[a-z0-9_-]{1,32}$/.test(r.channel) ? r.channel : viewOf(r.channel, login, members, access);
-    if (view) out[view] = r.last_read_at;
+    if (view) out[view] = versioned ? {lastReadAt:r.last_read_at,readVersion:r.read_version} : r.last_read_at;
   }
   return out;
 }
@@ -888,7 +888,7 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
   // Seen where it was said: read up to it in its conversation, or — a
   // reply — in its thread. Such an item is no longer new in Activity
   // either; nobody should have to tick it off twice.
-  const { results: readRows } = await db.prepare("SELECT channel, last_read_at FROM channel_reads WHERE org_id = ?1 AND login = ?2")
+  const { results: readRows } = await db.prepare("SELECT channel, last_read_at, read_version FROM channel_reads WHERE org_id = ?1 AND login = ?2")
     .bind(orgId, login).all().catch(() => ({ results: [] }));
   const readAt = new Map((readRows || []).map((r) => [r.channel, r.last_read_at || ""]));
   const seen = (row, at) => {

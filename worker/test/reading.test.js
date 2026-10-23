@@ -160,3 +160,32 @@ test("an app looked at on one device is read on all of them, and only for the on
   // Not a way to write any key it likes.
   expect((await post("/channels/read", mika, { orgId: ORG, channel: "app:../x" })).status).not.toBe(200);
 });
+
+test('read/unread acknowledgments and snapshots carry the same monotonic revision', async()=>{
+ const message=await say(toru,'Read revision verification');
+ const first=await (await post('/channels/read',mika,{orgId:ORG,channel:'b:cafe'})).json();
+ const unread=await (await post('/channels/unread',mika,{orgId:ORG,channel:'b:cafe',messageId:message.id})).json();
+ expect(first.readVersion).toBe(1);expect(unread.readVersion).toBe(2);
+ expect(unread.lastReadAt<message.createdAt).toBe(true);
+ const snapshot=await (await get(`/channels?${q({orgId:ORG})}`,mika)).json();
+ expect(snapshot.reads['b:cafe']).toBe(unread.lastReadAt);expect(snapshot.readVersions['b:cafe']).toBe(2);
+ const later=await (await post('/channels/read',mika,{orgId:ORG,channel:'b:cafe'})).json();
+ expect(later.readVersion).toBe(3);
+ expect(first.readVersion).toBe(1);
+});
+
+test('concurrent read mutations return their own atomic revision and the snapshot matches the last committed one',async()=>{
+ const {markRead,markUnreadFrom,readsFor}=await import('../src/channels.js');
+ const at='2020-01-01T00:00:00.000Z';
+ const states=await Promise.all([
+  markRead(env.DB,ORG,'mika','b:cafe',at,true),
+  markUnreadFrom(env.DB,ORG,'mika','b:cafe',at,true),
+  markRead(env.DB,ORG,'mika','b:cafe',at,true),
+ ]);
+ expect(states.map(s=>s.readVersion).sort()).toEqual([1,2,3]);
+ const last=states.find(s=>s.readVersion===3);
+ const snapshot=await readsFor(env.DB,ORG,'mika',[],true);
+ expect(snapshot['b:cafe']).toEqual(last);
+ const other=await markRead(env.DB,ORG,'kenji','b:cafe',at,true);
+ expect(other.readVersion).toBe(1);
+});

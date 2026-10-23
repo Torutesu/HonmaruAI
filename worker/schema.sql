@@ -659,6 +659,7 @@ CREATE TABLE IF NOT EXISTS channel_reads (
   login         TEXT NOT NULL,
   channel       TEXT NOT NULL,
   last_read_at  TEXT NOT NULL,
+  read_version INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (org_id, login, channel)
 );
 

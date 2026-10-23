@@ -1,3 +1,4 @@
+import {ReadPositions} from '../utils/readPositions'
 import {RoomSettings} from './RoomSettings'
 import { RoomMembers } from './RoomMembers'
 import { ROOM_COLORS } from '../utils/roomColors'
@@ -390,6 +391,12 @@ export const ClassicList: React.FC<Props> = ({
   }, [api.httpBase, api.sessionToken, api.orgId])
   // Read positions from the server: the same on the phone and the laptop.
   const [serverReads, setServerReads] = useState<Record<string, string>>({})
+  const readPositions=useMemo(()=>new ReadPositions(),[api.httpBase,api.orgId,api.sessionToken])
+  const acceptReadPosition=(v:string,at:string,version?:number)=>{
+    if(!readPositions.accept(v,at,version))return false
+    try{localStorage.setItem(seenKey(api.orgId,v),at)}catch{}
+    setServerReads(previous=>({...previous,[v]:at}));setSeenTick(n=>n+1);return true
+  }
   const readAt = (v: string) => [seenAt(api.orgId, v), serverReads[v] || ''].sort().pop() || ''
   const authHeaders = useMemo(() => ({ 'x-session-token': api.sessionToken }), [api.sessionToken])
   /// What was last shown, for this account and workspace (#209): drawn at
@@ -527,7 +534,9 @@ export const ClassicList: React.FC<Props> = ({
         setMembers(data.members || [])
         setGroups(data.groups || [])
         setActivity(Object.fromEntries((data.activity || []).map((a: Activity) => [a.channel, a])))
-        setServerReads(data.reads || {})
+        const accepted=readPositions.snapshot(data.reads||{},data.readVersions||{})
+        for(const [v,at] of Object.entries(accepted)){try{localStorage.setItem(seenKey(api.orgId,v),at)}catch{}}
+        setServerReads(previous=>({...previous,...accepted}));setSeenTick(n=>n+1)
         prefsFor.current = api.orgId
         setPrefs(data.prefs || {})
         if (Array.isArray(data.agents)) setAgents(data.agents)
@@ -828,7 +837,8 @@ export const ClassicList: React.FC<Props> = ({
   const threadsUnread = (threadItems || []).filter((x) => x.unread).length
   /// Threads read up to a point, wherever that was done: each one whose
   /// newest reply is no later is no longer new.
-  const threadsReadTo = useCallback((read: Array<{ thread: string; lastReadAt: string }>) => {
+  const threadsReadTo = useCallback((read: Array<{ thread: string; lastReadAt: string; readVersion?:number }>) => {
+    read=read.filter(r=>readPositions.accept(`t:${r.thread}`,r.lastReadAt,r.readVersion))
     const upTo = new Map(read.map((r) => [r.thread, r.lastReadAt]))
     for (const r of read) readGuard.readThread(r.thread, r.lastReadAt)
     setThreadItems((prev) => prev && prev.map((x) => {
@@ -840,7 +850,7 @@ export const ClassicList: React.FC<Props> = ({
       const at = i.message.parentId ? upTo.get(i.message.parentId) : undefined
       return i.unread && at && (i.at || i.message.createdAt) <= at ? { ...i, unread: false } : i
     }))
-  }, [])
+  }, [readPositions])
   /// A thread marked unread from one of its replies, here or elsewhere: new
   /// again in Threads at once, and a list fetched before then, or this
   /// device's own earlier read, does not take that back.
@@ -1702,7 +1712,7 @@ export const ClassicList: React.FC<Props> = ({
     void fetch(`${api.httpBase}/channels/read`, {
       method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
       body: JSON.stringify({ orgId: api.orgId, channel: appOpen, at: now }),
-    }).then(() => setServerReads((prev) => ({ ...prev, [appOpen]: now }))).catch(() => { /* this device still remembers */ })
+    }).then(async response=>{if(response.ok){const state=await response.json();acceptReadPosition(appOpen,state.lastReadAt,state.readVersion)}}).catch(() => { /* this device still remembers */ })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appOpen, appNew, api.orgId, looking])
   // Opened is read — here, and on the server for your other devices —
@@ -1720,7 +1730,7 @@ export const ClassicList: React.FC<Props> = ({
         method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
         body: JSON.stringify({ orgId: api.orgId, channel: v, at: now }),
       })
-      if (response.ok && latest() && heldUnread.current !== v) setServerReads((prev) => ({ ...prev, [v]: now }))
+      if(response.ok){const state=await response.json();if(latest()&&heldUnread.current!==v)acceptReadPosition(v,state.lastReadAt,state.readVersion)}
     }).catch(() => { /* this device still remembers */ })
     closeNotifications(api.orgId, v)
     setActivityItems((prev) => prev && prev.map((i) => (i.unread && i.message.channel === v && !i.message.parentId && (i.at || i.message.createdAt) <= now ? { ...i, unread: false } : i)))
@@ -2821,20 +2831,18 @@ export const ClassicList: React.FC<Props> = ({
       heldUnread.current = channel
       if (serverRead.current?.view === channel) dropServerRead()
     }
-    const res = await readWrites.run(`${api.orgId}:${channel}`, () => fetch(`${api.httpBase}/channels/unread`, {
+    const res = await readWrites.run(`${api.orgId}:${m.parentId?`t:${m.parentId}`:channel}`, () => fetch(`${api.httpBase}/channels/unread`, {
       method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
       body: JSON.stringify({ orgId: api.orgId, channel, messageId: m.id }),
     })).catch(() => null)
-    const data = res?.ok ? await res.json().catch(() => null) as { lastReadAt: string; thread: string | null } | null : null
+    const data = res?.ok ? await res.json().catch(() => null) as { lastReadAt: string; readVersion?:number; thread: string | null } | null : null
     if (!data) {
       if (!m.parentId && heldUnread.current === channel) heldUnread.current = previousHold
       setProblem(t('That did not save.')); return
     }
-    if (data.thread) { threadUnreadFrom(data.thread, data.lastReadAt); setToast(t('Marked unread')); return }
+    if (data.thread) { if(readPositions.accept(`t:${data.thread}`,data.lastReadAt,data.readVersion))threadUnreadFrom(data.thread, data.lastReadAt); setToast(t('Marked unread')); return }
     heldUnread.current = channel
-    try { localStorage.setItem(seenKey(api.orgId, channel), data.lastReadAt) } catch { /* the server remembers */ }
-    setServerReads((prev) => ({ ...prev, [channel]: data.lastReadAt }))
-    setSeenTick((n) => n + 1)
+    acceptReadPosition(channel,data.lastReadAt,data.readVersion)
     setToast(t('Marked unread'))
     // On a phone, back to the list, where it now shows as unread.
     if (!wide) choose(null)
@@ -3168,9 +3176,12 @@ export const ClassicList: React.FC<Props> = ({
     setThreadItems((prev) => prev && prev.map((x) => (x.parent.id === parentId ? { ...x, unread: false } : x)))
     // Its replies, and its first message where it named you, in Activity too.
     setActivityItems((prev) => prev && prev.map((i) => (i.unread && (i.message.parentId === parentId || (i.message.id === parentId && i.type !== 'reaction')) ? { ...i, unread: false } : i)))
-    void fetch(`${api.httpBase}/channels/read`, {
+    void readWrites.run(`${api.orgId}:t:${parentId}`, async latest=>{
+    const response=await fetch(`${api.httpBase}/channels/read`, {
       method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
       body: JSON.stringify({ orgId: api.orgId, channel, thread: parentId, at: seenUpTo }),
+    })
+    if(response.ok){const state=await response.json();if(latest()&&readPositions.accept(`t:${parentId}`,state.lastReadAt,state.readVersion))readGuard.readThread(parentId,state.lastReadAt)}
     }).catch(() => {})
   }
   /// How far the open thread was last read, so a reply arriving while it
@@ -3196,7 +3207,7 @@ export const ClassicList: React.FC<Props> = ({
   // notifications for it come down.
   useEffect(() => {
     const on = (e: Event) => {
-      const d = (e as CustomEvent<{ items?: string[]; threads?: Array<{ thread: string; lastReadAt: string }>; view?: string; thread?: string | null; lastReadAt?: string; unread?: boolean }>).detail || {}
+      const d = (e as CustomEvent<{ items?: string[]; threads?: Array<{ thread: string; lastReadAt: string; readVersion?:number }>; view?: string; thread?: string | null; lastReadAt?: string; readVersion?:number; unread?: boolean }>).detail || {}
       if (Array.isArray(d.items)) {
         const keys = new Set(d.items)
         setActivityItems((prev) => prev && prev.map((i) => (i.unread && keys.has(activityKey(i)) ? { ...i, unread: false } : i)))
@@ -3209,26 +3220,23 @@ export const ClassicList: React.FC<Props> = ({
       if (!v || !at) return
       if (d.thread) {
         const parentId = d.thread
+        if(!readPositions.accept(`t:${parentId}`,at,d.readVersion))return
         if (d.unread) { threadUnreadFrom(parentId, at); return }
+        readGuard.readThread(parentId,at)
         closeThreadNotifications(parentId)
         setThreadItems((prev) => prev && prev.map((x) => (x.parent.id === parentId ? { ...x, unread: false } : x)))
         setActivityItems((prev) => prev && prev.map((i) => (i.unread && i.message.parentId === parentId && (i.at || i.message.createdAt) <= at ? { ...i, unread: false } : i)))
         return
       }
-      if (d.unread) {
-        try { localStorage.setItem(seenKey(api.orgId, v), at) } catch { /* the server remembers */ }
-        setServerReads((prev) => ({ ...prev, [v]: at }))
-        setSeenTick((n) => n + 1)
-        return
-      }
-      setServerReads((prev) => ({ ...prev, [v]: [prev[v] || '', at].sort().pop() || at }))
+      if(!acceptReadPosition(v,at,d.readVersion))return
+      if(d.unread)return
       setActivityItems((prev) => prev && prev.map((i) => (i.unread && i.message.channel === v && !i.message.parentId && (i.at || i.message.createdAt) <= at ? { ...i, unread: false } : i)))
       closeNotifications(api.orgId, v)
     }
     window.addEventListener('honmaru:reads-changed', on)
     return () => window.removeEventListener('honmaru:reads-changed', on)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api.orgId])
+  }, [api.orgId,readPositions])
   // Back from a dropped connection or a sleep (Dashboard says so): what was
   // said meanwhile never came over the socket. The sidebar, the open
   // conversation's newest page — merged, so older pages stay — the open

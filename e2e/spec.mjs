@@ -3449,9 +3449,29 @@ await step('threads you are in, a message marked unread, and one forwarded as a 
     await kenji.click('.slk-back.pane').catch(() => {})
     const again = kenji.locator('.slk-msg[id^="msg-"]', { hasText: ask }).last()
     await again.click({ button: 'right', position: { x: 200, y: 20 } })
-    await kenji.click('[data-sheet="unread"]')
-    await kenji.waitForSelector('.slk-side .cl-thread.unread[data-view^="g:"]', { timeout: 10000 })
+    const [unreadResponse]=await Promise.all([
+      kenji.waitForResponse(r=>new URL(r.url()).pathname==='/channels/unread'&&r.request().method()==='POST'),
+      kenji.click('[data-sheet="unread"]'),
+    ])
+    const unreadState=await unreadResponse.json()
+    if(!unreadResponse.ok()||!(unreadState.readVersion>0))throw Error('mark unread did not return a revision')
+    const unreadRow='.slk-side .cl-thread.unread[data-view^="g:"]'
+    await kenji.waitForSelector(unreadRow, { timeout: 10000 })
+    const unreadView=await kenji.getAttribute(unreadRow,'data-view')
+    // A read event from before the acknowledged unread must not undo it.
+    await kenji.evaluate(async({view,state})=>{
+      window.dispatchEvent(new CustomEvent('honmaru:reads-changed',{detail:{view,lastReadAt:new Date().toISOString(),readVersion:state.readVersion-1}}))
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
+    },{view:unreadView,state:unreadState})
+    if(!await kenji.isVisible(unreadRow))throw Error('an older read event undid the acknowledged unread')
     await kenji.screenshot({ path: `${SHOTS}/58-marked-unread.png` })
+    // A genuinely newer read (as from another device) still clears it.
+    const nextRead=await kenji.evaluate(async({host,view})=>{
+      const response=await fetch(`${host}/channels/read`,{method:'POST',headers:{'content-type':'application/json','x-session-token':localStorage.getItem('sessionToken')},body:JSON.stringify({orgId:localStorage.getItem('orgId'),channel:view})})
+      return {ok:response.ok,...await response.json()}
+    },{host:API,view:unreadView})
+    if(!nextRead.ok||nextRead.readVersion<=unreadState.readVersion)throw Error('a later read did not advance the revision')
+    await kenji.waitForSelector(unreadRow,{state:'detached',timeout:10000})
   } catch (err) {
     await desk.screenshot({ path: `${SHOTS}/fail-${Date.now()}-desk.png` }).catch(() => {})
     await kenji.screenshot({ path: `${SHOTS}/fail-${Date.now()}-kenji.png` }).catch(() => {})

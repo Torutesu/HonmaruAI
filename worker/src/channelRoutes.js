@@ -127,8 +127,8 @@ async function broadcast(env, orgId, resolved, row, members) {
 /// Read on one device, read on all of them: this person's other tabs and
 /// phones hear it at once, and a phone clears the notifications it still
 /// shows for it.
-async function readEverywhere(env, orgId, login, { view, key, thread, lastReadAt, items, threads, unread }) {
-  const value = items ? { items, ...(threads?.length ? { threads } : {}) } : { view, thread: thread || null, lastReadAt, ...(unread ? { unread: true } : {}) };
+async function readEverywhere(env, orgId, login, { view, key, thread, lastReadAt, readVersion, items, threads, unread }) {
+  const value = items ? { items, ...(threads?.length ? { threads } : {}) } : { view, thread: thread || null, lastReadAt, ...(readVersion ? {readVersion} : {}), ...(unread ? { unread: true } : {}) };
   await announceTo(env, orgId, [{ to: login, event: customEvent("reads_changed", value) }]);
   if (!unread && key) await clearDelivered(env, orgId, login, { key, view, thread, lastReadAt }).catch((err) => console.error("clear push failed", safe(err?.message)));
   // Items looked at in Activity: their own notifications come down too.
@@ -715,6 +715,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       const v = viewOf(p.channel, who.user.login, members, access);
       if (v) prefs[v] = p.level;
     }
+    const positions = await readsFor(env.DB, orgId, who.user.login, members, true);
     const me = members.find((m) => m.mine);
     const refOf = (login) => members.find((m) => m.login === login)?.ref || null;
     return json({
@@ -737,7 +738,8 @@ export async function handleChannels(request, env, url, { route, after }) {
       // The agents you can call here: the team's and your own.
       agents: await callableAgents(env.DB, orgId, who.user.login, members),
       // Where you are up to in each conversation, from whichever device.
-      reads: await readsFor(env.DB, orgId, who.user.login, members),
+      reads: Object.fromEntries(Object.entries(positions).map(([key,state])=>[key,state.lastReadAt])),
+      readVersions: Object.fromEntries(Object.entries(positions).map(([key,state])=>[key,state.readVersion])),
     });
   }
 
@@ -752,9 +754,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (typeof body.channel === "string" && /^app:[a-z0-9_-]{1,32}$/.test(body.channel)) {
       const who = await caller(env, request, body.orgId);
       if (who.denied) return who.denied;
-      const lastReadAt = await markRead(env.DB, body.orgId, who.user.login, body.channel, body.at);
-      after(() => announceTo(env, body.orgId, [{ to: who.user.login, event: customEvent("reads_changed", { view: body.channel, thread: null, lastReadAt }) }]));
-      return json({ lastReadAt });
+      const {lastReadAt,readVersion} = await markRead(env.DB, body.orgId, who.user.login, body.channel, body.at, true);
+      after(() => announceTo(env, body.orgId, [{ to: who.user.login, event: customEvent("reads_changed", { view: body.channel, thread: null, lastReadAt, readVersion }) }]));
+      return json({ lastReadAt, readVersion });
     }
     if (body.channel === "activity") {
       const who = await caller(env, request, body.orgId);
@@ -774,9 +776,9 @@ export async function handleChannels(request, env, url, { route, after }) {
       const newKeys = all.filter((i) => i.unread).map((i) => i.key).filter((k) => /^(m|r):/.test(k || ""));
       const items = [...await markActivitySeen(env.DB, body.orgId, who.user.login, newKeys), ...await readAppActivity(env.DB, body.orgId, who.user.github_id)];
       const threads = items.length ? await readThreadsSeenInActivity(env.DB, body.orgId, who.user.login, items) : [];
-      const lastReadAt = await markRead(env.DB, body.orgId, who.user.login, "activity", body.at);
+      const {lastReadAt,readVersion} = await markRead(env.DB, body.orgId, who.user.login, "activity", body.at, true);
       if (items.length) after(() => readEverywhere(env, body.orgId, who.user.login, { items, threads }));
-      return json({ lastReadAt, items, threads });
+      return json({ lastReadAt, readVersion, items, threads });
     }
     // Threads' "Mark all as read": each thread with a new reply read up to
     // its newest; Activity drops those replies as it does for any thread read.
@@ -787,19 +789,19 @@ export async function handleChannels(request, env, url, { route, after }) {
       const open = (await threadsFor(env.DB, body.orgId, who.user.login, members)).filter((x) => x.unread);
       const threads = [];
       for (const x of open) {
-        const lastReadAt = await markRead(env.DB, body.orgId, who.user.login, `t:${x.parent.id}`, x.lastReplyAt);
-        threads.push({ thread: x.parent.id, lastReadAt, view: x.parent.channel });
+        const {lastReadAt,readVersion} = await markRead(env.DB, body.orgId, who.user.login, `t:${x.parent.id}`, x.lastReplyAt, true);
+        threads.push({ thread: x.parent.id, lastReadAt, readVersion, view: x.parent.channel });
       }
       if (threads.length) {
         after(async () => {
-          await announceTo(env, body.orgId, [{ to: who.user.login, event: customEvent("reads_changed", { items: [], threads: threads.map(({ thread, lastReadAt }) => ({ thread, lastReadAt })) }) }]);
+          await announceTo(env, body.orgId, [{ to: who.user.login, event: customEvent("reads_changed", { items: [], threads: threads.map(({ thread, lastReadAt, readVersion }) => ({ thread, lastReadAt, readVersion })) }) }]);
           for (const t of threads) {
             const row = await getMessage(env.DB, body.orgId, t.thread);
             if (row) await clearDelivered(env, body.orgId, who.user.login, { key: row.channel, view: t.view, thread: t.thread, lastReadAt: t.lastReadAt }).catch(() => {});
           }
         });
       }
-      return json({ threads: threads.map(({ thread, lastReadAt }) => ({ thread, lastReadAt })) });
+      return json({ threads: threads.map(({ thread, lastReadAt, readVersion }) => ({ thread, lastReadAt, readVersion })) });
     }
     const ctx = await inChannel(env, request, body);
     if (ctx.denied) return ctx.denied;
@@ -808,18 +810,18 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (body.thread) {
       const parent = await getMessage(env.DB, body.orgId, String(body.thread));
       if (!parent || parent.channel !== ctx.resolved.key) return json({ message: "No such thread." }, 404);
-      const lastReadAt = await markRead(env.DB, body.orgId, login, `t:${parent.id}`, body.at);
+      const {lastReadAt,readVersion} = await markRead(env.DB, body.orgId, login, `t:${parent.id}`, body.at, true);
       // Its first message, where it named you, is read in Activity too.
       const parentItems = await markActivitySeen(env.DB, body.orgId, login, [`m:${parent.id}`]);
       after(async () => {
-        await readEverywhere(env, body.orgId, login, { view: ctx.view, key: ctx.resolved.key, thread: parent.id, lastReadAt });
+        await readEverywhere(env, body.orgId, login, { view: ctx.view, key: ctx.resolved.key, thread: parent.id, lastReadAt, readVersion });
         if (parentItems.length) await readEverywhere(env, body.orgId, login, { items: parentItems });
       });
-      return json({ lastReadAt });
+      return json({ lastReadAt, readVersion });
     }
-    const lastReadAt = await markRead(env.DB, body.orgId, login, ctx.resolved.key, body.at);
-    after(() => readEverywhere(env, body.orgId, login, { view: ctx.view, key: ctx.resolved.key, lastReadAt }));
-    return json({ lastReadAt });
+    const {lastReadAt,readVersion} = await markRead(env.DB, body.orgId, login, ctx.resolved.key, body.at, true);
+    after(() => readEverywhere(env, body.orgId, login, { view: ctx.view, key: ctx.resolved.key, lastReadAt, readVersion }));
+    return json({ lastReadAt, readVersion });
   }
 
   // "Mark unread": back to just before one message, on every device.
@@ -833,9 +835,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     const row = await getMessage(env.DB, body.orgId, String(body.messageId || ""));
     if (!row || row.deleted_at || row.channel !== ctx.resolved.key) return json({ message: "No such message." }, 404);
     const key = row.parent_id ? `t:${row.parent_id}` : ctx.resolved.key;
-    const lastReadAt = await markUnreadFrom(env.DB, body.orgId, ctx.who.user.login, key, row.created_at);
-    after(() => readEverywhere(env, body.orgId, ctx.who.user.login, { view: ctx.view, thread: row.parent_id || null, lastReadAt, unread: true }));
-    return json({ lastReadAt, thread: row.parent_id || null });
+    const {lastReadAt,readVersion} = await markUnreadFrom(env.DB, body.orgId, ctx.who.user.login, key, row.created_at, true);
+    after(() => readEverywhere(env, body.orgId, ctx.who.user.login, { view: ctx.view, thread: row.parent_id || null, lastReadAt, readVersion, unread: true }));
+    return json({ lastReadAt, readVersion, thread: row.parent_id || null });
   }
 
   // An agent's picture, in place of its emoji: the image is the body, the
