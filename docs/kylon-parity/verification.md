@@ -1588,3 +1588,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - 9e71d4c6 CI/Worker/Web all successful. Pushed33263ecf; Web39953346717 succeeded, CI39953346715 remains active.
 - Native 9e71d4c6 showed increasing plus controls (AX2→7; screenshot5) after restart. Found duplicate sibling React keys for HarnessComposerMenu and HarnessDictation in that revision.33263ecf already differentiates dictation with userId; follow-up now gives explicit menu:/dictation: prefixes plus account scope. Native verification of corrected revision remains pending, so root-cause resolution is not yet proven.
 - Cmd-R blank surface recurred; full restart recovered. This is a separate unresolved issue.
+
+### 2026-10-23 native production composer and thread send
+- Loaded33263ecf after full native restart. One plus button, new-thread toggle and microphone displayed. Mode enabled changed placeholder/send label, plus menu opened with actions and disabled decision/scheduling for empty draft. No duplicate plus controls during these interactions. Explicit key-prefix follow-up1218239c not yet deployed.
+- In private QA Webhook2026-10-23 (member count1), sent self-only plain UI test message. It appeared in sidebar as a new thread; delivery opened thread automatically and focused reply composer. No AI reply, external integration or credential creation was invoked. Evidence /tmp/honmaru-composer-production-20261023.png and /tmp/honmaru-new-thread-production-20261023.png.
+- Found remaining rendered discrepancy: thread reply composer still uses old attachment/format toolbar. Main composer improvement does not prove reply-composer parity. Native capture intermittently returned SCStream-3811; refreshing AX recovered without re-sending.
