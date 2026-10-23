@@ -23,6 +23,7 @@ import { fitBounds, loadWindowState, saveWindowState, MIN_SIZE } from './windowS
 import { crashVerdict } from './crashes.js'
 import { installLoadRecovery } from './loadRecovery.js'
 import { createLoadDiagnostics } from './loadDiagnostics.js'
+import { LAYOUT_PROBE } from './layoutProbe.js'
 import { installProcessDiagnostics } from './processDiagnostics.js'
 import { startUpdates } from './updates.js'
 
@@ -358,17 +359,12 @@ function createWindow() {
       | (loadingWindow.isFocused() ? 4 : 0) | (loadingWindow.webContents.isLoading() ? 8 : 0),
     hasContent: async () => {
       if (!onAppPage()) return true
-      // Return only a boolean; never move page text into native diagnostics.
-      return loadingWindow.webContents.executeJavaScript(`(() => {
-        const body = document.body;
-        if (!body) return false;
-        if (body.innerText.trim()) return true;
-        return [...body.querySelectorAll('img,svg,canvas,video,[role="progressbar"]')].some(element => {
-          const rect = element.getBoundingClientRect();
-          const style = getComputedStyle(element);
-          return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
-        });
-      })()`)
+      const flags = await loadingWindow.webContents.executeJavaScript(LAYOUT_PROBE)
+      if (!Number.isInteger(flags) || flags < 0 || flags > 127) return undefined
+      recordLoad('layout-state', flags)
+      // Text/media preserves the existing recovery decision. Layout flags
+      // diagnose invisible ancestors separately; they do not trigger reloads.
+      return Boolean(flags & (16 | 32))
     },
     ask: async (code) => {
       const japanese = app.getLocale().startsWith('ja')

@@ -1614,3 +1614,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - CI39953346715 succeeded; pushed3eaa287c. Web39954932116 succeeded; CI39954932158 remains active.
 - Native Mac restart loaded new reply composer: one plus, microphone and send, with スレッドに返信… placeholder; old always-visible formatting/attachment controls absent. Sent one plain reply in self-only QA thread. Pending marker disappeared, reply count became1 and sidebar preview updated. Evidence /tmp/honmaru-reply-production-20261023.png. No external recipients/AI invocation requested.
 - Physical microphone, mobile viewport, network-loss send and intermittent reload blank remain unverified/unresolved; reply delivery success is not full parity.
+
+### 2026-10-23 bounded native layout diagnostics (local)
+- Added renderer probe returning only integer flags0..127: root exists1, child elements2, nonzero root bounds4, root/ancestor visibility8, body text presence16, visible media32, visible startup panel64. Main validates range before recording layout-state. No text/URL/style values/screenshots/credentials persisted. Recovery still uses text/media presence; flags provide evidence, not a root-cause fix.
+- Desktop17 files/125 tests passed, including hidden ancestors/zero-size root/transparent media and output-only flags. Requires a future desktop build/install before collecting new native evidence; web deployment alone cannot enable it.
