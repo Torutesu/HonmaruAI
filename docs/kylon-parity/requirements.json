@@ -16,7 +16,12 @@
       "priority": "P0",
       "source": "https://kylon.io/product/workspace",
       "code": "worker/src/access.js",
-      "acceptance": "非メンバー・管理者・ゲストのHTTP/WS/検索すべてで隔離を検証"
+      "acceptance": "非メンバー・管理者・ゲストのHTTP/WS/検索すべてで隔離を検証",
+      "evidence": {
+        "release": "Atomic creation and connected UI deployed; member UI e8e5af3d/93c400d7 and direct entry 1dcf52cb deployed.",
+        "verified": "Room creation persistence/idempotency and permission snapshots tested. Native production member picker observed; temporary empty private QA room archived through normal UI.",
+        "remaining": "Default-room identity, privacy editing with WebSocket eviction, comprehensive multi-user production isolation. Ten-color palette is prepared, pending deployment."
+      }
     },
     {
       "id": "KY-002",
@@ -81,7 +86,12 @@
       "priority": "P0",
       "source": "https://kylon.io/product/workspace",
       "code": "worker/src/customAgents.js",
-      "acceptance": "ルーム追加時に不足するエージェント利用権を表示し明示付与"
+      "acceptance": "ルーム追加時に不足するエージェント利用権を表示し明示付与",
+      "evidence": {
+        "release": "Versioned room roles and separate human/custom-agent membership deployed in e8e5af3d; unified picker 93c400d7/1dcf52cb.",
+        "verified": "Native production picker excludes the joined human and lists the permitted Mac assistant. Partial failures refresh candidates and retain unsuccessful selections in tests.",
+        "remaining": "Explicit grant of missing agent access, full multi-user role handoff and cross-client live updates; no production role or agent membership mutation was performed during this UI verification."
+      }
     },
     {
       "id": "KY-008",
@@ -101,7 +111,12 @@
       "priority": "P1",
       "source": "https://kylon.io/product/workspace",
       "code": "worker/src/channelRoutes.js",
-      "acceptance": "復旧・保持期間・実行中自動化の扱いを定義して検証"
+      "acceptance": "復旧・保持期間・実行中自動化の扱いを定義して検証",
+      "evidence": {
+        "release": "Managed-room lifecycle/last-human-admin guards deployed.",
+        "verified": "Empty production QA room archived using recoverable UI and disappeared from sidebar without removing the existing agent.",
+        "remaining": "Automatic GitHub removal/account deletion recovery, retention and running automation lifecycle, broader multi-user production verification."
+      }
     },
     {
       "id": "KY-010",
