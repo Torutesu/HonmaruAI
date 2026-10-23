@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import {afterEach,expect,test,vi} from 'vitest'
 import source from '../public/startup-v2.js?raw'
 import index from '../index.html?raw'
