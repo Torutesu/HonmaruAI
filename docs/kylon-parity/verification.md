@@ -1663,3 +1663,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 thread route scope review
 - Narrowed duplicate-locate bypass to a one-use record of this component's own hash update with identical resourceClient scope (base URL, workspace, session). Matching thread ID alone is insufficient after account changes or external navigation. Manual navigation clears the intent. TypeScript and Vite build passed. Native integration remains pending deployment.
 - CI39957222600: E2E, gateway, Desktop, Web, shared/mobile and relay succeeded; Worker remains active. Signed1.3.13 is still a verified unpublished draft.
+
+### 2026-10-23 Mac1.3.13 published and installed
+- CI39957222600 completed success for5b29ce89. Revalidated matching CI/Mac workflow success and draft target; published release421844628 (v1.3.13) at2026-10-23T13:14:26Z.
+- Native1.3.12 updater found1.3.13, downloaded, and offered restart. Restart action timed out in CUA, but installed Info.plist now1.3.13 and native app reopened logged in with QA room available. Diagnostics show1.3.13 startup.
+- Signed archive layoutProbe.js/main.js/loadDiagnostics.js byte-for-byte match5b29ce89 source. Blank reload reproduction/diagnostic flag collection remains ongoing. Attachment shortcut and thread URL changes remain local/unpushed.
