@@ -1718,3 +1718,6 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - Incoming live deliveries also recheck current credential/enabled state in the run insertion, closing revocation-during-body-read race. Existing run execution is not cancelled by revocation. No schema ALTER or Simple data deletion.
 - Workflow and migration39 tests passed (/tmp/honmaru-held-final-tests.log); UI5 tests, full Web149 files1024 tests, TypeScript, Vite and diff check passed. Native visual verification pending. Older full Worker suite session91518 remains live and is not evidence for all current changes.
 - Prior CI39962345236 completed success. Preparing production push after these checks; follow the new exact revision through Worker migration/deploy and dependent Web deploy.
+
+### 2026-10-23 webhook lifecycle production dispatch
+- Pushed15f24b70 to main after prior CI success. Exact-head runs: CI39965668546 queued, Deploy Worker39965668748 in_progress, Deploy Web39965668547 in_progress. Web waits for matching Worker deployment. Production success and native screenshots remain unproven; do not push another revision over these runs.
