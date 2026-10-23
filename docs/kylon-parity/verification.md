@@ -1831,3 +1831,5 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 follow-up cancel and release gate verification
 - Added scheduled-item cancellation failure/retry regression: failed cancellation preserves the item and reports error; refresh makes no cancellation call; successful cancellation reloads the list. All3 follow-up UI tests pass (/tmp/honmaru-followup-history-cancel-tests.log).
 -5398048c CI39971156168 and Deploy Worker39971156160 completed success. Deploy Web39971156141 remains live; do not overlap the next push. Current Worker full61513 also remains live without Worker edits.
+
+-5398048c Deploy Web39971156141 now completed success as well. Held payload inspection, delete confirmation and resource icon proportions are deployed; explicit payload Retry, contrast correction, follow-up failure handling/history and tool deadline are still local. Current Worker61513 remains live; no overlapping next push.
