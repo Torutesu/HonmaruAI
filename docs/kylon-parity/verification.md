@@ -1568,3 +1568,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 composer intent isolation follow-up
 - New-thread pending navigation now invalidates on auth session/API changes and opening a different thread in the same room, using an opaque memoized scope instead of delimiter-joined identifiers. Dictation remounts when signed-in user changes.
 - Web147 files/1013 tests and TypeScript passed. Session/selected-thread regression added. Native send verification remains pending.
+
+### 2026-10-23 composer keyboard menu follow-up
+- Plus trigger ArrowDown/ArrowUp opens first/last enabled menu action; Home/End/arrows navigate. Tab restores the trigger before native traversal, formatting receives keyboard focus, blur closes stale popovers. IME events retain existing guard.
+- Web147 files/1014 tests and TypeScript passed. Native production verification pending. Prior 9e71d4c6 CI/Worker/Web confirmed still in progress; no overlapping push.

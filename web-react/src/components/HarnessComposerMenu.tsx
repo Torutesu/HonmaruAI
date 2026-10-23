@@ -6,20 +6,25 @@ import {composing} from '../utils/keys'
 type Props={onAttach:()=>void;onMention:()=>void;onConnections?:()=>void;onDecision:()=>void;onSchedule:()=>void;canDecide:boolean;canSchedule:boolean;children:React.ReactNode}
 export function HarnessComposerMenu({onAttach,onMention,onConnections,onDecision,onSchedule,canDecide,canSchedule,children}:Props){
  const t=useT(),root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null)
+ const initialFocus=useRef<'first'|'last'>('first')
  const [open,setOpen]=useState(false),[format,setFormat]=useState(false)
  const close=(restore=false)=>{setOpen(false);if(restore)trigger.current?.focus()}
  useEffect(()=>{
   if(!open&&!format)return
-  if(open)root.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus()
+  if(open){
+   const items=root.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')
+   items?.[initialFocus.current==='last'?items.length-1:0]?.focus()
+  }else if(format)root.current?.querySelector<HTMLButtonElement>('.hx-composer-format button:not(:disabled)')?.focus()
   const outside=(event:PointerEvent)=>{if(!root.current?.contains(event.target as Node)){close();setFormat(false)}}
   document.addEventListener('pointerdown',outside)
   return()=>document.removeEventListener('pointerdown',outside)
  },[open,format])
- const action=(label:string,icon:IconName,run:()=>void,disabled=false)=><button key={label} type="button" role="menuitem" disabled={disabled} onClick={()=>{close(true);run()}}><Icon name={icon} size={16}/>{t(label)}</button>
- return <div className="hx-composer-add" ref={root} onKeyDown={event=>{
+ const action=(label:string,icon:IconName,run:()=>void,disabled=false)=><button key={label} type="button" role="menuitem" tabIndex={-1} disabled={disabled} onClick={()=>{close(true);run()}}><Icon name={icon} size={16}/>{t(label)}</button>
+ return <div className="hx-composer-add" ref={root} onBlur={event=>{if(event.relatedTarget&&!event.currentTarget.contains(event.relatedTarget as Node)){close();setFormat(false)}}} onKeyDown={event=>{
   if(composing(event))return
+  if(!open&&event.target===trigger.current&&['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();initialFocus.current=event.key==='ArrowUp'?'last':'first';setFormat(false);setOpen(true);return}
   if(event.key==='Escape'&&(open||format)){event.preventDefault();event.stopPropagation();close(true);setFormat(false)}
-  if(event.key==='Tab')close()
+  if(event.key==='Tab'&&open)close(true)
   if(open&&['ArrowDown','ArrowUp','Home','End'].includes(event.key)){
    const items=Array.from(root.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')||[])
    if(!items.length)return
@@ -29,7 +34,7 @@ export function HarnessComposerMenu({onAttach,onMention,onConnections,onDecision
    items[next]?.focus()
   }
  }}>
-  <button ref={trigger} type="button" className="slk-attach-btn" aria-label={t('Add to message')} title={t('Add to message')} aria-haspopup="menu" aria-expanded={open} onClick={()=>{setFormat(false);setOpen(value=>!value)}}><Icon name="plus" size={18}/></button>
+  <button ref={trigger} type="button" className="slk-attach-btn" aria-label={t('Add to message')} title={t('Add to message')} aria-haspopup="menu" aria-expanded={open} onClick={()=>{initialFocus.current='first';setFormat(false);setOpen(value=>!value)}}><Icon name="plus" size={18}/></button>
   {open&&<div className="hx-composer-add-menu" role="menu" aria-label={t('Add to message')}>
    {action('Attach files','paperclip',onAttach)}
    {action('Mention someone','at',onMention)}
