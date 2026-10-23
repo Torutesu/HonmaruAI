@@ -74,3 +74,26 @@ test('failed loading exposes retry and never enables saving guessed values',asyn
  await act(async()=>find(tree,'Reload latest settings').props.onClick())
  expect(tree.root.findByProps({'aria-label':'Room name'}).props.value).toBe('Planning');act(()=>tree.unmount())
 })
+
+test('switching rooms releases the old save without allowing it to unlock the next save',async()=>{
+ let finishFirst!:(value:any)=>void,finishSecond!:(value:any)=>void
+ const fetcher=vi.fn().mockResolvedValueOnce(loaded()).mockImplementationOnce(()=>new Promise(resolve=>{finishFirst=resolve})).mockResolvedValueOnce(loaded({settings:{...settings,name:'Second'}})).mockImplementationOnce(()=>new Promise(resolve=>{finishSecond=resolve}))
+ vi.stubGlobal('fetch',fetcher)
+ const close=vi.fn(),saved=vi.fn();let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<RoomSettings api={api} view="b:first" onClose={close} onSaved={saved}/>)})
+ act(()=>tree.root.findByProps({'aria-label':'Room name'}).props.onChange({target:{value:'First draft'}}))
+ act(()=>find(tree,'Save').props.onClick())
+ await act(async()=>tree.update(<RoomSettings api={api} view="b:second" onClose={close} onSaved={saved}/>))
+ expect(find(tree,'Cancel').props.disabled).toBe(false)
+ expect(tree.root.findByProps({'aria-label':'Room name'}).props.disabled).toBe(false)
+ act(()=>tree.root.findByProps({'aria-label':'Room name'}).props.onChange({target:{value:'Second draft'}}))
+ act(()=>find(tree,'Save').props.onClick())
+ await act(async()=>finishFirst(reply({settings})))
+ expect(find(tree,'Cancel').props.disabled).toBe(true)
+ act(()=>tree.root.findByType(Dialog).props.onClose())
+ expect(close).not.toHaveBeenCalled();expect(saved).not.toHaveBeenCalled()
+ expect(fetcher).toHaveBeenCalledTimes(4)
+ await act(async()=>finishSecond(reply({settings})))
+ expect(saved).toHaveBeenCalledOnce();expect(close).toHaveBeenCalledOnce()
+ act(()=>tree.unmount())
+})

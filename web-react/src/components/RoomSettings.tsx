@@ -21,7 +21,7 @@ export function RoomSettings({api,view,onClose,onSaved}:{api:{httpBase:string;or
   }catch(e){if(generation===scope.current&&read===reads.current){setData(null);setError(e instanceof Error?e.message:String(e))}}
   finally{if(generation===scope.current&&read===reads.current)setLoading(false)}
  },[api.httpBase,api.orgId,api.sessionToken,view])
- useEffect(()=>{scope.current++;setData(null);setDraft(null);void load();return()=>{scope.current++;reads.current++}},[load])
+ useEffect(()=>{scope.current++;pending.current=false;setBusy(false);setData(null);setDraft(null);void load();return()=>{scope.current++;reads.current++}},[load])
  const changed=!!data&&!!draft&&(draft.name.trim()!==data.settings.name||draft.color!==data.settings.color||draft.mentionedOnly!==data.settings.mentionedOnly)
  const save=async()=>{
   if(pending.current||!data?.canEdit||!draft||!draft.name.trim()||!changed||conflict||loading)return
@@ -33,7 +33,7 @@ export function RoomSettings({api,view,onClose,onSaved}:{api:{httpBase:string;or
    if(!response.ok){if(response.status===409)setConflict(true);throw Error(result.message||'That did not save.')}
    onSaved();onClose()
   }catch(e){if(generation===scope.current)setError(e instanceof Error?e.message:String(e))}
-  finally{pending.current=false;if(generation===scope.current)setBusy(false)}
+  finally{if(generation===scope.current){pending.current=false;setBusy(false)}}
  }
  const disabled=busy||loading||!data?.canEdit||conflict
  return <Dialog className="room-settings" title={t('Room settings')} onClose={()=>{if(!pending.current)onClose()}}
