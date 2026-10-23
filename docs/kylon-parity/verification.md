@@ -1564,3 +1564,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 new-thread composer mode (local)
 - Added Harness-only new-thread toggle, translated placeholder/send label and success opening of delivered root via existing thread API. Simple unchanged. Pending/retry delivery retains only the in-memory navigation intent; navigation, toggle cancellation and unmount invalidate it. Reload does not resurrect an old navigation intent. Scheduled messages do not open a nonexistent root.
 - Web147 files/1012 tests, TypeScript and Vite build passed. Hook regression exercises single opening, changed room, leave/return, off/on and unmount. Full send UI/native production verification remains pending; no 100% parity claim.
+
+### 2026-10-23 composer intent isolation follow-up
+- New-thread pending navigation now invalidates on auth session/API changes and opening a different thread in the same room, using an opaque memoized scope instead of delimiter-joined identifiers. Dictation remounts when signed-in user changes.
+- Web147 files/1013 tests and TypeScript passed. Session/selected-thread regression added. Native send verification remains pending.

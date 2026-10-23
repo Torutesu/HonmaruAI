@@ -17,3 +17,15 @@ test('only the current composer intent opens a successfully delivered thread, on
  const cancelled=mode.capture()!;act(()=>mode.toggle());act(()=>mode.toggle());act(()=>cancelled('old-mode'));expect(open).toHaveBeenCalledOnce()
  const unmounted=mode.capture()!;act(()=>tree.unmount());act(()=>unmounted('late'));expect(open).toHaveBeenCalledOnce()
 })
+test('a new session or selected thread invalidates pending navigation even in the same room',()=>{
+ const open=vi.fn();let mode!:ReturnType<typeof useComposerThreadMode<string>>,tree!:ReturnType<typeof create>
+ function Probe({scope}:{scope:object}){mode=useComposerThreadMode(scope,open);return null}
+ act(()=>{tree=create(<Probe scope={{room:'a',session:1,thread:null}}/>)})
+ act(()=>mode.toggle());const beforeSession=mode.capture()!
+ act(()=>tree.update(<Probe scope={{room:'a',session:2,thread:null}}/>))
+ act(()=>beforeSession('old-session'));expect(open).not.toHaveBeenCalled()
+ act(()=>mode.toggle());const beforeThread=mode.capture()!
+ act(()=>tree.update(<Probe scope={{room:'a',session:2,thread:'other'}}/>))
+ act(()=>beforeThread('late-root'));expect(open).not.toHaveBeenCalled()
+ act(()=>tree.unmount())
+})

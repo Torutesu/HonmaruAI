@@ -2,7 +2,7 @@ import {useEffect,useRef,useState} from 'react'
 
 // A pending send may finish after navigation or after the user toggles modes.
 // Only the exact composer intent that started it may open a thread.
-export function useComposerThreadMode<T>(scope:string,onOpen:(root:T)=>void){
+export function useComposerThreadMode<T>(scope:unknown,onOpen:(root:T)=>void){
  const [,render]=useState(0)
  const state=useRef({scope,enabled:false,revision:0,alive:true})
  const open=useRef(onOpen);open.current=onOpen

@@ -2416,7 +2416,6 @@ export const ClassicList: React.FC<Props> = ({
   const special = activityOpen || laterOpen || threadsOpen || sentOpen
   // Which conversation is on screen, for the sound a new message makes.
   const openView = !special ? (current?.view || null) : null
-  const newThreadMode=useComposerThreadMode<ChannelMessage>(`${api.orgId}:${userId}:${openView}:${harness}:${resourceBuild?.kind||''}`,root=>{if(openView)void openThread(openView,root)})
   useEffect(() => { setOpenView(openView); return () => { setOpenView(null) } }, [openView])
   const [laterItems, setLaterItems] = useState<Array<{ id: string; remindAt: string | null; remindedAt: string | null; message: ChannelMessage }> | null>(null)
   // Marked done here: kept out of the list even when a load that began
@@ -2720,6 +2719,8 @@ export const ClassicList: React.FC<Props> = ({
   }
   /// The thread open beside the conversation, whose agents write there.
   const threadOpenParent = thread?.parent.id || null
+  const composerIntentScope=useMemo(()=>({}),[api.orgId,api.httpBase,api.sessionToken,userId,openView,harness,resourceBuild?.kind,threadOpenParent])
+  const newThreadMode=useComposerThreadMode<ChannelMessage>(composerIntentScope,root=>{if(openView)void openThread(openView,root)})
   const [threadDraft, setThreadDraft] = useState('')
   /// "Also send to #channel" under the thread's box: for the next reply only.
   const [threadAlso, setThreadAlso] = useState(false)
@@ -5456,7 +5457,7 @@ export const ClassicList: React.FC<Props> = ({
                 <Icon name="sparkle" size={15} /><span className="slk-send-label">{t('Send as a decision')}</span>
               </button>}
               {harness && !resourceBuild && <button type="button" className="hx-new-thread" aria-pressed={startingThread} aria-label={t(startingThread?'Exit new thread mode':'New thread')} onClick={()=>{newThreadMode.toggle();composer.current?.focus()}}><Icon name="compose" size={15}/><span>{t('New thread')}</span></button>}
-              {harness && <HarnessDictation key={`${api.orgId}:${thread.view}`} value={draft} onChange={setDraft} locale={locale} disabled={resourceBuilding || uploads.busy}/>}
+              {harness && <HarnessDictation key={`${api.orgId}:${userId}:${thread.view}`} value={draft} onChange={setDraft} locale={locale} disabled={resourceBuilding || uploads.busy}/>}
               <span className="slk-send-group">
                 <button type="submit" className="slk-send" disabled={resourceBuilding || uploads.busy || (!draft.trim() && !uploads.ids.length)} aria-label={t(startingThread?'Start a new thread':'Send')}>
                   <Icon name="send" size={16} />
