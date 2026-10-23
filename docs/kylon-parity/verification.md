@@ -1659,3 +1659,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - Mac signed release39957249737 completed success. Draft421844628 remains unpublished at exact target5b29ce89eeaf00454cbd8bcdf78349f03013ac4d; ZIP/DMG/blockmaps/latest-mac.yml present.
 - Downloaded ZIP /tmp/Honmaru-AI-1.3.13-universal-mac.zip:224215388 bytes, SHA512 matches /tmp/latest-mac-1.3.13.yml. Extracted app /tmp/honmaru-signed-1.3.13/Honmaru AI.app reports1.3.13. codesign --verify --deep --strict succeeded; spctl accepted Notarized Developer ID.
 - CI39957222600 still in progress. Do not publish draft or install until matching CI succeeds. Diagnostic collection and actual blank-screen fix remain pending.
+
+### 2026-10-23 thread route scope review
+- Narrowed duplicate-locate bypass to a one-use record of this component's own hash update with identical resourceClient scope (base URL, workspace, session). Matching thread ID alone is insufficient after account changes or external navigation. Manual navigation clears the intent. TypeScript and Vite build passed. Native integration remains pending deployment.
+- CI39957222600: E2E, gateway, Desktop, Web, shared/mobile and relay succeeded; Worker remains active. Signed1.3.13 is still a verified unpublished draft.

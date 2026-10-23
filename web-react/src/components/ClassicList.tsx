@@ -746,9 +746,10 @@ export const ClassicList: React.FC<Props> = ({
   const pendingSource = useRef<{appId:string;source:NonNullable<AppConversation['source']>}|null>(null)
   const linkedIntent = useRef(0)
   const linkedRoute = useRef<string|null>(null)
+  const localThreadRoute = useRef<{hash:string;client:unknown}|null>(null)
   const pendingLinkedThread = useRef<{view:string;id:string}|null>(null)
   const forgetWanted = () => {
-    linkedIntent.current++;pendingLinkedThread.current=null
+    linkedIntent.current++;pendingLinkedThread.current=null;localThreadRoute.current=null
     if(linkedRoute.current && location.hash===linkedRoute.current){history.replaceState(history.state,'','#/list');window.dispatchEvent(new HashChangeEvent('hashchange'))}
     linkedRoute.current=null
     wantedView.current=null;sourceIntent.current++;pendingSource.current=null
@@ -3126,7 +3127,9 @@ export const ClassicList: React.FC<Props> = ({
     setThread((prev) => ({ channel, parent: m, replies: prev && prev.parent.id === m.id ? keepTemps(kept, prev.replies) : kept, loading: true }))
     // Preserve the object destination for reload, without replacing a newer route.
     if(harness && (location.hash==='#/list' || (thread && location.hash===hashForThread(thread.parent.id,api.orgId)))){
-      history.replaceState(history.state,'',hashForThread(m.id,api.orgId))
+      const hash=hashForThread(m.id,api.orgId)
+      localThreadRoute.current={hash,client:resourceClient}
+      history.replaceState(history.state,'',hash)
       window.dispatchEvent(new HashChangeEvent('hashchange'))
     }
     const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(m.id)}`, { headers: authHeaders }).catch(() => null)
@@ -3304,7 +3307,9 @@ export const ClassicList: React.FC<Props> = ({
   // invalidates the request, including when the directory is still loading.
   useEffect(()=>{
     if(!linkedThreadId)return
-    if(harness && thread?.parent.id===linkedThreadId){linkedRoute.current=location.hash;return}
+    const local=localThreadRoute.current;localThreadRoute.current=null
+    // Skip only our own address update, never a new account's or external link's lookup.
+    if(harness && local?.hash===location.hash && local.client===resourceClient && thread?.parent.id===linkedThreadId){linkedRoute.current=location.hash;return}
     const intent=++linkedIntent.current,client=resourceClient,originalHash=location.hash,controller=new AbortController()
     linkedRoute.current=originalHash
     const currentRequest=()=>linkedIntent.current===intent && resourceClientNow.current===client && location.hash===originalHash
