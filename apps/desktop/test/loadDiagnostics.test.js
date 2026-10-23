@@ -33,3 +33,12 @@ it('persists only classified response and script events across restarts',()=>{
  ])
  expect(events.every(event=>Object.keys(event).every(key=>['at','version','event','code'].includes(key)))).toBe(true)
 })
+it('retains inspection outcomes and finite window flags across a restart',()=>{
+ const target=file(),record=createLoadDiagnostics(target,'1.3.10')
+ for(const event of ['inspect-start','inspect-visible','inspect-error','inspect-timeout','policy-error','javascript-error'])record(event)
+ record('window-state',5)
+ createLoadDiagnostics(target,'1.3.10')('start')
+ const events=JSON.parse(readFileSync(target,'utf8'))
+ expect(events.map(e=>e.event)).toEqual(['inspect-start','inspect-visible','inspect-error','inspect-timeout','policy-error','javascript-error','window-state','start'])
+ expect(events.find(e=>e.event==='window-state').code).toBe(5)
+})

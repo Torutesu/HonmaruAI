@@ -350,6 +350,9 @@ function createWindow() {
     record: createLoadDiagnostics(path.join(app.getPath('userData'), 'load-diagnostics.json'), app.getVersion()),
     alive: () => !loadingWindow.isDestroyed(),
     retry: () => loadingWindow.loadURL(APP_URL),
+    // Bounded flags only: visible=1, minimized=2, focused=4, renderer-loading=8.
+    windowState: () => (loadingWindow.isVisible() ? 1 : 0) | (loadingWindow.isMinimized() ? 2 : 0)
+      | (loadingWindow.isFocused() ? 4 : 0) | (loadingWindow.webContents.isLoading() ? 8 : 0),
     hasContent: async () => {
       if (!onAppPage()) return true
       // Return only a boolean; never move page text into native diagnostics.

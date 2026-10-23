@@ -1,6 +1,6 @@
 // Network failures are different from renderer crashes: Electron can leave
 // an empty window without a render-process-gone event.
-export function installLoadRecovery(contents, { ask, retry, alive, timeoutMs = 30000, record = () => {}, hasContent }) {
+export function installLoadRecovery(contents, { ask, retry, alive, timeoutMs = 30000, record = () => {}, hasContent, inspectionTimeoutMs = 5000, windowState }) {
   const note = (event, code) => { try { record(event, code) } catch {} }
   for (const [event, label] of [['did-start-loading','start'],['did-stop-loading','stop'],['dom-ready','dom'],['unresponsive','unresponsive'],['render-process-gone','gone']]) contents.on(event, () => note(label))
   const reported = new Set()
@@ -16,7 +16,10 @@ export function installLoadRecovery(contents, { ask, retry, alive, timeoutMs = 3
     if (typeof message !== 'string') return
     // Classify in memory only. Never persist the message/source URL, which
     // may contain session data, application inputs or third-party content.
-    const event = /dynamically imported module|module script|MIME type|ChunkLoadError/i.test(message.slice(0, 2000)) ? 'script-load-error' : 'script-error'
+    const bounded = message.slice(0, 2000)
+    const event = /content security policy|Content-Security-Policy|violates.*directive/i.test(bounded) ? 'policy-error'
+      : /dynamically imported module|module script|MIME type|ChunkLoadError/i.test(bounded) ? 'script-load-error'
+      : /\b(?:TypeError|ReferenceError|SyntaxError|RangeError)\b/.test(bounded) ? 'javascript-error' : 'script-error'
     if (!reported.has(event)) { reported.add(event); note(event) }
   })
   let generation = 0
@@ -58,13 +61,27 @@ export function installLoadRecovery(contents, { ask, retry, alive, timeoutMs = 3
     timer = setTimeout(async () => {
       timer = undefined
       if (!alive() || loadedGeneration !== generation) return
+      let inspectionTimer
       try {
-        const visible = await hasContent()
-        if (visible === false && alive() && loadedGeneration === generation) {
+        const state = windowState?.()
+        if (Number.isInteger(state) && state >= 0 && state <= 15) note('window-state', state)
+        note('inspect-start')
+        const timedOut = Symbol('inspection timeout')
+        const visible = await Promise.race([
+          Promise.resolve().then(hasContent),
+          new Promise(resolve => { inspectionTimer = setTimeout(() => resolve(timedOut), inspectionTimeoutMs); inspectionTimer.unref?.() }),
+        ])
+        if (!alive() || loadedGeneration !== generation) return
+        if (visible === timedOut) note('inspect-timeout')
+        else if (visible === true) note('inspect-visible')
+        else if (visible === false) {
           note('blank', -2)
           void recover(-2)
-        }
-      } catch { /* A failed inspection is not proof of an empty page. */ }
+        } else note('inspect-error')
+      } catch {
+        // Failed or stalled inspection is unknown, never proof of an empty page.
+        if (alive() && loadedGeneration === generation) note('inspect-error')
+      } finally { clearTimeout(inspectionTimer) }
     }, timeoutMs)
     timer.unref?.()
   })
