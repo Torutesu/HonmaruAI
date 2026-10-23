@@ -190,8 +190,11 @@ export async function changeManagedRoomMembers(db,orgId,channel,{actorId,adding=
   const snapshotSql=`SELECT json_group_array(json_array(kind,id,membership,role,eligible)) FROM (SELECT * FROM (${subjects}) ORDER BY kind,id)`;
   const liveSnapshot=await db.prepare(snapshotSql).bind(orgId,channel).first();
   const expected=Object.values(liveSnapshot)[0];
-  const current=await roomRoleState(db,orgId,channel);
-  if(!current||JSON.stringify(current.members.map(m=>[m.kind,m.id,m.membership,m.role,m.eligible]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))))!==snapshot)return {error:'Room membership changed. Reload before saving.',status:409};
+  // Compare the exact snapshot we will bind, not a separate later read:
+  // an intervening membership change must not supply a different expected
+  // state than the one used for authorization and last-admin checks.
+  if(JSON.stringify(JSON.parse(expected).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))))!==snapshot)
+    return {error:'Room membership changed. Reload before saving.',status:409};
   const nonce=crypto.randomUUID(),at=new Date().toISOString(),addSnapshot=JSON.stringify(people.map(m=>[m.id,m.created_at,m.login]));
   const gate='EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2 AND mutation_id=?3)';
   const result=await db.batch([

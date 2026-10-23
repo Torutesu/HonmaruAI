@@ -253,3 +253,24 @@ test('bulk member edits apply additions and removals together and reject members
   expect(state.members.some(m=>m.id==='reader')).toBe(false);
   expect(state.members.find(m=>m.id==='outsider').role).toBe('member');
 });
+
+test('bulk edits compare the exact transaction snapshot to the authorized membership state',async()=>{
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  let changed=false;
+  const db={prepare:(sql)=>{
+    const statement=env.DB.prepare(sql);
+    if(!sql.startsWith('SELECT json_group_array(json_array(kind,id,membership,role,eligible))'))return statement;
+    return {bind:(...args)=>({first:async()=>{
+      changed=true;
+      await env.DB.prepare("UPDATE conversation_members SET added_at='different join' WHERE org_id=?1 AND channel=?2 AND login='reader'").bind(org,channel).run();
+      return statement.bind(...args).first();
+    }})};
+  },batch:(...args)=>env.DB.batch(...args)};
+  const result=await changeManagedRoomMembers(db,org,channel,{actorId:'creator',adding:[{userId:'outsider'}],removing:[{userId:'reader'}]});
+  expect(changed).toBe(true);
+  expect(result.status).toBe(409);
+  const state=await roomRoleState(env.DB,org,channel);
+  expect(state.version).toBe(1);
+  expect(state.members.some(m=>m.id==='reader')).toBe(true);
+  expect(state.members.some(m=>m.id==='outsider')).toBe(false);
+});
