@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-10-18",
+  "asOf": "2026-10-23",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -1012,6 +1012,26 @@
       "source": "https://kylon.io/pricing",
       "code": "worker/src/harness/mode.js",
       "acceptance": "既定Simple・追加schema・切替で削除しない。リリース時に回帰試験"
+    },
+    {
+      "id": "KY-094",
+      "category": "Rooms",
+      "requirement": "ルーム受信Webhookから専用スレッドとエージェント実行",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://app.kylon.io",
+      "code": "worker/src/harness/workflows.js",
+      "acceptance": "2026-10-23実画面確認。名前付き作成・一覧・失効、受信ごとの専用スレッド、現在のルーム所属とエージェント利用権、イベント重複抑止を検証。既存の外向きWebhookやワークフロー実行だけでは未達。"
+    },
+    {
+      "id": "KY-095",
+      "category": "Rooms",
+      "requirement": "ルームのカスタムビジュアルアップロード",
+      "status": "missing",
+      "priority": "P1",
+      "source": "https://app.kylon.io",
+      "code": "web-react/src/components/RoomColorPicker.tsx",
+      "acceptance": "2026-10-23実画面で10色パレットとアップロード入口を確認。安全な画像検証・保存・置換・削除、ルーム一覧とヘッダーへの表示、非公開ルームの閲覧権限、端末間反映と旧色設定の維持を検証。実際の参照画像アップロードは未実行。"
     }
   ]
 }
