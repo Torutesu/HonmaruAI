@@ -158,3 +158,16 @@ test('finishing a manual run after returning to the list does not reopen its det
   expect(tree.root.findAllByProps({ 'data-workflow': workflow.id })).toHaveLength(1)
   expect(JSON.stringify(tree.toJSON())).not.toContain(workflow.hookUrl)
 })
+test('run history preserves complete multiline output and errors as text in collapsed details', async () => {
+  const output = 'Long result '.repeat(40) + '\n<script>untrusted()</script>\nFinal evidence'
+  const error = 'Provider failure '.repeat(30) + '\nFailure details'
+  state.api.workflow.mockResolvedValue({ workflow, canEdit: true, runs: [{ id: 'run_full', status: 'failed', trigger: 'manual', startedAt: '2026-10-23T00:00:00Z',
+    log: [{ step: 1, type: 'agent', status: 'failed', at: '2026-10-23T00:01:00Z', output, error }, { step: 2, type: 'post', status: 'skipped', at: '2026-10-23T00:01:01Z' }] }] })
+  await open()
+  const detail = tree.root.findByType('details')
+  expect(detail.props.open).toBeUndefined()
+  expect(detail.findAllByType('pre').map(node => node.children.join(''))).toEqual([output, error])
+  expect(detail.findByType('summary').children.join('')).not.toContain('Failure details')
+  expect(tree.root.findAllByType('script')).toHaveLength(0)
+  expect(detail.findByType('time').props.dateTime).toBe('2026-10-23T00:01:00Z')
+})

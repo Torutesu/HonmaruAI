@@ -290,12 +290,19 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
         <div className="rows">
           {open.runs.map((r) => (
             <div key={r.id} className="row static hx-run" data-run={r.id}>
-              <span className="row-main">
+              <div className="row-main">
                 <span className={`hx-status ${r.status}`}>{t(r.status)}</span> {new Date(r.startedAt).toLocaleString()} · {t(r.trigger)}
                 {r.log.map((l) => (
-                  <span key={l.step} className="row-sub hx-log">{l.step}. {stepLabel(t, l.type)} — <span className={`hx-status ${l.status}`}>{t(l.status)}</span>{l.output ? `: ${l.output.slice(0, 160)}` : ''}{l.error ? `: ${l.error}` : ''}</span>
+                  l.output || l.error ? <details key={l.step} className="hx-run-detail">
+                    <summary className="row-sub">{l.step}. {stepLabel(t, l.type)} — <span className={`hx-status ${l.status}`}>{t(l.status)}</span>
+                      {`: ${(l.error || l.output || '').slice(0, 160)}${(l.error || l.output || '').length > 160 ? '…' : ''}`}
+                    </summary>
+                    {l.output && <div><strong>{t('Output')}</strong><pre>{l.output}</pre></div>}
+                    {l.error && <div><strong>{t('Error')}</strong><pre>{l.error}</pre></div>}
+                    <time dateTime={l.at}>{new Date(l.at).toLocaleString()}</time>
+                  </details> : <span key={l.step} className="row-sub hx-log">{l.step}. {stepLabel(t, l.type)} — <span className={`hx-status ${l.status}`}>{t(l.status)}</span></span>
                 ))}
-              </span>
+              </div>
             </div>
           ))}
         </div>

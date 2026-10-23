@@ -1,6 +1,8 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Output": "出力",
+  "Error": "エラー",
   "Discard held events": "保留イベントを破棄",
   "Discard {count} events": "{count}件を破棄",
   "These held events will be permanently discarded without running. New arrivals and existing runs are kept.": "対象の保留イベントを実行せずに完全に破棄します。この操作は取り消せません。新しく届いたイベントと開始済みの実行は残ります。",
