@@ -1,3 +1,5 @@
+import { roomHookExecutionGrant } from './harness/roomHookExecutionGrant.js';
+import { roomHookAgentAllowed } from './harness/roomHookAgentAccess.js';
 import Anthropic from "@anthropic-ai/sdk";
 import { withRoomGuidelinesRequest } from "./harness/guidelines.js";
 import { handleTaken } from "./customAgents.js";
@@ -628,7 +630,7 @@ export async function teammateForAgent(db, orgId, agent) {
 
 /// @claude (or another) in a thread: new work for a new thread, the same
 /// work handed on for a follow-up. Returns the run to watch, or why not.
-export async function startTeammateRun(env, { orgId, t, key, threadId, where, askedBy, transcript, request, login, onBehalfOf = null, now = new Date() }) {
+export async function startTeammateRun(env, { orgId, t, key, threadId, where, askedBy, transcript, request, login, onBehalfOf = null, roomHookSource = null, now = new Date() }) {
   const p = PROVIDERS[t.provider];
   const adapter = ADAPTERS[t.provider];
   if (t.channels && key.startsWith("b:") && !t.channels.includes(key)) return { refused: "notHere" };
@@ -640,13 +642,18 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
   ).bind(orgId, t.provider, key, threadId).first().catch(() => null);
   const turnRequest = await withRoomGuidelinesRequest(env.DB, orgId, key, request);
   const stamp = now.toISOString();
+  if (roomHookSource) {
+    const grant = await roomHookExecutionGrant(env.DB,orgId,roomHookSource);
+    if (!grant || grant.channel !== key || roomHookSource !== threadId || grant.user.login !== login) return {refused:'notHere'};
+    if (!t.agentId || !await roomHookAgentAllowed(env.DB,orgId,roomHookSource,t.agentId)) return {refused:'notHere'};
+  }
   if (existing && existing.status !== "failed" && existing.status !== "budget") {
     const sent = await adapter.send(t, existing, `${askedBy}: ${turnRequest}`);
     if (sent.busy) return { refused: "busy" };
     // The next answer is for whoever this turn was asked for.
-    await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'running', remote_turn = COALESCE(?3, remote_turn), cost_cents = cost_cents + ?4, on_behalf_of = ?5, updated_at = ?2 WHERE id = ?1")
-      .bind(existing.id, stamp, sent.turn || null, (sent.tasks || 0) * 100, onBehalfOf).run();
-    return { run: { ...existing, status: "running", remote_turn: sent.turn || existing.remote_turn, on_behalf_of: onBehalfOf }, continued: true };
+    await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'running', remote_turn = COALESCE(?3, remote_turn), cost_cents = cost_cents + ?4, on_behalf_of = ?5, room_hook_source = ?6, updated_at = ?2 WHERE id = ?1")
+      .bind(existing.id, stamp, sent.turn || null, (sent.tasks || 0) * 100, onBehalfOf, roomHookSource).run();
+    return { run: { ...existing, status: "running", remote_turn: sent.turn || existing.remote_turn, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource }, continued: true };
   }
   const started = await adapter.start(t, {
     task: taskText({ where, askedBy, transcript, request: turnRequest }), title: `${where}: ${request}`.slice(0, 200),
@@ -654,10 +661,10 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
   });
   const id = crypto.randomUUID();
   await env.DB.prepare(
-    `INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, remote_turn, status, cost_cents, last_event_at, started_by, created_at, updated_at, on_behalf_of)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'running', ?8, NULL, ?9, ?10, ?10, ?11)`
-  ).bind(id, orgId, t.provider, key, threadId, started.remoteId, started.turn || null, (started.tasks || 0) * 100, login, stamp, onBehalfOf).run();
-  return { run: { id, org_id: orgId, provider: t.provider, channel: key, thread_id: threadId, remote_id: started.remoteId, remote_turn: started.turn || null, status: "running", last_event_at: null, on_behalf_of: onBehalfOf } };
+    `INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, remote_turn, status, cost_cents, last_event_at, started_by, created_at, updated_at, on_behalf_of, room_hook_source)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'running', ?8, NULL, ?9, ?10, ?10, ?11, ?12)`
+  ).bind(id, orgId, t.provider, key, threadId, started.remoteId, started.turn || null, (started.tasks || 0) * 100, login, stamp, onBehalfOf, roomHookSource).run();
+  return { run: { id, org_id: orgId, provider: t.provider, channel: key, thread_id: threadId, remote_id: started.remoteId, remote_turn: started.turn || null, status: "running", last_event_at: null, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource } };
 }
 
 /// What a run has done since it was last looked at: its words since the last

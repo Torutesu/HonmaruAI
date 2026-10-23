@@ -10,6 +10,18 @@ const settings={name:'Planning',color:'teal',mentionedOnly:false,version:4,respo
 const reply=(body:any,status=200)=>({ok:status<400,status,json:async()=>body})
 const loaded=(overrides={})=>reply({settings,canEdit:true,canChangeResponses:true,...overrides})
 const find=(tree:ReturnType<typeof create>,name:string)=>tree.root.findAllByType('button').find(n=>n.children.includes(name))!
+test('webhook management opens only on demand and returns to the room settings',async()=>{
+ const fetcher=vi.fn().mockResolvedValueOnce(loaded()).mockResolvedValueOnce(reply({hooks:[]}));vi.stubGlobal('fetch',fetcher)
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<RoomSettings api={api} view="b:room" onClose={vi.fn()} onSaved={vi.fn()}/>)})
+ expect(fetcher).toHaveBeenCalledTimes(1)
+ await act(async()=>find(tree,"Manage").props.onClick())
+ expect(fetcher.mock.calls[1][0]).toContain('/hx/rooms/webhooks?')
+ expect(tree.root.findAllByType(Dialog).map(d=>d.props.title)).toEqual(["Room settings","Webhook"])
+ act(()=>tree.root.findAllByType(Dialog)[1].props.onClose())
+ expect(tree.root.findByType(Dialog).props.title).toBe('Room settings')
+ act(()=>tree.unmount())
+})
 afterEach(()=>vi.unstubAllGlobals())
 test('loads authoritative settings and saves all fields with the reviewed versions',async()=>{
  const fetcher=vi.fn().mockResolvedValueOnce(loaded()).mockResolvedValueOnce(reply({settings:{...settings,name:'Changed',color:'lake',mentionedOnly:true,version:5,responseVersion:3}}));vi.stubGlobal('fetch',fetcher)

@@ -205,3 +205,14 @@ CREATE TABLE IF NOT EXISTS hx_room_appearance (org_id TEXT NOT NULL, channel TEX
 ALTER TABLE channel_reads ADD COLUMN read_version INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS hx_room_visuals (org_id TEXT NOT NULL, channel TEXT NOT NULL, object_key TEXT NOT NULL, content_type TEXT NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,channel));
+
+CREATE TABLE IF NOT EXISTS hx_room_hooks (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel TEXT NOT NULL, name TEXT NOT NULL, creator_id TEXT NOT NULL, member_since TEXT NOT NULL, secret_hash TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, revoked_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_hx_room_hooks_room ON hx_room_hooks(org_id,channel,created_at);
+CREATE TABLE IF NOT EXISTS hx_room_hook_events (event_key TEXT PRIMARY KEY, hook_id TEXT NOT NULL, org_id TEXT NOT NULL, channel TEXT NOT NULL, payload_hash TEXT NOT NULL, message_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS hx_room_hook_dispatch (message_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_hx_room_hook_dispatch_due ON hx_room_hook_dispatch(status,next_attempt,lease_until);
+
+ALTER TABLE ai_teammate_runs ADD COLUMN room_hook_source TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_teammate_runs_hook ON ai_teammate_runs(org_id,room_hook_source,channel,status);

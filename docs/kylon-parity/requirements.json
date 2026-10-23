@@ -1017,17 +1017,17 @@
       "id": "KY-094",
       "category": "Rooms",
       "requirement": "ルーム受信Webhookから専用スレッドとエージェント実行",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://app.kylon.io",
-      "code": "worker/src/harness/workflows.js",
-      "acceptance": "2026-10-23実画面確認。名前付き作成・一覧・失効、受信ごとの専用スレッド、現在のルーム所属とエージェント利用権、イベント重複抑止を検証。既存の外向きWebhookやワークフロー実行だけでは未達。"
+      "code": "worker/src/harness/roomHooks.js",
+      "acceptance": "2026-10-23参照実画面を確認。名前付き管理・失効・受信専用スレッド・重複抑止・永続配送・現在の所属とエージェント利用権・中断後の確認付き再実行をローカル実装。返信INSERT時の権限失効と既存Simple配置の維持を検証。本番反映、実画面比較、複数利用者での本番受入は未完了。"
     },
     {
       "id": "KY-095",
       "category": "Rooms",
       "requirement": "ルームのカスタムビジュアルアップロード",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://app.kylon.io",
       "code": "web-react/src/components/RoomColorPicker.tsx",

@@ -1,4 +1,5 @@
 import { searchRoom } from './roomSearch.js';
+import { roomHookAgentAllowed } from './harness/roomHookAgentAccess.js';
 import { createManagedRoom } from './harness/roomCreation.js';
 import { addManagedRoomAgent, changeManagedRoomMembers, publicRooms, joinPublicRoom, removeRoomSubject, roomRoleState, setRoomRole } from './harness/roomRoles.js';
 import { explicitAgentRoles } from './harness/agentRoles.js';
@@ -442,7 +443,8 @@ export function allOwnAgents(agents, login) {
 
 /// The agents' answers, side by side: each reads the conversation,
 /// researches with its tools, and answers as itself when it is ready.
-export async function runAgents(env, { orgId, session, user, resolved, row, members, locale, agents }) {
+export async function runAgents(env, { orgId, session, user, resolved, row, members, locale, agents, authorize = null, roomHookSource = false }) {
+  if (authorize && !await authorize()) return 0;
   locale = await loadCopy(env, locale || "en", { orgId });
   const parentId = row.parent_id || (resolved.kind === "agent" ? null : row.id);
   const face = (a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji || null, avatarUrl: a.avatarUrl || a.avatar_url || null });
@@ -524,19 +526,22 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   });
   // Every agent called works at once, each answering as soon as it is done:
   // five agents take as long as the slowest, not the sum of all five.
-  const answerOne = async (agent, index) => {
+  const answerOne = async (agent, index, authorizeAgent = authorize) => {
+    const authorize = authorizeAgent ? () => authorizeAgent(agent.id) : null;
+    if (authorize && !await authorize()) return;
     // An AI teammate works through its own service, not the workspace's
     // model: it starts, says so, and answers when it is done.
     if (agent.provider) {
       await progress(agent, "agent");
       const t = await teammateForAgent(env.DB, orgId, agent).catch(() => null);
-      await runTeammate(env, { orgId, user, resolved, row, members, locale, agent, t, deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000) })
+      await runTeammate(env, { orgId, user, resolved, row, members, locale, agent, t, authorize, roomHookSource, deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000) })
         .catch((err) => console.error("teammate failed", safe(err?.message)));
       await progress(agent, "done");
       return;
     }
     await progress(agent, "agent");
     let text;
+    let modelAnswered = false;
     try {
       // "@agent remember …": kept in the agent's own memory, no model
       // needed (harness/agents.js).
@@ -556,6 +561,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         // Its specialty, memory and skills, at its tier's model.
         const ready = harness ? await prepareAgent(env, orgId, agent, provider, { channel: resolved.key, userId: session.github_id }) : { agent, provider };
         ready.agent = await withRoomGuidelines(env.DB, orgId, resolved.key, ready.agent);
+        if (authorize && !await authorize()) return;
         const result = await askAgent({
           provider: ready.provider, agent: ready.agent, request: requestFor(row.body, agent), transcript, playbook, where, research, links, tools: { ...tools, ...ready.skillTools }, env,
           askedBy: user.name || "a teammate", readerLanguage: locale,
@@ -566,10 +572,12 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         // No answer: say why, so nobody waits on silence — the AI service
         // turned it down (no call was paid for), or it ran out of time.
         text = result.answer || serverText(locale, result.called ? "agent.failedEmpty" : "agent.failedService");
-        if (result.answer) answered += 1;
+        modelAnswered = Boolean(result.answer);
       }
-      const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: text, kind: "agent", parentId });
+      if (authorize && !await authorize()) return;
+      const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: text, kind: "agent", parentId, roomHookSource });
       if (out.row) {
+        if (modelAnswered) answered += 1;
         await queueMessagePushes(env, orgId, out.row, { members }).catch((err) => console.error("push queue failed", safe(err?.message)));
         await broadcastWithParent(env, orgId, resolved, out.row, members);
         await emitMessage(env, orgId, out.row);
@@ -578,7 +586,8 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       console.error("agent answer failed", safe(err?.message));
       // Failed on the way: still a line in the thread, never silence.
       try {
-        const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: serverText(locale, "agent.failedError"), kind: "agent", parentId });
+        if (authorize && !await authorize()) return;
+        const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: serverText(locale, "agent.failedError"), kind: "agent", parentId, roomHookSource });
         if (out.row) await broadcastWithParent(env, orgId, resolved, out.row, members);
       } catch { /* the database itself is down: nothing more to say */ }
     }
@@ -596,10 +605,11 @@ const teammateParent = (resolved, row) => row.parent_id || (resolved.kind === "a
 /// An AI teammate's turn (teammates.js): the thread handed to it, a line
 /// saying it has started, and its answer when it has one — watched here
 /// while this request may still run, and by the minute cron after that.
-async function runTeammate(env, { orgId, user, resolved, row, members, locale, agent, t, deadline }) {
+async function runTeammate(env, { orgId, user, resolved, row, members, locale, agent, t, deadline, authorize = null, roomHookSource = false }) {
   const parentId = teammateParent(resolved, row);
   const say = async (key) => {
-    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: serverText(locale, key), kind: "agent", parentId });
+    if (authorize && !await authorize()) return;
+    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: serverText(locale, key), kind: "agent", parentId, roomHookSource });
     if (out.row) {
       await broadcastWithParent(env, orgId, resolved, out.row, members);
       await emitMessage(env, orgId, out.row);
@@ -610,9 +620,10 @@ async function runTeammate(env, { orgId, user, resolved, row, members, locale, a
   try {
     const transcript = await contextFor(env.DB, orgId, resolved.key, row, { whole: resolved.kind === "agent" }).catch(() => []);
     const where = resolved.kind === "business" ? `the #${resolved.slug} channel` : resolved.kind === "agent" ? "a direct conversation with you" : "a direct conversation";
+    if (authorize && !await authorize()) return;
     started = await startTeammateRun(env, {
       orgId, t, key: resolved.key, threadId: parentId || "-", where, askedBy: user.name || "a teammate",
-      transcript, request: requestFor(row.body, agent), login: user.login,
+      transcript, request: requestFor(row.body, agent), login: user.login, roomHookSource: roomHookSource ? row.id : null,
     });
   } catch (err) {
     console.error("teammate start failed", safe(err?.message));
@@ -648,6 +659,7 @@ export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause =
 }
 
 async function postTeammateResult(env, run, t, read, status) {
+  if (run.room_hook_source && run.room_hook_source !== run.thread_id) return;
   const starter = run.started_by ? await getUserByLogin(env.DB, run.started_by).catch(() => null) : null;
   const locale = await loadCopy(env, starter?.locale || "en", { orgId: run.org_id });
   const words = read.texts.join("\n\n").trim();
@@ -657,6 +669,7 @@ async function postTeammateResult(env, run, t, read, status) {
   else body = words || (read.error ? serverText(locale, "teammate.stopped") : serverText(locale, "teammate.done"));
   const agentId = t?.agentId;
   if (!agentId) return;
+  if (run.room_hook_source && !await roomHookAgentAllowed(env.DB,run.org_id,run.room_hook_source,agentId)) return;
   // Working for a person who was mentioned: what it would post outside the
   // chat waits on that person (proxy.js), and the answer reads as theirs.
   if (run.on_behalf_of) {
@@ -665,7 +678,7 @@ async function postTeammateResult(env, run, t, read, status) {
   }
   const out = await postMessage(env.DB, {
     orgId: run.org_id, key: run.channel, authorLogin: `agent:${agentId}`, body: body.length > MAX_MESSAGE_CHARS ? `${body.slice(0, MAX_MESSAGE_CHARS - 1)}…` : body, kind: "agent",
-    parentId: run.thread_id === "-" ? null : run.thread_id, onBehalfOf: run.on_behalf_of || null,
+    parentId: run.thread_id === "-" ? null : run.thread_id, onBehalfOf: run.on_behalf_of || null, roomHookSource: Boolean(run.room_hook_source),
   });
   if (out.row) await broadcastStored(env, run.org_id, run.channel, out.row);
 }

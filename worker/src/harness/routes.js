@@ -1,4 +1,7 @@
+import { retryRoomHook } from './roomHookRetryRoute.js';
+import { roomHookStatuses } from './roomHookStatus.js';
 import {roomVisualState,setRoomVisual} from './roomVisuals.js';
+import { createRoomHook, listRoomHooks, changeRoomHook } from './roomHooks.js';
 import {readRoomVisualImage} from './roomVisualImage.js';
 import {roomRoleState} from './roomRoles.js';
 import {managedRoomSettings,saveManagedRoomSettings} from './roomSettings.js';
@@ -127,6 +130,24 @@ export async function handleHarness(request, env, url, context = {}) {
   const who = await member(env, request, orgId);
   if (who.denied) return who.denied;
   const me = who.session.github_id;
+  if (url.pathname === '/hx/rooms/webhooks') {
+    if (!['GET','POST','PUT'].includes(request.method)) return json({message:'Method not allowed.'},405);
+    const channel = request.method === 'GET' ? url.searchParams.get('channel') : input.channel;
+    const room = await resolveChannel(env.DB,orgId,who.user,channel);
+    if (!room || room.kind !== 'business') return json({message:'No such room.'},404);
+    if (!await allowed(env.DB,orgId,me,'harness.build')) return json({message:'You cannot manage integrations in this workspace.'},403);
+    const result = request.method === 'GET'
+      ? await listRoomHooks(env.DB,orgId,room.key,me)
+      : request.method === 'POST'
+        ? await createRoomHook(env.DB,orgId,room.key,me,input.name)
+        : input.action==='retry' ? await retryRoomHook(env,orgId,room.key,me,input) : await changeRoomHook(env.DB,orgId,room.key,me,input.id,input.version,input.action);
+    if (result.error) return fail(result);
+    if (request.method === 'GET') result.events = await roomHookStatuses(env,orgId,result.events,me);
+    if (request.method !== 'GET') await audit(env,request,{orgId,action:'room.webhook_changed',actor:person(who.user),entity:{type:'channel',id:room.key},details:{action:request.method==='POST'?'create':input.action}});
+    const response = json(result);
+    response.headers.set('Cache-Control','no-store');
+    return response;
+  }
   if (url.pathname === '/hx/app-pins') {
     if (request.method === 'GET') return json(await appPins(env.DB,orgId,me));
     if (request.method === 'PUT') { const r=await setAppPin(env.DB,orgId,me,input.appId,input.pinned); return r.error ? fail(r) : json(r); }

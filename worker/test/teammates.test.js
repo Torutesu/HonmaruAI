@@ -205,3 +205,29 @@ test('external teammates receive current room rules on each turn without changin
  expect(other.initial_events[0].content[0].text).not.toContain('Current room guidelines');
  expect((await loadTeammate(env.DB,ORG,'claude')).instructions).toBe('Keep answers short.');
 });
+
+test.each(['active','revoked','agent-deleted'])('delayed webhook teammate completion respects state=%s',async state=>{
+ await launch();
+ const {createManagedRoom}=await import('../src/harness/roomCreation.js');
+ const {createRoomHook,authenticateRoomHook,receiveRoomHookEvent,changeRoomHook}=await import('../src/harness/roomHooks.js');
+ const {loadTeammate,startTeammateRun}=await import('../src/teammates.js');
+ const channel=(await createManagedRoom(env.DB,ORG,'9701',{requestId:'teammate-hook-room',name:'Webhook events',private:true,guidelines:'',color:'teal',memberRefs:[],agentIds:[]})).room.channel;
+ const made=await createRoomHook(env.DB,ORG,channel,'9701','Deploy');
+ const hook=await authenticateRoomHook(env.DB,made.hook.id,made.secret);
+ const event=await receiveRoomHookEvent(env.DB,hook,{eventId:'deploy-1',body:'@claude Review deployment'});
+ const t=await loadTeammate(env.DB,ORG,'claude');
+ anthropic().intercept({path:'/v1/sessions?beta=true',method:'POST'}).reply(200,{id:'sesn_hook',type:'session',status:'running'});
+ const started=await startTeammateRun(env,{orgId:ORG,t,key:channel,threadId:event.messageId,where:'Webhook events',askedBy:'Toru',transcript:[],request:'Review deployment',login:'toru',roomHookSource:event.messageId});
+ expect(started.run.room_hook_source).toBe(event.messageId);
+ expect((await env.DB.prepare('SELECT room_hook_source FROM ai_teammate_runs WHERE id=?1').bind(started.run.id).first()).room_hook_source).toBe(event.messageId);
+ if(state==='revoked')await changeRoomHook(env.DB,ORG,channel,'9701',hook.id,1,'revoke');
+ if(state==='agent-deleted')await env.DB.prepare("UPDATE custom_agents SET deleted_at='now' WHERE org_id=?1 AND id=?2").bind(ORG,t.agentId).run();
+ anthropic().intercept({path:p=>p.startsWith('/v1/sessions/sesn_hook/events?'),method:'GET'}).reply(200,{data:[
+  {id:'hook-e1',type:'agent.message',processed_at:'2026-10-23T00:00:01Z',content:[{type:'text',text:'Deployment reviewed.'}]},
+  {id:'hook-e2',type:'session.status_idle',processed_at:'2026-10-23T00:00:02Z',stop_reason:{type:'end_turn'}},
+ ],next_page:null});
+ anthropic().intercept({path:'/v1/sessions/sesn_hook?beta=true',method:'GET'}).reply(200,{id:'sesn_hook',usage:{list_cost:{amount:'0',currency:'USD'}}});
+ await watchTeammateRuns(env,{ids:[started.run.id]});
+ const replies=(await env.DB.prepare('SELECT body FROM channel_messages WHERE org_id=?1 AND parent_id=?2').bind(ORG,event.messageId).all()).results;
+ expect(replies).toEqual(state==='active'?[{body:'Deployment reviewed.'}]:[]);
+});

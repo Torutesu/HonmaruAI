@@ -1,3 +1,5 @@
+import { drainRoomHookDispatch } from './harness/roomHookDispatch.js';
+import { handleRoomHook } from './harness/roomHookRoute.js';
 import { archiveManagedRoom, deleteManagedRoom, roomRoleState } from './harness/roomRoles.js';
 import { customRunner } from "./harness/customRunner.js";
 import { expireGatewayJobs } from './harness/gateways.js';
@@ -239,6 +241,7 @@ export default {
       ctx.waitUntil(drainCardNotifications(env, notifyCardNow).catch(() => console.error("notification retry drain failed")));
       ctx.waitUntil(runMinuteJobs(env, { now: new Date(event?.scheduledTime || Date.now()), broadcast: (orgId, key, row) => broadcastStored(env, orgId, key, row) })
         .catch((err) => console.error("minute jobs failed", err?.message || err)));
+      ctx.waitUntil(drainRoomHookDispatch(env).catch(() => console.error("room webhook dispatch failed")));
       ctx.waitUntil(expireGatewayJobs(env.DB).catch(() => console.error("gateway expiry failed")));
       // The harness: follow-ups and scheduled workflows whose time has come.
       ctx.waitUntil(runDueFollowups(env, { now: new Date(event?.scheduledTime || Date.now()) }).catch((err) => console.error("follow-ups failed", err?.message || err)));
@@ -467,6 +470,8 @@ async function handle(request, env, url, ctx) {
     // The harness: mode, Tables, Apps, agents as members, Workflows
     // (docs/kylon-gap-plan.md).
     // A workflow's webhook: called from outside, its secret is the key.
+    const roomHook = await handleRoomHook(request, env, url);
+    if (roomHook) return roomHook;
     const workflowHook = await handleWorkflowHook(request, env, url);
     if (workflowHook) return workflowHook;
     const harnessed = await handleHarness(request, env, url, { after: work => after(ctx, work), dispatch: inner => handle(inner, env, new URL(inner.url), ctx) });

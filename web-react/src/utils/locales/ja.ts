@@ -1,6 +1,46 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Copy webhook URL": "Webhook URLをコピー",
+  "Copy authorization header": "認証ヘッダーをコピー",
+  "Could not copy. Select and copy the value manually.": "コピーできませんでした。値を選択して手動でコピーしてください。",
+
+  "View conversation": "会話を確認",
+
+  "Retry execution": "再実行",
+  "Retry this interrupted execution": "結果不明の処理を再実行",
+  "The previous execution may have reached the external service. Retrying may repeat its work. Check the existing result first.": "前回の処理は外部サービスに届いている可能性があります。再実行すると処理が重複する場合があるため、先に既存の結果を確認してください。",
+
+  "External agent working": "外部エージェントが実行中",
+  "External agent failed or reached its limit": "外部処理の失敗または上限到達",
+  "External processing ended": "外部処理が終了",
+
+  "Recent webhook events": "最近のWebhookイベント",
+  "Waiting for dispatch": "実行キューへの登録待ち",
+  "Reply saved": "返信を保存済み",
+  "Processing ended": "実行処理が終了",
+  "No responding agent": "応答するエージェントなし",
+  "Status unavailable": "状態を確認できません",
+
+  "Each webhook event opens a dedicated thread in this room for its agents to handle.": "Webhookに送信された各イベントは、このルームに専用のスレッドを開き、ルームのエージェントが対応します。",
+  "Webhook events open threads for this room’s agents.": "Webhookに送信されたイベントは、このルームのエージェント向けにスレッドを開きます。",
+  "e.g. Deployment notifications": "例: デプロイ通知",
+  "Manage webhooks": "Webhook管理",
+  "Receive external service events in this room.": "外部サービスのイベントをこのルームで受信します。",
+  "Webhook name": "Webhook名",
+  "Deployment notifications": "デプロイ通知",
+  "The save result is uncertain. Reload the list to check.": "保存結果を確認できません。再読み込みして確認してください。",
+  "Reload list": "一覧を再読み込み",
+  "This secret is shown only now. Save it somewhere safe.": "秘密キーは今だけ表示されます。安全な場所に保存してください。",
+  "Webhook URL": "受信URL",
+  "Authorization header": "Authorizationヘッダー",
+  "Send eventId and body in JSON. Retries with the same eventId use the same conversation.": "JSON本文に eventId と body を指定してください。同じeventIdの再送は同じ会話として扱います。",
+  "Hide secret": "秘密キーを閉じる",
+  "No webhooks yet.": "Webhookはまだありません。",
+  "Rotate key": "キーを更新",
+  "Save room settings first.": "先にルーム設定を保存してください。",
+  "The request failed.": "処理に失敗しました。",
+  "The request timed out.": "通信がタイムアウトしました。",
   "Room icon: {color}": "ルームアイコン: {color}",
   "Room icon: custom visual": "ルームアイコン: カスタムビジュアル",
   "Upload visual": "ビジュアルをアップロード",

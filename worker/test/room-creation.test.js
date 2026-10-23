@@ -6,6 +6,15 @@ import {createManagedRoom} from '../src/harness/roomCreation.js';
 import {roomRoleState,deleteManagedRoom} from '../src/harness/roomRoles.js';
 const org='room-creation';
 const draft=overrides=>({requestId:'creation-request-123',name:'Planning',private:true,guidelines:'Use clear decisions.',color:'teal',memberRefs:[],agentIds:[],...overrides});
+test('legacy role casing and numeric-looking IDs use the same snapshot as member presentation',async()=>{
+ for(const [id,role] of [['2001','Admin'],['2002','Engineer']]){
+  await upsertUser(env.DB,{githubId:id,login:`user-${id}`,name:id,locale:'en'});
+  await upsertMembership(env.DB,org,id,role);
+ }
+ const result=await createManagedRoom(env.DB,org,'2001',draft({memberRefs:[await memberRef(org,'2002')]}));
+ expect(result.error).toBeUndefined();
+ expect(result.created).toBe(true);
+});
 beforeEach(async()=>{
  for(const [id,role] of [['creator','member'],['reader','member'],['guest','guest']]){
   await upsertUser(env.DB,{githubId:id,login:id,name:id,locale:'en'});

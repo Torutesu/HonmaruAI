@@ -1,3 +1,4 @@
+import { roomHookReplyGuard } from './harness/roomHookExecutionGrant.js';
 import { listMembers } from "./team.js";
 import { businessSlug } from "./db.js";
 import { resolveMentions, MENTION_BEFORE } from "./threads.js";
@@ -254,7 +255,7 @@ async function originalsOf(db, orgId, rows) {
     const chunk = ids.slice(i, i + 90);
     const { results } = await db.prepare(
       `SELECT m.id, m.channel, m.parent_id, m.created_at, m.kind, m.body, m.author_login, m.deleted_at,
-              COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name,
+              COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name,
               (SELECT f.name FROM message_files f WHERE f.org_id = m.org_id AND f.message_id = m.id ORDER BY f.created_at LIMIT 1) AS file_name
          FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND m.id IN (${chunk.map((_, j) => `?${j + 2}`).join(", ")})`
@@ -345,7 +346,7 @@ export async function listMessages(db, orgId, resolved, viewerLogin, view, membe
       : "AND m.created_at < ?4";
   const { results } = await db
     .prepare(
-      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m
+      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND m.channel = ?2 AND (m.parent_id IS NULL OR m.also_channel = 1) AND m.deleted_at IS NULL ${older}
         ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?3`
@@ -363,7 +364,7 @@ export async function listThread(db, orgId, key, parentId, viewerLogin, view, me
   if (!parent || parent.channel !== key || parent.parent_id) return null;
   const { results } = await db
     .prepare(
-      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m
+      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND m.parent_id = ?2 AND m.deleted_at IS NULL
         ORDER BY m.created_at, m.rowid`
@@ -378,7 +379,7 @@ export async function listThread(db, orgId, key, parentId, viewerLogin, view, me
 export async function listPins(db, orgId, key, viewerLogin, view, members) {
   const { results } = await db
     .prepare(
-      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m
+      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND m.channel = ?2 AND m.pinned_at IS NOT NULL AND m.deleted_at IS NULL
         ORDER BY m.pinned_at DESC LIMIT 50`
@@ -520,7 +521,7 @@ export async function setPinned(db, { orgId, id, login, pinned }) {
 
 export async function getMessage(db, orgId, id) {
   return db
-    .prepare("SELECT m.*, td.title AS thread_title, td.version AS thread_version, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login LEFT JOIN channel_thread_details td ON td.org_id = m.org_id AND td.message_id = m.id WHERE m.org_id = ?1 AND m.id = ?2")
+    .prepare("SELECT m.*, td.title AS thread_title, td.version AS thread_version, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login LEFT JOIN channel_thread_details td ON td.org_id = m.org_id AND td.message_id = m.id WHERE m.org_id = ?1 AND m.id = ?2")
     .bind(orgId, id)
     .first();
 }
@@ -544,7 +545,8 @@ async function messageByClientId(db, orgId, authorLogin, clientId) {
 /// than sent without it.
 const FILES_GONE = "A file in this message is no longer there. Attach it again.";
 
-export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null }) {
+export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false }) {
+  if (roomHookSource && (!parentId || kind !== 'agent' || !authorLogin?.startsWith('agent:'))) return {error:'Invalid webhook reply.',status:403};
   const text = String(body || "").replace(/\r\n/g, "\n").trim();
   const remembered = clientIdOk(clientId) ? clientId : null;
   // A picture on its own is something said. A retry of one has had its
@@ -588,7 +590,7 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
   try {
     // A reply is written only while its parent is still there, in the same
     // statement: a thread deleted after the check above takes no reply.
-    const parentLive = "(?9 IS NULL OR EXISTS (SELECT 1 FROM channel_messages WHERE org_id = ?2 AND id = ?9 AND deleted_at IS NULL))";
+    const parentLive = "(?9 IS NULL OR EXISTS (SELECT 1 FROM channel_messages WHERE org_id = ?2 AND id = ?9 AND deleted_at IS NULL))" + (roomHookSource ? ` AND ${roomHookReplyGuard}` : "");
     if (files?.ids?.length) {
       // The message and its files in one step, all or none: its uploads are
       // claimed, the message is written only if every one of them still
@@ -612,7 +614,7 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
       }
     } else {
       const put = await db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}`).bind(...values).run();
-      if (parentId && !put.meta?.changes) return { error: THREAD_GONE, code: "thread_gone" };
+      if (parentId && !put.meta?.changes) return roomHookSource ? {error:"Webhook access changed.",code:"webhook_revoked",status:403} : { error: THREAD_GONE, code: "thread_gone" };
     }
   } catch (err) {
     if (remembered && authorLogin) {
@@ -637,7 +639,7 @@ export async function linkCard(db, orgId, messageId, cardId) {
 export async function transcriptUpTo(db, orgId, key, createdAt, { limit = 24, skip = null, threadId = null, throughId = null } = {}) {
   const { results } = await db
     .prepare(
-      `SELECT m.id, m.parent_id, m.kind, m.body, m.created_at, m.reply_to_id, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name, m.author_login,
+      `SELECT m.id, m.parent_id, m.kind, m.body, m.created_at, m.reply_to_id, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name, m.author_login,
               (SELECT ca.handle FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login) AS agent_handle,
               (SELECT group_concat(f.name, ', ') FROM message_files f WHERE f.org_id = m.org_id AND f.message_id = m.id) AS file_names
          FROM channel_messages m
@@ -684,7 +686,7 @@ export async function recentBusinessTalk(db, orgId, slugs, { since, limit = 30 }
     + " AND NOT EXISTS (SELECT 1 FROM businesses b WHERE b.org_id = ?1 AND 'b:' || b.slug = m.channel AND b.private = 1)";
   const { results } = await db
     .prepare(
-      `SELECT m.channel, m.kind, m.body, m.created_at, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m
+      `SELECT m.channel, m.kind, m.body, m.created_at, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
         WHERE m.kind != 'agent' AND m.org_id = ?1 AND m.created_at >= ?2 AND m.deleted_at IS NULL ${where}
         ORDER BY m.created_at DESC LIMIT ${Math.max(1, Math.min(100, limit))}`
@@ -704,7 +706,7 @@ export async function recentBusinessTalk(db, orgId, slugs, { since, limit = 30 }
 export async function channelActivity(db, orgId, viewerLogin, members) {
   const { results } = await db
     .prepare(
-      `SELECT m.id, m.channel, m.body, m.kind, m.created_at, m.author_login, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name,
+      `SELECT m.id, m.channel, m.body, m.kind, m.created_at, m.author_login, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name,
               (SELECT f.name FROM message_files f WHERE f.org_id = m.org_id AND f.message_id = m.id ORDER BY f.created_at LIMIT 1) AS file_name
          FROM channel_messages m
          JOIN (SELECT channel, MAX(created_at) AS at FROM channel_messages
@@ -839,7 +841,7 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
   const since = new Date(Date.now() - days * 86400000).toISOString();
   const [recent, mine, read, kw] = await Promise.all([
     db.prepare(
-      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name,
+      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name,
               (SELECT o.author_login FROM channel_messages o WHERE o.org_id = m.org_id AND o.id = m.reply_to_id AND o.channel = m.channel AND o.deleted_at IS NULL) AS reply_to_login
          FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND ${VISIBLE} AND m.deleted_at IS NULL AND m.created_at >= ?3
@@ -986,7 +988,7 @@ export async function threadsFor(db, orgId, login, members, { days = 30, limit =
   const since = new Date(Date.now() - days * 86400000).toISOString();
   const [recent, mine] = await Promise.all([
     db.prepare(
-      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
+      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND ${VISIBLE} AND m.parent_id IS NOT NULL AND m.deleted_at IS NULL AND m.created_at >= ?3
         ORDER BY m.created_at DESC LIMIT 1000`
     ).bind(orgId, login, since).all(),
@@ -1008,7 +1010,7 @@ export async function threadsFor(db, orgId, login, members, { days = 30, limit =
   for (const [parentId, replies] of byParent) {
     if (out.length >= limit) break;
     const parentRow = await db.prepare(
-      "SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2"
+      "SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2"
     ).bind(orgId, parentId).first();
     if (!parentRow || parentRow.deleted_at) continue;
     if (!inThread.has(parentId) && !named(parentRow) && !replies.some(named)) continue;
@@ -1130,7 +1132,7 @@ export async function searchMessages(db, orgId, login, members, raw, { limit = 3
   const narrowed = q.text || q.phrases.length || q.from || q.in || q.to || q.on || q.during || q.before || q.after || q.hasList.length || q.isList.length;
   if (!narrowed) return { messages: [], query: q };
   const { results } = await db.prepare(
-    `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
+    `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
       WHERE ${where.join(" AND ")} ORDER BY m.created_at DESC LIMIT ${Math.max(1, Math.min(50, limit))}`
   ).bind(...binds).all();
   const rows = results || [];

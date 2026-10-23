@@ -41,7 +41,7 @@ export async function createManagedRoom(db,orgId,actorId,input) {
       SELECT ?1,?4,?5,?2,?6,?7,?3,?8,?9
       WHERE EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id WHERE m.org_id=?1 AND m.user_github_id=?4 AND m.created_at=?7 AND m.role!='guest')
       AND (SELECT json_group_array(json_array(id,stamp,login,role)) FROM (
-        SELECT m.user_github_id AS id,m.created_at AS stamp,u.login,m.role FROM memberships m JOIN users u ON u.github_id=m.user_github_id
+        SELECT CAST(m.user_github_id AS TEXT) AS id,m.created_at AS stamp,u.login,LOWER(COALESCE(m.role,'member')) AS role FROM memberships m JOIN users u ON u.github_id=m.user_github_id
         WHERE m.org_id=?1 AND m.user_github_id IN(SELECT value FROM json_each(?10)) ORDER BY m.user_github_id))=?11
       AND (SELECT COUNT(*) FROM custom_agents a LEFT JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
         JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?4 AND m.role!='guest' JOIN users u ON u.github_id=m.user_github_id

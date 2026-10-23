@@ -27,6 +27,26 @@ beforeEach(async () => {
 
 const asAlice = () => joined(ORG, globalThis.__alice);
 
+test('a queued private-room delivery is rejected after membership removal at the socket boundary', async () => {
+  const { upsertBusiness } = await import('../src/db.js');
+  const { announceTo } = await import('../src/announce.js');
+  await upsertBusiness(env.DB,ORG,{name:'Private delivery',createdBy:'2001'});
+  const channel = 'b:private-delivery';
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='private-delivery'").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,?2,'alice','alice',?3)").bind(ORG,channel,new Date().toISOString()).run();
+  const alice = await asAlice();
+  const event = {type:'CUSTOM',name:'channel_message',value:{message:{id:'hook-root',channel,body:'Before departure'}}};
+  await announceTo(env,ORG,[{to:'alice',event}]);
+  expect(await message(alice.messages,m=>m.value?.message?.body==='Before departure')).toBeTruthy();
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=?1 AND channel=?2 AND login='alice'").bind(ORG,channel).run();
+  event.value.message.body='After departure';
+  await announceTo(env,ORG,[{to:'alice',event}]);
+  // A following permitted event is a barrier for the processed delivery batch.
+  await announceTo(env,ORG,[{to:'alice',event:{type:'CUSTOM',name:'test_barrier',value:{done:true}}}]);
+  await message(alice.messages,m=>m.name==='test_barrier');
+  expect(alice.messages.some(m=>m.value?.message?.body==='After departure')).toBe(false);
+});
+
 /// A socket that tried to join and was turned away. Returns the refusal.
 async function refused(payload) {
   const ws = await open(ORG);

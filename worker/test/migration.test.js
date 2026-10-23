@@ -82,6 +82,18 @@ test("a deploy onto a database predating the invite ref still succeeds", async (
   expect(idx).toBeTruthy();
 });
 
+test("adding webhook execution attribution preserves existing teammate runs", async () => {
+  await env.DB.exec("DROP TABLE IF EXISTS ai_teammate_runs");
+  await env.DB.exec("CREATE TABLE ai_teammate_runs (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, provider TEXT NOT NULL, channel TEXT NOT NULL, thread_id TEXT NOT NULL, remote_id TEXT NOT NULL, remote_turn TEXT, status TEXT NOT NULL, cost_cents INTEGER NOT NULL DEFAULT 0, last_event_at TEXT, started_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, on_behalf_of TEXT)");
+  await env.DB.exec("INSERT INTO ai_teammate_runs(id,org_id,provider,channel,thread_id,remote_id,status,cost_cents,created_at,updated_at) VALUES ('existing-run','existing-org','test','general','thread','remote','running',17,'before','before')");
+  await applyDeploy(env.DB);
+  await applyDeploy(env.DB);
+  expect(await env.DB.prepare("SELECT status,cost_cents,room_hook_source FROM ai_teammate_runs WHERE id='existing-run'").first())
+    .toEqual({ status: "running", cost_cents: 17, room_hook_source: null });
+  const { results } = await env.DB.prepare("PRAGMA index_info(idx_teammate_runs_hook)").all();
+  expect(results.map((row) => row.name)).toEqual(["org_id", "room_hook_source", "channel", "status"]);
+});
+
 test("schema.sql builds no index on a column migrations.sql adds", () => {
   // The order a deploy runs them in: an index here on a column an ALTER adds
   // there fails on every database older than the column, and D1 drops the

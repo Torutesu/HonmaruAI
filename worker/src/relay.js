@@ -1,4 +1,5 @@
 import { noteActivity } from "./pushes.js";
+import { resolveChannel } from './channels.js';
 import { settleUsage } from "./ledger.js";
 import {
   joinEvents, upsertEvents, removeEvents,
@@ -115,7 +116,19 @@ export class OrgRelay {
       // Events for named people only — a direct conversation's message goes
       // to the two people in it, never the room.
       for (const d of Array.isArray(deliveries) ? deliveries : []) {
-        if (d && typeof d.to === "string" && d.event && typeof d.event === "object") this.sendTo(orgId, d.to, d.event);
+        if (d && typeof d.to === "string" && d.event && typeof d.event === "object") {
+          // A room audience may have changed since the HTTP handler built it.
+          // Recheck at the socket boundary before delivering room message data.
+          const channel = d.event.name === 'channel_message' ? d.event.value?.message?.channel : null;
+          if (typeof channel === 'string' && channel.startsWith('b:')) {
+            try {
+              if (!await isOrgMemberLogin(this.db,orgId,d.to)) continue;
+              const room = await this.db.prepare("SELECT 1 FROM businesses WHERE org_id=?1 AND 'b:'||slug=?2 AND archived_at IS NULL").bind(orgId,channel).first();
+              if (!room || !await resolveChannel(this.db,orgId,{login:d.to},channel)) continue;
+            } catch { continue; }
+          }
+          this.sendTo(orgId, d.to, d.event);
+        }
       }
       return new Response(JSON.stringify({ announced: events.length }), {
         status: 200, headers: { "content-type": "application/json" },
