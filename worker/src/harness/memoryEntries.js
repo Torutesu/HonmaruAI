@@ -50,16 +50,18 @@ export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel
   return { memory: { ...memoryEntry(row), ...fields, text: fields.body.replace(/\s+/g, " ").slice(0, 500), kind: input.kind, version: results[4].results[0].version, updatedAt: stamp } };
 }
 
-export async function memoryPage(db, orgId, agentId, { channel = '', cursor } = {}) {
-  const scope = [orgId, agentId, channel];
+export async function memoryPage(db, orgId, agentId, { channel = '', cursor, query = '', kind = 'all' } = {}) {
+  if (typeof query !== 'string' || query.length > 200 || !['all','context','preference','feedback','reference'].includes(kind)) return { error: 'Invalid memory search.', status: 400 };
+  query = query.trim();
+  const scope = [orgId, agentId, channel, query, kind];
   let after = null;
   if (cursor) {
     try {
       const value = JSON.parse(cursor);
-      if (!Array.isArray(value) || value.length !== 5 || JSON.stringify(value.slice(0,3)) !== JSON.stringify(scope)
-        || typeof value[3] !== 'string' || value[3].length > 40 || !Number.isFinite(Date.parse(value[3]))
-        || typeof value[4] !== 'string' || !value[4] || value[4].length > 100) throw new Error();
-      after = value.slice(3);
+      if (!Array.isArray(value) || value.length !== 7 || JSON.stringify(value.slice(0,5)) !== JSON.stringify(scope)
+        || typeof value[5] !== 'string' || value[5].length > 40 || !Number.isFinite(Date.parse(value[5]))
+        || typeof value[6] !== 'string' || !value[6] || value[6].length > 100) throw new Error();
+      after = value.slice(5);
     } catch { return { error: 'Invalid memory cursor.', status: 400 }; }
   }
   const {results = []} = await db.prepare(`SELECT m.*, s.channel, s.kind, d.title, d.description, d.body, d.version, d.updated_at
@@ -67,8 +69,11 @@ export async function memoryPage(db, orgId, agentId, { channel = '', cursor } = 
     LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
     WHERE m.org_id=?1 AND m.agent_id=?2 AND COALESCE(s.channel,'') IN ('',?3)
       AND (?4 IS NULL OR m.created_at < ?4 OR (m.created_at = ?4 AND m.id < ?5))
+      AND (?6 = '' OR instr(lower(COALESCE(d.title,'')),lower(?6))>0
+        OR instr(lower(COALESCE(d.description,'')),lower(?6))>0 OR instr(lower(COALESCE(d.body,m.text)),lower(?6))>0)
+      AND (?7 = 'all' OR COALESCE(s.kind,'context')=?7)
     ORDER BY m.created_at DESC, m.id DESC LIMIT 51`)
-    .bind(orgId,agentId,channel,after?.[0] || null,after?.[1] || null).all();
+    .bind(orgId,agentId,channel,after?.[0] || null,after?.[1] || null,query,kind).all();
   const memories = results.slice(0,50).map(memoryEntry), last = memories[memories.length-1];
   return { memories, nextCursor: results.length > 50 ? JSON.stringify([...scope,last.createdAt,last.id]) : null };
 }

@@ -93,3 +93,17 @@ test('memory management pages include retained notes without crossing scope and 
   }
   expect(await memoryPage(null,org,agent,{cursor:'invalid'})).toMatchObject({status:400});
 });
+
+test('memory management search uses full saved bodies and intersects kind with authorized scope', async()=>{
+ const {memoryPage}=await import('../src/harness/memoryEntries.js');
+ await addAgentMemory(env.DB,org,agent,{title:'Old policy',description:'Finance',body:'x'.repeat(600)+' retained target'},{kind:'reference'});
+ await addAgentMemory(env.DB,org,agent,'retained target',{kind:'feedback'});
+ await addAgentMemory(env.DB,org,agent,'retained target secret',{kind:'reference',channel:'b:private'});
+ const found=await memoryPage(env.DB,org,agent,{query:'RETAINED TARGET',kind:'reference'});
+ expect(found.memories).toHaveLength(1);
+ expect(found.memories[0].title).toBe('Old policy');
+ expect(await memoryPage(null,org,agent,{query:'x'.repeat(201)})).toMatchObject({status:400});
+ expect(await memoryPage(null,org,agent,{kind:'unknown'})).toMatchObject({status:400});
+ const cursor=JSON.stringify([org,agent,'','old','reference','2026-01-01T00:00:00Z','id']);
+ expect(await memoryPage(null,org,agent,{query:'new',kind:'reference',cursor})).toMatchObject({status:400});
+});

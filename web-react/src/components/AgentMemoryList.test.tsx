@@ -86,3 +86,14 @@ test('memory paging carries the exact conversation and opaque continuation', asy
   expect(url.searchParams.get('cursor')).toBe('["scope","time","id"]')
  } finally {vi.unstubAllGlobals()}
 })
+
+test('remote memory search submits query and kind without filtering a partial loaded page',()=>{
+ const search=vi.fn();let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<AgentMemoryList memories={memories} canEdit={false} busy={false} onForget={vi.fn()} onSearch={search}/>)})
+ act(()=>tree.root.findByProps({'aria-label':'Search memories'}).props.onChange({target:{value:' older policy '}}))
+ act(()=>tree.root.findByProps({'aria-label':'Filter memory type'}).props.onChange({target:{value:'reference'}}))
+ expect(tree.root.findAllByProps({className:'memory-text'})).toHaveLength(3)
+ act(()=>tree.root.findByType('form').props.onSubmit({preventDefault:vi.fn()}))
+ expect(search).toHaveBeenCalledWith('older policy','reference')
+ act(()=>tree.unmount())
+})

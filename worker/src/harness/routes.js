@@ -607,7 +607,7 @@ export async function handleHarness(request, env, url, context = {}) {
       const context = { channel };
       if (request.method === "GET") {
         if (url.searchParams.get('paged') === '1') {
-          const result = await memoryPage(env.DB, orgId, agentId, { ...context, cursor: url.searchParams.get('cursor') });
+          const result = await memoryPage(env.DB, orgId, agentId, { ...context, cursor: url.searchParams.get('cursor'), query: url.searchParams.get('query') || '', kind: url.searchParams.get('kind') || 'all' });
           return result.error ? fail(result) : json({ ...result, canEdit });
         }
         return json({ memories: await listAgentMemories(env.DB, orgId, agentId, context), canEdit });

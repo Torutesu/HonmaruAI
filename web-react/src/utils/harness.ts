@@ -196,7 +196,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     profile: (agentId: string) => call<{ profile: AgentProfile; canEdit: boolean }>('GET', `/hx/agents/${agentId}/profile`),
     saveProfile: (agentId: string, p: Partial<AgentProfile> & { name?: string; emoji?: string }) => call<{ profile: AgentProfile; identity?: { name: string; emoji: string | null } }>('PUT', `/hx/agents/${agentId}/profile`, p as Record<string, unknown>),
     memoryScopes: (agentId: string) => call<{ scopes: Array<{ channel: string; label: string }> }>('GET', `/hx/agents/${agentId}/memory/scopes`),
-    memoryPage: (agentId: string, channel = '', cursor?: string) => call<{ memories: AgentMemory[]; canEdit: boolean; nextCursor: string | null }>('GET', `/hx/agents/${agentId}/memory`, undefined, { channel, paged: '1', ...(cursor ? { cursor } : {}) }),
+    memoryPage: (agentId: string, channel = '', cursor?: string, filters: { query?: string; kind?: string } = {}) => call<{ memories: AgentMemory[]; canEdit: boolean; nextCursor: string | null }>('GET', `/hx/agents/${agentId}/memory`, undefined, { channel, paged: '1', ...filters, ...(cursor ? { cursor } : {}) }),
     memory: (agentId: string, channel = '') => call<{ memories: AgentMemory[]; canEdit: boolean }>('GET', `/hx/agents/${agentId}/memory`, undefined, { channel }),
     remember: (agentId: string, text: string, channel = '', kind: MemoryKind = 'context') => call<{ memory: AgentMemory }>('POST', `/hx/agents/${agentId}/memory`, { text, channel, kind }),
     rememberEntry: (agentId: string, entry: MemoryEntryInput, channel = '') => call<{ memory: AgentMemory }>('POST', `/hx/agents/${agentId}/memory`, { ...entry, channel }),

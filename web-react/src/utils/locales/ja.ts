@@ -2708,6 +2708,7 @@ const table: Record<string, string> = {
   'Memory for this agent. Memories added in chat stay in that conversation: “@{handle} remember that …”.': 'このエージェントの記憶です。チャットで覚えた内容は、その会話内で使用します：「@{handle} …を覚えて」。',
   'Memory conversation': '記憶の対象の会話',
   'Shared knowledge': '共有知識',
+  '{count} memories loaded': '{count}件の記憶を読み込み済み',
   'Agent memory': 'エージェントの記憶',
   'Add calendar view': 'カレンダービューを追加',
   'No date': '日付未設定',
