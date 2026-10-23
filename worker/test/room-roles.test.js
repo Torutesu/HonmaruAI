@@ -322,3 +322,22 @@ test('workspace departure hands archived room administration only to an existing
   expect(state.members.find(m=>m.id==='reader').role).toBe('admin');
   expect(state.members.some(m=>m.id==='creator')).toBe(false);
 });
+
+test('departure rejects a successor rejoining a room between preview validation and commit',async()=>{
+  const {previewMemberDeparture,listMembers,memberRef}=await import('../src/team.js');
+  const {removeWithResourceHandoff}=await import('../src/harness/memberDeparture.js');
+  await upsertMembership(env.DB,org,'outsider','owner');
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  const preview=await previewMemberDeparture(env,{orgId:org,actorId:'outsider',targetId:'creator'});
+  const members=await listMembers(env.DB,org,'outsider');
+  const context={actor:members.find(m=>m.userId==='outsider'),target:members.find(m=>m.userId==='creator'),members};
+  const db={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+    await env.DB.prepare("UPDATE conversation_members SET added_at='rejoined before handoff' WHERE org_id=?1 AND channel=?2 AND login='reader'").bind(org,channel).run();
+    return env.DB.batch(statements);
+  }};
+  expect(await removeWithResourceHandoff(db,org,context,{transferTo:await memberRef(org,'reader'),previewVersion:preview.version})).toMatchObject({status:409,code:'departure-conflict'});
+  const state=await roomRoleState(env.DB,org,channel);
+  expect(state.members.find(m=>m.id==='creator').role).toBe('admin');
+  expect(state.members.find(m=>m.id==='reader').role).toBe('member');
+  expect(state.version).toBe(1);
+});

@@ -52,9 +52,12 @@ export async function removeWithResourceHandoff(db, orgId, context, {transferTo,
   const hasResponsibilities=plan.agents.length+plan.skills.length+plan.rooms.length>0;
   if(hasResponsibilities && (!recipient || previewVersion!==plan.version))
     return {error:'Review the responsibilities and choose a successor before leaving.',code:'agent-handoff-required',status:409};
+  const roomIds=JSON.stringify(plan.rooms.map(r=>r.channel));
+  let recipientRoomSnapshot='[]';
   if(plan.rooms.length&&recipient) {
-    const joined=await db.prepare(`SELECT COUNT(*) AS n FROM conversation_members WHERE org_id=?1 AND login=?2 AND channel IN(SELECT value FROM json_each(?3))`).bind(orgId,recipient.login,JSON.stringify(plan.rooms.map(r=>r.channel))).first('n');
-    if(joined!==plan.rooms.length)return {error:'Choose a successor who already belongs to every listed room.',code:'room-handoff-membership',status:409};
+    const {results:joined}=await db.prepare(`SELECT channel,added_at FROM conversation_members WHERE org_id=?1 AND login=?2 AND channel IN(SELECT value FROM json_each(?3)) ORDER BY channel`).bind(orgId,recipient.login,roomIds).all();
+    if(joined.length!==plan.rooms.length)return {error:'Choose a successor who already belongs to every listed room.',code:'room-handoff-membership',status:409};
+    recipientRoomSnapshot=JSON.stringify(joined.map(r=>[r.channel,r.added_at]));
   }
   const nonce=crypto.randomUUID(),at=new Date().toISOString();
   const ids=JSON.stringify(plan.agents.map(a=>a.id));
@@ -69,9 +72,12 @@ export async function removeWithResourceHandoff(db, orgId, context, {transferTo,
       AND NOT EXISTS(SELECT 1 FROM (${roomResponsibilities}) room WHERE NOT EXISTS(
         SELECT 1 FROM conversation_members c JOIN users u ON u.login=c.login
         WHERE c.org_id=?1 AND c.channel=room.channel AND u.github_id=?11))
+      AND (SELECT json_group_array(json_array(channel,added_at)) FROM (
+        SELECT c.channel,c.added_at FROM conversation_members c JOIN users u ON u.login=c.login
+        WHERE c.org_id=?1 AND u.github_id=?11 AND c.channel IN(SELECT value FROM json_each(?14)) ORDER BY c.channel))=?15
     ON CONFLICT(org_id,user_id) DO UPDATE SET nonce=excluded.nonce,created_at=excluded.created_at`)
     .bind(orgId,target.userId,target.login,nonce,at,target.role,target.joinedAt,actor.userId,actor.role,actor.joinedAt,
-      hasResponsibilities?recipient.userId:null,hasResponsibilities?recipient.joinedAt:null,plan.snapshot)];
+      hasResponsibilities?recipient.userId:null,hasResponsibilities?recipient.joinedAt:null,plan.snapshot,roomIds,recipientRoomSnapshot)];
   if(plan.agents.length) {
     batch.push(
       db.prepare(`INSERT INTO hx_agent_access(org_id,agent_id,version,mutation_id)
