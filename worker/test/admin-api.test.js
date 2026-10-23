@@ -245,3 +245,16 @@ test('a deleted managed room cannot be restored or repopulated through the admin
   const listed=await (await call('/admin/v1/channels',{key})).json();
   expect(listed.data.some(room=>room.slug==='lifecycle')).toBe(false);
 });
+
+test('managed room bulk edits protect the last admin before adding other members',async()=>{
+  const {key}=await makeKey();
+  expect((await call('/admin/v1/channels',{key,method:'POST',body:{name:'Managed',private:true,members:['toru@hr.jp']}})).status).toBe(201);
+  const {initializeRoomRoles}=await import('../src/harness/roomRoles.js');
+  await initializeRoomRoles(env.DB,ORG,'b:managed','7601');
+  const response=await call('/admin/v1/channels/managed/members',{key,method:'PUT',body:{add:['mika@hr.jp'],remove:[await memberRef(ORG,'7601')]}});
+  expect(response.status).toBe(409);
+  const {membersOf}=await import('../src/access.js');
+  expect(await membersOf(env.DB,ORG,'b:managed')).toEqual(['u:toru@hr.jp']);
+  expect((await call('/admin/v1/channels/managed/members',{key,method:'PUT',body:{add:['mika@hr.jp']}})).status).toBe(200);
+  expect(await membersOf(env.DB,ORG,'b:managed')).toContain('u:mika@hr.jp');
+});

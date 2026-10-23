@@ -1,7 +1,7 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,test,expect} from 'vitest';
 import {upsertUser,upsertMembership} from '../src/db.js';
-import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject,deleteManagedRoom} from '../src/harness/roomRoles.js';
+import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject,deleteManagedRoom,changeManagedRoomMembers} from '../src/harness/roomRoles.js';
 const org='room-roles',channel='b:planning';
 beforeEach(async()=>{
   for(const [id,role] of [['creator','member'],['reader','member'],['outsider','admin'],['guest','guest']]) {
@@ -229,4 +229,27 @@ test('legacy physical removal cannot race with managed initialization',async()=>
   expect((await roomRoleState(env.DB,org,channel)).managed).toBe(true);
   await deleteManagedRoom(env.DB,org,channel,{actorId:'creator',version:1});
   expect(await removeBusiness(env.DB,org,'planning')).toBe(false);
+});
+
+test('bulk member edits reject the last admin without partially adding another person',async()=>{
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  const result=await changeManagedRoomMembers(env.DB,org,channel,{actorId:'creator',adding:[{userId:'outsider'}],removing:[{userId:'creator'}]});
+  expect(result.status).toBe(409);
+  expect((await roomRoleState(env.DB,org,channel)).members.some(m=>m.id==='outsider')).toBe(false);
+});
+test('bulk member edits apply additions and removals together and reject membership races',async()=>{
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  const input={actorId:'creator',adding:[{userId:'outsider'}],removing:[{userId:'reader'}]};
+  const db={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+    await env.DB.prepare("UPDATE memberships SET created_at='rejoined' WHERE org_id=?1 AND user_github_id='outsider'").bind(org).run();
+    return env.DB.batch(statements);
+  }};
+  expect((await changeManagedRoomMembers(db,org,channel,input)).status).toBe(409);
+  let state=await roomRoleState(env.DB,org,channel);
+  expect(state.members.some(m=>m.id==='reader')).toBe(true);
+  expect(state.members.some(m=>m.id==='outsider')).toBe(false);
+  expect(await changeManagedRoomMembers(env.DB,org,channel,input)).toEqual({managed:true});
+  state=await roomRoleState(env.DB,org,channel);
+  expect(state.members.some(m=>m.id==='reader')).toBe(false);
+  expect(state.members.find(m=>m.id==='outsider').role).toBe('member');
 });

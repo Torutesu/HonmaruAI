@@ -1,3 +1,4 @@
+import {changeManagedRoomMembers} from './harness/roomRoles.js';
 // The admin API, v1: what a workspace key (orgKeys.js) opens.
 //
 // docs/admin-controls.md §2.4. Stable paths under /admin/v1/, JSON in and
@@ -198,7 +199,7 @@ async function route(request, env, url, key) {
     if (channelMatch[2] && request.method === "PUT") {
       if (!row.private) return apiError(400, "invalid_request", "Only a private channel has members to add or remove.");
       const out = await changeChannelMembers(env, orgId, slug, body, await actingOwner(env.DB, key));
-      if (out.error) return apiError(400, "invalid_request", out.error);
+      if (out.error) return apiError(out.status || 400, "invalid_request", out.error);
       for (const m of out.addedPeople) await audit(env, request, { orgId, action: "channel.member_added", actor, entity: { type: "user", id: m.login, name: m.name }, details: { channel: entity.name } });
       for (const m of out.removedPeople) await audit(env, request, { orgId, action: "channel.member_removed", actor, entity: { type: "user", id: m.login, name: m.name }, details: { channel: entity.name, left: false } });
       return json({ data: { added: out.added, removed: out.removed } });
@@ -254,8 +255,12 @@ async function changeChannelMembers(env, orgId, slug, { add = [], remove = [] } 
   const adding = (Array.isArray(add) ? add : []).map(find).filter((m) => m && !inside.has(m.login));
   const removing = (Array.isArray(remove) ? remove : []).map(find).filter((m) => m && inside.has(m.login));
   const by = addedBy ? (await getUserByGithubId(env.DB, addedBy).catch(() => null))?.login || null : null;
-  if (adding.length) await addMembers(env.DB, { orgId, key, logins: adding.map((m) => m.login), addedBy: by });
-  for (const m of removing) await leave(env.DB, { orgId, key, login: m.login });
+  const managed=await changeManagedRoomMembers(env.DB,orgId,key,{actorId:addedBy,adding,removing});
+  if(managed.error)return managed;
+  if(!managed.managed) {
+    if (adding.length) await addMembers(env.DB, { orgId, key, logins: adding.map((m) => m.login), addedBy: by });
+    for (const m of removing) await leave(env.DB, { orgId, key, login: m.login });
+  }
   return { added: adding.map((m) => m.ref), removed: removing.map((m) => m.ref), addedPeople: adding, removedPeople: removing };
 }
 

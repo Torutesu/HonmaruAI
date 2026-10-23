@@ -163,3 +163,45 @@ export async function deleteManagedRoom(db,orgId,channel,{actorId,version}) {
   ]);
   return result[0].meta?.changes?{managed:true,deleted:true}:{error:'Room roles changed. Reload before deleting.',status:409};
 }
+
+// Admin API member edits must be all-or-nothing, including additions: an
+// invalid removal must not leave an unrelated invitation applied first.
+export async function changeManagedRoomMembers(db,orgId,channel,{actorId,adding=[],removing=[]}) {
+  actorId=String(actorId||'');
+  const state=await roomRoleState(db,orgId,channel);
+  if(!state?.managed) {
+    const policy=await db.prepare('SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2').bind(orgId,channel).first();
+    if(policy)return {error:'Room membership changed. Reload before saving.',status:409};
+    return {managed:false};
+  }
+  const actor=state.members.find(m=>m.kind==='person'&&m.id===actorId&&m.eligible);
+  if(!actor)return {error:'Only a room member can change its members.',status:403};
+  const removeIds=[...new Set(removing.map(m=>String(m.userId)))];
+  const addIds=[...new Set(adding.map(m=>String(m.userId)))];
+  if(addIds.some(id=>removeIds.includes(id)))return {error:'A member cannot be added and removed together.',status:400};
+  const removed=state.members.filter(m=>m.kind==='person'&&removeIds.includes(m.id));
+  if(removed.length!==removeIds.length)return {error:'Room membership changed. Reload before saving.',status:409};
+  if(removed.some(m=>m.role==='admin')&&actor.role!=='admin')return {error:'Only a room admin can remove an admin.',status:403};
+  if(!state.members.some(m=>m.kind==='person'&&m.eligible&&m.role==='admin'&&!removeIds.includes(m.id)))return {error:'Keep at least one active human room admin.',status:409};
+  const {results:people}=await db.prepare('SELECT m.user_github_id AS id,m.created_at,u.login FROM memberships m JOIN users u ON u.github_id=m.user_github_id WHERE m.org_id=?1 AND m.user_github_id IN(SELECT value FROM json_each(?2)) ORDER BY m.user_github_id').bind(orgId,JSON.stringify(addIds)).all();
+  if(people.length!==addIds.length)return {error:'Workspace membership changed. Reload before saving.',status:409};
+  const snapshot=JSON.stringify(state.members.map(m=>[m.kind,m.id,m.membership,m.role,m.eligible]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))));
+  // Use SQL's own deterministic ordering for the transaction comparison.
+  const snapshotSql=`SELECT json_group_array(json_array(kind,id,membership,role,eligible)) FROM (SELECT * FROM (${subjects}) ORDER BY kind,id)`;
+  const liveSnapshot=await db.prepare(snapshotSql).bind(orgId,channel).first();
+  const expected=Object.values(liveSnapshot)[0];
+  const current=await roomRoleState(db,orgId,channel);
+  if(!current||JSON.stringify(current.members.map(m=>[m.kind,m.id,m.membership,m.role,m.eligible]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))))!==snapshot)return {error:'Room membership changed. Reload before saving.',status:409};
+  const nonce=crypto.randomUUID(),at=new Date().toISOString(),addSnapshot=JSON.stringify(people.map(m=>[m.id,m.created_at,m.login]));
+  const gate='EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2 AND mutation_id=?3)';
+  const result=await db.batch([
+    db.prepare(`UPDATE hx_room_access SET version=version+1,mutation_id=?3 WHERE org_id=?1 AND channel=?2 AND version=?4 AND deleted_at IS NULL
+      AND (${snapshotSql})=?5
+      AND (SELECT json_group_array(json_array(id,created_at,login)) FROM (SELECT m.user_github_id AS id,m.created_at,u.login FROM memberships m JOIN users u ON u.github_id=m.user_github_id WHERE m.org_id=?1 AND m.user_github_id IN(SELECT value FROM json_each(?6)) ORDER BY m.user_github_id))=?7`)
+      .bind(orgId,channel,nonce,state.version,expected,JSON.stringify(addIds),addSnapshot),
+    ...people.map(p=>db.prepare(`INSERT OR IGNORE INTO conversation_members(org_id,channel,login,added_by,added_at) SELECT ?1,?2,?4,?5,?6 WHERE ${gate}`).bind(orgId,channel,nonce,p.login,actor.login,at)),
+    ...removed.map(p=>db.prepare(`DELETE FROM conversation_members WHERE org_id=?1 AND channel=?2 AND login=?4 AND ${gate}`).bind(orgId,channel,nonce,p.login)),
+    db.prepare(`DELETE FROM hx_room_roles WHERE org_id=?1 AND channel=?2 AND subject_kind='person' AND subject_id IN(SELECT value FROM json_each(?4)) AND ${gate}`).bind(orgId,channel,nonce,JSON.stringify(removeIds)),
+  ]);
+  return result[0].meta?.changes?{managed:true}:{error:'Room membership changed. Reload before saving.',status:409};
+}

@@ -1013,3 +1013,10 @@ Before connecting RoomCreateDialog, the following concrete mutation paths remain
 Room creation should use a new stable opaque room identifier, an idempotency receipt bound to actor and canonical request, and one D1 transaction to insert private/public room metadata, joined humans/agents, initial human admin, color and guidelines. The existing Simple name-based upsert remains separate. Only expose the UI once the above lifecycle paths and creation transaction are covered.
 
 RoomCreateDialog now preserves the request identifier for identical retries and changes it for edited drafts, with member identifiers sorted for canonical submission. Filtered Select all exposes mixed state and keeps hidden selections. Four UI tests and TypeScript passed. The merged Worker suite is still running under session 47835; this audit does not claim it completed.
+
+
+### Atomic admin API room membership changes — 2026-10-23
+
+Merged Worker snapshot 09450d93 passed all 206 suites / 1,563 tests in 437.73s. Subsequent implementation adds managed-room member edits to the admin API: adding and removing are gated by one room-version claim, the full live role/membership snapshot, and the added members' workspace membership stamps. A rejected removal cannot leave additions partially applied. The last eligible human admin is retained; an ordinary room member cannot remove admins; archived/deleted managed rooms never fall back to legacy mutation. Workspace API authority does not implicitly grant room-admin membership.
+
+Targeted verification passed 2 suites / 36 tests, including the real admin API's rejected last-admin removal with an addition, subsequent successful addition, and a rejoining add target causing no partial changes. Remaining activation dependencies in the prior audit still apply, especially guest demotion and workspace departure handoff. These changes are not yet deployed.
