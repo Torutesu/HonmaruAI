@@ -536,3 +536,25 @@ test('workspace admin status does not confer edit or delete rights over a manage
  expect((await send('PUT',`${path}/members`,mika,{orgId:ORG,ref,role:'member',expectedVersion:2})).status).toBe(200);
  expect((await send('DELETE','/channels/agents',toru,{orgId:ORG,id:agentId})).status).toBe(403);
 });
+
+test('memory review HTTP requires agent edit rights and preserves validation across later edits',async()=>{
+ const base=`/hx/agents/${agentId}/memory`;
+ const made=await(await send('POST',base,mika,{orgId:ORG,title:'Policy',description:'',body:'Original policy',kind:'reference'})).json();
+ const route=`${base}/${made.memory.id}/review`;
+ const input={orgId:ORG,expectedVersion:1,evidence:'Confirmed with finance'};
+ expect((await send('PUT',route,kenji,input)).status).toBe(403);
+ expect((await send('PUT',route,toru,input)).status).toBe(403);
+ expect((await send('PUT',route,mika,{...input,evidence:''})).status).toBe(400);
+ const reviewed=await send('PUT',route,mika,input);
+ expect(reviewed.status).toBe(200);
+ const result=await reviewed.json();
+ expect(result.review.by).toBe('9202');
+ const read=async()=> (await(await get(`${base}?${q({orgId:ORG,paged:'1'})}`,kenji)).json()).memories[0];
+ expect((await read()).review.current).toBe(true);
+ const changed=await send('PUT',`${base}/${made.memory.id}`,mika,{orgId:ORG,expectedVersion:1,title:'Policy',description:'',body:'Updated policy',kind:'reference'});
+ expect(changed.status).toBe(200);
+ expect((await read()).review).toMatchObject({current:false,at:result.review.at});
+ expect((await send('PUT',route,mika,input)).status).toBe(409);
+ expect((await send('PUT',route,mika,{...input,expectedVersion:2})).status).toBe(200);
+ expect((await read()).review.current).toBe(true);
+});
