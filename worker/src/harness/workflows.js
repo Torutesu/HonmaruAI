@@ -574,7 +574,12 @@ export async function onRowChange(env, { orgId, table, before, row, by, depth = 
 
 /// The cron's part: scheduled workflows whose time has come.
 export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } = {}) {
-  await env.DB.prepare('DELETE FROM hx_workflow_held_events WHERE expires_at<=?1').bind(at.toISOString()).run();
+  // The scheduler enumerates workspaces globally; each payload deletion is
+  // explicitly scoped to one workspace, like the runs started below.
+  const expiredOrgs = await env.DB.prepare('SELECT DISTINCT org_id FROM hx_workflow_held_events WHERE expires_at<=?1 LIMIT 100')
+    .bind(at.toISOString()).all();
+  if (expiredOrgs.results.length) await env.DB.batch(expiredOrgs.results.map(({ org_id }) =>
+    env.DB.prepare('DELETE FROM hx_workflow_held_events WHERE org_id=?1 AND expires_at<=?2').bind(org_id, at.toISOString())));
   const { results } = await env.DB
     // Every workspace's, by design: the cron's sweep. Each run then acts
     // only in its workflow's own org_id.

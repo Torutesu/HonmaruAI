@@ -245,6 +245,23 @@ test("a webhook checked before credential revocation cannot create a run afterwa
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE workflow_id=?1').bind(made.workflow.id).first()).n).toBe(0);
 });
 
+test("scheduled expiry cleanup removes old payloads across workspaces and preserves unexpired events", async () => {
+  const made = await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'Expiry sweep', enabled: false, trigger: { type: 'webhook' },
+    steps: [{ type: 'add_row', tableId: invoices, values: { Client: 'No run', Status: 'Draft' } }],
+  })).json();
+  await env.DB.prepare(`INSERT INTO hx_workflows(id,org_id,name,enabled,trigger,steps,created_by,created_at,updated_at)
+    SELECT 'wf_other_expiry','other:expiry',name,enabled,trigger,steps,created_by,created_at,updated_at FROM hx_workflows WHERE id=?1 AND org_id=?2`)
+    .bind(made.workflow.id, ORG).run();
+  const at = new Date().toISOString(), future = new Date(Date.now()+86400000).toISOString();
+  for (const [id,org,wf,expires] of [['expired_here',ORG,made.workflow.id,'2000-01-01T00:00:00Z'],['expired_elsewhere','other:expiry','wf_other_expiry','2000-01-01T00:00:00Z'],['future_elsewhere','other:expiry','wf_other_expiry',future]]) {
+    await env.DB.prepare('INSERT INTO hx_workflow_held_events(id,org_id,workflow_id,input,received_at,expires_at) VALUES(?1,?2,?3,?4,?5,?6)')
+      .bind(id,org,wf,'{}',at,expires).run();
+  }
+  expect(await runDueWorkflows(env)).toBe(0);
+  expect((await env.DB.prepare('SELECT id FROM hx_workflow_held_events ORDER BY id').all()).results).toEqual([{id:'future_elsewhere'}]);
+});
+
 test("discard removes only reviewed pending events in the authorized workflow", async () => {
   const make = async name => (await (await send('POST', '/workflows', toru, {
     orgId: ORG, name, enabled: false, trigger: { type: 'webhook' },
