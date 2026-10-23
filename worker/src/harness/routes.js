@@ -8,7 +8,7 @@ import {roomRoleState} from './roomRoles.js';
 import {managedRoomSettings,saveManagedRoomSettings} from './roomSettings.js';
 import {listBusinesses} from '../db.js';
 import { explicitAgentRoles, agentRoleState, setAgentRole, transferAgentOwnership } from './agentRoles.js';
-import { memoryPage, reviewMemoryEntry, updateMemoryEntry } from './memoryEntries.js';
+import { memoryPage, memoryReviewHistory, reviewMemoryEntry, updateMemoryEntry } from './memoryEntries.js';
 import { previewSkillImport } from './skillImport.js';
 import { writeSkillZip } from './skillZip.js';
 import { listSkillFiles, readSkillFile } from './skillFiles.js';
@@ -605,6 +605,10 @@ export async function handleHarness(request, env, url, context = {}) {
         channel = room.key;
       }
       const context = { channel };
+      if (request.method === 'GET' && parts[5] === 'reviews') {
+        const r = await memoryReviewHistory(env.DB, orgId, agentId, parts[4], { ...context, cursor: url.searchParams.get('cursor') });
+        return r.error ? fail(r) : json(r);
+      }
       if (request.method === "GET") {
         if (url.searchParams.get('paged') === '1') {
           const result = await memoryPage(env.DB, orgId, agentId, { ...context, cursor: url.searchParams.get('cursor'), query: url.searchParams.get('query') || '', kind: url.searchParams.get('kind') || 'all' });

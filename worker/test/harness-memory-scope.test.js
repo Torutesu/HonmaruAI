@@ -159,3 +159,20 @@ test('existing latest reviews are migrated to history once without changing thei
  const rows=await env.DB.prepare('SELECT evidence,reviewed_at FROM hx_memory_review_history WHERE org_id=?1 AND memory_id=?2').bind(org,made.memory.id).all();
  expect(rows.results).toEqual([{evidence:'Original evidence',reviewed_at:'2026-01-01T00:00:00Z'}]);
 });
+
+test('review history pages without duplicates and rejects scope changes', async () => {
+  const { memoryReviewHistory } = await import('../src/harness/memoryEntries.js');
+  const saved = await addAgentMemory(env.DB, org, agent, 'History paging', {channel:'b:history'});
+  const id = saved.memory.id;
+  await env.DB.batch(Array.from({length:52}, (_,i) => env.DB.prepare(`INSERT INTO hx_memory_review_history (id,memory_id,org_id,reviewed_version,verdict,evidence,reviewed_by,reviewed_at) VALUES (?,?,?,0,'keep',?,'reviewer','2026-10-24T00:00:00.000Z')`).bind(`history-${String(i).padStart(3,'0')}`,id,org,`Evidence ${i}`)));
+  const first = await memoryReviewHistory(env.DB,org,agent,id,{channel:'b:history'});
+  expect(first.reviews).toHaveLength(50);
+  const second = await memoryReviewHistory(env.DB,org,agent,id,{channel:'b:history',cursor:first.nextCursor});
+  expect(second.reviews).toHaveLength(2);
+  expect(second.nextCursor).toBeNull();
+  expect(new Set([...first.reviews,...second.reviews].map(r=>r.id)).size).toBe(52);
+  expect(first.reviews[0].reviewerName).toBe('reviewer');
+  expect((await memoryReviewHistory(env.DB,org,agent,id)).reviews).toEqual([]);
+  expect((await memoryReviewHistory(env.DB,'other',agent,id,{channel:'b:history'})).reviews).toEqual([]);
+  expect((await memoryReviewHistory(env.DB,org,agent,id,{channel:'b:other',cursor:first.nextCursor})).status).toBe(400);
+});

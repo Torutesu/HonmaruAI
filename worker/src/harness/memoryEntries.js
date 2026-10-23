@@ -103,3 +103,28 @@ export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel
   if (!results.length) return { error: 'The memory changed or is unavailable. Reload before reviewing.', status: 409 };
   return { review: { version: results[0].reviewed_version, evidence: results[0].evidence, by: results[0].reviewed_by, at: results[0].reviewed_at } };
 }
+
+export async function memoryReviewHistory(db, orgId, agentId, memoryId, {channel='',cursor}={}) {
+  const scope=[orgId,agentId,memoryId,channel];
+  let after=null;
+  if(cursor) {
+    try {
+      const value=JSON.parse(cursor);
+      if(!Array.isArray(value)||value.length!==6||JSON.stringify(value.slice(0,4))!==JSON.stringify(scope)
+        ||typeof value[4]!=='string'||value[4].length>40||!Number.isFinite(Date.parse(value[4]))
+        ||typeof value[5]!=='string'||!value[5]||value[5].length>100) throw new Error();
+      after=value.slice(4);
+    } catch {return {error:'Invalid review history cursor.',status:400};}
+  }
+  const {results=[]}=await db.prepare(`SELECT h.*, COALESCE(u.name,u.login,h.reviewed_by) AS reviewer_name
+    FROM hx_memory_review_history h JOIN hx_agent_memories m ON m.id=h.memory_id AND m.org_id=h.org_id
+    LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
+    LEFT JOIN users u ON u.github_id=h.reviewed_by
+    WHERE h.org_id=?1 AND m.agent_id=?2 AND h.memory_id=?3 AND COALESCE(s.channel,'')=?4
+      AND (?5 IS NULL OR h.reviewed_at < ?5 OR (h.reviewed_at = ?5 AND h.id < ?6))
+    ORDER BY h.reviewed_at DESC,h.id DESC LIMIT 51`)
+    .bind(orgId,agentId,memoryId,channel,after?.[0]||null,after?.[1]||null).all();
+  const reviews=results.slice(0,50).map(r=>({id:r.id,version:r.reviewed_version,verdict:r.verdict,evidence:r.evidence,by:r.reviewed_by,reviewerName:r.reviewer_name,at:r.reviewed_at}));
+  const last=reviews[reviews.length-1];
+  return {reviews,nextCursor:results.length>50?JSON.stringify([...scope,last.at,last.id]):null};
+}
