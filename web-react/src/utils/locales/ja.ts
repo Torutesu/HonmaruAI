@@ -2610,6 +2610,10 @@ const table: Record<string, string> = {
   'App visibility': 'アプリの公開範囲',
   'Workspace members': 'ワークスペースのメンバー',
   'Sharing applies to this app and its records. Room links do not change access.': 'このアプリとレコードに適用されます。部屋へのリンクでは公開範囲は変わりません。',
+  'Room members': 'ルームメンバー',
+  'Room member actions': 'ルームメンバーの操作',
+  'Remove from room': 'ルームから削除',
+  '{name}: {role}': '{name}: {role}',
 }
 
 export default table
