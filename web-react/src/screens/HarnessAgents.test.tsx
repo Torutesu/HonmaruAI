@@ -47,3 +47,34 @@ test('late agent responses cannot populate a different workspace or session', as
     vi.unstubAllGlobals()
   }
 })
+
+test('memory search requests saved entries and retries additional pages without losing results',async()=>{
+ let tree!:ReturnType<typeof create>, failPage=true
+ const entry=(id:string)=>({id,text:id,title:id,body:id,source:'person',createdAt:'2026-01-01T00:00:00Z',kind:'reference'})
+ const requests:string[]=[]
+ vi.stubGlobal('fetch',vi.fn(async(input:string)=>{
+  const url=new URL(input);requests.push(input)
+  if(url.pathname.endsWith('/memory')) {
+   if(url.searchParams.get('cursor') && failPage) {failPage=false;return {ok:false,status:503,json:async()=>({message:'Temporary search failure'})}}
+   return {ok:true,json:async()=>({memories:url.searchParams.get('cursor')?[entry('Older policy')]:url.searchParams.get('query')?[entry('Found policy')]:[],nextCursor:url.searchParams.get('query')&&!url.searchParams.get('cursor')?'next-page':null,canEdit:false})}
+  }
+  return {ok:true,json:async()=>({agents:[{id:'a',name:'Memory agent',handle:'memory',scope:'team'}],profile:{tier:'standard',people:[],access:'private'},canEdit:false,skills:[],scopes:[]})}
+ }))
+ try {
+  await act(async()=>{tree=create(<HarnessAgents httpBase="https://example.test" orgId="one" sessionToken="session" onClose={vi.fn()}/>)})
+  await act(async()=>tree.root.findByProps({'data-agent':'a'}).props.onClick())
+  await act(async()=>tree.root.findAllByProps({role:'tab'}).find(t=>t.children.includes('Memory'))!.props.onClick())
+  act(()=>tree.root.findByProps({'aria-label':'Search memories'}).props.onChange({target:{value:'policy'}}))
+  act(()=>tree.root.findByProps({'aria-label':'Filter memory type'}).props.onChange({target:{value:'reference'}}))
+  await act(async()=>tree.root.findByType('form').props.onSubmit({preventDefault:vi.fn()}))
+  expect(requests.some(raw=>{const u=new URL(raw);return u.searchParams.get('query')==='policy'&&u.searchParams.get('kind')==='reference'&&u.searchParams.get('paged')==='1'})).toBe(true)
+  const more=()=>tree.root.findAllByType('button').find(b=>b.children.includes('Load more'))!
+  await act(async()=>{await more().props.onClick()})
+  expect(JSON.stringify(tree.toJSON())).toContain('Found policy')
+  expect(JSON.stringify(tree.toJSON())).toContain('Temporary search failure')
+  await act(async()=>{await more().props.onClick()})
+  expect(JSON.stringify(tree.toJSON())).toContain('Found policy')
+  expect(JSON.stringify(tree.toJSON())).toContain('Older policy')
+  expect(more()).toBeUndefined()
+ }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
+})

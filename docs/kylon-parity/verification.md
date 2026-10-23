@@ -1901,3 +1901,6 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-24 memory search loading states
 - Search/page loads now show Loading rather than a premature empty state, and form submission is guarded while busy. Memory UI8 tests, TypeScript/Vite and diff check pass (/tmp/honmaru-memory-loading-{tests,types,build}.log).
 - Started frozen Worker full45670 atba93fc57 Worker sources (/tmp/honmaru-memory-retained-full.log). Keep Worker unchanged until terminal. Priorc1f673ce CI/Worker/Web remain in_progress.
+
+### 2026-10-24 memory browser integration regression
+- Added agent-profile integration test navigating to Memory, submitting query/kind, fetching a saved result, failing the next-page request, and retrying while retaining the first page. HarnessAgents3 tests pass (/tmp/honmaru-memory-browser-ui.log). This verifies component/API wiring and retry behavior; it does not replace native visual verification. Frozen Worker45670 andc1f673ce deployment remain live.
