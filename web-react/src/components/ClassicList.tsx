@@ -1,3 +1,4 @@
+import { RoomCreateDialog, type RoomCreateInput } from './RoomCreateDialog'
 import { RoomJoinDialog } from './RoomJoinDialog'
 import { ThreadReferences } from './ThreadReferences'
 import {useThreadPins} from '../utils/threadPins'
@@ -139,6 +140,7 @@ interface Props {
   /// Channels are the team's businesses: made, renamed and deleted here,
   /// the way a chat client lets you. Each returns what went wrong, if
   /// anything, as a sentence.
+  onCreateRoom?: (input: RoomCreateInput) => Promise<{slug:string}>
   onCreateChannel: (name: string, opts?: { private?: boolean }) => Promise<string | null>
   onRenameChannel: (slug: string, name: string) => Promise<string | null>
   onDeleteChannel: (slug: string) => Promise<string | null>
@@ -324,7 +326,7 @@ function when(iso?: string): string {
 export const ClassicList: React.FC<Props> = ({
   harness = false, newRequest = 0, homeRequest = 0, sourceAppId = null, linkedThreadId = null, userId, orgName, pending, sent, decided, businesses, presence,
   onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, onApps, onWorkflow, workspaceMenu,
-  onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen, onPlaces, onStatus, statusOpen, active = true,
+  onCreateRoom, onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen, onPlaces, onStatus, statusOpen, active = true,
 }) => {
   // Files' addresses are renewed for the workspace open now (mediaUrls).
   useEffect(() => { configureMediaUrls(api) }, [api.httpBase, api.orgId, api.sessionToken])
@@ -986,6 +988,9 @@ export const ClassicList: React.FC<Props> = ({
   /// function: `special` is declared further down.
   const foldContext = () => ({ mentions: mentionsIn, currentKey: special ? null : current?.key ?? null, prefs })
   // Making a channel, renaming one: the box, its text, and what went wrong.
+  const roomCreationScope=useRef(0)
+  useEffect(()=>{roomCreationScope.current++;return()=>{roomCreationScope.current++}},[api.orgId,api.httpBase,api.sessionToken])
+  const [creatingRoom, setCreatingRoom] = useState(false)
   const [joiningRoom, setJoiningRoom] = useState(false)
   const [adding, setAdding] = useState(false)
   const [newName, setNewName] = useState('')
@@ -1379,7 +1384,7 @@ export const ClassicList: React.FC<Props> = ({
   }
 
   const addChannel = (
-    <button type="button" className="cl-add" onClick={() => { setAdding((a) => !a); setProblem(null) }} aria-label={t('New channel')} aria-expanded={adding}>
+    <button type="button" className="cl-add" onClick={() => { if(harness&&onCreateRoom)setCreatingRoom(true);else setAdding((a) => !a); setProblem(null) }} aria-label={t(harness?'New room':'New channel')} aria-expanded={adding}>
       <Icon name="plus" size={14} />
     </button>
   )
@@ -5724,6 +5729,12 @@ export const ClassicList: React.FC<Props> = ({
           onSend={(to, comment) => forwardTo(forwarding.channel, forwarding.m, to, comment)}
         />
       )}
+      {harness && creatingRoom && onCreateRoom && <RoomCreateDialog key={api.orgId} people={[
+        ...members.filter(m=>!m.mine).map(m=>({id:m.ref,kind:'person' as const,name:m.name,avatarUrl:m.avatarUrl||undefined})),
+        ...agents.map(a=>({id:a.id,kind:'agent' as const,name:a.name,avatarUrl:a.avatarUrl||undefined})),
+      ]} onClose={()=>setCreatingRoom(false)} onCreate={async input=>{
+        const scope=roomCreationScope.current;const room=await onCreateRoom(input);if(scope!==roomCreationScope.current)return;setCreatingRoom(false);setChannelsTick(n=>n+1);choose(`channel:${room.slug}`)
+      }}/>}
       {harness && joiningRoom && <RoomJoinDialog key={api.orgId} api={api} onClose={() => setJoiningRoom(false)} onJoined={channel => {
         setJoiningRoom(false); setChannelsTick(n => n + 1); choose(`channel:${channel.slice(2)}`)
       }}/>}
@@ -5732,7 +5743,7 @@ export const ClassicList: React.FC<Props> = ({
           <div className="msheet-rows">
             <SheetRow icon="message" label={t('New message')} onClick={() => setStarting('people')} data="new-message" />
             <SheetRow icon="sparkle" label={t('Tell your AI')} hint={t('It becomes a card')} onClick={() => { setStarting(null); onCompose() }} data="tell-ai" />
-            <SheetRow icon="hash" label={t('New channel')} onClick={() => { setStarting(null); setPhoneTab('home'); setAdding(true) }} data="new-channel" />
+            <SheetRow icon={harness?'room':'hash'} label={t(harness?'New room':'New channel')} onClick={() => { setStarting(null); setPhoneTab('home'); if(harness&&onCreateRoom)setCreatingRoom(true);else setAdding(true) }} data="new-channel" />
             {harness && <SheetRow icon="search" label={t('Join public room')} onClick={() => { setStarting(null); setJoiningRoom(true) }} data="join-public-room" />}
             {agents.length > 0 && <SheetRow icon="terminal" label={t('Talk to an agent')} onClick={() => { setStarting(null); setPhoneTab('home'); setFolded((p) => ({ ...p, agents: false })); setAgentPicking(true) }} data="talk-to-agent" />}
             <SheetRow icon="invite" label={t('Invite people')} onClick={() => { setStarting(null); setInviting('people') }} data="invite" />

@@ -1108,3 +1108,9 @@ Native post-deploy check for 4bb40836: Honmaru AI initially showed the existing 
 ### Legacy admin bulk membership fallback — 2026-10-23
 
 The admin API's unmanaged-room fallback now performs additions/removals in one D1 batch. Every statement requires no managed policy, an existing private room, the acting owner's current membership stamp, and the complete selected workspace-member snapshot. A policy initialized after the earlier unmanaged read or a selected person rejoining causes all writes to be skipped. The response/audit only includes rows actually changed. Existing Simple admin API behavior remains covered. Room/admin suites passed 61 tests, including both initialization and membership races. This follow-up is not deployed.
+
+### Managed-room creation route and UI wiring — 2026-10-23
+
+Added authenticated/rate-limited POST `/channels/rooms`, calling the atomic creation core and returning the caller's authorized business list. Creation announcements compute a separate visible list for each workspace member; private room names are not broadcast to outsiders. Identical retries return 200 with the same identity; a first successful creation returns 201. Harness New room and the room-section add button open the three-step dialog; Dashboard submits the draft, updates the business list and selects the new conversation. Simple keeps its inline channel form. Late completion after the workspace changes does not navigate the next workspace.
+
+Worker creation/room suites passed 54 tests, including real HTTP auth, guest denial, idempotent replay and private-room exclusion from another member's list. Dialog suites passed 7 tests; TypeScript passed. This is local wiring, not a production activation claim. Integrated native creation, color display, remaining lifecycle/security paths and full regression are still required before publishing this batch.

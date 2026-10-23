@@ -1,3 +1,4 @@
+import { createManagedRoom } from './harness/roomCreation.js';
 import { addManagedRoomAgent, changeManagedRoomMembers, publicRooms, joinPublicRoom, removeRoomSubject, roomRoleState } from './harness/roomRoles.js';
 import { explicitAgentRoles } from './harness/agentRoles.js';
 import { roomResponses } from "./harness/roomResponses.js";
@@ -1564,6 +1565,23 @@ export async function handleChannels(request, env, url, { route, after }) {
     await note(serverText(locale, "channel.agentRemoved", { who, name: label(agent) }));
     await audit(env, request, { orgId, action: "channel.agent_removed", actor: person(me), entity: { type: "agent", id: agent.id, name: `@${agent.handle}` }, details: { channel: ctx.resolved.slug ? `#${ctx.resolved.slug}` : "group" } });
     return json({ removed: true });
+  }
+
+  if (path === "/channels/rooms" && request.method === "POST") {
+    const limited = await enforce(env, request, "chat");
+    if (limited) return limited;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({message:"Invalid JSON body."},400);
+    const who = await caller(env, request, body.orgId);
+    if (who.denied) return who.denied;
+    const result = await createManagedRoom(env.DB, body.orgId, who.session.github_id, body);
+    if (result.error) return json({message:result.error},result.status);
+    if (result.created) {
+      await audit(env,request,{orgId:body.orgId,action:"channel.created",actor:person(who.user),entity:{type:"channel",id:result.room.slug,name:result.room.name}});
+      const members = await listMembers(env.DB,body.orgId,who.session.github_id);
+      await announceTo(env,body.orgId,await Promise.all(members.map(async m=>({to:m.login,event:customEvent("businesses",{businesses:await listBusinesses(env.DB,body.orgId,{viewer:m.login})})}))));
+    }
+    return json({...result,businesses:await listBusinesses(env.DB,body.orgId,{viewer:who.user.login})},result.created?201:200);
   }
 
   if (path === "/channels/public-rooms" && request.method === "GET") {

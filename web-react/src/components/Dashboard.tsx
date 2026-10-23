@@ -1105,6 +1105,13 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           statusOpen={statusFrom === 'tabs'}
           active={!panel && !screen && !palette && !shortcuts}
           workspaceMenu={workspaceSwitcher('header')}
+          onCreateRoom={async input=>{
+            const response=await fetch(`${relayHttpUrl}/channels/rooms`,{method:'POST',headers:{'content-type':'application/json','x-session-token':sessionToken},body:JSON.stringify({orgId,...input})})
+            const data=await response.json()
+            if(!response.ok)throw Error(data.message||'Could not create the room.')
+            if(Array.isArray(data.businesses))setBusinesses(data.businesses)
+            return data.room
+          }}
           onCreateChannel={(name, opts) => channelCall('POST', { name, ...(opts?.private ? { private: true } : {}) })}
           onRenameChannel={(slug, name) => channelCall('PUT', { slug, name })}
           onDeleteChannel={(slug) => channelCall('DELETE', { slug })}

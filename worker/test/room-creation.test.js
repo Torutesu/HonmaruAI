@@ -76,3 +76,20 @@ test('a failed transaction leaves no receipt, room, members or guidelines behind
   expect(await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE org_id=?1`).bind(org).first('n')).toBe(0);
  expect((await createManagedRoom(env.DB,org,'creator',draft())).created).toBe(true);
 });
+
+test('creation HTTP API authenticates, replays the same room, and keeps private rooms off other members lists',async()=>{
+ const {default:worker}=await import('../src/index.js');
+ const {createSession}=await import('../src/db.js');
+ const pending=[],context={waitUntil:p=>pending.push(p)};
+ const token=await createSession(env.DB,'creator','test');
+ const call=(token,body=draft())=>worker.fetch(new Request('https://example.com/channels/rooms',{method:'POST',headers:{'content-type':'application/json','x-session-token':token},body:JSON.stringify({orgId:org,...body})}),env,context);
+ expect((await call('invalid')).status).toBe(401);
+ expect((await call(await createSession(env.DB,'guest','test'))).status).toBe(403);
+ const first=await call(token);expect(first.status).toBe(201);const data=await first.json();
+ expect(data.businesses.map(b=>b.slug)).toContain(data.room.slug);
+ const retry=await call(token);expect(retry.status).toBe(200);expect((await retry.json()).room.channel).toBe(data.room.channel);
+ const reader=await createSession(env.DB,'reader','test');
+ const listing=await worker.fetch(new Request('https://example.com/businesses?orgId='+org,{headers:{'x-session-token':reader}}),env,context);
+ expect((await listing.json()).businesses).toEqual([]);
+ await Promise.all(pending);
+});
