@@ -998,3 +998,18 @@ Release b3de38b4: Worker run 39581977613 and its CI Worker job in run 3958197762
 The frozen 5f84c223 full Worker run completed successfully: 206 suites / 1,561 tests in 540.71 seconds. A subsequent review found that a deletion retry could treat a managed tombstone as an unmanaged room because active role-state reads exclude deleted rooms. Added an explicit policy check before returning a legacy fallback. Also guarded the legacy physical DELETE in SQL against any managed policy initialized after the route's initial read; a rejected delete now stops before membership cleanup or card unfiling. Three targeted suites / 39 tests passed, including retry and initialization-race regression coverage.
 
 Fetched origin/main on resumption: remote advanced to eb2e7e36 with agent-thread mention behavior and signed iOS release changes. These must be integrated without overwriting their changes before publishing this branch. The previous full-suite evidence predates that integration.
+
+
+### Managed-room activation path audit — 2026-10-23
+
+Before connecting RoomCreateDialog, the following concrete mutation paths remain open and must share managed-room lifecycle rules:
+
+- `adminApi.js:changeChannelMembers` still calls the legacy access-layer remove helper directly, including batch removals. It needs one atomic version claim for the entire requested set, preserving at least one eligible human admin; sequential removals can otherwise partially succeed before a later rejection. Adding and removing the same member must have an explicit, deterministic rule.
+- `team.js:changeRole` can demote a room admin to guest and delete public joined memberships. The live last-admin invariant must be checked inside the membership update, and stale grants must not revive if the person later becomes a member again.
+- `memberDeparture.js` snapshots only managed agents and owned skills. Add active, nondeleted managed room responsibilities (including archived rooms), successor eligibility for each room, snapshot/version gating, and role handoff in the same departure transaction. Do not implicitly invite a successor into private rooms merely because they are a workspace admin.
+- `adminApi.js` and `scim.js` workspace removals call the shared departure function but currently provide no resource preview/successor. Their external protocol needs a clear conflict response or explicitly configured successor policy.
+- `db.js:retainMemberships` and `account.js` delete workspace memberships directly. They cannot inherit the shared function's protection without explicit integration; avoid claiming coverage from ordinary member-removal tests.
+
+Room creation should use a new stable opaque room identifier, an idempotency receipt bound to actor and canonical request, and one D1 transaction to insert private/public room metadata, joined humans/agents, initial human admin, color and guidelines. The existing Simple name-based upsert remains separate. Only expose the UI once the above lifecycle paths and creation transaction are covered.
+
+RoomCreateDialog now preserves the request identifier for identical retries and changes it for edited drafts, with member identifiers sorted for canonical submission. Filtered Select all exposes mixed state and keeps hidden selections. Four UI tests and TypeScript passed. The merged Worker suite is still running under session 47835; this audit does not claim it completed.
