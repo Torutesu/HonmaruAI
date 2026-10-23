@@ -1897,3 +1897,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-24 full saved-memory management search
 - Added bounded literal query and kind filters before memory pagination, across title/description/full body while keeping the server-authorized agent/conversation scope. Continuations bind the query and kind too. Agent management submits search explicitly, resets page state and uses the existing generation guard; status text describes loaded count rather than implying the page is the entire store. Existing local-only list use remains supported.
 - Worker/query guard10 tests and full Web150 files/1047 tests pass (/tmp/honmaru-memory-search-{worker,web}.log); final TypeScript/Vite after count-label translation also pass. Tests cover full body beyond the short summary, kind intersection, private scope exclusion, invalid input and mismatched search cursor. Native UI and production are pending. Priorc1f673ce CI/Worker/Web remain live.
+
+### 2026-10-24 memory search loading states
+- Search/page loads now show Loading rather than a premature empty state, and form submission is guarded while busy. Memory UI8 tests, TypeScript/Vite and diff check pass (/tmp/honmaru-memory-loading-{tests,types,build}.log).
+- Started frozen Worker full45670 atba93fc57 Worker sources (/tmp/honmaru-memory-retained-full.log). Keep Worker unchanged until terminal. Priorc1f673ce CI/Worker/Web remain in_progress.

@@ -97,3 +97,15 @@ test('remote memory search submits query and kind without filtering a partial lo
  expect(search).toHaveBeenCalledWith('older policy','reference')
  act(()=>tree.unmount())
 })
+
+test('pending remote memory search shows loading rather than an empty result and cannot resubmit',()=>{
+ const search=vi.fn();let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<AgentMemoryList memories={[]} canEdit={false} busy loading onForget={vi.fn()} onSearch={search}/>)})
+ expect(JSON.stringify(tree.toJSON())).toContain('Loading…')
+ expect(JSON.stringify(tree.toJSON())).not.toContain('No memories yet.')
+ act(()=>tree.root.findByType('form').props.onSubmit({preventDefault:vi.fn()}))
+ expect(search).not.toHaveBeenCalled()
+ act(()=>tree.update(<AgentMemoryList memories={[]} canEdit={false} busy={false} loading={false} onForget={vi.fn()} onSearch={search}/>))
+ expect(JSON.stringify(tree.toJSON())).not.toContain('Loading…')
+ act(()=>tree.unmount())
+})

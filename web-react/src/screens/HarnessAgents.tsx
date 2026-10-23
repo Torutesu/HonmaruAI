@@ -243,7 +243,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
             : await api.updateMemory(agent.id, memoryDraft, entry, memoryDraft.channel ? memoryChannel : '')
           if (version === memoryLoad.current) setMemories(current => [result.memory, ...current.filter(item => item.id !== result.memory.id)])
         }}/>}
-        <AgentMemoryList key={`${props.orgId}:${agent.id}:${memoryChannel}`} memories={memories} onSearch={(query, kind) => { memoryLoad.current++; setMemories([]); setMemoryCursor(null); setMemorySearch({ query, kind }) }} canEdit={canEdit} busy={busy !== null} onEdit={setMemoryDraft} onForget={m => act(`forget:${m.id}`, async () => { await api.forget(agent.id, m.id, m.channel ? memoryChannel : ''); setMemories(x => x.filter(y => y.id !== m.id)) })} />
+        <AgentMemoryList key={`${props.orgId}:${agent.id}:${memoryChannel}`} memories={memories} loading={busy === 'load' || busy === 'memory-page'} onSearch={(query, kind) => { memoryLoad.current++; setMemories([]); setMemoryCursor(null); setMemorySearch({ query, kind }) }} canEdit={canEdit} busy={busy !== null} onEdit={setMemoryDraft} onForget={m => act(`forget:${m.id}`, async () => { await api.forget(agent.id, m.id, m.channel ? memoryChannel : ''); setMemories(x => x.filter(y => y.id !== m.id)) })} />
         {memoryCursor && <button className="btn-text" disabled={busy !== null} onClick={() => act('memory-page', async () => {
           const version = memoryLoad.current
           const page = await api.memoryPage(agent.id, memoryChannel, memoryCursor, memorySearch)
