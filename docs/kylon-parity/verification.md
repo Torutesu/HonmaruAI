@@ -1685,3 +1685,8 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 
 ### 2026-10-23 workspace dialog Escape follow-up
 - AddWorkspace had the same unconsumed document Escape as the picker. It now prevents/default-stops the key and returns focus to the workspace trigger when dismissed. No create/join action performed. Both picker/dialog regression tests passed; TypeScript and Vite build passed (/tmp/honmaru-workspace-dialog-build.log). CI39960018746 remains running, changes local until terminal result.
+
+### 2026-10-23 production workspace navigation verification
+- Deploy Web39962345274 succeeded at b4f5f436. Native Mac1.3.13 reloaded production and opened the existing QA thread. Workspace picker Escape and Add workspace dialog Escape each dismissed only their overlay, preserved thread URL/content, and restored trigger focus. No workspace creation/join performed.
+- From the QA thread, manually selected ShogunAI: URL became #/list, Simple workspace rendered, picker confirmed ShogunAI selected without bouncing to Select. Returned to Select QA room successfully. Screenshot /tmp/honmaru-workspace-roundtrip-20261023.png. Browser Back and cross-account behavior remain unverified.
+- After user reported browser enabled, cua.listTabs(browser=iab) still returned Local browser use is disabled in Work settings. Native verification remains available. CI39962345236 remains in progress; no overlapping production push.
