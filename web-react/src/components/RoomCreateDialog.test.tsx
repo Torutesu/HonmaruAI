@@ -42,3 +42,19 @@ test('failed creation retains the draft and idempotency key while duplicate subm
  expect(save.mock.calls[1][0]).toEqual(save.mock.calls[0][0])
  act(()=>tree.unmount())
 })
+
+test('editing a rejected draft creates a new operation rather than replaying old members',async()=>{
+ const save=vi.fn().mockRejectedValue(new Error('Invalid draft'));let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<RoomCreateDialog people={people} onCreate={save} onClose={vi.fn()}/>)})
+ act(()=>button(tree,'Next').props.onClick())
+ act(()=>tree.root.findByProps({id:'room-create-name'}).props.onChange({target:{value:'Initial'}}))
+ act(()=>button(tree,'Next').props.onClick())
+ await act(async()=>button(tree,'Create').props.onClick())
+ act(()=>button(tree,'Back').props.onClick())
+ act(()=>tree.root.findByProps({id:'room-create-name'}).props.onChange({target:{value:'Corrected'}}))
+ act(()=>button(tree,'Next').props.onClick())
+ await act(async()=>button(tree,'Create').props.onClick())
+ expect(save.mock.calls[1][0].name).toBe('Corrected')
+ expect(save.mock.calls[1][0].requestId).not.toBe(save.mock.calls[0][0].requestId)
+ act(()=>tree.unmount())
+})

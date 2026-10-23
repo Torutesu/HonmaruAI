@@ -12,7 +12,7 @@ export function RoomCreateDialog({people,onCreate,onClose}:{people:RoomPerson[];
  const [color,setColor]=useState<keyof typeof ROOM_COLORS>('teal'),[colorsOpen,setColorsOpen]=useState(false),[query,setQuery]=useState('')
  const key=(p:RoomPerson)=>`${p.kind}:${p.id}`
  const [selected,setSelected]=useState(()=>new Set(people.filter(p=>p.selected).map(key)))
- const [busy,setBusy]=useState(false),[error,setError]=useState(''),pending=useRef(false),requestId=useRef(crypto.randomUUID())
+ const [busy,setBusy]=useState(false),[error,setError]=useState(''),pending=useRef(false),request=useRef<{signature:string;id:string}|null>(null)
  const nameField=useRef<HTMLInputElement>(null),searchField=useRef<HTMLInputElement>(null)
  useEffect(()=>{if(step===1)nameField.current?.focus();if(step===2)searchField.current?.focus()},[step])
  const visible=people.filter(p=>p.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
@@ -21,7 +21,12 @@ export function RoomCreateDialog({people,onCreate,onClose}:{people:RoomPerson[];
  const submit=async()=>{
   if(pending.current||!name.trim())return
   pending.current=true;setBusy(true);setError('')
-  try{await onCreate({requestId:requestId.current,name:name.trim(),private:privateRoom,guidelines,color,memberRefs:chosen.filter(p=>p.kind==='person').map(p=>p.id),agentIds:chosen.filter(p=>p.kind==='agent').map(p=>p.id)})}
+  const draft={name:name.trim(),private:privateRoom,guidelines,color,memberRefs:chosen.filter(p=>p.kind==='person').map(p=>p.id).sort(),agentIds:chosen.filter(p=>p.kind==='agent').map(p=>p.id).sort()}
+  const signature=JSON.stringify(draft)
+  // Retrying the same operation reuses its key; edited inputs are a new
+  // operation, never a replay of an earlier room with different members.
+  if(request.current?.signature!==signature)request.current={signature,id:crypto.randomUUID()}
+  try{await onCreate({requestId:request.current.id,...draft})}
   catch(e){setError(e instanceof Error?e.message:String(e))}
   finally{pending.current=false;setBusy(false)}
  }
