@@ -204,6 +204,7 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
   const [hookAction, setHookAction] = useState<'rotate' | 'revoke' | null>(null)
   const [replaySelection, setReplaySelection] = useState<string[] | null>(null)
   const [discardSelection, setDiscardSelection] = useState<string[] | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const detailRequest = useRef(0)
   const { busy, error, act } = useAct()
 
@@ -219,7 +220,7 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
   const openOne = (id: string) => {
     const request = ++detailRequest.current
     return act(`open:${id}`, async () => {
-      setHookAction(null); setReplaySelection(null); setDiscardSelection(null)
+      setHookAction(null); setReplaySelection(null); setDiscardSelection(null); setConfirmDelete(false)
       try {
         const result = await api.workflow(id)
         if (detailRequest.current === request) setOpen(result)
@@ -240,7 +241,7 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
     return (
       <Shell className="hx-resource-screen" title={w.name} onClose={() => { detailRequest.current++; setOpen(null); load() }} nested actions={
         <button className="pill-btn quiet" disabled={!!busy} onClick={() => act('refresh', async () => {
-          setHookAction(null); setReplaySelection(null); setDiscardSelection(null)
+          setHookAction(null); setReplaySelection(null); setDiscardSelection(null); setConfirmDelete(false)
           await refreshOpen(w.id)
         })}><Icon name="refresh" size={14} /> {t('Refresh')}</button>
       }>
@@ -259,10 +260,22 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
         {open.canEdit && (
           <div className="hx-actions">
             <button className="pill-btn" disabled={!!busy} onClick={() => act('run', async () => { await api.runWorkflow(w.id, ''); await refreshOpen(w.id) })}><Icon name="zap" size={14} /> {t('Run now')}</button>
-            <button className="pill-btn quiet" onClick={() => act('toggle', async () => { await api.updateWorkflow(w.id, { enabled: !w.enabled }); await refreshOpen(w.id) })}>{w.enabled ? t('Turn off') : t('Turn on')}</button>
-            <button className="btn-text danger" onClick={() => act('delete', async () => { await api.deleteWorkflow(w.id); setOpen(current => current?.workflow.id === w.id ? null : current); load() })}>{t('Delete')}</button>
+            <button className="pill-btn quiet" disabled={!!busy} onClick={() => act('toggle', async () => { await api.updateWorkflow(w.id, { enabled: !w.enabled }); await refreshOpen(w.id) })}>{w.enabled ? t('Turn off') : t('Turn on')}</button>
+            <button className="btn-text danger" disabled={!!busy} onClick={() => { setConfirmDelete(true); setHookAction(null); setReplaySelection(null); setDiscardSelection(null) }}>{t('Delete')}</button>
           </div>
         )}
+        {open.canEdit && confirmDelete && <section className="form-note" aria-label={t('Delete workflow')}>
+          <p>{t('Delete “{name}” and its run history? This cannot be undone. Past changes are not undone.', { name: w.name })}</p>
+          <div className="hx-actions">
+            <button className="pill-btn danger" disabled={!!busy} onClick={() => act('delete', async () => {
+              await api.deleteWorkflow(w.id)
+              setOpen(current => current?.workflow.id === w.id ? null : current)
+              setConfirmDelete(false)
+              await load()
+            })}>{t('Delete workflow')}</button>
+            <button className="btn-text" disabled={!!busy} onClick={() => setConfirmDelete(false)}>{t('Cancel')}</button>
+          </div>
+        </section>}
         {open.canEdit && w.trigger.type === 'webhook' && <section aria-label={t('Webhook')}>
           <div className="rows-title">{t('Webhook')}</div>
           {!w.hookUrl && <p className="form-note">{t('This webhook is revoked. Generate a new URL to accept events again.')}</p>}

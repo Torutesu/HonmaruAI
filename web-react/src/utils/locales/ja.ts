@@ -1,6 +1,8 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Delete workflow": "ワークフローを削除",
+  "Delete “{name}” and its run history? This cannot be undone. Past changes are not undone.": "「{name}」と実行履歴を削除しますか？ この操作は取り消せません。これまでに実行された変更は元に戻りません。",
   "Received payload": "受信内容",
   "Refresh": "更新",
   "Output": "出力",
