@@ -3,8 +3,8 @@ import {Icon,type IconName} from './Icon'
 import {useT} from '../utils/i18n'
 import {composing} from '../utils/keys'
 
-type Props={onAttach:()=>void;onMention:()=>void;onConnections?:()=>void;onDecision:()=>void;onSchedule:()=>void;canDecide:boolean;canSchedule:boolean;children:React.ReactNode}
-export function HarnessComposerMenu({onAttach,onMention,onConnections,onDecision,onSchedule,canDecide,canSchedule,children}:Props){
+type Props={onAttach:()=>void;onMention:()=>void;onConnections?:()=>void;onDecision?:()=>void;onSchedule?:()=>void;canDecide?:boolean;canSchedule?:boolean;extraActions?:React.ReactNode;children:React.ReactNode}
+export function HarnessComposerMenu({onAttach,onMention,onConnections,onDecision,onSchedule,canDecide=false,canSchedule=false,extraActions,children}:Props){
  const t=useT(),root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null)
  const initialFocus=useRef<'first'|'last'>('first')
  const [open,setOpen]=useState(false),[format,setFormat]=useState(false)
@@ -12,7 +12,7 @@ export function HarnessComposerMenu({onAttach,onMention,onConnections,onDecision
  useEffect(()=>{
   if(!open&&!format)return
   if(open){
-   const items=root.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')
+   const items=root.current?.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')
    items?.[initialFocus.current==='last'?items.length-1:0]?.focus()
   }else if(format)root.current?.querySelector<HTMLButtonElement>('.hx-composer-format button:not(:disabled)')?.focus()
   const outside=(event:PointerEvent)=>{if(!root.current?.contains(event.target as Node)){close();setFormat(false)}}
@@ -26,7 +26,7 @@ export function HarnessComposerMenu({onAttach,onMention,onConnections,onDecision
   if(event.key==='Escape'&&(open||format)){event.preventDefault();event.stopPropagation();close(true);setFormat(false)}
   if(event.key==='Tab'&&open)close(true)
   if(open&&['ArrowDown','ArrowUp','Home','End'].includes(event.key)){
-   const items=Array.from(root.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')||[])
+   const items=Array.from(root.current?.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')||[])
    if(!items.length)return
    event.preventDefault();event.stopPropagation()
    const index=items.indexOf(document.activeElement as HTMLButtonElement)
@@ -41,8 +41,9 @@ export function HarnessComposerMenu({onAttach,onMention,onConnections,onDecision
    {onConnections&&action('Manage integrations','plug',onConnections)}
    <div role="separator"/>
    {action('Formatting','edit',()=>setFormat(value=>!value))}
-   {action('Send as a decision','sparkle',onDecision,!canDecide)}
-   {action('Schedule message','clock',onSchedule,!canSchedule)}
+   {extraActions}
+   {onDecision&&action('Send as a decision','sparkle',onDecision,!canDecide)}
+   {onSchedule&&action('Schedule message','clock',onSchedule,!canSchedule)}
   </div>}
   {format&&<div className="hx-composer-format">{children}</div>}
  </div>

@@ -1593,3 +1593,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - Loaded33263ecf after full native restart. One plus button, new-thread toggle and microphone displayed. Mode enabled changed placeholder/send label, plus menu opened with actions and disabled decision/scheduling for empty draft. No duplicate plus controls during these interactions. Explicit key-prefix follow-up1218239c not yet deployed.
 - In private QA Webhook2026-10-23 (member count1), sent self-only plain UI test message. It appeared in sidebar as a new thread; delivery opened thread automatically and focused reply composer. No AI reply, external integration or credential creation was invoked. Evidence /tmp/honmaru-composer-production-20261023.png and /tmp/honmaru-new-thread-production-20261023.png.
 - Found remaining rendered discrepancy: thread reply composer still uses old attachment/format toolbar. Main composer improvement does not prove reply-composer parity. Native capture intermittently returned SCStream-3811; refreshing AX recovered without re-sending.
+
+### 2026-10-23 compact reply composer (local)
+- Inspected Kylon actual existing thread: reply placeholder, plus, mic and send. Harness reply composer now uses shared plus menu and guarded dictation, with unique scoped sibling keys. Formatting and Also-send-to-conversation retained in menu; active broadcast visible in bar. Simple unchanged. Unsupported decision/scheduling actions omitted.
+- Web147 files/1015 tests, TypeScript and Vite build passed. Native production reply verification pending.

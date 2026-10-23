@@ -37,3 +37,14 @@ test('keyboard opens at either end and Tab restores the trigger before leaving t
   act(()=>tree.unmount())
  }finally{vi.unstubAllGlobals()}
 })
+test('reply menus omit unsupported send actions and keep broadcast control accessible',()=>{
+ const toggle=vi.fn();vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});let tree!:ReturnType<typeof create>
+ try{
+  act(()=>{tree=create(<HarnessComposerMenu onAttach={vi.fn()} onMention={vi.fn()} extraActions={<button role="menuitemcheckbox" aria-checked={false} onClick={toggle}>Also send</button>}><span>Formatting</span></HarnessComposerMenu>)})
+  act(()=>tree.root.findByProps({'aria-haspopup':'menu'}).props.onClick())
+  const names=tree.root.findAllByProps({role:'menuitem'}).flatMap(x=>x.children.filter(x=>typeof x==='string'))
+  expect(names).not.toContain('Schedule message');expect(names).not.toContain('Send as a decision')
+  act(()=>tree.root.findByProps({role:'menuitemcheckbox'}).props.onClick());expect(toggle).toHaveBeenCalledOnce()
+  act(()=>tree.unmount())
+ }finally{vi.unstubAllGlobals()}
+})

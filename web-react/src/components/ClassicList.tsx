@@ -4812,7 +4812,7 @@ export const ClassicList: React.FC<Props> = ({
               value={threadDraft}
               rows={1}
               maxLength={4000}
-              placeholder={t('Reply… — @AI to ask the AI')}
+              placeholder={t(harness?'Reply in thread…':'Reply… — @AI to ask the AI')}
               aria-label={t('Reply in thread')}
               aria-describedby={threadReplying?.parentId === thread.parent.id ? 'slk-thread-replying-text' : undefined}
               onChange={(e) => { const v = bulletOnSpace(e); setThreadDraft(v); threadMention.track(); typed({ channel: thread.channel, parentId: thread.parent.id }, v); writing() }}
@@ -4836,17 +4836,24 @@ export const ClassicList: React.FC<Props> = ({
             />
             {threadMention.menu}
             <div className="slk-composer-bar">
-              <button type="button" className="slk-attach-btn" onClick={() => threadAttachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>
+              {!harness && <button type="button" className="slk-attach-btn" onClick={() => threadAttachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>}
               <input ref={threadAttachInput} type="file" multiple hidden onChange={(e) => { const files = [...(e.target.files || [])]; e.target.value = ''; if (files.length) threadUploads.add(files, thread.channel) }} />
-              <FormatBar target={threadComposer} value={threadDraft} set={setThreadDraft} />
-              <label className="slk-also-channel" data-also-channel="1">
+              {harness ? <HarnessComposerMenu key={`thread-menu:${api.orgId}:${userId}:${thread.parent.id}`} onAttach={()=>threadAttachInput.current?.click()}
+                onMention={()=>{const el=threadComposer.current;const a=el?.selectionStart??threadDraft.length,b=el?.selectionEnd??a;setThreadDraft(threadDraft.slice(0,a)+'@'+threadDraft.slice(b));requestAnimationFrame(()=>{el?.focus();el?.setSelectionRange(a+1,a+1);threadMention.track()})}}
+                onConnections={onOpenScreen?()=>onOpenScreen('tools'):undefined}
+                extraActions={<button type="button" role="menuitemcheckbox" tabIndex={-1} aria-checked={threadAlso} onClick={()=>setThreadAlso(value=>!value)}><Icon name={threadAlso?'check':'message'} size={16}/>{t('Also send to the conversation')}</button>}>
+                <FormatBar target={threadComposer} value={threadDraft} set={setThreadDraft}/>
+              </HarnessComposerMenu> : <FormatBar target={threadComposer} value={threadDraft} set={setThreadDraft} />}
+              {!harness && <label className="slk-also-channel" data-also-channel="1">
                 <input type="checkbox" checked={threadAlso} onChange={(e) => setThreadAlso(e.target.checked)} />
                 <span>{(() => {
                   const where = everything.find((x) => x.view === thread.channel)
                   return where?.kind === 'channel' ? t('Also send to {where}', { where: `#${where.name}` }) : t('Also send to the conversation')
                 })()}</span>
-              </label>
+              </label>}
               <span className="slk-composer-hint" />
+              {harness && threadAlso && <span className="hx-reply-broadcast">{t('Also send to the conversation')}</span>}
+              {harness && <HarnessDictation key={`thread-dictation:${api.orgId}:${userId}:${thread.parent.id}`} value={threadDraft} onChange={setThreadDraft} locale={locale} disabled={threadUploads.busy}/>}
               <button type="submit" className="slk-send" disabled={threadUploads.busy || (!threadDraft.trim() && !threadUploads.ids.length)} aria-label={t('Send')}>
                 <Icon name="send" size={16} />
               </button>
