@@ -1,3 +1,4 @@
+import { HarnessComposerMenu } from './HarnessComposerMenu'
 import {RoomVisual} from './RoomVisual'
 import { receiveChannelActivity } from '../utils/channelActivity'
 import {findRoomMessage} from '../utils/findRoomMessage'
@@ -5435,20 +5436,26 @@ export const ClassicList: React.FC<Props> = ({
             {mention.menu}
             <SlashMenu draft={draft} onPick={(name) => { setDraft(`/${name} `); composer.current?.focus() }} />
             <div className="slk-composer-bar">
-              <button type="button" className="slk-attach-btn" onClick={() => attachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>
+              {!harness && <button type="button" className="slk-attach-btn" onClick={() => attachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>}
               <input ref={attachInput} type="file" multiple hidden data-attach="1" onChange={(e) => { const files = [...(e.target.files || [])]; e.target.value = ''; if (files.length) uploads.add(files, thread.view!) }} />
-              <FormatBar target={composer} value={draft} set={setDraft} />
+              {harness ? <HarnessComposerMenu key={`${api.orgId}:${thread.view}`} onAttach={() => attachInput.current?.click()}
+                onMention={() => { const el=composer.current; const a=el?.selectionStart ?? draft.length, b=el?.selectionEnd ?? a; setDraft(draft.slice(0,a)+'@'+draft.slice(b)); requestAnimationFrame(()=>{el?.focus();el?.setSelectionRange(a+1,a+1);mention.track()}) }}
+                onConnections={onOpenScreen ? () => onOpenScreen('tools') : undefined}
+                onDecision={() => void send(thread.view!,true)} onSchedule={() => setScheduleOpen(true)}
+                canDecide={!resourceBuilding && !uploads.busy && !!draft.trim()} canSchedule={!resourceBuilding && !uploads.busy && !!draft.trim() && !draft.trim().startsWith('/')}>
+                <FormatBar target={composer} value={draft} set={setDraft}/>
+              </HarnessComposerMenu> : <FormatBar target={composer} value={draft} set={setDraft} />}
               <span className="slk-composer-hint">{t('Enter to send · @AI to ask · ✦ makes it a decision · / for commands')}</span>
-              <button type="button" className="slk-send ai" disabled={!draft.trim()} onClick={() => void send(thread.view!, true)} aria-label={t('Send as a decision')} title={t('Send as a decision')}>
+              {!harness && <button type="button" className="slk-send ai" disabled={!draft.trim()} onClick={() => void send(thread.view!, true)} aria-label={t('Send as a decision')} title={t('Send as a decision')}>
                 <Icon name="sparkle" size={15} /><span className="slk-send-label">{t('Send as a decision')}</span>
-              </button>
+              </button>}
               <span className="slk-send-group">
                 <button type="submit" className="slk-send" disabled={resourceBuilding || uploads.busy || (!draft.trim() && !uploads.ids.length)} aria-label={t('Send')}>
                   <Icon name="send" size={16} />
                 </button>
-                <button type="button" className="slk-send more" disabled={!draft.trim() || draft.trim().startsWith('/')} onClick={() => setScheduleOpen((o) => !o)} aria-label={t('Schedule message')} title={t('Schedule message')} aria-expanded={scheduleOpen}>
+                {!harness && <button type="button" className="slk-send more" disabled={!draft.trim() || draft.trim().startsWith('/')} onClick={() => setScheduleOpen((o) => !o)} aria-label={t('Schedule message')} title={t('Schedule message')} aria-expanded={scheduleOpen}>
                   <Icon name="chevron-down" size={14} />
-                </button>
+                </button>}
                 {scheduleOpen && <SchedulePicker onPick={(at) => void sendAtTime(thread.view!, at)} onClose={() => setScheduleOpen(false)} />}
               </span>
             </div>

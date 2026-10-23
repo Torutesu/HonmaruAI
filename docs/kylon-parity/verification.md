@@ -1531,3 +1531,15 @@ GitHub runs for that exact revision: Deploy Worker 39948523401 in progress; Depl
 While auditing all-member room integration points, found managed-room SQL treated mixed-case Guest as eligible even though central role checks normalize names. Added regressions for Guest/GUEST editing, response changes, archiving and a demotion immediately before the write batch: all three newly added tests failed against cc7ef49d. Normalized role comparisons in roomRoles, roomSettings and roomCreation, including transactional guards; existing custom non-guest titles remain eligible. Four related suites passed 100 tests after the fix. A new full Worker validation is running at /tmp/honmaru-room-guest-worker-full.log; this is a follow-up, not included in the active cc7ef49d release.
 
 Latest cc7ef49d remote status: Web, Desktop, Local gateway, Reference relay and Shared core/mobile CI jobs succeeded; Worker and E2E still running. Worker deployment is testing, Web deployment waits for the matching Worker. No second revision pushed while those runs are active. Default all-member room identity/auto-join remains unimplemented; inspected creation/membership entrypoints but did not alter existing General rooms or silently widen room audiences.
+
+### 2026-10-23 — Native production validation room prepared
+
+In the installed Honmaru Mac app, switched from ShogunAI General (Simple) to the personal Select workspace (Harness), and created private room `QA Webhook 2026-10-23` through the three-step UI. Selected no additional people or agents. Final room header shows one member; no message sent, no hook credential created, no provider invoked. Screenshot: /tmp/honmaru-webhook-qa-room.png. Keep this room until post-release verification, then archive it and restore ShogunAI General.
+
+Observed a remaining Harness composer fidelity gap: the old always-visible FormatBar, decision action and scheduling chevron remain, unlike the compact reference composer. Source is ClassicList.tsx main composer around line 5426. No speculative controls added; reference new-thread/add-menu behavior needs inspection before changing this surface. Simple mode must retain current tools and layout.
+
+Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker / E2E in progress). Follow-up role-normalization full Worker session 38964 is still live. No subsequent push or deployment completion claimed.
+
+### 2026-10-23 Harness composer compact menu (local)
+- Native Kylon composer inspected: plus menu, mention, connections, new-thread toggle. Harness main composer now puts attach, mention, integration management, formatting, decision and scheduling into a plus menu. Simple toolbar retained. Theme tokens support light/dark; Escape, outside dismissal and keyboard navigation included.
+- Web: 145 files / 1007 tests passed; TypeScript and Vite build passed. Rendered verification and deployment pending. New-thread mode and dictation parity remain incomplete; integration management does not claim per-message connection selection.

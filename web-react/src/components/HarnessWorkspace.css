@@ -650,3 +650,11 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 
 ::highlight(room-search) { background:#f3d68a; color:#30270e; }
 .harness-workspace .slk-main > .slk-head { position:relative; }
+
+.hx-composer-add { position: relative; display: flex; align-items: center; }
+.hx-composer-add-menu { position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 40; width: 240px; max-width: calc(100vw - 40px); padding: 6px; border: 1px solid var(--hx-border); border-radius: 12px; background: var(--hx-surface); color: var(--hx-text); box-shadow: 0 12px 36px #0002; }
+.hx-composer-add-menu button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; font-size: 13px; min-height: 36px; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+.hx-composer-add-menu button:hover:not(:disabled), .hx-composer-add-menu button:focus-visible { background: var(--hx-hover); outline: 2px solid var(--hx-accent); outline-offset: -2px; }
+.hx-composer-add-menu button:disabled { opacity: .45; cursor: default; }
+.hx-composer-add-menu [role="separator"] { height: 1px; background: var(--hx-border); margin: 5px; }
+.hx-composer-format { position: absolute; bottom: calc(100% + 10px); left: 0; display: flex; padding: 6px; border: 1px solid var(--hx-border); border-radius: 9px; background: var(--hx-surface); box-shadow: 0 8px 24px #0002; }

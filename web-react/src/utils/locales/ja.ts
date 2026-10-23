@@ -1,6 +1,9 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Add to message": "メッセージに追加",
+  "Mention someone": "メンションする",
+  "Manage integrations": "連携を管理",
   "Copy webhook URL": "Webhook URLをコピー",
   "Copy authorization header": "認証ヘッダーをコピー",
   "Could not copy. Select and copy the value manually.": "コピーできませんでした。値を選択して手動でコピーしてください。",
