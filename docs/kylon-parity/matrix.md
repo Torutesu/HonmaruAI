@@ -109,7 +109,7 @@
 | KY-060 | 条件分岐・batch・制限付き並列 | 未実装 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 部分失敗・ページング・取りこぼし率を結果に含める |
 | KY-061 | 実行履歴・step結果 | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 全ステップの入力出力・エラー・コスト・権限を追跡 |
 | KY-062 | 署名付きWebhookと再送防止 | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | URL secretだけでなく署名・期限・event IDを検証 |
-| KY-063 | Webhook rotation/revoke/held/replay | 未実装 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 停止中イベント保持と明示再実行・失効を検証 |
+| KY-063 | Webhook rotation/revoke/held/replay | 一部（ローカル） | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 再発行・失効APIと確認UI、編集者権限、旧URL拒否、同時変更のCAS、失効状態の維持をローカル実装。停止中イベント保持・明示再実行、本番反映・実画面検証は残る。 |
 | KY-064 | 承認待ち・継続 | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 承認者・操作内容・revisionを固定し二重承認を排除 |
 | KY-065 | 停止・再開・アーカイブ | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | スケジュール停止と実行キャンセルを区別 |
 | KY-066 | 実行者の権限を再検証 | 一部 | P0 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 今回Agent grantの再確認を追加。部屋/DB/Connection/依頼者権限は継続監査 |

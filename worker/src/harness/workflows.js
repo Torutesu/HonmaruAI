@@ -213,10 +213,26 @@ export async function updateWorkflow(db, orgId, id, input) {
   const hookCandidate = trigger.type === "webhook" ? hex(crypto.getRandomValues(new Uint8Array(24))) : null;
   await db
     .prepare(`UPDATE hx_workflows SET name = ?1, enabled = ?2, trigger = ?3, steps = ?4, next_run_at = ?5, updated_at = ?6,
-      hook_secret = CASE WHEN ?9 IS NULL THEN NULL WHEN json_extract(trigger, '$.type') = 'webhook' THEN COALESCE(hook_secret, ?9) ELSE ?9 END
+      hook_secret = CASE WHEN ?9 IS NULL THEN NULL WHEN json_extract(trigger, '$.type') = 'webhook' THEN hook_secret ELSE ?9 END
       WHERE id = ?7 AND org_id = ?8`)
     .bind(name, enabled ? 1 : 0, JSON.stringify(trigger), JSON.stringify(steps), next, now(), id, orgId, hookCandidate)
     .run();
+  return { workflow: await getWorkflow(db, orgId, id, { withSecret: true }) };
+}
+
+export async function changeWorkflowHook(db, orgId, id, input) {
+  if (!['rotate', 'revoke'].includes(input?.action)) return { error: 'Choose rotate or revoke.', status: 400 };
+  // Require the caller's observed credential, including explicit null when revoked.
+  // It is a compare-and-swap token, never written to the audit log.
+  if (!Object.hasOwn(input, 'expectedSecret') || !(input.expectedSecret === null ||
+    (typeof input.expectedSecret === 'string' && /^[0-9a-f]{48}$/.test(input.expectedSecret)))) {
+    return { error: 'Reload the workflow before changing its webhook.', status: 400 };
+  }
+  const secret = input.action === 'rotate' ? hex(crypto.getRandomValues(new Uint8Array(24))) : null;
+  const result = await db.prepare(`UPDATE hx_workflows SET hook_secret=?1, updated_at=?2
+    WHERE org_id=?3 AND id=?4 AND json_extract(trigger,'$.type')='webhook' AND hook_secret IS ?5`)
+    .bind(secret, now(), orgId, id, input.expectedSecret).run();
+  if (!result.meta?.changes) return { error: 'The webhook changed. Reload the workflow and try again.', status: 409 };
   return { workflow: await getWorkflow(db, orgId, id, { withSecret: true }) };
 }
 

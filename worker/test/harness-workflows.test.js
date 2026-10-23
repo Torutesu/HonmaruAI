@@ -155,6 +155,37 @@ test("changing away from webhook revokes its URL permanently while pause preserv
   expect((await fire(fresh.href)).status).toBe(202);
 });
 
+test("webhook rotation and revocation require an editor and reject stale concurrent changes", async () => {
+  const made = await (await send("POST", "/workflows", toru, {
+    orgId: ORG, name: "Managed webhook", trigger: { type: "webhook" },
+    steps: [{ type: "add_row", tableId: invoices, values: { Client: "Managed", Status: "Draft" } }],
+  })).json();
+  const endpoint = `/workflows/${made.workflow.id}/webhook`;
+  const mutate = (token, action, expectedSecret) => send('POST', endpoint, token, { orgId: ORG, action, expectedSecret });
+  const fire = secret => call(new URL(made.hookUrl).pathname, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-hook-secret': secret }, body: '{}',
+  });
+  expect((await mutate(mika, 'rotate', made.workflow.hookSecret)).status).toBe(403);
+  expect((await mutate(toru, 'rotate', undefined)).status).toBe(400);
+  expect((await mutate(toru, 'invalid', made.workflow.hookSecret)).status).toBe(400);
+  const attempts = await Promise.all([mutate(toru, 'rotate', made.workflow.hookSecret), mutate(toru, 'rotate', made.workflow.hookSecret)]);
+  expect(attempts.map(r => r.status).sort()).toEqual([200, 409]);
+  const rotated = (await attempts.find(r => r.status === 200).json()).workflow;
+  expect(rotated.hookSecret).not.toBe(made.workflow.hookSecret);
+  expect((await fire(made.workflow.hookSecret)).status).toBe(404);
+  expect((await fire(rotated.hookSecret)).status).toBe(202);
+  expect((await mutate(toru, 'revoke', made.workflow.hookSecret)).status).toBe(409);
+  const revoked = await (await mutate(toru, 'revoke', rotated.hookSecret)).json();
+  expect(revoked.workflow.hookUrl).toBeUndefined();
+  expect(revoked.workflow.hookSecret).toBeUndefined();
+  await send('PUT', `/workflows/${made.workflow.id}`, toru, { orgId: ORG, name: 'Still revoked', enabled: true });
+  const current = await (await get(`/workflows/${made.workflow.id}?${q({ orgId: ORG })}`, toru)).json();
+  expect(current.workflow.hookSecret).toBeUndefined();
+  expect((await fire(rotated.hookSecret)).status).toBe(404);
+  const resumed = await (await mutate(toru, 'rotate', null)).json();
+  expect((await fire(resumed.workflow.hookSecret)).status).toBe(202);
+});
+
 test("a scheduled workflow runs when its time comes, once, and a manual one when asked", async () => {
   const { workflow } = await (await send("POST", "/workflows", mika, {
     orgId: ORG, name: "Monday nudge",

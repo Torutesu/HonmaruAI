@@ -60,7 +60,7 @@ export interface Step {
 }
 export interface Workflow {
   id: string; name: string; enabled: boolean; trigger: Trigger; steps: Step[]
-  nextRunAt: string | null; lastRunAt: string | null; createdBy: string; hookUrl?: string
+  nextRunAt: string | null; lastRunAt: string | null; createdBy: string; hookUrl?: string; hookSecret?: string
 }
 export interface RunLog { step: number; type: StepType; status: string; output?: string; error?: string; at: string }
 export interface Run { id: string; trigger: string; status: string; log: RunLog[]; startedAt: string; finishedAt: string | null; cardId: string | null }
@@ -161,6 +161,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     generateWorkflow: (prompt: string, channel?: string) => call<{ workflow: Workflow; source: string }>('POST', '/workflows/generate', { prompt, channel, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
     createWorkflow: (w: { name: string; trigger: Trigger; steps: Step[] }) => call<{ workflow: Workflow; hookUrl?: string }>('POST', '/workflows', w as unknown as Record<string, unknown>),
     updateWorkflow: (id: string, patch: Record<string, unknown>) => call<{ workflow: Workflow }>('PUT', `/workflows/${id}`, patch),
+    changeWorkflowHook: (id: string, action: 'rotate' | 'revoke', expectedSecret: string | null) => call<{ workflow: Workflow }>('POST', `/workflows/${id}/webhook`, { action, expectedSecret }),
     deleteWorkflow: (id: string) => call<{ deleted: boolean }>('DELETE', `/workflows/${id}`),
     runWorkflow: (id: string, text: string) => call<{ run: Run }>('POST', `/workflows/${id}/run`, { text }),
 

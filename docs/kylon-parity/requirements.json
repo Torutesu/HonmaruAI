@@ -700,11 +700,11 @@
       "id": "KY-063",
       "category": "Automations",
       "requirement": "Webhook rotation/revoke/held/replay",
-      "status": "missing",
+      "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
-      "acceptance": "停止中イベント保持と明示再実行・失効を検証"
+      "acceptance": "再発行・失効APIと確認UI、編集者権限、旧URL拒否、同時変更のCAS、失効状態の維持をローカル実装。停止中イベント保持・明示再実行、本番反映・実画面検証は残る。"
     },
     {
       "id": "KY-064",

@@ -1,6 +1,11 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Generate new webhook URL": "Webhook URLを再発行",
+  "Revoke webhook": "Webhookを失効",
+  "This webhook is revoked. Generate a new URL to accept events again.": "このWebhookは失効しています。受信を再開するにはURLを再発行してください。",
+  "The current webhook URL will stop working. Update your sender with the new URL.": "現在のWebhook URLは使えなくなります。送信元の設定を新しいURLに更新してください。",
+  "The webhook URL will stop accepting events. Existing runs are not cancelled.": "Webhook URLへのイベント受信を停止します。開始済みの実行はキャンセルされません。",
   "Reply in thread…": "スレッドに返信…",
   "room.automations": "オートメーション",
   "@Me": "@自分",

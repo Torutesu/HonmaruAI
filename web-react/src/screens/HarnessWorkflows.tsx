@@ -178,6 +178,7 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
   const [manual, setManual] = useState(false)
   const [open, setOpen] = useState<{ workflow: Workflow; runs: Run[]; canEdit: boolean } | null>(null)
   const [hook, setHook] = useState<string | null>(null)
+  const [hookAction, setHookAction] = useState<'rotate' | 'revoke' | null>(null)
   const { busy, error, act } = useAct()
 
   const load = useCallback(() => act('load', async () => {
@@ -189,7 +190,7 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
   }), [api, act, props.httpBase, props.orgId, props.sessionToken])
   useEffect(() => { load() }, [load])
 
-  const openOne = (id: string) => act(`open:${id}`, async () => { setOpen(await api.workflow(id)) })
+  const openOne = (id: string) => act(`open:${id}`, async () => { setHookAction(null); setOpen(await api.workflow(id)) })
   useEffect(() => { let id: string | null = null; try { id = sessionStorage.getItem('hx.openWorkflow'); sessionStorage.removeItem('hx.openWorkflow') } catch {} if (id) void openOne(id) }, [])
 
   if (open) {
@@ -215,6 +216,24 @@ export const HarnessWorkflows: React.FC<HarnessProps> = (props) => {
             <button className="btn-text danger" onClick={() => act('delete', async () => { await api.deleteWorkflow(w.id); setOpen(null); load() })}>{t('Delete')}</button>
           </div>
         )}
+        {open.canEdit && w.trigger.type === 'webhook' && <section aria-label={t('Webhook')}>
+          <div className="rows-title">{t('Webhook')}</div>
+          {!w.hookUrl && <p className="form-note">{t('This webhook is revoked. Generate a new URL to accept events again.')}</p>}
+          {hookAction ? <div className="form-note">
+            <p>{t(hookAction === 'rotate' ? 'The current webhook URL will stop working. Update your sender with the new URL.' : 'The webhook URL will stop accepting events. Existing runs are not cancelled.')}</p>
+            <div className="hx-actions">
+              <button className="pill-btn danger" disabled={!!busy} onClick={() => act('hook', async () => {
+                const result = await api.changeWorkflowHook(w.id, hookAction, w.hookSecret ?? null)
+                setOpen(current => current?.workflow.id === w.id ? { ...current, workflow: result.workflow } : current)
+                setHookAction(null)
+              })}>{t(hookAction === 'rotate' ? 'Generate new webhook URL' : 'Revoke webhook')}</button>
+              <button className="btn-text" disabled={!!busy} onClick={() => setHookAction(null)}>{t('Cancel')}</button>
+            </div>
+          </div> : <div className="hx-actions">
+            <button className="pill-btn quiet" disabled={!!busy} onClick={() => setHookAction('rotate')}>{t('Generate new webhook URL')}</button>
+            {w.hookUrl && <button className="btn-text danger" disabled={!!busy} onClick={() => setHookAction('revoke')}>{t('Revoke webhook')}</button>}
+          </div>}
+        </section>}
         <div className="rows-title">{t('Runs')}</div>
         {open.runs.length === 0 && <div className="empty">{t('It has not run yet.')}</div>}
         <div className="rows">

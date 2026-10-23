@@ -51,7 +51,7 @@ import { listSkills, createSkill, updateSkill, deleteSkill, getSkill, giveSkill,
 import { skillMarkdown } from "./skillMarkdown.js";
 import { workflowFromPrompt } from './workflowGeneration.js';
 import { completer } from "./model.js";
-import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
+import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
 import { listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
 import { onRowChange } from "./workflows.js";
 import { profilesFor, mayAccessAgent } from "./agents.js";
@@ -380,6 +380,13 @@ export async function handleHarness(request, env, url, context = {}) {
         return json(await deleteWorkflow(env.DB, orgId, wfId));
       }
       return null;
+    }
+    if (sub === 'webhook' && request.method === 'POST') {
+      if (!mine) return json({ message: 'Only its maker or an admin can change this workflow.' }, 403);
+      const r = await changeWorkflowHook(env.DB, orgId, wfId, input);
+      if (r.error) return fail(r);
+      await audit(env, request, { orgId, action: `workflow.webhook_${input.action === 'rotate' ? 'rotated' : 'revoked'}`, actor: person(who.user), entity: { type: 'workflow', id: wfId, name: wf.name } });
+      return json({ workflow: { ...r.workflow, hookUrl: hookUrl(url, r.workflow) } });
     }
     if (sub === "run" && request.method === "POST") {
       if (!wf.enabled) return json({ message: "This workflow is off." }, 409);
