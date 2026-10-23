@@ -1919,3 +1919,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 
 ### 2026-10-24 memory review HTTP access verification
 - Added real-route regression: an ordinary agent member and workspace admin without agent edit rights cannot review; owner can review with evidence; later editing preserves validation time and marks the review stale; old-version review returns409 and fresh-version review restores current. Agent/memory/query guard38 tests pass (/tmp/honmaru-memory-review-access.log).
+
+### 2026-10-24 memory review presentation
+- Grouped review details under the memory body within the main content column, rather than a competing horizontal row column. Evidence uses the existing memory text treatment. Added current/stale review state and non-editor action visibility regression; review/list10 tests, TypeScript/Vite and diff checks pass (/tmp/honmaru-memory-review-state-{ui,types,build}.log). Native tool still reports locked, so visual fidelity is not claimed.
+- Frozen Worker review suite43807 remains live at0382acf4 Worker sources. Prior memory publication CI39982782545/Worker39982782482/Web39982782555 remains in_progress.

@@ -109,3 +109,17 @@ test('pending remote memory search shows loading rather than an empty result and
  expect(JSON.stringify(tree.toJSON())).not.toContain('Loading…')
  act(()=>tree.unmount())
 })
+
+test('review details distinguish checked content from later changes and restrict review actions',()=>{
+ let tree!:ReturnType<typeof create>;const review=vi.fn()
+ const checked={...memories[0],review:{version:1,evidence:'Verified with owner',by:'owner',at:'2026-10-24T00:00:00Z',current:true}}
+ act(()=>{tree=create(<AgentMemoryList memories={[checked]} canEdit busy={false} onForget={vi.fn()} onReview={review}/>)})
+ expect(tree.root.findByType('summary').children).toEqual(['Memory reviewed'])
+ act(()=>tree.root.findAllByType('button').find(b=>b.children.includes('Review memory'))!.props.onClick())
+ expect(review).toHaveBeenCalledWith(checked)
+ act(()=>tree.update(<AgentMemoryList memories={[{...checked,review:{...checked.review,current:false}}]} canEdit={false} busy={false} onForget={vi.fn()} onReview={review}/>))
+ expect(tree.root.findByType('summary').children).toEqual(['Changed since review'])
+ expect(tree.root.findAllByType('button')).toHaveLength(0)
+ expect(tree.root.findByType('time').props.dateTime).toBe(checked.review.at)
+ act(()=>tree.unmount())
+})
