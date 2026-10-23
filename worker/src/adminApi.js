@@ -1,4 +1,4 @@
-import {archiveManagedRoom,changeManagedRoomMembers} from './harness/roomRoles.js';
+import {changeLegacyRoomMembers,archiveManagedRoom,changeManagedRoomMembers} from './harness/roomRoles.js';
 // The admin API, v1: what a workspace key (orgKeys.js) opens.
 //
 // docs/admin-controls.md §2.4. Stable paths under /admin/v1/, JSON in and
@@ -250,7 +250,7 @@ async function route(request, env, url, key) {
 /// Add people to, and take them out of, a private channel: by member ref or
 /// email address.
 async function changeChannelMembers(env, orgId, slug, { add = [], remove = [] } = {}, addedBy) {
-  const { addMembers, removeMember: leave, membersOf } = await import("./access.js");
+  const { membersOf } = await import("./access.js");
   const all = await listMembers(env.DB, orgId, null);
   const emails = await emailsOf(env.DB, all.map((m) => m.userId));
   const find = (who) => all.find((m) => m.ref === who || (typeof who === "string" && who.includes("@") && (emails.get(m.userId) || "").toLowerCase() === who.toLowerCase()));
@@ -258,12 +258,12 @@ async function changeChannelMembers(env, orgId, slug, { add = [], remove = [] } 
   const inside = new Set(await membersOf(env.DB, orgId, key));
   const adding = (Array.isArray(add) ? add : []).map(find).filter((m) => m && !inside.has(m.login));
   const removing = (Array.isArray(remove) ? remove : []).map(find).filter((m) => m && inside.has(m.login));
-  const by = addedBy ? (await getUserByGithubId(env.DB, addedBy).catch(() => null))?.login || null : null;
   const managed=await changeManagedRoomMembers(env.DB,orgId,key,{actorId:addedBy,adding,removing});
   if(managed.error)return managed;
   if(!managed.managed) {
-    if (adding.length) await addMembers(env.DB, { orgId, key, logins: adding.map((m) => m.login), addedBy: by });
-    for (const m of removing) await leave(env.DB, { orgId, key, login: m.login });
+    const changed=await changeLegacyRoomMembers(env.DB,orgId,key,{actorId:addedBy,adding,removing});
+    if(changed.error)return changed;
+    return {added:changed.added.map(m=>m.ref),removed:changed.removed.map(m=>m.ref),addedPeople:changed.added,removedPeople:changed.removed};
   }
   return { added: adding.map((m) => m.ref), removed: removing.map((m) => m.ref), addedPeople: adding, removedPeople: removing };
 }

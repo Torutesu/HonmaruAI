@@ -587,3 +587,34 @@ test('visibility cannot change after the authorizing admin leaves and rejoins',a
  const state=await roomRoleState(env.DB,org,channel);
  expect(state.private).toBe(true);expect(state.version).toBe(1);
 });
+
+test('legacy admin bulk fallback cannot partly apply after room policy initialization',async()=>{
+ const {changeLegacyRoomMembers}=await import('../src/harness/roomRoles.js');
+ const {listMembers}=await import('../src/team.js');
+ await env.DB.prepare("UPDATE memberships SET role='owner' WHERE org_id=?1 AND user_github_id='outsider'").bind(org).run();
+ const people=await listMembers(env.DB,org,'outsider');
+ const input={actorId:'outsider',adding:[people.find(p=>p.userId==='outsider')],removing:[people.find(p=>p.userId==='reader')]};
+ const raced={prepare:sql=>env.DB.prepare(sql),batch:async statements=>{
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  return env.DB.batch(statements);
+ }};
+ expect((await changeLegacyRoomMembers(raced,org,channel,input)).status).toBe(409);
+ const state=await roomRoleState(env.DB,org,channel);
+ expect(state.members.some(m=>m.id==='outsider')).toBe(false);
+ expect(state.members.some(m=>m.id==='reader')).toBe(true);
+});
+
+test('legacy bulk fallback checks every selected workspace membership before applying any edit',async()=>{
+ const {changeLegacyRoomMembers}=await import('../src/harness/roomRoles.js');
+ const {listMembers}=await import('../src/team.js');
+ await env.DB.prepare("UPDATE memberships SET role='owner' WHERE org_id=?1 AND user_github_id='outsider'").bind(org).run();
+ const people=await listMembers(env.DB,org,'outsider');
+ const input={actorId:'outsider',adding:[people.find(p=>p.userId==='outsider')],removing:[people.find(p=>p.userId==='reader')]};
+ const raced={prepare:sql=>env.DB.prepare(sql),batch:async statements=>{
+  await env.DB.prepare("UPDATE memberships SET created_at='changed join' WHERE org_id=?1 AND user_github_id='reader'").bind(org).run();
+  return env.DB.batch(statements);
+ }};
+ expect((await changeLegacyRoomMembers(raced,org,channel,input)).status).toBe(409);
+ const joined=await env.DB.prepare('SELECT login FROM conversation_members WHERE org_id=?1').bind(org).all();
+ expect(joined.results.map(r=>r.login).sort()).toEqual(['creator','guest','reader']);
+});

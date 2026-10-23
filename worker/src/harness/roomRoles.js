@@ -356,3 +356,27 @@ export async function setRoomPrivacy(db,orgId,channel,{actorId,private:privateRo
   ]);
   return result[0].meta?.changes?{private:privateRoom,version:version+1}:{error:'Room roles changed. Reload before saving.',status:409};
 }
+
+// Admin-key fallback: keep all legacy additions/removals in one transaction.
+// Every statement uses the same workspace snapshot; none changes that snapshot.
+export async function changeLegacyRoomMembers(db,orgId,channel,{actorId,adding,removing}) {
+  const actor=await db.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND role='owner'").bind(orgId,String(actorId)).first();
+  if(!actor)return {error:'Workspace ownership changed. Reload before saving.',status:403};
+  const people=[...new Map([...adding,...removing].map(p=>[p.userId,p])).values()].sort((a,b)=>a.userId<b.userId?-1:a.userId>b.userId?1:0);
+  if(!people.length)return {added:[],removed:[]};
+  const ids=JSON.stringify(people.map(p=>p.userId)),expected=JSON.stringify(people.map(p=>[p.userId,p.joinedAt,p.login,p.role]));
+  const guard=`NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2)
+    AND EXISTS(SELECT 1 FROM businesses WHERE org_id=?1 AND 'b:'||slug=?2 AND private=1)
+    AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?3 AND created_at=?4 AND role='owner')
+    AND (SELECT json_group_array(json_array(id,stamp,login,role)) FROM (
+      SELECT m.user_github_id AS id,m.created_at AS stamp,u.login,m.role FROM memberships m JOIN users u ON u.github_id=m.user_github_id
+      WHERE m.org_id=?1 AND m.user_github_id IN(SELECT value FROM json_each(?5)) ORDER BY m.user_github_id))=?6`;
+  const at=new Date().toISOString(),binds=[orgId,channel,String(actorId),actor.created_at,ids,expected];
+  const result=await db.batch([
+    ...adding.map(p=>db.prepare(`INSERT OR IGNORE INTO conversation_members(org_id,channel,login,added_by,added_at)
+      SELECT ?1,?2,?7,(SELECT login FROM users WHERE github_id=?3),?8 WHERE ${guard}`).bind(...binds,p.login,at)),
+    ...removing.map(p=>db.prepare(`DELETE FROM conversation_members WHERE org_id=?1 AND channel=?2 AND login=?7 AND ${guard}`).bind(...binds,p.login)),
+  ]);
+  if(!result.some(r=>r.meta?.changes))return {error:'Room or workspace membership changed. Reload before saving.',status:409};
+  return {added:adding.filter((_,i)=>result[i].meta?.changes),removed:removing.filter((_,i)=>result[adding.length+i].meta?.changes)};
+}
