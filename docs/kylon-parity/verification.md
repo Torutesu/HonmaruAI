@@ -1927,3 +1927,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-24 memory review full preflight
 - Frozen Worker43807 completed success:217 files/1730 tests,461.75s (/tmp/honmaru-memory-review-full.log), with Worker unchanged from0382acf4. Latest Web151 files/1051 tests pass (/tmp/honmaru-review-final-web.log); latest TypeScript/Vite and version1.3.13 checks pass.
 - Prior memory release CI39982782545 succeeded; Worker39982782482 and Web39982782555 still live. No overlapping push; review publication and native confirmation remain pending.
+
+### 2026-10-24 complete review contract gap audit
+- Official https://docs.kylon.io/cli/workspace/memory specifies keep/update/delete, atomic update+validation, and verdict/evidence history. Current implementation supports keep and latest evidence only. Added explicit rejection of unsupported verdicts instead of silently treating them as keep; memory/query guard12 tests pass (/tmp/honmaru-memory-review-verdict.log). Atomic update/delete review and immutable evidence history remain separate unfinished requirements; no full review parity claim.
+- Memory retention release1edd8100 CI39982782545/Worker39982782482/Web39982782555 completed success before5db7f3c7 push. Review CI39985555305/Worker39985555451/Web39985555298 now in_progress. Native tool still reports locked.

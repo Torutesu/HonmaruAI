@@ -81,6 +81,7 @@ export async function memoryPage(db, orgId, agentId, { channel = '', cursor, que
 }
 
 export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel = '', by } = {}) {
+  if (input?.verdict !== undefined && input.verdict !== 'keep') return { error: 'Only keep reviews are supported by this endpoint.', status: 400 };
   if (!Number.isSafeInteger(input?.expectedVersion) || input.expectedVersion < 0
     || typeof input.evidence !== 'string' || !input.evidence.trim() || input.evidence.length > 2000
     || !by) return { error: 'A memory version and review evidence are required.', status: 400 };

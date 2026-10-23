@@ -127,3 +127,11 @@ test('review records evidence for the checked memory version, independently of e
  expect(await reviewMemoryEntry(env.DB,org,agent,made.memory.id,{...input,expectedVersion:2,evidence:' '},{channel:'b:ops',by:'reviewer'})).toMatchObject({status:400});
  expect((await reviewMemoryEntry(env.DB,org,agent,made.memory.id,{...input,expectedVersion:2},{channel:'b:ops',by:'reviewer'})).review.version).toBe(2);
 });
+
+
+test('unsupported review verdicts are rejected before reading or changing memory',async()=>{
+ const {reviewMemoryEntry}=await import('../src/harness/memoryEntries.js');
+ for(const verdict of ['update','delete','unknown']) {
+  expect(await reviewMemoryEntry(null,org,agent,'m',{verdict,expectedVersion:1,evidence:'Checked'},{by:'owner'})).toMatchObject({status:400});
+ }
+});
