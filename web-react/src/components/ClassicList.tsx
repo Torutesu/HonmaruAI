@@ -5081,9 +5081,9 @@ export const ClassicList: React.FC<Props> = ({
             </p>}
           </div>
           {harness && thread.view && <div className="hx-room-actions">
-            {onApps && <button aria-label={t('Apps')} title={t('Apps')} aria-expanded={side?.kind === 'resources' && side.resource === 'apps'} onClick={() => openSide({ kind: 'resources', resource: 'apps' })}><Icon name="grid" size={15} /><span>{t('Apps')}</span></button>}
-            <button aria-label={t('Automations')} title={t('Automations')} aria-expanded={side?.kind === 'resources' && side.resource === 'workflows'} onClick={() => openSide({ kind: 'resources', resource: 'workflows' })}><Icon name="repeat" size={15} /><span>{t('Automations')}</span></button>
-            <button aria-label={t('Files')} title={t('Files')} onClick={() => openSide({ kind: 'details', tab: 'attachments' })}><Icon name="file" size={15} /><span>{t('Files')}</span></button>
+            {onApps && <button aria-label={t('Apps')} title={t('Apps')} aria-expanded={side?.kind === 'resources' && side.resource === 'apps'} onClick={() => openSide({ kind: 'resources', resource: 'apps' })}><Icon name="box" size={15} /><span>{t('Apps')}</span></button>}
+            <button aria-label={t('room.automations')} title={t('room.automations')} aria-expanded={side?.kind === 'resources' && side.resource === 'workflows'} onClick={() => openSide({ kind: 'resources', resource: 'workflows' })}><Icon name="zap" size={15} /><span>{t('room.automations')}</span></button>
+            <button aria-label={t('Files')} title={t('Files')} onClick={() => openSide({ kind: 'details', tab: 'attachments' })}><Icon name="folder" size={15} /><span>{t('Files')}</span></button>
             <button onClick={() => thread.managed ? setRoomMembersView(thread.view!) : openSide({ kind: 'details', tab: 'members' })} aria-label={t('Members ({n})',{n:headCount(thread)})}><Icon name="users" size={15} /><span>{headCount(thread)}</span></button>
           </div>}
           {!harness && thread.view && (
@@ -5646,7 +5646,7 @@ export const ClassicList: React.FC<Props> = ({
               // This changes only the left list. Keep the selected thread,
               // draft and app panel in place while moving between filters.
               if (filter === 'mentions') void loadActivity()
-            }}>{filter === 'home' ? t('Home') : filter === 'recent' ? t('Recent') : filter === 'unread' ? t('Unread') : '@' + t('You')}</button>)}
+            }}>{filter === 'home' ? t('Home') : filter === 'recent' ? t('Recent') : filter === 'unread' ? t('Unread') : t('@Me')}</button>)}
           </div>
         </> : <><header className="cl-top">
           {workspaceMenu || (

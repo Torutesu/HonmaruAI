@@ -19,6 +19,7 @@ type Dict = Record<string, string>
 // well as a key, so they get a name and an entry here; `t` falls back through
 // this before falling back to the key itself.
 const en: Dict = {
+  'room.automations': 'Automations',
   'tidy.blurb': 'Channels with no message, canvas or bookmark — most made by the AI when it filed cards. Archiving hides them from every list; their cards and history stay.',
   'archive.lede': 'It leaves everyone\'s sidebar. Its messages, files and decisions are kept, and it can be restored any time from Archived channels on your profile.',
   'record.channelHint': 'This channel’s story and decisions, written by the AI from what was said. Written again when something new is said.',

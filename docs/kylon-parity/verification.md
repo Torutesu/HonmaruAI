@@ -1580,3 +1580,6 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 composer visual reference correction
 - Re-inspected actual Kylon native screenshot: new-thread control sits immediately after plus, icon-only when inactive; label appears only while active. Replaced edit-pencil icon with branching-lines icon, moved control left, made label conditional, and matched Harness ordinary placeholder. Simple remains unchanged. Reference toggle restored inactive; no messages sent.
 - Web147 files/1014 tests, TypeScript and Vite build passed. Honmaru rendered comparison remains pending deployment.
+
+### 2026-10-23 room header reference alignment
+- Actual Kylon screenshot shows cube for Apps, lightning for Automation, folder for Files and @自分 filter. Updated only Harness room actions/filter accordingly; Simple toolbar and translation of its Automations unchanged. TypeScript and diff check passed. Rendered Honmaru check pending.
