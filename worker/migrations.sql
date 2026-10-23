@@ -197,3 +197,5 @@ CREATE TABLE IF NOT EXISTS hx_room_access (org_id TEXT NOT NULL, channel TEXT NO
 CREATE TABLE IF NOT EXISTS hx_room_roles (org_id TEXT NOT NULL, channel TEXT NOT NULL, subject_kind TEXT NOT NULL CHECK(subject_kind IN ('person','agent')), subject_id TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('admin','member')), member_since TEXT NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,channel,subject_kind,subject_id));
 
 ALTER TABLE hx_room_access ADD COLUMN deleted_at TEXT;
+
+CREATE TABLE IF NOT EXISTS hx_room_creations (org_id TEXT NOT NULL, user_id TEXT NOT NULL, request_id TEXT NOT NULL, channel TEXT NOT NULL, fingerprint TEXT NOT NULL, member_since TEXT NOT NULL, nonce TEXT NOT NULL, color TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(org_id,user_id,request_id), UNIQUE(org_id,channel));
