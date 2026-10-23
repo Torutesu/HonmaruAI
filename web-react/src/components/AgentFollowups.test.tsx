@@ -27,3 +27,19 @@ test('a delayed old status response cannot replace the latest history', async ()
  expect(JSON.stringify(tree.toJSON())).not.toContain('Stale scheduled item')
  expect(tree.root.findByType('pre').children).toEqual([item.result])
 })
+
+test('cancellation failures preserve the scheduled item and refresh does not cancel it', async () => {
+ const scheduled = { ...item, status: 'scheduled', result: null }
+ const api = { followups: vi.fn().mockResolvedValue({ followups: [scheduled] }), cancelFollowup: vi.fn().mockRejectedValueOnce(new Error('Could not cancel')).mockResolvedValue({ cancelled: true }) }
+ await act(async () => { tree = create(<AgentFollowups api={api as any} agentId="agent" />) })
+ const button = (name: string) => tree.root.findAllByType('button').find(b => b.children.includes(name))!
+ await act(async () => { await button('Cancel').props.onClick() })
+ expect(tree.root.findByProps({ role: 'alert' }).children).toContain('Could not cancel')
+ expect(button('Cancel')).toBeTruthy()
+ await act(async () => { button('Refresh').props.onClick() })
+ expect(api.cancelFollowup).toHaveBeenCalledTimes(1)
+ api.followups.mockResolvedValue({ followups: [] })
+ await act(async () => { await button('Cancel').props.onClick() })
+ expect(api.cancelFollowup).toHaveBeenLastCalledWith('one')
+ expect(button('Cancel')).toBeUndefined()
+})

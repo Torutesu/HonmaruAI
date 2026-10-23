@@ -1827,3 +1827,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-23 agent follow-up history UI
 - Agent profile previously loaded scheduled follow-ups only and exposed no execution results. Added status selector for scheduled/running/done/failed/cancelled, refresh, loading/error/empty states and expandable stored result/timestamp. Cancel is only offered for scheduled items. Fetches are scoped to the current agent and stale responses are ignored. Existing backend access-filtered status endpoint reused; no Worker changes during full suite61513.
 - Added inert result rendering and delayed old-status regression. Full Web150 files/1040 tests and TypeScript passed (/tmp/honmaru-followup-history-{web,types}.log). Japanese statuses added. Native fidelity/deployment still pending; backend200-row cap and lack of pagination remain, so this is not complete historical coverage.
+
+### 2026-10-23 follow-up cancel and release gate verification
+- Added scheduled-item cancellation failure/retry regression: failed cancellation preserves the item and reports error; refresh makes no cancellation call; successful cancellation reloads the list. All3 follow-up UI tests pass (/tmp/honmaru-followup-history-cancel-tests.log).
+-5398048c CI39971156168 and Deploy Worker39971156160 completed success. Deploy Web39971156141 remains live; do not overlap the next push. Current Worker full61513 also remains live without Worker edits.
