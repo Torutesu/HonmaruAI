@@ -5,10 +5,10 @@ import { AppViewControls } from './AppViewControls'
 afterEach(()=>vi.unstubAllGlobals())
 const columns=[{id:'state',name:'状態',type:'select' as const,options:['未着手','完了']}]
 const view={id:'v',name:'All',type:'table' as const}
-function setup(save=vi.fn().mockResolvedValue(undefined)){
+function setup(save=vi.fn().mockResolvedValue(undefined),onAdjust?:()=>void){
   vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
   let tree:ReturnType<typeof create>
-  act(()=>{tree=create(<AppViewControls view={view} columns={columns} canEdit save={save}/> )})
+  act(()=>{tree=create(<AppViewControls view={view} columns={columns} canEdit save={save} onAdjust={onAdjust}/> )})
   const click=(text:string)=>act(()=>tree!.root.findAllByType('button').find(b=>b.children.some(c=>c===text))!.props.onClick({currentTarget:{focus:vi.fn()}}))
   return {get tree(){return tree!},click,save}
 }
@@ -42,3 +42,15 @@ test('metadata timestamp filters expose local datetime input and save UTC',async
  expect(ui.save.mock.calls[0][0].filters).toEqual([{column:'$row.updatedAt',op:'eq',value:new Date('2026-10-18T11:00:00').toISOString()}])
  act(()=>ui.tree.unmount())
 })
+
+ test('shared filter adjustment opens its conversation without saving and keeps direct editing available',()=>{
+ const onAdjust=vi.fn();const ui=setup(undefined,onAdjust)
+ ui.click('フィルター');ui.click('フィルターを調整')
+ expect(onAdjust).toHaveBeenCalledTimes(1)
+ expect(ui.tree.root.findAllByProps({role:'dialog'})).toHaveLength(0)
+ expect(ui.save).not.toHaveBeenCalled()
+ ui.click('フィルター');ui.click('条件を直接編集');ui.click('条件を追加')
+ expect(ui.tree.root.findByProps({'aria-label':'条件1の値'})).toBeDefined()
+ expect(onAdjust).toHaveBeenCalledTimes(1)
+ act(()=>ui.tree.unmount())
+ })

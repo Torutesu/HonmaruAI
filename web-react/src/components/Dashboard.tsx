@@ -1070,6 +1070,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           homeRequest={harnessHomeRequest}
           linkedThreadId={route.threadId && (!route.threadOrg || route.threadOrg === orgId) ? route.threadId : null}
           sourceAppId={route.appSource && route.appOrg===orgId ? route.appId : null}
+          sourceAppSection={route.appSourceSection}
           onApps={id => { if (id) sessionStorage.setItem('hx.openApp', id); setScreen('apps') }}
           onWorkflow={id => navigate(id ? hashForWorkflow(id, orgId) : '#/workflows')}
           userId={userId}
@@ -1400,7 +1401,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       {screen === 'harness' && (
         <HarnessHub httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} onOpen={(where) => setScreen(where, 'harness')} />
       )}
-      {screen === 'apps' && (!route.appOrg || route.appOrg === orgId) && <HarnessApps key={`${orgId}:${sessionToken}`} requestedAppId={route.appId} initialConversation={route.appConversation} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
+      {screen === 'apps' && (!route.appOrg || route.appOrg === orgId) && <HarnessApps key={`${orgId}:${sessionToken}`} requestedAppId={route.appId} initialConversation={route.appConversation} initialSection={route.appSection} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'workflows' && (!route.workflowOrg || route.workflowOrg === orgId) && <HarnessWorkflows requestedWorkflowId={route.workflowId} onNavigateWorkflow={id => navigate(id ? hashForWorkflow(id, orgId) : '#/workflows')} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'approvals' && <HarnessApprovals httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'skills' && <HarnessSkills httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}

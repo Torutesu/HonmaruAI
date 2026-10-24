@@ -150,3 +150,13 @@ it('workflow detail URLs retain workspace scope and reject ambiguous or malforme
  expect(parseRoute(hashForWorkflow('wf_1','team:acme'))).toMatchObject({screen:'workflows',workflowId:'wf_1',workflowOrg:'team:acme'})
  for(const hash of ['#/workflows/wf_1','#/workflows/wf_1/%3Cinvalid%3E','#/workflows/%3Cbad%3E/team%3Aacme','#/workflows/wf_1/team%3Aacme/extra','#/workflows/%zz/team%3Aacme'])expect(parseRoute(hash).workflowId).toBeNull()
 })
+
+it('source filter navigation retains data viewer and ignores unsupported section values',()=>{
+ expect(parseRoute(hashForAppSource('app_one','team:acme','data'))).toMatchObject({appSource:true,appSourceSection:'data',appId:'app_one',appOrg:'team:acme'})
+ expect(parseRoute(hashForAppSource('app_one','team:acme')+'&section=settings').appSourceSection).toBeUndefined()
+})
+
+it('missing-source fallback keeps the data viewer and app conversation',()=>{
+ expect(parseRoute(hashForApp('app_one','team:acme',{},'data'))).toMatchObject({screen:'apps',appSection:'data',appConversation:{},appId:'app_one',appOrg:'team:acme'})
+ expect(parseRoute(hashForApp('app_one','team:acme')+'?section=backend').appSection).toBeUndefined()
+})

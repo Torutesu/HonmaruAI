@@ -39,6 +39,8 @@ export interface Route {
   threadId?: string | null
   threadOrg?: string | null
   appSource?: boolean
+  appSourceSection?: 'data'
+  appSection?: 'data'
   appConversation?: {tableId?:string;rowId?:string}
   appId?: string | null
   appOrg?: string | null
@@ -127,8 +129,8 @@ export function parseRoute(hash: string): Route {
     const id = decode(segments[0]), org = decode(segments[1] || '')
     const tableId=params.get('table')||'',rowId=params.get('row')||''
     const conversation=params.get('chat')==='1'&&((!tableId&&!rowId)||(/^[\w-]{1,100}$/.test(tableId)&&/^[\w-]{1,100}$/.test(rowId)))?{appConversation:rowId?{tableId,rowId}:{}}:{}
-    if(params.get('source')==='1' && /^[\w-]{1,80}$/.test(id) && isOrgId(org)) return {screen:null,mode:'classic',cardId:null,join:null,appId:id,appOrg:org,appSource:true}
-    return { screen: 'apps', mode: null, cardId: null, join: null, appId: /^[\w-]{1,80}$/.test(id) ? id : null, appOrg: isOrgId(org) ? org : null, ...conversation }
+    if(params.get('source')==='1' && /^[\w-]{1,80}$/.test(id) && isOrgId(org)) return {screen:null,mode:'classic',cardId:null,join:null,appId:id,appOrg:org,appSource:true,...(params.get('section')==='data'?{appSourceSection:'data' as const}:{})}
+    return { screen: 'apps', mode: null, cardId: null, join: null, appId: /^[\w-]{1,80}$/.test(id) ? id : null, appOrg: isOrgId(org) ? org : null, ...conversation, ...(params.get('section')==='data'?{appSection:'data' as const}:{}) }
   }
   if (head === 'join') {
     const code = (rest[0] || '').trim()
@@ -141,8 +143,8 @@ export function parseRoute(hash: string): Route {
 
 export function hashForWorkflow(id:string,orgId:string):string { return `#/workflows/${encodeURIComponent(id)}/${encodeURIComponent(orgId)}` }
 
-export function hashForApp(id: string, orgId: string, conversation?: {tableId?:string;rowId?:string}): string { const query=new URLSearchParams();if(conversation){query.set('chat','1');if(conversation.tableId&&conversation.rowId){query.set('table',conversation.tableId);query.set('row',conversation.rowId)}}return `#/apps/${encodeURIComponent(id)}/${encodeURIComponent(orgId)}${query.size?'?'+query:''}` }
-export function hashForAppSource(id:string,orgId:string):string { return `${hashForApp(id,orgId)}?source=1` }
+export function hashForApp(id: string, orgId: string, conversation?: {tableId?:string;rowId?:string},section?:'data'): string { const query=new URLSearchParams();if(section==='data')query.set('section','data');if(conversation){query.set('chat','1');if(conversation.tableId&&conversation.rowId){query.set('table',conversation.tableId);query.set('row',conversation.rowId)}}return `#/apps/${encodeURIComponent(id)}/${encodeURIComponent(orgId)}${query.size?'?'+query:''}` }
+export function hashForAppSource(id:string,orgId:string,section?:'data'):string { return `${hashForApp(id,orgId)}?source=1${section==='data'?'&section=data':''}` }
 
 export function hashForScreen(screen: Screen): string { return `#/${PATH_BY_SCREEN[screen]}` }
 export function hashForCard(cardId: string, orgId?: string | null): string {

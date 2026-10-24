@@ -97,7 +97,7 @@ export const HarnessHub: React.FC<HarnessProps & { onOpen: (s: HarnessScreen) =>
 
 // ── Apps ────────────────────────────────────────────────────────────────
 
-export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | null; initialConversation?: {tableId?:string;rowId?:string} }> = (props) => {
+export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | null; initialSection?:'data'; initialConversation?: {tableId?:string;rowId?:string} }> = (props) => {
   const t = useT()
   const api = useApi(props)
   const generationRequest = useRef<{key:string;id:string}|null>(null)
@@ -245,7 +245,7 @@ function CellInput({ column, value, onSave, wrap = false, width, members=[] }: {
   )
 }
 
-export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void; initialConversation?: {tableId?:string;rowId?:string}; openConversation?:boolean }> = ({ api, appId, onBack, onClose, httpBase, orgId, sessionToken, initialConversation, openConversation }) => {
+export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void; initialConversation?: {tableId?:string;rowId?:string}; openConversation?:boolean; initialSection?:'data' }> = ({ api, appId, onBack, onClose, httpBase, orgId, sessionToken, initialConversation, openConversation, initialSection }) => {
   const t = useT()
   const [data, setData] = useState<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize?: boolean } | null>(null)
   const loadSequence=useRef(0)
@@ -270,7 +270,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { busy, error, act } = useAct()
 
-  const load = useCallback(() => act('load', async () => { const sequence=++loadSequence.current; const [next,preferences] = await Promise.all([api.app(appId),api.personalViews(appId)]); if(sequence!==loadSequence.current)return;setLoadedApi(api);setData(next); setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(next.app.definition.custom?.published ? 'overview' : 'data') } }), [api, appId, act])
+  const load = useCallback(() => act('load', async () => { const sequence=++loadSequence.current; const [next,preferences] = await Promise.all([api.app(appId),api.personalViews(appId)]); if(sequence!==loadSequence.current)return;setLoadedApi(api);setData(next); setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(initialSection || (next.app.definition.custom?.published ? 'overview' : 'data')) } }), [api, appId, act, initialSection])
   useEffect(() => { setEditingRecord(null);setCreating(false);setChatScope(initialConversation||{});setChatOpen(Boolean(initialConversation)||Boolean(openConversation));load();return()=>{loadSequence.current++;initializedSection.current=false} }, [load,initialConversation,openConversation])
 
   if (!data || loadedApi!==api) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
@@ -312,7 +312,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       {section === 'overview' && !app.definition.custom?.published && <div className="hx-app-overview"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('Database app')}</h2><p>{app.description || t('Browse and manage this app’s data in the data viewer.')}</p><div className="hx-actions"><button className="pill-btn" onClick={() => setSection('data')}>{t('Browse data')}</button><button className="pill-btn quiet" onClick={() => setSection('custom')}>{t('Customize app')}</button></div><small>{t('{n} records', { n: data.rows.length })} · {table.columns.length} {t('Fields')}</small></div>}
       {section === 'data' && <>
       <div className="hx-data-toolbar"><div className="hx-data-heading"><h2>{table.name}</h2><button className="pill-btn" onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />新規レコード</button></div>
-      <div className="hx-data-tools"><input className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /><PersonalViewControls control="fields" key={`${view.id}:${personal.revision}`} view={view} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>setSection('settings')} /><AppViewControls key={`${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} personal={view.id.startsWith('personal_')} canEdit={view.id.startsWith('personal_') || data.canCustomize !== false} save={saveView} />{view.type==='table'&&<AppDataMenu wrapText={layout.wrapText===true} save={wrapText=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:layout.order,widths:layout.widths,hidden:layout.hidden,wrapText}}})}/>}<span>{t('{n} records', { n: view.type==='table'?shownRows.length:data.rows.length })}</span></div>
+      <div className="hx-data-tools"><input className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /><PersonalViewControls control="fields" key={`${view.id}:${personal.revision}`} view={view} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>setSection('settings')} /><AppViewControls key={`${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} personal={view.id.startsWith('personal_')} onAdjust={view.id.startsWith('personal_')?undefined:()=>{location.hash=hashForAppSource(app.id,orgId,'data')}} canEdit={view.id.startsWith('personal_') || data.canCustomize !== false} save={saveView} />{view.type==='table'&&<AppDataMenu wrapText={layout.wrapText===true} save={wrapText=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:layout.order,widths:layout.widths,hidden:layout.hidden,wrapText}}})}/>}<span>{t('{n} records', { n: view.type==='table'?shownRows.length:data.rows.length })}</span></div>
       <div className="hx-tabs" role="tablist">
         {allViews.map((v, i) => (
           <button key={v.id} role="tab" aria-selected={i === viewIndex} className={i === viewIndex ? 'on' : ''} onClick={() => {setViewIndex(i);void act('view',()=>savePersonal({...personal,activeView:v.id}))}}>
