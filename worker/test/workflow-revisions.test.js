@@ -39,3 +39,27 @@ test('history pagination is bounded and workflow deletion owns its cleanup',asyn
  await env.DB.prepare('DELETE FROM hx_workflows WHERE id=?1').bind(workflow.id).run();
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_revisions').first()).n).toBe(0);
 });
+
+test('the production CREATE-prefixed migration path backfills existing definitions and is repeatable',async()=>{
+ const {default:sql}=await import('../migrations.sql?raw');
+ for(const name of ['hx_workflow_revision_insert','hx_workflow_revision_update','hx_workflow_revision_immutable'])await env.DB.exec(`DROP TRIGGER ${name}`);
+ await env.DB.exec('DROP TABLE hx_workflow_revisions');
+ const statements=sql.split(/\r?\n/).filter(line=>/^CREATE /.test(line)&&line.includes('hx_workflow_revision'));
+ expect(statements).toHaveLength(4);
+ for(let pass=0;pass<2;pass++)for(const statement of statements)await env.DB.exec(statement);
+ expect((await read()).items.map(item=>item.revision)).toEqual([1]);
+ await updateWorkflow(env.DB,'revision-org',workflow.id,{name:'After migration'});
+ expect((await read()).items.map(item=>item.revision)).toEqual([2,1]);
+});
+
+test('a run records its matching frozen definition version even if the workflow has since changed',async()=>{
+ const {startRun,getRun,listRuns}=await import('../src/harness/workflows.js');
+ await updateWorkflow(env.DB,'revision-org',workflow.id,{enabled:false});
+ const run=await startRun(env,{orgId:'revision-org',workflow,trigger:'manual',startedBy:'revision-user'});
+ expect(run.status).toBe('done');
+ expect(run.definitionRevision).toBe(1);
+ expect((await getRun(env.DB,'revision-org',run.id)).definitionRevision).toBe(1);
+ expect((await listRuns(env.DB,'revision-org',workflow.id))[0].definitionRevision).toBe(1);
+ await updateWorkflow(env.DB,'revision-org',workflow.id,{name:'Newest definition'});
+ expect((await getRun(env.DB,'revision-org',run.id)).definitionRevision).toBe(1);
+});

@@ -315,7 +315,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
           {open.runs.map((r) => (
             <div key={r.id} className="row static hx-run" data-run={r.id}>
               <div className="row-main">
-                <span className={`hx-status ${r.status}`}>{t(r.status)}</span> <time dateTime={r.startedAt}>{new Date(r.startedAt).toLocaleString(getLocale())}</time> · {t(r.trigger)}
+                <span className={`hx-status ${r.status}`}>{t(r.status)}</span> <time dateTime={r.startedAt}>{new Date(r.startedAt).toLocaleString(getLocale())}</time> · {t(r.trigger)}{r.definitionRevision && <span className="row-sub">{t('Version {version}',{version:r.definitionRevision})}</span>}
                 {runDuration(r)!==null&&<> · <span title={t('Elapsed time, including approval waits')}>{runDuration(r)}</span></>}
                 <WorkflowRunUsage usage={r.usage}/>
                 {r.log.map((l) => {

@@ -135,7 +135,7 @@ const publicWorkflow = (r, { withSecret = false } = {}) => r && ({
 });
 
 const publicRun = (r) => r && ({
-  id: r.id, workflowId: r.workflow_id, trigger: r.trigger, status: r.status,
+  id: r.id, workflowId: r.workflow_id, definitionRevision: r.definition_revision ?? null, trigger: r.trigger, status: r.status,
   input: parse(r.input, null), log: parse(r.log, []), nextStep: r.next_step, cardId: r.card_id,
   startedBy: r.started_by, startedAt: r.started_at, finishedAt: r.finished_at,
 });
@@ -290,7 +290,7 @@ export async function deleteWorkflow(db, orgId, id) {
 
 export async function listRuns(db, orgId, workflowId, limit = 50, viewerId) {
   const { results } = await db
-    .prepare("SELECT * FROM hx_workflow_runs WHERE org_id = ?1 AND workflow_id = ?2 ORDER BY started_at DESC LIMIT ?3")
+    .prepare("SELECT r.*,json_extract(d.definition,'$.definitionRevision') AS definition_revision FROM hx_workflow_runs r LEFT JOIN hx_workflow_run_definitions d ON d.run_id=r.id AND d.org_id=r.org_id WHERE r.org_id = ?1 AND r.workflow_id = ?2 ORDER BY r.started_at DESC LIMIT ?3")
     .bind(orgId, workflowId, Math.min(Number(limit) || 50, 200))
     .all();
   const visible = [];
@@ -302,7 +302,7 @@ export async function listRuns(db, orgId, workflowId, limit = 50, viewerId) {
 }
 
 export async function getRun(db, orgId, runId, { viewerId } = {}) {
-  const run = publicRun(await db.prepare("SELECT * FROM hx_workflow_runs WHERE id = ?1 AND org_id = ?2").bind(runId, orgId).first());
+  const run = publicRun(await db.prepare("SELECT r.*,json_extract(d.definition,'$.definitionRevision') AS definition_revision FROM hx_workflow_runs r LEFT JOIN hx_workflow_run_definitions d ON d.run_id=r.id AND d.org_id=r.org_id WHERE r.id = ?1 AND r.org_id = ?2").bind(runId, orgId).first());
   if (run && viewerId) {
     const frozen = await db.prepare("SELECT definition FROM hx_workflow_run_definitions WHERE run_id = ?1 AND org_id = ?2").bind(runId, orgId).first();
     const definition = frozen ? JSON.parse(frozen.definition) : await getWorkflow(db, orgId, run.workflowId);
@@ -354,7 +354,7 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
   // Store the definition and the run atomically. An approval always resumes
   // the same steps that were presented when the run started.
   const automationReleaseId=await managedAutomationRelease(env.DB,orgId,workflow.id);
-  const definition = { safetyGeneration:safety.generation, id: workflow.id, name: workflow.name, steps: workflow.steps, trigger: workflow.trigger, createdBy: workflow.createdBy, ...(automationReleaseId?{automationReleaseId}:{}) };
+  const definition = { safetyGeneration:safety.generation, id: workflow.id, name: workflow.name, enabled: Boolean(workflow.enabled), steps: workflow.steps, trigger: workflow.trigger, createdBy: workflow.createdBy, ...(automationReleaseId?{automationReleaseId}:{}) };
   // Input is kept whole or the run fails before its first step: JSON cut
   // short is no longer JSON, and the steps would run on blanks.
   const stored = input ? JSON.stringify(input) : null;
@@ -371,7 +371,15 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
       AND ${managedAutomationGuard('?2','?3','?14')}
       AND (?14 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?2 AND id=?3 AND name=?15 AND json(trigger)=json(?16) AND json(steps)=json(?17) AND created_by=?18))`)
       .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, now(), tooLarge ? now() : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation),
-    env.DB.prepare("INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at) SELECT ?1, ?2, ?3, ?4 WHERE EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?2)")
+    env.DB.prepare(`INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at)
+      SELECT ?1,?2,json_set(?3,'$.definitionRevision',(
+        SELECT MAX(h.revision) FROM hx_workflow_revisions h WHERE h.org_id=?2 AND h.workflow_id=json_extract(?3,'$.id')
+        AND json_extract(h.definition,'$.name')=json_extract(?3,'$.name')
+        AND json_extract(h.definition,'$.enabled')=json_extract(?3,'$.enabled')
+        AND json_extract(h.definition,'$.trigger')=json_extract(?3,'$.trigger')
+        AND json_extract(h.definition,'$.steps')=json_extract(?3,'$.steps')
+        AND json_extract(h.definition,'$.createdBy')=json_extract(?3,'$.createdBy')
+      )),?4 WHERE EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?2)`)
       .bind(id, orgId, JSON.stringify(definition), now()),
     // Read the admission outcome in the same transaction, before another
     // request can finish the active run. Skipped triggers create no run.
