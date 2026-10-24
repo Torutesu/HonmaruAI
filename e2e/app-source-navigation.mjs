@@ -44,12 +44,18 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
       // Scope to the foreground app so its hidden panel cannot capture this locator.
       const foreground = page.locator('.shell > .hx-app-detail')
       await foreground.locator('.hx-data-toolbar').waitFor({ timeout: 20000 })
+      if (!(await page.locator('.classic').getAttribute('inert') === '')) throw new Error('Covered conversation remained interactive')
+      if (navigation > 1) {
+        await page.locator('.classic .slk-thread-pane .slk-composer textarea').focus()
+        if (await page.evaluate(() => Boolean(document.activeElement?.closest('.classic')))) throw new Error('Covered conversation stole keyboard focus')
+      }
       stage = 'open filter popover'
       await foreground.getByRole('button', { name: 'フィルター', exact: true }).click()
       stage = 'adjust filter'
       await foreground.getByRole('button', { name: 'フィルターを調整', exact: true }).click()
       stage = 'wait for source thread'
       await page.locator('.slk-thread-pane .slk-composer textarea').waitFor({ timeout: 20000 })
+      if (await page.locator('.classic').getAttribute('inert') !== null) throw new Error('Source conversation did not become interactive again')
       await page.locator('.hx-app-pane .hx-data-toolbar').waitFor({ timeout: 20000 })
       if (!(await page.locator('.slk-thread-pane').innerText()).includes(prompt)) throw new Error('Wrong creation thread opened')
     }
@@ -81,6 +87,29 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     if (standaloneConversation.messages.length) throw new Error('Saving an app draft unexpectedly posted a message')
     await page.screenshot({ path: `${shots}/app-draft-restored.png` })
     await appReply.fill('')
+    stage = 'float app above workspace'
+    const appScreen = page.locator('.shell > .hx-app-detail')
+    await appScreen.getByRole('button', { name: 'その他のアプリ操作', exact: true }).click()
+    await appScreen.getByRole('menuitem', { name: 'ワークスペース上にフローティング表示', exact: true }).click()
+    const floating = page.getByRole('region', { name: 'フローティングアプリ', exact: true })
+    await floating.locator('.hx-data-toolbar').waitFor({ timeout: 20000 })
+    const initialBox = await floating.boundingBox()
+    await floating.focus()
+    await floating.press('ArrowLeft')
+    const movedBox = await floating.boundingBox()
+    if (!initialBox || !movedBox || movedBox.x >= initialBox.x) throw new Error('Floating app did not move with keyboard')
+    // Changing the workspace's current screen must not discard its small window.
+    await page.goto(`${web}#/apps`, { waitUntil: 'load' })
+    await floating.locator('.hx-data-toolbar').waitFor({ timeout: 20000 })
+    await page.setViewportSize({ width: 700, height: 600 })
+    await page.waitForFunction(() => {
+      const r = document.querySelector('.hx-floating-app')?.getBoundingClientRect()
+      return r && r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight
+    })
+    await page.screenshot({ path: `${shots}/app-floating.png` })
+    await floating.getByRole('button', { name: 'フローティングアプリを閉じる', exact: true }).click()
+    await floating.waitFor({ state: 'detached' })
+
   } catch (error) {
     console.error(`Source navigation failed at ${stage} (navigation ${navigation}): ${String(error)}`)
     console.error('Filter hit-test diagnostics', JSON.stringify(await page.evaluate(() => Array.from(document.querySelectorAll('.hx-view-controls > button')).map(button => {

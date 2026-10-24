@@ -702,3 +702,18 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 
 .hx-workflow-source .hx-source-open{display:inline-flex;align-items:center;gap:6px;min-height:36px;margin:0 0 8px;text-decoration:none}
 .hx-workflow-source .hx-source-open:focus-visible{outline:2px solid var(--ink-black);outline-offset:3px}
+
+/* A workspace-owned app remains open while conversations change. */
+.hx-floating-app { position:fixed; z-index:90; border:1px solid var(--hx-border); border-radius:12px; background:var(--hx-surface); box-shadow:0 12px 40px #00000024; box-sizing:border-box; overflow:visible; }
+.hx-floating-app:focus-visible { outline:2px solid var(--hx-action); outline-offset:3px; }
+:root .shell.harness-workspace .hx-floating-app > .screen { position:relative; inset:auto; width:100%; height:100%; border-radius:12px; }
+:root .shell.harness-workspace .hx-floating-app > .screen.hx-app-fullscreen { position:fixed; inset:0; width:100%; height:100%; }
+.hx-floating-app .screen-head { cursor:grab; touch-action:none; }
+.hx-floating-app .screen-head button,.hx-floating-app .screen-head a { cursor:pointer; }
+.hx-floating-app .hx-app-title { min-width:0; overflow:hidden; }
+.hx-floating-app .hx-app-title > button { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+:root .shell.harness-workspace .hx-floating-app .hx-data-toolbar .hx-data-tools { flex-wrap:wrap; }
+:root .shell.harness-workspace .hx-floating-app .hx-head-actions { flex-wrap:wrap; gap:3px; }
+:root .shell.harness-workspace .hx-floating-app .screen-head .hx-head-actions > .pill-btn { font-size:0; gap:0; }
+.hx-floating-resize { position:absolute; bottom:1px; right:1px; width:18px; height:18px; cursor:nwse-resize; touch-action:none; border-radius:0 0 10px 0; }
+.hx-floating-resize::after { content:''; position:absolute; right:5px; bottom:5px; width:6px; height:6px; border-right:1px solid var(--hx-muted); border-bottom:1px solid var(--hx-muted); }

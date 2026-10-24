@@ -1,3 +1,4 @@
+import { useFloatingApp } from '../components/FloatingAppContext'
 import {AppConversationInbox} from '../components/AppConversationInbox'
 import {AppConversationPanel} from '../components/AppConversationPanel'
 import {AppRecordDialog} from '../components/AppRecordDialog'
@@ -245,7 +246,8 @@ function CellInput({ column, value, onSave, wrap = false, width, members=[] }: {
   )
 }
 
-export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void; initialConversation?: {tableId?:string;rowId?:string}; openConversation?:boolean; initialSection?:AppSection; initialDraft?:string }> = ({ api, appId, onBack, onClose, httpBase, orgId, sessionToken, initialConversation, openConversation, initialSection, initialDraft }) => {
+export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void; initialConversation?: {tableId?:string;rowId?:string}; openConversation?:boolean; floating?:boolean; onSectionChange?:(section:AppSection)=>void; initialSection?:AppSection; initialDraft?:string }> = ({ api, appId, onBack, onClose, httpBase, orgId, sessionToken, initialConversation, openConversation, initialSection, initialDraft, floating=false, onSectionChange }) => {
+  const floatApp=useFloatingApp()
   const t = useT()
   const [data, setData] = useState<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize?: boolean } | null>(null)
   const loadSequence=useRef(0)
@@ -280,7 +282,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const load = useCallback(() => act('load', async () => { const sequence=++loadSequence.current; const [next,preferences] = await Promise.all([api.app(appId),api.personalViews(appId)]); if(sequence!==loadSequence.current)return;setLoadedApi(api);setData(next); setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(initialSection || (next.app.definition.custom?.published ? 'overview' : 'data')) } }), [api, appId, act, initialSection])
   useEffect(() => { setEditingRecord(null);setCreating(false);setChatScope(initialConversation||{});setChatOpen(Boolean(initialConversation)||Boolean(openConversation));load();return()=>{loadSequence.current++;initializedSection.current=false} }, [load,initialConversation,openConversation])
 
-  const selectSection=(next:AppSection)=>{setSection(next);const hash=appSectionHash(location.hash,appId,orgId,next);if(hash&&hash!==location.hash)location.hash=hash}
+  const selectSection=(next:AppSection)=>{setSection(next);onSectionChange?.(next);const hash=appSectionHash(location.hash,appId,orgId,next);if(!floating&&hash&&hash!==location.hash)location.hash=hash}
   if (!data || loadedApi!==api) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
   const { app, table } = data
   const allViews = [...data.views,...personal.computed]
@@ -306,7 +308,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       title={<span className="hx-app-title"><HarnessAppIcon icon={app.icon} size={16} /><button onClick={() => selectSection(app.definition.custom?.published ? 'overview' : 'data')}>{app.name}</button>{section !== 'overview' && <span className="hx-app-breadcrumb">/ {t(section === 'data' ? 'Data viewer' : section === 'custom' ? 'Customize app' : section === 'backend' ? '実行基盤' : 'Settings')}</span>}<button className="hx-app-icon-button" aria-label="データを更新" disabled={busy!==null} onClick={()=>void load()}><Icon name="refresh" size={14}/></button></span>}
       onClose={onBack}
       nested
-      actions={<><button className="pill-btn quiet" onClick={() => selectSection('custom')}><Icon name="grid" size={14} />{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => selectSection('settings')}><Icon name="share" size={14} />{t('Sharing')}</button><AppConversationInbox api={api} appId={app.id} onOpen={scope=>{setChatScope(scope);setChatOpen(true)}}/><button className="hx-app-icon-button" aria-label={chatOpen?'アプリチャットを閉じる':'アプリチャットを開く'} aria-pressed={chatOpen} onClick={()=>{setChatScope({});setChatOpen(!chatOpen)}}><Icon name="message" size={16}/></button><button className="hx-app-icon-button" aria-label={fullscreen?'全画面表示を終了':'全画面表示'} aria-pressed={fullscreen} onClick={()=>setFullscreen(!fullscreen)}><Icon name={fullscreen?'minimize':'maximize'} size={16}/></button><HarnessAppMenu api={api} appId={app.id} orgId={orgId} onSection={selectSection} /><button className="hx-app-icon-button" aria-label="パネルを閉じる" onClick={onClose}><Icon name="x" size={16}/></button></>}
+      actions={<><button className="pill-btn quiet" onClick={() => selectSection('custom')}><Icon name="grid" size={14} />{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => selectSection('settings')}><Icon name="share" size={14} />{t('Sharing')}</button><AppConversationInbox api={api} appId={app.id} onOpen={scope=>{setChatScope(scope);setChatOpen(true)}}/><button className="hx-app-icon-button" aria-label={chatOpen?'アプリチャットを閉じる':'アプリチャットを開く'} aria-pressed={chatOpen} onClick={()=>{setChatScope({});setChatOpen(!chatOpen)}}><Icon name="message" size={16}/></button><button className="hx-app-icon-button" aria-label={fullscreen?'全画面表示を終了':'全画面表示'} aria-pressed={fullscreen} onClick={()=>setFullscreen(!fullscreen)}><Icon name={fullscreen?'minimize':'maximize'} size={16}/></button><HarnessAppMenu api={api} appId={app.id} orgId={orgId} onSection={selectSection} onFloat={!floating&&floatApp&&['overview','data'].includes(section)?()=>{floatApp(app.id,section);onClose()}:undefined} /><button className="hx-app-icon-button" aria-label={floating?'フローティングアプリを閉じる':'パネルを閉じる'} onClick={onClose}><Icon name="x" size={16}/></button></>}
     >
       {chatOpen&&<AppConversationPanel key={`${orgId}:${app.id}:${chatScope.rowId||"app"}`} api={api} appId={app.id} {...chatScope} title={chatScope.rowId?"レコードチャット":app.name} initialDraft={chatScope.rowId||consumedDraft.current===initialDraft?undefined:initialDraft} onInitialDraftConsumed={consumeDraft} context={chatScope.rowId?(cellText(table.columns[0],data.rows.find(r=>r.id===chatScope.rowId)?.values[table.columns[0].id])||'選択したレコード'):section==='data'?`現在のデータ表示: ${view.name}`:undefined} onClose={()=>setChatOpen(false)}/>}
       <div className="hx-app-main">

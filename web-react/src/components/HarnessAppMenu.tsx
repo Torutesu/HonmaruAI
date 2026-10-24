@@ -3,7 +3,7 @@ import { Icon, type IconName } from './Icon'
 import { hashForApp } from '../utils/route'
 import { useAppPins } from '../utils/appPins'
 
-export function HarnessAppMenu({ appId, orgId, api, onSection }: { api: import('../utils/harness').HarnessApi; appId: string; orgId: string; onSection: (section: 'overview' | 'data' | 'custom' | 'backend' | 'settings') => void }) {
+export function HarnessAppMenu({ appId, orgId, api, onSection, onFloat }: { onFloat?:()=>void; api: import('../utils/harness').HarnessApi; appId: string; orgId: string; onSection: (section: 'overview' | 'data' | 'custom' | 'backend' | 'settings') => void }) {
   const [open, setOpen] = useState(false)
   const [notice, setNotice] = useState('')
   const root = useRef<HTMLDivElement>(null)
@@ -29,6 +29,8 @@ export function HarnessAppMenu({ appId, orgId, api, onSection }: { api: import('
   }}>
     <button ref={trigger} className="hx-app-icon-button" aria-label="その他のアプリ操作" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(v => !v)}><Icon name="more" size={18} /></button>
     {open && <div className="hx-app-menu-popover" role="menu" aria-label="その他のアプリ操作">
+      {item('共有', 'share', () => select('settings'))}
+      {onFloat && item('ワークスペース上にフローティング表示', 'external', () => {close();onFloat()})}
       {item('リンクをコピー', 'link', () => { const url = `${location.origin}/${hashForApp(appId, orgId)}`; navigator.clipboard?.writeText(url).then(() => setNotice('リンクをコピーしました'), () => setNotice(url)); if (!navigator.clipboard) setNotice(url); close() })}
       {item(pins.includes(appId) ? 'ナビゲーションから固定を解除' : 'アプリをナビゲーションに固定', 'pin', () => { void toggle(appId).then(() => setNotice('ナビゲーションを端末間で同期しました'), () => setNotice('固定を保存できませんでした。接続を確認してください。')); close() })}
       <div role="separator" />

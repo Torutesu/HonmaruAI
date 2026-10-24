@@ -1,3 +1,4 @@
+import { FloatingAppWorkspace } from './FloatingAppWorkspace'
 import { HarnessRail } from './HarnessRail'
 const HarnessGateways = React.lazy(() => import('../screens/HarnessGateways'))
 import { channelMessageCache } from '../utils/channelMessageCache'
@@ -1014,6 +1015,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     // on a laptop navigation is a place on the page and disappearing would be
     // the app losing its own chrome.
     <div className={`shell${workspaceMode === 'harness' ? ' harness-workspace' : ''}${screen ? ' screen-open' : ''}${screen === 'home' ? ' home-open' : ''}${immersive && mode === 'classic' && !screen ? ' immersive' : ''}${mode === 'classic' && !screen ? ' list-mode' : ''}`}>
+      <FloatingAppWorkspace key={`${relayHttpUrl}:${orgId}:${sessionToken}:${workspaceMode}`} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} enabled={workspaceMode==='harness'}>
       {workbench ? (
         <div className="workbench">
           <Inbox
@@ -1442,6 +1444,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           </div>
         </div>
       )}
+      </FloatingAppWorkspace>
     </div>
   )
 }
