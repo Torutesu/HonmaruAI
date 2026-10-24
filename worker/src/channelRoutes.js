@@ -1,10 +1,10 @@
 import {externalIdentity,externalReplyGrant} from './harness/externalAssignment.js';
 import {endAssignment} from './harness/agentAssignments.js';
 import {drainTeammateResults} from './teammateResultDispatch.js';
-import {decorateAssignmentStatuses} from './harness/agentAssignmentStatus.js';
+import {agentRunSnapshot} from './harness/agentRunSnapshot.js';
 import {stopAssignment} from './harness/agentAssignmentStop.js';
 import {runAgentAssignment} from './harness/runAgentAssignment.js';
-import {drainAgentRequests,decorateAgentRequestStatuses} from './agentRequestDispatch.js';
+import {drainAgentRequests} from './agentRequestDispatch.js';
 import {agentExecutionAuthorizer} from './agentExecutionGrant.js';
 import { searchRoom } from './roomSearch.js';
 import { roomHookAgentAllowed } from './harness/roomHookAgentAccess.js';
@@ -1097,13 +1097,8 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (access.denied) return access.denied;
     const rows = await Promise.all(rowIds.map(id => getMessage(env.DB, orgId, id)));
     if (rows.some(row => !row || row.deleted_at || row.channel !== access.resolved.key || row.kind !== 'message')) return json({message: 'No such message.'}, 404);
-    if (!env.AGENT_RUNNER) return json({available: false, results: rowIds.map(rowId => ({rowId, status: 'unknown', answered: 0}))});
-    const stub = env.AGENT_RUNNER.get(env.AGENT_RUNNER.idFromName(orgId));
     try {
-      const response = await stub.fetch('https://agents/agent-status', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({orgId, rowIds}), signal: AbortSignal.timeout(5000)});
-      if (!response.ok) return json({message: 'Execution status unavailable.'}, 503);
-      const result=await response.json();
-      return json({available:true,results:await decorateAssignmentStatuses(env.DB,orgId,await decorateAgentRequestStatuses(env.DB,orgId,result.results),{actorId:access.who.session.github_id,canManage:await allowed(env.DB,orgId,access.who.session.github_id,'agent.manage_others')})});
+      return json(await agentRunSnapshot(env,orgId,rowIds,{actorId:access.who.session.github_id,canManage:await allowed(env.DB,orgId,access.who.session.github_id,'agent.manage_others')}));
     } catch {
       return json({message: 'Execution status unavailable.'}, 503);
     }

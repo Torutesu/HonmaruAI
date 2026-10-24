@@ -7,6 +7,7 @@ const table: Record<string, string> = {
   "Could not confirm execution stopped. Refresh or try again.": "停止を確認できませんでした。更新するか、もう一度お試しください。",
   "Stopping prevents further work. External operations already started may still finish.": "停止後は次の処理を開始しません。開始済みの外部操作は完了する場合があります。",
   "Agent handoff awaiting delivery": "引き継ぎ受付待ち",
+  "Some execution status is unavailable. Saved assignment status is shown below.": "実行状態の一部を取得できません。保存済みの担当者情報を表示しています。",
   "Agent execution cancelled": "停止済み",
   "Handoff history ({count})": "引き継ぎ履歴（{count}件）",
   "Agent queue acknowledgement pending": "実行受付の確認待ち",

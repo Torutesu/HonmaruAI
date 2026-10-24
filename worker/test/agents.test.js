@@ -962,3 +962,16 @@ test('only the requester or agent manager can stop the observed assignment gener
  expect(await runQueuedHandoff(env,{orgId:ORG,rowId:'status-hop'})).toEqual({status:'cancelled',answered:0});
  expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE id=?1').bind(f.assignmentId).first()).toEqual({status:'cancelled'});
 });
+
+test.each(['missing','error','malformed'])('assignment history and stop rights survive queue status %s',async(kind)=>{
+ const f=await assignmentStatusFixture();
+ const over={AGENT_RUNNER:kind==='missing'?undefined:{idFromName:name=>name,get:()=>({fetch:async()=>kind==='error'?new Response('unavailable',{status:503}):Response.json({results:[{rowId:f.row.id,status:'running',answered:0},{rowId:'foreign',status:'running',answered:0}]})})}};
+ const url=`/channels/agent-runs?${q({orgId:ORG,channel:'b:cafe',messageId:f.row.id})}`;
+ const response=await call(url,{headers:headers(mika)},over);expect(response.status).toBe(200);
+ const body=await response.json();expect(body.available).toBe(false);expect(body.results).toHaveLength(1);
+ expect(body.results[0]).toMatchObject({rowId:f.row.id,status:'unknown',assignments:[{id:f.assignmentId,status:'pending',canStop:true}]});
+ const mixed=await call(`${url}&messageId=foreign`,{headers:headers(mika)},over);expect(mixed.status).toBe(404);
+ const stopped=await send('POST','/channels/agent-runs/stop',mika,{orgId:ORG,channel:'b:cafe',messageId:f.row.id,assignmentId:f.assignmentId,generation:1},over);
+ expect(stopped.status).toBe(200);
+ const after=await call(url,{headers:headers(mika)},over);expect((await after.json()).results[0].assignments[0]).toMatchObject({status:'cancelled',canStop:false});
+});

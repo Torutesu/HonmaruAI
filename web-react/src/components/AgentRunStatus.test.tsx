@@ -119,3 +119,20 @@ test.each(['ja', 'de', 'invalid_locale'])('formats handoff time with the app lan
  expect(times[0].children.join('')).toBe(new Intl.DateTimeFormat(locale === 'invalid_locale' ? 'en' : locale, {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(at)))
  act(() => tree.unmount())
 })
+
+test('queue status outage preserves fresh assignment status and stop controls, and continues polling', async () => {
+ setup(); let reads = 0
+ const fetch = vi.fn().mockImplementation(async () => ({ok: true, json: async () => ({available: false, results: [{rowId: 'one', status: 'unknown', answered: 0, assignments: [{id: 'assignment', generation: 1, status: ++reads < 3 ? 'running' : 'finished', canStop: reads < 3, agent: {id: 'agent', name: 'Reviewer', handle: 'review'}, hops: []}]}]})}))
+ vi.stubGlobal('fetch', fetch)
+ let tree!: ReturnType<typeof create>
+ await act(async () => {tree = create(<AgentRunStatus api={api} channel="b:general" messages={[message('one')]}/>)})
+ expect(JSON.stringify(tree.toJSON())).toContain('Some execution status is unavailable')
+ expect(JSON.stringify(tree.toJSON())).toContain('Reviewer')
+ expect(tree.root.findAllByType('button')).toHaveLength(1)
+ await act(async () => {await vi.advanceTimersByTimeAsync(10000)})
+ expect(tree.root.findAllByType('button')).toHaveLength(0)
+ expect(JSON.stringify(tree.toJSON())).toContain('Agent processing ended')
+ await act(async () => {await vi.advanceTimersByTimeAsync(30000)})
+ expect(fetch).toHaveBeenCalledTimes(3)
+ act(() => tree.unmount())
+})

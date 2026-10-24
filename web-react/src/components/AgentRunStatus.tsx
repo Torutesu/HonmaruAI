@@ -67,7 +67,7 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
         const runs: Run[] = result.results.filter((run: Run) => run && rowIds.includes(run.rowId)).map((run: Run) => ({...run, assignments: assignmentsFrom(run.assignments)})).filter((run: Run) => labels[run.status] || run.assignments?.length)
         if (!stopped) setState({scope, runs, unavailable: result.available === false})
         attempts++
-        again = result.available !== false && (runs.some(activeRun) || (attempts < 3 && runs.length < rowIds.length))
+        again = runs.some(activeRun) || (attempts < 3 && (result.available === false || runs.length < rowIds.length))
       } catch {
         if (!stopped) setState({scope, runs: [], unavailable: true})
         again = ++attempts < 3
@@ -90,10 +90,11 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
     }
   }, [scope, ids, api.httpBase, api.orgId, api.sessionToken, channel, refresh])
   if (state.scope !== scope || (!state.runs.length && !state.unavailable)) return null
-  if (state.unavailable) return <p className="slk-run-unavailable">{t('Agent execution status unavailable')}</p>
+  if (state.unavailable && !state.runs.length) return <p className="slk-run-unavailable">{t('Agent execution status unavailable')}</p>
   const active = state.runs.filter(activeRun).length
   return <details className="slk-agent-runs">
     <summary><span className="slk-run-disclosure"><Icon name="chevron-right" size={12}/></span><Icon name="bot" size={14}/>{t('Agent execution')}{active > 0 && <span className="slk-run-active" role="status">{t('{count} active', {count: active})}</span>}</summary>
+    {state.unavailable && <p className="slk-run-unavailable" role="status">{t('Some execution status is unavailable. Saved assignment status is shown below.')}</p>}
     <ul>{state.runs.map(run => <li key={run.rowId}>
       <span className="slk-run-source" title={sources.find(m => m.id === run.rowId)?.body}>{sources.find(m => m.id === run.rowId)?.body.slice(0, 100) || t('Message')}</span>
       {!run.assignments?.length && <span>{t(labels[run.status])}</span>}
