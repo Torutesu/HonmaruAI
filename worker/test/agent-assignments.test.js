@@ -101,3 +101,15 @@ test('assignment settlement DB failure keeps the normal durable job recoverable'
   expect(calls).toBe(1);expect(data.get(resultKey).status).toBe('interrupted');expect(data.has(key)).toBe(false);
   expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE id=?1').bind(a.id).first()).toEqual({status:'interrupted'});
 });
+
+test('handoff settlement repairs only the exact target generation',async()=>{
+ const {settleHandoff}=await import('../src/harness/agentHandoffRun.js');
+ const a=await start();await commitHandoff(env.DB,move(a));await claimHandoff(env.DB,{orgId:'org',operationId:'operation-1'});
+ await commitHandoff(env.DB,move(a,{generation:1,sourceAgentId:'reviewer',targetAgentId:'analyst',operationId:'operation-2'}));
+ await claimHandoff(env.DB,{orgId:'org',operationId:'operation-2'});
+ await settleHandoff(env,{orgId:'org',rowId:'operation-1'},{status:'interrupted'});
+ expect(await owns(a,2,'analyst')).toBe(true);
+ await settleHandoff(env,{orgId:'org',rowId:'operation-2'},{status:'interrupted'});
+ expect(await owns(a,2,'analyst')).toBe(false);
+ expect(await env.DB.prepare('SELECT generation,status FROM hx_agent_assignments WHERE id=?1').bind(a.id).first()).toEqual({generation:2,status:'interrupted'});
+});

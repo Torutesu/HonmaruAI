@@ -97,3 +97,16 @@ test('retry rejects running/successful/stale results and requires acknowledgemen
  expect(await runInDurableObject(stub,(_,state)=>queueRoomHookRetry(state.storage,{...input,expectedAt:122,confirmInterrupted:true}))).toEqual({status:409});
  expect(await runInDurableObject(stub,(_,state)=>queueRoomHookRetry(state.storage,{...input,confirmInterrupted:true}))).toEqual({status:202});
 });
+
+test('handoff receipt is distinct, deduplicated and cancellation cannot restart it',async()=>{
+ const stub=await runner(),handoff={orgId:job.orgId,rowId:job.rowId,kind:'handoff'};
+ expect((await enqueue(stub,handoff)).status).toBe(202);
+ expect((await enqueue(stub,handoff)).status).toBe(202);
+ expect((await enqueue(stub)).status).toBe(202);
+ expect(await jobs(stub)).toHaveLength(2);
+ await runInDurableObject(stub,instance=>instance.alarm());
+ expect(await jobs(stub)).toHaveLength(0);
+ expect(await runInDurableObject(stub,(_,state)=>state.storage.get(`result:${JSON.stringify([job.orgId,'handoff',job.rowId])}`))).toMatchObject({status:'cancelled',answered:0});
+ expect((await enqueue(stub,handoff)).status).toBe(202);
+ expect(await jobs(stub)).toHaveLength(0);
+});

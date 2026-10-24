@@ -857,3 +857,66 @@ test('a queued Harness request cancels after sign-out before any runner delivery
   const runner={idFromName:name=>name,get:()=>({fetch:async()=>{calls++;return new Response('Queued',{status:202})}})};
   expect(await drainAgentRequests({...env,AGENT_RUNNER:runner},{orgId:ORG,messageId:row.id})).toEqual({accepted:0,cancelled:1,retried:0});expect(calls).toBe(0);
 });
+
+test('a Harness model handoff queues and executes the target once while suppressing the source final answer', async () => {
+  const {agent:source}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO})).json();
+  const {agent:target}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO.replaceAll('Hayao','Reviewer').replaceAll('hayao','reviewer')})).json();
+  const {setMode}=await import('../src/harness/mode.js');
+  const {runQueuedAgents}=await import('../src/agentRunner.js');
+  const {runQueuedHandoff}=await import('../src/harness/agentHandoffRun.js');
+  await setMode(env.DB,ORG,'harness','8801');
+  for(const id of [source.id,target.id])await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:cafe',?2,'8801','2026-10-24')").bind(ORG,id).run();
+  const queued=[];
+  const runner={idFromName:name=>name,get:()=>({fetch:async(_url,init)=>{queued.push(JSON.parse(init.body));return new Response('Queued',{status:202})}})};
+  let modelCalls=0;
+  fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(200,opts=>{
+    modelCalls++;const body=JSON.parse(opts.body);
+    expect(body.tools.find(tool=>tool.name==='handoff_to_agent').parameters.properties.targetAgentId.enum).toContain(target.id);
+    return {id:'handoff-source',output_text:'Do not post this stale source answer',output:[{type:'function_call',name:'handoff_to_agent',call_id:'handoff',arguments:JSON.stringify({targetAgentId:target.id,brief:'Review the source evidence and give a final recommendation.'})}]};
+  });
+  const sent=await send('POST','/channels/messages',mika,{orgId:ORG,channel:'b:cafe',body:'@hayao review the evidence'},{OPENAI_API_KEY:'sk-test',AGENT_INLINE:'',AGENT_RUNNER:runner});
+  expect(sent.status).toBe(201);const {message}=await sent.json();
+  expect(queued).toHaveLength(1);
+  await runQueuedAgents({...env,OPENAI_API_KEY:'sk-test',AGENT_INLINE:'',AGENT_RUNNER:runner},queued.shift());
+  expect(queued).toHaveLength(1);expect(queued[0]).toMatchObject({kind:'handoff',orgId:ORG});
+  fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(200,opts=>{
+    modelCalls++;const body=JSON.parse(opts.body);expect(body.instructions).toContain('Reviewer');expect(body.input).toContain('Review the source evidence and give a final recommendation.');
+    return {id:'handoff-target',output_text:'Reviewed evidence: proceed with the documented recommendation.'};
+  });
+  const result=await runQueuedHandoff({...env,OPENAI_API_KEY:'sk-test',AGENT_RUNNER:runner},queued[0]);
+  expect(result).toEqual({status:'finished',answered:1});
+  await runQueuedHandoff({...env,OPENAI_API_KEY:'sk-test',AGENT_RUNNER:runner},queued[0]);
+  expect(modelCalls).toBe(2);
+  const replies=(await env.DB.prepare('SELECT author_login,body FROM channel_messages WHERE org_id=?1 AND parent_id=?2 ORDER BY created_at,id').bind(ORG,message.id).all()).results;
+  expect(replies).toHaveLength(2);
+  expect(replies.some(reply=>reply.author_login===`agent:${source.id}` && reply.body.includes('@reviewer'))).toBe(true);
+  expect(replies.some(reply=>reply.author_login===`agent:${target.id}` && reply.body.includes('Reviewed evidence'))).toBe(true);
+  expect(JSON.stringify(replies)).not.toContain('stale source answer');
+  const assignment=await env.DB.prepare('SELECT * FROM hx_agent_assignments WHERE org_id=?1 AND source_message_id=?2').bind(ORG,message.id).first();
+  expect(assignment).toMatchObject({current_agent_id:target.id,generation:1,status:'finished'});
+});
+
+test('handoff delivery retries a lost acknowledgement and cancels after source edits',async()=>{
+ const {agent:source}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO})).json();
+ const {agent:target}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO.replaceAll('Hayao','Reviewer').replaceAll('hayao','reviewer')})).json();
+ const {setMode}=await import('../src/harness/mode.js');
+ const {beginAuthorizedAssignment,acceptAgentHandoff}=await import('../src/harness/agentAssignmentGrant.js');
+ const {drainAgentHandoffs}=await import('../src/harness/agentHandoffDispatch.js');
+ const {postMessage}=await import('../src/channels.js');const {getSession}=await import('../src/db.js');
+ await setMode(env.DB,ORG,'harness','8801');
+ for(const id of [source.id,target.id])await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:cafe',?2,'8801','2026-10-24')").bind(ORG,id).run();
+ const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'mika',body:'@hayao review evidence'});
+ const begun=await beginAuthorizedAssignment(env,{orgId:ORG,rowId:row.id,token:(await getSession(env.DB,mika)).token},source.id);
+ expect(begun.started).toBe(true);
+ const accepted=await acceptAgentHandoff(env,{orgId:ORG,assignmentId:begun.assignment.id,generation:0,sourceAgentId:source.id,targetAgentId:target.id,operationId:'delivery-test',brief:'Review',messageBody:'@reviewer review'});
+ expect(accepted.error).toBeUndefined();
+ let calls=0;const runner={idFromName:name=>name,get:()=>({fetch:async()=>{calls++;throw Error('lost acknowledgement')}})};
+ const input={orgId:ORG,operationId:'delivery-test'};
+ expect(await drainAgentHandoffs({...env,AGENT_RUNNER:runner},input)).toEqual({accepted:0,cancelled:0,retried:1});
+ const pending=await env.DB.prepare('SELECT * FROM hx_agent_handoff_dispatch WHERE operation_id=?1').bind(input.operationId).first();
+ expect(pending.status).toBe('pending');
+ await env.DB.prepare("UPDATE channel_messages SET body='Changed source' WHERE id=?1").bind(row.id).run();
+ expect(await drainAgentHandoffs({...env,AGENT_RUNNER:runner},{...input,now:pending.next_attempt+1})).toEqual({accepted:0,cancelled:1,retried:0});
+ expect(calls).toBe(1);
+ expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE id=?1').bind(begun.assignment.id).first()).toEqual({status:'cancelled'});
+});

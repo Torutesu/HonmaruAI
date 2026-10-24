@@ -1,3 +1,4 @@
+import {runQueuedHandoff,settleHandoff} from './harness/agentHandoffRun.js';
 import {settleInitialAssignments} from './harness/agentAssignmentSettlement.js';
 import {runTrackedAgentJob} from './agentJobResult.js';
 import {readAgentJobStatuses, validAgentStatusInput} from './agentJobStatus.js';
@@ -20,7 +21,7 @@ import { useMirrorEnv } from "./store/mirror.js";
 import { useMediaEnv } from "./mediaToken.js";
 
 const MAX_JOBS = 50;
-const jobKind = job => job.kind === "proxy" ? "proxy" : job.kind === "room_hook" ? "room_hook" : "agent";
+const jobKind = job => job.kind === "proxy" ? "proxy" : job.kind === "room_hook" ? "room_hook" : job.kind === "handoff" ? "handoff" : "agent";
 
 export class AgentRunner {
   constructor(state, env) {
@@ -64,7 +65,7 @@ export class AgentRunner {
     const job = await request.json().catch(() => null);
     // A proxy's job carries whose agent it is, not a session: it works for
     // the person mentioned, not the person who wrote.
-    if (!job?.orgId || !job?.rowId || (job.kind != null && !["proxy","room_hook","agent"].includes(job.kind)) || (job.kind === "proxy" ? !job.owner : job.kind !== "room_hook" && !job.token)) return new Response("Bad job", { status: 400 });
+    if (!job?.orgId || !job?.rowId || (job.kind != null && !["proxy","room_hook","handoff","agent"].includes(job.kind)) || (job.kind === "proxy" ? !job.owner : job.kind !== "room_hook" && job.kind !== "handoff" && !job.token)) return new Response("Bad job", { status: 400 });
     // The same message may reach enqueue again after a response is lost.
     // Keep the receipt after dequeue too: a running or completed request must
     // not start another paid run. A new request uses a new message ID.
@@ -113,7 +114,7 @@ export class AgentRunner {
     // jobs remain queued until their result has been persisted.
     await this.state.storage.delete([...jobs].filter(([,job])=>job.kind === "proxy").map(([key])=>key));
     let retry=false;
-    await Promise.allSettled([...jobs].map(([key,job]) => (job.kind === "room_hook" ? this.runRoomHook(key,job) : job.kind === "proxy" ? runProxy(this.env, job) : runTrackedAgentJob(this.state.storage,key,job,()=>runQueuedAgents(this.env,job,{details:true}),{onSettled:(result,job)=>settleInitialAssignments(this.env,job,result)})).catch((err) => {
+    await Promise.allSettled([...jobs].map(([key,job]) => (job.kind === "room_hook" ? this.runRoomHook(key,job) : job.kind === "proxy" ? runProxy(this.env, job) : job.kind === 'handoff' ? runTrackedAgentJob(this.state.storage,key,job,()=>runQueuedHandoff(this.env,job),{kind:'handoff',onSettled:(result,job)=>settleHandoff(this.env,job,result)}) : runTrackedAgentJob(this.state.storage,key,job,()=>runQueuedAgents(this.env,job,{details:true}),{onSettled:(result,job)=>settleInitialAssignments(this.env,job,result)})).catch((err) => {
       retry=true;
       console.error("queued agent failed", err?.message || err);
     })));
@@ -131,6 +132,6 @@ export async function runQueuedAgents(env, { orgId, token, rowId, locale }, {det
   if(!grant)return respond({status:'cancelled',answered:0});
   if(!grant.agents.length)return respond({status:'no_agents',answered:0});
   const authorize=agentExecutionAuthorizer(env,request,grant.row);
-  const answered=await runAgents(env,{...grant,locale,authorize});
+  const answered=await runAgents(env,{...grant,locale,authorize,durableExecution:true});
   return respond({status:!answered && !await authorize() ? 'cancelled' : 'finished',answered});
 }

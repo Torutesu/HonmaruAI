@@ -15,16 +15,18 @@ async function originGrant(env, assignment) {
   return {...grant,assignment};
 }
 
-async function eligibleTargets(env, grant) {
+export async function assignmentTargets(env, grant) {
   const placed = await channelAgents(env.DB,grant.orgId,grant.resolved.key);
-  return filterResponders(env.DB,grant.orgId,grant.user.login,placed,{named:new Set(placed.map(agent=>agent.id)),channel:grant.resolved.key});
+  // External teammates need persisted generation fencing in their callback
+  // path before they can participate in this runtime handoff protocol.
+  return filterResponders(env.DB,grant.orgId,grant.user.login,placed.filter(agent=>!agent.provider),{named:new Set(placed.map(agent=>agent.id)),channel:grant.resolved.key});
 }
 
 export async function beginAuthorizedAssignment(env, request, agentId) {
   if (await getMode(env.DB,request.orgId) !== 'harness') return null;
   const grant = await agentExecutionGrant(env,request);
   if (!grant || grant.resolved.kind !== 'business' || !grant.agents.some(agent=>agent.id===agentId)) return null;
-  if (!(await eligibleTargets(env,grant)).some(agent=>agent.id===agentId)) return null;
+  if (!(await assignmentTargets(env,grant)).some(agent=>agent.id===agentId)) return null;
   return beginAssignment(env.DB,{orgId:grant.orgId,row:grant.row,agentId,actorId:grant.session.github_id,sessionKey:grant.session.token});
 }
 
@@ -34,7 +36,7 @@ export async function assignmentExecutionGrant(env,{orgId,assignmentId,generatio
     || !(assignment.status === 'running' || (allowPending && assignment.status === 'pending'))) return null;
   const grant = await originGrant(env,assignment);
   if (!grant) return null;
-  const agent = (await eligibleTargets(env,grant)).find(agent=>agent.id===agentId);
+  const agent = (await assignmentTargets(env,grant)).find(agent=>agent.id===agentId);
   return agent ? {...grant,agents:[agent]} : null;
 }
 
@@ -42,7 +44,7 @@ export async function acceptAgentHandoff(env,input) {
   const assignment = await env.DB.prepare('SELECT * FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(input.orgId,input.assignmentId).first();
   const grant = await originGrant(env,assignment);
   if (!grant) return {error:'Execution access changed.',status:403};
-  const eligible = await eligibleTargets(env,grant);
+  const eligible = await assignmentTargets(env,grant);
   if (![input.sourceAgentId,input.targetAgentId].every(id=>eligible.some(agent=>agent.id===id))) return {error:'The handoff agents are not available in this room.',status:403};
   // commitHandoff checks immutable replay identity before consuming ownership.
   // A valid retry can inspect its original result after the generation changed.

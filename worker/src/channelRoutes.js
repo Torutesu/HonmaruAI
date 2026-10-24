@@ -1,3 +1,4 @@
+import {runAgentAssignment} from './harness/runAgentAssignment.js';
 import {drainAgentRequests,decorateAgentRequestStatuses} from './agentRequestDispatch.js';
 import {agentExecutionAuthorizer} from './agentExecutionGrant.js';
 import { searchRoom } from './roomSearch.js';
@@ -447,8 +448,9 @@ export function allOwnAgents(agents, login) {
 
 /// The agents' answers, side by side: each reads the conversation,
 /// researches with its tools, and answers as itself when it is ready.
-export async function runAgents(env, { orgId, session, user, resolved, row, members, locale, agents, authorize = null, roomHookSource = false }) {
+export async function runAgents(env, { orgId, session, user, resolved, row, members, locale, agents, authorize = null, roomHookSource = false, assignment = null, requestOverride = null, durableExecution = false }) {
   if (authorize && !await authorize()) return 0;
+  const taskText = requestOverride ?? row.body;
   locale = await loadCopy(env, locale || "en", { orgId });
   const parentId = row.parent_id || (resolved.kind === "agent" ? null : row.id);
   const face = (a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji || null, avatarUrl: a.avatarUrl || a.avatar_url || null });
@@ -464,7 +466,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   const provider = await providerFor(env, orgId);
   const allowance = provider ? await allowanceFor(env, orgId, { githubId: String(session.github_id) }) : null;
   const [transcript, playbook] = provider && allowance?.allowed
-    ? await Promise.all([contextFor(env.DB, orgId, resolved.key, row, { whole: resolved.kind === "agent" }), row.parent_id ? [] : playbookFor(env.DB, orgId, row.body)])
+    ? await Promise.all([contextFor(env.DB, orgId, resolved.key, row, { whole: resolved.kind === "agent" }), row.parent_id ? [] : playbookFor(env.DB, orgId, taskText)])
     : [[], []];
   // Research, in a conversation with the agent only: past decisions and
   // what this person's connected tools hold are theirs to read, and would
@@ -472,7 +474,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   let research = "";
   if (!row.parent_id && resolved.kind === "agent" && provider && allowance?.allowed) {
     try {
-      const terms = searchTermsFor(row.body, null);
+      const terms = searchTermsFor(taskText, null);
       const available = await connectedSources(env, session, orgId);
       // The decisions this person may open, as their own search finds them:
       // a guest's are the ones they are on.
@@ -530,7 +532,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   });
   // Every agent called works at once, each answering as soon as it is done:
   // five agents take as long as the slowest, not the sum of all five.
-  const answerOne = async (agent, index, authorizeAgent = authorize) => {
+  const answerOne = async (agent, index, authorizeAgent = authorize, runtimeTools = {}) => {
     const authorize = authorizeAgent ? () => authorizeAgent(agent.id) : null;
     if (authorize && !await authorize()) return;
     // An AI teammate works through its own service, not the workspace's
@@ -549,9 +551,9 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     try {
       // "@agent remember …": kept in the agent's own memory, no model
       // needed (harness/agents.js).
-      const remember = harness ? rememberRequest(requestFor(row.body, agent)) : null;
+      const remember = harness && requestOverride == null ? rememberRequest(requestFor(taskText, agent)) : null;
       // "@agent follow up in 3 days: …": it comes back to this thread then.
-      const later = harness && !remember ? followupRequest(requestFor(row.body, agent)) : null;
+      const later = harness && requestOverride == null && !remember ? followupRequest(requestFor(taskText, agent)) : null;
       if (remember) {
         const kept = await addAgentMemory(env.DB, orgId, agent.id, remember, { by: session.github_id, channel: resolved.key });
         text = kept.error || serverText(locale, "agent.remembered", { text: kept.memory.text });
@@ -567,7 +569,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         ready.agent = await withRoomGuidelines(env.DB, orgId, resolved.key, ready.agent);
         if (authorize && !await authorize()) return;
         const result = await askAgent({
-          provider: ready.provider, agent: ready.agent, request: requestFor(row.body, agent), transcript, playbook, where, research, links, tools: { ...tools, ...ready.skillTools }, env,
+          provider: ready.provider, agent: ready.agent, request: requestFor(taskText, agent), transcript, playbook, where, research, links, tools: { ...tools, ...ready.skillTools, ...runtimeTools }, env,
           askedBy: user.name || "a teammate", readerLanguage: locale,
           deadline: Date.now() + (env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 25000 : 240000),
           onRound: () => progress(agent, "agent"), authorize,
@@ -601,7 +603,16 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       await progress(agent, "done");
     }
   };
-  await Promise.all(agents.map((agent, index) => answerOne(agent, index).catch((err) => console.error("agent turn failed", safe(err?.message)))));
+  const outcomes = await Promise.allSettled(agents.map((agent, index) => {
+    const execute = runtime => answerOne(agent,index,runtime.authorize,runtime.tools);
+    const run = durableExecution && harness && !roomHookSource && session?.token && !agent.provider
+      ? runAgentAssignment(env,{orgId,session,row,agent,authorize,existing:assignment,locale,
+          publish:async messageId=>{const message=await getMessage(env.DB,orgId,messageId);if(message&&!message.deleted_at)await broadcastWithParent(env,orgId,resolved,message,members);}},execute)
+      : answerOne(agent,index);
+    return durableExecution && harness ? run : run.catch(err=>console.error("agent turn failed",safe(err?.message)));
+  }));
+  const rejected = outcomes.find(outcome=>outcome.status==='rejected');
+  if(rejected)throw rejected.reason;
   if (provider) await settleUsage(env.DB, provider, { orgId, githubId: session.github_id });
   return answered;
 }
