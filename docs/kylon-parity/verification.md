@@ -2377,3 +2377,9 @@ Observed remaining issue: fallback retains draft in URL after seeding the compos
 ## One-shot adjustment draft consumption (2026-10-24)
 
 The missing-source composer now acknowledges its initial suggestion. AppView marks it consumed for later panel reopen and removes draft from the current matching app-conversation hash, retaining data/chat parameters and notifying the router. The hash helper refuses other apps/orgs/drafts and source navigation routes. Existing edited composer text survives removal of the prop. No message is sent. Full Web passed 165 files / 1131 tests; final router notification addition passed build and the related route/conversation/app suites (/tmp/honmaru-consume-draft-tests.log, -final-build.log, -final-tests.log). Live confirmation of clear/close/reopen still pending.
+
+## One-shot draft production verification (2026-10-24)
+
+Deploy Web 40091492120 / job 120864914485 succeeded for a1357a7a. Logs verify both public hosts serve index-AXNY97Ts.js (preview https://92981157.honmaru-web.pages.dev). Native authenticated UI: shared test view > group adjustment seeded the expected context; resulting hash was section=data&chat=1 without draft. Cleared the composer, closed it, reopened it, and checked after conversation loading: composer remained empty and send disabled. Screenshot/AX inspected. No messages sent. Restored prior personal view. Linked-source live case remains separate/unverified.
+
+CI 40091492136 latest snapshot: desktop, web, relay, gateway, shared core/mobile success; Worker and E2E still running; Windows/iOS skipped. Installed desktop happened to reload normally in this pass, so the blanking issue is intermittent; local repaint test success should not be overstated as an exhaustive fix.
