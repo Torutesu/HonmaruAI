@@ -1,3 +1,4 @@
+import {workflowNoticeGuard} from './harness/workflowNoticeGuard.js';
 import {agentRequestStatement} from './agentRequestDispatch.js';
 import { roomHookReplyGuard } from './harness/roomHookExecutionGrant.js';
 import { listMembers } from "./team.js";
@@ -546,7 +547,8 @@ async function messageByClientId(db, orgId, authorLogin, clientId) {
 /// than sent without it.
 const FILES_GONE = "A file in this message is no longer there. Attach it again.";
 
-export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, assignmentFence = null }) {
+export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, assignmentFence = null, workflowNotice = null }) {
+  if(workflowNotice && (kind!=='ai'||authorLogin!=='__workflow'||!parentId||files||withFiles||assignmentFence||agentRequest||roomHookSource||typeof workflowNotice.workflowId!=='string'||typeof workflowNotice.generation!=='string'||typeof workflowNotice.recipientId!=='string'))return {error:'Invalid workflow notice.',status:403};
   if (roomHookSource && (!parentId || kind !== 'agent' || !authorLogin?.startsWith('agent:'))) return {error:'Invalid webhook reply.',status:403};
   if(assignmentFence && (kind!=='agent' || !parentId || files?.ids?.length || withFiles || typeof assignmentFence.assignmentId!=='string' || !Number.isSafeInteger(assignmentFence.generation) || typeof assignmentFence.sourceId!=='string' || typeof assignmentFence.sourceBody!=='string' || typeof assignmentFence.sourceAuthor!=='string'))return {error:'Invalid execution reply.',status:403};
   const text = String(body || "").replace(/\r\n/g, "\n").trim();
@@ -597,6 +599,8 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
     const executionLive = assignmentFence ? ` AND EXISTS (SELECT 1 FROM hx_agent_assignments a JOIN channel_messages s ON s.org_id=a.org_id AND s.id=a.source_message_id
       WHERE a.org_id=?2 AND a.id=?14 AND a.generation=?15 AND a.status='running' AND 'agent:'||a.current_agent_id=?4 AND a.channel=?3 AND a.thread_id=?9
       AND s.channel=a.channel AND s.kind='message' AND COALESCE(s.parent_id,s.id)=a.thread_id AND s.id=?16 AND s.body=?17 AND s.author_login=?18 AND COALESCE(s.parent_id,'')=?19 AND s.deleted_at IS NULL)` : '';
+    const noticeLive=workflowNotice?` AND ${workflowNoticeGuard}`:'';
+    const noticeValues=workflowNotice?[workflowNotice.workflowId,workflowNotice.generation,workflowNotice.recipientId]:[];
     const fenceValues=assignmentFence?[assignmentFence.assignmentId,assignmentFence.generation,assignmentFence.sourceId,assignmentFence.sourceBody,assignmentFence.sourceAuthor,assignmentFence.sourceParent || '']:[];
 
     if (files?.ids?.length) {
@@ -622,8 +626,9 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
         return { error: FILES_GONE, code: "files_gone", status: 409 };
       }
     } else {
-      const insert = db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}${executionLive}`).bind(...values,...fenceValues);
+      const insert = db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}${executionLive}${noticeLive}`).bind(...values,...fenceValues,...noticeValues);
       const put = dispatch ? (await db.batch([insert,dispatch]))[0] : await insert.run();
+      if(workflowNotice && !put.meta?.changes)return {error:'Workflow notice access changed.',code:'notice_changed',status:409};
       if (assignmentFence && !put.meta?.changes)return {error:'Execution access changed.',code:'execution_changed',status:409};
       if (parentId && !put.meta?.changes) return roomHookSource ? {error:"Webhook access changed.",code:"webhook_revoked",status:403} : { error: THREAD_GONE, code: "thread_gone" };
     }

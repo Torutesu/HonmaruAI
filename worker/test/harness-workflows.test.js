@@ -916,6 +916,14 @@ test('pause delivery posts once to the bound thread despite concurrent retries a
  const replies=await env.DB.prepare('SELECT body,kind FROM channel_messages WHERE org_id=?1 AND parent_id=?2').bind(ORG,root.row.id).all();
  expect(replies.results).toHaveLength(1);expect(replies.results[0].kind).toBe('ai');expect(replies.results[0].body).toContain('three consecutive failures');
  await env.DB.prepare('UPDATE hx_workflow_safety_notices SET delivered_at=NULL WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).run();
+ const guarded=()=>postMessage(env.DB,{orgId:ORG,key:'b:ops',parentId:root.row.id,authorLogin:'__workflow',kind:'ai',body:'No stale notice',clientId:'tmp-stale-notice',workflowNotice:{workflowId:workflow.id,generation,recipientId:'9302'}});
+ await env.DB.prepare("UPDATE hx_workflow_safety SET paused_at=NULL WHERE org_id=?1 AND workflow_id=?2").bind(ORG,workflow.id).run();
+ expect((await guarded()).code).toBe('notice_changed');
+ await env.DB.prepare("UPDATE hx_workflow_safety SET paused_at='now' WHERE org_id=?1 AND workflow_id=?2").bind(ORG,workflow.id).run();
+ await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='ops'").bind(ORG).run();
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=?1 AND channel='b:ops' AND login='mika'").bind(ORG).run();
+ expect((await guarded()).code).toBe('notice_changed');
  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9302'").bind(ORG).run();
+ expect((await guarded()).code).toBe('notice_changed');
  expect(await deliverWorkflowNotices(env,ORG,workflow.id)).toBe(0);
 });

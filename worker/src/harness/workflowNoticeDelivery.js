@@ -23,7 +23,7 @@ export async function deliverWorkflowNotices(env,orgId,workflowId){
   const body=String(user?.locale||'').startsWith('ja')
    ? `自動化「${workflow.name}」は3回連続で失敗したため停止しました。実行履歴を確認してから再開してください。保留イベントは自動再生されません。`
    : `Automation “${workflow.name}” paused after three consecutive failures. Review its run history before resuming. Held events will not replay automatically.`;
-  const result=await postMessage(db,{orgId,key:target.source.channel,parentId:target.source.threadId,authorLogin:'__workflow',kind:'ai',body,clientId});
+  const result=await postMessage(db,{orgId,key:target.source.channel,parentId:target.source.threadId,authorLogin:'__workflow',kind:'ai',body,clientId,workflowNotice:{workflowId,generation:notice.generation,recipientId:String(notice.recipient_id)}});
   if(!result.row||result.row.channel!==target.source.channel||result.row.parent_id!==target.source.threadId)continue;
   await db.prepare('UPDATE hx_workflow_safety_notices SET delivered_at=COALESCE(delivered_at,?1) WHERE org_id=?2 AND workflow_id=?3 AND generation=?4 AND recipient_id=?5')
    .bind(new Date().toISOString(),orgId,workflowId,notice.generation,notice.recipient_id).run();
