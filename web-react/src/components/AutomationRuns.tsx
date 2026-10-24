@@ -3,19 +3,9 @@ import React,{useCallback,useEffect,useRef,useState} from 'react'
 import type {HarnessApi,Run,WorkflowSafety} from '../utils/harness'
 import {getLocale} from '../utils/locale'
 const labels:Record<string,string>={done:'完了',running:'実行中',waiting:'承認待ち',failed:'失敗',declined:'却下',ok:'成功',cancelled:'キャンセル'}
-export function runDuration(run: Pick<Run,'status'|'startedAt'|'finishedAt'>): string | null {
- if(!['done','failed','declined','cancelled'].includes(run.status)||!run.finishedAt)return null
- const elapsed=Date.parse(run.finishedAt)-Date.parse(run.startedAt)
- if(!Number.isFinite(elapsed)||elapsed<0)return null
- let locale=getLocale()
- try{new Intl.NumberFormat(locale)}catch{locale='en'}
- const seconds=elapsed/1000
- const units: Array<[number,'hour'|'minute'|'second']> = seconds<60
-  ? [[seconds,'second']]
-  : seconds<3600 ? [[Math.floor(seconds/60),'minute'],[Math.floor(seconds%60),'second']]
-  : [[Math.floor(seconds/3600),'hour'],[Math.floor(seconds%3600/60),'minute']]
- return units.map(([value,unit])=>new Intl.NumberFormat(locale,{style:'unit',unit,unitDisplay:'short',maximumFractionDigits:unit==='second'&&seconds<60?1:0}).format(value)).join(' ')
-}
+export {runDuration} from '../utils/runDuration'
+import {runDuration} from '../utils/runDuration'
+
 export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessApi}) {
  const [runs,setRuns]=useState<Run[]|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[isOpen,setIsOpen]=useState(false)
  const [safety,setSafety]=useState<WorkflowSafety|null>(null),[canEdit,setCanEdit]=useState(false)

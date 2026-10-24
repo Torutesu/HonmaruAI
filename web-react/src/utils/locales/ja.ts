@@ -1,6 +1,7 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Elapsed time, including approval waits": "経過時間（承認待ち時間を含む）",
   "No recorded AI usage. This does not confirm zero usage.": "AI使用量の記録がありません。未使用を意味するものではありません。",
   "Input tokens": "入力トークン",
   "Output tokens": "出力トークン",

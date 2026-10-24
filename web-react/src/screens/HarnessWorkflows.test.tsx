@@ -24,6 +24,16 @@ async function open() {
   await act(async () => { tree = create(<HarnessWorkflows {...props} />) })
   await act(async () => { tree.root.findByProps({ 'data-workflow': workflow.id }).props.onClick() })
 }
+test('workflow history shows elapsed time without inventing duration for unfinished runs',async()=>{
+ state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[
+  {id:'done-run',status:'done',trigger:'manual',startedAt:'2026-10-24T09:00:00Z',finishedAt:'2026-10-24T09:01:10Z',log:[]},
+  {id:'live-run',status:'running',trigger:'manual',startedAt:'2026-10-24T09:02:00Z',finishedAt:null,log:[]},
+ ]});
+ await open();
+ expect(tree.root.findByProps({'data-run':'done-run'}).findAllByProps({title:'Elapsed time, including approval waits'})).toHaveLength(1);
+ expect(tree.root.findByProps({'data-run':'live-run'}).findAllByProps({title:'Elapsed time, including approval waits'})).toHaveLength(0);
+ expect(tree.root.findByProps({'data-run':'done-run'}).findByType('time').props.dateTime).toBe('2026-10-24T09:00:00Z');
+});
 test('webhook revocation requires confirmation, uses the observed secret, and displays revoked state', async () => {
   await open()
   await act(async () => { button('Revoke webhook').props.onClick() })

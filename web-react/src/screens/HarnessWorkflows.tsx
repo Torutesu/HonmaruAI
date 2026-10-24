@@ -1,3 +1,5 @@
+import {runDuration} from '../utils/runDuration'
+import {getLocale} from '../utils/locale'
 import {WorkflowRunUsage} from '../components/WorkflowRunUsage'
 import {WorkflowSource} from '../components/WorkflowSource'
 import {WorkflowNotices} from '../components/WorkflowNotices'
@@ -285,7 +287,8 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
           {open.runs.map((r) => (
             <div key={r.id} className="row static hx-run" data-run={r.id}>
               <div className="row-main">
-                <span className={`hx-status ${r.status}`}>{t(r.status)}</span> {new Date(r.startedAt).toLocaleString()} · {t(r.trigger)}
+                <span className={`hx-status ${r.status}`}>{t(r.status)}</span> <time dateTime={r.startedAt}>{new Date(r.startedAt).toLocaleString(getLocale())}</time> · {t(r.trigger)}
+                {runDuration(r)!==null&&<> · <span title={t('Elapsed time, including approval waits')}>{runDuration(r)}</span></>}
                 <WorkflowRunUsage usage={r.usage}/>
                 {r.log.map((l) => (
                   l.output || l.error ? <details key={l.step} className="hx-run-detail">
@@ -294,7 +297,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
                     </summary>
                     {l.output && <div><strong>{t('Output')}</strong><pre>{l.output}</pre></div>}
                     {l.error && <div><strong>{t('Error')}</strong><pre>{l.error}</pre></div>}
-                    <time dateTime={l.at}>{new Date(l.at).toLocaleString()}</time>
+                    <time dateTime={l.at}>{new Date(l.at).toLocaleString(getLocale())}</time>
                   </details> : <span key={l.step} className="row-sub hx-log">{l.step}. {stepLabel(t, l.type)} — <span className={`hx-status ${l.status}`}>{t(l.status)}</span></span>
                 ))}
               </div>
