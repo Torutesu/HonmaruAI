@@ -71,3 +71,33 @@ test('a deleted source cannot start and a cancelled pending assignment cannot be
   await env.DB.prepare("UPDATE channel_messages SET deleted_at='now' WHERE id=?1").bind(row.id).run();
   expect(await beginAssignment(env.DB,{...origin,agentId:'other'})).toMatchObject({status:409});
 });
+
+test('normal job settlement never consumes a delegated generation or rewrites terminal state',async()=>{
+  const {settleInitialAssignments}=await import('../src/harness/agentAssignmentSettlement.js');
+  const delegated=await start(),direct=await start({agentId:'analyst'});
+  await commitHandoff(env.DB,move(delegated));
+  await claimHandoff(env.DB,{orgId:'org',operationId:'operation-1'});
+  await settleInitialAssignments(env,{orgId:'other',rowId:row.id},{status:'interrupted'});
+  expect(await owns(direct,0,'analyst')).toBe(true);
+  await settleInitialAssignments(env,{orgId:'org',rowId:row.id},{status:'interrupted'});
+  expect(await owns(delegated,1,'reviewer')).toBe(true);
+  expect(await owns(direct,0,'analyst')).toBe(false);
+  await settleInitialAssignments(env,{orgId:'org',rowId:row.id},{status:'finished'});
+  expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE id=?1').bind(direct.id).first()).toEqual({status:'interrupted'});
+});
+
+test('assignment settlement DB failure keeps the normal durable job recoverable',async()=>{
+  const {settleInitialAssignments}=await import('../src/harness/agentAssignmentSettlement.js');
+  const {runTrackedAgentJob}=await import('../src/agentJobResult.js');
+  const a=await start(),job={orgId:'org',rowId:row.id},key='job:test',resultKey='result:["org","agent","request"]';
+  const data=new Map([[key,job]]),storage={get:async k=>data.get(k),put:async(k,v)=>data.set(k,v),delete:async k=>data.delete(k)};
+  let calls=0;const execute=async()=>{calls++;return {status:'finished',answered:1}};
+  const onSettled=(result,job)=>settleInitialAssignments(env,job,result);
+  await env.DB.exec("CREATE TRIGGER fail_settlement BEFORE UPDATE ON hx_agent_assignments BEGIN SELECT RAISE(ABORT,'test failure'); END;");
+  await expect(runTrackedAgentJob(storage,key,job,execute,{onSettled})).rejects.toThrow();
+  expect(data.get(resultKey).status).toBe('running');expect(data.has(key)).toBe(true);expect(await owns(a)).toBe(true);
+  await env.DB.exec('DROP TRIGGER fail_settlement');
+  await runTrackedAgentJob(storage,key,job,execute,{onSettled});
+  expect(calls).toBe(1);expect(data.get(resultKey).status).toBe('interrupted');expect(data.has(key)).toBe(false);
+  expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE id=?1').bind(a.id).first()).toEqual({status:'interrupted'});
+});

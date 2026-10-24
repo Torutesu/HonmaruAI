@@ -1,3 +1,4 @@
+import {settleInitialAssignments} from './harness/agentAssignmentSettlement.js';
 import {runTrackedAgentJob} from './agentJobResult.js';
 import {readAgentJobStatuses, validAgentStatusInput} from './agentJobStatus.js';
 import {agentExecutionGrant,agentExecutionAuthorizer} from './agentExecutionGrant.js';
@@ -112,7 +113,7 @@ export class AgentRunner {
     // jobs remain queued until their result has been persisted.
     await this.state.storage.delete([...jobs].filter(([,job])=>job.kind === "proxy").map(([key])=>key));
     let retry=false;
-    await Promise.allSettled([...jobs].map(([key,job]) => (job.kind === "room_hook" ? this.runRoomHook(key,job) : job.kind === "proxy" ? runProxy(this.env, job) : runTrackedAgentJob(this.state.storage,key,job,()=>runQueuedAgents(this.env,job,{details:true}))).catch((err) => {
+    await Promise.allSettled([...jobs].map(([key,job]) => (job.kind === "room_hook" ? this.runRoomHook(key,job) : job.kind === "proxy" ? runProxy(this.env, job) : runTrackedAgentJob(this.state.storage,key,job,()=>runQueuedAgents(this.env,job,{details:true}),{onSettled:(result,job)=>settleInitialAssignments(this.env,job,result)})).catch((err) => {
       retry=true;
       console.error("queued agent failed", err?.message || err);
     })));

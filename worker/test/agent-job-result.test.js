@@ -61,3 +61,27 @@ test('alarm backs off when a job result cannot be persisted',async()=>{
  expect(setAlarm).toHaveBeenCalledTimes(1);
  expect(setAlarm.mock.calls[0][0]).toBeGreaterThanOrEqual(started+15000);
 });
+
+import assert from 'node:assert/strict';
+test('settlement failure retains work, recovery settles interruption without repeating execution',async()=>{
+ const s=store();let calls=0;const execute=async()=>{calls++;return {status:'finished',answered:1}};
+ await assert.rejects(runTrackedAgentJob(s,key,job,execute,{onSettled:async()=>{throw Error('D1 unavailable')}}));
+ assert.equal((await s.get(resultKey)).status,'running');assert.deepEqual(await s.get(key),job);
+ let settled;await runTrackedAgentJob(s,key,job,execute,{onSettled:async result=>{settled=result.status}});
+ assert.equal(settled,'interrupted');assert.equal(calls,1);assert.equal(await s.get(key),undefined);
+});
+test('failed interruption settlement remains recoverable',async()=>{
+ const s=store();await s.put(resultKey,{status:'running',at:2});let calls=0;
+ const execute=async()=>{calls++};
+ await assert.rejects(runTrackedAgentJob(s,key,job,execute,{onSettled:async()=>{throw Error('D1 unavailable')}}));
+ assert.equal((await s.get(resultKey)).status,'running');assert.deepEqual(await s.get(key),job);assert.equal(calls,0);
+});
+test('terminal result retries settlement and removal without executing',async()=>{
+ const s=store();await s.put(resultKey,{status:'finished',answered:1,at:2});let settled;
+ await runTrackedAgentJob(s,key,job,()=>{throw Error('must not execute')},{onSettled:async result=>{settled=result.status}});
+ assert.equal(settled,'finished');assert.equal((await s.get(resultKey)).status,'finished');assert.equal(await s.get(key),undefined);
+});
+test('handoff result uses separate namespace',async()=>{
+ const s=store();await runTrackedAgentJob(s,key,job,async()=>({status:'finished'}),{kind:'handoff'});
+ assert.equal(await s.get(resultKey),undefined);assert.equal((await s.get('result:["org","handoff","request"]')).status,'finished');
+});
