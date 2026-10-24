@@ -2188,3 +2188,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### App automation integration (2026-10-24)
 
 Merged isolated app automation work into the primary branch at `8e752136`, preserving preceding main documentation. Worker frozen full suite passed 225 files / 1854 tests; subsequent follow-up origin/migration fix passed 4 files / 108 targeted tests. Latest Web full suite passed 158 files / 1089 tests and Vite production build succeeded (`/tmp/honmaru-b47-full-web.log`, `/tmp/honmaru-b47-build.log`). KY-053 moves from missing to partial based on concrete implementation; inventory counts do not measure parity. Authenticated real-screen comparison remains unavailable, and no 100% claim is made. Existing source/step editing limitations and reconciliation edge cases are recorded in app-automation-contract.md.
+
+### App automation UI follow-up verification
+
+Primary runtime commit `c49aae04` (resource-name review, minute-precision follow-up editing, in-app execution history) passed the full Web suite: 160 files / 1093 tests, 3.61s (`/tmp/honmaru-c49-full-web.log`). Production build also succeeded (`/tmp/honmaru-c49-build.log`) with existing chunk/dynamic-import warnings. No Worker runtime changes followed cfece088's push. Its CI 40071366860, Web 40071366835 and Worker 40071366840 are still confirmed in progress; hold the next push until all are terminal. Authenticated real-screen operation/Kylon parity remains unverified.
