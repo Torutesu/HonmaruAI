@@ -609,10 +609,10 @@
       "id": "KY-053",
       "category": "Apps",
       "requirement": "Appに同梱する自動化と差分検出",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/workflows.js",
+      "code": "worker/src/harness/appAutomationRelease.js",
       "acceptance": "declared/liveのdrift・下書き停止・公開時反映"
     },
     {

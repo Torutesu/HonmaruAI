@@ -1,6 +1,6 @@
 # App-owned automation contract
 
-Status: design grounded in the current repository; KY-053 remains missing. This is not an implemented feature or a claim of live Kylon UI equivalence. The public app CLI URL was unavailable and a focused official-documentation search did not return usable evidence on 2026-10-24. Existing requirement acceptance remains the target until live reference behavior can be inspected.
+Current status: KY-053 is partially implemented with declaration storage, atomic releases, lifecycle guards, generation and editor UI. Live Kylon UI equivalence and production behavior remain unverified. Historical entries below describe the implementation stages. The public app CLI URL was unavailable and a focused official-documentation search did not return usable evidence on 2026-10-24. Existing requirement acceptance remains the target until live reference behavior can be inspected.
 
 ## Current gaps
 

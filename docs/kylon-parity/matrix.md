@@ -92,7 +92,7 @@
 | KY-050 | 独自ドメイン・DNS・環境変数 | 未実装 | P2 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | ホスト競合・証明書・秘密値非表示・再デプロイ |
 | KY-051 | デプロイ履歴・ログ・ロールバック | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 現行定義のversionと実デプロイの復元を区別 |
 | KY-052 | App用Connection grant | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 個人/アプリ/固定URL/HTTP操作のgrant、暗号化資格情報、確認付きproxyを追加。組織共有grantとOAuth更新は残る |
-| KY-053 | Appに同梱する自動化と差分検出 | 未実装 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | declared/liveのdrift・下書き停止・公開時反映 |
+| KY-053 | Appに同梱する自動化と差分検出 | 一部実装 | P1 | [worker/src/harness/appAutomationRelease.js](../../worker/src/harness/appAutomationRelease.js) | declared/liveのdrift・下書き停止・公開時反映 |
 | KY-054 | テンプレート共有とバージョン | 未実装 | P2 | [worker/src/harness/templates.js](../../worker/src/harness/templates.js) | 秘密情報・実データを除去して固定バージョンで共有 |
 | KY-055 | App移動・削除とデータ保持 | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | ルーム移動時に会話ACLを再確認し削除時DB保持方針を明示 |
 
