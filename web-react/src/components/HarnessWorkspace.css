@@ -731,3 +731,8 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
  .hx-data-tools.hx-search-expanded > input[type=search] { display:block; width:120px !important; }
  .hx-data-tools > span { display:none; }
 }
+/* Floating reference panels use a single neutral frame, not the full app canvas. */
+:root .shell.harness-workspace .hx-floating-app > .hx-app-detail,
+:root .shell.harness-workspace .hx-floating-app .screen-head { background:var(--hx-surface); }
+:root .shell.harness-workspace .hx-floating-app .screen-body { border:0; border-radius:0 0 12px 12px; margin:0; }
+:root .shell.harness-workspace .hx-floating-app .screen-head .back { width:24px; height:24px; min-width:24px; padding:0; background:transparent; border:0; border-radius:6px; box-shadow:none; }
