@@ -1,10 +1,10 @@
 import {fetchMock} from './helpers/fetch-mock.js';
-import {beforeEach,afterEach,expect,test} from 'vitest';
+import {beforeEach,afterEach,expect,test,vi} from 'vitest';
 import {chatTools} from '../src/agentChatTools.js';
 import {markControlTool,handoffControl} from '../src/agentToolControl.js';
 import {askAgent} from '../src/customAgents.js';
 beforeEach(()=>fetchMock.activate());
-afterEach(()=>fetchMock.assertNoPendingInterceptors());
+afterEach(()=>{vi.restoreAllMocks();fetchMock.assertNoPendingInterceptors();});
 const provider=()=>({providerName:'OpenRouter',endpoint:'https://openrouter.ai/api/v1/chat/completions',apiKey:'test',model:'test/free',usage:[]});
 const call=(id,name,args='{}')=>({id,type:'function',function:{name,arguments:args}});
 const reply=(message,check=()=>{})=>fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'}).reply(200,opts=>{check(JSON.parse(opts.body));return {choices:[{message}],usage:{prompt_tokens:4,completion_tokens:2}};});
@@ -89,4 +89,13 @@ test('progress callback cannot bypass revocation before the next model request',
  reply({tool_calls:[call('one','lookup')]});
  const out=await run({authorize:async()=>allowed,onRound:async()=>{allowed=false;},tools:{lookup:tool(async()=>'found')}});
  expect(out.cancelled).toBe(true);
+});
+
+test('a hanging tool reaches its deadline without replay, siblings or an inferred answer',async()=>{
+ let started=0,siblings=0,clock=Date.now();
+ vi.spyOn(Date,'now').mockImplementation(()=>clock);
+ const deadline=clock+11000;
+ reply({content:'Everything finished',tool_calls:[call('one','hang'),call('two','write')]},()=>{clock=deadline-50;});
+ const out=await run({deadline,tools:{hang:tool(async()=>{started++;return new Promise(()=>{});}),write:tool(async()=>siblings++)}});
+ expect(out).toMatchObject({called:true,answer:null,interrupted:true});expect(started).toBe(1);expect(siblings).toBe(0);
 });

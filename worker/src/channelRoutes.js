@@ -584,6 +584,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         });
         if (result.called && allowance.metered) await allowance.consume();
         if (result.cancelled || result.handedOff) return;
+        if (result.interrupted) return {interrupted:true};
         // No answer: say why, so nobody waits on silence — the AI service
         // turned it down (no call was paid for), or it ran out of time.
         text = result.answer || serverText(locale, result.called ? "agent.failedEmpty" : "agent.failedService");

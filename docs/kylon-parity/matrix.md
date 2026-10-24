@@ -36,7 +36,7 @@
 | KY-015 | 制限したエージェントへの直接APIアクセス | 一部 | P0 | [worker/src/harness/routes.js](../../worker/src/harness/routes.js) | 今回メモリ等・一覧・DM・編集を修正。全API/外部実行の経路監査が残る |
 | KY-016 | Simpleへの切替で権限を緩めない | 実装あり | P0 | [worker/test/harness-agents.test.js](../../worker/test/harness-agents.test.js) | 両モードで非許可ユーザーとworkspace adminの直接アクセスを拒否 |
 | KY-017 | メンション時のみ応答 | 一部 | P1 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 継続スレッド・直接DM・自動化の優先順位を統一 |
-| KY-018 | スレッドの単一リーダーと引継ぎ | 未実装 | P0 | [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js) | 重複起動防止・明示handoff・失敗時のリーダー交代 |
+| KY-018 | スレッドの単一リーダーと引継ぎ | 一部 | P0 | [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js) | 重複起動防止・明示handoff・失敗時のリーダー交代 |
 | KY-019 | エージェント同士のループ抑止 | 一部 | P0 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 明示宛先以外の自動再起動を防ぎ最大handoff回数を記録 |
 | KY-020 | 実行停止・キャンセル伝播 | 一部 | P0 | [worker/src/agentRunner.js](../../worker/src/agentRunner.js) | 停止でモデル・ツール・子実行を中断し課金とUI状態を確定 |
 | KY-021 | ターンごとの実行プロセス | 一部 | P1 | [worker/src/agentRunner.js](../../worker/src/agentRunner.js) | 開始/ツール/失敗/完了を永続化し権限ある人だけ追跡 |
@@ -183,3 +183,5 @@ Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing an
 | KY-095 | ルームのカスタムビジュアルアップロード | 一部 | P1 | [RoomColorPicker.tsx](../../web-react/src/components/RoomColorPicker.tsx) | 本番Macで合成PNGのアップロード・一覧/ヘッダー表示・再読み込み保持・削除を確認。閲覧権限はAPIテスト済み。物理端末間反映と複数利用者での本番検証は残る。参照では入口のみ確認 |
 
 既存のエージェント画像は公開URLを返すため、非公開ルーム画像へそのまま流用しない。既存MEDIA保存先は利用候補だが、ルームACLで認証する読み取り経路と失効後の表示破棄が必要。新規サービス契約は不要の設計方針とし、未実装を完了扱いしない。
+
+2026-10-24追記: KY-018は世代で所有権を管理する明示引き継ぎ・履歴・停止操作と外部エージェントへの引き継ぎを実装したため「一部」に更新。失敗時の安全な自動交代、外部エージェントからの引き継ぎ開始、本番での実動作比較は未完了。OpenRouterツール実行はローカル検証段階。要件件数は完成率ではない。詳細なコミットと検証範囲はverification.mdを参照。

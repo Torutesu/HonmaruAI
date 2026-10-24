@@ -60,7 +60,23 @@ export async function chatTools({provider, instructions, input, tools, authorize
         try {
           const args = JSON.parse(call.function.arguments);
           if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Arguments must be an object');
-          const value = tool ? await tool.run(args) : 'Unknown tool.';
+          let value;
+          if (!tool) value = 'Unknown tool.';
+          else {
+            const remaining = deadline - Date.now();
+            if (remaining <= 0) return {interrupted: true};
+            const expired = Symbol('tool deadline');
+            let timer;
+            try {
+              value = await Promise.race([
+                Promise.resolve().then(() => tool.run(args)),
+                new Promise(resolve => {timer = setTimeout(() => resolve(expired), remaining);}),
+              ]);
+            } finally {clearTimeout(timer);}
+            // Timeout cannot undo an already-started external operation. Do
+            // not execute siblings, retry this tool or infer its outcome.
+            if (value === expired || Date.now() >= deadline) return {interrupted: true};
+          }
           const operationId = isControlTool(tool) ? handoffOperation(value) : null;
           if (operationId) return {handedOff: {operationId}};
           output = typeof value === 'string' ? value : JSON.stringify(value) ?? String(value);
@@ -75,7 +91,7 @@ export async function chatTools({provider, instructions, input, tools, authorize
     const ordered = [...pending.filter(call => isControlTool(tools[call.function.name])), ...pending.filter(call => !isControlTool(tools[call.function.name]))];
     for (const call of ordered) {
       const result = await run(call);
-      if (result.cancelled || result.handedOff) return done(result);
+      if (result.cancelled || result.handedOff || result.interrupted) return done(result);
       results.set(call.id, result.output);
     }
     if (!await permitted()) return done({cancelled: true});

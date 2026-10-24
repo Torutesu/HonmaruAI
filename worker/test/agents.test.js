@@ -975,3 +975,16 @@ test.each(['missing','error','malformed'])('assignment history and stop rights s
  expect(stopped.status).toBe(200);
  const after=await call(url,{headers:headers(mika)},over);expect((await after.json()).results[0].assignments[0]).toMatchObject({status:'cancelled',canStop:false});
 });
+
+test('an uncertain tool deadline leaves the assignment interrupted, not finished',async()=>{
+ const f=await assignmentStatusFixture();
+ const {claimHandoff}=await import('../src/harness/agentAssignments.js');
+ const {runAgentAssignment}=await import('../src/harness/runAgentAssignment.js');
+ const {getSession}=await import('../src/db.js');
+ await claimHandoff(env.DB,{orgId:ORG,operationId:'status-hop'});
+ const assignment=await env.DB.prepare('SELECT * FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(ORG,f.assignmentId).first();
+ let calls=0;
+ const result=await runAgentAssignment(env,{orgId:ORG,session:await getSession(env.DB,mika),row:f.row,agent:f.target,existing:assignment},async()=>{calls++;return {interrupted:true};});
+ expect(calls).toBe(1);expect(result.interrupted).toBe(true);
+ expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(ORG,f.assignmentId).first()).toEqual({status:'interrupted'});
+});

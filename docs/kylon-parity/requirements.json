@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-10-23",
+  "asOf": "2026-10-24",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -202,11 +202,16 @@
       "id": "KY-018",
       "category": "Agents",
       "requirement": "スレッドの単一リーダーと引継ぎ",
-      "status": "missing",
+      "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/agents/overview",
       "code": "worker/src/channelRoutes.js",
-      "acceptance": "重複起動防止・明示handoff・失敗時のリーダー交代"
+      "acceptance": "重複起動防止・明示handoff・失敗時のリーダー交代",
+      "evidence": {
+        "release": "Durable ownership/history/stop changes through ca7c25af are on main; deployment verification pending. OpenRouter tool loop and outage resilience are local follow-ups.",
+        "verified": "Generation-fenced assignments, atomic explicit handoff/outbox, duplicate delivery handling, scoped chain metadata and stop control; inbound external teammate completion publication and revocation tests. See agent-handoff-contract.md and verification.md for exact revisions and evidence.",
+        "remaining": "Remote teammates cannot initiate local handoff. Automatic safe failure takeover and authenticated production/Kylon comparison are incomplete; this is not 100% parity."
+      }
     },
     {
       "id": "KY-019",
@@ -216,7 +221,11 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/agents/overview",
       "code": "worker/src/customAgents.js",
-      "acceptance": "明示宛先以外の自動再起動を防ぎ最大handoff回数を記録"
+      "acceptance": "明示宛先以外の自動再起動を防ぎ最大handoff回数を記録",
+      "evidence": {
+        "verified": "Ordinary agent replies remain inert. Explicit control tools use runtime-branded signals; handoffs reject self/cycles and cap generations at eight. Tests cover successful transfer suppressing ordinary sibling tools and source draft replies.",
+        "remaining": "Full live multi-agent behavior and remote outbound handoff coverage remain unverified. OpenRouter extension is local and awaiting full/deploy checks."
+      }
     },
     {
       "id": "KY-020",

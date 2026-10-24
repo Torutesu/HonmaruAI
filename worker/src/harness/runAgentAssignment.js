@@ -41,7 +41,7 @@ export async function runAgentAssignment(env,{orgId,session,row,agent,authorize=
     const result=await execute({authorize:permitted,tools,replyFence:{assignmentId:assignment.id,generation:assignment.generation,sourceId:row.id,sourceBody:row.body,sourceAuthor:row.author_login,sourceParent:row.parent_id}});
     if(await assignmentOwns(env.DB,identity)) {
       if(!await permitted())await endAssignment(env.DB,{...identity,status:'cancelled'});
-      else if(!await externalAssignmentPending(env.DB,identity))await endAssignment(env.DB,{...identity,status:'finished'});
+      else if(!await externalAssignmentPending(env.DB,identity))await endAssignment(env.DB,{...identity,status:result?.interrupted?'interrupted':'finished'});
     }
     return result;
   } catch(error) {
