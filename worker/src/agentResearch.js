@@ -1,3 +1,4 @@
+import {isControlTool, handoffOperation} from './agentToolControl.js';
 /// How an agent researches: a tool loop on OpenAI's Responses API, the way
 /// OpenAI's own guides describe it — a reasoning model that plans its own
 /// searches (agentic search), the hosted web search tool, and function
@@ -130,9 +131,10 @@ export async function research({ provider, env, instructions, input, tools = {},
     const pending = (Array.isArray(data.output) ? data.output : []).filter((item) => item?.type === "function_call");
     if (!pending.length || finalOnly) break;
 
-    // Our tools, run side by side; past the budget, the model is told so
-    // and asked for its answer next round.
-    const outputs = await Promise.all(pending.map(async (call) => {
+    // Trusted ownership-changing tools run alone before ordinary siblings.
+    // A committed handoff ends this turn even if the model also returned text
+    // or requested writes in the same response. Normal tools remain parallel.
+    const runCall = async (call) => {
       calls += 1;
       let output;
       if (calls > MAX_FUNCTION_CALLS) output = "Tool budget spent. Answer now from what you have.";
@@ -143,6 +145,8 @@ export async function research({ provider, env, instructions, input, tools = {},
         try {
           if (authorize && !await authorize()) return { type: "function_call_output", call_id: call.call_id, output: "Access changed. Execution stopped." };
           const result = tool ? await tool.run(args) : `No tool named ${call.name}.`;
+          const operationId = isControlTool(tool) ? handoffOperation(result) : null;
+          if (operationId) return {handedOff: {operationId}};
           output = typeof result === "string" ? result : JSON.stringify(result) ?? String(result);
         } catch (err) {
           output = `The tool failed: ${String(err?.message || err).slice(0, 200)}`;
@@ -152,8 +156,15 @@ export async function research({ provider, env, instructions, input, tools = {},
         }
       }
       return { type: "function_call_output", call_id: call.call_id, output: output.slice(0, MAX_TOOL_OUTPUT) };
-    }));
-    next = outputs;
+    };
+    const results = new Map();
+    for (const call of pending.filter(call => isControlTool(tools[call.name]))) {
+      const result = await runCall(call);
+      if (result.handedOff) return {called, answer: null, sources: [], rounds, calls, handedOff: result.handedOff};
+      results.set(call, result);
+    }
+    await Promise.all(pending.filter(call => !isControlTool(tools[call.name])).map(async call => results.set(call, await runCall(call))));
+    next = pending.map(call => results.get(call));
     if (calls >= MAX_FUNCTION_CALLS || rounds >= MAX_ROUNDS || Date.now() > deadline - 30000) finalOnly = true;
   }
 

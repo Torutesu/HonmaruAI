@@ -501,6 +501,7 @@ Request to you (@${agent.handle}): ${request || "(no words beyond your name — 
 /// cited listed when the answer did not list them itself.
 async function runResearch(opts) {
   const out = await researchLoop(opts);
+  if (out.handedOff) return {called: out.called, answer: null, handedOff: out.handedOff};
   if (out.cancelled) return { called: out.called, answer: null, cancelled: true };
   if (out.refused || !out.answer) return { called: out.called, answer: null, refused: Boolean(out.refused) };
   let answer = forChat(out.answer);

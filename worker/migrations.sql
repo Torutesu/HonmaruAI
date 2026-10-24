@@ -217,28 +217,8 @@ ALTER TABLE ai_teammate_runs ADD COLUMN room_hook_source TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_hook ON ai_teammate_runs(org_id,room_hook_source,channel,status);
 
-CREATE TABLE IF NOT EXISTS hx_agent_assignments (
-  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, source_message_id TEXT NOT NULL,
-  initial_agent_id TEXT NOT NULL, current_agent_id TEXT NOT NULL, channel TEXT NOT NULL,
-  thread_id TEXT NOT NULL, actor_id TEXT NOT NULL, session_key TEXT NOT NULL,
-  source_hash TEXT NOT NULL, generation INTEGER NOT NULL DEFAULT 0,
-  status TEXT NOT NULL CHECK(status IN ('running','pending','finished','failed','cancelled','interrupted')),
-  visited TEXT NOT NULL, hop_limit INTEGER NOT NULL CHECK(hop_limit BETWEEN 1 AND 8),
-  mutation_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-  UNIQUE(org_id,source_message_id,initial_agent_id)
-);
+CREATE TABLE IF NOT EXISTS hx_agent_assignments ( id TEXT PRIMARY KEY, org_id TEXT NOT NULL, source_message_id TEXT NOT NULL, initial_agent_id TEXT NOT NULL, current_agent_id TEXT NOT NULL, channel TEXT NOT NULL, thread_id TEXT NOT NULL, actor_id TEXT NOT NULL, session_key TEXT NOT NULL, source_hash TEXT NOT NULL, generation INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL CHECK(status IN ('running','pending','finished','failed','cancelled','interrupted')), visited TEXT NOT NULL, hop_limit INTEGER NOT NULL CHECK(hop_limit BETWEEN 1 AND 8), mutation_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(org_id,source_message_id,initial_agent_id) );
 CREATE INDEX IF NOT EXISTS idx_hx_agent_assignments_source ON hx_agent_assignments(org_id,source_message_id);
-CREATE TABLE IF NOT EXISTS hx_agent_handoffs (
-  org_id TEXT NOT NULL, operation_id TEXT NOT NULL, assignment_id TEXT NOT NULL,
-  source_generation INTEGER NOT NULL, source_agent_id TEXT NOT NULL, target_agent_id TEXT NOT NULL,
-  brief TEXT NOT NULL, message_body TEXT NOT NULL, message_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL,
-  PRIMARY KEY(org_id,operation_id), UNIQUE(assignment_id,source_generation)
-);
-CREATE TABLE IF NOT EXISTS hx_agent_handoff_dispatch (
-  org_id TEXT NOT NULL, operation_id TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','cancelled')),
-  attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0,
-  lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL,
-  PRIMARY KEY(org_id,operation_id)
-);
+CREATE TABLE IF NOT EXISTS hx_agent_handoffs ( org_id TEXT NOT NULL, operation_id TEXT NOT NULL, assignment_id TEXT NOT NULL, source_generation INTEGER NOT NULL, source_agent_id TEXT NOT NULL, target_agent_id TEXT NOT NULL, brief TEXT NOT NULL, message_body TEXT NOT NULL, message_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, PRIMARY KEY(org_id,operation_id), UNIQUE(assignment_id,source_generation) );
+CREATE TABLE IF NOT EXISTS hx_agent_handoff_dispatch ( org_id TEXT NOT NULL, operation_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,operation_id) );
 CREATE INDEX IF NOT EXISTS idx_hx_agent_handoff_dispatch_due ON hx_agent_handoff_dispatch(status,next_attempt,lease_until);

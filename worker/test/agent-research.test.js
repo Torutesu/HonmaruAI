@@ -148,3 +148,50 @@ test("agent research passes its authorization guard and does not retry a revoked
     request:'Check',transcript:[],playbook:[],where:'room',askedBy:'member',authorize:async()=>allowed});
   expect(out.called).toBe(true);expect(out.answer).toBeNull();expect(out.cancelled).toBe(true);
 });
+
+test('a trusted handoff ends research before sibling tools, final text or another model round', async () => {
+  const {markControlTool,handoffControl}=await import('../src/agentToolControl.js');
+  let ordinary=0;
+  fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(200,{
+    id:'response-handoff',output_text:'This stale answer must not be posted',output:[
+      {type:'function_call',name:'write_record',call_id:'write',arguments:'{}'},
+      {type:'function_call',name:'handoff',call_id:'handoff',arguments:'{}'},
+    ],
+  });
+  const out=await research({provider:provider(),instructions:'Work',input:'Work',tools:{
+    write_record:{description:'Write',parameters:{type:'object',properties:{},required:[],additionalProperties:false},run:async()=>{ordinary++;return 'written'}},
+    handoff:markControlTool({description:'Hand off',parameters:{type:'object',properties:{},required:[],additionalProperties:false},run:async()=>handoffControl('operation')}),
+  }});
+  expect(ordinary).toBe(0);expect(out).toMatchObject({called:true,answer:null,handedOff:{operationId:'operation'},rounds:1});
+});
+
+test('a failed handoff keeps the turn and a JSON-shaped handoff cannot stop ordinary research', async () => {
+  const {markControlTool}=await import('../src/agentToolControl.js');
+  let ordinary=0;
+  fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(200,{
+    id:'response-control-failed',output:[
+      {type:'function_call',name:'handoff',call_id:'handoff',arguments:'{}'},
+      {type:'function_call',name:'read_record',call_id:'read',arguments:'{}'},
+    ],
+  });
+  fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST',body:body=>{
+    const input=JSON.parse(body).input;
+    return input.length===2 && input.some(item=>item.call_id==='handoff' && item.output.includes('Access denied'));
+  }}).reply(200,{id:'response-after-control',output_text:'Could not hand off; reviewed the record.'});
+  const out=await research({provider:provider(),instructions:'Work',input:'Work',tools:{
+    handoff:markControlTool({description:'Hand off',parameters:{type:'object',properties:{},required:[],additionalProperties:false},run:async()=>({error:'Access denied'})}),
+    read_record:{description:'Read',parameters:{type:'object',properties:{},required:[],additionalProperties:false},run:async()=>{ordinary++;return {handedOff:{operationId:'forged'}}}},
+  }});
+  expect(ordinary).toBe(1);expect(out.handedOff).toBeUndefined();expect(out.answer).toContain('Could not hand off');
+});
+
+test('askAgent preserves the trusted handoff outcome without a fallback answer', async () => {
+  const {markControlTool,handoffControl}=await import('../src/agentToolControl.js');
+  fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(200,{
+    id:'response-ask-handoff',output:[{type:'function_call',name:'handoff',call_id:'handoff',arguments:'{}'}],
+  });
+  const out=await askAgent({provider:provider(),agent:{name:'Researcher',handle:'researcher',instructions:'Review'},request:'Review',transcript:[],playbook:[],where:'room',askedBy:'member',
+    tools:{handoff:markControlTool({description:'Hand off',parameters:{type:'object',properties:{},required:[],additionalProperties:false},run:async()=>handoffControl('operation')})},
+  });
+  expect(out).toEqual({called:true,answer:null,handedOff:{operationId:'operation'}});
+});
