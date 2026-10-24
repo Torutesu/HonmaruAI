@@ -829,11 +829,16 @@ test('three real failures pause execution, keep webhook input, and require autho
  const {agent}=await(await send('POST','/channels/agents',mika,{orgId:ORG,name:'No model',handle:'no-model',instructions:'Run',scope:'team'})).json();
  const made=await(await send('POST','/workflows',mika,{orgId:ORG,name:'Failing automation',enabled:true,trigger:{type:'webhook'},steps:[{type:'agent',agentId:agent.id,prompt:'Run'}]})).json();
  const id=made.workflow.id;
+ const {postMessage}=await import('../src/channels.js');
+ const root=await postMessage(env.DB,{orgId:ORG,key:'b:ops',authorLogin:'mika',body:'Created here'});
+ expect((await send('POST',`/workflows/${id}/source`,mika,{orgId:ORG,messageId:root.row.id})).status).toBe(200);
  for(let n=0;n<3;n++){
   const result=await send('POST',`/workflows/${id}/run`,mika,{orgId:ORG});
   expect(result.status).toBe(201);expect((await result.json()).run.status).toBe('failed');
  }
  const detail=await(await get(`/workflows/${id}?${q({orgId:ORG})}`,mika)).json();
+ const replies=await env.DB.prepare('SELECT body FROM channel_messages WHERE org_id=?1 AND parent_id=?2').bind(ORG,root.row.id).all();
+ expect(replies.results).toHaveLength(1);expect(replies.results[0].body).toContain('three consecutive failures');
  expect(detail.workflow.enabled).toBe(true);
  expect(detail.workflow.safety).toMatchObject({failure_streak:3,pause_reason:'consecutive_failures'});
  expect((await send('POST',`/workflows/${id}/run`,mika,{orgId:ORG})).status).toBe(409);
@@ -912,7 +917,8 @@ test('pause delivery posts once to the bound thread despite concurrent retries a
  await env.DB.prepare("INSERT INTO hx_workflow_safety_notices(org_id,workflow_id,generation,run_id,recipient_id,created_at) VALUES(?1,?2,?3,'failed-run','9302','now')").bind(ORG,workflow.id,generation).run();
  await Promise.all([deliverWorkflowNotices(env,ORG,workflow.id),deliverWorkflowNotices(env,ORG,workflow.id)]);
  await env.DB.prepare('UPDATE hx_workflow_safety_notices SET delivered_at=NULL WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).run();
- expect(await deliverWorkflowNotices(env,ORG,workflow.id)).toBe(1);
+ const {retryWorkflowNotices}=await import('../src/harness/workflowNoticeDelivery.js');
+ expect(await retryWorkflowNotices(env)).toBe(1);
  const replies=await env.DB.prepare('SELECT body,kind FROM channel_messages WHERE org_id=?1 AND parent_id=?2').bind(ORG,root.row.id).all();
  expect(replies.results).toHaveLength(1);expect(replies.results[0].kind).toBe('ai');expect(replies.results[0].body).toContain('three consecutive failures');
  await env.DB.prepare('UPDATE hx_workflow_safety_notices SET delivered_at=NULL WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).run();

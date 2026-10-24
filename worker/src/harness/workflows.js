@@ -1,3 +1,4 @@
+import {tryWorkflowNotice} from './workflowNoticeDelivery.js';
 import {ensureWorkflowSafety,readWorkflowSafety,workflowSettlementStatements} from './workflowSafety.js';
 import {managedAutomationGuard,managedAutomationRelease,managedAutomationMayRun} from './appAutomationGuard.js';
 import { mayUseTable } from './resourceAccess.js';
@@ -342,7 +343,7 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
   ]);
   if (!created[0].meta?.changes) return created[2].results?.length ? { status: 'skipped', reason: 'already_running' } : null;
   await env.DB.prepare("UPDATE hx_workflows SET last_run_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), workflow.id, orgId).run();
-  if (tooLarge) return getRun(env.DB, orgId, id);
+  if (tooLarge) {await tryWorkflowNotice(env,orgId,workflow.id);return getRun(env.DB, orgId, id);}
   return continueRun(env, { orgId, runId: id, workflow, depth });
 }
 
@@ -379,11 +380,13 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
   if (run.input === null && (await db.prepare("SELECT input FROM hx_workflow_runs WHERE id = ?1 AND org_id = ?2").bind(runId, orgId).first())?.input != null) {
     const log = [...run.log, { step: run.nextStep + 1, type: workflow.steps[run.nextStep]?.type, at: now(), status: "failed", error: "What started this run can no longer be read." }];
     await db.batch([db.prepare("UPDATE hx_workflow_runs SET status = 'failed', log = ?1, finished_at = ?2 WHERE id = ?3 AND org_id = ?4").bind(JSON.stringify(log), now(), runId, orgId),...workflowSettlementStatements(db,orgId,runId)]);
+    await tryWorkflowNotice(env,orgId,workflow.id);
     return getRun(db, orgId, runId);
   }
   const sourceTable = workflow.trigger?.tableId || run.input?.tableId;
   if (sourceTable && !(await mayUseTable(db, orgId, sourceTable, workflow.createdBy))) {
     await db.batch([db.prepare("UPDATE hx_workflow_runs SET status = 'failed', finished_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), runId, orgId),...workflowSettlementStatements(db,orgId,runId)]);
+    await tryWorkflowNotice(env,orgId,workflow.id);
     return getRun(db, orgId, runId);
   }
   const authorize=()=>managedAutomationMayRun(db,orgId,workflow.id,workflow.automationReleaseId);
@@ -413,7 +416,8 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
   await db.batch([db.prepare("UPDATE hx_workflow_runs SET status = ?1, log = ?2, next_step = ?3, card_id = COALESCE(?4, card_id), finished_at = ?5 WHERE id = ?6 AND org_id = ?7")
     .bind(status, JSON.stringify(log), index, cardId, status === "waiting" ? null : now(), runId, orgId),
     ...workflowSettlementStatements(db,orgId,runId)]);
-  return getRun(db, orgId, runId);
+  await tryWorkflowNotice(env,orgId,workflow.id);
+    return getRun(db, orgId, runId);
 }
 
 async function say(env, orgId, channel, body, { authorLogin = null, kind = "ai", parentId = null } = {}) {

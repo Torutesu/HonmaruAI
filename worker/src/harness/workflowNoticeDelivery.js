@@ -35,3 +35,25 @@ export async function deliverWorkflowNotices(env,orgId,workflowId){
  }
  return delivered;
 }
+
+
+export async function retryWorkflowNotices(env,{limit=25}={}){
+ // Scheduled cross-workspace sweep; each delivery is scoped and reauthorized.
+ const {results}=await env.DB.prepare(`SELECT n.org_id,n.workflow_id FROM hx_workflow_safety_notices n
+   JOIN hx_workflow_safety s ON s.org_id=n.org_id AND s.workflow_id=n.workflow_id AND s.generation=n.generation
+   JOIN hx_workflow_sources source ON source.org_id=n.org_id AND source.workflow_id=n.workflow_id
+   WHERE n.delivered_at IS NULL AND s.paused_at IS NOT NULL
+   ORDER BY COALESCE(n.last_attempt_at,''),n.created_at,n.org_id,n.workflow_id LIMIT ?1`)
+   .bind(Math.max(1,Math.min(100,Number.isInteger(limit)?limit:25))).all();
+ let delivered=0;
+ for(const item of results){
+  // Rotate failed/inaccessible destinations so one cannot starve later work.
+  await env.DB.prepare('UPDATE hx_workflow_safety_notices SET last_attempt_at=?1 WHERE org_id=?2 AND workflow_id=?3 AND delivered_at IS NULL')
+   .bind(new Date().toISOString(),item.org_id,item.workflow_id).run();
+  try{delivered+=await deliverWorkflowNotices(env,item.org_id,item.workflow_id)}catch(error){console.warn('Workflow notice delivery deferred',error?.message)}
+ }
+ return delivered;
+}
+export async function tryWorkflowNotice(env,orgId,workflowId){
+ try{return await deliverWorkflowNotices(env,orgId,workflowId)}catch(error){console.warn('Workflow notice delivery deferred',error?.message);return 0}
+}

@@ -1,3 +1,4 @@
+import {retryWorkflowNotices} from './harness/workflowNoticeDelivery.js';
 import {drainAgentHandoffs} from './harness/agentHandoffDispatch.js';
 import {drainAgentRequests} from './agentRequestDispatch.js';
 import { drainRoomHookDispatch } from './harness/roomHookDispatch.js';
@@ -249,6 +250,7 @@ export default {
       ctx.waitUntil(expireGatewayJobs(env.DB).catch(() => console.error("gateway expiry failed")));
       // The harness: follow-ups and scheduled workflows whose time has come.
       ctx.waitUntil(runDueFollowups(env, { now: new Date(event?.scheduledTime || Date.now()) }).catch((err) => console.error("follow-ups failed", err?.message || err)));
+      ctx.waitUntil(retryWorkflowNotices(env).catch(err=>console.error('workflow notice sweep failed',err?.message)));
       ctx.waitUntil(runDueWorkflows(env, { now: new Date(event?.scheduledTime || Date.now()) }).catch((err) => console.error("workflows failed", err?.message || err)));
       // AI teammates at work: whatever they have finished, posted back.
       ctx.waitUntil(watchTeammateRuns(env).catch((err) => console.error("teammate watch failed", err?.message || err)));
