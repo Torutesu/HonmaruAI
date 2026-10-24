@@ -1,3 +1,4 @@
+import {runTrackedAgentJob} from './agentJobResult.js';
 import {agentExecutionGrant,agentExecutionAuthorizer} from './agentExecutionGrant.js';
 import { queueRoomHookRetry } from './harness/roomHookRetry.js';
 import { roomHookExecutionGrant } from './harness/roomHookExecutionGrant.js';
@@ -6,8 +7,8 @@ import { roomHookExecutionGrant } from './harness/roomHookExecutionGrant.js';
 /// searches, reads pages and searches again needs longer. So the message's
 /// request hands the job here and returns; this Durable Object — one per
 /// workspace — keeps it and answers from its alarm, which may run for
-/// minutes. A job is taken off the list before it runs, so a failure never
-/// answers twice.
+/// minutes. Normal jobs retain a durable result so interrupted work is
+/// distinguishable from completed work without repeating external operations.
 
 import { runRoomHookAgents } from "./harness/roomHookAgentRun.js";
 import { runAgents } from "./channelRoutes.js";
@@ -101,22 +102,28 @@ export class AgentRunner {
 
   async alarm() {
     const jobs = await this.state.storage.list({ prefix: "job:", limit: 10 });
-    // Off the list first: an alarm that fails is retried, and an answer
-    // posted twice is worse than one that never came.
-    await this.state.storage.delete([...jobs].filter(([,job])=>job.kind !== "room_hook").map(([key])=>key));
-    await Promise.allSettled([...jobs].map(([key,job]) => (job.kind === "room_hook" ? this.runRoomHook(key,job) : job.kind === "proxy" ? runProxy(this.env, job) : runQueuedAgents(this.env, job)).catch((err) => {
+    // Legacy proxy jobs retain their dequeue-first behavior. Normal and hook
+    // jobs remain queued until their result has been persisted.
+    await this.state.storage.delete([...jobs].filter(([,job])=>job.kind === "proxy").map(([key])=>key));
+    let retry=false;
+    await Promise.allSettled([...jobs].map(([key,job]) => (job.kind === "room_hook" ? this.runRoomHook(key,job) : job.kind === "proxy" ? runProxy(this.env, job) : runTrackedAgentJob(this.state.storage,key,job,()=>runQueuedAgents(this.env,job,{details:true}))).catch((err) => {
+      retry=true;
       console.error("queued agent failed", err?.message || err);
     })));
     const more = await this.state.storage.list({ prefix: "job:", limit: 1 });
-    if (more.size) await this.state.storage.setAlarm(Date.now());
+    if (more.size) await this.state.storage.setAlarm(Date.now()+(retry ? 15000 : 0));
   }
 }
 
 /// One job: the message, who wrote it and where, found again from what was
 /// kept — then the agents it calls answer.
-export async function runQueuedAgents(env, { orgId, token, rowId, locale }) {
+export async function runQueuedAgents(env, { orgId, token, rowId, locale }, {details=false}={}) {
   const request={orgId,token,rowId};
   const grant=await agentExecutionGrant(env,request);
-  if(!grant?.agents.length)return 0;
-  return runAgents(env,{...grant,locale,authorize:agentExecutionAuthorizer(env,request,grant.row)});
+  const respond=result=>details ? result : result.answered;
+  if(!grant)return respond({status:'cancelled',answered:0});
+  if(!grant.agents.length)return respond({status:'no_agents',answered:0});
+  const authorize=agentExecutionAuthorizer(env,request,grant.row);
+  const answered=await runAgents(env,{...grant,locale,authorize});
+  return respond({status:!answered && !await authorize() ? 'cancelled' : 'finished',answered});
 }

@@ -1,4 +1,4 @@
-import { env, runDurableObjectAlarm } from "cloudflare:test";
+import { env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
@@ -484,6 +484,8 @@ test("in production an agent answers from AgentRunner's alarm, not the request t
   after = await (await get(`/channels/messages?${q({ orgId: ORG, channel: view })}`, mika)).json();
   expect(after.messages.map((m) => [m.kind, m.authorName])).toEqual([["message", "Mika"], ["agent", "Hayao"]]);
   expect(after.messages[1].body).toContain("no AI model");
+  const result=await runInDurableObject(stub,async(_,state)=>state.storage.get(`result:${JSON.stringify([ORG,'agent',after.messages[0].id])}`));
+  expect(result).toMatchObject({status:'finished',answered:0});
 });
 
 test("talk with the agents is left out of what a decision reads: calling one, and its answer", async () => {

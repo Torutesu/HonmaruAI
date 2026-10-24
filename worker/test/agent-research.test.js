@@ -146,5 +146,5 @@ test("agent research passes its authorization guard and does not retry a revoked
   });
   const out=await askAgent({provider:provider(),agent:{id:'a',name:'Agent',handle:'agent',instructions:'Help'},
     request:'Check',transcript:[],playbook:[],where:'room',askedBy:'member',authorize:async()=>allowed});
-  expect(out.called).toBe(true);expect(out.answer).toBeNull();
+  expect(out.called).toBe(true);expect(out.answer).toBeNull();expect(out.cancelled).toBe(true);
 });
