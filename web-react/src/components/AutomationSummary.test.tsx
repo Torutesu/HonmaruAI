@@ -11,3 +11,9 @@ test('row conditions and disabled state remain visible in the review',()=>{
  const html=renderToStaticMarkup(<AutomationSummary definition={{name:'Rows',enabled:false,trigger:{type:'row',on:'changed',tableId:'tasks',column:'status',where:{status:['Done','Closed']}},steps:[{type:'update_row',values:{status:'Archived'}}]}}/> )
  for(const text of ['停止','更新','対象テーブル: tasks','対象列: status','Done / Closed','Archived'])expect(html).toContain(text)
 })
+
+test('review resolves authorized resource names while retaining unknown identifiers',()=>{
+ const html=renderToStaticMarkup(<AutomationSummary tables={[{id:'table-id',name:'案件',columns:[{id:'status-id',name:'進捗',type:'select'}]}]} agents={[{id:'agent-id',name:'営業担当'}]} definition={{name:'確認',enabled:true,trigger:{type:'row',tableId:'table-id',column:'status-id',on:'changed',where:{'status-id':['完了']}},steps:[{type:'agent',agentId:'agent-id',prompt:'確認する'},{type:'update_row',values:{'status-id':'確認済み'}},{type:'agent',agentId:'unavailable-agent',prompt:'保留'}]}}/> )
+ for(const text of ['対象テーブル: 案件','対象列: 進捗','エージェント: 営業担当','unavailable-agent'])expect(html).toContain(text)
+ expect(html).toContain('<dt>進捗</dt>')
+})
