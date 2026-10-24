@@ -1,5 +1,5 @@
 import React,{useCallback,useEffect,useRef,useState} from 'react'
-import type {HarnessApi,Run} from '../utils/harness'
+import type {HarnessApi,Run,WorkflowSafety} from '../utils/harness'
 import {getLocale} from '../utils/locale'
 const labels:Record<string,string>={done:'完了',running:'実行中',waiting:'承認待ち',failed:'失敗',declined:'却下',ok:'成功',cancelled:'キャンセル'}
 export function runDuration(run: Pick<Run,'status'|'startedAt'|'finishedAt'>): string | null {
@@ -17,19 +17,30 @@ export function runDuration(run: Pick<Run,'status'|'startedAt'|'finishedAt'>): s
 }
 export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessApi}) {
  const [runs,setRuns]=useState<Run[]|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[isOpen,setIsOpen]=useState(false)
+ const [safety,setSafety]=useState<WorkflowSafety|null>(null),[canEdit,setCanEdit]=useState(false)
  const request=useRef(0),pending=useRef<number|null>(null),opened=useRef(false)
  const load=useCallback(async()=>{
   if(pending.current!==null)return
   const current=++request.current;pending.current=current;setBusy(true);setError('')
-  try{const result=await api.workflow(workflowId);if(current===request.current)setRuns(result.runs)}
-  catch(e){if(current===request.current){setRuns(null);setError(e instanceof Error?e.message:String(e))}}
+  try{const result=await api.workflow(workflowId);if(current===request.current){setRuns(result.runs);setSafety(result.workflow?.safety||null);setCanEdit(result.canEdit===true)}}
+  catch(e){if(current===request.current){setRuns(null);setSafety(null);setCanEdit(false);setError(e instanceof Error?e.message:String(e))}}
   finally{if(pending.current===current)pending.current=null;if(current===request.current)setBusy(false)}
  },[workflowId,api])
  useEffect(()=>{
-  request.current++;pending.current=null;setRuns(null);setError('');setBusy(false)
+  request.current++;pending.current=null;setRuns(null);setSafety(null);setCanEdit(false);setError('');setBusy(false)
   if(opened.current)void load()
   return ()=>{request.current++}
  },[load])
+ const resume=async()=>{
+  if(pending.current!==null||!canEdit||!safety?.paused_at)return
+  const current=++request.current;pending.current=current;setBusy(true);setError('')
+  try{
+   await api.resumeWorkflow(workflowId,safety.generation)
+   const result=await api.workflow(workflowId)
+   if(current===request.current){setRuns(result.runs);setSafety(result.workflow?.safety||null);setCanEdit(result.canEdit===true)}
+  }catch(e){if(current===request.current)setError(e instanceof Error?e.message:String(e))}
+  finally{if(pending.current===current)pending.current=null;if(current===request.current)setBusy(false)}
+ }
  useEffect(()=>{
   if(!isOpen||busy||error||!runs?.some(run=>run.status==='running'||run.status==='waiting'))return
   const timer=setTimeout(()=>void load(),10000)
@@ -37,6 +48,7 @@ export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessAp
  },[isOpen,busy,error,runs,load])
  return <details onToggle={e=>{opened.current=e.currentTarget.open;setIsOpen(opened.current);if(opened.current && runs===null && !busy)void load()}}><summary>実行履歴</summary>
   {busy&&<p role="status">実行履歴を読み込み中…</p>}{error&&<p role="alert">{error}</p>}
+  {safety?.paused_at&&<section className="form-note" role="status"><strong>3回連続の失敗により自動停止しました</strong><p>下の履歴を確認してから再開してください。保留イベントは自動再生されません。</p>{canEdit&&<button type="button" className="pill-btn" disabled={busy} onClick={()=>void resume()}>確認して再開</button>}</section>}
   {runs?.length===0&&<p>まだ実行されていません。</p>}
   {runs?.map(run=><details key={run.id}><summary>{new Date(run.startedAt).toLocaleString(getLocale())} · {labels[run.status]||run.status}{runDuration(run)!==null&&<> · <span title="開始から終了まで（承認待ち時間を含む）">{runDuration(run)}</span></>}</summary>
    <ol>{run.log.map((entry,index)=><li key={index}><strong>{entry.step}. {labels[entry.status]||entry.status}</strong>{entry.error&&<p className="form-error">{entry.error}</p>}{entry.output&&<pre>{entry.output}</pre>}</li>)}</ol>

@@ -100,3 +100,25 @@ test('automatic history refresh stops on failure and unmount clears scheduled wo
   expect(vi.getTimerCount()).toBe(0)
  } finally {if(tree)act(()=>tree.unmount());vi.useRealTimers()}
 })
+
+test('embedded app history presents a safety pause and resumes with its observed generation',async()=>{
+ const safety={generation:'seen',failure_streak:3,paused_at:'now',pause_reason:'consecutive_failures'}
+ const workflow=vi.fn().mockResolvedValueOnce({runs:[],workflow:{safety},canEdit:true}).mockResolvedValue({runs:[],workflow:{safety:{...safety,paused_at:null}},canEdit:true})
+ const resumeWorkflow=vi.fn().mockResolvedValue({});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow,resumeWorkflow}as any}/>)})
+ await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
+ expect(JSON.stringify(tree.toJSON())).toContain('3回連続の失敗')
+ const resume=tree.root.findAllByType('button').find((b:any)=>b.children.includes('確認して再開'))
+ await act(async()=>resume.props.onClick())
+ expect(resumeWorkflow).toHaveBeenCalledWith('wf','seen')
+ expect(JSON.stringify(tree.toJSON())).not.toContain('3回連続の失敗')
+ act(()=>tree.unmount())
+})
+test('embedded history never offers a resume action to a reader',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[],workflow:{safety:{generation:'seen',paused_at:'now'}},canEdit:false});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+ await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
+ expect(JSON.stringify(tree.toJSON())).toContain('3回連続の失敗')
+ expect(tree.root.findAllByType('button')).toHaveLength(1)
+ act(()=>tree.unmount())
+})
