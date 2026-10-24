@@ -681,3 +681,12 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 }
 
 .hx-composer-add-menu kbd { margin-left: auto; color: var(--hx-muted); font: inherit; font-size: 11px; white-space: nowrap; }
+
+.hx-app-automations { display: grid; gap: 16px; }
+.hx-app-automations > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.hx-app-automations h3 { display: flex; align-items: center; gap: 8px; }
+.hx-app-automations > header > span { color: var(--hx-muted); font-size: 12px; }
+.hx-app-automations label:has(input[type="checkbox"]) { display: flex; align-items: center; gap: 8px; }
+.hx-app-automations input[type="checkbox"] { width: 16px; height: 16px; padding: 0; flex: 0 0 auto; }
+.hx-automation-diff { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
+@media (max-width: 640px) { .hx-automation-diff { grid-template-columns: 1fr; } }

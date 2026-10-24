@@ -62,6 +62,10 @@ export interface Workflow {
   id: string; name: string; enabled: boolean; trigger: Trigger; steps: Step[]
   nextRunAt: string | null; lastRunAt: string | null; createdBy: string; hookUrl?: string; hookSecret?: string
 }
+export type AutomationDefinition = Pick<Workflow, 'name' | 'enabled' | 'trigger' | 'steps'>
+export interface AutomationBundle { version: 1; items: Array<AutomationDefinition & {key: string}> }
+export interface AutomationPlanItem { key: string; workflowId: string | null; status: 'added'|'changed'|'unchanged'|'removed'|'retired'|'drifted'|'missing'; declared: AutomationDefinition | null; published: AutomationDefinition | null; live: AutomationDefinition | null }
+export interface AppAutomationState { version: number; revision: number; draft: AutomationBundle; published: AutomationBundle | null; releaseId: string | null; publishedAt: string | null; plan?: AutomationPlanItem[] }
 export interface RunLog { step: number; type: StepType; status: string; output?: string; error?: string; at: string }
 export interface HeldWorkflowEvents { count: number; oldestExpiry: string | null; events: Array<{ id: string; receivedAt: string; expiresAt: string }>; discardEventIds?: string[] }
 export interface Run { id: string; trigger: string; status: string; log: RunLog[]; startedAt: string; finishedAt: string | null; cardId: string | null }
@@ -137,6 +141,9 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     updateApp: (id: string, patch: Record<string, unknown>) => call<{ app: App }>('PUT', `/apps/${id}`, patch),
     generateCustom: (id: string, prompt: string) => call<{ html: string }>('POST', `/apps/${id}/custom`, { action: 'generate', prompt }),
     saveCustom: (id: string, action: 'draft' | 'publish' | 'unpublish' | 'restore', version: number, html?: string, restoreVersion?: number) => call('POST', `/apps/${id}/custom`, { action, version, html, restoreVersion }),
+    appAutomations: (id: string, stateOnly = false) => call<AppAutomationState>('GET', `/apps/${id}/automations`, undefined, stateOnly ? {stateOnly:'1'} : {}),
+    saveAppAutomations: (id: string, version: number, revision: number, automations: AutomationBundle) => call<{saved:boolean;revision:number}>('PUT', `/apps/${id}/automations`, {version,revision,automations}),
+    releaseAppAutomations: (id: string, body: Record<string,unknown>) => call<{saved:boolean;revision:number;version:number;replay?:boolean}>('POST', `/apps/${id}/automations`, body),
     appDatabase: (id: string) => call<AppDatabase>('GET', `/apps/${id}/database`),
     mergePreview: (id: string, fork: AppFork) => call<MergeReview>('POST', `/apps/${id}/database`, { action:'merge_preview',forkId:fork.id,revision:fork.revision }),
     databaseChange: (id: string, body: Record<string, unknown>) => call<{operations?: unknown[]; fork?: AppFork; revision?: number; result?: unknown; review?: MergeReview}>('POST', `/apps/${id}/database`, body),

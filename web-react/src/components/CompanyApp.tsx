@@ -1,9 +1,10 @@
+import {AppAutomations} from './AppAutomations'
 import React, { useEffect, useState } from 'react'
 import type { App, AppAction, AppConnection, AppDatabase, MergeReview, Gateway, GatewayJob, HarnessApi } from '../utils/harness'
 
 export function CompanyApp({ app, api, canManage, reload }: {app: App; api: HarnessApi; canManage: boolean; reload: () => unknown}) {
   const [history,setHistory]=useState<Array<{version:number;code:string;createdAt:string}>>([])
-  const [tab,setTab]=useState<'actions'|'database'|'connections'>('actions')
+  const [tab,setTab]=useState<'actions'|'database'|'connections'|'automations'>('actions')
   const [actions,setActions]=useState<AppAction[]>([]),[connections,setConnections]=useState<AppConnection[]>([]),[db,setDb]=useState<AppDatabase|null>(null),[nodes,setNodes]=useState<Gateway[]>([])
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
   const [prompt,setPrompt]=useState(''),[name,setName]=useState(''),[code,setCode]=useState(''),[node,setNode]=useState(''),[input,setInput]=useState('{}'),[job,setJob]=useState<GatewayJob|null>(null)
@@ -20,8 +21,9 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
   const forkEntity=db?.fork?.entities.find(e=>e.key===entity)
   return <section className="hx-company-app">
     <h2>アプリの実行基盤</h2><p>サーバー処理・データ・接続を、このアプリの権限と監査履歴の下で管理します。</p>
-    <nav className="hx-tabs" aria-label="実行基盤の機能">{([['actions','サーバー処理'],['database','データベース'],['connections','外部接続']] as const).map(([id,label])=><button key={id} className={tab===id?'on':''} onClick={()=>{setTab(id);setError('');setNotice('');setPrompt('')}}>{label}</button>)}</nav>
+    <nav className="hx-tabs" aria-label="実行基盤の機能">{([['actions','サーバー処理'],['database','データベース'],['connections','外部接続'],['automations','自動化']] as const).map(([id,label])=><button key={id} className={tab===id?'on':''} onClick={()=>{setTab(id);setError('');setNotice('');setPrompt('')}}>{label}</button>)}</nav>
     {error&&<p role="alert" className="form-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
+    {tab==='automations'&&(canManage?<AppAutomations key={app.id} app={app} api={api} reload={reload}/>:<p>自動化の編集・公開は作成者または管理者が行えます。</p>)}
     {tab==='actions'&&<>
       <p>公開したJavaScriptを既存のMac実行ノードで実行します。入力と戻り値はJSONです。外部通信や本番DBへの直接書き込みは行えません。</p>
       {canManage&&<form onSubmit={e=>{e.preventDefault();void run(async()=>{const r=await api.actionChange(app.id,{action:'generate',prompt});setName(r.name||'');setCode(r.code||'');setNotice('生成した処理を確認して下書き保存してください。')})}}><label>作りたいサーバー処理<textarea value={prompt} maxLength={4000} onChange={e=>setPrompt(e.target.value)} placeholder="例：入力された売上明細から税抜合計と消費税を計算する" /></label><button disabled={busy||!prompt.trim()} className="pill-btn">処理を自動生成</button></form>}
