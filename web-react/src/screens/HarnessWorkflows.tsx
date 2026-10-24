@@ -16,6 +16,7 @@ import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 // outcome kept where anyone can read it.
 
 const CADENCES = ['daily', 'weekdays', 'weekly', 'monthly']
+const weekdayName = (day:number) => new Intl.DateTimeFormat(getLocale(),{weekday:'long',timeZone:'UTC'}).format(new Date(Date.UTC(2026,0,4+day)))
 
 function HeldEventPreview({ receivedAt, load }: { receivedAt: string; load: () => Promise<{ event: { input: unknown } }> }) {
   const t = useT()
@@ -47,7 +48,7 @@ function stepLabel(t: (k: string) => string, type: StepType) {
 }
 
 function triggerLabel(t: (k: string, v?: Record<string, string | number>) => string, tr: Trigger, tables: Table[]) {
-  if (tr.type === 'schedule') return `${t('Schedule')}: ${tr.cadence} ${String(tr.hour ?? 9).padStart(2, '0')}:${String(tr.minute ?? 0).padStart(2, '0')} ${tr.timezone || ''}`
+  if (tr.type === 'schedule') return `${t('Schedule')}: ${t(tr.cadence || 'daily')}${tr.cadence === 'weekly' ? ` · ${weekdayName(tr.weekday ?? 1)}` : tr.cadence === 'monthly' ? ` · ${t('Day {day}',{day:tr.monthday ?? 1})}` : ''} ${String(tr.hour ?? 9).padStart(2, '0')}:${String(tr.minute ?? 0).padStart(2, '0')} ${tr.timezone || ''}`
   if (tr.type === 'row') {
     const table = tables.find((x) => x.id === tr.tableId)
     const where = tr.where ? Object.entries(tr.where).map(([k, v]) => `${k} = ${v.join('/')}`).join(', ') : ''
@@ -87,8 +88,15 @@ function Builder({ tables, agents, onSave, onCancel, busy, initial }: { initial?
             <select value={trigger.cadence} onChange={(e) => setTrigger({ ...trigger, cadence: e.target.value })} aria-label={t('Cadence')}>
               {CADENCES.map((c) => <option key={c} value={c}>{t(c)}</option>)}
             </select>
+            {trigger.cadence === 'weekly' && <select aria-label={t('Weekday')} value={trigger.weekday ?? 1} onChange={e=>setTrigger({...trigger,weekday:Number(e.target.value)})}>
+              {Array.from({length:7},(_,day)=><option key={day} value={day}>{weekdayName(day)}</option>)}
+            </select>}
+            {trigger.cadence === 'monthly' && <select aria-label={t('Day of month')} value={trigger.monthday ?? 1} onChange={e=>setTrigger({...trigger,monthday:Number(e.target.value)})}>
+              {Array.from({length:31},(_,index)=><option key={index+1} value={index+1}>{t('Day {day}',{day:index+1})}</option>)}
+            </select>}
             <input type="time" className="hx-cell-input" value={`${String(trigger.hour ?? 9).padStart(2, '0')}:${String(trigger.minute ?? 0).padStart(2, '0')}`} onChange={(e) => { const [h, m] = e.target.value.split(':').map(Number); setTrigger({ ...trigger, hour: h, minute: m }) }} aria-label={t('Time')} />
             <span className="row-sub">{trigger.timezone}</span>
+            {trigger.cadence === 'monthly' && <span className="row-sub">{t('If the date does not exist, runs on the last day of the month.')}</span>}
           </span>
         )}
         {trigger.type === 'row' && (

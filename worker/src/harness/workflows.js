@@ -250,7 +250,8 @@ export async function updateWorkflow(db, orgId, id, input) {
   const hookCandidate = trigger.type === "webhook" ? hex(crypto.getRandomValues(new Uint8Array(24))) : null;
   const updatedAt = new Date(Math.max(Date.now(), (Date.parse(wf.updatedAt) || 0) + 1)).toISOString();
   const result = await db
-    .prepare(`UPDATE hx_workflows SET name = ?1, enabled = ?2, trigger = ?3, steps = ?4, next_run_at = ?5, updated_at = ?6,
+    .prepare(`UPDATE hx_workflows SET name = ?1, enabled = ?2, trigger = ?3, steps = ?4,
+      next_run_at = CASE WHEN ?2=1 AND enabled=?2 AND trigger=?3 THEN next_run_at ELSE ?5 END, updated_at = ?6,
       hook_secret = CASE WHEN ?9 IS NULL THEN NULL WHEN json_extract(trigger, '$.type') = 'webhook' THEN hook_secret ELSE ?9 END
       WHERE id = ?7 AND org_id = ?8 AND updated_at = ?10`)
     .bind(name, enabled ? 1 : 0, JSON.stringify(trigger), JSON.stringify(steps), next, updatedAt, id, orgId, hookCandidate, wf.updatedAt)

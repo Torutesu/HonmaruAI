@@ -978,3 +978,20 @@ test('workflow edits reject stale observed updates without overwriting the winni
  expect(await updateWorkflow(env.DB,ORG,first.id,{name:'Stale',expectedUpdatedAt:first.updatedAt})).toMatchObject({status:409});
  expect((await getWorkflow(env.DB,ORG,first.id)).name).toBe('Winner');
 });
+
+
+test('editing content preserves the scheduled cursor, while disabling and schedule changes recalculate it',async()=>{
+ const {createWorkflow,updateWorkflow,getWorkflow}=await import('../src/harness/workflows.js');
+ const {workflow}=await createWorkflow(env.DB,ORG,{name:'Schedule',trigger:{type:'schedule',cadence:'daily',hour:9,timezone:'UTC'},steps:[{type:'post',channel:'b:ops',text:'Before'}]},'9302');
+ const due='2026-01-01T09:00:00.000Z';
+ await env.DB.prepare('UPDATE hx_workflows SET next_run_at=?1 WHERE id=?2').bind(due,workflow.id).run();
+ const edited=await updateWorkflow(env.DB,ORG,workflow.id,{name:'Renamed',trigger:workflow.trigger,steps:workflow.steps,expectedUpdatedAt:workflow.updatedAt});
+ expect(edited.workflow.nextRunAt).toBe(due);
+ const paused=await updateWorkflow(env.DB,ORG,workflow.id,{enabled:false});
+ expect(paused.workflow.nextRunAt).toBeNull();
+ const resumed=await updateWorkflow(env.DB,ORG,workflow.id,{enabled:true});
+ expect(Date.parse(resumed.workflow.nextRunAt)).toBeGreaterThan(Date.now());
+ const changed=await updateWorkflow(env.DB,ORG,workflow.id,{trigger:{...workflow.trigger,hour:10}});
+ expect(changed.workflow.nextRunAt).not.toBe(resumed.workflow.nextRunAt);
+ expect((await getWorkflow(env.DB,ORG,workflow.id)).name).toBe('Renamed');
+});

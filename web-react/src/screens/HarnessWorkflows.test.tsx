@@ -300,3 +300,20 @@ test('editing preserves conditions and submits the observed revision; conflicts 
  await act(async()=>{button('Cancel').props.onClick()});
  expect(tree.root.findAllByProps({'aria-label':'Workflow name'})).toHaveLength(0);
 });
+
+test('weekly and monthly editors retain and save explicit calendar choices',async()=>{
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00Z',trigger:{type:'schedule',cadence:'weekly',weekday:5,hour:9,minute:30,timezone:'Asia/Tokyo'},steps:[{type:'post',channel:'b:ops',text:'Report'}]};
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});
+ state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable});
+ await open();
+ await act(async()=>{button('Edit workflow').props.onClick()});
+ expect(tree.root.findByProps({'aria-label':'Weekday'}).props.value).toBe(5);
+ await act(async()=>{tree.root.findByProps({'aria-label':'Weekday'}).props.onChange({target:{value:'0'}})});
+ await act(async()=>{await button('Save workflow').props.onClick()});
+ expect(state.api.updateWorkflow.mock.calls[0][1].trigger).toMatchObject({weekday:0,timezone:'Asia/Tokyo',hour:9,minute:30});
+ await act(async()=>{button('Edit workflow').props.onClick()});
+ await act(async()=>{tree.root.findByProps({'aria-label':'Cadence'}).props.onChange({target:{value:'monthly'}})});
+ await act(async()=>{tree.root.findByProps({'aria-label':'Day of month'}).props.onChange({target:{value:'31'}})});
+ await act(async()=>{await button('Save workflow').props.onClick()});
+ expect(state.api.updateWorkflow.mock.calls[1][1].trigger).toMatchObject({cadence:'monthly',monthday:31,timezone:'Asia/Tokyo'});
+});
