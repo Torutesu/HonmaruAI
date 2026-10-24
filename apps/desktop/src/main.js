@@ -341,7 +341,13 @@ function createWindow() {
   win.webContents.on('did-start-navigation', (details) => {
     if (details.isMainFrame && !details.isSameDocument) appLoaded = false
   })
-  win.webContents.on('did-finish-load', () => { appLoaded = onAppPage(); tellAttention(true) })
+  const windowContents = win.webContents
+  windowContents.on('did-finish-load', () => {
+    appLoaded = onAppPage(); tellAttention(true)
+    // A macOS reload can finish with a live DOM but a stale native surface.
+    // Request a repaint without reloading again or changing window geometry.
+    if (process.platform === 'darwin' && !windowContents.isDestroyed()) windowContents.invalidate()
+  })
   // A navigation the guard stopped reports as aborted (-3) while the app is
   // still there; anything else means it did not load.
   win.webContents.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => {
