@@ -5,6 +5,7 @@ import {mayViewWorkflow,unknownApprover,MAX_WORKFLOWS} from './workflows.js';
 import {mayUseApp} from './resourceAccess.js';
 import {nextRunAt} from '../schedule.js';
 import {getTable} from './tables.js';
+import {validateSource} from './customApps.js';
 
 const conflict=()=>({error:'The app, draft or live automations changed. Review the plan again.',status:409});
 const receipt=row=>({saved:true,releaseId:row.release_id,revision:row.revision,version:row.app_version});
@@ -18,7 +19,8 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   if(app.createdBy!==String(by) && !manageOthers)return {error:'App editor access required.',status:403};
   if(!['publish','unpublish'].includes(input.action) || typeof input.requestId!=='string' || !/^[a-zA-Z0-9_-]{16,80}$/.test(input.requestId))return {error:'A release needs an action and unique request ID.',status:400};
   if(!Number.isSafeInteger(input.revision) || input.revision<1 || input.revision>=Number.MAX_SAFE_INTEGER || !Number.isSafeInteger(input.version))return conflict();
-  const request=JSON.stringify({action:input.action,revision:input.revision,version:input.version,by:String(by)});
+  if(input.includeSource!==undefined && typeof input.includeSource!=='boolean')return {error:'includeSource must be a boolean.',status:400};
+  const request=JSON.stringify({action:input.action,revision:input.revision,version:input.version,includeSource:input.includeSource===true,by:String(by)});
   const prior=await db.prepare('SELECT request,release_id,revision,app_version FROM hx_app_automation_releases WHERE org_id=?1 AND app_id=?2 AND request_id=?3').bind(orgId,app.id,input.requestId).first();
   if(prior)return prior.request===request?{...receipt(prior),replay:true}:conflict();
   if(input.version!==app.version)return conflict();
@@ -47,6 +49,16 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   const added=desired.filter(item=>!byKey.has(item.key)).length;
   const at=new Date().toISOString(),releaseId=crypto.randomUUID(),revision=plan.revision+1,version=app.version+1;
   const published=input.action==='publish'?JSON.stringify(plan.draft):null;
+  const definition={...app.definition};
+  if(input.includeSource) {
+    if(!definition.custom)return {error:'This app has no custom source.',status:400};
+    definition.custom={...definition.custom};
+    if(input.action==='publish') {
+      if(!validateSource(definition.custom.draft))return {error:'Save valid custom source before publishing.',status:400};
+      Object.assign(definition.custom,{published:definition.custom.draft,publishedBy:String(by),publishedAt:at});
+    } else delete definition.custom.published;
+  }
+  if(input.action==='publish' && definition.custom && !validateSource(definition.custom.published))return {error:'Publish custom source together with its automations.',status:409};
   const table=await getTable(db,orgId,app.tableId);if(!table)return conflict();
   const guard='EXISTS(SELECT 1 FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2 AND release_id=?3)';
   const statements=[db.prepare(`UPDATE hx_app_automation_state SET published=?4,release_id=?5,published_at=?6,revision=revision+1,updated_at=?6,updated_by=?7
@@ -58,9 +70,9 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
         WHERE w.id IS NULL OR w.name!=json_extract(snapshot.value,'$.name') OR w.enabled!=json_extract(snapshot.value,'$.enabled')
           OR w.trigger!=json_extract(snapshot.value,'$.trigger') OR w.steps!=json_extract(snapshot.value,'$.steps') OR w.created_by!=json_extract(snapshot.value,'$.created_by'))`)
     .bind(orgId,app.id,plan.revision,published,releaseId,at,String(by),app.version,JSON.stringify(snapshots),added,MAX_WORKFLOWS)];
-  statements.push(db.prepare(`UPDATE hx_apps SET version=?4,updated_at=?5 WHERE org_id=?1 AND id=?2 AND ${guard}`).bind(orgId,app.id,releaseId,version,at));
+  statements.push(db.prepare(`UPDATE hx_apps SET version=?4,updated_at=?5,definition=?6 WHERE org_id=?1 AND id=?2 AND ${guard}`).bind(orgId,app.id,releaseId,version,at,JSON.stringify(definition)));
   statements.push(db.prepare(`INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at)
-    SELECT ?2,?1,?4,?5,?6,?7,?8 WHERE ${guard}`).bind(orgId,app.id,releaseId,version,JSON.stringify({name:app.name,columns:table.columns,...app.definition,automationRelease:releaseId}),'Automations: '+input.action,String(by),at));
+    SELECT ?2,?1,?4,?5,?6,?7,?8 WHERE ${guard}`).bind(orgId,app.id,releaseId,version,JSON.stringify({name:app.name,columns:table.columns,...definition,automationRelease:releaseId}),'Automations: '+input.action,String(by),at));
   for(const item of desired) {
     const binding=byKey.get(item.key),id=binding?.workflow_id || `wf_${crypto.randomUUID().replaceAll('-','').slice(0,16)}`;
     const next=item.enabled && item.trigger.type==='schedule'?nextRunAt(item.trigger):null;

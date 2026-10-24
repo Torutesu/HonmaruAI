@@ -721,3 +721,32 @@ test('custom source unpublish stops automation atomically and source republish a
  expect((await edit({action:'publish'})).saved).toBe(true);
  expect((await env.DB.prepare('SELECT enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).enabled).toBe(0);
 });
+
+test('combined source and automation publication commits one version and replays the same receipt',async()=>{
+ const f=await automationReleaseFixture();
+ const {getApp}=await import('../src/harness/apps.js');
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const source='<html><body>Combined release</body></html>';
+ const draft=await saveCustomRelease(env.DB,ORG,f.app,{action:'draft',version:f.app.version,html:source},'9101');
+ const request={action:'publish',requestId:'publish_combined_001',version:draft.version,revision:1,includeSource:true};
+ expect((await f.release({...request,includeSource:false})).status).toBe(409);
+ const released=await f.release(request);expect(released).toMatchObject({saved:true,version:draft.version+1});
+ expect((await getApp(env.DB,ORG,f.app.id)).definition.custom.published).toBe(source);
+ expect(await f.release(request)).toMatchObject({...released,replay:true});
+ expect((await f.release({...request,includeSource:false})).status).toBe(409);
+ const stopped=await f.release({action:'unpublish',requestId:'unpublish_combined01',version:released.version,revision:released.revision,includeSource:true});expect(stopped.saved).toBe(true);
+ expect((await getApp(env.DB,ORG,f.app.id)).definition.custom.published).toBeUndefined();
+ expect((await env.DB.prepare('SELECT enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).enabled).toBe(0);
+});
+
+test('combined publication rolls source and automation state back when a workflow write fails',async()=>{
+ const f=await automationReleaseFixture();
+ const {getApp}=await import('../src/harness/apps.js');
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const draft=await saveCustomRelease(env.DB,ORG,f.app,{action:'draft',version:f.app.version,html:'<html>Draft only</html>'},'9101');
+ await env.DB.exec("CREATE TRIGGER fail_combined BEFORE INSERT ON hx_workflows BEGIN SELECT RAISE(ABORT,'forced'); END;");
+ await expect(f.release({action:'publish',requestId:'rollback_combined_01',version:draft.version,revision:1,includeSource:true})).rejects.toThrow();
+ await env.DB.exec('DROP TRIGGER fail_combined;');
+ const app=await getApp(env.DB,ORG,f.app.id);expect(app.version).toBe(draft.version);expect(app.definition.custom.published).toBeUndefined();
+ expect((await env.DB.prepare('SELECT published,revision FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first())).toEqual({published:null,revision:1});
+});
