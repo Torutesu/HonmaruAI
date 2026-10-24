@@ -22,7 +22,7 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   if(!Number.isSafeInteger(input.revision) || input.revision<1 || input.revision>=Number.MAX_SAFE_INTEGER || !Number.isSafeInteger(input.version))return conflict();
   if(input.includeSource!==undefined && typeof input.includeSource!=='boolean')return {error:'includeSource must be a boolean.',status:400};
   const reviewed=input.reviewed || [];
-  if(!Array.isArray(reviewed) || reviewed.length>100 || JSON.stringify(reviewed).length>128000 || reviewed.some(item=>!item || typeof item.key!=='string' || typeof item.workflowId!=='string' || item.action!=='replace' || !item.live) || new Set(reviewed.map(item=>item.key)).size!==reviewed.length)return {error:'Invalid automation review.',status:400};
+  if(!Array.isArray(reviewed) || reviewed.length>100 || JSON.stringify(reviewed).length>128000 || reviewed.some(item=>!item || typeof item.key!=='string' || typeof item.workflowId!=='string' || !['replace','recreate'].includes(item.action) || (item.action==='replace'?!item.live:item.live!==null)) || new Set(reviewed.map(item=>item.key)).size!==reviewed.length)return {error:'Invalid automation review.',status:400};
   if(input.action==='unpublish' && reviewed.length)return {error:'Stopping does not require a replacement review.',status:400};
   const request=JSON.stringify({action:input.action,revision:input.revision,version:input.version,includeSource:input.includeSource===true,reviewed,by:String(by)});
   const prior=await db.prepare('SELECT request,release_id,revision,app_version FROM hx_app_automation_releases WHERE org_id=?1 AND app_id=?2 AND request_id=?3').bind(orgId,app.id,input.requestId).first();
@@ -34,12 +34,14 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   if(plan.revision!==input.revision)return conflict();
   if(!stopping) {
     for(const item of plan.plan) {
-      if(item.status==='missing')return conflict();
-      if(item.status!=='drifted')continue;
+      if(!['drifted','missing'].includes(item.status))continue;
       const review=reviewed.find(value=>value.key===item.key);
-      if(!review || review.workflowId!==item.workflowId || !sameAutomation(review.live,item.live))return conflict();
+      if(!review || review.workflowId!==item.workflowId)return conflict();
+      if(item.status==='missing') {
+        if(review.action!=='recreate' || !item.workflowId || !item.declared || item.live!==null)return conflict();
+      } else if(review.action!=='replace' || !sameAutomation(review.live,item.live))return conflict();
     }
-    if(reviewed.some(review=>!plan.plan.some(item=>item.key===review.key && item.status==='drifted')))return conflict();
+    if(reviewed.some(review=>!plan.plan.some(item=>item.key===review.key && ['drifted','missing'].includes(item.status))))return conflict();
   }
   const desired=input.action==='publish'?plan.draft.items:[];
   for(const item of desired) {
@@ -48,10 +50,13 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   }
   const {results:bindings}=await db.prepare('SELECT declaration_key,workflow_id,applied FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2 LIMIT 101').bind(orgId,app.id).all();
   if(bindings.length>100)return conflict();
-  const snapshots=[];
+  const snapshots=[],missing=[];
   for(const binding of stopping?[]:bindings) {
     const row=await db.prepare('SELECT id,name,enabled,trigger,steps,created_by FROM hx_workflows WHERE org_id=?1 AND id=?2').bind(orgId,binding.workflow_id).first();
-    if(!row)return conflict();
+    if(!row) {
+      if(!reviewed.some(item=>item.key===binding.declaration_key && item.action==='recreate'))return conflict();
+      missing.push(binding.workflow_id);continue;
+    }
     if(row.created_by!==String(by) && !manageOthers)return {error:'Workflow editor access required.',status:403};
     const current={name:row.name,enabled:Boolean(row.enabled),trigger:JSON.parse(row.trigger),steps:JSON.parse(row.steps)};
     const observed=plan.plan.find(item=>item.workflowId===row.id)?.live;
@@ -59,7 +64,7 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
     snapshots.push(row);
   }
   const byKey=new Map(bindings.map(binding=>[binding.declaration_key,binding]));
-  const added=desired.filter(item=>!byKey.has(item.key)).length;
+  const added=desired.filter(item=>!byKey.has(item.key) || missing.includes(byKey.get(item.key).workflow_id)).length;
   const at=new Date().toISOString(),releaseId=crypto.randomUUID(),revision=plan.revision+1,version=app.version+1;
   const published=input.action==='publish'?JSON.stringify(plan.draft):null;
   const definition={...app.definition};
@@ -79,17 +84,18 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
       AND EXISTS(SELECT 1 FROM hx_apps WHERE org_id=?1 AND id=?2 AND version=?8)
       AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?7 AND role!='guest')
       AND (?12=1 OR (SELECT COUNT(*) FROM hx_workflows WHERE org_id=?1)+?10<=?11)
+      AND NOT EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?1 AND id IN (SELECT value FROM json_each(?13)))
       AND NOT EXISTS(SELECT 1 FROM json_each(?9) snapshot LEFT JOIN hx_workflows w ON w.org_id=?1 AND w.id=json_extract(snapshot.value,'$.id')
         WHERE w.id IS NULL OR w.name!=json_extract(snapshot.value,'$.name') OR w.enabled!=json_extract(snapshot.value,'$.enabled')
           OR w.trigger!=json_extract(snapshot.value,'$.trigger') OR w.steps!=json_extract(snapshot.value,'$.steps') OR w.created_by!=json_extract(snapshot.value,'$.created_by'))`)
-    .bind(orgId,app.id,plan.revision,published,releaseId,at,String(by),app.version,JSON.stringify(snapshots),added,MAX_WORKFLOWS,stopping?1:0)];
+    .bind(orgId,app.id,plan.revision,published,releaseId,at,String(by),app.version,JSON.stringify(snapshots),added,MAX_WORKFLOWS,stopping?1:0,JSON.stringify(missing))];
   statements.push(db.prepare(`UPDATE hx_apps SET version=?4,updated_at=?5,definition=?6 WHERE org_id=?1 AND id=?2 AND ${guard}`).bind(orgId,app.id,releaseId,version,at,JSON.stringify(definition)));
   statements.push(db.prepare(`INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at)
     SELECT ?2,?1,?4,?5,?6,?7,?8 WHERE ${guard}`).bind(orgId,app.id,releaseId,version,JSON.stringify({name:app.name,columns:table.columns,...definition,automationRelease:releaseId}),'Automations: '+input.action,String(by),at));
   for(const item of desired) {
     const binding=byKey.get(item.key),id=binding?.workflow_id || `wf_${crypto.randomUUID().replaceAll('-','').slice(0,16)}`;
     const next=item.enabled && item.trigger.type==='schedule'?nextRunAt(item.trigger):null;
-    if(binding) {
+    if(binding && !missing.includes(id)) {
       const candidate=item.trigger.type==='webhook'?secret():null;
       const live=snapshots.find(row=>row.id===id);
       const applied={enabled:Boolean(live.enabled),trigger:JSON.parse(live.trigger)};

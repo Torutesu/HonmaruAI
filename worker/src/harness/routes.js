@@ -1,5 +1,6 @@
 import {readAutomationPlan} from './appAutomationPlan.js';
-import {saveAutomationDraft} from './appAutomationDraft.js';
+import {saveAutomationDraft,readAutomationDraft} from './appAutomationDraft.js';
+import {releaseAppAutomations} from './appAutomationRelease.js';
 import { convertMemoryToSkill } from './memorySkillConversion.js';
 import { retryRoomHook } from './roomHookRetryRoute.js';
 import { heldWorkflowSummary, discardWorkflowEvents, readHeldWorkflowEvent } from './workflowHeld.js';
@@ -782,8 +783,14 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === 'automations') {
       if (!(await mayChange(env, orgId, who, app.createdBy))) return json({message:'Only its maker or an admin can develop app automations.'},403);
       if (request.method === 'GET') {
-        const result=await readAutomationPlan(env.DB,orgId,appId,me);
+        const result=new URL(request.url).searchParams.get('stateOnly')==='1'
+          ?await readAutomationDraft(env.DB,orgId,appId):await readAutomationPlan(env.DB,orgId,appId,me);
         return result.error?fail(result):json({...result,version:app.version});
+      }
+      if(request.method==='POST') {
+        const result=await releaseAppAutomations(env.DB,orgId,app,input,me);
+        if(!result.error && !result.replay)await audit(env,request,{orgId,action:'app.automations_'+input.action,actor:person(who.user),entity:{type:'app',id:appId},details:{revision:result.revision,version:result.version,releaseId:result.releaseId}});
+        return result.error?fail(result):json(result);
       }
       if (request.method !== 'PUT') return json({message:'Method not allowed.'},405);
       const result=await saveAutomationDraft(env.DB,orgId,app,input,me);

@@ -804,3 +804,42 @@ test('replacing a reviewed schedule drift clears the live schedule for a manual 
  expect((await f.release({action:'publish',requestId:'publish_schedule_002',version:first.version,revision:first.revision,reviewed:[{key:item.key,workflowId:item.workflowId,action:'replace',live:item.live}]})).saved).toBe(true);
  expect((await env.DB.prepare('SELECT next_run_at FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).next_run_at).toBeNull();
 });
+
+test('a missing automation is recreated only after an explicit review, retaining its stable identity',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_recreate_001',version:f.app.version,revision:1});
+ const old=await env.DB.prepare('SELECT id FROM hx_workflows WHERE org_id=?1').bind(ORG).first();
+ await env.DB.prepare('DELETE FROM hx_workflows WHERE org_id=?1').bind(ORG).run();
+ const request={action:'publish',requestId:'publish_recreate_002',version:first.version,revision:first.revision};
+ expect((await f.release(request)).status).toBe(409);
+ const reviewed=[{key:'review',workflowId:old.id,action:'recreate',live:null}];
+ const result=await f.release({...request,reviewed});expect(result.saved).toBe(true);
+ expect(await env.DB.prepare('SELECT id,name,enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({id:old.id,name:'Review',enabled:1});
+ expect(await f.release({...request,reviewed})).toMatchObject({...result,replay:true});
+});
+
+test('recreation refuses to overwrite a workflow that reappears after the missing-state review',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_reappear_001',version:f.app.version,revision:1});
+ const old=await env.DB.prepare('SELECT * FROM hx_workflows WHERE org_id=?1').bind(ORG).first();
+ await env.DB.prepare('DELETE FROM hx_workflows WHERE org_id=?1').bind(ORG).run();
+ const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{
+  await env.DB.prepare('INSERT INTO hx_workflows(id,org_id,name,enabled,trigger,steps,created_by,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)').bind(old.id,ORG,'Restored elsewhere',0,old.trigger,old.steps,old.created_by,old.created_at,old.updated_at).run();
+  return env.DB.batch(statements);
+ }};
+ const result=await f.release({action:'publish',requestId:'publish_reappear_002',version:first.version,revision:first.revision,reviewed:[{key:'review',workflowId:old.id,action:'recreate',live:null}]},db);
+ expect(result.status).toBe(409);expect((await env.DB.prepare('SELECT name,enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first())).toEqual({name:'Restored elsewhere',enabled:0});
+});
+
+test('automation lifecycle API is editor-only and state remains available for stop when live visibility fails',async()=>{
+ const f=await automationReleaseFixture();const path=`/apps/${f.app.id}/automations`;
+ const input={orgId:ORG,action:'publish',requestId:'publish_api_0000001',version:f.app.version,revision:1};
+ expect((await send('POST',path,mika,input)).status).toBe(403);
+ const response=await send('POST',path,toru,input);expect(response.status).toBe(200);const first=await response.json();expect(first.saved).toBe(true);
+ expect((await(await send('POST',path,toru,input)).json()).replay).toBe(true);
+ await env.DB.prepare('UPDATE hx_workflows SET trigger=?1 WHERE org_id=?2').bind(JSON.stringify({type:'row',tableId:'foreign-table',on:'any'}),ORG).run();
+ expect((await get(`${path}?orgId=${ORG}`,toru)).status).toBe(403);
+ expect((await get(`${path}?orgId=${ORG}&stateOnly=1`,mika)).status).toBe(403);
+ const state=await(await get(`${path}?orgId=${ORG}&stateOnly=1`,toru)).json();expect(state.revision).toBe(first.revision);expect(JSON.stringify(state)).not.toContain('foreign-table');
+ const stopped=await send('POST',path,toru,{orgId:ORG,action:'unpublish',requestId:'unpublish_api_000001',version:state.version,revision:state.revision});expect(stopped.status).toBe(200);
+});

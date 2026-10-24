@@ -89,3 +89,11 @@ Validation: 3 files / 89 tests passed, 10.42s (`/tmp/honmaru-automation-stop-dri
 Publication can now accept per-key replacement reviews containing the exact observed live definition and workflow identity. Every drifted binding needs a matching review; stale/unrelated/duplicate reviews cannot authorize overwrites. The existing transaction snapshot comparison still rejects edits after review and before commit. Reviews are part of idempotency intent. Schedule preservation now compares against the observed live trigger/enabled state, preventing a reviewed schedule-to-manual replacement from keeping a stale scheduled date.
 
 Validation: 2 files / 54 tests passed, 7.58s (`/tmp/honmaru-automation-review-final.log`). Explicit reviewed replacement and replay succeed; wrong observed content, wrong key and a concurrent later edit fail; restoring manual execution clears the independently changed schedule. Missing workflow repair and UI review controls remain incomplete. These are internal primitives only, not deployed features.
+
+## Reviewed recreation and lifecycle API (local)
+
+Missing workflows can be explicitly recreated from the current draft by reviewing their key and prior identity with `action: recreate, live: null`. The transaction checks that these identities are still absent; it counts replacements against capacity and restores stable IDs with fresh webhook credentials where applicable. It never retries historical runs. A missing binding identity, or a missing declaration to restore, still needs a separate reconciliation path and is not silently invented.
+
+Editor-only POST `/apps/:id/automations` now exposes release operations, with audit records for new successful releases and receipt replay without duplicate audit. Editor-only GET with `stateOnly=1` provides app/draft release state for stopping even when an independently modified live workflow is inaccessible; it does not return that inaccessible definition.
+
+Validation: 4 files / 105 tests passed, 12.52s (`/tmp/honmaru-automation-api.log`). Includes explicit recreation/replay, absent review rejection, identity reappearance race, route permission checks, state-only non-disclosure and stop through the API, plus workflows, migration and query-scope checks. UI, broader tests, reconciliation edge cases and production deployment are still pending.
