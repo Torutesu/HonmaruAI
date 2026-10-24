@@ -2093,6 +2093,7 @@ export const ClassicList: React.FC<Props> = ({
         if (resourceBuild.kind === 'apps') {
           const prompt = body.replace(/^@AI\s*/i, '')
           const retry = await generationRetry({host:api.httpBase,orgId:api.orgId,userId:String(userId || api.sessionToken),kind:'app',channel,prompt})
+          if(resourceClientNow.current!==client || cacheScope.current!==messageCache)return
           const made = await client.generate(prompt, channel, {requestId:retry.id,captureSource:true})
           if(resourceClientNow.current!==client || cacheScope.current!==messageCache)return
           finishGenerationRetry(retry)
@@ -2110,6 +2111,7 @@ export const ClassicList: React.FC<Props> = ({
         } else {
           const prompt = body.replace(/^@AI\s*/i, '')
           const retry = await generationRetry({host:api.httpBase,orgId:api.orgId,userId:String(userId || api.sessionToken),kind:'workflow',channel,prompt,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone})
+          if(resourceClientNow.current!==client || cacheScope.current!==messageCache)return
           const made = await client.generateWorkflow(prompt, channel, {requestId:retry.id,captureSource:true})
           if(resourceClientNow.current!==client || cacheScope.current!==messageCache)return
           finishGenerationRetry(retry)
