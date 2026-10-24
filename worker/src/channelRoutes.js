@@ -566,7 +566,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
           provider: ready.provider, agent: ready.agent, request: requestFor(row.body, agent), transcript, playbook, where, research, links, tools: { ...tools, ...ready.skillTools }, env,
           askedBy: user.name || "a teammate", readerLanguage: locale,
           deadline: Date.now() + (env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 25000 : 240000),
-          onRound: () => progress(agent, "agent"),
+          onRound: () => progress(agent, "agent"), authorize,
         });
         if (result.called && allowance.metered) await allowance.consume();
         // No answer: say why, so nobody waits on silence — the AI service

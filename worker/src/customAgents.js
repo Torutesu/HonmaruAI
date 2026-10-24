@@ -443,8 +443,9 @@ Research — whenever the request needs facts from outside this chat (anything c
 /// helpers: `called` is whether a model was paid for. `tools` are the
 /// function tools it may call while researching (see agentResearch.js);
 /// `env` names the research model.
-export async function askAgent({ provider, agent, request, transcript, playbook, where, askedBy, readerLanguage, research = "", links = "", tools = {}, env = null, deadline, onRound = null }) {
+export async function askAgent({ provider, agent, request, transcript, playbook, where, askedBy, readerLanguage, research = "", links = "", tools = {}, env = null, deadline, onRound = null, authorize = null }) {
   if (!provider) return { called: false, answer: null };
+  if (authorize && !await authorize()) return { called: false, answer: null, cancelled: true };
   const today = new Date().toISOString().slice(0, 10);
   const system = `${RULES}\n\nToday is ${today}.\n\nYou are ${agent.emoji ? `${agent.emoji} ` : ""}${agent.name} (@${agent.handle}).\n\n<agent_instructions>\n${String(agent.instructions).slice(0, MAX_INSTRUCTIONS)}\n</agent_instructions>`;
   const user = `Reader language: ${readerLanguage || "en"}
@@ -466,13 +467,14 @@ Request to you (@${agent.handle}): ${request || "(no words beyond your name — 
     const mustLook = /Transcript: could not be read/.test(links);
     const researchSystem = agent.researchInstructions && tools.read_installed_skill
       ? `${RULES}\n\nToday is ${today}.\n\nYou are ${agent.name} (@${agent.handle}).\n\n<agent_instructions>\n${agent.researchInstructions}\n</agent_instructions>` : system;
-    const opts = { provider, env, instructions: researchSystem, input: user, tools, language: readerLanguage, deadline, onRound, mustLook };
+    const opts = { provider, env, instructions: researchSystem, input: user, tools, language: readerLanguage, deadline, onRound, mustLook, authorize };
     let out = await runResearch(opts);
     // The retry keeps our own tools — reading a page is what most answers
     // need — and drops only what a plain model might refuse.
     if (out.refused) out = await runResearch({ ...opts, plain: true });
     if (!out.refused) return out;
   }
+  if (authorize && !await authorize()) return { called: false, answer: null, cancelled: true };
   let data;
   try {
     const res = await fetch(provider.endpoint, {
@@ -489,6 +491,7 @@ Request to you (@${agent.handle}): ${request || "(no words beyond your name — 
   } catch {
     return { called: false, answer: null };
   }
+  if (authorize && !await authorize()) return { called: true, answer: null, cancelled: true };
   const content = data?.choices?.[0]?.message?.content;
   if (typeof content !== "string" || !content.trim()) return { called: true, answer: null };
   return { called: true, answer: forChat(content).slice(0, MAX_ANSWER) };

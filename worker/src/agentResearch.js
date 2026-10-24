@@ -46,7 +46,7 @@ const COUNTRY = { ja: "JP", en: "US", es: "ES", fr: "FR", de: "DE", ko: "KR", zh
 /// `plain`: the workspace's own model, the search tool bare, no reasoning
 /// settings — nothing a model might refuse — the retry when the full call
 /// is turned down. Our own tools stay.
-export async function research({ provider, env, instructions, input, tools = {}, language = "en", deadline = Date.now() + 240000, effort, plain = false, onRound = null, webSearch = true, maxOutput = null, mustLook = false }) {
+export async function research({ provider, env, instructions, input, tools = {}, language = "en", deadline = Date.now() + 240000, effort, plain = false, onRound = null, webSearch = true, maxOutput = null, mustLook = false, authorize = null }) {
   const endpoint = provider.endpoint.replace(/\/chat\/completions$/, "/responses");
   const model = plain ? provider.model : agentModelFor(env, provider);
   const reasoning = isReasoningModel(model);
@@ -77,7 +77,9 @@ export async function research({ provider, env, instructions, input, tools = {},
   let next = input;
   let last = null;
   let finalOnly = false;
+  const cancelled = () => ({ called, answer: null, sources: [], rounds, calls, cancelled: true });
   while (rounds < MAX_ROUNDS + 1) {
+    if (authorize && !await authorize()) return cancelled();
     rounds += 1;
     // Still at it: whoever is watching keeps seeing the agent writing.
     if (rounds > 1 && onRound) await Promise.resolve(onRound(rounds)).catch(() => {});
@@ -122,6 +124,7 @@ export async function research({ provider, env, instructions, input, tools = {},
     noteSearches(provider, "agent", data.model || model, (Array.isArray(data.output) ? data.output : []).filter((i) => i?.type === "web_search_call").length);
     last = data;
     previous = data.id || null;
+    if (authorize && !await authorize()) return cancelled();
 
     for (const c of readResponse(data).sources) note(cited, c.url, c.title);
     const pending = (Array.isArray(data.output) ? data.output : []).filter((item) => item?.type === "function_call");
@@ -138,6 +141,7 @@ export async function research({ provider, env, instructions, input, tools = {},
         let args = {};
         try { args = JSON.parse(call.arguments || "{}"); } catch { /* the tool says so below */ }
         try {
+          if (authorize && !await authorize()) return { type: "function_call_output", call_id: call.call_id, output: "Access changed. Execution stopped." };
           const result = tool ? await tool.run(args) : `No tool named ${call.name}.`;
           output = typeof result === "string" ? result : JSON.stringify(result) ?? String(result);
         } catch (err) {

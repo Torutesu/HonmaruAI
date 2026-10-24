@@ -1,6 +1,7 @@
 import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, afterEach, expect, test } from "vitest";
 import { research, agentModelFor, isReasoningModel, canResearch } from "../src/agentResearch.js";
+import { askAgent } from "../src/customAgents.js";
 
 beforeEach(() => fetchMock.activate());
 afterEach(() => fetchMock.assertNoPendingInterceptors());
@@ -109,4 +110,41 @@ test('non-research agent execution retains full instructions instead of an unrea
   await askAgent({provider:{...provider(),providerName:'Other',endpoint:'https://example.test/chat/completions'},agent:{name:'Helper',handle:'helper',instructions:'Full procedure',researchInstructions:'Catalog only'},request:'Review',transcript:[],tools:{}});
   expect(body.messages[0].content).toContain('Full procedure');
   expect(body.messages[0].content).not.toContain('Catalog only');
+});
+
+
+test("revoked access prevents a research request before any model call", async () => {
+  const out=await research({provider:provider(),instructions:'Check',input:'Check',authorize:async()=>false});
+  expect(out).toMatchObject({called:false,answer:null,cancelled:true,rounds:0});
+});
+
+test("revocation during the model call prevents its requested tools from running", async () => {
+  let allowed=true, ran=0;
+  fetchMock.get("https://api.openai.com").intercept({path:"/v1/responses",method:"POST"}).reply(200,()=>{
+    allowed=false;
+    return {id:'r-revoked',output:[{type:'function_call',name:'write_record',call_id:'c1',arguments:'{}'}]};
+  });
+  const out=await research({provider:provider(),instructions:'Check',input:'Check',authorize:async()=>allowed,
+    tools:{write_record:{description:'Write',parameters:{type:'object',properties:{}},run:async()=>{ran++;return 'saved'}}}});
+  expect(ran).toBe(0);expect(out).toMatchObject({called:true,answer:null,cancelled:true});
+});
+
+test("revocation while a tool runs withholds its result from subsequent model calls", async () => {
+  let allowed=true, ran=0;
+  fetchMock.get("https://api.openai.com").intercept({path:"/v1/responses",method:"POST"}).reply(200,
+    {id:'r1',output:[{type:'function_call',name:'read_record',call_id:'c1',arguments:'{}'}]});
+  const out=await research({provider:provider(),instructions:'Check',input:'Check',authorize:async()=>allowed,
+    tools:{read_record:{description:'Read',parameters:{type:'object',properties:{}},run:async()=>{ran++;allowed=false;return 'private result'}}}});
+  expect(ran).toBe(1);expect(out).toMatchObject({called:true,answer:null,cancelled:true,rounds:1});
+});
+
+
+test("agent research passes its authorization guard and does not retry a revoked turn", async () => {
+  let allowed=true;
+  fetchMock.get("https://api.openai.com").intercept({path:"/v1/responses",method:"POST"}).reply(200,()=>{
+    allowed=false;return {id:'r-revoked-answer',output_text:'Do not publish this answer',output:[]};
+  });
+  const out=await askAgent({provider:provider(),agent:{id:'a',name:'Agent',handle:'agent',instructions:'Help'},
+    request:'Check',transcript:[],playbook:[],where:'room',askedBy:'member',authorize:async()=>allowed});
+  expect(out.called).toBe(true);expect(out.answer).toBeNull();
 });
