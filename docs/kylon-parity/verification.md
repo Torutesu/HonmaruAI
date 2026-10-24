@@ -2316,3 +2316,12 @@ The message renderer recognized canonical app Markdown links but not workflow li
 In IAB, a temporary fixture used actual renderRich, parseRoute and HarnessWorkflows with mocked API data. Clicked the creation-result link, verified the detail target, reloaded it, expanded source metadata, opened the list and repeated list→detail→back. Final screenshot `/tmp/honmaru-workflow-created-detail-dark.png` uses the real shell.harness-workspace styling ancestor. The first screenshot omitted that ancestor and is not used as final styling evidence; the first list fixture omitted notices, then was corrected to return items before verifying back navigation again. No production writes or external sends occurred. This is local Web component/routing evidence, not native-client or authenticated production/Kylon equivalence. Temporary fixture/server/tab removed.
 
 Worker full run 30731 remains active at this entry, unchanged at 03f73405. No new deployment was pushed over the cancelled 050e458c candidate; corrected rollout still awaits its full regression result.
+
+
+## 2026-10-24 — workflow origin production release 024494d0
+
+Deploy Worker run 40080421759 / job 120832623426 and Deploy Web run 40080421755 / job 120832623557 completed successfully. The final integrated Worker suite passed 227 files / 1882 tests in 821.16s before migrations and publication. Worker version is 63bb678e-e530-4822-9af6-2754bb1a8b8e; deployed health returned ok with required encryption enabled. Both honmaru-web.pages.dev and app.honmaruai.com served index-Tjpo3J4L.js at 2026-10-24T09:19:27Z. Logs: /tmp/honmaru-024494d0-120832623426.log and /tmp/honmaru-024494d0-120832623557.log.
+
+In-app browser opened the production URL and reached the Japanese welcome page after startup. It has no authenticated session, so this only verifies public boot, not authenticated workflow behavior or Kylon fidelity. Temporary browser tab was closed. Separate CI run 40080421762 remains active in its Worker job; E2E and all other enabled jobs have succeeded. Windows/iOS jobs were skipped, not tested.
+
+This release includes automatic origin capture, durable generation request identities, atomic creation replies with clickable workflow links, workspace-scoped detail routes, source-inherited visibility and execution-time source-authority checks. Simple code remains preserved, and no new paid service was added. Full parity remains unproven; daily/weekly/monthly usage guardrails need per-run attribution (existing ai_calls only records org/user/purpose) before faithful implementation.
