@@ -263,3 +263,14 @@ test('paused or replaced safety generations revoke ongoing state operations',asy
  await env.DB.prepare("UPDATE hx_workflow_safety SET paused_at=NULL,generation='replacement' WHERE workflow_id='state-workflow'").run();
  expect(await read({view:'checkpoint'})).toEqual({available:false,found:false});
 });
+
+test('SDK state writes commit by default while explicit pending remains progress',async()=>{
+ await bindActivation();
+ const call=(method,params)=>workflowActivationState(env.DB,activation,method,params,2000);
+ expect(await call('state.set',{state:{value:'committed'},expectedRevision:0})).toMatchObject({saved:true});
+ expect(await call('state.get',{includeCurrentRun:true})).toMatchObject({state:{value:'committed'},validationStatus:'passed'});
+ expect(await call('state.set',{state:{value:'progress'},expectedRevision:1,validationStatus:'pending'})).toMatchObject({saved:true});
+ expect(await call('state.get',{includeCurrentRun:true})).toMatchObject({state:{value:'committed'}});
+ expect(await call('state.get',{view:'checkpoint'})).toMatchObject({state:{value:'progress'},validationStatus:'pending'});
+ await expect(call('state.set',{state:{value:'invalid'},expectedRevision:2,validationStatus:null})).rejects.toThrow('Invalid workflow state request');
+});

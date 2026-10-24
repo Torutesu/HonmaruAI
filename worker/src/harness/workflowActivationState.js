@@ -14,5 +14,7 @@ export async function workflowActivationState(db,activation,method,params,at=Dat
  .bind(activation.jobId,activation.gatewayId,activation.leaseHash).first();
  if(!binding)return {error:'No active workflow execution.',status:409};
  const identity={orgId:binding.org_id,runId:binding.run_id,nodeId:binding.node_id,owner:binding.node_owner,attempt:binding.node_attempt,activation,at};
- return await (method==='state.get'?readWorkflowState(db,{...identity,...params}):saveWorkflowState(db,{...identity,...params}));
+ // Public SDK writes are final commits unless the caller explicitly selects
+ // pending progress. Internal checkpoint helpers retain their own defaults.
+ return await (method==='state.get'?readWorkflowState(db,{...identity,...params}):saveWorkflowState(db,{...identity,...params,validationStatus:params.validationStatus===undefined?'passed':params.validationStatus}));
 }
