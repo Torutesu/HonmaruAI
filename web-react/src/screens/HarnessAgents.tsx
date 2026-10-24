@@ -222,7 +222,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
         const result = await api.agentSkills(agent.id)
         if (version === memoryLoad.current) setSkills(result.skills)
       }} />
-      <p className="row-sub">{t('Private skills run only in their owner’s direct agent conversation, including follow-ups. They are excluded from shared rooms and workflows.')}</p>
+      <p className="row-sub">{t('Skills converted from memory retain the source agent and conversation restrictions. Other private skills run only in their owner’s direct agent conversation, including follow-ups, and are excluded from shared rooms and workflows.')}</p>
 
       </>}
       {section === 'memory' && <>

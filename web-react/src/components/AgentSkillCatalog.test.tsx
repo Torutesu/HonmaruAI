@@ -122,3 +122,23 @@ test('catalog searches imported type metadata and ignores non-text type values',
  expect(tree.root.findAllByType('strong').map(n=>n.children.join(''))).toEqual(['Review'])
  act(()=>tree.unmount())
 })
+
+test('search counts match each tab and recover when the search is cleared',()=>{
+ let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<AgentSkillCatalog skills={[a,b]} installed={[a]} canEdit onToggle={vi.fn()}/>,{createNodeMock:nodes})})
+ act(()=>tree.root.findAllByType('button').find(n=>n.children.includes('Add skills'))!.props.onClick())
+ const dialog=tree.root.findByType('dialog')
+ const counts=()=>dialog.findAllByProps({role:'tab'}).map(n=>n.children.join(''))
+ expect(counts()).toEqual(['Available (1)','Installed (1)'])
+ act(()=>dialog.findByProps({type:'search'}).props.onChange({target:{value:'alice'}}))
+ expect(counts()).toEqual(['Available (0)','Installed (1)'])
+ expect(dialog.findAllByType('strong')).toHaveLength(0)
+ act(()=>dialog.findAllByProps({role:'tab'})[1].props.onClick())
+ expect(dialog.findAllByType('strong').map(n=>n.children.join(''))).toEqual(['Review'])
+ act(()=>dialog.findByProps({type:'search'}).props.onChange({target:{value:'unmatched'}}))
+ expect(counts()).toEqual(['Available (0)','Installed (0)'])
+ expect(dialog.findAllByType('strong')).toHaveLength(0)
+ act(()=>dialog.findByProps({type:'search'}).props.onChange({target:{value:''}}))
+ expect(counts()).toEqual(['Available (1)','Installed (1)'])
+ act(()=>tree.unmount())
+})

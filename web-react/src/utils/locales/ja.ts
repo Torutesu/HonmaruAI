@@ -337,7 +337,7 @@ const table: Record<string, string> = {
 
   'Skill visibility': 'スキルの公開範囲',
   'New skills are private. Share them with the workspace after saving.': '新しいスキルは非公開です。保存後にワークスペースへ共有できます。',
-  'Private skills run only in their owner’s direct agent conversation, including follow-ups. They are excluded from shared rooms and workflows.': '非公開スキルは所有者とエージェントの直接会話（フォローアップを含む）だけで使われます。共有ルームとワークフローでは使われません。',
+  'Skills converted from memory retain the source agent and conversation restrictions. Other private skills run only in their owner’s direct agent conversation, including follow-ups, and are excluded from shared rooms and workflows.': '記憶から変換したスキルは、元のエージェントと会話の制限を引き継ぎます。それ以外の非公開スキルは、所有者とエージェントの直接会話（フォローアップを含む）だけで使われ、共有ルームとワークフローでは使われません。',
 
   'This agent is personal. Its owner can share it from the Agents screen.': 'このエージェントは作成者専用です。所有者はエージェント画面から共有に変更できます。',
   "Sound could not play. Check your browser and audio output settings.": "音を再生できませんでした。ブラウザーと音声出力の設定を確認してください。",

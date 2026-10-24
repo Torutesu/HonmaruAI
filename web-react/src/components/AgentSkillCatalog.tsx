@@ -17,7 +17,9 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
   const pending = useRef(false), dialog = useRef<HTMLDialogElement>(null), trigger = useRef<HTMLButtonElement>(null)
   const has = new Set(installed.map(s => s.id))
   const available = skills.filter(s => !has.has(s.id))
-  const visible = (tab === 'available' ? available : installed).filter(s => `${s.name} ${s.description} ${s.createdByName || ''} ${s.createdBy || ''} ${skillType(s)}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+  const matches = (s: Skill) => `${s.name} ${s.description} ${s.createdByName || ''} ${s.createdBy || ''} ${skillType(s)}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
+  const matchingAvailable = available.filter(matches), matchingInstalled = installed.filter(matches)
+  const visible = tab === 'available' ? matchingAvailable : matchingInstalled
   useEffect(() => {
     if (!open) return
     dialog.current?.showModal()
@@ -70,7 +72,7 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
       {draft && <section className="hx-skill-import-review" aria-label={t('Review skill import')}><strong>{draft.name}</strong><p>{draft.description}</p><pre>{draft.body}</pre>{!!draft.files?.length && <ul aria-label={t('Support files')}>{draft.files.map(file=><li key={file.path}>{file.path} · {file.size ?? 0} B</li>)}</ul>}<p>{t('Save as a private skill, then install it for this agent from the catalog.')}</p><div><button className="hx-skill-action" disabled={busy!==null} onClick={()=>setDraft(null)}>{t('Cancel')}</button><button className="hx-skill-action" disabled={busy!==null} onClick={()=>void saveImport()}>{t('Save')}</button></div></section>}
       <input type="search" autoFocus value={query} aria-label={t('Search skills by name, author, type or description')} placeholder={t('Search skills by name, author, type or description')} onChange={e => setQuery(e.target.value)}/>
       <div className="hx-skill-catalog-tabs" role="tablist" aria-label={t('Skills')}>
-        {(['available','installed'] as const).map(key => <button key={key} role="tab" id={`${panelId}-${key}`} aria-controls={panelId} aria-selected={tab===key} tabIndex={tab===key?0:-1} onClick={()=>setTab(key)} onKeyDown={e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?'available':e.key==='End'?'installed':key==='available'?'installed':'available';setTab(next);e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role=tab]')[next==='available'?0:1]?.focus()}}}>{t(key==='available'?'Available':'Installed')} ({key==='available'?available.length:installed.length})</button>)}
+        {(['available','installed'] as const).map(key => <button key={key} role="tab" id={`${panelId}-${key}`} aria-controls={panelId} aria-selected={tab===key} tabIndex={tab===key?0:-1} onClick={()=>setTab(key)} onKeyDown={e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?'available':e.key==='End'?'installed':key==='available'?'installed':'available';setTab(next);e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role=tab]')[next==='available'?0:1]?.focus()}}}>{t(key==='available'?'Available':'Installed')} ({key==='available'?matchingAvailable.length:matchingInstalled.length})</button>)}
       </div>
       {error && <p role="alert" className="form-error">{t(error)}</p>}
       <div id={panelId} role="tabpanel" aria-labelledby={`${panelId}-${tab}`} className="hx-skill-catalog-results">{visible.map(s=>row(s,true))}{!visible.length&&<p className="empty">{t(query.trim()?'No skills match your search.':tab==='available'?(skills.length?'All available skills are installed.':'No skills available yet. Import a local skill to get started.'):'No skills installed for this agent.')}</p>}</div>
