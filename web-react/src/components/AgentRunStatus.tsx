@@ -2,6 +2,8 @@ import React, {useEffect, useState} from 'react'
 import type {ChannelMessage} from '../types/card'
 import {isTemp} from '../utils/pendingSend'
 import {useT} from '../utils/i18n'
+import {getLocale} from '../utils/locale'
+import {formatDate} from '../utils/dateFormat'
 import {Icon} from './Icon'
 import {AgentRunStop} from './AgentRunStop'
 import {AgentAvatar, type AgentLook} from './AgentAvatar'
@@ -22,6 +24,11 @@ function assignmentsFrom(value: unknown): Assignment[] {
 function RunFace({agent}: {agent: AgentFace}) {
   const look = {emoji: typeof agent.emoji === 'string' ? agent.emoji : null, avatarUrl: typeof agent.avatarUrl === 'string' ? agent.avatarUrl : null}
   return look.emoji || look.avatarUrl ? <AgentAvatar agent={look} className="slk-run-avatar"/> : <span className="slk-run-avatar" aria-hidden="true"><Icon name="bot" size={14}/></span>
+}
+function handoffTime(at: string): string {
+  const options = {dateStyle: 'medium', timeStyle: 'short'} as const
+  try { return formatDate(new Date(at), getLocale(), options) }
+  catch { return formatDate(new Date(at), 'en', options) }
 }
 const labels: Record<string, string> = {
   pending: 'Agent handoff awaiting delivery', pending_delivery: 'Agent queue acknowledgement pending', queued: 'Agent execution queued', running: 'Agent execution running',
@@ -93,7 +100,7 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
       {Boolean(run.assignments?.length) && <div className="slk-run-assignments">{run.assignments!.map(assignment => <div className="slk-run-assignment" key={assignment.id}>
         <div className="slk-run-assignee"><RunFace agent={assignment.agent}/><span className="slk-run-agent-name" title={`@${assignment.agent.handle}`}>{assignment.agent.name || t('Agent')}</span><span className="slk-run-assignment-status">{t(assignment.status === 'cancelled' ? 'Agent execution cancelled' : labels[assignment.status])}</span></div>
         {assignment.canStop === true && activeStatus(assignment.status) && <AgentRunStop key={`${scope}:${assignment.id}:${assignment.generation}`} api={api} channel={channel} rowId={run.rowId} assignmentId={assignment.id} generation={assignment.generation} onStopped={() => setRefresh(value => value + 1)}/>}
-        {assignment.hops.length > 0 && <details className="slk-run-handoffs"><summary><span className="slk-handoff-disclosure"><Icon name="chevron-right" size={12}/></span>{t('Handoff history ({count})', {count: assignment.hops.length})}</summary><ol>{assignment.hops.map(hop => <li key={hop.id}><span className="slk-run-hop-agents"><span title={`@${hop.from.handle}`}><RunFace agent={hop.from}/>{hop.from.name || t('Agent')}</span><span aria-hidden="true">→</span><span title={`@${hop.to.handle}`}><RunFace agent={hop.to}/>{hop.to.name || t('Agent')}</span></span>{Number.isFinite(Date.parse(hop.at)) && <time dateTime={hop.at}>{new Date(hop.at).toLocaleString()}</time>}</li>)}</ol></details>}
+        {assignment.hops.length > 0 && <details className="slk-run-handoffs"><summary><span className="slk-handoff-disclosure"><Icon name="chevron-right" size={12}/></span>{t('Handoff history ({count})', {count: assignment.hops.length})}</summary><ol>{assignment.hops.map(hop => <li key={hop.id}><span className="slk-run-hop-agents"><span title={`@${hop.from.handle}`}><RunFace agent={hop.from}/>{hop.from.name || t('Agent')}</span><span aria-hidden="true">→</span><span title={`@${hop.to.handle}`}><RunFace agent={hop.to}/>{hop.to.name || t('Agent')}</span></span>{Number.isFinite(Date.parse(hop.at)) && <time dateTime={hop.at}>{handoffTime(hop.at)}</time>}</li>)}</ol></details>}
       </div>)}</div>}
     </li>)}</ul>
     {state.runs.some(run => run.assignments?.some(assignment => assignment.canStop && activeStatus(assignment.status))) && <p>{t('Stopping prevents further work. External operations already started may still finish.')}</p>}

@@ -2151,3 +2151,9 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - Assignment status now includes existing agent emoji/avatar metadata for current ownership and both sides of each handoff. The UI reuses AgentAvatar, retains a vector fallback, and wraps long identities in narrow layouts. API scope/private-data checks remain in place.
 - Post-change Worker validation: **2 files / 43 tests passed**, 8.45s (`/tmp/honmaru-assignment-avatar-worker.log`). Frontend status suite **8 tests passed**; TypeScript and Vite production build succeeded (`/tmp/honmaru-run-avatar-build.log`). Actual component with fixture data inspected through IAB at 360px content width in light/dark modes, expanded history and long names. Temporary preview files/server/tabs removed. Not authenticated production verification.
 - `74226777` CI and Worker deployment failed only the stale query-count audit; Worker stopped at Test. Web stopped waiting for that Worker. All three runs are terminal; the revision did not deploy. The corrected revision may now be dispatched without replacing live jobs.
+
+### 2026-10-24: handoff timestamps follow app locale
+
+- Handoff history uses the selected application locale with cached Intl formatting, rather than the browser's default language. Invalid saved locale identifiers fall back to English; malformed timestamps remain omitted. Display uses local time, with the original timestamp retained in the time element.
+- Status/date-format suites: **2 files / 18 tests passed**. Added Japanese, German, malformed locale and malformed date cases. TypeScript and Vite production build passed (`/tmp/honmaru-handoff-locale-build.log`).
+- Main `ca7c25af` was pushed successfully. Its CI `40067260591`, Worker `40067260596`, Web `40067260615` were confirmed in progress. Timestamp follow-up remains local until those jobs complete; no overlapping deployment was dispatched.

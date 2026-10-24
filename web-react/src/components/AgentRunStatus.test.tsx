@@ -3,6 +3,8 @@ import {act, create} from 'react-test-renderer'
 import {afterEach, expect, test, vi} from 'vitest'
 import {AgentRunStatus} from './AgentRunStatus'
 import type {ChannelMessage} from '../types/card'
+const chosenLocale = vi.hoisted(() => ({value: 'en'}))
+vi.mock('../utils/locale', () => ({getLocale: () => chosenLocale.value}))
 vi.mock('../utils/i18n', () => ({useT: () => (text: string) => text}))
 const api = {httpBase: 'https://api.example', orgId: 'org', sessionToken: 'one'}
 const message = (id: string) => ({id, kind: 'message', body: `Request ${id}`} as ChannelMessage)
@@ -12,7 +14,7 @@ function setup() {
   vi.stubGlobal('window', {addEventListener: vi.fn(), removeEventListener: vi.fn()})
   vi.stubGlobal('document', {visibilityState: 'visible', addEventListener: vi.fn(), removeEventListener: vi.fn()})
 }
-afterEach(() => {vi.useRealTimers(); vi.unstubAllGlobals()})
+afterEach(() => {chosenLocale.value = 'en'; vi.useRealTimers(); vi.unstubAllGlobals()})
 test('polls active work in one batch and stops on terminal state without implying task success', async () => {
   setup()
   const fetch = vi.fn().mockResolvedValueOnce(ok('running')).mockResolvedValue(ok('finished'))
@@ -101,5 +103,19 @@ test('uses agent identity images and emoji in assignments and handoff history', 
  expect(tree.root.findAllByType('img').map(image => image.props.src)).toEqual(['/agent-review.png', '/agent-review.png'])
  expect(JSON.stringify(tree.toJSON())).toContain('🔎')
  expect(tree.root.findAllByProps({title: '@research'})).toHaveLength(1)
+ act(() => tree.unmount())
+})
+
+test.each(['ja', 'de', 'invalid_locale'])('formats handoff time with the app language %s, tolerating stale locale settings', async locale => {
+ setup(); chosenLocale.value = locale
+ const face = {id: 'agent', name: 'Agent', handle: 'agent'}
+ const at = '2026-10-24T05:00:00Z'
+ vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ok: true, json: async () => ({available: true, results: [{rowId: 'one', status: 'finished', answered: 0, assignments: [{id: 'assignment', generation: 1, status: 'finished', agent: face, hops: [{id: 'hop', from: face, to: face, at}, {id: 'bad', from: face, to: face, at: 'not-a-date'}]}]}]})}))
+ let tree!: ReturnType<typeof create>
+ await act(async () => {tree = create(<AgentRunStatus api={api} channel="b:general" messages={[message('one')]}/>)})
+ const times = tree.root.findAllByType('time')
+ expect(times).toHaveLength(1)
+ expect(times[0].props.dateTime).toBe(at)
+ expect(times[0].children.join('')).toBe(new Intl.DateTimeFormat(locale === 'invalid_locale' ? 'en' : locale, {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(at)))
  act(() => tree.unmount())
 })
