@@ -651,9 +651,9 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
     const sent = await adapter.send(t, existing, `${askedBy}: ${turnRequest}`);
     if (sent.busy) return { refused: "busy" };
     // The next answer is for whoever this turn was asked for.
-    await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'running', remote_turn = COALESCE(?3, remote_turn), cost_cents = cost_cents + ?4, on_behalf_of = ?5, room_hook_source = ?6, updated_at = ?2 WHERE id = ?1")
-      .bind(existing.id, stamp, sent.turn || null, (sent.tasks || 0) * 100, onBehalfOf, roomHookSource).run();
-    return { run: { ...existing, status: "running", remote_turn: sent.turn || existing.remote_turn, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource }, continued: true };
+    const advanced = await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'running', remote_turn = COALESCE(?3, remote_turn), cost_cents = cost_cents + ?4, on_behalf_of = ?5, room_hook_source = ?6, updated_at = ?2, turn_version=turn_version+1 WHERE id = ?1 RETURNING turn_version")
+      .bind(existing.id, stamp, sent.turn || null, (sent.tasks || 0) * 100, onBehalfOf, roomHookSource).first();
+    return { run: { ...existing, status: "running", remote_turn: sent.turn || existing.remote_turn, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, turn_version:advanced.turn_version }, continued: true };
   }
   const started = await adapter.start(t, {
     task: taskText({ where, askedBy, transcript, request: turnRequest }), title: `${where}: ${request}`.slice(0, 200),
@@ -664,7 +664,7 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
     `INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, remote_turn, status, cost_cents, last_event_at, started_by, created_at, updated_at, on_behalf_of, room_hook_source)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'running', ?8, NULL, ?9, ?10, ?10, ?11, ?12)`
   ).bind(id, orgId, t.provider, key, threadId, started.remoteId, started.turn || null, (started.tasks || 0) * 100, login, stamp, onBehalfOf, roomHookSource).run();
-  return { run: { id, org_id: orgId, provider: t.provider, channel: key, thread_id: threadId, remote_id: started.remoteId, remote_turn: started.turn || null, status: "running", last_event_at: null, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource } };
+  return { run: { id, org_id: orgId, provider: t.provider, channel: key, thread_id: threadId, remote_id: started.remoteId, remote_turn: started.turn || null, status: "running", last_event_at: null, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, turn_version:0 } };
 }
 
 /// What a run has done since it was last looked at: its words since the last
@@ -698,7 +698,7 @@ export async function settleRun(db, run, read, now = new Date()) {
   else if (!read.stop && now - new Date(run.updated_at) > STALE_MS) status = "failed";
   if (!status) return null;
   const out = await db.prepare(
-    "UPDATE ai_teammate_runs SET status = ?2, last_event_at = COALESCE(?3, last_event_at), cost_cents = COALESCE(?4, cost_cents) WHERE id = ?1 AND status = 'running'"
-  ).bind(run.id, status, read.last || null, read.costCents).run();
+    "UPDATE ai_teammate_runs SET status = ?2, last_event_at = COALESCE(?3, last_event_at), cost_cents = COALESCE(?4, cost_cents) WHERE id = ?1 AND status = 'running' AND org_id=?5 AND turn_version=?6"
+  ).bind(run.id, status, read.last || null, read.costCents, run.org_id, run.turn_version ?? 0).run();
   return Number(out?.meta?.changes || 0) > 0 ? status : null;
 }

@@ -1004,7 +1004,8 @@ CREATE TABLE IF NOT EXISTS ai_teammate_runs (
   updated_at     TEXT NOT NULL,
   /* Working for a person who was mentioned (proxy.js): its answer is theirs. */
   on_behalf_of   TEXT,
-  room_hook_source TEXT
+  room_hook_source TEXT,
+  turn_version INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_status ON ai_teammate_runs(status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_thread ON ai_teammate_runs(org_id, channel, thread_id);

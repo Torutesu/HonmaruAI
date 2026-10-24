@@ -225,3 +225,5 @@ CREATE INDEX IF NOT EXISTS idx_hx_agent_handoff_dispatch_due ON hx_agent_handoff
 
 CREATE TABLE IF NOT EXISTS hx_agent_request_dispatch (org_id TEXT NOT NULL, message_id TEXT NOT NULL, session_key TEXT NOT NULL, agent_ids TEXT NOT NULL, source_hash TEXT NOT NULL, locale TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,message_id));
 CREATE INDEX IF NOT EXISTS idx_hx_agent_request_dispatch_due ON hx_agent_request_dispatch(status,next_attempt,lease_until);
+
+ALTER TABLE ai_teammate_runs ADD COLUMN turn_version INTEGER NOT NULL DEFAULT 0;
