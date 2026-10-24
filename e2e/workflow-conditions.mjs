@@ -78,6 +78,20 @@ export async function workflowConditions({context,web,apiHost,shots}) {
   expected.all[0].value=200
   if(JSON.stringify(edited.workflow.steps[0].when)!==JSON.stringify(expected))throw Error('Editing lost or failed to update saved conditions')
   await page.screenshot({path:`${shots}/workflow-condition-edited.png`})
+  await screen.getByRole('button',{name:/^(Edit workflow|ワークフローを編集)$/}).click()
+  await builder.getByLabel(/^(Trigger|トリガー)$/,{exact:true}).selectOption('schedule')
+  await builder.getByLabel(/^(Cadence|頻度)$/,{exact:true}).selectOption('monthly')
+  await builder.getByLabel(/^(Day of month|毎月の日付)$/,{exact:true}).selectOption('31')
+  await builder.getByLabel(/^(Time zone|タイムゾーン)$/,{exact:true}).fill('Invalid/Zone')
+  if(await builder.getByRole('button',{name:/^(Save workflow|ワークフローを保存)$/}).isEnabled())throw Error('Invalid timezone remained savable')
+  await builder.getByLabel(/^(Time zone|タイムゾーン)$/,{exact:true}).fill('UTC')
+  await page.screenshot({path:`${shots}/workflow-condition-schedule-editor.png`})
+  await builder.getByRole('button',{name:/^(Save workflow|ワークフローを保存)$/}).click()
+  await screen.locator('.hx-flow-condition').waitFor({state:'visible'})
+  const scheduled=await call('GET',`/workflows/${id}`)
+  if(scheduled.workflow.trigger.cadence!=='monthly'||scheduled.workflow.trigger.monthday!==31||scheduled.workflow.trigger.timezone!=='UTC')throw Error('Calendar settings were not persisted')
+  await call('PUT',`/workflows/${id}`,{enabled:false})
+
 
  } catch(error) {
   await page.screenshot({path:`${shots}/workflow-condition-failure.png`}).catch(()=>{})

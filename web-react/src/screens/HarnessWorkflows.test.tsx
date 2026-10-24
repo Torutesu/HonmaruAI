@@ -317,3 +317,15 @@ test('weekly and monthly editors retain and save explicit calendar choices',asyn
  await act(async()=>{await button('Save workflow').props.onClick()});
  expect(state.api.updateWorkflow.mock.calls[1][1].trigger).toMatchObject({cadence:'monthly',monthday:31,timezone:'Asia/Tokyo'});
 });
+
+test('invalid schedule time zones keep the draft unsavable until corrected',async()=>{
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00Z',trigger:{type:'schedule',cadence:'daily',hour:9,minute:0,timezone:'Asia/Tokyo'},steps:[{type:'post',channel:'b:ops',text:'Report'}]};
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});
+ await open();
+ await act(async()=>{button('Edit workflow').props.onClick()});
+ await act(async()=>{tree.root.findByProps({'aria-label':'Time zone'}).props.onChange({target:{value:'Wrong/Zone'}})});
+ expect(button('Save workflow').props.disabled).toBe(true);
+ expect(JSON.stringify(tree.toJSON())).toContain('Enter a valid time and time zone.');
+ await act(async()=>{tree.root.findByProps({'aria-label':'Time zone'}).props.onChange({target:{value:'UTC'}})});
+ expect(button('Save workflow').props.disabled).toBe(false);
+});

@@ -66,6 +66,10 @@ function Builder({ tables, agents, onSave, onCancel, busy, initial }: { initial?
   const [name, setName] = useState(initial?.name || '')
   const [trigger, setTrigger] = useState<Trigger>(initial ? structuredClone(initial.trigger) : { type: 'manual' })
   const [steps, setSteps] = useState<Step[]>(initial ? structuredClone(initial.steps) : [blankStep('post')])
+  const scheduleValid = trigger.type !== 'schedule' || (()=>{
+    try { new Intl.DateTimeFormat('en',{timeZone:trigger.timezone}); } catch { return false }
+    return Boolean(trigger.timezone?.trim()) && Number.isInteger(trigger.hour) && trigger.hour!>=0 && trigger.hour!<=23 && Number.isInteger(trigger.minute) && trigger.minute!>=0 && trigger.minute!<=59
+  })()
   const table = tables.find((x) => x.id === trigger.tableId)
   const whereCol = table?.columns.find((c) => c.type === 'select')
   const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone } catch { return 'UTC' } })()
@@ -95,7 +99,8 @@ function Builder({ tables, agents, onSave, onCancel, busy, initial }: { initial?
               {Array.from({length:31},(_,index)=><option key={index+1} value={index+1}>{t('Day {day}',{day:index+1})}</option>)}
             </select>}
             <input type="time" className="hx-cell-input" value={`${String(trigger.hour ?? 9).padStart(2, '0')}:${String(trigger.minute ?? 0).padStart(2, '0')}`} onChange={(e) => { const [h, m] = e.target.value.split(':').map(Number); setTrigger({ ...trigger, hour: h, minute: m }) }} aria-label={t('Time')} />
-            <span className="row-sub">{trigger.timezone}</span>
+            <input className="hx-cell-input" aria-label={t('Time zone')} value={trigger.timezone || ''} placeholder="Asia/Tokyo" onChange={e=>setTrigger({...trigger,timezone:e.target.value})} />
+            {!scheduleValid && <span className="form-error" role="alert">{t('Enter a valid time and time zone.')}</span>}
             {trigger.cadence === 'monthly' && <span className="row-sub">{t('If the date does not exist, runs on the last day of the month.')}</span>}
           </span>
         )}
@@ -135,7 +140,7 @@ function Builder({ tables, agents, onSave, onCancel, busy, initial }: { initial?
       <p className="hx-hint">{t('Steps can use what started them: {{row.Column}}, {{input.text}}, {{steps.1.output}}.')}</p>
       <div className="playbook-add-foot">
         <button className="btn-text" onClick={onCancel}>{t('Cancel')}</button>
-        <button className="pill-btn" disabled={busy || !name.trim() || steps.length === 0} onClick={() => onSave({ name, trigger, steps })}>{t('Save workflow')}</button>
+        <button className="pill-btn" disabled={busy || !name.trim() || steps.length === 0 || !scheduleValid} onClick={() => onSave({ name, trigger, steps })}>{t('Save workflow')}</button>
       </div>
     </div>
   )

@@ -1,6 +1,8 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Time zone': 'タイムゾーン',
+  'Enter a valid time and time zone.': '正しい時刻とタイムゾーンを入力してください。',
   'Weekday': '曜日',
   'Day of month': '毎月の日付',
   'Day {day}': '{day}日',

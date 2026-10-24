@@ -56,6 +56,10 @@ export function normalizeTrigger(raw) {
   if (!type) return { error: `trigger.type must be one of ${TRIGGERS.join(", ")}` };
   if (type === "schedule") {
     if (!CADENCES.includes(raw.cadence)) return { error: `A schedule needs a cadence: ${CADENCES.join(", ")}` };
+    for (const [key,min,max] of [['hour',0,23],['minute',0,59],...(raw.cadence==='weekly'?[['weekday',0,6]]:[]),...(raw.cadence==='monthly'?[['monthday',1,31]]:[])]) {
+      if (raw[key] !== undefined && (!Number.isInteger(raw[key]) || raw[key]<min || raw[key]>max)) return {error:`Invalid schedule ${key}.`};
+    }
+    if (raw.timezone !== undefined && !isTimeZone(raw.timezone)) return {error:'Invalid schedule timezone.'};
     const t = { type, cadence: raw.cadence, hour: Number.isInteger(raw.hour) ? raw.hour : 9, minute: Number.isInteger(raw.minute) ? raw.minute : 0, timezone: isTimeZone(raw.timezone) ? raw.timezone : "UTC" };
     if (raw.cadence === "weekly") t.weekday = Number.isInteger(raw.weekday) ? raw.weekday : 1;
     if (raw.cadence === "monthly") t.monthday = Number.isInteger(raw.monthday) ? raw.monthday : 1;

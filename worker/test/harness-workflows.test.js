@@ -995,3 +995,12 @@ test('editing content preserves the scheduled cursor, while disabling and schedu
  expect(changed.workflow.nextRunAt).not.toBe(resumed.workflow.nextRunAt);
  expect((await getWorkflow(env.DB,ORG,workflow.id)).name).toBe('Renamed');
 });
+
+
+test('schedule definitions reject invalid values rather than silently shifting execution time',async()=>{
+ const {normalizeTrigger}=await import('../src/harness/workflows.js');
+ const schedule={type:'schedule',cadence:'weekly',hour:9,minute:30,weekday:0,timezone:'Asia/Tokyo'};
+ for(const patch of [{hour:24},{hour:-1},{minute:60},{minute:null},{weekday:7},{weekday:1.5},{timezone:'Not/AZone'},{timezone:''},{cadence:'monthly',monthday:0},{cadence:'monthly',monthday:32}])expect(normalizeTrigger({...schedule,...patch}).error).toBeTruthy();
+ expect(normalizeTrigger(schedule).trigger).toEqual(schedule);
+ expect(normalizeTrigger({type:'schedule',cadence:'daily'}).trigger).toMatchObject({hour:9,minute:0,timezone:'UTC'});
+});
