@@ -2256,3 +2256,7 @@ Deployment logs for prior cb32be63 confirm Worker version dddca3ee-1282-40f1-b4f
 During follow-up review, fixed the expanded source picker to reload after workflow/API identity changes instead of leaving an empty open panel. An out-of-order old response cannot replace current candidates. Three focused tests and TypeScript passed (`/tmp/honmaru-source-identity.log`). Full final Web/build is being rerun; Worker source/tests remain unchanged.
 
 Final Web after the expanded-picker identity correction: 162 files / 1108 tests passed (`/tmp/honmaru-source-final-web.log`); production build passed (`/tmp/honmaru-source-final-build.log`). Existing bundle-size/dynamic-import warnings remain.
+
+### Integrated source notification validation complete
+
+The fixed Worker snapshot ca5aceaa passed 226 files / 1870 tests in 676.89s (`/tmp/honmaru-ca5-full-worker.log`, terminal exit 0). No Worker source/test changes were made during that run; only Web identity handling and documentation changed. Together with final Web 162 files / 1108 tests, TypeScript/build, version consistency and parity-inventory checks, this validates the queued failure pause, creator notices, source binding, fenced automatic thread delivery and picker changes locally. It does not establish full Kylon parity or authenticated production behavior. Prior production jobs are all terminal success, so the candidate can be published without overlapping them.
