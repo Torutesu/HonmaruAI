@@ -4,6 +4,7 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
   if (new URL(apiHost).hostname !== '127.0.0.1') throw new Error('Source-navigation fixtures require the local test Worker')
   const page = await context.newPage()
   await page.setViewportSize({ width: 1440, height: 900 })
+  let stage = 'fixture setup', navigation = 0
   let previousMode
   const call = (method, path, body) => page.evaluate(async ({ apiHost, method, path, body }) => {
     const orgId = localStorage.getItem('orgId')
@@ -36,10 +37,18 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     await page.reload({ waitUntil: 'load' })
     const appUrl = `${web}#/apps/${made.app.id}/${encodeURIComponent(orgId)}`
     const openAdjustment = async () => {
+      navigation += 1
+      stage = 'open app route'
       await page.goto(appUrl, { waitUntil: 'load' })
-      await page.locator('.hx-data-toolbar').waitFor({ timeout: 20000 })
-      await page.getByRole('button', { name: 'フィルター', exact: true }).click()
-      await page.getByRole('button', { name: 'フィルターを調整', exact: true }).click()
+      // The creation thread remains mounted behind the standalone screen.
+      // Scope to the foreground app so its hidden panel cannot capture this locator.
+      const foreground = page.locator('.shell > .hx-app-detail')
+      await foreground.locator('.hx-data-toolbar').waitFor({ timeout: 20000 })
+      stage = 'open filter popover'
+      await foreground.getByRole('button', { name: 'フィルター', exact: true }).click()
+      stage = 'adjust filter'
+      await foreground.getByRole('button', { name: 'フィルターを調整', exact: true }).click()
+      stage = 'wait for source thread'
       await page.locator('.slk-thread-pane .slk-composer textarea').waitFor({ timeout: 20000 })
       await page.locator('.hx-app-pane .hx-data-toolbar').waitFor({ timeout: 20000 })
       if (!(await page.locator('.slk-thread-pane').innerText()).includes(prompt)) throw new Error('Wrong creation thread opened')
@@ -73,6 +82,13 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     await page.screenshot({ path: `${shots}/app-draft-restored.png` })
     await appReply.fill('')
   } catch (error) {
+    console.error(`Source navigation failed at ${stage} (navigation ${navigation}): ${String(error)}`)
+    console.error('Filter hit-test diagnostics', JSON.stringify(await page.evaluate(() => Array.from(document.querySelectorAll('.hx-view-controls > button')).map(button => {
+      const r = button.getBoundingClientRect(), hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
+      const describe = element => element ? {tag: element.tagName, classes: element.className, text: element.textContent?.slice(0,80), pointerEvents: getComputedStyle(element).pointerEvents, zIndex: getComputedStyle(element).zIndex, rect: element.getBoundingClientRect().toJSON()} : null
+      const ancestors = []; for (let parent = button.parentElement; parent && ancestors.length < 7; parent = parent.parentElement) ancestors.push(describe(parent))
+      return {button: describe(button), hit: describe(hit), ancestors, viewport: {width: innerWidth, height: innerHeight, scale: visualViewport?.scale}}
+    })).catch(error => String(error))))
     await page.screenshot({ path: `${shots}/app-source-failure.png` }).catch(() => {})
     throw error
   } finally {
