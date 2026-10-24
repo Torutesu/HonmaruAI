@@ -4,6 +4,7 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
   if (new URL(apiHost).hostname !== '127.0.0.1') throw new Error('Source-navigation fixtures require the local test Worker')
   const page = await context.newPage()
   await page.setViewportSize({ width: 1440, height: 900 })
+  await page.emulateMedia({ colorScheme: 'light' })
   let stage = 'fixture setup', navigation = 0
   let previousMode
   const call = (method, path, body) => page.evaluate(async ({ apiHost, method, path, body }) => {
@@ -143,6 +144,40 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
       return r && r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight
     })
     await page.screenshot({ path: `${shots}/app-floating.png` })
+    stage = 'floating fullscreen and dark appearance'
+    const compactRect = await floating.boundingBox()
+    await floating.getByRole('button', { name: '全画面表示', exact: true }).click()
+    await page.waitForFunction(() => {
+      const r = document.querySelector('.hx-floating-app .hx-app-fullscreen')?.getBoundingClientRect()
+      return r && Math.abs(r.left) < 1 && Math.abs(r.top) < 1 && Math.abs(r.width - innerWidth) < 1 && Math.abs(r.height - innerHeight) < 1
+    })
+    if (await floating.locator('.hx-floating-resize').isVisible()) throw new Error('Fullscreen exposes floating resize handle')
+    await floating.getByRole('button', { name: '全画面表示を終了', exact: true }).click()
+    const restoredRect = await floating.boundingBox()
+    if (!compactRect || !restoredRect || ['x', 'y', 'width', 'height'].some(key => Math.abs(compactRect[key] - restoredRect[key]) > 1)) throw new Error('Exiting fullscreen lost floating geometry')
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await page.waitForFunction(() => {
+      const panel = document.querySelector('.hx-floating-app')
+      if (!panel) return false
+      const rgb = getComputedStyle(panel).backgroundColor.match(/[\d.]+/g)?.map(Number)
+      return rgb?.length >= 3 && rgb.slice(0, 3).every(channel => channel < 60)
+    })
+    const contrasts = await floating.evaluate(panel => {
+      const luminance = color => {
+        const values = color.match(/[\d.]+/g)?.slice(0, 3).map(Number)
+        if (!values || values.length !== 3) throw new Error(`Unsupported color ${color}`)
+        const linear = values.map(value => { const v = value / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 })
+        return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722
+      }
+      const background = luminance(getComputedStyle(panel).backgroundColor)
+      return [...panel.querySelectorAll('.screen-head .hx-app-icon-button')].map(button => {
+        const foreground = luminance(getComputedStyle(button).color)
+        return { label: button.getAttribute('aria-label'), ratio: (Math.max(background, foreground) + 0.05) / (Math.min(background, foreground) + 0.05) }
+      })
+    })
+    if (!contrasts.length || contrasts.some(item => item.ratio < 3)) throw new Error(`Dark floating icon contrast is insufficient: ${JSON.stringify(contrasts)}`)
+    await page.screenshot({ path: `${shots}/app-floating-dark.png` })
+    await page.emulateMedia({ colorScheme: 'light' })
     await floating.getByRole('button', { name: 'フローティングアプリを閉じる', exact: true }).click()
     await floating.waitFor({ state: 'detached' })
 
