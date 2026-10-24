@@ -2200,3 +2200,9 @@ Rendered the actual AppAutomations component with explicit fixture data using th
 ### Unsaved-edit final Web verification
 
 Runtime `dfbe5021` passed Web 160 files / 1094 tests (`/tmp/honmaru-dfbe-full-web.log`), TypeScript (`/tmp/honmaru-dfbe-types.log`) and production build (`/tmp/honmaru-dfbe-build.log`). At the latest GitHub job inspection, cfece088's Web deploy is waiting for matching Worker deployment; Worker deploy runs its Test step; CI Worker and E2E tests are active. CI Local gateway, Desktop, Shared core/mobile, Reference web client and Reference relay have succeeded. No failed job was reported, but overall success remains unproven until active jobs terminate.
+
+### App automation production release verified
+
+At cfece088, CI 40071366860, Worker 40071366840 and Web 40071366835 all completed successfully. Worker version is 9e40b6e8-9dc4-491d-af5f-21b04bbb39b6. Web deployment logs confirm both honmaru-web.pages.dev and app.honmaruai.com serve index-Bwh8qCgT.js at 2026-10-24T06:58Z. IAB rendered the production welcome screen after startup; it has no signed-in session. Native inventory still reports locked despite the user's confirmation, so authenticated UI equivalence is not verified and no repeated unlock request was made.
+
+The queued follow-ups through ce76f62d include readable resource names, minute-precision follow-ups, execution history, unsaved-edit protection and a waiting/terminal continuation guard. Latest Web validation remains 160 files / 1094 tests plus TypeScript/build; continuation tests passed 2 files / 96 tests. These follow-ups are separate from the production release verified above.
