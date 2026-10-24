@@ -1,3 +1,4 @@
+import {drainTeammateResults} from './teammateResultDispatch.js';
 import {decorateAssignmentStatuses} from './harness/agentAssignmentStatus.js';
 import {stopAssignment} from './harness/agentAssignmentStop.js';
 import {runAgentAssignment} from './harness/runAgentAssignment.js';
@@ -658,6 +659,9 @@ async function runTeammate(env, { orgId, user, resolved, row, members, locale, a
 /// Look in on teammates at work, and post what each finished with into the
 /// thread it came from. Once (the minute cron), or until `deadline`.
 export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause = 8000 } = {}) {
+  const publish=async payload=>postTeammateResult(env,payload.run,await loadTeammate(env.DB,payload.run.org_id,payload.run.provider),payload.read,payload.status,{clientId:`tmp-${payload.deliveryId}`,deliveryAgentId:payload.agentId});
+  if(ids) {for(const id of ids.slice(0,25))await drainTeammateResults(env,publish,{runId:id});}
+  else await drainTeammateResults(env,publish);
   for (;;) {
     const runs = await openRuns(env.DB, { ids });
     if (!runs.length) return;
@@ -667,9 +671,12 @@ export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause =
       try {
         const t = await loadTeammate(env.DB, run.org_id, run.provider);
         const read = canSignIn(t) ? await readRun(env, t, run) : { texts: [], stop: "terminated", last: null, costCents: null };
-        const status = await settleRun(env.DB, run, read);
+        const status = await settleRun(env.DB, run, read, new Date(), {deliveryAgentId:t?.agentId});
         if (read.stop || status) working -= 1;
-        if (status) await postTeammateResult(env, run, t, read, status);
+        if (status) {
+          if(t?.agentId && !run.on_behalf_of)await drainTeammateResults(env,publish,{runId:run.id});
+          else await postTeammateResult(env, run, t, read, status);
+        }
       } catch (err) {
         console.error("teammate watch failed", safe(err?.message));
       }
@@ -679,8 +686,8 @@ export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause =
   }
 }
 
-async function postTeammateResult(env, run, t, read, status) {
-  if (run.room_hook_source && run.room_hook_source !== run.thread_id) return;
+async function postTeammateResult(env, run, t, read, status, {clientId=null,deliveryAgentId=null}={}) {
+  if (run.room_hook_source && run.room_hook_source !== run.thread_id) return {cancelled:true};
   const starter = run.started_by ? await getUserByLogin(env.DB, run.started_by).catch(() => null) : null;
   const locale = await loadCopy(env, starter?.locale || "en", { orgId: run.org_id });
   const words = read.texts.join("\n\n").trim();
@@ -689,8 +696,8 @@ async function postTeammateResult(env, run, t, read, status) {
   else if (status === "failed") body = [words, serverText(locale, read.stop === "terminated" ? "teammate.failed" : "teammate.stopped")].filter(Boolean).join("\n\n");
   else body = words || (read.error ? serverText(locale, "teammate.stopped") : serverText(locale, "teammate.done"));
   const agentId = t?.agentId;
-  if (!agentId) return;
-  if (run.room_hook_source && !await roomHookAgentAllowed(env.DB,run.org_id,run.room_hook_source,agentId)) return;
+  if (!agentId || (deliveryAgentId && deliveryAgentId!==agentId)) return {cancelled:true};
+  if (run.room_hook_source && !await roomHookAgentAllowed(env.DB,run.org_id,run.room_hook_source,agentId)) return {cancelled:true};
   // Working for a person who was mentioned: what it would post outside the
   // chat waits on that person (proxy.js), and the answer reads as theirs.
   if (run.on_behalf_of) {
@@ -699,9 +706,11 @@ async function postTeammateResult(env, run, t, read, status) {
   }
   const out = await postMessage(env.DB, {
     orgId: run.org_id, key: run.channel, authorLogin: `agent:${agentId}`, body: body.length > MAX_MESSAGE_CHARS ? `${body.slice(0, MAX_MESSAGE_CHARS - 1)}…` : body, kind: "agent",
-    parentId: run.thread_id === "-" ? null : run.thread_id, onBehalfOf: run.on_behalf_of || null, roomHookSource: Boolean(run.room_hook_source),
+    parentId: run.thread_id === "-" ? null : run.thread_id, onBehalfOf: run.on_behalf_of || null, roomHookSource: Boolean(run.room_hook_source), clientId,
   });
-  if (out.row) await broadcastStored(env, run.org_id, run.channel, out.row);
+  if (out.row) {await broadcastStored(env, run.org_id, run.channel, out.row);return {published:true};}
+  if(['thread_gone','webhook_revoked'].includes(out.code))return {cancelled:true};
+  return {published:false};
 }
 
 /// The sidebar's previews in the language the reader set: kept translations

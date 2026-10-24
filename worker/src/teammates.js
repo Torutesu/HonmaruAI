@@ -651,7 +651,7 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
     const sent = await adapter.send(t, existing, `${askedBy}: ${turnRequest}`);
     if (sent.busy) return { refused: "busy" };
     // The next answer is for whoever this turn was asked for.
-    const advanced = await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'running', remote_turn = COALESCE(?3, remote_turn), cost_cents = cost_cents + ?4, on_behalf_of = ?5, room_hook_source = ?6, updated_at = ?2, turn_version=turn_version+1 WHERE id = ?1 RETURNING turn_version")
+    const advanced = await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'running', remote_turn = COALESCE(?3, remote_turn), cost_cents = cost_cents + ?4, on_behalf_of = ?5, room_hook_source = ?6, updated_at = ?2, turn_version=turn_version+1, result_delivery_id=NULL WHERE id = ?1 RETURNING turn_version")
       .bind(existing.id, stamp, sent.turn || null, (sent.tasks || 0) * 100, onBehalfOf, roomHookSource).first();
     return { run: { ...existing, status: "running", remote_turn: sent.turn || existing.remote_turn, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, turn_version:advanced.turn_version }, continued: true };
   }
@@ -687,18 +687,29 @@ export async function openRuns(db, { limit = 25, ids = null } = {}) {
 
 /// A run's state after a look. While it works nothing moves: the next look
 /// reads from the same place, so nothing it said is lost. When it stops, the
-/// one look that marks it so (a second one racing it changes nothing) is the
-/// one to post its answer. Returns the new status, or null when there is
-/// nothing to post.
-export async function settleRun(db, run, read, now = new Date()) {
+/// one look that marks it so creates its reply delivery atomically. A stale
+/// turn or concurrent second settlement changes nothing. Non-proxy replies
+/// retry local publication from that outbox; remote work is never replayed.
+/// Returns the new status, or null when there is nothing new to publish.
+export async function settleRun(db, run, read, now = new Date(), {deliveryAgentId=null}={}) {
   let status = null;
   if (read.stop === "end_turn" || read.stop === "requires_action" || read.stop === "retries_exhausted") status = "idle";
   else if (read.stop === "budget_reached") status = "budget";
   else if (read.stop === "terminated") status = "failed";
   else if (!read.stop && now - new Date(run.updated_at) > STALE_MS) status = "failed";
   if (!status) return null;
-  const out = await db.prepare(
-    "UPDATE ai_teammate_runs SET status = ?2, last_event_at = COALESCE(?3, last_event_at), cost_cents = COALESCE(?4, cost_cents) WHERE id = ?1 AND status = 'running' AND org_id=?5 AND turn_version=?6"
-  ).bind(run.id, status, read.last || null, read.costCents, run.org_id, run.turn_version ?? 0).run();
-  return Number(out?.meta?.changes || 0) > 0 ? status : null;
+  // Proxy proposals can contain external actions and retain their existing
+  // path until their own idempotency contract covers replay.
+  const deliveryId=deliveryAgentId && !run.on_behalf_of?crypto.randomUUID():null;
+  const update=db.prepare("UPDATE ai_teammate_runs SET status = ?2, last_event_at = COALESCE(?3, last_event_at), cost_cents = COALESCE(?4, cost_cents), result_delivery_id=?7 WHERE id = ?1 AND status = 'running' AND org_id=?5 AND turn_version=?6")
+    .bind(run.id,status,read.last || null,read.costCents,run.org_id,run.turn_version ?? 0,deliveryId);
+  let out;
+  if(deliveryId) {
+    const snapshot={id:run.id,org_id:run.org_id,provider:run.provider,channel:run.channel,thread_id:run.thread_id,started_by:run.started_by || null,room_hook_source:run.room_hook_source || null,turn_version:run.turn_version ?? 0};
+    const payload=JSON.stringify({run:snapshot,read:{texts:[(read.texts || []).join('\n\n').slice(0,16000)],stop:read.stop || null,error:Boolean(read.error)},status});
+    [out]=await db.batch([update,db.prepare(`INSERT INTO ai_teammate_result_dispatch(id,org_id,run_id,turn_version,agent_id,payload,updated_at)
+      SELECT ?1,org_id,id,turn_version,?2,?3,?4 FROM ai_teammate_runs WHERE id=?5 AND result_delivery_id=?1`)
+      .bind(deliveryId,deliveryAgentId,payload,now.toISOString(),run.id)]);
+  } else out=await update.run();
+  return Number(out?.meta?.changes || 0)>0?status:null;
 }
