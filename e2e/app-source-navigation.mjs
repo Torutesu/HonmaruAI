@@ -4,6 +4,7 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
   if (new URL(apiHost).hostname !== '127.0.0.1') throw new Error('Source-navigation fixtures require the local test Worker')
   const page = await context.newPage()
   await page.setViewportSize({ width: 1440, height: 900 })
+  let stage = 'fixture setup'
   let previousMode
   const call = (method, path, body) => page.evaluate(async ({ apiHost, method, path, body }) => {
     const orgId = localStorage.getItem('orgId')
@@ -36,10 +37,14 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     await page.reload({ waitUntil: 'load' })
     const appUrl = `${web}#/apps/${made.app.id}/${encodeURIComponent(orgId)}`
     const openAdjustment = async () => {
+      stage = 'open app route'
       await page.goto(appUrl, { waitUntil: 'load' })
       await page.locator('.hx-data-toolbar').waitFor({ timeout: 20000 })
+      stage = 'open filter popover'
       await page.getByRole('button', { name: 'フィルター', exact: true }).click()
+      stage = 'adjust filter'
       await page.getByRole('button', { name: 'フィルターを調整', exact: true }).click()
+      stage = 'wait for source thread'
       await page.locator('.slk-thread-pane .slk-composer textarea').waitFor({ timeout: 20000 })
       await page.locator('.hx-app-pane .hx-data-toolbar').waitFor({ timeout: 20000 })
       if (!(await page.locator('.slk-thread-pane').innerText()).includes(prompt)) throw new Error('Wrong creation thread opened')
@@ -73,6 +78,7 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     await page.screenshot({ path: `${shots}/app-draft-restored.png` })
     await appReply.fill('')
   } catch (error) {
+    console.error(`Source navigation failed at ${stage}: ${String(error)}`)
     await page.screenshot({ path: `${shots}/app-source-failure.png` }).catch(() => {})
     throw error
   } finally {
