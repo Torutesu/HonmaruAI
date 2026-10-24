@@ -21,7 +21,10 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   if(!['publish','unpublish'].includes(input.action) || typeof input.requestId!=='string' || !/^[a-zA-Z0-9_-]{16,80}$/.test(input.requestId))return {error:'A release needs an action and unique request ID.',status:400};
   if(!Number.isSafeInteger(input.revision) || input.revision<1 || input.revision>=Number.MAX_SAFE_INTEGER || !Number.isSafeInteger(input.version))return conflict();
   if(input.includeSource!==undefined && typeof input.includeSource!=='boolean')return {error:'includeSource must be a boolean.',status:400};
-  const request=JSON.stringify({action:input.action,revision:input.revision,version:input.version,includeSource:input.includeSource===true,by:String(by)});
+  const reviewed=input.reviewed || [];
+  if(!Array.isArray(reviewed) || reviewed.length>100 || JSON.stringify(reviewed).length>128000 || reviewed.some(item=>!item || typeof item.key!=='string' || typeof item.workflowId!=='string' || item.action!=='replace' || !item.live) || new Set(reviewed.map(item=>item.key)).size!==reviewed.length)return {error:'Invalid automation review.',status:400};
+  if(input.action==='unpublish' && reviewed.length)return {error:'Stopping does not require a replacement review.',status:400};
+  const request=JSON.stringify({action:input.action,revision:input.revision,version:input.version,includeSource:input.includeSource===true,reviewed,by:String(by)});
   const prior=await db.prepare('SELECT request,release_id,revision,app_version FROM hx_app_automation_releases WHERE org_id=?1 AND app_id=?2 AND request_id=?3').bind(orgId,app.id,input.requestId).first();
   if(prior)return prior.request===request?{...receipt(prior),replay:true}:conflict();
   if(input.version!==app.version)return conflict();
@@ -29,7 +32,15 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   const plan=stopping?await readAutomationDraft(db,orgId,app.id):await readAutomationPlan(db,orgId,app.id,by);
   if(plan.error)return plan;
   if(plan.revision!==input.revision)return conflict();
-  if(!stopping && plan.plan.some(item=>['drifted','missing'].includes(item.status)))return conflict();
+  if(!stopping) {
+    for(const item of plan.plan) {
+      if(item.status==='missing')return conflict();
+      if(item.status!=='drifted')continue;
+      const review=reviewed.find(value=>value.key===item.key);
+      if(!review || review.workflowId!==item.workflowId || !sameAutomation(review.live,item.live))return conflict();
+    }
+    if(reviewed.some(review=>!plan.plan.some(item=>item.key===review.key && item.status==='drifted')))return conflict();
+  }
   const desired=input.action==='publish'?plan.draft.items:[];
   for(const item of desired) {
     if(!await mayViewWorkflow(db,orgId,item,by))return {error:'An automation references an unavailable resource.',status:403};
@@ -80,7 +91,8 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
     const next=item.enabled && item.trigger.type==='schedule'?nextRunAt(item.trigger):null;
     if(binding) {
       const candidate=item.trigger.type==='webhook'?secret():null;
-      const applied=JSON.parse(binding.applied);
+      const live=snapshots.find(row=>row.id===id);
+      const applied={enabled:Boolean(live.enabled),trigger:JSON.parse(live.trigger)};
       const sameSchedule=sameAutomation({name:'',steps:[],enabled:item.enabled,trigger:item.trigger},{name:'',steps:[],enabled:applied.enabled,trigger:applied.trigger});
       statements.push(db.prepare(`UPDATE hx_workflows SET name=?5,enabled=?6,trigger=?7,steps=?8,next_run_at=CASE WHEN ?12=1 THEN next_run_at ELSE ?9 END,updated_at=?10,
         hook_secret=CASE WHEN ?11 IS NULL THEN NULL WHEN json_extract(trigger,'$.type')='webhook' THEN hook_secret ELSE ?11 END

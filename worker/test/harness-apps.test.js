@@ -769,3 +769,38 @@ test('stopping still succeeds when a managed workflow has been independently del
  const state=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();expect(state.published).toBeNull();expect(state.plan[0].status).toBe('missing');
  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
 });
+
+test('reviewed live drift can be replaced, but stale or unrelated reviews cannot authorize publication',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_review_00001',version:f.app.version,revision:1});
+ await env.DB.prepare('UPDATE hx_workflows SET name=?1 WHERE org_id=?2').bind('Independent edit',ORG).run();
+ const plan=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();const item=plan.plan[0];
+ const reviewed=[{key:item.key,workflowId:item.workflowId,action:'replace',live:item.live}];
+ const request={action:'publish',requestId:'publish_review_00002',version:first.version,revision:first.revision,reviewed};
+ expect((await f.release({...request,reviewed:[{...reviewed[0],live:{...item.live,name:'Wrong reviewed name'}}]})).status).toBe(409);
+ expect((await f.release({...request,reviewed:[{...reviewed[0],key:'unrelated'}]})).status).toBe(409);
+ const result=await f.release(request);expect(result.saved).toBe(true);
+ expect((await env.DB.prepare('SELECT name FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).name).toBe('Review');
+ expect(await f.release(request)).toMatchObject({...result,replay:true});
+});
+
+test('a live edit after explicit review still rejects the entire publication',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_race_review1',version:f.app.version,revision:1});
+ await env.DB.prepare('UPDATE hx_workflows SET name=?1 WHERE org_id=?2').bind('Reviewed edit',ORG).run();
+ const plan=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();const item=plan.plan[0];
+ const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{
+  await env.DB.prepare('UPDATE hx_workflows SET name=?1 WHERE org_id=?2').bind('Newer unreviewed edit',ORG).run();return env.DB.batch(statements);
+ }};
+ const result=await f.release({action:'publish',requestId:'publish_race_review2',version:first.version,revision:first.revision,reviewed:[{key:item.key,workflowId:item.workflowId,action:'replace',live:item.live}]},db);
+ expect(result.status).toBe(409);expect((await env.DB.prepare('SELECT name FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).name).toBe('Newer unreviewed edit');
+});
+
+test('replacing a reviewed schedule drift clears the live schedule for a manual declaration',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_schedule_001',version:f.app.version,revision:1});
+ await env.DB.prepare('UPDATE hx_workflows SET trigger=?1,next_run_at=?2 WHERE org_id=?3').bind(JSON.stringify({type:'schedule',cadence:'daily',hour:9,minute:0,timezone:'Asia/Tokyo'}),'2099-01-01T00:00:00.000Z',ORG).run();
+ const plan=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();const item=plan.plan[0];
+ expect((await f.release({action:'publish',requestId:'publish_schedule_002',version:first.version,revision:first.revision,reviewed:[{key:item.key,workflowId:item.workflowId,action:'replace',live:item.live}]})).saved).toBe(true);
+ expect((await env.DB.prepare('SELECT next_run_at FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).next_run_at).toBeNull();
+});
