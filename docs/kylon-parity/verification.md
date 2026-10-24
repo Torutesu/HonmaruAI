@@ -2138,3 +2138,9 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - Tests use mocked Anthropic endpoints: normal completion, explicit stop, sign-out before completion, and failure to save assignment completion after the reply landed. The final case verifies pending ownership survives a runner interruption and retry produces one remote execution and one final reply.
 - **9 files / 96 tests passed**, 20.26s (`/tmp/honmaru-external-assignment-final-target.log`). Added lookup indexes only in ordered column migrations (not schema.sql before old columns exist); final migration validation **2 files / 11 tests passed**, 4.20s (`/tmp/honmaru-external-assignment-migrations.log`).
 - Remote teammates still cannot initiate the local controlled handoff tool themselves. Other model-provider tool support and authenticated production/Kylon verification remain incomplete. No claim of full delegation or 100% parity.
+
+### 2026-10-24: workspace query audit correction
+
+- CI `40066192513` at `74226777` completed with 222 files / 1801 tests passing and one audit failure: the unscoped `teammates.js` query count decreased from 4 to 3, but its baseline was stale. Lowered the baseline (no relaxation of workspace isolation); the two audit tests pass in `/tmp/honmaru-workspace-count-fix.log`.
+- Full Worker run started at `044496b7` remains in progress (`/tmp/honmaru-external-assignment-full-worker.log`). Its initial snapshot has the old audit baseline; the baseline-only correction was tested separately while it ran. Do not label that full run as validation of the subsequent commit without qualifying this change.
+- Browser inventory still reports native Mac access locked despite the user confirming it is usable. IAB successfully reaches the production welcome screen, but has no signed-in session. This does not verify authenticated application UI. No repeated unlock request was sent.
