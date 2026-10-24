@@ -35,7 +35,7 @@ test('a failed refresh removes cached history and permits retry',async()=>{
 })
 
 test('changed steps show readable conditions and resolve current table labels',async()=>{
- const old={...version(1,'Workflow'),definition:{...definition,steps:[{type:'add_row',tableId:'table',values:{amount:'100'},when:{path:['row','amount'],op:'gte',value:100}}]}}
+ const old={...version(1,'Workflow'),definition:{...definition,steps:[{type:'add_row',tableId:'table',values:{amount:'100',active:false,metadata:{source:'form'}},rowId:'record-42',when:{path:['row','amount'],op:'gte',value:100}}]}}
  const latest={...version(2,'Workflow'),definition:{...old.definition,trigger:{type:'schedule',cadence:'daily',hour:9,minute:30,timezone:'UTC'},steps:[{...old.definition.steps[0],values:{amount:'200'}}]}}
  const api:any={workflowRevisions:vi.fn().mockResolvedValue({items:[latest,old],nextCursor:null})}
  let tree:any
@@ -47,6 +47,9 @@ test('changed steps show readable conditions and resolve current table labels',a
  expect(rendered).toContain('Amount')
  expect(rendered).toContain('09:30 UTC')
  expect(rendered).toContain('≥ 100')
+ expect(rendered).toContain('false')
+ expect(rendered).toContain('record-42')
+ expect(rendered).toContain('form')
  expect(tree.root.findAllByType('pre')).toHaveLength(0)
  act(()=>tree.unmount())
 })

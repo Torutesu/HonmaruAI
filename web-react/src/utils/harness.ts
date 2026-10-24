@@ -59,7 +59,7 @@ export type WorkflowCondition = {all:WorkflowCondition[]} | {any:WorkflowConditi
 export interface Step {
   when?: WorkflowCondition
   type: StepType
-  channel?: string; text?: string; agentId?: string; prompt?: string; tableId?: string
+  channel?: string; text?: string; agentId?: string; prompt?: string; tableId?: string; rowId?: string
   values?: Record<string, string>; to?: string; title?: string; summary?: string; minutes?: number
 }
 export interface WorkflowSourceState {source:{threadId:string;channel:string;body:string;createdAt:string}|null;canBind:boolean;candidates:Array<{id:string;channel:string;body:string;createdAt:string}>;nextCursor:number|null}

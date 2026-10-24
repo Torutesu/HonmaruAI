@@ -24,6 +24,7 @@ export function WorkflowHistory({api,workflowId,tables=[],agents=[]}:{api:Harnes
  }
  const before=items.find(item=>item.revision===from),after=items.find(item=>item.revision===to)
  const fields=[['name','Name'],['enabled','Automatic triggers'],['trigger','Trigger'],['steps','Steps']] as const
+ const rowValue=(value:unknown)=>typeof value==='string'?value:JSON.stringify(value,null,2)
  const display=(definition:WorkflowRevision['definition'],key:typeof fields[number][0])=>{
   if(key==='name')return <p>{definition.name}</p>
   if(key==='enabled')return <p>{t(definition.enabled?'On':'Off')}</p>
@@ -33,10 +34,11 @@ export function WorkflowHistory({api,workflowId,tables=[],agents=[]}:{api:Harnes
    {step.channel&&<p>{step.channel.startsWith('ag:')||step.channel.startsWith('dm:')?t('Private chat'):step.channel.replace(/^b:/,'#')}</p>}
    {step.agentId&&<p>{t('Agent')}: {agents.find(agent=>agent.id===step.agentId)?.name||step.agentId}</p>}
    {step.tableId&&<p>{tables.find(table=>table.id===step.tableId)?.name||step.tableId}</p>}
+   {step.rowId&&<p>ID: {step.rowId}</p>}
    {step.to&&<p>@{step.to}</p>}
    {[step.text,step.prompt,step.title,step.summary].filter(Boolean).map((text,index)=><p key={index}>{text}</p>)}
    {step.minutes!==undefined&&<p>{step.minutes} min</p>}
-   {step.values&&<dl>{Object.entries(step.values).map(([column,value])=><React.Fragment key={column}><dt>{tables.find(table=>table.id===step.tableId)?.columns.find(item=>item.id===column)?.name||column}</dt><dd>{value}</dd></React.Fragment>)}</dl>}
+   {step.values&&<dl>{Object.entries(step.values).map(([column,value])=><React.Fragment key={column}><dt>{tables.find(table=>table.id===step.tableId)?.columns.find(item=>item.id===column)?.name||column}</dt><dd>{rowValue(value)}</dd></React.Fragment>)}</dl>}
    {step.when&&<div className="hx-flow-condition"><small>{t('Execution condition')}</small><p>{describeWorkflowCondition(step.when,tables.find(table=>table.id===definition.trigger.tableId)?.columns)}</p></div>}
   </li>)}</ol>
  }
