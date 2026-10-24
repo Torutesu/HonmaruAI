@@ -129,11 +129,15 @@ test("the email index is a real constraint, not just a name", async () => {
 test("every statement in migrations.sql is one the deploy will actually run", () => {
   // The workflow reads the file with a line-anchored grep, so an indented or
   // line-wrapped statement is not skipped loudly — it is skipped silently, and
-  // everything depending on it is simply absent. Counting terminators against
-  // extracted statements catches that before it ships.
+  // everything depending on it is simply absent. Compare every non-comment
+  // line with the exact selected input. A trigger body (or atomic backfill on
+  // the CREATE line) legitimately contains multiple semicolons, so terminator
+  // counting is not statement counting. applyDeploy above checks real SQL.
   const withoutComments = migrationsSql.replace(/\/\*[\s\S]*?\*\//g, "");
-  const terminators = (withoutComments.match(/;/g) || []).length;
-  expect(deployStatements(migrationsSql)).toHaveLength(terminators);
+  const lines = withoutComments.split("\n").filter(line => line.trim() && !/^\s*--/.test(line));
+  expect(lines.every(line => DEPLOY_STATEMENT.test(line))).toBe(true);
+  expect(deployStatements(migrationsSql)).toEqual(lines.map(line => line.trim()));
+  expect(lines.every(line => line.trimEnd().endsWith(";"))).toBe(true);
 });
 
 test("an existing complimentary grant survives adding provider synchronization columns", async () => {

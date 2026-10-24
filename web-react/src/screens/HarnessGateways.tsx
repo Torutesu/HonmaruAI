@@ -54,11 +54,11 @@ export default function HarnessGateways(props: HarnessProps) {
       {canManage && !n.revokedAt && (revoke === n.id ? <><button className="pill-btn" disabled={!!busy} onClick={() => void act('revoke', async () => { await api.revokeGateway(n.id); setRevoke(null); await load() })}>{t('Revoke and cancel jobs')}</button><button className="btn-text" onClick={() => setRevoke(null)}>{t('Keep')}</button></> : <button className="btn-text" onClick={() => setRevoke(n.id)}>{t('Revoke')}</button>)}
     </div>)}</div>
     <div className="rows-title">{t('Run code')}</div>
-    <label>{t('Execution node')}<select className="hx-cell-select" value={gatewayId} onChange={e => setGatewayId(e.target.value)}><option value="">—</option>{nodes.filter(n => !n.revokedAt).map(n => <option key={n.id} value={n.id}>{n.name}</option>)}</select></label>
-    <label>{t('Language')}<select className="hx-cell-select" value={language} onChange={e=>setLanguage(e.target.value as 'javascript'|'typescript')}><option value="javascript">JavaScript</option><option value="typescript">TypeScript</option></select></label>
+    <label>{t('Execution node')}<select aria-label={t('Execution node')} className="hx-cell-select" value={gatewayId} onChange={e => setGatewayId(e.target.value)}><option value="">—</option>{nodes.filter(n => !n.revokedAt).map(n => <option key={n.id} value={n.id}>{n.name}</option>)}</select></label>
+    <label>{t('Language')}<select aria-label={t('Language')} className="hx-cell-select" value={language} onChange={e=>setLanguage(e.target.value as 'javascript'|'typescript')}><option value="javascript">JavaScript</option><option value="typescript">TypeScript</option></select></label>
     {language==='typescript'&&<p className="hx-hint">{t('Export a default function that receives the input. Types are transformed inside the isolated machine; type checking is not performed.')}</p>}
-    <label>{language==='typescript'?'TypeScript':'JavaScript'}<textarea className="context-input" rows={5} value={code} onChange={e => setCode(e.target.value)} spellCheck={false} /></label>
-    <label>{t('Input (JSON)')}<textarea className="context-input" rows={2} value={input} onChange={e => setInput(e.target.value)} spellCheck={false} /></label>
+    <label>{language==='typescript'?'TypeScript':'JavaScript'}<textarea aria-label={language==='typescript'?'TypeScript':'JavaScript'} className="context-input" rows={5} value={code} onChange={e => setCode(e.target.value)} spellCheck={false} /></label>
+    <label>{t('Input (JSON)')}<textarea aria-label={t('Input (JSON)')} className="context-input" rows={2} value={input} onChange={e => setInput(e.target.value)} spellCheck={false} /></label>
     <button className="pill-btn" disabled={!!busy || !gatewayId || !code.trim()} onClick={() => void execute()}>{t('Run')}</button>
     <div className="rows-title">{t('Your execution history')}</div>
     <div className="rows">{jobs.map(j => <div className="row static" key={j.id}><div className="row-main"><span>{t(j.status)} · {new Date(j.createdAt).toLocaleString()}</span>
