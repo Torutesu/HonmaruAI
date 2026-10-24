@@ -2332,3 +2332,10 @@ Final CI confirmation: run 40080421762 completed success on 2026-10-24. All enab
 ## Usage release regression (2026-10-24)
 
 Frozen Worker snapshot 2114e825 passed 228 files / 1885 tests, 663.93s (/tmp/honmaru-workflow-usage-full-worker.log), session 64251 terminal exit 0. Subsequent primary commits only alter Web/docs. Web at 31b91117 passed 165 files / 1123 tests plus TypeScript/build; version/inventory checks passed. Publish this usage-history change separately from the incomplete budget work in codex/app-automations.
+
+
+## Usage history production confirmation (2026-10-24)
+
+Release 62966a05: Deploy Worker 40082622507, Deploy Web 40082622488 and CI 40082622492 all completed successfully. Worker deployment regression: 228 files / 1885 tests. Web deployment regression: 165 files / 1123 tests. All enabled CI jobs passed; Windows and iOS were skipped, not tested. Worker version 23f9f016-98a9-401e-babc-8b8eef125294. Both production web domains served index-DT8T6-oj.js at 09:57:43 UTC. This release adds recorded provider token usage and elapsed execution time; it does not include the incomplete budget branch.
+
+After the user confirmed the Mac was operable, native app inventory still returned a locked-Mac error. Only the in-app browser was available, with no tabs. Authenticated production UI verification remains unconfirmed; the tool error is not evidence that the user's Mac is actually locked. No further unlock request was made.
