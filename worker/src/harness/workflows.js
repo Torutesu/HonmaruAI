@@ -1,3 +1,4 @@
+import {ensureWorkflowSafety,readWorkflowSafety,workflowSettlementStatements} from './workflowSafety.js';
 import {managedAutomationGuard,managedAutomationRelease,managedAutomationMayRun} from './appAutomationGuard.js';
 import { mayUseTable } from './resourceAccess.js';
 import { holdWorkflowEvent } from './workflowHeld.js';
@@ -153,7 +154,8 @@ export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
 
 export async function getWorkflow(db, orgId, id, opts = {}) {
   const wf = publicWorkflow(await db.prepare("SELECT * FROM hx_workflows WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first(), opts);
-  return opts.viewerId && !(await mayViewWorkflow(db, orgId, wf, opts.viewerId)) ? null : wf;
+  if(!wf || (opts.viewerId && !(await mayViewWorkflow(db, orgId, wf, opts.viewerId))))return null;
+  return {...wf,safety:await readWorkflowSafety(db,orgId,id)};
 }
 
 export async function listWorkflows(db, orgId, { viewerId } = {}) {
@@ -304,11 +306,14 @@ async function rowScope(db, orgId, tableId, row) {
 /// Start a run. `input` is what started it: { text } by hand, the posted
 /// JSON for a webhook, { row, before } for a row.
 export async function startRun(env, { orgId, workflow, trigger, input = null, startedBy = null, depth = 0, heldEventId = null, incomingHookSecret = null }) {
+  const safety=await ensureWorkflowSafety(env.DB,orgId,workflow.id);
+  if(!safety)return null;
+  if(safety.paused_at)return {status:'paused',reason:safety.pause_reason};
   const id = newId("run");
   // Store the definition and the run atomically. An approval always resumes
   // the same steps that were presented when the run started.
   const automationReleaseId=await managedAutomationRelease(env.DB,orgId,workflow.id);
-  const definition = { id: workflow.id, name: workflow.name, steps: workflow.steps, trigger: workflow.trigger, createdBy: workflow.createdBy, ...(automationReleaseId?{automationReleaseId}:{}) };
+  const definition = { safetyGeneration:safety.generation, id: workflow.id, name: workflow.name, steps: workflow.steps, trigger: workflow.trigger, createdBy: workflow.createdBy, ...(automationReleaseId?{automationReleaseId}:{}) };
   // Input is kept whole or the run fails before its first step: JSON cut
   // short is no longer JSON, and the steps would run on blanks.
   const stored = input ? JSON.stringify(input) : null;
@@ -321,9 +326,10 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
         WHERE h.id=?12 AND h.org_id=?2 AND h.workflow_id=?3 AND h.run_id IS NULL AND h.expires_at>?10 AND w.enabled=1 AND json_extract(w.trigger,'$.type')='webhook'))
       AND (?13 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE id=?3 AND org_id=?2 AND enabled=1 AND hook_secret=?13 AND json_extract(trigger,'$.type')='webhook'))
       AND NOT EXISTS(SELECT 1 FROM hx_workflow_runs WHERE org_id=?2 AND workflow_id=?3 AND status IN ('running','waiting'))
+      AND EXISTS(SELECT 1 FROM hx_workflow_safety WHERE org_id=?2 AND workflow_id=?3 AND generation=?19 AND paused_at IS NULL)
       AND ${managedAutomationGuard('?2','?3','?14')}
       AND (?14 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?2 AND id=?3 AND name=?15 AND json(trigger)=json(?16) AND json(steps)=json(?17) AND created_by=?18))`)
-      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, now(), tooLarge ? now() : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy)),
+      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, now(), tooLarge ? now() : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation),
     env.DB.prepare("INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at) SELECT ?1, ?2, ?3, ?4 WHERE EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?2)")
       .bind(id, orgId, JSON.stringify(definition), now()),
     // Read the admission outcome in the same transaction, before another
@@ -332,6 +338,7 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
       .bind(id, orgId, workflow.id),
     ...(heldEventId ? [env.DB.prepare(`UPDATE hx_workflow_held_events SET run_id=?1 WHERE id=?2 AND org_id=?3 AND workflow_id=?4 AND run_id IS NULL
       AND EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?3)`).bind(id, heldEventId, orgId, workflow.id)] : []),
+    ...workflowSettlementStatements(env.DB,orgId,id),
   ]);
   if (!created[0].meta?.changes) return created[2].results?.length ? { status: 'skipped', reason: 'already_running' } : null;
   await env.DB.prepare("UPDATE hx_workflows SET last_run_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), workflow.id, orgId).run();
@@ -371,12 +378,12 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
   // run that no longer knows what started it: it fails here, not on blanks.
   if (run.input === null && (await db.prepare("SELECT input FROM hx_workflow_runs WHERE id = ?1 AND org_id = ?2").bind(runId, orgId).first())?.input != null) {
     const log = [...run.log, { step: run.nextStep + 1, type: workflow.steps[run.nextStep]?.type, at: now(), status: "failed", error: "What started this run can no longer be read." }];
-    await db.prepare("UPDATE hx_workflow_runs SET status = 'failed', log = ?1, finished_at = ?2 WHERE id = ?3 AND org_id = ?4").bind(JSON.stringify(log), now(), runId, orgId).run();
+    await db.batch([db.prepare("UPDATE hx_workflow_runs SET status = 'failed', log = ?1, finished_at = ?2 WHERE id = ?3 AND org_id = ?4").bind(JSON.stringify(log), now(), runId, orgId),...workflowSettlementStatements(db,orgId,runId)]);
     return getRun(db, orgId, runId);
   }
   const sourceTable = workflow.trigger?.tableId || run.input?.tableId;
   if (sourceTable && !(await mayUseTable(db, orgId, sourceTable, workflow.createdBy))) {
-    await db.prepare("UPDATE hx_workflow_runs SET status = 'failed', finished_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), runId, orgId).run();
+    await db.batch([db.prepare("UPDATE hx_workflow_runs SET status = 'failed', finished_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), runId, orgId),...workflowSettlementStatements(db,orgId,runId)]);
     return getRun(db, orgId, runId);
   }
   const authorize=()=>managedAutomationMayRun(db,orgId,workflow.id,workflow.automationReleaseId);
@@ -403,10 +410,9 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     if (entry.status === "failed") { status = "failed"; index += 1; break; }
     if (entry.status === "waiting") { status = "waiting"; cardId = entry.cardId; index += 1; break; }
   }
-  await db
-    .prepare("UPDATE hx_workflow_runs SET status = ?1, log = ?2, next_step = ?3, card_id = COALESCE(?4, card_id), finished_at = ?5 WHERE id = ?6 AND org_id = ?7")
-    .bind(status, JSON.stringify(log), index, cardId, status === "waiting" ? null : now(), runId, orgId)
-    .run();
+  await db.batch([db.prepare("UPDATE hx_workflow_runs SET status = ?1, log = ?2, next_step = ?3, card_id = COALESCE(?4, card_id), finished_at = ?5 WHERE id = ?6 AND org_id = ?7")
+    .bind(status, JSON.stringify(log), index, cardId, status === "waiting" ? null : now(), runId, orgId),
+    ...workflowSettlementStatements(db,orgId,runId)]);
   return getRun(db, orgId, runId);
 }
 
@@ -535,7 +541,7 @@ export async function settleWorkflowApproval(env, orgId, card) {
   const last = log.length - 1;
   if (last >= 0) log[last] = { ...log[last], status: approved ? "ok" : "declined", output: `${approved ? "Approved" : "Declined"} by ${(await getUserByLogin(env.DB, card.recipientUserID).catch(() => null))?.name || card.recipientUserID}${card.decision?.note ? `: ${card.decision.note}` : ""}` };
   if (!approved) {
-    await env.DB.prepare("UPDATE hx_workflow_runs SET status = 'declined', log = ?1, finished_at = ?2 WHERE id = ?3 AND org_id = ?4").bind(JSON.stringify(log), now(), run.id, orgId).run();
+    await env.DB.batch([env.DB.prepare("UPDATE hx_workflow_runs SET status = 'declined', log = ?1, finished_at = ?2 WHERE id = ?3 AND org_id = ?4").bind(JSON.stringify(log), now(), run.id, orgId),...workflowSettlementStatements(env.DB,orgId,run.id)]);
     return getRun(env.DB, orgId, run.id);
   }
   await env.DB.prepare("UPDATE hx_workflow_runs SET log = ?1 WHERE id = ?2 AND org_id = ?3").bind(JSON.stringify(log), run.id, orgId).run();
@@ -613,8 +619,8 @@ export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } 
       .run();
     if (!claim.meta?.changes) continue;
     try {
-      await startRun(env, { orgId: wf.orgId, workflow: wf, trigger: "schedule" });
-      ran += 1;
+      const result=await startRun(env, { orgId: wf.orgId, workflow: wf, trigger: "schedule" });
+      if(result?.id)ran += 1;
     } catch (e) {
       console.error("workflow run failed", e?.message);
     }
@@ -643,6 +649,10 @@ export async function handleWorkflowHook(request, env, url) {
     return held.error ? reply({ message: held.error }, held.status) : reply({ eventId: held.id, status: 'held', expiresAt: held.expiresAt }, 202);
   }
   const run = await startRun(env, { orgId: wf.orgId, workflow: wf, trigger: "webhook", input: payload, incomingHookSecret: secret });
+  if(run?.status==='paused'){
+    const held=await holdWorkflowEvent(env.DB,wf,secret,payload);
+    return held.error?reply({message:held.error},held.status):reply({eventId:held.id,status:'held',expiresAt:held.expiresAt},202);
+  }
   if (run?.status === 'skipped') return reply(run, 202);
   if (!run) return reply({ message: 'The webhook changed. Retry this delivery with its current URL.' }, 409);
   return reply({ runId: run?.id, status: run?.status }, 202);

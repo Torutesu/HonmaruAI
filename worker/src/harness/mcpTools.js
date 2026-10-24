@@ -127,7 +127,7 @@ export async function callHarnessTool(env, agent, name, args) {
       if (!wf.enabled) return err("This workflow is off.");
       const run = await startRun(env, { orgId, workflow: wf, trigger: "manual", input: { text: String(args.text || "") }, startedBy: by });
       if (!run) return err("This automation is no longer available in its current published release.");
-      if (run.status === 'skipped') return out({ status: run.status, reason: run.reason });
+      if (run.status === 'skipped'||run.status==='paused') return out({ status: run.status, reason: run.reason });
       return out({ run: { id: run.id, status: run.status, steps: run.log.map((l) => ({ type: l.type, status: l.status, output: l.output || l.error || null })) } });
     }
     case "schedule_followup": {

@@ -39,7 +39,7 @@ export async function holdWorkflowEvent(db, workflow, secret, input) {
       .bind(workflow.orgId, workflow.id, at),
     db.prepare(`INSERT INTO hx_workflow_held_events(id,org_id,workflow_id,input,received_at,expires_at)
       SELECT ?1,org_id,id,?2,?3,?4 FROM hx_workflows
-      WHERE org_id=?5 AND id=?6 AND enabled=0 AND hook_secret=?7 AND json_extract(trigger,'$.type')='webhook'
+      WHERE org_id=?5 AND id=?6 AND (enabled=0 OR EXISTS(SELECT 1 FROM hx_workflow_safety s WHERE s.org_id=hx_workflows.org_id AND s.workflow_id=hx_workflows.id AND s.paused_at IS NOT NULL)) AND hook_secret=?7 AND json_extract(trigger,'$.type')='webhook'
       AND (SELECT COUNT(*) FROM hx_workflow_held_events WHERE org_id=?5 AND workflow_id=?6 AND run_id IS NULL AND expires_at>?3) < ?8`)
       .bind(id, JSON.stringify(input), at, expires, workflow.orgId, workflow.id, secret, HELD_LIMIT),
   ]);

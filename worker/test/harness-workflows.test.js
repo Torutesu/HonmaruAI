@@ -824,3 +824,28 @@ test('replay leaves held events unconsumed when an earlier replay waits for appr
   expect(detail.runs).toHaveLength(1);
   expect(detail.held.count).toBe(1);
 });
+
+test('three real failures pause execution, keep webhook input, and require authorized generation-aware resume',async()=>{
+ const {agent}=await(await send('POST','/channels/agents',mika,{orgId:ORG,name:'No model',handle:'no-model',instructions:'Run',scope:'team'})).json();
+ const made=await(await send('POST','/workflows',mika,{orgId:ORG,name:'Failing automation',enabled:true,trigger:{type:'webhook'},steps:[{type:'agent',agentId:agent.id,prompt:'Run'}]})).json();
+ const id=made.workflow.id;
+ for(let n=0;n<3;n++){
+  const result=await send('POST',`/workflows/${id}/run`,mika,{orgId:ORG});
+  expect(result.status).toBe(201);expect((await result.json()).run.status).toBe('failed');
+ }
+ const detail=await(await get(`/workflows/${id}?${q({orgId:ORG})}`,mika)).json();
+ expect(detail.workflow.enabled).toBe(true);
+ expect(detail.workflow.safety).toMatchObject({failure_streak:3,pause_reason:'consecutive_failures'});
+ expect((await send('POST',`/workflows/${id}/run`,mika,{orgId:ORG})).status).toBe(409);
+ const url=new URL(made.hookUrl);
+ expect((await(await call(url.pathname+url.search,{method:'POST',body:'{}'})).json()).status).toBe('held');
+ const generation=detail.workflow.safety.generation;
+ expect((await send('POST',`/workflows/${id}/resume`,mika,{orgId:ORG,generation:'stale'})).status).toBe(409);
+ const resumed=await send('POST',`/workflows/${id}/resume`,mika,{orgId:ORG,generation});
+ expect(resumed.status).toBe(200);
+ expect((await resumed.json()).safety).toMatchObject({failure_streak:0,paused_at:null});
+ expect((await send('POST',`/workflows/${id}/resume`,mika,{orgId:ORG,generation})).status).toBe(409);
+ expect((await send('POST',`/workflows/${id}/run`,mika,{orgId:ORG})).status).toBe(201);
+ const after=await(await get(`/workflows/${id}?${q({orgId:ORG})}`,mika)).json();
+ expect(after.runs).toHaveLength(4);expect(after.held.count).toBe(1);
+});

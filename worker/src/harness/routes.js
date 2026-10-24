@@ -1,3 +1,4 @@
+import {resumeWorkflowSafety,readWorkflowSafety} from './workflowSafety.js';
 import {appAutomationFromPrompt} from './appAutomationGeneration.js';
 import {readAutomationPlan} from './appAutomationPlan.js';
 import {saveAutomationDraft,readAutomationDraft} from './appAutomationDraft.js';
@@ -388,6 +389,13 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       return null;
     }
+    if(sub==='resume' && request.method==='POST'){
+      if(!mine)return json({message:'Only its maker or an admin can resume this workflow.'},403);
+      if(typeof input.generation!=='string')return json({message:'Reload the workflow before resuming it.'},400);
+      if(!await resumeWorkflowSafety(env.DB,orgId,wfId,input.generation))return json({message:'The workflow state changed. Reload before resuming.'},409);
+      await audit(env,request,{orgId,action:'workflow.safety_resumed',actor:person(who.user),entity:{type:'workflow',id:wfId}});
+      return json({safety:await readWorkflowSafety(env.DB,orgId,wfId)});
+    }
     if (sub === 'webhook' && runId === 'events' && parts[4] && request.method === 'GET') {
       if (!mine) return json({ message: 'Only its maker or an admin can inspect held input.' }, 403);
       const event = await readHeldWorkflowEvent(env.DB, orgId, wfId, parts[4]);
@@ -417,6 +425,7 @@ export async function handleHarness(request, env, url, context = {}) {
       // Pausing stops automatic triggers; an explicit manual run does not
       // enable the workflow or replay its queued webhook deliveries.
       const run = await startRun(env, { orgId, workflow: wf, trigger: "manual", input: input.input && typeof input.input === "object" ? input.input : { text: String(input.text || "") }, startedBy: me });
+      if(run?.status==='paused')return json({message:'This workflow paused after repeated failures. Review its history and resume it.',reason:run.reason},409);
       if (run?.status === 'skipped') return json({ message: 'This workflow is already running or waiting for approval.', reason: run.reason }, 409);
       if (!run) return json({ message: 'This automation is no longer available in its current published release.' }, 409);
       return json({ run }, 201);
