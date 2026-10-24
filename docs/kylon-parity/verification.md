@@ -2224,3 +2224,9 @@ Web runtime 3db9fcc3 passed all 160 files / 1096 tests in 4.00s (`/tmp/honmaru-3
 ### Per-run elapsed duration
 
 App automation history displays localized elapsed duration only for terminal runs with valid nonnegative start/finish timestamps. The label explicitly includes approval waiting time; it does not represent model compute time or credit usage. Running/waiting/unknown status and invalid timestamps omit duration. Five focused history tests pass (`/tmp/honmaru-run-duration.log`); TypeScript and production build pass (`/tmp/honmaru-run-duration-build.log`). No authenticated screen or Kylon-equivalence claim. The earlier 1096-test full Web run predates this duration addition. Worker source/tests remain fixed for the still-live full run.
+
+### Frozen admission Worker and final duration Web validation
+
+Full Worker source/test snapshot e32acec4 completed successfully: 225 files / 1861 tests, 494.16s (`/tmp/honmaru-admission-full-worker.log`, session 63500 terminal exit 0). Only Web/docs changed while it ran; no Worker edits were introduced. Runtime warnings did not produce failed tests. Latest Web runtime 48d03565 passed 160 files / 1097 tests, 3.81s (`/tmp/honmaru-48d-full-web.log`); its TypeScript/build already passed. These are local validation results, not authenticated production parity evidence.
+
+At 2026-10-24T07:10Z, prior candidate 65b03455 CI 40072311299, Web 40072311252 and Worker 40072311345 remain in progress. Hold follow-up publication until they are terminal. The now-completed local Worker session must not be polled or restarted without a new validation reason.
