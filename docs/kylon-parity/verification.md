@@ -2327,3 +2327,8 @@ In-app browser opened the production URL and reached the Japanese welcome page a
 This release includes automatic origin capture, durable generation request identities, atomic creation replies with clickable workflow links, workspace-scoped detail routes, source-inherited visibility and execution-time source-authority checks. Simple code remains preserved, and no new paid service was added. Full parity remains unproven; daily/weekly/monthly usage guardrails need per-run attribution (existing ai_calls only records org/user/purpose) before faithful implementation.
 
 Final CI confirmation: run 40080421762 completed success on 2026-10-24. All enabled jobs succeeded; Windows/iOS remained skipped. This confirms CI for production 024494d0, not subsequent usage-attribution work.
+
+
+## Usage release regression (2026-10-24)
+
+Frozen Worker snapshot 2114e825 passed 228 files / 1885 tests, 663.93s (/tmp/honmaru-workflow-usage-full-worker.log), session 64251 terminal exit 0. Subsequent primary commits only alter Web/docs. Web at 31b91117 passed 165 files / 1123 tests plus TypeScript/build; version/inventory checks passed. Publish this usage-history change separately from the incomplete budget work in codex/app-automations.
