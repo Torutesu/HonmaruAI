@@ -115,3 +115,9 @@ Validation: two UI files / five tests passed (`/tmp/honmaru-automation-summary.l
 Extracted the existing workflow step form as a shared component and embedded it in app automation drafts. App editors can add/remove and edit supported steps, using authorized tables and agent choices. Edits stay local until draft save and disable publication while dirty; ordinary workflow editing uses the same component. Direct trigger editing and ordering controls remain to be added, and the existing follow-up hour granularity still warrants improvement.
 
 Validation: TypeScript passed; two UI files / 23 tests passed (`/tmp/honmaru-automation-step-final.log`), including existing workflow behavior and a new test that editing changes the local step, enables draft save, blocks publication and makes no release call. No deployment or visual-comparison claim.
+
+## Direct trigger editing and blank creation (local)
+
+Added trigger controls for manual/webhook, schedules (cadence, weekday/monthday, time, timezone), row event/table/watched column and select-value conditions. Switching trigger kind removes incompatible properties; switching tables removes old watched-column/filter references. A blank automation starts as a disabled local draft with a manual trigger and editable step.
+
+Validation: TypeScript passed for the trigger component/integration; two UI files / eight tests passed after the blank-creation addition (`/tmp/honmaru-automation-trigger-final.log`). Covers trigger-kind/table reset, explicit weekly weekday, existing draft/review behavior and local creation without release. Natural-language app automation generation, ordering, resource naming, broader validation and live visual verification still remain before deployment.

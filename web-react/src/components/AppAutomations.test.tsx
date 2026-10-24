@@ -48,3 +48,13 @@ test('editing a step changes only the draft and blocks publication until saved',
  expect(api.releaseAppAutomations).not.toHaveBeenCalled()
  act(()=>tree.unmount())
 })
+
+test('new app automation starts disabled and remains a local draft',async()=>{
+ const {tree,api}=await setup()
+ const add=tree.root.findAllByType('button').find(b=>b.children.includes(' 自動化を作成'))!
+ await act(async()=>add.props.onClick())
+ const {AutomationTriggerEditor}=await import('./AutomationTriggerEditor')
+ expect(tree.root.findAllByType(AutomationTriggerEditor)).toHaveLength(2)
+ const names=tree.root.findAllByType('input').filter(i=>i.props.value==='新しい自動化');expect(names).toHaveLength(1)
+ expect(api.releaseAppAutomations).not.toHaveBeenCalled();act(()=>tree.unmount())
+})
