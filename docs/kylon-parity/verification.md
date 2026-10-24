@@ -2396,3 +2396,10 @@ Added e2e/app-source-navigation.mjs to the existing real-stack CI spec. It refus
 - This does not synchronize drafts between devices. Current CI for 5bd0081c was still running Worker and E2E at verification time; retain that run rather than cancelling it with another push. Production deployment of this draft change remains pending.
 
 - Follow-up: included `hx-app-draft:` in account-data cleanup, so logout and expired-session cleanup also remove these new drafts. Account cleanup plus draft/conversation regression tests: 3 files / 19 tests passed; production build passed. Not yet deployed.
+
+### 2026-10-24 — Source navigation E2E failure investigation
+
+- CI 40091937164 E2E job 120866335391 failed only the new source-navigation step: waiting for `.slk-thread-pane .slk-composer textarea` exceeded 20 seconds. Worker was still running; this is not an overall pass.
+- The fixture changes workspace mode and creates a private room via API after the page has mounted. Added a reload before UI navigation so mode/sidebar data are read again. This is a test-setup hypothesis, not a confirmed product fix; rerun is required.
+- Added failure screenshot capture from the fixture's own page before closing it, improving evidence for any remaining failure. Node syntax and diff checks passed.
+- Kylon empty test table was observed cycling task-name sort through ascending, descending, and none; restored none. Existing Honmaru `nextColumnSort` header path already implements that cycle. No message or record was created in Kylon.

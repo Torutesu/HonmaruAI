@@ -31,6 +31,9 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     if (!before.source?.messages.some(message => message.body === prompt)) throw new Error('Fixture did not retain its creation request')
     const orgId = await page.evaluate(() => localStorage.getItem('orgId'))
     await call('PUT', '/orgs/mode', { mode: 'harness' })
+    // Fixtures changed the room list and mode through the API. Reload so
+    // the mounted shell reads them before exercising UI navigation.
+    await page.reload({ waitUntil: 'load' })
     const appUrl = `${web}#/apps/${made.app.id}/${encodeURIComponent(orgId)}`
     const openAdjustment = async () => {
       await page.goto(appUrl, { waitUntil: 'load' })
@@ -69,6 +72,9 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     if (standaloneConversation.messages.length) throw new Error('Saving an app draft unexpectedly posted a message')
     await page.screenshot({ path: `${shots}/app-draft-restored.png` })
     await appReply.fill('')
+  } catch (error) {
+    await page.screenshot({ path: `${shots}/app-source-failure.png` }).catch(() => {})
+    throw error
   } finally {
     if (previousMode) await call('PUT', '/orgs/mode', { mode: previousMode }).catch(() => {})
     await page.close()
