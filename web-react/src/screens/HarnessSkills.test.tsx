@@ -45,3 +45,12 @@ test('late list failures from an old session cannot replace the current skills o
   expect(JSON.stringify(tree.toJSON())).not.toContain('Previous session error')
   act(() => tree.unmount())
 })
+
+test('derived skills describe inherited access instead of offering a misleading private sharing selector',async()=>{
+ state.api=api();state.api.skills.mockResolvedValue({skills:[{id:'derived',...draft,createdBy:'owner',visibility:'private',canShare:false,sourceScope:{agentId:'agent',channel:'b:source'}}]})
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<HarnessSkills {...props}/>)})
+ expect(JSON.stringify(tree.toJSON())).toContain('Restricted to source conversation and agent')
+ expect(tree.root.findAllByProps({'aria-label':'Skill visibility'})).toHaveLength(0)
+ act(()=>tree.unmount())
+})

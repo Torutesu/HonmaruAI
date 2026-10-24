@@ -2716,6 +2716,8 @@ const table: Record<string, string> = {
   "Update and confirm memory": "修正して確認済みにする",
   "Updated and reviewed": "修正して確認",
   "Reviewed without changes": "変更せず確認",
+  "Restricted to source conversation and agent": "元の会話とエージェントに限定",
+  "Restricted to source agent": "元のエージェントに限定",
   "Convert memory to skill": "記憶をスキルに変換",
   "Converting…": "変換中…",
   "Create and install skill": "スキルを作成して取り付ける",

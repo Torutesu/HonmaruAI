@@ -212,7 +212,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
       </>}
       <div hidden={section !== 'profile'}><AgentPersona agent={agent} httpBase={props.httpBase} orgId={props.orgId} sessionToken={props.sessionToken} canEdit={canEdit} onUpdated={props.onUpdated} onDiscuss={props.onMessage}/></div>
       {section === 'skills' && <>
-      <AgentSkillCatalog key={`${props.orgId}:${agent.id}`} skills={allSkills} installed={skills} canEdit={canEdit} onPreviewImport={async markdown => (await api.previewSkillImport(markdown)).draft} onSaveImport={async draft => {
+      <AgentSkillCatalog key={`${props.orgId}:${agent.id}`} skills={allSkills.filter(s=>!s.sourceScope || s.sourceScope.agentId===agent.id)} installed={skills} canEdit={canEdit} onPreviewImport={async markdown => (await api.previewSkillImport(markdown)).draft} onSaveImport={async draft => {
         const version = memoryLoad.current
         const result = await api.createSkill({ ...draft, visibility: 'private' })
         if (version === memoryLoad.current) setAllSkills(current => [...current.filter(s => s.id !== result.skill.id), result.skill])
@@ -332,12 +332,12 @@ const ScopedHarnessSkills: React.FC<HarnessProps> = (props) => {
         {skills?.map((s) => (
           <div key={s.id} className="row static" data-skill={s.id}>
             <span className="row-icon"><Icon name="book" size={18} /></span>
-            <select aria-label={t('Skill visibility')} value={s.visibility || 'workspace'} disabled={!s.canShare || busy !== null} onChange={e => {
+            {s.sourceScope ? <span className="row-sub">{t(s.sourceScope.channel ? 'Restricted to source conversation and agent' : 'Restricted to source agent')}</span> : <select aria-label={t('Skill visibility')} value={s.visibility || 'workspace'} disabled={!s.canShare || busy !== null} onChange={e => {
               const visibility = e.target.value as 'private' | 'workspace';
               act(`share:${s.id}`, async () => { await api.setSkillAccess(s.id, visibility, s.accessVersion || 0); await load() })
             }}>
               <option value="private">{t('Only me')}</option><option value="workspace">{t('Everyone on the team')}</option>
-            </select>
+            </select>}
             <span className="row-main">{s.name}<span className="row-sub">{s.description || s.body.slice(0, 100)}{s.agents?.length ? ` · ${t('{n} agents', { n: s.agents.length })}` : ''}</span></span>
             <button className="btn-text" disabled={busy !== null} onClick={() => exportSkill(s)}><Icon name="download" size={14} /> SKILL.md</button>
             <button className="btn-text" disabled={busy !== null} onClick={() => exportSkill(s, true)}><Icon name="download" size={14}/> ZIP</button>

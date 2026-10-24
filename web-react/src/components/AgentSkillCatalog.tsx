@@ -50,7 +50,7 @@ export function AgentSkillCatalog({ skills, installed, canEdit, onToggle, onPrev
   }
   const row = (s: Skill, catalog = false) => <div className="hx-skill-entry" key={s.id}>
     <SkillIcon skill={s}/>
-    <div className="hx-skill-entry-copy"><div><strong>{s.name}</strong>{s.createdBy && <span className="hx-skill-author">{t('Created by')}: {s.createdByName || s.createdBy}</span>}</div><p>{s.description || s.body.slice(0, 140)}</p></div>
+    <div className="hx-skill-entry-copy"><div><strong>{s.name}</strong>{s.createdBy && <span className="hx-skill-author">{t('Created by')}: {s.createdByName || s.createdBy}</span>}</div><p>{s.description || s.body.slice(0, 140)}</p>{s.sourceScope && <p className="hx-skill-source-scope">{t(s.sourceScope.channel ? 'Restricted to source conversation and agent' : 'Restricted to source agent')}</p>}</div>
     {canEdit && (catalog ? <button className="hx-skill-action" disabled={busy !== null} onClick={() => void toggle(s.id, !has.has(s.id))}>{busy === s.id ? t('Saving…') : t(has.has(s.id) ? 'Remove from agent' : 'Install')}</button> : <SkillActionsMenu name={s.name} disabled={busy !== null} onRemove={() => void toggle(s.id, false)}/>)}
   </div>
   return <section className="hx-agent-skills">
