@@ -2216,3 +2216,7 @@ Final targeted validation: 5 files / 116 tests passed, 16.39s (`/tmp/honmaru-wor
 ### Automation history identity change
 
 AutomationRuns now clears results on workflow/API identity changes and reloads an expanded history for the new identity. Request generations fence stale responses; an older request finishing cannot release the new request's busy state. Four focused UI tests passed, including outstanding-response and API-switch cases (`/tmp/honmaru-automation-history-identity.log`); TypeScript and Vite production build passed (`/tmp/honmaru-history-identity-build.log`). Worker runtime/test files remain fixed at e32acec4 while the full Worker suite runs in session 63500.
+
+### Full Web validation after history identity fix
+
+Web runtime 3db9fcc3 passed all 160 files / 1096 tests in 4.00s (`/tmp/honmaru-3db9-full-web.log`). The full Worker run remains live in session 63500; network/body warnings in its log are not a terminal result. Prior production candidate 65b03455's three GitHub runs also remain in progress. No overlapping deployment was pushed and no full Worker success is claimed yet.
