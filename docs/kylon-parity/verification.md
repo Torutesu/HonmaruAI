@@ -2260,3 +2260,11 @@ Final Web after the expanded-picker identity correction: 162 files / 1108 tests 
 ### Integrated source notification validation complete
 
 The fixed Worker snapshot ca5aceaa passed 226 files / 1870 tests in 676.89s (`/tmp/honmaru-ca5-full-worker.log`, terminal exit 0). No Worker source/test changes were made during that run; only Web identity handling and documentation changed. Together with final Web 162 files / 1108 tests, TypeScript/build, version consistency and parity-inventory checks, this validates the queued failure pause, creator notices, source binding, fenced automatic thread delivery and picker changes locally. It does not establish full Kylon parity or authenticated production behavior. Prior production jobs are all terminal success, so the candidate can be published without overlapping them.
+
+### Workflow safety/source production release a69a59a6
+
+CI 40076372682, Worker 40076372731 and Web 40076372675 all completed successfully. The Worker migrated production D1, published version 83ba5ef4-60f6-4117-be44-6e097bc9cf9c, and passed its health check. Web deployment logs confirm index-CfG-n2sf.js served by both honmaru-web.pages.dev and app.honmaruai.com at 2026-10-24T08:17:39Z. Logs: `/tmp/honmaru-a69a59a6-120820466084.log`, `/tmp/honmaru-a69a59a6-120820465520.log`.
+
+IAB reloaded production and rendered the welcome screen after startup. It has no authenticated session; native inventory still reports locked despite user confirmation, and browser inventory exposes only IAB/MCP Apps. Accordingly authenticated production controls and Kylon visual equivalence remain unverified. The local screenshot above is explicitly fixture evidence. A direct local Python URL request returned 403; production asset evidence comes from the successful deployment verification, not that failed request.
+
+Remaining source gap: ClassicList workflow generation passes prompt/channel but does not persist/capture the originating root like app generation does. The manual picker is not automatic origin handoff. No new paid service was added and Simple-specific source was not changed by this release. Full parity remains incomplete. This entry records the published runtime and does not itself require a deployment.
