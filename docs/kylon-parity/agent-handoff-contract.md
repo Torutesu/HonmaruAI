@@ -1,6 +1,6 @@
 # Agent handoff implementation contract
 
-Status: local durable Harness handoff runtime, metadata/history API and UI, and requester/manager stop control are implemented and tested. External teammate/provider coverage and live Kylon/production verification remain incomplete; KY-018/KY-019 remain partial. This is not a 100% fidelity claim. No Orchestrator selector is introduced.
+Status: local durable Harness handoff runtime, metadata/history API and UI, and requester/manager stop control are implemented and tested. Inbound handoff to configured external teammates is implemented locally; outbound handoff from remote teammates, other model-provider coverage and live Kylon/production verification remain incomplete; KY-018/KY-019 remain partial. This is not a 100% fidelity claim. No Orchestrator selector is introduced.
 
 ## Evidence and current behavior
 
@@ -53,9 +53,9 @@ Local runtime integration now creates/claims assignments, drains the handoff out
 
 ## Runtime control and prerequisites
 
-The research loop now recognizes only private runtime-branded handoff signals from explicitly registered control tools. It serializes those tools before ordinary siblings and terminates immediately on a successful handoff. A remote JSON object or model final text cannot forge this outcome. askAgent/runAgents preserve it without a fallback reply; the controlled tool is registered locally for durable Harness room runs with eligible internal targets. Explicit inline mode and Simple do not expose it.
+The research loop now recognizes only private runtime-branded handoff signals from explicitly registered control tools. It serializes those tools before ordinary siblings and terminates immediately on a successful handoff. A remote JSON object or model final text cannot forge this outcome. askAgent/runAgents preserve it without a fallback reply; the controlled tool is registered locally for durable Harness room runs with eligible configured room targets. Explicit inline mode and Simple do not expose it.
 
-Before enabling assignment execution, replace uncertain normal enqueue-to-inline fallback with an atomic source-message/delivery-outbox path. Retrying delivery must reuse the same queue identity; a lost terminal ownership write must remain recoverable without executing model/tools again. Do not mark handler completion while leaving the assignment running, or let the old inline fallback reply after a durable owner handed work off. External teammates also need persisted generation fencing in their callback/continuation path before joining the handoff protocol. The normal-request outbox and recoverable ownership settlement are now implemented. External teammate callback/continuation fencing remains unimplemented.
+Before enabling assignment execution, replace uncertain normal enqueue-to-inline fallback with an atomic source-message/delivery-outbox path. Retrying delivery must reuse the same queue identity; a lost terminal ownership write must remain recoverable without executing model/tools again. Do not mark handler completion while leaving the assignment running, or let the old inline fallback reply after a durable owner handed work off. External teammates also need persisted generation fencing in their callback/continuation path before joining the handoff protocol. The normal-request outbox and recoverable ownership settlement are now implemented. External callback fencing is now connected locally; outbound handoff initiated by remote teammates remains unimplemented.
 
 ## Normal request delivery implemented locally
 
@@ -63,9 +63,9 @@ Harness production channel sends now atomically save the message, attachments an
 
 ## Local durable runtime integration (2026-10-24)
 
-The `handoff_to_agent` control tool accepts one currently eligible, unvisited internal room agent and a bounded brief. The original human message remains unchanged. The atomic transition stores a visible handoff message and pending delivery; the minute drain retries only queue delivery. The target reads the brief with original human provenance and independent current authorization. The brief is not interpreted as an implicit memory/follow-up command. Source final output and ordinary sibling function calls are suppressed after the trusted successful handoff signal.
+The `handoff_to_agent` control tool accepts one currently eligible, unvisited room agent and a bounded brief. The original human message remains unchanged. The atomic transition stores a visible handoff message and pending delivery; the minute drain retries only queue delivery. The target reads the brief with original human provenance and independent current authorization. The brief is not interpreted as an implicit memory/follow-up command. Source final output and ordinary sibling function calls are suppressed after the trusted successful handoff signal.
 
-A handoff job has a separate durable receipt and result. Cross-store terminal settlement uses the exact operation's target generation, so recovery cannot cancel an advanced target. Explicit inline/Simple behavior is preserved. External teammates are excluded from this tool until their asynchronous callbacks carry generation fencing. This exclusion is an unfinished parity item, not a completed replacement for external delegation. The chain/status/stop UI and scoped metadata API are now implemented locally; authenticated production verification remains outstanding.
+A handoff job has a separate durable receipt and result. Cross-store terminal settlement uses the exact operation's target generation, so recovery cannot cancel an advanced target. Explicit inline/Simple behavior is preserved. Configured external teammates can now receive this tool's handoff with persisted generation fencing. Remote teammates cannot yet initiate the controlled tool themselves; that remains an unfinished parity item. The chain/status/stop UI and scoped metadata API are now implemented locally; authenticated production verification remains outstanding.
 
 Five targeted files / 81 tests passed, including two mocked provider turns, source answer suppression, duplicate target execution prevention, lost delivery acknowledgement with source-edit cancellation, durable receipt separation, and old-generation settlement protection. This is not a controlled production handoff or live Kylon comparison.
 
@@ -79,7 +79,7 @@ Normal and fallback replies from assigned runs include a SQL insert guard for th
 
 ## External teammate continuation audit
 
-External teammates start in `runTeammate` / `startTeammateRun`, then return through `watchTeammateRuns` / `settleRun` / `postTeammateResult`, sometimes on the minute cron. The caller's transient authorization closure does not survive into that later path. They remain excluded from controlled handoff targets until persisted assignment identity/generation and callback authorization are connected.
+External teammates start in `runTeammate` / `startTeammateRun`, then return through `watchTeammateRuns` / `settleRun` / `postTeammateResult`, sometimes on the minute cron. The caller's transient authorization closure does not survive into that later path. Persisted assignment identity/generation and current callback authorization are now connected for inbound controlled handoffs.
 
 A local prerequisite is implemented: `ai_teammate_runs.turn_version` advances for a continued remote session, and `settleRun` can settle only the observed workspace/version while it is still running. A late poll from an old turn cannot finish the newer turn, overwrite its usage or consume its event cursor. Existing rows default to version zero. This does not make remote start/send transactional with D1.
 
@@ -89,4 +89,12 @@ Remaining external integration must also repair the completion-publication gap: 
 
 Non-proxy external completion now records a bounded result-delivery snapshot in the same D1 batch as terminal settlement, keyed by remote run and turn version. A batch failure leaves the run running. The watcher drains pending delivery before checking running remote jobs and immediately after settlement; retries only read the saved result. Successful publication clears the payload and retains receipt metadata. A persisted `tmp-<delivery ID>` deduplicates the local agent message when acknowledgement is lost after insertion. Proxy proposals remain on their previous path because their proposed external actions need a separate idempotency contract.
 
-The external assignment ID/generation still needs to survive start/send and the stored publication snapshot, with current grant checks at callback time. This delivery mechanism is a prerequisite, not completed external handoff eligibility.
+The external assignment ID/generation now survives start/send and the stored publication snapshot, with current grant checks at callback time. Inbound external handoff eligibility is enabled locally for configured, enabled, credential-ready agents allowed in the room. Remote outbound delegation remains unsupported.
+
+## Inbound external assignment bridge (local)
+
+Configured external targets retain assignment ID, generation and target agent ID through remote session start/continuation and the completed-result outbox. Start validates the original human/room grant again. An already-running assigned remote session refuses an overlapping continuation instead of replacing its association. Original source text stays unchanged; the explicit handoff brief becomes the remote task.
+
+Assignment ownership remains running while the matching external run or publication outbox is pending. Normal/handoff Durable Object settlement cannot prematurely finish or interrupt that independently persisted external work, and a duplicate handoff execution observes the pending external run without launching another. The room status UI therefore continues polling the target.
+
+Publication re-resolves the original human grant and current target, then inserts with the same atomic assignment/source fence as an internal reply. Stop/sign-out suppresses late output. If the reply landed but assignment finalization failed, retry recognizes the persisted delivery message, finalizes only that generation and does not duplicate the remote call or reply. Payloads clear after acknowledgement. Already-started remote work cannot be undone by local stop. No remote APIs were newly provisioned or billed in verification; provider calls were mocked.

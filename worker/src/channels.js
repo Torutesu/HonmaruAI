@@ -548,7 +548,7 @@ const FILES_GONE = "A file in this message is no longer there. Attach it again."
 
 export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, assignmentFence = null }) {
   if (roomHookSource && (!parentId || kind !== 'agent' || !authorLogin?.startsWith('agent:'))) return {error:'Invalid webhook reply.',status:403};
-  if(assignmentFence && (kind!=='agent' || !parentId || files?.ids?.length || withFiles || clientId || typeof assignmentFence.assignmentId!=='string' || !Number.isSafeInteger(assignmentFence.generation) || typeof assignmentFence.sourceId!=='string' || typeof assignmentFence.sourceBody!=='string' || typeof assignmentFence.sourceAuthor!=='string'))return {error:'Invalid execution reply.',status:403};
+  if(assignmentFence && (kind!=='agent' || !parentId || files?.ids?.length || withFiles || typeof assignmentFence.assignmentId!=='string' || !Number.isSafeInteger(assignmentFence.generation) || typeof assignmentFence.sourceId!=='string' || typeof assignmentFence.sourceBody!=='string' || typeof assignmentFence.sourceAuthor!=='string'))return {error:'Invalid execution reply.',status:403};
   const text = String(body || "").replace(/\r\n/g, "\n").trim();
   const remembered = clientIdOk(clientId) ? clientId : null;
   // A picture on its own is something said. A retry of one has had its

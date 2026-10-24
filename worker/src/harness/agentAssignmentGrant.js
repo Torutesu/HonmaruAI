@@ -1,3 +1,4 @@
+import {teammateForAgent,canSignIn} from '../teammates.js';
 import {agentRequestGrant, agentExecutionGrant} from '../agentExecutionGrant.js';
 import {channelAgents} from '../customAgents.js';
 import {filterResponders} from './agents.js';
@@ -17,9 +18,13 @@ async function originGrant(env, assignment) {
 
 export async function assignmentTargets(env, grant) {
   const placed = await channelAgents(env.DB,grant.orgId,grant.resolved.key);
-  // External teammates need persisted generation fencing in their callback
-  // path before they can participate in this runtime handoff protocol.
-  return filterResponders(env.DB,grant.orgId,grant.user.login,placed.filter(agent=>!agent.provider),{named:new Set(placed.map(agent=>agent.id)),channel:grant.resolved.key});
+  const eligible=await filterResponders(env.DB,grant.orgId,grant.user.login,placed,{named:new Set(placed.map(agent=>agent.id)),channel:grant.resolved.key});
+  const available=await Promise.all(eligible.map(async agent=>{
+    if(!agent.provider)return agent;
+    const teammate=await teammateForAgent(env.DB,grant.orgId,agent);
+    return canSignIn(teammate) && (!teammate.channels || teammate.channels.includes(grant.resolved.key))?agent:null;
+  }));
+  return available.filter(Boolean);
 }
 
 export async function beginAuthorizedAssignment(env, request, agentId) {

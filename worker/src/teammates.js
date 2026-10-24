@@ -1,3 +1,4 @@
+import {assignmentExecutionGrant} from './harness/agentAssignmentGrant.js';
 import { roomHookExecutionGrant } from './harness/roomHookExecutionGrant.js';
 import { roomHookAgentAllowed } from './harness/roomHookAgentAccess.js';
 import Anthropic from "@anthropic-ai/sdk";
@@ -630,9 +631,13 @@ export async function teammateForAgent(db, orgId, agent) {
 
 /// @claude (or another) in a thread: new work for a new thread, the same
 /// work handed on for a follow-up. Returns the run to watch, or why not.
-export async function startTeammateRun(env, { orgId, t, key, threadId, where, askedBy, transcript, request, login, onBehalfOf = null, roomHookSource = null, now = new Date() }) {
+export async function startTeammateRun(env, { orgId, t, key, threadId, where, askedBy, transcript, request, login, onBehalfOf = null, roomHookSource = null, assignment = null, now = new Date() }) {
   const p = PROVIDERS[t.provider];
   const adapter = ADAPTERS[t.provider];
+  if(assignment) {
+    const grant=await assignmentExecutionGrant(env,{orgId,...assignment});
+    if(!grant || grant.row.channel!==key || grant.assignment.thread_id!==threadId || grant.user.login!==login || t.agentId!==assignment.agentId)return {refused:'notHere'};
+  }
   if (t.channels && key.startsWith("b:") && !t.channels.includes(key)) return { refused: "notHere" };
   const spent = await spentThisMonth(env.DB, orgId, t.provider, now);
   const remaining = t.monthlyLimitCents == null ? null : t.monthlyLimitCents - spent;
@@ -640,6 +645,7 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
   const existing = await env.DB.prepare(
     "SELECT * FROM ai_teammate_runs WHERE org_id = ?1 AND provider = ?2 AND channel = ?3 AND thread_id = ?4 ORDER BY created_at DESC LIMIT 1"
   ).bind(orgId, t.provider, key, threadId).first().catch(() => null);
+  if(existing?.status==='running' && (assignment || existing.assignment_id))return {refused:'busy'};
   const turnRequest = await withRoomGuidelinesRequest(env.DB, orgId, key, request);
   const stamp = now.toISOString();
   if (roomHookSource) {
@@ -651,9 +657,9 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
     const sent = await adapter.send(t, existing, `${askedBy}: ${turnRequest}`);
     if (sent.busy) return { refused: "busy" };
     // The next answer is for whoever this turn was asked for.
-    const advanced = await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'running', remote_turn = COALESCE(?3, remote_turn), cost_cents = cost_cents + ?4, on_behalf_of = ?5, room_hook_source = ?6, updated_at = ?2, turn_version=turn_version+1, result_delivery_id=NULL WHERE id = ?1 RETURNING turn_version")
-      .bind(existing.id, stamp, sent.turn || null, (sent.tasks || 0) * 100, onBehalfOf, roomHookSource).first();
-    return { run: { ...existing, status: "running", remote_turn: sent.turn || existing.remote_turn, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, turn_version:advanced.turn_version }, continued: true };
+    const advanced = await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'running', remote_turn = COALESCE(?3, remote_turn), cost_cents = cost_cents + ?4, on_behalf_of = ?5, room_hook_source = ?6, updated_at = ?2, turn_version=turn_version+1, result_delivery_id=NULL, assignment_id=?7, assignment_generation=?8, assignment_agent_id=?9 WHERE id = ?1 RETURNING turn_version")
+      .bind(existing.id, stamp, sent.turn || null, (sent.tasks || 0) * 100, onBehalfOf, roomHookSource,assignment?.assignmentId || null,assignment?.generation ?? null,assignment?.agentId || null).first();
+    return { run: { ...existing, status: "running", remote_turn: sent.turn || existing.remote_turn, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, turn_version:advanced.turn_version, assignment_id:assignment?.assignmentId || null,assignment_generation:assignment?.generation ?? null,assignment_agent_id:assignment?.agentId || null }, continued: true };
   }
   const started = await adapter.start(t, {
     task: taskText({ where, askedBy, transcript, request: turnRequest }), title: `${where}: ${request}`.slice(0, 200),
@@ -661,10 +667,10 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
   });
   const id = crypto.randomUUID();
   await env.DB.prepare(
-    `INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, remote_turn, status, cost_cents, last_event_at, started_by, created_at, updated_at, on_behalf_of, room_hook_source)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'running', ?8, NULL, ?9, ?10, ?10, ?11, ?12)`
-  ).bind(id, orgId, t.provider, key, threadId, started.remoteId, started.turn || null, (started.tasks || 0) * 100, login, stamp, onBehalfOf, roomHookSource).run();
-  return { run: { id, org_id: orgId, provider: t.provider, channel: key, thread_id: threadId, remote_id: started.remoteId, remote_turn: started.turn || null, status: "running", last_event_at: null, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, turn_version:0 } };
+    `INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, remote_turn, status, cost_cents, last_event_at, started_by, created_at, updated_at, on_behalf_of, room_hook_source, assignment_id, assignment_generation, assignment_agent_id)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'running', ?8, NULL, ?9, ?10, ?10, ?11, ?12, ?13, ?14, ?15)`
+  ).bind(id, orgId, t.provider, key, threadId, started.remoteId, started.turn || null, (started.tasks || 0) * 100, login, stamp, onBehalfOf, roomHookSource,assignment?.assignmentId || null,assignment?.generation ?? null,assignment?.agentId || null).run();
+  return { run: { id, org_id: orgId, provider: t.provider, channel: key, thread_id: threadId, remote_id: started.remoteId, remote_turn: started.turn || null, status: "running", last_event_at: null, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, turn_version:0, assignment_id:assignment?.assignmentId || null,assignment_generation:assignment?.generation ?? null,assignment_agent_id:assignment?.agentId || null } };
 }
 
 /// What a run has done since it was last looked at: its words since the last
@@ -705,10 +711,10 @@ export async function settleRun(db, run, read, now = new Date(), {deliveryAgentI
     .bind(run.id,status,read.last || null,read.costCents,run.org_id,run.turn_version ?? 0,deliveryId);
   let out;
   if(deliveryId) {
-    const snapshot={id:run.id,org_id:run.org_id,provider:run.provider,channel:run.channel,thread_id:run.thread_id,started_by:run.started_by || null,room_hook_source:run.room_hook_source || null,turn_version:run.turn_version ?? 0};
+    const snapshot={id:run.id,org_id:run.org_id,provider:run.provider,channel:run.channel,thread_id:run.thread_id,started_by:run.started_by || null,room_hook_source:run.room_hook_source || null,turn_version:run.turn_version ?? 0,assignment_id:run.assignment_id || null,assignment_generation:run.assignment_generation ?? null,assignment_agent_id:run.assignment_agent_id || null};
     const payload=JSON.stringify({run:snapshot,read:{texts:[(read.texts || []).join('\n\n').slice(0,16000)],stop:read.stop || null,error:Boolean(read.error)},status});
-    [out]=await db.batch([update,db.prepare(`INSERT INTO ai_teammate_result_dispatch(id,org_id,run_id,turn_version,agent_id,payload,updated_at)
-      SELECT ?1,org_id,id,turn_version,?2,?3,?4 FROM ai_teammate_runs WHERE id=?5 AND result_delivery_id=?1`)
+    [out]=await db.batch([update,db.prepare(`INSERT INTO ai_teammate_result_dispatch(id,org_id,run_id,turn_version,agent_id,assignment_id,assignment_generation,assignment_agent_id,payload,updated_at)
+      SELECT ?1,org_id,id,turn_version,?2,assignment_id,assignment_generation,assignment_agent_id,?3,?4 FROM ai_teammate_runs WHERE id=?5 AND result_delivery_id=?1`)
       .bind(deliveryId,deliveryAgentId,payload,now.toISOString(),run.id)]);
   } else out=await update.run();
   return Number(out?.meta?.changes || 0)>0?status:null;

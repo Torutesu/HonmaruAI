@@ -1,3 +1,5 @@
+import {externalIdentity,externalReplyGrant} from './harness/externalAssignment.js';
+import {endAssignment} from './harness/agentAssignments.js';
 import {drainTeammateResults} from './teammateResultDispatch.js';
 import {decorateAssignmentStatuses} from './harness/agentAssignmentStatus.js';
 import {stopAssignment} from './harness/agentAssignmentStop.js';
@@ -543,9 +545,12 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     if (agent.provider) {
       await progress(agent, "agent");
       const t = await teammateForAgent(env.DB, orgId, agent).catch(() => null);
-      await runTeammate(env, { orgId, user, resolved, row, members, locale, agent, t, authorize, roomHookSource, deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000) })
-        .catch((err) => console.error("teammate failed", safe(err?.message)));
-      await progress(agent, "done");
+      try {
+        return await runTeammate(env, { orgId, user, resolved, row, members, locale, agent, t, authorize, roomHookSource, replyFence, taskText, deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000) });
+      } catch(err) {
+        if(replyFence)throw err;
+        console.error("teammate failed",safe(err?.message));
+      } finally {await progress(agent,"done");}
       return;
     }
     await progress(agent, "agent");
@@ -608,7 +613,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   };
   const outcomes = await Promise.allSettled(agents.map((agent, index) => {
     const execute = runtime => answerOne(agent,index,runtime.authorize,runtime.tools,runtime.replyFence);
-    const run = durableExecution && harness && !roomHookSource && session?.token && !agent.provider
+    const run = durableExecution && harness && !roomHookSource && session?.token
       ? runAgentAssignment(env,{orgId,session,row,agent,authorize,existing:assignment,locale,
           publish:async messageId=>{const message=await getMessage(env.DB,orgId,messageId);if(message&&!message.deleted_at)await broadcastWithParent(env,orgId,resolved,message,members);}},execute)
       : answerOne(agent,index);
@@ -627,11 +632,11 @@ const teammateParent = (resolved, row) => row.parent_id || (resolved.kind === "a
 /// An AI teammate's turn (teammates.js): the thread handed to it, a line
 /// saying it has started, and its answer when it has one — watched here
 /// while this request may still run, and by the minute cron after that.
-async function runTeammate(env, { orgId, user, resolved, row, members, locale, agent, t, deadline, authorize = null, roomHookSource = false }) {
+async function runTeammate(env, { orgId, user, resolved, row, members, locale, agent, t, deadline, authorize = null, roomHookSource = false, replyFence = null, taskText = row.body }) {
   const parentId = teammateParent(resolved, row);
   const say = async (key) => {
     if (authorize && !await authorize()) return;
-    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: serverText(locale, key), kind: "agent", parentId, roomHookSource });
+    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: serverText(locale, key), kind: "agent", parentId, roomHookSource, assignmentFence:replyFence });
     if (out.row) {
       await broadcastWithParent(env, orgId, resolved, out.row, members);
       await emitMessage(env, orgId, out.row);
@@ -645,7 +650,7 @@ async function runTeammate(env, { orgId, user, resolved, row, members, locale, a
     if (authorize && !await authorize()) return;
     started = await startTeammateRun(env, {
       orgId, t, key: resolved.key, threadId: parentId || "-", where, askedBy: user.name || "a teammate",
-      transcript, request: requestFor(row.body, agent), login: user.login, roomHookSource: roomHookSource ? row.id : null,
+      transcript, request: requestFor(taskText, agent), login: user.login, roomHookSource: roomHookSource ? row.id : null, assignment:replyFence?{assignmentId:replyFence.assignmentId,generation:replyFence.generation,agentId:agent.id}:null,
     });
   } catch (err) {
     console.error("teammate start failed", safe(err?.message));
@@ -654,6 +659,7 @@ async function runTeammate(env, { orgId, user, resolved, row, members, locale, a
   if (started.refused) return say(started.refused === "limit" ? "teammate.limit" : started.refused === "busy" ? "teammate.busy" : "teammate.notHere");
   await say(started.continued ? "teammate.continued" : "teammate.started");
   await watchTeammateRuns(env, { ids: [started.run.id], deadline });
+  return {deferred:Boolean(started.run.assignment_id)};
 }
 
 /// Look in on teammates at work, and post what each finished with into the
@@ -687,6 +693,16 @@ export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause =
 }
 
 async function postTeammateResult(env, run, t, read, status, {clientId=null,deliveryAgentId=null}={}) {
+  const identity=externalIdentity(run);
+  const finish=async state=>{if(identity)await endAssignment(env.DB,{...identity,status:state});};
+  if(identity && clientId) {
+    const prior=await env.DB.prepare('SELECT * FROM channel_messages WHERE org_id=?1 AND channel=?2 AND author_login=?3 AND client_id=?4').bind(run.org_id,run.channel,`agent:${identity.agentId}`,clientId).first();
+    if(prior) {
+      await finish(status==='idle'?'finished':'failed');
+      if(!prior.deleted_at)await broadcastStored(env,run.org_id,run.channel,prior);
+      return {published:true};
+    }
+  }
   if (run.room_hook_source && run.room_hook_source !== run.thread_id) return {cancelled:true};
   const starter = run.started_by ? await getUserByLogin(env.DB, run.started_by).catch(() => null) : null;
   const locale = await loadCopy(env, starter?.locale || "en", { orgId: run.org_id });
@@ -696,7 +712,9 @@ async function postTeammateResult(env, run, t, read, status, {clientId=null,deli
   else if (status === "failed") body = [words, serverText(locale, read.stop === "terminated" ? "teammate.failed" : "teammate.stopped")].filter(Boolean).join("\n\n");
   else body = words || (read.error ? serverText(locale, "teammate.stopped") : serverText(locale, "teammate.done"));
   const agentId = t?.agentId;
-  if (!agentId || (deliveryAgentId && deliveryAgentId!==agentId)) return {cancelled:true};
+  if (!agentId || (deliveryAgentId && deliveryAgentId!==agentId)) {await finish('cancelled');return {cancelled:true};}
+  const externalGrant=identity?await externalReplyGrant(env,run,agentId):null;
+  if(identity && !externalGrant)return {cancelled:true};
   if (run.room_hook_source && !await roomHookAgentAllowed(env.DB,run.org_id,run.room_hook_source,agentId)) return {cancelled:true};
   // Working for a person who was mentioned: what it would post outside the
   // chat waits on that person (proxy.js), and the answer reads as theirs.
@@ -706,10 +724,10 @@ async function postTeammateResult(env, run, t, read, status, {clientId=null,deli
   }
   const out = await postMessage(env.DB, {
     orgId: run.org_id, key: run.channel, authorLogin: `agent:${agentId}`, body: body.length > MAX_MESSAGE_CHARS ? `${body.slice(0, MAX_MESSAGE_CHARS - 1)}…` : body, kind: "agent",
-    parentId: run.thread_id === "-" ? null : run.thread_id, onBehalfOf: run.on_behalf_of || null, roomHookSource: Boolean(run.room_hook_source), clientId,
+    parentId: run.thread_id === "-" ? null : run.thread_id, onBehalfOf: run.on_behalf_of || null, roomHookSource: Boolean(run.room_hook_source), clientId, assignmentFence:externalGrant?.replyFence || null,
   });
-  if (out.row) {await broadcastStored(env, run.org_id, run.channel, out.row);return {published:true};}
-  if(['thread_gone','webhook_revoked'].includes(out.code))return {cancelled:true};
+  if (out.row) {await finish(status==='idle'?'finished':'failed');await broadcastStored(env, run.org_id, run.channel, out.row);return {published:true};}
+  if(['thread_gone','webhook_revoked','execution_changed'].includes(out.code)){await finish('cancelled');return {cancelled:true};}
   return {published:false};
 }
 

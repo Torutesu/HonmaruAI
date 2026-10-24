@@ -1,3 +1,4 @@
+import {externalAssignmentPending} from './externalAssignment.js';
 import {beginAuthorizedAssignment,assignmentExecutionGrant,acceptAgentHandoff,assignmentTargets} from './agentAssignmentGrant.js';
 import {assignmentOwns,endAssignment} from './agentAssignments.js';
 import {markControlTool,handoffControl} from '../agentToolControl.js';
@@ -6,7 +7,7 @@ import {serverText} from '../serverCopy.js';
 
 export async function runAgentAssignment(env,{orgId,session,row,agent,authorize=null,existing=null,locale='en',publish},execute) {
   let assignment=existing;
-  if(!assignment && session?.token && !agent.provider) {
+  if(!assignment && session?.token) {
     const begun=await beginAuthorizedAssignment(env,{orgId,token:session.token,rowId:row.id},agent.id);
     if(begun?.error || (begun && !begun.started))return;
     assignment=begun?.assignment || null;
@@ -38,10 +39,13 @@ export async function runAgentAssignment(env,{orgId,session,row,agent,authorize=
   try {
     if(!await permitted()) {await endAssignment(env.DB,{...identity,status:'cancelled'});return;}
     const result=await execute({authorize:permitted,tools,replyFence:{assignmentId:assignment.id,generation:assignment.generation,sourceId:row.id,sourceBody:row.body,sourceAuthor:row.author_login,sourceParent:row.parent_id}});
-    if(await assignmentOwns(env.DB,identity))await endAssignment(env.DB,{...identity,status:await permitted()?'finished':'cancelled'});
+    if(await assignmentOwns(env.DB,identity)) {
+      if(!await permitted())await endAssignment(env.DB,{...identity,status:'cancelled'});
+      else if(!await externalAssignmentPending(env.DB,identity))await endAssignment(env.DB,{...identity,status:'finished'});
+    }
     return result;
   } catch(error) {
-    await endAssignment(env.DB,{...identity,status:'failed'});
+    if(!await externalAssignmentPending(env.DB,identity))await endAssignment(env.DB,{...identity,status:'failed'});
     throw error;
   }
 }

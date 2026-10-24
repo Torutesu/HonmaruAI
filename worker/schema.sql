@@ -1006,7 +1006,10 @@ CREATE TABLE IF NOT EXISTS ai_teammate_runs (
   on_behalf_of   TEXT,
   room_hook_source TEXT,
   turn_version INTEGER NOT NULL DEFAULT 0,
-  result_delivery_id TEXT
+  result_delivery_id TEXT,
+  assignment_id TEXT,
+  assignment_generation INTEGER,
+  assignment_agent_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_status ON ai_teammate_runs(status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_thread ON ai_teammate_runs(org_id, channel, thread_id);
@@ -2184,5 +2187,5 @@ CREATE INDEX IF NOT EXISTS idx_hx_agent_handoff_dispatch_due ON hx_agent_handoff
 CREATE TABLE IF NOT EXISTS hx_agent_request_dispatch (org_id TEXT NOT NULL, message_id TEXT NOT NULL, session_key TEXT NOT NULL, agent_ids TEXT NOT NULL, source_hash TEXT NOT NULL, locale TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,message_id));
 CREATE INDEX IF NOT EXISTS idx_hx_agent_request_dispatch_due ON hx_agent_request_dispatch(status,next_attempt,lease_until);
 
-CREATE TABLE IF NOT EXISTS ai_teammate_result_dispatch (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, run_id TEXT NOT NULL, turn_version INTEGER NOT NULL, agent_id TEXT NOT NULL, payload TEXT, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, UNIQUE(org_id,run_id,turn_version));
+CREATE TABLE IF NOT EXISTS ai_teammate_result_dispatch (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, run_id TEXT NOT NULL, turn_version INTEGER NOT NULL, agent_id TEXT NOT NULL, assignment_id TEXT, assignment_generation INTEGER, assignment_agent_id TEXT, payload TEXT, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, UNIQUE(org_id,run_id,turn_version));
 CREATE INDEX IF NOT EXISTS idx_teammate_result_pending ON ai_teammate_result_dispatch(status,next_attempt,lease_until);

@@ -231,3 +231,48 @@ test.each(['active','revoked','agent-deleted'])('delayed webhook teammate comple
  const replies=(await env.DB.prepare('SELECT body FROM channel_messages WHERE org_id=?1 AND parent_id=?2').bind(ORG,event.messageId).all()).results;
  expect(replies).toEqual(state==='active'?[{body:'Deployment reviewed.'}]:[]);
 });
+
+test.each(['finish','stop','signout','publication_retry'])('a handed-off external run retains ownership until %s and never replays remote work',async outcome=>{
+ await launch();
+ const {agent:source}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:'---\nname: Coordinator\nhandle: coordinator\nscope: team\n---\nCoordinate the task.'})).json();
+ const target=await env.DB.prepare("SELECT id FROM custom_agents WHERE org_id=?1 AND provider='claude'").bind(ORG).first();
+ const {setMode}=await import('../src/harness/mode.js');const {postMessage}=await import('../src/channels.js');const {getSession}=await import('../src/db.js');
+ const {beginAuthorizedAssignment,acceptAgentHandoff}=await import('../src/harness/agentAssignmentGrant.js');
+ const {runQueuedHandoff,settleHandoff}=await import('../src/harness/agentHandoffRun.js');
+ await setMode(env.DB,ORG,'harness','9701');
+ for(const id of [source.id,target.id])await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:cafe',?2,'9701','2026-10-24')").bind(ORG,id).run();
+ const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'mika',body:'@coordinator review the deployment'});
+ const begun=await beginAuthorizedAssignment(env,{orgId:ORG,rowId:row.id,token:(await getSession(env.DB,mika)).token},source.id);expect(begun.started).toBe(true);
+ expect((await acceptAgentHandoff(env,{orgId:ORG,assignmentId:begun.assignment.id,generation:0,sourceAgentId:source.id,targetAgentId:target.id,operationId:'external-hop',brief:'Investigate the migration and return findings.',messageBody:'Handing off to @claude'})).error).toBeUndefined();
+ anthropic().intercept({path:'/v1/sessions?beta=true',method:'POST'}).reply(200,opts=>{
+  expect(JSON.parse(opts.body).initial_events[0].content[0].text).toContain('Investigate the migration and return findings.');
+  return {id:'external-assigned',type:'session',status:'running'};
+ });
+ anthropic().intercept({path:p=>p.startsWith('/v1/sessions/external-assigned/events?'),method:'GET'}).reply(200,{data:[],next_page:null});
+ const job={orgId:ORG,rowId:'external-hop'};const runtime={...env,AGENT_INLINE:'',TEAMMATE_WATCH_MS:'0'};
+ expect(await runQueuedHandoff(runtime,job)).toEqual({status:'awaiting_external',answered:0});
+ await settleHandoff(runtime,job,{status:'interrupted'});
+ expect(await runQueuedHandoff(runtime,job)).toEqual({status:'awaiting_external',answered:0});
+ const remote=await env.DB.prepare('SELECT * FROM ai_teammate_runs WHERE org_id=?1').bind(ORG).first();
+ expect(remote).toMatchObject({assignment_id:begun.assignment.id,assignment_generation:1,assignment_agent_id:target.id,status:'running'});
+ expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE id=?1').bind(begun.assignment.id).first()).toEqual({status:'running'});
+ if(outcome==='stop')expect((await send('POST','/channels/agent-runs/stop',mika,{orgId:ORG,channel:'b:cafe',messageId:row.id,assignmentId:begun.assignment.id,generation:1})).status).toBe(200);
+ if(outcome==='signout'){const {endHere}=await import('../src/sessions.js');await endHere(env,ORG,[(await getSession(env.DB,mika)).token]);}
+ anthropic().intercept({path:p=>p.startsWith('/v1/sessions/external-assigned/events?'),method:'GET'}).reply(200,{data:[{id:'answer',type:'agent.message',processed_at:'2026-10-24T10:00:00Z',content:[{type:'text',text:'External assigned result'}]},{id:'done',type:'session.status_idle',processed_at:'2026-10-24T10:00:01Z',stop_reason:{type:'end_turn'}}],next_page:null});
+ anthropic().intercept({path:'/v1/sessions/external-assigned?beta=true',method:'GET'}).reply(200,{id:'external-assigned',usage:{list_cost:{amount:'20',currency:'USD'}}});
+ if(outcome==='publication_retry')await env.DB.exec("CREATE TRIGGER fail_assignment_end BEFORE UPDATE ON hx_agent_assignments WHEN NEW.status='finished' BEGIN SELECT RAISE(ABORT,'test failure'); END;");
+ await watchTeammateRuns(runtime);
+ if(outcome==='publication_retry') {
+  expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE id=?1').bind(begun.assignment.id).first()).toEqual({status:'running'});
+  await settleHandoff(runtime,job,{status:'interrupted'});
+  expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE id=?1').bind(begun.assignment.id).first()).toEqual({status:'running'});
+  await env.DB.exec('DROP TRIGGER fail_assignment_end');
+  await env.DB.prepare('UPDATE ai_teammate_result_dispatch SET next_attempt=0 WHERE run_id=?1').bind(remote.id).run();
+ }
+ await watchTeammateRuns(runtime);await watchTeammateRuns(runtime);
+ const finished=outcome==='finish'||outcome==='publication_retry';
+ const replies=(await env.DB.prepare("SELECT body FROM channel_messages WHERE org_id=?1 AND body='External assigned result'").bind(ORG).all()).results;
+ expect(replies).toHaveLength(finished?1:0);
+ expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE id=?1').bind(begun.assignment.id).first()).toEqual({status:finished?'finished':'cancelled'});
+ expect(await env.DB.prepare('SELECT status,payload FROM ai_teammate_result_dispatch WHERE run_id=?1').bind(remote.id).first()).toEqual({status:finished?'published':'cancelled',payload:null});
+});

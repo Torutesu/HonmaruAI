@@ -231,3 +231,12 @@ ALTER TABLE ai_teammate_runs ADD COLUMN turn_version INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE ai_teammate_runs ADD COLUMN result_delivery_id TEXT;
 CREATE TABLE IF NOT EXISTS ai_teammate_result_dispatch (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, run_id TEXT NOT NULL, turn_version INTEGER NOT NULL, agent_id TEXT NOT NULL, payload TEXT, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, UNIQUE(org_id,run_id,turn_version));
 CREATE INDEX IF NOT EXISTS idx_teammate_result_pending ON ai_teammate_result_dispatch(status,next_attempt,lease_until);
+
+ALTER TABLE ai_teammate_runs ADD COLUMN assignment_id TEXT;
+ALTER TABLE ai_teammate_runs ADD COLUMN assignment_generation INTEGER;
+ALTER TABLE ai_teammate_runs ADD COLUMN assignment_agent_id TEXT;
+ALTER TABLE ai_teammate_result_dispatch ADD COLUMN assignment_id TEXT;
+ALTER TABLE ai_teammate_result_dispatch ADD COLUMN assignment_generation INTEGER;
+ALTER TABLE ai_teammate_result_dispatch ADD COLUMN assignment_agent_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_teammate_runs_assignment ON ai_teammate_runs(org_id,assignment_id,assignment_generation,status);
+CREATE INDEX IF NOT EXISTS idx_teammate_result_assignment ON ai_teammate_result_dispatch(org_id,assignment_id,assignment_generation,status);
