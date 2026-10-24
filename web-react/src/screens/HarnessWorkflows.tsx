@@ -129,11 +129,13 @@ function Builder({ tables, agents, onSave, onCancel, busy }: { tables: Table[]; 
   )
 }
 
-export const HarnessWorkflows: React.FC<HarnessProps> = (props) => (
-  <ScopedHarnessWorkflows key={JSON.stringify([props.httpBase, props.orgId, props.sessionToken])} {...props} />
+type WorkflowProps = HarnessProps & {requestedWorkflowId?: string | null; onNavigateWorkflow?: (id?: string) => void}
+
+export const HarnessWorkflows: React.FC<WorkflowProps> = (props) => (
+  <ScopedHarnessWorkflows key={JSON.stringify([props.httpBase, props.orgId, props.sessionToken, props.requestedWorkflowId])} {...props} />
 )
 
-const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
+const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const t = useT()
   const api = useApi(props)
   const [workflows, setWorkflows] = useState<Workflow[] | null>(null)
@@ -157,10 +159,11 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
     const res = await fetch(`${props.httpBase}/channels/agents?orgId=${encodeURIComponent(props.orgId)}`, { headers: { 'x-session-token': props.sessionToken } }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => ({})) : {}
     setAgents((data.agents || []) as AgentFace[])
-  }), [api, act, props.httpBase, props.orgId, props.sessionToken])
+  }), [api, act, props.httpBase, props.orgId, props.sessionToken, props.requestedWorkflowId])
   useEffect(() => { load() }, [load])
 
   const openOne = (id: string) => {
+    if(props.onNavigateWorkflow && props.requestedWorkflowId!==id){props.onNavigateWorkflow(id);return Promise.resolve()}
     const request = ++detailRequest.current
     return act(`open:${id}`, async () => {
       setHookAction(null); setReplaySelection(null); setDiscardSelection(null); setConfirmDelete(false)
@@ -177,12 +180,12 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
     const result = await api.workflow(id)
     setOpen(current => detailRequest.current === request && current?.workflow.id === id ? result : current)
   }
-  useEffect(() => { let id: string | null = null; try { id = sessionStorage.getItem('hx.openWorkflow'); sessionStorage.removeItem('hx.openWorkflow') } catch {} if (id) void openOne(id) }, [])
+  useEffect(() => { if(props.requestedWorkflowId)void openOne(props.requestedWorkflowId);return()=>{detailRequest.current++} }, [])
 
   if (open) {
     const w = open.workflow
     return (
-      <Shell className="hx-resource-screen" title={w.name} onClose={() => { detailRequest.current++; setOpen(null); load() }} nested actions={
+      <Shell className="hx-resource-screen" title={w.name} onClose={() => { detailRequest.current++; if(props.onNavigateWorkflow){props.onNavigateWorkflow();return}setOpen(null); load() }} nested actions={
         <button className="pill-btn quiet" disabled={!!busy} onClick={() => act('refresh', async () => {
           setHookAction(null); setReplaySelection(null); setDiscardSelection(null); setConfirmDelete(false)
           await refreshOpen(w.id)
@@ -221,6 +224,7 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
           <div className="hx-actions">
             <button className="pill-btn danger" disabled={!!busy} onClick={() => act('delete', async () => {
               await api.deleteWorkflow(w.id)
+              if(props.onNavigateWorkflow){props.onNavigateWorkflow();return}
               setOpen(current => current?.workflow.id === w.id ? null : current)
               setConfirmDelete(false)
               await load()
@@ -309,7 +313,7 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
         <label htmlFor="workflow-prompt">{t('Describe an automation')}</label>
         <textarea id="workflow-prompt" className="context-input" rows={4} maxLength={4000} value={prompt} onChange={e => setPrompt(e.target.value)} placeholder={t('e.g. Every weekday at 9, ask an agent to summarize tasks and post in #ops.')} />
         <p className="row-sub">{t('Created paused. Review the steps before turning it on.')}</p>
-        <div className="hx-actions"><button className="pill-btn" disabled={busy !== null || !prompt.trim()} onClick={() => act('generate', async () => { const made = await api.generateWorkflow(prompt); setOpen(await api.workflow(made.workflow.id)); setBuilding(false); setPrompt('') })}>{t(busy === 'generate' ? 'Building…' : 'Build')}</button><button className="btn-text" onClick={() => setManual(v => !v)}>{t('Manual setup')}</button><button className="btn-text" onClick={() => setBuilding(false)}>{t('Cancel')}</button></div>
+        <div className="hx-actions"><button className="pill-btn" disabled={busy !== null || !prompt.trim()} onClick={() => act('generate', async () => { const made = await api.generateWorkflow(prompt); await openOne(made.workflow.id); setBuilding(false); setPrompt('') })}>{t(busy === 'generate' ? 'Building…' : 'Build')}</button><button className="btn-text" onClick={() => setManual(v => !v)}>{t('Manual setup')}</button><button className="btn-text" onClick={() => setBuilding(false)}>{t('Cancel')}</button></div>
       </section>}
       {building && manual && (
         <Builder

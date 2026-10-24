@@ -259,3 +259,19 @@ test('a failed resume keeps the pause visible and read-only members cannot resum
  await act(async()=>button('Refresh').props.onClick())
  expect(button('Resume after review')).toBeUndefined()
 })
+
+test('requested workflow URLs open details and back navigation clears the target',async()=>{
+ const navigate=vi.fn()
+ await act(async()=>{tree=create(<HarnessWorkflows {...props} requestedWorkflowId={workflow.id} onNavigateWorkflow={navigate}/> )})
+ expect(state.api.workflow).toHaveBeenCalledWith(workflow.id)
+ expect(JSON.stringify(tree.toJSON())).toContain('Billing')
+ await act(async()=>{tree.root.findByProps({'aria-label':'Back'}).props.onClick()})
+ expect(navigate).toHaveBeenCalledWith()
+})
+test('opening a listed workflow delegates to the durable route before loading details',async()=>{
+ const navigate=vi.fn()
+ await act(async()=>{tree=create(<HarnessWorkflows {...props} onNavigateWorkflow={navigate}/> )})
+ await act(async()=>{tree.root.findByProps({'data-workflow':workflow.id}).props.onClick()})
+ expect(navigate).toHaveBeenCalledWith(workflow.id)
+ expect(state.api.workflow).not.toHaveBeenCalled()
+})

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseRoute, hashForApp, hashForAppSource, hashForJoin, hashForCard, hashForScreen, hashForView, hashForMessage, hashForThread, pathToHash } from './route'
+import { parseRoute, hashForWorkflow, hashForApp, hashForAppSource, hashForJoin, hashForCard, hashForScreen, hashForView, hashForMessage, hashForThread, pathToHash } from './route'
 
 it('source-app links enter chat in the named workspace, without accepting malformed targets',()=>{
  expect(parseRoute(hashForAppSource('app_one','team:acme'))).toMatchObject({screen:null,mode:'classic',appSource:true,appId:'app_one',appOrg:'team:acme'})
@@ -144,4 +144,9 @@ it('thread links open the thread rather than treating its root as a room message
  expect(parseRoute(hashForThread('msg_one','team:acme'))).toMatchObject({screen:null,mode:'classic',threadId:'msg_one',threadOrg:'team:acme'})
  expect(parseRoute(hashForThread('msg_one','team:acme')).messageId).toBeUndefined()
  for(const hash of ['#/t/%3Cbad%3E/team%3Aacme','#/t/msg_one/%ZZ','#/t/msg_one/team%3Aacme/extra'])expect(parseRoute(hash).threadId).toBeNull()
+})
+
+it('workflow detail URLs retain workspace scope and reject ambiguous or malformed targets',()=>{
+ expect(parseRoute(hashForWorkflow('wf_1','team:acme'))).toMatchObject({screen:'workflows',workflowId:'wf_1',workflowOrg:'team:acme'})
+ for(const hash of ['#/workflows/wf_1','#/workflows/wf_1/%3Cinvalid%3E','#/workflows/%3Cbad%3E/team%3Aacme','#/workflows/wf_1/team%3Aacme/extra','#/workflows/%zz/team%3Aacme'])expect(parseRoute(hash).workflowId).toBeNull()
 })

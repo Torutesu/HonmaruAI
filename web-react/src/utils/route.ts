@@ -34,6 +34,8 @@ export type Screen = 'tools' | 'history' | 'notifications' | 'plans' | 'profile'
 export type Mode = 'cards' | 'classic'
 
 export interface Route {
+  workflowId?: string | null
+  workflowOrg?: string | null
   threadId?: string | null
   threadOrg?: string | null
   appSource?: boolean
@@ -113,6 +115,12 @@ export function parseRoute(hash: string): Route {
     const org = new URLSearchParams(query).get('org')
     return { screen: null, mode: 'classic', cardId: null, join: null, openView, openOrg: openView && org && isOrgId(org) ? org : null }
   }
+  if (head === 'workflows' && rest.length) {
+    const decode = (value: string) => { try { return decodeURIComponent(value) } catch { return '' } }
+    const id=decode(rest[0]||''), org=decode(rest[1]||'')
+    const valid=rest.length===2 && /^[\w-]{1,80}$/.test(id) && isOrgId(org)
+    return {screen:'workflows',mode:null,cardId:null,join:null,workflowId:valid?id:null,workflowOrg:valid?org:null}
+  }
   if (head === 'apps' && rest.length) {
     const decode = (value: string) => { try { return decodeURIComponent(value) } catch { return '' } }
     const [appPath,query='']=rest.join('/').split('?'); const segments=appPath.split('/'); const params=new URLSearchParams(query);
@@ -130,6 +138,8 @@ export function parseRoute(hash: string): Route {
   const screen = Object.prototype.hasOwnProperty.call(SCREEN_BY_PATH, head) ? SCREEN_BY_PATH[head] : undefined
   return screen ? { screen, mode: null, cardId: null, join: null } : { screen: null, mode: null, cardId: null, join: null }
 }
+
+export function hashForWorkflow(id:string,orgId:string):string { return `#/workflows/${encodeURIComponent(id)}/${encodeURIComponent(orgId)}` }
 
 export function hashForApp(id: string, orgId: string, conversation?: {tableId?:string;rowId?:string}): string { const query=new URLSearchParams();if(conversation){query.set('chat','1');if(conversation.tableId&&conversation.rowId){query.set('table',conversation.tableId);query.set('row',conversation.rowId)}}return `#/apps/${encodeURIComponent(id)}/${encodeURIComponent(orgId)}${query.size?'?'+query:''}` }
 export function hashForAppSource(id:string,orgId:string):string { return `${hashForApp(id,orgId)}?source=1` }

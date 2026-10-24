@@ -23,7 +23,7 @@ import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { displayName } from '../utils/names'
 import { bringForward, pageShowing } from '../utils/desktop'
-import { useRoute, useDesktop, useMinWidth, hashForCard, hashForMode, hashForScreen, hashForView } from '../utils/route'
+import { useRoute, useDesktop, useMinWidth, hashForCard, hashForMode, hashForScreen, hashForView, hashForWorkflow } from '../utils/route'
 import { loadCardCache, saveCardCache } from '../utils/cardCache'
 import { reconnectWatch, wakeWatch } from '../utils/resync'
 import { needsLocalizing } from '../utils/language'
@@ -647,6 +647,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     else navigate('#/apps', true)
   }, [route.appId, route.appOrg, orgId, workspaces, onSwitchOrg, navigate])
   useEffect(() => {
+    if (!route.workflowId || !route.workflowOrg || route.workflowOrg === orgId || !workspaces.length) return
+    if (workspaces.some(w => w.id === route.workflowOrg)) onSwitchOrg(route.workflowOrg)
+    else navigate('#/workflows', true)
+  }, [route.workflowId, route.workflowOrg, orgId, workspaces, onSwitchOrg, navigate])
+  useEffect(() => {
     if (!route.threadId || !route.threadOrg || route.threadOrg === orgId || !workspaces.length) return
     if (workspaces.some(w => w.id === route.threadOrg)) onSwitchOrg(route.threadOrg)
     else navigate('#/list', true)
@@ -1066,7 +1071,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           linkedThreadId={route.threadId && (!route.threadOrg || route.threadOrg === orgId) ? route.threadId : null}
           sourceAppId={route.appSource && route.appOrg===orgId ? route.appId : null}
           onApps={id => { if (id) sessionStorage.setItem('hx.openApp', id); setScreen('apps') }}
-          onWorkflow={id => { if (id) sessionStorage.setItem('hx.openWorkflow', id); setScreen('workflows') }}
+          onWorkflow={id => navigate(id ? hashForWorkflow(id, orgId) : '#/workflows')}
           userId={userId}
           orgName={orgName}
           pending={pendingCards}
@@ -1396,7 +1401,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         <HarnessHub httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} onOpen={(where) => setScreen(where, 'harness')} />
       )}
       {screen === 'apps' && (!route.appOrg || route.appOrg === orgId) && <HarnessApps key={`${orgId}:${sessionToken}`} requestedAppId={route.appId} initialConversation={route.appConversation} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
-      {screen === 'workflows' && <HarnessWorkflows httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
+      {screen === 'workflows' && (!route.workflowOrg || route.workflowOrg === orgId) && <HarnessWorkflows requestedWorkflowId={route.workflowId} onNavigateWorkflow={id => navigate(id ? hashForWorkflow(id, orgId) : '#/workflows')} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'approvals' && <HarnessApprovals httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'skills' && <HarnessSkills httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'gateways' && <HarnessGateways key={`${orgId}:${sessionToken}`} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
