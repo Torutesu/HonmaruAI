@@ -19,6 +19,7 @@ import { transcriptUpTo, getMessage } from "./channels.js";
 import { relevantMemories, playbookBlock } from "./memory.js";
 import { noteUsage } from "./ledger.js";
 import { research as researchLoop, canResearch, readResponse } from "./agentResearch.js";
+import {chatTools, canChatTools} from "./agentChatTools.js";
 
 export { readResponse };
 import { chooseRoomAgent } from "./harness/roomRouting.js";
@@ -443,7 +444,7 @@ Research — whenever the request needs facts from outside this chat (anything c
 /// helpers: `called` is whether a model was paid for. `tools` are the
 /// function tools it may call while researching (see agentResearch.js);
 /// `env` names the research model.
-export async function askAgent({ provider, agent, request, transcript, playbook, where, askedBy, readerLanguage, research = "", links = "", tools = {}, env = null, deadline, onRound = null, authorize = null }) {
+export async function askAgent({ provider, agent, request, transcript, playbook, where, askedBy, readerLanguage, research = "", links = "", tools = {}, env = null, deadline, onRound = null, authorize = null, harnessTools = false }) {
   if (!provider) return { called: false, answer: null };
   if (authorize && !await authorize()) return { called: false, answer: null, cancelled: true };
   const today = new Date().toISOString().slice(0, 10);
@@ -461,6 +462,12 @@ Request to you (@${agent.handle}): ${request || "(no words beyond your name — 
   // tools (agentResearch.js). A model or key that cannot do it tries once
   // more with the workspace's own model and the search tool bare, and
   // failing that answers the ordinary way.
+  if (harnessTools && canChatTools(provider) && Object.keys(tools).length) {
+    const instructions = agent.researchInstructions && tools.read_installed_skill
+      ? `${RULES}\n\nToday is ${today}.\n\nYou are ${agent.name} (@${agent.handle}).\n\n<agent_instructions>\n${agent.researchInstructions}\n</agent_instructions>` : system;
+    const out = await chatTools({provider, instructions, input: user, tools, authorize, onRound, deadline});
+    return {...out, answer: out.answer ? forChat(out.answer).slice(0, MAX_ANSWER) : null};
+  }
   if (canResearch(provider)) {
     // A shared video or page whose words could not be read: the agent
     // looks for them elsewhere before it answers.

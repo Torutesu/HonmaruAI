@@ -2157,3 +2157,9 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 - Handoff history uses the selected application locale with cached Intl formatting, rather than the browser's default language. Invalid saved locale identifiers fall back to English; malformed timestamps remain omitted. Display uses local time, with the original timestamp retained in the time element.
 - Status/date-format suites: **2 files / 18 tests passed**. Added Japanese, German, malformed locale and malformed date cases. TypeScript and Vite production build passed (`/tmp/honmaru-handoff-locale-build.log`).
 - Main `ca7c25af` was pushed successfully. Its CI `40067260591`, Worker `40067260596`, Web `40067260615` were confirmed in progress. Timestamp follow-up remains local until those jobs complete; no overlapping deployment was dispatched.
+
+### 2026-10-24: OpenRouter tool execution for Harness
+
+- Added opt-in Harness tool loop for the existing OpenRouter provider; Simple remains ordinary completion. No new provider credentials, hosted services or paid-model substitutions. Trusted handoff, current grant checks, bounded rounds/calls/output/deadline, call-ID result reuse and no replay after uncertain model response are covered.
+- Targeted validation **4 files / 66 tests passed**, 13.01s (`/tmp/honmaru-openrouter-tools-final.log`). Added lost-response and progress-callback revocation tests afterward: **12 tool-loop tests passed**, 2.83s (`/tmp/honmaru-openrouter-tools-recovery.log`). Provider calls were mocked, not live production execution.
+- First targeted attempt failed because a persistent mock leaked into the next test; replaced it with the exact seven expected responses. Both subsequent runs passed. Model-specific live compatibility and outbound remote-agent delegation remain unverified/incomplete.

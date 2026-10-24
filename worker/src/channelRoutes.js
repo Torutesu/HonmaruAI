@@ -580,7 +580,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
           provider: ready.provider, agent: ready.agent, request: requestFor(taskText, agent), transcript, playbook, where, research, links, tools: { ...tools, ...ready.skillTools, ...runtimeTools }, env,
           askedBy: user.name || "a teammate", readerLanguage: locale,
           deadline: Date.now() + (env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 25000 : 240000),
-          onRound: () => progress(agent, "agent"), authorize,
+          onRound: () => progress(agent, "agent"), authorize, harnessTools: harness,
         });
         if (result.called && allowance.metered) await allowance.consume();
         if (result.cancelled || result.handedOff) return;
