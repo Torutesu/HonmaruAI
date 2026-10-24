@@ -121,3 +121,9 @@ Validation: TypeScript passed; two UI files / 23 tests passed (`/tmp/honmaru-aut
 Added trigger controls for manual/webhook, schedules (cadence, weekday/monthday, time, timezone), row event/table/watched column and select-value conditions. Switching trigger kind removes incompatible properties; switching tables removes old watched-column/filter references. A blank automation starts as a disabled local draft with a manual trigger and editable step.
 
 Validation: TypeScript passed for the trigger component/integration; two UI files / eight tests passed after the blank-creation addition (`/tmp/honmaru-automation-trigger-final.log`). Covers trigger-kind/table reset, explicit weekly weekday, existing draft/review behavior and local creation without release. Natural-language app automation generation, ordering, resource naming, broader validation and live visual verification still remain before deployment.
+
+## Natural-language automation proposals (local)
+
+Added editor-only generation using the existing metered workflow proposal pipeline and resource visibility checks. The app-specific wrapper validates the portable declaration, assigns a stable key and forces disabled state. It writes no workflow, secret, app draft or release. The UI appends the proposal to the local editable draft for explicit save/review/publication. No new provider or subscription is introduced; unavailable allowance returns an error with manual editing still available.
+
+Validation: Worker two files / 58 tests passed (`/tmp/honmaru-app-automation-generation.log`); UI one file / six tests passed (`/tmp/honmaru-app-automation-generation-ui-final.log`); TypeScript passed. Tests cover disabled inert output, no database state creation, editor permissions, unavailable-model response and proposal addition without publication. Real model quality, visual review, full regression/build and deployment remain unverified.

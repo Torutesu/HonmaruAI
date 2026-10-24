@@ -7,6 +7,7 @@ import type {App, AppAutomationState, AutomationBundle, HarnessApi, Workflow, Ta
 
 const statusLabels = {added:'追加',changed:'変更',unchanged:'変更なし',removed:'公開停止',retired:'停止済み',drifted:'別の画面で変更あり',missing:'処理が削除されています'}
 export function AppAutomations({app,api,reload}:{app:App;api:HarnessApi;reload:()=>unknown}) {
+  const [prompt,setPrompt]=useState('')
   const [state,setState]=useState<AppAutomationState|null>(null)
   const [draft,setDraft]=useState<AutomationBundle>({version:1,items:[]})
   const [tables,setTables]=useState<Table[]>([]),[agents,setAgents]=useState<AgentFace[]>([])
@@ -40,6 +41,7 @@ export function AppAutomations({app,api,reload}:{app:App;api:HarnessApi;reload:(
     <p>下書きを保存して変更内容を確認し、このアプリと一緒に運用する処理を公開します。</p>
     {error&&<p role="alert" className="form-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
     {!state?<button disabled={busy} onClick={()=>void run(refresh)}>再読み込み</button>:<>
+      <form onSubmit={e=>{e.preventDefault();void run(async()=>{const result=await api.generateAppAutomation(app.id,prompt,Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC');setDraft({...draft,items:[...draft.items,result.automation]});setPrompt('');setNotice('生成した下書きを確認して保存してください。まだ実行されません。')})}}><label>作りたい自動化<textarea value={prompt} maxLength={4000} disabled={busy} onChange={e=>setPrompt(e.target.value)} placeholder="例：毎週月曜日の9時に、担当エージェントへ売上データの確認を依頼する"/></label><button className="pill-btn" disabled={busy||!prompt.trim()||draft.items.length>=12}>自動化を生成</button></form>
       <div className="hx-actions"><select aria-label="コピーするワークフロー" value={selected} onChange={e=>setSelected(e.target.value)}><option value="">ワークフローから下書きを作成</option>{choices.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select><button className="pill-btn quiet" disabled={busy||!selected||draft.items.length>=12} onClick={()=>{const w=choices.find(w=>w.id===selected);if(w)setDraft({...draft,items:[...draft.items,{key:`auto_${crypto.randomUUID().replaceAll('-','').slice(0,16)}`,name:w.name,enabled:false,trigger:w.trigger,steps:w.steps}]});setSelected('')}}>下書きに追加</button></div>
       <button className="pill-btn quiet" disabled={busy||draft.items.length>=12} onClick={()=>setDraft({...draft,items:[...draft.items,{key:`auto_${crypto.randomUUID().replaceAll('-','').slice(0,16)}`,name:'新しい自動化',enabled:false,trigger:{type:'manual'},steps:[{type:'post'}]}]})}><Icon name="plus" size={14}/> 自動化を作成</button>
       {draft.items.length===0&&<p>自動化はまだありません。新しく作成するか、既存ワークフローから処理をコピーできます。</p>}

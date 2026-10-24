@@ -58,3 +58,14 @@ test('new app automation starts disabled and remains a local draft',async()=>{
  const names=tree.root.findAllByType('input').filter(i=>i.props.value==='新しい自動化');expect(names).toHaveLength(1)
  expect(api.releaseAppAutomations).not.toHaveBeenCalled();act(()=>tree.unmount())
 })
+
+test('natural-language generation adds an editable proposal without publishing it',async()=>{
+ const generateAppAutomation=vi.fn().mockResolvedValue({automation:{key:'generated',...definition,enabled:false}})
+ const {tree,api}=await setup({generateAppAutomation})
+ await act(async()=>tree.root.findByType('form').findByType('textarea').props.onChange({target:{value:'毎週月曜日に確認する'}}))
+ await act(async()=>tree.root.findByType('form').props.onSubmit({preventDefault(){}}))
+ expect(generateAppAutomation).toHaveBeenCalledWith('app','毎週月曜日に確認する',expect.any(String))
+ const {AutomationTriggerEditor}=await import('./AutomationTriggerEditor')
+ expect(tree.root.findAllByType(AutomationTriggerEditor)).toHaveLength(2)
+ expect(api.releaseAppAutomations).not.toHaveBeenCalled();act(()=>tree.unmount())
+})

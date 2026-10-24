@@ -141,6 +141,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     updateApp: (id: string, patch: Record<string, unknown>) => call<{ app: App }>('PUT', `/apps/${id}`, patch),
     generateCustom: (id: string, prompt: string) => call<{ html: string }>('POST', `/apps/${id}/custom`, { action: 'generate', prompt }),
     saveCustom: (id: string, action: 'draft' | 'publish' | 'unpublish' | 'restore', version: number, html?: string, restoreVersion?: number) => call('POST', `/apps/${id}/custom`, { action, version, html, restoreVersion }),
+    generateAppAutomation: (id: string, prompt: string, timezone: string) => call<{automation:AutomationBundle['items'][number]}>('POST', `/apps/${id}/automations`, {action:'generate',prompt,timezone}),
     appAutomations: (id: string, stateOnly = false) => call<AppAutomationState>('GET', `/apps/${id}/automations`, undefined, stateOnly ? {stateOnly:'1'} : {}),
     saveAppAutomations: (id: string, version: number, revision: number, automations: AutomationBundle) => call<{saved:boolean;revision:number}>('PUT', `/apps/${id}/automations`, {version,revision,automations}),
     releaseAppAutomations: (id: string, body: Record<string,unknown>) => call<{saved:boolean;revision:number;version:number;replay?:boolean}>('POST', `/apps/${id}/automations`, body),

@@ -843,3 +843,15 @@ test('automation lifecycle API is editor-only and state remains available for st
  const state=await(await get(`${path}?orgId=${ORG}&stateOnly=1`,toru)).json();expect(state.revision).toBe(first.revision);expect(JSON.stringify(state)).not.toContain('foreign-table');
  const stopped=await send('POST',path,toru,{orgId:ORG,action:'unpublish',requestId:'unpublish_api_000001',version:state.version,revision:state.revision});expect(stopped.status).toBe(200);
 });
+
+test('app automation generation produces a disabled proposal without writing workflows or app drafts',async()=>{
+ const {app}=await(await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ const {appAutomationFromPrompt}=await import('../src/harness/appAutomationGeneration.js');
+ const result=await appAutomationFromPrompt(env.DB,ORG,'9101',{prompt:'Create a row',complete:async()=>JSON.stringify({name:'Create row',trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{}}]})});
+ expect(result.automation).toMatchObject({name:'Create row',enabled:false,trigger:{type:'manual'}});
+ expect(result.automation.key).toMatch(/^auto_/);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_automation_state WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+ expect((await send('POST',`/apps/${app.id}/automations`,mika,{orgId:ORG,action:'generate',prompt:'Create row',useModel:false})).status).toBe(403);
+ expect((await send('POST',`/apps/${app.id}/automations`,toru,{orgId:ORG,action:'generate',prompt:'Create row',useModel:false})).status).toBe(503);
+});

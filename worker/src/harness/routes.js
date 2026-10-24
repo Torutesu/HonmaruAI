@@ -1,3 +1,4 @@
+import {appAutomationFromPrompt} from './appAutomationGeneration.js';
 import {readAutomationPlan} from './appAutomationPlan.js';
 import {saveAutomationDraft,readAutomationDraft} from './appAutomationDraft.js';
 import {releaseAppAutomations} from './appAutomationRelease.js';
@@ -782,6 +783,14 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     if (sub === 'automations') {
       if (!(await mayChange(env, orgId, who, app.createdBy))) return json({message:'Only its maker or an admin can develop app automations.'},403);
+      if(request.method==='POST' && input.action==='generate') {
+        const tables=await visibleResources(await listTables(env.DB,orgId),t=>mayUseTable(env.DB,orgId,t.id,me));
+        const agents=await listAgents(env.DB,orgId,who.user.login),visibleAgents=[];
+        for(const agent of agents)if(await mayAccessAgent(env.DB,orgId,agent,who.user.login))visibleAgents.push({id:agent.id,name:agent.name});
+        const complete=input.useModel===false?null:await completer(env,orgId,me,'app_automation_generate',{maxTokens:2400});
+        const result=await appAutomationFromPrompt(env.DB,orgId,me,{prompt:input.prompt,timezone:input.timezone,complete,tables,agents:visibleAgents});
+        return result.error?fail(result):json(result);
+      }
       if (request.method === 'GET') {
         const result=new URL(request.url).searchParams.get('stateOnly')==='1'
           ?await readAutomationDraft(env.DB,orgId,appId):await readAutomationPlan(env.DB,orgId,appId,me);
