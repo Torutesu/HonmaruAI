@@ -593,8 +593,11 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: serverText(locale, "agent.failedError"), kind: "agent", parentId, roomHookSource });
         if (out.row) await broadcastWithParent(env, orgId, resolved, out.row, members);
       } catch { /* the database itself is down: nothing more to say */ }
+    } finally {
+      // Early cancellation must clear the typing indicator too; it must not
+      // remain active until the client's two-minute silence timeout.
+      await progress(agent, "done");
     }
-    await progress(agent, "done");
   };
   await Promise.all(agents.map((agent, index) => answerOne(agent, index).catch((err) => console.error("agent turn failed", safe(err?.message)))));
   if (provider) await settleUsage(env.DB, provider, { orgId, githubId: session.github_id });
@@ -1027,6 +1030,27 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (who.denied) return who.denied;
     const members = await listMembers(env.DB, orgId, who.session.github_id);
     return json(await searchMessages(env.DB, orgId, who.user.login, members, url.searchParams.get("q") || ""));
+  }
+
+  if (path === '/channels/agent-runs' && request.method === 'GET') {
+    const orgId = url.searchParams.get('orgId');
+    const channel = url.searchParams.get('channel');
+    const rowIds = url.searchParams.getAll('messageId');
+    const {validAgentStatusInput} = await import('./agentJobStatus.js');
+    if (!validAgentStatusInput({orgId, rowIds})) return json({message: 'Invalid message IDs.'}, 400);
+    const access = await inChannel(env, request, {orgId, channel});
+    if (access.denied) return access.denied;
+    const rows = await Promise.all(rowIds.map(id => getMessage(env.DB, orgId, id)));
+    if (rows.some(row => !row || row.deleted_at || row.channel !== access.resolved.key || row.kind !== 'message')) return json({message: 'No such message.'}, 404);
+    if (!env.AGENT_RUNNER) return json({available: false, results: rowIds.map(rowId => ({rowId, status: 'unknown', answered: 0}))});
+    const stub = env.AGENT_RUNNER.get(env.AGENT_RUNNER.idFromName(orgId));
+    try {
+      const response = await stub.fetch('https://agents/agent-status', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({orgId, rowIds}), signal: AbortSignal.timeout(5000)});
+      if (!response.ok) return json({message: 'Execution status unavailable.'}, 503);
+      return json({available: true, ...(await response.json())});
+    } catch {
+      return json({message: 'Execution status unavailable.'}, 503);
+    }
   }
 
   if (path === "/channels/messages" && (request.method === "GET" || request.method === "POST")) {

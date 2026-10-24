@@ -36,7 +36,7 @@ Cover duplicate requests and lost acceptance responses; concurrent target choice
 
 ## Next: expose normal execution state to conversation readers
 
-The normal result tracker is now implemented locally, with full regression pending. It is not yet a user-facing run history. Add a bounded batch status endpoint scoped to the caller's currently readable canonical conversation. Validate every requested source message (including deletion and workspace/channel) before querying internal runner state; reject a mixed unauthorized batch without revealing which foreign IDs exist. Return metadata only.
+The normal result tracker has passed full regression and is included in the pending server release. A bounded batch status endpoint and Harness conversation/thread status panel are now implemented locally, pending release verification. The endpoint is scoped to the caller's currently readable canonical conversation. Validate every requested source message (including deletion and workspace/channel) before querying internal runner state; reject a mixed unauthorized batch without revealing which foreign IDs exist. Return metadata only.
 
 Do not infer queued from an enqueue receipt alone: deployments before the tracker retain accepted receipts after removing completed jobs and have no terminal result. Prefer a persisted result; otherwise report queued only for an actually stored pending job. Legacy receipt-only state is unknown. Model answer count is separate from handler completion; finished with zero model answers does not prove task success.
 

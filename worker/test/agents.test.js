@@ -749,3 +749,21 @@ test('running agent authorization follows message edits, deleted agents, members
   await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='8803'").bind(ORG).run();
   expect(await authorize()).toBe(false);
 });
+
+test('cancellation after starting an agent clears its writing indicator without posting a reply', async () => {
+  await send('POST', '/channels/agents', toru, {orgId: ORG, markdown: HAYAO});
+  const {postMessage} = await import('../src/channels.js');
+  const {agentExecutionGrant} = await import('../src/agentExecutionGrant.js');
+  const {getSession} = await import('../src/db.js');
+  const {runAgents} = await import('../src/channelRoutes.js');
+  const {row} = await postMessage(env.DB, {orgId: ORG, key: 'b:cafe', authorLogin: 'kenji', body: '@hayao poster ideas?'});
+  const grant = await agentExecutionGrant(env, {orgId: ORG, token: (await getSession(env.DB, kenji)).token, rowId: row.id});
+  const events = [];
+  const relay = {idFromName: name => name, get: () => ({fetch: async (_url, init) => {const body = JSON.parse(init.body); events.push(...(body.events || body.deliveries.map(item => item.event))); return new Response('ok')}})};
+  let checks = 0;
+  const answered = await runAgents({...env, OPENAI_API_KEY: undefined, ORG_RELAY: relay}, {...grant, authorize: async () => ++checks <= 2});
+  expect(answered).toBe(0);
+  expect([...new Set(events.filter(event => event.name === 'channel_ai_progress').map(event => event.value.step))]).toEqual(['agent', 'done']);
+  const replies = await env.DB.prepare('SELECT id FROM channel_messages WHERE org_id = ?1 AND parent_id = ?2').bind(ORG, row.id).all();
+  expect(replies.results).toEqual([]);
+});

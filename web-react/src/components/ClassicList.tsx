@@ -1,3 +1,4 @@
+import {AgentRunStatus} from './AgentRunStatus'
 import { useComposerThreadMode } from '../utils/useComposerThreadMode'
 import { HarnessDictation } from './HarnessDictation'
 import { HarnessComposerMenu } from './HarnessComposerMenu'
@@ -4813,6 +4814,7 @@ export const ClassicList: React.FC<Props> = ({
             ))}
             {aiSteps(thinking[thread.channel])}
             {agentLines(thread.channel, { parentId: thread.parent.id })}
+            {harness && <AgentRunStatus api={api} channel={thread.channel} messages={[thread.parent, ...thread.replies]}/>}
           </FollowingLog>
           <TypingLine names={typingHere(thread.channel, thread.parent.id)} />
           <form className="slk-composer thread" onKeyDown={e=>{if(harness&&attachmentShortcut(e)){e.preventDefault();threadAttachInput.current?.click()}}} onSubmit={(e) => { e.preventDefault(); void send(thread.channel, false, thread.parent.id) }}>
@@ -5360,6 +5362,7 @@ export const ClassicList: React.FC<Props> = ({
           ))}
           {thread.view && aiSteps(thinking[thread.view])}
           {thread.view && agentLines(thread.view, { except: threadOpenParent })}
+          {harness && thread.view && <AgentRunStatus api={api} channel={thread.view} messages={said.filter(m => !threadOpenParent || (m.id !== threadOpenParent && m.parentId !== threadOpenParent))}/>}
           {/* Up in the history: the way back down, and what waits there. */}
           {readingUp && readingUp.view === thread.view && <JumpToPresent count={countNewBelow(said, readingUp.since)} onJump={goToPresent} />}
         </div>

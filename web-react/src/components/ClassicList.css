@@ -1929,3 +1929,15 @@ body.slk-resizing iframe { pointer-events: none; }
 .slk-details-sub { font-size: 12px; font-weight: 600; color: var(--ash); text-transform: uppercase; letter-spacing: 0.04em; margin: 4px 0 6px; }
 .slk-room-apps a.slk-member-main { text-decoration: none; color: inherit; display: flex; flex-direction: column; }
 .slk-room-apps a.slk-member-main:hover .slk-member-name { text-decoration: underline; }
+
+.classic.slk .slk-agent-runs { margin: 8px 20px; padding: 8px 12px; border: 1px solid var(--slk-line); border-radius: 8px; color: var(--slk-dim); font-size: 12px; }
+.classic.slk .slk-agent-runs summary { cursor: pointer; display: flex; align-items: center; gap: 6px; }
+.classic.slk .slk-agent-runs summary .slk-run-active { margin-left: auto; }
+.classic.slk .slk-agent-runs ul { list-style: none; margin: 10px 0; padding: 0; }
+.classic.slk .slk-agent-runs li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 5px 0; }
+.classic.slk .slk-run-source { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; flex: 1 1 160px; color: var(--slk-ink); }
+.classic.slk .slk-agent-runs p { margin: 8px 0 0; }
+.classic.slk .slk-run-unavailable { margin: 8px 20px; color: var(--slk-dim); font-size: 12px; }
+
+.classic.slk .slk-run-disclosure { display: inline-flex; }
+.classic.slk .slk-agent-runs[open] .slk-run-disclosure { transform: rotate(90deg); }

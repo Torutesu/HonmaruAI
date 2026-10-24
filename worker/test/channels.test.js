@@ -175,3 +175,34 @@ test("what a channel says is context for Ask and for routines", async () => {
   expect(res.status).toBe(200);
   expect(prompt.messages[1].content).toContain("Beans are 20% cheaper at the new place");
 });
+
+test('agent status batches require every source message to remain readable in the current conversation', async () => {
+  const {message: publicRow} = await (await post('/channels/messages', toru, {orgId: ORG, channel: 'b:cafe', body: 'Public request'})).json();
+  const {message: privateRow} = await (await post('/channels/messages', toru, {orgId: ORG, channel: `dm:${refs.Mika}`, body: 'Private request'})).json();
+  let calls = 0;
+  const runner = {idFromName: name => name, get: () => ({fetch: async (_url, init) => {
+    calls++;
+    const input = JSON.parse(init.body);
+    expect(input).toEqual({orgId: ORG, rowIds: [publicRow.id]});
+    return Response.json({results: [{rowId: publicRow.id, status: 'finished', answered: 1, version: 42}]});
+  }})};
+  const status = (ids, token = mika, over = {AGENT_RUNNER: runner}) => {
+    const query = new URLSearchParams({orgId: ORG, channel: 'b:cafe'});
+    ids.forEach(id => query.append('messageId', id));
+    return call(`/channels/agent-runs?${query}`, {headers: headers(token)}, over);
+  };
+  const response = await status([publicRow.id]);
+  expect(response.status).toBe(200);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(await response.json()).toEqual({available: true, results: [{rowId: publicRow.id, status: 'finished', answered: 1, version: 42}]});
+  expect((await status([publicRow.id, privateRow.id])).status).toBe(404);
+  expect((await status(['missing'])).status).toBe(404);
+  expect((await status([publicRow.id], outsider)).status).toBe(403);
+  expect((await status([publicRow.id], '')).status).toBe(401);
+  expect((await status([publicRow.id, publicRow.id])).status).toBe(400);
+  expect(calls).toBe(1);
+  expect(await (await status([publicRow.id], mika, {AGENT_RUNNER: undefined})).json()).toEqual({available: false, results: [{rowId: publicRow.id, status: 'unknown', answered: 0}]});
+  await env.DB.prepare('UPDATE channel_messages SET deleted_at = ?1 WHERE org_id = ?2 AND id = ?3').bind(new Date().toISOString(), ORG, publicRow.id).run();
+  expect((await status([publicRow.id])).status).toBe(404);
+  expect(calls).toBe(1);
+});

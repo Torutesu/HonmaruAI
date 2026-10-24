@@ -1,4 +1,5 @@
 import {runTrackedAgentJob} from './agentJobResult.js';
+import {readAgentJobStatuses, validAgentStatusInput} from './agentJobStatus.js';
 import {agentExecutionGrant,agentExecutionAuthorizer} from './agentExecutionGrant.js';
 import { queueRoomHookRetry } from './harness/roomHookRetry.js';
 import { roomHookExecutionGrant } from './harness/roomHookExecutionGrant.js';
@@ -31,6 +32,11 @@ export class AgentRunner {
 
   async fetch(request) {
     const url = new URL(request.url);
+    if (request.method === 'POST' && url.pathname === '/agent-status') {
+      const input = await request.json().catch(() => null);
+      if (!validAgentStatusInput(input)) return new Response('Bad request', {status: 400});
+      return Response.json({results: await readAgentJobStatuses(this.state.storage, input)}, {headers: {'cache-control': 'no-store'}});
+    }
     if(request.method==='POST'&&url.pathname==='/room-hook-retry') {
       const input=await request.json().catch(()=>null);
       if(typeof input?.orgId!=='string'||typeof input?.rowId!=='string'||typeof input?.actorId!=='string')return new Response('Bad request',{status:400});

@@ -1,6 +1,18 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Agent execution": "エージェントの実行状態",
+  "Agent execution queued": "実行待ち",
+  "Agent execution running": "実行中",
+  "Agent processing ended": "処理終了",
+  "Agent execution failed": "実行失敗",
+  "Agent execution interrupted; outcome unconfirmed": "実行中断・結果未確認",
+  "Agent execution stopped after access changed": "アクセス変更により停止",
+  "No eligible agent to run": "実行可能なエージェントなし",
+  "Agent execution status unavailable": "エージェントの実行状態を取得できません",
+  "{count} active": "{count}件が待機・実行中",
+  "Processing ended does not confirm that the task or external actions succeeded.": "処理終了は、タスクや外部操作の成功を保証するものではありません。",
+
   "Scheduled": "予定中",
   "Completed": "完了",
   "Cancelled": "キャンセル済み",
