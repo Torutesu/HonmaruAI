@@ -2124,3 +2124,16 @@ BEGIN
   FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
   WHERE m.id=NEW.memory_id AND m.org_id=NEW.org_id;
 END;
+
+CREATE TABLE IF NOT EXISTS hx_skill_source_scopes (
+  org_id TEXT NOT NULL,
+  skill_id TEXT NOT NULL REFERENCES hx_skills(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
+  channel TEXT NOT NULL DEFAULT '',
+  memory_id TEXT NOT NULL,
+  memory_version INTEGER NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, skill_id)
+);
+CREATE INDEX IF NOT EXISTS idx_skill_source_agent ON hx_skill_source_scopes(org_id,agent_id,channel);

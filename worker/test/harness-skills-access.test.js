@@ -1,5 +1,5 @@
 import { writeSkillZip, parseSkillZip } from '../src/harness/skillZip.js';
-import { encodeSkillBytes } from '../src/harness/skillFiles.js';
+import { encodeSkillBytes, readSkillFile, listSkillFiles } from '../src/harness/skillFiles.js';
 import { env } from 'cloudflare:test';
 import { beforeEach, expect, test } from 'vitest';
 import worker from '../src/index.js';
@@ -331,4 +331,54 @@ test('rejects an unexportable combined metadata and body size before writing', a
   expect(made.status).toBe(400);
   expect((await createSkill(env.DB, orgId, input, '9401')).error).toContain('64 KiB');
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills WHERE org_id = ?').bind(orgId).first()).n).toBe(0);
+});
+
+test('source-scoped skills preserve room access across listing, export, installation and execution', async () => {
+  const skill = await create();
+  await request('PUT',`/skills/${skill.id}`,owner,{description:'Scoped procedure'});
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_at) VALUES (?,'source-room','Source room',1,?)").bind(orgId,new Date().toISOString()).run();
+  for (const login of ['owner','member']) await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES (?,'b:source-room',?,'owner',?)").bind(orgId,login,new Date().toISOString()).run();
+  await env.DB.prepare("INSERT INTO hx_skill_source_scopes(org_id,skill_id,agent_id,channel,memory_id,memory_version,created_by,created_at) VALUES (?,?,?,'b:source-room','source-memory',3,'9401',?)").bind(orgId,skill.id,agentId,new Date().toISOString()).run();
+  expect((await request('POST', `/hx/agents/${agentId}/skills`, owner, {skillId:skill.id})).status).toBe(200);
+  expect(await getSkill(env.DB,orgId,skill.id,'9402')).toMatchObject({canShare:false,sourceScope:{agentId,channel:'b:source-room'}});
+  expect((await (await request('GET','/skills',member)).json()).skills.map(s=>s.id)).toContain(skill.id);
+  expect((await request('GET',`/skills/${skill.id}/export`,member)).status).toBe(200);
+  expect((await request('GET',`/skills/${skill.id}/export`,admin)).status).toBe(404);
+  expect((await request('PUT',`/skills/${skill.id}/access`,owner,{visibility:'workspace',version:1})).status).toBe(409);
+  const other=(await(await request('POST','/channels/agents',owner,{name:'Other',handle:'other',instructions:'Help',scope:'team'})).json()).agent;
+  expect((await request('POST',`/hx/agents/${other.id}/skills`,owner,{skillId:skill.id})).status).toBe(409);
+  expect((await executionSkills(env.DB,orgId,agentId,{userId:'9402',channel:'b:source-room'})).map(s=>s.id)).toContain(skill.id);
+  for (const context of [{userId:'9402'}, {userId:'9402',channel:'b:elsewhere'}, {userId:'9401',channel:`ag:${agentId}|owner`}, {userId:'9402',channel:'b:source-room',allowPrivate:false}]) {
+    expect(await executionSkills(env.DB,orgId,agentId,context)).toEqual([]);
+  }
+  await env.DB.prepare('INSERT INTO hx_skill_files(org_id,skill_id,path,size,content) VALUES (?,?,?,3,?)').bind(orgId,skill.id,'notes.txt',new TextEncoder().encode('abc').buffer).run();
+  expect(await listSkillFiles(env.DB,orgId,skill.id,'9402')).toHaveLength(1);
+  expect(await readSkillFile(env.DB,orgId,skill.id,'notes.txt','9402')).not.toBeNull();
+  const reader=installedSkillTools(env.DB,orgId,agentId,{userId:'9402',channel:'b:source-room'});
+  expect(await reader.read_installed_skill.run({skill_id:skill.id})).toContain('Confidential instructions');
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:source-room' AND login='member'").bind(orgId).run();
+  expect(await getSkill(env.DB,orgId,skill.id,'9402')).toBeNull();
+  expect((await(await request('GET','/skills',member)).json()).skills).toEqual([]);
+  expect((await request('GET',`/skills/${skill.id}/export`,member)).status).toBe(404);
+  expect(await reader.read_installed_skill.run({skill_id:skill.id})).toBe('Installed skill unavailable.');
+  expect(await listSkillFiles(env.DB,orgId,skill.id,'9402')).toBeNull();
+  expect(await readSkillFile(env.DB,orgId,skill.id,'notes.txt','9402')).toBeNull();
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:source-room' AND login='owner'").bind(orgId).run();
+  expect(await getSkill(env.DB,orgId,skill.id,'9401')).toBeNull();
+  expect((await request('PUT',`/skills/${skill.id}`,owner,{body:'Lost access'})).status).toBe(404);
+  expect((await request('DELETE',`/skills/${skill.id}`,owner)).status).toBe(404);
+});
+
+test('agent-wide source skills track current agent and workspace grants',async()=>{
+  const skill=await create();
+  await env.DB.prepare("INSERT INTO hx_skill_source_scopes(org_id,skill_id,agent_id,channel,memory_id,memory_version,created_by,created_at) VALUES (?,?,?,'','global-memory',0,'9401',?)").bind(orgId,skill.id,agentId,new Date().toISOString()).run();
+  await request('POST',`/hx/agents/${agentId}/skills`,owner,{skillId:skill.id});
+  expect(await getSkill(env.DB,orgId,skill.id,'9402')).not.toBeNull();
+  expect(await getSkill(env.DB,orgId,skill.id,'')).toBeNull();
+  await request('PUT','/channels/agents',owner,{id:agentId,scope:'personal'});
+  expect(await getSkill(env.DB,orgId,skill.id,'9402')).toBeNull();
+  expect(await executionSkills(env.DB,orgId,agentId,{userId:'9402',channel:`ag:${agentId}|member`})).toEqual([]);
+  expect((await executionSkills(env.DB,orgId,agentId,{userId:'9401',channel:`ag:${agentId}|owner`})).map(s=>s.id)).toContain(skill.id);
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(orgId,'9401').run();
+  expect(await getSkill(env.DB,orgId,skill.id,'9401')).toBeNull();
 });
