@@ -34,6 +34,22 @@ export async function workflowProgram({context,web,apiHost,shots}) {
   await page.setViewportSize({width:390,height:844})
   if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Program editor overflows mobile viewport')
   await builder.screenshot({path:`${shots}/workflow-program-mobile.png`})
+  const source=builder.getByLabel(/^(TypeScript source|TypeScriptソース)$/)
+  await source.fill(Array.from({length:80},(_,index)=>`// Line ${index+1}: ${'long source text '.repeat(12)}`).join('\n'))
+  await source.press('ControlOrMeta+End')
+  await page.waitForFunction(()=>{
+   const input=document.querySelector('.hx-program-input'),numbers=document.querySelector('.hx-program-gutter pre')
+   if(!input||!numbers||input.scrollTop<=0)return false
+   const offset=new DOMMatrix(getComputedStyle(numbers).transform).m42
+   return Math.abs(offset+input.scrollTop)<1
+  })
+  const layout=await builder.locator('.hx-program-code').evaluate(element=>{
+   const input=element.querySelector('textarea'),numbers=element.querySelector('pre')
+   return {inputHeight:getComputedStyle(input).lineHeight,gutterHeight:getComputedStyle(numbers).lineHeight,horizontal:input.scrollWidth>input.clientWidth,overflow:document.documentElement.scrollWidth>innerWidth+1}
+  })
+  if(layout.inputHeight!==layout.gutterHeight||!layout.horizontal||layout.overflow)throw Error('Program line numbers or horizontal scroll are misaligned')
+  await builder.locator('.hx-program-code').screenshot({path:`${shots}/workflow-program-mobile-lines.png`})
+  await source.fill(code)
   await builder.getByRole('button',{name:/^(Save workflow|ワークフローを保存)$/}).click({trial:true})
   await page.screenshot({path:`${shots}/workflow-program-mobile-save.png`})
   await page.setViewportSize({width:1440,height:1000});await page.emulateMedia({colorScheme:'dark'})

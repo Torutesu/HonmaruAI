@@ -5,6 +5,7 @@ import {Icon} from './Icon'
 
 export function WorkflowProgramEditor({api,step,onChange}:{api:HarnessApi;step:Step;onChange:(step:Step)=>void}) {
  const t=useT(),generation=useRef(0)
+ const lineNumbers=useRef<HTMLPreElement>(null)
  const [nodes,setNodes]=useState<Gateway[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState('')
  const load=useCallback(async()=>{
   const token=++generation.current;setBusy(true);setError('')
@@ -14,6 +15,7 @@ export function WorkflowProgramEditor({api,step,onChange}:{api:HarnessApi;step:S
  },[api])
  useEffect(()=>{void load();return()=>{generation.current++}},[load])
  const bytes=new TextEncoder().encode(step.code||'').length
+ const lineCount=(step.code||'').split('\n').length
  return <section className="hx-program-editor">
   <div className="hx-program-toolbar"><strong><Icon name="code" size={16}/> {t('TypeScript program')}</strong><span>workflow.ts</span></div>
   <p className="row-sub">{t('Runs from the top of the file. Exported functions are not called automatically.')}</p>
@@ -25,7 +27,10 @@ export function WorkflowProgramEditor({api,step,onChange}:{api:HarnessApi;step:S
   {busy&&<p role="status">{t('Loading…')}</p>}
   {error&&<p className="form-error" role="alert">{error}</p>}
   {!busy&&!error&&!nodes.length&&<p className="row-sub">{t('Connect an execution node in Settings to run this program.')}</p>}
-  <textarea className="hx-program-source hx-program-input" aria-label={t('TypeScript source')} spellCheck={false} autoCapitalize="off" autoCorrect="off" rows={18} value={step.code||''} onChange={event=>onChange({...step,code:event.target.value})}/>
+  <div className="hx-program-code" style={{'--program-gutter':`${Math.max(2,String(lineCount).length)+2}ch`} as React.CSSProperties}>
+   <div className="hx-program-gutter" aria-hidden="true"><pre ref={lineNumbers}>{Array.from({length:lineCount},(_,index)=>index+1).join('\n')}</pre></div>
+   <textarea className="hx-program-source hx-program-input" aria-label={t('TypeScript source')} spellCheck={false} autoCapitalize="off" autoCorrect="off" wrap="off" rows={18} value={step.code||''} onScroll={event=>{if(lineNumbers.current)lineNumbers.current.style.transform=`translateY(-${event.currentTarget.scrollTop}px)`}} onChange={event=>onChange({...step,code:event.target.value})}/>
+  </div>
   <div className="hx-program-toolbar"><span>{t('Saved state is available through @honmaru/workflow-sdk.')}</span><span>{bytes.toLocaleString()} / 48,000 B</span></div>
   {bytes>48000&&<p className="form-error" role="alert">{t('Program source exceeds 48 KB.')}</p>}
  </section>
