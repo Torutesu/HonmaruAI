@@ -1,3 +1,4 @@
+import {WorkflowRunUsage} from './WorkflowRunUsage'
 import React,{useCallback,useEffect,useRef,useState} from 'react'
 import type {HarnessApi,Run,WorkflowSafety} from '../utils/harness'
 import {getLocale} from '../utils/locale'
@@ -51,6 +52,7 @@ export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessAp
   {safety?.paused_at&&<section className="form-note" role="status"><strong>3回連続の失敗により自動停止しました</strong><p>下の履歴を確認してから再開してください。保留イベントは自動再生されません。</p>{canEdit&&<button type="button" className="pill-btn" disabled={busy} onClick={()=>void resume()}>確認して再開</button>}</section>}
   {runs?.length===0&&<p>まだ実行されていません。</p>}
   {runs?.map(run=><details key={run.id}><summary>{new Date(run.startedAt).toLocaleString(getLocale())} · {labels[run.status]||run.status}{runDuration(run)!==null&&<> · <span title="開始から終了まで（承認待ち時間を含む）">{runDuration(run)}</span></>}</summary>
+   <WorkflowRunUsage usage={run.usage}/>
    <ol>{run.log.map((entry,index)=><li key={index}><strong>{entry.step}. {labels[entry.status]||entry.status}</strong>{entry.error&&<p className="form-error">{entry.error}</p>}{entry.output&&<pre>{entry.output}</pre>}</li>)}</ol>
    <small>実行ID: {run.id}</small>
   </details>)}

@@ -72,7 +72,9 @@ export interface AutomationPlanItem { key: string; workflowId: string | null; st
 export interface AppAutomationState { version: number; revision: number; draft: AutomationBundle; published: AutomationBundle | null; releaseId: string | null; publishedAt: string | null; plan?: AutomationPlanItem[] }
 export interface RunLog { step: number; type: StepType; status: string; output?: string; error?: string; at: string }
 export interface HeldWorkflowEvents { count: number; oldestExpiry: string | null; events: Array<{ id: string; receivedAt: string; expiresAt: string }>; discardEventIds?: string[] }
-export interface Run { id: string; trigger: string; status: string; log: RunLog[]; startedAt: string; finishedAt: string | null; cardId: string | null }
+export interface RunUsageCounters { calls:number; inputTokens:number; outputTokens:number; unknownCalls:number }
+export interface RunUsage extends RunUsageCounters { coverage:'recorded-responses-only'; steps:Array<RunUsageCounters & {stepNumber:number}> }
+export interface Run { usage?:RunUsage; id: string; trigger: string; status: string; log: RunLog[]; startedAt: string; finishedAt: string | null; cardId: string | null }
 export interface Followup { id: string; threadId?: string | null; channel: string; instruction: string; dueAt: string; status: string; agentId: string | null; result?: string | null; doneAt?: string | null }
 export interface Gateway { id: string; name: string; createdAt: number; lastSeenAt: number | null; revokedAt: number | null }
 export interface GatewayJob { id: string; gatewayId: string; status: string; createdAt: number; result: { stdout?: string; stderr?: string; error?: string; exitCode?: number | null } | null }

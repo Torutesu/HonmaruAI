@@ -1,6 +1,13 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "No recorded AI usage. This does not confirm zero usage.": "AI使用量の記録がありません。未使用を意味するものではありません。",
+  "Input tokens": "入力トークン",
+  "Output tokens": "出力トークン",
+  "Responses with unknown usage": "使用量不明の応答",
+  "Recorded AI usage": "記録済みAI使用量",
+  "Provider-reported responses only. Unrecorded calls and external tool charges are not included.": "モデルから報告された応答分のみです。未記録の呼び出しや外部ツールの料金は含みません。",
+
   "Follow-up delay (minutes)": "フォローアップまでの待ち時間（分）",
   "Stop execution": "実行を停止",
   "Stopping agent execution…": "停止中…",

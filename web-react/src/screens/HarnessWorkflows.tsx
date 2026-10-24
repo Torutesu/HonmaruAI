@@ -1,3 +1,4 @@
+import {WorkflowRunUsage} from '../components/WorkflowRunUsage'
 import {WorkflowSource} from '../components/WorkflowSource'
 import {WorkflowNotices} from '../components/WorkflowNotices'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
@@ -285,6 +286,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
             <div key={r.id} className="row static hx-run" data-run={r.id}>
               <div className="row-main">
                 <span className={`hx-status ${r.status}`}>{t(r.status)}</span> {new Date(r.startedAt).toLocaleString()} · {t(r.trigger)}
+                <WorkflowRunUsage usage={r.usage}/>
                 {r.log.map((l) => (
                   l.output || l.error ? <details key={l.step} className="hx-run-detail">
                     <summary className="row-sub">{l.step}. {stepLabel(t, l.type)} — <span className={`hx-status ${l.status}`}>{t(l.status)}</span>

@@ -277,3 +277,10 @@ Added hx_workflow_usage and an internal completer recordUsage callback. Every su
 getRun returns aggregate and per-step recorded counters, unknown-response counts and explicit recorded-responses-only coverage. Historical uninstrumented calls, external tool charges and credit/USD conversion are not covered. Do not use zero recorded calls as proof of zero actual spend. This is groundwork for budgets and run-history display; neither a credit budget nor warn/pause policy is complete. No new paid provider was invoked by tests.
 
 Targeted migration/workflow/model-loop/usage/workspace-query validation passed 5 files / 70 tests in 14.40s (/tmp/honmaru-workflow-usage.log), including two-round real workflow execution, missing usage, foreign-workspace/workflow rejection and no tools after usage persistence failure. Final full regression and production publication of this attribution change remain pending. Previous origin release 024494d0 is fully deployed and its CI succeeded.
+
+
+## Recorded usage UI
+
+Workflow details and app-embedded execution history now share a Recorded AI usage disclosure. It shows reported input/output totals, per-step counters and unknown-response counts. Missing or empty historical records explicitly do not imply zero actual usage. It does not label token counts as currency or credits. Japanese translations are included.
+
+Three focused UI suites / 34 tests passed (/tmp/honmaru-usage-ui-tests.log), TypeScript/build passed (/tmp/honmaru-usage-ui-build.log). The real component was rendered in a disposable local fixture with production styles; disclosure expansion and light/dark display were verified (/tmp/honmaru-usage-dark.png, /tmp/honmaru-usage-light.png). Initial fixture lacked theme styles and was corrected before those captures. This is not authenticated production or Kylon comparison evidence. Fixture/tab/server were removed after verification. Worker remains frozen at 2114e825 during full-suite session 64251.
