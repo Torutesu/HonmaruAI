@@ -246,7 +246,7 @@ function CellInput({ column, value, onSave, wrap = false, width, members=[] }: {
   )
 }
 
-export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void; initialConversation?: {tableId?:string;rowId?:string}; openConversation?:boolean; floating?:boolean; onSectionChange?:(section:AppSection)=>void; initialSection?:AppSection; initialDraft?:string }> = ({ api, appId, onBack, onClose, httpBase, orgId, sessionToken, initialConversation, openConversation, initialSection, initialDraft, floating=false, onSectionChange }) => {
+export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void; initialConversation?: {tableId?:string;rowId?:string}; openConversation?:boolean; floating?:boolean; floatingCompact?:boolean; onSectionChange?:(section:AppSection)=>void; initialSection?:AppSection; initialDraft?:string }> = ({ api, appId, onBack, onClose, httpBase, orgId, sessionToken, initialConversation, openConversation, initialSection, initialDraft, floating=false, floatingCompact=false, onSectionChange }) => {
   const floatApp=useFloatingApp()
   const t = useT()
   const [data, setData] = useState<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize?: boolean } | null>(null)
@@ -263,6 +263,8 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   useEffect(()=>{if(searchExpanded)searchInput.current?.focus()},[searchExpanded])
   const [creating,setCreating]=useState(false),[fullscreen,setFullscreen]=useState(false)
   const [chatOpen,setChatOpen]=useState(false)
+  const coveredMain=floating&&chatOpen&&((floatingCompact&&!fullscreen)||(typeof innerWidth==='number'&&innerWidth<720))
+  const mainInteraction=useCallback((node:HTMLDivElement|null)=>{node?.toggleAttribute('inert',coveredMain)},[coveredMain])
   const consumedDraft=useRef<string|undefined>(undefined)
   const consumeDraft=()=>{
     if(!initialDraft)return
@@ -314,7 +316,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       actions={<><button className="pill-btn quiet" onClick={() => selectSection('custom')}><Icon name="grid" size={14} />{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => selectSection('settings')}><Icon name="share" size={14} />{t('Sharing')}</button><AppConversationInbox api={api} appId={app.id} onOpen={scope=>{setChatScope(scope);setChatOpen(true)}}/><button className="hx-app-icon-button" aria-label={chatOpen?'アプリチャットを閉じる':'アプリチャットを開く'} aria-pressed={chatOpen} onClick={()=>{setChatScope({});setChatOpen(!chatOpen)}}><Icon name="message" size={16}/></button><button className="hx-app-icon-button" aria-label={fullscreen?'全画面表示を終了':'全画面表示'} aria-pressed={fullscreen} onClick={()=>setFullscreen(!fullscreen)}><Icon name={fullscreen?'minimize':'maximize'} size={16}/></button><HarnessAppMenu api={api} appId={app.id} orgId={orgId} onSection={selectSection} onFloat={!floating&&floatApp&&['overview','data'].includes(section)?()=>{floatApp(app.id,section);onClose()}:undefined} /><button className="hx-app-icon-button" aria-label={floating?'フローティングアプリを閉じる':'パネルを閉じる'} onClick={onClose}><Icon name="x" size={16}/></button></>}
     >
       {chatOpen&&<AppConversationPanel key={`${orgId}:${app.id}:${chatScope.rowId||"app"}`} api={api} appId={app.id} {...chatScope} title={chatScope.rowId?"レコードチャット":app.name} initialDraft={chatScope.rowId||consumedDraft.current===initialDraft?undefined:initialDraft} onInitialDraftConsumed={consumeDraft} context={chatScope.rowId?(cellText(table.columns[0],data.rows.find(r=>r.id===chatScope.rowId)?.values[table.columns[0].id])||'選択したレコード'):section==='data'?`現在のデータ表示: ${view.name}`:undefined} onClose={()=>setChatOpen(false)}/>}
-      <div className="hx-app-main">
+      <div ref={mainInteraction} className="hx-app-main">
       {section !== 'overview' && section !== 'data' && <nav className="hx-app-sections" aria-label={t('App sections')}>{(['overview', 'data', 'custom', 'backend', 'settings'] as const).map(tab => <button key={tab} aria-current={section === tab ? 'page' : undefined} className={section === tab ? 'on' : ''} onClick={() => selectSection(tab)}>{t(tab === 'overview' ? 'Overview' : tab === 'data' ? 'Data viewer' : tab === 'custom' ? 'Customize app' : tab === 'backend' ? '実行基盤' : 'Settings')}</button>)}</nav>}
       {creating&&<AppRecordDialog appName={app.name} columns={table.columns} members={recordMembers} save={async values=>{await api.addRow(table.id,values,'strict');await load()}} onClose={()=>setCreating(false)}/>}
       {editingRecord&&<AppRecordDialog key={editingRecord.id} appName={app.name} columns={table.columns} members={recordMembers} record={editingRecord} conversation={<AppConversationPanel key={`${orgId}:${app.id}:${editingRecord.id}`} api={api} appId={app.id} tableId={table.id} rowId={editingRecord.id} title="レコードチャット" context={cellText(table.columns[0],editingRecord.values[table.columns[0].id])||editingRecord.id}/>} save={async values=>{if(Object.keys(values).length)await api.updateRow(table.id,editingRecord.id,values,editingRecord.updatedAt);await load()}} onClose={()=>setEditingRecord(null)}/>}

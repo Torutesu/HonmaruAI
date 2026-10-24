@@ -745,3 +745,5 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 @media(max-width:719px) {
  .hx-floating-app .hx-app-with-chat > .screen-body > .hx-object-chat { position:absolute; inset:0; z-index:4; min-height:0; max-height:none; border:0; }
 }
+
+.hx-floating-app[data-compact] > .hx-app-detail:not(.hx-app-fullscreen) .hx-app-breadcrumb { display:none; }

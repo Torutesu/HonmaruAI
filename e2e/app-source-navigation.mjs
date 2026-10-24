@@ -181,6 +181,9 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     stage = 'preserve floating conversation across app sections'
     await floating.getByRole('button', { name: 'アプリチャットを開く', exact: true }).click()
     const floatingReply = floating.locator('.hx-object-chat textarea')
+    if (await floating.locator('.hx-app-main').getAttribute('inert') !== '') throw new Error('Covered floating app content remains interactive')
+    await floating.locator('.hx-app-main button').first().focus()
+    if (await page.evaluate(() => Boolean(document.activeElement?.closest('.hx-floating-app .hx-app-main')))) throw new Error('Covered app content stole keyboard focus')
     await floatingReply.fill('Unsent floating draft — preserve while switching sections')
     const chatBounds = await floating.locator('.hx-object-chat').boundingBox()
     const appBounds = await floating.boundingBox()
@@ -202,6 +205,7 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     await floatingReply.waitFor({ state: 'visible' })
     await floatingReply.fill('')
     await floating.getByRole('button', { name: 'アプリチャットを閉じる', exact: true }).click()
+    if (await floating.locator('.hx-app-main').getAttribute('inert') !== null) throw new Error('App content stayed inert after closing chat')
     await floating.getByRole('button', { name: 'フローティングアプリを閉じる', exact: true }).click()
     await floating.waitFor({ state: 'detached' })
 
