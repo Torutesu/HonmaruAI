@@ -160,3 +160,10 @@ it('missing-source fallback keeps the data viewer and app conversation',()=>{
  expect(parseRoute(hashForApp('app_one','team:acme',{},'data'))).toMatchObject({screen:'apps',appSection:'data',appConversation:{},appId:'app_one',appOrg:'team:acme'})
  expect(parseRoute(hashForApp('app_one','team:acme')+'?section=backend').appSection).toBeUndefined()
 })
+
+it('adjustment drafts round trip as bounded text for source and fallback navigation',()=>{
+ const draft='「顧客 & 案件」のグループ化を調整： # / ?'
+ expect(parseRoute(hashForAppSource('app_one','team:acme','data',draft))).toMatchObject({appSource:true,appDraft:draft,appSourceSection:'data'})
+ expect(parseRoute(hashForApp('app_one','team:acme',{},'data',draft))).toMatchObject({appDraft:draft,appConversation:{},appSection:'data'})
+ expect(parseRoute(hashForAppSource('app_one','team:acme')+'&draft='+ 'x'.repeat(1001)).appDraft).toBeUndefined()
+})

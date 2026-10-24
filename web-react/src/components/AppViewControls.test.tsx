@@ -54,3 +54,12 @@ test('metadata timestamp filters expose local datetime input and save UTC',async
  expect(onAdjust).toHaveBeenCalledTimes(1)
  act(()=>ui.tree.unmount())
  })
+
+test('group adjustment uses the same conversation route and retains direct editing',()=>{
+ const adjust=vi.fn();const ui=setup(undefined,adjust)
+ ui.click('グループ化');ui.click('グループ化を調整')
+ expect(adjust).toHaveBeenCalledWith('group');expect(ui.save).not.toHaveBeenCalled()
+ ui.click('グループ化');ui.click('グループを直接編集')
+ expect(ui.tree.root.findByProps({'aria-label':'グループ化するフィールド'})).toBeDefined()
+ act(()=>ui.tree.unmount())
+})

@@ -54,3 +54,14 @@ test('late inheritance cannot refresh the previous account into a new conversati
  await act(async()=>finish({}));
  expect(old.conversation).toHaveBeenCalledTimes(1);expect(JSON.stringify(tree!.toJSON())).not.toContain('Old account');expect(JSON.stringify(tree!.toJSON())).toContain('New account');act(()=>tree!.unmount())
 })
+
+test('adjustment context seeds an unsent draft and refresh preserves the users edits',async()=>{
+ vi.stubGlobal('document',{visibilityState:'visible'})
+ const api:any={conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false}),postConversation:vi.fn()};let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AppConversationPanel api={api} appId="app" title="App" initialDraft="Group this view:"/>)})
+ expect(tree!.root.findByType('textarea').props.value).toBe('Group this view:');expect(api.postConversation).not.toHaveBeenCalled()
+ act(()=>tree!.root.findByType('textarea').props.onChange({target:{value:'My unfinished reply'}}))
+ await act(async()=>{await tree!.root.findByProps({'aria-label':'会話を更新'}).props.onClick()})
+ expect(tree!.root.findByType('textarea').props.value).toBe('My unfinished reply');expect(api.postConversation).not.toHaveBeenCalled()
+ act(()=>tree!.unmount())
+})

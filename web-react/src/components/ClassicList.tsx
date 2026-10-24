@@ -117,6 +117,7 @@ interface Props {
   linkedThreadId?: string | null
   sourceAppId?: string | null
   sourceAppSection?: 'data'
+  sourceAppDraft?: string
   userId: string
   orgName: string
   pending: DecisionCard[]
@@ -342,7 +343,7 @@ function when(iso?: string): string {
 /// the relay's, not invented. On a phone it is one pane at a time: the
 /// sidebar, then the conversation with a way back.
 export const ClassicList: React.FC<Props> = ({
-  harness = false, newRequest = 0, homeRequest = 0, sourceAppId = null, sourceAppSection, linkedThreadId = null, userId, orgName, pending, sent, decided, businesses, presence,
+  harness = false, newRequest = 0, homeRequest = 0, sourceAppId = null, sourceAppSection, sourceAppDraft, linkedThreadId = null, userId, orgName, pending, sent, decided, businesses, presence,
   onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, onApps, onWorkflow, workspaceMenu,
   onCreateRoom, onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen, onOpenAgentProfile, onPlaces, onStatus, statusOpen, active = true,
 }) => {
@@ -746,7 +747,7 @@ export const ClassicList: React.FC<Props> = ({
   const wantedView = useRef<{ view: string; until: number } | null>(null)
   const sourceIntent = useRef(0)
   const sourceRoute = useRef<string|null>(null)
-  const pendingSource = useRef<{appId:string;section?:'data';source:NonNullable<AppConversation['source']>}|null>(null)
+  const pendingSource = useRef<{appId:string;section?:'data';draft?:string;source:NonNullable<AppConversation['source']>}|null>(null)
   const linkedIntent = useRef(0)
   const linkedRoute = useRef<string|null>(null)
   const localThreadRoute = useRef<{hash:string;client:unknown}|null>(null)
@@ -2751,12 +2752,15 @@ export const ClassicList: React.FC<Props> = ({
   // was gone the moment you looked at something else.
   const threadDraftKey = (parentId: string) => draftKey(`thread:${parentId}`)
   const threadDraftOf = useRef<string | null>(null)
+  const pendingAppDraft = useRef<{id:string;body:string}|null>(null)
   const threadParentId = thread?.parent.id || null
   useLayoutEffect(() => {
     if (threadDraftOf.current === threadParentId) return
     threadDraftOf.current = threadParentId
     let kept = ''
     try { kept = threadParentId ? localStorage.getItem(threadDraftKey(threadParentId)) || '' : '' } catch { /* none kept */ }
+    const suggestion=pendingAppDraft.current
+    if(suggestion?.id===threadParentId){if(!kept)kept=suggestion.body;pendingAppDraft.current=null}
     setThreadDraft(kept)
     setThreadAlso(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3337,16 +3341,16 @@ export const ClassicList: React.FC<Props> = ({
     const intent=++sourceIntent.current, client=resourceClient, originalHash=location.hash
     sourceRoute.current=originalHash
     const currentRequest=()=>sourceIntent.current===intent && resourceClientNow.current===client && location.hash===originalHash
-    const fallback=()=>{if(currentRequest()){pendingSource.current=null;sourceRoute.current=null;location.hash=hashForApp(sourceAppId,api.orgId,{},sourceAppSection)}}
+    const fallback=()=>{if(currentRequest()){pendingSource.current=null;sourceRoute.current=null;location.hash=hashForApp(sourceAppId,api.orgId,{},sourceAppSection,sourceAppDraft)}}
     const timer=setTimeout(fallback,10000)
     void client.conversation(sourceAppId).then(result=>{
       if(!currentRequest())return
       const source=result.source
       if(!source || !source.messages.some(message=>message.id===source.threadId)){fallback();return}
-      pendingSource.current={appId:sourceAppId,section:sourceAppSection,source};setTick(n=>n+1)
+      pendingSource.current={appId:sourceAppId,section:sourceAppSection,draft:sourceAppDraft,source};setTick(n=>n+1)
     },fallback)
     return()=>{clearTimeout(timer);if(sourceIntent.current===intent){sourceIntent.current++;pendingSource.current=null;sourceRoute.current=null}}
-  },[harness,sourceAppId,sourceAppSection,resourceClient,api.orgId])
+  },[harness,sourceAppId,sourceAppSection,sourceAppDraft,resourceClient,api.orgId])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { threadUploads.clear(); setThreadReplying(null) }, [thread?.parent.id])
   useEffect(() => {
@@ -3550,6 +3554,7 @@ export const ClassicList: React.FC<Props> = ({
     if(current?.key!==target.key){choose(target.key,true);return}
     const root=pending.source.messages.find(message=>message.id===pending.source.threadId)!
     pendingSource.current=null;sourceIntent.current++;sourceRoute.current=null
+    if(pending.draft){if(threadDraftOf.current===pending.source.threadId)setThreadDraft(existing=>existing||pending.draft!);else pendingAppDraft.current={id:pending.source.threadId,body:pending.draft}}
     setSide({kind:'app',id:pending.appId,section:pending.section})
     void openThread(pending.source.channel,{...root,channel:pending.source.channel,kind:root.kind||'message'} as ChannelMessage)
     history.replaceState(history.state,'','#/list')
