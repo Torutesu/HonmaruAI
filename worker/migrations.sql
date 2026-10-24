@@ -251,3 +251,7 @@ ALTER TABLE hx_followups ADD COLUMN origin_workflow_id TEXT;
 ALTER TABLE hx_followups ADD COLUMN origin_release_id TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_hx_runs_active ON hx_workflow_runs(org_id, workflow_id) WHERE status IN ('running','waiting');
+
+CREATE TABLE IF NOT EXISTS hx_workflow_safety (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, generation TEXT NOT NULL, failure_streak INTEGER NOT NULL DEFAULT 0, paused_at TEXT, pause_reason TEXT, PRIMARY KEY(org_id,workflow_id));
+CREATE TABLE IF NOT EXISTS hx_workflow_outcomes (org_id TEXT NOT NULL, run_id TEXT NOT NULL, workflow_id TEXT NOT NULL, generation TEXT NOT NULL, status TEXT NOT NULL, claim_id TEXT NOT NULL, PRIMARY KEY(org_id,run_id));
+CREATE TABLE IF NOT EXISTS hx_workflow_safety_notices (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, generation TEXT NOT NULL, run_id TEXT NOT NULL, recipient_id TEXT NOT NULL, created_at TEXT NOT NULL, delivered_at TEXT, PRIMARY KEY(org_id,workflow_id,generation));
