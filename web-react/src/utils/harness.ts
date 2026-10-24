@@ -160,6 +160,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     link: (id: string, channel: string) => call<{ linked: boolean }>('POST', `/apps/${id}/links`, { channel }),
     unlink: (id: string, channel: string) => call<{ unlinked: boolean }>('DELETE', `/apps/${id}/links`, undefined, { channel }),
 
+    workflowAgents: () => call<{agents:Array<{id:string;handle:string;name:string;emoji?:string|null}>}>('GET', '/channels/agents'),
     tables: () => call<{ tables: Table[] }>('GET', '/tables'),
     addRow: (tableId: string, values: Record<string, unknown>, validation?: 'strict') => call<{ row: Row }>('POST', `/tables/${tableId}/rows`, { values, validation }),
     updateRow: (tableId: string, rowId: string, values: Record<string, unknown>, expectedUpdatedAt?: string, validation?: 'strict') => call<{ row: Row }>('PATCH', `/tables/${tableId}/rows/${rowId}`, { values, expectedUpdatedAt, validation }),

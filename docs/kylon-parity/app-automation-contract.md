@@ -109,3 +109,9 @@ Validation: TypeScript build passed after adding the existing web-react dependen
 Replaced JSON-only live/proposed previews with structured summaries of enabled state, schedule/timezone, row trigger filters, step ordering, room targets, approvers, agent/table identifiers, messages and row values. Raw definitions remain in a collapsed details section. Review output is escaped React text, and existing theme tokens/mobile layout apply. Resource identifiers still need friendly-name resolution and the editor still needs direct step/trigger controls.
 
 Validation: two UI files / five tests passed (`/tmp/honmaru-automation-summary.log`) and TypeScript passed. Coverage includes weekly schedules/timezones, side-effect targets, disabled row filters and HTML escaping; publication review behavior remains covered. No screenshot or Kylon visual parity evidence yet; these changes remain local.
+
+## Shared direct step editing (local)
+
+Extracted the existing workflow step form as a shared component and embedded it in app automation drafts. App editors can add/remove and edit supported steps, using authorized tables and agent choices. Edits stay local until draft save and disable publication while dirty; ordinary workflow editing uses the same component. Direct trigger editing and ordering controls remain to be added, and the existing follow-up hour granularity still warrants improvement.
+
+Validation: TypeScript passed; two UI files / 23 tests passed (`/tmp/honmaru-automation-step-final.log`), including existing workflow behavior and a new test that editing changes the local step, enables draft save, blocks publication and makes no release call. No deployment or visual-comparison claim.

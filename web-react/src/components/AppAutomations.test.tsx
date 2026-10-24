@@ -36,3 +36,15 @@ test('retrying an uncertain release reuses the request identity',async()=>{
  expect(releaseAppAutomations.mock.calls[0][1].requestId).toBe(releaseAppAutomations.mock.calls[1][1].requestId)
  act(()=>tree.unmount())
 })
+
+test('editing a step changes only the draft and blocks publication until saved',async()=>{
+ const {StepEditor}=await import('./WorkflowStepEditor')
+ const {tree,api,button}=await setup()
+ const editor=tree.root.findByType(StepEditor)
+ await act(async()=>editor.props.onChange({type:'post',channel:'b:ops',text:'Updated draft'}))
+ expect(tree.root.findByType(StepEditor).props.step.text).toBe('Updated draft')
+ expect(button('下書きを保存').props.disabled).toBe(false)
+ expect(button('確認した内容を公開').props.disabled).toBe(true)
+ expect(api.releaseAppAutomations).not.toHaveBeenCalled()
+ act(()=>tree.unmount())
+})
