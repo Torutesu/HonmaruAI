@@ -41,7 +41,6 @@ const table: Record<string, string> = {
   "Discard {count} events": "{count}件を破棄",
   "These held events will be permanently discarded without running. New arrivals and existing runs are kept.": "対象の保留イベントを実行せずに完全に破棄します。この操作は取り消せません。新しく届いたイベントと開始済みの実行は残ります。",
   "unread": "件の未読",
-  "Mark as read": "既読にする",
   "Automation notifications": "自動化の通知",
   "No automation notifications.": "自動化の通知はありません。",
   "Previous failure pause": "過去の失敗による停止",
