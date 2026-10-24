@@ -6,6 +6,13 @@ afterEach(() => fetchMock.assertNoPendingInterceptors());
 const options = () => ({provider:{endpoint:'https://model.example/chat',apiKey:'test',model:'test'},system:'Catalog',fallbackSystem:'Full procedure',user:'Do work',maxTokens:100,json:false,timeoutMs:30000,onUsage:vi.fn()});
 const read = run => ({read_installed_skill:{description:'Read skill',parameters:{type:'object'},run}});
 const call = id => ({id,type:'function',function:{name:'read_installed_skill',arguments:'{"skill_id":"one"}'}});
+test('usage persistence failure stops the response before its tools execute',async()=>{
+ const opts=options(),run=vi.fn();
+ opts.onUsage=async()=>{throw new Error('Usage store unavailable');};
+ fetchMock.get('https://model.example').intercept({path:'/chat',method:'POST'}).reply(200,{choices:[{message:{tool_calls:[call('not-dispatched')]}}]});
+ await expect(completeWithTools({...opts,tools:read(run)})).rejects.toThrow('Usage store unavailable');
+ expect(run).not.toHaveBeenCalled();
+});
 test('scheduled completion reads tools and meters every successful round',async()=>{
  const opts=options(), run=vi.fn(async()=> 'Complete procedure'), bodies=[];
  fetchMock.get('https://model.example').intercept({path:'/chat',method:'POST'}).reply(200,o=>{bodies.push(JSON.parse(o.body));return {choices:[{message:{tool_calls:[call('first')]}}]}});

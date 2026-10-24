@@ -657,6 +657,7 @@ test.each(['workflow', 'followup'])('%s reads an installed skill through its exe
       const result=await startRun(modelEnv,{orgId:ORG,workflow,trigger:'manual',startedBy:'9302'});
       expect(result.status).toBe('done');
       expect(result.log[0].output).toBe('PROCEDURE VERIFIED');
+      expect(result.usage).toMatchObject({calls:2,inputTokens:30,outputTokens:10,unknownCalls:0,steps:[{stepNumber:1,calls:2,inputTokens:30,outputTokens:10}]});
     } else {
       const {scheduleFollowup}=await import('../src/harness/followups.js');
       const {followup}=await scheduleFollowup(env.DB,{orgId:ORG,channel:'b:ops',agentId:agent.id,instruction:'Review the release',dueAt:new Date(Date.now()+60000).toISOString(),by:'9302'});

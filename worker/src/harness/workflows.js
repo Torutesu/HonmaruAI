@@ -1,3 +1,4 @@
+import {recordWorkflowUsage,workflowRunUsage} from './workflowUsage.js';
 import {workflowSourceMayRun} from './workflowSourceAuthority.js';
 import {tryWorkflowNotice} from './workflowNoticeDelivery.js';
 import {ensureWorkflowSafety,readWorkflowSafety,workflowSettlementStatements} from './workflowSafety.js';
@@ -287,6 +288,7 @@ export async function getRun(db, orgId, runId, { viewerId } = {}) {
     if (!(await mayViewWorkflow(db, orgId, definition, viewerId))) return null;
     if (run.input?.tableId && !(await mayUseTable(db, orgId, run.input.tableId, viewerId))) return null;
   }
+  if(run)run.usage=await workflowRunUsage(db,orgId,runId);
   return run;
 }
 
@@ -467,7 +469,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, runId, depth
       const answer = await complete(
         `You are ${agent.name} (@${agent.handle}), doing one step of the workflow "${workflow.name}". Do what the step asks and answer with the result only.\n\n<agent_instructions>\n${agent.researchInstructions || String(agent.instructions).slice(0, 12000)}\n</agent_instructions>`,
         `${render(step.prompt, scope)}\n\n<context>\n${JSON.stringify({ input: scope.input, row: scope.row || null }).slice(0, 6000)}\n</context>`,
-        { tools: prepared.skillTools, authorize, fallbackSystem: `You are ${agent.name}, doing a step of "${workflow.name}". Answer with the result only.\n\n${agent.instructions}` },
+        { tools: prepared.skillTools, authorize, recordUsage:(data,provider)=>recordWorkflowUsage(env.DB,{orgId,workflowId:workflow.id,runId,stepNumber:number,data,provider}), fallbackSystem: `You are ${agent.name}, doing a step of "${workflow.name}". Answer with the result only.\n\n${agent.instructions}` },
       );
       if (!await authorize())return {status:'failed',error:'The automation was stopped, its release changed, or its source access was removed.'};
       if (!answer) return { status: "failed", error: "The agent gave no answer." };
