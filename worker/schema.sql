@@ -2204,3 +2204,5 @@ CREATE TABLE IF NOT EXISTS hx_workflow_outcomes (org_id TEXT NOT NULL, run_id TE
 CREATE TABLE IF NOT EXISTS hx_workflow_safety_notices (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, generation TEXT NOT NULL, run_id TEXT NOT NULL, recipient_id TEXT NOT NULL, created_at TEXT NOT NULL, delivered_at TEXT, read_at TEXT, last_attempt_at TEXT, PRIMARY KEY(org_id,workflow_id,generation));
 
 CREATE TABLE IF NOT EXISTS hx_workflow_sources (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, channel TEXT NOT NULL, thread_id TEXT NOT NULL, created_by TEXT NOT NULL, PRIMARY KEY(org_id,workflow_id));
+
+CREATE TABLE IF NOT EXISTS hx_workflow_generation_jobs (org_id TEXT NOT NULL, user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, lease_token TEXT NOT NULL, lease_until INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('running','failed','complete')), generated TEXT, workflow_id TEXT, PRIMARY KEY(org_id,user_id,request_id), CHECK(status != 'complete' OR (workflow_id IS NOT NULL AND generated IS NOT NULL)));

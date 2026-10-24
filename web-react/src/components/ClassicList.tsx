@@ -2109,8 +2109,12 @@ export const ClassicList: React.FC<Props> = ({
             void openThread(source.channel,{...root,channel:source.channel,kind:root.kind||'message'} as ChannelMessage)
           }else openSide({kind:'app',id:made.app.id,conversation:true})
         } else {
-          const made = await client.generateWorkflow(body.replace(/^@AI\s*/i, ''), channel)
+          const prompt = body.replace(/^@AI\s*/i, '')
+          const key = JSON.stringify(['workflow', api.orgId, channel, prompt])
+          if (appGenerationRequest.current?.key !== key) appGenerationRequest.current = {key,id:crypto.randomUUID()}
+          const made = await client.generateWorkflow(prompt, channel, {requestId:appGenerationRequest.current.id,captureSource:true})
           if(resourceClientNow.current!==client || cacheScope.current!==messageCache)return
+          appGenerationRequest.current = null
           clearGeneratedDraft()
           setResourceBuild(null); if(shownNow.current.view===channel)onWorkflow?.(made.workflow.id)
         }

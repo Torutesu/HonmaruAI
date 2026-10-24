@@ -169,7 +169,7 @@ export async function listWorkflows(db, orgId, { viewerId } = {}) {
   return visible;
 }
 
-export async function createWorkflow(db, orgId, input, by) {
+export async function createWorkflow(db, orgId, input, by, {commitGuard, source} = {}) {
   const name = String(input?.name || "").trim().slice(0, 80);
   if (!name) return { error: "Give the workflow a name." };
   const t = normalizeTrigger(input?.trigger);
@@ -185,11 +185,15 @@ export async function createWorkflow(db, orgId, input, by) {
   const at = now();
   const secret = t.trigger.type === "webhook" ? hex(crypto.getRandomValues(new Uint8Array(24))) : null;
   const next = t.trigger.type === "schedule" && input?.enabled !== false ? nextRunAt(t.trigger) : null;
-  await db
+  const insert = db
     .prepare(`INSERT INTO hx_workflows (id, org_id, name, enabled, trigger, steps, hook_secret, next_run_at, created_by, created_at, updated_at)
       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)`)
-    .bind(id, orgId, name, input?.enabled === false ? 0 : 1, JSON.stringify(t.trigger), JSON.stringify(s.steps), secret, next, String(by), at)
-    .run();
+    .bind(id, orgId, name, input?.enabled === false ? 0 : 1, JSON.stringify(t.trigger), JSON.stringify(s.steps), secret, next, String(by), at);
+  const statements = [...(commitGuard ? [commitGuard(id)] : []), insert];
+  if(source) statements.push(db.prepare(`INSERT INTO hx_workflow_sources(org_id,workflow_id,channel,thread_id,created_by)
+    VALUES(?1,?2,?3,(SELECT id FROM channel_messages WHERE org_id=?1 AND id=?4 AND channel=?3 AND parent_id IS NULL AND deleted_at IS NULL AND body=?6 AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?5 AND role!='guest')),?5)`)
+    .bind(orgId,id,source.channel,source.threadId,String(by),source.body));
+  await db.batch(statements);
   return { workflow: await getWorkflow(db, orgId, id, { withSecret: true }) };
 }
 

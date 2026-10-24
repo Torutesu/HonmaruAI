@@ -173,7 +173,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
 
     workflows: () => call<{ workflows: Workflow[] }>('GET', '/workflows'),
     workflow: (id: string) => call<{ workflow: Workflow; runs: Run[]; canEdit: boolean; held?: HeldWorkflowEvents }>('GET', `/workflows/${id}`),
-    generateWorkflow: (prompt: string, channel?: string) => call<{ workflow: Workflow; source: string }>('POST', '/workflows/generate', { prompt, channel, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+    generateWorkflow: (prompt: string, channel?: string, options?: {requestId: string; captureSource?: boolean}) => call<{ workflow: Workflow; source: string }>('POST', '/workflows/generate', { prompt, channel, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...options }),
     createWorkflow: (w: { name: string; trigger: Trigger; steps: Step[] }) => call<{ workflow: Workflow; hookUrl?: string }>('POST', '/workflows', w as unknown as Record<string, unknown>),
     updateWorkflow: (id: string, patch: Record<string, unknown>) => call<{ workflow: Workflow }>('PUT', `/workflows/${id}`, patch),
     changeWorkflowHook: (id: string, action: 'rotate' | 'revoke', expectedSecret: string | null) => call<{ workflow: Workflow }>('POST', `/workflows/${id}/webhook`, { action, expectedSecret }),

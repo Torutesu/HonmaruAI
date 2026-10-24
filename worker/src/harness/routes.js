@@ -58,7 +58,7 @@ import { templateList } from "./templates.js";
 import { getProfile, saveProfile, listAgentMemories, addAgentMemory, deleteAgentMemory, TIERS, ACCESS } from "./agents.js";
 import { listSkills, createSkill, updateSkill, deleteSkill, getSkill, giveSkill, takeSkill, skillsOf } from "./skills.js";
 import { skillMarkdown } from "./skillMarkdown.js";
-import { workflowFromPrompt } from './workflowGeneration.js';
+import { generateWorkflow } from './workflowCreation.js';
 import { completer } from "./model.js";
 import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
 import { followupHistory, listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
@@ -349,24 +349,13 @@ export async function handleHarness(request, env, url, context = {}) {
       return result.error?fail(result):json(result);
     }
     if (wfId === 'generate' && request.method === 'POST') {
-      let generationRoom = null;
-      if (input.channel) {
-        generationRoom = await resolveChannel(env.DB, orgId, who.user, input.channel);
-        if (!generationRoom || !(await mayUseConversation(env.DB, orgId, me, generationRoom.key))) return json({ message: 'No such room.' }, 403);
-        input.channel = generationRoom.key;
-      }
-      const tables = await visibleResources(await listTables(env.DB, orgId), t => mayUseTable(env.DB, orgId, t.id, me));
-      const agents = await listAgents(env.DB, orgId, who.user.login);
-      const visibleAgents = [];
-      for (const agent of agents) if (await mayAccessAgent(env.DB, orgId, agent, who.user.login)) visibleAgents.push({ id: agent.id, name: agent.name });
-      const complete = input.useModel === false ? null : await completer(env, orgId, me, 'workflow_generate', { maxTokens: 2400 });
-      const made = await workflowFromPrompt(env.DB, orgId, me, { ...input, complete, tables, agents: visibleAgents });
-      if (made.error) return fail(made);
-      const r = await createWorkflow(env.DB, orgId, made.workflow, me);
-      if (r.error) return fail(r);
-      await audit(env, request, { orgId, action: 'workflow.created', actor: person(who.user), entity: { type: 'workflow', id: r.workflow.id, name: r.workflow.name }, details: { source: made.source } });
-      return json({ workflow: { ...r.workflow, hookSecret: undefined }, source: made.source }, 201);
+      const r = await generateWorkflow(env,request,orgId,who,input);
+      if(r.response)return r.response;
+      if(r.error)return fail(r);
+      if(!r.replay)await audit(env, request, { orgId, action: 'workflow.created', actor: person(who.user), entity: { type: 'workflow', id: r.workflow.id, name: r.workflow.name }, details: { source: r.source } });
+      return json({ ...r, workflow: { ...r.workflow, hookSecret: undefined } }, 201);
     }
+
     if (!wfId) {
       if (request.method === "GET") return json({ workflows: await listWorkflows(env.DB, orgId, { viewerId: me }), triggers: TRIGGERS, steps: STEP_TYPES });
       if (request.method === "POST") {
