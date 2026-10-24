@@ -65,3 +65,38 @@ test('completed run shows elapsed time but waiting and invalid times do not clai
  expect(tree.root.findByType('span').props.title).toContain('承認待ち時間を含む')
  act(()=>tree.unmount())
 })
+
+test('open active history refreshes, then stops after completion or close',async()=>{
+ vi.useFakeTimers();let tree:any
+ try {
+  const active={id:'active',startedAt:'2026-10-24T00:00:00Z',status:'waiting',log:[]}
+  const workflow=vi.fn().mockResolvedValueOnce({runs:[active]}).mockResolvedValue({runs:[{...active,status:'done'}]})
+  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+  await act(async()=>tree.root.findAllByType('details')[0].props.onToggle({currentTarget:{open:true}}))
+  await act(async()=>{await vi.advanceTimersByTimeAsync(10000)})
+  expect(workflow).toHaveBeenCalledTimes(2)
+  await act(async()=>{await vi.advanceTimersByTimeAsync(30000)})
+  expect(workflow).toHaveBeenCalledTimes(2)
+  workflow.mockResolvedValue({runs:[active]})
+  await act(async()=>tree.root.findByType('button').props.onClick())
+  act(()=>tree.root.findAllByType('details')[0].props.onToggle({currentTarget:{open:false}}))
+  await act(async()=>{await vi.advanceTimersByTimeAsync(30000)})
+  expect(workflow).toHaveBeenCalledTimes(3)
+ } finally {if(tree)act(()=>tree.unmount());vi.useRealTimers()}
+})
+
+test('automatic history refresh stops on failure and unmount clears scheduled work',async()=>{
+ vi.useFakeTimers();let tree:any
+ try {
+  const workflow=vi.fn().mockResolvedValueOnce({runs:[{id:'active',startedAt:'2026-10-24T00:00:00Z',status:'running',log:[]}]}).mockRejectedValue(new Error('Offline'))
+  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+  await act(async()=>tree.root.findAllByType('details')[0].props.onToggle({currentTarget:{open:true}}))
+  await act(async()=>{await vi.advanceTimersByTimeAsync(10000)})
+  expect(workflow).toHaveBeenCalledTimes(2)
+  expect(JSON.stringify(tree.toJSON())).toContain('Offline')
+  await act(async()=>{await vi.advanceTimersByTimeAsync(30000)})
+  expect(workflow).toHaveBeenCalledTimes(2)
+  act(()=>tree.unmount());tree=null
+  expect(vi.getTimerCount()).toBe(0)
+ } finally {if(tree)act(()=>tree.unmount());vi.useRealTimers()}
+})

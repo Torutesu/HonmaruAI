@@ -16,7 +16,7 @@ export function runDuration(run: Pick<Run,'status'|'startedAt'|'finishedAt'>): s
  return units.map(([value,unit])=>new Intl.NumberFormat(locale,{style:'unit',unit,unitDisplay:'short',maximumFractionDigits:unit==='second'&&seconds<60?1:0}).format(value)).join(' ')
 }
 export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessApi}) {
- const [runs,setRuns]=useState<Run[]|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('')
+ const [runs,setRuns]=useState<Run[]|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[isOpen,setIsOpen]=useState(false)
  const request=useRef(0),pending=useRef<number|null>(null),opened=useRef(false)
  const load=useCallback(async()=>{
   if(pending.current!==null)return
@@ -30,7 +30,12 @@ export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessAp
   if(opened.current)void load()
   return ()=>{request.current++}
  },[load])
- return <details onToggle={e=>{opened.current=e.currentTarget.open;if(opened.current && runs===null && !busy)void load()}}><summary>実行履歴</summary>
+ useEffect(()=>{
+  if(!isOpen||busy||error||!runs?.some(run=>run.status==='running'||run.status==='waiting'))return
+  const timer=setTimeout(()=>void load(),10000)
+  return ()=>clearTimeout(timer)
+ },[isOpen,busy,error,runs,load])
+ return <details onToggle={e=>{opened.current=e.currentTarget.open;setIsOpen(opened.current);if(opened.current && runs===null && !busy)void load()}}><summary>実行履歴</summary>
   {busy&&<p role="status">実行履歴を読み込み中…</p>}{error&&<p role="alert">{error}</p>}
   {runs?.length===0&&<p>まだ実行されていません。</p>}
   {runs?.map(run=><details key={run.id}><summary>{new Date(run.startedAt).toLocaleString(getLocale())} · {labels[run.status]||run.status}{runDuration(run)!==null&&<> · <span title="開始から終了まで（承認待ち時間を含む）">{runDuration(run)}</span></>}</summary>
