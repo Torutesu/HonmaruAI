@@ -1,6 +1,7 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Follow-up delay (minutes)": "フォローアップまでの待ち時間（分）",
   "Stop execution": "実行を停止",
   "Stopping agent execution…": "停止中…",
   "Execution changed; review the current agent before stopping.": "担当が変更されました。現在の状態を確認してください。",

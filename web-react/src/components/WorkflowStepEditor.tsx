@@ -33,7 +33,7 @@ export function StepEditor({ step, onChange, onRemove, tables, agents, triggerTa
         <textarea className="context-input" rows={2} placeholder={t('e.g. {{row.Client}} is overdue')} value={step.text || ''} onChange={(e) => set({ text: e.target.value })} aria-label={t('Text')} />
       )}
       {step.type === 'followup' && (
-        <label className="hx-inline">{t('In')} <input type="number" min={1} className="hx-cell-input hx-num" value={Math.round((step.minutes || 0) / 60)} onChange={(e) => set({ minutes: Math.max(1, Number(e.target.value)) * 60 })} /> {t('hours')}</label>
+        <label className="hx-inline">{t('In')} <input type="number" min={1} max={129600} step={1} aria-label={t('Follow-up delay (minutes)')} className="hx-cell-input hx-num" value={step.minutes ?? 1440} onChange={(e) => set({ minutes: Number(e.target.value) })} /> {t('minutes')}</label>
       )}
       {step.type === 'agent' && (
         <>

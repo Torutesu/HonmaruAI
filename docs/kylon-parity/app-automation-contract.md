@@ -151,3 +151,7 @@ Post-fix targeted verification: 4 files / 108 tests passed, 14.68s (`/tmp/honmar
 ## Resource names in review (primary branch, pending next deployment)
 
 Publication summaries now resolve table, column and agent identifiers through the editor's already-authorized resource lists, with original identifiers retained when names cannot be resolved. This applies to row conditions, watched columns and step values as well as targets. Two UI files / 10 tests and TypeScript passed (`/tmp/honmaru-automation-resource-labels.log`). This follow-up is later than deployed candidate `cfece088`; do not push over its active runs (Web 40071366835, CI 40071366860, Worker 40071366840).
+
+## Exact follow-up delay editing (pending next deployment)
+
+The shared step form now displays and edits follow-up delay directly in minutes, preserving existing values such as 15 or 90 instead of rounding to hours. Added bounds matching the app declaration range and an accessible Japanese-translated label. Related 3 UI files / 27 tests and TypeScript passed (`/tmp/honmaru-followup-minute-ui.log`). Candidate cfece088's CI/Web/Worker jobs remain active; this follow-up is local until they terminate.
