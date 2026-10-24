@@ -51,12 +51,23 @@ export async function saveCustomRelease(db, orgId, app, input, by) {
   const definition = { ...app.definition, custom };
   const at = new Date().toISOString();
   const version = app.version + 1;
+  const stoppedRelease = crypto.randomUUID();
   // Both statements run in a D1 transaction; the snapshot is inserted only when CAS won.
   const result = await db.batch([
     db.prepare('UPDATE hx_apps SET definition = ?1, version = ?2, updated_at = ?3 WHERE id = ?4 AND org_id = ?5 AND version = ?6')
       .bind(JSON.stringify(definition), version, at, app.id, orgId, app.version),
     db.prepare('INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE changes() = 1')
       .bind(app.id, orgId, version, JSON.stringify({ ...definition, name: app.name, columns: table.columns }), `Custom app: ${input.action}`, String(by), at),
+    ...(input.action === 'unpublish' ? [
+      // changes() refers to the preceding history insertion, so a losing
+      // source CAS cannot stop another editor's automation release.
+      db.prepare('UPDATE hx_app_automation_state SET published=NULL,published_at=NULL,release_id=?3,revision=revision+1,updated_at=?4,updated_by=?5 WHERE org_id=?1 AND app_id=?2 AND changes()=1')
+        .bind(orgId,app.id,stoppedRelease,at,String(by)),
+      db.prepare('UPDATE hx_workflows SET enabled=0,next_run_at=NULL WHERE org_id=?1 AND id IN (SELECT workflow_id FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2) AND EXISTS(SELECT 1 FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2 AND release_id=?3)')
+        .bind(orgId,app.id,stoppedRelease),
+      db.prepare("UPDATE hx_app_automation_bindings SET applied=json_set(applied,'$.enabled',json('false')),release_id=?3 WHERE org_id=?1 AND app_id=?2 AND EXISTS(SELECT 1 FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2 AND release_id=?3)")
+        .bind(orgId,app.id,stoppedRelease),
+    ] : []),
   ]);
   if (!result[0]?.meta?.changes) return { error: 'This app changed. Reload before saving.', status: 409 };
   return { saved: true, version };
