@@ -182,6 +182,17 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     await floating.getByRole('button', { name: 'アプリチャットを開く', exact: true }).click()
     const floatingReply = floating.locator('.hx-object-chat textarea')
     await floatingReply.fill('Unsent floating draft — preserve while switching sections')
+    const chatBounds = await floating.locator('.hx-object-chat').boundingBox()
+    const appBounds = await floating.boundingBox()
+    if (!chatBounds || !appBounds || chatBounds.x < appBounds.x || chatBounds.y < appBounds.y || chatBounds.x + chatBounds.width > appBounds.x + appBounds.width + 1 || chatBounds.y + chatBounds.height > appBounds.y + appBounds.height + 1) throw new Error('Floating conversation escapes its app window')
+    await page.screenshot({ path: `${shots}/app-floating-conversation.png` })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.waitForFunction(() => {
+      const app = document.querySelector('.hx-floating-app')?.getBoundingClientRect()
+      const chat = document.querySelector('.hx-floating-app .hx-object-chat')?.getBoundingClientRect()
+      return app && chat && chat.left >= app.left && chat.top >= app.top && chat.right <= app.right + 1 && chat.bottom <= app.bottom + 1
+    })
+    await page.screenshot({ path: `${shots}/app-floating-conversation-desktop.png` })
     await floating.getByRole('button', { name: 'その他のアプリ操作', exact: true }).click()
     await floating.getByRole('menuitem', { name: 'アプリを表示', exact: true }).click()
     await floatingReply.waitFor({ state: 'visible' })
