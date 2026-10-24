@@ -90,3 +90,16 @@ test('durable assignment metadata remains visible when the old source job has no
  expect(JSON.stringify(tree.toJSON())).toContain('Researcher');expect(JSON.stringify(tree.toJSON())).toContain('Agent execution running');expect(tree.root.findAllByType('button')).toHaveLength(0);
  act(()=>tree.unmount());
 });
+
+test('uses agent identity images and emoji in assignments and handoff history', async () => {
+ setup()
+ const from = {id: 'research', name: 'Researcher', handle: 'research', emoji: '🔎'}
+ const to = {id: 'review', name: 'Reviewer', handle: 'review', avatarUrl: '/agent-review.png'}
+ vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ok: true, json: async () => ({available: true, results: [{rowId: 'one', status: 'finished', answered: 0, assignments: [{id: 'assignment', generation: 1, status: 'finished', agent: to, hops: [{id: 'hop', from, to, at: '2026-10-24T00:00:00Z'}]}]}]})}))
+ let tree!: ReturnType<typeof create>
+ await act(async () => {tree = create(<AgentRunStatus api={api} channel="b:general" messages={[message('one')]}/>)})
+ expect(tree.root.findAllByType('img').map(image => image.props.src)).toEqual(['/agent-review.png', '/agent-review.png'])
+ expect(JSON.stringify(tree.toJSON())).toContain('🔎')
+ expect(tree.root.findAllByProps({title: '@research'})).toHaveLength(1)
+ act(() => tree.unmount())
+})

@@ -4,9 +4,10 @@ import {isTemp} from '../utils/pendingSend'
 import {useT} from '../utils/i18n'
 import {Icon} from './Icon'
 import {AgentRunStop} from './AgentRunStop'
+import {AgentAvatar, type AgentLook} from './AgentAvatar'
 
 type Api = {httpBase: string; orgId: string; sessionToken: string}
-type AgentFace = {id: string; name: string; handle: string}
+type AgentFace = AgentLook & {id: string; name: string; handle: string}
 type Assignment = {id: string; generation: number; status: string; canStop?: boolean; agent: AgentFace; hops: {id: string; from: AgentFace; to: AgentFace; at: string}[]}
 type Run = {rowId: string; status: string; answered: number; version?: number; assignments?: Assignment[]}
 const activeStatus = (status: string) => ['pending_delivery', 'queued', 'running', 'pending'].includes(status)
@@ -17,6 +18,10 @@ function assignmentsFrom(value: unknown): Assignment[] {
   return value.filter(assignment => assignment && typeof assignment.id === 'string' && Number.isSafeInteger(assignment.generation) && assignment.generation >= 0 && assignment.generation <= 8 && ['pending','running','finished','failed','cancelled','interrupted'].includes(assignment.status) && faceValid(assignment.agent)).slice(0, 20).map(assignment => ({...assignment,
     hops: (Array.isArray(assignment.hops) ? assignment.hops : []).filter((hop: Assignment['hops'][number]) => hop && typeof hop.id === 'string' && faceValid(hop.from) && faceValid(hop.to) && typeof hop.at === 'string').slice(0, 8),
   }))
+}
+function RunFace({agent}: {agent: AgentFace}) {
+  const look = {emoji: typeof agent.emoji === 'string' ? agent.emoji : null, avatarUrl: typeof agent.avatarUrl === 'string' ? agent.avatarUrl : null}
+  return look.emoji || look.avatarUrl ? <AgentAvatar agent={look} className="slk-run-avatar"/> : <span className="slk-run-avatar" aria-hidden="true"><Icon name="bot" size={14}/></span>
 }
 const labels: Record<string, string> = {
   pending: 'Agent handoff awaiting delivery', pending_delivery: 'Agent queue acknowledgement pending', queued: 'Agent execution queued', running: 'Agent execution running',
@@ -86,9 +91,9 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
       <span className="slk-run-source" title={sources.find(m => m.id === run.rowId)?.body}>{sources.find(m => m.id === run.rowId)?.body.slice(0, 100) || t('Message')}</span>
       {!run.assignments?.length && <span>{t(labels[run.status])}</span>}
       {Boolean(run.assignments?.length) && <div className="slk-run-assignments">{run.assignments!.map(assignment => <div className="slk-run-assignment" key={assignment.id}>
-        <div className="slk-run-assignee"><Icon name="bot" size={14}/><span title={`@${assignment.agent.handle}`}>{assignment.agent.name || t('Agent')}</span><span className="slk-run-assignment-status">{t(assignment.status === 'cancelled' ? 'Agent execution cancelled' : labels[assignment.status])}</span></div>
+        <div className="slk-run-assignee"><RunFace agent={assignment.agent}/><span className="slk-run-agent-name" title={`@${assignment.agent.handle}`}>{assignment.agent.name || t('Agent')}</span><span className="slk-run-assignment-status">{t(assignment.status === 'cancelled' ? 'Agent execution cancelled' : labels[assignment.status])}</span></div>
         {assignment.canStop === true && activeStatus(assignment.status) && <AgentRunStop key={`${scope}:${assignment.id}:${assignment.generation}`} api={api} channel={channel} rowId={run.rowId} assignmentId={assignment.id} generation={assignment.generation} onStopped={() => setRefresh(value => value + 1)}/>}
-        {assignment.hops.length > 0 && <details className="slk-run-handoffs"><summary><span className="slk-handoff-disclosure"><Icon name="chevron-right" size={12}/></span>{t('Handoff history ({count})', {count: assignment.hops.length})}</summary><ol>{assignment.hops.map(hop => <li key={hop.id}><span title={`@${hop.from.handle} → @${hop.to.handle}`}>{hop.from.name || t('Agent')} → {hop.to.name || t('Agent')}</span>{Number.isFinite(Date.parse(hop.at)) && <time dateTime={hop.at}>{new Date(hop.at).toLocaleString()}</time>}</li>)}</ol></details>}
+        {assignment.hops.length > 0 && <details className="slk-run-handoffs"><summary><span className="slk-handoff-disclosure"><Icon name="chevron-right" size={12}/></span>{t('Handoff history ({count})', {count: assignment.hops.length})}</summary><ol>{assignment.hops.map(hop => <li key={hop.id}><span className="slk-run-hop-agents"><span title={`@${hop.from.handle}`}><RunFace agent={hop.from}/>{hop.from.name || t('Agent')}</span><span aria-hidden="true">→</span><span title={`@${hop.to.handle}`}><RunFace agent={hop.to}/>{hop.to.name || t('Agent')}</span></span>{Number.isFinite(Date.parse(hop.at)) && <time dateTime={hop.at}>{new Date(hop.at).toLocaleString()}</time>}</li>)}</ol></details>}
       </div>)}</div>}
     </li>)}</ul>
     {state.runs.some(run => run.assignments?.some(assignment => assignment.canStop && activeStatus(assignment.status))) && <p>{t('Stopping prevents further work. External operations already started may still finish.')}</p>}
