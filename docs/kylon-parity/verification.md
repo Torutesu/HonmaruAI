@@ -2238,3 +2238,9 @@ Expanded automation history refreshes every ten seconds while it contains runnin
 ### Production candidate 65b03455 completed
 
 CI 40072311299, Worker 40072311345 and Web 40072311252 all completed successfully. Worker version edfc9345-6824-4f4b-ab23-9a5d2cd9a583 was published. Web deployment logs confirm both honmaru-web.pages.dev and app.honmaruai.com serve index-CFCp44d2.js at 2026-10-24T07:18:57Z. This proves delivery of the preceding resource-name/history/unsaved-edit/continuation fixes, not authenticated UI equivalence. Follow-up admission and history refinements through 20d55ee6 may now be pushed without overlapping the previous release. Frozen Worker 1861 tests and latest Web 1099 tests remain the validation evidence for that follow-up.
+
+### Failure pause notification validation and local rendering
+
+Web at f85ab7df passed 161 files / 1105 tests (`/tmp/honmaru-safety-full-web.log`). Full Worker run is active in session 95952 (`/tmp/honmaru-safety-full-worker.log`) with Worker runtime/tests fixed at this commit; do not alter them until it terminates. No final Worker result yet.
+
+Rendered actual WorkflowNotices and AutomationRuns in IAB with explicit fixture data, full existing global/Harness styles, Japanese locale and a 360px content wrapper. Expanded notifications/history, inspected light/dark screenshots, and confirmed readable wrapped explanations and resume controls. Evidence `/tmp/honmaru-safety-dark.png`, `/tmp/honmaru-safety-light.png`. Temporary fixture/server/tab removed. This is local component rendering, not authenticated production/Kylon comparison. Notice acknowledgement/resume mutations were not exercised against production. Automation-thread delivery remains unimplemented.
