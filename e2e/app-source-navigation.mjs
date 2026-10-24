@@ -121,6 +121,7 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     if (!draggedBox || draggedBox.x >= movedBox.x || draggedBox.y >= movedBox.y) throw new Error('Floating header drag did not move the app')
     const resize = await floating.locator('.hx-floating-resize').boundingBox()
     if (!resize) throw new Error('Floating resize handle is missing')
+    if (!await floating.locator('.hx-floating-resize').evaluate(element => { const r = element.getBoundingClientRect(); return element.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)) })) throw new Error('Floating resize handle is covered')
     await page.mouse.move(resize.x + resize.width / 2, resize.y + resize.height / 2)
     await page.mouse.down()
     await page.mouse.move(resize.x + resize.width / 2 + 24, resize.y + resize.height / 2 + 24, { steps: 4 })
