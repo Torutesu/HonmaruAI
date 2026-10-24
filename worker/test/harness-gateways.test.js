@@ -124,3 +124,14 @@ test('node polling has independent limits from team operations and from other no
   await env.DB.prepare("UPDATE rate_limits SET count = 600 WHERE bucket = 'gateway/edge'").run();
   expect((await api('POST', '/claim', null, {}, second.token)).status).toBe(429);
 });
+
+test('TypeScript module language survives queueing and participates in request identity',async()=>{
+ const {gateway,token}=await node();
+ const input={gatewayId:gateway.id,requestId:'typed-module',language:'typescript',code:'export default (input:number):number => input * 2',input:21};
+ expect((await api('POST','/jobs',member,input)).status).toBe(201);
+ expect((await api('POST','/jobs',member,input)).status).toBe(200);
+ expect((await api('POST','/jobs',member,{...input,language:'javascript'})).status).toBe(409);
+ expect((await api('POST','/jobs',member,{...input,requestId:'invalid',language:'shell'})).status).toBe(400);
+ const job=await claim(token);
+ expect(job.payload).toEqual({code:input.code,input:21,language:'typescript'});
+});

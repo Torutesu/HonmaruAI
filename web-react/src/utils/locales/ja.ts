@@ -1,6 +1,10 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Code runs without network or host files, with a 60-second limit. Results are visible only to the requester.": "コードはネットワークやホストのファイルにアクセスできない環境で実行され、制限時間は60秒です。結果は実行した本人だけが閲覧できます。",
+  "Run code": "コードを実行",
+  "Export a default function that receives the input. Types are transformed inside the isolated machine; type checking is not performed.": "入力を受け取る関数をdefault exportしてください。型の変換は隔離環境内で行い、型チェックは実施しません。",
+
   'Before': '変更前',
   'After': '変更後',
   "Definition history": "定義の変更履歴",

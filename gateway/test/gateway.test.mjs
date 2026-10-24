@@ -61,3 +61,9 @@ test('a result whose upload fails is handed in again, without running the code a
   assert.equal(f.sent.length, 3);
   assert.equal(runs, 4);
 });
+
+test('TypeScript language is explicit while legacy JavaScript payloads remain unchanged',()=>{
+ assert.deepEqual(validatePayload({code:'export default () => 42',language:'typescript'}),{code:'export default () => 42',input:null,language:'typescript'});
+ assert.deepEqual(validatePayload({code:'return 42',language:'javascript'}),{code:'return 42',input:null});
+ assert.throws(()=>validatePayload({code:'return 42',language:'shell'}));
+});

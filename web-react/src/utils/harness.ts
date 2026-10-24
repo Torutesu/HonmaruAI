@@ -139,7 +139,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     registerGateway: (name: string) => call<{ gateway: Gateway; token: string }>('POST', '/gateways', { name }),
     revokeGateway: (id: string) => call('POST', `/gateways/${encodeURIComponent(id)}/revoke`),
     gatewayJobs: () => call<{ jobs: GatewayJob[] }>('GET', '/gateways/jobs'),
-    execute: (gatewayId: string, code: string, input: unknown, requestId: string) => call<{ job: GatewayJob }>('POST', '/gateways/jobs', { gatewayId, code, input, requestId }),
+    execute: (gatewayId: string, code: string, input: unknown, requestId: string, language?:'javascript'|'typescript') => call<{ job: GatewayJob }>('POST', '/gateways/jobs', { gatewayId, code, input, requestId,...(language==='typescript'?{language}:{}) }),
     cancelExecution: (id: string) => call('POST', `/gateways/jobs/${encodeURIComponent(id)}/cancel`),
     home: () => call<HomeData>('GET', '/harness/home'),
     getMode: () => call<{ mode: WorkspaceMode; canEdit: boolean }>('GET', '/orgs/mode'),

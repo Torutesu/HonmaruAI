@@ -29,7 +29,8 @@ export async function enqueueExecution(db, orgId, me, input, appAction = null) {
     const gateway = await db.prepare('SELECT id FROM hx_gateways WHERE org_id = ?1 AND id = ?2 AND revoked_at IS NULL').bind(orgId, String(input.gatewayId || '')).first();
     if (!gateway) return error('No such execution node.', 404);
     if (typeof input.code !== 'string' || !input.code.trim()) return error('JavaScript code is required.');
-    const payload = JSON.stringify({ code: input.code, input: input.input ?? null });
+    if(input.language!==undefined&&!['javascript','typescript'].includes(input.language))return error('Unsupported execution language.');
+    const payload = JSON.stringify({ code: input.code, input: input.input ?? null, ...(input.language==='typescript'?{language:'typescript'}:{}) });
     if (new TextEncoder().encode(payload).length > 65536) return error('Execution input is too large.', 413);
     const requestId = input.requestId || id();
     if (typeof requestId !== 'string' || !/^[\w-]{1,80}$/.test(requestId)) return error('Invalid request ID.');

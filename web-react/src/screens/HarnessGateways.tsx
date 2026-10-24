@@ -8,7 +8,11 @@ export default function HarnessGateways(props: HarnessProps) {
   const [nodes, setNodes] = useState<Gateway[]>([]), [jobs, setJobs] = useState<GatewayJob[]>([])
   const [canManage, setCanManage] = useState(false), [loaded, setLoaded] = useState(false)
   const [name, setName] = useState(''), [token, setToken] = useState(''), [gatewayId, setGatewayId] = useState('')
-  const [code, setCode] = useState('return input * 2'), [input, setInput] = useState('21')
+  const [language,setLanguage]=useState<'javascript'|'typescript'>('javascript')
+  const [javascriptCode,setJavaScriptCode]=useState('return input * 2'),[typescriptCode,setTypeScriptCode]=useState('export default async function(input: number): Promise<number> {\n  return input * 2\n}')
+  const code=language==='typescript'?typescriptCode:javascriptCode
+  const setCode=language==='typescript'?setTypeScriptCode:setJavaScriptCode
+  const [input, setInput] = useState('21')
   const [revoke, setRevoke] = useState<string | null>(null)
   const { busy, error, act } = useAct()
   // Retain the request ID after ambiguous network failure; a retry cannot run twice.
@@ -25,15 +29,15 @@ export default function HarnessGateways(props: HarnessProps) {
   }, [jobs, busy, act, load])
   const execute = () => act('execute', async () => {
     const value: unknown = JSON.parse(input)
-    const key = JSON.stringify([gatewayId, code, value])
+    const key = JSON.stringify([gatewayId, code, value,language])
     if (pending.current?.key !== key) pending.current = { key, id: crypto.randomUUID() }
-    await api.execute(gatewayId, code, value, pending.current.id)
+    await api.execute(gatewayId, code, value, pending.current.id,language)
     pending.current = null
     await load()
   })
   return <Shell title={t('Execution nodes')} onClose={props.onClose} actions={<button className="pill-btn" disabled={!!busy} onClick={() => void act('refresh', load)}>{t('Reload')}</button>}>
     <p className="lede">{t('Run isolated jobs on your own machines.')}</p>
-    <p className="hx-hint">{t('JavaScript runs without network or host files, with a 60-second limit. Results are visible only to the requester.')}</p>
+    <p className="hx-hint">{t('Code runs without network or host files, with a 60-second limit. Results are visible only to the requester.')}</p>
     {error && <div className="form-error" role="alert">{error}</div>}
     {!loaded && <div className="empty">{t('Loading…')}</div>}
     {canManage && <div className="rows"><div className="row static"><div className="row-main">
@@ -49,9 +53,11 @@ export default function HarnessGateways(props: HarnessProps) {
     <div className="rows">{nodes.map(n => <div className="row static" key={n.id}><span className="row-main">{n.name}<span className="row-sub">{n.revokedAt ? t('Revoked') : n.lastSeenAt ? `${t('Last seen')}: ${new Date(n.lastSeenAt).toLocaleString()}` : t('Not connected yet')}</span></span>
       {canManage && !n.revokedAt && (revoke === n.id ? <><button className="pill-btn" disabled={!!busy} onClick={() => void act('revoke', async () => { await api.revokeGateway(n.id); setRevoke(null); await load() })}>{t('Revoke and cancel jobs')}</button><button className="btn-text" onClick={() => setRevoke(null)}>{t('Keep')}</button></> : <button className="btn-text" onClick={() => setRevoke(n.id)}>{t('Revoke')}</button>)}
     </div>)}</div>
-    <div className="rows-title">{t('Run JavaScript')}</div>
+    <div className="rows-title">{t('Run code')}</div>
     <label>{t('Execution node')}<select className="hx-cell-select" value={gatewayId} onChange={e => setGatewayId(e.target.value)}><option value="">—</option>{nodes.filter(n => !n.revokedAt).map(n => <option key={n.id} value={n.id}>{n.name}</option>)}</select></label>
-    <label>{t('JavaScript')}<textarea className="context-input" rows={5} value={code} onChange={e => setCode(e.target.value)} spellCheck={false} /></label>
+    <label>{t('Language')}<select className="hx-cell-select" value={language} onChange={e=>setLanguage(e.target.value as 'javascript'|'typescript')}><option value="javascript">JavaScript</option><option value="typescript">TypeScript</option></select></label>
+    {language==='typescript'&&<p className="hx-hint">{t('Export a default function that receives the input. Types are transformed inside the isolated machine; type checking is not performed.')}</p>}
+    <label>{language==='typescript'?'TypeScript':'JavaScript'}<textarea className="context-input" rows={5} value={code} onChange={e => setCode(e.target.value)} spellCheck={false} /></label>
     <label>{t('Input (JSON)')}<textarea className="context-input" rows={2} value={input} onChange={e => setInput(e.target.value)} spellCheck={false} /></label>
     <button className="pill-btn" disabled={!!busy || !gatewayId || !code.trim()} onClick={() => void execute()}>{t('Run')}</button>
     <div className="rows-title">{t('Your execution history')}</div>

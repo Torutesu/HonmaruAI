@@ -3,11 +3,12 @@ import { randomUUID } from 'node:crypto';
 
 export const IMAGE = 'docker.io/library/node@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402';
 // Only this fixed bootstrap runs in the VM. No task code executes on macOS.
-const BOOTSTRAP = `let raw='';process.stdin.setEncoding('utf8');process.stdin.on('data',s=>raw+=s);process.stdin.on('end',async()=>{try{const task=JSON.parse(raw);const fn=new (Object.getPrototypeOf(async function(){}).constructor)('input',task.code);const result=await fn(task.input);process.stdout.write(JSON.stringify(result===undefined?null:result));}catch(e){console.error(String(e?.stack||e));process.exitCode=1;}});`;
+const BOOTSTRAP = `let raw='';process.stdin.setEncoding('utf8');process.stdin.on('data',s=>raw+=s);process.stdin.on('end',async()=>{try{const task=JSON.parse(raw);let result;if(task.language==='typescript'){const {stripTypeScriptTypes}=await import('node:module');const code=stripTypeScriptTypes(task.code,{mode:'transform',sourceUrl:'workflow.ts'});const module=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));if(typeof module.default!=='function')throw new Error('TypeScript modules must export a default function.');result=await module.default(task.input);}else{const fn=new (Object.getPrototypeOf(async function(){}).constructor)('input',task.code);result=await fn(task.input);}process.stdout.write(JSON.stringify(result===undefined?null:result));}catch(e){console.error(String(e?.stack||e));process.exitCode=1;}});`;
 
 export function validatePayload(payload) {
   if (!payload || typeof payload.code !== 'string' || !payload.code.trim()) throw new Error('JavaScript code is required.');
-  const clean = { code: payload.code, input: payload.input ?? null };
+  if(payload.language!==undefined&&!['javascript','typescript'].includes(payload.language))throw new Error('Unsupported execution language.');
+  const clean = { code: payload.code, input: payload.input ?? null, ...(payload.language==='typescript'?{language:'typescript'}:{}) };
   if (Buffer.byteLength(JSON.stringify(clean)) > 65536) throw new Error('Execution input is too large.');
   return clean;
 }
