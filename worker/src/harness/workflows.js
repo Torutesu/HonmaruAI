@@ -128,7 +128,7 @@ async function approverIn(db, orgId, login) {
 
 /// An approval written to a fixed login is checked when it is saved; one
 /// written as a {{placeholder}} can only be checked when it runs.
-async function unknownApprover(db, orgId, steps) {
+export async function unknownApprover(db, orgId, steps) {
   for (const step of steps) {
     if (step.type !== "approval" || step.to.includes("{{")) continue;
     if (!(await approverIn(db, orgId, step.to))) return { error: `Nobody by that name here: @${step.to}` };

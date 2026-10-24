@@ -63,12 +63,13 @@ export function diffAppAutomations({draft, published, bindings, workflows}) {
   const released = new Map((published?.items || []).map(item => [item.key,item]));
   const links = new Map(bindings.map(binding => [binding.key,binding]));
   const live = new Map(workflows.map(workflow => [workflow.id,workflow]));
-  return [...new Set([...proposed.keys(),...released.keys()])].map(key => {
+  return [...new Set([...proposed.keys(),...released.keys(),...links.keys()])].map(key => {
     const declaration = proposed.get(key), previous = released.get(key), binding = links.get(key);
     const workflow = binding && live.get(binding.workflowId);
     let status;
-    if (previous && (!binding || !workflow)) status = 'missing';
-    else if (previous && !sameAutomation(binding.applied,workflow)) status = 'drifted';
+    if ((previous || binding) && (!binding || !workflow)) status = 'missing';
+    else if (binding && !sameAutomation(binding.applied,workflow)) status = 'drifted';
+    else if (!previous && !declaration) status = 'retired';
     else if (!previous) status = 'added';
     else if (!declaration) status = 'removed';
     else status = sameAutomation(declaration,previous) ? 'unchanged' : 'changed';

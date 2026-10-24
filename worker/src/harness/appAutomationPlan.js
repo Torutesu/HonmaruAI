@@ -12,9 +12,7 @@ export async function readAutomationPlan(db,orgId,appId,viewerId) {
   const {results:rows}=await db.prepare('SELECT declaration_key,workflow_id,applied FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2 LIMIT 101').bind(orgId,appId).all();
   if(rows.length>100)return {error:'Too many automation bindings to reconcile.',status:409};
   const bindings=[],workflows=[];
-  const relevant=new Set([...state.draft.items,...(state.published?.items || [])].map(item=>item.key));
   for(const row of rows) {
-    if(!relevant.has(row.declaration_key))continue;
     const workflow=await getWorkflow(db,orgId,row.workflow_id);
     if(workflow && !await mayViewWorkflow(db,orgId,workflow,viewerId))return {error:'A linked automation is no longer accessible.',status:403};
     let applied;
