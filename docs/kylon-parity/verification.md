@@ -2410,3 +2410,9 @@ Added e2e/app-source-navigation.mjs to the existing real-stack CI spec. It refus
 - Authenticated installed Mac app, existing empty UI確認用タスク: entered a harmless unsent draft, closed/reopened the app conversation, and reloaded the page. Both restored the exact text. Empty message history remained visible. Cleared the test draft and closed the panel; no message was sent and no record was added. Screenshot of restored text: `/tmp/honmaru-app-draft-production.png`.
 - First reload reproduced the installed desktop's intermittent blank rendering; toggling fullscreen and back restored it. The later reload worked normally. The previously tested native repaint patch still has not been installed in /Applications, so this defect remains open.
 - CI 40092758479: Web, desktop, gateway, relay and shared/mobile successful at observation; Worker and E2E still in progress. Linked-source E2E outcome remains unverified.
+
+### 2026-10-24 — Signed desktop update preparation
+
+- Repository signing-secret name inventory includes all five required Mac signing/notarization settings (values not read or printed). Prior Mac signed release workflow 39957249737 succeeded; published release is v1.3.13. This provides an existing distribution path without a new service subscription.
+- Prepared version 1.3.14 consistently across VERSION, desktop/web/mobile manifests and native marketing versions. Dependency versions unchanged. Version checker passed, desktop 17 files / 125 tests passed, mobile lint and typecheck passed.
+- Native repaint code from edf07ece is included. No signed v1.3.14 build has been dispatched or published yet; installed app remains unchanged. Current f1121b9e CI still running; avoid cancelling it with a new main push.
