@@ -1,6 +1,11 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Stop execution": "実行を停止",
+  "Stopping agent execution…": "停止中…",
+  "Execution changed; review the current agent before stopping.": "担当が変更されました。現在の状態を確認してください。",
+  "Could not confirm execution stopped. Refresh or try again.": "停止を確認できませんでした。更新するか、もう一度お試しください。",
+  "Stopping prevents further work. External operations already started may still finish.": "停止後は次の処理を開始しません。開始済みの外部操作は完了する場合があります。",
   "Agent handoff awaiting delivery": "引き継ぎ受付待ち",
   "Agent execution cancelled": "停止済み",
   "Handoff history ({count})": "引き継ぎ履歴（{count}件）",

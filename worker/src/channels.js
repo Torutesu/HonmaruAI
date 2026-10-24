@@ -546,8 +546,9 @@ async function messageByClientId(db, orgId, authorLogin, clientId) {
 /// than sent without it.
 const FILES_GONE = "A file in this message is no longer there. Attach it again.";
 
-export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null }) {
+export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, assignmentFence = null }) {
   if (roomHookSource && (!parentId || kind !== 'agent' || !authorLogin?.startsWith('agent:'))) return {error:'Invalid webhook reply.',status:403};
+  if(assignmentFence && (kind!=='agent' || !parentId || files?.ids?.length || withFiles || clientId || typeof assignmentFence.assignmentId!=='string' || !Number.isSafeInteger(assignmentFence.generation) || typeof assignmentFence.sourceId!=='string' || typeof assignmentFence.sourceBody!=='string' || typeof assignmentFence.sourceAuthor!=='string'))return {error:'Invalid execution reply.',status:403};
   const text = String(body || "").replace(/\r\n/g, "\n").trim();
   const remembered = clientIdOk(clientId) ? clientId : null;
   // A picture on its own is something said. A retry of one has had its
@@ -593,6 +594,11 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
     // A reply is written only while its parent is still there, in the same
     // statement: a thread deleted after the check above takes no reply.
     const parentLive = "(?9 IS NULL OR EXISTS (SELECT 1 FROM channel_messages WHERE org_id = ?2 AND id = ?9 AND deleted_at IS NULL))" + (roomHookSource ? ` AND ${roomHookReplyGuard}` : "");
+    const executionLive = assignmentFence ? ` AND EXISTS (SELECT 1 FROM hx_agent_assignments a JOIN channel_messages s ON s.org_id=a.org_id AND s.id=a.source_message_id
+      WHERE a.org_id=?2 AND a.id=?14 AND a.generation=?15 AND a.status='running' AND 'agent:'||a.current_agent_id=?4 AND a.channel=?3 AND a.thread_id=?9
+      AND s.channel=a.channel AND s.kind='message' AND COALESCE(s.parent_id,s.id)=a.thread_id AND s.id=?16 AND s.body=?17 AND s.author_login=?18 AND COALESCE(s.parent_id,'')=?19 AND s.deleted_at IS NULL)` : '';
+    const fenceValues=assignmentFence?[assignmentFence.assignmentId,assignmentFence.generation,assignmentFence.sourceId,assignmentFence.sourceBody,assignmentFence.sourceAuthor,assignmentFence.sourceParent || '']:[];
+
     if (files?.ids?.length) {
       // The message and its files in one step, all or none: its uploads are
       // claimed, the message is written only if every one of them still
@@ -616,8 +622,9 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
         return { error: FILES_GONE, code: "files_gone", status: 409 };
       }
     } else {
-      const insert = db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}`).bind(...values);
+      const insert = db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}${executionLive}`).bind(...values,...fenceValues);
       const put = dispatch ? (await db.batch([insert,dispatch]))[0] : await insert.run();
+      if (assignmentFence && !put.meta?.changes)return {error:'Execution access changed.',code:'execution_changed',status:409};
       if (parentId && !put.meta?.changes) return roomHookSource ? {error:"Webhook access changed.",code:"webhook_revoked",status:403} : { error: THREAD_GONE, code: "thread_gone" };
     }
   } catch (err) {

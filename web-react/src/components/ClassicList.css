@@ -1955,3 +1955,8 @@ body.slk-resizing iframe { pointer-events: none; }
 
 .classic.slk .slk-handoff-disclosure { display: inline-flex; }
 .classic.slk .slk-run-handoffs[open] > summary .slk-handoff-disclosure { transform: rotate(90deg); }
+
+.classic.slk .slk-run-stop { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.classic.slk .slk-run-stop button { padding: 3px 8px; border: 1px solid var(--slk-line); border-radius: 5px; background: var(--slk-bg); color: var(--slk-ink); font: inherit; cursor: pointer; }
+.classic.slk .slk-run-stop button:hover { background: var(--slk-hover); }
+.classic.slk .slk-run-stop button:disabled { opacity: .6; cursor: default; }

@@ -113,3 +113,20 @@ test('handoff settlement repairs only the exact target generation',async()=>{
  expect(await owns(a,2,'analyst')).toBe(false);
  expect(await env.DB.prepare('SELECT generation,status FROM hx_agent_assignments WHERE id=?1').bind(a.id).first()).toEqual({generation:2,status:'interrupted'});
 });
+
+test('reply insert checks live assignment ownership and unchanged source in the same statement',async()=>{
+ const {postMessage}=await import('../src/channels.js');const a=await start();
+ const assignmentFence={assignmentId:a.id,generation:0,sourceId:row.id,sourceBody:row.body,sourceAuthor:row.author_login,sourceParent:row.parent_id};
+ const send=()=>postMessage(env.DB,{orgId:'org',key:row.channel,authorLogin:'agent:researcher',kind:'agent',parentId:row.id,body:'Fenced answer',assignmentFence});
+ expect((await send()).row).toBeTruthy();
+ await env.DB.prepare("UPDATE channel_messages SET body='Edited source' WHERE id=?1").bind(row.id).run();
+ expect(await send()).toMatchObject({code:'execution_changed'});
+ await env.DB.prepare('UPDATE channel_messages SET body=?2 WHERE id=?1').bind(row.id,row.body).run();
+ await commitHandoff(env.DB,move(a));
+ expect(await send()).toMatchObject({code:'execution_changed'});
+ const targetFence={...assignmentFence,generation:1};await claimHandoff(env.DB,{orgId:'org',operationId:'operation-1'});
+ expect((await postMessage(env.DB,{orgId:'org',key:row.channel,authorLogin:'agent:reviewer',kind:'agent',parentId:row.id,body:'Target answer',assignmentFence:targetFence})).row).toBeTruthy();
+ await endAssignment(env.DB,{orgId:'org',assignmentId:a.id,generation:1,agentId:'reviewer',status:'cancelled'});
+ expect(await postMessage(env.DB,{orgId:'org',key:row.channel,authorLogin:'agent:reviewer',kind:'agent',parentId:row.id,body:'Late answer',assignmentFence:targetFence})).toMatchObject({code:'execution_changed'});
+ expect((await env.DB.prepare("SELECT body FROM channel_messages WHERE body='Late answer'").all()).results).toHaveLength(0);
+});

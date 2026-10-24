@@ -83,3 +83,10 @@ test('a delegated target keeps polling after the source ended and shows the hand
  await act(async()=>{await vi.advanceTimersByTimeAsync(20000)});expect(reads).toBe(3);
  act(()=>tree.unmount());
 });
+
+test('durable assignment metadata remains visible when the old source job has no result',async()=>{
+ setup();vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({available:true,results:[{rowId:'one',status:'unknown',answered:0,assignments:[{id:'assignment',generation:0,status:'running',canStop:false,agent:{id:'agent',name:'Researcher',handle:'research'},hops:[]}]}]})}));
+ let tree!:ReturnType<typeof create>;await act(async()=>{tree=create(<AgentRunStatus api={api} channel="b:general" messages={[message('one')]}/>)});
+ expect(JSON.stringify(tree.toJSON())).toContain('Researcher');expect(JSON.stringify(tree.toJSON())).toContain('Agent execution running');expect(tree.root.findAllByType('button')).toHaveLength(0);
+ act(()=>tree.unmount());
+});

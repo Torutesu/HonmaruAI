@@ -920,3 +920,44 @@ test('handoff delivery retries a lost acknowledgement and cancels after source e
  expect(calls).toBe(1);
  expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE id=?1').bind(begun.assignment.id).first()).toEqual({status:'cancelled'});
 });
+
+async function assignmentStatusFixture() {
+ const {agent:source}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO})).json();
+ const {agent:target}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO.replaceAll('Hayao','Reviewer').replaceAll('hayao','reviewer')})).json();
+ const {setMode}=await import('../src/harness/mode.js');const {postMessage}=await import('../src/channels.js');const {getSession}=await import('../src/db.js');
+ const {beginAuthorizedAssignment,acceptAgentHandoff}=await import('../src/harness/agentAssignmentGrant.js');
+ await setMode(env.DB,ORG,'harness','8801');
+ for(const id of [source.id,target.id])await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:cafe',?2,'8801','2026-10-24')").bind(ORG,id).run();
+ const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'mika',body:'@hayao review evidence'});
+ const begun=await beginAuthorizedAssignment(env,{orgId:ORG,rowId:row.id,token:(await getSession(env.DB,mika)).token},source.id);
+ expect(begun.started).toBe(true);
+ const accepted=await acceptAgentHandoff(env,{orgId:ORG,assignmentId:begun.assignment.id,generation:0,sourceAgentId:source.id,targetAgentId:target.id,operationId:'status-hop',brief:'Private handoff brief',messageBody:'@reviewer review'});
+ expect(accepted.error).toBeUndefined();
+ const runner={idFromName:name=>name,get:()=>({fetch:async(_url,init)=>Response.json({results:JSON.parse(init.body).rowIds.map(rowId=>({rowId,status:'finished',answered:0}))})})};
+ return {row,source,target,assignmentId:begun.assignment.id,over:{AGENT_RUNNER:runner}};
+}
+
+test('assignment status exposes scoped chain metadata with per-viewer stop rights',async()=>{
+ const f=await assignmentStatusFixture();
+ const url=`/channels/agent-runs?${q({orgId:ORG,channel:'b:cafe',messageId:f.row.id})}`;
+ for(const [token,canStop] of [[mika,true],[kenji,false],[toru,true]]) {
+  const response=await call(url,{headers:headers(token)},f.over);expect(response.status).toBe(200);
+  const body=await response.json();const a=body.results[0].assignments[0];
+  expect(a).toMatchObject({id:f.assignmentId,generation:1,status:'pending',canStop,agent:{id:f.target.id,name:'Reviewer'},hops:[{id:'status-hop',from:{id:f.source.id},to:{id:f.target.id}}]});
+  const text=JSON.stringify(body);for(const value of ['Private handoff brief','session_key','source_hash','actor_id','instructions'])expect(text).not.toContain(value);
+ }
+ const mixed=await call(`${url}&messageId=foreign`,{headers:headers(mika)},f.over);expect(mixed.status).toBe(404);
+});
+
+test('only the requester or agent manager can stop the observed assignment generation',async()=>{
+ const f=await assignmentStatusFixture();
+ const body={orgId:ORG,channel:'b:cafe',messageId:f.row.id,assignmentId:f.assignmentId,generation:1};
+ expect((await send('POST','/channels/agent-runs/stop',kenji,body)).status).toBe(403);
+ expect((await send('POST','/channels/agent-runs/stop',mika,{...body,generation:0})).status).toBe(409);
+ expect((await send('POST','/channels/agent-runs/stop',mika,{...body,channel:'ag:unknown'})).status).toBe(404);
+ const stopped=await send('POST','/channels/agent-runs/stop',mika,body);expect(stopped.status).toBe(200);expect(await stopped.json()).toEqual({stopped:true});
+ expect((await send('POST','/channels/agent-runs/stop',mika,body)).status).toBe(200);
+ const {runQueuedHandoff}=await import('../src/harness/agentHandoffRun.js');
+ expect(await runQueuedHandoff(env,{orgId:ORG,rowId:'status-hop'})).toEqual({status:'cancelled',answered:0});
+ expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE id=?1').bind(f.assignmentId).first()).toEqual({status:'cancelled'});
+});

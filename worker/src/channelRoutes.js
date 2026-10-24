@@ -1,3 +1,5 @@
+import {decorateAssignmentStatuses} from './harness/agentAssignmentStatus.js';
+import {stopAssignment} from './harness/agentAssignmentStop.js';
 import {runAgentAssignment} from './harness/runAgentAssignment.js';
 import {drainAgentRequests,decorateAgentRequestStatuses} from './agentRequestDispatch.js';
 import {agentExecutionAuthorizer} from './agentExecutionGrant.js';
@@ -532,7 +534,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   });
   // Every agent called works at once, each answering as soon as it is done:
   // five agents take as long as the slowest, not the sum of all five.
-  const answerOne = async (agent, index, authorizeAgent = authorize, runtimeTools = {}) => {
+  const answerOne = async (agent, index, authorizeAgent = authorize, runtimeTools = {}, replyFence = null) => {
     const authorize = authorizeAgent ? () => authorizeAgent(agent.id) : null;
     if (authorize && !await authorize()) return;
     // An AI teammate works through its own service, not the workspace's
@@ -582,7 +584,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         modelAnswered = Boolean(result.answer);
       }
       if (authorize && !await authorize()) return;
-      const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: text, kind: "agent", parentId, roomHookSource });
+      const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: text, kind: "agent", parentId, roomHookSource, assignmentFence:replyFence });
       if (out.row) {
         if (modelAnswered) answered += 1;
         await queueMessagePushes(env, orgId, out.row, { members }).catch((err) => console.error("push queue failed", safe(err?.message)));
@@ -594,7 +596,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       // Failed on the way: still a line in the thread, never silence.
       try {
         if (authorize && !await authorize()) return;
-        const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: serverText(locale, "agent.failedError"), kind: "agent", parentId, roomHookSource });
+        const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: serverText(locale, "agent.failedError"), kind: "agent", parentId, roomHookSource, assignmentFence:replyFence });
         if (out.row) await broadcastWithParent(env, orgId, resolved, out.row, members);
       } catch { /* the database itself is down: nothing more to say */ }
     } finally {
@@ -604,7 +606,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     }
   };
   const outcomes = await Promise.allSettled(agents.map((agent, index) => {
-    const execute = runtime => answerOne(agent,index,runtime.authorize,runtime.tools);
+    const execute = runtime => answerOne(agent,index,runtime.authorize,runtime.tools,runtime.replyFence);
     const run = durableExecution && harness && !roomHookSource && session?.token && !agent.provider
       ? runAgentAssignment(env,{orgId,session,row,agent,authorize,existing:assignment,locale,
           publish:async messageId=>{const message=await getMessage(env.DB,orgId,messageId);if(message&&!message.deleted_at)await broadcastWithParent(env,orgId,resolved,message,members);}},execute)
@@ -1045,6 +1047,19 @@ export async function handleChannels(request, env, url, { route, after }) {
     return json(await searchMessages(env.DB, orgId, who.user.login, members, url.searchParams.get("q") || ""));
   }
 
+  if (path === '/channels/agent-runs/stop' && request.method === 'POST') {
+    const body=await request.json().catch(()=>null);
+    const {validAgentStatusInput}=await import('./agentJobStatus.js');
+    if(!body || !validAgentStatusInput({orgId:body.orgId,rowIds:[body.messageId]}) || typeof body.channel!=='string')return json({message:'Invalid execution.'},400);
+    const access=await inChannel(env,request,body);
+    if(access.denied)return access.denied;
+    const row=await getMessage(env.DB,body.orgId,body.messageId);
+    if(!row || row.deleted_at || row.kind!=='message' || row.channel!==access.resolved.key)return json({message:'No such message.'},404);
+    const result=await stopAssignment(env.DB,{orgId:body.orgId,sourceMessageId:row.id,channel:access.resolved.key,assignmentId:body.assignmentId,generation:body.generation,
+      actorId:access.who.session.github_id,canManage:await allowed(env.DB,body.orgId,access.who.session.github_id,'agent.manage_others')});
+    return result.stopped?json({stopped:true}):json({message:result.message},result.status);
+  }
+
   if (path === '/channels/agent-runs' && request.method === 'GET') {
     const orgId = url.searchParams.get('orgId');
     const channel = url.searchParams.get('channel');
@@ -1061,7 +1076,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       const response = await stub.fetch('https://agents/agent-status', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({orgId, rowIds}), signal: AbortSignal.timeout(5000)});
       if (!response.ok) return json({message: 'Execution status unavailable.'}, 503);
       const result=await response.json();
-      return json({available:true,results:await decorateAgentRequestStatuses(env.DB,orgId,result.results)});
+      return json({available:true,results:await decorateAssignmentStatuses(env.DB,orgId,await decorateAgentRequestStatuses(env.DB,orgId,result.results),{actorId:access.who.session.github_id,canManage:await allowed(env.DB,orgId,access.who.session.github_id,'agent.manage_others')})});
     } catch {
       return json({message: 'Execution status unavailable.'}, 503);
     }

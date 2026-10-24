@@ -3,10 +3,11 @@ import type {ChannelMessage} from '../types/card'
 import {isTemp} from '../utils/pendingSend'
 import {useT} from '../utils/i18n'
 import {Icon} from './Icon'
+import {AgentRunStop} from './AgentRunStop'
 
 type Api = {httpBase: string; orgId: string; sessionToken: string}
 type AgentFace = {id: string; name: string; handle: string}
-type Assignment = {id: string; generation: number; status: string; agent: AgentFace; hops: {id: string; from: AgentFace; to: AgentFace; at: string}[]}
+type Assignment = {id: string; generation: number; status: string; canStop?: boolean; agent: AgentFace; hops: {id: string; from: AgentFace; to: AgentFace; at: string}[]}
 type Run = {rowId: string; status: string; answered: number; version?: number; assignments?: Assignment[]}
 const activeStatus = (status: string) => ['pending_delivery', 'queued', 'running', 'pending'].includes(status)
 const activeRun = (run: Run) => activeStatus(run.status) || Boolean(run.assignments?.some(assignment => activeStatus(assignment.status)))
@@ -29,6 +30,7 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
   const sources = [...new Map(messages.filter(m => m.kind === 'message' && !m.deleted && !isTemp(m)).map(m => [m.id, m])).values()].slice(-20)
   const ids = JSON.stringify(sources.map(m => m.id))
   const scope = JSON.stringify([api.httpBase, api.orgId, api.sessionToken, channel, ids])
+  const [refresh, setRefresh] = useState(0)
   const [state, setState] = useState<{scope: string; runs: Run[]; unavailable: boolean}>({scope, runs: [], unavailable: false})
   useEffect(() => {
     const rowIds: string[] = JSON.parse(ids)
@@ -50,7 +52,7 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
         if (!response.ok) throw new Error('unavailable')
         const result = await response.json()
         if (!Array.isArray(result.results)) throw new Error('unavailable')
-        const runs: Run[] = result.results.filter((run: Run) => run && rowIds.includes(run.rowId) && labels[run.status]).map((run: Run) => ({...run, assignments: assignmentsFrom(run.assignments)}))
+        const runs: Run[] = result.results.filter((run: Run) => run && rowIds.includes(run.rowId)).map((run: Run) => ({...run, assignments: assignmentsFrom(run.assignments)})).filter((run: Run) => labels[run.status] || run.assignments?.length)
         if (!stopped) setState({scope, runs, unavailable: result.available === false})
         attempts++
         again = result.available !== false && (runs.some(activeRun) || (attempts < 3 && runs.length < rowIds.length))
@@ -74,7 +76,7 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
       window.removeEventListener('honmaru:resync', resume)
       document.removeEventListener('visibilitychange', resume)
     }
-  }, [scope, ids, api.httpBase, api.orgId, api.sessionToken, channel])
+  }, [scope, ids, api.httpBase, api.orgId, api.sessionToken, channel, refresh])
   if (state.scope !== scope || (!state.runs.length && !state.unavailable)) return null
   if (state.unavailable) return <p className="slk-run-unavailable">{t('Agent execution status unavailable')}</p>
   const active = state.runs.filter(activeRun).length
@@ -85,9 +87,11 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
       {!run.assignments?.length && <span>{t(labels[run.status])}</span>}
       {Boolean(run.assignments?.length) && <div className="slk-run-assignments">{run.assignments!.map(assignment => <div className="slk-run-assignment" key={assignment.id}>
         <div className="slk-run-assignee"><Icon name="bot" size={14}/><span title={`@${assignment.agent.handle}`}>{assignment.agent.name || t('Agent')}</span><span className="slk-run-assignment-status">{t(assignment.status === 'cancelled' ? 'Agent execution cancelled' : labels[assignment.status])}</span></div>
+        {assignment.canStop === true && activeStatus(assignment.status) && <AgentRunStop key={`${scope}:${assignment.id}:${assignment.generation}`} api={api} channel={channel} rowId={run.rowId} assignmentId={assignment.id} generation={assignment.generation} onStopped={() => setRefresh(value => value + 1)}/>}
         {assignment.hops.length > 0 && <details className="slk-run-handoffs"><summary><span className="slk-handoff-disclosure"><Icon name="chevron-right" size={12}/></span>{t('Handoff history ({count})', {count: assignment.hops.length})}</summary><ol>{assignment.hops.map(hop => <li key={hop.id}><span title={`@${hop.from.handle} → @${hop.to.handle}`}>{hop.from.name || t('Agent')} → {hop.to.name || t('Agent')}</span>{Number.isFinite(Date.parse(hop.at)) && <time dateTime={hop.at}>{new Date(hop.at).toLocaleString()}</time>}</li>)}</ol></details>}
       </div>)}</div>}
     </li>)}</ul>
+    {state.runs.some(run => run.assignments?.some(assignment => assignment.canStop && activeStatus(assignment.status))) && <p>{t('Stopping prevents further work. External operations already started may still finish.')}</p>}
     <p>{t('Processing ended does not confirm that the task or external actions succeeded.')}</p>
   </details>
 }

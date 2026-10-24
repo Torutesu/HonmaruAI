@@ -1,6 +1,6 @@
 # Agent handoff implementation contract
 
-Status: assignment persistence and current-origin/target grant helpers are implemented locally with targeted tests. Runtime integration, delivery, control tool and chain UI remain incomplete; KY-018/KY-019 remain incomplete. No handoff tool or leader selector is exposed.
+Status: local durable Harness handoff runtime, metadata/history API and UI, and requester/manager stop control are implemented and tested. External teammate/provider coverage and live Kylon/production verification remain incomplete; KY-018/KY-019 remain partial. This is not a 100% fidelity claim. No Orchestrator selector is introduced.
 
 ## Evidence and current behavior
 
@@ -8,7 +8,7 @@ Rechecked 2026-10-24:
 - https://docs.kylon.io/concepts/rooms: explicit agent mentions can activate another agent; ordinary status messages do not create reply loops. There is no separate user-facing Orchestrator selector.
 - https://docs.kylon.io/cli/workspace/thread: activation selects an eligible room member, replies can request routing or direct activation, and notify-only suppresses activation. Activation reports whether work actually started. A new isolated thread omits preceding-room context but is not a new security boundary.
 - `customAgents.respondingAgents` supports human explicit mentions and limited new-request routing. `channelRoutes.runAgents` executes selected agents concurrently and posts outputs without routing those outputs to other agents. Thus an agent mentioning another agent currently does not implement a handoff.
-- `AgentRunner` has idempotent enqueue receipts for human requests and room hooks. It has no ownership generation for a thread or per-handoff execution identity. Normal jobs now persist execution results before removal; a recovered running result becomes interrupted without rerunning external work. This is separate from assignment ownership.
+- `AgentRunner` now has separate idempotent receipts/results for normal requests, room hooks and handoffs. Handoff operations retain exact assignment generations. Normal jobs now persist execution results before removal; a recovered running result becomes interrupted without rerunning external work. This is separate from assignment ownership.
 - `roomHookDispatch` provides a useful durable outbox pattern: bounded leases, retry of delivery only, and acceptance only on an explicit queue response. Do not conflate accepted delivery with successful execution.
 
 ## Required runtime contract
@@ -49,7 +49,7 @@ The client should scope cached results to account/workspace/conversation/message
 
 `agentAssignmentGrant.js` resolves the original human request without changing its author/body, then separately checks the assigned target's current room placement and invocation rights. It requires Harness mode and a currently readable business room. Source edits and sign-out invalidate the grant; an unavailable target is not silently granted membership. Normal human responder selection continues through `agentExecutionGrant`. These helpers are now connected to the local durable Harness execution path; the runtime integration has not yet been deployed.
 
-Local runtime integration now creates/claims assignments, drains the handoff outbox, uses a separate AgentRunner receipt/result namespace, terminates source research through the trusted control signal, checks generation at execution stages, and settles interrupted ownership before deleting jobs. Remaining work includes chain/stop UI, external teammate callback fencing, provider coverage, atomic final-write fencing, and live reference/production verification. Parity remains partial.
+Local runtime integration now creates/claims assignments, drains the handoff outbox, uses a separate AgentRunner receipt/result namespace, terminates source research through the trusted control signal, checks generation at execution stages, and settles interrupted ownership before deleting jobs. Chain/stop UI and atomic final-write fencing are now implemented locally. Remaining work includes external teammate callback fencing, provider coverage, and live reference/production verification. Parity remains partial.
 
 ## Runtime control and prerequisites
 
@@ -65,6 +65,14 @@ Harness production channel sends now atomically save the message, attachments an
 
 The `handoff_to_agent` control tool accepts one currently eligible, unvisited internal room agent and a bounded brief. The original human message remains unchanged. The atomic transition stores a visible handoff message and pending delivery; the minute drain retries only queue delivery. The target reads the brief with original human provenance and independent current authorization. The brief is not interpreted as an implicit memory/follow-up command. Source final output and ordinary sibling function calls are suppressed after the trusted successful handoff signal.
 
-A handoff job has a separate durable receipt and result. Cross-store terminal settlement uses the exact operation's target generation, so recovery cannot cancel an advanced target. Explicit inline/Simple behavior is preserved. External teammates are excluded from this tool until their asynchronous callbacks carry generation fencing. This exclusion is an unfinished parity item, not a completed replacement for external delegation. The chain is stored and visible messages exist, but the chain/status/stop UI remains unfinished.
+A handoff job has a separate durable receipt and result. Cross-store terminal settlement uses the exact operation's target generation, so recovery cannot cancel an advanced target. Explicit inline/Simple behavior is preserved. External teammates are excluded from this tool until their asynchronous callbacks carry generation fencing. This exclusion is an unfinished parity item, not a completed replacement for external delegation. The chain/status/stop UI and scoped metadata API are now implemented locally; authenticated production verification remains outstanding.
 
 Five targeted files / 81 tests passed, including two mocked provider turns, source answer suppression, duplicate target execution prevention, lost delivery acknowledgement with source-edit cancellation, durable receipt separation, and old-generation settlement protection. This is not a controlled production handoff or live Kylon comparison.
+
+## Scoped history and stop control (local)
+
+The status endpoint checks every source message against the caller's readable canonical conversation before returning assignment IDs, current agent names/handles, generations, states and bounded hop metadata. It never returns session hashes, fingerprints, briefs, actor IDs or instructions. A source with a legacy unknown job result can still display its persisted assignments.
+
+`canStop` requires the original requester or existing `agent.manage_others` permission. The stop endpoint repeats current sign-in, membership, room/source and capability checks, then changes only the observed assignment generation. A handoff race returns conflict instead of cancelling a new target. Repeated cancellation is idempotent; already-finished work cannot be changed to cancelled. Starting further work is blocked by current assignment checks, but already-started external actions cannot be rolled back.
+
+Normal and fallback replies from assigned runs include a SQL insert guard for the current assignment owner/generation/status, room/thread, and unchanged live source body/author/parent. A cancelled or advanced generation cannot publish a late reply. This does not claim transactional control over an external provider's already-started action.
