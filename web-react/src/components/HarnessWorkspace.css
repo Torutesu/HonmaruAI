@@ -696,3 +696,6 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-automation-summary dl { margin: 4px 0; display: grid; grid-template-columns: minmax(60px, 1fr) minmax(0, 2fr); gap: 4px 8px; }
 .hx-automation-summary dd { margin: 0; overflow-wrap: anywhere; }
 .hx-automation-content { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.hx-workflow-source input[type="radio"] { width: auto; flex-shrink: 0; accent-color: var(--ink-black); }
+.hx-workflow-source .row-main { white-space: normal; overflow-wrap: anywhere; }

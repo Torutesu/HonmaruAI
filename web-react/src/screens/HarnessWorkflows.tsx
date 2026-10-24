@@ -1,3 +1,4 @@
+import {WorkflowSource} from '../components/WorkflowSource'
 import {WorkflowNotices} from '../components/WorkflowNotices'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
@@ -206,6 +207,7 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
             </span>
           </div>
         </div>
+        <WorkflowSource key={w.id} api={api} workflowId={w.id}/>
         {error && <div className="form-error">{error}</div>}
         {open.canEdit && (
           <div className="hx-actions">

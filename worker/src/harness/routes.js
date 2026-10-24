@@ -396,7 +396,7 @@ export async function handleHarness(request, env, url, context = {}) {
       return null;
     }
     if(sub==='source'&&['GET','POST'].includes(request.method)){
-      const result=await workflowSource(env.DB,orgId,me,wfId,input,request.method==='POST');
+      const result=await workflowSource(env.DB,orgId,me,wfId,input||{candidates:url.searchParams.get('candidates')==='1',before:url.searchParams.get('before')},request.method==='POST');
       return result.error?fail(result):json(result);
     }
     if(sub==='resume' && request.method==='POST'){

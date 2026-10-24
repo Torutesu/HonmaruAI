@@ -892,6 +892,10 @@ test('workflow source is explicit, creator-bound, immutable and never exposes an
  const other=await postMessage(env.DB,{orgId:ORG,key:'b:ops',authorLogin:'mika',body:'A different thread'});
  const reply=await postMessage(env.DB,{orgId:ORG,key:'b:ops',authorLogin:'mika',body:'Reply',parentId:root.row.id});
  const source=(token,messageId)=>send('POST',`/workflows/${workflow.id}/source`,token,{orgId:ORG,messageId});
+ const candidates=await(await get(`/workflows/${workflow.id}/source?${q({orgId:ORG,candidates:'1'})}`,mika)).json();
+ expect(candidates.canBind).toBe(true);expect(candidates.candidates.map(r=>r.id)).toContain(root.row.id);expect(candidates.candidates.map(r=>r.id)).not.toContain(reply.row.id);
+ const otherViewer=await(await get(`/workflows/${workflow.id}/source?${q({orgId:ORG,candidates:'1'})}`,toru)).json();
+ expect(otherViewer).toMatchObject({canBind:false,candidates:[]});
  const foreign=await postMessage(env.DB,{orgId:'other-workspace',key:'b:ops',authorLogin:'mika',body:'Foreign thread'});
  expect((await source(mika,foreign.row.id)).status).toBe(404);
  expect((await source(toru,root.row.id)).status).toBe(403);
