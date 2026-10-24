@@ -699,3 +699,6 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 
 .hx-workflow-source input[type="radio"] { width: auto; flex-shrink: 0; accent-color: var(--ink-black); }
 .hx-workflow-source .row-main { white-space: normal; overflow-wrap: anywhere; }
+
+.hx-workflow-source .hx-source-open{display:inline-flex;align-items:center;gap:6px;min-height:36px;margin:0 0 8px;text-decoration:none}
+.hx-workflow-source .hx-source-open:focus-visible{outline:2px solid var(--ink-black);outline-offset:3px}

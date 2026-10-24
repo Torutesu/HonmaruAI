@@ -207,7 +207,7 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
             </span>
           </div>
         </div>
-        <WorkflowSource key={w.id} api={api} workflowId={w.id}/>
+        <WorkflowSource key={w.id} api={api} workflowId={w.id} orgId={props.orgId}/>
         {error && <div className="form-error">{error}</div>}
         {open.canEdit && (
           <div className="hx-actions">
