@@ -5,9 +5,20 @@ import {useT} from '../utils/i18n'
 import {Icon} from './Icon'
 
 type Api = {httpBase: string; orgId: string; sessionToken: string}
-type Run = {rowId: string; status: string; answered: number; version?: number}
+type AgentFace = {id: string; name: string; handle: string}
+type Assignment = {id: string; generation: number; status: string; agent: AgentFace; hops: {id: string; from: AgentFace; to: AgentFace; at: string}[]}
+type Run = {rowId: string; status: string; answered: number; version?: number; assignments?: Assignment[]}
+const activeStatus = (status: string) => ['pending_delivery', 'queued', 'running', 'pending'].includes(status)
+const activeRun = (run: Run) => activeStatus(run.status) || Boolean(run.assignments?.some(assignment => activeStatus(assignment.status)))
+const faceValid = (face: AgentFace) => face && typeof face.id === 'string' && typeof face.name === 'string' && typeof face.handle === 'string'
+function assignmentsFrom(value: unknown): Assignment[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(assignment => assignment && typeof assignment.id === 'string' && Number.isSafeInteger(assignment.generation) && assignment.generation >= 0 && assignment.generation <= 8 && ['pending','running','finished','failed','cancelled','interrupted'].includes(assignment.status) && faceValid(assignment.agent)).slice(0, 20).map(assignment => ({...assignment,
+    hops: (Array.isArray(assignment.hops) ? assignment.hops : []).filter((hop: Assignment['hops'][number]) => hop && typeof hop.id === 'string' && faceValid(hop.from) && faceValid(hop.to) && typeof hop.at === 'string').slice(0, 8),
+  }))
+}
 const labels: Record<string, string> = {
-  pending_delivery: 'Agent queue acknowledgement pending', queued: 'Agent execution queued', running: 'Agent execution running',
+  pending: 'Agent handoff awaiting delivery', pending_delivery: 'Agent queue acknowledgement pending', queued: 'Agent execution queued', running: 'Agent execution running',
   finished: 'Agent processing ended', failed: 'Agent execution failed',
   interrupted: 'Agent execution interrupted; outcome unconfirmed',
   cancelled: 'Agent execution stopped after access changed', no_agents: 'No eligible agent to run',
@@ -39,10 +50,10 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
         if (!response.ok) throw new Error('unavailable')
         const result = await response.json()
         if (!Array.isArray(result.results)) throw new Error('unavailable')
-        const runs: Run[] = result.results.filter((run: Run) => rowIds.includes(run.rowId) && labels[run.status])
+        const runs: Run[] = result.results.filter((run: Run) => run && rowIds.includes(run.rowId) && labels[run.status]).map((run: Run) => ({...run, assignments: assignmentsFrom(run.assignments)}))
         if (!stopped) setState({scope, runs, unavailable: result.available === false})
         attempts++
-        again = result.available !== false && (runs.some(run => run.status === 'pending_delivery' || run.status === 'queued' || run.status === 'running') || (attempts < 3 && runs.length < rowIds.length))
+        again = result.available !== false && (runs.some(activeRun) || (attempts < 3 && runs.length < rowIds.length))
       } catch {
         if (!stopped) setState({scope, runs: [], unavailable: true})
         again = ++attempts < 3
@@ -66,12 +77,16 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
   }, [scope, ids, api.httpBase, api.orgId, api.sessionToken, channel])
   if (state.scope !== scope || (!state.runs.length && !state.unavailable)) return null
   if (state.unavailable) return <p className="slk-run-unavailable">{t('Agent execution status unavailable')}</p>
-  const active = state.runs.filter(run => run.status === 'pending_delivery' || run.status === 'queued' || run.status === 'running').length
+  const active = state.runs.filter(activeRun).length
   return <details className="slk-agent-runs">
     <summary><span className="slk-run-disclosure"><Icon name="chevron-right" size={12}/></span><Icon name="bot" size={14}/>{t('Agent execution')}{active > 0 && <span className="slk-run-active" role="status">{t('{count} active', {count: active})}</span>}</summary>
     <ul>{state.runs.map(run => <li key={run.rowId}>
       <span className="slk-run-source" title={sources.find(m => m.id === run.rowId)?.body}>{sources.find(m => m.id === run.rowId)?.body.slice(0, 100) || t('Message')}</span>
-      <span>{t(labels[run.status])}</span>
+      {!run.assignments?.length && <span>{t(labels[run.status])}</span>}
+      {Boolean(run.assignments?.length) && <div className="slk-run-assignments">{run.assignments!.map(assignment => <div className="slk-run-assignment" key={assignment.id}>
+        <div className="slk-run-assignee"><Icon name="bot" size={14}/><span title={`@${assignment.agent.handle}`}>{assignment.agent.name || t('Agent')}</span><span className="slk-run-assignment-status">{t(assignment.status === 'cancelled' ? 'Agent execution cancelled' : labels[assignment.status])}</span></div>
+        {assignment.hops.length > 0 && <details className="slk-run-handoffs"><summary><span className="slk-handoff-disclosure"><Icon name="chevron-right" size={12}/></span>{t('Handoff history ({count})', {count: assignment.hops.length})}</summary><ol>{assignment.hops.map(hop => <li key={hop.id}><span title={`@${hop.from.handle} → @${hop.to.handle}`}>{hop.from.name || t('Agent')} → {hop.to.name || t('Agent')}</span>{Number.isFinite(Date.parse(hop.at)) && <time dateTime={hop.at}>{new Date(hop.at).toLocaleString()}</time>}</li>)}</ol></details>}
+      </div>)}</div>}
     </li>)}</ul>
     <p>{t('Processing ended does not confirm that the task or external actions succeeded.')}</p>
   </details>

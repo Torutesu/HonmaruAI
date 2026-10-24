@@ -70,3 +70,16 @@ test('pending queue acknowledgement keeps polling beyond the legacy unknown retr
   expect(calls).toBe(5);expect(JSON.stringify(tree.toJSON())).toContain('Agent processing ended');
   act(()=>tree.unmount());
 });
+
+test('a delegated target keeps polling after the source ended and shows the handoff chain',async()=>{
+ setup();let reads=0;
+ const face=(id:string)=>({id,name:id,handle:id});
+ vi.stubGlobal('fetch',vi.fn().mockImplementation(async()=>({ok:true,json:async()=>({available:true,results:[{rowId:'one',status:'finished',answered:0,assignments:[{id:'assignment',generation:1,status:++reads<3?'running':'finished',agent:face('Reviewer'),hops:[{id:'hop',from:face('Researcher'),to:face('Reviewer'),at:'2026-10-24T00:00:00Z'}]}]}]})})));
+ let tree!:ReturnType<typeof create>;
+ await act(async()=>{tree=create(<AgentRunStatus api={api} channel="b:general" messages={[message('one')]}/>)});
+ expect(JSON.stringify(tree.toJSON())).toContain('Researcher');expect(JSON.stringify(tree.toJSON())).toContain('Reviewer');expect(JSON.stringify(tree.toJSON())).toContain('Agent execution running');
+ await act(async()=>{await vi.advanceTimersByTimeAsync(10000)});
+ expect(reads).toBe(3);expect(JSON.stringify(tree.toJSON())).toContain('Agent processing ended');
+ await act(async()=>{await vi.advanceTimersByTimeAsync(20000)});expect(reads).toBe(3);
+ act(()=>tree.unmount());
+});
