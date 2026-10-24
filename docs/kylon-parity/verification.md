@@ -2220,3 +2220,7 @@ AutomationRuns now clears results on workflow/API identity changes and reloads a
 ### Full Web validation after history identity fix
 
 Web runtime 3db9fcc3 passed all 160 files / 1096 tests in 4.00s (`/tmp/honmaru-3db9-full-web.log`). The full Worker run remains live in session 63500; network/body warnings in its log are not a terminal result. Prior production candidate 65b03455's three GitHub runs also remain in progress. No overlapping deployment was pushed and no full Worker success is claimed yet.
+
+### Per-run elapsed duration
+
+App automation history displays localized elapsed duration only for terminal runs with valid nonnegative start/finish timestamps. The label explicitly includes approval waiting time; it does not represent model compute time or credit usage. Running/waiting/unknown status and invalid timestamps omit duration. Five focused history tests pass (`/tmp/honmaru-run-duration.log`); TypeScript and production build pass (`/tmp/honmaru-run-duration-build.log`). No authenticated screen or Kylon-equivalence claim. The earlier 1096-test full Web run predates this duration addition. Worker source/tests remain fixed for the still-live full run.

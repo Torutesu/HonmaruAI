@@ -48,3 +48,20 @@ test('changing API identity clears loaded results and reloads an open history',a
  expect(JSON.stringify(tree.toJSON())).not.toContain('old-account')
  act(()=>tree.unmount())
 })
+
+test('completed run shows elapsed time but waiting and invalid times do not claim a duration',async()=>{
+ const {runDuration}=await import('./AutomationRuns')
+ const base={status:'done',startedAt:'2026-10-24T00:00:00Z',finishedAt:'2026-10-24T00:01:30Z'}
+ expect(runDuration(base)).toMatch(/1.*30/)
+ expect(runDuration({...base,finishedAt:'2026-10-24T02:15:00Z'})).toMatch(/2.*15/)
+ expect(runDuration({...base,finishedAt:'2026-10-24T00:00:00.200Z'})).toContain('0.2')
+ for(const status of ['waiting','running','unknown']) expect(runDuration({...base,status})).toBeNull()
+ expect(runDuration({...base,finishedAt:null})).toBeNull()
+ expect(runDuration({...base,startedAt:'invalid'})).toBeNull()
+ expect(runDuration({...base,finishedAt:'2026-10-23T23:59:59Z'})).toBeNull()
+ const workflow=vi.fn().mockResolvedValue({runs:[{...base,id:'timed',log:[]}]});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+ await act(async()=>tree.root.findByType('button').props.onClick())
+ expect(tree.root.findByType('span').props.title).toContain('承認待ち時間を含む')
+ act(()=>tree.unmount())
+})

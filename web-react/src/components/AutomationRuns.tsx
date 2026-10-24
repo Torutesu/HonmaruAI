@@ -2,6 +2,19 @@ import React,{useCallback,useEffect,useRef,useState} from 'react'
 import type {HarnessApi,Run} from '../utils/harness'
 import {getLocale} from '../utils/locale'
 const labels:Record<string,string>={done:'完了',running:'実行中',waiting:'承認待ち',failed:'失敗',declined:'却下',ok:'成功',cancelled:'キャンセル'}
+export function runDuration(run: Pick<Run,'status'|'startedAt'|'finishedAt'>): string | null {
+ if(!['done','failed','declined','cancelled'].includes(run.status)||!run.finishedAt)return null
+ const elapsed=Date.parse(run.finishedAt)-Date.parse(run.startedAt)
+ if(!Number.isFinite(elapsed)||elapsed<0)return null
+ let locale=getLocale()
+ try{new Intl.NumberFormat(locale)}catch{locale='en'}
+ const seconds=elapsed/1000
+ const units: Array<[number,'hour'|'minute'|'second']> = seconds<60
+  ? [[seconds,'second']]
+  : seconds<3600 ? [[Math.floor(seconds/60),'minute'],[Math.floor(seconds%60),'second']]
+  : [[Math.floor(seconds/3600),'hour'],[Math.floor(seconds%3600/60),'minute']]
+ return units.map(([value,unit])=>new Intl.NumberFormat(locale,{style:'unit',unit,unitDisplay:'short',maximumFractionDigits:unit==='second'&&seconds<60?1:0}).format(value)).join(' ')
+}
 export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessApi}) {
  const [runs,setRuns]=useState<Run[]|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('')
  const request=useRef(0),pending=useRef<number|null>(null),opened=useRef(false)
@@ -20,7 +33,7 @@ export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessAp
  return <details onToggle={e=>{opened.current=e.currentTarget.open;if(opened.current && runs===null && !busy)void load()}}><summary>実行履歴</summary>
   {busy&&<p role="status">実行履歴を読み込み中…</p>}{error&&<p role="alert">{error}</p>}
   {runs?.length===0&&<p>まだ実行されていません。</p>}
-  {runs?.map(run=><details key={run.id}><summary>{new Date(run.startedAt).toLocaleString(getLocale())} · {labels[run.status]||run.status}</summary>
+  {runs?.map(run=><details key={run.id}><summary>{new Date(run.startedAt).toLocaleString(getLocale())} · {labels[run.status]||run.status}{runDuration(run)!==null&&<> · <span title="開始から終了まで（承認待ち時間を含む）">{runDuration(run)}</span></>}</summary>
    <ol>{run.log.map((entry,index)=><li key={index}><strong>{entry.step}. {labels[entry.status]||entry.status}</strong>{entry.error&&<p className="form-error">{entry.error}</p>}{entry.output&&<pre>{entry.output}</pre>}</li>)}</ol>
    <small>実行ID: {run.id}</small>
   </details>)}
