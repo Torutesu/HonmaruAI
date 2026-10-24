@@ -553,3 +553,21 @@ test("a save that loses to another leaves the app's table, definition and histor
   expect(won.app.version).toBe(3);
   expect((await getTable(env.DB, ORG, app.tableId)).columns.map((c) => c.name)).toContain("Extra");
 });
+
+test('app automation drafts are private to editors, inert and protected against concurrent saves',async()=>{
+ const {app}=await(await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ const path=`/apps/${app.id}/automations`;
+ const first=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(first).toMatchObject({revision:0,version:app.version,draft:{version:1,items:[]},published:null});
+ const automations={version:1,items:[{key:'review',name:'Review',enabled:true,trigger:{type:'manual'},steps:[{type:'post',channel:'b:general',text:'draft-private-note'}]}]};
+ expect((await get(`${path}?orgId=${ORG}`,mika)).status).toBe(403);
+ expect((await send('PUT',path,mika,{orgId:ORG,version:app.version,revision:0,automations})).status).toBe(403);
+ const results=await Promise.all([send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations}),send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations})]);
+ expect(results.map(r=>r.status).sort()).toEqual([200,409]);
+ const saved=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(saved).toMatchObject({revision:1,draft:automations,published:null});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+ expect(JSON.stringify(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json())).not.toContain('draft-private-note');
+ const edit=await send('PUT',`/apps/${app.id}`,toru,{orgId:ORG,name:'Changed app',expectedVersion:app.version});expect(edit.status).toBe(200);
+ expect((await send('PUT',path,toru,{orgId:ORG,version:app.version,revision:1,automations})).status).toBe(409);
+ const invalid=await send('PUT',path,toru,{orgId:ORG,version:app.version+1,revision:1,automations:{version:1,items:[...automations.items,...automations.items]}});expect(invalid.status).toBe(400);
+ expect((await(await get(`${path}?orgId=${ORG}`,toru)).json()).revision).toBe(1);
+});

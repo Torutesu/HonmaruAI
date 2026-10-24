@@ -2189,3 +2189,5 @@ CREATE INDEX IF NOT EXISTS idx_hx_agent_request_dispatch_due ON hx_agent_request
 
 CREATE TABLE IF NOT EXISTS ai_teammate_result_dispatch (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, run_id TEXT NOT NULL, turn_version INTEGER NOT NULL, agent_id TEXT NOT NULL, assignment_id TEXT, assignment_generation INTEGER, assignment_agent_id TEXT, payload TEXT, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, UNIQUE(org_id,run_id,turn_version));
 CREATE INDEX IF NOT EXISTS idx_teammate_result_pending ON ai_teammate_result_dispatch(status,next_attempt,lease_until);
+
+CREATE TABLE IF NOT EXISTS hx_app_automation_state (org_id TEXT NOT NULL, app_id TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, draft TEXT NOT NULL, published TEXT, release_id TEXT, published_at TEXT, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, PRIMARY KEY(org_id,app_id));

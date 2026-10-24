@@ -35,3 +35,11 @@ Verify draft inertness, existing published behavior during draft edits, atomic p
 `appAutomationDefinition.js` now validates bounded versioned declarations, explicit enabled state, unique stable keys, trigger/step fields and schedule ranges. It rejects live identities/credential fields and oversized content rather than truncating executable instructions. A pure diff classifies added/changed/removed/unchanged/missing/drifted definitions and excludes live hook secrets/run metadata. Six tests pass in `/tmp/honmaru-app-automation-definition-final.log`.
 
 This foundation is not yet connected to app storage, publication, workflow triggers or UI. KY-053 remains missing until the lifecycle is implemented and verified. Development is isolated at `/Users/tt/.codex/worktrees/app-automations/Honmaru`; app attachment failed because the thread has more than 100 attachments, but the checkout exists. The main workspace's frozen Worker test is unaffected.
+
+## Draft persistence (local isolated worktree)
+
+Added workspace/app-scoped automation state separate from ordinary app definitions, so draft instructions do not leak through normal app reads and ordinary view edits do not discard them. Editor-only GET/PUT automation endpoints use app-version and draft-revision checks in the same D1 write. Competing first saves have one winner. Draft edits retain published state and create no workflows, secrets or execution effects. Ordered single-line table creation is included in schema and migrations.
+
+Validation: **4 files / 53 tests passed**, 10.80s (`/tmp/honmaru-app-automation-draft.log`), including concurrent save conflict, stale app version rejection, invalid declaration rollback, editor visibility, zero workflows after an enabled draft save, existing app tests, migrations and query-scope audit. Publication, live binding/drift reconciliation, lifecycle guards and UI remain incomplete; the draft endpoint does not expose a publish action yet.
+
+Separately, main `cc983d53` contains the fully tested execution-control changes (Worker 1823/Web 1077 pass). CI `40068730977`, Web `40068730976`, Worker `40068730972` are in progress. These draft changes are not on main and must not replace those active jobs.
