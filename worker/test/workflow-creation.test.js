@@ -114,3 +114,33 @@ test('creation replies use the creator locale and escape workflow names in links
  expect(reply.body).toContain('自動実行は停止中です');
  expect(reply.body).toContain('請求 \\[確認\\]');
 });
+
+test('source-room revocation prevents a new run from posting into an otherwise accessible room',async()=>{
+ await upsertBusiness(env.DB,org,{name:'Public',createdBy:by});
+ await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=? AND slug='ops'").bind(org).run();
+ await env.DB.prepare("INSERT OR IGNORE INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?,'b:ops',?,'origin-owner','now')").bind(org,who.user.login).run();
+ const made=await make(input,async()=>JSON.stringify({...spec,steps:[{type:'post',channel:'b:public',text:'Must not leak'}]}));
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:ops' AND login=?").bind(org,who.user.login).run();
+ const {startRun}=await import('../src/harness/workflows.js');
+ const run=await startRun(env,{orgId:org,workflow:made.workflow,trigger:'schedule',startedBy:by});
+ expect(run.status).toBe('failed');expect(run.log[0].error).toContain('source access');
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND channel='b:public'").bind(org).first()).n).toBe(0);
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?,'b:ops',?,'origin-owner','now')").bind(org,who.user.login).run();
+ const resumed=await startRun(env,{orgId:org,workflow:made.workflow,trigger:'manual',startedBy:by});
+ expect(resumed.status).toBe('done');
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND channel='b:public'").bind(org).first()).n).toBe(1);
+
+});
+test('approval continuation rechecks source access before the next step',async()=>{
+ await upsertBusiness(env.DB,org,{name:'Public',createdBy:by});
+ await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=? AND slug='ops'").bind(org).run();
+ await env.DB.prepare("INSERT OR IGNORE INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?,'b:ops',?,'origin-owner','now')").bind(org,who.user.login).run();
+ const made=await make(input,async()=>JSON.stringify({...spec,steps:[{type:'approval',to:who.user.login,title:'Review',summary:'Review before publishing'},{type:'post',channel:'b:public',text:'Must not leak'}]}));
+ const {startRun,settleWorkflowApproval}=await import('../src/harness/workflows.js');
+ const run=await startRun(env,{orgId:org,workflow:made.workflow,trigger:'manual',startedBy:by});
+ expect(run.status).toBe('waiting');
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:ops' AND login=?").bind(org,who.user.login).run();
+ const result=await settleWorkflowApproval(env,org,{id:run.cardId,workflowApproval:{runId:run.id,step:1},decision:{action:'approve',actorUserID:who.user.login},recipientUserID:who.user.login});
+ expect(result.status).toBe('failed');expect(result.log[1].error).toContain('source access');
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND channel='b:public'").bind(org).first()).n).toBe(0);
+});

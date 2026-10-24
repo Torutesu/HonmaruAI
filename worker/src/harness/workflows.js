@@ -1,3 +1,4 @@
+import {workflowSourceMayRun} from './workflowSourceAuthority.js';
 import {tryWorkflowNotice} from './workflowNoticeDelivery.js';
 import {ensureWorkflowSafety,readWorkflowSafety,workflowSettlementStatements} from './workflowSafety.js';
 import {managedAutomationGuard,managedAutomationRelease,managedAutomationMayRun} from './appAutomationGuard.js';
@@ -405,7 +406,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     await tryWorkflowNotice(env,orgId,workflow.id);
     return getRun(db, orgId, runId);
   }
-  const authorize=()=>managedAutomationMayRun(db,orgId,workflow.id,workflow.automationReleaseId);
+  const authorize=async()=>await managedAutomationMayRun(db,orgId,workflow.id,workflow.automationReleaseId)&&await workflowSourceMayRun(db,orgId,workflow.id,workflow.createdBy);
   const log = run.log;
   const scope = { input: run.input || {}, steps: {}, workflow: { name: workflow.name } };
   if (run.input?.row) scope.row = run.input.row;
@@ -418,7 +419,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     const step = workflow.steps[index];
     let entry;
     try {
-      entry = !await authorize() ? {status:'failed',error:'The app automation was stopped or its published release changed.'}
+      entry = !await authorize() ? {status:'failed',error:'The automation was stopped, its release changed, or its source access was removed.'}
         : await runStep(env, { orgId, workflow, step, number: index + 1, scope, runId, depth, owner: workflow.createdBy, authorize });
     } catch (e) {
       entry = { status: "failed", error: String(e?.message || e).slice(0, 300) };
@@ -468,7 +469,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, runId, depth
         `${render(step.prompt, scope)}\n\n<context>\n${JSON.stringify({ input: scope.input, row: scope.row || null }).slice(0, 6000)}\n</context>`,
         { tools: prepared.skillTools, authorize, fallbackSystem: `You are ${agent.name}, doing a step of "${workflow.name}". Answer with the result only.\n\n${agent.instructions}` },
       );
-      if (!await authorize())return {status:'failed',error:'The app automation was stopped or its published release changed.'};
+      if (!await authorize())return {status:'failed',error:'The automation was stopped, its release changed, or its source access was removed.'};
       if (!answer) return { status: "failed", error: "The agent gave no answer." };
       if (step.channel) await say(env, orgId, step.channel, answer, { authorLogin: `agent:${agentRow.id}`, kind: "agent" });
       return { status: "ok", output: String(answer).slice(0, 4000) };
