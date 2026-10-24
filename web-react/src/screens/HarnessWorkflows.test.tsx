@@ -12,6 +12,7 @@ let tree: ReturnType<typeof create>
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ agents: [] }) }))
   state.api = {
+    workflowNotices: vi.fn().mockResolvedValue({items:[]}),
     workflows: vi.fn().mockResolvedValue({ workflows: [workflow] }), tables: vi.fn().mockResolvedValue({ tables: [] }),
     workflow: vi.fn().mockResolvedValue({ workflow, runs: [], canEdit: true }),
     changeWorkflowHook: vi.fn().mockResolvedValue({ workflow: { ...workflow, hookSecret: undefined, hookUrl: undefined } }),

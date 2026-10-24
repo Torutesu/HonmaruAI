@@ -1,3 +1,4 @@
+import {WorkflowNotices} from '../components/WorkflowNotices'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
@@ -298,6 +299,7 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
 
   return (
     <Shell className="hx-resource-screen" title={t('Workflows')} onClose={props.onClose} actions={!building && <button className="pill-btn" onClick={() => setBuilding(true)}><Icon name="plus" size={14} /> {t('Set up an automation')}</button>}>
+      <WorkflowNotices api={api} onOpen={id=>void openOne(id)} />
       <p className="lede">{t('Describe the outcome once: when it should happen, and what follows. A person approves what matters.')}</p>
       {error && <div className="form-error">{error}</div>}
       {hook && <div className="form-note">{t('Call this address to start it:')} <code className="hx-code">{hook}</code></div>}
