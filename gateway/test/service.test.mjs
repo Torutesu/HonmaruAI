@@ -30,3 +30,25 @@ test('runtime stopped with exit zero still triggers restart, running runtime is 
   await ensureRuntime(config, async (binary, args) => { calls.push(args); return { stdout: 'FIELD VALUE\nstatus              running\nclient.version 1.5.0\n' }; });
   assert.equal(calls.length, 1);
 });
+
+test('executable replacement validates a fresh inode and preserves the old file on failure',async()=>{
+ const {installExecutable}=await import('../install-executable.mjs');
+ const {mkdtemp,writeFile,readFile,stat,rm,readdir}=await import('node:fs/promises');
+ const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const directory=await mkdtemp(join(tmpdir(),'honmaru-install-'));
+ try {
+  const source=join(directory,'source'),target=join(directory,'target');
+  await writeFile(source,'new executable');await writeFile(target,'old executable');
+  const previous=await stat(target);
+  await assert.rejects(installExecutable(source,target,async()=>{throw Error('Invalid signature')}),/Invalid signature/);
+  assert.equal(await readFile(target,'utf8'),'old executable');
+  await installExecutable(source,target,async candidate=>{
+   assert.notEqual((await stat(candidate)).ino,previous.ino);
+   assert.equal(await readFile(candidate,'utf8'),'new executable');
+  });
+  assert.equal(await readFile(target,'utf8'),'new executable');
+  assert.notEqual((await stat(target)).ino,previous.ino);
+  assert.equal((await stat(target)).mode&0o777,0o700);
+  assert.deepEqual((await readdir(directory)).sort(),['source','target']);
+ } finally {await rm(directory,{recursive:true,force:true});}
+});

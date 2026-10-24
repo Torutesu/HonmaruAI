@@ -1,11 +1,12 @@
 // Usage: node gateway/install-service.mjs /absolute/path/to/config.json
 // Config contains paths and API origin only. tokenFile must already exist.
-import { readFile, mkdir, copyFile, writeFile, chmod, stat } from 'node:fs/promises';
+import { readFile, mkdir, copyFile, writeFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { servicePlist, SERVICE_LABEL } from './launchd.mjs';
+import { installExecutable } from './install-executable.mjs';
 if (process.platform !== 'darwin') throw new Error('This installer requires macOS.');
 const sourceConfig = resolve(process.argv[2] || '');
 const config = JSON.parse(await readFile(sourceConfig, 'utf8'));
@@ -25,7 +26,10 @@ try { execFileSync('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${SERV
 const source = dirname(fileURLToPath(import.meta.url));
 for (const file of ['service.mjs', 'client.mjs', 'runner.mjs', 'runtime.mjs']) await copyFile(join(source, file), join(runtime, file));
 const node = join(runtime, 'node');
-await copyFile(process.execPath, node); await chmod(node, 0o700);
+await installExecutable(process.execPath,node,async candidate=>{
+  execFileSync('/usr/bin/codesign',['--verify','--strict',candidate],{stdio:'pipe'});
+  execFileSync(candidate,['--version'],{stdio:'pipe',timeout:10000});
+});
 await writeFile(configPath, JSON.stringify(config, null, 2) + '\n', { mode: 0o600 });
 await writeFile(plistPath, servicePlist({ node, service: join(runtime, 'service.mjs'), config: configPath, directory, home }), { mode: 0o600 });
 execFileSync('/usr/bin/plutil', ['-lint', plistPath], { stdio: 'inherit' });
