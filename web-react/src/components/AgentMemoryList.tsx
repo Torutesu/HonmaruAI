@@ -23,11 +23,13 @@ export function AgentMemoryList({ memories, canEdit, busy, onForget, onEdit, onR
       <div className="row-main">{m.body && (m.body !== m.text || m.description || m.title !== m.text) ? <details className="hx-memory-entry"><summary>{m.title || m.text}</summary>{m.description && <p className="row-sub">{m.description}</p>}<div className="memory-text">{m.body}</div></details> : <span className="memory-text">{m.text}</span>}<span className="row-sub">{t(labels[(m.kind || 'context') as MemoryKind] || m.kind!)} · {t(m.channel ? 'Conversation memory' : 'Agent memory')} · {new Date(m.createdAt).toLocaleDateString()}</span>
       {m.review && <details className="hx-run-detail"><summary>{t(m.review.current ? 'Memory reviewed' : 'Changed since review')}</summary><p className="memory-text">{m.review.evidence}</p><time dateTime={m.review.at}>{new Date(m.review.at).toLocaleString()}</time></details>}
       </div>
+      <div className="hx-memory-actions">
       {onHistory && <button className="btn-text" onClick={() => onHistory(m)}>{t('Memory review history')}</button>}
       {canEdit && onReview && <button className="btn-text" disabled={busy} onClick={() => onReview(m)}>{t('Review memory')}</button>}
       {canEdit && onConvert && <button className="btn-text" disabled={busy} onClick={() => onConvert(m)}>{t('Convert memory to skill')}</button>}
       {canEdit && onEdit && <button className="btn-text" disabled={busy} onClick={() => onEdit(m)}>{t('Edit memory')}</button>}
       {canEdit && <button className="btn-text" disabled={busy} onClick={() => onForget(m)}>{t('Forget')}</button>}
+      </div>
     </div>)}
     {loading && <p role="status">{t('Loading…')}</p>}
     {!loading && !visible.length && <p className="empty">{t(memories.length || filtered || (!onSearch && (query.trim() || kind !== 'all')) ? 'No memories match these filters.' : 'No memories yet.')}</p>}

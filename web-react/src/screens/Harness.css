@@ -169,3 +169,9 @@
 .hx-memory-compose { flex-wrap: wrap; }
 
 .hx-memory-scope { width: min(100%, 320px); margin: 8px 0 12px; min-height: 36px; border-color: var(--hx-border); background: var(--hx-surface); color: var(--hx-text); }
+
+.hx-member-detail .memory-row { flex-wrap: wrap; gap: 10px; }
+.hx-member-detail .memory-row > .row-main { flex: 1 1 100%; }
+.hx-memory-actions { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.hx-memory-actions:empty { display: none; }
+.hx-memory-actions .btn-text { min-height: 32px; }

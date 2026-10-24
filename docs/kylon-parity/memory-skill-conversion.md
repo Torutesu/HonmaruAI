@@ -1,6 +1,6 @@
 # Memory to skill: implementation contract
 
-Status: design, not implemented. This does not close KY-031.
+Status: implemented locally (API, inherited access, atomic writes and UI); full regression and production publication pending. This does not close KY-031.
 
 ## Required behavior
 
@@ -14,7 +14,7 @@ The UI must show the source, destination agent, inherited conversation restricti
 - `skills.js` now accepts the same field lengths and rejects excessive input instead of truncating. Combined SKILL.md output including YAML metadata must fit64KiB. This is validated before persistence.
 - `createSkill` defaults to workspace visibility; conversion must never use this default.
 - Current private skills execute only in the owner's direct agent conversation. This alone cannot represent a source memory in a private room.
-- `giveSkill` is a separate write. Calling createSkill, giveSkill and deleteAgentMemory in sequence does not provide atomic conversion.
+- Conversion uses its own conditional D1 batch; it does not chain the separate createSkill, giveSkill and deleteAgentMemory writes.
 - `mayUseConversation` resolves current membership and canonical channel keys. Membership at conversion time is not a permanent grant.
 
 ## Scope model

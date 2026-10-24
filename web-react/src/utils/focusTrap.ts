@@ -4,7 +4,7 @@
 // nobody could see. Tab goes round inside the dialog instead.
 
 /// What Tab can stop on inside a dialog.
-export const TAB_STOPS = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+export const TAB_STOPS = 'a[href], details > summary:first-of-type, button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 /// Where Tab (or Shift+Tab, `back`) goes from `at` among the dialog's
 /// `stops`, in the order drawn: the next one, round past either end. From
