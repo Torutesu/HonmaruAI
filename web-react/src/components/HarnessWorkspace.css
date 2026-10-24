@@ -754,3 +754,4 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-step-condition { padding:8px 0; font-size:12px; }
 .hx-flow-condition { border-top:1px solid var(--hx-border); padding-top:8px; margin-top:8px; }
 .hx-flow-condition p { white-space:pre-wrap; overflow-wrap:anywhere; max-height:160px; overflow:auto; font-size:12px; color:var(--hx-muted); }
+.hx-floating-app[data-compact] > .hx-app-detail:not(.hx-app-fullscreen) .hx-app-breadcrumb { display:none; }

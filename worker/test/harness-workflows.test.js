@@ -955,3 +955,15 @@ test('conditional steps save their decision, skip unmatched effects and retain s
  expect(checkpoints.results.map(row=>[row.node_id,row.status,JSON.parse(row.result).matches])).toEqual([['condition:1','done',true],['condition:2','done',false]]);
  expect(normalizeSteps([{type:'post',channel:'b:ops',text:'bad',when:{path:['input','__proto__'],op:'exists',value:true}}]).error).toBeTruthy();
 });
+
+test('conditions reject forward, self and malformed step references even inside groups',()=>{
+ const step={type:'post',channel:'b:ops',text:'Review'};
+ for(const index of ['0','1','2','3','01','-1','1.5','output']) {
+  const when={all:[{not:{path:['steps',index,'status'],op:'eq',value:'done'}}]};
+  const result=normalizeSteps([{...step,when}]);
+  expect(result.error).toContain('earlier steps');
+ }
+ const when={any:[{path:['steps','1','status'],op:'eq',value:'done'},{path:['input','override'],op:'eq',value:true}]};
+ expect(normalizeSteps([step,{...step,when}]).steps[1].when).toEqual(when);
+ expect(normalizeSteps([step,{...step,when:{path:['steps','2','output'],op:'exists',value:false}}]).error).toContain('earlier steps');
+});

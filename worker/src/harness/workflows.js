@@ -109,6 +109,13 @@ export function normalizeSteps(raw) {
     if (Object.hasOwn(s, 'when')) {
       const condition = normalizeWorkflowCondition(s.when);
       if (condition.error) return { error: `Invalid step condition: ${condition.error}` };
+      const validReferences = node => {
+        if (node.all || node.any) return (node.all || node.any).every(validReferences);
+        if (node.not) return validReferences(node.not);
+        if (node.path[0] !== 'steps') return true;
+        return /^[1-9][0-9]*$/.test(node.path[1] || '') && Number(node.path[1]) < steps.length;
+      };
+      if (!validReferences(condition.condition)) return {error:'A step condition can only reference earlier steps by their one-based number.'};
       steps[steps.length - 1].when = condition.condition;
     }
   }

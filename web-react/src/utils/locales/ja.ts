@@ -2682,6 +2682,8 @@ const table: Record<string, string> = {
   "Steps": "手順",
   "Add a step": "手順を追加",
   "Steps can use what started them: {{row.Column}}, {{input.text}}, {{steps.1.output}}.": "手順では、きっかけの内容を使えます: {{row.列名}}、{{input.text}}、{{steps.1.output}}。",
+  "skipped": "スキップ",
+  "Condition did not match.": "条件に一致しなかったため、実行しませんでした。",
   "Save workflow": "ワークフローを保存",
   "Next run {when}": "次回 {when}",
   "Runs": "実行履歴",

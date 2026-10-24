@@ -56,6 +56,12 @@ export async function workflowConditions({context,web,apiHost,shots}) {
   if(run.status!=='done'||run.log[0]?.status!=='skipped')throw Error('Unmatched condition did not skip its effect')
   const after=await call('GET',path)
   if(JSON.stringify(before.messages)!==JSON.stringify(after.messages))throw Error('Unmatched workflow condition posted a message')
+  await page.reload({waitUntil:'load'})
+  const runRow=screen.locator(`[data-run="${run.id}"]`)
+  await runRow.waitFor({state:'visible'})
+  if(!await runRow.locator('.hx-status.skipped').isVisible())throw Error('Skipped step is missing from the execution history')
+  await runRow.locator('summary').filter({hasText:/Condition did not match|条件に一致しなかったため/}).waitFor({state:'visible'})
+  await page.screenshot({path:`${shots}/workflow-condition-run.png`})
  } catch(error) {
   await page.screenshot({path:`${shots}/workflow-condition-failure.png`}).catch(()=>{})
   throw error

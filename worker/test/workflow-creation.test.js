@@ -144,3 +144,23 @@ test('approval continuation rechecks source access before the next step',async()
  expect(result.status).toBe('failed');expect(result.log[1].error).toContain('source access');
  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND channel='b:public'").bind(org).first()).n).toBe(0);
 });
+
+test('natural-language creation retains typed conditions and unmatched execution has no message effect',async()=>{
+ const when={all:[{path:['input','amount'],op:'gte',value:100},{path:['input','currency'],op:'eq',value:'JPY'}]};
+ const model=vi.fn(async()=>JSON.stringify({...spec,steps:[{...spec.steps[0],when}]}));
+ const made=await make({...input,prompt:'Post only when amount is at least 100 and currency is JPY'},model);
+ expect(made.workflow.enabled).toBe(false);
+ expect(made.workflow.steps[0].when).toEqual(when);
+ expect(model.mock.calls[0][0]).toContain('optional when:');
+ const before=await count('channel_messages');
+ const {startRun,getWorkflow}=await import('../src/harness/workflows.js');
+ const saved=await getWorkflow(env.DB,org,made.workflow.id,{viewerId:by});
+ expect(saved.steps[0].when).toEqual(when);
+ const run=await startRun(env,{orgId:org,workflow:saved,trigger:'manual',startedBy:by,input:{amount:99,currency:'JPY'}});
+ expect(run.status).toBe('done');expect(run.log[0].status).toBe('skipped');
+ expect(await count('channel_messages')).toBe(before);
+});
+test('generation rejects malformed conditions without publishing a workflow',async()=>{
+ const made=await make(input,async()=>JSON.stringify({...spec,steps:[{...spec.steps[0],when:{path:['input','amount'],op:'gte',value:'100'}}]}));
+ expect(made.error).toBeTruthy();expect(await count('hx_workflows')).toBe(0);
+});
