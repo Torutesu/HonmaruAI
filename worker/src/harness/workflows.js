@@ -141,6 +141,10 @@ export async function unknownApprover(db, orgId, steps) {
 
 export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
   if (!workflow) return false;
+  if(workflow.id){
+    const source=await db.prepare('SELECT channel FROM hx_workflow_sources WHERE org_id=?1 AND workflow_id=?2').bind(orgId,workflow.id).first();
+    if(source&&!await mayUseConversation(db,orgId,viewerId,source.channel))return false;
+  }
   if (workflow.trigger?.tableId && !(await mayUseTable(db, orgId, workflow.trigger.tableId, viewerId))) return false;
   for (const step of workflow.steps || []) {
     if (step.tableId && !(await mayUseTable(db, orgId, step.tableId, viewerId))) return false;
@@ -169,7 +173,7 @@ export async function listWorkflows(db, orgId, { viewerId } = {}) {
   return visible;
 }
 
-export async function createWorkflow(db, orgId, input, by, {commitGuard, source} = {}) {
+export async function createWorkflow(db, orgId, input, by, {commitGuard, source, announcementLocale} = {}) {
   const name = String(input?.name || "").trim().slice(0, 80);
   if (!name) return { error: "Give the workflow a name." };
   const t = normalizeTrigger(input?.trigger);
@@ -193,8 +197,16 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source}
   if(source) statements.push(db.prepare(`INSERT INTO hx_workflow_sources(org_id,workflow_id,channel,thread_id,created_by)
     VALUES(?1,?2,?3,(SELECT id FROM channel_messages WHERE org_id=?1 AND id=?4 AND channel=?3 AND parent_id IS NULL AND deleted_at IS NULL AND body=?6 AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?5 AND role!='guest')),?5)`)
     .bind(orgId,id,source.channel,source.threadId,String(by),source.body));
+  const announcementId=source&&announcementLocale!==undefined?`workflow-created-${id}`:null;
+  if(announcementId){
+    const label=name.replace(/[\\\[\]()*`]/g,'\\$&');
+    const link=`[${label}](#/workflows/${encodeURIComponent(id)}/${encodeURIComponent(orgId)})`;
+    const body=String(announcementLocale).startsWith('ja')?`${link} を作成しました。\n自動実行は停止中です。内容を確認してから有効にしてください。`:`Created ${link}.\nAutomatic triggers are paused. Review the workflow before enabling it.`;
+    statements.push(db.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at,parent_id) VALUES(?,?,?,NULL,'ai',?,?,?)")
+      .bind(announcementId,orgId,source.channel,body,at,source.threadId));
+  }
   await db.batch(statements);
-  return { workflow: await getWorkflow(db, orgId, id, { withSecret: true }) };
+  return { workflow: await getWorkflow(db, orgId, id, { withSecret: true }),...(announcementId?{announcementId}:{}) };
 }
 
 export async function updateWorkflow(db, orgId, id, input) {

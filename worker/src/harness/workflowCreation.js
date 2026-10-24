@@ -1,3 +1,4 @@
+import {mirrorIds} from '../store/mirror.js';
 import {workflowFromPrompt} from './workflowGeneration.js';
 import {createWorkflow,getWorkflow,mayViewWorkflow} from './workflows.js';
 import {workflowSource} from './workflowSource.js';
@@ -34,6 +35,14 @@ export async function generateWorkflow(env,request,orgId,who,input,{makeComplete
  const denied=await checkOutgoing(env,request,{orgId,login,text:prompt,ack:input.dlpAck===true,where:'workflow generation'});
  if(denied)return {response:denied};
  const fingerprint=await digest(JSON.stringify({prompt,channel,timezone:input.timezone||'UTC',captureSource:Boolean(input.captureSource),useModel:input.useModel!==false}));
+ const announce=async workflowId=>{
+  const id=`workflow-created-${workflowId}`;
+  const message=await getMessage(env.DB,orgId,id);
+  if(message&&!message.deleted_at){
+   await mirrorIds(env.DB,orgId,[id]);
+   await broadcastStored(env,orgId,message.channel,message).catch(()=>{});
+  }
+ };
  const token=crypto.randomUUID();
  const jobOf=()=>env.DB.prepare('SELECT * FROM hx_workflow_generation_jobs WHERE org_id=? AND user_id=? AND request_id=?').bind(orgId,by,requestId).first();
  let job=null;
@@ -47,6 +56,7 @@ export async function generateWorkflow(env,request,orgId,who,input,{makeComplete
    if(!workflow)return {error:'The generated automation is no longer available.',status:404};
    const origin=await workflowSource(env.DB,orgId,by,workflow.id);
    if(origin.error)return origin;
+   await announce(workflow.id);
    return {workflow,source:JSON.parse(job.generated).source,replay:true};
   }
   if(job.lease_token!==token){
@@ -91,11 +101,13 @@ export async function generateWorkflow(env,request,orgId,who,input,{makeComplete
    const root=await getMessage(env.DB,orgId,source.threadId);
    if(!root||root.deleted_at||root.parent_id||root.channel!==channel||root.body!==prompt){await release();return {error:'The source conversation changed. Start a new generation request.',status:409};}
   }
-  const result=await createWorkflow(env.DB,orgId,{...made.workflow,enabled:false},by,{source,
+  const result=await createWorkflow(env.DB,orgId,{...made.workflow,enabled:false},by,{source,announcementLocale:who.user.locale||'en',
    ...(requestId?{commitGuard:id=>env.DB.prepare("UPDATE hx_workflow_generation_jobs SET workflow_id=CASE WHEN lease_token=? AND lease_until>? AND status='running' THEN ? ELSE NULL END,status='complete' WHERE org_id=? AND user_id=? AND request_id=?")
     .bind(token,Date.now(),id,orgId,by,requestId)}:{})});
   if(result.error){await release();return result;}
-  return {...result,source:made.source};
+  if(result.announcementId)await announce(result.workflow.id);
+  const {announcementId,...published}=result;
+  return {...published,source:made.source};
  }catch(error){
   if(requestId){const current=await jobOf();if(current?.lease_token!==token||current.lease_until<=Date.now())return conflict();}
   await release();throw error;

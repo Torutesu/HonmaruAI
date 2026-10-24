@@ -41,6 +41,7 @@ const table: Record<string, string> = {
   "Discard {count} events": "{count}件を破棄",
   "These held events will be permanently discarded without running. New arrivals and existing runs are kept.": "対象の保留イベントを実行せずに完全に破棄します。この操作は取り消せません。新しく届いたイベントと開始済みの実行は残ります。",
   "unread": "件の未読",
+  'Workflow access also follows this source conversation.': 'このワークフローの閲覧には、元の会話へのアクセス権も必要です。',
   "Automation source thread": "自動化の作成元スレッド",
   "Failure notices are sent to this thread.": "失敗による停止通知はこのスレッドへ送信されます。",
   "Choose the thread where this automation was created. Failure notices will be posted there. This choice is fixed after saving.": "この自動化を作成したスレッドを選択してください。停止通知が投稿されます。保存後は変更できません。",

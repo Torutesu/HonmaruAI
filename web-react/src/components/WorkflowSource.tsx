@@ -19,8 +19,8 @@ export function WorkflowSource({api,workflowId,orgId}:{api:HarnessApi;workflowId
  }
  return <details className="hx-workflow-source" onToggle={e=>{opened.current=e.currentTarget.open;if(opened.current&&!state&&!busy&&!error)void act()}}><summary>{t('Automation source thread')}</summary>
   {busy&&<p role="status">{t('Loading…')}</p>}{error&&<p role="alert" className="form-error">{error}</p>}
-  {state?.source?<><p>{state.source.body}</p><a className="pill-btn quiet hx-source-open" href={hashForThread(state.source.threadId,orgId)}><Icon name="message" size={14}/>{t('Open the thread')}</a><p className="form-note">{t('Failure notices are sent to this thread.')}</p></>:state&&<>
-   <p className="form-note">{t('Choose the thread where this automation was created. Failure notices will be posted there. This choice is fixed after saving.')}</p>
+  {state?.source?<><p>{state.source.body}</p><a className="pill-btn quiet hx-source-open" href={hashForThread(state.source.threadId,orgId)}><Icon name="message" size={14}/>{t('Open the thread')}</a><p className="form-note">{t('Failure notices are sent to this thread.')} {t('Workflow access also follows this source conversation.')}</p></>:state&&<>
+   <p className="form-note">{t('Choose the thread where this automation was created. Failure notices will be posted there. This choice is fixed after saving.')} {t('Workflow access also follows this source conversation.')}</p>
    {!state.canBind?<p>{t('Only the creator can choose the source thread.')}</p>:<>
     <div className="rows">{state.candidates.map(root=><label className="row static" key={root.id}><input type="radio" name={'workflow-source-'+workflowId} checked={selected===root.id} disabled={busy} onChange={()=>setSelected(root.id)}/><span className="row-main">{root.body}<small className="row-sub">{new Date(root.createdAt).toLocaleString(getLocale())}</small></span></label>)}</div>
     {!state.candidates.length&&<p>{t('No accessible threads on this page.')}</p>}
