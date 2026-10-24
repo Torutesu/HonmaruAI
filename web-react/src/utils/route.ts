@@ -1,3 +1,5 @@
+export const APP_SECTIONS = ['overview','data','custom','backend','settings'] as const
+export type AppSection = typeof APP_SECTIONS[number]
 import { useCallback, useEffect, useState } from 'react'
 import { isOrgId, parseAppLink, webHashFor } from '@honmaru/core/links'
 
@@ -40,7 +42,7 @@ export interface Route {
   threadOrg?: string | null
   appSource?: boolean
   appSourceSection?: 'data'
-  appSection?: 'data'
+  appSection?: AppSection
   appDraft?: string
   appConversation?: {tableId?:string;rowId?:string}
   appId?: string | null
@@ -132,7 +134,7 @@ export function parseRoute(hash: string): Route {
     const rawDraft=params.get('draft')||'';const draft=rawDraft.length<=1000?rawDraft:'';const draftProps=draft?{appDraft:draft}:{}
     const conversation=params.get('chat')==='1'&&((!tableId&&!rowId)||(/^[\w-]{1,100}$/.test(tableId)&&/^[\w-]{1,100}$/.test(rowId)))?{appConversation:rowId?{tableId,rowId}:{}}:{}
     if(params.get('source')==='1' && /^[\w-]{1,80}$/.test(id) && isOrgId(org)) return {screen:null,mode:'classic',cardId:null,join:null,appId:id,appOrg:org,appSource:true,...draftProps,...(params.get('section')==='data'?{appSourceSection:'data' as const}:{})}
-    return { screen: 'apps', mode: null, cardId: null, join: null, appId: /^[\w-]{1,80}$/.test(id) ? id : null, appOrg: isOrgId(org) ? org : null, ...conversation, ...draftProps, ...(params.get('section')==='data'?{appSection:'data' as const}:{}) }
+    return { screen: 'apps', mode: null, cardId: null, join: null, appId: /^[\w-]{1,80}$/.test(id) ? id : null, appOrg: isOrgId(org) ? org : null, ...conversation, ...draftProps, ...(APP_SECTIONS.includes(params.get('section') as AppSection)?{appSection:params.get('section') as AppSection}:{}) }
   }
   if (head === 'join') {
     const code = (rest[0] || '').trim()
@@ -145,7 +147,7 @@ export function parseRoute(hash: string): Route {
 
 export function hashForWorkflow(id:string,orgId:string):string { return `#/workflows/${encodeURIComponent(id)}/${encodeURIComponent(orgId)}` }
 
-export function hashForApp(id: string, orgId: string, conversation?: {tableId?:string;rowId?:string},section?:'data',draft?:string): string { const query=new URLSearchParams();if(draft&&draft.length<=1000)query.set('draft',draft);if(section==='data')query.set('section','data');if(conversation){query.set('chat','1');if(conversation.tableId&&conversation.rowId){query.set('table',conversation.tableId);query.set('row',conversation.rowId)}}return `#/apps/${encodeURIComponent(id)}/${encodeURIComponent(orgId)}${query.size?'?'+query:''}` }
+export function hashForApp(id: string, orgId: string, conversation?: {tableId?:string;rowId?:string},section?:AppSection,draft?:string): string { const query=new URLSearchParams();if(draft&&draft.length<=1000)query.set('draft',draft);if(section&&APP_SECTIONS.includes(section))query.set('section',section);if(conversation){query.set('chat','1');if(conversation.tableId&&conversation.rowId){query.set('table',conversation.tableId);query.set('row',conversation.rowId)}}return `#/apps/${encodeURIComponent(id)}/${encodeURIComponent(orgId)}${query.size?'?'+query:''}` }
 export function hashForAppSource(id:string,orgId:string,section?:'data',draft?:string):string { return `${hashForApp(id,orgId,undefined,section,draft)}${section||draft&&draft.length<=1000?'&':'?'}source=1` }
 
 export function hashForScreen(screen: Screen): string { return `#/${PATH_BY_SCREEN[screen]}` }
@@ -226,4 +228,13 @@ export function consumeAppDraftHash(hash:string,appId:string,orgId:string,draft:
  const separator=hash.indexOf('?'),params=new URLSearchParams(hash.slice(separator+1))
  params.delete('draft')
  return hash.slice(0,separator)+(params.size?'?'+params.toString():'')
+}
+
+// Only update a standalone app route; an embedded panel must keep its chat URL.
+export function appSectionHash(hash:string,appId:string,orgId:string,section:AppSection):string|null {
+ const route=parseRoute(hash)
+ if(route.screen!=='apps'||route.appId!==appId||route.appOrg!==orgId||!APP_SECTIONS.includes(section))return null
+ const [path,query='']=hash.split('?'),params=new URLSearchParams(query)
+ params.set('section',section)
+ return path+'?'+params.toString()
 }

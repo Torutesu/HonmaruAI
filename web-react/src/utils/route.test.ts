@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { consumeAppDraftHash, parseRoute, hashForWorkflow, hashForApp, hashForAppSource, hashForJoin, hashForCard, hashForScreen, hashForView, hashForMessage, hashForThread, pathToHash } from './route'
+import { appSectionHash, APP_SECTIONS, consumeAppDraftHash, parseRoute, hashForWorkflow, hashForApp, hashForAppSource, hashForJoin, hashForCard, hashForScreen, hashForView, hashForMessage, hashForThread, pathToHash } from './route'
 
 it('source-app links enter chat in the named workspace, without accepting malformed targets',()=>{
  expect(parseRoute(hashForAppSource('app_one','team:acme'))).toMatchObject({screen:null,mode:'classic',appSource:true,appId:'app_one',appOrg:'team:acme'})
@@ -158,7 +158,7 @@ it('source filter navigation retains data viewer and ignores unsupported section
 
 it('missing-source fallback keeps the data viewer and app conversation',()=>{
  expect(parseRoute(hashForApp('app_one','team:acme',{},'data'))).toMatchObject({screen:'apps',appSection:'data',appConversation:{},appId:'app_one',appOrg:'team:acme'})
- expect(parseRoute(hashForApp('app_one','team:acme')+'?section=backend').appSection).toBeUndefined()
+ expect(parseRoute(hashForApp('app_one','team:acme')+'?section=unknown').appSection).toBeUndefined()
 })
 
 it('adjustment drafts round trip as bounded text for source and fallback navigation',()=>{
@@ -175,4 +175,15 @@ it('consumes only a matching fallback draft and retains the app and data section
  expect(parseRoute(next).appDraft).toBeUndefined()
  for(const [id,org,draft] of [['other','team:acme','Adjust groups:'],['app_one','team:other','Adjust groups:'],['app_one','team:acme','Changed']])expect(consumeAppDraftHash(hash,id,org,draft)).toBeNull()
  expect(consumeAppDraftHash(hashForAppSource('app_one','team:acme','data','Adjust groups:'),'app_one','team:acme','Adjust groups:')).toBeNull()
+})
+
+it('app section links restore each screen and retain conversation context without replacing another route',()=>{
+ for(const section of APP_SECTIONS){
+  const current=hashForApp('app','team:acme',{tableId:'tasks',rowId:'row'},'data','Unsent request')
+  const next=appSectionHash(current,'app','team:acme',section)!
+  expect(parseRoute(next)).toMatchObject({appSection:section,appConversation:{tableId:'tasks',rowId:'row'},appDraft:'Unsent request'})
+  expect(parseRoute(hashForApp('app','team:acme',undefined,section)).appSection).toBe(section)
+ }
+ for(const hash of ['#/list',hashForAppSource('app','team:acme','data'),hashForApp('other','team:acme'),hashForApp('app','team:other')])expect(appSectionHash(hash,'app','team:acme','settings')).toBeNull()
+ expect(parseRoute('#/apps/app/team%3Aacme?section=unknown').appSection).toBeUndefined()
 })
