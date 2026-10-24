@@ -11,3 +11,11 @@ test('follow-up editing retains minute precision and preserves the other step fi
  expect(onChange).toHaveBeenCalledWith({...step,minutes:15})
  act(()=>tree.unmount())
 })
+
+test('changing the action preserves its execution condition and discards obsolete action fields',()=>{
+ const when={path:['input','amount'],op:'gt' as const,value:100};const onChange=vi.fn();let tree:any
+ act(()=>{tree=create(<StepEditor step={{type:'post',channel:'b:ops',text:'Review',when}} onChange={onChange} onRemove={()=>{}} tables={[]} agents={[]}/>)})
+ const select=tree.root.findAllByType('select').find((node:any)=>node.props.value==='post')
+ act(()=>select.props.onChange({target:{value:'approval'}}));expect(onChange).toHaveBeenCalledWith({type:'approval',when})
+ act(()=>tree.unmount())
+})

@@ -54,7 +54,10 @@ export interface Trigger {
   cadence?: string; hour?: number; minute?: number; weekday?: number; monthday?: number; timezone?: string
 }
 export type StepType = 'post' | 'agent' | 'add_row' | 'update_row' | 'approval' | 'followup'
+export type ConditionScalar = string | number | boolean | null
+export type WorkflowCondition = {all:WorkflowCondition[]} | {any:WorkflowCondition[]} | {not:WorkflowCondition} | {path:string[];op:'eq'|'neq'|'gt'|'gte'|'lt'|'lte'|'contains'|'in'|'exists';value:ConditionScalar|ConditionScalar[]}
 export interface Step {
+  when?: WorkflowCondition
   type: StepType
   channel?: string; text?: string; agentId?: string; prompt?: string; tableId?: string
   values?: Record<string, string>; to?: string; title?: string; summary?: string; minutes?: number

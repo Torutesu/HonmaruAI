@@ -1,3 +1,4 @@
+import { workflowConditions } from './workflow-conditions.mjs'
 // What a person actually does, against the real thing.
 //
 // No fake relay, no injected WebSocket, no seeded localStorage: the browser
@@ -4364,6 +4365,7 @@ await step('removing someone takes them out of the room, not just the table', as
 })
 
 await step('app filter adjustment opens its source thread, preserves drafts and never posts', () => appSourceNavigation({ context: phone, web: WEB, apiHost: API, shots: SHOTS }))
+await step('workflow conditions can be created, reviewed after reload and skip unmatched effects', () => workflowConditions({context:phone,web:WEB,apiHost:API,shots:SHOTS}))
 
 for (const ctx of extras) await ctx.close()
 if (mate) await mate.close()

@@ -745,3 +745,12 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 @media(max-width:719px) {
  .hx-floating-app .hx-app-with-chat > .screen-body > .hx-object-chat { position:absolute; inset:0; z-index:4; min-height:0; max-height:none; border:0; }
 }
+
+.hx-condition-node { min-width:0; display:flex; flex-direction:column; gap:8px; margin:6px 0; padding:10px; border:1px solid var(--hx-border); border-radius:8px; background:var(--hx-surface); color:var(--hx-text); }
+.hx-condition-node legend { font-size:12px; color:var(--hx-muted); }
+.hx-condition-child,.hx-condition-fields,.hx-condition-value { display:flex; gap:8px; align-items:center; flex-wrap:wrap; min-width:0; }
+.hx-condition-child > .hx-condition-node,.hx-condition-fields > input,.hx-condition-value > input { flex:1; min-width:120px; }
+.hx-condition-value { flex:1; }
+.hx-step-condition { padding:8px 0; font-size:12px; }
+.hx-flow-condition { border-top:1px solid var(--hx-border); padding-top:8px; margin-top:8px; }
+.hx-flow-condition p { white-space:pre-wrap; overflow-wrap:anywhere; max-height:160px; overflow:auto; font-size:12px; color:var(--hx-muted); }
