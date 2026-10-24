@@ -654,3 +654,23 @@ test('membership revocation before commit cannot enable app automations',async()
  expect((await f.release({action:'publish',requestId:'publish_request_0001',version:f.app.version,revision:1},db)).status).toBe(409);
  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
 });
+
+
+test('managed automation claims reject stopped releases and old runs cannot resume after republication',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_guard_000001',version:f.app.version,revision:1});
+ const {getWorkflow,startRun,continueRun}=await import('../src/harness/workflows.js');
+ const {managedAutomationMayRun}=await import('../src/harness/appAutomationGuard.js');
+ const binding=await env.DB.prepare('SELECT workflow_id,release_id FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first();
+ const workflow=await getWorkflow(env.DB,ORG,binding.workflow_id);
+ expect(await managedAutomationMayRun(env.DB,ORG,workflow.id,binding.release_id)).toBe(true);
+ const stopped=await f.release({action:'unpublish',requestId:'unpublish_guard_001',version:first.version,revision:first.revision});
+ expect(await startRun(env,{orgId:ORG,workflow,trigger:'manual',startedBy:'9101'})).toBeNull();
+ expect(await managedAutomationMayRun(env.DB,ORG,workflow.id,binding.release_id)).toBe(false);
+ const again=await f.release({action:'publish',requestId:'republish_guard_001',version:stopped.version,revision:stopped.revision});expect(again.saved).toBe(true);
+ expect(await managedAutomationMayRun(env.DB,ORG,workflow.id,binding.release_id)).toBe(false);
+ const active=await startRun(env,{orgId:ORG,workflow:await getWorkflow(env.DB,ORG,workflow.id),trigger:'manual',startedBy:'9101'});expect(active.status).toBe('done');
+ await env.DB.prepare("UPDATE hx_workflow_runs SET status='running',next_step=0 WHERE id=?1").bind(active.id).run();
+ await f.release({action:'unpublish',requestId:'unpublish_guard_002',version:again.version,revision:again.revision});
+ const resumed=await continueRun(env,{orgId:ORG,runId:active.id});expect(resumed.status).toBe('failed');expect(JSON.stringify(resumed.log)).toContain('stopped');
+});

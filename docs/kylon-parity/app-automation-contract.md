@@ -57,3 +57,11 @@ Added an internal publish/unpublish transaction that checks app version, draft r
 Validation: **4 files / 59 tests passed**, 9.70s (`/tmp/honmaru-app-automation-release-final.log`). Covers transaction rollback after forced workflow-insert failure; receipt replay; payload-conflict rejection; disabling/reusing the same workflow identity; live drift; a live edit between plan and commit; and membership revocation immediately before the batch.
 
 The primitive is deliberately not connected to a public publish endpoint yet. Required next: managed ownership guards in every run claim/continuation and app unpublish/delete, integration with custom-code publication, missing-binding repair and reviewed drift resolution, then the app UI. No app automation release has been deployed or enabled in production.
+
+## Managed execution guards (local)
+
+New run claims atomically require the managed binding's current published release, enabled declaration/workflow and an existing published custom app where applicable. Frozen run definitions retain the release identity; later steps and model/tool boundaries recheck it, preventing an old run from continuing after stop/republication. Standalone workflows retain their existing eligibility. Already-started external effects cannot be undone. Bindings must remain as tombstones when apps are deleted so managed runs cannot become standalone accidentally.
+
+Validation: 4 files / 89 tests passed, 13.65s (`/tmp/honmaru-automation-guard-final.log`). Includes stopped new claims, stale release denial after republication, continuation failure after stop, model-request denial, late model tool suppression and sibling tool suppression. An initial model test run exposed persistent mock endpoint interference; isolated test endpoints resolve it. App delete/unpublish integration, stale workflow-definition versus newly read release races, explicit drift reconciliation and the UI remain required before exposing publication. Not deployed.
+
+Native UI inventory still reports Mac locked despite the user's confirmation that it is operable. Authenticated UI verification remains incomplete; do not ask the user to repeat an already-confirmed unlock as though it verified anything.

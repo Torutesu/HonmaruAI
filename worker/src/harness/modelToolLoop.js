@@ -1,12 +1,13 @@
 // Bounded chat-completion tool loop for scheduled and workflow work.
 // All tools are supplied by the server; model arguments never select an identity.
-export async function completeWithTools({ provider, system, user, tools = {}, fallbackSystem = system, maxTokens, json, timeoutMs, onUsage }) {
+export async function completeWithTools({ provider, system, user, tools = {}, fallbackSystem = system, maxTokens, json, timeoutMs, onUsage, authorize = null }) {
   let enabled = Object.keys(tools).length > 0;
   let messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
   const deadline = Date.now() + timeoutMs;
   let calls = 0;
   const definitions = Object.entries(tools).map(([name, tool]) => ({type:'function',function:{name,description:tool.description,parameters:tool.parameters}}));
   for (let round = 0; round < 5; round++) {
+    if (authorize && !await authorize())return null;
     const remaining = deadline - Date.now();
     if (remaining <= 0) return null;
     const final = round >= 3 || calls >= 12;
@@ -28,12 +29,14 @@ export async function completeWithTools({ provider, system, user, tools = {}, fa
     }
     const data = await response.json();
     await onUsage(data);
+    if (authorize && !await authorize())return null;
     const message = data?.choices?.[0]?.message;
     if (!message) return null;
     const pending = Array.isArray(message.tool_calls) ? message.tool_calls : [];
     if (!enabled || !pending.length || final) return typeof message.content === 'string' ? message.content : null;
     messages.push({role:'assistant',content:message.content || null,tool_calls:pending});
     for (const call of pending) {
+      if (authorize && !await authorize())return null;
       let output = 'Tool unavailable.';
       calls += 1;
       if (calls > 12) output = 'Tool budget exhausted. Answer from the information already read.';

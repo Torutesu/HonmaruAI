@@ -42,3 +42,26 @@ test('an unresponsive tool exhausts the execution deadline without a retry or fa
  expect(run).toHaveBeenCalledTimes(1);
  expect(opts.onUsage).toHaveBeenCalledTimes(1);
 });
+
+test('revocation before a model request avoids both inference and tool execution',async()=>{
+ const run=vi.fn();const opts=options();
+ expect(await completeWithTools({...opts,tools:read(run),authorize:async()=>false})).toBeNull();
+ expect(run).not.toHaveBeenCalled();expect(opts.onUsage).not.toHaveBeenCalled();
+});
+
+test('revocation during inference suppresses the returned tools',async()=>{
+ const run=vi.fn();let permitted=true;const opts=options();opts.provider.endpoint='https://revoke-inference.example/chat';
+ fetchMock.get('https://revoke-inference.example').intercept({path:'/chat',method:'POST'}).reply(200,()=>{
+  permitted=false;return {choices:[{message:{tool_calls:[call('late')]}}]};
+ });
+ expect(await completeWithTools({...opts,tools:read(run),authorize:async()=>permitted})).toBeNull();
+ expect(run).not.toHaveBeenCalled();
+});
+
+test('revocation inside one tool suppresses sibling tools and subsequent inference',async()=>{
+ const opts=options();opts.provider.endpoint='https://revoke-tools.example/chat';
+ let permitted=true;const run=vi.fn(async()=>{permitted=false;return 'Completed before stop';});
+ fetchMock.get('https://revoke-tools.example').intercept({path:'/chat',method:'POST'}).reply(200,{choices:[{message:{tool_calls:[call('first'),call('second')]}}]});
+ expect(await completeWithTools({...opts,tools:read(run),authorize:async()=>permitted})).toBeNull();
+ expect(run).toHaveBeenCalledTimes(1);
+});
