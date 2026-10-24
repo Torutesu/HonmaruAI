@@ -44,12 +44,18 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
       // Scope to the foreground app so its hidden panel cannot capture this locator.
       const foreground = page.locator('.shell > .hx-app-detail')
       await foreground.locator('.hx-data-toolbar').waitFor({ timeout: 20000 })
+      if (!(await page.locator('.classic').getAttribute('inert') === '')) throw new Error('Covered conversation remained interactive')
+      if (navigation > 1) {
+        await page.locator('.classic .slk-thread-pane .slk-composer textarea').focus()
+        if (await page.evaluate(() => Boolean(document.activeElement?.closest('.classic')))) throw new Error('Covered conversation stole keyboard focus')
+      }
       stage = 'open filter popover'
       await foreground.getByRole('button', { name: 'フィルター', exact: true }).click()
       stage = 'adjust filter'
       await foreground.getByRole('button', { name: 'フィルターを調整', exact: true }).click()
       stage = 'wait for source thread'
       await page.locator('.slk-thread-pane .slk-composer textarea').waitFor({ timeout: 20000 })
+      if (await page.locator('.classic').getAttribute('inert') !== null) throw new Error('Source conversation did not become interactive again')
       await page.locator('.hx-app-pane .hx-data-toolbar').waitFor({ timeout: 20000 })
       if (!(await page.locator('.slk-thread-pane').innerText()).includes(prompt)) throw new Error('Wrong creation thread opened')
     }
