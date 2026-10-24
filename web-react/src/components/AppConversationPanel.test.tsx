@@ -65,3 +65,15 @@ test('adjustment context seeds an unsent draft and refresh preserves the users e
  expect(tree!.root.findByType('textarea').props.value).toBe('My unfinished reply');expect(api.postConversation).not.toHaveBeenCalled()
  act(()=>tree!.unmount())
 })
+
+test('seed consumption does not reset edited text when the parent removes the seed',async()=>{
+ vi.stubGlobal('document',{visibilityState:'visible'})
+ const consumed=vi.fn(),api:any={conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false}),postConversation:vi.fn()};let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AppConversationPanel api={api} appId="app" title="App" initialDraft="Adjust groups:" onInitialDraftConsumed={consumed}/>)})
+ expect(consumed).toHaveBeenCalledTimes(1)
+ act(()=>tree!.root.findByType('textarea').props.onChange({target:{value:'User revised the suggestion'}}))
+ await act(async()=>{tree!.update(<AppConversationPanel api={api} appId="app" title="App" onInitialDraftConsumed={consumed}/>)})
+ expect(tree!.root.findByType('textarea').props.value).toBe('User revised the suggestion')
+ expect(consumed).toHaveBeenCalledTimes(1);expect(api.postConversation).not.toHaveBeenCalled()
+ act(()=>tree!.unmount())
+})

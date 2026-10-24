@@ -218,3 +218,12 @@ export function useMinWidth(px: number): boolean {
 export function useDesktop(): boolean {
   return useMinWidth(1024)
 }
+
+// Consume only the matching app-conversation seed, never a newer navigation.
+export function consumeAppDraftHash(hash:string,appId:string,orgId:string,draft:string):string|null {
+ const route=parseRoute(hash)
+ if(!draft || route.screen!=='apps' || !route.appConversation || route.appId!==appId || route.appOrg!==orgId || route.appDraft!==draft)return null
+ const separator=hash.indexOf('?'),params=new URLSearchParams(hash.slice(separator+1))
+ params.delete('draft')
+ return hash.slice(0,separator)+(params.size?'?'+params.toString():'')
+}

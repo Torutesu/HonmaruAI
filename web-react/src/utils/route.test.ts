@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseRoute, hashForWorkflow, hashForApp, hashForAppSource, hashForJoin, hashForCard, hashForScreen, hashForView, hashForMessage, hashForThread, pathToHash } from './route'
+import { consumeAppDraftHash, parseRoute, hashForWorkflow, hashForApp, hashForAppSource, hashForJoin, hashForCard, hashForScreen, hashForView, hashForMessage, hashForThread, pathToHash } from './route'
 
 it('source-app links enter chat in the named workspace, without accepting malformed targets',()=>{
  expect(parseRoute(hashForAppSource('app_one','team:acme'))).toMatchObject({screen:null,mode:'classic',appSource:true,appId:'app_one',appOrg:'team:acme'})
@@ -166,4 +166,13 @@ it('adjustment drafts round trip as bounded text for source and fallback navigat
  expect(parseRoute(hashForAppSource('app_one','team:acme','data',draft))).toMatchObject({appSource:true,appDraft:draft,appSourceSection:'data'})
  expect(parseRoute(hashForApp('app_one','team:acme',{},'data',draft))).toMatchObject({appDraft:draft,appConversation:{},appSection:'data'})
  expect(parseRoute(hashForAppSource('app_one','team:acme')+'&draft='+ 'x'.repeat(1001)).appDraft).toBeUndefined()
+})
+
+it('consumes only a matching fallback draft and retains the app and data section',()=>{
+ const hash=hashForApp('app_one','team:acme',{},'data','Adjust groups:')
+ const next=consumeAppDraftHash(hash,'app_one','team:acme','Adjust groups:')!
+ expect(parseRoute(next)).toMatchObject({appId:'app_one',appSection:'data',appConversation:{}})
+ expect(parseRoute(next).appDraft).toBeUndefined()
+ for(const [id,org,draft] of [['other','team:acme','Adjust groups:'],['app_one','team:other','Adjust groups:'],['app_one','team:acme','Changed']])expect(consumeAppDraftHash(hash,id,org,draft)).toBeNull()
+ expect(consumeAppDraftHash(hashForAppSource('app_one','team:acme','data','Adjust groups:'),'app_one','team:acme','Adjust groups:')).toBeNull()
 })

@@ -18,7 +18,7 @@ import { AppCalendar } from '../components/AppCalendar'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
-import { hashForApp, hashForAppSource, hashForCard } from '../utils/route'
+import { hashForApp, hashForAppSource, hashForCard, consumeAppDraftHash } from '../utils/route'
 import {
   useWorkspaceMode, cellText, metricText, WANT_MODE_KEY, SET_MODE_EVENT, isMode, type WorkspaceMode,
   type App, type Template, type Table, type Row, type View, type Column, type HarnessApi,
@@ -258,6 +258,13 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const [search, setSearch] = useState('')
   const [creating,setCreating]=useState(false),[fullscreen,setFullscreen]=useState(false)
   const [chatOpen,setChatOpen]=useState(false)
+  const consumedDraft=useRef<string|undefined>(undefined)
+  const consumeDraft=()=>{
+    if(!initialDraft)return
+    consumedDraft.current=initialDraft
+    const next=consumeAppDraftHash(location.hash,appId,orgId,initialDraft)
+    if(next){history.replaceState(history.state,'',next);window.dispatchEvent(new HashChangeEvent('hashchange'))}
+  }
   const [chatScope,setChatScope]=useState<{tableId?:string;rowId?:string}>({})
   const [editingRecord,setEditingRecord]=useState<Row|null>(null)
   const [recordMembers,setRecordMembers]=useState<Array<{ref:string;name:string}>>([])
@@ -300,7 +307,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       nested
       actions={<><button className="pill-btn quiet" onClick={() => setSection('custom')}><Icon name="grid" size={14} />{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => setSection('settings')}><Icon name="share" size={14} />{t('Sharing')}</button><AppConversationInbox api={api} appId={app.id} onOpen={scope=>{setChatScope(scope);setChatOpen(true)}}/><button className="hx-app-icon-button" aria-label={chatOpen?'アプリチャットを閉じる':'アプリチャットを開く'} aria-pressed={chatOpen} onClick={()=>{setChatScope({});setChatOpen(!chatOpen)}}><Icon name="message" size={16}/></button><button className="hx-app-icon-button" aria-label={fullscreen?'全画面表示を終了':'全画面表示'} aria-pressed={fullscreen} onClick={()=>setFullscreen(!fullscreen)}><Icon name={fullscreen?'minimize':'maximize'} size={16}/></button><HarnessAppMenu api={api} appId={app.id} orgId={orgId} onSection={setSection} /><button className="hx-app-icon-button" aria-label="パネルを閉じる" onClick={onClose}><Icon name="x" size={16}/></button></>}
     >
-      {chatOpen&&<AppConversationPanel key={`${orgId}:${app.id}:${chatScope.rowId||"app"}`} api={api} appId={app.id} {...chatScope} title={chatScope.rowId?"レコードチャット":app.name} initialDraft={chatScope.rowId?undefined:initialDraft} context={chatScope.rowId?(cellText(table.columns[0],data.rows.find(r=>r.id===chatScope.rowId)?.values[table.columns[0].id])||'選択したレコード'):section==='data'?`現在のデータ表示: ${view.name}`:undefined} onClose={()=>setChatOpen(false)}/>}
+      {chatOpen&&<AppConversationPanel key={`${orgId}:${app.id}:${chatScope.rowId||"app"}`} api={api} appId={app.id} {...chatScope} title={chatScope.rowId?"レコードチャット":app.name} initialDraft={chatScope.rowId||consumedDraft.current===initialDraft?undefined:initialDraft} onInitialDraftConsumed={consumeDraft} context={chatScope.rowId?(cellText(table.columns[0],data.rows.find(r=>r.id===chatScope.rowId)?.values[table.columns[0].id])||'選択したレコード'):section==='data'?`現在のデータ表示: ${view.name}`:undefined} onClose={()=>setChatOpen(false)}/>}
       <div className="hx-app-main">
       {section !== 'overview' && section !== 'data' && <nav className="hx-app-sections" aria-label={t('App sections')}>{(['overview', 'data', 'custom', 'backend', 'settings'] as const).map(tab => <button key={tab} aria-current={section === tab ? 'page' : undefined} className={section === tab ? 'on' : ''} onClick={() => setSection(tab)}>{t(tab === 'overview' ? 'Overview' : tab === 'data' ? 'Data viewer' : tab === 'custom' ? 'Customize app' : tab === 'backend' ? '実行基盤' : 'Settings')}</button>)}</nav>}
       {creating&&<AppRecordDialog appName={app.name} columns={table.columns} members={recordMembers} save={async values=>{await api.addRow(table.id,values,'strict');await load()}} onClose={()=>setCreating(false)}/>}
