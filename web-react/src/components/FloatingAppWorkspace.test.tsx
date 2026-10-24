@@ -3,7 +3,7 @@ import {act,create,type ReactTestRenderer} from 'react-test-renderer'
 import {afterEach,beforeEach,expect,test,vi} from 'vitest'
 import {FloatingAppWorkspace} from './FloatingAppWorkspace'
 import {useFloatingApp} from './FloatingAppContext'
-vi.mock('../screens/Harness',()=>({AppView:(props:any)=><div data-app={props.appId}><button onClick={()=>props.onSectionChange('settings')}>Settings</button><button onClick={props.onBack}>Dock</button><button onClick={props.onClose}>Close</button></div>}))
+vi.mock('../screens/Harness',()=>({AppView:(props:any)=><div data-app={props.appId} data-initial-section={props.initialSection}><button onClick={()=>props.onSectionChange('settings')}>Settings</button><button onClick={props.onBack}>Dock</button><button onClick={props.onClose}>Close</button></div>}))
 vi.mock('../utils/harness',()=>({harnessApi:(base:string,org:string,session:string)=>({base,org,session})}))
 let tree:ReactTestRenderer
 beforeEach(()=>{vi.stubGlobal('innerWidth',1200);vi.stubGlobal('innerHeight',800);vi.stubGlobal('window',{addEventListener:vi.fn(),removeEventListener:vi.fn()});vi.stubGlobal('location',{hash:'#/list'})})
@@ -17,7 +17,7 @@ test('keeps underlying conversation mounted, supports keyboard movement and retu
  act(()=>button('Float').props.onClick());expect(regions()).toHaveLength(1);expect(tree.root.findByType('input')).toBe(input)
  const root=regions()[0],target={};act(()=>root.props.onKeyDown({target,currentTarget:target,key:'ArrowLeft',shiftKey:false,preventDefault:vi.fn()}))
  expect(regions()[0].props.style.left).toBe(692)
- act(()=>button('Settings').props.onClick());act(()=>button('Dock').props.onClick())
+ act(()=>button('Settings').props.onClick());expect(tree.root.findByProps({'data-app':'test_app'}).props['data-initial-section']).toBe('data');act(()=>button('Dock').props.onClick())
  expect(location.hash).toBe('#/apps/test_app/team%3Aone?section=settings');expect(regions()).toHaveLength(0)
 })
 test('removes floating content on workspace, credential and simple-mode transitions',()=>{
