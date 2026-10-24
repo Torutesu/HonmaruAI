@@ -1,7 +1,8 @@
 import {WorkflowHistory} from '../components/WorkflowHistory'
 import {describeWorkflowCondition} from '../utils/workflowCondition'
-import {runDuration} from '../utils/runDuration'
 import {getLocale} from '../utils/locale'
+import {runDuration} from '../utils/runDuration'
+import {stepLabel,triggerLabel,weekdayName} from '../utils/workflowLabels'
 import {WorkflowRunUsage} from '../components/WorkflowRunUsage'
 import {WorkflowSource} from '../components/WorkflowSource'
 import {WorkflowNotices} from '../components/WorkflowNotices'
@@ -17,7 +18,6 @@ import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 // outcome kept where anyone can read it.
 
 const CADENCES = ['daily', 'weekdays', 'weekly', 'monthly']
-const weekdayName = (day:number) => new Intl.DateTimeFormat(getLocale(),{weekday:'long',timeZone:'UTC'}).format(new Date(Date.UTC(2026,0,4+day)))
 
 function HeldEventPreview({ receivedAt, load }: { receivedAt: string; load: () => Promise<{ event: { input: unknown } }> }) {
   const t = useT()
@@ -40,24 +40,6 @@ function HeldEventPreview({ receivedAt, load }: { receivedAt: string; load: () =
 }
 
 interface AgentFace { id: string; handle: string; name: string; emoji?: string | null }
-
-function stepLabel(t: (k: string) => string, type: StepType) {
-  return ({
-    post: t('Post in a room'), agent: t('Ask an agent'), add_row: t('Add a row'),
-    update_row: t('Change the row'), approval: t('Ask for approval'), followup: t('Follow up later'),
-  } as Record<StepType, string>)[type]
-}
-
-function triggerLabel(t: (k: string, v?: Record<string, string | number>) => string, tr: Trigger, tables: Table[]) {
-  if (tr.type === 'schedule') return `${t('Schedule')}: ${t(tr.cadence || 'daily')}${tr.cadence === 'weekly' ? ` · ${weekdayName(tr.weekday ?? 1)}` : tr.cadence === 'monthly' ? ` · ${t('Day {day}',{day:tr.monthday ?? 1})}` : ''} ${String(tr.hour ?? 9).padStart(2, '0')}:${String(tr.minute ?? 0).padStart(2, '0')} ${tr.timezone || ''}`
-  if (tr.type === 'row') {
-    const table = tables.find((x) => x.id === tr.tableId)
-    const where = tr.where ? Object.entries(tr.where).map(([k, v]) => `${k} = ${v.join('/')}`).join(', ') : ''
-    return `${t('When a row is {on} in {table}', { on: tr.on || 'any', table: table?.name || '?' })}${where ? ` (${where})` : ''}`
-  }
-  if (tr.type === 'webhook') return t('When its webhook is called')
-  return t('When someone runs it')
-}
 
 const blankStep = (type: StepType): Step => ({ type, ...(type === 'followup' ? { minutes: 1440 } : {}) })
 
@@ -239,7 +221,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
             </span>
           </div>
         </div>
-        <WorkflowHistory key={`${w.id}:${w.updatedAt}`} api={api} workflowId={w.id}/>
+        <WorkflowHistory key={`${w.id}:${w.updatedAt}`} api={api} workflowId={w.id} tables={tables} agents={agents}/>
         <WorkflowSource key={w.id} api={api} workflowId={w.id} orgId={props.orgId}/>
         {error && <div className="form-error">{error}</div>}
         {open.canEdit && (

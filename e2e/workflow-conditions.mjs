@@ -109,6 +109,14 @@ export async function workflowConditions({context,web,apiHost,shots}) {
   await history.scrollIntoViewIfNeeded()
   if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Revision history overflows the narrow viewport')
   await page.screenshot({path:`${shots}/workflow-condition-history-mobile.png`})
+  if(await history.locator('pre').count())throw Error('Definition comparison still renders raw JSON')
+  await page.setViewportSize({width:1440,height:1000})
+  await page.emulateMedia({colorScheme:'dark'})
+  await history.scrollIntoViewIfNeeded()
+  const historyColors=await history.evaluate(element=>({background:getComputedStyle(element).backgroundColor,color:getComputedStyle(element).color}))
+  if(historyColors.background==='rgb(255, 255, 255)'||historyColors.background===historyColors.color)throw Error('History theme has unreadable colors')
+  await page.screenshot({path:`${shots}/workflow-condition-history-dark.png`})
+
 
 
 
