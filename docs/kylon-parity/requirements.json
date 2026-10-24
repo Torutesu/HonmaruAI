@@ -336,7 +336,7 @@
       "priority": "P2",
       "source": "https://docs.kylon.io/concepts/memory",
       "code": "worker/src/harness/memoryEntries.js",
-      "acceptance": "保持/修正/削除レビュー・版に紐づく履歴・削除後の範囲付き証跡は本番反映済み。本文と閲覧/実行範囲を維持するスキル変換・再送時の重複防止・失敗時の一括取消はローカル実装済みで全体検証/本番反映待ち。期限による再確認判定は未対応"
+      "acceptance": "保持/修正/削除レビュー・版付き履歴・削除後の範囲付き証跡・本文と閲覧/実行範囲を維持するスキル変換は本番反映済み。再送時の重複防止と失敗時の一括取消はローカル全体テスト済み。変換の本番E2E、期限による再確認判定は残る"
     },
     {
       "id": "KY-032",
@@ -386,7 +386,7 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/skill",
       "code": "worker/src/harness/skills.js",
-      "acceptance": "スキル本文のprivate/workspace、所有者のみの共有変更、HTTP/agent一覧/実行時の隔離を実装。パッケージ資産・共有リンク・agent grantモデルは残る"
+      "acceptance": "本文・パッケージ資産のprivate/workspace、所有者のみの共有変更、一覧/実行/ファイル読込みの権限確認を実装。記憶から変換したスキルは元の会話/エージェントの制限を継承し、再共有と別エージェントへの導入を拒否。共有リンク・明示agent grantモデル・本番複数ユーザー検証は残る"
     },
     {
       "id": "KY-037",
