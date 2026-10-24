@@ -186,13 +186,21 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
           await refreshOpen(w.id)
         })}><Icon name="refresh" size={14} /> {t('Refresh')}</button>
       }>
-        {!w.enabled && <p className="form-note">{t('Automatic triggers are paused. You can still run this workflow manually.')}</p>}
+        {!w.enabled && !w.safety?.paused_at && <p className="form-note">{t('Automatic triggers are paused. You can still run this workflow manually.')}</p>}
+        {w.safety?.paused_at && <section className="form-note" role="status">
+          <strong>{t('Paused after three consecutive failures')}</strong>
+          <p>{t('Review the failed runs below before resuming. Held events will not replay automatically.')}</p>
+          {open.canEdit && <button className="pill-btn" disabled={!!busy} onClick={()=>act('resume',async()=>{
+            await api.resumeWorkflow(w.id,w.safety!.generation)
+            await refreshOpen(w.id)
+          })}>{t('Resume after review')}</button>}
+        </section>}
         <div className="hx-flow-diagram"><div className="hx-flow-node"><small>{t('Trigger')}</small><strong>{triggerLabel(t, w.trigger, tables)}</strong></div>{w.steps.map((step, index) => <React.Fragment key={index}><span className="hx-flow-connector">↓</span><div className="hx-flow-node"><small>{index + 1}. {stepLabel(t, step.type)}</small><strong>{step.text || step.prompt || step.title || tables.find(table => table.id === step.tableId)?.name}</strong>{step.channel && <span>{step.channel.startsWith('ag:') || step.channel.startsWith('dm:') ? t('Private chat') : step.channel.replace(/^b:/, '#')}</span>}{step.agentId && <span>{t('Agent')}: {agents.find(agent => agent.id === step.agentId)?.name || step.agentId}</span>}{step.to && <span>@{step.to}</span>}{step.summary && <p>{step.summary}</p>}{step.minutes && <span>{step.minutes} min</span>}{step.values && <pre>{JSON.stringify(step.values, null, 2)}</pre>}</div></React.Fragment>)}</div>
         <div className="rows">
           <div className="row static">
             <span className="row-main">{triggerLabel(t, w.trigger, tables)}
               <span className="row-sub">{w.steps.map((s) => stepLabel(t, s.type)).join(' → ')}</span>
-              {w.nextRunAt && <span className="row-sub">{t('Next run {when}', { when: new Date(w.nextRunAt).toLocaleString() })}</span>}
+              {w.nextRunAt && !w.safety?.paused_at && <span className="row-sub">{t('Next run {when}', { when: new Date(w.nextRunAt).toLocaleString() })}</span>}
               {w.hookUrl && <code className="hx-code">{w.hookUrl}</code>}
             </span>
           </div>
@@ -200,7 +208,7 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
         {error && <div className="form-error">{error}</div>}
         {open.canEdit && (
           <div className="hx-actions">
-            <button className="pill-btn" disabled={!!busy} onClick={() => act('run', async () => { await api.runWorkflow(w.id, ''); await refreshOpen(w.id) })}><Icon name="zap" size={14} /> {t('Run now')}</button>
+            <button className="pill-btn" disabled={!!busy || !!w.safety?.paused_at} onClick={() => act('run', async () => { await api.runWorkflow(w.id, ''); await refreshOpen(w.id) })}><Icon name="zap" size={14} /> {t('Run now')}</button>
             <button className="pill-btn quiet" disabled={!!busy} onClick={() => act('toggle', async () => { await api.updateWorkflow(w.id, { enabled: !w.enabled }); await refreshOpen(w.id) })}>{w.enabled ? t('Turn off') : t('Turn on')}</button>
             <button className="btn-text danger" disabled={!!busy} onClick={() => { setConfirmDelete(true); setHookAction(null); setReplaySelection(null); setDiscardSelection(null) }}>{t('Delete')}</button>
           </div>
@@ -240,14 +248,14 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
             <p>{t('Resuming does not replay held events. Replay runs the saved workflow with real effects, oldest first.')}</p>
             {replaySelection && <ul>{open.held.events.filter(event => replaySelection.includes(event.id)).map(event => <li key={event.id}><HeldEventPreview receivedAt={event.receivedAt} load={() => api.heldWorkflowEvent(w.id, event.id)} /></li>)}</ul>}
             {replaySelection ? <div className="hx-actions">
-              <button className="pill-btn" disabled={!!busy || !w.enabled} onClick={() => act('replay', async () => {
+              <button className="pill-btn" disabled={!!busy || !w.enabled || !!w.safety?.paused_at} onClick={() => act('replay', async () => {
                 await api.replayWorkflowEvents(w.id, replaySelection)
                 setReplaySelection(null)
                 await refreshOpen(w.id)
               })}>{t('Replay {count} events', { count: replaySelection.length })}</button>
               <button className="btn-text" disabled={!!busy} onClick={() => setReplaySelection(null)}>{t('Cancel')}</button>
             </div> : !discardSelection && <div className="hx-actions">
-              <button className="pill-btn quiet" disabled={!!busy || !w.enabled} onClick={() => setReplaySelection(open.held!.events.map(e => e.id))}>{t('Review held events')}</button>
+              <button className="pill-btn quiet" disabled={!!busy || !w.enabled || !!w.safety?.paused_at} onClick={() => setReplaySelection(open.held!.events.map(e => e.id))}>{t('Review held events')}</button>
               <button className="btn-text danger" disabled={!!busy || !open.held.discardEventIds?.length} onClick={() => setDiscardSelection([...open.held!.discardEventIds!])}>{t('Discard held events')}</button>
             </div>}
             {discardSelection && <div>
@@ -319,7 +327,7 @@ const ScopedHarnessWorkflows: React.FC<HarnessProps> = (props) => {
         {workflows?.map((w) => (
           <button key={w.id} className="row" onClick={() => openOne(w.id)} data-workflow={w.id}>
             <span className="row-icon"><Icon name="zap" size={18} /></span>
-            <span className="row-main">{w.name}{!w.enabled && <span className="hx-off"> · {t('off')}</span>}
+            <span className="row-main">{w.name}{w.safety?.paused_at && <span className="hx-off"> · {t('Paused after failures')}</span>}{!w.enabled && <span className="hx-off"> · {t('off')}</span>}
               <span className="row-sub">{triggerLabel(t, w.trigger, tables)} · {w.steps.length} {t('steps')}</span>
             </span>
             <span className="row-value">›</span>

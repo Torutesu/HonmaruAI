@@ -233,3 +233,28 @@ test('failed held-payload inspection can retry without replaying the event', asy
   expect(tree.root.findAllByProps({ role: 'alert' })).toHaveLength(0)
   expect(state.api.replayWorkflowEvents).not.toHaveBeenCalled()
 })
+
+test('failure pause blocks manual execution and replays, and resumes using the observed generation',async()=>{
+ const paused={...workflow,safety:{generation:'observed',failure_streak:3,paused_at:'2026-10-24T00:00:00Z',pause_reason:'consecutive_failures'}}
+ state.api.workflow.mockResolvedValueOnce({workflow:paused,runs:[],canEdit:true}).mockResolvedValue({workflow:{...paused,safety:{...paused.safety,generation:'new',failure_streak:0,paused_at:null}},runs:[],canEdit:true})
+ state.api.resumeWorkflow=vi.fn().mockResolvedValue({})
+ await open()
+ expect(button('Run now').props.disabled).toBe(true)
+ expect(JSON.stringify(tree.toJSON())).toContain('Paused after three consecutive failures')
+ await act(async()=>button('Resume after review').props.onClick())
+ expect(state.api.resumeWorkflow).toHaveBeenCalledWith(workflow.id,'observed')
+ expect(button('Run now').props.disabled).toBe(false)
+ expect(button('Resume after review')).toBeUndefined()
+})
+test('a failed resume keeps the pause visible and read-only members cannot resume',async()=>{
+ const paused={...workflow,safety:{generation:'observed',failure_streak:3,paused_at:'now',pause_reason:'consecutive_failures'}}
+ state.api.workflow.mockResolvedValue({workflow:paused,runs:[],canEdit:true})
+ state.api.resumeWorkflow=vi.fn().mockRejectedValue(new Error('State changed'))
+ await open()
+ await act(async()=>button('Resume after review').props.onClick())
+ expect(JSON.stringify(tree.toJSON())).toContain('State changed')
+ expect(button('Run now').props.disabled).toBe(true)
+ state.api.workflow.mockResolvedValue({workflow:paused,runs:[],canEdit:false})
+ await act(async()=>button('Refresh').props.onClick())
+ expect(button('Resume after review')).toBeUndefined()
+})

@@ -849,3 +849,14 @@ test('three real failures pause execution, keep webhook input, and require autho
  const after=await(await get(`/workflows/${id}?${q({orgId:ORG})}`,mika)).json();
  expect(after.runs).toHaveLength(4);expect(after.held.count).toBe(1);
 });
+
+test('operational pause is visible in the list but only maker/admin can resume it',async()=>{
+ const {workflow}=await(await send('POST','/workflows',toru,{orgId:ORG,name:'Admin automation',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Hello'}]})).json();
+ const {ensureWorkflowSafety}=await import('../src/harness/workflowSafety.js');
+ const safety=await ensureWorkflowSafety(env.DB,ORG,workflow.id);
+ await env.DB.prepare("UPDATE hx_workflow_safety SET failure_streak=3,paused_at='now',pause_reason='consecutive_failures' WHERE org_id=?1 AND workflow_id=?2").bind(ORG,workflow.id).run();
+ const list=await(await get(`/workflows?${q({orgId:ORG})}`,mika)).json();
+ expect(list.workflows.find(w=>w.id===workflow.id).safety.paused_at).toBe('now');
+ expect((await send('POST',`/workflows/${workflow.id}/resume`,mika,{orgId:ORG,generation:safety.generation})).status).toBe(403);
+ expect((await send('POST',`/workflows/${workflow.id}/resume`,toru,{orgId:ORG,generation:safety.generation})).status).toBe(200);
+});

@@ -58,7 +58,9 @@ export interface Step {
   channel?: string; text?: string; agentId?: string; prompt?: string; tableId?: string
   values?: Record<string, string>; to?: string; title?: string; summary?: string; minutes?: number
 }
+export interface WorkflowSafety { generation: string; failure_streak: number; paused_at: string | null; pause_reason: string | null }
 export interface Workflow {
+  safety?: WorkflowSafety | null
   id: string; name: string; enabled: boolean; trigger: Trigger; steps: Step[]
   nextRunAt: string | null; lastRunAt: string | null; createdBy: string; hookUrl?: string; hookSecret?: string
 }
@@ -177,6 +179,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     heldWorkflowEvent: (id: string, eventId: string) => call<{ event: { id: string; receivedAt: string; expiresAt: string; input: unknown } }>('GET', `/workflows/${id}/webhook/events/${encodeURIComponent(eventId)}`),
     discardWorkflowEvents: (id: string, eventIds: string[]) => call<{ discarded: number }>('POST', `/workflows/${id}/webhook/discard`, { eventIds }),
     deleteWorkflow: (id: string) => call<{ deleted: boolean }>('DELETE', `/workflows/${id}`),
+    resumeWorkflow: (id: string, generation: string) => call<{ safety: WorkflowSafety }>('POST', `/workflows/${id}/resume`, { generation }),
     runWorkflow: (id: string, text: string) => call<{ run: Run }>('POST', `/workflows/${id}/run`, { text }),
 
     followups: (channel?: string, status = 'scheduled', agentId?: string) => call<{ followups: Followup[] }>('GET', '/followups', undefined, { ...(channel ? { channel } : {}), ...(agentId ? { agentId } : {}), status }),

@@ -163,7 +163,7 @@ export async function listWorkflows(db, orgId, { viewerId } = {}) {
   const visible = [];
   for (const row of results || []) {
     const wf = publicWorkflow(row);
-    if (!viewerId || await mayViewWorkflow(db, orgId, wf, viewerId)) visible.push(wf);
+    if (!viewerId || await mayViewWorkflow(db, orgId, wf, viewerId)) visible.push({...wf,safety:await readWorkflowSafety(db,orgId,wf.id)});
   }
   return visible;
 }
