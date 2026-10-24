@@ -899,3 +899,23 @@ test('workflow source is explicit, creator-bound, immutable and never exposes an
  await env.DB.prepare('UPDATE channel_messages SET deleted_at=?1 WHERE org_id=?2 AND id=?3').bind('now',ORG,root.row.id).run();
  expect((await get(`/workflows/${workflow.id}/source?${q({orgId:ORG})}`,mika)).status).toBe(404);
 });
+
+test('pause delivery posts once to the bound thread despite concurrent retries and a lost delivery acknowledgement',async()=>{
+ const {postMessage}=await import('../src/channels.js');
+ const {ensureWorkflowSafety}=await import('../src/harness/workflowSafety.js');
+ const {deliverWorkflowNotices}=await import('../src/harness/workflowNoticeDelivery.js');
+ const {workflow}=await(await send('POST','/workflows',mika,{orgId:ORG,name:'Thread notice',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Done'}]})).json();
+ const root=await postMessage(env.DB,{orgId:ORG,key:'b:ops',authorLogin:'mika',body:'Automation source'});
+ await send('POST',`/workflows/${workflow.id}/source`,mika,{orgId:ORG,messageId:root.row.id});
+ const {generation}=await ensureWorkflowSafety(env.DB,ORG,workflow.id);
+ await env.DB.prepare("UPDATE hx_workflow_safety SET paused_at='now',failure_streak=3 WHERE org_id=?1 AND workflow_id=?2").bind(ORG,workflow.id).run();
+ await env.DB.prepare("INSERT INTO hx_workflow_safety_notices(org_id,workflow_id,generation,run_id,recipient_id,created_at) VALUES(?1,?2,?3,'failed-run','9302','now')").bind(ORG,workflow.id,generation).run();
+ await Promise.all([deliverWorkflowNotices(env,ORG,workflow.id),deliverWorkflowNotices(env,ORG,workflow.id)]);
+ await env.DB.prepare('UPDATE hx_workflow_safety_notices SET delivered_at=NULL WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).run();
+ expect(await deliverWorkflowNotices(env,ORG,workflow.id)).toBe(1);
+ const replies=await env.DB.prepare('SELECT body,kind FROM channel_messages WHERE org_id=?1 AND parent_id=?2').bind(ORG,root.row.id).all();
+ expect(replies.results).toHaveLength(1);expect(replies.results[0].kind).toBe('ai');expect(replies.results[0].body).toContain('three consecutive failures');
+ await env.DB.prepare('UPDATE hx_workflow_safety_notices SET delivered_at=NULL WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).run();
+ await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9302'").bind(ORG).run();
+ expect(await deliverWorkflowNotices(env,ORG,workflow.id)).toBe(0);
+});
