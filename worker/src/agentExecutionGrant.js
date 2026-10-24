@@ -6,20 +6,26 @@ import {policyDenial} from './policy.js';
 
 // Re-resolve authority from persisted state, including sign-out and current
 // room/agent access. A queued request never carries a permanent permission.
-export async function agentExecutionGrant(env,{orgId,token,rowId}) {
+export async function agentRequestGrant(env,{orgId,token,rowId}) {
   const session=String(token || '').startsWith('h1:')
     ? await sessionByKey(env.DB,token) : await getSession(env.DB,token);
   if(!session || !await isMember(env.DB,orgId,session.github_id) || await policyDenial(env,session,orgId))return null;
   const user=await getUserByGithubId(env.DB,session.github_id);
   const row=await getMessage(env.DB,orgId,rowId);
-  if(!user?.login || !row || row.deleted_at || row.author_login!==user.login)return null;
+  if(!user?.login || !row || row.deleted_at || row.kind !== 'message' || row.author_login!==user.login)return null;
   const members=await listMembers(env.DB,orgId,session.github_id);
   const actor={...user,github_id:session.github_id};
   const view=viewOf(row.channel,user.login,members);
   const resolved=view ? await resolveChannel(env.DB,orgId,actor,view,members) : null;
   if(!resolved || resolved.key!==row.channel)return null;
-  const agents=await respondingAgents(env.DB,{orgId,login:user.login,resolved,row});
-  return {orgId,session,user:actor,row,members,resolved,agents};
+  return {orgId,session,user:actor,row,members,resolved};
+}
+
+export async function agentExecutionGrant(env,request) {
+  const grant=await agentRequestGrant(env,request);
+  if(!grant)return null;
+  const agents=await respondingAgents(env.DB,{orgId:grant.orgId,login:grant.user.login,resolved:grant.resolved,row:grant.row});
+  return {...grant,agents};
 }
 
 export function agentExecutionAuthorizer(env,request,source) {

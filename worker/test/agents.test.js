@@ -484,7 +484,14 @@ test("in production an agent answers from AgentRunner's alarm, not the request t
   after = await (await get(`/channels/messages?${q({ orgId: ORG, channel: view })}`, mika)).json();
   expect(after.messages.map((m) => [m.kind, m.authorName])).toEqual([["message", "Mika"], ["agent", "Hayao"]]);
   expect(after.messages[1].body).toContain("no AI model");
-  const result=await runInDurableObject(stub,async(_,state)=>state.storage.get(`result:${JSON.stringify([ORG,'agent',after.messages[0].id])}`));
+  // A reply can be visible before its running alarm persists the terminal
+  // result. Observe that same execution; do not start another alarm as a retry.
+  let result;
+  for (let i = 0; i < 40; i += 1) {
+    result=await runInDurableObject(stub,async(_,state)=>state.storage.get(`result:${JSON.stringify([ORG,'agent',after.messages[0].id])}`));
+    if (result?.status !== 'running') break;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
   expect(result).toMatchObject({status:'finished',answered:0});
 });
 
@@ -766,4 +773,40 @@ test('cancellation after starting an agent clears its writing indicator without 
   expect([...new Set(events.filter(event => event.name === 'channel_ai_progress').map(event => event.value.step))]).toEqual(['agent', 'done']);
   const replies = await env.DB.prepare('SELECT id FROM channel_messages WHERE org_id = ?1 AND parent_id = ?2').bind(ORG, row.id).all();
   expect(replies.results).toEqual([]);
+});
+
+test('handoff retains the human origin but resolves only the explicitly assigned eligible room agent', async () => {
+  const {agent: source} = await (await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO})).json();
+  const {agent: target} = await (await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO.replaceAll('Hayao','Reviewer').replaceAll('hayao','reviewer')})).json();
+  const {postMessage}=await import('../src/channels.js');
+  const {getSession}=await import('../src/db.js');
+  const {setMode}=await import('../src/harness/mode.js');
+  const {beginAuthorizedAssignment,assignmentExecutionGrant,acceptAgentHandoff}=await import('../src/harness/agentAssignmentGrant.js');
+  const {claimHandoff}=await import('../src/harness/agentAssignments.js');
+  const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'kenji',body:'@hayao poster ideas?'});
+  const request={orgId:ORG,token:(await getSession(env.DB,kenji)).token,rowId:row.id};
+  expect(await beginAuthorizedAssignment(env,request,source.id)).toBeNull();
+  await setMode(env.DB,ORG,'harness','8801');
+  for(const id of [source.id,target.id])await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:cafe',?2,'8801','2026-10-24')").bind(ORG,id).run();
+  const begun=await beginAuthorizedAssignment(env,request,source.id);expect(begun.started).toBe(true);
+  const assignmentId=begun.assignment.id;
+  const input={orgId:ORG,assignmentId,generation:0,sourceAgentId:source.id,targetAgentId:target.id,operationId:'handoff-test',brief:'Review the art direction',messageBody:'Handing off to @reviewer'};
+  expect((await acceptAgentHandoff(env,input)).operation).toBeTruthy();
+  expect((await acceptAgentHandoff(env,input)).replayed).toBe(true);
+  expect(await assignmentExecutionGrant(env,{orgId:ORG,assignmentId,generation:0,agentId:source.id})).toBeNull();
+  await claimHandoff(env.DB,{orgId:ORG,operationId:input.operationId});
+  const current={orgId:ORG,assignmentId,generation:1,agentId:target.id};
+  const grant=await assignmentExecutionGrant(env,current);
+  expect(grant.agents.map(agent=>agent.id)).toEqual([target.id]);expect(grant.row.id).toBe(row.id);expect(grant.row.body).toBe(row.body);expect(grant.user.login).toBe('kenji');
+  await env.DB.prepare("UPDATE channel_messages SET body='Changed source' WHERE org_id=?1 AND id=?2").bind(ORG,row.id).run();
+  expect(await assignmentExecutionGrant(env,current)).toBeNull();
+  await env.DB.prepare('UPDATE channel_messages SET body=?3 WHERE org_id=?1 AND id=?2').bind(ORG,row.id,row.body).run();
+  await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1 AND channel='b:cafe' AND agent_id=?2").bind(ORG,target.id).run();
+  expect(await assignmentExecutionGrant(env,current)).toBeNull();
+  await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:cafe',?2,'8801','2026-10-24')").bind(ORG,target.id).run();
+  expect(await assignmentExecutionGrant(env,current)).not.toBeNull();
+  const {endHere}=await import('../src/sessions.js');
+  await endHere(env,ORG,[request.token]);
+  expect(await assignmentExecutionGrant(env,current)).toBeNull();
+  expect(await acceptAgentHandoff(env,input)).toMatchObject({status:403});
 });

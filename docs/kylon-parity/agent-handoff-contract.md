@@ -1,6 +1,6 @@
 # Agent handoff implementation contract
 
-Status: design only; KY-018/KY-019 remain incomplete. No handoff tool or leader selector is implemented by this document.
+Status: assignment persistence and current-origin/target grant helpers are implemented locally with targeted tests. Runtime integration, delivery, control tool and chain UI remain incomplete; KY-018/KY-019 remain incomplete. No handoff tool or leader selector is exposed.
 
 ## Evidence and current behavior
 
@@ -8,7 +8,7 @@ Rechecked 2026-10-24:
 - https://docs.kylon.io/concepts/rooms: explicit agent mentions can activate another agent; ordinary status messages do not create reply loops. There is no separate user-facing Orchestrator selector.
 - https://docs.kylon.io/cli/workspace/thread: activation selects an eligible room member, replies can request routing or direct activation, and notify-only suppresses activation. Activation reports whether work actually started. A new isolated thread omits preceding-room context but is not a new security boundary.
 - `customAgents.respondingAgents` supports human explicit mentions and limited new-request routing. `channelRoutes.runAgents` executes selected agents concurrently and posts outputs without routing those outputs to other agents. Thus an agent mentioning another agent currently does not implement a handoff.
-- `AgentRunner` has idempotent enqueue receipts for human requests and room hooks. It has no ownership generation for a thread or per-handoff execution identity. Its ordinary jobs are removed before execution, so an interruption is not proof of completion.
+- `AgentRunner` has idempotent enqueue receipts for human requests and room hooks. It has no ownership generation for a thread or per-handoff execution identity. Normal jobs now persist execution results before removal; a recovered running result becomes interrupted without rerunning external work. This is separate from assignment ownership.
 - `roomHookDispatch` provides a useful durable outbox pattern: bounded leases, retry of delivery only, and acceptance only on an explicit queue response. Do not conflate accepted delivery with successful execution.
 
 ## Required runtime contract
@@ -36,8 +36,17 @@ Cover duplicate requests and lost acceptance responses; concurrent target choice
 
 ## Next: expose normal execution state to conversation readers
 
-The normal result tracker has passed full regression and is included in the pending server release. A bounded batch status endpoint and Harness conversation/thread status panel are now implemented locally, pending release verification. The endpoint is scoped to the caller's currently readable canonical conversation. Validate every requested source message (including deletion and workspace/channel) before querying internal runner state; reject a mixed unauthorized batch without revealing which foreign IDs exist. Return metadata only.
+The normal result tracker was deployed in8f09705e, with CI40061007684 and Worker40061007668 successful. A bounded batch status endpoint and Harness conversation/thread status panel are included in main1646634f, with CI and deployment still pending verification. The endpoint is scoped to the caller's currently readable canonical conversation. Validate every requested source message (including deletion and workspace/channel) before querying internal runner state; reject a mixed unauthorized batch without revealing which foreign IDs exist. Return metadata only.
 
 Do not infer queued from an enqueue receipt alone: deployments before the tracker retain accepted receipts after removing completed jobs and have no terminal result. Prefer a persisted result; otherwise report queued only for an actually stored pending job. Legacy receipt-only state is unknown. Model answer count is separate from handler completion; finished with zero model answers does not prove task success.
 
 The client should scope cached results to account/workspace/conversation/message IDs, discard late responses after scope changes, and use one bounded batch refresh rather than one polling request per message. Poll while queued/running; bound retries for initially unknown messages to cover the enqueue race. Use existing conversation styling and preserve Simple. Do not expose a Retry action until its external-effect/idempotency policy is implemented.
+
+
+## Local persistence and grant implementation (2026-10-24)
+
+`agentAssignments.js` stores one assignment per original human message and initial agent, preserving deliberately independent parallel requests. Its generation check transfers ownership, immutable handoff details, an inert agent message and an outbox row in one D1 transaction. Replays cannot change the target, brief or visible event; only one claimant can start a pending target. Self/cyclic/exhausted handoffs are rejected, and a stale owner cannot finish or reclaim the new generation. A failed outbox insertion rolls back the entire transition. Initial assignment records retain a hashed session key and source fingerprint, not a raw session token or duplicated source body.
+
+`agentAssignmentGrant.js` resolves the original human request without changing its author/body, then separately checks the assigned target's current room placement and invocation rights. It requires Harness mode and a currently readable business room. Source edits and sign-out invalidate the grant; an unavailable target is not silently granted membership. Normal human responder selection continues through `agentExecutionGrant`. These internal helpers are not yet invoked by the production execution path.
+
+Remaining integration: create/claim assignments in Harness runs, add handoff-specific outbox draining and AgentRunner job identity, terminate the source research turn via a trusted runtime signal, fence tool/model/reply stages by generation, record interrupted/cancelled ownership, then expose the chain and stop control. Test actual source-to-target execution and compare its UI against the live reference before changing parity status.
