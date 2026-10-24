@@ -91,6 +91,23 @@ export async function workflowConditions({context,web,apiHost,shots}) {
   const scheduled=await call('GET',`/workflows/${id}`)
   if(scheduled.workflow.trigger.cadence!=='monthly'||scheduled.workflow.trigger.monthday!==31||scheduled.workflow.trigger.timezone!=='UTC')throw Error('Calendar settings were not persisted')
   await call('PUT',`/workflows/${id}`,{enabled:false})
+  await page.reload({waitUntil:'load'})
+  const history=screen.locator('.hx-workflow-history')
+  await history.locator('summary').click()
+  await history.getByLabel(/^(Compare from|比較元)$/,{exact:true}).waitFor({state:'visible'})
+  const versions=await call('GET',`/workflows/${id}/revisions`)
+  if(versions.items.length<4)throw Error('Workflow revision history omitted a saved definition change')
+  await history.getByLabel(/^(Compare from|比較元)$/,{exact:true}).selectOption('1')
+  await history.getByLabel(/^(Compare to|比較先)$/,{exact:true}).selectOption(String(versions.items[0].revision))
+  await history.locator('.hx-revision-changes').waitFor({state:'visible'})
+  if(!(await history.innerText()).includes(`${name} edited`))throw Error('Revision comparison did not show the edited name')
+  await history.scrollIntoViewIfNeeded()
+  await page.screenshot({path:`${shots}/workflow-condition-history.png`})
+  await page.setViewportSize({width:390,height:844})
+  await history.scrollIntoViewIfNeeded()
+  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Revision history overflows the narrow viewport')
+  await page.screenshot({path:`${shots}/workflow-condition-history-mobile.png`})
+
 
 
  } catch(error) {

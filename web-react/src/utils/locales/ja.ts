@@ -1,6 +1,18 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Before': '変更前',
+  'After': '変更後',
+  "Definition history": "定義の変更履歴",
+  "Only versions you can currently access are shown. Older history starts when tracking was enabled.": "現在閲覧できる版のみ表示します。履歴は記録を開始した時点から残ります。",
+  "No accessible versions on this page.": "このページに閲覧可能な版はありません。",
+  "Compare from": "比較元",
+  "Compare to": "比較先",
+  "Version {version}": "バージョン {version}",
+  "No definition changes between these versions.": "この2つの版の定義に変更はありません。",
+  "Load older versions": "以前の版を読み込む",
+  "Automatic triggers": "自動実行",
+
   'Time zone': 'タイムゾーン',
   'Enter a valid time and time zone.': '正しい時刻とタイムゾーンを入力してください。',
   'Weekday': '曜日',

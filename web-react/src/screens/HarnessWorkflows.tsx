@@ -1,3 +1,4 @@
+import {WorkflowHistory} from '../components/WorkflowHistory'
 import {describeWorkflowCondition} from '../utils/workflowCondition'
 import {runDuration} from '../utils/runDuration'
 import {getLocale} from '../utils/locale'
@@ -238,6 +239,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
             </span>
           </div>
         </div>
+        <WorkflowHistory key={`${w.id}:${w.updatedAt}`} api={api} workflowId={w.id}/>
         <WorkflowSource key={w.id} api={api} workflowId={w.id} orgId={props.orgId}/>
         {error && <div className="form-error">{error}</div>}
         {open.canEdit && (

@@ -1,3 +1,4 @@
+import {workflowRevisions} from './workflowRevisions.js';
 import {workflowSource} from './workflowSource.js';
 import {workflowNotices} from './workflowNotices.js';
 import {resumeWorkflowSafety,readWorkflowSafety} from './workflowSafety.js';
@@ -368,6 +369,11 @@ export async function handleHarness(request, env, url, context = {}) {
     const wf = await getWorkflow(env.DB, orgId, wfId, { withSecret: true, viewerId: me });
     if (!wf) return json({ message: "No such workflow." }, 404);
     const mine = await mayChange(env, orgId, who, wf.createdBy);
+    if(sub==='revisions' && request.method==='GET') {
+      const before=url.searchParams.has('before')?Number(url.searchParams.get('before')):undefined;
+      const result=await workflowRevisions(env.DB,orgId,wfId,me,{before});
+      return result.error?fail(result):json(result);
+    }
     // The hook's secret is for whoever may change the workflow.
     const shown = mine ? { ...wf, hookUrl: hookUrl(url, wf) } : { ...wf, hookSecret: undefined };
     if (!sub) {

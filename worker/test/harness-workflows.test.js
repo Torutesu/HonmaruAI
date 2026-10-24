@@ -1004,3 +1004,13 @@ test('schedule definitions reject invalid values rather than silently shifting e
  expect(normalizeTrigger(schedule).trigger).toEqual(schedule);
  expect(normalizeTrigger({type:'schedule',cadence:'daily'}).trigger).toMatchObject({hour:9,minute:0,timezone:'UTC'});
 });
+
+test('workflow revision HTTP route returns accessible history and rejects invalid cursors',async()=>{
+ const created=await send('POST','/workflows',mika,{orgId:ORG,name:'History original',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'History'}]});
+ const {workflow}=await created.json();
+ await send('PUT',`/workflows/${workflow.id}`,mika,{orgId:ORG,name:'History edited',expectedUpdatedAt:workflow.updatedAt});
+ const result=await get(`/workflows/${workflow.id}/revisions?orgId=${encodeURIComponent(ORG)}`,mika);
+ expect(result.status).toBe(200);
+ const data=await result.json();expect(data.items.map(item=>item.definition.name)).toEqual(['History edited','History original']);
+ expect((await get(`/workflows/${workflow.id}/revisions?orgId=${encodeURIComponent(ORG)}&before=-1`,mika)).status).toBe(400);
+});

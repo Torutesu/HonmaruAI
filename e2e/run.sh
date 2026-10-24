@@ -65,6 +65,7 @@ cd worker
 # The schema has to exist before anything signs in. --local keeps it on disk
 # under .wrangler, so this is the same database the dev server will open.
 npx -y wrangler@4 d1 execute tiktokforwork --local --file schema.sql --yes >/tmp/e2e-d1.log 2>&1
+npx -y wrangler@4 d1 execute tiktokforwork --local --file workflow-revisions.sql --yes >>/tmp/e2e-d1.log 2>&1
 # …and then the migrations, exactly the way the deploy applies them: statement
 # by statement, tolerating "duplicate column name" as the already-applied
 # signal. Without this the harness only ever built a database from schema.sql,
