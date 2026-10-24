@@ -1,3 +1,4 @@
+import {workflowSource} from './workflowSource.js';
 import {workflowNotices} from './workflowNotices.js';
 import {resumeWorkflowSafety,readWorkflowSafety} from './workflowSafety.js';
 import {appAutomationFromPrompt} from './appAutomationGeneration.js';
@@ -393,6 +394,10 @@ export async function handleHarness(request, env, url, context = {}) {
         return json(await deleteWorkflow(env.DB, orgId, wfId));
       }
       return null;
+    }
+    if(sub==='source'&&['GET','POST'].includes(request.method)){
+      const result=await workflowSource(env.DB,orgId,me,wfId,input,request.method==='POST');
+      return result.error?fail(result):json(result);
     }
     if(sub==='resume' && request.method==='POST'){
       if(!mine)return json({message:'Only its maker or an admin can resume this workflow.'},403);

@@ -257,3 +257,5 @@ CREATE TABLE IF NOT EXISTS hx_workflow_outcomes (org_id TEXT NOT NULL, run_id TE
 CREATE TABLE IF NOT EXISTS hx_workflow_safety_notices (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, generation TEXT NOT NULL, run_id TEXT NOT NULL, recipient_id TEXT NOT NULL, created_at TEXT NOT NULL, delivered_at TEXT, PRIMARY KEY(org_id,workflow_id,generation));
 
 ALTER TABLE hx_workflow_safety_notices ADD COLUMN read_at TEXT;
+
+CREATE TABLE IF NOT EXISTS hx_workflow_sources (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, channel TEXT NOT NULL, thread_id TEXT NOT NULL, created_by TEXT NOT NULL, PRIMARY KEY(org_id,workflow_id));

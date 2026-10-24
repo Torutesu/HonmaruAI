@@ -879,3 +879,23 @@ test('safety notices are creator-scoped, require current workflow access, and re
  expect(await list(mika)).toEqual([]);
  expect((await send('POST','/workflows/notices',mika,body)).status).toBe(404);
 });
+
+test('workflow source is explicit, creator-bound, immutable and never exposes another workspace thread',async()=>{
+ const {postMessage}=await import('../src/channels.js');
+ const {workflow}=await(await send('POST','/workflows',mika,{orgId:ORG,name:'Threaded automation',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Done'}]})).json();
+ const root=await postMessage(env.DB,{orgId:ORG,key:'b:ops',authorLogin:'mika',body:'Create this automation'});
+ const other=await postMessage(env.DB,{orgId:ORG,key:'b:ops',authorLogin:'mika',body:'A different thread'});
+ const reply=await postMessage(env.DB,{orgId:ORG,key:'b:ops',authorLogin:'mika',body:'Reply',parentId:root.row.id});
+ const source=(token,messageId)=>send('POST',`/workflows/${workflow.id}/source`,token,{orgId:ORG,messageId});
+ const foreign=await postMessage(env.DB,{orgId:'other-workspace',key:'b:ops',authorLogin:'mika',body:'Foreign thread'});
+ expect((await source(mika,foreign.row.id)).status).toBe(404);
+ expect((await source(toru,root.row.id)).status).toBe(403);
+ expect((await source(mika,reply.row.id)).status).toBe(404);
+ expect((await source(mika,root.row.id)).status).toBe(200);
+ expect((await source(mika,root.row.id)).status).toBe(200);
+ expect((await source(mika,other.row.id)).status).toBe(409);
+ const read=await(await get(`/workflows/${workflow.id}/source?${q({orgId:ORG})}`,mika)).json();
+ expect(read.source.threadId).toBe(root.row.id);
+ await env.DB.prepare('UPDATE channel_messages SET deleted_at=?1 WHERE org_id=?2 AND id=?3').bind('now',ORG,root.row.id).run();
+ expect((await get(`/workflows/${workflow.id}/source?${q({orgId:ORG})}`,mika)).status).toBe(404);
+});
