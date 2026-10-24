@@ -740,8 +740,8 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 /* A narrow floating conversation covers only its own app body. */
 .hx-floating-app .hx-app-with-chat > .screen-body { position:relative; }
 .hx-floating-app[data-compact] .hx-app-with-chat:not(.hx-app-fullscreen) > .screen-body { display:block; }
-.hx-floating-app[data-compact] .hx-app-with-chat:not(.hx-app-fullscreen) > .screen-body > .hx-object-chat { position:absolute; inset:0; z-index:40; min-height:0; max-height:none; border:0; }
+.hx-floating-app[data-compact] .hx-app-with-chat:not(.hx-app-fullscreen) > .screen-body > .hx-object-chat { position:absolute; inset:0; z-index:4; min-height:0; max-height:none; border:0; }
 .hx-floating-app .hx-object-messages { min-height:0; }
 @media(max-width:719px) {
- .hx-floating-app .hx-app-with-chat > .screen-body > .hx-object-chat { position:absolute; inset:0; min-height:0; max-height:none; border:0; }
+ .hx-floating-app .hx-app-with-chat > .screen-body > .hx-object-chat { position:absolute; inset:0; z-index:4; min-height:0; max-height:none; border:0; }
 }
