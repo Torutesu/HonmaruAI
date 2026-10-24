@@ -2403,3 +2403,10 @@ Added e2e/app-source-navigation.mjs to the existing real-stack CI spec. It refus
 - The fixture changes workspace mode and creates a private room via API after the page has mounted. Added a reload before UI navigation so mode/sidebar data are read again. This is a test-setup hypothesis, not a confirmed product fix; rerun is required.
 - Added failure screenshot capture from the fixture's own page before closing it, improving evidence for any remaining failure. Node syntax and diff checks passed.
 - Kylon empty test table was observed cycling task-name sort through ascending, descending, and none; restored none. Existing Honmaru `nextColumnSort` header path already implements that cycle. No message or record was created in Kylon.
+
+### 2026-10-24 — Draft persistence production verification
+
+- Deploy Web 40092758483 / job 120868651145 succeeded for f1121b9e. Both app.honmaruai.com and honmaru-web.pages.dev served `index-B9GKy666.js`; preview https://2fa5104a.honmaru-web.pages.dev.
+- Authenticated installed Mac app, existing empty UI確認用タスク: entered a harmless unsent draft, closed/reopened the app conversation, and reloaded the page. Both restored the exact text. Empty message history remained visible. Cleared the test draft and closed the panel; no message was sent and no record was added. Screenshot of restored text: `/tmp/honmaru-app-draft-production.png`.
+- First reload reproduced the installed desktop's intermittent blank rendering; toggling fullscreen and back restored it. The later reload worked normally. The previously tested native repaint patch still has not been installed in /Applications, so this defect remains open.
+- CI 40092758479: Web, desktop, gateway, relay and shared/mobile successful at observation; Worker and E2E still in progress. Linked-source E2E outcome remains unverified.
