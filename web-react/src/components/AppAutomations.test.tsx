@@ -69,3 +69,15 @@ test('natural-language generation adds an editable proposal without publishing i
  expect(tree.root.findAllByType(AutomationTriggerEditor)).toHaveLength(2)
  expect(api.releaseAppAutomations).not.toHaveBeenCalled();act(()=>tree.unmount())
 })
+
+test('step order changes only in the draft and preserves every step value',async()=>{
+ const second={type:'post',channel:'b:ops',text:'Second step'}
+ const source={...state,draft:{version:1,items:[{key:'review',...definition,steps:[...definition.steps,second]}]}}
+ const {tree,api}=await setup({appAutomations:vi.fn().mockResolvedValue(source)})
+ const {StepEditor}=await import('./WorkflowStepEditor')
+ const move=tree.root.findAllByType('button').find(b=>b.props['aria-label']==='2番目のステップを上へ')!
+ await act(async()=>move.props.onClick())
+ expect(tree.root.findAllByType(StepEditor).map(e=>e.props.step)).toEqual([second,definition.steps[0]])
+ expect(source.draft.items[0].steps).toEqual([...definition.steps,second])
+ expect(api.releaseAppAutomations).not.toHaveBeenCalled();act(()=>tree.unmount())
+})
