@@ -242,3 +242,5 @@ CREATE INDEX IF NOT EXISTS idx_teammate_runs_assignment ON ai_teammate_runs(org_
 CREATE INDEX IF NOT EXISTS idx_teammate_result_assignment ON ai_teammate_result_dispatch(org_id,assignment_id,assignment_generation,status);
 
 CREATE TABLE IF NOT EXISTS hx_app_automation_state (org_id TEXT NOT NULL, app_id TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, draft TEXT NOT NULL, published TEXT, release_id TEXT, published_at TEXT, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, PRIMARY KEY(org_id,app_id));
+
+CREATE TABLE IF NOT EXISTS hx_app_automation_bindings (org_id TEXT NOT NULL, app_id TEXT NOT NULL, declaration_key TEXT NOT NULL, workflow_id TEXT NOT NULL, applied TEXT NOT NULL, release_id TEXT NOT NULL, PRIMARY KEY(org_id,app_id,declaration_key), UNIQUE(org_id,workflow_id));

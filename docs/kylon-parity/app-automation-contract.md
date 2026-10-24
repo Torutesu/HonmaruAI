@@ -43,3 +43,9 @@ Added workspace/app-scoped automation state separate from ordinary app definitio
 Validation: **4 files / 53 tests passed**, 10.80s (`/tmp/honmaru-app-automation-draft.log`), including concurrent save conflict, stale app version rejection, invalid declaration rollback, editor visibility, zero workflows after an enabled draft save, existing app tests, migrations and query-scope audit. Publication, live binding/drift reconciliation, lifecycle guards and UI remain incomplete; the draft endpoint does not expose a publish action yet.
 
 Separately, main `cc983d53` contains the fully tested execution-control changes (Worker 1823/Web 1077 pass). CI `40068730977`, Web `40068730976`, Worker `40068730972` are in progress. These draft changes are not on main and must not replace those active jobs.
+
+## Editor-scoped live plan (local isolated worktree)
+
+Added workspace/app/key-to-workflow binding persistence and a read-only reconciliation plan to the editor endpoint. Definitions are compared against the last applied baseline. Existing independent workflow changes report drift instead of being silently overwritten; missing identities remain explicit. Before exposing any live definition, current workflow resource visibility is checked, including a workflow that moved to an inaccessible table. Hook secrets and run metadata are excluded.
+
+Validation: **4 files / 54 tests passed**, 10.61s (`/tmp/honmaru-app-automation-plan.log`), including added/unchanged/drifted plans, secret omission, access loss after independent modification, draft persistence, migrations and query isolation. Bindings/publication state in that test are fixture data; no production publishing API has been added yet. Atomic publish/unpublish, all trigger guards and UI remain required before this feature can be released.

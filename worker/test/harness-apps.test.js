@@ -571,3 +571,20 @@ test('app automation drafts are private to editors, inert and protected against 
  const invalid=await send('PUT',path,toru,{orgId:ORG,version:app.version+1,revision:1,automations:{version:1,items:[...automations.items,...automations.items]}});expect(invalid.status).toBe(400);
  expect((await(await get(`${path}?orgId=${ORG}`,toru)).json()).revision).toBe(1);
 });
+
+test('automation plan reports live drift but hides newly inaccessible workflow definitions',async()=>{
+ const {app}=await(await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ const path=`/apps/${app.id}/automations`;
+ const declaration={key:'review',name:'Review',enabled:false,trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{}}]};
+ const automations={version:1,items:[declaration]};
+ expect((await send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations})).status).toBe(200);
+ const initial=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(initial.plan[0].status).toBe('added');
+ const {workflow}=await(await send('POST','/workflows',toru,{orgId:ORG,...declaration})).json();
+ await env.DB.prepare('UPDATE hx_app_automation_state SET published=draft,release_id=?1 WHERE org_id=?2 AND app_id=?3').bind('release',ORG,app.id).run();
+ await env.DB.prepare('INSERT INTO hx_app_automation_bindings(org_id,app_id,declaration_key,workflow_id,applied,release_id) VALUES (?1,?2,?3,?4,?5,?6)').bind(ORG,app.id,'review',workflow.id,JSON.stringify(declaration),'release').run();
+ const unchanged=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(unchanged.plan[0].status).toBe('unchanged');
+ await env.DB.prepare('UPDATE hx_workflows SET name=?1,hook_secret=?2 WHERE org_id=?3 AND id=?4').bind('Live changed','never-show-this-secret',ORG,workflow.id).run();
+ const changed=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(changed.plan[0]).toMatchObject({status:'drifted',live:{name:'Live changed'},declared:{name:'Review'}});expect(JSON.stringify(changed)).not.toContain('never-show-this-secret');
+ await env.DB.prepare('UPDATE hx_workflows SET trigger=?1 WHERE org_id=?2 AND id=?3').bind(JSON.stringify({type:'row',tableId:'foreign-table',on:'any'}),ORG,workflow.id).run();
+ const denied=await get(`${path}?orgId=${ORG}`,toru);expect(denied.status).toBe(403);expect(JSON.stringify(await denied.json())).not.toContain('Live changed');
+});

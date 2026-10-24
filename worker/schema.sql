@@ -2191,3 +2191,5 @@ CREATE TABLE IF NOT EXISTS ai_teammate_result_dispatch (id TEXT PRIMARY KEY, org
 CREATE INDEX IF NOT EXISTS idx_teammate_result_pending ON ai_teammate_result_dispatch(status,next_attempt,lease_until);
 
 CREATE TABLE IF NOT EXISTS hx_app_automation_state (org_id TEXT NOT NULL, app_id TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, draft TEXT NOT NULL, published TEXT, release_id TEXT, published_at TEXT, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, PRIMARY KEY(org_id,app_id));
+
+CREATE TABLE IF NOT EXISTS hx_app_automation_bindings (org_id TEXT NOT NULL, app_id TEXT NOT NULL, declaration_key TEXT NOT NULL, workflow_id TEXT NOT NULL, applied TEXT NOT NULL, release_id TEXT NOT NULL, PRIMARY KEY(org_id,app_id,declaration_key), UNIQUE(org_id,workflow_id));
