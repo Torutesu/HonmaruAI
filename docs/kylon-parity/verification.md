@@ -2234,3 +2234,7 @@ At 2026-10-24T07:10Z, prior candidate 65b03455 CI 40072311299, Web 40072311252 a
 ### Active execution history refresh
 
 Expanded automation history refreshes every ten seconds while it contains running/waiting executions, without overlapping fetches. Closing, completion, errors and unmount stop polling; existing identity fencing remains. Full Web passed 160 files / 1099 tests, 3.35s (`/tmp/honmaru-history-refresh-full-web.log`). TypeScript initially rejected the new timer tests' act callback returning VitestUtils; changed those callbacks to return void, then TypeScript/build and seven focused tests passed (`/tmp/honmaru-history-refresh-build.log`, `/tmp/honmaru-history-refresh-final.log`). No Worker runtime changes after the frozen 1861-test success. Previous production jobs still active; this remains unpushed.
+
+### Production candidate 65b03455 completed
+
+CI 40072311299, Worker 40072311345 and Web 40072311252 all completed successfully. Worker version edfc9345-6824-4f4b-ab23-9a5d2cd9a583 was published. Web deployment logs confirm both honmaru-web.pages.dev and app.honmaruai.com serve index-CFCp44d2.js at 2026-10-24T07:18:57Z. This proves delivery of the preceding resource-name/history/unsaved-edit/continuation fixes, not authenticated UI equivalence. Follow-up admission and history refinements through 20d55ee6 may now be pushed without overlapping the previous release. Frozen Worker 1861 tests and latest Web 1099 tests remain the validation evidence for that follow-up.
