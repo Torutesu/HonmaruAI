@@ -81,3 +81,15 @@ test('step order changes only in the draft and preserves every step value',async
  expect(source.draft.items[0].steps).toEqual([...definition.steps,second])
  expect(api.releaseAppAutomations).not.toHaveBeenCalled();act(()=>tree.unmount())
 })
+
+test('an external app version update preserves an unsaved automation draft',async()=>{
+ const {tree,api}=await setup()
+ const name=tree.root.findAllByType('input').find(i=>i.props.value==='Review')!
+ await act(async()=>name.props.onChange({target:{value:'Unsaved local edit'}}))
+ const calls=api.appAutomations.mock.calls.length
+ await act(async()=>tree.update(<AppAutomations app={{id:'app',version:3,definition:{}}as any} api={api as any} reload={()=>{}}/>))
+ expect(api.appAutomations.mock.calls.length).toBe(calls)
+ expect(tree.root.findAllByType('input').some(i=>i.props.value==='Unsaved local edit')).toBe(true)
+ expect(JSON.stringify(tree.toJSON())).toContain('未保存の下書きは保持しています')
+ act(()=>tree.unmount())
+})

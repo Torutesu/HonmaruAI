@@ -159,3 +159,7 @@ The shared step form now displays and edits follow-up delay directly in minutes,
 ## Execution history inside app automation review (pending next deployment)
 
 Added lazy authorized workflow-run history under each existing managed automation. It shows run time/status, step results/errors and run identity, with explicit refresh/retry. Failed retrieval clears old results instead of showing stale success. Related two UI files / nine tests and TypeScript passed (`/tmp/honmaru-automation-history-ui.log`). This UI-only follow-up is not part of currently deploying cfece088. Live screenshots and production validation remain pending.
+
+## Unsaved draft preservation across app version changes
+
+An external app-version refresh no longer silently replaces dirty automation edits. The panel preserves them, explains the conflict, disables saving/publication against the old app version, and provides an explicit discard/reload action. If edits are reverted locally, reload remains available. Targeted eight UI tests pass (`/tmp/honmaru-automation-unsaved-final.log`); TypeScript passed before the final button eligibility adjustment, so the next full build must cover that adjustment. This remains a local follow-up while cfece088 deployment jobs are active.
