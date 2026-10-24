@@ -1,4 +1,5 @@
 import React from 'react'
+import {WorkflowConditionEditor,blankCondition} from './WorkflowConditionEditor'
 import {useT} from '../utils/i18n'
 import {Icon} from './Icon'
 import type {Step,StepType,Table} from '../utils/harness'
@@ -21,11 +22,12 @@ export function StepEditor({ step, onChange, onRemove, tables, agents, triggerTa
   return (
     <div className="hx-step">
       <div className="hx-step-head">
-        <select value={step.type} onChange={(e) => onChange(blankStep(e.target.value as StepType))} aria-label={t('Step')}>
+        <select value={step.type} onChange={(e) => onChange({...blankStep(e.target.value as StepType),...(step.when?{when:step.when}:{})})} aria-label={t('Step')}>
           {STEP_TYPES.map((s) => <option key={s} value={s}>{stepLabel(t, s)}</option>)}
         </select>
         <button className="btn-text danger" onClick={onRemove} aria-label={t('Remove step')}><Icon name="x" size={14} /></button>
       </div>
+      <div className="hx-step-condition"><label><input type="checkbox" checked={Boolean(step.when)} onChange={event=>set({when:event.target.checked?blankCondition():undefined})}/> {t('Run only when the condition matches')}</label>{step.when&&<WorkflowConditionEditor columns={triggerTable?.columns} value={step.when} onChange={when=>set({when})}/>}</div>
       {(step.type === 'post' || step.type === 'followup') && (
         <input className="hx-cell-input" placeholder="#ops" value={(step.channel || '').replace(/^b:/, '#')} onChange={(e) => set({ channel: `b:${e.target.value.replace(/^#/, '')}` })} aria-label={t('Room')} />
       )}

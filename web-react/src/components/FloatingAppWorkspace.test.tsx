@@ -39,3 +39,11 @@ test('covering the floating app suspends interaction without losing its section 
  expect(node.toggleAttribute).toHaveBeenLastCalledWith('inert',false)
  act(()=>button('Dock').props.onClick());expect(location.hash).toContain('section=settings')
 })
+
+test('mode discovery preserves the underlying editor while resetting floating content',()=>{
+ act(()=>{tree=create(view('team:one','one',false))});const input=tree.root.findByType('input')
+ act(()=>tree.update(view()));expect(tree.root.findByType('input')).toBe(input)
+ act(()=>button('Float').props.onClick())
+ act(()=>tree.update(view('team:one','one',false)))
+ expect(tree.root.findByType('input')).toBe(input);expect(regions()).toHaveLength(0)
+})

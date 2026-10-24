@@ -938,3 +938,32 @@ test('pause delivery posts once to the bound thread despite concurrent retries a
  expect((await guarded()).code).toBe('notice_changed');
  expect(await deliverWorkflowNotices(env,ORG,workflow.id)).toBe(0);
 });
+
+test('conditional steps save their decision, skip unmatched effects and retain step numbering',async()=>{
+ const when={path:['input','amount'],op:'gt',value:100};
+ const response=await send('POST','/workflows',mika,{orgId:ORG,name:'Conditional invoice',trigger:{type:'manual'},steps:[
+  {type:'post',channel:'b:ops',text:'Large invoice',when},
+  {type:'post',channel:'b:ops',text:'Small invoice',when:{not:when}},
+ ]});
+ expect(response.status).toBe(201);
+ const {workflow}=await response.json();expect(workflow.steps[0].when).toEqual(when);
+ const run=await startRun(env,{orgId:ORG,workflow,trigger:'manual',input:{amount:150},startedBy:'9302'});
+ expect(run.status).toBe('done');expect(run.log.map(entry=>[entry.step,entry.status])).toEqual([[1,'ok'],[2,'skipped']]);
+ const bodies=(await messages(mika)).map(message=>message.body);
+ expect(bodies).toContain('Large invoice');expect(bodies).not.toContain('Small invoice');
+ const checkpoints=await env.DB.prepare('SELECT node_id,status,result FROM hx_workflow_node_checkpoints WHERE org_id=?1 AND run_id=?2 ORDER BY node_id').bind(ORG,run.id).all();
+ expect(checkpoints.results.map(row=>[row.node_id,row.status,JSON.parse(row.result).matches])).toEqual([['condition:1','done',true],['condition:2','done',false]]);
+ expect(normalizeSteps([{type:'post',channel:'b:ops',text:'bad',when:{path:['input','__proto__'],op:'exists',value:true}}]).error).toBeTruthy();
+});
+
+test('conditions reject forward, self and malformed step references even inside groups',()=>{
+ const step={type:'post',channel:'b:ops',text:'Review'};
+ for(const index of ['0','1','2','3','01','-1','1.5','output']) {
+  const when={all:[{not:{path:['steps',index,'status'],op:'eq',value:'done'}}]};
+  const result=normalizeSteps([{...step,when}]);
+  expect(result.error).toContain('earlier steps');
+ }
+ const when={any:[{path:['steps','1','status'],op:'eq',value:'done'},{path:['input','override'],op:'eq',value:true}]};
+ expect(normalizeSteps([step,{...step,when}]).steps[1].when).toEqual(when);
+ expect(normalizeSteps([step,{...step,when:{path:['steps','2','output'],op:'exists',value:false}}]).error).toContain('earlier steps');
+});

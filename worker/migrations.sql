@@ -266,3 +266,5 @@ CREATE TABLE IF NOT EXISTS hx_workflow_generation_jobs (org_id TEXT NOT NULL, us
 
 CREATE TABLE IF NOT EXISTS hx_workflow_usage (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, step_number INTEGER NOT NULL CHECK(step_number>0), provider TEXT NOT NULL, model TEXT NOT NULL, input_tokens INTEGER CHECK(input_tokens>=0), output_tokens INTEGER CHECK(output_tokens>=0), byok INTEGER NOT NULL CHECK(byok IN (0,1)), created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_hx_workflow_usage_run ON hx_workflow_usage(org_id,run_id,step_number);
+
+CREATE TABLE IF NOT EXISTS hx_workflow_node_checkpoints (org_id TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, node_id TEXT NOT NULL, fingerprint TEXT NOT NULL, effect INTEGER NOT NULL CHECK(effect IN (0,1)), status TEXT NOT NULL CHECK(status IN ('running','unknown','done')), owner TEXT NOT NULL, attempt INTEGER NOT NULL CHECK(attempt>0), lease_until INTEGER NOT NULL, result TEXT, PRIMARY KEY(org_id,run_id,node_id), CHECK(status!='done' OR result IS NOT NULL));

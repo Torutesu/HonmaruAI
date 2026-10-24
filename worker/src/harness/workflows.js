@@ -1,3 +1,4 @@
+import {normalizeWorkflowCondition,checkpointWorkflowCondition} from './workflowConditions.js';
 import {recordWorkflowUsage,workflowRunUsage} from './workflowUsage.js';
 import {workflowSourceMayRun} from './workflowSourceAuthority.js';
 import {tryWorkflowNotice} from './workflowNoticeDelivery.js';
@@ -104,6 +105,18 @@ export function normalizeSteps(raw) {
         steps.push({ type: "followup", channel: text("channel", 200), text: text("text"), minutes: Math.min(minutes, 60 * 24 * 90), ...(s.agentId ? { agentId: text("agentId", 64) } : {}) });
         break;
       }
+    }
+    if (Object.hasOwn(s, 'when')) {
+      const condition = normalizeWorkflowCondition(s.when);
+      if (condition.error) return { error: `Invalid step condition: ${condition.error}` };
+      const validReferences = node => {
+        if (node.all || node.any) return (node.all || node.any).every(validReferences);
+        if (node.not) return validReferences(node.not);
+        if (node.path[0] !== 'steps') return true;
+        return /^[1-9][0-9]*$/.test(node.path[1] || '') && Number(node.path[1]) < steps.length;
+      };
+      if (!validReferences(condition.condition)) return {error:'A step condition can only reference earlier steps by their one-based number.'};
+      steps[steps.length - 1].when = condition.condition;
     }
   }
   return { steps };
@@ -421,8 +434,16 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     const step = workflow.steps[index];
     let entry;
     try {
-      entry = !await authorize() ? {status:'failed',error:'The automation was stopped, its release changed, or its source access was removed.'}
-        : await runStep(env, { orgId, workflow, step, number: index + 1, scope, runId, depth, owner: workflow.createdBy, authorize });
+      if (!await authorize()) entry = {status:'failed',error:'The automation was stopped, its release changed, or its source access was removed.'};
+      else {
+        if (step.when) {
+          const decision = await checkpointWorkflowCondition(db, {orgId,runId,nodeId:`condition:${index + 1}`,condition:step.when,scope});
+          if (decision.status === 'pending') return getRun(db,orgId,runId);
+          if (!decision.matches) entry = {status:'skipped',output:'Condition did not match.'};
+        }
+        if (!entry) entry = step.when && !await authorize() ? {status:'failed',error:'The automation was stopped, its release changed, or its source access was removed.'}
+          : await runStep(env, { orgId, workflow, step, number: index + 1, scope, runId, depth, owner: workflow.createdBy, authorize });
+      }
     } catch (e) {
       entry = { status: "failed", error: String(e?.message || e).slice(0, 300) };
     }

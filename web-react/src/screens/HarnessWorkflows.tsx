@@ -1,3 +1,4 @@
+import {describeWorkflowCondition} from '../utils/workflowCondition'
 import {runDuration} from '../utils/runDuration'
 import {getLocale} from '../utils/locale'
 import {WorkflowRunUsage} from '../components/WorkflowRunUsage'
@@ -203,7 +204,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
             await refreshOpen(w.id)
           })}>{t('Resume after review')}</button>}
         </section>}
-        <div className="hx-flow-diagram"><div className="hx-flow-node"><small>{t('Trigger')}</small><strong>{triggerLabel(t, w.trigger, tables)}</strong></div>{w.steps.map((step, index) => <React.Fragment key={index}><span className="hx-flow-connector">↓</span><div className="hx-flow-node"><small>{index + 1}. {stepLabel(t, step.type)}</small><strong>{step.text || step.prompt || step.title || tables.find(table => table.id === step.tableId)?.name}</strong>{step.channel && <span>{step.channel.startsWith('ag:') || step.channel.startsWith('dm:') ? t('Private chat') : step.channel.replace(/^b:/, '#')}</span>}{step.agentId && <span>{t('Agent')}: {agents.find(agent => agent.id === step.agentId)?.name || step.agentId}</span>}{step.to && <span>@{step.to}</span>}{step.summary && <p>{step.summary}</p>}{step.minutes && <span>{step.minutes} min</span>}{step.values && <pre>{JSON.stringify(step.values, null, 2)}</pre>}</div></React.Fragment>)}</div>
+        <div className="hx-flow-diagram"><div className="hx-flow-node"><small>{t('Trigger')}</small><strong>{triggerLabel(t, w.trigger, tables)}</strong></div>{w.steps.map((step, index) => <React.Fragment key={index}><span className="hx-flow-connector">↓</span><div className="hx-flow-node"><small>{index + 1}. {stepLabel(t, step.type)}</small><strong>{step.text || step.prompt || step.title || tables.find(table => table.id === step.tableId)?.name}</strong>{step.channel && <span>{step.channel.startsWith('ag:') || step.channel.startsWith('dm:') ? t('Private chat') : step.channel.replace(/^b:/, '#')}</span>}{step.agentId && <span>{t('Agent')}: {agents.find(agent => agent.id === step.agentId)?.name || step.agentId}</span>}{step.to && <span>@{step.to}</span>}{step.summary && <p>{step.summary}</p>}{step.minutes && <span>{step.minutes} min</span>}{step.values && <pre>{JSON.stringify(step.values, null, 2)}</pre>}{step.when && <div className="hx-flow-condition"><small>{t('Execution condition')}</small><p>{describeWorkflowCondition(step.when,tables.find(table=>table.id===w.trigger.tableId)?.columns)}</p></div>}</div></React.Fragment>)}</div>
         <div className="rows">
           <div className="row static">
             <span className="row-main">{triggerLabel(t, w.trigger, tables)}
@@ -290,16 +291,18 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
                 <span className={`hx-status ${r.status}`}>{t(r.status)}</span> <time dateTime={r.startedAt}>{new Date(r.startedAt).toLocaleString(getLocale())}</time> · {t(r.trigger)}
                 {runDuration(r)!==null&&<> · <span title={t('Elapsed time, including approval waits')}>{runDuration(r)}</span></>}
                 <WorkflowRunUsage usage={r.usage}/>
-                {r.log.map((l) => (
+                {r.log.map((l) => {
+                  const output=l.status==='skipped'&&l.output==='Condition did not match.'?t('Condition did not match.'):l.output
+                  return (
                   l.output || l.error ? <details key={l.step} className="hx-run-detail">
                     <summary className="row-sub">{l.step}. {stepLabel(t, l.type)} — <span className={`hx-status ${l.status}`}>{t(l.status)}</span>
-                      {`: ${(l.error || l.output || '').slice(0, 160)}${(l.error || l.output || '').length > 160 ? '…' : ''}`}
+                      {`: ${(l.error || output || '').slice(0, 160)}${(l.error || output || '').length > 160 ? '…' : ''}`}
                     </summary>
-                    {l.output && <div><strong>{t('Output')}</strong><pre>{l.output}</pre></div>}
+                    {l.output && <div><strong>{t('Output')}</strong><pre>{output}</pre></div>}
                     {l.error && <div><strong>{t('Error')}</strong><pre>{l.error}</pre></div>}
                     <time dateTime={l.at}>{new Date(l.at).toLocaleString(getLocale())}</time>
                   </details> : <span key={l.step} className="row-sub hx-log">{l.step}. {stepLabel(t, l.type)} — <span className={`hx-status ${l.status}`}>{t(l.status)}</span></span>
-                ))}
+                )})}
               </div>
             </div>
           ))}
