@@ -1,3 +1,4 @@
+import {generationRetry,finishGenerationRetry} from '../utils/generationRetry'
 import {AgentRunStatus} from './AgentRunStatus'
 import { useComposerThreadMode } from '../utils/useComposerThreadMode'
 import { HarnessDictation } from './HarnessDictation'
@@ -1517,7 +1518,6 @@ export const ClassicList: React.FC<Props> = ({
   const [resourceBuild, setResourceBuild] = useState<{ kind: 'apps' | 'workflows'; channel: string } | null>(null)
   const [resourceBuilding, setResourceBuilding] = useState(false)
   const resourceBuildLock = useRef(false)
-  const appGenerationRequest = useRef<{key:string;id:string}|null>(null)
   const resourceClient = useMemo(() => harnessApi(api.httpBase, api.orgId, api.sessionToken), [api.httpBase, api.orgId, api.sessionToken])
   const resourceClientNow = useRef(resourceClient)
   resourceClientNow.current = resourceClient
@@ -2092,11 +2092,10 @@ export const ClassicList: React.FC<Props> = ({
         const client = resourceClient
         if (resourceBuild.kind === 'apps') {
           const prompt = body.replace(/^@AI\s*/i, '')
-          const key = JSON.stringify([api.orgId, channel, prompt])
-          if (appGenerationRequest.current?.key !== key) appGenerationRequest.current = {key,id:crypto.randomUUID()}
-          const made = await client.generate(prompt, channel, {requestId:appGenerationRequest.current.id,captureSource:true})
+          const retry = await generationRetry({host:api.httpBase,orgId:api.orgId,userId:String(userId || api.sessionToken),kind:'app',channel,prompt})
+          const made = await client.generate(prompt, channel, {requestId:retry.id,captureSource:true})
           if(resourceClientNow.current!==client || cacheScope.current!==messageCache)return
-          appGenerationRequest.current = null
+          finishGenerationRetry(retry)
           clearGeneratedDraft()
           setResourceBuild(null)
           // Read the saved, authorized origin rather than inventing a local
@@ -2110,11 +2109,10 @@ export const ClassicList: React.FC<Props> = ({
           }else openSide({kind:'app',id:made.app.id,conversation:true})
         } else {
           const prompt = body.replace(/^@AI\s*/i, '')
-          const key = JSON.stringify(['workflow', api.orgId, channel, prompt])
-          if (appGenerationRequest.current?.key !== key) appGenerationRequest.current = {key,id:crypto.randomUUID()}
-          const made = await client.generateWorkflow(prompt, channel, {requestId:appGenerationRequest.current.id,captureSource:true})
+          const retry = await generationRetry({host:api.httpBase,orgId:api.orgId,userId:String(userId || api.sessionToken),kind:'workflow',channel,prompt,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone})
+          const made = await client.generateWorkflow(prompt, channel, {requestId:retry.id,captureSource:true})
           if(resourceClientNow.current!==client || cacheScope.current!==messageCache)return
-          appGenerationRequest.current = null
+          finishGenerationRetry(retry)
           clearGeneratedDraft()
           setResourceBuild(null); if(shownNow.current.view===channel)onWorkflow?.(made.workflow.id)
         }
