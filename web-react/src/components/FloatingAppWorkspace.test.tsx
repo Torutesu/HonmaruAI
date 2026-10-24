@@ -9,7 +9,7 @@ let tree:ReactTestRenderer
 beforeEach(()=>{vi.stubGlobal('innerWidth',1200);vi.stubGlobal('innerHeight',800);vi.stubGlobal('window',{addEventListener:vi.fn(),removeEventListener:vi.fn()});vi.stubGlobal('location',{hash:'#/list'})})
 afterEach(()=>{if(tree)act(()=>tree.unmount());vi.unstubAllGlobals()})
 function Launcher(){const open=useFloatingApp();return <button disabled={!open} onClick={()=>open?.('test_app','data')}>Float</button>}
-function view(org='team:one',session='one',enabled=true){return <FloatingAppWorkspace httpBase="https://api" orgId={org} sessionToken={session} enabled={enabled}><Launcher/><input defaultValue="Conversation draft"/></FloatingAppWorkspace>}
+function view(org='team:one',session='one',enabled=true,interactive=true){return <FloatingAppWorkspace httpBase="https://api" orgId={org} sessionToken={session} enabled={enabled} interactive={interactive}><Launcher/><input defaultValue="Conversation draft"/></FloatingAppWorkspace>}
 const button=(label:string)=>tree.root.findAllByType('button').find(node=>node.props.children===label)!
 const regions=()=>tree.root.findAllByProps({role:'region'})
 test('keeps underlying conversation mounted, supports keyboard movement and returns current section',()=>{
@@ -26,4 +26,16 @@ test('removes floating content on workspace, credential and simple-mode transiti
  act(()=>button('Float').props.onClick());act(()=>tree.update(view('team:two','changed')));expect(regions()).toHaveLength(0)
  act(()=>button('Float').props.onClick());act(()=>tree.update(view('team:two','changed',false)));expect(regions()).toHaveLength(0);expect(button('Float').props.disabled).toBe(true)
  act(()=>tree.update(view('team:one')));expect(regions()).toHaveLength(0)
+})
+
+test('covering the floating app suspends interaction without losing its section or geometry',()=>{
+ const node={toggleAttribute:vi.fn(),focus:vi.fn()}
+ act(()=>{tree=create(view(),{createNodeMock:element=>element.props.className==='hx-floating-app'?node:null})})
+ act(()=>button('Float').props.onClick());act(()=>button('Settings').props.onClick())
+ const before=regions()[0].props.style
+ act(()=>tree.update(view('team:one','one',true,false)))
+ expect(node.toggleAttribute).toHaveBeenLastCalledWith('inert',true);expect(regions()[0].props.style).toEqual(before)
+ act(()=>tree.update(view()))
+ expect(node.toggleAttribute).toHaveBeenLastCalledWith('inert',false)
+ act(()=>button('Dock').props.onClick());expect(location.hash).toContain('section=settings')
 })

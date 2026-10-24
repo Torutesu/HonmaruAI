@@ -717,3 +717,5 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 :root .shell.harness-workspace .hx-floating-app .screen-head .hx-head-actions > .pill-btn { font-size:0; gap:0; }
 .hx-floating-resize { position:absolute; bottom:1px; right:1px; width:18px; height:18px; cursor:nwse-resize; touch-action:none; border-radius:0 0 10px 0; }
 .hx-floating-resize::after { content:''; position:absolute; right:5px; bottom:5px; width:6px; height:6px; border-right:1px solid var(--hx-muted); border-bottom:1px solid var(--hx-muted); }
+
+.hx-floating-app:has(.hx-app-fullscreen) .hx-floating-resize { display:none; }

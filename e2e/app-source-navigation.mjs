@@ -55,7 +55,12 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
       await foreground.getByRole('button', { name: 'フィルターを調整', exact: true }).click()
       stage = 'wait for source thread'
       await page.locator('.slk-thread-pane .slk-composer textarea').waitFor({ timeout: 20000 })
-      if (await page.locator('.classic').getAttribute('inert') !== null) throw new Error('Source conversation did not become interactive again')
+      // The previous source panel remains mounted while the source route resolves.
+      // Visibility alone can match that covered copy before navigation completes.
+      await page.waitForFunction(() => {
+        const conversation = document.querySelector('.classic')
+        return conversation && !conversation.hasAttribute('inert') && !document.querySelector('.shell > .hx-app-detail')
+      }, undefined, { timeout: 20000 })
       await page.locator('.hx-app-pane .hx-data-toolbar').waitFor({ timeout: 20000 })
       if (!(await page.locator('.slk-thread-pane').innerText()).includes(prompt)) throw new Error('Wrong creation thread opened')
     }
