@@ -769,3 +769,58 @@ test('continuation does not advance waiting or terminal workflow runs',async()=>
  }
  expect((await messages(toru)).map(m=>m.body)).not.toContain('Must not be posted');
 });
+
+test('concurrent triggers admit one run, approval waits hold admission, and terminal runs release it', async () => {
+  const { createWorkflow } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Single active execution', trigger: { type: 'manual' },
+    steps: [{ type: 'post', channel: 'b:ops', text: 'Only once' }, { type: 'approval', to: 'toru', title: 'Continue?' }],
+  }, '9302');
+  const results = await Promise.all(Array.from({ length: 4 }, () => startRun(env, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' })));
+  const admitted = results.filter(r => r.id);
+  expect(admitted).toHaveLength(1);
+  expect(admitted[0].status).toBe('waiting');
+  expect(results.filter(r => r.status === 'skipped')).toHaveLength(3);
+  expect((await messages(mika)).filter(m => m.body === 'Only once')).toHaveLength(1);
+  const manual = await send('POST', `/workflows/${workflow.id}/run`, mika, { orgId: ORG });
+  expect(manual.status).toBe(409);
+  expect(await manual.json()).toMatchObject({ reason: 'already_running' });
+  const count = await env.DB.prepare('SELECT count(*) AS n FROM hx_workflow_run_definitions WHERE org_id=?1').bind(ORG).first();
+  expect(count.n).toBe(1);
+  // Simulate terminal settlement: only running/waiting executions hold admission.
+  await env.DB.prepare("UPDATE hx_workflow_runs SET status='failed' WHERE id=?1 AND org_id=?2").bind(admitted[0].id, ORG).run();
+  expect((await startRun(env, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' })).status).toBe('waiting');
+});
+
+test('busy webhook deliveries are acknowledged as skipped without duplicate approval or retry instruction', async () => {
+  const made = await send('POST', '/workflows', mika, {
+    orgId: ORG, name: 'One hook at a time', enabled: true, trigger: { type: 'webhook' },
+    steps: [{ type: 'approval', to: 'toru', title: 'Review hook?' }],
+  });
+  const { hookUrl, workflow } = await made.json();
+  const url = new URL(hookUrl);
+  const deliver = () => call(url.pathname + url.search, { method: 'POST', body: '{}' });
+  expect((await (await deliver()).json()).status).toBe('waiting');
+  const second = await deliver();
+  expect(second.status).toBe(202);
+  expect(await second.json()).toEqual({ status: 'skipped', reason: 'already_running' });
+  const detail = await (await get(`/workflows/${workflow.id}?${q({ orgId: ORG })}`, mika)).json();
+  expect(detail.runs).toHaveLength(1);
+});
+
+test('replay leaves held events unconsumed when an earlier replay waits for approval', async () => {
+  const made = await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'Held approval', enabled: false, trigger: { type: 'webhook' },
+    steps: [{ type: 'approval', to: 'toru', title: 'Review delivery?' }],
+  })).json();
+  const url = new URL(made.hookUrl);
+  const ids = [];
+  for (let n = 0; n < 2; n++) ids.push((await (await call(url.pathname + url.search, { method: 'POST', body: '{}' })).json()).eventId);
+  await send('PUT', `/workflows/${made.workflow.id}`, toru, { orgId: ORG, enabled: true });
+  const result = await (await send('POST', `/workflows/${made.workflow.id}/webhook/replay`, toru, { orgId: ORG, eventIds: ids })).json();
+  expect(result.runs).toHaveLength(1);
+  expect(result.skipped).toBe(1);
+  const detail = await (await get(`/workflows/${made.workflow.id}?${q({ orgId: ORG })}`, toru)).json();
+  expect(detail.runs).toHaveLength(1);
+  expect(detail.held.count).toBe(1);
+});

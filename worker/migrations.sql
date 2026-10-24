@@ -249,3 +249,5 @@ CREATE TABLE IF NOT EXISTS hx_app_automation_releases (org_id TEXT NOT NULL, app
 
 ALTER TABLE hx_followups ADD COLUMN origin_workflow_id TEXT;
 ALTER TABLE hx_followups ADD COLUMN origin_release_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_hx_runs_active ON hx_workflow_runs(org_id, workflow_id) WHERE status IN ('running','waiting');

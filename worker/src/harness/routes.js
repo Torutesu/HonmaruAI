@@ -417,6 +417,8 @@ export async function handleHarness(request, env, url, context = {}) {
       // Pausing stops automatic triggers; an explicit manual run does not
       // enable the workflow or replay its queued webhook deliveries.
       const run = await startRun(env, { orgId, workflow: wf, trigger: "manual", input: input.input && typeof input.input === "object" ? input.input : { text: String(input.text || "") }, startedBy: me });
+      if (run?.status === 'skipped') return json({ message: 'This workflow is already running or waiting for approval.', reason: run.reason }, 409);
+      if (!run) return json({ message: 'This automation is no longer available in its current published release.' }, 409);
       return json({ run }, 201);
     }
     if (sub === "runs" && request.method === "GET") {

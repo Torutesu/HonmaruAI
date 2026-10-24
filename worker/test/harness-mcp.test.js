@@ -89,3 +89,18 @@ test('node execution requires execute scope, preserves ownership and leaves Simp
   expect(await names(executor)).not.toContain('run_javascript');
   expect(await executionAgentTools(env, context)).toEqual({});
 });
+
+test('MCP reports an overlapping workflow trigger as skipped without dereferencing a nonexistent run', async () => {
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
+  const { createWorkflow } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Approval gate', enabled: true, trigger: { type: 'manual' },
+    steps: [{ type: 'approval', to: 'toru', title: 'Proceed?' }],
+  }, '9401');
+  const token = await mint(['read', 'write']);
+  const first = await tool(token, 'run_workflow', { workflowId: workflow.id });
+  expect(JSON.parse(first.result.content[0].text).run.status).toBe('waiting');
+  const second = await tool(token, 'run_workflow', { workflowId: workflow.id });
+  expect(second.result.isError).not.toBe(true);
+  expect(JSON.parse(second.result.content[0].text)).toEqual({ status: 'skipped', reason: 'already_running' });
+});

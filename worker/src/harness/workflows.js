@@ -320,15 +320,20 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
       WHERE (?12 IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_held_events h JOIN hx_workflows w ON w.id=h.workflow_id AND w.org_id=h.org_id
         WHERE h.id=?12 AND h.org_id=?2 AND h.workflow_id=?3 AND h.run_id IS NULL AND h.expires_at>?10 AND w.enabled=1 AND json_extract(w.trigger,'$.type')='webhook'))
       AND (?13 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE id=?3 AND org_id=?2 AND enabled=1 AND hook_secret=?13 AND json_extract(trigger,'$.type')='webhook'))
+      AND NOT EXISTS(SELECT 1 FROM hx_workflow_runs WHERE org_id=?2 AND workflow_id=?3 AND status IN ('running','waiting'))
       AND ${managedAutomationGuard('?2','?3','?14')}
       AND (?14 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?2 AND id=?3 AND name=?15 AND json(trigger)=json(?16) AND json(steps)=json(?17) AND created_by=?18))`)
       .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, now(), tooLarge ? now() : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy)),
     env.DB.prepare("INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at) SELECT ?1, ?2, ?3, ?4 WHERE EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?2)")
       .bind(id, orgId, JSON.stringify(definition), now()),
+    // Read the admission outcome in the same transaction, before another
+    // request can finish the active run. Skipped triggers create no run.
+    env.DB.prepare("SELECT 1 AS busy WHERE NOT EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?2) AND EXISTS(SELECT 1 FROM hx_workflow_runs WHERE org_id=?2 AND workflow_id=?3 AND status IN ('running','waiting'))")
+      .bind(id, orgId, workflow.id),
     ...(heldEventId ? [env.DB.prepare(`UPDATE hx_workflow_held_events SET run_id=?1 WHERE id=?2 AND org_id=?3 AND workflow_id=?4 AND run_id IS NULL
       AND EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?3)`).bind(id, heldEventId, orgId, workflow.id)] : []),
   ]);
-  if (!created[0].meta?.changes) return null;
+  if (!created[0].meta?.changes) return created[2].results?.length ? { status: 'skipped', reason: 'already_running' } : null;
   await env.DB.prepare("UPDATE hx_workflows SET last_run_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), workflow.id, orgId).run();
   if (tooLarge) return getRun(env.DB, orgId, id);
   return continueRun(env, { orgId, runId: id, workflow, depth });
@@ -345,7 +350,7 @@ export async function replayWorkflowEvents(env, orgId, workflow, eventIds, start
   const runs = [];
   for (const event of results.filter(event => wanted.has(event.id))) {
     const run = await startRun(env, { orgId, workflow, trigger: 'webhook', input: JSON.parse(event.input), startedBy, heldEventId: event.id });
-    if (run) runs.push({ eventId: event.id, runId: run.id, status: run.status });
+    if (run?.id) runs.push({ eventId: event.id, runId: run.id, status: run.status });
   }
   return { runs, skipped: eventIds.length - runs.length };
 }
@@ -638,6 +643,7 @@ export async function handleWorkflowHook(request, env, url) {
     return held.error ? reply({ message: held.error }, held.status) : reply({ eventId: held.id, status: 'held', expiresAt: held.expiresAt }, 202);
   }
   const run = await startRun(env, { orgId: wf.orgId, workflow: wf, trigger: "webhook", input: payload, incomingHookSecret: secret });
+  if (run?.status === 'skipped') return reply(run, 202);
   if (!run) return reply({ message: 'The webhook changed. Retry this delivery with its current URL.' }, 409);
   return reply({ runId: run?.id, status: run?.status }, 202);
 }
