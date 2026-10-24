@@ -2196,3 +2196,7 @@ Primary runtime commit `c49aae04` (resource-name review, minute-precision follow
 ### Local rendered automation review check
 
 Rendered the actual AppAutomations component with explicit fixture data using the app's index/appearance/theme/App/Harness/Workspace styles in IAB at localhost. Expanded the drift comparison and switched to dark theme; screenshot inspection shows two readable columns, named targets, schedule/timezone, review checkbox and execution-history control. Saved evidence: `/tmp/honmaru-automation-dark-preview.png`. Initial screenshot omitted global styles and is not used as final styling evidence. Temporary fixture files and Vite server were removed/stopped after inspection. This confirms one local desktop viewport with fixture data only, not authenticated production operation or Kylon visual equivalence. Mobile/theme edge cases remain unverified.
+
+### Unsaved-edit final Web verification
+
+Runtime `dfbe5021` passed Web 160 files / 1094 tests (`/tmp/honmaru-dfbe-full-web.log`), TypeScript (`/tmp/honmaru-dfbe-types.log`) and production build (`/tmp/honmaru-dfbe-build.log`). At the latest GitHub job inspection, cfece088's Web deploy is waiting for matching Worker deployment; Worker deploy runs its Test step; CI Worker and E2E tests are active. CI Local gateway, Desktop, Shared core/mobile, Reference web client and Reference relay have succeeded. No failed job was reported, but overall success remains unproven until active jobs terminate.
