@@ -2137,3 +2137,18 @@ CREATE TABLE IF NOT EXISTS hx_skill_source_scopes (
   PRIMARY KEY (org_id, skill_id)
 );
 CREATE INDEX IF NOT EXISTS idx_skill_source_agent ON hx_skill_source_scopes(org_id,agent_id,channel);
+
+CREATE TABLE IF NOT EXISTS hx_memory_skill_conversions (
+  org_id TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  memory_id TEXT NOT NULL,
+  memory_version INTEGER NOT NULL,
+  agent_id TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  keep_entry INTEGER NOT NULL CHECK(keep_entry IN (0,1)),
+  skill_id TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(org_id,request_id),
+  UNIQUE(org_id,memory_id,memory_version)
+);

@@ -1,3 +1,4 @@
+import { convertMemoryToSkill } from './memorySkillConversion.js';
 import { retryRoomHook } from './roomHookRetryRoute.js';
 import { heldWorkflowSummary, discardWorkflowEvents, readHeldWorkflowEvent } from './workflowHeld.js';
 import { roomHookStatuses } from './roomHookStatus.js';
@@ -614,6 +615,12 @@ export async function handleHarness(request, env, url, context = {}) {
           return result.error ? fail(result) : json({ ...result, canEdit });
         }
         return json({ memories: await listAgentMemories(env.DB, orgId, agentId, context), canEdit });
+      }
+      if (request.method === 'POST' && parts[5] === 'to-skill') {
+        if (!canEdit) return json({message:"Only the agent's maker or an admin can convert its memory."},403);
+        const r=await convertMemoryToSkill(env.DB,orgId,agentId,parts[4],input,{channel,by:me});
+        if (!r.error && !r.replayed) await audit(env,request,{orgId,action:'agent.memory_converted',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memoryId:parts[4],skillId:r.skill.id,version:input.expectedVersion,keptMemory:r.keptMemory,scope:channel?'conversation':'shared'}});
+        return r.error?fail(r):json(r,r.replayed?200:201);
       }
       if (request.method === "POST") {
         const r = await addAgentMemory(env.DB, orgId, agentId, input.body !== undefined ? { title: input.title, description: input.description, body: input.body } : input.text, { by: me, channel, kind: input.kind || "context" });

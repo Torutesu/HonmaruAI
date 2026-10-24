@@ -382,3 +382,82 @@ test('agent-wide source skills track current agent and workspace grants',async()
   await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(orgId,'9401').run();
   expect(await getSkill(env.DB,orgId,skill.id,'9401')).toBeNull();
 });
+
+test('memory conversion preserves full content, installs atomically and replays after source removal',async()=>{
+  const {addAgentMemory}=await import('../src/harness/agents.js');
+  const fields={title:'名'.repeat(120),description:'説'.repeat(500),body:'記'.repeat(16000)};
+  const {memory}=await addAgentMemory(env.DB,orgId,agentId,fields,{by:'9401'});
+  const path=`/hx/agents/${agentId}/memory/${memory.id}/to-skill`;
+  const input={expectedVersion:memory.version,requestId:'conversion-full-1',keepEntry:false};
+  expect((await request('POST',path,member,input)).status).toBe(403);
+  const response=await request('POST',path,owner,input);
+  expect(response.status).toBe(201);
+  const result=await response.json();
+  expect(result.skill).toMatchObject({name:fields.title,description:fields.description,body:fields.body,sourceScope:{agentId,channel:null},canShare:false});
+  expect(await env.DB.prepare('SELECT id FROM hx_agent_memories WHERE id=?').bind(memory.id).first()).toBeNull();
+  expect(await env.DB.prepare('SELECT skill_id FROM hx_agent_skills WHERE org_id=? AND agent_id=? AND skill_id=?').bind(orgId,agentId,result.skill.id).first()).not.toBeNull();
+  const again=await request('POST',path,owner,input);
+  expect(again.status).toBe(200);
+  expect((await again.json()).skill.id).toBe(result.skill.id);
+  expect((await request('POST',path,owner,{...input,keepEntry:true})).status).toBe(409);
+  const exported=await(await request('GET',`/skills/${result.skill.id}/export`,owner)).json();
+  const imported=await(await request('POST','/skills/preview-import',owner,{markdown:exported.markdown})).json();
+  expect(imported.draft).toMatchObject({name:fields.title,description:fields.description,body:fields.body});
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills WHERE org_id=?').bind(orgId).first()).n).toBe(1);
+});
+
+test('conversion keeps legacy memory on request and rejects stale or repeated versions',async()=>{
+  const {addAgentMemory}=await import('../src/harness/agents.js');
+  const {memory}=await addAgentMemory(env.DB,orgId,agentId,'Legacy instructions',{by:'9401'});
+  const path=`/hx/agents/${agentId}/memory/${memory.id}/to-skill`;
+  const input={expectedVersion:0,requestId:'conversion-legacy',keepEntry:true};
+  expect((await request('POST',path,owner,{...input,expectedVersion:1})).status).toBe(409);
+  const r=await request('POST',path,owner,input);
+  expect(r.status).toBe(201);
+  const result=await r.json();
+  expect(result.skill.metadata['source-memory']).toMatchObject({description:'',version:0});
+  expect((await request('GET',`/skills/${result.skill.id}/export`,owner)).status).toBe(200);
+  expect(await env.DB.prepare('SELECT text FROM hx_agent_memories WHERE id=?').bind(memory.id).first()).toEqual({text:'Legacy instructions'});
+  expect((await request('POST',path,owner,{...input,requestId:'conversion-other'})).status).toBe(409);
+});
+
+test('conversion installation failure rolls back skill, scope, replay record and source deletion',async()=>{
+  const {addAgentMemory}=await import('../src/harness/agents.js');
+  const {convertMemoryToSkill}=await import('../src/harness/memorySkillConversion.js');
+  const {memory}=await addAgentMemory(env.DB,orgId,agentId,'Keep on failure',{by:'9401'});
+  await env.DB.exec("CREATE TRIGGER fail_conversion_install BEFORE INSERT ON hx_agent_skills BEGIN SELECT RAISE(ABORT,'injected install failure'); END;");
+  try {
+    await expect(convertMemoryToSkill(env.DB,orgId,agentId,memory.id,{expectedVersion:0,requestId:'conversion-failure',keepEntry:false},{by:'9401'})).rejects.toThrow();
+    for (const table of ['hx_skills','hx_skill_source_scopes','hx_memory_skill_conversions']) {
+      expect((await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE org_id=?`).bind(orgId).first()).n).toBe(0);
+    }
+    expect(await env.DB.prepare('SELECT id FROM hx_agent_memories WHERE id=?').bind(memory.id).first()).not.toBeNull();
+  } finally {await env.DB.exec('DROP TRIGGER fail_conversion_install;');}
+});
+
+test('concurrent repeated conversion produces exactly one installed skill',async()=>{
+  const {addAgentMemory}=await import('../src/harness/agents.js');
+  const {convertMemoryToSkill}=await import('../src/harness/memorySkillConversion.js');
+  const {memory}=await addAgentMemory(env.DB,orgId,agentId,'Concurrent conversion',{by:'9401'});
+  const run=()=>convertMemoryToSkill(env.DB,orgId,agentId,memory.id,{expectedVersion:0,requestId:'conversion-race',keepEntry:false},{by:'9401'});
+  const results=await Promise.all([run(),run()]);
+  expect(results.every(r=>r.skill)).toBe(true);
+  expect(new Set(results.map(r=>r.skill.id)).size).toBe(1);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_agent_skills WHERE org_id=?').bind(orgId).first()).n).toBe(1);
+});
+
+test('conversation memory conversion requires the exact source scope and keeps its execution boundary',async()=>{
+  const {addAgentMemory}=await import('../src/harness/agents.js');
+  const channel=`ag:${agentId}|owner`;
+  const {memory}=await addAgentMemory(env.DB,orgId,agentId,'Private source instructions',{by:'9401',channel});
+  const path=`/hx/agents/${agentId}/memory/${memory.id}/to-skill`;
+  const input={expectedVersion:0,requestId:'conversion-scoped',keepEntry:true};
+  expect((await request('POST',path,owner,input)).status).toBe(404);
+  const converted=await request('POST',path,owner,{...input,channel:`ag:${agentId}`});
+  expect(converted.status).toBe(201);
+  const {skill}=await converted.json();
+  expect(skill.sourceScope).toEqual({agentId,channel});
+  expect(await getSkill(env.DB,orgId,skill.id,'9402')).toBeNull();
+  expect(await executionSkills(env.DB,orgId,agentId,{userId:'9401',channel:'b:shared'})).toEqual([]);
+  expect((await executionSkills(env.DB,orgId,agentId,{userId:'9401',channel})).map(s=>s.id)).toContain(skill.id);
+});
