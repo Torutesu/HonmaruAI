@@ -227,6 +227,7 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
 export async function updateWorkflow(db, orgId, id, input) {
   const wf = await getWorkflow(db, orgId, id);
   if (!wf) return { error: "No such workflow.", status: 404 };
+  if (input.expectedUpdatedAt !== undefined && (typeof input.expectedUpdatedAt !== 'string' || input.expectedUpdatedAt !== wf.updatedAt)) return { error: 'The workflow changed. Reload it before saving your changes.', status: 409 };
   const name = input.name !== undefined ? String(input.name).trim().slice(0, 80) || wf.name : wf.name;
   let trigger = wf.trigger;
   if (input.trigger !== undefined) {
@@ -247,12 +248,14 @@ export async function updateWorkflow(db, orgId, id, input) {
   // Change the credential with the trigger in one write. Leaving webhook mode
   // revokes its URL; returning creates a new one instead of reviving old senders.
   const hookCandidate = trigger.type === "webhook" ? hex(crypto.getRandomValues(new Uint8Array(24))) : null;
-  await db
+  const updatedAt = new Date(Math.max(Date.now(), (Date.parse(wf.updatedAt) || 0) + 1)).toISOString();
+  const result = await db
     .prepare(`UPDATE hx_workflows SET name = ?1, enabled = ?2, trigger = ?3, steps = ?4, next_run_at = ?5, updated_at = ?6,
       hook_secret = CASE WHEN ?9 IS NULL THEN NULL WHEN json_extract(trigger, '$.type') = 'webhook' THEN hook_secret ELSE ?9 END
-      WHERE id = ?7 AND org_id = ?8`)
-    .bind(name, enabled ? 1 : 0, JSON.stringify(trigger), JSON.stringify(steps), next, now(), id, orgId, hookCandidate)
+      WHERE id = ?7 AND org_id = ?8 AND updated_at = ?10`)
+    .bind(name, enabled ? 1 : 0, JSON.stringify(trigger), JSON.stringify(steps), next, updatedAt, id, orgId, hookCandidate, wf.updatedAt)
     .run();
+  if (!result.meta?.changes) return { error: 'The workflow changed. Reload it before saving your changes.', status: 409 };
   return { workflow: await getWorkflow(db, orgId, id, { withSecret: true }) };
 }
 

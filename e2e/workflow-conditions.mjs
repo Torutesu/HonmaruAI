@@ -67,6 +67,18 @@ export async function workflowConditions({context,web,apiHost,shots}) {
   if(!await runRow.locator('.hx-status.skipped').isVisible())throw Error('Skipped step is missing from the execution history')
   await runRow.locator('summary').filter({hasText:/Condition did not match|条件に一致しなかったため/}).waitFor({state:'visible'})
   await page.screenshot({path:`${shots}/workflow-condition-run.png`})
+  await screen.getByRole('button',{name:/^(Edit workflow|ワークフローを編集)$/}).click()
+  await builder.getByLabel(/^(Workflow name|ワークフロー名)$/).fill(`${name} edited`)
+  await builder.getByLabel(/^(Comparison value|比較する値)$/,{exact:true}).first().fill('200')
+  await builder.getByRole('button',{name:/^(Save workflow|ワークフローを保存)$/}).click()
+  await screen.locator('.hx-flow-condition').waitFor({state:'visible'})
+  await page.reload({waitUntil:'load'})
+  await screen.locator('.screen-head').getByText(`${name} edited`,{exact:true}).waitFor({state:'visible'})
+  const edited=await call('GET',`/workflows/${id}`)
+  expected.all[0].value=200
+  if(JSON.stringify(edited.workflow.steps[0].when)!==JSON.stringify(expected))throw Error('Editing lost or failed to update saved conditions')
+  await page.screenshot({path:`${shots}/workflow-condition-edited.png`})
+
  } catch(error) {
   await page.screenshot({path:`${shots}/workflow-condition-failure.png`}).catch(()=>{})
   throw error

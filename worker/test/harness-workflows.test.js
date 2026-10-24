@@ -967,3 +967,14 @@ test('conditions reject forward, self and malformed step references even inside 
  expect(normalizeSteps([step,{...step,when}]).steps[1].when).toEqual(when);
  expect(normalizeSteps([step,{...step,when:{path:['steps','2','output'],op:'exists',value:false}}]).error).toContain('earlier steps');
 });
+
+test('workflow edits reject stale observed updates without overwriting the winning definition',async()=>{
+ const {createWorkflow,updateWorkflow,getWorkflow}=await import('../src/harness/workflows.js');
+ const made=await createWorkflow(env.DB,ORG,{name:'Original',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Before'}]},'9302');
+ const first=made.workflow;
+ const result=await updateWorkflow(env.DB,ORG,first.id,{name:'Winner',expectedUpdatedAt:first.updatedAt});
+ expect(result.workflow.name).toBe('Winner');
+ expect(result.workflow.updatedAt).not.toBe(first.updatedAt);
+ expect(await updateWorkflow(env.DB,ORG,first.id,{name:'Stale',expectedUpdatedAt:first.updatedAt})).toMatchObject({status:409});
+ expect((await getWorkflow(env.DB,ORG,first.id)).name).toBe('Winner');
+});

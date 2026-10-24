@@ -66,6 +66,7 @@ export interface WorkflowSourceState {source:{threadId:string;channel:string;bod
 export interface WorkflowNotice { workflowId: string; generation: string; runId: string; createdAt: string; readAt: string|null; name: string; paused: boolean }
 export interface WorkflowSafety { generation: string; failure_streak: number; paused_at: string | null; pause_reason: string | null }
 export interface Workflow {
+  updatedAt?: string
   safety?: WorkflowSafety | null
   id: string; name: string; enabled: boolean; trigger: Trigger; steps: Step[]
   nextRunAt: string | null; lastRunAt: string | null; createdBy: string; hookUrl?: string; hookSecret?: string

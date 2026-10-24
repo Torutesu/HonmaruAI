@@ -5,7 +5,7 @@ import { HarnessWorkflows } from './HarnessWorkflows'
 
 const state = vi.hoisted(() => ({ api: null as any }))
 vi.mock('./HarnessShared', async original => ({ ...(await original<any>()), useApi: () => state.api }))
-vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text }))
+vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text, t: (text: string) => text }))
 const props = { httpBase: 'https://example.test', orgId: 'one', sessionToken: 'test', onClose: () => {} }
 const workflow = { id: 'wf_one', name: 'Billing', enabled: true, trigger: { type: 'webhook' }, steps: [], hookSecret: 'a'.repeat(48), hookUrl: 'https://example.test/hook?secret=old' }
 let tree: ReturnType<typeof create>
@@ -285,3 +285,18 @@ test('opening a listed workflow delegates to the durable route before loading de
  expect(navigate).toHaveBeenCalledWith(workflow.id)
  expect(state.api.workflow).not.toHaveBeenCalled()
 })
+
+test('editing preserves conditions and submits the observed revision; conflicts retain the draft',async()=>{
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',steps:[{type:'post',channel:'b:ops',text:'Ready',when:{path:['input','ready'],op:'eq',value:true}}]};
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});
+ state.api.updateWorkflow=vi.fn().mockRejectedValue(new Error('The workflow changed.'));
+ await open();
+ await act(async()=>{button('Edit workflow').props.onClick()});
+ await act(async()=>{tree.root.findByProps({'aria-label':'Workflow name'}).props.onChange({target:{value:'Changed'}})});
+ await act(async()=>{await button('Save workflow').props.onClick()});
+ expect(state.api.updateWorkflow).toHaveBeenCalledWith(workflow.id,{name:'Changed',trigger:editable.trigger,steps:editable.steps,expectedUpdatedAt:editable.updatedAt});
+ expect(tree.root.findByProps({'aria-label':'Workflow name'}).props.value).toBe('Changed');
+ expect(JSON.stringify(tree.toJSON())).toContain('The workflow changed.');
+ await act(async()=>{button('Cancel').props.onClick()});
+ expect(tree.root.findAllByProps({'aria-label':'Workflow name'})).toHaveLength(0);
+});

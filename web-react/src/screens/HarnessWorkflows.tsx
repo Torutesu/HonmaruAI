@@ -60,11 +60,11 @@ function triggerLabel(t: (k: string, v?: Record<string, string | number>) => str
 const blankStep = (type: StepType): Step => ({ type, ...(type === 'followup' ? { minutes: 1440 } : {}) })
 
 
-function Builder({ tables, agents, onSave, onCancel, busy }: { tables: Table[]; agents: AgentFace[]; onSave: (w: { name: string; trigger: Trigger; steps: Step[] }) => void; onCancel: () => void; busy: boolean }) {
+function Builder({ tables, agents, onSave, onCancel, busy, initial }: { initial?: Workflow; tables: Table[]; agents: AgentFace[]; onSave: (w: { name: string; trigger: Trigger; steps: Step[] }) => void; onCancel: () => void; busy: boolean }) {
   const t = useT()
-  const [name, setName] = useState('')
-  const [trigger, setTrigger] = useState<Trigger>({ type: 'manual' })
-  const [steps, setSteps] = useState<Step[]>([blankStep('post')])
+  const [name, setName] = useState(initial?.name || '')
+  const [trigger, setTrigger] = useState<Trigger>(initial ? structuredClone(initial.trigger) : { type: 'manual' })
+  const [steps, setSteps] = useState<Step[]>(initial ? structuredClone(initial.steps) : [blankStep('post')])
   const table = tables.find((x) => x.id === trigger.tableId)
   const whereCol = table?.columns.find((c) => c.type === 'select')
   const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone } catch { return 'UTC' } })()
@@ -145,6 +145,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [workflows, setWorkflows] = useState<Workflow[] | null>(null)
   const [tables, setTables] = useState<Table[]>([])
   const [agents, setAgents] = useState<AgentFace[]>([])
+  const [editing, setEditing] = useState<Workflow | null>(null)
   const [building, setBuilding] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [manual, setManual] = useState(false)
@@ -186,6 +187,16 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   }
   useEffect(() => { if(props.requestedWorkflowId)void openOne(props.requestedWorkflowId);return()=>{detailRequest.current++} }, [])
 
+  if (open && editing) return <Shell className="hx-resource-screen" title={t('Edit workflow')} onClose={() => { if(!busy)setEditing(null) }} nested>
+    {error && <div className="form-error" role="alert">{error}</div>}
+    <Builder key={editing.id} initial={editing} tables={tables} agents={agents} busy={!!busy}
+      onCancel={() => { if(!busy)setEditing(null) }} onSave={draft => act('save',async()=>{
+        await api.updateWorkflow(editing.id,{...draft,expectedUpdatedAt:editing.updatedAt})
+        await refreshOpen(editing.id)
+        setEditing(null)
+      })}/>
+  </Shell>
+
   if (open) {
     const w = open.workflow
     return (
@@ -218,6 +229,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
         {error && <div className="form-error">{error}</div>}
         {open.canEdit && (
           <div className="hx-actions">
+            <button className="pill-btn quiet" disabled={!!busy || !w.updatedAt} onClick={() => setEditing(structuredClone(w))}><Icon name="edit" size={14} /> {t('Edit workflow')}</button>
             <button className="pill-btn" disabled={!!busy || !!w.safety?.paused_at} onClick={() => act('run', async () => { await api.runWorkflow(w.id, ''); await refreshOpen(w.id) })}><Icon name="zap" size={14} /> {t('Run now')}</button>
             <button className="pill-btn quiet" disabled={!!busy} onClick={() => act('toggle', async () => { await api.updateWorkflow(w.id, { enabled: !w.enabled }); await refreshOpen(w.id) })}>{w.enabled ? t('Turn off') : t('Turn on')}</button>
             <button className="btn-text danger" disabled={!!busy} onClick={() => { setConfirmDelete(true); setHookAction(null); setReplaySelection(null); setDiscardSelection(null) }}>{t('Delete')}</button>
