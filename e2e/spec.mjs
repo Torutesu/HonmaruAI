@@ -8,6 +8,7 @@
 // Failures are loud and specific — the point of this file is to be the thing
 // that finds them before anyone else does.
 
+import { appSourceNavigation } from './app-source-navigation.mjs'
 import { chromium } from '../web-react/node_modules/playwright/index.mjs'
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
@@ -4361,6 +4362,8 @@ await step('removing someone takes them out of the room, not just the table', as
   await joiner.screenshot({ path: `${SHOTS}/29-evicted.png` })
   await closeEverything()
 })
+
+await step('app filter adjustment opens its source thread, preserves drafts and never posts', () => appSourceNavigation({ context: phone, web: WEB, apiHost: API, shots: SHOTS }))
 
 for (const ctx of extras) await ctx.close()
 if (mate) await mate.close()
