@@ -758,3 +758,14 @@ test('follow-ups reject invalid thread destinations and fail if their root is de
   expect(stored.status).toBe('failed');
   expect(stored.result).toContain('thread is unavailable');
 });
+
+test('continuation does not advance waiting or terminal workflow runs',async()=>{
+ const {continueRun}=await import('../src/harness/workflows.js');
+ const workflow={id:'protected-flow',name:'Protected',createdBy:'9301',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Must not be posted'}]};
+ for(const status of ['waiting','done','failed','declined']) {
+  const id=`protected-${status}`;
+  await env.DB.prepare('INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,log,next_step,started_at) VALUES (?1,?2,?3,?4,?5,?6,0,?7)').bind(id,ORG,workflow.id,'manual',status,'[]',new Date().toISOString()).run();
+  const result=await continueRun(env,{orgId:ORG,runId:id,workflow});expect(result.status).toBe(status);expect(result.log).toEqual([]);expect(result.nextStep).toBe(0);
+ }
+ expect((await messages(toru)).map(m=>m.body)).not.toContain('Must not be posted');
+});

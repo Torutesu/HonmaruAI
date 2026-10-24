@@ -163,3 +163,9 @@ Added lazy authorized workflow-run history under each existing managed automatio
 ## Unsaved draft preservation across app version changes
 
 An external app-version refresh no longer silently replaces dirty automation edits. The panel preserves them, explains the conflict, disables saving/publication against the old app version, and provides an explicit discard/reload action. If edits are reverted locally, reload remains available. Targeted eight UI tests pass (`/tmp/honmaru-automation-unsaved-final.log`); TypeScript passed before the final button eligibility adjustment, so the next full build must cover that adjustment. This remains a local follow-up while cfece088 deployment jobs are active.
+
+## Continuation entry state and remaining checkpoint contract
+
+Added an early continuation-state guard: only running executions advance. Waiting approvals require their existing settlement CAS first, while completed/failed/declined runs retain their results. Two Worker files / 96 tests passed (`/tmp/honmaru-workflow-continuation-state.log`), including explicit non-advancement of waiting/terminal runs and existing approval flow tests.
+
+This does not implement KY-059 or KY-067. Current workflow logs/next_step are still persisted at the end of the continuation loop, without a per-step ownership/intent ledger. A complete checkpoint design must atomically claim each step with an execution generation, persist intent before effects, record completion/output once, use idempotency for same-database mutations, and treat uncertain external effects as interrupted (never automatically replay). Budget reservation must atomically enforce daily/weekly/monthly and concurrency limits, distinguish reserved/consumed/released usage, and define explicit pause/resume behavior. These requirements remain missing until implemented and tested under crash/concurrent-claim scenarios.

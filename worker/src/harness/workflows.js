@@ -355,6 +355,9 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
   const db = env.DB;
   const run = await getRun(db, orgId, runId);
   if (!run) return null;
+  // Only a claimed running execution may advance. Approval settlement
+  // transitions waiting runs first; terminal results must remain immutable.
+  if (run.status !== 'running') return run;
   const frozen = await db.prepare("SELECT definition FROM hx_workflow_run_definitions WHERE run_id = ?1 AND org_id = ?2").bind(runId, orgId).first();
   // Runs created before this table existed retain their previous behavior.
   workflow = frozen ? JSON.parse(frozen.definition) : (workflow || await getWorkflow(db, orgId, run.workflowId));
