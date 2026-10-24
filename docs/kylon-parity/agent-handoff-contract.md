@@ -33,3 +33,11 @@ Rechecked 2026-10-24:
 ## Required verification
 
 Cover duplicate requests and lost acceptance responses; concurrent target choices; rollback at every transaction boundary; old-run output/tool fencing; agent/room/workspace access revocation between stages; session sign-out; source edit/delete; invalid target room membership; self/cyclic/exhausted chains; interrupted external execution; cancellation racing acceptance; parallel independent requests; and Simple regressions. Use mocked providers and disposable local fixtures without new charges. Production verification must distinguish rendering/status checks from an actual controlled multi-agent handoff.
+
+## Next: expose normal execution state to conversation readers
+
+The normal result tracker is now implemented locally, with full regression pending. It is not yet a user-facing run history. Add a bounded batch status endpoint scoped to the caller's currently readable canonical conversation. Validate every requested source message (including deletion and workspace/channel) before querying internal runner state; reject a mixed unauthorized batch without revealing which foreign IDs exist. Return metadata only.
+
+Do not infer queued from an enqueue receipt alone: deployments before the tracker retain accepted receipts after removing completed jobs and have no terminal result. Prefer a persisted result; otherwise report queued only for an actually stored pending job. Legacy receipt-only state is unknown. Model answer count is separate from handler completion; finished with zero model answers does not prove task success.
+
+The client should scope cached results to account/workspace/conversation/message IDs, discard late responses after scope changes, and use one bounded batch refresh rather than one polling request per message. Poll while queued/running; bound retries for initially unknown messages to cover the enqueue race. Use existing conversation styling and preserve Simple. Do not expose a Retry action until its external-effect/idempotency policy is implemented.
