@@ -53,6 +53,22 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     if (JSON.stringify(after.source.messages.map(message => [message.id, message.body])) !== JSON.stringify(before.source.messages.map(message => [message.id, message.body]))) throw new Error('Navigation unexpectedly posted a message')
     await page.screenshot({ path: `${shots}/app-source-adjustment.png` })
     await reply.fill('')
+    const standalone = await call('POST', '/apps/generate', {
+      prompt: 'Build a task tracker for app draft persistence', channel: `b:${room.business.slug}`,
+      captureSource: false, requestId: `e2e_draft_${Date.now()}`, useModel: false,
+    })
+    const standaloneUrl = `${web}#/apps/${standalone.app.id}/${encodeURIComponent(orgId)}?section=data&chat=1`
+    await page.goto(standaloneUrl, { waitUntil: 'load' })
+    const appReply = page.locator('.hx-object-chat textarea')
+    await appReply.waitFor({ timeout: 20000 })
+    await appReply.fill('Unsent app draft survives navigation')
+    await page.reload({ waitUntil: 'load' })
+    await appReply.waitFor({ timeout: 20000 })
+    await page.waitForFunction(() => document.querySelector('.hx-object-chat textarea')?.value === 'Unsent app draft survives navigation')
+    const standaloneConversation = await call('GET', `/apps/${standalone.app.id}/conversation`)
+    if (standaloneConversation.messages.length) throw new Error('Saving an app draft unexpectedly posted a message')
+    await page.screenshot({ path: `${shots}/app-draft-restored.png` })
+    await appReply.fill('')
   } finally {
     if (previousMode) await call('PUT', '/orgs/mode', { mode: previousMode }).catch(() => {})
     await page.close()

@@ -77,3 +77,20 @@ test('seed consumption does not reset edited text when the parent removes the se
  expect(consumed).toHaveBeenCalledTimes(1);expect(api.postConversation).not.toHaveBeenCalled()
  act(()=>tree!.unmount())
 })
+
+test('app and record drafts survive closing, win over suggestions and clear only after successful send',async()=>{
+ vi.stubGlobal('document',{visibilityState:'visible'})
+ const values=new Map<string,string>(),drafts={read:(app:string,table?:string,row?:string)=>values.get(JSON.stringify([app,table,row]))||'',write:(text:string,app:string,table?:string,row?:string)=>values.set(JSON.stringify([app,table,row]),text)}
+ const api:any={drafts,conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false}),postConversation:vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({})};let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AppConversationPanel api={api} appId="app" title="App"/>)})
+ act(()=>tree!.root.findByType('textarea').props.onChange({target:{value:'App draft'}}))
+ await act(async()=>{tree!.update(<AppConversationPanel api={api} appId="app" tableId="t" rowId="r" title="Record"/>)})
+ expect(tree!.root.findByType('textarea').props.value).toBe('')
+ act(()=>tree!.root.findByType('textarea').props.onChange({target:{value:'Record draft'}}));act(()=>tree!.unmount())
+ await act(async()=>{tree=create(<AppConversationPanel api={api} appId="app" title="App" initialDraft="Suggested adjustment"/>)})
+ expect(tree!.root.findByType('textarea').props.value).toBe('App draft')
+ await act(async()=>{await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})})
+ expect(drafts.read('app')).toBe('App draft')
+ await act(async()=>{await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})})
+ expect(drafts.read('app')).toBe('');expect(drafts.read('app','t','r')).toBe('Record draft');act(()=>tree!.unmount())
+})

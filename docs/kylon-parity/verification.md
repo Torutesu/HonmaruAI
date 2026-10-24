@@ -2387,3 +2387,10 @@ CI 40091492136 latest snapshot: desktop, web, relay, gateway, shared core/mobile
 ## Linked-source browser regression coverage added (2026-10-24)
 
 Added e2e/app-source-navigation.mjs to the existing real-stack CI spec. It refuses non-loopback API hosts, creates a private fixture room and model-free generated app with captured source, opens adjustment through the UI, requires both the original thread and data toolbar, checks contextual draft, then revisits and requires the pre-existing unsent draft to survive. Before/after source-message IDs/bodies must match, proving navigation did not post. Captures app-source-adjustment.png and restores workspace mode. This is disposable local CI data, not production messages. JavaScript syntax checks passed; the new browser regression has not run yet, so it is not completion evidence.
+
+### 2026-10-24 — App and record draft persistence (local verification)
+
+- Added local unsent-text persistence scoped to API origin, account, workspace, app, table and record. The captured account/session must still match before storage reads/writes; credentials are not included in stored keys. Storage failures leave the editor usable.
+- Restored text takes priority over adjustment suggestions. Sending failures retain it; successful sends remove it. Screen closure/reopening and switching records retain independent drafts.
+- Local Web suite: 166 files / 1,134 tests passed; TypeScript and production build passed. Added model-free local E2E fixture for reload restoration and no automatic posting; that new fixture has not run yet.
+- This does not synchronize drafts between devices. Current CI for 5bd0081c was still running Worker and E2E at verification time; retain that run rather than cancelling it with another push. Production deployment of this draft change remains pending.
