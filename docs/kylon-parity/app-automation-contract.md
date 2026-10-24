@@ -1,0 +1,31 @@
+# App-owned automation contract
+
+Status: design grounded in the current repository; KY-053 remains missing. This is not an implemented feature or a claim of live Kylon UI equivalence. The public app CLI URL was unavailable and a focused official-documentation search did not return usable evidence on 2026-10-24. Existing requirement acceptance remains the target until live reference behavior can be inspected.
+
+## Current gaps
+
+- `apps.normalizeDefinition` currently retains views only. It must not silently discard automation declarations when apps are generated, edited, restored or merged.
+- `customApps.saveCustomRelease` publishes HTML with an app-version compare-and-swap and a version snapshot. It does not reconcile workflow state.
+- `workflows.createWorkflow` creates enabled workflows by default. Calling it while saving an app draft could start work before publication.
+- `updateWorkflow` can independently change trigger, steps and enabled state. Bundled definitions therefore need drift detection and a conflict decision, not blind overwrite.
+- Workflow triggering is distributed across scheduled, row, webhook, held-event replay and manual paths. Merely hiding controls or disabling one trigger path is insufficient.
+
+## Required behavior
+
+1. Each app declaration has a stable local key, display name, normalized trigger/steps, desired enabled state and schema version. Store draft and published declarations separately. Reject invalid definitions, duplicate keys, cross-workspace references and excessive declaration count rather than silently truncating them.
+2. Draft creation/edit/restore must not create enabled workflows, secrets or outbound effects. Editing a published app's next draft must preserve the currently published automations until publication or explicit unpublish.
+3. Track managed workflow identity by workspace, app and declaration key. Do not adopt an unrelated existing workflow by its name or user-supplied ID. Bindings retain the last applied normalized definition and release identity. Hook secrets and live results never enter declaration/version/template exports.
+4. Publication validates current app-edit and workflow-management rights plus every referenced conversation, table and agent. Existing workflow validators remain authoritative. Generation from natural language is only a proposal and does not authorize new external connections.
+5. Publish app snapshot, workflow reconciliation and binding baseline atomically. A stale app version or independently changed bound workflow rejects the whole publication before any workflow is enabled. Use an explicit successful-publication identity to guard every dependent statement; chained `changes()` checks alone are not a cross-statement success identity.
+6. Before the atomic batch, read bounded live workflow snapshots. The app CAS must verify those exact snapshots are still current; checking them only before the transaction leaves a race. Preserve existing webhook secrets, history and in-flight run snapshots for unchanged managed identities.
+7. Classify each declaration as unchanged, added, changed, removed, missing live workflow or drifted. Show both proposed and live differences. Drift requires an explicit choice to keep the live change in the draft or replace it; neither choice silently grants new permissions. Display only metadata the viewer can read.
+8. Unpublish disables managed workflows in the same transaction. Removing a declaration disables its managed workflow and retains history. App deletion must disable all managed workflows before the app becomes unavailable. Do not delete ordinary user workflows.
+9. Every fresh run claim must recheck that an app-managed workflow belongs to a currently published release and remains enabled. Apply the guard to scheduled, row, webhook, manual and held-event replay entry points. A queued event captured before unpublish cannot begin new work afterward. Already-started external operations cannot be undone; explicitly distinguish this from blocking future steps.
+10. Repeated publication of the same observed release is idempotent: no duplicate workflows, rotated secrets, duplicate schedule slots or duplicate external runs. A lost response can retrieve the applied release identity. Do not retry uncertain external work as a publication repair.
+11. Simple behavior and standalone workflows remain unchanged. Existing contracts/services are reused; no provisioning or new billing is needed for app-owned workflow metadata.
+
+## UI and verification
+
+Add the automation section to the existing app detail/release flow: declared automations, live status, draft/published distinction, concise diff, conflict resolution and a link to retained workflow history. Use existing icons and light/dark tokens. Do not invent a Kylon-specific layout without reference evidence.
+
+Verify draft inertness, existing published behavior during draft edits, atomic publication rollback, concurrent app/workflow edits, idempotent lost-response recovery, secret preservation, cross-workspace reference rejection, revocation before publication, unpublish racing every trigger path, removal/history retention, app deletion and Simple/standalone regressions. Test with local fake providers and disposable records. Authenticated production and Kylon visual comparisons remain separate acceptance gates.
