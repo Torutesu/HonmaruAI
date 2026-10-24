@@ -27,7 +27,7 @@ export function StepEditor({ step, onChange, onRemove, tables, agents, triggerTa
         </select>
         <button className="btn-text danger" onClick={onRemove} aria-label={t('Remove step')}><Icon name="x" size={14} /></button>
       </div>
-      <div className="hx-step-condition"><label><input type="checkbox" checked={Boolean(step.when)} onChange={event=>set({when:event.target.checked?blankCondition():undefined})}/> 条件に合う場合だけ実行</label>{step.when&&<WorkflowConditionEditor value={step.when} onChange={when=>set({when})}/>}</div>
+      <div className="hx-step-condition"><label><input type="checkbox" checked={Boolean(step.when)} onChange={event=>set({when:event.target.checked?blankCondition():undefined})}/> 条件に合う場合だけ実行</label>{step.when&&<WorkflowConditionEditor columns={triggerTable?.columns} value={step.when} onChange={when=>set({when})}/>}</div>
       {(step.type === 'post' || step.type === 'followup') && (
         <input className="hx-cell-input" placeholder="#ops" value={(step.channel || '').replace(/^b:/, '#')} onChange={(e) => set({ channel: `b:${e.target.value.replace(/^#/, '')}` })} aria-label={t('Room')} />
       )}

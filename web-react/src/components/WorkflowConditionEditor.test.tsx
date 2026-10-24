@@ -32,3 +32,16 @@ test('rejects an extra nesting level without replacing the existing expression',
  act(()=>selectors[selectors.length-1].props.onChange({target:{value:'not'}}))
  expect(current).toEqual(nested);expect(tree.root.findByProps({role:'alert'}).children.join('')).toContain('8段')
 })
+
+test('selects stable column IDs for current and previous record conditions, including nested groups',()=>{
+ const initial:WorkflowCondition={all:[{path:['row','old.name'],op:'eq',value:'open'}]}
+ let selected=initial as WorkflowCondition
+ const columns=[{id:'col_status',name:'Status.v2',type:'text' as const}]
+ act(()=>{tree=create(<WorkflowConditionEditor value={initial} columns={columns} onChange={value=>{selected=value}}/>)})
+ change('レコードの列','col_status')
+ expect(selected).toEqual({all:[{path:['row','col_status'],op:'eq',value:'open'}]})
+ act(()=>tree.update(<WorkflowConditionEditor value={{path:['before','col_status'],op:'eq',value:'open'}} columns={columns} onChange={value=>{selected=value}}/>))
+ expect(field('レコードの列').props.value).toBe('col_status')
+ change('レコードの列','col_status')
+ expect(selected).toEqual({path:['before','col_status'],op:'eq',value:'open'})
+})

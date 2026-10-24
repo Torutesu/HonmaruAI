@@ -1015,7 +1015,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     // on a laptop navigation is a place on the page and disappearing would be
     // the app losing its own chrome.
     <div className={`shell${workspaceMode === 'harness' ? ' harness-workspace' : ''}${screen ? ' screen-open' : ''}${screen === 'home' ? ' home-open' : ''}${immersive && mode === 'classic' && !screen ? ' immersive' : ''}${mode === 'classic' && !screen ? ' list-mode' : ''}`}>
-      <FloatingAppWorkspace key={`${relayHttpUrl}:${orgId}:${sessionToken}:${workspaceMode}`} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} enabled={workspaceMode==='harness'} interactive={!panel&&!palette&&!shortcuts}>
+      <FloatingAppWorkspace key={`${relayHttpUrl}:${orgId}:${sessionToken}`} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} enabled={workspaceMode==='harness'} interactive={!panel&&!palette&&!shortcuts}>
       {workbench ? (
         <div className="workbench">
           <Inbox
