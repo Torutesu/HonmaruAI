@@ -103,6 +103,31 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     await floating.press('ArrowLeft')
     const movedBox = await floating.boundingBox()
     if (!initialBox || !movedBox || movedBox.x >= initialBox.x) throw new Error('Floating app did not move with keyboard')
+    stage = 'drag and resize floating app'
+    const handle = await floating.locator('.screen-head').evaluate(header => {
+      const r = header.getBoundingClientRect()
+      for (let y = r.top + 4; y < r.bottom - 4; y += 6) for (let x = r.left + 4; x < r.right - 4; x += 6) {
+        const target = document.elementFromPoint(x, y)
+        if (target && header.contains(target) && !target.closest('button,a,input,select,textarea')) return { x, y }
+      }
+      return null
+    })
+    if (!handle) throw new Error('Floating app has no reachable drag area')
+    await page.mouse.move(handle.x, handle.y)
+    await page.mouse.down()
+    await page.mouse.move(handle.x - 24, handle.y - 16, { steps: 4 })
+    await page.mouse.up()
+    const draggedBox = await floating.boundingBox()
+    if (!draggedBox || draggedBox.x >= movedBox.x || draggedBox.y >= movedBox.y) throw new Error('Floating header drag did not move the app')
+    const resize = await floating.locator('.hx-floating-resize').boundingBox()
+    if (!resize) throw new Error('Floating resize handle is missing')
+    await page.mouse.move(resize.x + resize.width / 2, resize.y + resize.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(resize.x + resize.width / 2 + 24, resize.y + resize.height / 2 + 24, { steps: 4 })
+    await page.mouse.up()
+    const resizedBox = await floating.boundingBox()
+    if (!resizedBox || resizedBox.width <= draggedBox.width || resizedBox.height <= draggedBox.height) throw new Error('Floating resize handle did not resize the app')
+
     await floating.getByRole('button', { name: /^(Search records|レコードを検索)$/ }).click()
     const floatingSearch = floating.getByRole('searchbox')
     await floatingSearch.fill('temporary search')
