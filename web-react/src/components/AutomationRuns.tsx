@@ -1,0 +1,25 @@
+import React,{useEffect,useRef,useState} from 'react'
+import type {HarnessApi,Run} from '../utils/harness'
+import {getLocale} from '../utils/locale'
+const labels:Record<string,string>={done:'完了',running:'実行中',waiting:'承認待ち',failed:'失敗',declined:'却下',ok:'成功',cancelled:'キャンセル'}
+export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessApi}) {
+ const [runs,setRuns]=useState<Run[]|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('')
+ const request=useRef(0),pending=useRef(false)
+ useEffect(()=>()=>{request.current++},[workflowId,api])
+ const load=async()=>{
+  if(pending.current)return
+  const current=++request.current;pending.current=true;setBusy(true);setError('')
+  try{const result=await api.workflow(workflowId);if(current===request.current)setRuns(result.runs)}
+  catch(e){if(current===request.current){setRuns(null);setError(e instanceof Error?e.message:String(e))}}
+  finally{pending.current=false;if(current===request.current)setBusy(false)}
+ }
+ return <details onToggle={e=>{if(e.currentTarget.open && runs===null && !busy)void load()}}><summary>実行履歴</summary>
+  {busy&&<p role="status">実行履歴を読み込み中…</p>}{error&&<p role="alert">{error}</p>}
+  {runs?.length===0&&<p>まだ実行されていません。</p>}
+  {runs?.map(run=><details key={run.id}><summary>{new Date(run.startedAt).toLocaleString(getLocale())} · {labels[run.status]||run.status}</summary>
+   <ol>{run.log.map((entry,index)=><li key={index}><strong>{entry.step}. {labels[entry.status]||entry.status}</strong>{entry.error&&<p className="form-error">{entry.error}</p>}{entry.output&&<pre>{entry.output}</pre>}</li>)}</ol>
+   <small>実行ID: {run.id}</small>
+  </details>)}
+  <button type="button" className="pill-btn quiet" disabled={busy} onClick={()=>void load()}>{error?'再試行':'履歴を更新'}</button>
+ </details>
+}

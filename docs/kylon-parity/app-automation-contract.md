@@ -155,3 +155,7 @@ Publication summaries now resolve table, column and agent identifiers through th
 ## Exact follow-up delay editing (pending next deployment)
 
 The shared step form now displays and edits follow-up delay directly in minutes, preserving existing values such as 15 or 90 instead of rounding to hours. Added bounds matching the app declaration range and an accessible Japanese-translated label. Related 3 UI files / 27 tests and TypeScript passed (`/tmp/honmaru-followup-minute-ui.log`). Candidate cfece088's CI/Web/Worker jobs remain active; this follow-up is local until they terminate.
+
+## Execution history inside app automation review (pending next deployment)
+
+Added lazy authorized workflow-run history under each existing managed automation. It shows run time/status, step results/errors and run identity, with explicit refresh/retry. Failed retrieval clears old results instead of showing stale success. Related two UI files / nine tests and TypeScript passed (`/tmp/honmaru-automation-history-ui.log`). This UI-only follow-up is not part of currently deploying cfece088. Live screenshots and production validation remain pending.
