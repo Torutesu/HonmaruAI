@@ -29,3 +29,9 @@ Status: design grounded in the current repository; KY-053 remains missing. This 
 Add the automation section to the existing app detail/release flow: declared automations, live status, draft/published distinction, concise diff, conflict resolution and a link to retained workflow history. Use existing icons and light/dark tokens. Do not invent a Kylon-specific layout without reference evidence.
 
 Verify draft inertness, existing published behavior during draft edits, atomic publication rollback, concurrent app/workflow edits, idempotent lost-response recovery, secret preservation, cross-workspace reference rejection, revocation before publication, unpublish racing every trigger path, removal/history retention, app deletion and Simple/standalone regressions. Test with local fake providers and disposable records. Authenticated production and Kylon visual comparisons remain separate acceptance gates.
+
+## Declaration foundation (local isolated worktree)
+
+`appAutomationDefinition.js` now validates bounded versioned declarations, explicit enabled state, unique stable keys, trigger/step fields and schedule ranges. It rejects live identities/credential fields and oversized content rather than truncating executable instructions. A pure diff classifies added/changed/removed/unchanged/missing/drifted definitions and excludes live hook secrets/run metadata. Six tests pass in `/tmp/honmaru-app-automation-definition-final.log`.
+
+This foundation is not yet connected to app storage, publication, workflow triggers or UI. KY-053 remains missing until the lifecycle is implemented and verified. Development is isolated at `/Users/tt/.codex/worktrees/app-automations/Honmaru`; app attachment failed because the thread has more than 100 attachments, but the checkout exists. The main workspace's frozen Worker test is unaffected.
