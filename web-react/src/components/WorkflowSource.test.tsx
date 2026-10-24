@@ -29,3 +29,16 @@ test('older pages append candidates and viewers cannot select',async()=>{
  expect(JSON.stringify(tree.toJSON())).toContain('Only the creator')
  act(()=>tree.unmount())
 })
+
+test('an expanded source picker reloads on workflow changes and ignores the old response',async()=>{
+ let resolveOld:any
+ const api={workflowSource:vi.fn().mockImplementationOnce(()=>new Promise(resolve=>{resolveOld=resolve})).mockResolvedValue({source:null,canBind:true,candidates:[{...root,id:'new',body:'New workflow source'}],nextCursor:null})}as any
+ let tree:any;act(()=>{tree=create(<WorkflowSource api={api} workflowId="old"/>)})
+ act(()=>{tree.root.findByType('details').props.onToggle({currentTarget:{open:true}})})
+ await act(async()=>{tree.update(<WorkflowSource api={api} workflowId="new"/>)})
+ expect(api.workflowSource).toHaveBeenLastCalledWith('new',undefined)
+ await act(async()=>{resolveOld({source:null,canBind:true,candidates:[root],nextCursor:null})})
+ expect(JSON.stringify(tree.toJSON())).toContain('New workflow source')
+ expect(JSON.stringify(tree.toJSON())).not.toContain('Create the invoice automation')
+ act(()=>tree.unmount())
+})

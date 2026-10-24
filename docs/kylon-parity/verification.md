@@ -2244,3 +2244,15 @@ CI 40072311299, Worker 40072311345 and Web 40072311252 all completed successfull
 Web at f85ab7df passed 161 files / 1105 tests (`/tmp/honmaru-safety-full-web.log`). Full Worker run is active in session 95952 (`/tmp/honmaru-safety-full-worker.log`) with Worker runtime/tests fixed at this commit; do not alter them until it terminates. No final Worker result yet.
 
 Rendered actual WorkflowNotices and AutomationRuns in IAB with explicit fixture data, full existing global/Harness styles, Japanese locale and a 360px content wrapper. Expanded notifications/history, inspected light/dark screenshots, and confirmed readable wrapped explanations and resume controls. Evidence `/tmp/honmaru-safety-dark.png`, `/tmp/honmaru-safety-light.png`. Temporary fixture/server/tab removed. This is local component rendering, not authenticated production/Kylon comparison. Notice acknowledgement/resume mutations were not exercised against production. Automation-thread delivery remains unimplemented.
+
+### Source-thread rendering and preceding production evidence
+
+At ca5aceaa, full Web passed 162 files / 1107 tests (`/tmp/honmaru-ca5-full-web.log`). The integrated full Worker run remains active with Worker source/tests fixed at ca5aceaa (`/tmp/honmaru-ca5-full-worker.log`); no terminal success is claimed yet. The preceding frozen f85ab7df run passed 226 files / 1868 tests but excludes the source/delivery follow-ups.
+
+Rendered the actual WorkflowSource component with full application styles, Japanese locale, dark theme and 360px content wrapper. Selected a fixture root and exercised the mocked save: candidates become the bound-thread summary and notification explanation. Screenshot `/tmp/honmaru-source-bound-dark.png`. This is local fixture rendering, not a production mutation or authenticated Kylon comparison. Temporary preview files/server/tab were removed. Native app inventory still reports locked despite the user's confirmation; no repeated unlock request was made.
+
+Deployment logs for prior cb32be63 confirm Worker version dddca3ee-1282-40f1-b4fd-b1539449d78c and index-CnQhrqAV.js served by both honmaru-web.pages.dev and app.honmaruai.com. CI 40073736042, Worker 40073735968 and Web 40073736102 all succeeded. The newer safety/source/notification changes have not yet been pushed at this entry.
+
+During follow-up review, fixed the expanded source picker to reload after workflow/API identity changes instead of leaving an empty open panel. An out-of-order old response cannot replace current candidates. Three focused tests and TypeScript passed (`/tmp/honmaru-source-identity.log`). Full final Web/build is being rerun; Worker source/tests remain unchanged.
+
+Final Web after the expanded-picker identity correction: 162 files / 1108 tests passed (`/tmp/honmaru-source-final-web.log`); production build passed (`/tmp/honmaru-source-final-build.log`). Existing bundle-size/dynamic-import warnings remain.
