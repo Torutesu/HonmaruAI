@@ -2013,3 +2013,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-24 derived skill scope display
 - Added typed sourceScope metadata to the web client. Catalog rows identify conversation/agent restrictions, and the global library replaces the misleading disabled Only me selector with inherited-scope text. A profile's install candidates exclude skills restricted to another source agent; server checks remain authoritative.
 - Full Web153 files/1061 tests, TypeScript and Vite pass (/tmp/honmaru-memory-conversion-scope-{web,build}.log), including regression for inherited-access text and absence of the sharing selector. Worker sources remain frozen from6134a8ca for full12436. Production publication is still gated on that full run and prior1947cf76 deployment jobs.
+
+### 2026-10-24 scoped conversion release preflight
+- Frozen full Worker regression completed:217 files/1752 tests,537.34s (/tmp/honmaru-memory-conversion-full-worker.log). Final Web153 files/1061 tests, TypeScript/Vite already passed; version1.3.13 and inventory checks pass. Native sample catalog confirms inherited-scope label (/tmp/honmaru-derived-skill-scope-20261024.png).
+- Prior1947cf76 CI40056902291, Worker40056902238 and Web40056902268 all completed success before publication. Native Honmaru is accessible again; its open memory page still shows the previously loaded frontend and requires refresh for current release verification. Production conversion E2E remains pending; no production memory was deleted.
