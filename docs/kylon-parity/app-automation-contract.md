@@ -139,3 +139,11 @@ Read-only lifecycle audit found a required pre-deploy fix: workflow follow-up st
 Added accessible up/down controls for app automation steps. Reordering changes local draft order without mutating loaded state or publishing. The UI explains that numeric step references should be checked after reordering. Related UI tests (7) and TypeScript passed (`/tmp/honmaru-automation-order.log`). Worker runtime/tests/schema remain unchanged from the frozen full-suite run; the earlier full Web/build evidence predates this UI-only addition and must be refreshed before deployment.
 
 Prepared, but not yet applied while Worker tests run: `/tmp/honmaru-followup-origin.patch`, `/tmp/honmaru-followup-origin-tests.js`, `/tmp/honmaru-followup-migration-test.js`. Patch application check passes; actual behavior is not yet tested. Once session 83476 terminates, inspect full result, apply patch and append tests to harness-apps/migration respectively, then validate. Patch generation script: `/tmp/prepare-honmaru-followup-fix.py`.
+
+## Full Worker result and managed follow-up fencing
+
+Frozen Worker runtime/test commit `0d225fab` completed successfully: 225 files / 1854 tests, 505.03s (`/tmp/honmaru-0d225fab-full-worker.log`, session 83476 terminal exit 0). Only frontend/docs changed while it ran.
+
+Then applied the deferred-follow-up fix: managed workflow steps persist origin workflow/release columns with the reservation in one guarded insert. Due follow-ups check that release before work, through the existing model tool authorization callback, and before posting. Stale reservations fail without posting after stop/republication; standalone reservations have null origin and retain existing behavior. Ordered ALTER migrations preserve existing reservations and tolerate repeated deployment.
+
+Post-fix targeted verification: 4 files / 108 tests passed, 14.68s (`/tmp/honmaru-followup-origin.log`), including actual managed workflow scheduling, stored origin, stopped scheduling rejection, no old reservation execution after republication, legacy workflows and preservation/replay of pre-migration reservations. Full Worker evidence predates this focused fix; no new whole-suite result is claimed. UI whole-suite/build refresh, visual verification, integration into main and deployment remain pending.

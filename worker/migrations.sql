@@ -246,3 +246,6 @@ CREATE TABLE IF NOT EXISTS hx_app_automation_state (org_id TEXT NOT NULL, app_id
 CREATE TABLE IF NOT EXISTS hx_app_automation_bindings (org_id TEXT NOT NULL, app_id TEXT NOT NULL, declaration_key TEXT NOT NULL, workflow_id TEXT NOT NULL, applied TEXT NOT NULL, release_id TEXT NOT NULL, PRIMARY KEY(org_id,app_id,declaration_key), UNIQUE(org_id,workflow_id));
 
 CREATE TABLE IF NOT EXISTS hx_app_automation_releases (org_id TEXT NOT NULL, app_id TEXT NOT NULL, request_id TEXT NOT NULL, request TEXT NOT NULL, release_id TEXT NOT NULL, revision INTEGER NOT NULL, app_version INTEGER NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(org_id,app_id,request_id));
+
+ALTER TABLE hx_followups ADD COLUMN origin_workflow_id TEXT;
+ALTER TABLE hx_followups ADD COLUMN origin_release_id TEXT;

@@ -1,3 +1,4 @@
+import {managedAutomationGuard,managedAutomationMayRun} from './appAutomationGuard.js';
 import { mayUseConversation } from './conversationAccess.js';
 // Follow-ups (docs/kylon-gap-plan.md): "check whether Acme paid in three
 // days". An agent — or the team's AI — comes back to the conversation at the
@@ -25,7 +26,8 @@ async function validThread(db, orgId, channel, threadId) {
   return Boolean(root && !root.deleted_at && !root.parent_id && root.channel === channel);
 }
 
-export async function scheduleFollowup(db, { orgId, channel, threadId = null, agentId = null, instruction, dueAt, by }) {
+export async function scheduleFollowup(db, { orgId, channel, threadId = null, agentId = null, instruction, dueAt, by, originWorkflowId = null, originReleaseId = null }) {
+  if(Boolean(originWorkflowId)!==Boolean(originReleaseId))return {error:'Incomplete automation origin.',status:400};
   const text = String(instruction || "").trim().slice(0, 2000);
   if (!text) return { error: "Say what to follow up on." };
   const due = new Date(dueAt);
@@ -40,11 +42,13 @@ export async function scheduleFollowup(db, { orgId, channel, threadId = null, ag
   const n = await db.prepare("SELECT COUNT(*) AS n FROM hx_followups WHERE org_id = ?1 AND channel = ?2 AND status = 'scheduled'").bind(orgId, channel).first();
   if (Number(n?.n || 0) >= MAX_PER_CHANNEL) return { error: "This conversation has as many follow-ups waiting as it can hold." };
   const id = newId("fu");
-  await db
-    .prepare(`INSERT INTO hx_followups (id, org_id, channel, thread_id, agent_id, instruction, due_at, status, created_by, created_at)
-      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'scheduled', ?8, ?9)`)
-    .bind(id, orgId, String(channel), threadId, agentId, text, due.toISOString(), String(by), now())
+  const inserted = await db
+    .prepare(`INSERT INTO hx_followups (id, org_id, channel, thread_id, agent_id, instruction, due_at, status, created_by, created_at, origin_workflow_id, origin_release_id)
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, 'scheduled', ?8, ?9, ?10, ?11
+      WHERE (?10 IS NULL OR ${managedAutomationGuard('?2','?10','?11')})`)
+    .bind(id, orgId, String(channel), threadId, agentId, text, due.toISOString(), String(by), now(), originWorkflowId, originReleaseId)
     .run();
+  if(!inserted.meta?.changes)return {error:'The app automation was stopped or its published release changed.',status:409};
   return { followup: pub(await db.prepare("SELECT * FROM hx_followups WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first()) };
 }
 
@@ -133,10 +137,14 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
   for (const r of results || []) {
     const claim = await env.DB.prepare("UPDATE hx_followups SET status = 'running' WHERE id = ?1 AND org_id = ?2 AND status = 'scheduled'").bind(r.id, r.org_id).run();
     if (!claim.meta?.changes) continue;
+    const authorize=()=>r.origin_workflow_id && r.origin_release_id
+      ?managedAutomationMayRun(env.DB,r.org_id,r.origin_workflow_id,r.origin_release_id)
+      :Promise.resolve(!r.origin_workflow_id && !r.origin_release_id);
     let body = r.instruction;
     let author = null;
     let kind = "ai";
     try {
+      if(!await authorize())throw new Error('The app automation was stopped or its published release changed.');
       if (!(await mayUseConversation(env.DB, r.org_id, r.created_by, r.channel))) throw new Error("Conversation access required.");
       if (!(await validThread(env.DB, r.org_id, r.channel, r.thread_id))) throw new Error("Follow-up thread is unavailable.");
       const agentRow = r.agent_id
@@ -160,13 +168,14 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
         const answer = await complete(
           `You are ${agent.name}. You said you would follow up on something, and the time has come. Do it now and say what you found, briefly, as a colleague would.\n\n<agent_instructions>\n${agent.researchInstructions || String(agent.instructions).slice(0, 8000)}\n</agent_instructions>`,
           `Follow-up you scheduled on ${String(r.created_at).slice(0, 10)}: ${r.instruction}`,
-          { tools: prepared.skillTools, fallbackSystem: `You are ${agent.name}. Complete your scheduled follow-up and answer briefly.\n\n${agent.instructions}` },
+          { tools: prepared.skillTools, authorize, fallbackSystem: `You are ${agent.name}. Complete your scheduled follow-up and answer briefly.\n\n${agent.instructions}` },
         );
         if (!answer) throw new Error("The follow-up did not receive a result. No completion was posted.");
         body = answer;
       } else {
         body = `⏰ Follow-up: ${r.instruction}`;
       }
+      if(!await authorize())throw new Error('The app automation was stopped or its published release changed.');
       const out = await postMessage(env.DB, { orgId: r.org_id, key: r.channel, authorLogin: author, body: String(body).slice(0, 8000), kind, parentId: r.thread_id || null });
       if (!out?.row) throw new Error(out?.error || "The follow-up could not be delivered.");
       if (out.row) {

@@ -855,3 +855,24 @@ test('app automation generation produces a disabled proposal without writing wor
  expect((await send('POST',`/apps/${app.id}/automations`,mika,{orgId:ORG,action:'generate',prompt:'Create row',useModel:false})).status).toBe(403);
  expect((await send('POST',`/apps/${app.id}/automations`,toru,{orgId:ORG,action:'generate',prompt:'Create row',useModel:false})).status).toBe(503);
 });
+
+test('managed follow-ups retain their published origin and cannot run after stop and republication',async()=>{
+ const f=await automationReleaseFixture();
+ const {upsertBusiness}=await import('../src/db.js');
+ await upsertBusiness(env.DB,ORG,{name:'Ops',createdBy:'9101'});
+ const automations={version:1,items:[{...f.automations.items[0],steps:[{type:'followup',channel:'b:ops',minutes:1,text:'Managed reminder'}]}]};
+ const saved=await(await send('PUT',`/apps/${f.app.id}/automations`,toru,{orgId:ORG,version:f.app.version,revision:1,automations})).json();
+ const first=await f.release({action:'publish',requestId:'publish_followup_001',version:f.app.version,revision:saved.revision});expect(first.saved).toBe(true);
+ const {getWorkflow,startRun}=await import('../src/harness/workflows.js');
+ const {runDueFollowups,scheduleFollowup}=await import('../src/harness/followups.js');
+ const binding=await env.DB.prepare('SELECT workflow_id,release_id FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first();
+ const workflow=await getWorkflow(env.DB,ORG,binding.workflow_id);
+ expect((await startRun(env,{orgId:ORG,workflow,trigger:'manual',startedBy:'9101'})).status).toBe('done');
+ const followup=await env.DB.prepare('SELECT * FROM hx_followups WHERE org_id=?1').bind(ORG).first();
+ expect(followup).toMatchObject({origin_workflow_id:workflow.id,origin_release_id:binding.release_id,status:'scheduled'});
+ const stopped=await f.release({action:'unpublish',requestId:'unpublish_followup01',version:first.version,revision:first.revision});
+ expect((await scheduleFollowup(env.DB,{orgId:ORG,channel:'b:ops',instruction:'Stale reminder',dueAt:new Date(Date.now()+60000).toISOString(),by:'9101',originWorkflowId:workflow.id,originReleaseId:binding.release_id})).status).toBe(409);
+ expect((await f.release({action:'publish',requestId:'republish_followup01',version:stopped.version,revision:stopped.revision})).saved).toBe(true);
+ expect(await runDueFollowups({...env,OPENAI_API_KEY:undefined},{now:new Date(Date.now()+120000)})).toBe(0);
+ expect(await env.DB.prepare('SELECT status FROM hx_followups WHERE id=?1').bind(followup.id).first()).toEqual({status:'failed'});
+});

@@ -495,6 +495,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, runId, depth
       const r = await scheduleFollowup(db, {
         orgId, channel: step.channel, agentId: step.agentId || null, instruction: render(step.text, scope),
         dueAt: new Date(Date.now() + step.minutes * 60000).toISOString(), by: owner,
+        ...(workflow.automationReleaseId?{originWorkflowId:workflow.id,originReleaseId:workflow.automationReleaseId}:{}),
       });
       return r.error ? { status: "failed", error: r.error } : { status: "ok", output: r.followup.id };
     }
