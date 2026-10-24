@@ -44,7 +44,7 @@ export function clearCardCache(): void {
 /// the translations it was given.
 /// The next person at this machine starts from nothing of it. The device's
 /// own choices — the relay, the language, the theme — stay.
-const ACCOUNT_KEYS = ['senderContext', 'aiKey', 'orgId', 'draft:', 'daily-draft:', 'card-draft:', 'ask-draft:', 'onboard.tools:', 'sidebar.folded:', 'outbox:', 'emoji.recent', 'translations:']
+const ACCOUNT_KEYS = ['senderContext', 'aiKey', 'orgId', 'draft:', 'hx-app-draft:', 'daily-draft:', 'card-draft:', 'ask-draft:', 'onboard.tools:', 'sidebar.folded:', 'outbox:', 'emoji.recent', 'translations:']
 export function clearAccountData(storage: Storage = localStorage): void {
   clearCardCache()
   clearMessageCaches()

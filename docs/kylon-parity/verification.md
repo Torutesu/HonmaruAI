@@ -2394,3 +2394,5 @@ Added e2e/app-source-navigation.mjs to the existing real-stack CI spec. It refus
 - Restored text takes priority over adjustment suggestions. Sending failures retain it; successful sends remove it. Screen closure/reopening and switching records retain independent drafts.
 - Local Web suite: 166 files / 1,134 tests passed; TypeScript and production build passed. Added model-free local E2E fixture for reload restoration and no automatic posting; that new fixture has not run yet.
 - This does not synchronize drafts between devices. Current CI for 5bd0081c was still running Worker and E2E at verification time; retain that run rather than cancelling it with another push. Production deployment of this draft change remains pending.
+
+- Follow-up: included `hx-app-draft:` in account-data cleanup, so logout and expired-session cleanup also remove these new drafts. Account cleanup plus draft/conversation regression tests: 3 files / 19 tests passed; production build passed. Not yet deployed.

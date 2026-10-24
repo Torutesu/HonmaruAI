@@ -49,7 +49,7 @@ describe('card cache', () => {
 describe('clearAccountData', () => {
   it('forgets the account signing out and keeps the device', () => {
     const s = fakeStorage()
-    for (const k of ['senderContext', 'senderContext:team:a', 'aiKey', 'orgId', 'draft:team:a:b:cafe', 'daily-draft:c1', 'onboard.tools:team:a', 'sidebar.folded:org-a', 'outbox:team%3Aa:aiko', 'outbox:team:a', 'emoji.recent', 'host', 'locale', 'mode', 'draftsOpen'])
+    for (const k of ['senderContext', 'senderContext:team:a', 'aiKey', 'orgId', 'draft:team:a:b:cafe', 'hx-app-draft:["api","alice","org","app",null,null]', 'daily-draft:c1', 'onboard.tools:team:a', 'sidebar.folded:org-a', 'outbox:team%3Aa:aiko', 'outbox:team:a', 'emoji.recent', 'host', 'locale', 'mode', 'draftsOpen'])
       s.setItem(k, 'x')
     clearAccountData(s)
     const left: string[] = []
