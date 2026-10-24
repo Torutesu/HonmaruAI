@@ -53,3 +53,14 @@ test('changed steps show readable conditions and resolve current table labels',a
  expect(tree.root.findAllByType('pre')).toHaveLength(0)
  act(()=>tree.unmount())
 })
+
+test('program revision comparison displays both exact saved sources',async()=>{
+ const api:any={workflowRevisions:vi.fn().mockResolvedValue({items:[
+  {...version(2,'Code'),definition:{...definition,steps:[{type:'code',gatewayId:'mini',code:'console.log("after");'}]}},
+  {...version(1,'Code'),definition:{...definition,steps:[{type:'code',gatewayId:'mini',code:'console.log("before");'}]}}
+ ],nextCursor:null})};
+ let tree:any;await act(async()=>{tree=create(<WorkflowHistory api={api} workflowId="wf"/>)});
+ await act(async()=>{tree.root.findByType('details').props.onToggle({currentTarget:{open:true}})});
+ expect(tree.root.findAllByType('pre').map((node:any)=>node.children.join(''))).toEqual(['console.log("before");','console.log("after");']);
+ act(()=>tree.unmount());
+});

@@ -1,3 +1,4 @@
+import {WorkflowProgramEditor} from '../components/WorkflowProgramEditor'
 import {WorkflowHistory} from '../components/WorkflowHistory'
 import {describeWorkflowCondition} from '../utils/workflowCondition'
 import {getLocale} from '../utils/locale'
@@ -10,7 +11,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import {StepEditor} from '../components/WorkflowStepEditor'
-import type { Workflow, Run, Step, StepType, Trigger, TriggerType, Table, HeldWorkflowEvents } from '../utils/harness'
+import type { Workflow, Run, Step, StepType, Trigger, TriggerType, Table, HeldWorkflowEvents, HarnessApi } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 
 // Workflows (docs/kylon-gap-plan.md): a trigger and the steps after it,
@@ -44,11 +45,15 @@ interface AgentFace { id: string; handle: string; name: string; emoji?: string |
 const blankStep = (type: StepType): Step => ({ type, ...(type === 'followup' ? { minutes: 1440 } : {}) })
 
 
-function Builder({ tables, agents, onSave, onCancel, busy, initial }: { initial?: Workflow; tables: Table[]; agents: AgentFace[]; onSave: (w: { name: string; trigger: Trigger; steps: Step[] }) => void; onCancel: () => void; busy: boolean }) {
+function Builder({ api, tables, agents, onSave, onCancel, busy, initial }: { api:HarnessApi; initial?: Workflow; tables: Table[]; agents: AgentFace[]; onSave: (w: { name: string; trigger: Trigger; steps: Step[] }) => void; onCancel: () => void; busy: boolean }) {
   const t = useT()
   const [name, setName] = useState(initial?.name || '')
   const [trigger, setTrigger] = useState<Trigger>(initial ? structuredClone(initial.trigger) : { type: 'manual' })
-  const [steps, setSteps] = useState<Step[]>(initial ? structuredClone(initial.steps) : [blankStep('post')])
+  const [format,setFormat]=useState(initial?.steps[0]?.type==='code'?'code':'form')
+  const [formSteps,setSteps]=useState<Step[]>(initial?.steps[0]?.type!=='code'&&initial?structuredClone(initial.steps):[blankStep('post')])
+  const [program,setProgram]=useState<Step>(initial?.steps[0]?.type==='code'?structuredClone(initial.steps[0]):{type:'code',code:'console.log("Hello from your workflow");'})
+  const steps=format==='code'?[program]:formSteps
+  const programValid=format!=='code'||Boolean(program.gatewayId&&program.code?.trim()&&new TextEncoder().encode(program.code).length<=48000)
   const scheduleValid = trigger.type !== 'schedule' || (()=>{
     try { new Intl.DateTimeFormat('en',{timeZone:trigger.timezone}); } catch { return false }
     return Boolean(trigger.timezone?.trim()) && Number.isInteger(trigger.hour) && trigger.hour!>=0 && trigger.hour!<=23 && Number.isInteger(trigger.minute) && trigger.minute!>=0 && trigger.minute!<=59
@@ -107,6 +112,10 @@ function Builder({ tables, agents, onSave, onCancel, busy, initial }: { initial?
         )}
         {trigger.type === 'row' && tables.length === 0 && <div className="row-sub">{t('Build an app first: its table is what a row trigger watches.')}</div>}
       </div>
+      <label className="hx-inline">{t('Workflow format')} <select aria-label={t('Workflow format')} value={format} onChange={event=>setFormat(event.target.value)}>
+        <option value="form">{t('Form steps')}</option><option value="code">{t('TypeScript program')}</option>
+      </select></label>
+      {format==='code'?<WorkflowProgramEditor api={api} step={program} onChange={setProgram}/>:<>
       <div className="rows-title">{t('Steps')}</div>
       {steps.map((s, i) => (
         <StepEditor
@@ -121,9 +130,10 @@ function Builder({ tables, agents, onSave, onCancel, busy, initial }: { initial?
       ))}
       <button className="pill-btn quiet" onClick={() => setSteps([...steps, blankStep('post')])}><Icon name="plus" size={14} /> {t('Add a step')}</button>
       <p className="hx-hint">{t('Steps can use what started them: {{row.Column}}, {{input.text}}, {{steps.1.output}}.')}</p>
+      </>}
       <div className="playbook-add-foot">
         <button className="btn-text" onClick={onCancel}>{t('Cancel')}</button>
-        <button className="pill-btn" disabled={busy || !name.trim() || steps.length === 0 || !scheduleValid} onClick={() => onSave({ name, trigger, steps })}>{t('Save workflow')}</button>
+        <button className="pill-btn" disabled={busy || !name.trim() || steps.length === 0 || !scheduleValid || !programValid} onClick={() => onSave({ name, trigger, steps })}>{t('Save workflow')}</button>
       </div>
     </div>
   )
@@ -185,7 +195,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
 
   if (open && editing) return <Shell className="hx-resource-screen" title={t('Edit workflow')} onClose={() => { if(!busy)setEditing(null) }} nested>
     {error && <div className="form-error" role="alert">{error}</div>}
-    <Builder key={editing.id} initial={editing} tables={tables} agents={agents} busy={!!busy}
+    <Builder api={api} key={editing.id} initial={editing} tables={tables} agents={agents} busy={!!busy}
       onCancel={() => { if(!busy)setEditing(null) }} onSave={draft => act('save',async()=>{
         await api.updateWorkflow(editing.id,{...draft,expectedUpdatedAt:editing.updatedAt})
         await refreshOpen(editing.id)
@@ -211,7 +221,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
             await refreshOpen(w.id)
           })}>{t('Resume after review')}</button>}
         </section>}
-        <div className="hx-flow-diagram"><div className="hx-flow-node"><small>{t('Trigger')}</small><strong>{triggerLabel(t, w.trigger, tables)}</strong></div>{w.steps.map((step, index) => <React.Fragment key={index}><span className="hx-flow-connector">↓</span><div className="hx-flow-node"><small>{index + 1}. {stepLabel(t, step.type)}</small><strong>{step.text || step.prompt || step.title || tables.find(table => table.id === step.tableId)?.name}</strong>{step.channel && <span>{step.channel.startsWith('ag:') || step.channel.startsWith('dm:') ? t('Private chat') : step.channel.replace(/^b:/, '#')}</span>}{step.agentId && <span>{t('Agent')}: {agents.find(agent => agent.id === step.agentId)?.name || step.agentId}</span>}{step.to && <span>@{step.to}</span>}{step.summary && <p>{step.summary}</p>}{step.minutes && <span>{step.minutes} min</span>}{step.values && <pre>{JSON.stringify(step.values, null, 2)}</pre>}{step.when && <div className="hx-flow-condition"><small>{t('Execution condition')}</small><p>{describeWorkflowCondition(step.when,tables.find(table=>table.id===w.trigger.tableId)?.columns)}</p></div>}</div></React.Fragment>)}</div>
+        <div className="hx-flow-diagram"><div className="hx-flow-node"><small>{t('Trigger')}</small><strong>{triggerLabel(t, w.trigger, tables)}</strong></div>{w.steps.map((step, index) => <React.Fragment key={index}><span className="hx-flow-connector">↓</span><div className="hx-flow-node"><small>{index + 1}. {stepLabel(t, step.type)}</small><strong>{step.text || step.prompt || step.title || tables.find(table => table.id === step.tableId)?.name}</strong>{step.channel && <span>{step.channel.startsWith('ag:') || step.channel.startsWith('dm:') ? t('Private chat') : step.channel.replace(/^b:/, '#')}</span>}{step.agentId && <span>{t('Agent')}: {agents.find(agent => agent.id === step.agentId)?.name || step.agentId}</span>}{step.to && <span>@{step.to}</span>}{step.summary && <p>{step.summary}</p>}{step.minutes && <span>{step.minutes} min</span>}{step.type==='code'&&<details><summary>{t('Program source')}</summary><pre className="hx-program-source">{step.code}</pre></details>}{step.values && <pre>{JSON.stringify(step.values, null, 2)}</pre>}{step.when && <div className="hx-flow-condition"><small>{t('Execution condition')}</small><p>{describeWorkflowCondition(step.when,tables.find(table=>table.id===w.trigger.tableId)?.columns)}</p></div>}</div></React.Fragment>)}</div>
         <div className="rows">
           <div className="row static">
             <span className="row-main">{triggerLabel(t, w.trigger, tables)}
@@ -334,6 +344,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
       </section>}
       {building && manual && (
         <Builder
+          api={api}
           tables={tables}
           agents={agents}
           busy={busy === 'save'}

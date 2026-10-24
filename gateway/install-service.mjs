@@ -24,7 +24,7 @@ await mkdir(dirname(plistPath), { recursive: true });
 // Stop the existing service before replacing its immutable runtime snapshot.
 try { execFileSync('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${SERVICE_LABEL}`], { stdio: 'ignore' }); } catch {}
 const source = dirname(fileURLToPath(import.meta.url));
-for (const file of ['service.mjs', 'client.mjs', 'runner.mjs', 'runtime.mjs']) await copyFile(join(source, file), join(runtime, file));
+for (const file of ['service.mjs', 'client.mjs', 'runner.mjs', 'runtime.mjs', 'workflow-runner.mjs', 'workflow-guest.mjs', 'workflow-bridge.mjs']) await copyFile(join(source, file), join(runtime, file));
 const node = join(runtime, 'node');
 await installExecutable(process.execPath,node,async candidate=>{
   execFileSync('/usr/bin/codesign',['--verify','--strict',candidate],{stdio:'pipe'});

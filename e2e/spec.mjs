@@ -1,3 +1,4 @@
+import { workflowProgram } from './workflow-program.mjs'
 import { gatewayTypeScript } from './gateway-typescript.mjs'
 import { workflowConditions } from './workflow-conditions.mjs'
 // What a person actually does, against the real thing.
@@ -4368,6 +4369,7 @@ await step('removing someone takes them out of the room, not just the table', as
 await step('app filter adjustment opens its source thread, preserves drafts and never posts', () => appSourceNavigation({ context: phone, web: WEB, apiHost: API, shots: SHOTS }))
 await step('workflow conditions can be created, reviewed after reload and skip unmatched effects', () => workflowConditions({context:phone,web:WEB,apiHost:API,shots:SHOTS}))
 await step('TypeScript execution preserves language drafts and queues the selected module',()=>gatewayTypeScript({context:phone,web:WEB,apiHost:API,shots:SHOTS}))
+await step('Program workflow editor persists source and completes through node state transport',()=>workflowProgram({context:phone,web:WEB,apiHost:API,shots:SHOTS}))
 
 for (const ctx of extras) await ctx.close()
 if (mate) await mate.close()

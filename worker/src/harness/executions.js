@@ -1,5 +1,8 @@
 import { mayUseApp } from './resourceAccess.js';
 import { allowed } from '../permissions.js';
+import { mayViewWorkflow } from './workflows.js';
+import { mayUseConversation } from './conversationAccess.js';
+import {settleWorkflowProgram} from './workflowCodeJobs.js';
 export const jobView = row => row && ({ id: row.id, gatewayId: row.gateway_id, status: row.status, createdAt: row.created_at, startedAt: row.started_at, finishedAt: row.finished_at, result: row.result ? JSON.parse(row.result) : null });
 const id = () => crypto.randomUUID();
 const now = () => Date.now();
@@ -15,12 +18,26 @@ export async function readExecution(db, orgId, me, jobId) {
   const row = await db.prepare('SELECT * FROM hx_gateway_jobs WHERE org_id = ?1 AND id = ?2 AND created_by = ?3').bind(orgId, String(jobId || ''), String(me)).first();
   const scope = row && await db.prepare('SELECT app_id FROM hx_app_action_jobs WHERE job_id=?1 AND org_id=?2').bind(row.id,orgId).first();
   if(scope && !(await mayUseApp(db,orgId,scope.app_id,me))) return error('No such execution.',404);
+  const activation = row && await db.prepare(`SELECT d.definition FROM hx_workflow_activations a
+    LEFT JOIN hx_workflow_run_definitions d ON d.org_id=a.org_id AND d.run_id=a.run_id
+    WHERE a.org_id=?1 AND a.job_id=?2`).bind(orgId,row.id).first();
+  if (row && JSON.parse(row.payload).workflowProgram === true && !activation) return error('No such execution.',404);
+  if (activation) {
+    // Retained output must respect both today's resource permissions and the
+    // source room captured when this particular program was admitted.
+    let definition, context;
+    try { definition=JSON.parse(activation.definition); context=JSON.parse(row.payload).context; }
+    catch { return error('No such execution.',404); }
+    if (!definition || !(await mayViewWorkflow(db,orgId,definition,me)) ||
+        (context?.roomId && !(await mayUseConversation(db,orgId,me,context.roomId)))) return error('No such execution.',404);
+  }
   return row ? { job: jobView(row) } : error('No such execution.', 404);
 }
 export async function cancelExecution(db, orgId, me, jobId) {
   const found = await readExecution(db, orgId, me, jobId);
   if (found.error) return found;
   await db.prepare("UPDATE hx_gateway_jobs SET status = 'cancelled', lease_hash = NULL, finished_at = ?2 WHERE id = ?1 AND status IN ('queued', 'running')").bind(jobId, now()).run();
+  await settleWorkflowProgram(db,jobId);
   return readExecution(db, orgId, me, jobId);
 }
 export async function enqueueExecution(db, orgId, me, input, appAction = null) {

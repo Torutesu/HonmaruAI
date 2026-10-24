@@ -135,3 +135,29 @@ test('TypeScript module language survives queueing and participates in request i
  const job=await claim(token);
  expect(job.payload).toEqual({code:input.code,input:21,language:'typescript'});
 });
+
+test('node state endpoint uses an assigned workflow activation and refuses unrelated scope',async()=>{
+ const {claimWorkflowNode}=await import('../src/harness/workflowCheckpoints.js');
+ const {gateway,token}=await node();const second=await node();
+ const queued=await enqueue(gateway.id);const running=await claim(token);const at=Date.now();
+ const call=(operation,params={},auth=token,lease=running.lease)=>api('POST',`/jobs/${queued.id}/state`,null,{lease,operation,params},auth);
+ expect((await call('state.get')).status).toBe(409);
+ await env.DB.prepare("INSERT INTO hx_workflows(id,org_id,name,enabled,trigger,steps,created_by,created_at,updated_at) VALUES('sdk-workflow',?1,'SDK',1,'{\"type\":\"manual\"}','[]','9502','now','now')").bind(orgId).run();
+ await env.DB.prepare("INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,log,started_at) VALUES('sdk-run',?1,'sdk-workflow','manual','running','[]','now')").bind(orgId).run();
+ await env.DB.prepare("INSERT INTO hx_workflow_run_definitions(run_id,org_id,definition,created_at) VALUES('sdk-run',?1,?2,'now')").bind(orgId,JSON.stringify({id:'sdk-workflow',createdBy:'9502',definitionRevision:1})).run();
+ const checkpoint=await claimWorkflowNode(env.DB,{orgId,runId:'sdk-run',nodeId:'code',fingerprint:'frozen-code',at,ttl:60000});
+ await env.DB.prepare("INSERT INTO hx_workflow_activations(org_id,job_id,run_id,node_id,node_owner,node_attempt) VALUES(?1,?2,'sdk-run','code',?3,?4)").bind(orgId,queued.id,checkpoint.owner,checkpoint.attempt).run();
+ const initial=await call('state.get');expect(initial.status).toBe(200);expect(await initial.json()).toMatchObject({found:false,revision:0});
+ const saved=await call('state.set',{state:{count:1},expectedRevision:0,validationStatus:'passed',schemaVersion:'v1'});
+ expect(saved.status).toBe(200);const receipt=await saved.json();expect(receipt).toMatchObject({saved:true,currentRunId:'sdk-run',revision:1});
+ const restored=await call('state.get',{includeCurrentRun:true});expect(restored.status).toBe(200);
+ const value=await restored.json();expect(value).toMatchObject({state:{count:1},metadata:{definitionRevision:1,schemaVersion:'v1',contentHash:receipt.contentHash}});
+ for(const secret of [token,running.lease,checkpoint.owner])expect(JSON.stringify(value)).not.toContain(secret);
+ expect((await call('state.get',{},second.token)).status).toBe(409);
+ expect((await call('state.get',{},token,'wrong-lease')).status).toBe(409);
+ expect((await call('state.get',{runId:'other'})).status).toBe(400);
+ expect((await call('state.set',{state:[],expectedRevision:1})).status).toBe(400);
+ expect((await api('POST',`/jobs/${queued.id}/state`,member,{lease:running.lease,operation:'state.get',params:{}})).status).toBe(401);
+ await api('POST',`/jobs/${queued.id}/cancel`,member,{});
+ expect((await call('state.get')).status).toBe(409);
+});

@@ -2,7 +2,7 @@
 
 調査基準日: 2026-10-15。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。
 
-全95項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
+全96項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
 2026-10-23 公開状況: 原子的ルーム作成と3段階UI、保存色、役割変更・メンバーUIを本番公開済み。93c400d7のCIは全必須ジョブ成功。1dcf52cbで管理対象ルームの追加入口も共通化し、d8e85c76のWebデプロイで公開。10色パレット・Escape時の入力保持・CIバージョン修正もa673f31eで本番公開し、全必須CI成功と本番作成／再読み込みを確認。既定ルーム、プライバシー編集、全利用者・端末での検証は未完了。
 
@@ -106,7 +106,7 @@
 | KY-057 | 型付きイベントフィルタ | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | missing/null/数値/配列・変更前後・重複配信を検証 |
 | KY-058 | 保存定義の不変revision | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 新規runの定義を原子的に保存し承認後も同じ手順で再開。定義revision履歴・比較UI・旧runの移行は残る |
 | KY-059 | TypeScript SDKと永続checkpoint | 未実装 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 再開時に完了済み外部操作を繰り返さない |
-| KY-060 | 条件分岐・batch・制限付き並列 | 未実装 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 部分失敗・ページング・取りこぼし率を結果に含める |
+| KY-060 | 条件分岐・batch・制限付き並列 | 一部実装 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 部分失敗・ページング・取りこぼし率を結果に含める |
 | KY-061 | 実行履歴・step結果 | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 全ステップの入力出力・エラー・コスト・権限を追跡 |
 | KY-062 | 署名付きWebhookと再送防止 | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | URL secretだけでなく署名・期限・event IDを検証 |
 | KY-063 | Webhook rotation/revoke/held/replay | 一部（反映待ち） | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 再発行・失効、停止中イベントの7日/1000件保持、明示IDによる古い順の再実行、二重起動防止を実装。確認時点の保留イベントを破棄するUIもローカル実装。中断した実行の復旧・本番と実画面の確認は残る。 |
@@ -185,3 +185,7 @@ Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing an
 既存のエージェント画像は公開URLを返すため、非公開ルーム画像へそのまま流用しない。既存MEDIA保存先は利用候補だが、ルームACLで認証する読み取り経路と失効後の表示破棄が必要。新規サービス契約は不要の設計方針とし、未実装を完了扱いしない。
 
 2026-10-24追記: KY-018は世代で所有権を管理する明示引き継ぎ・履歴・停止操作と外部エージェントへの引き継ぎを実装したため「一部」に更新。失敗時の安全な自動交代、外部エージェントからの引き継ぎ開始、本番での実動作比較は未完了。OpenRouterツール実行はローカル検証段階。要件件数は完成率ではない。詳細なコミットと検証範囲はverification.mdを参照。
+
+### 2026-10-24 実画面追加差分
+
+- KY-096: アプリ詳細メニューの「ワークスペース上にフローティング表示」。参照側で右下の独立パネルを確認。Honmaruは移動・サイズ変更・環境切替時の隔離を本番実装。c1e81790の必須CI・デプロイ・ログイン済み実機で小窓ヘッダーと会話操作を確認。参照側の会話遷移・再起動復元などは未確認。受入条件は requirements.json を参照。

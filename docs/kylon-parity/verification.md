@@ -2403,3 +2403,441 @@ Added e2e/app-source-navigation.mjs to the existing real-stack CI spec. It refus
 - The fixture changes workspace mode and creates a private room via API after the page has mounted. Added a reload before UI navigation so mode/sidebar data are read again. This is a test-setup hypothesis, not a confirmed product fix; rerun is required.
 - Added failure screenshot capture from the fixture's own page before closing it, improving evidence for any remaining failure. Node syntax and diff checks passed.
 - Kylon empty test table was observed cycling task-name sort through ascending, descending, and none; restored none. Existing Honmaru `nextColumnSort` header path already implements that cycle. No message or record was created in Kylon.
+
+### 2026-10-24 — Draft persistence production verification
+
+- Deploy Web 40092758483 / job 120868651145 succeeded for f1121b9e. Both app.honmaruai.com and honmaru-web.pages.dev served `index-B9GKy666.js`; preview https://2fa5104a.honmaru-web.pages.dev.
+- Authenticated installed Mac app, existing empty UI確認用タスク: entered a harmless unsent draft, closed/reopened the app conversation, and reloaded the page. Both restored the exact text. Empty message history remained visible. Cleared the test draft and closed the panel; no message was sent and no record was added. Screenshot of restored text: `/tmp/honmaru-app-draft-production.png`.
+- First reload reproduced the installed desktop's intermittent blank rendering; toggling fullscreen and back restored it. The later reload worked normally. The previously tested native repaint patch still has not been installed in /Applications, so this defect remains open.
+- CI 40092758479: Web, desktop, gateway, relay and shared/mobile successful at observation; Worker and E2E still in progress. Linked-source E2E outcome remains unverified.
+
+### 2026-10-24 — Signed desktop update preparation
+
+- Repository signing-secret name inventory includes all five required Mac signing/notarization settings (values not read or printed). Prior Mac signed release workflow 39957249737 succeeded; published release is v1.3.13. This provides an existing distribution path without a new service subscription.
+- Prepared version 1.3.14 consistently across VERSION, desktop/web/mobile manifests and native marketing versions. Dependency versions unchanged. Version checker passed, desktop 17 files / 125 tests passed, mobile lint and typecheck passed.
+- Native repaint code from edf07ece is included. No signed v1.3.14 build has been dispatched or published yet; installed app remains unchanged. Current f1121b9e CI still running; avoid cancelling it with a new main push.
+
+### 2026-10-24 — Typed workflow condition foundation
+
+- Added `workflowConditions.js`: declarative all/any/not, strict scalar equality and numeric ordering, text containment, list membership and explicit existence checks. Missing/null/type mismatches remain distinct; paths use own properties only and reject prototype keys. Definitions have explicit depth, node, group, path and literal bounds and normalize to independent copies.
+- Worker runtime tests: 1 file / 4 tests passed, covering composition, normalization isolation, missing/null/false/zero, coercion refusal, inherited-property refusal and invalid/excessive predicates.
+- This is a foundation only: not connected to workflow execution/editor, not deployed, no durable decision checkpoint yet. KY-059/KY-060 remain incomplete. Signed desktop build 40093136992 uses 8f9c791f, before this code, and remains independent.
+
+### 2026-10-24 — Durable node checkpoint foundation
+
+- Added internal D1 node checkpoints with atomic competing claims, attempt/owner fencing, bounded leases, immutable completed results and definition fingerprint conflicts. Expired pure nodes can be reclaimed; expired external-effect nodes become `unknown` and cannot be automatically replayed. Current run status fences renewal and completion.
+- Real Worker/D1 tests: 1 file / 5 tests passed for competing claims, stale owners, renewal, expiry ambiguity, cross-workspace denial, definition conflicts, terminal runs and oversized results. Schema and additive migration supplied, not deployed.
+- Not yet connected to `continueRun`; local-effect transaction integration, reconciliation UI, durable graph scheduler and approval/batch continuation remain outstanding. No exactly-once guarantee is claimed.
+- E2E job 120868651352 of CI 40092758479 failed again, this time clicking the filter button (not the original thread-pane wait). Screenshot artifact investigation is in progress; Worker remains running.
+
+### 2026-10-24 — Signed 1.3.14 published and installed
+
+- Mac signed workflow 40093136992 / job 120869764348 succeeded at 8f9c791f. Signing, notarization, codesign deep/strict validation, Gatekeeper acceptance and update-feed checks passed. Desktop delta from released 1.3.13 is the did-finish-load repaint request plus version metadata.
+- Published release 422712245, https://github.com/Torutesu/HonmaruAI/releases/tag/v1.3.14 at 2026-10-24T12:22:49Z. Used the installed app's Check for Updates and Restart and Update controls. No manual /Applications overwrite or protection bypass.
+- Installed Info.plist and native menu both report 1.3.14. Installed codesign validation and spctl assessment passed (`Notarized Developer ID`). Login/workspace retained, app gallery and custom app detail loaded, and a normal reload restored the custom detail without fullscreen workaround. Initial launch briefly showed the loading-timeout fallback before resolving; a single successful reload does not prove elimination of an intermittent defect.
+- Screenshot: `/tmp/honmaru-1.3.14-installed.png`. Source-navigation diagnostics alone were pushed to `codex/source-navigation-diagnostics` (3769b46d), CI 40093649099, so experimental workflow foundations are not published. Primary working branch restored to codex/skill-folder-drop-ui.
+
+### 2026-10-24 — Native board filter cross-check
+
+- On installed 1.3.14 / production Web, opened existing empty UI確認用タスク, switched to 状態別カンバン and opened the filter popover successfully. Both adjustment and direct-edit actions appeared. Screenshot `/tmp/honmaru-board-filter-production.png`.
+- The active-view save remounts the filter control after the personal preference revision changes; retried only after observing the new accessibility target. This does not yet establish the cause of the CI actionability timeout. No filter or record was changed; restored 自分のタスク and confirmed saved column widths (180/320/180/180).
+- Diagnostic CI 40093649099 / E2E 120871291797 remained running at observation. Do not infer its outcome from this native test.
+
+### 2026-10-24 — App section route restoration
+
+- Native verification exposed that choosing Data viewer through the app menu only updated component state; reloading the standalone custom app returned to its published UI. Added allowed app-section routes for overview/data/custom/backend/settings and routed menu, breadcrumb and section-tab selections through them.
+- Standalone routes retain conversation, record and draft parameters. Embedded panels and source-thread routes do not overwrite the chat URL. Unknown sections remain rejected. Existing access checks for editing/backend remain unchanged.
+- Web suite: 166 files / 1,135 tests passed; TypeScript and production build passed. Not deployed yet; native reload verification of this change remains pending. This is independent of the CI filter click interception investigation.
+
+### 2026-10-24 — Isolated app section production rollout
+
+- Published main commit `2b98dc5c` containing only the tested standalone app-section restoration and synchronized 1.3.14 version metadata. Experimental workflow predicates/checkpoint storage and migrations remain unpublished on the working branch.
+- Deploy Web `40095102010` and CI `40095102163` were running at this observation; Web, Desktop, Gateway and Relay jobs passed. This entry is not a deployment-success assertion.
+- Native CUA is available after the user confirmed their Mac is operable. Existing empty test app retained its personal view and 180/320/180/180 column widths; filter popover opened and closed normally. No records, filters or messages were changed.
+
+### 2026-10-24 — App section rollout verified; remaining native defect
+
+- Deploy Web `40095102010` / job `120875575649` succeeded for `2b98dc5c`. Both production hostnames serve `index-BV3CHoAt.js`; preview `https://f27efaea.honmaru-web.pages.dev`.
+- Native test: selected Data viewer through the app menu, observed `section=data` in the URL, reloaded and confirmed Data viewer, personal view 自分のタスク and widths 180/320/180/180 restored. Screenshot `/tmp/honmaru-app-section-production.png`.
+- A preceding reload on Mac 1.3.14 produced a blank native surface, recovered by entering/exiting OS fullscreen. Thus 1.3.14's did-finish-load invalidation is insufficient to claim resolution. Subsequent reload succeeded; intermittent rendering remains open. No data cleared or security settings changed.
+- Local Worker foundation suite finished: 230 files / 1,894 tests passed, 1030.95s; log `/tmp/honmaru-workflow-foundation-full-worker.log`. Foundations are still unpublished and not connected to the executor.
+- Diagnostic E2E `40094411272` / job `120873660901` failed on navigation 2. Hit-test data shows duplicate controls: the retained source pane behind the foreground standalone app. Fixed locators to `.shell > .hx-app-detail` without force-click or bypassing assertions; published only that test correction and diagnostics as `be16d549`. CI `40095296928` is pending; no E2E success claimed.
+
+### 2026-10-24 — Covered conversation accessibility and floating app gap
+
+- Covered ClassicList remained in the accessibility tree behind a standalone app. Added a React 18-compatible DOM ref that toggles native inert while the shell marks the list inactive, preserving mounted drafts. E2E additionally checks a retained source composer cannot accept focus behind the app and becomes interactive on return. Web 166 files / 1,135 tests and production build passed; E2E and publication pending.
+- Reference Kylon app menu contains Share, Copy link, floating display and navigation pin. Opened floating display on the existing empty test app, observed a bottom-right approximately 480×640 panel with app chat, fullscreen and close. Screenshot `/tmp/kylon-floating-app-reference.png`; closed it without record/message changes. Added KY-096 as missing, bringing the inventory to 96. Drag, resize and persistence behavior still need reference verification.
+- Electron upstream issue https://github.com/electron/electron/issues/52809 describes blank native surfaces restored by resizing despite invalidate, but its background-throttling toggle condition differs from Honmaru (constant false). Similarity is not proof of identical root cause; no security/GPU switch or speculative downgrade was applied.
+
+### 2026-10-24 — Floating app implementation awaiting browser acceptance
+
+- Implemented workspace-owned floating apps (initial 480×640, viewport-clamped), pointer drag/resize, arrow-key movement and Shift-arrow sizing, section-aware return to standalone view, and credential/workspace/Simple transition clearing. Floating UI remains separate from the mounted conversation. Entry appears on overview/data; unsaved editor/backend/settings forms are not moved. No record/model API is called by the display action itself.
+- Tests cover bounds on desktop/phone/display change, keeping the conversation component mounted, keyboard movement, restoring the current app section, and workspace/session/Simple clearing. Web 168 files / 1,139 tests and production build passed (`/tmp/honmaru-floating-full-tests.log`, `/tmp/honmaru-floating-build.log`).
+- Added CI browser acceptance for opening through the app menu, keyboard movement, keeping the app across workspace-screen navigation, shrinking viewport and closing. Isolated UI branch `codex/floating-app-ui` at `624fb061`, CI `40096210006`, Worker job `120878904365`, E2E job `120878904399`; queued/running at observation. Not deployed; no screenshot/native success claim.
+- Main `be16d549` E2E job `120876409224` succeeded after foreground scoping; Worker was still running. Covered-conversation-only branch `0973ace8` CI `40095849691` is also running.
+
+### 2026-10-24 — Floating activation validation follow-up
+
+- Main CI `40095296928` at `be16d549` completed successfully, including Worker and source-navigation E2E.
+- Covered-conversation E2E `120877832824` failed at the immediate navigation-2 interaction assertion, after finding the still-mounted old thread before source route resolution completed. Updated the regression to wait for the standalone screen to detach and ClassicList inert to clear before validating source interaction; no force-click or assertion bypass.
+- Floating app controls now become inert beneath shell dialogs/search/shortcuts while retaining their section and geometry; the resize handle is hidden in fullscreen. Targeted suite: 2 files / 5 tests passed; TypeScript/build passed (`/tmp/honmaru-floating-interaction-tests.log`, `/tmp/honmaru-floating-interaction-build.log`).
+- Updated isolated branch to `70bbe1a8`; CI `40096641038` pending while prior `40096210006` remained live. Not deployed; native floating acceptance remains pending.
+- Rechecked reference floating menu: Share, Copy link, navigation pin. Attempted pointer drag returned CUA noWindowsAvailable, so reference dragging remains unverified. AX/menu operations still worked; closed the reference floating panel and left existing records/messages unchanged.
+- npm registry reports 45.0.0 latest and 44.9.3 latest 44.x. Official 45.0.0 notes list the similar hidden-window/background-throttling fix as also backported to 44 (#52863), not a 45-only remedy. No runtime upgrade was made on this evidence. Source: https://github.com/electron/electron/releases/tag/v45.0.0 .
+
+### 2026-10-24 — Compact floating toolbar candidate
+
+- Reference floating app uses icon-only new-record/filter/group/field actions at its narrow width. Added a container-scoped compact toolbar, leaving normal app screens unchanged. Record search remains available via a labeled expandable search button. The container is the toolbar, not the floating window, to avoid changing the fullscreen element's containing block.
+- Web 168 files / 1,140 tests and build passed (`/tmp/honmaru-floating-compact-tests.log`, `/tmp/honmaru-floating-compact-build.log`). Added browser coverage for opening, entering and clearing floating record search before shrinking the viewport and closing.
+- Isolated candidate `e364b7ee` on `codex/floating-app-compact`, CI `40096922652`, E2E `120881012988`, Worker `120881013033`, all live at observation. Base candidate `70bbe1a8`, CI `40096641038`, E2E `120880294831`, Worker `120880295160` remains live; did not restart it merely because it was still running. No floating production deployment yet.
+
+### 2026-10-24 — Floating baseline browser acceptance passed
+
+- `70bbe1a8` E2E `120880294831` (run `40096641038`) succeeded. Report confirms source navigation/draft preservation and the appended floating open, keyboard move, screen-navigation retention, viewport clamp and close checks passed. Worker remained live at the last poll.
+- Downloaded and inspected `/tmp/honmaru-e2e-40096641038/app-floating.png`: floating app remains inside the 700×600 viewport with reachable header controls. Baseline toolbar is still text-heavy; compact candidate addresses it and remains unverified. Other artifacts: app-draft-restored.png and app-source-adjustment.png.
+- Added pointer drag/resize acceptance using a hit-tested, noninteractive visible header region and resize handle. No force-click. Isolated candidate `1df56f7b` (`codex/floating-app-pointer`), CI `40097466835`, jobs `120882610467` and `120882610518` live. Compact predecessor `e364b7ee` CI `40096922652` also live. No floating production deployment yet.
+
+### 2026-10-24 — Compact browser acceptance and final frame candidate
+
+- Compact candidate `e364b7ee` E2E `120881012988` succeeded. Inspected `/tmp/honmaru-e2e-40096922652/app-floating.png`: narrow toolbar uses labeled icon controls and expandable search; header remains reachable. The screenshot exposed an inherited green canvas and duplicate inner frame.
+- Scoped the floating panel to theme surface tokens and a single frame, with a compact back control. Production build passed (`/tmp/honmaru-floating-neutral-build.log`); no broader app styling changed. Isolated final candidate `89ca9b78`, CI `40098027193`, contains only previously reviewed UI/E2E changes and the five-line frame correction; experimental Worker foundations are excluded.
+- Baseline CI `40096641038` completed successfully, including Worker. Pointer candidate `40097466835` remains in progress; no pointer acceptance or production floating deployment claimed yet.
+- User confirmed the Mac is operable. Native observation nevertheless returned locked; did not repeat the unlock request. IAB can load the production sign-in landing page but is unauthenticated, so it cannot establish signed-in native acceptance.
+
+### 2026-10-24 — Pointer resize defect found and corrected
+
+- Pointer E2E `120882610518` failed: header dragging passed, but resize did not change dimensions. The app surface has z-index 35 while its sibling resize handle used auto stacking, placing the handle behind the surface. Set the handle to z-index 36 (still inside the floating root stacking context); fullscreen continues hiding it.
+- Added a center-point hit-test assertion before real pointer resize, without forced clicks. Syntax/diff checks and production build passed (`/tmp/honmaru-floating-resize-build.log`).
+- Isolated corrected release candidate `0a35e031`, CI `40098208292`, replaces `89ca9b78` on the release branch. No production floating release yet; exact-candidate E2E and native acceptance remain pending.
+
+### 2026-10-24 — Floating appearance acceptance coverage
+
+- Added actual-browser checks for fullscreen viewport coverage, hidden resize handle while fullscreen, restored geometry after exit, system dark surface response and header-icon contrast of at least 3:1. Captures `app-floating-dark.png`. Syntax and diff checks passed; runtime acceptance is not yet established.
+- Test-only isolated candidate `c4a23fad`, CI `40098460056`, is based on corrected release `0a35e031`. No production UI changes beyond that release candidate. Kept existing release CI `40098208292` running; its Worker `120884850915` and E2E `120884850923` were revalidated live.
+
+### 2026-10-24 — Corrected pointer acceptance passed
+
+- Release candidate `0a35e031` E2E `120884850923` completed successfully. Real pointer drag and resize, hit-test reachability, compact search, source/draft navigation, viewport clamping and close checks passed.
+- Inspected `/tmp/honmaru-e2e-40098208292/app-floating.png`: neutral single frame, compact header controls and visible bottom-right resize handle. Downloaded report and source/draft screenshots alongside it.
+- Worker job `120884850915` remains live. Worker tree hash is identical to the successful baseline `70bbe1a8` (`394461faba418be498f89f1762692ea85e8e3e55`); no Worker changes are in this candidate. Appearance/fullscreen E2E `120885526052` remains live; production is still `be16d549` (Web from `2b98dc5c`). Native CUA still reports locked despite the user's unlocked state; did not repeat an unlock request.
+
+### 2026-10-24 — Floating appearance passed; production rollout started
+
+- Appearance E2E `120885526052` (run `40098460056`, `c4a23fad`) succeeded, including actual pointer movement/resizing, fullscreen bounds and geometry restoration, dark surface and header-icon contrast. Inspected `/tmp/honmaru-e2e-40098460056/app-floating-dark.png`: dark frame, toolbar and icons remain readable without a white inner canvas.
+- Fast-forwarded remote main from `be16d549` to `c4a23fad`. Web deployment `40099242847` / job `120887790982` is live; matching main CI `40099242855` is live. Production completion is not yet claimed. Worker retests remain running; its unchanged tree matches the fully successful baseline, and the deployment retains its Worker dependency gate.
+
+### 2026-10-24 — Floating UI deployed
+
+- Deploy Web `40099242847` / job `120887790982` succeeded at main `c4a23fad`. Preview https://e9e5d002.honmaru-web.pages.dev ; deployment verified both public hostnames serve `index-LTBSxNFZ.js`. Independent local curl of https://app.honmaruai.com/ confirmed the same asset (urllib received 403; curl succeeded).
+- Corrected release CI `40098208292` Worker also succeeded; all its required jobs passed. Appearance E2E passed; its redundant Worker and main CI remain live. No new paid service was created, and Simple remains separate. Native signed-in acceptance remains unverified because CUA still reports the Mac locked despite the user's confirmation.
+
+### 2026-10-24 — Preserve floating chat during section navigation
+
+- Found that FloatingAppWorkspace passed its updated current section back as AppView.initialSection. Since AppView's loading callback depends on that input, section changes reran the initialization effect and closed/reset conversation state. Store the initial section separately from the current docking section.
+- Focused 2 files / 5 tests and build passed (`/tmp/honmaru-floating-section-tests.log`, `/tmp/honmaru-floating-section-build.log`). Added actual-browser coverage keeping a draft while switching overview/data and then clearing it without posting.
+- Isolated candidate `da873700`, CI `40099503526`, is live on codex/floating-app-conversation. Not yet deployed. Production remains c4a23fad, whose Deploy Web succeeded; main CI continues.
+
+### 2026-10-24 — Floating conversation containment
+
+- Found the mobile app-chat CSS used viewport-fixed positioning, so a conversation inside a floating app could cover unrelated workspace content. Desktop-width windows also used a 300px chat grid inside a 480px panel. Added a panel-width marker and contained overlay for narrow floating panels; wide/fullscreen layouts retain their existing split behavior, with the mobile fullscreen overlay contained in its body.
+- Focused tests (2 files / 5 tests) and build passed (`/tmp/honmaru-floating-chat-bounds-tests.log`, `/tmp/honmaru-floating-chat-bounds-build.log`). E2E now asserts chat bounds and captures narrow/desktop screenshots while retaining an unsent draft across section changes.
+- Isolated candidate `c56117fd`, CI `40099663595`, is queued. Previous section-state candidate CI `40099503526` remains live and was not restarted. Production c4a23fad deployment remains successful, main CI `40099242855` still live.
+
+### 2026-10-24 — Main floating release E2E passed
+
+- Main `c4a23fad` CI `40099242855` E2E `120887791175` completed successfully. This independently reran the same deployed floating pointer/fullscreen/dark/source-draft acceptance; Worker `120887791164` remains live.
+- Additional chat-state candidate `40099503526` and containment candidate `40099663595` were revalidated running. Their production rollout remains pending; existing successful deployment is unchanged.
+
+### 2026-10-24 — Floating chat menu stacking regression
+
+- Section-state E2E `120888547416` (run `40099503526`) failed at selecting the overview menu item: chat message content intercepted the pointer. The header establishes stacking level 5, while chat used 160 (and the first containment patch used 40), so the nested menu could not rise above the sibling chat.
+- Lowered only floating chat overlays to level 4, beneath the existing header but above body content. Kept normal pointer acceptance; no force-click or assertion removal. Build passed (`/tmp/honmaru-floating-chat-layer-build.log`).
+- Updated bounds branch from `c56117fd` to `99673f54`; new CI `40100257163` is pending. Earlier run `40099663595` was still live at observation and may be cancelled by workflow concurrency. This supersession fixes an evidenced defect, not an observation timeout. No additional production deployment yet.
+
+### 2026-10-24 — Atomic local workflow checkpoint commits
+
+- Added an internal D1 batch primitive to commit local effects together with their immutable completion result. A deliberate status-CHECK fence aborts the whole transaction for missing/wrong/expired/pure/terminal claims; a zero-row UPDATE alone would not roll back later statements. Any effect statement error also rolls back completion and earlier writes.
+- Real workerd/D1 suite: 1 file / 8 tests passed (`/tmp/honmaru-checkpoint-atomic-tests.log`), including simultaneous commits using the same lease (only one effect), failed-effect rollback, stale ownership/expiry, cross-org and terminal-run fencing.
+- This remains unpublished foundation code. Callers must still bind current resource ACLs in effect statements; lease ownership is not authorization. Existing local-effect services must be integrated, external-effect reconciliation and graph scheduling remain incomplete. No runtime durability or exactly-once external-effect claim.
+- Main c4a23fad CI `40099242855` completed all required jobs successfully, including Worker. Floating chat candidate CI `40100257163` was revalidated live.
+
+### 2026-10-24 — Conditional steps with persisted decisions
+
+- Connected optional declarative `when` predicates to workflow definition normalization and execution. Unmatched steps record `skipped` without performing their effect; step numbering remains stable. Decisions use pure node checkpoints fingerprinted from normalized conditions and are committed before the executor follows them. Replays retain the original boolean and reject definition drift. Current automation/source authorization is rechecked after a matching checkpoint before the effect.
+- Five real Worker suites / 77 tests passed (`/tmp/honmaru-conditional-runtime-tests.log`): predicates, checkpoint concurrency/replay, existing workflows, safety stops and creation. The integration test creates complementary conditions, confirms only the matching message exists, and reads both durable decisions.
+- Unpublished on primary working branch. Requires additive checkpoint migration and broader regression before deployment. Condition editing/generation UI, full branch/batch/parallel graphs, local-effect service integration, external-effect reconciliation and recovery scheduling are still incomplete. This does not establish general durable execution.
+
+### 2026-10-24 — Floating conversation corrections deployed
+
+- Candidate `99673f54` E2E `120890920284` succeeded. Inspected narrow and desktop screenshots under `/tmp/honmaru-e2e-40100257163/`: conversation remains inside the app, composer and header stay reachable. Test also switches sections via normal menu clicks and preserves the unsent draft without posting.
+- Promoted isolated candidate to main. Deploy Web `40101126064` / job `120893313510` succeeded; preview https://05c9c77c.honmaru-web.pages.dev . Deployment verified both public hostnames, and independent curl confirmed app.honmaruai.com serves `index-C1RRr81p.js`. Main CI `40101126065` remains live. No workflow foundation/editor code was included.
+
+### 2026-10-24 — Typed condition editor and broad regression
+
+- Added an optional condition editor to existing step editing: input/row/before/step sources, typed scalar comparisons, typed candidate lists, all/any/not groups, and bounded nesting/size. Changing action type retains its execution condition while discarding obsolete action fields. Empty numeric input stays empty, not silently converted to zero.
+- Focused UI 3 files / 13 tests and TypeScript/build passed. Full Web 169 files / 1,144 tests passed (`/tmp/honmaru-conditional-full-web.log`). Worker full regression is live in session `39690`, log `/tmp/honmaru-conditional-full-worker.log`, frozen Worker tree `c7d8b95233053f28c4f58a6142d210502de1f3ab`; do not restart while live.
+- Condition editor and Worker runtime remain unpublished. Real rendered condition-editor acceptance, generation guidance, complete recovery/branch graphs and external-effect reconciliation remain outstanding.
+
+### 2026-10-24 — Conditional workflow browser acceptance candidate
+
+- Workflow details now show readable typed conditions, including nested all/any/not and the difference between null and absent properties. Focused UI 3 files / 6 tests and build passed (`/tmp/honmaru-condition-review-tests.log`, `/tmp/honmaru-condition-review-build.log`).
+- Added local-only, model-free E2E: create a private fixture room; build a two-clause condition via the actual UI; save; verify typed API persistence; reload details; confirm readable predicates; execute an unmatched input and assert skipped status with no room message changes. Captures editor/detail/failure screenshots.
+- Isolated candidate `e6890d2c` on codex/workflow-conditions, CI `40101607430`, includes only condition runtime/editor/tests and the additive checkpoint table. No production rollout yet. Existing full Worker regression session `39690` remains live with unchanged Worker tree.
+
+## Native production acceptance and compact focus follow-up (2026-10-24)
+
+Production `99673f54` / `index-C1RRr81p.js` was checked in the signed-in Honmaru AI 1.3.14 native app after reload. The empty UI test app retained its personal data view and column widths when floating, changing between app and data sections with chat open, closing chat, moving by pointer, resizing from 480×640 to 600×700, and returning to the standalone data view. No messages or records were created. Screenshots: `/tmp/honmaru-floating-chat-production-native.png` and `/tmp/honmaru-floating-resized-production-native.png`. Native control recovered; the earlier capture blocker no longer applies. This does not establish restart persistence or complete Kylon parity.
+
+Production main CI `40101126065` browser E2E passed; Worker was still running at this check. Deploy Web `40101126064` succeeded. Follow-up `5f8624c3` makes covered compact app content inert and hides the breadcrumb in narrow floating headers. Local build and syntax/diff checks passed; isolated candidate `c1e81790949bd0e7f2d4f00b235e361200bd4e60` on `codex/floating-chat-focus` excludes unpublished workflow changes and awaits CI. It is not yet production. Conditional workflow candidate `e6890d2c` CI `40101607430` remained in progress.
+
+## Conditional workflow editor CI follow-up (2026-10-24)
+
+Candidate e6890d2c E2E job 120894750480 failed waiting for Save workflow. Both workflow-condition-editor.png and workflow-condition-failure.png in `/tmp/honmaru-e2e-40101607430` showed that the builder had disappeared, first replaced by loading and then the empty workflow list. The floating provider's Dashboard key included asynchronously discovered workspaceMode, remounting all descendants when that value changed. Commit 84ed19b9 removes only the mode from that key; organization/credential boundaries remain keyed and the provider itself still clears floating state on mode changes. Its focused 4 tests and web build passed. Browser acceptance remains pending, not claimed fixed solely from unit tests.
+
+Commit b9d16efe adds a real-column selector for current/previous record predicates, including nested groups, storing stable column IDs. Focused 4 tests and web build passed. Candidate d03d3ba7ee8f6c24b8a1bcc2617c066eb169bbad on codex/workflow-conditions includes these corrections and has been pushed for repeat browser acceptance; no production promotion occurred. Worker source is unchanged while full local Worker session 39690 remains live.
+
+## Natural-language workflow conditions (2026-10-24)
+
+The full frozen Worker tree c7d8b95233053f28c4f58a6142d210502de1f3ab completed successfully: 230 files / 1,899 tests, log `/tmp/honmaru-conditional-full-worker.log`, session 39690 terminal exit 0. Production 99673f54 main CI 40101126065 completed successfully for every required job (optional Windows/iOS skipped).
+
+The workflow generation prompt now describes typed step conditions, exact input/row/before/previous-step paths, stable column IDs, missing-value behavior and the actual per-step skip semantics. Model-free generation tests verify persisted typed conditions, paused creation, unmatched execution with no extra message, and rejection of malformed numeric predicates. Focused creation/condition tests: 2 files / 18 passed (`/tmp/honmaru-generated-conditions-tests.log`). This is not evidence of real-model reliability or general branch/parallel support. Generation changes have not yet been included in a release candidate or production. d03d3ba7 candidate CI 40102575042 and floating focus c1e81790 CI 40102273418 were still running at this check.
+
+## Condition reference validation (2026-10-24)
+
+Commit a0a988c7 rejects condition references to the same or a future step, zero/negative/fractional/leading-zero/non-numeric step numbers, recursively through all/any/not. Earlier one-based steps remain supported. This prevents an absent future output from silently selecting a branch (including exists:false). Focused workflow and creation tests passed: 2 files / 63 tests (`/tmp/honmaru-condition-references-tests.log`). This change and natural-language prompt commit 41bbcd19 remain outside the currently running d03d3ba7 candidate. Existing candidate CI handles were revalidated live rather than restarted.
+
+## Integrated conditional workflow candidate (2026-10-24)
+
+Prepared and pushed codex/workflow-conditions-final at 0b4d7e42a27b767934620600abd58e9bfcdf2e76, parent d03d3ba7. This combines typed natural-language conditions, step-reference validation, localized skipped history, current column names in saved condition descriptions, and compact floating focus handling. No unrelated documentation or budget work is included. Primary web suite passed: 169 files / 1,148 tests (`/tmp/honmaru-conditional-final-web.log`); build passed after the display changes. Candidate browser coverage additionally checks skipped history after reload. The two earlier CI handles 40102575042 and 40102273418 were confirmed running and were not restarted or cancelled. This integrated candidate has not been deployed.
+
+## Floating reference comparison and focus acceptance (2026-10-24)
+
+Kylon native inspection recovered and its floating chat control was exercised without sending a message. The observed URL briefly changed to `/threads/pending/app/35a852ca0267`, with a thread-loading state behind the floating app, before returning to the source thread; a successful completed app-chat layout was not established. Reference screenshot `/tmp/kylon-floating-chat-comparison.png` retains the source thread and 480×640 floating data viewer. This is evidence of a possible navigation/layout difference from Honmaru's contained conversation, not proof of fidelity. Do not declare floating chat parity complete.
+
+Floating-focus candidate c1e81790 browser job 120896691758 (CI 40102273418) completed successfully, covering covered-content focus prevention, chat section transitions, drag/resize/fullscreen and dark appearance. Its Worker job and both conditional-workflow candidate CIs were still running at this check.
+
+## Conditional workflow browser acceptance (2026-10-24)
+
+Candidate d03d3ba7 E2E job 120897730745 (CI 40102575042) passed after removing workspace-mode remounts. Downloaded and visually inspected `/tmp/honmaru-e2e-40102575042/workflow-condition-editor.png` and `workflow-condition-detail.png`: typed amount >=100 and currency JPY conditions persist and are readable after reload; the model-free fixture also verifies unmatched execution creates no message. The editor currently stacks full-width controls and occupies excessive vertical space; compact grouped condition layout remains a UI quality gap. The labels are Japanese even under the English fixture locale, another remaining localization gap. This pass does not cover subsequent generation/reference/history additions in 0b4d7e42, whose CI 40103229488 remains live. Worker jobs on both earlier candidates were also still live.
+
+## Floating focus promotion and condition layout (2026-10-24)
+
+Floating candidate c1e81790949bd0e7f2d4f00b235e361200bd4e60 completed every required job in CI 40102273418; optional iOS/Windows jobs skipped. Fast-forwarded origin/main from 99673f54 to c1e81790, initiating production Deploy Web. Deployment completion and public asset verification remain pending. This promotes only compact header/focus corrections, not conditional workflows.
+
+Commit 618a9cc6 wraps condition controls according to available node width: source/field, comparison and value share rows when space allows and wrap for nested/narrow editors. Build and syntax checks passed (`/tmp/honmaru-condition-layout-build.log`); E2E now includes 390px layout/no-horizontal-overflow assertion and a mobile screenshot. This visual correction is not in the running integrated candidate 0b4d7e42.
+
+## Floating focus production and condition editor localization (2026-10-24)
+
+Deploy Web 40103746484 / job 120901033104 succeeded for c1e81790. Both production domains serve index-F9It5Vxz.js; independently fetched app.honmaruai.com with curl and confirmed the same asset. Preview: https://11366034.honmaru-web.pages.dev. Signed-in native revalidation of this exact deployment remains pending; preceding production was tested natively.
+
+Condition editor visible labels, operators, candidate controls and accessible labels now follow useT, including the conditional-step checkbox. English/Japanese live-switch coverage and step editor tests passed: 2 files / 7 tests (`/tmp/honmaru-condition-locale-tests.log`); build passed after removing a duplicate existing Remove translation key (`/tmp/honmaru-condition-locale-build.log`). E2E selectors accept either locale. Saved-condition prose still needs localization, and the compact layout/localization changes are not in currently running 0b4d7e42 CI.
+
+## Responsive localized conditional workflow release (2026-10-24)
+
+Integrated candidate 0b4d7e42 E2E job 120899477750 (CI 40103229488) passed, including saved/skipped execution history. Current release candidate 51f93b1424db01dcddd9bf7987a6a3dea0fbd75a on codex/conditional-workflow-release is based on production c1e81790 and includes responsive condition controls plus localized editing and saved descriptions. It excludes docs and unrelated work; 24 files, additive checkpoint table only. Focused description/editor tests passed (2 files / 7 tests), web build passed. New 390px overflow/browser screenshot coverage remains pending in this candidate. It is not deployed. Older Worker jobs were still running at the latest check.
+
+## Signed-in production focus acceptance (2026-10-24)
+
+Reloaded Honmaru AI 1.3.14 on production c1e81790, reopened the empty UI test app as a floating panel, and opened its conversation without sending any text. The compact title stayed on one row; the covered table/actions disappeared from the accessibility tree when chat opened. Personal view 自分のタスク and widths 180/320/180/180 remained intact. Screenshot `/tmp/honmaru-floating-focus-production.png` inspected. KY-096 evidence updated without claiming full reference parity. KY-060 now records partial candidate implementation; batch/parallel/general branching and rollout remain incomplete.
+
+## Internal durable business-state foundation (2026-10-24)
+
+Added workflowState.js plus additive hx_workflow_state_versions schema/migration. Writes require a live checkpoint owner/attempt and running run, enforce workflow-wide expected revision, retain pending/passed/failed versions, and validate bounded lossless JSON. Read views distinguish prior accepted business results from resumable progress; failed progress retires the checkpoint view. Head revision and selected state are read in one query. Four real D1 tests passed (`/tmp/honmaru-workflow-state-tests.log`), covering concurrent writers, stale/expired/stopped/cross-workspace writes, view semantics and invalid payloads.
+
+This is internal storage only, not the TypeScript SDK or a public runtime API. Current source/resource authorization must still be integrated with an activation-scoped transport and commit-time revocation fences before exposure. No executing workflow calls these helpers yet; no automatic recovery or exactly-once external-effect claim. It is excluded from candidate 51f93b14 and must not ride that production deployment accidentally. KY-059 remains unfulfilled.
+
+## Release candidate visual acceptance (2026-10-24)
+
+51f93b14 E2E 120901818963 (CI 40104011140) passed. Inspected `/tmp/honmaru-e2e-40104011140/workflow-condition-editor.png`, `workflow-condition-editor-mobile.png`, and `workflow-condition-run.png`: desktop predicates fit horizontal rows, 390px controls wrap without document overflow, English labels and saved descriptions are consistent, and completed run history shows the condition-mismatch skip. Worker job 120901818855 remained live. Its Worker tree 297f5ea7a76a3fd07b82fc32e90aa41b0960351a matches fully passed integrated CI 40103229488. No production rollout of conditional workflows yet.
+
+Internal state normalization commit 4ae183e6 rejects accessor, hidden and symbol properties before serialization, preventing silent loss or getter invocation. Five DB/normalization tests passed (`/tmp/honmaru-workflow-state-json-tests.log`). This remains excluded from the release candidate.
+
+## Run-scoped internal state reads (2026-10-25)
+
+State reads now require an active checkpoint owner/attempt and derive the workflow from that running execution. Arbitrary workflow-ID reads are removed. Expired, stale, stopped and cross-workspace reads return unavailable; a later authorized run can recover the previous accepted business result. Six D1/state-validation tests passed (`/tmp/honmaru-workflow-state-read-tests.log`). Transport identity, current source/resource ACLs and commit-time revocation remain prerequisites before public exposure. This change is excluded from 51f93b14, whose Worker CI job 120901818855 remains live.
+
+## Current membership fence for internal state (2026-10-25)
+
+Internal state reads/writes now include current creator membership in the same SQL statement as the lease/run fence, rejecting removed users and guest downgrades even after a lease was issued. Seven real D1/normalization tests passed (`/tmp/honmaru-workflow-state-membership-tests.log`). Resource/source-room access and activation-scoped transport remain unfinished; this is not sufficient public API authorization. The state module remains excluded from release candidate 51f93b14. Native Kylon comparison is temporarily unavailable because the control tool returned a locked-Mac result; no new permission or unlock prompt was requested.
+
+## Conditional release promotion (2026-10-25)
+
+Exact candidate 51f93b1424db01dcddd9bf7987a6a3dea0fbd75a completed all required checks in CI 40104011140, including Worker and End to end. Confirmed remote main was c1e81790, then fast-forwarded only codex/conditional-workflow-release to main. Primary branch business-state changes remain excluded. Deploy Worker 40105554127 / job 120906384574 is testing; Deploy Web 40105554060 / job 120906384400 waits for its matching backend deployment. Main CI 40105554195 is running. This records promotion, not completed production rollout.
+
+User reported the Mac operable; a fresh native getApp attempt still returned a locked-Mac tool result. No successful new native verification is claimed and no repeated unlock request was issued. Existing signed-in proof remains for c1e81790.
+
+## Business-state retention boundary (2026-10-25)
+
+The unpublished state-version schema no longer cascades from execution history: run_id remains immutable provenance, while workflow ownership retains its deletion cascade. A regression test deletes the originating run, verifies the prior accepted result remains readable from a subsequent leased run, rejects a stale revision, saves the next revision, and confirms workflow deletion removes retained state. Eight real D1/normalization tests passed in /tmp/honmaru-workflow-state-retention-tests.log. This schema has not been deployed; no production table rebuild is needed for this still-unreleased foundation. Source authorization and runtime SDK integration remain incomplete.
+
+## Atomic source-access fence for internal business state (2026-10-25)
+
+State read/write SQL now checks current source creator and conversation access in the lease/CAS statement, using the same channel-family predicates as workflow safety notices. New real D1 tests cover private-room removal, public visibility restoration, archival, unknown channel rejection, creator mismatch and group membership removal. Ten tests passed in /tmp/honmaru-workflow-state-source-tests.log. Agent/direct-message branch-specific coverage and activation-scoped transport/runtime integration remain pending; no public endpoint or production rollout is claimed. Full Worker suite session 91607 started before this edit against 333c05b5 and remains live; it must not be represented as frozen coverage of this later change.
+
+## Agent and DM source revocation coverage (2026-10-25)
+
+Twelve internal-state tests passed (/tmp/honmaru-workflow-state-agent-tests.log). Added actual D1 checks for a DM peer leaving the workspace, agent people-list revocation, an explicit current-membership role restoring access, an obsolete membership epoch losing access, and agent deletion denying reads/writes. These prove the covered storage fences only; activation-scoped runtime integration and real execution remain unfinished. Production rollout jobs 40105554127/40105554060 remain live at the latest poll.
+
+## Saved workflow editing candidate (2026-10-25)
+
+Primary e48fe59b adds detail-to-editor navigation with existing trigger/steps/conditions retained. Save submits the observed updatedAt; the backend advances its timestamp monotonically and atomically compares the observed row timestamp, refusing stale/racing writes. A conflict preserves the editor draft. Web 25 tests, Worker workflow 50 tests and web build passed (logs /tmp/honmaru-workflow-edit-{web-tests,worker-tests,build}.log). Model-free E2E now edits a saved condition, reloads and verifies persistence. Isolated release e3d547370248a894a8dfc0fe927b9be032a29b98 on codex/workflow-edit-release contains only these seven files atop 51f93b14, excluding the unfinished state store. CI 40106345694 is running. Not deployed.
+
+Local full Worker session 91607 completed successfully: 231 files / 1,914 tests, /tmp/honmaru-state-foundation-full-worker.log, 483.61 seconds. It started at 333c05b5 before subsequent edits, so this run is not exact-HEAD full-suite evidence. Source permission changes have separate focused 12-test evidence.
+
+Main 51f93b14 E2E 120906385089 passed. Deploy Worker 40105554127 continues testing and Deploy Web 40105554060 awaits it. A fresh native Honmaru selection still returned the control tool's locked-Mac result; latest production native verification remains unavailable.
+
+## Workflow edit scheduling semantics (2026-10-25)
+
+Editing an unchanged enabled trigger now preserves the database's current next_run_at in SQL, including a scheduler advancement concurrent with editor loading. Disabling clears it; reenabling or changing the schedule recalculates it. The 51-test workflow suite passed in /tmp/honmaru-workflow-edit-schedule-tests.log, including frozen approval continuation after definition edits and the new schedule-cursor regression. This correction is not yet in the running e3d54737 candidate and must be included before promoting editing to production.
+
+## Conditional workflow production rollout completed (2026-10-25)
+
+Main 51f93b1424db01dcddd9bf7987a6a3dea0fbd75a CI 40105554195 passed all required jobs. Deploy Worker 40105554127 / 120906384574 completed migration and deployment successfully; version 89c48909-3cf0-445f-a756-41a00f352349. Public /health returned ok. Deploy Web 40105554060 / 120906384400 succeeded, preview https://faa97d5c.honmaru-web.pages.dev. Independent curl requests confirmed both app.honmaruai.com and honmaru-web.pages.dev serve index-D8APgVAb.js. Python urllib received 403, so verification used normal curl responses. Native signed-in verification of this exact deployment remains unavailable due the control tool's locked-Mac result. This is deployment evidence, not full Kylon parity.
+
+Latest editing candidate eab187e6875cd3d94f9ae9d29efed7a83dea901a, codex/workflow-edit-schedule-release, CI 40106671109, includes schedule-cursor preservation and weekly/monthly controls with localized weekday/detail descriptions. Local web 26 tests and build passed (/tmp/honmaru-workflow-schedule-ui-{tests,build}.log). It has not been promoted. Older e3d54737 CI 40106345694 remains live and lacks the scheduling correction, so do not promote that earlier candidate.
+
+## Explicit workflow timezone editing and validation (2026-10-25)
+
+Workflow editor now exposes the saved timezone and disables save for invalid time/timezone values. Backend normalization rejects explicitly invalid hours, minutes, weekdays, monthdays and timezones instead of silently clamping/falling back; omitted defaults remain compatible. Worker workflow/creation suites passed 66 tests, web workflow screen passed 27 tests, and build passed (/tmp/honmaru-schedule-validation-worker.log, /tmp/honmaru-schedule-timezone-web-tests.log, /tmp/honmaru-schedule-timezone-build.log). These additions are not yet included in eab187e6 and require inclusion in the final editing release candidate.
+
+## Final workflow editing candidate queued (2026-10-25)
+
+653c60952bd49e95b0e7074223c6202bbf9e5648 on codex/workflow-edit-final (parent eab187e6) includes timezone validation and the expanded model-free browser scenario: edit existing conditions, reload, select monthly day 31, reject an invalid timezone, persist UTC and pause the fixture. CI 40107036510 is queued. This is the current promotion candidate; earlier e3d54737/eab187e6 should not be promoted in its place. Unfinished business-state schema/module remain excluded. No editing feature has been deployed yet.
+
+## Saved-edit browser visual acceptance (2026-10-25)
+
+Older editing candidate e3d54737 E2E 120908713950 / CI 40106345694 passed. Downloaded its artifacts and inspected /tmp/honmaru-e2e-40106345694/workflow-condition-edited.png: after reload the renamed workflow title, edited numeric condition amount >= 200, preserved currency condition and Edit workflow control are visible; prior skipped-run history remains. This proves the saved-edit path, not the later calendar/timezone additions. Current promotion candidate remains 653c6095 / CI 40107036510, still running.
+
+## Unreleased immutable workflow definition history (2026-10-25)
+
+Added workflow-revisions.sql with additive version table, current-definition baseline, insert/update capture triggers and immutable-update rejection. It records name, enabled, trigger, steps and creator, excluding webhook credentials and scheduling cursors; all SQL definition writers are covered. Dedicated schema migration avoids D1's SQL-length limit hit by further expanding the already large flattened schema. Deploy/test/E2E initialization explicitly applies this file. GET /workflows/:id/revisions uses bounded pagination and filters each historical definition against current source/resource permissions.
+
+History and workflow suites passed 55 tests (/tmp/honmaru-workflow-revisions-integration-tests.log), including private historical definition hiding, cross-workspace denial, immutable rows, bounded paging and owner deletion cleanup. The requested non-existent app-automation-release test selector matched no file; actual app automation coverage lives in harness-apps.test.js and is now running separately. UI comparison and run-to-definition revision linking are not implemented. This history feature is excluded from current editing release candidate 653c6095 and must not ship by pushing primary HEAD.
+
+## Unreleased definition comparison UI (2026-10-25)
+
+WorkflowHistory lazily loads accessible revisions, compares selected before/after name, enabled state, trigger and steps, supports older-page loading without resetting selection, and clears cached results on failed refresh. Responsive paired panels use existing theme tokens. Web 29 tests passed; build passed after removing a duplicate existing Off translation. HTTP revision-route/history/workflow suites passed 56 tests, and existing app suite passed 57 with the DB triggers enabled. Logs: /tmp/honmaru-workflow-history-{web-tests,route-tests,build}.log and /tmp/honmaru-workflow-revisions-app-tests.log. No browser visual acceptance or production rollout of revision history yet; run revision linking remains unfinished.
+
+## History release pipeline and migration acceptance (2026-10-25)
+
+GitHub rejected the initial history branch because the connected OAuth app lacks workflow-file write scope. Removed the workflow YAML modification and routed revision schema/backfill through the existing CREATE-prefixed migrations.sql runner. No broader permission requested. Candidate 4ba3c0704bc3131bcdee8b283aca474f74a2c2c9 on codex/workflow-history-release was pushed successfully; CI 40107908466 is live. It is based on editing candidate 653c6095 and excludes unfinished business-state storage. The rejected local 6361860e commit is not an ancestor of the pushed candidate.
+
+Four D1 history tests passed, including dropping the new history schema to simulate an existing deployment, executing exactly the production CREATE-prefixed migration statements twice, verifying one baseline and a subsequent version 2 (/tmp/honmaru-workflow-history-migration-tests.log). This last test addition is local after the history candidate snapshot; schema/code are unchanged. Editing candidate 653c6095 E2E 120910758162 passed; artifact download session 53790 is running. Worker 120910757957 remains live.
+
+## History runner permission fix and schedule visual acceptance (2026-10-25)
+
+History candidate 4ba3c070 E2E 120913331705 failed before starting tests: release-index assembly assigned mode 100644 to e2e/run.sh instead of its original 100755. Restored executable mode in candidate 4ab12e4b31d37ab37c5a74ba7830a442ba9d58e6 and pushed codex/workflow-history-release. Primary file mode was already correct. Future isolated-release assembly must preserve source git modes rather than applying 100644 to every path.
+
+Editing 653c6095 artifacts downloaded successfully. Inspected /tmp/honmaru-e2e-40107036510/workflow-condition-schedule-editor.png: monthly day 31, 09:00, UTC, last-day explanation and retained conditions appear coherently in the editor. Its E2E 120910758162 passed; Worker 120910757957 remains running. This candidate is still not deployed.
+
+## Run-to-definition revision binding (2026-10-25)
+
+New runs atomically store the highest matching saved definition revision alongside their frozen definition. Matching includes name, enabled state, trigger, steps and creator. Later edits do not relabel previous runs; no matching tracked version yields null rather than a guessed revision. Run list/detail APIs return the recorded revision and the history UI shows its version number. Worker revision/workflow suites passed 58 tests and web build passed (/tmp/honmaru-workflow-run-revision-{tests,build}.log). E2E now asserts version 1 on the original run before editing. This addition is not in 4ab12e4b and remains undeployed.
+
+## Offline TypeScript execution addition (2026-10-25)
+
+Added explicit TypeScript module payloads, transformed and evaluated inside the existing pinned VM, with a required default function receiving input. Legacy JavaScript payload remains unchanged. Gateway 10 tests, Worker gateway 7 tests, UI language/draft test and web build passed. Real VM typed/enum module returned 42 and missing default entry point failed. Existing isolation/timeout smoke passed (/tmp/honmaru-typescript-runtime-smoke.log). Other logs: /tmp/honmaru-gateway-typescript-tests.log, /tmp/honmaru-typescript-queue-tests.log, /tmp/honmaru-typescript-ui-{tests,build}.log. Installed gateway snapshot, production API/UI and workflow SDK integration remain pending; feature is excluded from current history/editing release candidates.
+
+## Editing promotion and installed TypeScript runner (2026-10-25)
+
+Editing 653c6095 CI 40107036510 completed all required checks successfully. Remote main was confirmed at 51f93b14, then fast-forwarded codex/workflow-edit-final to main. Main CI 40108536003, Deploy Worker 40108536008 / 120915196455 and Deploy Web 40108535985 / 120915196322 are running. This is promotion, not completed deployment.
+
+The Mac had no active containers; updated its existing LaunchAgent snapshot with gateway/install-service.mjs and existing service.json. Token ownership/mode remained valid and no credential was printed/replaced. Plist validation succeeded, launchctl reported running PID 62373 and the installed runner hash matched source. Physical reboot and production TypeScript queue round trip remain unverified. Candidate 4c571b34bc0e70466ea6c67566418fc1ba269249 on codex/typescript-gateway-release (parent aaa86850) includes TypeScript runner/API/UI, plus already-isolated history changes, excluding the unfinished business-state store. It is pushed for CI, not deployed.
+
+## TypeScript UI-to-queue browser scenario (2026-10-25)
+
+Added e2e/gateway-typescript.mjs, restricted to the disposable localhost Worker: creates a local fixture node, preserves independent JavaScript/TypeScript editor drafts, submits a typed module through the UI, claims it using only that fixture node identity and verifies language/code/input, then cancels and revokes the fixture. No production node or paid model executes. Existing VM smoke separately proves execution. Candidate cb4c0667b0abbd6e5af05efe04835ed277e17351 on codex/typescript-gateway-release supersedes 4c571b34 with this E2E scenario; pushed for CI. No production rollout of history/TypeScript yet.
+
+## Readable revision comparisons and CI corrections (2026-10-25)
+
+Inspected history desktop/mobile artifacts from CI 40108225100: mobile contained the layout, but raw trigger/step JSON, unstyled selectors and undefined surface/border tokens made the comparison difficult to read. Replaced those with shared human-readable workflow labels, ordered operations, named record fields, execution conditions, record target IDs and lossless typed value display. Comparison panels/selectors now use hx theme tokens. The localhost E2E captures narrow and dark history views and rejects raw preformatted definition dumps. New screenshots for this correction are still pending.
+
+Older run-history candidate aaa86850 CI 40108225100 failed only migration.test.js (1910 tests passed): its terminator count treated semicolons inside trigger bodies and the CREATE/backfill batch as separate deploy lines. Updated the check to require every non-comment line to be selected by the actual deploy prefix filter and terminated; real migration execution/replay remains tested. Migration/history suites passed 16 tests locally (/tmp/honmaru-history-migration-coverage.log).
+
+TypeScript candidate cb4c0667 E2E 120916277991 failed locating the exact Execution node label. Its downloaded failure screenshot (/tmp/honmaru-e2e-40108864375/gateway-typescript-failure.png) shows the node and full editor present. Added explicit accessible labels to the node/language selectors and code/input editors; browser verification is pending. UI tests passed four tests and build passed (/tmp/honmaru-history-gateway-fixes-{tests,build}.log). Earlier readable-history/condition tests passed five tests (/tmp/honmaru-history-readable-tests.log).
+
+Current isolated release candidate is e16321cbb1886638d76ca7ece56d4aaa24c8b508 on codex/workflow-history-polish-release, CI 40109883954 (Worker 120919516501, E2E 120919516657). It includes history, run revision links, TypeScript and the corrections; excludes unfinished business-state storage. e2e/run.sh mode remains 100755; no workflow YAML modifications. Supersedes failed earlier history/TypeScript candidates and cancelled earlier polish revisions. Do not promote before exact candidate checks pass.
+
+Main editing 653c6095 CI 40108536003 passed every required job. Deploy Worker 40108536008 / 120915196455 has passed tests and is migrating D1 columns; Deploy Web 40108535985 / 120915196322 awaits Worker. Serving asset/deployment completion is not verified yet. Native CUA still reports locked despite the user's statement that the Mac is operable; browser inventory exposes only IAB and MCP Apps, so no new signed-in native proof. No repeated unlock request was sent. Goal remains active and far from 100% parity.
+
+## Workflow editing production acceptance (2026-10-25)
+
+Main 653c60952bd49e95b0e7074223c6202bbf9e5648 completed CI 40108536003, Deploy Worker 40108536008 and Deploy Web 40108535985 successfully. Worker version fbccb126-4432-4ba7-afc2-d9e365a61942; Web preview https://d614f9f1.honmaru-web.pages.dev. Deployment logs and independent curl requests agree that both production domains serve index-Bwg6XH3r.js. Public /health returned ok. Editing, weekly/monthly schedule fields and timezone validation are now deployed; exact-release signed-in native interaction remains unverified. The history/TypeScript/polish candidate e16321cb remains in CI 40109883954; do not confuse it with serving editing code.
+
+Rechecked https://docs.kylon.io/cli/workspace/workflow on 2026-10-25. Kylon saved workflow TypeScript uses top-level module execution and activation-scoped state; exported functions are not automatically called. Our generic gateway's required default function is useful runtime coverage but does not fulfill KY-059. Updated the requirement evidence to retain that distinction; no SDK parity or completed recovery claim.
+
+## Internal durable-state metadata and receipts (2026-10-25)
+
+The unreleased business-state foundation now retains optional schemaVersion/businessDate, structured validationErrors and a SHA-256 hash of the exact serialized state. Save receipts include contentHash; readback includes metadata and currentRunId while preserving sourceRunId. Metadata is bounded to 16 KB and validated without executing accessors. Added an additive metadata migration with empty metadata for old rows, avoiding invented historical hashes. Workflow state and migration suites passed 26 tests (/tmp/honmaru-state-metadata-tests.log), including old committed-state preservation, metadata round trips, invalid metadata rejection and accessor non-execution.
+
+These changes remain on the primary development branch only. They are excluded from e16321cb and are not deployed, exposed as a public API, or connected to gateway execution. Activation-scoped transport, frozen-revision binding, top-level module execution and restart recovery remain required before claiming KY-059 completion.
+
+## Internal state immutability fence (2026-10-25)
+
+Added a DB update trigger protecting saved business-state versions, including metadata and receipt hashes. New writes append through the existing revision CAS; workflow-owned deletion still cascades as before. State/migration suites passed 27 tests (/tmp/honmaru-state-immutable-tests.log), including direct update rejection, new-version creation and retained workflow deletion semantics. This is an unreleased foundation correction, still excluded from e16321cb. CI 40109883954 Worker 120919516501 and E2E 120919516657 remain live at the latest poll; neither was restarted due elapsed time.
+
+## Readable comparison and TypeScript browser acceptance (2026-10-25)
+
+Candidate e16321cb E2E 120919516657 / CI 40109883954 succeeded. Downloaded artifacts to /tmp/honmaru-e2e-40109883954/ and inspected workflow-condition-history.png, workflow-condition-history-dark.png, workflow-condition-history-mobile.png and gateway-typescript-editor.png. History now shows human-readable schedules, ordered steps and conditions in bounded paired cards, with readable dark colors and mobile stacking. The typed module editor shows the selected fixture node and preserved TypeScript code. Browser scenario also verified queue payload language/code/input using its disposable local node; real VM execution has separate earlier evidence. This is CI browser evidence, not native production interaction or full Kylon parity. Worker 120919516501 remains the required gate before promotion.
+
+## State access bound to frozen execution identity (2026-10-25)
+
+Internal state reads/writes now require the run's stored definition in the same SQL statement as its live lease and membership/source fences. The frozen workflow ID and creator must match the live workflow; a changed live owner cannot inherit a previously issued activation. New state metadata captures the frozen definitionRevision rather than today's edited revision. Eighteen state tests passed (/tmp/honmaru-state-frozen-tests.log), covering missing/mismatched snapshots, live ownership changes and unchanged revision provenance after name edits. Still no activation transport or public state API; current resource grants must be checked by the future executor. Excluded from the e16321cb release candidate.
+
+## Gateway executable integrity repair and history promotion (2026-10-25)
+
+An authoritative launchctl check found the installed service in spawn-scheduled state with 72 starts and OS_REASON_CODESIGNING. codesign rejected runtime/node, whose SHA-256 differed from the valid original /Users/tt/.local/node22/bin/node. Added gateway/install-executable.mjs to copy into a fresh inode, compare digests, validate the existing macOS signature and execute --version before atomic replacement. No ad-hoc signing/protection bypass. Eleven gateway tests passed (/tmp/honmaru-node-install-tests.log), including failed-validation preservation of the prior target and fresh-inode replacement. Reinstalled using the existing config/token: plist valid, copied Node signature valid, matching hash 68f4d07ca49e0500cc135c7e0a445093e228e42e126ac22306d045f0a8c2636b. PID 65774 remained running with one start at the follow-up check; container system status running, no active containers, no new service-error log entries (last modified 2026-10-24 22:35:55). This is sustained process/runtime evidence, not physical-reboot or production-job completion proof. Integrity candidate c3ee6aaa358566a70f067327086ee368ff6361af on codex/gateway-install-integrity is in CI 40111434972; installed local repair is already applied.
+
+History/TypeScript/UI candidate e16321cbb1886638d76ca7ece56d4aaa24c8b508 CI 40109883954 passed all required jobs, including Worker 120919516501 and E2E 120919516657. Confirmed remote main was 653c6095 and fast-forwarded only codex/workflow-history-polish-release to main. Main CI 40111530104 (Worker 120924092250, E2E 120924092604), Deploy Worker 40111530216 / 120924092568 and Deploy Web 40111530061 / 120924092141 are running. Deployment is not yet confirmed; last verified serving release remains editing 653c6095 / index-Bwg6XH3r.js. Unfinished state foundation and new gateway installer repair are not part of the just-promoted e16321cb tree.
+
+## Internal top-level TypeScript SDK VM bridge (2026-10-25)
+
+Implemented an unexposed workflow VM runner and state broker with a fixed `@honmaru/workflow-sdk` module shim. Existing pinned Node v22.23.3 was probed and supports registerHooks; official API checked at https://nodejs.org/download/release/v22.15.0/docs/api/module.html. Fifteen gateway tests passed (/tmp/honmaru-workflow-bridge-tests.log). Actual VM smoke (/tmp/honmaru-workflow-vm-smoke.log) passed top-level await, default-export non-invocation, read/write/readback, fresh-VM reads, mandatory initial read, mixed non-newline output/RPC, no host-home visibility, read-only root, no outbound network, output limit and runaway timeout. The storage callback in that smoke is in-memory; no claim of durable D1 integration or production SDK completion. Broker tests reject guest-selected scope/lease fields, arbitrary methods, duplicate IDs and queued work after cancellation, and hide host error details.
+
+New runner remains primary-only and is not installed, deployed or reachable from existing gateway payloads. Existing container arguments are reused with a trusted bootstrap parameter; the ordinary default-function runner behavior is unchanged. Production e16321cb deployment and integrity candidate c3ee6aaa CI remain live and were not restarted.
+
+## Internal activation-bound state adapter (2026-10-25)
+
+Added a private job-to-workflow/checkpoint binding and workflowActivationState adapter. It resolves workspace/run/checkpoint credentials from server-side data, rejects caller-selected scope fields, and requires both the workflow checkpoint lease and assigned node job lease in the same D1 state statement. Revoked nodes, elapsed job deadlines/leases, cancelled jobs, changed requesters, reassigned checkpoint attempts and ordinary jobs without bindings cannot access state. State/migration/workflow suites passed 85 tests (/tmp/honmaru-state-activation-tests.log). Moved runtime schema into workflow-runtime.sql to stay below the already-near-limit flattened schema size; test and localhost E2E initialization apply it explicitly, while existing production migration statements remain additive. No public route, binding admission/queue writer or production SDK wiring yet; source/resource authorization and immutable code admission remain required. Entire adapter/runtime/state foundation remains primary-only and excluded from current releases.
+
+Gateway installer integrity candidate c3ee6aaa CI 40111434972 passed every required job. Confirmed main was e16321cb and fast-forwarded only codex/gateway-install-integrity to main. Its delta changes gateway installer/helper/test only, so no new Worker/Web deploy is needed; the e16321cb Worker/Web rollout continues. This may supersede the duplicate main CI for e16321cb; exact e16321cb candidate CI had already passed before promotion. Neither pending production deployment was cancelled or restarted.
+
+## Node HTTP state transport (2026-10-25, unreleased)
+
+Added the node-authenticated POST /gateways/jobs/:id/state route, private activation resolution and live job/checkpoint fences. The response never contains node bearer tokens, job leases or checkpoint owners. Valid state round trips, wrong nodes/leases, arbitrary scope fields, invalid state and post-cancel access were covered through worker.fetch. Initial run exposed an unhandled rejected promise in the adapter; explicitly awaiting the delegated state operation fixed it. Final HTTP/state suite passed 29 tests without unhandled errors (/tmp/honmaru-state-http-tests.log).
+
+Gateway claim now derives its workflow flag from the private binding, not submitted payload fields. Client selects the isolated workflow runner only for that server flag and keeps node/job credentials in its host callback. Abort signals propagate into the host fetch. Seventeen gateway tests passed (/tmp/honmaru-state-client-tests.log). Installer knows the new runtime module dependencies but this newer snapshot has NOT been installed. Workflow code admission/binding creation, source/resource grants, saved-code UI and run completion/recovery remain missing; new route/SDK transport is primary-only and not deployed.
+
+## History and TypeScript production rollout complete (2026-10-25)
+
+Deployment of e16321cb succeeded: Worker 40111530216 / 120924092568, version a58db35c-06f7-4123-84e6-1071cfb6d726; Web 40111530061 / 120924092141. Independent curl checks show both app.honmaruai.com and honmaru-web.pages.dev serve index-mgdFRSD0.js; public health ok. Candidate CI 40109883954 passed fully before promotion. Duplicate main CI 40111530104 was superseded/cancelled when installer-only c3ee6aaa advanced main; no deployment was cancelled. Main c3ee6aaa CI 40112404024 remains to check. Local gateway PID 65774 still running, one start and never exited. Native CUA still reports locked, so no authenticated production UI/job round-trip claim. The deployed generic TypeScript runtime is distinct from the still-unreleased workflow SDK.
+
+## Frozen program job admission (2026-10-25, unreleased)
+
+Added internal enqueueWorkflowProgram: executable source, node and creator derive exclusively from the run's frozen definition; code/input size is bounded; a whole-program definition is required. Queue job and private activation binding are committed together under an effect checkpoint. Concurrent calls create one job; edited live definitions and caller-supplied replacement source do not alter it. Lost/uncertain leases refuse automatic replay. Current source membership, managed app publication and safety-generation authority are checked in SQL; the same safety/publication guard now fences state operations. Admission/state/node suites passed 35 tests (/tmp/honmaru-workflow-admission-tests.log), including duplicate admission, private source loss, changed safety generation, revoked node, oversized input, mixed definition rejection and paused-state access denial. Not integrated into normal workflow normalization/start/completion yet; no production feature claim. Next required work is terminal job reconciliation, code-form admission/UI, and recovery that does not repeat uncertain effects.
+
+## Program output authorization (2026-10-25, unreleased)
+
+Execution reads now check a program's frozen workflow resource permissions and the source room captured at admission. Cancellation through the gateway route uses the same check. A private program marker keeps retained jobs inaccessible if run retention removes their activation binding, rather than exposing them as generic executions. Missing frozen definitions fail closed. Admission/access, gateway and Company Harness suites passed 30 tests (/tmp/honmaru-program-access-tests.log), including room membership revocation, source unlinking and run deletion. This remains part of the unreleased workflow runtime, not an independent production release.
+
+Native CUA still returned a locked-Mac error after the user's unlock confirmation. IAB successfully loaded https://app.honmaruai.com/ and displayed the signed-out landing screen; authenticated UI verification remains unperformed. Main CI 40112404024 still had Worker tests running while all other required jobs passed. No new paid services or Simple-mode changes.
+
+## Terminal workflow program reconciliation (2026-10-25, unreleased)
+
+Added persisted-job reconciliation into the workflow run, checkpoint and idempotent safety outcome in one D1 batch. Only the matching frozen definition, checkpoint fingerprint/owner/attempt and sole code program qualify. Successful jobs require current source/publication/safety/node authority and recorded completion within both execution and checkpoint deadlines. A revoked or expired successful result fails closed; cancelled runs cannot be overwritten. Finish and identical-result retry paths reconcile, as do authorized cancellation and the existing bounded expiry/cron path. Queued program jobs expire after three minutes so they cannot outlive the five-minute checkpoint while waiting for an offline node. No automatic replay of uncertain effects was added.
+
+Admission/settlement, gateway and state tests passed 52 cases (/tmp/honmaru-program-settlement-tests.log), including actual node claim/finish HTTP, interrupted-result recovery, concurrent duplicate settlement, failure/timed-out/cancelled results, revoked authority and offline queue expiry. The final recovery query additionally skips missing/reassigned checkpoints so they cannot occupy the bounded recovery batch. This is still unreleased: code-form normalization, saved-code UI, ordinary start integration and a complete production SDK round trip are outstanding.
+
+Main c3ee6aaa CI 40112404024 is now completed successfully, including Worker job 120927026537. Serving Worker/Web remains e16321cb; no new deployment was attempted for the unfinished runtime foundation.
+
+## Whole-program save/start integration (2026-10-25, unreleased)
+
+Workflow normalization now accepts one whole TypeScript program with an existing workspace execution node; it rejects mixed form/program definitions and code above 48 KB without truncating source. Create/update validate node availability. Normal start/continue now admit frozen programs and leave runs pending until node settlement, using a running-status CAS so a fast terminal reply cannot be overwritten. Existing form workflows retain their execution path.
+
+Node claim/heartbeat/finish/expiry now require current workflow authority and matching checkpoint ownership. State operations additionally preserve the captured source-room binding; shared workflow authority checks source-table existence and linked-app visibility. Initial deeply nested SQL hit D1's maximum expression depth; materialized CTEs separate authorized runs from authorized jobs while retaining single-statement authorization. The corrected workflow/program/node/state suite passed 108 tests (/tmp/honmaru-program-start-tests.log). Added targeted row-trigger app-privacy regression afterward. UI code editing/history display and full runtime release remain outstanding; no new production rollout or paid service.
+
+## Program workflow editor and history (2026-10-25, unreleased)
+
+Added a workflow format selector with separate form/program drafts, execution-node loading/retry, a theme-aware TypeScript source editor with UTF-8 size validation, and exact source display in workflow detail, revision comparison and automation summaries. Existing code definitions initialize the program editor; changing format does not discard either draft. Save conflicts retain source. Program source is ordinary escaped React text, never rendered as HTML. Japanese labels explain top-level module semantics and the available state SDK without claiming other SDK operations.
+
+Web workflow/history tests passed 32 cases (/tmp/honmaru-program-ui-tests.log), including format round trips, exact source submission, conflict retention, byte-limit disabling and old/new source comparison. Production Web build passed (/tmp/honmaru-program-ui-build.log), with existing chunk-size/dynamic-import warnings. No authenticated screenshot or browser E2E proof yet for this editor, and no production rollout. Runtime install/release and remaining SDK capabilities are still outstanding.

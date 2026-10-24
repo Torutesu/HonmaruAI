@@ -31,6 +31,7 @@ export function WorkflowHistory({api,workflowId,tables=[],agents=[]}:{api:Harnes
   if(key==='trigger')return <p>{triggerLabel(t,definition.trigger,tables)}{definition.trigger.column&&<><br/>{tables.find(table=>table.id===definition.trigger.tableId)?.columns.find(column=>column.id===definition.trigger.column)?.name||definition.trigger.column}</>}</p>
   return <ol className="hx-revision-steps">{definition.steps.map((step,index)=><li key={index}>
    <strong>{stepLabel(t,step.type)}</strong>
+   {step.type==='code'&&<><p>{t('Execution node')}: {step.gatewayId}</p><pre className="hx-program-source">{step.code}</pre></>}
    {step.channel&&<p>{step.channel.startsWith('ag:')||step.channel.startsWith('dm:')?t('Private chat'):step.channel.replace(/^b:/,'#')}</p>}
    {step.agentId&&<p>{t('Agent')}: {agents.find(agent=>agent.id===step.agentId)?.name||step.agentId}</p>}
    {step.tableId&&<p>{tables.find(table=>table.id===step.tableId)?.name||step.tableId}</p>}

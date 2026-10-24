@@ -329,3 +329,27 @@ test('invalid schedule time zones keep the draft unsavable until corrected',asyn
  await act(async()=>{tree.root.findByProps({'aria-label':'Time zone'}).props.onChange({target:{value:'UTC'}})});
  expect(button('Save workflow').props.disabled).toBe(false);
 });
+
+test('program and form drafts survive format switches and save whole source',async()=>{
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',steps:[{type:'post',channel:'b:ops',text:'Keep this form'}]};
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});
+ state.api.gateways=vi.fn().mockResolvedValue({gateways:[{id:'mini',name:'Mac mini',revokedAt:null}]});
+ state.api.updateWorkflow=vi.fn().mockRejectedValue(new Error('Conflict'));
+ await open();await act(async()=>{button('Edit workflow').props.onClick()});
+ const format=(value:string)=>tree.root.findByProps({'aria-label':'Workflow format'}).props.onChange({target:{value}});
+ await act(async()=>{format('code')});
+ expect(button('Save workflow').props.disabled).toBe(true);
+ const code="import {state} from '@honmaru/workflow-sdk';\nawait state.get();\nconsole.log('<safe>');";
+ await act(async()=>{tree.root.findByProps({'aria-label':'TypeScript source'}).props.onChange({target:{value:code}})});
+ await act(async()=>{tree.root.findByProps({'aria-label':'Execution node'}).props.onChange({target:{value:'mini'}})});
+ await act(async()=>{format('form')});
+ expect(tree.root.findByProps({'aria-label':'Text'}).props.value).toBe('Keep this form');
+ await act(async()=>{format('code')});
+ expect(tree.root.findByProps({'aria-label':'TypeScript source'}).props.value).toBe(code);
+ expect(tree.root.findByProps({'aria-label':'Execution node'}).props.value).toBe('mini');
+ await act(async()=>{await button('Save workflow').props.onClick()});
+ expect(state.api.updateWorkflow).toHaveBeenCalledWith(workflow.id,expect.objectContaining({steps:[{type:'code',code,gatewayId:'mini'}]}));
+ expect(tree.root.findByProps({'aria-label':'TypeScript source'}).props.value).toBe(code);
+ await act(async()=>{tree.root.findByProps({'aria-label':'TypeScript source'}).props.onChange({target:{value:'あ'.repeat(16001)}})});
+ expect(button('Save workflow').props.disabled).toBe(true);
+});

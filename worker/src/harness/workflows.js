@@ -1,4 +1,5 @@
 import {normalizeWorkflowCondition,checkpointWorkflowCondition} from './workflowConditions.js';
+import {enqueueWorkflowProgram} from './workflowCodeJobs.js';
 import {recordWorkflowUsage,workflowRunUsage} from './workflowUsage.js';
 import {workflowSourceMayRun} from './workflowSourceAuthority.js';
 import {tryWorkflowNotice} from './workflowNoticeDelivery.js';
@@ -34,7 +35,7 @@ import { scheduleFollowup } from "./followups.js";
 import { withRoomGuidelines } from "./guidelines.js";
 
 export const TRIGGERS = ["manual", "schedule", "webhook", "row"];
-export const STEP_TYPES = ["post", "agent", "add_row", "update_row", "approval", "followup"];
+export const STEP_TYPES = ["post", "agent", "add_row", "update_row", "approval", "followup", "code"];
 export const MAX_STEPS = 12;
 export const MAX_WORKFLOWS = 100;
 /// A step that changes a row may start another workflow; a chain longer
@@ -84,6 +85,12 @@ export function normalizeSteps(raw) {
     if (!STEP_TYPES.includes(s?.type)) return { error: `Each step's type is one of ${STEP_TYPES.join(", ")}` };
     const text = (k, max = 4000) => String(s[k] ?? "").slice(0, max);
     switch (s.type) {
+      case 'code':
+        if(raw.length!==1)return {error:'A TypeScript program is a whole workflow and cannot be mixed with form steps.'};
+        if(typeof s.code!=='string'||!s.code.trim()||new TextEncoder().encode(s.code).length>48000)return {error:'A TypeScript program needs source code of at most 48 KB.'};
+        if(typeof s.gatewayId!=='string'||!s.gatewayId.trim()||s.gatewayId.length>200)return {error:'Choose an execution node for the TypeScript program.'};
+        steps.push({type:'code',code:s.code,gatewayId:s.gatewayId});
+        break;
       case "post":
         if (!s.channel || !s.text) return { error: "A post step names a channel and its text." };
         steps.push({ type: "post", channel: text("channel", 200), text: text("text") });
@@ -158,6 +165,14 @@ export async function unknownApprover(db, orgId, steps) {
   return null;
 }
 
+async function unavailableProgramNode(db,orgId,steps) {
+  const step=steps.find(step=>step.type==='code');
+  if(!step)return null;
+  const node=await db.prepare(`SELECT 1 FROM hx_gateways g JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.created_by
+    WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL AND lower(m.role) IN ('owner','admin')`).bind(orgId,step.gatewayId).first();
+  return node?null:{error:'Choose an available execution node in this workspace.'};
+}
+
 export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
   if (!workflow) return false;
   if(workflow.id){
@@ -201,6 +216,8 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
   if (s.error) return s;
   const nobody = await unknownApprover(db, orgId, s.steps);
   if (nobody) return nobody;
+  const unavailable=await unavailableProgramNode(db,orgId,s.steps);
+  if(unavailable)return unavailable;
   if (t.trigger.type === "row" && !(await getTable(db, orgId, t.trigger.tableId))) return { error: "No such table." };
   const n = await db.prepare("SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id = ?1").bind(orgId).first();
   if (Number(n?.n || 0) >= MAX_WORKFLOWS) return { error: "This workspace has as many workflows as it can hold." };
@@ -245,6 +262,8 @@ export async function updateWorkflow(db, orgId, id, input) {
     if (s.error) return s;
     const nobody = await unknownApprover(db, orgId, s.steps);
     if (nobody) return nobody;
+    const unavailable=await unavailableProgramNode(db,orgId,s.steps);
+    if(unavailable)return unavailable;
     steps = s.steps;
   }
   const enabled = input.enabled !== undefined ? Boolean(input.enabled) : wf.enabled;
@@ -458,6 +477,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
           if (!decision.matches) entry = {status:'skipped',output:'Condition did not match.'};
         }
         if (!entry) entry = step.when && !await authorize() ? {status:'failed',error:'The automation was stopped, its release changed, or its source access was removed.'}
+          : step.type==='code' ? await enqueueWorkflowProgram(db,{orgId,runId})
           : await runStep(env, { orgId, workflow, step, number: index + 1, scope, runId, depth, owner: workflow.createdBy, authorize });
       }
     } catch (e) {
@@ -466,10 +486,16 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     entry = { step: index + 1, type: step.type, at: now(), ...entry };
     log[index] = entry;
     scope.steps[index + 1] = entry;
+    if(entry.status==='pending') {
+      // A fast node may have already committed a terminal result. Do not
+      // replace that result with the older queued display state.
+      await db.prepare("UPDATE hx_workflow_runs SET log=?1 WHERE org_id=?2 AND id=?3 AND status='running'").bind(JSON.stringify(log),orgId,runId).run();
+      return getRun(db,orgId,runId);
+    }
     if (entry.status === "failed") { status = "failed"; index += 1; break; }
     if (entry.status === "waiting") { status = "waiting"; cardId = entry.cardId; index += 1; break; }
   }
-  await db.batch([db.prepare("UPDATE hx_workflow_runs SET status = ?1, log = ?2, next_step = ?3, card_id = COALESCE(?4, card_id), finished_at = ?5 WHERE id = ?6 AND org_id = ?7")
+  await db.batch([db.prepare("UPDATE hx_workflow_runs SET status = ?1, log = ?2, next_step = ?3, card_id = COALESCE(?4, card_id), finished_at = ?5 WHERE id = ?6 AND org_id = ?7 AND status='running'")
     .bind(status, JSON.stringify(log), index, cardId, status === "waiting" ? null : now(), runId, orgId),
     ...workflowSettlementStatements(db,orgId,runId)]);
   await tryWorkflowNotice(env,orgId,workflow.id);

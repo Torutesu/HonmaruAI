@@ -1,3 +1,6 @@
+import {workflowActivationState} from './workflowActivationState.js';
+import {settleWorkflowProgram,workflowProgramJobAccess,workflowProgramAccessCTE} from './workflowCodeJobs.js';
+import {WorkflowStateInputError} from './workflowState.js';
 import { enqueueExecution, jobView, readExecution } from './executions.js';
 // Outbound-only execution nodes. A node token grants access to one workspace's
 // assigned jobs, never to workspace files, agent memories or integration keys.
@@ -12,13 +15,26 @@ const failure = (message, status = 400) => json({ message }, status);
 const activeMember = `(EXISTS (SELECT 1 FROM memberships m WHERE m.org_id = hx_gateway_jobs.org_id AND m.user_github_id = hx_gateway_jobs.created_by AND m.role != 'guest') AND NOT EXISTS (SELECT 1 FROM hx_app_action_jobs j WHERE j.job_id=hx_gateway_jobs.id AND NOT EXISTS (SELECT 1 FROM hx_apps a LEFT JOIN hx_app_access p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=j.org_id AND a.id=j.app_id AND (COALESCE(p.visibility,'workspace')='workspace' OR a.created_by=hx_gateway_jobs.created_by))))`;
 
 
-export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish))\/?$/.test(pathname);
+export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish|state))\/?$/.test(pathname);
 
 export async function expireGatewayJobs(db, at = now()) {
-  return db.prepare(`UPDATE hx_gateway_jobs SET status = 'failed', finished_at = ?1, lease_hash = NULL,
+  const result=await db.prepare(`${workflowProgramAccessCTE('?1')} UPDATE hx_gateway_jobs SET status = 'failed', finished_at = ?1, lease_hash = NULL,
     result = '{"error":"Execution lease or requester access expired."}'
-    WHERE (status = 'running' AND (lease_until <= ?1 OR deadline <= ?1 OR NOT ${activeMember}))
-       OR (status = 'queued' AND (created_at < ?1 - 3600000 OR NOT ${activeMember}))`).bind(at).run();
+    WHERE (status = 'running' AND (lease_until <= ?1 OR deadline <= ?1 OR NOT ${activeMember} OR NOT ${workflowProgramJobAccess}))
+       OR (status = 'queued' AND (created_at < ?1 - 3600000 OR NOT ${activeMember} OR NOT ${workflowProgramJobAccess}
+        OR (json_extract(payload,'$.workflowProgram')=1 AND created_at < ?1 - 180000)))`).bind(at).run();
+  // Also recover a committed node result whose HTTP response/settlement was
+  // interrupted. Bound the cron/claim work; later ticks drain the remainder.
+  const pending=await db.prepare(`SELECT a.job_id FROM hx_workflow_activations a
+   JOIN hx_gateway_jobs j ON j.id=a.job_id AND j.org_id=a.org_id
+   JOIN hx_workflow_runs r ON r.id=a.run_id AND r.org_id=a.org_id
+   JOIN hx_workflow_run_definitions d ON d.run_id=r.id AND d.org_id=r.org_id
+   JOIN hx_workflow_node_checkpoints c ON c.org_id=a.org_id AND c.run_id=a.run_id AND c.node_id=a.node_id AND c.owner=a.node_owner AND c.attempt=a.node_attempt
+   WHERE r.status='running' AND j.status IN ('succeeded','failed','timed_out','cancelled')
+    AND c.status IN ('running','unknown') AND a.node_id='program'
+   ORDER BY j.finished_at,a.job_id LIMIT 25`).all();
+  for(const row of pending.results||[])await settleWorkflowProgram(db,row.job_id);
+  return result;
 }
 
 export async function handleGateways(request, env, url, input) {
@@ -40,18 +56,30 @@ export async function handleGateways(request, env, url, input) {
     if (parts[1] === 'claim') {
       await expireGatewayJobs(db, at);
       const lease = secret();
-      const row = await db.prepare(`UPDATE hx_gateway_jobs SET status = 'running', lease_hash = ?3, lease_until = ?2 + 90000, deadline = ?2 + 120000, started_at = ?2
+      const row = await db.prepare(`${workflowProgramAccessCTE('?2')} UPDATE hx_gateway_jobs SET status = 'running', lease_hash = ?3, lease_until = ?2 + 90000, deadline = ?2 + 120000, started_at = ?2
         WHERE id = (SELECT id FROM hx_gateway_jobs WHERE gateway_id = ?1 AND status = 'queued' ORDER BY created_at, id LIMIT 1)
-        AND status = 'queued' AND ${activeMember}
+        AND status = 'queued' AND ${activeMember} AND ${workflowProgramJobAccess}
         AND NOT EXISTS (SELECT 1 FROM hx_gateway_jobs busy WHERE busy.gateway_id = ?1 AND busy.status = 'running') RETURNING *`)
         .bind(g.id, at, await digest(lease)).first();
-      return json({ job: row ? { ...jobView(row), payload: JSON.parse(row.payload), lease, timeoutMs: 60000 } : null });
+      const workflow=row&&await db.prepare('SELECT 1 FROM hx_workflow_activations WHERE org_id=?1 AND job_id=?2').bind(row.org_id,row.id).first();
+      return json({ job: row ? { ...jobView(row), workflow:Boolean(workflow), payload: JSON.parse(row.payload), lease, timeoutMs: 60000 } : null });
     }
     if (typeof input?.lease !== 'string' || input.lease.length > 150) return failure('Execution lease required.', 409);
     const leaseHash = await digest(input.lease);
-    const guard = `id = ?1 AND gateway_id = ?2 AND status = 'running' AND lease_hash = ?3 AND lease_until > ?4 AND deadline > ?4 AND ${activeMember}`;
+    const guard = `id = ?1 AND gateway_id = ?2 AND status = 'running' AND lease_hash = ?3 AND lease_until > ?4 AND deadline > ?4 AND ${activeMember} AND ${workflowProgramJobAccess}`;
+    if (parts[3] === 'state') {
+      if(new TextEncoder().encode(JSON.stringify(input)).length>165000)return failure('State request is too large.',413);
+      try {
+        const result=await workflowActivationState(db,{jobId:parts[2],gatewayId:g.id,leaseHash},input.operation,input.params,at);
+        if(result.error)return failure(result.error,result.status);
+        if(result.available===false||result.saved===false)return failure('State revision or activation is no longer current.',409);
+        return json(result);
+      } catch(error) {
+        return error instanceof WorkflowStateInputError?failure(error.message,400):failure('State storage is temporarily unavailable.',503);
+      }
+    }
     if (parts[3] === 'heartbeat') {
-      const r = await db.prepare(`UPDATE hx_gateway_jobs SET lease_until = MIN(?4 + 90000, deadline) WHERE ${guard}`).bind(parts[2], g.id, leaseHash, at).run();
+      const r = await db.prepare(`${workflowProgramAccessCTE('?4')} UPDATE hx_gateway_jobs SET lease_until = MIN(?4 + 90000, deadline) WHERE ${guard}`).bind(parts[2], g.id, leaseHash, at).run();
       return r.meta?.changes ? json({ ok: true }) : failure('Execution is no longer authorized.', 409);
     }
     if (!['succeeded', 'failed', 'timed_out'].includes(input.status)) return failure('Invalid execution status.');
@@ -60,11 +88,12 @@ export async function handleGateways(request, env, url, input) {
     // The lease's hash stays on a finished job, so the same node sending the
     // same result again (its first reply was lost) is told it is already
     // in rather than that it was refused. Nothing about the job changes.
-    const r = await db.prepare(`UPDATE hx_gateway_jobs SET status = ?5, result = ?6, finished_at = ?4 WHERE ${guard}`)
+    const r = await db.prepare(`${workflowProgramAccessCTE('?4')} UPDATE hx_gateway_jobs SET status = ?5, result = ?6, finished_at = ?4 WHERE ${guard}`)
       .bind(parts[2], g.id, leaseHash, at, input.status, JSON.stringify(result)).run();
-    if (r.meta?.changes) return json({ ok: true });
+    if (r.meta?.changes) { await settleWorkflowProgram(db,parts[2]); return json({ ok: true }); }
     const done = await db.prepare('SELECT 1 FROM hx_gateway_jobs WHERE id = ?1 AND gateway_id = ?2 AND lease_hash = ?3 AND status = ?4 AND result = ?5')
       .bind(parts[2], g.id, leaseHash, input.status, JSON.stringify(result)).first();
+    if(done)await settleWorkflowProgram(db,parts[2]);
     return done ? json({ message: 'This execution already has this result.', code: 'already_finished' }, 409) : failure('Execution is no longer authorized.', 409);
   }
 
@@ -96,7 +125,10 @@ export async function handleGateways(request, env, url, input) {
       if (!job) return failure('No such execution.', 404);
       if (request.method === 'GET') { const r=await readExecution(db,orgId,me,jobId); return r.error?failure(r.error,r.status):json(r); }
       if (parts[3] === 'cancel' && request.method === 'POST') {
+        const access=await readExecution(db,orgId,me,jobId);
+        if(access.error)return failure(access.error,access.status);
         await db.prepare("UPDATE hx_gateway_jobs SET status = 'cancelled', lease_hash = NULL, finished_at = ?2 WHERE id = ?1 AND status IN ('queued', 'running')").bind(jobId, now()).run();
+        await settleWorkflowProgram(db,jobId);
         return json({ cancelled: true });
       }
       return failure('Method not allowed.', 405);

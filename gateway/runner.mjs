@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 
 export const IMAGE = 'docker.io/library/node@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402';
-// Only this fixed bootstrap runs in the VM. No task code executes on macOS.
+// Trusted bootstraps run inside the VM. No task code executes on macOS.
 const BOOTSTRAP = `let raw='';process.stdin.setEncoding('utf8');process.stdin.on('data',s=>raw+=s);process.stdin.on('end',async()=>{try{const task=JSON.parse(raw);let result;if(task.language==='typescript'){const {stripTypeScriptTypes}=await import('node:module');const code=stripTypeScriptTypes(task.code,{mode:'transform',sourceUrl:'workflow.ts'});const module=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));if(typeof module.default!=='function')throw new Error('TypeScript modules must export a default function.');result=await module.default(task.input);}else{const fn=new (Object.getPrototypeOf(async function(){}).constructor)('input',task.code);result=await fn(task.input);}process.stdout.write(JSON.stringify(result===undefined?null:result));}catch(e){console.error(String(e?.stack||e));process.exitCode=1;}});`;
 
 export function validatePayload(payload) {
@@ -13,11 +13,11 @@ export function validatePayload(payload) {
   return clean;
 }
 
-export function containerArgs(name) {
+export function containerArgs(name, bootstrap = BOOTSTRAP) {
   if (!/^honmaru-[a-f0-9-]{36}$/.test(name)) throw new Error('Invalid execution name.');
   return ['run', '--rm', '--name', name, '--network', 'none', '--no-dns', '--read-only', '--tmpfs', '/tmp',
     '--cap-drop', 'ALL', '--uid', '65534', '--gid', '65534', '--cpus', '1', '--memory', '512m',
-    '--ulimit', 'nofile=256:256', '--ulimit', 'nproc=128:128', '--progress', 'none', '-i', IMAGE, 'node', '-e', BOOTSTRAP];
+    '--ulimit', 'nofile=256:256', '--ulimit', 'nproc=128:128', '--progress', 'none', '-i', IMAGE, 'node', '-e', bootstrap];
 }
 
 function control(binary, args) {

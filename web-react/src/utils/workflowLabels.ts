@@ -4,7 +4,7 @@ export const weekdayName = (day:number) => new Intl.DateTimeFormat(getLocale(),{
 
 export function stepLabel(t: (k: string) => string, type: StepType) {
   return ({
-    post: t('Post in a room'), agent: t('Ask an agent'), add_row: t('Add a row'),
+    code: t('TypeScript program'), post: t('Post in a room'), agent: t('Ask an agent'), add_row: t('Add a row'),
     update_row: t('Change the row'), approval: t('Ask for approval'), followup: t('Follow up later'),
   } as Record<StepType, string>)[type]
 }

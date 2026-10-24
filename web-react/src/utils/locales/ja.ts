@@ -2886,6 +2886,17 @@ const table: Record<string, string> = {
   'Room member actions': 'ルームメンバーの操作',
   'Remove from room': 'ルームから削除',
   '{name}: {role}': '{name}: {role}',
+  "TypeScript program": "TypeScriptプログラム",
+  "Choose an execution node": "実行ノードを選択",
+  "Workflow format": "ワークフローの形式",
+  "Form steps": "フォーム形式",
+  "Program source": "プログラムのソース",
+  "TypeScript source": "TypeScriptソース",
+  "Selected node unavailable": "選択したノードは利用できません",
+  "Runs from the top of the file. Exported functions are not called automatically.": "ファイルの先頭から実行します。exportした関数は自動では呼び出されません。",
+  "Connect an execution node in Settings to run this program.": "このプログラムを実行するには、設定で実行ノードを接続してください。",
+  "Saved state is available through @honmaru/workflow-sdk.": "保存した状態は @honmaru/workflow-sdk から利用できます。",
+  "Program source exceeds 48 KB.": "プログラムのソースが48 KBを超えています。",
 }
 
 export default table

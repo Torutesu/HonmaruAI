@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-10-24",
+  "asOf": "2026-10-25",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -663,7 +663,11 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
-      "acceptance": "新規runの定義を原子的に保存し承認後も同じ手順で再開。定義revision履歴・比較UI・旧runの移行は残る"
+      "acceptance": "新規runの定義を原子的に固定。権限付きrevision履歴・比較UIとrunの版番号を本番反映。追跡開始前の旧run移行と保存TypeScript定義のversionは未対応",
+      "evidence": {
+        "verified": "e16321cb candidate CI 40109883954 passed; production Worker 40111530216 and Web 40111530061 succeeded. Both domains serve index-mgdFRSD0.js. Readable light/dark/mobile comparisons verified in CI browser artifacts.",
+        "remaining": "Native signed-in interaction for this release remains unverified; historical pre-tracking runs are not relabelled. Saved TypeScript workflow source is not yet a supported definition form."
+      }
     },
     {
       "id": "KY-059",
@@ -673,17 +677,25 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
-      "acceptance": "再開時に完了済み外部操作を繰り返さない"
+      "acceptance": "再開時に完了済み外部操作を繰り返さない",
+      "evidence": {
+        "verified": "Internal checkpoint and business-state foundations have focused D1 coverage for CAS, retention and current membership/source access. An isolated TypeScript default-function module returned 42 in the existing Mac VM; its gateway API/UI candidate is still in CI. Neither this entry point nor the undeployed state store implements the workflow SDK contract.",
+        "remaining": "Saved workflow top-level TypeScript execution, activation-scoped SDK transport, durable state integration, recovery scheduler and external-effect replay guarantees remain unimplemented. Kylon documentation rechecked 2026-10-25: exported functions are not invoked automatically; a generic default-function gateway is not equivalent."
+      }
     },
     {
       "id": "KY-060",
       "category": "Automations",
       "requirement": "条件分岐・batch・制限付き並列",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
-      "acceptance": "部分失敗・ページング・取りこぼし率を結果に含める"
+      "acceptance": "部分失敗・ページング・取りこぼし率を結果に含める",
+      "evidence": {
+        "verified": "Typed per-step conditions, durable condition decisions, editor, generation and skipped-run history deployed in 51f93b14. Exact candidate CI 40104011140 and main CI 40105554195 passed; Worker/Web deployment and public assets index-D8APgVAb.js verified. Saved-workflow editing E2E passed on e3d54737; final editing candidate 653c6095 remains under CI.",
+        "remaining": "General branching, batch and bounded parallel execution, partial-failure reporting, paging and recovery remain incomplete. Signed-in native acceptance of the latest production release is pending."
+      }
     },
     {
       "id": "KY-061",
@@ -1041,6 +1053,21 @@
       "source": "https://app.kylon.io",
       "code": "web-react/src/components/RoomColorPicker.tsx",
       "acceptance": "2026-10-23実画面で10色パレットとアップロード入口を確認。安全な画像検証・保存・置換・削除、ルーム一覧とヘッダーへの表示、非公開ルームの閲覧権限、端末間反映と旧色設定の維持を検証。実際の参照画像アップロードは未実行。"
+    },
+    {
+      "id": "KY-096",
+      "category": "Apps",
+      "requirement": "ワークスペース上のフローティングアプリ表示",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://app.kylon.io",
+      "code": "web-react/src/components/FloatingAppWorkspace.tsx",
+      "acceptance": "2026-10-24の参照実画面で詳細メニューからフローティング表示を開き、右下の約480×640の独立パネル、アプリチャット・全画面・閉じる操作を確認。会話間の移動で保持、元の表示への復帰、画面内に収まる配置、キーボード操作、ワークスペース/アカウント切替時の隔離、Simple維持を実装・検証する。参照側のドラッグ/リサイズ/再起動復元は未検証。",
+      "evidence": {
+        "verified": "Native reference /tmp/kylon-floating-app-reference.png; workspace-owned 480x640 panel with bounded pointer/keyboard movement, resize and scoped state. Web 168 files / 1,140 tests and build passed. E2E 120884850923 and 120885526052 passed real pointer drag/resize, search, navigation retention, viewport clamp, close, fullscreen restoration and dark icon contrast. Inspected light/dark screenshots in /tmp/honmaru-e2e-40098460056/. Main c4a23fad; Web rollout 40099242847 started. Native signed-in c1e81790 reload verified compact header, chat containment and covered table removal from accessibility tree; personal view and column widths preserved. Screenshot /tmp/honmaru-floating-focus-production.png. Full candidate CI 40102273418 passed required jobs.",
+        "remaining": "Reference drag/resize/restart behavior remains unverified; floating entry is available on overview/data, not unsaved editor/settings/backend forms. State is in-memory, not cross-device persistence. Kylon app-chat button briefly navigated the background thread but reverted before loading; completed reference layout/navigation parity remains unproven.",
+        "release": "Main c1e81790; Deploy Web 40103746484 succeeded; production independently verified index-F9It5Vxz.js."
+      }
     }
   ]
 }

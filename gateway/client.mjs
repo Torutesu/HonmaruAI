@@ -1,13 +1,14 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { runIsolated } from './runner.mjs';
+import {runWorkflowIsolated} from './workflow-runner.mjs';
 
 export function gatewayClient(baseUrl, token, fetcher = fetch) {
   const base = new URL(baseUrl);
   if (base.username || base.password || base.search || base.hash || (base.protocol !== 'https:' && !(base.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname)))) throw new Error('Use an HTTPS API URL (HTTP is only allowed on localhost).');
   if (!/^hgw_[A-Za-z0-9-]{64,100}$/.test(token || '')) throw new Error('A node token is required.');
-  return async (path, body = {}) => {
+  return async (path, body = {}, {signal} = {}) => {
     const response = await fetcher(new URL(`/gateways/${path}`, base), { method: 'POST', redirect: 'error',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body), signal: signal?AbortSignal.any([signal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000) });
     const data = await response.json();
     if (!response.ok) throw Object.assign(new Error(data.message || `Node API error ${response.status}`), { status: response.status, code: data.code });
     return data;
@@ -21,7 +22,7 @@ export const FINISH_RETRY_MS = [1000, 2000, 4000, 8000, 15000, 15000, 15000];
 // server saying it could not take it just now.
 const transient = (error) => !error.status || error.status === 408 || error.status === 429 || error.status >= 500;
 
-export async function processOne(call, { signal, run = runIsolated, retryMs = FINISH_RETRY_MS } = {}) {
+export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, retryMs = FINISH_RETRY_MS } = {}) {
   const { job } = await call('claim');
   if (!job) return false;
   const cancel = new AbortController();
@@ -38,7 +39,10 @@ export async function processOne(call, { signal, run = runIsolated, retryMs = FI
   }, 10000);
   try {
     let result;
-    try { result = await run(job.payload, { timeoutMs: Math.min(job.timeoutMs || 60000, 60000), signal: cancel.signal }); }
+    try {
+      const options={timeoutMs:Math.min(job.timeoutMs||60000,60000),signal:cancel.signal};
+      result=job.workflow===true?await runWorkflow(job.payload,{...options,stateOperation:(operation,params,{signal})=>call(`jobs/${job.id}/state`,{lease:job.lease,operation,params},{signal})}):await run(job.payload,options);
+    }
     catch { result = { status: 'failed', stdout: '', stderr: 'The local runtime could not start this execution.', exitCode: null }; }
     if (leaseLost) return true;
     // The result is kept until the server has it. A failed upload is tried

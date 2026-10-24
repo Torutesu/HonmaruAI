@@ -67,3 +67,25 @@ test('TypeScript language is explicit while legacy JavaScript payloads remain un
  assert.deepEqual(validatePayload({code:'return 42',language:'javascript'}),{code:'return 42',input:null});
  assert.throws(()=>validatePayload({code:'return 42',language:'shell'}));
 });
+
+test('assigned workflow jobs use scoped state transport without placing leases in the VM payload',async()=>{
+ const calls=[];const payload={code:'await state.get()',context:{workspaceId:'workspace'}};
+ await processOne(async(path,body,options)=>{
+  calls.push({path,body,options});
+  if(path==='claim')return {job:{id:'workflow-job',lease:'host-only-lease',workflow:true,payload}};
+  if(path.endsWith('/state'))return {found:false,revision:0};
+  return {ok:true};
+ },{run:async()=>{throw Error('Wrong runner');},runWorkflow:async(task,{stateOperation,signal})=>{
+  assert.equal(task,payload);assert.ok(!JSON.stringify(task).includes('host-only-lease'));
+  const result=await stateOperation('state.get',{}, {signal});assert.equal(result.revision,0);
+  return {status:'succeeded',stdout:'',stderr:'',exitCode:0};
+ }});
+ assert.deepEqual(calls[1].body,{lease:'host-only-lease',operation:'state.get',params:{}});
+ assert.equal(calls[1].path,'jobs/workflow-job/state');
+ assert.equal(calls[2].path,'jobs/workflow-job/finish');
+});
+test('API request cancellation propagates into the host fetch',async()=>{
+ const abort=new AbortController();let signal;
+ const call=gatewayClient('https://example.com',token,async(_url,options)=>{signal=options.signal;return Response.json({ok:true});});
+ await call('jobs/job/state',{}, {signal:abort.signal});abort.abort();assert.equal(signal.aborted,true);
+});
