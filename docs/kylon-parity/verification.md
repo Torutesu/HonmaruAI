@@ -2192,3 +2192,7 @@ Merged isolated app automation work into the primary branch at `8e752136`, prese
 ### App automation UI follow-up verification
 
 Primary runtime commit `c49aae04` (resource-name review, minute-precision follow-up editing, in-app execution history) passed the full Web suite: 160 files / 1093 tests, 3.61s (`/tmp/honmaru-c49-full-web.log`). Production build also succeeded (`/tmp/honmaru-c49-build.log`) with existing chunk/dynamic-import warnings. No Worker runtime changes followed cfece088's push. Its CI 40071366860, Web 40071366835 and Worker 40071366840 are still confirmed in progress; hold the next push until all are terminal. Authenticated real-screen operation/Kylon parity remains unverified.
+
+### Local rendered automation review check
+
+Rendered the actual AppAutomations component with explicit fixture data using the app's index/appearance/theme/App/Harness/Workspace styles in IAB at localhost. Expanded the drift comparison and switched to dark theme; screenshot inspection shows two readable columns, named targets, schedule/timezone, review checkbox and execution-history control. Saved evidence: `/tmp/honmaru-automation-dark-preview.png`. Initial screenshot omitted global styles and is not used as final styling evidence. Temporary fixture files and Vite server were removed/stopped after inspection. This confirms one local desktop viewport with fixture data only, not authenticated production operation or Kylon visual equivalence. Mobile/theme edge cases remain unverified.
