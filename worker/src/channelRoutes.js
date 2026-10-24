@@ -1,3 +1,4 @@
+import {agentExecutionAuthorizer} from './agentExecutionGrant.js';
 import { searchRoom } from './roomSearch.js';
 import { roomHookAgentAllowed } from './harness/roomHookAgentAccess.js';
 import { createManagedRoom } from './harness/roomCreation.js';
@@ -430,7 +431,8 @@ export async function answerAsAgents(env, { orgId, session, user, resolved, row,
       console.error("agent enqueue failed", safe(err?.message));
     }
   }
-  return runAgents(env, { orgId, session, user, resolved, row, members, locale, agents });
+  const authorize=session?.token ? agentExecutionAuthorizer(env,{orgId,token:session.token,rowId:row.id},row) : null;
+  return runAgents(env, { orgId, session, user, resolved, row, members, locale, agents, authorize });
 }
 
 /// Whether every agent called is one the person wrote themselves. Agents

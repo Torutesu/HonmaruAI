@@ -720,3 +720,30 @@ test("managed agent editing policy also protects persona and avatar in both mode
     expect((await call(avatar, { method: "POST", headers: { "x-session-token": token, "content-type": "image/png" }, body: PNG })).status).toBe(200);
   }
 });
+
+test('running agent authorization follows message edits, deleted agents, membership and sign-out', async()=>{
+  await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO});
+  const {postMessage}=await import('../src/channels.js');
+  const {agentExecutionGrant,agentExecutionAuthorizer}=await import('../src/agentExecutionGrant.js');
+  const {getSession}=await import('../src/db.js');
+  const {endHere}=await import('../src/sessions.js');
+  const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'kenji',body:'@hayao poster ideas?'});
+  const request={orgId:ORG,token:(await getSession(env.DB,kenji)).token,rowId:row.id};
+  const grant=await agentExecutionGrant(env,request),agentId=grant.agents[0].id;
+  const authorize=agentExecutionAuthorizer(env,request,row);
+  expect(await authorize(agentId)).toBe(true);
+  expect(await authorize('another-agent')).toBe(false);
+  await env.DB.prepare('UPDATE channel_messages SET body=?1 WHERE id=?2').bind('Changed request',row.id).run();
+  expect(await authorize(agentId)).toBe(false);
+  await env.DB.prepare('UPDATE channel_messages SET body=?1 WHERE id=?2').bind(row.body,row.id).run();
+  await env.DB.prepare("UPDATE custom_agents SET deleted_at='now' WHERE id=?1").bind(agentId).run();
+  expect(await authorize(agentId)).toBe(false);
+  await env.DB.prepare('UPDATE custom_agents SET deleted_at=NULL WHERE id=?1').bind(agentId).run();
+  expect(await authorize(agentId)).toBe(true);
+  await endHere(env,ORG,[request.token]);
+  expect(await authorize(agentId)).toBe(false);
+  const other=agentExecutionAuthorizer(env,{...request,token:mika},row);
+  expect(await other(agentId)).toBe(false);
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='8803'").bind(ORG).run();
+  expect(await authorize()).toBe(false);
+});

@@ -605,3 +605,16 @@ test('deleted memory review log retains discoverable scopes but checks current r
  expect((await get(logPath,mika)).status).toBe(404);
  expect((await(await get(`${base}/scopes?${q({orgId:ORG})}`,mika)).json()).scopes).toEqual([]);
 });
+
+test('an active normal request loses authorization when agent access becomes private', async()=>{
+ const {postMessage}=await import('../src/channels.js');
+ const {agentExecutionGrant,agentExecutionAuthorizer}=await import('../src/agentExecutionGrant.js');
+ const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:ops',authorLogin:'kenji',body:'@billy check this'});
+ const request={orgId:ORG,token:kenji,rowId:row.id};
+ const grant=await agentExecutionGrant(env,request);
+ expect(grant.agents.some(a=>a.id===agentId)).toBe(true);
+ const authorize=agentExecutionAuthorizer(env,request,row);
+ expect(await authorize(agentId)).toBe(true);
+ await send('PUT',`/hx/agents/${agentId}/profile`,mika,{orgId:ORG,access:'private'});
+ expect(await authorize(agentId)).toBe(false);
+});

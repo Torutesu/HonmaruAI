@@ -1,3 +1,4 @@
+import {agentExecutionGrant,agentExecutionAuthorizer} from './agentExecutionGrant.js';
 import { queueRoomHookRetry } from './harness/roomHookRetry.js';
 import { roomHookExecutionGrant } from './harness/roomHookExecutionGrant.js';
 /// Where agents answer from in production. A request may keep working for
@@ -9,10 +10,6 @@ import { roomHookExecutionGrant } from './harness/roomHookExecutionGrant.js';
 /// answers twice.
 
 import { runRoomHookAgents } from "./harness/roomHookAgentRun.js";
-import { getSession, getUserByGithubId, isMember, sessionByKey } from "./db.js";
-import { getMessage, resolveChannel, viewOf } from "./channels.js";
-import { listMembers } from "./team.js";
-import { respondingAgents } from "./customAgents.js";
 import { runAgents } from "./channelRoutes.js";
 import { runProxy } from "./proxy.js";
 import { useSecretKey } from "./secrets.js";
@@ -118,24 +115,8 @@ export class AgentRunner {
 /// One job: the message, who wrote it and where, found again from what was
 /// kept — then the agents it calls answer.
 export async function runQueuedAgents(env, { orgId, token, rowId, locale }) {
-  // The session's stored key (channelRoutes.js); a job queued before
-  // sessions were stored hashed carries the token itself.
-  const session = String(token || "").startsWith("h1:") ? await sessionByKey(env.DB, token) : await getSession(env.DB, token);
-  if (!session) return 0;
-  // Whether this person may still ask here is decided now, as at the door
-  // (channelRoutes.js caller): someone removed from the workspace, or held
-  // out by its sign-in rules, since the job was queued has nothing answered.
-  if (!(await isMember(env.DB, orgId, session.github_id))) return 0;
-  const { policyDenial } = await import("./policy.js");
-  if (await policyDenial(env, session, orgId)) return 0;
-  const user = await getUserByGithubId(env.DB, session.github_id);
-  const row = await getMessage(env.DB, orgId, rowId);
-  if (!user?.login || !row || row.deleted_at) return 0;
-  const members = await listMembers(env.DB, orgId, session.github_id);
-  const view = viewOf(row.channel, user.login, members);
-  const resolved = view ? await resolveChannel(env.DB, orgId, { ...user, github_id: session.github_id }, view, members) : null;
-  if (!resolved || resolved.key !== row.channel) return 0;
-  const agents = await respondingAgents(env.DB, { orgId, login: user.login, resolved, row });
-  if (!agents.length) return 0;
-  return runAgents(env, { orgId, session, user: { ...user, github_id: session.github_id }, resolved, row, members, locale, agents });
+  const request={orgId,token,rowId};
+  const grant=await agentExecutionGrant(env,request);
+  if(!grant?.agents.length)return 0;
+  return runAgents(env,{...grant,locale,authorize:agentExecutionAuthorizer(env,request,grant.row)});
 }
