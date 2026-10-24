@@ -1,3 +1,4 @@
+import {managedAutomationGuard,managedAutomationRelease,managedAutomationMayRun} from './appAutomationGuard.js';
 import { mayUseTable } from './resourceAccess.js';
 import { holdWorkflowEvent } from './workflowHeld.js';
 import { mayUseConversation } from './conversationAccess.js';
@@ -128,7 +129,7 @@ async function approverIn(db, orgId, login) {
 
 /// An approval written to a fixed login is checked when it is saved; one
 /// written as a {{placeholder}} can only be checked when it runs.
-async function unknownApprover(db, orgId, steps) {
+export async function unknownApprover(db, orgId, steps) {
   for (const step of steps) {
     if (step.type !== "approval" || step.to.includes("{{")) continue;
     if (!(await approverIn(db, orgId, step.to))) return { error: `Nobody by that name here: @${step.to}` };
@@ -306,7 +307,8 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
   const id = newId("run");
   // Store the definition and the run atomically. An approval always resumes
   // the same steps that were presented when the run started.
-  const definition = { id: workflow.id, name: workflow.name, steps: workflow.steps, trigger: workflow.trigger, createdBy: workflow.createdBy };
+  const automationReleaseId=await managedAutomationRelease(env.DB,orgId,workflow.id);
+  const definition = { id: workflow.id, name: workflow.name, steps: workflow.steps, trigger: workflow.trigger, createdBy: workflow.createdBy, ...(automationReleaseId?{automationReleaseId}:{}) };
   // Input is kept whole or the run fails before its first step: JSON cut
   // short is no longer JSON, and the steps would run on blanks.
   const stored = input ? JSON.stringify(input) : null;
@@ -317,8 +319,10 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
       WHERE (?12 IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_held_events h JOIN hx_workflows w ON w.id=h.workflow_id AND w.org_id=h.org_id
         WHERE h.id=?12 AND h.org_id=?2 AND h.workflow_id=?3 AND h.run_id IS NULL AND h.expires_at>?10 AND w.enabled=1 AND json_extract(w.trigger,'$.type')='webhook'))
-      AND (?13 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE id=?3 AND org_id=?2 AND enabled=1 AND hook_secret=?13 AND json_extract(trigger,'$.type')='webhook'))`)
-      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, now(), tooLarge ? now() : null, heldEventId, incomingHookSecret),
+      AND (?13 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE id=?3 AND org_id=?2 AND enabled=1 AND hook_secret=?13 AND json_extract(trigger,'$.type')='webhook'))
+      AND ${managedAutomationGuard('?2','?3','?14')}
+      AND (?14 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?2 AND id=?3 AND name=?15 AND json(trigger)=json(?16) AND json(steps)=json(?17) AND created_by=?18))`)
+      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, now(), tooLarge ? now() : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy)),
     env.DB.prepare("INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at) SELECT ?1, ?2, ?3, ?4 WHERE EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?2)")
       .bind(id, orgId, JSON.stringify(definition), now()),
     ...(heldEventId ? [env.DB.prepare(`UPDATE hx_workflow_held_events SET run_id=?1 WHERE id=?2 AND org_id=?3 AND workflow_id=?4 AND run_id IS NULL
@@ -367,6 +371,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     await db.prepare("UPDATE hx_workflow_runs SET status = 'failed', finished_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), runId, orgId).run();
     return getRun(db, orgId, runId);
   }
+  const authorize=()=>managedAutomationMayRun(db,orgId,workflow.id,workflow.automationReleaseId);
   const log = run.log;
   const scope = { input: run.input || {}, steps: {}, workflow: { name: workflow.name } };
   if (run.input?.row) scope.row = run.input.row;
@@ -379,7 +384,8 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     const step = workflow.steps[index];
     let entry;
     try {
-      entry = await runStep(env, { orgId, workflow, step, number: index + 1, scope, runId, depth, owner: workflow.createdBy });
+      entry = !await authorize() ? {status:'failed',error:'The app automation was stopped or its published release changed.'}
+        : await runStep(env, { orgId, workflow, step, number: index + 1, scope, runId, depth, owner: workflow.createdBy, authorize });
     } catch (e) {
       entry = { status: "failed", error: String(e?.message || e).slice(0, 300) };
     }
@@ -405,7 +411,7 @@ async function say(env, orgId, channel, body, { authorLogin = null, kind = "ai",
   return out?.row || null;
 }
 
-async function runStep(env, { orgId, workflow, step, number, scope, runId, depth, owner }) {
+async function runStep(env, { orgId, workflow, step, number, scope, runId, depth, owner, authorize }) {
   const db = env.DB;
   if (step.channel && !(await mayUseConversation(db, orgId, owner, step.channel))) {
     return { status: "failed", error: "Conversation access required." };
@@ -426,8 +432,9 @@ async function runStep(env, { orgId, workflow, step, number, scope, runId, depth
       const answer = await complete(
         `You are ${agent.name} (@${agent.handle}), doing one step of the workflow "${workflow.name}". Do what the step asks and answer with the result only.\n\n<agent_instructions>\n${agent.researchInstructions || String(agent.instructions).slice(0, 12000)}\n</agent_instructions>`,
         `${render(step.prompt, scope)}\n\n<context>\n${JSON.stringify({ input: scope.input, row: scope.row || null }).slice(0, 6000)}\n</context>`,
-        { tools: prepared.skillTools, fallbackSystem: `You are ${agent.name}, doing a step of "${workflow.name}". Answer with the result only.\n\n${agent.instructions}` },
+        { tools: prepared.skillTools, authorize, fallbackSystem: `You are ${agent.name}, doing a step of "${workflow.name}". Answer with the result only.\n\n${agent.instructions}` },
       );
+      if (!await authorize())return {status:'failed',error:'The app automation was stopped or its published release changed.'};
       if (!answer) return { status: "failed", error: "The agent gave no answer." };
       if (step.channel) await say(env, orgId, step.channel, answer, { authorLogin: `agent:${agentRow.id}`, kind: "agent" });
       return { status: "ok", output: String(answer).slice(0, 4000) };
@@ -488,6 +495,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, runId, depth
       const r = await scheduleFollowup(db, {
         orgId, channel: step.channel, agentId: step.agentId || null, instruction: render(step.text, scope),
         dueAt: new Date(Date.now() + step.minutes * 60000).toISOString(), by: owner,
+        ...(workflow.automationReleaseId?{originWorkflowId:workflow.id,originReleaseId:workflow.automationReleaseId}:{}),
       });
       return r.error ? { status: "failed", error: r.error } : { status: "ok", output: r.followup.id };
     }

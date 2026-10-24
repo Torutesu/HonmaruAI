@@ -29,3 +29,121 @@ Status: design grounded in the current repository; KY-053 remains missing. This 
 Add the automation section to the existing app detail/release flow: declared automations, live status, draft/published distinction, concise diff, conflict resolution and a link to retained workflow history. Use existing icons and light/dark tokens. Do not invent a Kylon-specific layout without reference evidence.
 
 Verify draft inertness, existing published behavior during draft edits, atomic publication rollback, concurrent app/workflow edits, idempotent lost-response recovery, secret preservation, cross-workspace reference rejection, revocation before publication, unpublish racing every trigger path, removal/history retention, app deletion and Simple/standalone regressions. Test with local fake providers and disposable records. Authenticated production and Kylon visual comparisons remain separate acceptance gates.
+
+## Declaration foundation (local isolated worktree)
+
+`appAutomationDefinition.js` now validates bounded versioned declarations, explicit enabled state, unique stable keys, trigger/step fields and schedule ranges. It rejects live identities/credential fields and oversized content rather than truncating executable instructions. A pure diff classifies added/changed/removed/unchanged/missing/drifted definitions and excludes live hook secrets/run metadata. Six tests pass in `/tmp/honmaru-app-automation-definition-final.log`.
+
+This foundation is not yet connected to app storage, publication, workflow triggers or UI. KY-053 remains missing until the lifecycle is implemented and verified. Development is isolated at `/Users/tt/.codex/worktrees/app-automations/Honmaru`; app attachment failed because the thread has more than 100 attachments, but the checkout exists. The main workspace's frozen Worker test is unaffected.
+
+## Draft persistence (local isolated worktree)
+
+Added workspace/app-scoped automation state separate from ordinary app definitions, so draft instructions do not leak through normal app reads and ordinary view edits do not discard them. Editor-only GET/PUT automation endpoints use app-version and draft-revision checks in the same D1 write. Competing first saves have one winner. Draft edits retain published state and create no workflows, secrets or execution effects. Ordered single-line table creation is included in schema and migrations.
+
+Validation: **4 files / 53 tests passed**, 10.80s (`/tmp/honmaru-app-automation-draft.log`), including concurrent save conflict, stale app version rejection, invalid declaration rollback, editor visibility, zero workflows after an enabled draft save, existing app tests, migrations and query-scope audit. Publication, live binding/drift reconciliation, lifecycle guards and UI remain incomplete; the draft endpoint does not expose a publish action yet.
+
+Separately, main `cc983d53` contains the fully tested execution-control changes (Worker 1823/Web 1077 pass). CI `40068730977`, Web `40068730976`, Worker `40068730972` are in progress. These draft changes are not on main and must not replace those active jobs.
+
+## Editor-scoped live plan (local isolated worktree)
+
+Added workspace/app/key-to-workflow binding persistence and a read-only reconciliation plan to the editor endpoint. Definitions are compared against the last applied baseline. Existing independent workflow changes report drift instead of being silently overwritten; missing identities remain explicit. Before exposing any live definition, current workflow resource visibility is checked, including a workflow that moved to an inaccessible table. Hook secrets and run metadata are excluded.
+
+Validation: **4 files / 54 tests passed**, 10.61s (`/tmp/honmaru-app-automation-plan.log`), including added/unchanged/drifted plans, secret omission, access loss after independent modification, draft persistence, migrations and query isolation. Bindings/publication state in that test are fixture data; no production publishing API has been added yet. Atomic publish/unpublish, all trigger guards and UI remain required before this feature can be released.
+
+## Atomic release primitive (local, not routed)
+
+Added an internal publish/unpublish transaction that checks app version, draft revision, current membership, workflow capacity and exact live workflow snapshots before changing state. Every dependent write uses a fresh successful-release identity, so losing the initial CAS cannot create workflows or history. Publication updates app version/history, managed workflows, binding baselines and a replay receipt in the same D1 batch. Webhook credentials are retained when the trigger stays webhook; unchanged schedule configuration preserves its current next-run timestamp. Unpublish disables managed workflows and retains identity/history/draft. Existing drift or missing bindings require review rather than replacement. Retired bindings are included in plans to avoid silently overwriting independently modified retired workflows.
+
+Validation: **4 files / 59 tests passed**, 9.70s (`/tmp/honmaru-app-automation-release-final.log`). Covers transaction rollback after forced workflow-insert failure; receipt replay; payload-conflict rejection; disabling/reusing the same workflow identity; live drift; a live edit between plan and commit; and membership revocation immediately before the batch.
+
+The primitive is deliberately not connected to a public publish endpoint yet. Required next: managed ownership guards in every run claim/continuation and app unpublish/delete, integration with custom-code publication, missing-binding repair and reviewed drift resolution, then the app UI. No app automation release has been deployed or enabled in production.
+
+## Managed execution guards (local)
+
+New run claims atomically require the managed binding's current published release, enabled declaration/workflow and an existing published custom app where applicable. Frozen run definitions retain the release identity; later steps and model/tool boundaries recheck it, preventing an old run from continuing after stop/republication. Standalone workflows retain their existing eligibility. Already-started external effects cannot be undone. Bindings must remain as tombstones when apps are deleted so managed runs cannot become standalone accidentally.
+
+Validation: 4 files / 89 tests passed, 13.65s (`/tmp/honmaru-automation-guard-final.log`). Includes stopped new claims, stale release denial after republication, continuation failure after stop, model-request denial, late model tool suppression and sibling tool suppression. An initial model test run exposed persistent mock endpoint interference; isolated test endpoints resolve it. App delete/unpublish integration, stale workflow-definition versus newly read release races, explicit drift reconciliation and the UI remain required before exposing publication. Not deployed.
+
+Native UI inventory still reports Mac locked despite the user's confirmation that it is operable. Authenticated UI verification remains incomplete; do not ask the user to repeat an already-confirmed unlock as though it verified anything.
+
+## App lifecycle and stale definition claims (local)
+
+Deleting an app now disables its managed workflows and clears scheduled dates in the deletion transaction. Ownership bindings remain as tombstones, so old events cannot become standalone work after deletion. Custom source unpublication atomically stops published automation state, advances the release identity/revision, disables workflows and updates the disabled baseline; a losing source-version CAS cannot stop the winning editor's work. Republishing source alone does not silently reactivate automation. A managed run claim also compares the supplied name, trigger, steps and owner against the current workflow in its insert transaction, closing the old-definition/new-release race.
+
+Validation: 3 files / 85 tests passed, 11.84s (`/tmp/honmaru-automation-lifecycle-final.log`). Covers deleted-app tombstones and denied claims; old-definition rejection with current-definition success after release changes; custom source stale unpublish CAS; atomic stop/draft retention; source-only republication remaining inactive; existing workflows and query audit. Complete combined source/automation publication, reviewed drift/missing-binding recovery, public lifecycle routes and UI remain incomplete. These changes are still isolated locally and not on production.
+
+## Combined custom source release (local)
+
+The internal release primitive accepts explicit `includeSource: true` to publish or unpublish custom HTML in the same transaction/version as the automation snapshot, workflows, bindings and receipt. It validates saved source and refuses automation-only publication for an unpublished custom app. Receipts include the source-inclusion choice, so reusing a request ID with different publication intent conflicts. Ordinary table apps continue without custom source.
+
+Validation: 3 files / 87 tests passed, 12.17s (`/tmp/honmaru-automation-combined.log`). Combined publication/unpublication, receipt replay and altered-intent conflict pass; a forced workflow insertion failure rolls back source, version and automation state together. The public route/UI are not yet enabled. Required next: stopping despite live drift/missing bindings, explicit reviewed recovery of those cases, then editor UI and full verification/deployment. The preceding main deployment has successful Web and Worker jobs; CI remains in progress as last observed.
+
+## Stop despite independently changed work (local)
+
+Unpublication now reads the app's automation state without requiring visibility of independently edited workflow definitions. It disables only the workflows bound to that app, preserves their other live fields, retains missing bindings, and does not create replacement work. Publication still requires live visibility and review. Stop is not prevented by an over-capacity workspace. App ownership/permissions, app/draft CAS, membership and receipt checks still apply.
+
+Validation: 3 files / 89 tests passed, 10.42s (`/tmp/honmaru-automation-stop-drift.log`). Tests prove stop succeeds after an inaccessible live edit without disclosing or overwriting it, and after independent deletion without recreating the workflow. Main `cc983d53` CI 40068730977, Web 40068730976 and Worker 40068730972 are now all confirmed successful. This isolated automation feature is still not deployed. UI must offer stop using app state even if live-plan visibility fails; reviewed drift recovery and missing-binding recreation remain required.
+
+## Explicit drift replacement review (local)
+
+Publication can now accept per-key replacement reviews containing the exact observed live definition and workflow identity. Every drifted binding needs a matching review; stale/unrelated/duplicate reviews cannot authorize overwrites. The existing transaction snapshot comparison still rejects edits after review and before commit. Reviews are part of idempotency intent. Schedule preservation now compares against the observed live trigger/enabled state, preventing a reviewed schedule-to-manual replacement from keeping a stale scheduled date.
+
+Validation: 2 files / 54 tests passed, 7.58s (`/tmp/honmaru-automation-review-final.log`). Explicit reviewed replacement and replay succeed; wrong observed content, wrong key and a concurrent later edit fail; restoring manual execution clears the independently changed schedule. Missing workflow repair and UI review controls remain incomplete. These are internal primitives only, not deployed features.
+
+## Reviewed recreation and lifecycle API (local)
+
+Missing workflows can be explicitly recreated from the current draft by reviewing their key and prior identity with `action: recreate, live: null`. The transaction checks that these identities are still absent; it counts replacements against capacity and restores stable IDs with fresh webhook credentials where applicable. It never retries historical runs. A missing binding identity, or a missing declaration to restore, still needs a separate reconciliation path and is not silently invented.
+
+Editor-only POST `/apps/:id/automations` now exposes release operations, with audit records for new successful releases and receipt replay without duplicate audit. Editor-only GET with `stateOnly=1` provides app/draft release state for stopping even when an independently modified live workflow is inaccessible; it does not return that inaccessible definition.
+
+Validation: 4 files / 105 tests passed, 12.52s (`/tmp/honmaru-automation-api.log`). Includes explicit recreation/replay, absent review rejection, identity reappearance race, route permission checks, state-only non-disclosure and stop through the API, plus workflows, migration and query-scope checks. UI, broader tests, reconciliation edge cases and production deployment are still pending.
+
+## App editor lifecycle UI foundation (local)
+
+Added a typed client and an editor-only Automations tab under the existing app runtime panel. It copies authorized existing workflow definitions into disabled app drafts without credentials/identity metadata, edits names/enabled state, saves drafts, renders live-versus-proposed changes, requires per-conflict review, supports combined custom-source publication, and retains stop through state-only fallback when live definitions become inaccessible. Retrying the same uncertain release reuses its request identity. Existing design tokens style both themes and the diff collapses to one column on narrow screens.
+
+Validation: TypeScript build passed after adding the existing web-react dependency-directory symlink to this isolated worktree (initial attempt resolved wrong root dependencies). Two files / five UI tests pass (`/tmp/honmaru-automation-ui.log`), covering exact review payload, stop fallback, uncertain-release retry identity, and existing CompanyApp checks. No visual fidelity claim: authenticated Kylon/production visual comparison has not succeeded. Direct step/trigger editing, natural-language creation integration, richer human-readable diffs, further async-state tests, full suite/build and deployment remain. This UI is not yet deployed.
+
+## Human-readable publication review (local)
+
+Replaced JSON-only live/proposed previews with structured summaries of enabled state, schedule/timezone, row trigger filters, step ordering, room targets, approvers, agent/table identifiers, messages and row values. Raw definitions remain in a collapsed details section. Review output is escaped React text, and existing theme tokens/mobile layout apply. Resource identifiers still need friendly-name resolution and the editor still needs direct step/trigger controls.
+
+Validation: two UI files / five tests passed (`/tmp/honmaru-automation-summary.log`) and TypeScript passed. Coverage includes weekly schedules/timezones, side-effect targets, disabled row filters and HTML escaping; publication review behavior remains covered. No screenshot or Kylon visual parity evidence yet; these changes remain local.
+
+## Shared direct step editing (local)
+
+Extracted the existing workflow step form as a shared component and embedded it in app automation drafts. App editors can add/remove and edit supported steps, using authorized tables and agent choices. Edits stay local until draft save and disable publication while dirty; ordinary workflow editing uses the same component. Direct trigger editing and ordering controls remain to be added, and the existing follow-up hour granularity still warrants improvement.
+
+Validation: TypeScript passed; two UI files / 23 tests passed (`/tmp/honmaru-automation-step-final.log`), including existing workflow behavior and a new test that editing changes the local step, enables draft save, blocks publication and makes no release call. No deployment or visual-comparison claim.
+
+## Direct trigger editing and blank creation (local)
+
+Added trigger controls for manual/webhook, schedules (cadence, weekday/monthday, time, timezone), row event/table/watched column and select-value conditions. Switching trigger kind removes incompatible properties; switching tables removes old watched-column/filter references. A blank automation starts as a disabled local draft with a manual trigger and editable step.
+
+Validation: TypeScript passed for the trigger component/integration; two UI files / eight tests passed after the blank-creation addition (`/tmp/honmaru-automation-trigger-final.log`). Covers trigger-kind/table reset, explicit weekly weekday, existing draft/review behavior and local creation without release. Natural-language app automation generation, ordering, resource naming, broader validation and live visual verification still remain before deployment.
+
+## Natural-language automation proposals (local)
+
+Added editor-only generation using the existing metered workflow proposal pipeline and resource visibility checks. The app-specific wrapper validates the portable declaration, assigns a stable key and forces disabled state. It writes no workflow, secret, app draft or release. The UI appends the proposal to the local editable draft for explicit save/review/publication. No new provider or subscription is introduced; unavailable allowance returns an error with manual editing still available.
+
+Validation: Worker two files / 58 tests passed (`/tmp/honmaru-app-automation-generation.log`); UI one file / six tests passed (`/tmp/honmaru-app-automation-generation-ui-final.log`); TypeScript passed. Tests cover disabled inert output, no database state creation, editor permissions, unavailable-model response and proposal addition without publication. Real model quality, visual review, full regression/build and deployment remain unverified.
+
+## Whole-suite verification and deferred-work audit
+
+At frozen runtime/test commit `0d225fab`, Web full suite passed 158 files / 1088 tests (`/tmp/honmaru-0d225fab-full-web.log`); production Vite build succeeded (`/tmp/honmaru-0d225fab-build.log`, asset index-TOesLW98.js). Existing large-chunk/ineffective-dynamic-import warnings remain. Version checker passes at 1.3.13; inventory checker passes but does not prove parity. Worker full suite is still running under terminal session 83476; do not restart merely because output is quiet. Web/build session 44271 is terminal success.
+
+Read-only lifecycle audit found a required pre-deploy fix: workflow follow-up steps currently call `scheduleFollowup` without app release provenance. `runDueFollowups` later executes independently, so app unpublication/republication does not currently fence a previously scheduled follow-up. Add durable origin workflow/release metadata atomically with follow-up creation, guard due execution/model tools/final posting, and verify standalone follow-ups remain unchanged. Keep runtime/tests fixed until the current full suite finishes, then implement and rerun appropriate checks. Do not claim comprehensive stop semantics or deploy this feature before resolving the gap.
+
+## Step ordering (local UI only during Worker verification)
+
+Added accessible up/down controls for app automation steps. Reordering changes local draft order without mutating loaded state or publishing. The UI explains that numeric step references should be checked after reordering. Related UI tests (7) and TypeScript passed (`/tmp/honmaru-automation-order.log`). Worker runtime/tests/schema remain unchanged from the frozen full-suite run; the earlier full Web/build evidence predates this UI-only addition and must be refreshed before deployment.
+
+Prepared, but not yet applied while Worker tests run: `/tmp/honmaru-followup-origin.patch`, `/tmp/honmaru-followup-origin-tests.js`, `/tmp/honmaru-followup-migration-test.js`. Patch application check passes; actual behavior is not yet tested. Once session 83476 terminates, inspect full result, apply patch and append tests to harness-apps/migration respectively, then validate. Patch generation script: `/tmp/prepare-honmaru-followup-fix.py`.
+
+## Full Worker result and managed follow-up fencing
+
+Frozen Worker runtime/test commit `0d225fab` completed successfully: 225 files / 1854 tests, 505.03s (`/tmp/honmaru-0d225fab-full-worker.log`, session 83476 terminal exit 0). Only frontend/docs changed while it ran.
+
+Then applied the deferred-follow-up fix: managed workflow steps persist origin workflow/release columns with the reservation in one guarded insert. Due follow-ups check that release before work, through the existing model tool authorization callback, and before posting. Stale reservations fail without posting after stop/republication; standalone reservations have null origin and retain existing behavior. Ordered ALTER migrations preserve existing reservations and tolerate repeated deployment.
+
+Post-fix targeted verification: 4 files / 108 tests passed, 14.68s (`/tmp/honmaru-followup-origin.log`), including actual managed workflow scheduling, stored origin, stopped scheduling rejection, no old reservation execution after republication, legacy workflows and preservation/replay of pre-migration reservations. Full Worker evidence predates this focused fix; no new whole-suite result is claimed. UI whole-suite/build refresh, visual verification, integration into main and deployment remain pending.

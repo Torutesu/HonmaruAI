@@ -553,3 +553,326 @@ test("a save that loses to another leaves the app's table, definition and histor
   expect(won.app.version).toBe(3);
   expect((await getTable(env.DB, ORG, app.tableId)).columns.map((c) => c.name)).toContain("Extra");
 });
+
+test('app automation drafts are private to editors, inert and protected against concurrent saves',async()=>{
+ const {app}=await(await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ const path=`/apps/${app.id}/automations`;
+ const first=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(first).toMatchObject({revision:0,version:app.version,draft:{version:1,items:[]},published:null});
+ const automations={version:1,items:[{key:'review',name:'Review',enabled:true,trigger:{type:'manual'},steps:[{type:'post',channel:'b:general',text:'draft-private-note'}]}]};
+ expect((await get(`${path}?orgId=${ORG}`,mika)).status).toBe(403);
+ expect((await send('PUT',path,mika,{orgId:ORG,version:app.version,revision:0,automations})).status).toBe(403);
+ const results=await Promise.all([send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations}),send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations})]);
+ expect(results.map(r=>r.status).sort()).toEqual([200,409]);
+ const saved=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(saved).toMatchObject({revision:1,draft:automations,published:null});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+ expect(JSON.stringify(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json())).not.toContain('draft-private-note');
+ const edit=await send('PUT',`/apps/${app.id}`,toru,{orgId:ORG,name:'Changed app',expectedVersion:app.version});expect(edit.status).toBe(200);
+ expect((await send('PUT',path,toru,{orgId:ORG,version:app.version,revision:1,automations})).status).toBe(409);
+ const invalid=await send('PUT',path,toru,{orgId:ORG,version:app.version+1,revision:1,automations:{version:1,items:[...automations.items,...automations.items]}});expect(invalid.status).toBe(400);
+ expect((await(await get(`${path}?orgId=${ORG}`,toru)).json()).revision).toBe(1);
+});
+
+test('automation plan reports live drift but hides newly inaccessible workflow definitions',async()=>{
+ const {app}=await(await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ const path=`/apps/${app.id}/automations`;
+ const declaration={key:'review',name:'Review',enabled:false,trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{}}]};
+ const automations={version:1,items:[declaration]};
+ expect((await send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations})).status).toBe(200);
+ const initial=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(initial.plan[0].status).toBe('added');
+ const {workflow}=await(await send('POST','/workflows',toru,{orgId:ORG,...declaration})).json();
+ await env.DB.prepare('UPDATE hx_app_automation_state SET published=draft,release_id=?1 WHERE org_id=?2 AND app_id=?3').bind('release',ORG,app.id).run();
+ await env.DB.prepare('INSERT INTO hx_app_automation_bindings(org_id,app_id,declaration_key,workflow_id,applied,release_id) VALUES (?1,?2,?3,?4,?5,?6)').bind(ORG,app.id,'review',workflow.id,JSON.stringify(declaration),'release').run();
+ const unchanged=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(unchanged.plan[0].status).toBe('unchanged');
+ await env.DB.prepare('UPDATE hx_workflows SET name=?1,hook_secret=?2 WHERE org_id=?3 AND id=?4').bind('Live changed','never-show-this-secret',ORG,workflow.id).run();
+ const changed=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(changed.plan[0]).toMatchObject({status:'drifted',live:{name:'Live changed'},declared:{name:'Review'}});expect(JSON.stringify(changed)).not.toContain('never-show-this-secret');
+ await env.DB.prepare('UPDATE hx_workflows SET trigger=?1 WHERE org_id=?2 AND id=?3').bind(JSON.stringify({type:'row',tableId:'foreign-table',on:'any'}),ORG,workflow.id).run();
+ const denied=await get(`${path}?orgId=${ORG}`,toru);expect(denied.status).toBe(403);expect(JSON.stringify(await denied.json())).not.toContain('Live changed');
+});
+
+async function automationReleaseFixture() {
+ const {app}=await(await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ const declaration={key:'review',name:'Review',enabled:true,trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{}}]};
+ const automations={version:1,items:[declaration]};
+ await send('PUT',`/apps/${app.id}/automations`,toru,{orgId:ORG,version:app.version,revision:0,automations});
+ const {releaseAppAutomations}=await import('../src/harness/appAutomationRelease.js');
+ const {getApp}=await import('../src/harness/apps.js');
+ const release=async (input,db=env.DB)=>releaseAppAutomations(db,ORG,await getApp(env.DB,ORG,app.id),input,'9101');
+ return {app,automations,release};
+}
+
+test('automation release is atomic, replayable and stops managed work without deleting history',async()=>{
+ const f=await automationReleaseFixture();
+ const request={action:'publish',requestId:'publish_request_0001',version:f.app.version,revision:1};
+ const published=await f.release(request);expect(published).toMatchObject({saved:true,revision:2,version:f.app.version+1});
+ const {results:workflows}=await env.DB.prepare('SELECT id,enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).all();expect(workflows).toHaveLength(1);expect(workflows[0].enabled).toBe(1);
+ expect(await f.release(request)).toMatchObject({...published,replay:true});
+ expect((await f.release({...request,action:'unpublish'})).status).toBe(409);
+ const stopped=await f.release({action:'unpublish',requestId:'unpublish_request_01',version:published.version,revision:published.revision});expect(stopped.saved).toBe(true);
+ expect(await env.DB.prepare('SELECT id,enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({id:workflows[0].id,enabled:0});
+ const state=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();expect(state.published).toBeNull();expect(state.draft).toEqual(f.automations);
+ const again=await f.release({action:'publish',requestId:'publish_request_0002',version:stopped.version,revision:stopped.revision});expect(again.saved).toBe(true);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:1});
+});
+
+test('failed workflow insertion rolls the entire automation publication back',async()=>{
+ const f=await automationReleaseFixture();
+ await env.DB.exec("CREATE TRIGGER fail_app_workflow BEFORE INSERT ON hx_workflows BEGIN SELECT RAISE(ABORT,'forced'); END;");
+ await expect(f.release({action:'publish',requestId:'publish_request_0001',version:f.app.version,revision:1})).rejects.toThrow();
+ await env.DB.exec('DROP TRIGGER fail_app_workflow;');
+ const state=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();expect(state).toMatchObject({revision:1,version:f.app.version,published:null});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_automation_releases WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+});
+
+test('a drifted live definition rejects publication without changing the app or other workflows',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_request_0001',version:f.app.version,revision:1});expect(first.saved).toBe(true);
+ await env.DB.prepare('UPDATE hx_workflows SET name=?1 WHERE org_id=?2').bind('Independent edit',ORG).run();
+ const next=await f.release({action:'publish',requestId:'publish_request_0002',version:first.version,revision:first.revision});expect(next.status).toBe(409);
+ expect((await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json()).revision).toBe(first.revision);
+ expect(await env.DB.prepare('SELECT name FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({name:'Independent edit'});
+});
+
+test('live edits between review and commit reject the entire automation release',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_request_0001',version:f.app.version,revision:1});
+ const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{
+  await env.DB.prepare('UPDATE hx_workflows SET name=?1 WHERE org_id=?2').bind('Concurrent edit',ORG).run();
+  return env.DB.batch(statements);
+ }};
+ expect((await f.release({action:'publish',requestId:'publish_request_0002',version:first.version,revision:first.revision},db)).status).toBe(409);
+ const current=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();expect(current).toMatchObject({revision:first.revision,version:first.version});
+ expect(await env.DB.prepare('SELECT name FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({name:'Concurrent edit'});
+});
+
+test('membership revocation before commit cannot enable app automations',async()=>{
+ const f=await automationReleaseFixture();
+ const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(ORG,'9101').run();
+  return env.DB.batch(statements);
+ }};
+ expect((await f.release({action:'publish',requestId:'publish_request_0001',version:f.app.version,revision:1},db)).status).toBe(409);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+});
+
+
+test('managed automation claims reject stopped releases and old runs cannot resume after republication',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_guard_000001',version:f.app.version,revision:1});
+ const {getWorkflow,startRun,continueRun}=await import('../src/harness/workflows.js');
+ const {managedAutomationMayRun}=await import('../src/harness/appAutomationGuard.js');
+ const binding=await env.DB.prepare('SELECT workflow_id,release_id FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first();
+ const workflow=await getWorkflow(env.DB,ORG,binding.workflow_id);
+ expect(await managedAutomationMayRun(env.DB,ORG,workflow.id,binding.release_id)).toBe(true);
+ const stopped=await f.release({action:'unpublish',requestId:'unpublish_guard_001',version:first.version,revision:first.revision});
+ expect(await startRun(env,{orgId:ORG,workflow,trigger:'manual',startedBy:'9101'})).toBeNull();
+ expect(await managedAutomationMayRun(env.DB,ORG,workflow.id,binding.release_id)).toBe(false);
+ const again=await f.release({action:'publish',requestId:'republish_guard_001',version:stopped.version,revision:stopped.revision});expect(again.saved).toBe(true);
+ expect(await managedAutomationMayRun(env.DB,ORG,workflow.id,binding.release_id)).toBe(false);
+ const active=await startRun(env,{orgId:ORG,workflow:await getWorkflow(env.DB,ORG,workflow.id),trigger:'manual',startedBy:'9101'});expect(active.status).toBe('done');
+ await env.DB.prepare("UPDATE hx_workflow_runs SET status='running',next_step=0 WHERE id=?1").bind(active.id).run();
+ await f.release({action:'unpublish',requestId:'unpublish_guard_002',version:again.version,revision:again.revision});
+ const resumed=await continueRun(env,{orgId:ORG,runId:active.id});expect(resumed.status).toBe('failed');expect(JSON.stringify(resumed.log)).toContain('stopped');
+});
+
+test('deleting an app disables its managed workflow while retaining the ownership tombstone',async()=>{
+ const f=await automationReleaseFixture();
+ await f.release({action:'publish',requestId:'publish_delete_00001',version:f.app.version,revision:1});
+ const {getWorkflow,startRun}=await import('../src/harness/workflows.js');
+ const {deleteApp}=await import('../src/harness/apps.js');
+ const binding=await env.DB.prepare('SELECT workflow_id FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first();
+ const workflow=await getWorkflow(env.DB,ORG,binding.workflow_id);
+ expect(await deleteApp(env.DB,ORG,f.app.id)).toEqual({deleted:true});
+ expect(await getWorkflow(env.DB,ORG,workflow.id)).toMatchObject({enabled:false});
+ expect(await env.DB.prepare('SELECT workflow_id FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first()).toEqual(binding);
+ expect(await startRun(env,{orgId:ORG,workflow,trigger:'manual',startedBy:'9101'})).toBeNull();
+});
+
+test('a stale workflow definition cannot be claimed under a newer app release',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_stale_000001',version:f.app.version,revision:1});
+ const {getWorkflow,startRun}=await import('../src/harness/workflows.js');
+ const binding=await env.DB.prepare('SELECT workflow_id FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first();
+ const old=await getWorkflow(env.DB,ORG,binding.workflow_id);
+ const automations={...f.automations,items:f.automations.items.map(item=>({...item,name:'New release'}))};
+ const saved=await(await send('PUT',`/apps/${f.app.id}/automations`,toru,{orgId:ORG,version:first.version,revision:first.revision,automations})).json();
+ expect((await f.release({action:'publish',requestId:'publish_stale_000002',version:first.version,revision:saved.revision})).saved).toBe(true);
+ expect(await startRun(env,{orgId:ORG,workflow:old,trigger:'manual',startedBy:'9101'})).toBeNull();
+ const current=await getWorkflow(env.DB,ORG,binding.workflow_id);
+ expect((await startRun(env,{orgId:ORG,workflow:current,trigger:'manual',startedBy:'9101'})).status).toBe('done');
+});
+
+test('custom source unpublish stops automation atomically and source republish alone does not restart it',async()=>{
+ const f=await automationReleaseFixture();
+ await f.release({action:'publish',requestId:'publish_custom_00001',version:f.app.version,revision:1});
+ const {getApp}=await import('../src/harness/apps.js');
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const edit=async input=>{const app=await getApp(env.DB,ORG,f.app.id);return saveCustomRelease(env.DB,ORG,app,{...input,version:app.version},'9101');};
+ expect((await edit({action:'draft',html:'<html><body>App</body></html>'})).saved).toBe(true);
+ expect((await edit({action:'publish'})).saved).toBe(true);
+ const stale=await getApp(env.DB,ORG,f.app.id);
+ expect((await edit({action:'draft',html:'<html>New</html>'})).saved).toBe(true);
+ expect((await saveCustomRelease(env.DB,ORG,stale,{action:'unpublish',version:stale.version},'9101')).status).toBe(409);
+ expect((await env.DB.prepare('SELECT enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).enabled).toBe(1);
+ expect((await edit({action:'unpublish'})).saved).toBe(true);
+ const state=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();
+ expect(state.published).toBeNull();expect(state.draft).toEqual(f.automations);expect(state.plan[0].status).toBe('added');
+ expect((await env.DB.prepare('SELECT enabled,next_run_at FROM hx_workflows WHERE org_id=?1').bind(ORG).first())).toEqual({enabled:0,next_run_at:null});
+ expect((await edit({action:'publish'})).saved).toBe(true);
+ expect((await env.DB.prepare('SELECT enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).enabled).toBe(0);
+});
+
+test('combined source and automation publication commits one version and replays the same receipt',async()=>{
+ const f=await automationReleaseFixture();
+ const {getApp}=await import('../src/harness/apps.js');
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const source='<html><body>Combined release</body></html>';
+ const draft=await saveCustomRelease(env.DB,ORG,f.app,{action:'draft',version:f.app.version,html:source},'9101');
+ const request={action:'publish',requestId:'publish_combined_001',version:draft.version,revision:1,includeSource:true};
+ expect((await f.release({...request,includeSource:false})).status).toBe(409);
+ const released=await f.release(request);expect(released).toMatchObject({saved:true,version:draft.version+1});
+ expect((await getApp(env.DB,ORG,f.app.id)).definition.custom.published).toBe(source);
+ expect(await f.release(request)).toMatchObject({...released,replay:true});
+ expect((await f.release({...request,includeSource:false})).status).toBe(409);
+ const stopped=await f.release({action:'unpublish',requestId:'unpublish_combined01',version:released.version,revision:released.revision,includeSource:true});expect(stopped.saved).toBe(true);
+ expect((await getApp(env.DB,ORG,f.app.id)).definition.custom.published).toBeUndefined();
+ expect((await env.DB.prepare('SELECT enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).enabled).toBe(0);
+});
+
+test('combined publication rolls source and automation state back when a workflow write fails',async()=>{
+ const f=await automationReleaseFixture();
+ const {getApp}=await import('../src/harness/apps.js');
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const draft=await saveCustomRelease(env.DB,ORG,f.app,{action:'draft',version:f.app.version,html:'<html>Draft only</html>'},'9101');
+ await env.DB.exec("CREATE TRIGGER fail_combined BEFORE INSERT ON hx_workflows BEGIN SELECT RAISE(ABORT,'forced'); END;");
+ await expect(f.release({action:'publish',requestId:'rollback_combined_01',version:draft.version,revision:1,includeSource:true})).rejects.toThrow();
+ await env.DB.exec('DROP TRIGGER fail_combined;');
+ const app=await getApp(env.DB,ORG,f.app.id);expect(app.version).toBe(draft.version);expect(app.definition.custom.published).toBeUndefined();
+ expect((await env.DB.prepare('SELECT published,revision FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first())).toEqual({published:null,revision:1});
+});
+
+test('stopping a managed release works despite inaccessible live drift without disclosing or overwriting it',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_stop_drift01',version:f.app.version,revision:1});
+ await env.DB.prepare('UPDATE hx_workflows SET name=?1,trigger=?2 WHERE org_id=?3').bind('Private independent edit',JSON.stringify({type:'row',tableId:'foreign-table',on:'any'}),ORG).run();
+ expect((await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).status).toBe(403);
+ const result=await f.release({action:'unpublish',requestId:'unpublish_drift_0001',version:first.version,revision:first.revision});expect(result.saved).toBe(true);
+ expect(JSON.stringify(result)).not.toContain('Private independent edit');
+ const live=await env.DB.prepare('SELECT name,trigger,enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first();expect(live).toMatchObject({name:'Private independent edit',enabled:0});expect(JSON.parse(live.trigger).tableId).toBe('foreign-table');
+});
+
+test('stopping still succeeds when a managed workflow has been independently deleted',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_stop_missing1',version:f.app.version,revision:1});
+ await env.DB.prepare('DELETE FROM hx_workflows WHERE org_id=?1').bind(ORG).run();
+ const result=await f.release({action:'unpublish',requestId:'unpublish_missing01',version:first.version,revision:first.revision});expect(result.saved).toBe(true);
+ const state=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();expect(state.published).toBeNull();expect(state.plan[0].status).toBe('missing');
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+});
+
+test('reviewed live drift can be replaced, but stale or unrelated reviews cannot authorize publication',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_review_00001',version:f.app.version,revision:1});
+ await env.DB.prepare('UPDATE hx_workflows SET name=?1 WHERE org_id=?2').bind('Independent edit',ORG).run();
+ const plan=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();const item=plan.plan[0];
+ const reviewed=[{key:item.key,workflowId:item.workflowId,action:'replace',live:item.live}];
+ const request={action:'publish',requestId:'publish_review_00002',version:first.version,revision:first.revision,reviewed};
+ expect((await f.release({...request,reviewed:[{...reviewed[0],live:{...item.live,name:'Wrong reviewed name'}}]})).status).toBe(409);
+ expect((await f.release({...request,reviewed:[{...reviewed[0],key:'unrelated'}]})).status).toBe(409);
+ const result=await f.release(request);expect(result.saved).toBe(true);
+ expect((await env.DB.prepare('SELECT name FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).name).toBe('Review');
+ expect(await f.release(request)).toMatchObject({...result,replay:true});
+});
+
+test('a live edit after explicit review still rejects the entire publication',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_race_review1',version:f.app.version,revision:1});
+ await env.DB.prepare('UPDATE hx_workflows SET name=?1 WHERE org_id=?2').bind('Reviewed edit',ORG).run();
+ const plan=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();const item=plan.plan[0];
+ const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{
+  await env.DB.prepare('UPDATE hx_workflows SET name=?1 WHERE org_id=?2').bind('Newer unreviewed edit',ORG).run();return env.DB.batch(statements);
+ }};
+ const result=await f.release({action:'publish',requestId:'publish_race_review2',version:first.version,revision:first.revision,reviewed:[{key:item.key,workflowId:item.workflowId,action:'replace',live:item.live}]},db);
+ expect(result.status).toBe(409);expect((await env.DB.prepare('SELECT name FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).name).toBe('Newer unreviewed edit');
+});
+
+test('replacing a reviewed schedule drift clears the live schedule for a manual declaration',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_schedule_001',version:f.app.version,revision:1});
+ await env.DB.prepare('UPDATE hx_workflows SET trigger=?1,next_run_at=?2 WHERE org_id=?3').bind(JSON.stringify({type:'schedule',cadence:'daily',hour:9,minute:0,timezone:'Asia/Tokyo'}),'2099-01-01T00:00:00.000Z',ORG).run();
+ const plan=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();const item=plan.plan[0];
+ expect((await f.release({action:'publish',requestId:'publish_schedule_002',version:first.version,revision:first.revision,reviewed:[{key:item.key,workflowId:item.workflowId,action:'replace',live:item.live}]})).saved).toBe(true);
+ expect((await env.DB.prepare('SELECT next_run_at FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).next_run_at).toBeNull();
+});
+
+test('a missing automation is recreated only after an explicit review, retaining its stable identity',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_recreate_001',version:f.app.version,revision:1});
+ const old=await env.DB.prepare('SELECT id FROM hx_workflows WHERE org_id=?1').bind(ORG).first();
+ await env.DB.prepare('DELETE FROM hx_workflows WHERE org_id=?1').bind(ORG).run();
+ const request={action:'publish',requestId:'publish_recreate_002',version:first.version,revision:first.revision};
+ expect((await f.release(request)).status).toBe(409);
+ const reviewed=[{key:'review',workflowId:old.id,action:'recreate',live:null}];
+ const result=await f.release({...request,reviewed});expect(result.saved).toBe(true);
+ expect(await env.DB.prepare('SELECT id,name,enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({id:old.id,name:'Review',enabled:1});
+ expect(await f.release({...request,reviewed})).toMatchObject({...result,replay:true});
+});
+
+test('recreation refuses to overwrite a workflow that reappears after the missing-state review',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_reappear_001',version:f.app.version,revision:1});
+ const old=await env.DB.prepare('SELECT * FROM hx_workflows WHERE org_id=?1').bind(ORG).first();
+ await env.DB.prepare('DELETE FROM hx_workflows WHERE org_id=?1').bind(ORG).run();
+ const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{
+  await env.DB.prepare('INSERT INTO hx_workflows(id,org_id,name,enabled,trigger,steps,created_by,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)').bind(old.id,ORG,'Restored elsewhere',0,old.trigger,old.steps,old.created_by,old.created_at,old.updated_at).run();
+  return env.DB.batch(statements);
+ }};
+ const result=await f.release({action:'publish',requestId:'publish_reappear_002',version:first.version,revision:first.revision,reviewed:[{key:'review',workflowId:old.id,action:'recreate',live:null}]},db);
+ expect(result.status).toBe(409);expect((await env.DB.prepare('SELECT name,enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first())).toEqual({name:'Restored elsewhere',enabled:0});
+});
+
+test('automation lifecycle API is editor-only and state remains available for stop when live visibility fails',async()=>{
+ const f=await automationReleaseFixture();const path=`/apps/${f.app.id}/automations`;
+ const input={orgId:ORG,action:'publish',requestId:'publish_api_0000001',version:f.app.version,revision:1};
+ expect((await send('POST',path,mika,input)).status).toBe(403);
+ const response=await send('POST',path,toru,input);expect(response.status).toBe(200);const first=await response.json();expect(first.saved).toBe(true);
+ expect((await(await send('POST',path,toru,input)).json()).replay).toBe(true);
+ await env.DB.prepare('UPDATE hx_workflows SET trigger=?1 WHERE org_id=?2').bind(JSON.stringify({type:'row',tableId:'foreign-table',on:'any'}),ORG).run();
+ expect((await get(`${path}?orgId=${ORG}`,toru)).status).toBe(403);
+ expect((await get(`${path}?orgId=${ORG}&stateOnly=1`,mika)).status).toBe(403);
+ const state=await(await get(`${path}?orgId=${ORG}&stateOnly=1`,toru)).json();expect(state.revision).toBe(first.revision);expect(JSON.stringify(state)).not.toContain('foreign-table');
+ const stopped=await send('POST',path,toru,{orgId:ORG,action:'unpublish',requestId:'unpublish_api_000001',version:state.version,revision:state.revision});expect(stopped.status).toBe(200);
+});
+
+test('app automation generation produces a disabled proposal without writing workflows or app drafts',async()=>{
+ const {app}=await(await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ const {appAutomationFromPrompt}=await import('../src/harness/appAutomationGeneration.js');
+ const result=await appAutomationFromPrompt(env.DB,ORG,'9101',{prompt:'Create a row',complete:async()=>JSON.stringify({name:'Create row',trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{}}]})});
+ expect(result.automation).toMatchObject({name:'Create row',enabled:false,trigger:{type:'manual'}});
+ expect(result.automation.key).toMatch(/^auto_/);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_automation_state WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+ expect((await send('POST',`/apps/${app.id}/automations`,mika,{orgId:ORG,action:'generate',prompt:'Create row',useModel:false})).status).toBe(403);
+ expect((await send('POST',`/apps/${app.id}/automations`,toru,{orgId:ORG,action:'generate',prompt:'Create row',useModel:false})).status).toBe(503);
+});
+
+test('managed follow-ups retain their published origin and cannot run after stop and republication',async()=>{
+ const f=await automationReleaseFixture();
+ const {upsertBusiness}=await import('../src/db.js');
+ await upsertBusiness(env.DB,ORG,{name:'Ops',createdBy:'9101'});
+ const automations={version:1,items:[{...f.automations.items[0],steps:[{type:'followup',channel:'b:ops',minutes:1,text:'Managed reminder'}]}]};
+ const saved=await(await send('PUT',`/apps/${f.app.id}/automations`,toru,{orgId:ORG,version:f.app.version,revision:1,automations})).json();
+ const first=await f.release({action:'publish',requestId:'publish_followup_001',version:f.app.version,revision:saved.revision});expect(first.saved).toBe(true);
+ const {getWorkflow,startRun}=await import('../src/harness/workflows.js');
+ const {runDueFollowups,scheduleFollowup}=await import('../src/harness/followups.js');
+ const binding=await env.DB.prepare('SELECT workflow_id,release_id FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first();
+ const workflow=await getWorkflow(env.DB,ORG,binding.workflow_id);
+ expect((await startRun(env,{orgId:ORG,workflow,trigger:'manual',startedBy:'9101'})).status).toBe('done');
+ const followup=await env.DB.prepare('SELECT * FROM hx_followups WHERE org_id=?1').bind(ORG).first();
+ expect(followup).toMatchObject({origin_workflow_id:workflow.id,origin_release_id:binding.release_id,status:'scheduled'});
+ const stopped=await f.release({action:'unpublish',requestId:'unpublish_followup01',version:first.version,revision:first.revision});
+ expect((await scheduleFollowup(env.DB,{orgId:ORG,channel:'b:ops',instruction:'Stale reminder',dueAt:new Date(Date.now()+60000).toISOString(),by:'9101',originWorkflowId:workflow.id,originReleaseId:binding.release_id})).status).toBe(409);
+ expect((await f.release({action:'publish',requestId:'republish_followup01',version:stopped.version,revision:stopped.revision})).saved).toBe(true);
+ expect(await runDueFollowups({...env,OPENAI_API_KEY:undefined},{now:new Date(Date.now()+120000)})).toBe(0);
+ expect(await env.DB.prepare('SELECT status FROM hx_followups WHERE id=?1').bind(followup.id).first()).toEqual({status:'failed'});
+});

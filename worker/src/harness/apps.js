@@ -334,6 +334,9 @@ export async function deleteApp(db, orgId, id) {
   const app = await getApp(db, orgId, id);
   if (!app) return { error: "No such app.", status: 404 };
   await db.batch([
+    // Keep bindings as tombstones: a deleted app must never turn its runs
+    // into standalone workflows. Stop scheduling in the same transaction.
+    db.prepare("UPDATE hx_workflows SET enabled=0,next_run_at=NULL WHERE org_id=?2 AND id IN (SELECT workflow_id FROM hx_app_automation_bindings WHERE org_id=?2 AND app_id=?1)").bind(id,orgId),
     db.prepare("DELETE FROM hx_app_links WHERE app_id = ?1 AND org_id = ?2").bind(id, orgId),
     db.prepare("DELETE FROM hx_app_versions WHERE app_id = ?1 AND org_id = ?2").bind(id, orgId),
     db.prepare("DELETE FROM hx_rows WHERE org_id=?2 AND table_id IN (SELECT table_id FROM hx_app_entities WHERE org_id=?2 AND app_id=?1)").bind(id,orgId),
