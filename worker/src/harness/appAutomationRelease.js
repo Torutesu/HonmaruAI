@@ -1,5 +1,6 @@
 import {allowed} from '../permissions.js';
 import {readAutomationPlan} from './appAutomationPlan.js';
+import {readAutomationDraft} from './appAutomationDraft.js';
 import {automationDefinition,sameAutomation} from './appAutomationDefinition.js';
 import {mayViewWorkflow,unknownApprover,MAX_WORKFLOWS} from './workflows.js';
 import {mayUseApp} from './resourceAccess.js';
@@ -24,10 +25,11 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   const prior=await db.prepare('SELECT request,release_id,revision,app_version FROM hx_app_automation_releases WHERE org_id=?1 AND app_id=?2 AND request_id=?3').bind(orgId,app.id,input.requestId).first();
   if(prior)return prior.request===request?{...receipt(prior),replay:true}:conflict();
   if(input.version!==app.version)return conflict();
-  const plan=await readAutomationPlan(db,orgId,app.id,by);
+  const stopping=input.action==='unpublish';
+  const plan=stopping?await readAutomationDraft(db,orgId,app.id):await readAutomationPlan(db,orgId,app.id,by);
   if(plan.error)return plan;
   if(plan.revision!==input.revision)return conflict();
-  if(plan.plan.some(item=>['drifted','missing'].includes(item.status)))return conflict();
+  if(!stopping && plan.plan.some(item=>['drifted','missing'].includes(item.status)))return conflict();
   const desired=input.action==='publish'?plan.draft.items:[];
   for(const item of desired) {
     if(!await mayViewWorkflow(db,orgId,item,by))return {error:'An automation references an unavailable resource.',status:403};
@@ -36,7 +38,7 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   const {results:bindings}=await db.prepare('SELECT declaration_key,workflow_id,applied FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2 LIMIT 101').bind(orgId,app.id).all();
   if(bindings.length>100)return conflict();
   const snapshots=[];
-  for(const binding of bindings) {
+  for(const binding of stopping?[]:bindings) {
     const row=await db.prepare('SELECT id,name,enabled,trigger,steps,created_by FROM hx_workflows WHERE org_id=?1 AND id=?2').bind(orgId,binding.workflow_id).first();
     if(!row)return conflict();
     if(row.created_by!==String(by) && !manageOthers)return {error:'Workflow editor access required.',status:403};
@@ -65,11 +67,11 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
     WHERE org_id=?1 AND app_id=?2 AND revision=?3
       AND EXISTS(SELECT 1 FROM hx_apps WHERE org_id=?1 AND id=?2 AND version=?8)
       AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?7 AND role!='guest')
-      AND (SELECT COUNT(*) FROM hx_workflows WHERE org_id=?1)+?10<=?11
+      AND (?12=1 OR (SELECT COUNT(*) FROM hx_workflows WHERE org_id=?1)+?10<=?11)
       AND NOT EXISTS(SELECT 1 FROM json_each(?9) snapshot LEFT JOIN hx_workflows w ON w.org_id=?1 AND w.id=json_extract(snapshot.value,'$.id')
         WHERE w.id IS NULL OR w.name!=json_extract(snapshot.value,'$.name') OR w.enabled!=json_extract(snapshot.value,'$.enabled')
           OR w.trigger!=json_extract(snapshot.value,'$.trigger') OR w.steps!=json_extract(snapshot.value,'$.steps') OR w.created_by!=json_extract(snapshot.value,'$.created_by'))`)
-    .bind(orgId,app.id,plan.revision,published,releaseId,at,String(by),app.version,JSON.stringify(snapshots),added,MAX_WORKFLOWS)];
+    .bind(orgId,app.id,plan.revision,published,releaseId,at,String(by),app.version,JSON.stringify(snapshots),added,MAX_WORKFLOWS,stopping?1:0)];
   statements.push(db.prepare(`UPDATE hx_apps SET version=?4,updated_at=?5,definition=?6 WHERE org_id=?1 AND id=?2 AND ${guard}`).bind(orgId,app.id,releaseId,version,at,JSON.stringify(definition)));
   statements.push(db.prepare(`INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at)
     SELECT ?2,?1,?4,?5,?6,?7,?8 WHERE ${guard}`).bind(orgId,app.id,releaseId,version,JSON.stringify({name:app.name,columns:table.columns,...definition,automationRelease:releaseId}),'Automations: '+input.action,String(by),at));

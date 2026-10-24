@@ -750,3 +750,22 @@ test('combined publication rolls source and automation state back when a workflo
  const app=await getApp(env.DB,ORG,f.app.id);expect(app.version).toBe(draft.version);expect(app.definition.custom.published).toBeUndefined();
  expect((await env.DB.prepare('SELECT published,revision FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first())).toEqual({published:null,revision:1});
 });
+
+test('stopping a managed release works despite inaccessible live drift without disclosing or overwriting it',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_stop_drift01',version:f.app.version,revision:1});
+ await env.DB.prepare('UPDATE hx_workflows SET name=?1,trigger=?2 WHERE org_id=?3').bind('Private independent edit',JSON.stringify({type:'row',tableId:'foreign-table',on:'any'}),ORG).run();
+ expect((await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).status).toBe(403);
+ const result=await f.release({action:'unpublish',requestId:'unpublish_drift_0001',version:first.version,revision:first.revision});expect(result.saved).toBe(true);
+ expect(JSON.stringify(result)).not.toContain('Private independent edit');
+ const live=await env.DB.prepare('SELECT name,trigger,enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first();expect(live).toMatchObject({name:'Private independent edit',enabled:0});expect(JSON.parse(live.trigger).tableId).toBe('foreign-table');
+});
+
+test('stopping still succeeds when a managed workflow has been independently deleted',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_stop_missing1',version:f.app.version,revision:1});
+ await env.DB.prepare('DELETE FROM hx_workflows WHERE org_id=?1').bind(ORG).run();
+ const result=await f.release({action:'unpublish',requestId:'unpublish_missing01',version:first.version,revision:first.revision});expect(result.saved).toBe(true);
+ const state=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();expect(state.published).toBeNull();expect(state.plan[0].status).toBe('missing');
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+});
