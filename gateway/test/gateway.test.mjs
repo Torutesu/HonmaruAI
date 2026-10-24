@@ -80,6 +80,7 @@ test('assigned workflow jobs use scoped state transport without placing leases i
   const result=await stateOperation('state.get',{}, {signal});assert.equal(result.revision,0);
   return {status:'succeeded',stdout:'',stderr:'',exitCode:0};
  }});
+ assert.deepEqual(calls[0].body,{capabilities:['workflow-program-v1']});
  assert.deepEqual(calls[1].body,{lease:'host-only-lease',operation:'state.get',params:{}});
  assert.equal(calls[1].path,'jobs/workflow-job/state');
  assert.equal(calls[2].path,'jobs/workflow-job/finish');

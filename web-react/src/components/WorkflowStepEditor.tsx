@@ -1,8 +1,9 @@
 import React from 'react'
+import {WorkflowProgramEditor} from './WorkflowProgramEditor'
 import {WorkflowConditionEditor,blankCondition} from './WorkflowConditionEditor'
 import {useT} from '../utils/i18n'
 import {Icon} from './Icon'
-import type {Step,StepType,Table} from '../utils/harness'
+import type {Step,StepType,Table,HarnessApi} from '../utils/harness'
 export interface AgentFace {id:string;handle:string;name:string;emoji?:string|null}
 const STEP_TYPES:StepType[]=['post','agent','add_row','update_row','approval','followup']
 const blankStep=(type:StepType):Step=>({type,...(type==='followup'?{minutes:1440}:{})})
@@ -13,12 +14,13 @@ function stepLabel(t: (k: string) => string, type: StepType) {
   } as Record<StepType, string>)[type]
 }
 
-export function StepEditor({ step, onChange, onRemove, tables, agents, triggerTable }: {
-  step: Step; onChange: (s: Step) => void; onRemove: () => void; tables: Table[]; agents: AgentFace[]; triggerTable?: Table
+export function StepEditor({ api, step, onChange, onRemove, tables, agents, triggerTable }: {
+  api?:HarnessApi; step: Step; onChange: (s: Step) => void; onRemove: () => void; tables: Table[]; agents: AgentFace[]; triggerTable?: Table
 }) {
   const t = useT()
   const set = (patch: Partial<Step>) => onChange({ ...step, ...patch })
   const valueTable = step.type === 'add_row' ? tables.find((x) => x.id === step.tableId) : triggerTable
+  if(step.type==='code')return <div className="hx-step">{api?<WorkflowProgramEditor api={api} step={step} onChange={onChange}/>:<pre className="hx-program-source">{step.code}</pre>}<button className="btn-text danger" onClick={onRemove}>{t('Remove step')}</button></div>
   return (
     <div className="hx-step">
       <div className="hx-step-head">

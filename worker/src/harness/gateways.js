@@ -56,11 +56,14 @@ export async function handleGateways(request, env, url, input) {
     if (parts[1] === 'claim') {
       await expireGatewayJobs(db, at);
       const lease = secret();
+      const programCapable=Array.isArray(input?.capabilities)&&input.capabilities.includes('workflow-program-v1');
       const row = await db.prepare(`${workflowProgramAccessCTE('?2')} UPDATE hx_gateway_jobs SET status = 'running', lease_hash = ?3, lease_until = ?2 + 90000, deadline = ?2 + 120000, started_at = ?2
-        WHERE id = (SELECT id FROM hx_gateway_jobs WHERE gateway_id = ?1 AND status = 'queued' ORDER BY created_at, id LIMIT 1)
+        WHERE id = (SELECT id FROM hx_gateway_jobs WHERE gateway_id = ?1 AND status = 'queued'
+          AND (?4=1 OR (COALESCE(json_extract(payload,'$.workflowProgram'),0)!=1 AND NOT EXISTS(SELECT 1 FROM hx_workflow_activations a WHERE a.job_id=hx_gateway_jobs.id)))
+          ORDER BY created_at, id LIMIT 1)
         AND status = 'queued' AND ${activeMember} AND ${workflowProgramJobAccess}
         AND NOT EXISTS (SELECT 1 FROM hx_gateway_jobs busy WHERE busy.gateway_id = ?1 AND busy.status = 'running') RETURNING *`)
-        .bind(g.id, at, await digest(lease)).first();
+        .bind(g.id, at, await digest(lease),programCapable?1:0).first();
       const workflow=row&&await db.prepare('SELECT 1 FROM hx_workflow_activations WHERE org_id=?1 AND job_id=?2').bind(row.org_id,row.id).first();
       return json({ job: row ? { ...jobView(row), workflow:Boolean(workflow), payload: JSON.parse(row.payload), lease, timeoutMs: 60000 } : null });
     }

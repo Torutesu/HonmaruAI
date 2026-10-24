@@ -19,3 +19,14 @@ test('changing the action preserves its execution condition and discards obsolet
  act(()=>select.props.onChange({target:{value:'approval'}}));expect(onChange).toHaveBeenCalledWith({type:'approval',when})
  act(()=>tree.unmount())
 })
+
+test('app automation program editing uses the source editor without converting to a form step',async()=>{
+ const step={type:'code' as const,code:'console.log("saved");',gatewayId:'mini'};
+ const onChange=vi.fn(),api:any={gateways:vi.fn().mockResolvedValue({gateways:[{id:'mini',name:'Mac mini',revokedAt:null}]})};let tree:any;
+ await act(async()=>{tree=create(<StepEditor api={api} step={step} onChange={onChange} onRemove={()=>{}} tables={[]} agents={[]}/>)});
+ const source=tree.root.findByType('textarea');expect(source.props.value).toBe(step.code);
+ act(()=>source.props.onChange({target:{value:'console.log("edited");'}}));
+ expect(onChange).toHaveBeenCalledWith({...step,code:'console.log("edited");'});
+ expect(tree.root.findAllByType('option').some((option:any)=>option.props.value==='post')).toBe(false);
+ act(()=>tree.unmount());
+});

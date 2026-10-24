@@ -108,3 +108,21 @@ The pinned guest was observed running Node v22.23.3 with `node:module.stripTypeS
 Worker queue and execution UI now carry the explicit language; language changes affect idempotency identity. JavaScript and TypeScript editor drafts are retained independently. This is not a durable workflow SDK, and no state-service credentials are exposed to guest code. The installed LaunchAgent snapshot was updated on 2026-10-25 using the existing owner-only token/configuration. launchctl reported running, the plist validated, and the installed runner matched the tested source hash. No physical reboot was performed. Production API/UI rollout and an authenticated TypeScript round trip through the production queue remain pending.
 
 On 2026-10-25 a later health check found the copied Node executable failing macOS code-signature validation and launchd retrying it (`OS_REASON_CODESIGNING`). The original installed Node still verified correctly; its hash differed from the service copy. The installer now copies to a new inode, compares SHA-256 with the source, verifies the existing code signature and tests `--version` before an atomic rename. It does not re-sign the executable or disable platform protections. Reinstallation restored a valid matching copy, stable launchd process and running container runtime. The original corruption's cause is not established; an initial `running` snapshot alone is not evidence of sustained service health.
+
+### Whole-workflow TypeScript programs (release candidate)
+
+The unreleased workflow editor adds **TypeScriptプログラム** beside form steps. A program is the entire workflow: choose an existing execution node, save source, then run it manually or use the existing schedule/webhook/row trigger. Switching editor formats retains both drafts; saving selects only the visible format. Runs freeze the saved source and keep it while later edits create new revisions. The module executes from the top; an exported default function is not invoked automatically.
+
+The candidate supports the following state API inside the isolated VM:
+
+```ts
+import {state, ctx} from '@honmaru/workflow-sdk';
+const previous = await state.get();
+const count = (previous.state?.count ?? 0) + 1;
+await state.set({count}, {validationStatus: 'passed', schemaVersion: 'v1'});
+console.log({count, workspace: ctx.workspaceId});
+```
+
+Read before writing. The SDK carries the revision into compare-and-swap writes; a conflicting or expired activation fails instead of overwriting newer state. `state.get()` returns prior accepted business state by default. Use `{view:'checkpoint'}` to inspect latest progress or `{includeCurrentRun:true}` to include accepted state from this run. Pending progress and accepted business state are separate. An uncertain program is not automatically rerun: review its execution history before deliberately starting new work.
+
+Current limits remain 60 seconds per VM, 48 KB saved source, a 64 KB combined execution payload, 128 KB state, 64 state operations and bounded logs. No outbound network, host files, host credentials, package installation, agent calls or external tool SDK are provided by this candidate. Node-to-state requests are handled by the trusted host broker with the assigned job lease. New services and billing are not required. Full Kylon SDK parity is still outstanding. This section describes the candidate, not a completed production rollout or a physical-reboot verification.

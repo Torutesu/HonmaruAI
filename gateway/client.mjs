@@ -23,7 +23,7 @@ export const FINISH_RETRY_MS = [1000, 2000, 4000, 8000, 15000, 15000, 15000];
 const transient = (error) => !error.status || error.status === 408 || error.status === 429 || error.status >= 500;
 
 export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, retryMs = FINISH_RETRY_MS } = {}) {
-  const { job } = await call('claim');
+  const { job } = await call('claim',{capabilities:['workflow-program-v1']});
   if (!job) return false;
   const cancel = new AbortController();
   const abort = () => cancel.abort();

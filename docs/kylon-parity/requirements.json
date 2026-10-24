@@ -666,21 +666,21 @@
       "acceptance": "新規runの定義を原子的に固定。権限付きrevision履歴・比較UIとrunの版番号を本番反映。追跡開始前の旧run移行と保存TypeScript定義のversionは未対応",
       "evidence": {
         "verified": "e16321cb candidate CI 40109883954 passed; production Worker 40111530216 and Web 40111530061 succeeded. Both domains serve index-mgdFRSD0.js. Readable light/dark/mobile comparisons verified in CI browser artifacts.",
-        "remaining": "Native signed-in interaction for this release remains unverified; historical pre-tracking runs are not relabelled. Saved TypeScript workflow source is not yet a supported definition form."
+        "remaining": "Native signed-in interaction for this release remains unverified; historical pre-tracking runs are not relabelled. Saved TypeScript source/history is implemented in unreleased candidate 966084c1, awaiting full CI and production rollout."
       }
     },
     {
       "id": "KY-059",
       "category": "Automations",
       "requirement": "TypeScript SDKと永続checkpoint",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
       "acceptance": "再開時に完了済み外部操作を繰り返さない",
       "evidence": {
-        "verified": "Internal checkpoint and business-state foundations have focused D1 coverage for CAS, retention and current membership/source access. An isolated TypeScript default-function module returned 42 in the existing Mac VM; its gateway API/UI candidate is still in CI. Neither this entry point nor the undeployed state store implements the workflow SDK contract.",
-        "remaining": "Saved workflow top-level TypeScript execution, activation-scoped SDK transport, durable state integration, recovery scheduler and external-effect replay guarantees remain unimplemented. Kylon documentation rechecked 2026-10-25: exported functions are not invoked automatically; a generic default-function gateway is not equivalent."
+        "verified": "Unreleased candidate 966084c1 (CI 40114790679) includes saved whole-program TypeScript forms, frozen job admission, isolated top-level SDK state.get/set transport, D1 CAS/metadata/retention, current permission fences, terminal recovery and code/history UI. Focused Worker coverage passed 108 tests plus 26 program regressions; Web UI 32 tests/build and gateway/dependency/migration 35 tests passed. Earlier real Mac VM smoke validated the SDK bridge with an in-memory callback only. Candidate CI is still running.",
+        "remaining": "Candidate full CI and browser screenshots, production deployment/runtime install and a real VM-to-D1 production round trip remain unverified. Broader SDK agent/tool/external-effect operations, general multi-step resume and complete Kylon runtime parity remain missing. No 100% or external-effect replay guarantee is claimed."
       }
     },
     {

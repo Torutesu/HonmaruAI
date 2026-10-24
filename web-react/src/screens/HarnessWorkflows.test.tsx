@@ -353,3 +353,35 @@ test('program and form drafts survive format switches and save whole source',asy
  await act(async()=>{tree.root.findByProps({'aria-label':'TypeScript source'}).props.onChange({target:{value:'あ'.repeat(16001)}})});
  expect(button('Save workflow').props.disabled).toBe(true);
 });
+
+test('running workflow details refresh automatically and stop polling after completion',async()=>{
+ vi.useFakeTimers();
+ try{
+  const live={id:'program-live',status:'running',trigger:'manual',startedAt:'2026-10-25T00:00:00Z',log:[]};
+  state.api.workflow.mockResolvedValueOnce({workflow,runs:[live],canEdit:true}).mockResolvedValue({workflow,runs:[{...live,status:'done',finishedAt:'2026-10-25T00:00:01Z',log:[{step:1,type:'code',status:'done',output:'Finished program',at:'2026-10-25T00:00:01Z'}]}],canEdit:true});
+  await open();expect(state.api.workflow).toHaveBeenCalledTimes(1);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(5000)});
+  expect(JSON.stringify(tree.toJSON())).toContain('Finished program');
+  await act(async()=>{await vi.advanceTimersByTimeAsync(20000)});
+  expect(state.api.workflow).toHaveBeenCalledTimes(2);
+ }finally{vi.useRealTimers()}
+});
+test('refresh failure clears stale run details and reports the error',async()=>{
+ vi.useFakeTimers();
+ try{
+  state.api.workflow.mockResolvedValueOnce({workflow,runs:[{id:'private-run',status:'running',trigger:'manual',startedAt:'2026-10-25T00:00:00Z',log:[]}],canEdit:true}).mockRejectedValue(new Error('Workflow access removed'));
+  await open();await act(async()=>{await vi.advanceTimersByTimeAsync(5000)});
+  expect(tree.root.findAllByProps({'data-run':'private-run'})).toHaveLength(0);
+  expect(tree.root.findAllByProps({'data-workflow':workflow.id})).toHaveLength(0);
+  expect(JSON.stringify(tree.toJSON())).toContain('Workflow access removed');
+ }finally{vi.useRealTimers()}
+});
+
+test('manual setup focuses the builder instead of stacking the generation form above it',async()=>{
+ await act(async()=>{tree=create(<HarnessWorkflows {...props}/>)});
+ await act(async()=>{button('Set up an automation').props.onClick()});
+ expect(tree.root.findAllByProps({className:'hx-generation'})).toHaveLength(1);
+ await act(async()=>{button('Manual setup').props.onClick()});
+ expect(tree.root.findAllByProps({className:'hx-generation'})).toHaveLength(0);
+ expect(tree.root.findAllByProps({className:'hx-builder'})).toHaveLength(1);
+});

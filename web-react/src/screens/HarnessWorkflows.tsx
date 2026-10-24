@@ -161,8 +161,32 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [replaySelection, setReplaySelection] = useState<string[] | null>(null)
   const [discardSelection, setDiscardSelection] = useState<string[] | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [syncError,setSyncError]=useState('')
   const detailRequest = useRef(0)
   const { busy, error, act } = useAct()
+  const activeWorkflowId=!editing&&open?.runs.some(run=>run.status==='running')?open.workflow.id:null
+  useEffect(()=>{
+    if(!activeWorkflowId||busy)return
+    let stopped=false,timer:ReturnType<typeof setTimeout>
+    const request=detailRequest.current
+    const refresh=async()=>{
+      try{
+        const result=await api.workflow(activeWorkflowId)
+        if(stopped||detailRequest.current!==request)return
+        setSyncError('')
+        setOpen(current=>current?.workflow.id===activeWorkflowId?result:current)
+        if(result.runs.some(run=>run.status==='running'))timer=setTimeout(refresh,5000)
+      }catch(error){
+        if(stopped||detailRequest.current!==request)return
+        setSyncError(error instanceof Error?error.message:String(error))
+        setOpen(null)
+        setWorkflows(current=>current?.filter(workflow=>workflow.id!==activeWorkflowId)??null)
+      }
+    }
+    timer=setTimeout(refresh,5000)
+    return()=>{stopped=true;clearTimeout(timer)}
+  },[api,activeWorkflowId,busy])
+
 
   const load = useCallback(() => act('load', async () => {
     const [w, tb] = await Promise.all([api.workflows(), api.tables()])
@@ -177,7 +201,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     if(props.onNavigateWorkflow && props.requestedWorkflowId!==id){props.onNavigateWorkflow(id);return Promise.resolve()}
     const request = ++detailRequest.current
     return act(`open:${id}`, async () => {
-      setHookAction(null); setReplaySelection(null); setDiscardSelection(null); setConfirmDelete(false)
+      setSyncError(''); setHookAction(null); setReplaySelection(null); setDiscardSelection(null); setConfirmDelete(false)
       try {
         const result = await api.workflow(id)
         if (detailRequest.current === request) setOpen(result)
@@ -233,7 +257,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
         </div>
         <WorkflowHistory key={`${w.id}:${w.updatedAt}`} api={api} workflowId={w.id} tables={tables} agents={agents}/>
         <WorkflowSource key={w.id} api={api} workflowId={w.id} orgId={props.orgId}/>
-        {error && <div className="form-error">{error}</div>}
+        {(error||syncError) && <div className="form-error" role="alert">{error||syncError}</div>}
         {open.canEdit && (
           <div className="hx-actions">
             <button className="pill-btn quiet" disabled={!!busy || !w.updatedAt} onClick={() => setEditing(structuredClone(w))}><Icon name="edit" size={14} /> {t('Edit workflow')}</button>
@@ -334,9 +358,9 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     <Shell className="hx-resource-screen" title={t('Workflows')} onClose={props.onClose} actions={!building && <button className="pill-btn" onClick={() => setBuilding(true)}><Icon name="plus" size={14} /> {t('Set up an automation')}</button>}>
       <WorkflowNotices api={api} onOpen={id=>void openOne(id)} />
       <p className="lede">{t('Describe the outcome once: when it should happen, and what follows. A person approves what matters.')}</p>
-      {error && <div className="form-error">{error}</div>}
+      {(error||syncError) && <div className="form-error" role="alert">{error||syncError}</div>}
       {hook && <div className="form-note">{t('Call this address to start it:')} <code className="hx-code">{hook}</code></div>}
-      {building && <section className="hx-generation">
+      {building && !manual && <section className="hx-generation">
         <label htmlFor="workflow-prompt">{t('Describe an automation')}</label>
         <textarea id="workflow-prompt" className="context-input" rows={4} maxLength={4000} value={prompt} onChange={e => setPrompt(e.target.value)} placeholder={t('e.g. Every weekday at 9, ask an agent to summarize tasks and post in #ops.')} />
         <p className="row-sub">{t('Created paused. Review the steps before turning it on.')}</p>
