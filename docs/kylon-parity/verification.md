@@ -2046,3 +2046,7 @@ Exact cc7ef49d release runs remain live (Worker tests / Web waiting for Worker /
 ### 2026-10-24 skill search release delivery verification
 - UI release84c9f8bd CI40059384616 and Web40059384522 both completed success. Deployment verification logs confirm both https://honmaru-web.pages.dev and https://app.honmaruai.com served index-CBoMnX_f.js at2026-10-24T03:43:12Z. This verifies asset delivery, not authenticated production interaction. Native refresh remains pending the computer-use lock issue.
 - Execution grant full regression1758 tests already passed; additional durable-result Worker sources remain frozen frome0a47752 for full87689 (/tmp/honmaru-agent-results-full-worker.log). Publish the combined server batch only after that run succeeds.
+
+### 2026-10-24 execution grant and durable-result release preflight
+- Frozen Worker sources frome0a47752 passed218 files/1764 tests in450.89s (/tmp/honmaru-agent-results-full-worker.log). Full87689 completed normally; no rerun was started because of observation delays. Web remains the verified84c9f8bd source.
+- Prior84c9f8bd CI40059384616/Web40059384522 completed success before this publication. Publish execution grants, research cancellation propagation and durable normal-job outcomes together. Authenticated native verification is still pending; no complete handoff or 100% parity claim.
