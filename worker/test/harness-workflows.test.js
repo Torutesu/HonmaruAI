@@ -860,3 +860,22 @@ test('operational pause is visible in the list but only maker/admin can resume i
  expect((await send('POST',`/workflows/${workflow.id}/resume`,mika,{orgId:ORG,generation:safety.generation})).status).toBe(403);
  expect((await send('POST',`/workflows/${workflow.id}/resume`,toru,{orgId:ORG,generation:safety.generation})).status).toBe(200);
 });
+
+test('safety notices are creator-scoped, require current workflow access, and read acknowledgement is idempotent',async()=>{
+ const {workflow}=await(await send('POST','/workflows',mika,{orgId:ORG,name:'Notice target',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Hello'}]})).json();
+ await env.DB.prepare("INSERT INTO hx_workflow_safety_notices(org_id,workflow_id,generation,run_id,recipient_id,created_at) VALUES(?1,?2,'g','r','9302','now')").bind(ORG,workflow.id).run();
+ const list=async(token)=>(await(await get(`/workflows/notices?${q({orgId:ORG})}`,token)).json()).items;
+ expect(await list(toru)).toEqual([]);
+ expect(await list(mika)).toEqual([expect.objectContaining({workflowId:workflow.id,name:'Notice target',readAt:null})]);
+ const body={orgId:ORG,workflowId:workflow.id,generation:'g'};
+ expect((await send('POST','/workflows/notices',toru,body)).status).toBe(404);
+ expect((await send('POST','/workflows/notices',mika,body)).status).toBe(200);
+ const readAt=(await list(mika))[0].readAt;
+ expect(typeof readAt).toBe('string');
+ await send('POST','/workflows/notices',mika,body);
+ expect((await list(mika))[0].readAt).toBe(readAt);
+ // Current resource ACL, not past recipient identity, controls disclosure.
+ await env.DB.prepare("UPDATE hx_workflows SET steps=?1 WHERE org_id=?2 AND id=?3").bind(JSON.stringify([{type:'agent',agentId:'deleted-private-agent',prompt:'Hidden'}]),ORG,workflow.id).run();
+ expect(await list(mika)).toEqual([]);
+ expect((await send('POST','/workflows/notices',mika,body)).status).toBe(404);
+});

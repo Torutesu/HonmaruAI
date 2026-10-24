@@ -1,3 +1,4 @@
+import {workflowNotices} from './workflowNotices.js';
 import {resumeWorkflowSafety,readWorkflowSafety} from './workflowSafety.js';
 import {appAutomationFromPrompt} from './appAutomationGeneration.js';
 import {readAutomationPlan} from './appAutomationPlan.js';
@@ -342,6 +343,10 @@ export async function handleHarness(request, env, url, context = {}) {
   // ── Workflows ─────────────────────────────────────────────────────────
   if (parts[0] === "workflows") {
     const [, wfId, sub, runId] = parts;
+    if(wfId==='notices'&&!sub&&['GET','POST'].includes(request.method)){
+      const result=await workflowNotices(env.DB,orgId,me,input,request.method==='POST');
+      return result.error?fail(result):json(result);
+    }
     if (wfId === 'generate' && request.method === 'POST') {
       let generationRoom = null;
       if (input.channel) {
