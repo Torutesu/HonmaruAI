@@ -810,3 +810,50 @@ test('handoff retains the human origin but resolves only the explicitly assigned
   expect(await assignmentExecutionGrant(env,current)).toBeNull();
   expect(await acceptAgentHandoff(env,input)).toMatchObject({status:403});
 });
+
+test('Harness persists normal delivery before acknowledgement and retries the same job without inline execution', async()=>{
+  const {agent}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO})).json();
+  const {setMode}=await import('../src/harness/mode.js');
+  const {drainAgentRequests}=await import('../src/agentRequestDispatch.js');
+  const {agentExecutionGrant}=await import('../src/agentExecutionGrant.js');
+  await setMode(env.DB,ORG,'harness','8801');
+  const calls=[];let acknowledge=false;
+  const runner={idFromName:name=>name,get:()=>({fetch:async(_url,init)=>{
+    const job=JSON.parse(init.body);
+    if(_url.endsWith('/agent-status'))return Response.json({results:job.rowIds.map(rowId=>({rowId,status:'unknown',answered:0}))});
+    calls.push(job);
+    const durable=await env.DB.prepare('SELECT message_id FROM hx_agent_request_dispatch WHERE org_id=?1 AND message_id=?2').bind(ORG,job.rowId).first();
+    expect(durable).not.toBeNull();
+    if(!acknowledge)throw new Error('Lost acknowledgement');
+    return new Response('Queued',{status:202});
+  }})};
+  const over={AGENT_INLINE:'',AGENT_RUNNER:runner};
+  const response=await send('POST','/channels/messages',mika,{orgId:ORG,channel:`ag:${agent.id}`,body:'hello',clientId:'tmp-durable-request'},over);
+  expect(response.status).toBe(201);const {message}=await response.json();
+  expect(calls).toHaveLength(1);
+  const messages=await env.DB.prepare('SELECT kind FROM channel_messages WHERE org_id=?1').bind(ORG).all();
+  expect(messages.results.map(row=>row.kind)).toEqual(['message']);
+  const pending=await env.DB.prepare('SELECT * FROM hx_agent_request_dispatch WHERE org_id=?1 AND message_id=?2').bind(ORG,message.id).first();
+  expect(pending.status).toBe('pending');expect(pending.session_key.startsWith('h1:')).toBe(true);
+  const stateResponse=await call(`/channels/agent-runs?${q({orgId:ORG,channel:`ag:${agent.id}`,messageId:message.id})}`,{headers:headers(mika)},over);
+  expect(await stateResponse.json()).toEqual({available:true,results:[{rowId:message.id,status:'pending_delivery',answered:0}]});
+  acknowledge=true;
+  expect(await drainAgentRequests({...env,...over},{now:pending.next_attempt+1,orgId:ORG,messageId:message.id})).toEqual({accepted:1,cancelled:0,retried:0});
+  expect(calls).toHaveLength(2);expect(calls[1]).toEqual(calls[0]);
+  expect((await agentExecutionGrant(env,{orgId:ORG,token:pending.session_key,rowId:message.id})).agents.map(row=>row.id)).toEqual([agent.id]);
+  await env.DB.prepare("UPDATE channel_messages SET body='Edited request' WHERE org_id=?1 AND id=?2").bind(ORG,message.id).run();
+  expect(await agentExecutionGrant(env,{orgId:ORG,token:pending.session_key,rowId:message.id})).toBeNull();
+});
+
+test('a queued Harness request cancels after sign-out before any runner delivery',async()=>{
+  const {agent}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO})).json();
+  const {postMessage}=await import('../src/channels.js');const {getSession}=await import('../src/db.js');
+  const {drainAgentRequests}=await import('../src/agentRequestDispatch.js');const {endHere}=await import('../src/sessions.js');
+  const token=(await getSession(env.DB,mika)).token;
+  const {row}=await postMessage(env.DB,{orgId:ORG,key:`ag:${agent.id}|mika`,authorLogin:'mika',body:'hello',agentRequest:{sessionKey:token,agentIds:[agent.id],locale:'en'}});
+  const {agentExecutionGrant}=await import('../src/agentExecutionGrant.js');
+  expect((await agentExecutionGrant(env,{orgId:ORG,token,rowId:row.id})).agents.map(row=>row.id)).toEqual([agent.id]);
+  await endHere(env,ORG,[token]);let calls=0;
+  const runner={idFromName:name=>name,get:()=>({fetch:async()=>{calls++;return new Response('Queued',{status:202})}})};
+  expect(await drainAgentRequests({...env,AGENT_RUNNER:runner},{orgId:ORG,messageId:row.id})).toEqual({accepted:0,cancelled:1,retried:0});expect(calls).toBe(0);
+});

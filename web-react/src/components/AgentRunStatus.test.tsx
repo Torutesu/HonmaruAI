@@ -59,3 +59,14 @@ test('a failed refresh clears obsolete running state and bounds request IDs', as
   expect(JSON.stringify(tree.toJSON())).not.toContain('Agent execution running')
   act(() => tree.unmount())
 })
+
+test('pending queue acknowledgement keeps polling beyond the legacy unknown retry limit',async()=>{
+  setup();let calls=0;
+  const fetch=vi.fn().mockImplementation(async()=>ok(++calls<5?'pending_delivery':'finished'));vi.stubGlobal('fetch',fetch);
+  let tree!:ReturnType<typeof create>;
+  await act(async()=>{tree=create(<AgentRunStatus api={api} channel="b:general" messages={[message('one')]}/>)});
+  expect(JSON.stringify(tree.toJSON())).toContain('Agent queue acknowledgement pending');
+  await act(async()=>{await vi.advanceTimersByTimeAsync(20000)});
+  expect(calls).toBe(5);expect(JSON.stringify(tree.toJSON())).toContain('Agent processing ended');
+  act(()=>tree.unmount());
+});

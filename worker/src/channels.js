@@ -1,3 +1,4 @@
+import {agentRequestStatement} from './agentRequestDispatch.js';
 import { roomHookReplyGuard } from './harness/roomHookExecutionGrant.js';
 import { listMembers } from "./team.js";
 import { businessSlug } from "./db.js";
@@ -545,7 +546,7 @@ async function messageByClientId(db, orgId, authorLogin, clientId) {
 /// than sent without it.
 const FILES_GONE = "A file in this message is no longer there. Attach it again.";
 
-export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false }) {
+export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null }) {
   if (roomHookSource && (!parentId || kind !== 'agent' || !authorLogin?.startsWith('agent:'))) return {error:'Invalid webhook reply.',status:403};
   const text = String(body || "").replace(/\r\n/g, "\n").trim();
   const remembered = clientIdOk(clientId) ? clientId : null;
@@ -587,6 +588,7 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
   const columns = "id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of";
   const values = [id, orgId, key, authorLogin, kind, text, cardId, now, parentId, replyTo || null, remembered, parentId && alsoChannel ? 1 : 0, kind === "agent" && onBehalfOf ? onBehalfOf : null];
   const marks = values.map((_, i) => `?${i + 1}`).join(", ");
+  const dispatch = agentRequest ? await agentRequestStatement(db,{orgId,row:{id,channel:key,author_login:authorLogin,kind,body:text,parent_id:parentId},...agentRequest}) : null;
   try {
     // A reply is written only while its parent is still there, in the same
     // statement: a thread deleted after the check above takes no reply.
@@ -605,6 +607,7 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
           .bind(...values, files.ids.length),
         db.prepare("UPDATE message_files SET message_id = NULL WHERE org_id = ?1 AND message_id = ?2 AND NOT EXISTS (SELECT 1 FROM channel_messages WHERE org_id = ?1 AND id = ?2)")
           .bind(orgId, id),
+        ...(dispatch ? [dispatch] : []),
       ]);
       if (!done[1].meta?.changes) {
         if (parentId && !(await db.prepare("SELECT 1 FROM channel_messages WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, parentId).first())) {
@@ -613,7 +616,8 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
         return { error: FILES_GONE, code: "files_gone", status: 409 };
       }
     } else {
-      const put = await db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}`).bind(...values).run();
+      const insert = db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}`).bind(...values);
+      const put = dispatch ? (await db.batch([insert,dispatch]))[0] : await insert.run();
       if (parentId && !put.meta?.changes) return roomHookSource ? {error:"Webhook access changed.",code:"webhook_revoked",status:403} : { error: THREAD_GONE, code: "thread_gone" };
     }
   } catch (err) {

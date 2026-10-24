@@ -1,6 +1,7 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Agent queue acknowledgement pending": "実行受付の確認待ち",
   "Agent execution": "エージェントの実行状態",
   "Agent execution queued": "実行待ち",
   "Agent execution running": "実行中",

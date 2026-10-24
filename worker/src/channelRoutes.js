@@ -1,3 +1,4 @@
+import {drainAgentRequests,decorateAgentRequestStatuses} from './agentRequestDispatch.js';
 import {agentExecutionAuthorizer} from './agentExecutionGrant.js';
 import { searchRoom } from './roomSearch.js';
 import { roomHookAgentAllowed } from './harness/roomHookAgentAccess.js';
@@ -405,7 +406,7 @@ async function callableAgents(db, orgId, login, members) {
   return out;
 }
 
-export async function answerAsAgents(env, { orgId, session, user, resolved, row, members, locale, agents = null }) {
+export async function answerAsAgents(env, { orgId, session, user, resolved, row, members, locale, agents = null, durableRequest = false }) {
   try {
     // Who answers (respondingAgents): the agents named, the one this
     // conversation or thread is with — worked out once, by the caller.
@@ -415,6 +416,7 @@ export async function answerAsAgents(env, { orgId, session, user, resolved, row,
     return 0;
   }
   if (!agents.length) return 0;
+  if (durableRequest) {await drainAgentRequests(env,{orgId,messageId:row.id});return 0;}
   // Research takes longer than the half minute a request may keep working
   // after it answers: in production the agents answer from a Durable
   // Object's alarm, which may run for minutes (agentRunner.js).
@@ -1047,7 +1049,8 @@ export async function handleChannels(request, env, url, { route, after }) {
     try {
       const response = await stub.fetch('https://agents/agent-status', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({orgId, rowIds}), signal: AbortSignal.timeout(5000)});
       if (!response.ok) return json({message: 'Execution status unavailable.'}, 503);
-      return json({available: true, ...(await response.json())});
+      const result=await response.json();
+      return json({available:true,results:await decorateAgentRequestStatuses(env.DB,orgId,result.results)});
     } catch {
       return json({message: 'Execution status unavailable.'}, 503);
     }
@@ -1105,9 +1108,14 @@ export async function handleChannels(request, env, url, { route, after }) {
       return json({ message: "That send cannot be tried again." }, 400);
     }
     const clientId = typeof body.clientId === "string" && body.clientId ? body.clientId : null;
-    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId, replyTo, withFiles, files: { login: who.user.login, ...uploads }, clientId, alsoChannel });
+    const durableAgentMode = Boolean(env.AGENT_RUNNER && env.AGENT_INLINE !== '1' && who.session.token && await getMode(env.DB,orgId) === 'harness');
+    const preResponders = durableAgentMode ? await respondingAgents(env.DB,{orgId,login:who.user.login,resolved,
+      row:{kind:'message',author_login:who.user.login,channel:resolved.key,parent_id:parentId,body:typeof body.body==='string'?body.body.replace(/\r\n/g,'\n').trim():''}}) : null;
+    const agentRequest = preResponders?.length ? {sessionKey:who.session.token,agentIds:preResponders.map(agent=>agent.id),locale:who.user.locale || 'en'} : null;
+    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId, replyTo, withFiles, files: { login: who.user.login, ...uploads }, clientId, alsoChannel, agentRequest });
     if (out.error) return json({ message: out.error, ...(out.code ? { code: out.code } : {}) }, out.status || 400);
     if (out.replay) {
+      if(durableAgentMode)after(()=>drainAgentRequests(env,{orgId,messageId:out.row.id}));
       const [message] = await present(env.DB, orgId, [out.row], who.user.login, view, members);
       return json({ message });
     }
@@ -1118,7 +1126,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     // it names (or the one its thread is talking with) — else @AI — else
     // the agents of the people it names — else Claude on an issue or a
     // report. Nothing answers that nobody called.
-    const responders = await respondingAgents(env.DB, { orgId, login: who.user.login, resolved, row: out.row }).catch(() => []);
+    const responders = preResponders ?? await respondingAgents(env.DB, { orgId, login: who.user.login, resolved, row: out.row }).catch(() => []);
     const toAgent = resolved.kind === "agent" || responders.length > 0;
     const roomMentionedOnly = resolved.kind === "business" && (await roomResponses(env.DB, orgId, resolved.key)).mentionedOnly;
     // A card only when asked for one: sent as a decision, or "@AI" asked,
@@ -1139,7 +1147,7 @@ export async function handleChannels(request, env, url, { route, after }) {
         await decideFromMessage(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, route, locale });
       }
       if (wantsAnswer) await answerAsAI(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, locale });
-      if (responders.length) await answerAsAgents(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, locale, agents: responders });
+      if (responders.length) await answerAsAgents(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, locale, agents: responders, durableRequest:Boolean(agentRequest) });
       // The people it names who let their agent answer for them — when no
       // agent and no @AI is answering it already.
       if (!roomMentionedOnly && !toAgent && !wantsDecision && !wantsAnswer) {

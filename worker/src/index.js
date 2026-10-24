@@ -1,3 +1,4 @@
+import {drainAgentRequests} from './agentRequestDispatch.js';
 import { drainRoomHookDispatch } from './harness/roomHookDispatch.js';
 import { handleRoomHook } from './harness/roomHookRoute.js';
 import { archiveManagedRoom, deleteManagedRoom, roomRoleState } from './harness/roomRoles.js';
@@ -241,6 +242,7 @@ export default {
       ctx.waitUntil(drainCardNotifications(env, notifyCardNow).catch(() => console.error("notification retry drain failed")));
       ctx.waitUntil(runMinuteJobs(env, { now: new Date(event?.scheduledTime || Date.now()), broadcast: (orgId, key, row) => broadcastStored(env, orgId, key, row) })
         .catch((err) => console.error("minute jobs failed", err?.message || err)));
+      ctx.waitUntil(drainAgentRequests(env).catch(() => console.error("agent request dispatch failed")));
       ctx.waitUntil(drainRoomHookDispatch(env).catch(() => console.error("room webhook dispatch failed")));
       ctx.waitUntil(expireGatewayJobs(env.DB).catch(() => console.error("gateway expiry failed")));
       // The harness: follow-ups and scheduled workflows whose time has come.

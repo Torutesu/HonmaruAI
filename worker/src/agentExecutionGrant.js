@@ -1,3 +1,4 @@
+import {sourceFingerprint} from './harness/agentAssignments.js';
 import {getSession,getUserByGithubId,isMember,sessionByKey} from './db.js';
 import {getMessage,resolveChannel,viewOf} from './channels.js';
 import {listMembers} from './team.js';
@@ -24,7 +25,14 @@ export async function agentRequestGrant(env,{orgId,token,rowId}) {
 export async function agentExecutionGrant(env,request) {
   const grant=await agentRequestGrant(env,request);
   if(!grant)return null;
-  const agents=await respondingAgents(env.DB,{orgId:grant.orgId,login:grant.user.login,resolved:grant.resolved,row:grant.row});
+  let agents=await respondingAgents(env.DB,{orgId:grant.orgId,login:grant.user.login,resolved:grant.resolved,row:grant.row});
+  const dispatch=await env.DB.prepare('SELECT session_key,agent_ids,source_hash,status FROM hx_agent_request_dispatch WHERE org_id=?1 AND message_id=?2').bind(grant.orgId,grant.row.id).first();
+  if(dispatch) {
+    if(dispatch.status==='cancelled'||dispatch.session_key!==grant.session.token||dispatch.source_hash!==await sourceFingerprint(grant.row))return null;
+    let ids=[];try {ids=JSON.parse(dispatch.agent_ids);} catch {return null;}
+    if(!Array.isArray(ids))return null;
+    agents=agents.filter(agent=>ids.includes(agent.id));
+  }
   return {...grant,agents};
 }
 

@@ -7,7 +7,7 @@ import {Icon} from './Icon'
 type Api = {httpBase: string; orgId: string; sessionToken: string}
 type Run = {rowId: string; status: string; answered: number; version?: number}
 const labels: Record<string, string> = {
-  queued: 'Agent execution queued', running: 'Agent execution running',
+  pending_delivery: 'Agent queue acknowledgement pending', queued: 'Agent execution queued', running: 'Agent execution running',
   finished: 'Agent processing ended', failed: 'Agent execution failed',
   interrupted: 'Agent execution interrupted; outcome unconfirmed',
   cancelled: 'Agent execution stopped after access changed', no_agents: 'No eligible agent to run',
@@ -42,7 +42,7 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
         const runs: Run[] = result.results.filter((run: Run) => rowIds.includes(run.rowId) && labels[run.status])
         if (!stopped) setState({scope, runs, unavailable: result.available === false})
         attempts++
-        again = result.available !== false && (runs.some(run => run.status === 'queued' || run.status === 'running') || (attempts < 3 && runs.length < rowIds.length))
+        again = result.available !== false && (runs.some(run => run.status === 'pending_delivery' || run.status === 'queued' || run.status === 'running') || (attempts < 3 && runs.length < rowIds.length))
       } catch {
         if (!stopped) setState({scope, runs: [], unavailable: true})
         again = ++attempts < 3
@@ -66,7 +66,7 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
   }, [scope, ids, api.httpBase, api.orgId, api.sessionToken, channel])
   if (state.scope !== scope || (!state.runs.length && !state.unavailable)) return null
   if (state.unavailable) return <p className="slk-run-unavailable">{t('Agent execution status unavailable')}</p>
-  const active = state.runs.filter(run => run.status === 'queued' || run.status === 'running').length
+  const active = state.runs.filter(run => run.status === 'pending_delivery' || run.status === 'queued' || run.status === 'running').length
   return <details className="slk-agent-runs">
     <summary><span className="slk-run-disclosure"><Icon name="chevron-right" size={12}/></span><Icon name="bot" size={14}/>{t('Agent execution')}{active > 0 && <span className="slk-run-active" role="status">{t('{count} active', {count: active})}</span>}</summary>
     <ul>{state.runs.map(run => <li key={run.rowId}>
