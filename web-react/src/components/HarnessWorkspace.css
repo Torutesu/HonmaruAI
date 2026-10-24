@@ -719,3 +719,15 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-floating-resize::after { content:''; position:absolute; right:5px; bottom:5px; width:6px; height:6px; border-right:1px solid var(--hx-muted); border-bottom:1px solid var(--hx-muted); }
 
 .hx-floating-app:has(.hx-app-fullscreen) .hx-floating-resize { display:none; }
+
+.hx-floating-search { display:none !important; }
+.hx-floating-app .hx-data-toolbar { container-type:inline-size; container-name:floatingtools; }
+@container floatingtools (max-width:640px) {
+ .hx-data-heading > .pill-btn { font-size:0 !important; gap:0 !important; width:28px; height:28px; padding:6px !important; }
+ .hx-data-tools .hx-view-controls > .pill-btn { font-size:0 !important; gap:0 !important; padding:6px !important; }
+ .hx-data-tools .hx-view-controls .hx-count { font-size:11px; margin-left:3px; }
+ .hx-data-tools .hx-floating-search { display:inline-flex !important; }
+ .hx-data-tools > input[type=search] { display:none; }
+ .hx-data-tools.hx-search-expanded > input[type=search] { display:block; width:120px !important; }
+ .hx-data-tools > span { display:none; }
+}

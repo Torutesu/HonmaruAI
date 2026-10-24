@@ -103,6 +103,11 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     await floating.press('ArrowLeft')
     const movedBox = await floating.boundingBox()
     if (!initialBox || !movedBox || movedBox.x >= initialBox.x) throw new Error('Floating app did not move with keyboard')
+    await floating.getByRole('button', { name: /^(Search records|レコードを検索)$/ }).click()
+    const floatingSearch = floating.getByRole('searchbox')
+    await floatingSearch.fill('temporary search')
+    await floatingSearch.fill('')
+    await floating.getByRole('button', { name: /^(Search records|レコードを検索)$/ }).click()
     // Changing the workspace's current screen must not discard its small window.
     await page.goto(`${web}#/apps`, { waitUntil: 'load' })
     await floating.locator('.hx-data-toolbar').waitFor({ timeout: 20000 })
