@@ -222,3 +222,30 @@ test('agent file creation resumes its reservation, rejects human reservations an
  for(const change of [{requestId:'invalid'},{path:'../escape.txt'},{contentType:'image/png'},{text:'あ'.repeat(50000)}])expect((await tool(writer,'create_file_text',{...args,requestId:`file-${crypto.randomUUID()}`,path:'invalid.txt',...change})).result.isError).toBe(true);
  expect((await tool(writer,'list_file_versions',{fileId:human.requestId})).result.structuredContent.versions).toEqual([]);
 });
+
+test('own-agent conversation tools create files in their bound scope and cannot reach other rooms',async()=>{
+ const {fileAgentTools}=await import('../src/harness/fileAgentTools.js');
+ await env.DB.exec((await import('../workspace-files.sql?raw')).default.replace(/\n/g,' '));
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'harness'})});
+ await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES(?,'file-agent','file-agent','Files','Help','personal','toru','now','now')").bind(ORG).run();
+ const context={orgId:ORG,session:{github_id:'9401'},personal:true,ownAgentsOnly:true,fileScope:'ag:file-agent|toru',taint:{value:false}};
+ for(const change of [{personal:false},{ownAgentsOnly:false},{fileScope:'workspace'}])expect(await fileAgentTools(env,{...context,...change})).toEqual({});
+ const tools=await fileAgentTools(env,context);
+ expect(tools.create_file_text.parameters.properties.scope).toBeUndefined();
+ const args={requestId:`file-${crypto.randomUUID()}`,path:'report.md',text:'local tool output',contentType:'text/markdown',scope:'workspace'};
+ const created=JSON.parse(await tools.create_file_text.run(args));expect(created.saved).toBe(true);
+ expect((await env.DB.prepare('SELECT scope FROM hx_workspace_files WHERE id=?').bind(created.fileId).first()).scope).toBe(context.fileScope);
+ expect(context.taint.value).toBe(true);
+ expect(JSON.parse(await tools.read_file_text.run({fileId:created.fileId,version:1})).text).toBe(args.text);
+ const writer=await mint(['read','write']);
+ const outside=(await tool(writer,'create_file_text',{...args,requestId:`file-${crypto.randomUUID()}`})).result.structuredContent;
+ expect(JSON.parse(await tools.read_file_text.run({fileId:outside.fileId,version:1})).error).toContain('not in');
+ expect(JSON.parse(await tools.update_file_text.run({fileId:outside.fileId,expectedVersion:1,text:'overwrite'})).error).toContain('not in');
+ const {agentTools}=await import('../src/agentTools.js');
+ const assembled=await agentTools(env,context);
+ expect(assembled.create_file_text).toBeDefined();
+ expect(JSON.parse(await assembled.read_file_text.run({fileId:created.fileId,version:1})).text).toBe(args.text);
+ expect(await assembled.read_url.run({url:'https://example.com/'})).toContain('Not opened');
+ await env.DB.prepare("UPDATE custom_agents SET owner_login='someone-else' WHERE id='file-agent'").run();
+ expect(JSON.parse(await tools.create_file_text.run({...args,requestId:`file-${crypto.randomUUID()}`})).error).toContain('no longer');
+});
