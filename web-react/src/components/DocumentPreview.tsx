@@ -77,11 +77,19 @@ function TextDocument({bytes,csv}:{bytes:Uint8Array;csv:boolean}){
   </div>
  </>
 }
-function PdfDocument({bytes}:{bytes:Uint8Array}){
+function PdfDocument({bytes,fit=false}:{bytes:Uint8Array;fit?:boolean}){
  const [pdf,setPdf]=useState<PDFDocumentProxy|null>(null),[error,setError]=useState('')
- const [page,setPage]=useState(1),[zoom,setZoom]=useState(1),[query,setQuery]=useState('')
+ const [page,setPage]=useState(1),[zoom,setZoom]=useState<number|'fit'>(fit?'fit':1),[query,setQuery]=useState('')
  const [hits,setHits]=useState<number[]>([]),[searching,setSearching]=useState(false),[searched,setSearched]=useState(false),[partial,setPartial]=useState(false)
  const searchSequence=useRef(0),texts=useRef(new Map<number,string>())
+ const measure=useRef<HTMLDivElement>(null),[width,setWidth]=useState(280)
+ useEffect(()=>{const node=measure.current;if(!node||!pdf)return
+  const update=(value:number)=>{if(value>0)setWidth(Math.max(120,Math.floor(value)-36))}
+  update(node.clientWidth)
+  if(typeof ResizeObserver==='undefined')return
+  const observer=new ResizeObserver(entries=>{for(const entry of entries)update(entry.contentRect.width)})
+  observer.observe(node);return()=>observer.disconnect()
+ },[pdf])
  useEffect(()=>{
   setPdf(null);setError('');setPage(1)
   let live=true,task:ReturnType<typeof import('pdfjs-dist')['getDocument']>|undefined
@@ -120,11 +128,11 @@ function PdfDocument({bytes}:{bytes:Uint8Array}){
    <button type="button" disabled={page===1} onClick={()=>setPage(n=>n-1)} aria-label="前のページ"><Icon name="chevron-left" size={16}/></button>
    <label>ページ<input type="number" min={1} max={pdf.numPages} value={page} onChange={e=>{const n=Number(e.target.value);if(Number.isInteger(n)&&n>=1&&n<=pdf.numPages)setPage(n)}}/></label><span>/ {pdf.numPages}</span>
    <button type="button" disabled={page===pdf.numPages} onClick={()=>setPage(n=>n+1)} aria-label="次のページ"><Icon name="chevron-right" size={16}/></button>
-   <label>倍率<select value={zoom} onChange={e=>setZoom(Number(e.target.value))}>{[0.5,0.75,1,1.25,1.5,2].map(n=><option key={n} value={n}>{n*100}%</option>)}</select></label>
+   <label>倍率<select value={zoom} onChange={e=>setZoom(e.target.value==='fit'?'fit':Number(e.target.value))}><option value="fit">幅に合わせる</option>{[0.5,0.75,1,1.25,1.5,2].map(n=><option key={n} value={n}>{n*100}%</option>)}</select></label>
    <form onSubmit={search}><label>文書内を検索<input type="search" value={query} onChange={e=>{setQuery(e.target.value);searchSequence.current++;setSearching(false);setSearched(false);setHits([])}} maxLength={200}/></label><button type="submit" disabled={searching||!query.trim()}>{searching?'検索中…':'検索'}</button></form>
   </div>
   {searched&&<div className="document-hits" role="status">{hits.length?`${hits.length}ページで一致`:'一致するテキストはありません。'}{partial&&' 全ページの検索は完了していません。'}{hits.map(n=><button type="button" key={n} onClick={()=>setPage(n)} aria-pressed={page===n}>{n}ページ</button>)}</div>}
-  <PdfPage key={`${page}:${zoom}`} pdf={pdf} page={page} zoom={zoom} query={searched?query.trim():''}/>
+  <div ref={measure} aria-hidden="true" style={{width:'100%',height:0,flexShrink:0}}/><PdfPage key={`${page}:${zoom}:${zoom==='fit'?width:0}`} pdf={pdf} page={page} zoom={zoom==='fit'?width/700:zoom} query={searched?query.trim():''}/>
  </>
 }
 function PdfPage({pdf,page,zoom,query}:{pdf:PDFDocumentProxy;page:number;zoom:number;query:string}){
@@ -180,4 +188,4 @@ function PdfPage({pdf,page,zoom,query}:{pdf:PDFDocumentProxy;page:number;zoom:nu
  </div>
 }
 
-export function DocumentContent({bytes,kind}:{bytes:Uint8Array;kind:'pdf'|'csv'|'text'}){return kind==='pdf'?<PdfDocument bytes={bytes}/>:<TextDocument bytes={bytes} csv={kind==='csv'}/>}
+export function DocumentContent({bytes,kind,fit=false}:{bytes:Uint8Array;kind:'pdf'|'csv'|'text';fit?:boolean}){return kind==='pdf'?<PdfDocument bytes={bytes} fit={fit}/>:<TextDocument bytes={bytes} csv={kind==='csv'}/>}

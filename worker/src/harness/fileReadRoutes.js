@@ -30,7 +30,7 @@ export async function handleFileReads(request,env,url,{orgId,userId,headers={}})
   }
   let fileId;try{fileId=decodeURIComponent(parts[2]);}catch{throw new FileVersionInputError('Invalid file identifier.');}
   if(parts.length===3){
-   const result=await listWorkspaceFiles(env.DB,{orgId,userId,scope:null,fileId,limit:1});
+   const result=await listWorkspaceFiles(env.DB,{orgId,userId,scope:null,exactFileId:fileId,limit:1});
    return result.files.length?json({file:result.files[0]}):json({message:'File is unavailable.'},404);
   }
   if(parts.length===4&&parts[3]==='versions')return json({versions:await listFileVersions(env.DB,{orgId,userId,fileId,before:integer('before',null),limit:integer('limit',50)})});

@@ -3328,3 +3328,20 @@ WorkspaceFilePreview now supports an inline, labelled region as well as its exis
 Local CUA opened the actual v5 text content beside its saved file thread and edited a synthetic reply draft while the preview remained visible. The draft was not sent. Screenshot /tmp/honmaru-file-inline-conversation-20261025.png. A translation HMR update had closed the first panel, so the final check reopened it and verified both content and editable reply together. PDF/image/CSV inline layout, mobile and full Kylon populated-reference comparison remain open.
 
 Validation: preview and panel suites 16 tests passed, including inline region content and close action; Web build passed. Candidate 79cc7bf0 CI 40185272525, file-conversation candidate 55c22dd5 CI 40186024437 and main 7f602fa8 deployments were still running during this check. No new production completion is claimed.
+
+### 2026-10-25 — dark inline preview and search verified
+Used the local synthetic account's appearance controls to select Dark, returned to the saved versioned-file thread, reopened its source detail and inline v5 preview. Visually inspected the dark content surface, text, search/encoding controls, boundaries and reply draft together. Searching for version showed 1 / 1 and the matching text. Screenshot /tmp/honmaru-file-inline-dark-20261025.png. The synthetic draft remains unsent; only localhost theme preferences changed.
+
+The current IAB capabilities do not expose viewport resizing, so no mobile-width visual result is claimed. CSS inspection alone is not mobile acceptance. Inline PDF/image/CSV, actual mobile, AI file context and production file conversation verification remain outstanding. No code change or new deployment was needed for this dark-mode check.
+
+### 2026-10-25 — inline PDF fit-width correction
+Real local PDF inspection revealed that the default 700px rendering clipped the page in the narrow inline file panel. Added a fit-width zoom option; inline PDFs start in that mode, while existing modal PDF defaults remain unchanged. ResizeObserver measures the available width and remounts the page render at the new scale so canvas/text-layer geometry stay aligned. Numeric zoom options remain available.
+
+Local CUA created/opened the PDF fixture's own file conversation, reopened its source file and inspected both pages in dark mode. The second page now fits horizontally, and searching 84 identified its text on page 2 while the conversation stayed visible. Screenshot /tmp/honmaru-file-inline-pdf-fit-20261025.png. Preview/panel suites 16 tests passed and Web build passed. PDF responsive resizing itself and mobile still require further UI verification.
+
+Release gate: file-link candidate 79cc7bf0 CI 40185272525 completed with Worker job 121144631596 failing; E2E and the other six required categories passed (Worker is one of the seven). Its Worker log is being retrieved. Do not promote this candidate on the basis of local tests or successful E2E.
+
+### 2026-10-25 — exact-file filter no longer changes ordinary listing callers
+Worker failure 40185272525 / job 121144631596 was reproduced by inspection: file-upload.test.js supplies a shared base object containing fileId to listWorkspaceFiles. The previously ignored field became an active filter when direct metadata lookup was added, so pagination saw only one file. Renamed the deliberately selected internal filter to exactFileId and updated only the direct metadata route. Existing list callers, including callers with incidental fileId fields, retain prior semantics. No assertion was weakened.
+
+Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conversation suite passed 73 tests. Log /tmp/honmaru-file-list-regression-tests.log. This fixes the identified failure, but exact-candidate full CI is still required before promotion. The earlier candidate's failed result remains evidence and is not treated as a flaky pass.
