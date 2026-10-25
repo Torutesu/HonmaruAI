@@ -97,3 +97,14 @@ test('recent files page by timestamp and ID without skipping equal-time rows',as
  expect((await call('/hx/files?scope=workspace&order=recent&cursor='+invalid)).status).toBe(400);
  expect((await call('/hx/files?scope=workspace&order=invalid')).status).toBe(400);
 });
+
+test('HTTP upload origin comes from the authenticated endpoint and migration is required',async()=>{
+ const {id}=await (await call('/hx/files','POST',{scope:'workspace',path:'uploads/note.txt',origin:'agent',principalType:'agent'})).json();
+ await call(`/hx/files/${id}/content?expectedVersion=0&size=5`,'PUT','hello',token,true);
+ expect((await (await call('/hx/files?scope=workspace&origin=human')).json()).files).toEqual([expect.objectContaining({id,origin:'human'})]);
+ expect((await (await call('/hx/files?scope=workspace&origin=agent')).json()).files).toEqual([]);
+ expect((await (await call('/hx/files/folders?scope=workspace&origin=agent')).json()).folders).toEqual([]);
+ expect((await call('/hx/files?scope=workspace&origin=invalid')).status).toBe(400);
+ await env.DB.prepare('DROP TABLE hx_workspace_file_origins').run();
+ expect((await call('/hx/files?scope=workspace')).status).toBe(503);
+});

@@ -117,8 +117,8 @@ export async function handleHarness(request, env, url, context = {}) {
   if (/^\/hx\/files(?:\/|$)/.test(url.pathname)) {
     const orgId=url.searchParams.get('orgId'),who=await member(env,request,orgId);
     if(who.denied)return who.denied;
-    const {results}=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_files','hx_workspace_file_versions','hx_workspace_file_purges','hx_workspace_file_uploads','hx_file_account_erasures')").all();
-    if(results.length!==5)return json({message:'Workspace file storage is not ready.'},503);
+    const {results}=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_files','hx_workspace_file_versions','hx_workspace_file_purges','hx_workspace_file_uploads','hx_file_account_erasures','hx_workspace_file_origins')").all();
+    if(results.length!==6)return json({message:'Workspace file storage is not ready.'},503);
     const identity={orgId,userId:String(who.session.github_id),headers:CORS_HEADERS};
     if(request.method==='GET' && url.pathname==='/hx/files/scope'){
       const room=await resolveChannel(env.DB,orgId,who.user,url.searchParams.get('channel'));

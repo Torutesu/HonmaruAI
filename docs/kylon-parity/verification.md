@@ -3214,3 +3214,10 @@ Validation: harness MCP, core MCP and file upload integration suites: 81 tests/3
 Scope still incomplete: this tool does not create new files, classify original human/agent creation, or supply binary output generation. Those requirements remain open. Production agent editing is not yet verified.
 
 Release: fae6baed candidate CI 40180692215 passed all seven required jobs. Confirmed main was 5d1b7872, then fast-forwarded to fae6baed. Mode-loading/offline fixes remain behind candidate 56c660af CI 40182005007; do not promote until its offline E2E and Worker checks pass.
+
+### 2026-10-25 — reliable original file provenance
+Added replayable migration for hx_workspace_file_origins, a file-keyed human/agent classification without additional personal data. The origin marker and new ledger reservation commit atomically; a conflicting create cannot relabel an existing file. Deleting its ledger cascades the marker. Existing unclassified files remain unknown, with no inferred backfill. The authenticated HTTP upload endpoint assigns human origin independently of JSON input.
+
+File and folder listings expose matching optional human/agent/unknown filters; MCP read tools expose them too. HTTP/MCP file readiness now requires the sixth table before using these queries. Existing maintenance remains usable against the previous five-table schema. Agent-created files and UI origin tabs are still not complete.
+
+Validation: file migration, ledger, upload lifecycle, HTTP and MCP suites 94 tests passed. Added HTTP origin-spoofing/readiness coverage and reran its suite: 8 passed. Covers atomic creation, conflict preservation, unavailable-room rejection, matching file/folder filters, unknown legacy rows, invalid filters, cascading removal and replayable migration. Initial root-level test command lacked the Worker runtime; all reported passes used worker/ configuration.

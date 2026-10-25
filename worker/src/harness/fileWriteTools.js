@@ -20,8 +20,8 @@ export async function callFileWriteTool(env,agent,name,args={}) {
  if(bytes.length>128*1024)return error('Text writes are limited to 128 KiB.');
  // Reject unpaired UTF-16 surrogates rather than silently saving replacements.
  if(new TextDecoder().decode(bytes)!==args.text)return error('Text must contain valid Unicode.');
- const ready=await env.DB.prepare("SELECT count(*) AS count FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_files','hx_workspace_file_versions','hx_workspace_file_purges','hx_workspace_file_uploads','hx_file_account_erasures')").first();
- if(ready.count!==5)return error('Workspace files are not available yet.');
+ const ready=await env.DB.prepare("SELECT count(*) AS count FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_files','hx_workspace_file_versions','hx_workspace_file_purges','hx_workspace_file_uploads','hx_file_account_erasures','hx_workspace_file_origins')").first();
+ if(ready.count!==6)return error('Workspace files are not available yet.');
  try {
   const file={orgId,userId,fileId:args.fileId};
   const source=await readFileVersionContent(env.DB,{...file,version:args.expectedVersion});

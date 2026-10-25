@@ -13,11 +13,14 @@ export function workspaceFilePath(value) {
  if(value.startsWith('/')||value.includes('\\')||value.split('/').some(part=>!part||part==='.'||part==='..'))throw new FileVersionInputError('Invalid workspace file path.');
  return value.normalize('NFC');
 }
-export async function createFileLedger(db,{orgId,fileId,scope,path,createdBy,at=new Date().toISOString()}) {
+export async function createFileLedger(db,{orgId,fileId,scope,path,createdBy,origin=null,at=new Date().toISOString()}) {
  for(const [name,value] of Object.entries({orgId,fileId,scope,createdBy,at}))required(value,name);
  path=workspaceFilePath(path);
- const result=await db.prepare(`INSERT OR IGNORE INTO hx_workspace_files(org_id,id,scope,path,created_by,created_login,created_at,updated_at)
- SELECT ?1,?2,?3,?4,?5,(SELECT login FROM users WHERE github_id=?5),?6,?6 WHERE ${fileScopeAuthority('?1','?3','?5')}`).bind(orgId,fileId,scope,path,createdBy,at).run();
+ if(origin!==null&&!['human','agent'].includes(origin))throw new FileVersionInputError('Invalid file origin.');
+ const insert=db.prepare(`INSERT OR IGNORE INTO hx_workspace_files(org_id,id,scope,path,created_by,created_login,created_at,updated_at)
+ SELECT ?1,?2,?3,?4,?5,(SELECT login FROM users WHERE github_id=?5),?6,?6 WHERE ${fileScopeAuthority('?1','?3','?5')}`).bind(orgId,fileId,scope,path,createdBy,at);
+ // changes() ties provenance to this insertion, never an existing conflicting row.
+ const result=origin===null?await insert.run():(await db.batch([insert,db.prepare("INSERT INTO hx_workspace_file_origins(org_id,file_id,source) SELECT ?1,?2,?3 WHERE changes()=1").bind(orgId,fileId,origin)]))[0];
  return {created:result.meta.changes===1};
 }
 export async function appendFileVersion(db,{orgId,fileId,expectedVersion,createdBy,kind='content',objectKey=null,contentHash=null,contentType=null,size=null,restoredFrom=null,stageId=null,at=new Date().toISOString()}) {

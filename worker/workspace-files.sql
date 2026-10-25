@@ -38,3 +38,5 @@ CREATE TABLE IF NOT EXISTS hx_file_account_erasures (
  user_id TEXT PRIMARY KEY, login TEXT, requested_at INTEGER NOT NULL, next_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS hx_file_account_erasures_due ON hx_file_account_erasures(next_at);
+
+CREATE TABLE IF NOT EXISTS hx_workspace_file_origins (org_id TEXT NOT NULL, file_id TEXT NOT NULL, source TEXT NOT NULL CHECK(source IN ('human','agent')), PRIMARY KEY(org_id,file_id), FOREIGN KEY(org_id,file_id) REFERENCES hx_workspace_files(org_id,id) ON DELETE CASCADE);

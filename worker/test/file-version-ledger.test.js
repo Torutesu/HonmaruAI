@@ -121,3 +121,25 @@ test('tombstones and purged versions have no content receipt while history marks
  expect(await readContent()).toBeNull();
  expect(await history()).toMatchObject([{version:2,kind:'deleted',isCurrent:true},{version:1,purged:true}]);
 });
+
+test('creation origin is atomic, cannot be reclassified by a conflicting create and filters files and folders consistently',async()=>{
+ const {listWorkspaceFiles}=await import('../src/harness/fileList.js');
+ const {listFileFolders}=await import('../src/harness/fileFolders.js');
+ await save();
+ for(const origin of ['human','agent']){
+  expect(await createFileLedger(env.DB,{...scope,fileId:origin,scope:'b:general',path:`${origin}/note.txt`,origin})).toEqual({created:true});
+  expect(await save({fileId:origin})).toMatchObject({saved:true});
+ }
+ expect(await createFileLedger(env.DB,{...scope,fileId:'human',scope:'b:general',path:'human/note.txt',origin:'agent'})).toEqual({created:false});
+ expect(await createFileLedger(env.DB,{...scope,fileId:'private',scope:'g:unavailable',path:'private.txt',origin:'agent'})).toEqual({created:false});
+ expect((await env.DB.prepare('SELECT source FROM hx_workspace_file_origins WHERE file_id=?').bind('human').first()).source).toBe('human');
+ expect(await env.DB.prepare("SELECT 1 FROM hx_workspace_file_origins WHERE file_id='private'").first()).toBeNull();
+ const identity={orgId:scope.orgId,userId:scope.createdBy,scope:'b:general'};
+ for(const origin of ['human','agent','unknown']){
+  const listed=await listWorkspaceFiles(env.DB,{...identity,origin});expect(listed.files).toHaveLength(1);expect(listed.files[0].origin).toBe(origin);
+  expect((await listFileFolders(env.DB,{...identity,origin})).folders.map(f=>f.name)).toEqual([origin==='unknown'?'notes':origin]);
+ }
+ await expect(listWorkspaceFiles(env.DB,{...identity,origin:'spoof'})).rejects.toThrow('origin');
+ await env.DB.prepare("DELETE FROM hx_workspace_files WHERE id='human'").run();
+ expect(await env.DB.prepare("SELECT 1 FROM hx_workspace_file_origins WHERE file_id='human'").first()).toBeNull();
+});

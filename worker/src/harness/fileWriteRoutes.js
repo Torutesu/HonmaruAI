@@ -25,7 +25,7 @@ export async function handleFileWrites(request,env,url,{orgId,userId,canWrite,pr
    const command=await input(request);
    if(command.requestId!==undefined && (typeof command.requestId!=='string'||!/^file-[a-f0-9-]{36}$/.test(command.requestId)))throw new FileVersionInputError('Invalid file request identifier.');
    const fileId=command.requestId||crypto.randomUUID(),path=workspaceFilePath(command.path);
-   const result=await createFileLedger(env.DB,{orgId,fileId,scope:command.scope,path,createdBy:userId});
+   const result=await createFileLedger(env.DB,{orgId,fileId,scope:command.scope,path,createdBy:userId,origin:principalType==='human'?'human':principalType==='agent'?'agent':null});
    if(result.created)return json({id:fileId,version:0},201);
    // A lost create response may be replayed only by its original author,
    // for this exact path/scope, while it still has no content.
