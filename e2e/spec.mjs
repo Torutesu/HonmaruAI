@@ -1098,7 +1098,9 @@ await step('the Tools screen lets the admin pick the model and enter keys', asyn
   if (!(await d.$('.ai-status select'))) await d.click('[data-studio="ai"]')
   await d.waitForSelector('.ai-status select', { timeout: 15000 })
     .catch(() => { throw new Error('the model is not a choice on the Tools screen') })
-  if (!(await d.$('.ai-status .ai-key-input'))) throw new Error('there is nowhere to enter a key')
+  const workspaceKey = '.ai-status input[aria-label="OpenAI key for this workspace"]'
+  const workspaceKeyRow = '.ai-status .ai-key:has(input[aria-label="OpenAI key for this workspace"])'
+  if (!(await d.$(workspaceKey))) throw new Error('there is nowhere to enter the workspace OpenAI key')
   await d.selectOption('.ai-status select', 'gpt-4.1-nano')
   await d.waitForSelector('.ai-status .form-note', { timeout: 10000 })
   await d.reload({ waitUntil: 'load' })
@@ -1106,8 +1108,8 @@ await step('the Tools screen lets the admin pick the model and enter keys', asyn
   const picked = await d.$eval('.ai-status select', (el) => el.value)
   if (picked !== 'gpt-4.1-nano') throw new Error(`the model choice did not stick: ${picked}`)
   // A key that is not one is refused out loud, with nothing changed.
-  await d.fill('.ai-status .ai-key-input >> nth=0', 'not-a-key')
-  await d.click('.ai-status .ai-key .pill-btn >> nth=0')
+  await d.fill(workspaceKey, 'not-a-key')
+  await d.click(`${workspaceKeyRow} .pill-btn`)
   await d.waitForSelector('.ai-status .form-error', { timeout: 10000 })
     .catch(() => { throw new Error('a bad key was accepted silently') })
   await d.screenshot({ path: `${SHOTS}/35-tools-ai.png` })

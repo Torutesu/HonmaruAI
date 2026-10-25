@@ -1,6 +1,6 @@
 # Kylon機能差分・受入条件
 
-調査基準日: 2026-10-15。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。
+調査基準日: 2026-10-26。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。
 
 全96項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
@@ -113,7 +113,7 @@
 | KY-064 | 承認待ち・継続 | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 承認者・操作内容・revisionを固定し二重承認を排除 |
 | KY-065 | 停止・再開・アーカイブ | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | スケジュール停止と実行キャンセルを区別 |
 | KY-066 | 実行者の権限を再検証 | 一部 | P0 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 今回Agent grantの再確認を追加。部屋/DB/Connection/依頼者権限は継続監査 |
-| KY-067 | 実行予算と自動pause | 未実装 | P0 | [worker/src/ledger.js](../../worker/src/ledger.js) | 日/週/月上限・同時実行の残高競合・回復時の挙動 |
+| KY-067 | 実行予算と自動pause | 一部 | P0 | [worker/src/harness/workflowSafety.js](../../worker/src/harness/workflowSafety.js) | 回数上限に加え、直近24h/7d/30日の記録トークンからUSD参考価格を集計しwarnまたは実行後pauseするAutomation予算を実装。単価不明usageの可視化、作成元thread通知、CAS設定、原子的admissionを検証。Kylon credits・invoice換算、外部tool料金、事前予約・部分実行の精算は未対応 |
 | KY-068 | 一回限りのFollow-up | 一部 | P1 | [worker/src/harness/followups.js](../../worker/src/harness/followups.js) | 相対/絶対時刻・スレッド・通知先・停止・権限変更後を検証 |
 | KY-069 | Follow-upの実ツール実行 | 未実装 | P1 | [worker/src/harness/followups.js](../../worker/src/harness/followups.js) | 現状はモデル文章かリマインダー。外部状態を実確認して根拠と一緒に返す |
 
@@ -193,3 +193,8 @@ Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing an
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
 | KY-096 | ワークスペース上のフローティングアプリ表示 | 一部 | P1 | [FloatingAppWorkspace.tsx](../../web-react/src/components/FloatingAppWorkspace.tsx) | 本番表示・移動・サイズ変更・環境切替時の隔離を検証。参照側の会話遷移・再起動復元と完全な操作一致は未確認 |
+
+### 2026-10-26 — Kylon usage controls
+
+- [Kylon's current credit-usage help](https://kylon.io/help/limit-credit-usage) distinguishes rolling Automation budgets (last 24 hours, 7 days and 30 days; warn or pause after the current run) from workspace-wide caps for code calling paid APIs (daily, current billing period and calls per minute). Kylon records model and paid-tool/API calls in its credit ledger; a brought Agent's own provider model usage remains on that provider account.
+- Honmaru's workflow and workspace controls use recorded model-token USD list-price estimates under the no-new-charge constraint. They do not reproduce Kylon credits, billable tool/API charges, renewal/top-up handling or script-call rate caps. Those differences remain in KY-067, KY-086 and KY-088; current exact-SHA CI and production evidence is tracked separately in [verification.md](verification.md).
