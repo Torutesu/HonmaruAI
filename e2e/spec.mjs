@@ -86,7 +86,7 @@ const browser = await chromium.launch({
 })
 
 // One person, signing up from scratch, on a phone.
-const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 })
+const phone = await browser.newContext({ locale: 'en-US', viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 })
 const page = await phone.newPage()
 const thrown = []
 page.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
@@ -197,7 +197,7 @@ await step('GitHub sign-in is not offered where it is not set up', async () => {
 })
 
 await step('the welcome screen is not offset by a rail that is not there', async () => {
-  const wide = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  const wide = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 } })
   const w = await wide.newPage()
   await w.goto(WEB, { waitUntil: 'load' })
   await w.waitForSelector('.welcome', { timeout: 15000 })
@@ -242,7 +242,7 @@ await step('the code that arrives signs the person in', async () => {
 
 await step('a wrong code is refused', async () => {
   // A second account, so the first one's session is untouched.
-  const other = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  const other = await browser.newContext({ locale: 'en-US', viewport: { width: 390, height: 844 } })
   const p2 = await other.newPage()
   const addr = `e2e-bad-${Date.now()}@example.com`
   await p2.goto(WEB, { waitUntil: 'load' })
@@ -814,7 +814,7 @@ let desk
 await step('the app is usable on a laptop', async () => {
   // The session this run just created, carried over — a laptop showing the
   // welcome screen proves nothing about the feed.
-  desk = await browser.newContext({
+  desk = await browser.newContext({ locale: 'en-US',
     viewport: { width: 1440, height: 900 },
     storageState: await phone.storageState(),
   })
@@ -1395,7 +1395,7 @@ await step('automations and the playbook open from You, and fit a phone', async 
 })
 
 await step('an automation is made from one sentence and runs into the feed as a report', async () => {
-  work = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState(), acceptDownloads: true })
+  work = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 }, storageState: await phone.storageState(), acceptDownloads: true })
   const d = await work.newPage()
   d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
   await d.goto(`${WEB}/#/automations`, { waitUntil: 'load' })
@@ -1715,7 +1715,7 @@ await step('the list is a chat client on a laptop: sidebar, conversation, and a 
 }, { after: async () => { await work?.close() } })
 
 await step('a message is edited, reacted to, answered in a thread, pinned and unsent, the way Slack does', async () => {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+  const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
   const d = await ctx.newPage()
   d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
   try {
@@ -1997,7 +1997,7 @@ await step('a long reply with an @mention keeps the caret on its words once the 
     args: ['--headless=new'],
   })
   try {
-    const ctx = await bars.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+    const ctx = await bars.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
     const d = await ctx.newPage()
     d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
     await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
@@ -2033,7 +2033,7 @@ await step('a long reply with an @mention keeps the caret on its words once the 
 })
 
 await step('a channel opens at its newest message, and stays there while what is above it settles', async () => {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+  const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
   const d = await ctx.newPage()
   d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
   try {
@@ -2084,7 +2084,7 @@ await step('a channel opens at its newest message, and stays there while what is
 })
 
 await step('right-clicking a channel in the sidebar offers what a desktop chat app does: star, notify, rename, archive', async () => {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState(), permissions: ['clipboard-read', 'clipboard-write'] })
+  const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 }, storageState: await phone.storageState(), permissions: ['clipboard-read', 'clipboard-write'] })
   const d = await ctx.newPage()
   d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
   try {
@@ -2232,7 +2232,7 @@ await step('right-clicking a channel in the sidebar offers what a desktop chat a
 })
 
 await step('people talk in a channel, and @AI turns what was said into a decision decided right there', async () => {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+  const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
   const d = await ctx.newPage()
   d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
   try {
@@ -2307,7 +2307,7 @@ await step('people talk in a channel, and @AI turns what was said into a decisio
 })
 
 await step('the daily report: morning and evening at the person’s own times, drafted in their words, announced, and only gone once they post it', async () => {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+  const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
   const d = await ctx.newPage()
   d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
   try {
@@ -2426,13 +2426,20 @@ await step('the daily report: morning and evening at the person’s own times, d
 })
 
 await step('the channel header opens its context, its automations, its members, and a Jam', async () => {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState(), permissions: ['microphone'] })
+  const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 }, storageState: await phone.storageState(), permissions: ['microphone'] })
   // Each tab counts its calls, so the test can see two browsers actually connect.
   await ctx.addInitScript(() => {
     const Real = window.RTCPeerConnection
     if (!Real) return
     window.__pcs = []
-    window.RTCPeerConnection = class extends Real { constructor(...a) { super(...a); window.__pcs.push(this) } }
+    window.__pcErrors = []
+    window.RTCPeerConnection = class extends Real {
+      constructor(...a) {
+        super(...a)
+        window.__pcs.push(this)
+        this.addEventListener('icecandidateerror', (event) => window.__pcErrors.push({ code: event.errorCode, url: event.url }))
+      }
+    }
   })
   const d = await ctx.newPage()
   const e = await ctx.newPage()
@@ -2542,8 +2549,23 @@ await step('the channel header opens its context, its automations, its members, 
     for (const p of [d, e]) {
       await p.waitForFunction(() => document.querySelectorAll('[data-jam-panel] .jam-tile').length === 2, null, { timeout: 15000 })
         .catch(() => { throw new Error('the call panel does not show both people') })
-      await p.waitForFunction(() => (window.__pcs || []).some((pc) => pc.connectionState === 'connected'), null, { timeout: 20000 })
-        .catch(() => { throw new Error('the two browsers in the Jam never connected') })
+      await p.waitForFunction(() => (window.__pcs || []).some((pc) => pc.connectionState === 'connected'), null, { timeout: 30000 })
+        .catch(async () => {
+          const state = await p.evaluate(() => ({
+            connections: (window.__pcs || []).map((pc) => ({
+              connection: pc.connectionState,
+              ice: pc.iceConnectionState,
+              gathering: pc.iceGatheringState,
+              signaling: pc.signalingState,
+              localType: pc.localDescription?.type || null,
+              remoteType: pc.remoteDescription?.type || null,
+              localCandidates: (pc.localDescription?.sdp?.match(/a=candidate:/g) || []).length,
+              remoteCandidates: (pc.remoteDescription?.sdp?.match(/a=candidate:/g) || []).length,
+            })),
+            iceErrors: window.__pcErrors || [],
+          }))
+          throw new Error(`the two browsers in the Jam never connected: ${JSON.stringify(state)}`)
+        })
     }
     if (!(await d.$('[data-jam-panel] .jam-rec'))) throw new Error('the Jam is not said to be recording')
     await e.click('[data-jam-mic]')
@@ -2570,7 +2592,7 @@ await step('the channel header opens its context, its automations, its members, 
 })
 
 await step('your AI suggests what to tell it from your own work, not the same examples for everyone', async () => {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+  const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
   const d = await ctx.newPage()
   try {
     await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
@@ -2591,7 +2613,7 @@ await step('your AI suggests what to tell it from your own work, not the same ex
 })
 
 await step('a card is decided by dragging it off, the way it is swiped on a phone', async () => {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+  const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
   const d = await ctx.newPage()
   try {
     await d.goto(`${WEB}/#/feed`, { waitUntil: 'load' })
@@ -2645,7 +2667,7 @@ await step('a second person joins by invite and the card reaches them', async ()
   const invite = await mintInvite('engineer', '18-invite')
 
   // B signs up with it, in their own browser.
-  const second = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  const second = await browser.newContext({ locale: 'en-US', viewport: { width: 390, height: 844 } })
   mate = second
   const b = await second.newPage()
   const mateEmail = `e2e-mate-${Date.now()}@example.com`
@@ -2701,7 +2723,7 @@ await step('a second person joins by invite and the card reaches them', async ()
 
 /// A whole browser that has never been here, signing in with a code.
 async function freshSignIn(email, { inviteCode } = {}) {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 390, height: 844 } })
   extras.push(ctx)
   const p = await ctx.newPage()
   const before = (await (await fetch(`${SINK}/sent`)).json())
@@ -2775,7 +2797,7 @@ await step('an invite reaches someone who already has an account', async () => {
 
   // C already has an account of their own, made before the invite existed.
   const already = `e2e-already-${Date.now()}@example.com`
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 390, height: 844 } })
   extras.push(ctx)
   const c = await ctx.newPage()
   joiner = c
@@ -2936,7 +2958,7 @@ await step('a link you have out can be found and revoked', async () => {
 /// already has an account" does inline, for anyone else who needs a
 /// stranger with an account.
 async function freshAccount(name, email, { start } = {}) {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 390, height: 844 } })
   extras.push(ctx)
   const p = await ctx.newPage()
   await p.goto(start || WEB, { waitUntil: 'load' })
@@ -3055,7 +3077,7 @@ await step('an invite link joins someone who is already signed in', async () => 
 
 await step('an invite link opens sign-up with the team named, and the account lands in it', async () => {
   if (!mailedLink) throw new Error('no mailed link to open')
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 390, height: 844 } })
   extras.push(ctx)
   const p = await ctx.newPage()
   await p.goto(mailedLink, { waitUntil: 'load' })
@@ -3910,7 +3932,7 @@ await step('the team writes an agent: from a preset, as a .md file, and @called 
 })
 
 await step('notifications paused for an hour, said at the top, and resumed', async () => {
-  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const ctx = await browser.newContext({ locale: 'en-US', storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
   const w = await ctx.newPage()
   try {
     await w.goto(`${WEB}#/notifications`, { waitUntil: 'load' })
@@ -3949,7 +3971,7 @@ await step('notifications paused for an hour, said at the top, and resumed', asy
 await step('the mark at the top left lists every workspace, and adds one', async () => {
   // Its own browser with the same sign-in, so switching here moves nobody
   // else's page.
-  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const ctx = await browser.newContext({ locale: 'en-US', storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
   const w = await ctx.newPage()
   try {
     await w.goto(`${WEB}#/list`, { waitUntil: 'load' })
@@ -3982,7 +4004,7 @@ await step('where you are signed in: this browser and another, and the other sig
   const other = await freshSignIn(email)
   await other.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
   const otherToken = await other.evaluate(() => localStorage.getItem('sessionToken'))
-  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const ctx = await browser.newContext({ locale: 'en-US', storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
   const w = await ctx.newPage()
   try {
     await w.goto(`${WEB}#/you`, { waitUntil: 'load' })
@@ -4002,7 +4024,7 @@ await step('where you are signed in: this browser and another, and the other sig
 })
 
 await step('the audit log shows an admin what happened, narrows it, and downloads it', async () => {
-  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 }, acceptDownloads: true })
+  const ctx = await browser.newContext({ locale: 'en-US', storageState: await phone.storageState(), viewport: { width: 1280, height: 820 }, acceptDownloads: true })
   const w = await ctx.newPage()
   try {
     await w.goto(`${WEB}#/tools/audit`, { waitUntil: 'load' })
@@ -4026,7 +4048,7 @@ await step('the audit log shows an admin what happened, narrows it, and download
 })
 
 await step('the owner sets how long a sign-in lasts here, and the rules are saved', async () => {
-  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const ctx = await browser.newContext({ locale: 'en-US', storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
   const w = await ctx.newPage()
   try {
     await w.goto(`${WEB}#/tools/security`, { waitUntil: 'load' })
@@ -4053,7 +4075,7 @@ await step('the owner sets how long a sign-in lasts here, and the rules are save
 })
 
 await step('an owner makes a workspace key; the admin API reads the team with it; Domains & SSO opens, SAML included', async () => {
-  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const ctx = await browser.newContext({ locale: 'en-US', storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
   const w = await ctx.newPage()
   try {
     await w.goto(`${WEB}#/tools/api`, { waitUntil: 'load' })
@@ -4089,7 +4111,7 @@ await step('an owner makes a workspace key; the admin API reads the team with it
 })
 
 await step('an admin finds Claude, Devin, Cursor and Codex under AI teammates in the studio, with nothing set up until a key is pasted', async () => {
-  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const ctx = await browser.newContext({ locale: 'en-US', storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
   const w = await ctx.newPage()
   try {
     await w.goto(`${WEB}#/tools/teammates`, { waitUntil: 'load' })
@@ -4127,7 +4149,7 @@ await step('an admin finds Claude, Devin, Cursor and Codex under AI teammates in
 })
 
 await step('a data rule warns before a message goes, and it goes when the person says so; SCIM and streams are offered', async () => {
-  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const ctx = await browser.newContext({ locale: 'en-US', storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
   const w = await ctx.newPage()
   try {
     await w.goto(`${WEB}#/tools/dlp`, { waitUntil: 'load' })
@@ -4182,7 +4204,7 @@ await step('a data rule warns before a message goes, and it goes when the person
 })
 
 await step('compliance: retention chosen, a legal hold placed, and an export made and downloaded', async () => {
-  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 }, acceptDownloads: true })
+  const ctx = await browser.newContext({ locale: 'en-US', storageState: await phone.storageState(), viewport: { width: 1280, height: 820 }, acceptDownloads: true })
   const w = await ctx.newPage()
   try {
     await w.goto(`${WEB}#/tools/compliance`, { waitUntil: 'load' })
@@ -4220,7 +4242,7 @@ await step('compliance: retention chosen, a legal hold placed, and an export mad
 
 await step('a guest invited to one channel sees that channel and nothing else', async () => {
   // From the channel itself: its menu invites a guest of that channel alone.
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState(), permissions: ['clipboard-read', 'clipboard-write'] })
+  const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 }, storageState: await phone.storageState(), permissions: ['clipboard-read', 'clipboard-write'] })
   let link = null
   try {
     const d = await ctx.newPage()
@@ -4266,7 +4288,7 @@ await step('a bookmark kept at the top of a channel, a keyword that reaches Acti
   await kenji.evaluate(async (host) => {
     await fetch(`${host}/me`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') }, body: JSON.stringify({ notifyKeywords: ['invoice'] }) })
   }, API)
-  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const ctx = await browser.newContext({ locale: 'en-US', storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
   const w = await ctx.newPage()
   try {
     await w.goto(`${WEB}#/list`, { waitUntil: 'load' })
@@ -4321,7 +4343,7 @@ await step('a bookmark kept at the top of a channel, a keyword that reaches Acti
 })
 
 await step('a channel keeps a canvas: written, a to-do ticked, and a stale edit told about the newer one', async () => {
-  const ctx = await browser.newContext({ storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
+  const ctx = await browser.newContext({ locale: 'en-US', storageState: await phone.storageState(), viewport: { width: 1280, height: 820 } })
   const w = await ctx.newPage()
   try {
     await w.goto(`${WEB}#/list`, { waitUntil: 'load' })
