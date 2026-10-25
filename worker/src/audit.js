@@ -19,6 +19,9 @@ import { auditCryptoReady, encryptBody, decryptBody, principalOf } from "./audit
 /// Every action this deployment records: its category, how much it
 /// matters, and a sentence for the screen ({actor} did it to {entity}).
 export const AUDIT_ACTIONS = {
+  "document.conversion_requested": {category:"files",severity:"info",text:"{actor} requested document conversion"},
+  "document.cancel_requested": {category:"files",severity:"info",text:"{actor} requested conversion cancellation"},
+  "document.artifact_received": {category:"files",severity:"info",text:"{actor} delivered a converted document"},
   "auth.login": { category: "auth", severity: "info", text: "{actor} signed in" },
   "auth.login_failed": { category: "auth", severity: "warning", text: "A sign-in failed" },
   "sso.configured": { category: "workspace", severity: "critical", text: "{actor} changed single sign-on" },

@@ -1,3 +1,4 @@
+export type DocumentJob={id:string;status:'queued'|'running'|'succeeded'|'failed'|'cancelled';fileId:string|null;version:number|null;path:string}
 export type FileOrigin='human'|'agent'|'unknown'
 export type WorkspaceFile = {id:string;scope:string;path:string;origin?:FileOrigin;createdBy:string;createdAt:string;updatedAt:string;version:number;deleted:boolean;contentType:string|null;size:number|null}
 export type FileCursor = {path:string;id:string;updatedAt?:string}
@@ -18,6 +19,10 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
   return (await response(route,method,body===undefined?undefined:JSON.stringify(body),query,'application/json',signal)).json()
  }
  return {
+  documentNodes:(signal?:AbortSignal)=>json<{nodes:{id:string;name:string}[]}>('/hx/documents/nodes','GET',undefined,undefined,signal),
+  createDocument:(input:{scope:string;path:string;text:string;inputFormat:'markdown'|'html';format:'pdf'|'docx';gatewayId:string;requestId:string},signal?:AbortSignal)=>json<{job:DocumentJob}>('/hx/documents','POST',input,undefined,signal),
+  documentJob:(id:string,signal?:AbortSignal)=>json<{job:DocumentJob}>(`/hx/documents/${encodeURIComponent(id)}`,'GET',undefined,undefined,signal),
+  cancelDocument:(id:string,signal?:AbortSignal)=>json<{job:DocumentJob}>(`/hx/documents/${encodeURIComponent(id)}/cancel`,'POST',{},undefined,signal),
   get:(id:string,signal?:AbortSignal)=>json<{file:WorkspaceFile}>(path(id),'GET',undefined,undefined,signal),
   resolveScope:(channel:string,signal?:AbortSignal)=>json<{scope:string}>('/hx/files/scope','GET',undefined,{channel},signal),
   list:(search:FileSearch,signal?:AbortSignal)=>{

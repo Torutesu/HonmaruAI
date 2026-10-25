@@ -821,7 +821,12 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/file",
       "code": "worker/src/files.js",
-      "acceptance": "単なる元ファイルDLと形式変換を区別"
+      "acceptance": "単なる元ファイルDLと形式変換を区別",
+      "evidence": {
+        "auditDate": "2026-10-25",
+        "verified": "Audited gateway/runner.mjs and runtime.mjs: current isolated Node image handles JavaScript/TypeScript, payload cap 64 KiB and combined stdout/stderr cap 32 KiB; there is no PDF/Word renderer or binary artifact delivery. worker/src/pdfText.js is extraction only, not export.",
+        "remaining": "Actual Markdown/HTML to PDF/DOCX conversion with formatting, fonts, resource handling, versioned artifact persistence, scoped authorization, UI download/export and production validation. A dedicated artifact path is needed; do not pass document bytes via the small execution stdout channel."
+      }
     },
     {
       "id": "KY-073",
@@ -837,7 +842,7 @@
         "reference": "https://docs.kylon.io/cli/workspace/file",
         "observedContract": "versions list; version get; deletion tombstone; revert copies old content into a new version and requires expected-current-version; purged content cannot be read or restored.",
         "codeAudit": "Scoped HTTP/MCP file operations, immutable versions, staged R2 CAS writes, restore, tombstones, retention, empty-reservation cleanup, source classification, own-agent text creation/editing and authorized live invalidation are implemented. Local upload/replace/restore/delete/reload/download and version previews verified. Direct file URLs open room/history and survive reload; cross-workspace Simple-to-Harness navigation verified locally.",
-        "remaining": "Authenticated production file roundtrip and latest deployments; multi-user/mobile and native chooser verification; natural-language agent generation; shared-agent file tools; populated Kylon comparison; reference history and binary/export conversion. File URLs are candidate 79cc7bf0; recovery UI is candidate 18fa9757, not confirmed production."
+        "remaining": "Authenticated production upload/version/restore roundtrip; multi-user/mobile and native chooser verification; natural-language generation; shared-agent file writes; populated Kylon comparison; binary/export conversion. File metadata/deep links and recovery UI deployed in daf8e3f5; later raw UUID route enhancement awaits rollout."
       }
     },
     {
@@ -851,7 +856,7 @@
       "acceptance": "固定会話ID・同時初回作成・版更新後の同一会話・権限失効時の拒否を検証。ローカル実画面でファイルと会話の同時表示、元ファイルへ戻る導線、PDF幅合わせ、ダーク表示、返信と再読込復元を確認。AIは版を固定したUTF-8読取に対応し模擬モデルで返信保存まで検証。実モデル・複数人通知・全端末・本番画面比較は未完。",
       "evidence": {
         "auditDate": "2026-10-25",
-        "verified": "Versioned deterministic file threads and local preview/conversation layout verified. D1/R2 tests cover concurrent opens and revocation, including stale snapshots. A mocked-provider HTTP integration verifies saving content, opening the thread, invoking read_thread_file with exact version/text, and persisting the resulting agent reply. Candidate daf8e3f5 passed all seven required CI jobs and was promoted to main; deployment pending.",
+        "verified": "Versioned deterministic file threads and local preview/conversation layout verified. D1/R2 tests cover concurrent opens and revocation, including stale snapshots. A mocked-provider HTTP integration verifies saving content, opening the thread, invoking read_thread_file with exact version/text, and persisting the resulting agent reply. Candidate daf8e3f5 passed all seven required CI jobs and was promoted to main; deployment pending. Production daf8e3f5 Worker/Web deployment succeeded; served asset index-dhu1O26F.js matches deploy logs. This proves deployed inclusion of deterministic file threads and inline preview, not authenticated production behavior. Later AI reader and automatic source panel changes remain candidates.",
         "remaining": "Real model/UI file answers; PDF/image interpretation; multi-user notifications/mobile; latest AI reader rollout; production rendered verification and populated Kylon comparison."
       }
     },

@@ -1,6 +1,6 @@
 import {pruneEmptyFileReservations} from '../src/harness/fileReservations.js';
 import {env} from 'cloudflare:test';
-import {beforeEach,test,expect} from 'vitest';
+import {beforeEach,test,expect,vi} from 'vitest';
 import sql from '../workspace-files.sql?raw';
 import {upsertUser,upsertMembership} from '../src/db.js';
 import {createFileLedger,readFileVersionContent,appendFileVersion} from '../src/harness/fileVersionLedger.js';
@@ -568,4 +568,22 @@ test('reservation holds follow the deleted account alias after a login rename',a
  await env.DB.prepare("DELETE FROM users WHERE github_id='writer'").run();
  await env.DB.prepare("INSERT INTO message_holds VALUES('alias-reservation-hold','upload-org','person','renamed-writer','preserve','writer','2026-10-25',NULL,NULL)").run();
  expect(await pruneEmptyFileReservations(env.DB,{now})).toEqual({removed:0});
+});
+
+
+test.each([
+ ['$start_of_today','2025-12-31T15:30:00Z','2025-12-31T00:00:00.000Z'],
+ ['$start_of_tomorrow','2025-12-31T15:30:00Z','2026-01-01T00:00:00.000Z'],
+ ['$start_of_yesterday','2024-03-01T12:00:00Z','2024-02-29T00:00:00.000Z'],
+ ['$start_of_7_days_ago','2026-01-01T12:00:00Z','2025-12-25T00:00:00.000Z'],
+ ['$start_of_30_days_ago','2026-01-01T12:00:00Z','2025-12-02T00:00:00.000Z'],
+])('relative file boundary %s respects UTC calendar transitions',async(literal,now,boundary)=>{
+ await upload();
+ const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(now));
+ try{
+  await env.DB.prepare('UPDATE hx_workspace_files SET created_at=? WHERE org_id=? AND id=?').bind(boundary,base.orgId,base.fileId).run();
+  expect((await list({since:literal,until:literal})).files.map(f=>f.id)).toEqual(['file']);
+  await env.DB.prepare('UPDATE hx_workspace_files SET created_at=? WHERE org_id=? AND id=?').bind(new Date(Date.parse(boundary)-1).toISOString(),base.orgId,base.fileId).run();
+  expect((await list({since:literal})).files).toEqual([]);
+ }finally{clock.mockRestore()}
 });

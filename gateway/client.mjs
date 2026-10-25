@@ -1,3 +1,4 @@
+import {processDocumentOne} from './document-client.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { runIsolated } from './runner.mjs';
 import {runWorkflowIsolated} from './workflow-runner.mjs';
@@ -61,9 +62,22 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
   } finally { clearInterval(heartbeat); signal?.removeEventListener('abort', abort); }
 }
 
-export async function serve(call, { signal, once = false, onError = () => {}, beforeClaim = async () => {} } = {}) {
+export async function serve(call, { signal, once = false, onError = () => {}, beforeClaim = async () => {}, document = null, documentRun = processDocumentOne } = {}) {
+  let preferDocument=false;
   while (!signal?.aborted) {
-    try { await beforeClaim(); if (!signal?.aborted) await processOne(call, { signal }); }
+    try {
+      await beforeClaim();
+      if (!signal?.aborted) {
+        const documentAttempt=async()=>{
+          if(!document)return false;
+          try{return await documentRun(document.call,{image:document.image,signal});}
+          catch(error){if([401,403].includes(error.status))throw error;onError(error.status||'document-runtime');return false;}
+        };
+        if(preferDocument){if(!await documentAttempt()&&!signal?.aborted)await processOne(call,{signal});}
+        else if(!await processOne(call,{signal})&&!signal?.aborted)await documentAttempt();
+        preferDocument=!preferDocument;
+      }
+    }
     catch (error) {
       // Authentication revocation is terminal. Never log the token or payload.
       if ([401, 403].includes(error.status)) throw error;

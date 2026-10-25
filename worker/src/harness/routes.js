@@ -1,3 +1,4 @@
+import {handleDocuments,isDocumentNodeRoute} from './documentRoutes.js';
 import {workflowRevisions} from './workflowRevisions.js';
 import {workflowSource} from './workflowSource.js';
 import {workflowNotices} from './workflowNotices.js';
@@ -111,8 +112,10 @@ async function mayChange(env, orgId, who, createdBy) {
 export async function handleHarness(request, env, url, context = {}) {
   if (!OURS.test(url.pathname)) return null;
   if (request.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
-  const limited = await enforce(env, request, isGatewayNodeRoute(url.pathname) ? "gateway/edge" : "team");
+  const limited = await enforce(env, request, (isGatewayNodeRoute(url.pathname)||isDocumentNodeRoute(url.pathname)) ? "gateway/edge" : "team");
   if (limited) return limited;
+
+  if (isDocumentNodeRoute(url.pathname)||/^\/hx\/documents(?:\/|$)/.test(url.pathname)) return handleDocuments(request,env,url);
 
   if (/^\/hx\/files(?:\/|$)/.test(url.pathname)) {
     const orgId=url.searchParams.get('orgId'),who=await member(env,request,orgId);

@@ -62,7 +62,8 @@ export async function handleGateways(request, env, url, input) {
           AND (?4=1 OR (COALESCE(json_extract(payload,'$.workflowProgram'),0)!=1 AND NOT EXISTS(SELECT 1 FROM hx_workflow_activations a WHERE a.job_id=hx_gateway_jobs.id)))
           ORDER BY created_at, id LIMIT 1)
         AND status = 'queued' AND ${activeMember} AND ${workflowProgramJobAccess}
-        AND NOT EXISTS (SELECT 1 FROM hx_gateway_jobs busy WHERE busy.gateway_id = ?1 AND busy.status = 'running') RETURNING *`)
+        AND NOT EXISTS (SELECT 1 FROM hx_gateway_jobs busy WHERE busy.gateway_id = ?1 AND busy.status = 'running')
+        AND NOT EXISTS (SELECT 1 FROM hx_document_jobs busy WHERE busy.gateway_id = ?1 AND busy.status = 'running') RETURNING *`)
         .bind(g.id, at, await digest(lease),programCapable?1:0).first();
       const workflow=row&&await db.prepare('SELECT 1 FROM hx_workflow_activations WHERE org_id=?1 AND job_id=?2').bind(row.org_id,row.id).first();
       return json({ job: row ? { ...jobView(row), workflow:Boolean(workflow), payload: JSON.parse(row.payload), lease, timeoutMs: 60000 } : null });

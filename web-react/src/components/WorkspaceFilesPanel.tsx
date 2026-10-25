@@ -1,3 +1,4 @@
+import {DocumentCreate} from './DocumentCreate'
 import {FileConversationButton} from './FileConversationButton'
 import {subscribeWorkspaceFileRefresh} from '../utils/workspaceFileRefresh'
 import {readWorkspaceFileView,saveWorkspaceFileView} from '../utils/workspaceFileView'
@@ -62,6 +63,7 @@ export function WorkspaceFilesPanel({api,scope,targetFileId,inlinePreview=false,
    </div>}
 
    {!selected&&<div className="hx-files-view" role="group" aria-label={t('File view')}><button type="button" title={t('Recent')} aria-label={t('Recent')} aria-pressed={!folderMode} onClick={()=>{setFolderMode(false);setCursor(null);setFolderCursor(undefined)}}><Icon name="list" size={16}/></button><button type="button" title={t('Folders')} aria-label={t('Folders')} aria-pressed={folderMode} onClick={()=>{setFolderMode(true);setCursor(null);setFolderCursor(undefined)}}><Icon name="folder" size={16}/></button></div>}
+   <DocumentCreate key={`document:${scope}`} api={api} scope={scope} receiptKey={preferenceKey?`${preferenceKey}:${scope}`:undefined} directory={folderMode?directory:''} onOpen={id=>{setRevision(v=>v+1);void api.get(id).then(r=>setSelected(r.file)).catch(e=>setError(e.message))}}/>
    <WorkspaceFileUpload key={scope} api={api} scope={scope} directory={folderMode?directory:''} onSaved={()=>setRevision(value=>value+1)}/>
   </div>
   {selected?<WorkspaceFileHistory key={`${scope}:${selected.id}`} api={api} file={selected} inlinePreview={inlinePreview} refreshRevision={revision} onBack={()=>setSelected(null)} onChanged={()=>setRevision(value=>value+1)}/>:<>

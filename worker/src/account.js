@@ -119,6 +119,10 @@ export async function exportAccount(db, githubId, login) {
     // Export file identities/history, never object keys or reusable download
     // credentials. Contents remain available through the authorized download
     // path; leaving a private room must not grant access through this export.
+    documentJobs: await tryAll(
+      `SELECT d.org_id,d.id,d.scope,d.path,d.payload,d.status,d.created_at,d.finished_at,d.file_id,d.file_version
+       FROM hx_document_jobs d WHERE d.created_by=?1 AND ${fileScopeAuthority('d.org_id','d.scope','?1')} ORDER BY d.org_id,d.id`, id
+    ),
     workspaceFiles: await tryAll(
       `SELECT f.org_id,f.id,f.scope,f.path,f.created_at,f.updated_at,f.current_version
        FROM hx_workspace_files f WHERE f.created_by=?1 AND ${fileScopeAuthority('f.org_id','f.scope','?1')}
@@ -254,6 +258,7 @@ export async function deleteAccount(db, githubId, login) {
   }
 
   for (const sql of [
+    "DELETE FROM hx_document_jobs WHERE created_by = ?1",
     "DELETE FROM sessions WHERE github_id = ?1",
     "DELETE FROM apple_identities WHERE user_github_id = ?1",
     "DELETE FROM memberships WHERE user_github_id = ?1",

@@ -1,3 +1,4 @@
+import {documentClient} from './document-client.mjs';
 import { readFile, stat } from 'node:fs/promises';
 import { ensureRuntime } from './runtime.mjs';
 import { gatewayClient, serve } from './client.mjs';
@@ -18,6 +19,7 @@ const beforeClaim = async () => {
 console.log('Honmaru node service started. No inbound port.');
 try {
   await serve(gatewayClient(config.apiUrl, token), { signal: stop.signal, beforeClaim,
+    document: config.documentImage ? {image:config.documentImage,call:documentClient(config.apiUrl,token)} : null,
     onError: status => console.error(`Node temporarily unavailable (${status}); reconnecting.`) });
 } catch (error) {
   if ([401, 403].includes(error.status)) console.error('Node authorization ended. Re-register before restarting this service.');

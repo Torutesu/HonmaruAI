@@ -2211,3 +2211,26 @@ CREATE TABLE IF NOT EXISTS hx_workflow_usage (id TEXT PRIMARY KEY, org_id TEXT N
 CREATE INDEX IF NOT EXISTS idx_hx_workflow_usage_run ON hx_workflow_usage(org_id,run_id,step_number);
 
 CREATE TABLE IF NOT EXISTS hx_workflow_node_checkpoints (org_id TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, node_id TEXT NOT NULL, fingerprint TEXT NOT NULL, effect INTEGER NOT NULL CHECK(effect IN (0,1)), status TEXT NOT NULL CHECK(status IN ('running','unknown','done')), owner TEXT NOT NULL, attempt INTEGER NOT NULL CHECK(attempt>0), lease_until INTEGER NOT NULL, result TEXT, PRIMARY KEY(org_id,run_id,node_id), CHECK(status!='done' OR result IS NOT NULL));
+
+CREATE TABLE IF NOT EXISTS hx_document_jobs (
+ id TEXT PRIMARY KEY,
+ org_id TEXT NOT NULL,
+ gateway_id TEXT NOT NULL,
+ created_by TEXT NOT NULL,
+ request_id TEXT NOT NULL,
+ scope TEXT NOT NULL,
+ path TEXT NOT NULL,
+ payload TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('queued','running','succeeded','failed','cancelled')),
+ created_at INTEGER NOT NULL,
+ finished_at INTEGER,
+ file_id TEXT,
+ file_version INTEGER,
+ lease_hash TEXT,
+ lease_until INTEGER,
+ deadline INTEGER,
+ UNIQUE(org_id,created_by,request_id)
+);
+CREATE INDEX IF NOT EXISTS hx_document_jobs_queue ON hx_document_jobs(gateway_id,status,created_at);
+
+CREATE TABLE IF NOT EXISTS hx_document_nodes (gateway_id TEXT PRIMARY KEY,org_id TEXT NOT NULL,last_seen_at INTEGER NOT NULL);

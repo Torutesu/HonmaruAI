@@ -1,3 +1,4 @@
+import {maintainDocumentJobs} from './harness/documentMaintenance.js';
 import {retryWorkflowNotices} from './harness/workflowNoticeDelivery.js';
 import {drainAgentHandoffs} from './harness/agentHandoffDispatch.js';
 import {drainAgentRequests} from './agentRequestDispatch.js';
@@ -247,6 +248,7 @@ export default {
       ctx.waitUntil(drainAgentRequests(env).catch(() => console.error("agent request dispatch failed")));
       ctx.waitUntil(drainAgentHandoffs(env).catch(() => console.error("agent handoff dispatch failed")));
       ctx.waitUntil(drainRoomHookDispatch(env).catch(() => console.error("room webhook dispatch failed")));
+      ctx.waitUntil(maintainDocumentJobs(env.DB).catch(() => console.error("document expiry failed")));
       ctx.waitUntil(expireGatewayJobs(env.DB).catch(() => console.error("gateway expiry failed")));
       // The harness: follow-ups and scheduled workflows whose time has come.
       ctx.waitUntil(runDueFollowups(env, { now: new Date(event?.scheduledTime || Date.now()) }).catch((err) => console.error("follow-ups failed", err?.message || err)));

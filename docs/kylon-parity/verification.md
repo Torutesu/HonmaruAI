@@ -3397,3 +3397,115 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Exposed existing MIME category, creator and inclusive creation-date search through list_workspace_files for MCP and own-agent conversation tools. Scope remains server-bound in native agent conversations.
 - Added Kylon-style UTC start-of-day literals for today, tomorrow, yesterday, seven days ago and thirty days ago in the common list query. Both bounds resolve against one captured clock value. Invalid literals/ranges remain errors.
 - Real MCP checks verify combined category/creator/date filtering, empty results, invalid input and today/tomorrow/yesterday literals. MCP plus file upload/list regression suite: 75 tests passed (`/tmp/honmaru-agent-file-search-tests.log`). Production rollout pending; this does not verify model selection of the tools.
+
+### 2026-10-25 — Relative date calendar boundary verification
+- Added real D1 list tests for all five relative date literals, with a fixed clock covering UTC/JST day difference, New Year, leap-year February, seven-day and thirty-day month/year rollovers.
+- Exact boundary timestamps are included by both bounds; one millisecond before the lower bound is excluded. All 68 file upload/list tests passed (`/tmp/honmaru-file-relative-boundaries-tests.log`). No production claim: daf8e3f5 deployments remain live, while the relative-date runtime is in candidate 0e3f572c.
+
+### 2026-10-25 — File filter reload and clearing in real browser
+- Reloaded the local file conversation, opened the list, and confirmed the saved PDF filter still selected with only document-preview.pdf visible. Switching to image returned only the synthetic PNG; clearing restored all eight visible files, including PDF, image and folder-contained text.
+- Screenshot `/tmp/honmaru-file-filter-cleared-20261025.png`. This proves same-tab reload/clear on localhost, not cross-device sync or production rollout.
+- Candidate 8be188b2 CI 40187614813 completed successfully. Later pagination/UI/filter candidates remain pending; production daf8e3f5 deployment is still active.
+
+### 2026-10-25 — Production daf8e3f5 confirmed; conversion architecture gap
+- Worker deploy 40187569774/job121151504489 succeeded, version `9e4e493a-db40-4772-9c9d-06015c5b8a59`. Web deploy 40187569797/job121151504580 succeeded, Pages c22714b2; logged and independently curl-verified production asset `index-dhu1O26F.js`.
+- Production includes deterministic file conversations, metadata links/recovery, inline file preview and PDF fit width. Later AI reader, automatic source panel, type filters and relative dates are NOT in this deployed snapshot.
+- Export audit: gateway Node-only isolated runner has 64 KiB payload and 32 KiB combined output limits, no PDF/DOCX renderer or binary artifact channel. Existing pdfText extracts text only. Updated KY-072 to retain the full conversion/delivery gap rather than count downloads as export.
+
+### 2026-10-25 — Document converter foundation (not exposed)
+- Implemented guest-side `gateway/document-converter.mjs`: bounded Markdown/HTML input, DOCX/PDF targets, one total deadline, cancellation, format/size checks, binary output with SHA-256, and scratch cleanup. Markdown uses Pandoc sandbox; HTML/DOCX/PDF uses LibreOffice. This is NOT connected to claims, HTTP, UI, or versioned persistence yet.
+- Added a separate document-image Dockerfile using the existing pinned official Node base plus Pandoc, LibreOffice and Noto CJK fonts. Production must execute it in a no-network VM with artifact delivery; do not call it on the host with user documents.
+- Gateway suite: 21 passed, including output larger than the old stdout cap, invalid outputs, cleanup on failure/cancel and invalid inputs (`/tmp/honmaru-document-gateway-tests.log`).
+- Trusted synthetic HTML smoke generated real DOCX (6,116 bytes) and PDF (28,249 bytes). DOCX XML retains Japanese, one table and one hyperlink. PDF rendering FAILED Japanese fidelity (missing/tofu glyphs) in the bundled macOS LibreOffice; explicit Hiragino also failed. These artifacts are not accepted exports.
+- Started dedicated font-equipped image build in exec session 36526; `/tmp/honmaru-document-image-build.log`, tag honmaru-document:development. Build is still live with no output yet; do not restart solely for silence. Must finish build, render Japanese inside VM, implement artifact delivery/authorization/storage, expose UI, and verify production before KY-072 can be complete.
+- Primary references: https://pandoc.org/MANUAL.html and https://help.libreoffice.org/latest/en-US/text/shared/guide/pdf_params.html .
+
+### 2026-10-25 — isolated document conversion smoke and resumed native UI
+
+- Native Honmaru production UI capture and file-panel click succeeded after the user's availability confirmation. The QA Webhook room displays its empty file panel in dark mode; screenshot `/tmp/honmaru-production-files-resumed-20261025.png`. This does not verify authenticated production upload.
+- Corrected document image to pinned official Node Debian base `de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d`. The previous base did not provide apt-get.
+- Debian Pandoc DOCX writer failed under `--sandbox`, even with an explicit generated reference DOCX. Kept sandbox enabled; Markdown now uses the HTML writer followed by LibreOffice DOCX/PDF conversion. Official documentation describes the external-data limitation: https://pandoc.org/MANUAL.html.
+- Dedicated image build passed: manifest `683f698996f4c000a8c2d2f86d1dea5e3cd5f4e0249048b16fc55fac6274770c`, index `bdaf2fcfb5e985ce9c20dc18cd1613113b1d63cfcbea9b9475f0a76050bb15ff`. Actual no-network, read-only-root, unprivileged VM smoke passed Markdown/HTML × DOCX/PDF, with synthetic data only. DOCX XML retained Japanese. Both PDF renders visually retained Japanese, bold text, table content and links; HTML table borders retained. Evidence `/tmp/honmaru-document-vm-html-smoke.log`, `/tmp/honmaru-document-vm-markdown.png`, `/tmp/honmaru-document-vm-html.png`.
+- Gateway test suite passed. This is conversion foundation only: no production document claims, artifact broker, workspace file publication, or export UI is enabled yet. KY-072 remains partial.
+- Main `483e10734ff627aa8c8a99ec39cbbed0ba627a86` was promoted only after candidate CI's seven required jobs passed. Main Worker deployment `40189442059` still testing, Web deployment `40189442073` waiting for Worker; do not claim deployed yet.
+
+### 2026-10-25 — document binary runner
+
+- Added `gateway/document-runner.mjs`, separate from 32 KiB text executions. It validates fixed input formats/size, requires a configured pinned image and verifies the installed image ID, receives bounded binary output, validates format magic, returns size/hash/MIME, and kills/deletes the VM on completion or failure. Network remains disabled; no host mount or token enters the guest. No document capability is advertised to the production gateway yet.
+- Actual runner smoke initially failed because the local image had only a tag and the digest reference caused a registry lookup. After inspecting the image ID, registered that exact local digest reference with `container image tag`; no image upload or external service was introduced.
+- Actual runner then passed all four Markdown/HTML → DOCX/PDF combinations with image inspection enabled: `/tmp/honmaru-document-runner-verified-image.log`, artifacts `/var/folders/nx/ygvn7q3x7r5_vwl0rsz2c6zh0000gn/T/honmaru-document-smoke-NCpdnG`. Gateway suite passed 25 tests including oversized text-result preservation, invalid artifact rejection, cleanup on failure, and mismatched image rejection.
+- Remaining integration: dedicated document job admission/capability, live requester/scope authorization during artifact upload, idempotent versioned file publication, cancellation/lease recovery, and export UI. Existing node credentials must not gain general file access; upload authority must be bound to the assigned job and exact destination. Existing 120-second job deadline must account for conversion plus artifact delivery.
+- Latest queued release candidate `0e3f572c21e17c639564a756de3b3dda05b6057f`: exact CI run 40188606048 has all seven required jobs successful. Current main 483e1073 still has live Worker deployment testing and Web waiting; no second main promotion yet.
+
+### 2026-10-25 — document admission primitives
+
+- Added separate `document-jobs.sql` and internal `documentJobs.js` admission/read/cancel primitives. They are deliberately not in production migrations or HTTP routes yet: a legacy gateway must not claim document payloads as JavaScript. Required remaining integration includes node capability/lease routes, destination-bound artifact publication, lifecycle expiry and account/workspace erasure, then UI.
+- Admission requires Harness mode/build permission, checks live file-scope authority inside INSERT, active workspace node, normalized output path with matching extension, bounded input and queue (25 active jobs). Stable per-user request IDs prevent duplicate documents or changed-input reuse. Reads are requester-only and recheck live scope. Cancelling clears the lease; replay preserves cancellation.
+- Actual D1 tests passed 4/4, covering idempotency/privacy, JavaScript queue exclusion, unavailable scope/node, invalid extension, Simple mode, membership removal, concurrent retries and queue limit. Log `/tmp/honmaru-document-jobs-tests.log`. These tests do not prove end-to-end export yet.
+- Current main deployment remains live: Worker run 40189442059 is testing; Web 40189442073 waits for it. Main CI E2E has now succeeded; Worker remains running. No restart or additional promotion was performed.
+
+### 2026-10-25 — document leases
+
+- Added internal document capability-gated atomic claiming, hashed leases, 90-second lease renewal capped by a 240-second delivery deadline, cancellation-aware authorization, explicit failure and expiry. The conversion itself remains capped at 150 seconds; delivery has time within the server deadline.
+- Live file-scope membership, Harness mode, node revocation/owner role and configurable requester build permission are rechecked before returning document payload and during lease authorization. Raw lease is only returned to the claimant; stored/public job views do not expose it. Claim refuses while an ordinary gateway execution is running.
+- D1 suite passed 7/7: concurrent claims have one winner; wrong lease fails; renewal never extends beyond deadline; cancelled/revoked/expired jobs reject delivery authority; lost leases fail rather than automatically re-executing; explicit failed conversion releases its slot. Log `/tmp/honmaru-document-leases-tests.log`.
+- Still internal and not migrated/routed to production. Before enabling: the existing ordinary claim route must also refuse while a document is running (reciprocal exclusion), destination-bound atomic file publication and cleanup must be complete, node client must opt in only after image readiness, and full HTTP/UI export must be verified. No completed-export claim is made.
+
+### 2026-10-25 — document artifact publication
+
+- Added internal `publishDocumentArtifact`: authenticated lease determines destination, creator and deterministic new file ID; node bytes are bounded and format-checked. R2 staging uses existing upload recovery, then a D1 batch commits immutable version, current file pointer and successful document job together. Existing paths are never overwritten. Live lease and scope checks occur before upload and in final transaction; cancelled uploads are discarded.
+- Same-lease/same-hash replay acknowledges the original version after a lost finish response; different bytes/lease are rejected. A successful batch whose response is lost does not delete committed bytes. Staged cleanup remains tracked for existing recovery sweeps.
+- D1/R2 tests passed 12/12 including cancellation during R2 put, path collision, invalid format, replay, lost batch response, and serialized-input limits. `/tmp/honmaru-document-artifact-tests-final.log`. Synthetic magic-only bytes test the storage protocol, not PDF rendering; actual rendered PDFs were separately verified in prior VM smoke.
+- Queue serialized payload capped below 2,000,000 bytes with metadata allowance, based on official D1 row/string limit: https://developers.cloudflare.com/d1/platform/limits/. JSON escaping is measured after serialization.
+- Still not enabled in production: HTTP binary upload endpoint, node capability and delivery client, schema deployment/lifecycle cleanup, origin attribution/events and export UI remain. Broader Kylon parity is not complete. Main 483e1073 Worker deployment remains live in Test; Web still waiting for it.
+
+### 2026-10-25 — document HTTP and node delivery
+
+- Added bounded `/hx/documents` admission/status/cancel and authenticated `/gateways/documents` claim/heartbeat/fail/binary-artifact routes. Binary upload bypasses JSON parsing, caps input, validates live lease and emits existing file invalidation after success. Missing document schema returns 503; schema is not deployed and the service loop still does not opt in.
+- Actual Worker HTTP test authenticates a user and node, creates/claims a document, posts binary, repeats identical upload, rejects changed bytes, and reads succeeded status. Existing gateway regression plus document suite passed 21 tests, `/tmp/honmaru-document-http-gateway-regression.log`.
+- Added opt-in document client/process function. Tokens/lease stay in headers, redirects are refused, document bytes remain binary, transient delivery errors retry the retained bytes without running conversion again, revoked delivery does not retry, failed conversion reports failure. Image verification precedes claiming. Gateway suite passed 30 tests, `/tmp/honmaru-document-client-tests.log`.
+- Remaining before production enablement: lifecycle/account/workspace cleanup, reciprocal exclusion in ordinary gateway claim, migration readiness, configuration/service opt-in, origin/audit handling, user-facing export flow and real node→HTTP→download verification. No full export completion claim.
+- Main CI 40189442142 now completed with all seven required jobs successful for 483e1073. Worker deploy 40189442059 remains live in Test and Web 40189442073 waits for it.
+
+### 2026-10-25 — document lifecycle and deployment schema
+
+- Added document schema to normal `schema.sql` deployment (standalone SQL remains for focused tests); no workflow-file edits or manual production migration. Existing gateway claim now refuses while a document job runs, completing reciprocal exclusion. HTTP test proves ordinary claim is blocked during conversion and succeeds after document publication.
+- Minute maintenance expires leases/invalid authority and prunes at most 100 terminal receipts older than 30 days. Published workspace files remain governed by their existing retention/history. Account export includes owned currently accessible document source/status without leases; account deletion removes document source/leases. Dynamic workspace purge includes document table and tombstones block late delivery.
+- Document suite 16 passed (`/tmp/honmaru-document-lifecycle-final.log`), document+existing gateway suite 23 passed before the final purge test, existing account/workspace/migration suites 30 passed (`/tmp/honmaru-document-erasure-regression.log`). An initial account-erasure fixture omitted the existing deleteAccount login argument; corrected fixture and reran successfully.
+- Not deployed or enabled on Mac service yet. Service opt-in, readiness surfaced in UI, origin/audit, user export interaction and full real-binary HTTP download verification remain. Main 483e1073 production deploy has advanced from tests to D1 column migrations; same live run 40189442059, Web still waiting.
+
+### 2026-10-25 — opt-in service and node readiness
+
+- Gateway service accepts optional pinned `documentImage`; absent configuration retains ordinary execution behavior. Service alternates document/ordinary preference, processes at most one job at a time, and document readiness failures do not stop ordinary work. Real Mac service configuration has not yet been modified.
+- Added node readiness records refreshed only on document-capable claim/heartbeat and `/hx/documents/nodes` listing recent non-revoked nodes with active administrator owner. Missing both document tables is treated as not ready. A configured client verifies installed image before advertising capability.
+- Gateway suite passed 31 tests (`/tmp/honmaru-document-service-tests.log`); Worker document+gateway suite passed 24 (`/tmp/honmaru-document-node-readiness-tests.log`), including nodes absent before capability advertisement and present after claim. UI and real configured-node end-to-end remain.
+- Production 483e1073 verified deployed: Worker c9dfe90e-0403-41ba-a79c-987975506bc4; Web index-D0SN8DaB.js, Pages https://b85a7397.honmaru-web.pages.dev. Live app.honmaruai.com HTML independently matched the asset.
+- After exact candidate CI 40188606048 confirmed all seven required jobs, verified main=483e1073 and ancestor relation, then fast-forwarded main to 0e3f572c21e17c639564a756de3b3dda05b6057f. This includes source-panel transition, type filters and agent file search, not unfinished document conversion. Deployment completion of 0e3f572c is not yet verified.
+
+### 2026-10-25 — document creation UI
+
+- Added file-panel document creation dialog using the existing modal/focus handling and icon system. Supports Markdown/HTML input, PDF/DOCX output, destination filename/directory, ready-node selection, queued/running/saved/cancelled states, cancellation and opening the resulting file history. Stable request IDs are retained on uncertain admission errors; active jobs are polled without duplicate creation.
+- Added Japanese labels and dialog theme tokens. Actual local CUA inspection confirmed the dark-mode form and disabled creation when conversion/node readiness is unavailable; screenshot `/tmp/honmaru-document-create-dark-20261025.png`. Local running DB has not yet received document schema, so this is a readiness/error state, not a successful full UI conversion. Light/mobile and real node round trip remain unverified.
+- UI regression suite 15 tests passed, including request-ID reuse and queued→saved→open. Build passed after removing a duplicate existing Japanese Report dictionary key. Logs `/tmp/honmaru-document-ui-tests.log`, `/tmp/honmaru-document-ui-build.log`.
+- Remaining: migrate isolated test DB, attach synthetic test node and verify real conversion/download through UI, persist active job receipt across panel reload, refine readiness/errors and origin/audit, then complete release CI and production rollout. Simple mode's existing routing is unchanged; no new service or charge.
+
+### 2026-10-25 — actual UI → VM → storage → download
+
+- Migrated only isolated local D1 at `/tmp/honmaru-file-ui-db`; registered synthetic local node for existing synthetic QA account. Temporary node token stored mode 0600, no real production token read/changed, no service fee. Local document processor uses pinned verified image and connects only to 127.0.0.1:8787; finite test loop session 64018 was active during verification (10-minute maximum).
+- CUA submitted Japanese Markdown from document creation form. Actual Mac VM converted, authenticated Worker published file version, UI polled succeeded, opened version history and rendered the PDF inline. Downloaded PDF 24,963 bytes SHA256 `be522dc196571b8975be0484b0bac198bb743adef80416f3588ae3cba647dbe5` exactly matched the immutable file version. Job `d3a5e25b-d752-4de6-be36-37870e3d07d1`; screenshot `/tmp/honmaru-document-real-pdf-preview-20261025.png`.
+- Repeated through UI selecting Word. Downloaded DOCX 5,208 bytes SHA256 `4534cfa064c3a4d9ced2f30e44e8d6f5712ca5562468769c4855aaa76ff5dc77` matched stored version. ZIP document XML retained Japanese, table and hyperlink. Job `9608fb39-8718-4e24-908b-e9c1e32825b2`; screenshot `/tmp/honmaru-document-real-word-20261025.png`. Downloads live in user Downloads with synthetic test filename ending 20261025.pdf/.docx.
+- Fixed stale readiness error remaining after a node connects, and translated Open file. UI regression 2 tests and full web build passed. `/tmp/honmaru-document-ready-ui-tests.log`, `/tmp/honmaru-document-ui-build.log`.
+- This proves local end-to-end conversion, not production or complete Kylon parity. Remaining: active-job restoration across panel reload, origin/audit, light/mobile visual QA, final release CI and real production node configuration/round trip. Main 0e3f572c deploys are live: Worker 40191119046 Test, Web 40191119111 waiting; CI 40191119027 also in progress.
+
+### 2026-10-25 — document receipt restoration
+
+- Added per-tab session receipt keyed by existing host/workspace/user/room preference key and exact scope. Stores only validated UUID, no source text, filename, token or lease. On remount, fetches live authorized server status; unavailable/forbidden receipts clear, storage failure does not prevent operation. This is reload/panel restoration, not cross-device sync or restart persistence.
+- Five focused tests passed: key isolation/invalid IDs, disabled storage, unchanged retry ID, normal completion and restored receipt without duplicate admission. Web build passed. Logs `/tmp/honmaru-document-receipt-tests.log`, `/tmp/honmaru-document-receipt-build.log`.
+- Actual CUA submitted `Reload receipt QA 20261025.pdf`, reloaded immediately after queued response, reopened document dialog and observed saved state/file-open action. DB confirmed exactly one job (`555b0d4b-aeb9-4d6a-a3ef-f7ce456f09f5`) succeeded. Screenshot `/tmp/honmaru-document-reload-restored-20261025.png`.
+- Main 0e3f572c E2E now passed; Worker CI/deploy still live Test and Web waiting. No new production document enablement yet. Remaining includes audit/origin, light/mobile checks, release CI and actual production node/service rollout.
+
+### 2026-10-25 — document origin and audit
+
+- Human-only document admission now publishes immutable file origin `human` in the same D1 batch as the matching version. The node cannot supply origin/author/destination. Future agent admission must explicitly attribute its trusted principal; not exposed yet.
+- Audits record conversion/cancellation requests by the authenticated person and accepted artifact deliveries by the authenticated node. Retried deliveries are receipt events, not claims of another conversion. Details contain only job/version identifiers and status; source text, lease and token are omitted. Uses existing best-effort audit infrastructure; this is not a new atomic audit guarantee.
+- Document D1/HTTP suite passed 16 tests including origin and request/delivery audit presence. `/tmp/honmaru-document-origin-audit-tests.log`. Full release CI still required before production activation.
