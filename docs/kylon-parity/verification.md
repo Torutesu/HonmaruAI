@@ -3228,3 +3228,10 @@ Added MCP create_file_text with explicit room scope, normalized relative path, s
 Validation: MCP and upload integration suites 83 passed, including same-ID concurrent retries, saved content, trusted origin, path collisions, altered replays, denied readers, inaccessible rooms, human reservation rejection, path traversal, invalid IDs/MIME, and byte limit. Follow-up BOM preservation correction passed the 10-test harness MCP suite. UTF-8 round trips preserve a leading BOM and reject unpaired surrogates.
 
 Still incomplete: built-in conversation-agent wiring, binary generation/export, origin tabs in the web panel and production generation verification. CI 40182005007 E2E failed again; deployment remains gated while the failure is inspected.
+
+### 2026-10-25 — retain Jam state before conversation mount
+CI 40182005007's offline-shell test passed after the offline-mode correction. Its only E2E failure was the second tab not showing Join Jam. Inspection found that Dashboard connects the socket while the mode gate can still withhold ClassicList: initial jam_state events were dispatched only as transient window events, so the delayed conversation listener missed them.
+
+Dashboard now retains active Jam display snapshots for the exact relay/user/workspace/session and passes them into ClassicList. Ended calls are removed; reconnect clears the snapshot; changing identity immediately hides the old snapshot. Only display state is retained in memory, without browser storage. RTC offers/candidates and call-control events remain transient and are not replayed.
+
+Validation: a delayed-consumer test receives an initial state delivered before it mounts, ignores RTC offers, and verifies end/reset/session isolation. Existing Jam tests and the new test total 11 passed; full Web 1,188 tests/180 files passed; production build passed. Actual two-tab E2E requires rerunning the new release candidate; this is not yet proof of production Jam recovery.

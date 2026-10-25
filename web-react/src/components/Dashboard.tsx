@@ -1,3 +1,4 @@
+import {useJamSnapshot} from '../utils/useJamSnapshot'
 import {WorkspaceModeLoading} from './WorkspaceModeLoading'
 import { FloatingAppWorkspace } from './FloatingAppWorkspace'
 import { HarnessRail } from './HarnessRail'
@@ -288,6 +289,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
   const relayHttpUrl = relayUrl.replace(/^ws/, 'http')
   // Simple or harness (docs/kylon-gap-plan.md): what the rail offers.
+  const jamSnapshot=useJamSnapshot(JSON.stringify([relayUrl,userId,orgId,sessionToken]))
   const { mode: workspaceMode, simpleOnly, loaded: workspaceModeLoaded,offline:workspaceModeOffline,error:workspaceModeError,retry:retryWorkspaceMode,setSimpleOnly } = useWorkspaceMode(relayHttpUrl, orgId, sessionToken)
   useEffect(()=>{if(route.appSource && route.appOrg===orgId && workspaceModeLoaded && workspaceMode!=='harness')navigate(hashForMode('classic'),true)},[route.appSource,route.appOrg,orgId,workspaceModeLoaded,workspaceMode,navigate])
   useEffect(() => {
@@ -351,11 +353,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     wsClient.onSynced = () => {
       if (ignore) return
       setSynced(true)
+      jamSnapshot.reset()
       // A new socket is in no Jam: a call this tab was in joins again.
       window.dispatchEvent(new CustomEvent('honmaru:jam', { detail: { name: 'reset', value: {} } }))
     }
     wsClient.onJam = (name, value) => {
-      if (!ignore) window.dispatchEvent(new CustomEvent('honmaru:jam', { detail: { name, value } }))
+      if (!ignore) {jamSnapshot.receive(name,value);window.dispatchEvent(new CustomEvent('honmaru:jam', { detail: { name, value } }))}
     }
     wsClient.onOutboxChange = (n) => { if (!ignore) setUnsent(n) }
     wsClient.onCardCreated = (card) => {
@@ -446,6 +449,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (back(connected)) window.dispatchEvent(new Event('honmaru:resync'))
     }
     setSynced(false)
+    jamSnapshot.reset()
     // Another workspace's socket: its people, not the last one's.
     setPresence({})
     wsClient.connect(relayUrl, userId, orgId, sessionToken).catch((err) => {
@@ -1071,6 +1075,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         <ClassicList
           key={`${localeVersion}:${channelMessageCache(api).identity}`}
           harness={workspaceMode === 'harness'}
+          jamStates={jamSnapshot.states}
           newRequest={harnessNewRequest}
           homeRequest={harnessHomeRequest}
           linkedThreadId={route.threadId && (!route.threadOrg || route.threadOrg === orgId) ? route.threadId : null}

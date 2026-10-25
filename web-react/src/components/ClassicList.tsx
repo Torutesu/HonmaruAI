@@ -113,6 +113,7 @@ const actionWord = (value?: string) => (value ? ACTION_WORD[value] || value : ''
 export type Presence = Record<string, 'online' | 'offline'>
 
 interface Props {
+  jamStates:Record<string,JamState>
   harness?: boolean
   newRequest?: number
   homeRequest?: number
@@ -345,7 +346,7 @@ function when(iso?: string): string {
 /// the relay's, not invented. On a phone it is one pane at a time: the
 /// sidebar, then the conversation with a way back.
 export const ClassicList: React.FC<Props> = ({
-  harness = false, newRequest = 0, homeRequest = 0, sourceAppId = null, sourceAppSection, sourceAppDraft, linkedThreadId = null, userId, orgName, pending, sent, decided, businesses, presence,
+  jamStates, harness = false, newRequest = 0, homeRequest = 0, sourceAppId = null, sourceAppSection, sourceAppDraft, linkedThreadId = null, userId, orgName, pending, sent, decided, businesses, presence,
   onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, onApps, onWorkflow, workspaceMenu,
   onCreateRoom, onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen, onOpenAgentProfile, onPlaces, onStatus, statusOpen, active = true,
 }) => {
@@ -3669,7 +3670,7 @@ export const ClassicList: React.FC<Props> = ({
 
   // ---- Jam ----
   // Who is talking in which channel, and the call this tab is in.
-  const [jams, setJams] = useState<Record<string, JamState>>({})
+  const jams=jamStates
   const [call, setCall] = useState<JamCall | null>(null)
   // In the phone app's web view: tell the app when the call is over.
   const hadCall = useRef(false)
@@ -3692,12 +3693,6 @@ export const ClassicList: React.FC<Props> = ({
     const on = (e: Event) => {
       const { name, value } = (e as CustomEvent<{ name: string; value: any }>).detail || {}
       if (name === 'jam_state' && value?.channel) {
-        setJams((prev) => {
-          const next = { ...prev }
-          if (value.active) next[value.channel] = value as JamState
-          else delete next[value.channel]
-          return next
-        })
         // A Jam just started in a direct conversation, by the other person,
         // and you are not in a call: it rings — until answered, declined,
         // joined by you, over, or thirty seconds pass.
@@ -3716,9 +3711,6 @@ export const ClassicList: React.FC<Props> = ({
             return prev
           })
         }
-      } else if (name === 'reset') {
-        // The relay sends what is going on again after this.
-        setJams({})
       }
     }
     window.addEventListener('honmaru:jam', on)
