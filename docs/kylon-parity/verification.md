@@ -3392,3 +3392,8 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 ### 2026-10-25 — File origin tab label fit
 - Actual 360px file panel truncated the Japanese source labels. Visible tabs now use Agents/Users, while full Created by agents/Uploaded by users descriptions remain in title and aria-label.
 - Real dark UI confirms both Japanese labels fit alongside view/upload icons; screenshot `/tmp/honmaru-file-origin-labels-20261025.png`. Panel tests 13 passed and web build passed (`/tmp/honmaru-file-origin-label-tests.log`, `/tmp/honmaru-file-origin-label-build.log`).
+
+### 2026-10-25 — Agent file search parity
+- Exposed existing MIME category, creator and inclusive creation-date search through list_workspace_files for MCP and own-agent conversation tools. Scope remains server-bound in native agent conversations.
+- Added Kylon-style UTC start-of-day literals for today, tomorrow, yesterday, seven days ago and thirty days ago in the common list query. Both bounds resolve against one captured clock value. Invalid literals/ranges remain errors.
+- Real MCP checks verify combined category/creator/date filtering, empty results, invalid input and today/tomorrow/yesterday literals. MCP plus file upload/list regression suite: 75 tests passed (`/tmp/honmaru-agent-file-search-tests.log`). Production rollout pending; this does not verify model selection of the tools.

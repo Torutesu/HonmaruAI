@@ -3,8 +3,10 @@ import {workspaceFilePath,FileVersionInputError} from './fileVersionLedger.js';
 
 const types={image:"v.content_type LIKE 'image/%'",video:"v.content_type LIKE 'video/%'",media:"(v.content_type LIKE 'image/%' OR v.content_type LIKE 'video/%')",pdf:"v.content_type='application/pdf'",html:"v.content_type='text/html'",doc:"v.content_type IN ('text/plain','text/markdown','application/msword','application/rtf','text/rtf','application/vnd.openxmlformats-officedocument.wordprocessingml.document')"};
 const text=value=>typeof value==='string'&&value.length<=1024&&!/[\u0000-\u001f\u007f]/.test(value);
-const date=value=>{
+const relativeDays={'$start_of_today':0,'$start_of_tomorrow':1,'$start_of_yesterday':-1,'$start_of_7_days_ago':-7,'$start_of_30_days_ago':-30};
+const date=(value,now)=>{
  if(value===null)return null;
+ if(typeof value==='string'&&Object.hasOwn(relativeDays,value)){const day=new Date(now);day.setUTCHours(0,0,0,0);day.setUTCDate(day.getUTCDate()+relativeDays[value]);return day.toISOString();}
  if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}(T.*)?$/.test(value)||!Number.isFinite(Date.parse(value)))throw new FileVersionInputError('Invalid file date.');
  return new Date(value).toISOString();
 };
@@ -17,7 +19,7 @@ export async function listWorkspaceFiles(db,{orgId,userId,scope,query='',directo
  if(cursor!==null&&(!text(cursor.path)||!text(cursor.id)||!cursor.id))throw new FileVersionInputError('Invalid file cursor.');
  if(directOnly&&directory)directory=workspaceFilePath(directory.replace(/\/$/,''))+'/';
  if(order==='recent'&&cursor&&(!text(cursor.updatedAt)||!/^\d{4}-\d{2}-\d{2}T/.test(cursor.updatedAt)||!Number.isFinite(Date.parse(cursor.updatedAt))))throw new FileVersionInputError('Invalid recent file cursor.');
- since=date(since);until=date(until);
+ const now=Date.now();since=date(since,now);until=date(until,now);
  if(since&&until&&since>until)throw new FileVersionInputError('Invalid file date range.');
  const {results}=await db.prepare(`SELECT f.id,f.scope,f.path,COALESCE(o.source,'unknown') AS origin,CASE WHEN EXISTS(SELECT 1 FROM users author WHERE author.github_id=f.created_by) THEN f.created_by ELSE 'deleted-user' END AS created_by,f.created_at,f.updated_at,f.current_version,v.kind,v.content_type,v.size
   FROM hx_workspace_files f JOIN hx_workspace_file_versions v ON v.org_id=f.org_id AND v.file_id=f.id AND v.version=f.current_version

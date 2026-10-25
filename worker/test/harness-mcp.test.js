@@ -118,6 +118,16 @@ test('file read tools use token identity, exact versions and live room access',a
  for(const [expectedVersion,text] of [[0,'old notes'],[1,'new notes']])expect(await uploadFileVersion(env,{orgId:ORG,fileId:'notes',userId:'9401',expectedVersion,size:text.length,contentType:'text/plain',stream:new Blob([text]).stream()})).toMatchObject({saved:true});
  const listed=(await tool(reader,'list_workspace_files',{scope:'workspace',orgId:'other',userId:'other'})).result.structuredContent;
  expect(listed.files.map(file=>file.path)).toEqual(['Team/notes.txt']);
+ const definition=(await (await rpc(reader,'tools/list')).json()).result.tools.find(t=>t.name==='list_workspace_files');
+ expect(definition.inputSchema.properties.type.enum).toContain('pdf');expect(definition.inputSchema.properties.since.type).toBe('string');
+ const filtered=async filters=>(await tool(reader,'list_workspace_files',{scope:'workspace',...filters})).result;
+ expect((await filtered({type:'doc',createdBy:'9401',since:'1900-01-01',until:'2999-01-01'})).structuredContent.files.map(f=>f.id)).toEqual(['notes']);
+ expect((await filtered({since:'$start_of_today',until:'$start_of_tomorrow'})).structuredContent.files.map(f=>f.id)).toEqual(['notes']);
+ expect((await filtered({until:'$start_of_yesterday'})).structuredContent.files).toEqual([]);
+ expect((await filtered({since:'$start_of_unknown'})).isError).toBe(true);
+ for(const filters of [{type:'pdf'},{createdBy:'another-user'},{since:'2999-01-01'},{until:'1900-01-01'}])expect((await filtered(filters)).structuredContent.files).toEqual([]);
+ for(const filters of [{type:'invalid'},{since:'not-a-date'},{since:'2026-02-01',until:'2026-01-01'}])expect((await filtered(filters)).isError).toBe(true);
+
  expect((await tool(reader,'list_workspace_folders',{scope:'workspace'})).result.structuredContent.folders).toEqual([{name:'Team',path:'Team/'}]);
  expect((await tool(reader,'list_file_versions',{fileId:'notes'})).result.structuredContent.versions.map(v=>v.version)).toEqual([2,1]);
  const content=(await tool(reader,'read_file_text',{fileId:'notes',version:1})).result;
