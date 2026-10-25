@@ -847,12 +847,12 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/file",
-      "code": "worker/src/fileConversations.js",
-      "acceptance": "ファイル単位の固定ID・同時初回作成・送信元ACLを実装。Web 887件／Workerファイル27件を検証。後続デプロイへの包含はコミット祖先関係で確認。再読込E2Eの当該ケース結果は要再確認。添付削除後も会話は通常履歴に残る。Kylonのファイルと会話の同時表示・全端末比較は残る",
+      "code": "worker/src/harness/fileConversation.js; worker/src/harness/fileThreadTools.js; web-react/src/components/WorkspaceFilesPanel.tsx",
+      "acceptance": "固定会話ID・同時初回作成・版更新後の同一会話・権限失効時の拒否を検証。ローカル実画面でファイルと会話の同時表示、元ファイルへ戻る導線、PDF幅合わせ、ダーク表示、返信と再読込復元を確認。AIは版を固定したUTF-8読取に対応し模擬モデルで返信保存まで検証。実モデル・複数人通知・全端末・本番画面比較は未完。",
       "evidence": {
         "auditDate": "2026-10-25",
-        "verified": "Versioned file endpoint and detail button now open one deterministic ordinary channel thread. HTTP tests cover concurrent first opens, version updates and membership revocation. Local UI sent a Japanese reply and restored the same thread/reply after reload. Legacy file tests remain passing.",
-        "remaining": "File/preview and conversation simultaneous layout; direct return to source file; natural-language AI context and version references; multi-user notifications/mobile; production deployment and populated Kylon comparison."
+        "verified": "Versioned deterministic file threads and local preview/conversation layout verified. D1/R2 tests cover concurrent opens and revocation, including stale snapshots. A mocked-provider HTTP integration verifies saving content, opening the thread, invoking read_thread_file with exact version/text, and persisting the resulting agent reply. Candidate daf8e3f5 passed all seven required CI jobs and was promoted to main; deployment pending.",
+        "remaining": "Real model/UI file answers; PDF/image interpretation; multi-user notifications/mobile; latest AI reader rollout; production rendered verification and populated Kylon comparison."
       }
     },
     {

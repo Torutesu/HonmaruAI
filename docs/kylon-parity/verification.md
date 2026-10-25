@@ -3361,3 +3361,8 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Every invocation rechecks live file/thread access and uses the existing bounded UTF-8 reader. Reading marks the answer private so public URL reads are blocked afterward. General personal tools remain unavailable in shared thread replies; Simple mode exposes no file reader.
 - Real D1/R2 tests: 25 file HTTP/MCP tests passed; after adding agentTools integration coverage, 13 HTTP tests passed. Verified fixed version across an upload, fresh version for a new answer, wrong scope/root rejection, revocation, and read_url blocking.
 - Remaining: real model/UI reply validation, PDF/image interpretation, production rollout. This is not full KY074 completion.
+
+### 2026-10-25 — HTTP-to-model file conversation integration and promotion
+- Added provider-mocked HTTP integration: save UTF-8 file, open its deterministic thread, ask an assigned agent with parentId, observe read_thread_file tool call, assert actual stored text/version reaches model input, and verify grounded reply persisted. One targeted integration passed (`/tmp/honmaru-file-thread-model-test.log`). No live model charges; actual model behavior remains unverified.
+- Fixtures were corrected to supply orgId in the file endpoint query and use parentId (thread reply), not replyTo (inline quote); the model test uses inline execution explicitly.
+- Exact candidate daf8e3f5613bcd8ca62e28dba55596373e34497a CI 40186748028 passed all seven required jobs. Confirmed remote main 7f602fa8 and ancestry, then fast-forwarded main to daf8e3f5. Deployment still pending; this candidate includes file conversation/inline preview/PDF fixes, not the later UUID route or AI reader additions.

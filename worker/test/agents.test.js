@@ -988,3 +988,34 @@ test('an uncertain tool deadline leaves the assignment interrupted, not finished
  expect(calls).toBe(1);expect(result.interrupted).toBe(true);
  expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(ORG,f.assignmentId).first()).toEqual({status:'interrupted'});
 });
+
+test('a file-thread question sends its saved text to the model and persists the grounded reply',async()=>{
+ await env.DB.exec((await import('../workspace-files.sql?raw')).default.replace(/\n/g,' '));
+ const {setMode}=await import('../src/harness/mode.js');
+ const {agent}=await (await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO})).json();
+ await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?,'b:cafe',?,'8801','now')").bind(ORG,agent.id).run();
+ await setMode(env.DB,ORG,'harness','8801');
+ const created=await send('POST',`/hx/files?orgId=${encodeURIComponent(ORG)}`,toru,{scope:'b:cafe',path:'menu.txt'});
+ expect(created.status).toBe(201);const {id}=await created.json();
+ const content='Autumn menu: chestnut latte, 540 yen.';
+ const upload=await call(`/hx/files/${id}/content?orgId=${encodeURIComponent(ORG)}&expectedVersion=0&size=${new TextEncoder().encode(content).length}`,{method:'PUT',headers:{...headers(toru),'content-type':'text/plain'},body:content});
+ expect(upload.status).toBe(200);
+ const opened=await send('POST','/channels/files/conversation',toru,{orgId:ORG,fileId:id});
+ expect(opened.status).toBe(200);const {threadId}=await opened.json();
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(200,opts=>{
+  const body=JSON.parse(opts.body);
+  expect(body.tools.some(tool=>tool.name==='read_thread_file')).toBe(true);
+  expect(body.tools.some(tool=>tool.name==='create_file_text')).toBe(false);
+  return {id:'file-read-1',output:[{type:'function_call',name:'read_thread_file',call_id:'file-call',arguments:'{}'}]};
+ });
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(200,opts=>{
+  const body=JSON.parse(opts.body);expect(body.previous_response_id).toBe('file-read-1');
+  const output=body.input.find(item=>item.type==='function_call_output');
+  expect(JSON.parse(output.output)).toMatchObject({fileId:id,version:1,text:content,untrustedContent:true});
+  return {id:'file-read-2',output_text:'The saved menu lists a chestnut latte for 540 yen (version 1).'};
+ });
+ const response=await send('POST','/channels/messages',mika,{orgId:ORG,channel:'b:cafe',parentId:threadId,body:'@hayao What is the price in this file?'},{OPENAI_API_KEY:'sk-test',AGENT_INLINE:'1'});
+ expect(response.status).toBe(201);
+ const reply=await env.DB.prepare("SELECT body FROM channel_messages WHERE org_id=? AND kind='agent' AND body LIKE '%540 yen%'").bind(ORG).first();
+ expect(reply?.body).toBe('The saved menu lists a chestnut latte for 540 yen (version 1).');
+});

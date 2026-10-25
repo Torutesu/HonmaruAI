@@ -127,7 +127,7 @@
 | KY-071 | PDF・画像・CSV・テキストのプレビュー | 一部 | P1 | [web-react/src/components/DocumentPreview.tsx](../../web-react/src/components/DocumentPreview.tsx) | PR #476/#481を本番反映。PDF選択・検索ハイライト・拡大とCSV/テキスト検索を実装。PR #486でCSVダーク文字色を実画面修正し、後続のWeb/Workerデプロイ成功で公開を確認。全形式・大容量・モバイルの比較は残る |
 | KY-072 | PDF/Word/Markdown/HTML書き出し | 一部 | P1 | [worker/src/files.js](../../worker/src/files.js) | 単なる元ファイルDLと形式変換を区別 |
 | KY-073 | ファイルの版管理・復元 | 一部 | P1 | [fileVersionLedger.js](../../worker/src/harness/fileVersionLedger.js) | ローカルで版追加・復元・削除・再読込・履歴DLを確認。空予約の掃除と生成者分類・エージェント作成編集も実装。ファイルURLの別ワークスペース遷移を確認、リンク機能は公開候補。実機本番往復・複数利用者・参照履歴・全形式書き出しが残る |
-| KY-074 | ファイルへの固定会話 | 一部（PR #486、公開済み） | P1 | [PR #486](https://github.com/Torutesu/HonmaruAI/pull/486) | 版管理ファイルの固定会話APIと詳細ボタンを実装。ローカル実画面で返信・再読込復元、HTTPで同時作成・版更新後の同一ID・退出後拒否を確認。ファイルとの同時表示・ファイルへの戻り導線・AI文脈・通知・全端末・本番反映は残る |
+| KY-074 | ファイルへの固定会話 | 一部 | P1 | worker/src/harness/fileConversation.js | 固定会話・同時作成・版更新・失効時拒否を検証。ローカルでファイル／会話の同時表示・戻り導線・ダークPDF幅合わせ・再読込を確認。版固定のAIテキスト読取と模擬モデル返信保存を検証。実モデル・PDF画像理解・通知・全端末・本番比較は残る |
 | KY-075 | 公開共有の承認と失効 | 一部 | P0 | [worker/src/files.js](../../worker/src/files.js) | 共有範囲・承認者・リンク失効と監査を検証 |
 
 ## Connections
