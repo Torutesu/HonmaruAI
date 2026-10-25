@@ -3345,3 +3345,13 @@ Release gate: file-link candidate 79cc7bf0 CI 40185272525 completed with Worker 
 Worker failure 40185272525 / job 121144631596 was reproduced by inspection: file-upload.test.js supplies a shared base object containing fileId to listWorkspaceFiles. The previously ignored field became an active filter when direct metadata lookup was added, so pagination saw only one file. Renamed the deliberately selected internal filter to exactFileId and updated only the direct metadata route. Existing list callers, including callers with incidental fileId fields, retain prior semantics. No assertion was weakened.
 
 Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conversation suite passed 73 tests. Log /tmp/honmaru-file-list-regression-tests.log. This fixes the identified failure, but exact-candidate full CI is still required before promotion. The earlier candidate's failed result remains evidence and is not treated as a flaky pass.
+
+### 2026-10-25 — File conversation access races and production verification
+- Added D1 coverage for stale file snapshots after membership removal or tombstoning: reads and creation return 404 without inserting an orphan root. All 12 HTTP file tests passed (`/tmp/honmaru-file-conversation-race-tests.log`).
+- Production `7f602fa8`: CI 40185243465 and deployments 40185243466/40185243467 succeeded. Worker version `76295141-b480-4818-bf88-c3b64eea4789`; Web `index-AwDkSZrO.js` independently verified with curl at app.honmaruai.com (Python urllib request received 403).
+- Mac app accessibility works again; production room/file panel visible. Local dark PDF preview shows page 2, fit-width and search result 84 alongside its conversation. Newer conversation UI production verification remains pending.
+- Candidate `daf8e3f5`, CI 40186748028: five required jobs passed, Worker and E2E running. Not promoted. No new paid services; Simple mode preserved.
+
+### 2026-10-25 — Server-generated file IDs in deep links
+- HTTP file creation without requestId uses raw UUIDs, while channel route parsing previously accepted only `file-UUID`. Channel deep links now support both server-issued forms using strict UUID grouping; malformed IDs remain rejected.
+- Route and file-thread tests: 29 passed (`/tmp/honmaru-file-uuid-route-tests.log`). Production rollout of this change remains pending.

@@ -194,3 +194,9 @@ it('file links remain bound to a valid conversation route',()=>{
  expect(parseRoute(`#/c/invalid?file=${id}`).fileId).toBeUndefined()
  expect(parseRoute('#/c/b%3Adesign?file=../private').fileId).toBeUndefined()
 })
+
+ it('opens server-generated UUID file links and rejects malformed identifiers',()=>{
+ const id='12345678-1234-4234-8234-123456789abc'
+ expect(parseRoute(`#/c/ag%3Aassistant?org=personal%3Atest&file=${id}`)).toMatchObject({openView:'ag:assistant',openOrg:'personal:test',fileId:id})
+ for(const file of ['file-'+ '-'.repeat(36),'a'.repeat(36),id+'/extra',id.slice(1)])expect(parseRoute(`#/c/b%3Adesign?file=${encodeURIComponent(file)}`).fileId).toBeUndefined()
+ })

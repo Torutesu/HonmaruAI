@@ -1,6 +1,7 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,test,expect} from 'vitest';
 import worker from '../src/index.js';
+import {conversationFile,workspaceFileConversation} from '../src/harness/fileConversation.js';
 import sql from '../workspace-files.sql?raw';
 import {createSession,upsertUser,upsertMembership} from '../src/db.js';
 const orgId='personal:file-http';let token,guest;
@@ -145,3 +146,15 @@ test('versioned files share one authorized conversation across simultaneous open
  expect((await call(endpoint,'POST',{orgId,fileId:id})).status).toBe(404);
  expect((await call(`${endpoint}?fileId=${id}`)).status).toBe(404);
 });
+
+ test.each(['membership','deleted'])('stale file snapshot cannot create a conversation after %s changes',async(change)=>{
+ const scope='g:abcdef0123456789';
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES(?,?,?,'now')").bind(orgId,scope,'file-human').run();
+ const {id}=await (await call('/hx/files','POST',{scope,path:'race.txt',requestId:`file-${crypto.randomUUID()}`})).json();
+ expect((await call(`/hx/files/${id}/content?expectedVersion=0&size=5`,'PUT','hello',token,true)).status).toBe(200);
+ const file=await conversationFile(env.DB,{orgId,userId:'file-human',fileId:id});expect(file).toBeTruthy();
+ if(change==='membership')await env.DB.prepare('DELETE FROM conversation_members WHERE org_id=? AND channel=? AND login=?').bind(orgId,scope,'file-human').run();
+ else expect((await call(`/hx/files/${id}`,'DELETE',{expectedVersion:1})).status).toBe(200);
+ for(const create of [false,true])expect((await workspaceFileConversation(env.DB,{orgId,userId:'file-human',file,create})).status).toBe(404);
+ expect((await env.DB.prepare('SELECT count(*) AS n FROM channel_messages WHERE org_id=? AND id=?').bind(orgId,`workspace-file-thread-${id}`).first()).n).toBe(0);
+ });

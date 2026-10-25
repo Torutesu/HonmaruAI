@@ -119,7 +119,7 @@ export function parseRoute(hash: string): Route {
     try { view = decodeURIComponent(view) } catch { /* as written */ }
     const openView = /^(b|dm|g|ag):[^\s]{1,200}$/.test(view) ? view : null
     const params = new URLSearchParams(query), org = params.get('org'), file = params.get('file')
-    return { screen: null, mode: 'classic', cardId: null, join: null, openView, openOrg: openView && org && isOrgId(org) ? org : null, ...(openView && file && /^file-[0-9a-f-]{36}$/i.test(file) ? {fileId:file} : {}) }
+    return { screen: null, mode: 'classic', cardId: null, join: null, openView, openOrg: openView && org && isOrgId(org) ? org : null, ...(openView && file && /^(?:file-)?[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(file) ? {fileId:file} : {}) }
   }
   if (head === 'workflows' && rest.length) {
     const decode = (value: string) => { try { return decodeURIComponent(value) } catch { return '' } }
