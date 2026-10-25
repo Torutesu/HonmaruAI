@@ -86,11 +86,11 @@
       "priority": "P0",
       "source": "https://kylon.io/product/workspace",
       "code": "worker/src/customAgents.js",
-      "acceptance": "ルーム追加時に不足するエージェント利用権を表示し明示付与",
+      "acceptance": "ルーム追加時に不足するAgent権限を明示し、申請/承認または選択した利用者への明示付与だけで補完。承認でroom memberを増やさず、複数利用者・端末の同期も検証",
       "evidence": {
-        "release": "Versioned room roles and separate human/custom-agent membership deployed in e8e5af3d; unified picker 93c400d7/1dcf52cb.",
-        "verified": "Native production picker excludes the joined human and lists the permitted Mac assistant. Partial failures refresh candidates and retain unsuccessful selections in tests.",
-        "remaining": "Explicit grant of missing agent access, full multi-user role handoff and cross-client live updates; no production role or agent membership mutation was performed during this UI verification."
+        "release": "Versioned room roles and separate human/custom-agent membership deployed in e8e5af3d; unified picker 93c400d7/1dcf52cb. Explicit access requests, owner/admin approval and opt-in grant during room creation deployed at c5b069b0.",
+        "verified": "Exact-SHA CI, Worker D1 migration/deployment and Web deployment passed. Tests cover private, idempotent requests, owner/admin approval, membership/owner revocation races, request-only grants, room-creation opt-in grants and no implicit room membership. Existing owner-only Agent transfer remains version-fenced. Production app reloaded on c5b069b0; no real access request or permission grant was issued.",
+        "remaining": "Cross-client immediate refresh and comprehensive multi-user production isolation/role-handoff verification; visually inspecting the new access dialog against Kylon with a synthetic team Agent remains pending."
       }
     },
     {
