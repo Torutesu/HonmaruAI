@@ -1876,7 +1876,24 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     await d.keyboard.press('Escape')
     await onKeyed().catch(() => { throw new Error('focus did not come back to the message after its edit') })
     await d.keyboard.press('Backspace')
-    await d.waitForSelector('[data-delete-confirm]', { timeout: 5000 }).catch(() => { throw new Error('⌫ did not ask before deleting') })
+    await d.waitForSelector('[data-delete-confirm]', { timeout: 5000 }).catch(async () => {
+      // Preserve the actual focus/edit/send state for intermittent failures;
+      // do not retry the key or hide a missing confirmation with a longer wait.
+      const state = await d.evaluate(() => {
+        const active = document.activeElement
+        const row = active?.closest('article.slk-msg')
+        return {
+          activeTag: active?.tagName, activeId: active?.id,
+          rowId: row?.id, rowClass: row?.className,
+          editing: Boolean(document.querySelector('.slk-main .slk-msg.editing')),
+          dialog: Boolean(document.querySelector('.cl-delete-dialog')),
+          rows: [...document.querySelectorAll('.slk-main article.slk-msg')].map(el => ({ id: el.id, className: el.className })),
+        }
+      })
+      writeFileSync(`${SHOTS}/message-delete-key-state.json`, JSON.stringify(state, null, 2))
+      await d.screenshot({ path: `${SHOTS}/message-delete-key-failure.png` })
+      throw new Error(`⌫ did not ask before deleting: ${JSON.stringify(state)}`)
+    })
     await d.keyboard.press('Escape')
     await d.waitForSelector('[data-delete-confirm]', { state: 'detached', timeout: 5000 })
     if (!(await d.$(keyed))) throw new Error('cancelling the question deleted the message')

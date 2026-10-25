@@ -3262,3 +3262,13 @@ Browser logs also exposed a pre-existing maximum-update-depth warning in Harness
 Validation: Worker ledger/HTTP/MCP suites 35 passed, including private/public recipient selection and access revocation. Web all 1,192 tests/181 files passed; production build passed. New tests cover coalescing, teardown, reconnect/focus, and open list/history refresh.
 
 Release: exact Jam candidate ecfebd24 CI 40183060605 passed all seven required jobs including two-tab E2E. Confirmed remote main was fae6baed, then fast-forwarded to ecfebd24. Its deployment completion remains to be checked; this live-refresh change is not deployed yet.
+
+### 2026-10-25 — native access resumed; release checks still pending
+After the user confirmed the Mac was available, CUA successfully opened the installed production app, the existing QA Webhook 2026-10-23 room and its Files panel. The panel loaded its empty state and upload/search controls; there was no lock or capture error in this check. Screenshot: /tmp/honmaru-production-files-resumed-20261025.png. This is display/navigation evidence only, not an upload round trip or proof that the latest candidate is deployed.
+
+Candidate 865607d0 CI 40183432626 has six required jobs passing with Worker still running. Candidate addbd2b3 CI 40183730311 failed the message keyboard E2E: after cancelling editing, Backspace did not display the deletion confirmation. Its Jam/header test passed. Log: /tmp/honmaru-62966a05-121140001820.log. Root cause is not established; do not waive this failure. Latest 7f602fa8 CI 40184262223 still has Worker and E2E running. ecfebd24 production Web 40184108255 and Worker 40184108259 deployment jobs remain in progress. No additional promotion was performed during this check.
+
+### 2026-10-25 — keyboard deletion failure investigated in real UI
+Local full-stack CUA sent a synthetic Keyboard focus verification message, picked it with ArrowUp, entered edit with E, then pressed Escape and Backspace. The in-app deletion confirmation appeared with the correct message; Escape cancelled it and restored focus to the message. No deletion was performed. Screenshot: /tmp/honmaru-keyboard-delete-confirm-20261025.png. This successful attempt does not explain or waive CI 40183730311's intermittent failure.
+
+The existing E2E failure now captures active element/row IDs and classes, editing/dialog presence and a screenshot before failing. No retry, timeout increase or weakened assertion was introduced. node --check e2e/spec.mjs passed. Further CI evidence is required to identify the failing state.
