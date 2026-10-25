@@ -108,8 +108,8 @@
 | KY-059 | TypeScript SDKと永続checkpoint | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 再開時に完了済み外部操作を繰り返さない |
 | KY-060 | 条件分岐・batch・制限付き並列 | 一部実装 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 部分失敗・ページング・取りこぼし率を結果に含める |
 | KY-061 | 実行履歴・step結果 | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 全ステップの入力出力・エラー・コスト・権限を追跡 |
-| KY-062 | 署名付きWebhookと再送防止 | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | URL secretだけでなく署名・期限・event IDを検証 |
-| KY-063 | Webhook rotation/revoke/held/replay | 一部（反映待ち） | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 再発行・失効、停止中イベントの7日/1000件保持、明示IDによる古い順の再実行、二重起動防止を実装。確認時点の保留イベントを破棄するUIもローカル実装。中断した実行の復旧・本番と実画面の確認は残る。 |
+| KY-062 | 署名付きWebhookと再送防止 | 実装あり | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 8c753f91 を本番反映。新規・再発行credentialはHMAC-SHA256、5分以内timestamp、event ID、7日間の原子的重複排除を検証。既存URL-only credentialは明示rotationまで互換動作。 |
+| KY-063 | Webhook rotation/revoke/held/replay | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 再発行・失効、停止中イベントの7日/1000件保持、明示IDによる古い順の再実行、二重起動防止、保留イベント破棄UIを本番反映。中断した実行の復旧とWebhook詳細画面の実画面検証は残る。 |
 | KY-064 | 承認待ち・継続 | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 承認者・操作内容・revisionを固定し二重承認を排除 |
 | KY-065 | 停止・再開・アーカイブ | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | スケジュール停止と実行キャンセルを区別 |
 | KY-066 | 実行者の権限を再検証 | 一部 | P0 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 今回Agent grantの再確認を追加。部屋/DB/Connection/依頼者権限は継続監査 |

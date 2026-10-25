@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-10-25",
+  "asOf": "2026-10-26",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -711,11 +711,16 @@
       "id": "KY-062",
       "category": "Automations",
       "requirement": "署名付きWebhookと再送防止",
-      "status": "partial",
+      "status": "implemented",
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
-      "acceptance": "URL secretだけでなく署名・期限・event IDを検証"
+      "acceptance": "URL secretだけでなく署名・期限・event IDを検証",
+      "evidence": {
+        "release": "8c753f911b5b5a05589bdecae82bd2c823a041ae; CI 40222276466, Worker deploy 40222276450, Web deploy 40222276471 all succeeded.",
+        "verified": "New webhook credentials require HMAC-SHA256 over timestamp.eventId.body, a five-minute timestamp window, bounded event IDs and atomic seven-day event deduplication. Focused Worker/migration tests (127), Web screen tests (34), full Worker CI and browser E2E passed. Production D1 migration, Worker health and exact Web asset hash were verified.",
+        "remaining": "Pre-existing URL-only webhook credentials remain compatible until explicitly rotated; rotating them enables signatures. This status covers the stated acceptance criteria, not complete Kylon parity."
+      }
     },
     {
       "id": "KY-063",
