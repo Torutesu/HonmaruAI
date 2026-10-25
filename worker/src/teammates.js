@@ -307,6 +307,14 @@ const claude = {
     await anthropic(t.apiKey).beta.sessions.events.send(run.remote_id, { events: [{ type: "user.message", content: [{ type: "text", text }] }] });
     return {};
   },
+  async cancel(t, run) {
+    if (!run.remote_id) return {status: "unavailable"};
+    // A Claude session may contain child threads. Omitting session_thread_id
+    // interrupts the primary and every non-archived child, matching a stop of
+    // the whole Honmaru assignment generation.
+    await anthropic(t.apiKey).beta.sessions.events.send(run.remote_id, { events: [{ type: "user.interrupt" }] }, {signal: AbortSignal.timeout(8000)});
+    return {status: "requested"};
+  },
   /// The agent's words since the last hand-off, and whether it has stopped.
   async read(t, run, {signal=null}={}) {
     const api = anthropic(t.apiKey);
@@ -428,6 +436,18 @@ const cursor = {
     } catch (err) {
       if (err?.status === 409) return { busy: true };
       throw err;
+    }
+  },
+  async cancel(t, run) {
+    if (!run.remote_id || !run.remote_turn) return {status: "unavailable"};
+    try {
+      await call(`${CURSOR}/agents/${encodeURIComponent(run.remote_id)}/runs/${encodeURIComponent(run.remote_turn)}/cancel`, { key: t.apiKey, method: "POST", signal: AbortSignal.timeout(8000) });
+      return {status: "requested"};
+    } catch (error) {
+      // Cursor rejects cancellation once a run has already reached a terminal
+      // state. That is still a completed stop from the provider's perspective.
+      if (error?.status === 409 && error?.code === "run_not_cancellable") return {status: "already_finished"};
+      throw error;
     }
   },
   async read(t, run, {signal=null}={}) {
@@ -679,6 +699,34 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
 /// hand-off, and whether it has stopped, and why.
 export async function readRun(env, t, run, options = {}) {
   return ADAPTERS[t.provider].read(t, run, options);
+}
+
+/// Best-effort provider stop for the exact external run owned by this
+/// assignment generation. Local cancellation remains authoritative even when
+/// the provider is unavailable or has no cancellation API.
+export async function cancelAssignedTeammateRuns(env, {orgId, assignmentId, generation}) {
+  const {results = []} = await env.DB.prepare(`SELECT * FROM ai_teammate_runs
+    WHERE org_id=?1 AND assignment_id=?2 AND assignment_generation=?3 AND status='running'
+    ORDER BY updated_at DESC LIMIT 8`).bind(orgId, assignmentId, generation).all();
+  if (!results.length) return {status: "no_remote_run"};
+  const outcomes = [];
+  for (const run of results) {
+    const adapter = ADAPTERS[run.provider];
+    if (!adapter?.cancel) { outcomes.push("unsupported"); continue; }
+    const teammate = await loadTeammate(env.DB, orgId, run.provider).catch(() => null);
+    if (!teammate || !canSignIn(teammate)) { outcomes.push("unavailable"); continue; }
+    try {
+      outcomes.push((await adapter.cancel(teammate, run)).status);
+    } catch (error) {
+      // Keep provider details and credentials out of the response and logs.
+      console.error("external agent cancellation request failed", run.provider, error?.status || "network");
+      outcomes.push("failed");
+    }
+  }
+  const status = outcomes.includes("failed") || outcomes.includes("unsupported") || outcomes.includes("unavailable")
+    ? (outcomes.some(value => value === "requested" || value === "already_finished") ? "partial" : "failed")
+    : outcomes.every(value => value === "already_finished") ? "already_finished" : "requested";
+  return {status};
 }
 
 /// Runs still working, oldest first: what the minute cron looks in on.

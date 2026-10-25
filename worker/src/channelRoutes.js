@@ -1108,13 +1108,28 @@ export async function handleChannels(request, env, url, { route, after }) {
     if(!row || row.deleted_at || row.kind!=='message' || row.channel!==access.resolved.key)return json({message:'No such message.'},404);
     const result=await stopAssignment(env.DB,{orgId:body.orgId,sourceMessageId:row.id,channel:access.resolved.key,assignmentId:body.assignmentId,generation:body.generation,
       actorId:access.who.session.github_id,canManage:await allowed(env.DB,body.orgId,access.who.session.github_id,'agent.manage_others')});
-    if(result.stopped&&env.AGENT_RUNNER) {
+    let remoteStop={status:result.remoteStop || 'not_applicable'};
+    if(result.stopped&&result.retryRemote&&env.AGENT_RUNNER) {
       try {
         const stub=env.AGENT_RUNNER.get(env.AGENT_RUNNER.idFromName(body.orgId));
         await stub.fetch('https://agents/cancel-assignment',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({orgId:body.orgId,assignmentId:body.assignmentId,generation:body.generation})});
       } catch(error) {console.error('agent cancellation signal failed',safe(error?.message));}
     }
-    return result.stopped?json({stopped:true}):json({message:result.message},result.status);
+    if(result.stopped&&result.retryRemote) {
+      const stamp=new Date().toISOString();
+      const claimed=await env.DB.prepare(`UPDATE hx_agent_assignments SET remote_stop_status='requesting',remote_stop_updated_at=?5
+        WHERE org_id=?1 AND id=?2 AND generation=?3 AND status='cancelled' AND remote_stop_status IS ?4`).bind(body.orgId,body.assignmentId,body.generation,result.remoteStop,stamp).run();
+      if(claimed.meta?.changes) {
+        try { remoteStop=await (await import('./teammates.js')).cancelAssignedTeammateRuns(env,{orgId:body.orgId,assignmentId:body.assignmentId,generation:body.generation}); }
+        catch(error) {console.error('external agent cancellation lookup failed',safe(error?.message));remoteStop={status:'failed'};}
+        await env.DB.prepare(`UPDATE hx_agent_assignments SET remote_stop_status=?4,remote_stop_updated_at=?5
+          WHERE org_id=?1 AND id=?2 AND generation=?3 AND status='cancelled' AND remote_stop_status='requesting'`).bind(body.orgId,body.assignmentId,body.generation,remoteStop.status,new Date().toISOString()).run().catch(error=>{console.error('external agent cancellation status save failed',safe(error?.message));remoteStop={status:'requesting'};});
+      } else {
+        const current=await env.DB.prepare('SELECT remote_stop_status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2 AND generation=?3').bind(body.orgId,body.assignmentId,body.generation).first().catch(()=>null);
+        remoteStop={status:current?.remote_stop_status || 'requesting'};
+      }
+    }
+    return result.stopped?json({stopped:true,...(remoteStop.status!=='no_remote_run'&&remoteStop.status!=='not_applicable'?{remoteStop:remoteStop.status}:{})}):json({message:result.message},result.status);
   }
 
   if (path === '/channels/agent-runs' && request.method === 'GET') {

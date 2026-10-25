@@ -1947,6 +1947,9 @@ body.slk-resizing iframe { pointer-events: none; }
 .classic.slk .slk-run-assignee { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .classic.slk .slk-run-assignee > .slk-run-agent-name { color: var(--slk-ink); overflow-wrap: anywhere; }
 .classic.slk .slk-run-assignment-status { margin-left: auto; }
+.classic.slk .slk-run-provider-stop { display: block; flex-basis: 100%; margin: 2px 0 0 32px; font-size: 12px; }
+.classic.slk .slk-run-provider-stop-ok { color: var(--slk-green); }
+.classic.slk .slk-run-provider-stop-warning { color: var(--slk-amber); }
 .classic.slk .slk-run-handoffs { margin-top: 6px; }
 .classic.slk .slk-run-handoffs summary { font-size: 11px; }
 .classic.slk .slk-run-handoffs ol { border-left: 1px solid var(--slk-line); padding: 0 0 0 12px; margin: 8px 0 0 4px; list-style: none; }

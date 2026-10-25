@@ -2165,6 +2165,7 @@ CREATE TABLE IF NOT EXISTS hx_agent_assignments (
   status TEXT NOT NULL CHECK(status IN ('running','pending','finished','failed','cancelled','interrupted')),
   visited TEXT NOT NULL, hop_limit INTEGER NOT NULL CHECK(hop_limit BETWEEN 1 AND 8),
   mutation_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  remote_stop_status TEXT, remote_stop_updated_at TEXT,
   UNIQUE(org_id,source_message_id,initial_agent_id)
 );
 CREATE INDEX IF NOT EXISTS idx_hx_agent_assignments_source ON hx_agent_assignments(org_id,source_message_id);

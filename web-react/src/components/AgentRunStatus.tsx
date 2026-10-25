@@ -10,7 +10,7 @@ import {AgentAvatar, type AgentLook} from './AgentAvatar'
 
 type Api = {httpBase: string; orgId: string; sessionToken: string}
 type AgentFace = AgentLook & {id: string; name: string; handle: string}
-type Assignment = {id: string; generation: number; status: string; canStop?: boolean; agent: AgentFace; hops: {id: string; from: AgentFace; to: AgentFace; at: string}[]}
+type Assignment = {id: string; generation: number; status: string; providerStopStatus?: string; canStop?: boolean; agent: AgentFace; hops: {id: string; from: AgentFace; to: AgentFace; at: string}[]}
 type Run = {rowId: string; status: string; answered: number; version?: number; assignments?: Assignment[]}
 const activeStatus = (status: string) => ['pending_delivery', 'queued', 'running', 'pending'].includes(status)
 const activeRun = (run: Run) => activeStatus(run.status) || Boolean(run.assignments?.some(assignment => activeStatus(assignment.status)))
@@ -100,7 +100,14 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
       {!run.assignments?.length && <span>{t(labels[run.status])}</span>}
       {Boolean(run.assignments?.length) && <div className="slk-run-assignments">{run.assignments!.map(assignment => <div className="slk-run-assignment" key={assignment.id}>
         <div className="slk-run-assignee"><RunFace agent={assignment.agent}/><span className="slk-run-agent-name" title={`@${assignment.agent.handle}`}>{assignment.agent.name || t('Agent')}</span><span className="slk-run-assignment-status">{t(assignment.status === 'cancelled' ? 'Agent execution cancelled' : labels[assignment.status])}</span></div>
+        {assignment.status === 'cancelled' && (() => {
+          const outcome = assignment.providerStopStatus
+          if (!outcome || outcome === 'no_remote_run') return null
+          const message = outcome === 'requested' ? 'Provider cancellation requested' : outcome === 'requesting' || outcome === 'pending' ? 'Provider cancellation is being confirmed' : outcome === 'already_finished' ? 'Provider run already finished' : 'Provider cancellation could not be confirmed'
+          return <span className={`slk-run-provider-stop slk-run-provider-stop-${outcome === 'requested' || outcome === 'requesting' || outcome === 'pending' || outcome === 'already_finished' ? 'ok' : 'warning'}`} role={outcome === 'requested' || outcome === 'requesting' || outcome === 'pending' || outcome === 'already_finished' ? 'status' : 'alert'}>{t(message)}</span>
+        })()}
         {assignment.canStop === true && activeStatus(assignment.status) && <AgentRunStop key={`${scope}:${assignment.id}:${assignment.generation}`} api={api} channel={channel} rowId={run.rowId} assignmentId={assignment.id} generation={assignment.generation} onStopped={() => setRefresh(value => value + 1)}/>}
+        {assignment.status === 'cancelled' && ['failed','partial','unavailable','pending','requesting'].includes(assignment.providerStopStatus || '') && <AgentRunStop key={`${scope}:${assignment.id}:${assignment.generation}:provider-retry`} retry api={api} channel={channel} rowId={run.rowId} assignmentId={assignment.id} generation={assignment.generation} onStopped={() => setRefresh(value => value + 1)}/>}
         {assignment.hops.length > 0 && <details className="slk-run-handoffs"><summary><span className="slk-handoff-disclosure"><Icon name="chevron-right" size={12}/></span>{t('Handoff history ({count})', {count: assignment.hops.length})}</summary><ol>{assignment.hops.map(hop => <li key={hop.id}><span className="slk-run-hop-agents"><span title={`@${hop.from.handle}`}><RunFace agent={hop.from}/>{hop.from.name || t('Agent')}</span><span aria-hidden="true">→</span><span title={`@${hop.to.handle}`}><RunFace agent={hop.to}/>{hop.to.name || t('Agent')}</span></span>{Number.isFinite(Date.parse(hop.at)) && <time dateTime={hop.at}>{handoffTime(hop.at)}</time>}</li>)}</ol></details>}
       </div>)}</div>}
     </li>)}</ul>

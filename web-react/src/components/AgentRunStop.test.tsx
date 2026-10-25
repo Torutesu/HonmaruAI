@@ -11,7 +11,8 @@ test('stop sends the observed generation once and confirms only the server ackno
  await act(async()=>{tree.root.findByType('button').props.onClick();tree.root.findByType('button').props.onClick()});
  expect(fetch).toHaveBeenCalledTimes(1);expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({generation:2,assignmentId:'assignment',messageId:'source'});
  expect(JSON.stringify(tree.toJSON())).toContain('Stopping agent execution');expect(props.onStopped).not.toHaveBeenCalled();
- await act(async()=>{resolve({ok:true,status:200,json:async()=>({stopped:true})})});
+ await act(async()=>{resolve({ok:true,status:200,json:async()=>({stopped:true,remoteStop:'requested'})})});
+ expect(props.onStopped).toHaveBeenCalledWith('requested')
  expect(props.onStopped).toHaveBeenCalledTimes(1);expect(tree.root.findByType('button').props.disabled).toBe(true);
  act(()=>tree.unmount());
 });

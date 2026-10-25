@@ -136,3 +136,23 @@ test('queue status outage preserves fresh assignment status and stop controls, a
  expect(fetch).toHaveBeenCalledTimes(3)
  act(() => tree.unmount())
 })
+
+test('persists the external cancellation outcome in the visible assignment after refreshing local stop state', async()=>{
+ setup()
+ const face={id:'agent',name:'Claude',handle:'claude'}
+ const active={available:true,results:[{rowId:'one',status:'running',answered:0,assignments:[{id:'assignment',generation:2,status:'running',canStop:true,agent:face,hops:[]}]}]}
+ const stopped={available:true,results:[{rowId:'one',status:'unknown',answered:0,assignments:[{id:'assignment',generation:2,status:'cancelled',providerStopStatus:'failed',canStop:false,agent:face,hops:[]}]}]}
+ const fetch=vi.fn().mockImplementation(async (_url:string,init?:RequestInit)=>init?.method==='POST'
+   ? {ok:true,status:200,json:async()=>({stopped:true,remoteStop:'failed'})}
+   : {ok:true,status:200,json:async()=>fetch.mock.calls.length<3?active:stopped})
+ vi.stubGlobal('fetch',fetch)
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AgentRunStatus api={api} channel="b:general" messages={[message('one')]}/>)})
+ expect(tree.root.findAllByType('button')).toHaveLength(1)
+ await act(async()=>tree.root.findByType('button').props.onClick())
+ expect(JSON.stringify(tree.toJSON())).toContain('Agent execution cancelled')
+ expect(JSON.stringify(tree.toJSON())).toContain('Provider cancellation could not be confirmed')
+ expect(tree.root.findAllByType('button')).toHaveLength(1)
+ expect(JSON.stringify(tree.toJSON())).toContain('Retry provider cancellation')
+ act(()=>tree.unmount())
+})

@@ -131,6 +131,32 @@ test("@claude in a thread starts a session with the repo, vault and budget, and 
   expect(Number((await env.DB.prepare("SELECT cost_cents FROM ai_teammate_runs WHERE org_id = ?1").bind(ORG).first()).cost_cents)).toBe(180);
 });
 
+test('stopping an assignment interrupts only the exact Claude session and generation',async()=>{
+ await launch();
+ const {cancelAssignedTeammateRuns}=await import('../src/teammates.js');
+ await env.DB.prepare(`INSERT INTO ai_teammate_runs(id,org_id,provider,channel,thread_id,remote_id,status,created_at,updated_at,assignment_id,assignment_generation)
+   VALUES ('remote-current',?1,'claude','b:cafe','thread','sesn_current','running','2026-10-26','2026-10-26','assignment-stop',3),
+          ('remote-stale',?1,'claude','b:cafe','thread','sesn_stale','running','2026-10-25','2026-10-25','assignment-stop',2)`).bind(ORG).run();
+ let sent;
+ anthropic().intercept({path:'/v1/sessions/sesn_current/events?beta=true',method:'POST'}).reply(200,opts=>{sent=JSON.parse(opts.body);return {data:[{type:'user.interrupt'}]};});
+ const result=await cancelAssignedTeammateRuns(env,{orgId:ORG,assignmentId:'assignment-stop',generation:3});
+ expect(result).toEqual({status:'requested'});
+ expect(sent).toEqual({events:[{type:'user.interrupt'}]});
+});
+
+test('stopping a Cursor assignment calls the provider run cancel endpoint',async()=>{
+ const cursorApi=fetchMock.get('https://api.cursor.com');
+ cursorApi.intercept({path:'/v1/me',method:'GET'}).reply(200,{id:'user'});
+ expect((await send('PUT','/teammates',toru,{orgId:ORG,provider:'cursor',enabled:true,apiKey:'cursor-test-key',repos:['acme/app']})).status).toBe(200);
+ await env.DB.prepare(`INSERT INTO ai_teammate_runs(id,org_id,provider,channel,thread_id,remote_id,remote_turn,status,created_at,updated_at,assignment_id,assignment_generation)
+   VALUES ('cursor-run',?1,'cursor','b:cafe','thread','cursor-agent','cursor-turn','running','2026-10-26','2026-10-26','cursor-assignment',4)`).bind(ORG).run();
+ let called=false;
+ cursorApi.intercept({path:'/v1/agents/cursor-agent/runs/cursor-turn/cancel',method:'POST'}).reply(200,()=>{called=true;return {id:'cursor-turn'};});
+ const {cancelAssignedTeammateRuns}=await import('../src/teammates.js');
+ const result=await cancelAssignedTeammateRuns(env,{orgId:ORG,assignmentId:'cursor-assignment',generation:4});
+ expect(result).toEqual({status:'requested'});expect(called).toBe(true);
+});
+
 test("a run still working is left for the minute cron, which posts it once", async () => {
   await launch();
   anthropic().intercept({ path: "/v1/sessions?beta=true", method: "POST" }).reply(200, { id: "sesn_2", type: "session", status: "running" });
@@ -256,7 +282,17 @@ test.each(['finish','stop','signout','publication_retry'])('a handed-off externa
  const remote=await env.DB.prepare('SELECT * FROM ai_teammate_runs WHERE org_id=?1').bind(ORG).first();
  expect(remote).toMatchObject({assignment_id:begun.assignment.id,assignment_generation:1,assignment_agent_id:target.id,status:'running'});
  expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE id=?1').bind(begun.assignment.id).first()).toEqual({status:'running'});
- if(outcome==='stop')expect((await send('POST','/channels/agent-runs/stop',mika,{orgId:ORG,channel:'b:cafe',messageId:row.id,assignmentId:begun.assignment.id,generation:1})).status).toBe(200);
+ if(outcome==='stop'){
+  let stopEvent;
+  anthropic().intercept({path:'/v1/sessions/external-assigned/events?beta=true',method:'POST'}).reply(200,opts=>{stopEvent=JSON.parse(opts.body);return {data:[{type:'user.interrupt'}]};});
+  const response=await send('POST','/channels/agent-runs/stop',mika,{orgId:ORG,channel:'b:cafe',messageId:row.id,assignmentId:begun.assignment.id,generation:1});
+  expect(response.status).toBe(200);expect(await response.json()).toEqual({stopped:true,remoteStop:'requested'});expect(stopEvent).toEqual({events:[{type:'user.interrupt'}]});
+  expect(await env.DB.prepare('SELECT remote_stop_status FROM hx_agent_assignments WHERE id=?1').bind(begun.assignment.id).first()).toEqual({remote_stop_status:'requested'});
+  const {agentRunSnapshot}=await import('../src/harness/agentRunSnapshot.js');
+  expect((await agentRunSnapshot(env,ORG,[row.id],{actorId:'9702'})).results[0].assignments[0]).toMatchObject({status:'cancelled',providerStopStatus:'requested'});
+  const retry=await send('POST','/channels/agent-runs/stop',mika,{orgId:ORG,channel:'b:cafe',messageId:row.id,assignmentId:begun.assignment.id,generation:1});
+  expect(await retry.json()).toEqual({stopped:true,remoteStop:'requested'});
+ }
  if(outcome==='signout'){const {endHere}=await import('../src/sessions.js');await endHere(env,ORG,[(await getSession(env.DB,mika)).token]);}
  anthropic().intercept({path:p=>p.startsWith('/v1/sessions/external-assigned/events?'),method:'GET'}).reply(200,{data:[{id:'answer',type:'agent.message',processed_at:'2026-10-24T10:00:00Z',content:[{type:'text',text:'External assigned result'}]},{id:'done',type:'session.status_idle',processed_at:'2026-10-24T10:00:01Z',stop_reason:{type:'end_turn'}}],next_page:null});
  anthropic().intercept({path:'/v1/sessions/external-assigned?beta=true',method:'GET'}).reply(200,{id:'external-assigned',usage:{list_cost:{amount:'20',currency:'USD'}}});

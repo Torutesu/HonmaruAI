@@ -237,8 +237,8 @@
       "code": "worker/src/agentRunner.js",
       "acceptance": "停止でモデル・ツール・子実行を中断し課金とUI状態を確定",
       "evidence": {
-        "verified": "Harness assignment stop persists cancelled state, signals only the matching workspace/assignment/generation in AgentRunner, aborts in-flight OpenAI Responses/OpenRouter and fallback model requests, passes the signal to tools and external-provider status polling, prevents further model/tool rounds and suppresses late replies. Focused assignment/model-loop tests pass.",
-        "remaining": "An already accepted remote teammate run cannot be stopped by Honmaru unless that provider exposes and Honmaru implements a stop operation. Existing tools that ignore the optional signal may finish an in-flight side effect. Provider-side billing for an interrupted request may be unknown; live production cancellation and end-to-end UI confirmation remain unverified."
+        "verified": "Harness assignment stop persists cancelled state, signals only the matching workspace/assignment/generation in AgentRunner, aborts in-flight supported model/tool requests, prevents further model/tool rounds and suppresses late replies. External Claude Managed Agent runs receive an exact-session user.interrupt; Cursor Cloud Agent runs receive the documented run cancel endpoint. Provider stop outcomes are persisted on the assignment and exposed in refreshed UI state with retry for uncertain failures. Focused adapter/route/UI tests pass; full Worker suite is currently running.",
+        "remaining": "Devin/Codex adapters do not expose implemented cancellation here. Existing tools that ignore the optional signal may finish an in-flight side effect. Provider-side billing for an interrupted request may be unknown; production live cancellation and end-to-end confirmation remain unverified. This is partial parity, not a 100% clone."
       }
     },
     {
@@ -422,7 +422,7 @@
       "acceptance": "テンプレート照合とAI生成の区別を明示し業務要件を保持",
       "evidence": {
         "release": "PR #443 and #446–#448 / da14da8f",
-    "verified": "Source capture, retry leases, atomic app/reply publication, completion cards, central thread layout and generation navigation deployed. Worker 39118408100 and Web 39118662926 passed; custom domain serves index-Bv-d5WwR.js. A native Kylon task app confirmed assignee selection uses workspace members; Honmaru now normalizes generated assignee/owner fields to person references and preserves explicitly free-text fields. Controlled app-generation and DB-migration tests passed without a model call.",
+        "verified": "Source capture, retry leases, atomic app/reply publication, completion cards, central thread layout and generation navigation deployed. Worker 39118408100 and Web 39118662926 passed; custom domain serves index-Bv-d5WwR.js. A native Kylon task app confirmed assignee selection uses workspace members; Honmaru now normalizes generated assignee/owner fields to person references and preserves explicitly free-text fields. Controlled app-generation and DB-migration tests passed without a model call.",
         "pending": "Nonempty generation-to-thread behavior uses controlled local fixtures; no paid model or production test message was used for this release.",
         "remaining": "Business-requirement fidelity across real model outputs and full Kylon generation behavior remain unverified."
       }

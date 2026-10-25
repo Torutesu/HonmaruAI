@@ -296,6 +296,9 @@ CREATE TRIGGER IF NOT EXISTS hx_workflow_revision_immutable BEFORE UPDATE ON hx_
 
 ALTER TABLE hx_workflow_state_versions ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';
 
+ALTER TABLE hx_agent_assignments ADD COLUMN remote_stop_status TEXT;
+ALTER TABLE hx_agent_assignments ADD COLUMN remote_stop_updated_at TEXT;
+
 CREATE TRIGGER IF NOT EXISTS hx_workflow_state_immutable BEFORE UPDATE ON hx_workflow_state_versions BEGIN SELECT RAISE(ABORT,'Workflow state versions are immutable'); END;
 
 CREATE TABLE IF NOT EXISTS hx_workflow_activations (org_id TEXT NOT NULL, job_id TEXT PRIMARY KEY REFERENCES hx_gateway_jobs(id) ON DELETE CASCADE, run_id TEXT NOT NULL REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, node_id TEXT NOT NULL, node_owner TEXT NOT NULL, node_attempt INTEGER NOT NULL CHECK(node_attempt>0), UNIQUE(org_id,run_id,node_id,node_attempt));
