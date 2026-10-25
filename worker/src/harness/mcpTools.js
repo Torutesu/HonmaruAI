@@ -1,3 +1,4 @@
+import {FILE_WRITE_TOOLS,callFileWriteTool} from './fileWriteTools.js';
 import {FILE_READ_TOOLS,callFileReadTool} from './fileTools.js';
 import { EXECUTION_TOOLS, callExecutionTool } from './executionTools.js';
 import { mayUseApp, mayUseTable, visibleResources } from './resourceAccess.js';
@@ -12,11 +13,12 @@ import { listWorkflows, getWorkflow, startRun } from "./workflows.js";
 import { listFollowups, scheduleFollowup } from "./followups.js";
 import { onRowChange } from "./workflows.js";
 
-export const HARNESS_TOOL_SCOPE = { run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", run_workflow: "write", schedule_followup: "write" };
+export const HARNESS_TOOL_SCOPE = { update_file_text: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", run_workflow: "write", schedule_followup: "write" };
 
 export const HARNESS_TOOLS = [
   ...EXECUTION_TOOLS,
   ...FILE_READ_TOOLS,
+  ...FILE_WRITE_TOOLS,
   {
     name: "list_apps",
     title: "The workspace's apps",
@@ -88,6 +90,7 @@ const err = (message) => ({ content: [{ type: "text", text: message }], isError:
 
 export async function callHarnessTool(env, agent, name, args) {
   if (EXECUTION_TOOLS.some(t => t.name === name)) return callExecutionTool(env, agent, name, args);
+  if (FILE_WRITE_TOOLS.some(t => t.name === name)) return callFileWriteTool(env, agent, name, args);
   if (FILE_READ_TOOLS.some(t => t.name === name)) return callFileReadTool(env, agent, name, args);
   const db = env.DB;
   const orgId = agent.orgId;

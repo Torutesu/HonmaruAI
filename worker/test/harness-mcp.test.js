@@ -147,3 +147,41 @@ test('file text tools reject large, binary, malformed UTF-8 and purged versions'
  for(const id of ['large','binary','invalid','purged'])expect((await tool(reader,'read_file_text',{fileId:id,version:1})).result.isError).toBe(true);
  expect((await tool(reader,'read_file_text',{fileId:'invalid',version:0})).result.isError).toBe(true);
 });
+
+test('file edits require write scope and preserve history while rejecting stale or inaccessible writes',async()=>{
+ const {createFileLedger}=await import('../src/harness/fileVersionLedger.js');
+ const {uploadFileVersion}=await import('../src/harness/fileUpload.js');
+ await env.DB.exec((await import('../workspace-files.sql?raw')).default.replace(/\n/g,' '));
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'harness'})});
+ const reader=await mint(['read']),writer=await mint(['read','write']);
+ expect(await names(reader)).not.toContain('update_file_text');expect(await names(writer)).toContain('update_file_text');
+ await createFileLedger(env.DB,{orgId:ORG,fileId:'edit',scope:'workspace',path:'note.md',createdBy:'9401'});
+ await uploadFileVersion(env,{orgId:ORG,fileId:'edit',userId:'9401',expectedVersion:0,size:3,contentType:'text/markdown',stream:new Blob(['old']).stream()});
+ const args={fileId:'edit',expectedVersion:1,text:'新しい内容',orgId:'spoof',userId:'spoof'};
+ expect((await tool(reader,'update_file_text',args)).result.isError).toBe(true);
+ expect((await tool(writer,'update_file_text',args)).result.structuredContent).toEqual({fileId:'edit',version:2,saved:true});
+ expect((await tool(reader,'read_file_text',{fileId:'edit',version:1})).result.structuredContent.text).toBe('old');
+ expect((await tool(reader,'read_file_text',{fileId:'edit',version:2})).result.structuredContent).toMatchObject({text:'新しい内容',contentType:'text/markdown'});
+ expect((await tool(writer,'update_file_text',args)).result.isError).toBe(true);
+ for(const text of ['あ'.repeat(50000),'\ud800'])expect((await tool(writer,'update_file_text',{...args,expectedVersion:2,text})).result.isError).toBe(true);
+ await env.DB.prepare("UPDATE hx_workspace_files SET scope='g:removed' WHERE id='edit'").run();
+ expect((await tool(writer,'update_file_text',{...args,expectedVersion:2})).result.isError).toBe(true);
+ expect((await env.DB.prepare("SELECT current_version FROM hx_workspace_files WHERE id='edit'").first()).current_version).toBe(2);
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'simple'})});
+ expect(await names(writer)).not.toContain('update_file_text');
+});
+
+test('file editing rejects binary files and current permission loss',async()=>{
+ const {createFileLedger}=await import('../src/harness/fileVersionLedger.js');
+ const {uploadFileVersion}=await import('../src/harness/fileUpload.js');
+ const {callFileWriteTool}=await import('../src/harness/fileWriteTools.js');
+ await env.DB.exec((await import('../workspace-files.sql?raw')).default.replace(/\n/g,' '));
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'harness'})});
+ const writer=await mint(['read','write']);
+ await createFileLedger(env.DB,{orgId:ORG,fileId:'binary-edit',scope:'workspace',path:'photo.png',createdBy:'9401'});
+ await uploadFileVersion(env,{orgId:ORG,fileId:'binary-edit',userId:'9401',expectedVersion:0,size:1,contentType:'image/png',stream:new Blob(['x']).stream()});
+ expect((await tool(writer,'update_file_text',{fileId:'binary-edit',expectedVersion:1,text:'text'})).result.isError).toBe(true);
+ await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=? AND user_github_id='9401'").bind(ORG).run();
+ expect((await callFileWriteTool(env,{orgId:ORG,githubId:'9401'},'update_file_text',{fileId:'binary-edit',expectedVersion:1,text:'text'})).isError).toBe(true);
+ expect((await env.DB.prepare("SELECT current_version FROM hx_workspace_files WHERE id='binary-edit'").first()).current_version).toBe(1);
+});

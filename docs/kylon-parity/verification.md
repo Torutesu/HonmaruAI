@@ -3205,3 +3205,12 @@ Candidate 7b5c30bc E2E 40181025988 failed exactly the existing offline-shell sce
 Validation: mode hook 8 tests passed, including offline remount, workspace isolation and reconnect revalidation. Full Web 1,187 tests/179 files passed; build passed. Exact-candidate offline E2E is still required before promotion.
 
 Deployment update: d8f3e1b8 Worker run 40180615717 and Web run 40180615691 both succeeded. Production HTML serves index-Dha3Y8Av.js. Main currently 5d1b7872; later mode-loading/repaint/toolbar changes are not production yet.
+
+### 2026-10-25 — agent text edits preserve file history
+Added MCP update_file_text for existing workspace files. It requires token write scope, live harness mode and harness.build membership permission; accepts an exact expectedVersion and valid UTF-8 text up to 128 KiB; preserves the file MIME type; uses the existing staged R2/immutable ledger compare-and-swap path. Current room access is rechecked by that path. Old versions remain readable. Stale/replayed writes fail without overwriting a newer version. Audit metadata records MCP source and authenticated agent token identity, without file contents. Binary writes are rejected.
+
+Validation: harness MCP, core MCP and file upload integration suites: 81 tests/3 files passed. Added coverage for read-only denial, caller-identity spoofing, Unicode size and malformed text, old content preservation, stale writes, binary rejection, private-room access loss, permission loss, and Simple-mode exclusion. A first invocation from the repository root lacked the Cloudflare test environment; reran with the correct worker configuration and obtained the passing result above.
+
+Scope still incomplete: this tool does not create new files, classify original human/agent creation, or supply binary output generation. Those requirements remain open. Production agent editing is not yet verified.
+
+Release: fae6baed candidate CI 40180692215 passed all seven required jobs. Confirmed main was 5d1b7872, then fast-forwarded to fae6baed. Mode-loading/offline fixes remain behind candidate 56c660af CI 40182005007; do not promote until its offline E2E and Worker checks pass.
