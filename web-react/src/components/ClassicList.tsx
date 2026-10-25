@@ -3558,6 +3558,12 @@ export const ClassicList: React.FC<Props> = ({
   // sidebar's right-click menu): set before choosing, applied once it opens.
   const sideOnOpen = useRef<null | { kind: 'details'; tab: DetailsTab }>(null)
   useEffect(() => { setSide(sideOnOpen.current); sideOnOpen.current = null }, [current?.key])
+  // File conversations open with their source beside them, including a
+  // reload/deep link. Closing the panel stays closed until another thread opens.
+  useEffect(()=>{
+    const fileId=thread&&workspaceFileForThread(thread.parent.id)
+    if(harness&&fileId&&current?.view===thread?.channel)setSide({kind:'files',fileId})
+  },[harness,thread?.parent.id,thread?.channel,current?.view])
   useEffect(()=>{if(harness && linkedFile && current?.view===linkedFile.channel){setDetailId(null);setProfile(null);setSide({kind:'files',fileId:linkedFile.id})}},[harness,linkedFile?.id,linkedFile?.channel,current?.view])
   useEffect(()=>{
     const pending=pendingSource.current

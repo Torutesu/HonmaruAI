@@ -3372,3 +3372,8 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Revalidates the exact live file/thread after storage read, preventing a root deleted during object access from returning its content.
 - 14 real D1/R2 HTTP tests passed, including full reconstruction of a 24,000-character Japanese/emoji/newline file, invalid offsets, bounded valid JSON pages, and root deletion during MEDIA.get (`/tmp/honmaru-file-ai-pagination-tests.log`). The existing answer loop still has finite tool/round budgets; a single answer is not guaranteed to read every large file in full.
 - Production daf8e3f5 deploy jobs remain live; newer AI changes are not claimed as deployed.
+
+### 2026-10-25 — Source panel on file conversation entry
+- Actual UI showed that opening a file conversation hid the source panel. File threads now automatically open the authorized source detail alongside the conversation on entry/reload; closing it stays closed during draft edits.
+- Local real-browser verification: created/opened the synthetic image file thread, displayed its raster preview alongside the conversation in dark mode, closed the panel and typed an unsent draft without reopening it, then reloaded and confirmed source details plus draft restoration. Preview re-opened successfully. Screenshot: `/tmp/honmaru-file-image-conversation-dark-20261025.png`.
+- Web build passed (`/tmp/honmaru-file-thread-autopanel-build.log`). This evidence is localhost, not production or mobile; Simple mode is excluded by the existing Harness gate.
