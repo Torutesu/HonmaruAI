@@ -104,3 +104,46 @@ test('MCP reports an overlapping workflow trigger as skipped without dereferenci
   expect(second.result.isError).not.toBe(true);
   expect(JSON.parse(second.result.content[0].text)).toEqual({ status: 'skipped', reason: 'already_running' });
 });
+
+test('file read tools use token identity, exact versions and live room access',async()=>{
+ const {createFileLedger}=await import('../src/harness/fileVersionLedger.js');
+ const {uploadFileVersion}=await import('../src/harness/fileUpload.js');
+ const fileSql=(await import('../workspace-files.sql?raw')).default;await env.DB.exec(fileSql.replace(/\n/g,' '));
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'harness'})});
+ const reader=await mint(['read']),writerOnly=await mint(['write']);
+ expect(await names(reader)).toEqual(expect.arrayContaining(['list_workspace_files','list_workspace_folders','list_file_versions','read_file_text']));
+ expect(await names(writerOnly)).not.toContain('read_file_text');
+ expect((await tool(writerOnly,'read_file_text',{fileId:'notes',version:1})).result.isError).toBe(true);
+ await createFileLedger(env.DB,{orgId:ORG,fileId:'notes',scope:'workspace',path:'Team/notes.txt',createdBy:'9401'});
+ for(const [expectedVersion,text] of [[0,'old notes'],[1,'new notes']])expect(await uploadFileVersion(env,{orgId:ORG,fileId:'notes',userId:'9401',expectedVersion,size:text.length,contentType:'text/plain',stream:new Blob([text]).stream()})).toMatchObject({saved:true});
+ const listed=(await tool(reader,'list_workspace_files',{scope:'workspace',orgId:'other',userId:'other'})).result.structuredContent;
+ expect(listed.files.map(file=>file.path)).toEqual(['Team/notes.txt']);
+ expect((await tool(reader,'list_workspace_folders',{scope:'workspace'})).result.structuredContent.folders).toEqual([{name:'Team',path:'Team/'}]);
+ expect((await tool(reader,'list_file_versions',{fileId:'notes'})).result.structuredContent.versions.map(v=>v.version)).toEqual([2,1]);
+ const content=(await tool(reader,'read_file_text',{fileId:'notes',version:1})).result;
+ expect(content.structuredContent).toMatchObject({text:'old notes',version:1,untrustedContent:true});
+ expect(JSON.stringify(content)).not.toContain('objectKey');expect(JSON.stringify(content)).not.toContain('org/');
+ expect((await tool(reader,'list_workspace_files',{})).result.isError).toBe(true);
+ await env.DB.prepare("UPDATE hx_workspace_files SET scope='g:private' WHERE id='notes'").run();
+ expect((await tool(reader,'list_workspace_files',{scope:'all'})).result.structuredContent.files).toEqual([]);
+ expect((await tool(reader,'list_file_versions',{fileId:'notes'})).result.structuredContent.versions).toEqual([]);
+ expect((await tool(reader,'read_file_text',{fileId:'notes',version:1})).result.isError).toBe(true);
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'simple'})});
+ expect(await names(reader)).not.toContain('read_file_text');
+ expect((await tool(reader,'read_file_text',{fileId:'notes',version:1})).error.message).toContain('Unknown tool');
+});
+
+test('file text tools reject large, binary, malformed UTF-8 and purged versions',async()=>{
+ const {createFileLedger}=await import('../src/harness/fileVersionLedger.js');
+ const {uploadFileVersion}=await import('../src/harness/fileUpload.js');
+ const fileSql=(await import('../workspace-files.sql?raw')).default;await env.DB.exec(fileSql.replace(/\n/g,' '));
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'harness'})});
+ const reader=await mint(['read']);
+ for(const [id,bytes,mime] of [['large',new Uint8Array(128*1024+1),'text/plain'],['binary',new Uint8Array([1,2]),'image/png'],['invalid',new Uint8Array([255]),'text/plain'],['purged',new TextEncoder().encode('private'),'text/plain']]){
+  await createFileLedger(env.DB,{orgId:ORG,fileId:id,scope:'workspace',path:id,createdBy:'9401'});
+  await uploadFileVersion(env,{orgId:ORG,fileId:id,userId:'9401',expectedVersion:0,size:bytes.length,contentType:mime,stream:new Blob([bytes]).stream()});
+ }
+ await env.DB.prepare('INSERT INTO hx_workspace_file_purges VALUES(?,?,?,?,?,?)').bind(ORG,'purged',1,'9401','now','test').run();
+ for(const id of ['large','binary','invalid','purged'])expect((await tool(reader,'read_file_text',{fileId:id,version:1})).result.isError).toBe(true);
+ expect((await tool(reader,'read_file_text',{fileId:'invalid',version:0})).result.isError).toBe(true);
+});

@@ -1,3 +1,4 @@
+import {FILE_READ_TOOLS,callFileReadTool} from './fileTools.js';
 import { EXECUTION_TOOLS, callExecutionTool } from './executionTools.js';
 import { mayUseApp, mayUseTable, visibleResources } from './resourceAccess.js';
 // The harness over MCP (docs/kylon-gap-plan.md): what Kylon's Tools API and
@@ -15,6 +16,7 @@ export const HARNESS_TOOL_SCOPE = { run_app_action: "execute", run_javascript: "
 
 export const HARNESS_TOOLS = [
   ...EXECUTION_TOOLS,
+  ...FILE_READ_TOOLS,
   {
     name: "list_apps",
     title: "The workspace's apps",
@@ -86,6 +88,7 @@ const err = (message) => ({ content: [{ type: "text", text: message }], isError:
 
 export async function callHarnessTool(env, agent, name, args) {
   if (EXECUTION_TOOLS.some(t => t.name === name)) return callExecutionTool(env, agent, name, args);
+  if (FILE_READ_TOOLS.some(t => t.name === name)) return callFileReadTool(env, agent, name, args);
   const db = env.DB;
   const orgId = agent.orgId;
   const by = agent.githubId;
