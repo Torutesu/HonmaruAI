@@ -34,6 +34,14 @@ test('workflow history shows elapsed time without inventing duration for unfinis
  expect(tree.root.findByProps({'data-run':'live-run'}).findAllByProps({title:'Elapsed time, including approval waits'})).toHaveLength(0);
  expect(tree.root.findByProps({'data-run':'done-run'}).findByType('time').props.dateTime).toBe('2026-10-24T09:00:00Z');
 });
+test('unlimited workflow run budgets do not render a fake unlimited run total',async()=>{
+ const unlimited={limit:0,used:0,resetAt:'2026-10-27T00:00:00.000Z',exhausted:false}
+ state.api.workflow.mockResolvedValue({workflow:{...workflow,safety:{generation:'g',failure_streak:0,paused_at:null,pause_reason:null,daily_run_limit:0,weekly_run_limit:0,monthly_run_limit:0,budget_revision:0,budget:{revision:0,daily:unlimited,weekly:unlimited,monthly:unlimited}}},canEdit:true,runs:[]})
+ await open()
+ const text=JSON.stringify(tree.toJSON())
+ expect(text).toContain('No limit ({used} used)')
+ expect(text).not.toContain('無制限回中')
+})
 test('webhook revocation requires confirmation, uses the observed secret, and displays revoked state', async () => {
   await open()
   await act(async () => { button('Revoke webhook').props.onClick() })

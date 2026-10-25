@@ -172,6 +172,7 @@ const table: Record<string, string> = {
   "Monthly run budget": "月次",
   "{period} run limit": "{period}の実行上限",
   "{used} of {limit} runs": "{limit}回中{used}回を使用",
+  "No limit ({used} used)": "上限なし（{used}回使用）",
   "Unlimited": "無制限",
   "resets {when}": "{when}にリセット",
   "Save run limits": "実行上限を保存",

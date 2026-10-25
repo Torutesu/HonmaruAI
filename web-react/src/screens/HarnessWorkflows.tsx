@@ -265,7 +265,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
               const label=t(`${period[0].toUpperCase()+period.slice(1)} run budget`)
               return (<label key={period}>{t(label)}
                 <input className="hx-cell-input" type="number" min="0" max="1000000" step="1" aria-label={t('{period} run limit',{period:label})} value={budgetDraft[period]} disabled={!open.canEdit||!!busy} onChange={event=>setBudgetDraft(current=>({...current,[period]:event.target.value}))}/>
-                <span className="row-sub">{t('{used} of {limit} runs',{used:status?.used??0,limit:status?.limit?status.limit:t('Unlimited')})}{status?.exhausted&&<span> · {t('resets {when}',{when:new Date(status.resetAt).toLocaleString()})}</span>}</span>
+                <span className="row-sub">{status?.limit?t('{used} of {limit} runs',{used:status.used,limit:status.limit}):t('No limit ({used} used)',{used:status?.used??0})}{status?.exhausted&&<span> · {t('resets {when}',{when:new Date(status.resetAt).toLocaleString()})}</span>}</span>
               </label>)
             })}
           </div>
