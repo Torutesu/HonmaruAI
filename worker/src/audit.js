@@ -72,6 +72,7 @@ export const AUDIT_ACTIONS = {
   "workspace.session_policy_changed": { category: "workspace", severity: "critical", text: "{actor} changed the login rules" },
   "workspace.session_policy_applied": { category: "workspace", severity: "warning", text: "{actor} signed out everyone the login rules no longer allow" },
   "workspace.ai_settings_changed": { category: "workspace", severity: "warning", text: "{actor} changed the workspace AI settings" },
+  "workspace.ai_budget_changed": { category: "workspace", severity: "warning", text: "{actor} changed the workspace AI usage limit" },
   "workspace.teammate_changed": { category: "workspace", severity: "warning", text: "{actor} changed the AI teammate {entity}" },
   "channel.created": { category: "channel", severity: "notice", text: "{actor} created {entity}" },
   "channel.renamed": { category: "channel", severity: "notice", text: "{actor} renamed a channel to {entity}" },

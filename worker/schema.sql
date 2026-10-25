@@ -99,17 +99,8 @@ CREATE TABLE IF NOT EXISTS workspace_tombstones (
   requested_by  TEXT
 );
 
-/* `role` is standing — who may invite whom, who may act for the org. It is
-   granted by an invite or by GitHub, never claimed.
-
-   `title` is description — what this person does, which is what the router
-   matches on when someone says "ask the designer to review". Anyone may set
-   their own, because saying you are a designer grants you nothing.
-
-   They were one column once, and that made the onboarding question unusable
-   for the commonest case: signing up alone makes you admin of your own org,
-   so every attempt to say "I am the founder" was refused as an attempt to
-   demote an admin. */
+/* Role grants permissions and comes from an invite or GitHub. Title describes
+   the member for routing; members may edit their own title. */
 CREATE TABLE IF NOT EXISTS memberships (
   org_id            TEXT NOT NULL,
   user_github_id    TEXT NOT NULL,
@@ -476,6 +467,11 @@ CREATE TABLE IF NOT EXISTS org_ai_settings (
   openai_key    TEXT,
   typesafe_key  TEXT,
   gemini_key    TEXT,
+  daily_budget_micros INTEGER NOT NULL DEFAULT 0,
+  weekly_budget_micros INTEGER NOT NULL DEFAULT 0,
+  monthly_budget_micros INTEGER NOT NULL DEFAULT 0,
+  budget_action TEXT NOT NULL DEFAULT 'warn',
+  budget_revision INTEGER NOT NULL DEFAULT 0,
   updated_by    TEXT,
   updated_at    TEXT NOT NULL
 );

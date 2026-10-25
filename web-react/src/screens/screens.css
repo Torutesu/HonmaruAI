@@ -528,6 +528,16 @@
 .ai-key .row-value { margin-top: 2px; }
 .ai-key-form { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 .ai-key-form .ai-key-input { flex: 1; }
+.ai-budget-form { display: grid; grid-template-columns: repeat(3, minmax(84px, 1fr)); align-items: end; }
+.ai-budget-form > label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+.ai-budget-notice { color: var(--warning, #b45309); }
+.ai-budget-notice.stopped { color: var(--danger, #b42318); }
+@media (prefers-color-scheme: dark) {
+  :where(:root:not([data-theme="light"])) .ai-budget-notice { color: #fbbf24; }
+  :where(:root:not([data-theme="light"])) .ai-budget-notice.stopped { color: #fb7185; }
+}
+:where(:root[data-theme="dark"]) .ai-budget-notice { color: #fbbf24; }
+:where(:root[data-theme="dark"]) .ai-budget-notice.stopped { color: #fb7185; }
 .invite-out-link { font-size: 12px; color: var(--ink); text-decoration: none; word-break: break-all; }
 .github-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; }
 .github-form .ai-key-input { flex: 1 1 200px; }

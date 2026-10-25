@@ -153,9 +153,9 @@
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-086 | workspace共有クレジット | 一部 | P0 | [worker/src/ledger.js](../../worker/src/ledger.js) | 個人Free/Proと独立した残高予約・確定・取消・同時実行 |
+| KY-086 | workspace共有クレジット | 一部 | P0 | [worker/src/workspaceAIBudget.js](../../worker/src/workspaceAIBudget.js) | Honmaruデプロイキーの記録済み価格に対するworkspace共通rolling USD参考価格上限・CAS設定。Kylon credit残高、invoice換算、事前予約・精算は未実装 |
 | KY-087 | 月次更新・trial・追加pack | 未実装 | P1 | 該当実装は未特定 | 期限・繰越・アップグレード/ダウングレード時期・二重請求防止 |
-| KY-088 | 残高不足時停止と通知 | 一部 | P0 | [worker/src/gate.js](../../worker/src/gate.js) | モデルだけでなくtool/workflow/app実行も予算制御 |
+| KY-088 | 残高不足時停止と通知 | 一部 | P0 | [worker/src/gate.js](../../worker/src/gate.js) | 上限後の新規deployment-key AIリクエストを拒否し呼出元へ返答。実行中処理・全tool/workflow/app・teammate provider・管理者通知の制御は未実装 |
 | KY-089 | agent数上限 | 一部 | P1 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 固定最大数ではなくplan別active数・trial数を制御 |
 | KY-090 | 音声入力・AIとの音声会話 | 一部 | P2 | [web-react/src/components/JamPanel.tsx](../../web-react/src/components/JamPanel.tsx) | 人同士のJamとAI音声通話を区別して検証 |
 | KY-091 | Web/Mac/iOS/Androidの機能一致 | 一部 | P1 | [apps/mobile/README.md](../../apps/mobile/README.md) | 端末ごとの操作・通知・ファイル・オフラインを受入試験 |

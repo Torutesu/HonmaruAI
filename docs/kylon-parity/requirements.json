@@ -990,8 +990,12 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://kylon.io/pricing",
-      "code": "worker/src/ledger.js",
-      "acceptance": "個人Free/Proと独立した残高予約・確定・取消・同時実行"
+      "code": "worker/src/ledger.js, worker/src/workspaceAIBudget.js, worker/src/gate.js, worker/src/orgAI.js, worker/src/index.js, web-react/src/screens/Tools.tsx",
+      "acceptance": "Honmaruデプロイキーで記録されたモデル参考価格に対するworkspace共通rolling 24h/7d/30d上限とwarn/pauseを追加。個人Free/Proと独立しCASで設定を更新。Kylon creditsやinvoiceとは扱わない",
+      "evidence": {
+        "verified": "ワークスペース全体の記録済みai_callsを直近24時間/7日/30日で集計し、管理者がUSD参考価格の警告または次のdeployment-key AIリクエスト停止を設定できる。BYOKは対象外。管理者権限・revision競合・上限到達ゲートのWorker tests pass; production rollout/UI evidence pending.",
+        "remaining": "Kylon互換の購入/付与credit残高、実provider invoice換算、事前金額予約・確定・取消と厳密な同時実行上限は未実装。プロバイダーごとの請求と未記録usage・外部ツール費は対象外。"
+      }
     },
     {
       "id": "KY-087",
@@ -1010,8 +1014,12 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://kylon.io/pricing",
-      "code": "worker/src/gate.js",
-      "acceptance": "モデルだけでなくtool/workflow/app実行も予算制御"
+      "code": "worker/src/gate.js, worker/src/workspaceAIBudget.js, worker/src/harness/workflowSafety.js, worker/src/harness/workflows.js",
+      "acceptance": "個別workflowのpauseに加え、記録済みworkspace共通AI参考価格上限で新しいdeployment-keyのモデルリクエストを停止。既存BYOK上限と分離",
+      "evidence": {
+        "verified": "daily/weekly/monthly estimated usageの到達を共通AI gateで検出し、AI ask/draft/translateと@AIの次のリクエストを拒否して説明を返す。warnとpauseの共有設定を実装。管理者とメンバーのAPI権限およびgate tests pass; production rollout/UI evidence pending.",
+        "remaining": "現在実行中の処理は中断せず、workspace設定画面以外の管理者向け通知も未実装。workflow/app/tool実行全体、独立AI teammate provider、外部connector費、事前予約の厳密な上限制御は含まない。"
+      }
     },
     {
       "id": "KY-089",

@@ -1,6 +1,7 @@
 import { isPro } from "./entitlements.js";
 import { countAIUse, reserveAIUse, releaseAIUse } from "./db.js";
 import { loadAISettings } from "./orgAI.js";
+import { workspaceAIBudgetExceeded, workspaceAIBudgetStatus } from "./workspaceAIBudget.js";
 
 export const FREE_DAILY_ROUTES = 3;
 
@@ -11,6 +12,9 @@ export const UNBILLED_DAILY_ROUTES = 200;
 
 const DENIED = { allowed: false, metered: false, quotaExceeded: true, consume: async () => {}, release: async () => {} };
 const DENIED_QUOTA = { allowed: false, metered: true, quotaExceeded: true, consume: async () => {}, release: async () => {} };
+const DENIED_WORKSPACE_BUDGET = { allowed: false, metered: false, quotaExceeded: true, workspaceBudgetExceeded: true,
+  message: "The workspace's estimated AI usage limit has been reached. An admin can raise the limit; the window also clears as older usage ages out.",
+  consume: async () => {}, release: async () => {} };
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -80,11 +84,26 @@ async function metered(env, githubId, limit) {
 /// through here.
 export async function allowanceFor(env, orgId, { githubId, userKey }) {
   let workspaceKey = false;
+  let workspaceSettings = null;
   // Only someone signed in may spend a workspace's own key: the route checks
   // membership for a session alone, and a workspace id ("owner/repo") is no
   // secret, so an anonymous caller naming one would bill that team.
   if (orgId && !userKey && githubId) {
-    try { workspaceKey = Boolean((await loadAISettings(env.DB, orgId)).openaiKey); } catch { workspaceKey = false; }
+    try { workspaceSettings = await loadAISettings(env.DB, orgId); workspaceKey = Boolean(workspaceSettings.openaiKey); } catch { workspaceKey = false; }
+    // This no-charge guard covers only recorded model usage on the
+    // deployment's key. A workspace or member key has its own bill and is
+    // deliberately outside this shared deployment budget.
+    if (!workspaceKey) {
+      try {
+        if (workspaceAIBudgetExceeded(await workspaceAIBudgetStatus(env.DB, orgId, Date.now(), workspaceSettings))) return DENIED_WORKSPACE_BUDGET;
+      } catch (err) {
+        // If the deployment-key budget cannot be read, do not silently send
+        // another request under the deployment's API key.
+        console.error("workspace AI budget check failed", err?.message || err);
+        return { ...DENIED_WORKSPACE_BUDGET, workspaceBudgetExceeded: false, workspaceBudgetCheckUnavailable: true,
+          message: "The workspace AI usage limit could not be checked. Try again shortly.", messageKey: "agent.workspaceBudgetCheckUnavailable" };
+      }
+    }
   }
   return checkAIAllowance(env, { githubId, userKey, workspaceKey });
 }

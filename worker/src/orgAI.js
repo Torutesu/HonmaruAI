@@ -12,6 +12,7 @@
 import { providerConfig } from "./provider.js";
 import { jevConfig } from "./jev.js";
 import { PRICES } from "./ledger.js";
+import { workspaceAIBudgetStatus } from "./workspaceAIBudget.js";
 import { aad, openField, sealField } from "./secrets.js";
 
 /// The models a workspace may pick, with what they cost per million tokens
@@ -24,16 +25,22 @@ const settingsCache = new WeakMap();
 export async function loadAISettings(db, orgId) {
   if (!db || !orgId) return {};
   const row = await db
-    .prepare("SELECT model, openai_key, typesafe_key, gemini_key, updated_by, updated_at FROM org_ai_settings WHERE org_id = ?1")
+    .prepare("SELECT model, openai_key, typesafe_key, gemini_key, daily_budget_micros, weekly_budget_micros, monthly_budget_micros, budget_action, budget_revision, updated_by, updated_at FROM org_ai_settings WHERE org_id = ?1")
     .bind(orgId)
     .first()
-    .catch(() => null);
-  if (!row) return {};
+    .catch((err) => { console.error("workspace AI settings read failed", err?.message || err); return { settingsReadFailed: true }; });
+  if (row?.settingsReadFailed) return { settingsReadFailed: true };
+  if (!row) return { daily_budget_micros: 0, weekly_budget_micros: 0, monthly_budget_micros: 0, budget_action: "warn", budget_revision: 0 };
   return {
     model: row.model || null,
     openaiKey: (await openField(row.openai_key, aad.aiKey(orgId, "openai_key"), orgId)) || null,
     typesafeKey: (await openField(row.typesafe_key, aad.aiKey(orgId, "typesafe_key"), orgId)) || null,
     geminiKey: (await openField(row.gemini_key, aad.aiKey(orgId, "gemini_key"), orgId)) || null,
+    daily_budget_micros: Number(row.daily_budget_micros) || 0,
+    weekly_budget_micros: Number(row.weekly_budget_micros) || 0,
+    monthly_budget_micros: Number(row.monthly_budget_micros) || 0,
+    budget_action: row.budget_action === 'pause' ? 'pause' : 'warn',
+    budget_revision: Number(row.budget_revision) || 0,
     updatedBy: row.updated_by || null,
     updatedAt: row.updated_at || null,
   };
@@ -124,6 +131,7 @@ export async function aiStatus(env, orgId) {
   const settings = await loadAISettings(env.DB, orgId);
   const provider = await providerFor(env, orgId);
   const jev = await jevFor(env, orgId);
+  const aiBudget = await workspaceAIBudgetStatus(env.DB, orgId, Date.now(), settings);
   return {
     // The chosen model, even before a key exists to run it on: the choice
     // is the workspace's, the key can come after.
@@ -138,6 +146,7 @@ export async function aiStatus(env, orgId) {
     gemini: settings.geminiKey ? "workspace" : (env.GEMINI_API_KEY ? "deployment" : "none"),
     geminiHint: hint(settings.geminiKey),
     models: MODELS,
+    aiBudget,
     updatedAt: settings.updatedAt || null,
   };
 }

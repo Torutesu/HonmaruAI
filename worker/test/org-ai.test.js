@@ -69,6 +69,18 @@ test("a bad model, a key that is not one, and clearing", async () => {
   expect(cleared).toMatchObject({ openai: "deployment", modelSource: "deployment", openaiHint: null });
 });
 
+test("workspace admins set a shared estimated usage limit and members can only read it", async () => {
+  expect((await put("/orgs/ai/budget", mika, { orgId: ORG, revision: 0, dailyLimitUsd: 1, weeklyLimitUsd: 4, monthlyLimitUsd: 12, action: "pause" })).status).toBe(403);
+  const res = await put("/orgs/ai/budget", toru, { orgId: ORG, revision: 0, dailyLimitUsd: 1, weeklyLimitUsd: 4, monthlyLimitUsd: 12, action: "pause" });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({ canEdit: true, aiBudget: { revision: 1, action: "pause", periods: {
+    "24h": { limitUsd: 1 }, "7d": { limitUsd: 4 }, "30d": { limitUsd: 12 },
+  } } });
+  const memberStatus = await get(`/orgs/ai?orgId=${encodeURIComponent(ORG)}`, mika);
+  expect(await memberStatus.json()).toMatchObject({ canEdit: false, aiBudget: { action: "pause", periods: { "7d": { limitUsd: 4 } } } });
+  expect((await put("/orgs/ai/budget", toru, { orgId: ORG, revision: 0, dailyLimitUsd: 2, weeklyLimitUsd: 4, monthlyLimitUsd: 12, action: "pause" })).status).toBe(409);
+});
+
 test("the workspace's Gemini key reads YouTube for its agents, never shown back", async () => {
   expect((await put("/orgs/ai", mika, { orgId: ORG, geminiKey: "AIzaSyWorkspaceGemini0000" })).status).toBe(403);
   const res = await put("/orgs/ai", toru, { orgId: ORG, geminiKey: "AIzaSyWorkspaceGemini0000" });

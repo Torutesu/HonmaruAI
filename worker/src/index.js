@@ -88,6 +88,7 @@ import {
 import { answerQuestion, searchTermsFor } from "./ask.js";
 import { draftReply } from "./draft.js";
 import { providerFor, jevFor, aiStatus, saveAISettings } from "./orgAI.js";
+import { saveWorkspaceAIBudget } from "./workspaceAIBudget.js";
 import { githubStatus, connectWorkspaceGitHub, connectWorkspaceGitHubAs, disconnectWorkspaceGitHub, githubConnectLink, listMyRepositories, myGithubAccount, getWorkspaceGitHub } from "./githubWorkspace.js";
 import { localizeCard, needsLocalizing, localizeForRecipient } from "./localize.js";
 import { primaryLanguage, languageName } from "./language.js";
@@ -736,6 +737,26 @@ async function handle(request, env, url, ctx) {
           geminiKey: body.geminiKey === undefined ? undefined : (body.geminiKey ? "set" : "removed"),
         } });
       }
+      return json({ orgId, canEdit, ...(await aiStatus(env, orgId)) });
+    }
+    if (url.pathname === "/orgs/ai/budget" && request.method === "PUT") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object" || Array.isArray(body)) return json({ message: "Invalid JSON body." }, 400);
+      const orgId = body.orgId;
+      if (!orgId || typeof orgId !== "string") return json({ message: "orgId is required" }, 400);
+      if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
+      const canEdit = membershipIsOurs(orgId) && await allowed(env.DB, orgId, session.github_id, "workspace.ai_settings");
+      if (!canEdit) return json({ message: "Only an admin of this workspace can change its AI usage limit." }, 403);
+      const result = await saveWorkspaceAIBudget(env.DB, orgId, body, session.github_id);
+      if (result.error) return json({ message: result.error }, result.status || 400);
+      await audit(env, request, { orgId, action: "workspace.ai_budget_changed", actor: await actorOf(env, session), details: {
+        dailyLimitUsd: body.dailyLimitUsd, weeklyLimitUsd: body.weeklyLimitUsd, monthlyLimitUsd: body.monthlyLimitUsd, action: body.action,
+      } });
       return json({ orgId, canEdit, ...(await aiStatus(env, orgId)) });
     }
     // AI teammates (teammates.js): an admin sets one up and turns it on;
@@ -2411,6 +2432,7 @@ async function handle(request, env, url, ctx) {
       if (!provider) return json({ message: "Your AI has no model to answer with on this deployment." }, 503);
       const allowance = await allowanceFor(env, orgId, { githubId: String(session.github_id), userKey });
       if (!allowance.allowed) {
+        if (allowance.workspaceBudgetExceeded || allowance.workspaceBudgetCheckUnavailable) return json({ message: allowance.message, workspaceBudgetExceeded: Boolean(allowance.workspaceBudgetExceeded), workspaceBudgetCheckUnavailable: Boolean(allowance.workspaceBudgetCheckUnavailable) }, 429);
         return json({ message: "You have used today's AI answers. Tomorrow, or Pro, brings more.", quotaExceeded: true }, 429);
       }
       let related = [];
@@ -2488,6 +2510,7 @@ async function handle(request, env, url, ctx) {
       if (!provider) return json({ message: "Your AI has no model to draft with on this deployment." }, 503);
       const allowance = await allowanceFor(env, orgId, { githubId: String(session.github_id), userKey });
       if (!allowance.allowed) {
+        if (allowance.workspaceBudgetExceeded || allowance.workspaceBudgetCheckUnavailable) return json({ message: allowance.message, workspaceBudgetExceeded: Boolean(allowance.workspaceBudgetExceeded), workspaceBudgetCheckUnavailable: Boolean(allowance.workspaceBudgetCheckUnavailable) }, 429);
         return json({ message: "You have used today's AI answers. Tomorrow, or Pro, brings more.", quotaExceeded: true }, 429);
       }
       const playbook = await relevantMemories(env.DB, orgId, `${card.title || ""} ${card.summary || ""}`, { limit: 6 });
@@ -2595,7 +2618,7 @@ async function handle(request, env, url, ctx) {
       if (!provider) return json({ message: "Your AI has no model to translate with on this deployment." }, 503);
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       const allowance = await allowanceFor(env, orgId, { githubId: String(session.github_id), userKey: request.headers.get("x-ai-key") || undefined });
-      if (!allowance.allowed) return json({ message: "You have used today's AI answers.", quotaExceeded: true }, 429);
+      if (!allowance.allowed) return json({ message: allowance.message || "You have used today's AI answers.", quotaExceeded: true, ...(allowance.workspaceBudgetExceeded ? { workspaceBudgetExceeded: true } : {}), ...(allowance.workspaceBudgetCheckUnavailable ? { workspaceBudgetCheckUnavailable: true } : {}) }, 429);
       // A translation is a convenience the client asks for on its own; it
       // must not spend the last of a metered day's allowance, which the
       // person needs for the instruction they are about to type.

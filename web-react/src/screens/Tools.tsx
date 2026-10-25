@@ -23,6 +23,8 @@ interface Connector { id: string; label: string; status: string }
 
 type StudioPage = 'apps' | 'ai' | 'teammates' | 'api' | 'emoji' | 'groups' | 'audit' | 'security' | 'sso' | 'dlp' | 'compliance'
 
+const money = (value: number) => value === 0 ? '$0' : value < 0.01 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`
+
 /// One tile in the catalogue: a connector of your own, the workspace's
 /// GitHub, or the address that turns mail into cards.
 interface App { id: string; label: string; blurb: string; scope: 'you' | 'workspace'; connected: boolean; available: boolean }
@@ -97,6 +99,11 @@ interface AIStatus {
   gemini?: 'workspace' | 'deployment' | 'none'
   geminiHint?: string | null
   models: Array<{ id: string; priceIn: number; priceOut: number }>
+  aiBudget?: {
+    revision: number
+    action: 'warn' | 'pause'
+    periods: Record<'24h' | '7d' | '30d', { usedUsd: number; calls: number; limitUsd: number; exhausted: boolean; warning: boolean }>
+  }
 }
 
 /// A personal token an agent uses to reach this workspace over MCP. The
@@ -236,11 +243,12 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
   const [openaiDraft, setOpenaiDraft] = useState('')
   const [jevDraft, setJevDraft] = useState('')
   const [geminiDraft, setGeminiDraft] = useState('')
+  const [aiBudgetDraft, setAIBudgetDraft] = useState({ daily: '0', weekly: '0', monthly: '0', action: 'warn' as 'warn' | 'pause' })
   useEffect(() => {
     let ignore = false
     fetch(`${httpBase}/orgs/ai?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
       .then((r) => (r.ok ? r.json() : null))
-      .then((a) => { if (!ignore && a) setAI(a) })
+      .then((a) => { if (!ignore && a) { setAI(a); setAIBudgetDraft({ daily: String(a.aiBudget?.periods?.['24h']?.limitUsd ?? 0), weekly: String(a.aiBudget?.periods?.['7d']?.limitUsd ?? 0), monthly: String(a.aiBudget?.periods?.['30d']?.limitUsd ?? 0), action: a.aiBudget?.action === 'pause' ? 'pause' : 'warn' }) } })
       .catch(() => {})
     return () => { ignore = true }
   }, [httpBase, orgId, sessionToken])
@@ -261,7 +269,31 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
       setAIError(err instanceof Error ? err.message : String(err))
     } finally { setAIBusy(false) }
   }
+  const saveAIBudget = async () => {
+    setAIBusy(true); setAIError(null); setAINote(null)
+    try {
+      const values = [aiBudgetDraft.daily, aiBudgetDraft.weekly, aiBudgetDraft.monthly]
+      if (values.some((value) => !value.trim() || !Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 1_000_000 || Math.abs(Number(value) * 1_000_000 - Math.round(Number(value) * 1_000_000)) >= 0.001)) {
+        setAIError(t('Enter USD limits from 0 to 1,000,000 with at most six decimal places.'))
+        return
+      }
+      const res = await fetch(`${httpBase}/orgs/ai/budget`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ orgId, revision: ai?.aiBudget?.revision ?? 0, dailyLimitUsd: Number(aiBudgetDraft.daily), weeklyLimitUsd: Number(aiBudgetDraft.weekly), monthlyLimitUsd: Number(aiBudgetDraft.monthly), action: aiBudgetDraft.action }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setAIError(data.message || t('That did not save.')); return }
+      setAI(data)
+      setAIBudgetDraft({ daily: String(data.aiBudget?.periods?.['24h']?.limitUsd ?? 0), weekly: String(data.aiBudget?.periods?.['7d']?.limitUsd ?? 0), monthly: String(data.aiBudget?.periods?.['30d']?.limitUsd ?? 0), action: data.aiBudget?.action === 'pause' ? 'pause' : 'warn' })
+      setAINote(t('Workspace AI usage limit saved.'))
+    } catch (err) { setAIError(err instanceof Error ? err.message : String(err)) }
+    finally { setAIBusy(false) }
+  }
   const ownKey = Boolean(getAIKey())
+  const aiBudgetWarning = ai?.aiBudget && (Object.values(ai.aiBudget.periods).some((period) => period.warning))
+  const aiBudgetReached = aiBudgetWarning && Object.values(ai.aiBudget!.periods).some((period) => period.exhausted)
+  const aiBudgetStopped = ai?.aiBudget?.action === 'pause' && aiBudgetReached
 
   // Agents. Claude Code, Cursor or a team's own agent asks a person here for
   // a decision; the question arrives as a card, the agent reads the answer.
@@ -772,6 +804,26 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
             ) : (
               <span className="row-value">{ownKey ? t('Your own key') : ai.model || t('Off')}</span>
             )}
+          </div>
+          <div className="rows-title">{t('Shared workspace AI usage limit')}</div>
+          <div className="row static ai-key">
+            <span className="row-main">
+              {t('Rolling usage limits')}
+              <span className="row-sub">{t('Recorded model list-price estimates across this workspace: {d} in 24h · {w} in 7d · {m} in 30d.', { d: money(ai.aiBudget?.periods?.['24h']?.usedUsd ?? 0), w: money(ai.aiBudget?.periods?.['7d']?.usedUsd ?? 0), m: money(ai.aiBudget?.periods?.['30d']?.usedUsd ?? 0) })}</span>
+              {aiBudgetWarning && <span className={`row-sub ai-budget-notice${aiBudgetStopped ? ' stopped' : ''}`} role="status">{aiBudgetStopped ? t('The shared AI usage limit was reached. New deployment-key AI requests are paused.') : aiBudgetReached ? t('The shared AI usage limit was reached. Warn-only mode continues to allow requests.') : t('Shared AI usage is nearing a configured limit.')}</span>}
+              {ai.canEdit ? (
+                <span className="ai-key-form ai-budget-form">
+                  <label>{t('24 hours')}<input className="ai-key-input" type="number" min="0" max="1000000" step="0.000001" value={aiBudgetDraft.daily} onChange={(e) => setAIBudgetDraft((v) => ({ ...v, daily: e.target.value }))} aria-label={t('24-hour workspace AI usage limit in USD')} disabled={aiBusy} /></label>
+                  <label>{t('7 days')}<input className="ai-key-input" type="number" min="0" max="1000000" step="0.000001" value={aiBudgetDraft.weekly} onChange={(e) => setAIBudgetDraft((v) => ({ ...v, weekly: e.target.value }))} aria-label={t('7-day workspace AI usage limit in USD')} disabled={aiBusy} /></label>
+                  <label>{t('30 days')}<input className="ai-key-input" type="number" min="0" max="1000000" step="0.000001" value={aiBudgetDraft.monthly} onChange={(e) => setAIBudgetDraft((v) => ({ ...v, monthly: e.target.value }))} aria-label={t('30-day workspace AI usage limit in USD')} disabled={aiBusy} /></label>
+                  <select className="row-select" value={aiBudgetDraft.action} onChange={(e) => setAIBudgetDraft((v) => ({ ...v, action: e.target.value === 'pause' ? 'pause' : 'warn' }))} aria-label={t('When the shared AI usage limit is reached')} disabled={aiBusy}>
+                    <option value="warn">{t('Warn only')}</option><option value="pause">{t('Stop new AI requests')}</option>
+                  </select>
+                  <button className="pill-btn" onClick={() => void saveAIBudget()} disabled={aiBusy}>{t('Save usage limit')}</button>
+                </span>
+              ) : <span className="row-sub">{t('Only a workspace admin can change this limit.')}</span>}
+              <span className="row-sub">{t('0 means unlimited. This covers recorded model estimates on the deployment key; personal and workspace keys, provider invoices, missing usage, active work, and external tool charges are not included.')}</span>
+            </span>
           </div>
           <div className="row static ai-key">
             <span className="row-main">

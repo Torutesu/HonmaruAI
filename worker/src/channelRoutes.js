@@ -353,7 +353,7 @@ export async function answerAsAI(env, { orgId, session, user, resolved, row, mem
     const provider = await providerFor(env, orgId);
     const allowance = provider ? await allowanceFor(env, orgId, { githubId: String(session.github_id) }) : null;
     if (!provider) { await say(serverText(locale, "agent.noModel")); return false; }
-    if (!allowance.allowed) { await say(serverText(locale, "agent.quota")); return false; }
+    if (!allowance.allowed) { await say(serverText(locale, allowance.workspaceBudgetCheckUnavailable ? "agent.workspaceBudgetCheckUnavailable" : allowance.workspaceBudgetExceeded ? "agent.workspaceBudget" : "agent.quota")); return false; }
     // @AI is the workspace's own assistant: called from the conversation,
     // it reads what the conversation was just saying ("@AI 今の話を要約して").
     // A thread is still only its thread.
