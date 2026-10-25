@@ -89,7 +89,7 @@ test('folder navigation requests direct children, scopes search and resets pagin
  await act(async()=>{button('Folders')!.props.onClick()})
  expect(vi.mocked(api.list).mock.calls[0][0].order).toBe('recent')
  expect(vi.mocked(api.list).mock.calls.at(-1)![0].order).toBe('path')
- expect(api.folders).toHaveBeenLastCalledWith('workspace','',false,undefined,expect.any(AbortSignal))
+ expect(api.folders).toHaveBeenLastCalledWith('workspace','',false,undefined,expect.any(AbortSignal),undefined)
  await act(async()=>{renderer!.root.findByProps({className:'hx-file-folder'}).props.onClick()})
  expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({directory:'Alpha/',directOnly:true})
  await act(async()=>{renderer!.root.findByProps({'aria-label':'Search files'}).props.onChange({target:{value:'note'}})})
@@ -98,4 +98,21 @@ test('folder navigation requests direct children, scopes search and resets pagin
  await act(async()=>{button('Files')!.props.onClick()})
  expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({directory:'',directOnly:true,query:''})
  act(()=>renderer!.unmount())
+})
+
+test('origin switches filter files and folders together and discard previous page cursors',async()=>{
+ const api={list:vi.fn().mockResolvedValue({files:[],next:{path:'old',id:'old'}}),folders:vi.fn().mockResolvedValue({folders:[],next:'old-folder'})} as unknown as WorkspaceFileApi
+ let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
+ const click=async(label:string)=>act(async()=>tree!.root.findAllByType('button').find(b=>b.props['aria-label']===label||b.children.includes(label))!.props.onClick())
+ await click('Folders');await click('Next');await click('More folders')
+ await click('Created by agents')
+ expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({origin:'agent',order:'path'})
+ expect(vi.mocked(api.list).mock.calls.at(-1)![0].cursor).toBeUndefined()
+ expect(api.folders).toHaveBeenLastCalledWith('workspace','',false,undefined,expect.any(AbortSignal),'agent')
+ await act(async()=>tree!.root.findByType('select').props.onChange({target:{value:'unknown'}}))
+ expect(vi.mocked(api.list).mock.calls.at(-1)![0].origin).toBe('unknown')
+ await act(async()=>tree!.root.findByType('select').props.onChange({target:{value:'all'}}))
+ expect(vi.mocked(api.list).mock.calls.at(-1)![0].origin).toBeUndefined()
+ act(()=>tree!.unmount())
 })

@@ -1,7 +1,8 @@
-export type WorkspaceFile = {id:string;scope:string;path:string;createdBy:string;createdAt:string;updatedAt:string;version:number;deleted:boolean;contentType:string|null;size:number|null}
+export type FileOrigin='human'|'agent'|'unknown'
+export type WorkspaceFile = {id:string;scope:string;path:string;origin?:FileOrigin;createdBy:string;createdAt:string;updatedAt:string;version:number;deleted:boolean;contentType:string|null;size:number|null}
 export type FileCursor = {path:string;id:string;updatedAt?:string}
 export type FileVersion = {version:number;kind:'content'|'deleted';contentType:string|null;size:number|null;createdBy:string;createdAt:string;restoredFrom:number|null;currentVersion:number;isCurrent:boolean;purged:boolean}
-export type FileSearch = {scope:string;query?:string;directory?:string;type?:'image'|'video'|'media'|'pdf'|'doc'|'html';createdBy?:string;since?:string;until?:string;includeDeleted?:boolean;directOnly?:boolean;order?:'path'|'recent';cursor?:FileCursor;limit?:number}
+export type FileSearch = {scope:string;origin?:FileOrigin;query?:string;directory?:string;type?:'image'|'video'|'media'|'pdf'|'doc'|'html';createdBy?:string;since?:string;until?:string;includeDeleted?:boolean;directOnly?:boolean;order?:'path'|'recent';cursor?:FileCursor;limit?:number}
 export class WorkspaceFileError extends Error {
  constructor(message:string,readonly status:number){super(message);this.name='WorkspaceFileError'}
 }
@@ -20,11 +21,11 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
   resolveScope:(channel:string,signal?:AbortSignal)=>json<{scope:string}>('/hx/files/scope','GET',undefined,{channel},signal),
   list:(search:FileSearch,signal?:AbortSignal)=>{
    const query:Record<string,string>={scope:search.scope}
-   for(const key of ['query','directory','type','createdBy','since','until','includeDeleted','directOnly','order','limit'] as const)if(search[key]!==undefined)query[key]=String(search[key])
+   for(const key of ['origin','query','directory','type','createdBy','since','until','includeDeleted','directOnly','order','limit'] as const)if(search[key]!==undefined)query[key]=String(search[key])
    if(search.cursor)query.cursor=JSON.stringify(search.cursor)
    return json<{files:WorkspaceFile[];next:FileCursor|null}>('/hx/files','GET',undefined,query,signal)
   },
-  folders:(scope:string,directory:string,includeDeleted:boolean,cursor?:string,signal?:AbortSignal)=>json<{folders:{name:string;path:string}[];next:string|null}>('/hx/files/folders','GET',undefined,{scope,directory,includeDeleted:String(includeDeleted),...(cursor?{cursor}:{})},signal),
+  folders:(scope:string,directory:string,includeDeleted:boolean,cursor?:string,signal?:AbortSignal,origin?:FileOrigin)=>json<{folders:{name:string;path:string}[];next:string|null}>('/hx/files/folders','GET',undefined,{scope,directory,includeDeleted:String(includeDeleted),...(origin?{origin}:{}),...(cursor?{cursor}:{})},signal),
   create:(scope:string,filePath:string,requestId?:string)=>json<{id:string;version:number}>('/hx/files','POST',{scope,path:filePath,...(requestId?{requestId}:{})}),
   upload:async(id:string,expectedVersion:number,file:Blob,signal?:AbortSignal)=>{
    const result=await response(`${path(id)}/content`,'PUT',file,{expectedVersion:String(expectedVersion),size:String(file.size)},file.type||'application/octet-stream',signal)

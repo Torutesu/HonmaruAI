@@ -43,3 +43,13 @@
 .hx-files-toolbar .hx-files-upload>button{grid-column:2;grid-row:1;width:28px;height:28px;display:flex;align-items:center;justify-content:center;padding:0}
 .hx-files-toolbar .hx-files-upload-menu{right:0;top:32px;text-align:left}
 .hx-files-toolbar .hx-files-upload-status{grid-column:1/-1;min-width:0;padding:0}
+
+.hx-files-toolbar{grid-template-columns:minmax(0,1fr) auto auto;gap:8px}
+.hx-files-toolbar .hx-files-view{grid-column:2}
+.hx-files-toolbar .hx-files-upload>button{grid-column:3}
+.hx-files-origin{grid-column:1;grid-row:1;min-width:0;display:flex;align-items:center;gap:2px;padding:2px;border-radius:7px;background:var(--hx-hover)}
+.hx-files-origin>button{flex:1;min-width:0;height:24px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;border-radius:5px;padding:0 5px;background:transparent;color:var(--hx-muted);font:inherit;font-size:11px;cursor:pointer}
+.hx-files-origin>button[aria-pressed=true],.hx-files-origin-more.selected{color:var(--hx-text);background:var(--hx-surface);box-shadow:0 0 0 1px var(--hx-hover),0 1px 3px #0001}
+.hx-files-origin-more{position:relative;flex:0 0 22px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:5px;color:var(--hx-muted)}
+.hx-files-origin-more select{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.hx-files-origin-more:focus-within{outline:2px solid var(--blue);outline-offset:2px}

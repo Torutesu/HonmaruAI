@@ -15,3 +15,11 @@ test('damaged or unsafe state and unavailable storage fall back without breaking
  vi.stubGlobal('sessionStorage',{getItem:()=>{throw Error('denied')},setItem:()=>{throw Error('denied')}})
  expect(readWorkspaceFileView('key').directory).toBe('');expect(()=>saveWorkspaceFileView('key',{directory:'',search:'',folderMode:false,includeDeleted:false})).not.toThrow()
 })
+
+test('origin selection survives tab reload and old saved views keep all sources',()=>{
+ let raw='';vi.stubGlobal('sessionStorage',{getItem:()=>raw,setItem:(_key:string,value:string)=>{raw=value}})
+ const view={folderMode:false,directory:'',search:'',includeDeleted:false,origin:'agent' as const}
+ saveWorkspaceFileView('key',view);expect(readWorkspaceFileView('key').origin).toBe('agent')
+ raw=JSON.stringify({version:1,...view,origin:undefined});expect(readWorkspaceFileView('key').origin).toBeUndefined()
+ raw=JSON.stringify({version:1,...view,origin:'invalid'});expect(readWorkspaceFileView('key').origin).toBeUndefined()
+})

@@ -3,7 +3,7 @@ import React,{useEffect,useRef,useState} from 'react'
 import {Icon} from './Icon'
 import {useT} from '../utils/i18n'
 import {WorkspaceFileError} from '../utils/workspaceFiles'
-import type {WorkspaceFileApi,WorkspaceFile,FileVersion,FileCursor} from '../utils/workspaceFiles'
+import type {WorkspaceFileApi,WorkspaceFile,FileVersion,FileCursor,FileOrigin} from '../utils/workspaceFiles'
 import './WorkspaceFilesPanel.css'
 import {WorkspaceFilePreview} from './WorkspaceFilePreview'
 import {workspaceFilePreviewKind} from '../utils/workspaceFilePreview'
@@ -24,22 +24,28 @@ export function WorkspaceFilesPanel({api,scope,preferenceKey,onClose,onAttachmen
  const t=useT(),[query,setQuery]=useState(saved.search),[search,setSearch]=useState(saved.search),[revision,setRevision]=useState(0)
  const [files,setFiles]=useState<WorkspaceFile[]|null>(null),[cursor,setCursor]=useState<FileCursor|null>(null),[next,setNext]=useState<FileCursor|null>(null)
  const [includeDeleted,setIncludeDeleted]=useState(saved.includeDeleted)
+ const [origin,setOrigin]=useState<'all'|FileOrigin>(saved.origin??'all')
  const [folderMode,setFolderMode]=useState(saved.folderMode),[directory,setDirectory]=useState(saved.directory)
  const [folders,setFolders]=useState<{name:string;path:string}[]>([]),[folderCursor,setFolderCursor]=useState<string|undefined>(),[folderNext,setFolderNext]=useState<string|null>(null)
  const [error,setError]=useState(''),[selected,setSelected]=useState<WorkspaceFile|null>(null)
  useEffect(()=>{const controller=new AbortController();let live=true;setFiles(null);setError('')
   Promise.all([
-   api.list({scope,includeDeleted,query:search,order:folderMode?'path':'recent',...(folderMode?{directory,directOnly:!search}:{}),...(cursor?{cursor}:{})},controller.signal),
-   folderMode&&!search?api.folders(scope,directory,includeDeleted,folderCursor,controller.signal):Promise.resolve({folders:[],next:null})
+   api.list({scope,...(origin!=='all'?{origin}:{}),includeDeleted,query:search,order:folderMode?'path':'recent',...(folderMode?{directory,directOnly:!search}:{}),...(cursor?{cursor}:{})},controller.signal),
+   folderMode&&!search?api.folders(scope,directory,includeDeleted,folderCursor,controller.signal,origin==='all'?undefined:origin):Promise.resolve({folders:[],next:null})
   ]).then(([result,tree])=>{if(live){setFiles(result.files);setNext(result.next);setFolders(tree.folders);setFolderNext(tree.next)}}).catch(error=>{if(live)setError(String(error.message||error))})
   return()=>{live=false;controller.abort()}
- },[api,scope,search,cursor,revision,includeDeleted,folderMode,directory,folderCursor])
+ },[api,scope,search,cursor,revision,includeDeleted,folderMode,directory,folderCursor,origin])
  useEffect(()=>{setSelected(null);setCursor(null);setFolderCursor(undefined)},[api,scope])
- useEffect(()=>saveWorkspaceFileView(preferenceKey,{folderMode,directory,search,includeDeleted}),[preferenceKey,folderMode,directory,search,includeDeleted])
+ useEffect(()=>saveWorkspaceFileView(preferenceKey,{folderMode,directory,search,includeDeleted,origin}),[preferenceKey,folderMode,directory,search,includeDeleted,origin])
  const openDirectory=(path:string)=>{setDirectory(path);setCursor(null);setFolderCursor(undefined);setQuery('');setSearch('')}
  return <aside className="hx-room-resource slk-pane hx-files-panel" aria-label={t('Files')}>
   <header><strong>{t('Files')}</strong><button type="button" onClick={onClose} aria-label={t('Close resources')}><Icon name="x" size={16}/></button></header>
   <div className="hx-files-toolbar">
+   {!selected&&<div className="hx-files-origin" role="group" aria-label={t('File source')}>
+    {(['agent','human'] as const).map(source=><button type="button" key={source} title={t(source==='agent'?'Created by agents':'Uploaded by users')} aria-pressed={origin===source} onClick={()=>{setOrigin(source);setCursor(null);setFolderCursor(undefined)}}>{t(source==='agent'?'Created by agents':'Uploaded by users')}</button>)}
+    <label className={`hx-files-origin-more${origin==='all'||origin==='unknown'?' selected':''}`} title={t(origin==='all'?'All files':origin==='unknown'?'Unknown file source':'File source')}><Icon name="more" size={14}/><select aria-label={t('File source')} value={origin} onChange={event=>{setOrigin(event.target.value as 'all'|FileOrigin);setCursor(null);setFolderCursor(undefined)}}><option value="all">{t('All files')}</option><option value="agent">{t('Created by agents')}</option><option value="human">{t('Uploaded by users')}</option><option value="unknown">{t('Unknown file source')}</option></select></label>
+   </div>}
+
    {!selected&&<div className="hx-files-view" role="group" aria-label={t('File view')}><button type="button" title={t('Recent')} aria-label={t('Recent')} aria-pressed={!folderMode} onClick={()=>{setFolderMode(false);setCursor(null);setFolderCursor(undefined)}}><Icon name="list" size={16}/></button><button type="button" title={t('Folders')} aria-label={t('Folders')} aria-pressed={folderMode} onClick={()=>{setFolderMode(true);setCursor(null);setFolderCursor(undefined)}}><Icon name="folder" size={16}/></button></div>}
    <WorkspaceFileUpload key={scope} api={api} scope={scope} directory={folderMode?directory:''} onSaved={()=>setRevision(value=>value+1)}/>
   </div>
@@ -47,7 +53,7 @@ export function WorkspaceFilesPanel({api,scope,preferenceKey,onClose,onAttachmen
    {folderMode&&<nav className="hx-files-breadcrumbs" aria-label={t('Folder path')}><button onClick={()=>openDirectory('')}>{t('Files')}</button>{directory.split('/').filter(Boolean).map((name,index,parts)=><React.Fragment key={index}><Icon name="chevron-right" size={12}/><button aria-current={index===parts.length-1?'location':undefined} onClick={()=>openDirectory(parts.slice(0,index+1).join('/')+'/')}>{name}</button></React.Fragment>)}</nav>}
    <label className="hx-files-deleted"><input type="checkbox" checked={includeDeleted} onChange={event=>{setCursor(null);setFolderCursor(undefined);setIncludeDeleted(event.target.checked)}}/>{t('Include deleted files')}</label>
    <form className="hx-files-search" onSubmit={event=>{event.preventDefault();setCursor(null);setFolderCursor(undefined);setSearch(query)}}><Icon name="search" size={15}/><input maxLength={1024} aria-label={t('Search files')} placeholder={t('Search files')} value={query} onChange={event=>setQuery(event.target.value)}/><button type="submit" aria-label={t('Search')}><Icon name="chevron-right" size={15}/></button></form>
-   {error?<div className="hx-files-state" role="alert"><p>{error}</p><button onClick={()=>setRevision(value=>value+1)}>{t('Retry')}</button></div>:files===null?<p className="hx-files-state" role="status">{t('Loading…')}</p>:files.length===0&&folders.length===0?<div className="hx-files-state"><Icon name="file" size={36}/><p>{search?t('No matching files'):t('No files in this room yet')}</p></div>:<div className="hx-files-rows">{folders.map(folder=><button type="button" className="hx-file-folder" key={folder.path} onClick={()=>openDirectory(folder.path)}><Icon name="folder" size={19}/><span>{folder.name}</span><Icon name="chevron-right" size={14}/></button>)}{files.map(file=><button type="button" className="hx-file-row" key={file.id} onClick={()=>setSelected(file)}><Icon name={file.contentType?.startsWith('image/')?'image':'file'} size={19}/><span><b>{file.path.split('/').at(-1)}</b><small>{file.path.includes('/')?`${file.path.slice(0,file.path.lastIndexOf('/'))} · `:''}{file.size??0} B · v{file.version}{file.deleted?` · ${t('Deleted')}`:''}</small></span><Icon name="chevron-right" size={14}/></button>)}</div>}
+   {error?<div className="hx-files-state" role="alert"><p>{error}</p><button onClick={()=>setRevision(value=>value+1)}>{t('Retry')}</button></div>:files===null?<p className="hx-files-state" role="status">{t('Loading…')}</p>:files.length===0&&folders.length===0?<div className="hx-files-state"><Icon name="file" size={36}/><p>{search?t('No matching files'):t(origin==='agent'?'No agent-created files in this room':origin==='human'?'No user-uploaded files in this room':origin==='unknown'?'No files with unknown source in this room':'No files in this room yet')}</p></div>:<div className="hx-files-rows">{folders.map(folder=><button type="button" className="hx-file-folder" key={folder.path} onClick={()=>openDirectory(folder.path)}><Icon name="folder" size={19}/><span>{folder.name}</span><Icon name="chevron-right" size={14}/></button>)}{files.map(file=><button type="button" className="hx-file-row" key={file.id} onClick={()=>setSelected(file)}><Icon name={file.contentType?.startsWith('image/')?'image':'file'} size={19}/><span><b>{file.path.split('/').at(-1)}</b><small>{file.path.includes('/')?`${file.path.slice(0,file.path.lastIndexOf('/'))} · `:''}{file.size??0} B · v{file.version}{file.deleted?` · ${t('Deleted')}`:''}</small></span><Icon name="chevron-right" size={14}/></button>)}</div>}
    {folderMode&&!search&&<div className="hx-files-pagination">{folderCursor&&<button onClick={()=>setFolderCursor(undefined)}>{t('First folders')}</button>}{folderNext&&files!==null&&!error&&<button onClick={()=>setFolderCursor(folderNext)}>{t('More folders')}</button>}</div>}
    <div className="hx-files-pagination">{cursor&&<button onClick={()=>setCursor(null)}>{t('Back to first page')}</button>}{next&&files!==null&&!error&&<button onClick={()=>setCursor(next)}>{t('Next')}</button>}</div>
   </>}

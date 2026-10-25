@@ -1,6 +1,14 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'No agent-created files in this room': 'このルームにはエージェントが作成したファイルはありません',
+  'No user-uploaded files in this room': 'このルームにはユーザーがアップロードしたファイルはありません',
+  'No files with unknown source in this room': 'このルームには作成元不明のファイルはありません',
+  'File source': 'ファイルの作成元',
+  'Created by agents': 'エージェントが作成',
+  'Uploaded by users': 'ユーザーがアップロード',
+  'Unknown file source': '作成元不明のファイル',
+
   "Workspace settings could not load.": "ワークスペースの設定を読み込めませんでした。",
   "Loading workspace…": "ワークスペースを読み込み中…",
   "File view": "ファイルの表示",
