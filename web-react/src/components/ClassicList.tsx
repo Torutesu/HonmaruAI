@@ -1,3 +1,4 @@
+import {workspaceFileViewKey} from '../utils/workspaceFileView'
 import {RoomFilesPanel} from './WorkspaceFilesPanel'
 import {generationRetry,finishGenerationRetry} from '../utils/generationRetry'
 import {AgentRunStatus} from './AgentRunStatus'
@@ -6101,7 +6102,7 @@ export const ClassicList: React.FC<Props> = ({
           : side.kind === 'app'
           ? <aside className="hx-app-pane slk-pane"><AppView key={`${api.orgId}:${side.id}`} httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} api={resourceClient} appId={side.id} openConversation={side.conversation} initialSection={side.section} onClose={() => setSide(null)} onBack={() => setSide(side.fromReferences&&thread?{kind:'references'}:{ kind: 'resources', resource: 'apps' })} /></aside>
           : side.kind === 'files'
-          ? <RoomFilesPanel key={`${api.orgId}:${api.sessionToken}:${current.view}`} api={resourceClient.files} channel={current.view} onClose={()=>setSide(null)} onAttachments={()=>setSide({kind:'details',tab:'attachments'})}/>
+          ? <RoomFilesPanel key={`${api.orgId}:${api.sessionToken}:${current.view}`} api={resourceClient.files} channel={current.view} preferenceKey={workspaceFileViewKey(api.httpBase,api.orgId,userId,current.view)} onClose={()=>setSide(null)} onAttachments={()=>setSide({kind:'details',tab:'attachments'})}/>
           : side.kind === 'resources'
           ? <HarnessRoomResources key={`${api.orgId}:${userId}:${current.view}:${side.resource}`} api={api} channel={current.view} kind={side.resource}
               onClose={() => setSide(null)} onOpenApp={id => { if (id) setSide({ kind: 'app', id }); else { setSide(null); onApps?.() } }} onOpenWorkflow={id => { setSide(null); onWorkflow?.(id) }}
