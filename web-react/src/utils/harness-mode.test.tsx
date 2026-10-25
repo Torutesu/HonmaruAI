@@ -72,3 +72,29 @@ test('storage denied still allows Simple for this browser session', async () => 
   act(() => result.setSimpleOnly(true))
   expect(result.mode).toBe('simple')
 })
+
+test('failed mode loading can retry without inheriting grants',async()=>{
+ act(()=>{tree=create(<Probe/>)})
+ await act(async()=>requests[0].resolve(new Response('{}',{status:503})))
+ expect(result).toMatchObject({loaded:false,canEdit:false,error:'Workspace settings could not load.'})
+ act(()=>result.retry())
+ expect(result).toMatchObject({loaded:false,canEdit:false,error:''})
+ expect(requests[0].init?.signal?.aborted).toBe(true)
+ await answer(1,'harness',true)
+ expect(result).toMatchObject({loaded:true,mode:'harness',canEdit:true,error:''})
+})
+test('timed-out and malformed responses cannot switch the loading shell to a stale mode',async()=>{
+ vi.useFakeTimers()
+ try{
+  act(()=>{tree=create(<Probe/>)})
+  await act(async()=>{vi.advanceTimersByTime(15000)})
+  expect(result.error).toBeTruthy();expect(requests[0].init?.signal?.aborted).toBe(true)
+  await answer(0,'harness',true)
+  expect(result).toMatchObject({loaded:false,canEdit:false,mode:'simple'})
+  act(()=>result.retry())
+  await act(async()=>requests[1].resolve(new Response('{"mode":"invalid"}')))
+  expect(result.error).toBeTruthy();expect(result.loaded).toBe(false)
+  act(()=>result.setSimpleOnly(true))
+  expect(result).toMatchObject({mode:'simple',simpleOnly:true,canEdit:false})
+ }finally{vi.useRealTimers()}
+})

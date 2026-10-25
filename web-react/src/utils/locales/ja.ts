@@ -1,6 +1,8 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Workspace settings could not load.": "ワークスペースの設定を読み込めませんでした。",
+  "Loading workspace…": "ワークスペースを読み込み中…",
   "File view": "ファイルの表示",
   "All files": "すべてのファイル",
   "Folders": "フォルダ",

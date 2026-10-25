@@ -114,10 +114,10 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     const q = new URLSearchParams({ orgId, ...query })
     return `${httpBase}${path}${path.includes('?') ? '&' : '?'}${q.toString()}`
   }
-  async function call<T>(method: string, path: string, body?: Record<string, unknown>, query?: Record<string, string>): Promise<T> {
+  async function call<T>(method: string, path: string, body?: Record<string, unknown>, query?: Record<string, string>, signal?: AbortSignal): Promise<T> {
     const read = method === 'GET' || method === 'DELETE'
     const res = await fetch(read ? withOrg(path, query) : `${httpBase}${path}`, {
-      method, headers, body: read ? undefined : JSON.stringify({ orgId, ...(body || {}) }),
+      method, headers, signal, body: read ? undefined : JSON.stringify({ orgId, ...(body || {}) }),
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(data.message || `${res.status}`)
@@ -144,7 +144,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     execute: (gatewayId: string, code: string, input: unknown, requestId: string, language?:'javascript'|'typescript') => call<{ job: GatewayJob }>('POST', '/gateways/jobs', { gatewayId, code, input, requestId,...(language==='typescript'?{language}:{}) }),
     cancelExecution: (id: string) => call('POST', `/gateways/jobs/${encodeURIComponent(id)}/cancel`),
     home: () => call<HomeData>('GET', '/harness/home'),
-    getMode: () => call<{ mode: WorkspaceMode; canEdit: boolean }>('GET', '/orgs/mode'),
+    getMode: (signal?:AbortSignal) => call<{ mode: WorkspaceMode; canEdit: boolean }>('GET', '/orgs/mode',undefined,undefined,signal),
     setMode: (mode: WorkspaceMode) => call<{ mode: WorkspaceMode; canEdit: boolean }>('PUT', '/orgs/mode', { mode }),
 
     templates: () => call<{ templates: Template[] }>('GET', '/apps/templates'),
@@ -259,17 +259,22 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
   const scope = JSON.stringify([httpBase, orgId, sessionToken])
   const preferenceKey = `hx.simple.${httpBase}.${orgId}`
   const readPreference = () => { try { return localStorage.getItem(preferenceKey) === 'true' } catch { return false } }
-  const [snapshot, setSnapshot] = useState({ scope: '', mode: 'simple' as WorkspaceMode, canEdit: false, loaded: false })
+  const [snapshot, setSnapshot] = useState({ scope: '', mode: 'simple' as WorkspaceMode, canEdit: false, loaded: false, error:'' })
   const [preference, setPreference] = useState({ key: preferenceKey, simple: readPreference() })
   const simpleOnly = preference.key === preferenceKey ? preference.simple : readPreference()
-  const current = snapshot.scope === scope ? snapshot : { mode: 'simple' as WorkspaceMode, canEdit: false, loaded: false }
+  const current = snapshot.scope === scope ? snapshot : { mode: 'simple' as WorkspaceMode, canEdit: false, loaded: false, error:'' }
+  const [retryCount,setRetryCount]=useState(0)
+  const retry=useCallback(()=>setRetryCount(value=>value+1),[])
   useEffect(() => {
     let live = true
-    setSnapshot({ scope, mode: 'simple', canEdit: false, loaded: false })
+    setSnapshot({ scope, mode: 'simple', canEdit: false, loaded: false, error:'' })
     if (!orgId || !sessionToken) return
-    harnessApi(httpBase, orgId, sessionToken).getMode()
-      .then(d => { if (live && isMode(d.mode)) setSnapshot({ scope, mode: d.mode, canEdit: d.canEdit === true, loaded: true }) })
-      .catch(() => { /* Default to Simple without inheriting earlier grants. */ })
+    const controller=new AbortController()
+    const fail=()=>{if(live)setSnapshot({scope,mode:'simple',canEdit:false,loaded:false,error:'Workspace settings could not load.'})}
+    const timer=setTimeout(()=>{controller.abort();fail()},15000)
+    harnessApi(httpBase, orgId, sessionToken).getMode(controller.signal)
+      .then(d => { if (live&&!controller.signal.aborted) {if(isMode(d.mode))setSnapshot({ scope, mode: d.mode, canEdit: d.canEdit === true, loaded: true,error:'' });else fail()} })
+      .catch(()=>{if(!controller.signal.aborted)fail()}).finally(()=>clearTimeout(timer))
     const onChange = (e: Event) => {
       const next = (e as CustomEvent<{ orgId: string; httpBase: string; mode: WorkspaceMode }>).detail
       if (next?.orgId === orgId && next.httpBase === httpBase && isMode(next.mode)) {
@@ -277,8 +282,8 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
       }
     }
     window.addEventListener('hx-mode', onChange)
-    return () => { live = false; window.removeEventListener('hx-mode', onChange) }
-  }, [httpBase, orgId, sessionToken, scope])
+    return () => { live = false;clearTimeout(timer);controller.abort(); window.removeEventListener('hx-mode', onChange) }
+  }, [httpBase, orgId, sessionToken, scope,retryCount])
   useEffect(() => {
     const update = (event?: Event) => {
       const detail = event?.type === 'hx-simple' ? (event as CustomEvent<{ key: string; simple: boolean }>).detail : null
@@ -303,7 +308,7 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
     return d.mode
   }, [httpBase, orgId, sessionToken, scope])
   return { mode: simpleOnly ? 'simple' as const : current.mode, workspaceMode: current.mode,
-    canEdit: current.canEdit, loaded: current.loaded, setMode, simpleOnly, setSimpleOnly }
+    canEdit: current.canEdit, loaded: current.loaded,error:current.error,retry, setMode, simpleOnly, setSimpleOnly }
 }
 
 /// A cell as the table shows it.
