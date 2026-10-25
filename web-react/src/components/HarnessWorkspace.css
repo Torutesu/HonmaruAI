@@ -461,6 +461,25 @@
 .hx-record-form textarea { height:auto; min-height:72px; padding:10px 12px; resize:vertical; }
 .hx-record-form label:first-child textarea { min-height:98px; }
 .hx-record-form .dlg-label { color:var(--hx-text); }
+.hx-record-field { display:block; }
+.hx-person-picker{position:relative;width:100%;min-width:0}
+.hx-person-trigger{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:40px;padding:6px 10px;border:1px solid var(--hx-border);border-radius:12px;background:var(--hx-surface);color:var(--hx-text);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.hx-person-trigger:focus-visible{outline:2px solid var(--hx-accent);outline-offset:2px}
+.hx-person-trigger:disabled{opacity:.62;cursor:default}
+.hx-person-trigger>svg{flex:none;color:var(--hx-muted)}
+.hx-person-trigger-value{display:flex;align-items:center;gap:8px;min-width:0}
+.hx-person-trigger-value>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hx-person-placeholder{color:var(--hx-muted)}
+.hx-person-options{position:fixed;z-index:260;box-sizing:border-box;overflow:auto;padding:5px;border:1px solid var(--hx-border);border-radius:12px;background:var(--hx-surface);color:var(--hx-text);box-shadow:0 12px 32px #0003}
+.hx-person-search{display:flex;align-items:center;gap:7px;margin:2px 2px 5px;padding:0 8px;height:34px;border:1px solid var(--hx-border);border-radius:9px;color:var(--hx-muted)}
+.hx-person-search input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:var(--hx-text);font:inherit;font-size:12px}
+.hx-person-list{display:grid;gap:2px}
+.hx-person-list>button{display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;border:0;border-radius:8px;background:transparent;color:inherit;text-align:left;font:inherit;font-size:13px;cursor:pointer}
+.hx-person-list>button>span:nth-child(2){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hx-person-list>button.active,.hx-person-list>button:hover{background:var(--hx-hover)}
+.hx-person-list>button>svg{flex:none;color:var(--hx-accent)}
+.hx-person-list>p{margin:0;padding:10px;color:var(--hx-muted);font-size:12px;text-align:center}
+.hx-person-legacy,.hx-person-unassigned{display:grid;place-items:center;flex:none;width:22px;height:22px;border-radius:50%;background:var(--hx-hover);color:var(--hx-muted);font-size:12px}
 
 :root .shell.harness-workspace .hx-tabs .hx-new-view { padding:5px; display:grid; place-items:center; }
 :root .shell.harness-workspace .hx-tabs .hx-view-popover { left:0; right:auto; }

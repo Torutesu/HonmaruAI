@@ -23,7 +23,7 @@ test('editing sends only changed fields and explicitly clears values without los
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const save=vi.fn().mockResolvedValue(undefined);let tree:ReturnType<typeof create>
  const record={id:'row_1',values:{title:'Existing',count:12,owner:'former-member'},createdAt:'2026-10-01T00:00:00Z',updatedAt:'2026-10-18T00:00:00Z'}
  act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={[...columns,{id:'owner',name:'担当者',type:'person'}]} record={record} members={[{ref:'user_1',name:'メンバー'}]} save={save} onClose={()=>{}}/>)});
- expect(tree!.root.findAllByType('option').some(o=>o.props.value==='former-member')).toBe(true)
+ expect(tree!.root.findByProps({role:'combobox'}).findAllByType('span').some(span=>span.children.includes('former-member'))).toBe(true)
  act(()=>tree!.root.findByType('input').props.onChange({target:{value:''}}))
  await act(async()=>{await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})});expect(save).toHaveBeenCalledWith({count:null});expect(record.values.count).toBe(12);act(()=>tree!.unmount())
 })
