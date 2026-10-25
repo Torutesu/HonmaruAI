@@ -3611,3 +3611,8 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Native Kylon CUA confirmed file upload menu has file/folder entries; recent view has agent/user origin radios; folder view hides those radios and shows All files breadcrumb plus folder icon and empty-folder text. General room had no files in either origin. Synthetic PDF selection remained Open-disabled; cancelled chooser without uploading. No populated preview parity claim.
 - Honmaru folder empty-state now uses folder icon and matching empty-folder wording when unfiltered; root breadcrumb says All files. Existing extra origin filtering is retained pending a deliberate treatment of advanced filters. Build passed (`/tmp/honmaru-file-folder-fidelity-build.log`). This small UI refinement is outside current candidate.
 - Earlier candidate 5bb6d76f CI 40192911584 completed all seven required jobs successfully. Latest 360abb61 CI 40193965836 has six required jobs passed, Worker running. Main unchanged; only latest candidate is eligible for final feature rollout.
+
+### 2026-10-25 — Kylon folder wording regression
+
+- Folder breadcrumb now says All files to match observed Kylon; updated the existing navigation regression to assert the visible label. First run correctly caught the stale test locator; after updating it, all 13 WorkspaceFilesPanel tests passed (`/tmp/honmaru-kylon-folder-ui-tests.log`).
+- Candidate 302f568d CI 40195267162 was already running when the stale assertion was found. It is superseded by a same-branch update containing the corrected regression; the next exact candidate CI is authoritative.

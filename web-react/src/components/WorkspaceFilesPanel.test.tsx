@@ -95,7 +95,7 @@ test('folder navigation requests direct children, scopes search and resets pagin
  await act(async()=>{renderer!.root.findByProps({'aria-label':'Search files'}).props.onChange({target:{value:'note'}})})
  await act(async()=>{renderer!.root.findByType('form').props.onSubmit({preventDefault(){}})})
  expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({directory:'Alpha/',directOnly:false,query:'note'})
- await act(async()=>{button('Files')!.props.onClick()})
+ await act(async()=>{button('All files')!.props.onClick()})
  expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({directory:'',directOnly:true,query:''})
  act(()=>renderer!.unmount())
 })
