@@ -150,6 +150,7 @@
 /* A phone keeps its tab bar under the home, which is a place, not a page. */
 @media (max-width: 719px) {
   .shell.home-open .tabbar { display: flex; z-index: 40; }
+  .shell.home-open > .hx-resource-screen { bottom: calc(76px + env(safe-area-inset-bottom)); }
   .shell.home-open .hx-home .screen-body { padding-bottom: 110px; }
 }
 /* Rows that are links read as rows, not as underlined text. */

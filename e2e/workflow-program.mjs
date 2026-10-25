@@ -48,6 +48,11 @@ export async function workflowProgram({context,web,apiHost,shots}) {
    return {inputHeight:getComputedStyle(input).lineHeight,gutterHeight:getComputedStyle(numbers).lineHeight,horizontal:input.scrollWidth>input.clientWidth,overflow:document.documentElement.scrollWidth>innerWidth+1}
   })
   if(layout.inputHeight!==layout.gutterHeight||!layout.horizontal||layout.overflow)throw Error('Program line numbers or horizontal scroll are misaligned')
+  const viewport=await screen.evaluate(element=>{
+   const nav=document.querySelector('.shell .tabbar'),rect=element.getBoundingClientRect()
+   return {bottom:rect.bottom,navTop:nav&&getComputedStyle(nav).display!=='none'?nav.getBoundingClientRect().top:innerHeight}
+  })
+  if(viewport.bottom>viewport.navTop+1)throw Error('Workflow viewport is covered by mobile navigation')
   await builder.locator('.hx-program-code').screenshot({path:`${shots}/workflow-program-mobile-lines.png`})
   await source.fill(code)
   await builder.getByRole('button',{name:/^(Save workflow|ワークフローを保存)$/}).click({trial:true})
