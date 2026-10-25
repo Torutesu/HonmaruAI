@@ -767,8 +767,8 @@
       "code": "worker/src/spendGuard.js, worker/src/ledger.js, worker/src/harness/workflowSafety.js, worker/src/harness/workflows.js, worker/src/harness/routes.js, web-react/src/screens/HarnessWorkflows.tsx",
       "acceptance": "個別Workflowの暦日/週/月回数上限に加え、直近24時間/7日/30日の記録トークンによるUSD参考価格上限、warn-only/実行後pause、作成元thread通知、単価不明時の可視化、CAS設定、原子的なrun admission、期間更新/上限変更後の自動回復を実装。provider invoice・Kylon creditsと一致するとは扱わない",
       "evidence": {
-        "verified": "回数上限に加え、既知のモデル単価によるマイクロUSD概算を記録しrolling 24h/7d/30dで集計。warn-onlyは元スレッドへ重複抑止付き通知、pauseは実行完了後に停止し、単価不明の記録を無料扱いせずpauseモードで停止。Worker/UI focused tests pass; full CI and production evidence will be recorded in verification.md after rollout.",
-        "remaining": "USDの参考価格でありKylon creditsやprovider invoiceとの換算ではない。外部検索/connector料金、未報告usage、プロセス障害前の未記録usageは網羅できず、run開始前の金額予約・部分runの中断精算もない。本番D1移行・CI・実画面確認はリリース後の証拠が必要。"
+        "verified": "回数上限に加え、既知のモデル単価によるマイクロUSD概算を記録しrolling 24h/7d/30dで集計。warn-onlyは元スレッドへ重複抑止付き通知、pauseは実行完了後に停止し、単価不明の記録を無料扱いせずpauseモードで停止。Worker/UI focused tests pass; exact-SHA CI 40219026947 and production Worker deployment 40219026929 passed. Actual web UI was reviewed after Pages deployment 40221036459; details in verification.md.",
+        "remaining": "USDの参考価格でありKylon creditsやprovider invoiceとの換算ではない。外部検索/connector料金、未報告usage、プロセス障害前の未記録usageは網羅できず、run開始前の金額予約・部分runの中断精算もない。"
       }
     },
     {
@@ -993,7 +993,7 @@
       "code": "worker/src/ledger.js, worker/src/workspaceAIBudget.js, worker/src/gate.js, worker/src/orgAI.js, worker/src/index.js, web-react/src/screens/Tools.tsx",
       "acceptance": "Honmaruデプロイキーで記録されたモデル参考価格に対するworkspace共通rolling 24h/7d/30d上限とwarn/pauseを追加。個人Free/Proと独立しCASで設定を更新。Kylon creditsやinvoiceとは扱わない",
       "evidence": {
-        "verified": "ワークスペース全体の記録済みai_callsを直近24時間/7日/30日で集計し、管理者がUSD参考価格の警告または次のdeployment-key AIリクエスト停止を設定できる。BYOKは対象外。管理者権限・revision競合・上限到達ゲートのWorker tests pass; production rollout/UI evidence pending.",
+        "verified": "ワークスペース全体の記録済みai_callsを直近24時間/7日/30日で集計し、管理者がUSD参考価格の警告または次のdeployment-key AIリクエスト停止を設定できる。BYOKは対象外。管理者権限・revision競合・上限到達ゲートのWorker tests、exact-SHA CI 40219026947、Worker deployment 40219026929、Pages deployment 40221036459、ログイン済み本番AI設定画面を確認済み。詳細はverification.md。",
         "remaining": "Kylon互換の購入/付与credit残高、実provider invoice換算、事前金額予約・確定・取消と厳密な同時実行上限は未実装。プロバイダーごとの請求と未記録usage・外部ツール費は対象外。"
       }
     },
@@ -1017,7 +1017,7 @@
       "code": "worker/src/gate.js, worker/src/workspaceAIBudget.js, worker/src/harness/workflowSafety.js, worker/src/harness/workflows.js",
       "acceptance": "個別workflowのpauseに加え、記録済みworkspace共通AI参考価格上限で新しいdeployment-keyのモデルリクエストを停止。既存BYOK上限と分離",
       "evidence": {
-        "verified": "daily/weekly/monthly estimated usageの到達を共通AI gateで検出し、AI ask/draft/translateと@AIの次のリクエストを拒否して説明を返す。warnとpauseの共有設定を実装。管理者とメンバーのAPI権限およびgate tests pass; production rollout/UI evidence pending.",
+        "verified": "rolling 24h/7d/30d estimated usageの到達を共通AI gateで検出し、新しいdeployment-key AIリクエストを拒否して説明を返すwarn/stop設定を実装。管理者とメンバーのAPI権限、gate tests、exact-SHA CI 40219026947、Worker deployment 40219026929、Pages deployment 40221036459、ログイン済み本番AI設定画面を確認済み。詳細はverification.md。",
         "remaining": "現在実行中の処理は中断せず、workspace設定画面以外の管理者向け通知も未実装。workflow/app/tool実行全体、独立AI teammate provider、外部connector費、事前予約の厳密な上限制御は含まない。"
       }
     },
