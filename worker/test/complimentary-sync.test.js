@@ -219,7 +219,7 @@ test("deletion preserves its tombstone until the user row is removed", async () 
   let reachedUserDeletion, resumeDeletion;
   const reached = new Promise(resolve => { reachedUserDeletion = resolve; });
   const release = new Promise(resolve => { resumeDeletion = resolve; });
-  const DB = { prepare(sql) {
+  const DB = { batch: statements => env.DB.batch(statements), prepare(sql) {
     const statement = env.DB.prepare(sql);
     if (sql !== "DELETE FROM users WHERE github_id = ?1") return statement;
     return { bind(...values) {

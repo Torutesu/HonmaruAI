@@ -24,3 +24,7 @@
 .hx-files-upload-menu{position:absolute;right:16px;top:32px;z-index:2;min-width:180px;padding:5px;border:1px solid var(--hx-hover);border-radius:10px;background:var(--hx-surface);box-shadow:0 4px 20px #0002}
 .hx-files-upload-menu button{display:block;width:100%;text-align:left;padding:9px;border:0;border-radius:6px;background:transparent;cursor:pointer}.hx-files-upload-menu button:hover{background:var(--hx-hover)}
 .hx-files-upload-status{text-align:left;font-size:12px;max-height:180px;overflow:auto;padding:8px 0}.hx-files-upload-status>div{padding:6px 0;overflow-wrap:anywhere}.hx-files-upload-status small{display:block;color:var(--hx-muted)}.hx-files-upload-status p{margin:4px 0}.hx-files-upload-status button{font:inherit;margin:4px;padding:4px 8px;background:var(--hx-surface);border:1px solid var(--hx-hover);border-radius:6px}
+
+.hx-file-version-actions{display:flex;align-items:center;gap:8px}.hx-file-version-actions button{font:inherit;font-size:12px;padding:6px;border-radius:6px}.hx-file-version-actions button:hover{background:var(--hx-hover)}.hx-file-version-actions button:disabled{opacity:.5;cursor:default}
+
+.hx-files-deleted{display:flex;align-items:center;gap:6px;padding:0 16px;font-size:12px;color:var(--hx-muted)}.hx-files-remove{display:flex;align-items:center;gap:6px;background:transparent;color:inherit;border:1px solid var(--hx-hover);border-radius:6px;padding:6px 8px;font:inherit;font-size:12px;cursor:pointer}

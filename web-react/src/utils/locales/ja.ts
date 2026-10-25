@@ -1,6 +1,12 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Include deleted files": "削除済みファイルも表示",
+  "Move to deleted files": "削除済みに移動",
+  "The file changed. Refresh its history before deleting.": "ファイルが更新されています。履歴を再読み込みしてから削除してください。",
+  "The file changed. Refresh its history before restoring.": "ファイルが更新されています。履歴を再読み込みしてから復元してください。",
+  "Latest versions": "最新の履歴",
+  "Older versions": "以前の履歴",
   "Permanently deleted": "完全に削除済み",
   "Version history": "バージョン履歴",
   "Message attachments": "メッセージの添付ファイル",
