@@ -3532,3 +3532,70 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Deployment review found install-service copied the old runtime list, omitting document-client/runner/converter despite unconditional imports. This would prevent even an ordinary service from starting after update. Extracted shared copyServiceRuntime with all required modules.
 - Regression copies the actual runtime into an isolated temporary directory outside the checkout, imports/runs the ordinary one-shot client, and starts the service with invalid synthetic config to verify it reaches config validation instead of failing module resolution. No token, network, launchd or container touched. Full gateway suite passed 32 tests (`/tmp/honmaru-runtime-install-tests.log`). Existing production service not updated yet.
 - Main 0e3f572c CI plus Worker and Web deployments now completed successfully. Exact deployed asset/version verification follows. Candidate fd84c214 CI was confirmed queued; prior a7ce0057 was cancelled by the new candidate, not a test failure.
+
+- Updated candidate `5bb6d76f06142953b2dc22a5ec93ce5f13a6191a` pushed (parent fd84c214); exact CI `40192911584` pending. Verified 0e3f572c deployment: Worker `789e7d3a-68d5-49d5-8715-c8ad21d2f623`, Web `index-DN4ZpEz1.js`, Pages https://b5a911cd.honmaru-web.pages.dev. Independent curl of app.honmaruai.com matched the asset (Python default User-Agent request was 403). Document work remains candidate-only.
+
+### 2026-10-25 — production node preflight and parity audit
+
+- Exact candidate CI 40192911584 confirmed live: gateway/Worker/relay/desktop/shared/E2E running, web queued. No failed job at observation.
+- Read-only preflight: existing com.honmaru.gateway LaunchAgent state running; service config has no documentImage, existing token file owner/mode valid (contents not read). Only buildkit container was active. Pinned document image verified using verifyDocumentImage against the configured container binary. No production service/config mutation.
+- Updated KY-072 evidence to replace stale no-converter claim with actual local UI/binary/hash/VM verification and explicit production, mobile, resource-fidelity, natural-language and Kylon comparison gaps. Requirement remains partial.
+
+### 2026-10-25 — multipage document content verification
+
+- Ran a synthetic 120-row Japanese HTML table through the real pinned isolated converter for both PDF and DOCX, with start/end markers. Outputs at `/var/folders/nx/ygvn7q3x7r5_vwl0rsz2c6zh0000gn/T/honmaru-document-pagination-FQjVPZ`. PDF: 46,799 bytes, SHA256 `9efd5753bc9d3b2e31429c0430253ab53d5566e658bb4583c54c57b5b4948393`. DOCX: 8,050 bytes, SHA256 `626742940d4b3bdfca08ef6c7d03353d96041bd559dd9479f717f69d25674f8c`.
+- Existing PDF.js extracted all 120 unique row markers, Japanese text and start/end markers across six pages. DOCX XML independently contained all rows/Japanese/end marker. Evidence `/tmp/honmaru-document-pagination-evidence.json`. Initial inspection used an unsupported document.destroy cleanup; corrected to loadingTask.destroy and reran successfully. This is content/pagination coverage, not visual layout or Kylon fidelity proof. No user files, credentials, production execution or paid service used.
+- Candidate CI 40192911584 observed live: five required jobs passed, Worker and E2E still running. Candidate unchanged.
+
+### 2026-10-25 — terminal document recovery actions
+
+- Failed/cancelled conversion receipts previously retained the generic Create action in the footer even though the input form was hidden (potentially enabled by stale draft/node state). Terminal receipts now show Close, with the existing explicit Create another document action returning to the editable form and refreshing node availability.
+- Added restored failed/cancelled receipt regressions proving no blind creation action, no duplicate submission, and an editable new form after explicit recovery. UI/receipt suite passed eight tests; full web build passed (`/tmp/honmaru-document-terminal-tests.log`, `/tmp/honmaru-document-terminal-build.log`). Actual terminal-state visual verification remains.
+- Current candidate 5bb6d76f CI 40192911584 still live with Worker/E2E running and five required jobs successful. This local UI fix is not included; defer next candidate push until current CI terminates to avoid repeatedly cancelling the long Worker suite. Production document activation remains pending.
+
+### 2026-10-25 — cancellation during document execution
+
+- Added deterministic client regressions: a revoked heartbeat aborts the in-flight converter and produces neither artifact upload nor a redundant terminal-state mutation; interval cleanup prevents later heartbeats. Service shutdown aborts conversion and reports failure without uploading partial output. Existing lost-upload-response coverage still verifies identical binary retry with only one conversion.
+- All 34 gateway tests passed (`/tmp/honmaru-document-cancel-tests.log`). These are client lifecycle tests, not physical restart or production cancellation evidence. No converter/service code changed. Current candidate remains 5bb6d76f with five required CI jobs passed and Worker/E2E live; test additions and terminal UI fix remain local pending the next candidate.
+
+### 2026-10-25 — trusted document agent origin foundation
+
+- Document admission accepts a trusted internal origin option, separate from untrusted request fields. Human payload representation remains compatible with existing receipts. Agent-origin admission persists attribution in the immutable admitted payload; binary publication records that origin atomically with the file version. Upload fields cannot override it and cross-origin request-ID reuse conflicts.
+- Document suite passed 18 tests, including forged untrusted origin and trusted agent publication (`/tmp/honmaru-document-agent-origin-tests.log`). Initial fixture edit accidentally changed account-erasure admission; restored that fixture and reran all 18 successfully.
+- Not yet exposed to model tools or production. Next: own-agent conversation binding, available-node selection, scoped job status and audit before exposing natural-language conversion. Current candidate CI remains live Worker/E2E, five required jobs passed; these changes and terminal UI recovery are not in candidate 5bb6d76f.
+
+### 2026-10-25 — own-agent document tools
+
+- Connected list_document_nodes/create_document/get_document_status/cancel_document to the existing private owned-agent file tool boundary. Scope comes from the canonical conversation, never model arguments. Every invocation rechecks Harness mode, build permission and live ownership; status/cancel additionally match the exact conversation. No tools are added to public/shared-agent contexts.
+- Creation selects a recently ready node, uses stable idempotency and trusted agent origin, records an audit request, and returns queued status explicitly. Successful status adds the existing configured-app file link. No source, token or lease in audit details. Private tool usage taints later public-URL reads.
+- Document plus existing MCP suites passed 31 tests (`/tmp/honmaru-document-agent-tools-tests.log`). Added bound-scope/foreign-receipt/duplicate-request/ownership-revocation coverage. Actual model invocation, asynchronous UI progress discovery, production node execution and output links still require end-to-end verification.
+- CI 40192911584 remains live Worker/E2E with five required jobs passed. Tool changes are local, not in candidate 5bb6d76f and not deployed.
+
+### 2026-10-25 — agent model-loop document integration
+
+- Integration now exercises assembled agentTools through the existing chatTools function-calling loop, with mocked provider replies: discover node → create queued document → claim/publish → read succeeded status → return configured conversation file link. Asserts queued output has no success link, exactly one job exists, and resulting immutable file origin is agent.
+- Document suite passed 20 tests (`/tmp/honmaru-document-model-loop-tests.log`). Provider response and PDF bytes are synthetic; real isolated conversion is covered separately. This does not prove actual model choice/quality, live production execution or asynchronous progress UI. No paid call made.
+- Candidate CI 40192911584 still live with five required jobs passed, Worker/E2E running. Current integration changes remain outside candidate 5bb6d76f pending its terminal result.
+
+### 2026-10-25 — discover document jobs across entry points
+
+- Added authorized recent-document API (latest 20, exact scope and requester, live file authority, Harness/build checks; no source or lease fields) and dialog history. This makes agent-created receipts discoverable without a sessionStorage ID; selecting a running item resumes existing polling, selecting a completed item opens its file instead of resubmitting.
+- Worker document suite passed 21 tests, UI/receipt suite nine tests, web build passed (`/tmp/honmaru-document-history-worker-tests.log`, `/tmp/honmaru-document-history-ui-tests.log`, `/tmp/honmaru-document-history-build.log`).
+- Actual local CUA verified three existing receipts in dark mode and selected the previously generated Word document with saved status and Open file action. Screenshot `/tmp/honmaru-document-history-dark-20261025.png`. Actual model-created job appearance and narrow/light layout of the new history remain unverified. Changes not yet released.
+
+### 2026-10-25 — live document history refresh
+
+- Visible document history refreshes sequentially every five seconds, discovering jobs created through other entry points. A failed list read clears stale rows and exposes retry; closing/unmounting cancels both request and timer. Polling does not enqueue jobs.
+- Added external-job appearance, stale-history clearing and timer-cleanup regression. UI/receipt suite passed 10 tests and build passed (`/tmp/honmaru-document-history-refresh-tests.log`, `/tmp/honmaru-document-history-refresh-build.log`). Initial edit script failed before applying the source change; corrected it and reran successfully.
+- Candidate CI 40192911584 now has six required jobs passed including E2E; Worker remains live. Local changes after 5bb6d76f still await a new candidate after this run finishes.
+
+### 2026-10-25 — preserve owned-agent authority through publication
+
+- Found a late-ownership gap: ordinary file scope access can survive when an agent is changed to team scope, even after ownership changes. Agent-origin document execution must retain the stricter owned-conversation authority used at admission. Added a trusted SQL predicate to atomic admission and live lease/publication/receipt guards requiring that exact current owner for agent-origin jobs. Human jobs retain normal file-scope authority.
+- Regression changes agent scope and ownership during object upload, then verifies publication is refused, no immutable file version is created, and staged bytes are cleaned. All 22 document tests passed (`/tmp/honmaru-document-owner-race-tests.log`), including the model-loop integration.
+- Candidate CI 40192911584 remains live with six required jobs passed and Worker running. These ownership protections and newer features are still local, not in candidate 5bb6d76f.
+
+### 2026-10-25 — metadata-only document polling
+
+- Status/history SQL now selects only returned metadata instead of materializing document source and lease fields before discarding them. Added a matching org/requester/scope/time index in both normal deployment schema and focused document schema for bounded recent-history reads. No production migration performed manually.
+- Existing 22 document tests passed (`/tmp/honmaru-document-history-metadata-tests.log`), retaining authorization, model-loop, publication and lifecycle coverage. No production latency improvement claim without measurement. Candidate CI 40192911584 remains live Worker with six required jobs passed; candidate unchanged.

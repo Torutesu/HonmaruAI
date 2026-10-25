@@ -6,3 +6,5 @@
 
 .hx-document-dialog :is(button,input,select,textarea):focus-visible{outline:2px solid var(--dlg-accent);outline-offset:3px}
 @media(max-width:400px){.hx-document-formats{grid-template-columns:1fr;gap:12px}}
+
+.hx-document-recent{display:grid;gap:6px;max-height:160px;overflow:auto;flex-shrink:0}.hx-document-recent h3{font-size:12px;color:var(--dlg-dim);margin:0 0 4px}.hx-document-recent .dlg-btn{height:auto;min-height:36px;justify-content:space-between;text-align:left;padding:8px 10px}.hx-document-recent span{overflow-wrap:anywhere;min-width:0}.hx-document-recent small{font-weight:400;color:var(--dlg-dim);flex-shrink:0}.hx-document-recent button[aria-pressed=true]{background:var(--dlg-hover)}

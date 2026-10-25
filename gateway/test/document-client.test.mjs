@@ -36,3 +36,33 @@ test('service processes document work when normal queue is empty and keeps norma
  await serve(call,{once:true,document:{image:'configured',call:()=>{}},documentRun:async()=>{documents++;throw Error('image unavailable');},onError:()=>errors++});
  assert.equal(ordinary,1);assert.equal(documents,1);assert.equal(errors,1);
 });
+
+test('revoked heartbeat aborts an in-flight conversion without publishing or reporting a second failure',async t=>{
+ t.mock.timers.enable({apis:['setInterval']});
+ const paths=[];let runnerSignal,started;
+ const running=new Promise(resolve=>{started=resolve});
+ const completion=processDocumentOne(async path=>{
+  paths.push(path);
+  if(path==='claim')return {job};
+  if(path.endsWith('/heartbeat'))throw Object.assign(Error('cancelled'),{status:409});
+  assert.fail('A revoked job must not deliver or mutate its terminal state');
+ },{image:'configured',ready:async()=>{},run:async(_payload,{signal})=>{
+  runnerSignal=signal;started();
+  return new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
+ }});
+ await running;t.mock.timers.tick(10000);
+ assert.equal(await completion,true);assert.equal(runnerSignal.aborted,true);
+ assert.deepEqual(paths,['claim','jobs/'+id+'/heartbeat']);
+ t.mock.timers.tick(30000);await Promise.resolve();
+ assert.equal(paths.length,2);
+});
+
+test('service shutdown aborts the converter and never uploads its partial result',async()=>{
+ const stop=new AbortController();const paths=[];
+ const result=await processDocumentOne(async path=>{paths.push(path);return path==='claim'?{job}:{};},{
+  image:'configured',signal:stop.signal,ready:async()=>{},run:async(_payload,{signal})=>{
+   stop.abort();assert.equal(signal.aborted,true);throw signal.reason;
+  },
+ });
+ assert.equal(result,true);assert.deepEqual(paths,['claim','jobs/'+id+'/fail']);
+});

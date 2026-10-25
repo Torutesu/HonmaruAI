@@ -1,3 +1,4 @@
+import {documentAgentTools} from './documentAgentTools.js';
 import {getMode} from './mode.js';
 import {fileScopeAuthority} from './fileAuthority.js';
 import {FILE_READ_TOOLS,callFileReadTool} from './fileTools.js';
@@ -18,7 +19,7 @@ export async function fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,f
  if(!owner)return {};
  const user=await env.DB.prepare('SELECT login,name FROM users WHERE github_id=?').bind(userId).first();
  const actor={orgId,githubId:userId,login:user.login,name:user.name,agentName:owner.name,source:'conversation'};
- return Object.fromEntries([...FILE_READ_TOOLS,...FILE_WRITE_TOOLS].map(tool=>{
+ const fileTools=Object.fromEntries([...FILE_READ_TOOLS,...FILE_WRITE_TOOLS].map(tool=>{
   const {scope:unused,...properties}=tool.inputSchema.properties;
   return [tool.name,{
    description:tool.description+' This tool is restricted to files in this conversation; do not request other scopes. After saving, include the returned openUrl as a Markdown link so the user can open the file in this conversation.',
@@ -42,6 +43,7 @@ export async function fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,f
    },
   }];
  }));
+ return {...fileTools,...await documentAgentTools(env,{actor,fileScope,current,taint,fileUrl:fileId=>conversationFileUrl(env.APP_WEB_URL,{orgId,fileScope,fileId})})};
 }
 
 // Keep links on the configured app deployment, without inherited URL secrets.

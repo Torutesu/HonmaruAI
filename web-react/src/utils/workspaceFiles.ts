@@ -19,6 +19,7 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
   return (await response(route,method,body===undefined?undefined:JSON.stringify(body),query,'application/json',signal)).json()
  }
  return {
+  documentJobs:(scope:string,signal?:AbortSignal)=>json<{jobs:DocumentJob[]}>('/hx/documents','GET',undefined,{scope},signal),
   documentNodes:(signal?:AbortSignal)=>json<{nodes:{id:string;name:string}[]}>('/hx/documents/nodes','GET',undefined,undefined,signal),
   createDocument:(input:{scope:string;path:string;text:string;inputFormat:'markdown'|'html';format:'pdf'|'docx';gatewayId:string;requestId:string},signal?:AbortSignal)=>json<{job:DocumentJob}>('/hx/documents','POST',input,undefined,signal),
   documentJob:(id:string,signal?:AbortSignal)=>json<{job:DocumentJob}>(`/hx/documents/${encodeURIComponent(id)}`,'GET',undefined,undefined,signal),

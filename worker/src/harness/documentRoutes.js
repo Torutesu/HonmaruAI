@@ -2,7 +2,7 @@ import {audit,person} from '../audit.js';
 import {member,json} from './routes.js';
 import {allowed} from '../permissions.js';
 import {enforceSubject} from '../ratelimit.js';
-import {enqueueDocumentJob,readDocumentJob,cancelDocumentJob} from './documentJobs.js';
+import {listDocumentJobs,enqueueDocumentJob,readDocumentJob,cancelDocumentJob} from './documentJobs.js';
 import {claimDocumentJob,heartbeatDocumentJob,failDocumentJob} from './documentLeases.js';
 import {publishDocumentArtifact} from './documentArtifacts.js';
 const failure=(message,status)=>json({message},status);
@@ -65,6 +65,7 @@ export async function handleDocuments(request,env,url){
    return json({nodes:results});
   }
   if(parts.length===2&&request.method==='POST')result=await enqueueDocumentJob(env.DB,orgId,userId,await input(request,2000000));
+  else if(parts.length===2&&request.method==='GET')result=await listDocumentJobs(env.DB,orgId,userId,url.searchParams.get('scope'));
   else if(parts.length===3&&request.method==='GET')result=await readDocumentJob(env.DB,orgId,userId,parts[2]);
   else if(parts.length===4&&parts[3]==='cancel'&&request.method==='POST')result=await cancelDocumentJob(env.DB,orgId,userId,parts[2]);
   else return failure('Method not allowed.',405);

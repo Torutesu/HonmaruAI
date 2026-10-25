@@ -2232,5 +2232,6 @@ CREATE TABLE IF NOT EXISTS hx_document_jobs (
  UNIQUE(org_id,created_by,request_id)
 );
 CREATE INDEX IF NOT EXISTS hx_document_jobs_queue ON hx_document_jobs(gateway_id,status,created_at);
+CREATE INDEX IF NOT EXISTS hx_document_jobs_history ON hx_document_jobs(org_id,created_by,scope,created_at DESC,id DESC);
 
 CREATE TABLE IF NOT EXISTS hx_document_nodes (gateway_id TEXT PRIMARY KEY,org_id TEXT NOT NULL,last_seen_at INTEGER NOT NULL);

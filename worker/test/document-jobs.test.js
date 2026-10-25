@@ -85,11 +85,13 @@ test('silent expired jobs fail instead of being executed twice and failures rele
  expect(await failDocumentJob(env.DB,{gatewayId:input.gatewayId,jobId:next.id,lease:next.lease},at)).toEqual({failed:true});
  expect((await readDocumentJob(env.DB,org,actor,next.id)).job.status).toBe('failed');
 });
-async function artifactSetup(){
+async function artifactSetup(origin='human'){
  const {default:files}=await import('../workspace-files.sql?raw');await env.DB.exec(files.replace(/\n/g,' '));
  const {claimDocumentJob}=await import('../src/harness/documentLeases.js');
  const {publishDocumentArtifact}=await import('../src/harness/documentArtifacts.js');
- await enqueue();const job=(await claimDocumentJob(env.DB,input.gatewayId,{capabilities:['document-conversion-v1']})).job;
+ let source=input;
+ if(origin==='agent'){await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES(?,'artifact-agent','artifact-agent','Writer','Help','personal',?,'now','now')").bind(org,actor).run();source={...input,scope:'ag:artifact-agent|'+actor};}
+ await enqueueDocumentJob(env.DB,org,actor,source,{origin});const job=(await claimDocumentJob(env.DB,input.gatewayId,{capabilities:['document-conversion-v1']})).job;
  return {job,publishDocumentArtifact,identity:{gatewayId:input.gatewayId,jobId:job.id,lease:job.lease},bytes:new TextEncoder().encode('%PDF-synthetic-test')};
 }
 test('document bytes, immutable file version and successful job commit together',async()=>{
@@ -184,4 +186,103 @@ test('workspace purge removes document sources and prevents delivery after purge
  expect(await publishDocumentArtifact(env,identity,{bytes})).toEqual({saved:false});
  expect(await purgeWorkspace(env,org,{budget:1000})).toBe(true);
  expect(await env.DB.prepare('SELECT 1 FROM hx_document_jobs WHERE id=?1').bind(job.id).first()).toBeNull();
+});
+
+test('trusted agent admission persists agent origin and cannot adopt a human retry ID',async()=>{
+ const {identity,bytes,publishDocumentArtifact}=await artifactSetup('agent');
+ expect((await enqueue({origin:'agent'})).status).toBe(409);
+ const result=await publishDocumentArtifact(env,identity,{bytes,origin:'human'});
+ expect(result.saved).toBe(true);
+ expect((await env.DB.prepare('SELECT source FROM hx_workspace_file_origins WHERE file_id=?').bind(result.fileId).first()).source).toBe('agent');
+});
+test('untrusted admission fields cannot forge agent origin',async()=>{
+ const result=await enqueue({origin:'agent'});
+ const row=await env.DB.prepare('SELECT payload FROM hx_document_jobs WHERE id=?').bind(result.job.id).first();
+ expect(JSON.parse(row.payload).origin).toBeUndefined();
+ expect((await enqueueDocumentJob(env.DB,org,actor,input,{origin:'unknown'})).error).toBeTruthy();
+});
+
+test('owned conversation document tools bind scope, reject foreign receipts and revoke with ownership',async()=>{
+ const {fileAgentTools}=await import('../src/harness/fileAgentTools.js');
+ await env.DB.exec((await import('../workspace-files.sql?raw')).default.replace(/\n/g,' '));
+ await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES(?,'doc-agent','doc-agent','Writer','Help','personal',?,'now','now')").bind(org,actor).run();
+ const context={orgId:org,session:{github_id:actor},personal:true,ownAgentsOnly:true,fileScope:'ag:doc-agent|'+actor,taint:{value:false}};
+ await env.DB.prepare('INSERT INTO hx_document_nodes(gateway_id,org_id,last_seen_at) VALUES(?,?,?)').bind(input.gatewayId,org,Date.now()).run();
+ const tools=await fileAgentTools({...env,APP_WEB_URL:'https://example.test'},context);
+ expect(tools.create_document.parameters.properties.scope).toBeUndefined();
+ expect(JSON.parse(await tools.list_document_nodes.run()).nodes[0].id).toBe(input.gatewayId);
+ const args={...input,requestId:'agent-request',scope:'workspace'};
+ const created=JSON.parse(await tools.create_document.run(args));expect(created.job.status).toBe('queued');expect(created.job.scope).toBe(context.fileScope);
+ expect(JSON.parse(await tools.create_document.run(args)).job.id).toBe(created.job.id);
+ expect(JSON.parse((await env.DB.prepare('SELECT payload FROM hx_document_jobs WHERE id=?').bind(created.job.id).first()).payload).origin).toBe('agent');
+ const foreign=await enqueue();
+ expect(JSON.parse(await tools.get_document_status.run({jobId:foreign.job.id})).error).toContain('not in');
+ expect(JSON.parse(await tools.cancel_document.run({jobId:foreign.job.id})).error).toContain('not in');
+ expect(JSON.parse(await tools.cancel_document.run({jobId:created.job.id})).job.status).toBe('cancelled');
+ expect(context.taint.value).toBe(true);
+ await env.DB.prepare("UPDATE custom_agents SET owner_login='other' WHERE id='doc-agent'").run();
+ expect(JSON.parse(await tools.create_document.run({...args,requestId:'revoked'})).error).toContain('not allowed');
+ expect(JSON.parse(await tools.get_document_status.run({jobId:created.job.id})).error).toContain('not allowed');
+});
+
+test('model tool loop queues a document, receives saved status and returns its conversation link',async()=>{
+ const {fetchMock}=await import('./helpers/fetch-mock.js');
+ const {agentTools}=await import('../src/agentTools.js');
+ const {chatTools}=await import('../src/agentChatTools.js');
+ const {claimDocumentJob}=await import('../src/harness/documentLeases.js');
+ const {publishDocumentArtifact}=await import('../src/harness/documentArtifacts.js');
+ await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES(?,'export-agent','export-agent','Writer','Help','personal',?,'now','now')").bind(org,actor).run();
+ await env.DB.prepare('INSERT INTO hx_document_nodes(gateway_id,org_id,last_seen_at) VALUES(?,?,?)').bind(input.gatewayId,org,Date.now()).run();
+ const tools=await agentTools({...env,APP_WEB_URL:'https://example.test/'},{orgId:org,session:{github_id:actor},personal:true,ownAgentsOnly:true,fileScope:'ag:export-agent|'+actor});
+ const toolCall=(id,name,args)=>({id,type:'function',function:{name,arguments:JSON.stringify(args)}});
+ const messages=body=>JSON.parse(body).messages.filter(m=>m.role==='tool').map(m=>JSON.parse(m.content));
+ let savedLink,jobId;
+ fetchMock.activate();
+ try{
+  const reply=handler=>fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'}).reply(200,async opts=>({choices:[{message:await handler(opts)}]}));
+  reply(async opts=>{
+   expect(JSON.parse(opts.body).tools.some(t=>t.function.name==='create_document')).toBe(true);
+   return {tool_calls:[toolCall('nodes','list_document_nodes',{})]};
+  });
+  reply(async opts=>{
+   expect(messages(opts.body)[0].nodes[0].id).toBe(input.gatewayId);
+   return {tool_calls:[toolCall('create','create_document',{...input,requestId:'model-conversion'})]};
+  });
+  reply(async opts=>{
+   const created=messages(opts.body).at(-1);expect(created.job.status).toBe('queued');expect(created.openUrl).toBeUndefined();jobId=created.job.id;
+   const job=(await claimDocumentJob(env.DB,input.gatewayId,{capabilities:['document-conversion-v1']})).job;
+   expect(job.id).toBe(jobId);
+   expect((await publishDocumentArtifact(env,{gatewayId:input.gatewayId,jobId,lease:job.lease},{bytes:new TextEncoder().encode('%PDF-model-loop-fixture')})).saved).toBe(true);
+   return {tool_calls:[toolCall('status','get_document_status',{jobId})]};
+  });
+  reply(async opts=>{
+   const done=messages(opts.body).at(-1);expect(done.job.status).toBe('succeeded');savedLink=done.openUrl;
+   expect(savedLink).toContain('file=file-');return {content:`[PDFを開く](${savedLink})`};
+  });
+  const result=await chatTools({provider:{providerName:'OpenRouter',endpoint:'https://openrouter.ai/api/v1/chat/completions',apiKey:'synthetic',model:'test',usage:[]},instructions:'Use document tools and report only actual saved results.',input:'日本語のレポートをPDFにしてください。',tools});
+  expect(result.calls).toBe(3);expect(result.answer).toBe(`[PDFを開く](${savedLink})`);
+  expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_document_jobs').first()).n).toBe(1);
+  expect((await env.DB.prepare('SELECT source FROM hx_workspace_file_origins WHERE file_id=?').bind('file-'+jobId).first()).source).toBe('agent');
+  fetchMock.assertNoPendingInterceptors();
+ }finally{fetchMock.deactivate()}
+});
+
+test('recent document list is limited to the requester and exact accessible scope without source or lease',async()=>{
+ const {listDocumentJobs}=await import('../src/harness/documentJobs.js');
+ const mine=await enqueue();
+ await enqueueDocumentJob(env.DB,org,'other',{...input,requestId:'other-user'});
+ const result=await listDocumentJobs(env.DB,org,actor,'workspace');
+ expect(result.jobs.map(j=>j.id)).toEqual([mine.job.id]);
+ expect(JSON.stringify(result)).not.toContain(input.text);expect(JSON.stringify(result)).not.toContain('lease');
+ expect((await listDocumentJobs(env.DB,org,actor,'b:missing')).jobs).toEqual([]);
+ await setMode(env.DB,org,'simple',actor);
+ expect((await listDocumentJobs(env.DB,org,actor,'workspace')).status).toBe(403);
+});
+
+test('agent document cannot publish after ownership changes even when shared file access remains',async()=>{
+ const {identity,bytes,publishDocumentArtifact}=await artifactSetup('agent');
+ const media={put:async(...args)=>{const result=await env.MEDIA.put(...args);await env.DB.prepare("UPDATE custom_agents SET scope='team',owner_login='other' WHERE id='artifact-agent'").run();return result;},head:(...args)=>env.MEDIA.head(...args),delete:(...args)=>env.MEDIA.delete(...args)};
+ expect(await publishDocumentArtifact({...env,MEDIA:media},identity,{bytes})).toEqual({saved:false});
+ expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_workspace_file_versions').first()).n).toBe(0);
+ expect((await env.MEDIA.list()).objects).toHaveLength(0);
 });

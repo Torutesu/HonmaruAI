@@ -8,7 +8,9 @@ export async function publishDocumentArtifact(env,identity,{bytes}){
  const db=env.DB,contentHash=createHash('sha256').update(bytes).digest('hex');
  const row=await authorizeDocumentLease(db,identity);
  if(!row)return await documentArtifactReceipt(db,identity,contentHash,bytes.length)||{saved:false};
- const format=JSON.parse(row.payload).format;
+ const payload=JSON.parse(row.payload),format=payload.format;
+ // Origin is assigned by trusted admission, never from node upload fields.
+ const origin=payload.origin==='agent'?'agent':'human';
  const signature=Array.from(bytes.subarray(0,5));
  if(format==='pdf'?!signature.every((b,i)=>b===[37,80,68,70,45][i]):![80,75,3,4].every((b,i)=>signature[i]===b))throw Error('Invalid document artifact format.');
  const contentType=format==='pdf'?'application/pdf':'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -38,7 +40,7 @@ export async function publishDocumentArtifact(env,identity,{bytes}){
     WHERE ${guard} AND EXISTS(SELECT 1 FROM hx_workspace_file_uploads s WHERE s.org_id=d.org_id AND s.id=?12 AND s.file_id=?5 AND s.object_key=?7 AND s.status='uploading' AND s.expires_at>?4)
     AND NOT EXISTS(SELECT 1 FROM media_deletions pending WHERE pending.key=?7)`)
     .bind(row.id,identity.gatewayId,row.lease_hash,commitAt,fileId,operation,key,contentHash,contentType,bytes.length,iso,stageId),
-   db.prepare(`INSERT OR IGNORE INTO hx_workspace_file_origins(org_id,file_id,source) SELECT ?1,?2,'human' WHERE EXISTS(SELECT 1 FROM hx_workspace_file_versions v WHERE v.org_id=?1 AND v.file_id=?2 AND v.operation_id=?3)`).bind(row.org_id,fileId,operation),
+   db.prepare(`INSERT OR IGNORE INTO hx_workspace_file_origins(org_id,file_id,source) SELECT ?1,?2,?4 WHERE EXISTS(SELECT 1 FROM hx_workspace_file_versions v WHERE v.org_id=?1 AND v.file_id=?2 AND v.operation_id=?3)`).bind(row.org_id,fileId,operation,origin),
    db.prepare(`UPDATE hx_workspace_files SET current_version=1,updated_at=?3 WHERE org_id=?1 AND id=?2 AND current_version=0
     AND EXISTS(SELECT 1 FROM hx_workspace_file_versions v WHERE v.org_id=?1 AND v.file_id=?2 AND v.version=1 AND v.operation_id=?4)`).bind(row.org_id,fileId,iso,operation),
    db.prepare(`UPDATE hx_document_jobs SET status='succeeded',finished_at=?2,file_id=?3,file_version=1 WHERE id=?1 AND status='running'

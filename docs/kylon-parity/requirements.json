@@ -820,12 +820,14 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/file",
-      "code": "worker/src/files.js",
+      "code": "web-react/src/components/DocumentCreate.tsx",
       "acceptance": "単なる元ファイルDLと形式変換を区別",
       "evidence": {
         "auditDate": "2026-10-25",
-        "verified": "Audited gateway/runner.mjs and runtime.mjs: current isolated Node image handles JavaScript/TypeScript, payload cap 64 KiB and combined stdout/stderr cap 32 KiB; there is no PDF/Word renderer or binary artifact delivery. worker/src/pdfText.js is extraction only, not export.",
-        "remaining": "Actual Markdown/HTML to PDF/DOCX conversion with formatting, fonts, resource handling, versioned artifact persistence, scoped authorization, UI download/export and production validation. A dedicated artifact path is needed; do not pass document bytes via the small execution stdout channel."
+        "verified": "Pinned no-network container converts Markdown/HTML to PDF/DOCX. Local UI-to-node-to-Worker-to-versioned-storage-to-download verified for Japanese PDF and DOCX with matching stored/downloaded SHA256; PDF preview, Japanese text, table and link checked. Authorized admission/lease/receipt/origin/audit/lifecycle tests and reload restoration passed. Light/dark dialog inspected. Installed runtime dependency regression and 32 gateway tests passed.",
+        "release": "Candidate 5bb6d76f06142953b2dc22a5ec93ce5f13a6191a, exact CI 40192911584 running. Document conversion is not enabled in production; existing Mac service remains running without documentImage. Locally installed pinned image verified.",
+        "remaining": "Exact candidate CI and production deployment; opt in existing Mac service and verify authenticated production conversion/download and service restart recovery. Mobile/narrow viewport, populated Kylon output/UI comparison, resource-handling fidelity and natural-language agent export remain unverified. Markdown/HTML authored export and broader input/output round trips need acceptance coverage; existing original-file download does not establish conversion parity.",
+        "evidenceFile": "docs/kylon-parity/verification.md"
       }
     },
     {

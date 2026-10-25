@@ -1,8 +1,10 @@
+import {documentOriginAuthority} from './documentAuthority.js';
 // Internal only: gateway identity must come from verified node authentication.
 import {allowed} from '../permissions.js';
 import {fileScopeAuthority} from './fileAuthority.js';
 const hash=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),b=>b.toString(16).padStart(2,'0')).join('');
 export const documentLiveAuthority=`${fileScopeAuthority('d.org_id','d.scope','d.created_by')}
+ AND ${documentOriginAuthority('d.org_id','d.scope','d.created_by','d.payload')}
  AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=d.org_id AND s.mode='harness')
  AND EXISTS(SELECT 1 FROM hx_gateways g JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.created_by
  WHERE g.id=d.gateway_id AND g.org_id=d.org_id AND g.revoked_at IS NULL AND lower(m.role) IN ('owner','admin'))`;
