@@ -11,6 +11,7 @@ import { SYSTEM_COLUMN_IDS, isSystemTimestamp, queryValue } from './systemColumn
 
 import { TEMPLATES, matchTemplate } from "./templates.js";
 import { prepareTable, getTable, listRows, cleanValues, planTableUpdate, MAX_ROWS } from "./tables.js";
+import { normalizeMemberFields } from "./memberFields.js";
 
 export const VIEW_TYPES = ["table", "board", "metrics", "calendar"];
 export const METRIC_OPS = ["count", "sum", "avg", "min", "max"];
@@ -387,27 +388,15 @@ export async function specFromPrompt(prompt, { complete } = {}) {
           "Design a small internal business app as JSON, nothing else.",
           'Shape: {"name": string, "icon": one emoji, "description": string, "columns": [{"name": string, "type": "text"|"number"|"date"|"select"|"checkbox"|"url"|"person"|"email", "options"?: string[]}],',
           '"views": [{"type": "table"|"board"|"metrics"|"calendar", "dateColumn"?: column name, "name": string, "groupBy"?: column name, "sort"?: column name or "-name", "metrics"?: [{"label": string, "op": "count"|"sum"|"avg", "column"?: column name}]}]}',
-          "At most 10 columns. A board needs a select column to group by. Name things in the language of the request. Use type person for internal owners, assignees, reviewers, interviewers and approvers so users select workspace members; do not model those as free text.",
+          "At most 10 columns. A board needs a select column to group by. Name things in the language of the request. Use type person for internal owners, assignees, reviewers, interviewers and approvers so users select workspace members; do not model those as free text unless the request explicitly asks for that field to be free text.",
         ].join("\n"),
         text,
       );
       const spec = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, "").trim());
       if (spec && Array.isArray(spec.columns) && spec.columns.length && spec.name) {
-        // The model may label an internal assignee as ordinary text even when
-        // the requested field clearly means a workspace member. Correct that
-        // semantic mismatch before the schema is created, so the data viewer
-        // can offer the same member picker used by native task apps. Keep
-        // explicitly free-form name fields as text.
-        const memberField = name => /^(担当者|担当メンバー|責任者|所有者|オーナー|レビュー担当|レビュアー|承認者|面接官|owner|assignee|assigned to|reviewer|interviewer|approver)$/iu.test(String(name || '').trim());
-        const freeFormField = name => {
-          const label = String(name || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          if (!label) return false;
-          const near = '[^\\n、。；;，,]{0,40}';
-          return new RegExp(`(?:${label}${near}(?:自由(?:記述|入力)|free[\\s-]*(?:form[\\s-]*)?text|plain text)|(?:自由(?:記述|入力)|free[\\s-]*(?:form[\\s-]*)?text|plain text)${near}${label})`, 'iu').test(text);
-        };
-        const columns = spec.columns.slice(0, 10).map(column =>
-          memberField(column?.name) && !freeFormField(column?.name) ? { ...column, type: 'person', options: undefined } : column
-        );
+        // Give internal assignees a real workspace-member picker even when
+        // the model falls back to a generic text column.
+        const columns = normalizeMemberFields(text, spec.columns.slice(0, 10));
         return { spec: { name: spec.name, icon: spec.icon, description: spec.description, columns, definition: { views: spec.views || [] } }, source: "model" };
       }
     } catch { /* fall through to a template */ }

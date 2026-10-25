@@ -3616,3 +3616,10 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - Folder breadcrumb now says All files to match observed Kylon; updated the existing navigation regression to assert the visible label. First run correctly caught the stale test locator; after updating it, all 13 WorkspaceFilesPanel tests passed (`/tmp/honmaru-kylon-folder-ui-tests.log`).
 - Candidate 302f568d CI 40195267162 was already running when the stale assertion was found. It is superseded by a same-branch update containing the corrected regression; the next exact candidate CI is authoritative.
+
+### 2026-10-25 — member-picker semantics in generated app schemas
+
+- Compared the authenticated Kylon task form with the production Honmaru data viewer. Kylon's `担当者` uses workspace-member choices; the existing Honmaru form could render the picker for `person` columns, but the generated task schema had emitted `担当者` as free text. Opened both forms and cancelled them without saving records.
+- Added shared field-type normalization for natural-language app creation and additive database migration proposals. Internal `担当者`/owner/assignee/reviewer/interviewer/approver fields use `person` references even when the model returns `text`, while explicit same-field free-text requests remain `text`; unrelated free-text notes do not suppress the member picker. Existing data and schemas are unchanged.
+- 60 focused Worker tests passed across app generation and member-field migration behavior (`/tmp/honmaru-member-field-combined-tests.log`). All fixtures are synthetic; no model call or production record write was made.
+- Baseline candidate `bf008cf0fa8fb0a34a0d121e0f202c4ceb2e7c1d` passed all seven required CI jobs (run 40195315557). The member-field fix is a separate follow-up candidate and still needs its own full CI and production rollout. Kylon's `Ask agent to add` action and broader app-generation parity remain open.

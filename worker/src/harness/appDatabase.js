@@ -1,5 +1,6 @@
 import { getTable, listRows, normalizeColumns, MAX_TABLES_PER_ORG } from './tables.js';
 import { validateValues } from './tableContract.js';
+import { normalizeMemberFields } from './memberFields.js';
 const err = (error, status = 400) => ({ error, status });
 const keyOK = k => typeof k === 'string' && /^[a-z][a-z0-9_]{0,39}$/.test(k);
 export const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('');
@@ -75,10 +76,12 @@ export async function generateMigration(prompt, current, complete) {
   if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 4000) return err('Describe the database change in 1–4000 characters.');
   if (!complete) return err('AI generation is unavailable within the current allowance.', 503);
   try {
-    const raw = await complete('Return JSON {"operations":[...]}. Additive database migration only: {op:"create_entity",entity:"lowercase_key",name:"Name",columns:[{name,type,options?}]} or {op:"add_columns",entity:"existing_key",columns:[{name,type,options?}]}. Types: text,number,date,select,checkbox,url,person,email. Never delete or replace columns. No column IDs in new columns. Current schema: '+JSON.stringify(current.entities), prompt);
+    const raw = await complete('Return JSON {"operations":[...]}. Additive database migration only: {op:"create_entity",entity:"lowercase_key",name:"Name",columns:[{name,type,options?}]} or {op:"add_columns",entity:"existing_key",columns:[{name,type,options?}]}. Types: text,number,date,select,checkbox,url,person,email. Internal owners, assignees, reviewers, interviewers and approvers use person references to workspace members, not free text unless explicitly requested. Never delete or replace columns. No column IDs in new columns. Current schema: '+JSON.stringify(current.entities), prompt);
     const plan = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
-    const checked = planMigration(current, plan.operations);
-    return checked.error ? checked : { operations: plan.operations };
+    const operations = Array.isArray(plan.operations) ? plan.operations.map(operation => operation && Array.isArray(operation.columns)
+      ? { ...operation, columns: normalizeMemberFields(prompt, operation.columns) } : operation) : plan.operations;
+    const checked = planMigration(current, operations);
+    return checked.error ? checked : { operations };
   } catch { return err('The model did not return a valid migration.', 502); }
 }
 

@@ -418,7 +418,7 @@
       "acceptance": "テンプレート照合とAI生成の区別を明示し業務要件を保持",
       "evidence": {
         "release": "PR #443 and #446–#448 / da14da8f",
-        "verified": "Source capture, retry leases, atomic app/reply publication, completion cards, central thread layout and generation navigation deployed. Worker 39118408100 and Web 39118662926 passed; custom domain serves index-Bv-d5WwR.js.",
+    "verified": "Source capture, retry leases, atomic app/reply publication, completion cards, central thread layout and generation navigation deployed. Worker 39118408100 and Web 39118662926 passed; custom domain serves index-Bv-d5WwR.js. A native Kylon task app confirmed assignee selection uses workspace members; Honmaru now normalizes generated assignee/owner fields to person references and preserves explicitly free-text fields. Controlled app-generation and DB-migration tests passed without a model call.",
         "pending": "Nonempty generation-to-thread behavior uses controlled local fixtures; no paid model or production test message was used for this release.",
         "remaining": "Business-requirement fidelity across real model outputs and full Kylon generation behavior remain unverified."
       }
