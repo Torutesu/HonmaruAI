@@ -761,11 +761,15 @@
       "id": "KY-067",
       "category": "Automations",
       "requirement": "実行予算と自動pause",
-      "status": "missing",
+      "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/ledger.js",
-      "acceptance": "日/週/月上限・同時実行の残高競合・回復時の挙動"
+      "code": "worker/src/spendGuard.js, worker/src/ledger.js",
+      "acceptance": "全体の日次D1コスト上限でバックグラウンド処理を自動pauseする基盤あり。個別Automationの実行予算、日/週/月の残高、同時実行時の原子的な確保、pauseからの回復を検証",
+      "evidence": {
+        "verified": "15分ごとにD1 read/writeの日次しきい値を監視し、stopを超えたときバックグラウンド処理を00:00 UTCまでpauseする spendGuard と spend-guard.test.js が存在。全体コスト保護として部分実装済み。",
+        "remaining": "Kylon同等の個別Automationの日/週/月実行上限、並行ジョブ間の原子的な予算確保、上限到達時のユーザー向けpause理由と回復を実装・確認する。"
+      }
     },
     {
       "id": "KY-068",
@@ -825,8 +829,8 @@
       "evidence": {
         "auditDate": "2026-10-25",
         "verified": "Pinned no-network container converts Markdown/HTML to PDF/DOCX. Local UI-to-node-to-Worker-to-versioned-storage-to-download verified for Japanese PDF and DOCX with matching stored/downloaded SHA256; PDF preview, Japanese text, table and link checked. Authorized admission/lease/receipt/origin/audit/lifecycle tests and reload restoration passed. Light/dark dialog inspected. Installed runtime dependency regression and 32 gateway tests passed.",
-        "release": "Candidate 5bb6d76f06142953b2dc22a5ec93ce5f13a6191a, exact CI 40192911584 running. Document conversion is not enabled in production; existing Mac service remains running without documentImage. Locally installed pinned image verified.",
-        "remaining": "Exact candidate CI and production deployment; opt in existing Mac service and verify authenticated production conversion/download and service restart recovery. Mobile/narrow viewport, populated Kylon output/UI comparison, resource-handling fidelity and natural-language agent export remain unverified. Markdown/HTML authored export and broader input/output round trips need acceptance coverage; existing original-file download does not establish conversion parity.",
+        "release": "Worker b2eabf7ccd4a7bfd40a6842bfb2895d9c19a4adb deployed successfully (Worker run 40201627974); Web de2aca6122b1b559ff284a2a39d9c4acdf283b43 deployed successfully (Web run 40202969923). Exact candidate CI 40202969910 passed all required jobs.",
+        "remaining": "Production personal-agent natural-language Markdown-to-PDF conversion succeeded using the existing Mac mini node; status succeeded, artifact link opened, v1 preview rendered the exact synthetic source text, and the node was online at verification. Still partial: production DOCX and HTML input/output round trips, mobile/narrow viewport, populated Kylon output/UI comparison, resource-handling fidelity, restart/reboot recovery, and broad conversion acceptance. Simple file upload/download is separate from format conversion.",
         "evidenceFile": "docs/kylon-parity/verification.md"
       }
     },
