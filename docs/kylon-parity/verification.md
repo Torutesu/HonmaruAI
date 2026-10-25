@@ -3251,3 +3251,14 @@ The private-source taint flag blocks public read_url calls after file tools run,
 Validation: harness MCP/core MCP/connected-app suites 30 passed. Added actual tool assembly and taint checks, then reran harness MCP: 11 passed. Tests exercise real D1/R2 creation with agent provenance, forced scope despite model spoofing, rejection of reads/writes to other rooms, immediate ownership-loss denial and tool exclusion outside the own-agent boundary. Natural-language model execution and populated agent-file UI have not yet been exercised in production.
 
 Production verification: Worker 5d1b7872 deploy 40181583976 succeeded; Web fae6baed deploy 40182201724 succeeded. Its log and production HTML both serve index-DtMFkD57.js. Subsequent origin, creation, toolbar and Jam changes remain release candidates.
+
+### 2026-10-25 — live file invalidation and loading render loop
+Successful HTTP and agent file changes now send a payload-free workspace_files_changed event only to the file's current permitted readers. Recipient queries use live fileScopeAuthority; events contain neither file identifiers, room identifiers, names nor content. Delivery failures do not turn an already committed save into an error. WebSocket transport forwards these events; open lists and history coalesce invalidations, reconnects and focus into fresh authorized API reads. Removed duplicate history fetching on local changes after introducing the shared revision.
+
+Local CUA two-tab evidence: receiver remained open on v1 of honmaru-live-refresh.txt, sender uploaded a new version, and receiver changed to 39 B / v2 without reload or reopening. Screenshot /tmp/honmaru-file-live-refresh-20261025.png. The initial HMR session kept its old WebSocket class instance and did not update; retested after both tabs loaded the new code. Closed the extra sender tab.
+
+Browser logs also exposed a pre-existing maximum-update-depth warning in HarnessPinnedApps while pins loaded. useAppPins returned a new empty array every render before its request completed, repeatedly triggering the consumer's setApps effect. Its per-hook empty result now has stable identity; a regression check covers unchanged loading scope.
+
+Validation: Worker ledger/HTTP/MCP suites 35 passed, including private/public recipient selection and access revocation. Web all 1,192 tests/181 files passed; production build passed. New tests cover coalescing, teardown, reconnect/focus, and open list/history refresh.
+
+Release: exact Jam candidate ecfebd24 CI 40183060605 passed all seven required jobs including two-tab E2E. Confirmed remote main was fae6baed, then fast-forwarded to ecfebd24. Its deployment completion remains to be checked; this live-refresh change is not deployed yet.

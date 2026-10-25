@@ -5,6 +5,7 @@ export function readAppPins(orgId: string): string[] {
 }
 // Server state is scoped to the authenticated user and workspace, never a shared local cache.
 export function useAppPins(orgId: string, api: Pick<import('./harness').HarnessApi, 'appPins' | 'setAppPin'>) {
+  const emptyPins=useRef<string[]>([])
   const [pins, setPins] = useState<string[]>([])
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
@@ -33,5 +34,5 @@ export function useAppPins(orgId: string, api: Pick<import('./harness').HarnessA
     catch(e) { if(active===generation.current) setError('固定状態を保存できませんでした。');throw e }
     finally { if(active===generation.current) setPending(false) }
   },[api,pins,loaded,loadedApi,pending])
-  return {pins:loadedApi===api?pins:[],toggle,pending,error,loaded:loaded&&loadedApi===api}
+  return {pins:loadedApi===api?pins:emptyPins.current,toggle,pending,error,loaded:loaded&&loadedApi===api}
 }

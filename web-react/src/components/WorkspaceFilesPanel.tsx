@@ -1,3 +1,4 @@
+import {subscribeWorkspaceFileRefresh} from '../utils/workspaceFileRefresh'
 import {readWorkspaceFileView,saveWorkspaceFileView} from '../utils/workspaceFileView'
 import React,{useEffect,useRef,useState} from 'react'
 import {Icon} from './Icon'
@@ -37,6 +38,7 @@ export function WorkspaceFilesPanel({api,scope,preferenceKey,onClose,onAttachmen
  },[api,scope,search,cursor,revision,includeDeleted,folderMode,directory,folderCursor,origin])
  useEffect(()=>{setSelected(null);setCursor(null);setFolderCursor(undefined)},[api,scope])
  useEffect(()=>saveWorkspaceFileView(preferenceKey,{folderMode,directory,search,includeDeleted,origin}),[preferenceKey,folderMode,directory,search,includeDeleted,origin])
+ useEffect(()=>subscribeWorkspaceFileRefresh(()=>setRevision(value=>value+1)),[api,scope])
  const openDirectory=(path:string)=>{setDirectory(path);setCursor(null);setFolderCursor(undefined);setQuery('');setSearch('')}
  return <aside className="hx-room-resource slk-pane hx-files-panel" aria-label={t('Files')}>
   <header><strong>{t('Files')}</strong><button type="button" onClick={onClose} aria-label={t('Close resources')}><Icon name="x" size={16}/></button></header>
@@ -49,7 +51,7 @@ export function WorkspaceFilesPanel({api,scope,preferenceKey,onClose,onAttachmen
    {!selected&&<div className="hx-files-view" role="group" aria-label={t('File view')}><button type="button" title={t('Recent')} aria-label={t('Recent')} aria-pressed={!folderMode} onClick={()=>{setFolderMode(false);setCursor(null);setFolderCursor(undefined)}}><Icon name="list" size={16}/></button><button type="button" title={t('Folders')} aria-label={t('Folders')} aria-pressed={folderMode} onClick={()=>{setFolderMode(true);setCursor(null);setFolderCursor(undefined)}}><Icon name="folder" size={16}/></button></div>}
    <WorkspaceFileUpload key={scope} api={api} scope={scope} directory={folderMode?directory:''} onSaved={()=>setRevision(value=>value+1)}/>
   </div>
-  {selected?<WorkspaceFileHistory key={`${scope}:${selected.id}`} api={api} file={selected} onBack={()=>setSelected(null)} onChanged={()=>setRevision(value=>value+1)}/>:<>
+  {selected?<WorkspaceFileHistory key={`${scope}:${selected.id}`} api={api} file={selected} refreshRevision={revision} onBack={()=>setSelected(null)} onChanged={()=>setRevision(value=>value+1)}/>:<>
    {folderMode&&<nav className="hx-files-breadcrumbs" aria-label={t('Folder path')}><button onClick={()=>openDirectory('')}>{t('Files')}</button>{directory.split('/').filter(Boolean).map((name,index,parts)=><React.Fragment key={index}><Icon name="chevron-right" size={12}/><button aria-current={index===parts.length-1?'location':undefined} onClick={()=>openDirectory(parts.slice(0,index+1).join('/')+'/')}>{name}</button></React.Fragment>)}</nav>}
    <label className="hx-files-deleted"><input type="checkbox" checked={includeDeleted} onChange={event=>{setCursor(null);setFolderCursor(undefined);setIncludeDeleted(event.target.checked)}}/>{t('Include deleted files')}</label>
    <form className="hx-files-search" onSubmit={event=>{event.preventDefault();setCursor(null);setFolderCursor(undefined);setSearch(query)}}><Icon name="search" size={15}/><input maxLength={1024} aria-label={t('Search files')} placeholder={t('Search files')} value={query} onChange={event=>setQuery(event.target.value)}/><button type="submit" aria-label={t('Search')}><Icon name="chevron-right" size={15}/></button></form>
@@ -60,7 +62,7 @@ export function WorkspaceFilesPanel({api,scope,preferenceKey,onClose,onAttachmen
   <footer><button type="button" onClick={onAttachments}><Icon name="paperclip" size={14}/>{t('Message attachments')}</button></footer>
  </aside>
 }
-function WorkspaceFileHistory({api,file,onBack,onChanged}:{api:WorkspaceFileApi;file:WorkspaceFile;onBack:()=>void;onChanged:()=>void}){
+function WorkspaceFileHistory({api,file,refreshRevision,onBack,onChanged}:{api:WorkspaceFileApi;file:WorkspaceFile;refreshRevision:number;onBack:()=>void;onChanged:()=>void}){
  const replacement=useRef<HTMLInputElement>(null)
  const [preview,setPreview]=useState<FileVersion|null>(null)
  const [before,setBefore]=useState<number|undefined>(undefined)
@@ -68,7 +70,7 @@ function WorkspaceFileHistory({api,file,onBack,onChanged}:{api:WorkspaceFileApi;
  useEffect(()=>{let live=true;const controller=new AbortController();setVersions(null);setError('')
   api.versions(file.id,before,controller.signal).then(result=>{if(live)setVersions(result.versions)}).catch(error=>{if(live)setError(String(error.message||error))})
   return()=>{live=false;controller.abort()}
- },[api,file.id,revision,before])
+ },[api,file.id,revision,before,refreshRevision])
  const active=useRef<AbortController|null>(null)
  useEffect(()=>{const controller=new AbortController();active.current=controller;return()=>{controller.abort();active.current=null}},[api,file.id])
  const download=async(version:number)=>{const controller=active.current;if(!controller)return;setBusy(true);setError('');try{const blob=await api.download(file.id,version,controller.signal);if(controller.signal.aborted)return;const url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download=file.path.split('/').at(-1)||'file';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(error){if(!controller.signal.aborted)setError(error instanceof Error?error.message:String(error))}finally{if(!controller.signal.aborted)setBusy(false)}}
@@ -77,7 +79,7 @@ function WorkspaceFileHistory({api,file,onBack,onChanged}:{api:WorkspaceFileApi;
   const controller=active.current;if(!controller||restoring.current)return
   restoring.current=true;setBusy(true);setError('')
   try{await api.restore(file.id,version.version,version.currentVersion)
-   if(!controller.signal.aborted){setBefore(undefined);setRevision(value=>value+1);onChanged()}
+   if(!controller.signal.aborted){setBefore(undefined);onChanged()}
   }catch(error){if(!controller.signal.aborted)setError(error instanceof WorkspaceFileError&&error.status===409?t('The file changed. Refresh its history before restoring.'):error instanceof Error?error.message:String(error))}
   finally{restoring.current=false;if(!controller.signal.aborted)setBusy(false)}
  }
@@ -85,7 +87,7 @@ function WorkspaceFileHistory({api,file,onBack,onChanged}:{api:WorkspaceFileApi;
   const controller=active.current;if(!controller||restoring.current)return
   restoring.current=true;setBusy(true);setError('')
   try{await api.remove(file.id,version.currentVersion)
-   if(!controller.signal.aborted){setBefore(undefined);setRevision(value=>value+1);onChanged()}
+   if(!controller.signal.aborted){setBefore(undefined);onChanged()}
   }catch(error){if(!controller.signal.aborted)setError(error instanceof WorkspaceFileError&&error.status===409?t('The file changed. Refresh its history before deleting.'):error instanceof Error?error.message:String(error))}
   finally{restoring.current=false;if(!controller.signal.aborted)setBusy(false)}
  }
@@ -94,7 +96,7 @@ function WorkspaceFileHistory({api,file,onBack,onChanged}:{api:WorkspaceFileApi;
   if(content.size>25*1024*1024){setError(t('Files must be 25 MB or smaller.'));return}
   restoring.current=true;setBusy(true);setError('')
   try{await api.upload(file.id,version.currentVersion,content,controller.signal)
-   if(!controller.signal.aborted){setBefore(undefined);setRevision(value=>value+1);onChanged()}
+   if(!controller.signal.aborted){setBefore(undefined);onChanged()}
   }catch(error){if(!controller.signal.aborted)setError(error instanceof WorkspaceFileError&&error.status===409?t('The file changed. Refresh its history before uploading a new version.'):error instanceof Error?error.message:String(error))}
   finally{restoring.current=false;if(!controller.signal.aborted)setBusy(false)}
  }

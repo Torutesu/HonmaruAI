@@ -143,3 +143,21 @@ test('creation origin is atomic, cannot be reclassified by a conflicting create 
  await env.DB.prepare("DELETE FROM hx_workspace_files WHERE id='human'").run();
  expect(await env.DB.prepare("SELECT 1 FROM hx_workspace_file_origins WHERE file_id='human'").first()).toBeNull();
 });
+
+test('file change announcements target current readers without carrying file or room identifiers',async()=>{
+ const {announceFileChanged}=await import('../src/harness/fileEvents.js');
+ for(const [id,role] of [['peer','member'],['visitor','guest']]){await upsertUser(env.DB,{githubId:id,login:id,name:id});await upsertMembership(env.DB,scope.orgId,id,role)}
+ const deliveries=[];
+ const relay={idFromName:id=>id,get:()=>({fetch:async(_url,init)=>{deliveries.push(...JSON.parse(init.body).deliveries);return new Response('{}')}})};
+ await announceFileChanged({...env,ORG_RELAY:relay},scope.orgId,scope.fileId);
+ expect(deliveries.map(d=>d.to).sort()).toEqual(['file-owner','peer']);
+ for(const d of deliveries){expect(d.event.name).toBe('workspace_files_changed');expect(d.event.value).toEqual({});}
+ deliveries.length=0;
+ await env.DB.prepare("UPDATE hx_workspace_files SET scope='g:private' WHERE id=?").bind(scope.fileId).run();
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES(?,'g:private','file-owner','now')").bind(scope.orgId).run();
+ await announceFileChanged({...env,ORG_RELAY:relay},scope.orgId,scope.fileId);
+ expect(deliveries.map(d=>d.to)).toEqual(['file-owner']);
+ deliveries.length=0;
+ await env.DB.prepare("DELETE FROM conversation_members WHERE channel='g:private'").run();
+ await announceFileChanged({...env,ORG_RELAY:relay},scope.orgId,scope.fileId);expect(deliveries).toEqual([]);
+});

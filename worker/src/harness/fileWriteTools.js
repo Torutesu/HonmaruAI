@@ -1,3 +1,4 @@
+import {announceFileChanged} from './fileEvents.js';
 import {createHash} from 'node:crypto';
 import {getMode} from './mode.js';
 import {allowed} from '../permissions.js';
@@ -38,6 +39,7 @@ export async function callFileWriteTool(env,agent,name,args={}) {
   const saved=await uploadFileVersion(env,{...file,expectedVersion:args.expectedVersion,size:bytes.length,contentType:mime,stream:new Blob([bytes]).stream()});
   if(!saved.saved)return error('The file changed or is unavailable. Read its current version before editing again.');
   await audit(env,null,{orgId,action:'workspace.file_changed',actor:{type:'user',id:agent.login,name:agent.name},entity:{type:'file',id:args.fileId},details:{source:agent.source||'mcp',tokenId:agent.tokenId,agentName:agent.agentName,operation:'update_file_text',version:saved.version}});
+  await announceFileChanged(env,orgId,args.fileId);
   const result={fileId:args.fileId,version:saved.version,saved:true};
   return {content:[{type:'text',text:JSON.stringify(result)}],structuredContent:result};
  }catch(e){if(e instanceof FileVersionInputError)return error(e.message);throw e;}
@@ -63,6 +65,7 @@ async function createText(env,agent,args,bytes){
  const saved=await uploadFileVersion(env,{orgId,fileId,userId,expectedVersion:0,size:bytes.length,contentType:args.contentType,stream:new Blob([bytes]).stream()});
  if(!saved.saved)return error('File creation conflicted or access changed. Retry the same request to check the saved result.');
  await audit(env,null,{orgId,action:'workspace.file_changed',actor:{type:'user',id:agent.login,name:agent.name},entity:{type:'file',id:fileId},details:{source:agent.source||'mcp',tokenId:agent.tokenId,agentName:agent.agentName,operation:'create_file_text',version:saved.version}});
+ await announceFileChanged(env,orgId,fileId);
  return success({fileId,version:saved.version,saved:true,replayed:false});
 }
 const success=value=>({content:[{type:'text',text:JSON.stringify(value)}],structuredContent:value});

@@ -467,7 +467,7 @@ export class WebSocketClient {
       this.onChannelProgress?.(event.value)
     } else if (event.name === 'typing' && event.value?.channel && event.value?.who) {
       this.onTyping?.(event.value)
-    } else if (typeof event.name === 'string' && (event.name.startsWith('jam_') || event.name === 'channel_described' || event.name === 'channel_bookmarks' || event.name === 'channel_canvas') && event.value) {
+    } else if (typeof event.name === 'string' && (event.name.startsWith('jam_') || event.name === 'channel_described' || event.name === 'channel_bookmarks' || event.name === 'channel_canvas' || event.name === 'workspace_files_changed') && event.value) {
       this.onJam?.(event.name, event.value)
     } else if (event.name === 'app_activity_changed') {
       if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('honmaru:app-activity-changed', { detail: event.value }))

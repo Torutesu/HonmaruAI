@@ -140,6 +140,7 @@ export async function handleHarness(request, env, url, context = {}) {
     if(response.ok){
       const result=await response.clone().json();
       await audit(env,request,{orgId,action:'workspace.file_changed',actor:person(who.user),entity:{type:'file',id:result.id||url.pathname.split('/')[3]},details:{method:request.method,operation:url.pathname.split('/')[4]||'file',version:result.version??null}});
+      if(result.version!==0){const {announceFileChanged}=await import('./fileEvents.js');await announceFileChanged(env,orgId,result.id||url.pathname.split('/')[3]);}
     }
     return response;
   }

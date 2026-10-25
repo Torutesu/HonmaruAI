@@ -23,5 +23,8 @@ test('pins refresh on focus and timer, and never display the previous authentica
   const other={...api,appPins:vi.fn().mockReturnValue(new Promise(()=>{}))}
   act(()=>tree!.update(<Probe source={other}/>))
   expect(result!.pins).toEqual([])
+  const empty=result!.pins
+  act(()=>tree!.update(<Probe source={other}/>))
+  expect(result!.pins).toBe(empty)
   act(()=>tree!.unmount())
 })

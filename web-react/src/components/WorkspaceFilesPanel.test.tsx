@@ -116,3 +116,15 @@ test('origin switches filter files and folders together and discard previous pag
  expect(vi.mocked(api.list).mock.calls.at(-1)![0].origin).toBeUndefined()
  act(()=>tree!.unmount())
 })
+
+test('a socket file notification refreshes both the open list and its visible history',async()=>{
+ vi.useFakeTimers();const target=new EventTarget();vi.stubGlobal('window',target)
+ let tree:ReturnType<typeof create>|undefined
+ try{
+  const api={list:vi.fn().mockResolvedValue({files:[file],next:null}),versions:vi.fn().mockResolvedValue({versions:[version(51)]})} as unknown as WorkspaceFileApi
+  await act(async()=>{tree=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
+  await act(async()=>tree!.root.findByProps({className:'hx-file-row'}).props.onClick())
+  await act(async()=>{target.dispatchEvent(new CustomEvent('honmaru:jam',{detail:{name:'workspace_files_changed',value:{}}}));await vi.advanceTimersByTimeAsync(150)})
+  expect(api.list).toHaveBeenCalledTimes(2);expect(api.versions).toHaveBeenCalledTimes(2)
+ }finally{act(()=>tree?.unmount());vi.unstubAllGlobals();vi.useRealTimers()}
+})
