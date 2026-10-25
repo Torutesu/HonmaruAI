@@ -1,3 +1,4 @@
+import {pruneEmptyFileReservations} from '../src/harness/fileReservations.js';
 import {env} from 'cloudflare:test';
 import {beforeEach,test,expect} from 'vitest';
 import sql from '../workspace-files.sql?raw';
@@ -351,7 +352,7 @@ test('recovery of an interrupted deletion request leaves an existing account int
 });
 
 test('file maintenance is bounded and tolerates an unreleased partial schema',async()=>{
- expect(await maintainWorkspaceFiles(env)).toEqual({enabled:true,uploads:{examined:0,cleaned:0,committed:0,failed:0},accounts:{examined:0,completed:0},retention:{current:{examined:0,expired:0},history:{examined:0,purged:0}}});
+ expect(await maintainWorkspaceFiles(env)).toEqual({enabled:true,uploads:{examined:0,cleaned:0,committed:0,failed:0},accounts:{examined:0,completed:0},retention:{current:{examined:0,expired:0},history:{examined:0,purged:0}},reservations:{removed:0}});
  await env.DB.prepare('DROP TABLE hx_file_account_erasures').run();
  expect(await maintainWorkspaceFiles(env)).toEqual({enabled:false});
 });
@@ -530,4 +531,41 @@ test('deleted managed rooms deny file access even before their business row is a
  await seedFileRoomAdmin();await env.DB.prepare("UPDATE hx_room_access SET deleted_at='2026-10-25' WHERE channel='b:managed'").run();
  expect(await read()).toBeNull();expect((await list({scope:null})).files).toHaveLength(0);
  expect(await upload({expectedVersion:1})).toEqual({saved:false});
+});
+
+test('empty reservation cleanup is bounded and preserves saved and unfenced uploads',async()=>{
+ const now=Date.now(),old=new Date(now-8*86400000).toISOString();
+ await upload();
+ for(const id of ['empty-a','empty-b','active','recent'])await createFileLedger(env.DB,{...base,fileId:id,scope:'workspace',path:id+'.txt',createdBy:'writer',at:id==='recent'?new Date(now).toISOString():old});
+ await env.DB.prepare('UPDATE hx_workspace_files SET created_at=?,updated_at=? WHERE id=?').bind(old,old,'file').run();
+ await env.DB.prepare("INSERT INTO hx_workspace_file_uploads VALUES('upload-org','lease','active','org/upload-org/workspace-files/lease','writer',0,?,?, 'uploading')").bind(now-10000,now-1).run();
+ expect(await pruneEmptyFileReservations(env.DB,{now,limit:1})).toEqual({removed:1});
+ expect(await pruneEmptyFileReservations(env.DB,{now,limit:1})).toEqual({removed:1});
+ expect((await env.DB.prepare('SELECT id FROM hx_workspace_files ORDER BY id').all()).results.map(row=>row.id)).toEqual(['active','file','recent']);
+ // Expiry alone is insufficient: recovery must fence the uploader first.
+ await env.DB.prepare("UPDATE hx_workspace_file_uploads SET status='cleanup' WHERE id='lease'").run();
+ expect(await pruneEmptyFileReservations(env.DB,{now})).toEqual({removed:1});
+ expect(await env.DB.prepare("SELECT 1 FROM hx_workspace_file_uploads WHERE id='lease'").first()).not.toBeNull();
+ expect(await read()).not.toBeNull();
+ await expect(pruneEmptyFileReservations(env.DB,{now,limit:101})).rejects.toThrow('bounds');
+});
+
+test('legal holds protect empty reservation metadata until released',async()=>{
+ const now=Date.now(),old=new Date(now-8*86400000).toISOString();
+ await env.DB.prepare('UPDATE hx_workspace_files SET created_at=?,updated_at=?').bind(old,old).run();
+ await env.DB.prepare("INSERT INTO message_holds VALUES('reservation-hold','upload-org','person','file-writer','preserve','writer','2026-10-25',NULL,NULL)").run();
+ expect(await pruneEmptyFileReservations(env.DB,{now})).toEqual({removed:0});
+ await env.DB.prepare("UPDATE message_holds SET released_at='2026-10-26' WHERE id='reservation-hold'").run();
+ expect(await pruneEmptyFileReservations(env.DB,{now})).toEqual({removed:1});
+ expect(await createFileLedger(env.DB,{...base,scope:'workspace',path:'report.txt',createdBy:'writer'})).toEqual({created:true});
+});
+
+test('reservation holds follow the deleted account alias after a login rename',async()=>{
+ const now=Date.now(),old=new Date(now-8*86400000).toISOString();
+ await env.DB.prepare('UPDATE hx_workspace_files SET created_at=?,updated_at=?').bind(old,old).run();
+ await env.DB.prepare("UPDATE users SET login='renamed-writer' WHERE github_id='writer'").run();
+ await queueFileAccountErasure(env.DB,'writer','renamed-writer');
+ await env.DB.prepare("DELETE FROM users WHERE github_id='writer'").run();
+ await env.DB.prepare("INSERT INTO message_holds VALUES('alias-reservation-hold','upload-org','person','renamed-writer','preserve','writer','2026-10-25',NULL,NULL)").run();
+ expect(await pruneEmptyFileReservations(env.DB,{now})).toEqual({removed:0});
 });
