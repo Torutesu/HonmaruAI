@@ -2,7 +2,7 @@ import {handleDocuments,isDocumentNodeRoute} from './documentRoutes.js';
 import {workflowRevisions} from './workflowRevisions.js';
 import {workflowSource} from './workflowSource.js';
 import {workflowNotices} from './workflowNotices.js';
-import {resumeWorkflowSafety,readWorkflowSafety} from './workflowSafety.js';
+import {resumeWorkflowSafety,readWorkflowSafety,saveWorkflowBudget} from './workflowSafety.js';
 import {appAutomationFromPrompt} from './appAutomationGeneration.js';
 import {readAutomationPlan} from './appAutomationPlan.js';
 import {saveAutomationDraft,readAutomationDraft} from './appAutomationDraft.js';
@@ -410,6 +410,13 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     // The hook's secret is for whoever may change the workflow.
     const shown = mine ? { ...wf, hookUrl: hookUrl(url, wf) } : { ...wf, hookSecret: undefined };
+    if(sub==='budget' && request.method==='PUT'){
+      if(!mine)return json({message:'Only its maker or an admin can change this workflow.'},403);
+      const result=await saveWorkflowBudget(env.DB,orgId,wfId,input);
+      if(result.error)return json({message:result.error},result.status);
+      await audit(env,request,{orgId,action:'workflow.budget_updated',actor:person(who.user),entity:{type:'workflow',id:wfId,name:wf.name},details:{dailyLimit:input.dailyLimit,weeklyLimit:input.weeklyLimit,monthlyLimit:input.monthlyLimit}});
+      return json(result);
+    }
     if (!sub) {
       if (request.method === "GET") return json({ workflow: shown, runs: await listRuns(env.DB, orgId, wfId, 20, me), canEdit: mine,
         ...(mine && wf.trigger.type === 'webhook' ? { held: await heldWorkflowSummary(env.DB, orgId, wfId) } : {}) });
@@ -430,6 +437,7 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     if(sub==='resume' && request.method==='POST'){
       if(!mine)return json({message:'Only its maker or an admin can resume this workflow.'},403);
+      if(wf.safety?.pause_reason?.startsWith('budget_'))return json({message:'This workflow can run again on its next trigger after the budget window resets, or as soon as you raise the limit.'},409);
       if(typeof input.generation!=='string')return json({message:'Reload the workflow before resuming it.'},400);
       if(!await resumeWorkflowSafety(env.DB,orgId,wfId,input.generation))return json({message:'The workflow state changed. Reload before resuming.'},409);
       await audit(env,request,{orgId,action:'workflow.safety_resumed',actor:person(who.user),entity:{type:'workflow',id:wfId}});
@@ -464,7 +472,7 @@ export async function handleHarness(request, env, url, context = {}) {
       // Pausing stops automatic triggers; an explicit manual run does not
       // enable the workflow or replay its queued webhook deliveries.
       const run = await startRun(env, { orgId, workflow: wf, trigger: "manual", input: input.input && typeof input.input === "object" ? input.input : { text: String(input.text || "") }, startedBy: me });
-      if(run?.status==='paused')return json({message:'This workflow paused after repeated failures. Review its history and resume it.',reason:run.reason},409);
+      if(run?.status==='paused')return json({message:run.reason?.startsWith('budget_')?'This workflow reached its run budget. It can run again on its next trigger after the window resets, or as soon as you raise the limit.':'This workflow paused after repeated failures. Review its history and resume it.',reason:run.reason},409);
       if (run?.status === 'skipped') return json({ message: 'This workflow is already running or waiting for approval.', reason: run.reason }, 409);
       if (!run) return json({ message: 'This automation is no longer available in its current published release.' }, 409);
       return json({ run }, 201);

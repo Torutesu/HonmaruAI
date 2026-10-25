@@ -3,7 +3,7 @@ import {enqueueWorkflowProgram} from './workflowCodeJobs.js';
 import {recordWorkflowUsage,workflowRunUsage} from './workflowUsage.js';
 import {workflowSourceMayRun} from './workflowSourceAuthority.js';
 import {tryWorkflowNotice} from './workflowNoticeDelivery.js';
-import {ensureWorkflowSafety,readWorkflowSafety,workflowSettlementStatements} from './workflowSafety.js';
+import {ensureWorkflowSafety,readWorkflowSafety,workflowBudgetStatus,workflowBudgetWindows,workflowBudgetReason,recoverWorkflowBudgetPause,pauseWorkflowForBudget,workflowSettlementStatements} from './workflowSafety.js';
 import {managedAutomationGuard,managedAutomationRelease,managedAutomationMayRun} from './appAutomationGuard.js';
 import { mayUseTable } from './resourceAccess.js';
 import { holdWorkflowEvent } from './workflowHeld.js';
@@ -194,7 +194,8 @@ export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
 export async function getWorkflow(db, orgId, id, opts = {}) {
   const wf = publicWorkflow(await db.prepare("SELECT * FROM hx_workflows WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first(), opts);
   if(!wf || (opts.viewerId && !(await mayViewWorkflow(db, orgId, wf, opts.viewerId))))return null;
-  return {...wf,safety:await readWorkflowSafety(db,orgId,id)};
+  const safety=await readWorkflowSafety(db,orgId,id);
+  return {...wf,safety:safety?{...safety,budget:await workflowBudgetStatus(db,orgId,id)}:null};
 }
 
 export async function listWorkflows(db, orgId, { viewerId } = {}) {
@@ -366,10 +367,12 @@ async function rowScope(db, orgId, tableId, row) {
 /// Start a run. `input` is what started it: { text } by hand, the posted
 /// JSON for a webhook, { row, before } for a row.
 export async function startRun(env, { orgId, workflow, trigger, input = null, startedBy = null, depth = 0, heldEventId = null, incomingHookSecret = null }) {
-  const safety=await ensureWorkflowSafety(env.DB,orgId,workflow.id);
+  let safety=await ensureWorkflowSafety(env.DB,orgId,workflow.id);
   if(!safety)return null;
-  if(safety.paused_at)return {status:'paused',reason:safety.pause_reason};
+  if(safety.pause_reason?.startsWith('budget_'))safety=await recoverWorkflowBudgetPause(env.DB,orgId,workflow.id,safety);
+  if(safety?.paused_at)return {status:'paused',reason:safety.pause_reason};
   const id = newId("run");
+  const admittedAt=now(),windows=workflowBudgetWindows(Date.parse(admittedAt));
   // Store the definition and the run atomically. An approval always resumes
   // the same steps that were presented when the run started.
   const automationReleaseId=await managedAutomationRelease(env.DB,orgId,workflow.id);
@@ -386,10 +389,13 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
         WHERE h.id=?12 AND h.org_id=?2 AND h.workflow_id=?3 AND h.run_id IS NULL AND h.expires_at>?10 AND w.enabled=1 AND json_extract(w.trigger,'$.type')='webhook'))
       AND (?13 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE id=?3 AND org_id=?2 AND enabled=1 AND hook_secret=?13 AND json_extract(trigger,'$.type')='webhook'))
       AND NOT EXISTS(SELECT 1 FROM hx_workflow_runs WHERE org_id=?2 AND workflow_id=?3 AND status IN ('running','waiting'))
-      AND EXISTS(SELECT 1 FROM hx_workflow_safety WHERE org_id=?2 AND workflow_id=?3 AND generation=?19 AND paused_at IS NULL)
+      AND EXISTS(SELECT 1 FROM hx_workflow_safety s WHERE s.org_id=?2 AND s.workflow_id=?3 AND s.generation=?19 AND s.paused_at IS NULL
+        AND (s.daily_run_limit=0 OR (SELECT COUNT(*) FROM hx_workflow_runs r WHERE r.org_id=?2 AND r.workflow_id=?3 AND r.started_at>=?20 AND r.started_at<=?23)<s.daily_run_limit)
+        AND (s.weekly_run_limit=0 OR (SELECT COUNT(*) FROM hx_workflow_runs r WHERE r.org_id=?2 AND r.workflow_id=?3 AND r.started_at>=?21 AND r.started_at<=?23)<s.weekly_run_limit)
+        AND (s.monthly_run_limit=0 OR (SELECT COUNT(*) FROM hx_workflow_runs r WHERE r.org_id=?2 AND r.workflow_id=?3 AND r.started_at>=?22 AND r.started_at<=?23)<s.monthly_run_limit))
       AND ${managedAutomationGuard('?2','?3','?14')}
       AND (?14 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?2 AND id=?3 AND name=?15 AND json(trigger)=json(?16) AND json(steps)=json(?17) AND created_by=?18))`)
-      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, now(), tooLarge ? now() : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation),
+      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, admittedAt, tooLarge ? admittedAt : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation,windows.dailyStart,windows.weeklyStart,windows.monthlyStart,admittedAt),
     env.DB.prepare(`INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at)
       SELECT ?1,?2,json_set(?3,'$.definitionRevision',(
         SELECT MAX(h.revision) FROM hx_workflow_revisions h WHERE h.org_id=?2 AND h.workflow_id=json_extract(?3,'$.id')
@@ -408,7 +414,13 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
       AND EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?3)`).bind(id, heldEventId, orgId, workflow.id)] : []),
     ...workflowSettlementStatements(env.DB,orgId,id),
   ]);
-  if (!created[0].meta?.changes) return created[2].results?.length ? { status: 'skipped', reason: 'already_running' } : null;
+  if (!created[0].meta?.changes) {
+    if(created[2].results?.length)return { status: 'skipped', reason: 'already_running' };
+    const current=await readWorkflowSafety(env.DB,orgId,workflow.id);
+    const reason=workflowBudgetReason(await workflowBudgetStatus(env.DB,orgId,workflow.id,Date.parse(admittedAt)));
+    if(reason){await pauseWorkflowForBudget(env.DB,orgId,workflow.id,current,reason,admittedAt);return {status:'paused',reason};}
+    return null;
+  }
   await env.DB.prepare("UPDATE hx_workflows SET last_run_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), workflow.id, orgId).run();
   if (tooLarge) {await tryWorkflowNotice(env,orgId,workflow.id);return getRun(env.DB, orgId, id);}
   return continueRun(env, { orgId, runId: id, workflow, depth });

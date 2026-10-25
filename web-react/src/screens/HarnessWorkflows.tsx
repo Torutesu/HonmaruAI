@@ -156,6 +156,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [prompt, setPrompt] = useState('')
   const [manual, setManual] = useState(false)
   const [open, setOpen] = useState<{ workflow: Workflow; runs: Run[]; canEdit: boolean; held?: HeldWorkflowEvents } | null>(null)
+  const [budgetDraft,setBudgetDraft]=useState({daily:'0',weekly:'0',monthly:'0'})
   const [hook, setHook] = useState<string | null>(null)
   const [hookAction, setHookAction] = useState<'rotate' | 'revoke' | null>(null)
   const [replaySelection, setReplaySelection] = useState<string[] | null>(null)
@@ -164,6 +165,11 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [syncError,setSyncError]=useState('')
   const detailRequest = useRef(0)
   const { busy, error, act } = useAct()
+  useEffect(()=>{
+    const safety=open?.workflow.safety
+    if(!safety)return
+    setBudgetDraft({daily:String(safety.daily_run_limit??0),weekly:String(safety.weekly_run_limit??0),monthly:String(safety.monthly_run_limit??0)})
+  },[open?.workflow.id,open?.workflow.safety?.budget_revision])
   const activeWorkflowId=!editing&&open?.runs.some(run=>run.status==='running')?open.workflow.id:null
   useEffect(()=>{
     if(!activeWorkflowId||busy)return
@@ -229,6 +235,11 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
 
   if (open) {
     const w = open.workflow
+    const budget=w.safety?.budget
+    const budgetPause=w.safety?.pause_reason?.startsWith('budget_')===true
+    const pausedPeriod=budgetPause?(w.safety?.pause_reason?.slice('budget_'.length) as 'daily'|'weekly'|'monthly'):null
+    const pausedBudget=pausedPeriod?budget?.[pausedPeriod]:null
+    const budgetDraftValid=Object.values(budgetDraft).every(value=>value!==''&&Number.isSafeInteger(Number(value))&&Number(value)>=0&&Number(value)<=1_000_000)
     return (
       <Shell className="hx-resource-screen" title={w.name} onClose={() => { detailRequest.current++; if(props.onNavigateWorkflow){props.onNavigateWorkflow();return}setOpen(null); load() }} nested actions={
         <button className="pill-btn quiet" disabled={!!busy} onClick={() => act('refresh', async () => {
@@ -238,13 +249,31 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
       }>
         {!w.enabled && !w.safety?.paused_at && <p className="form-note">{t('Automatic triggers are paused. You can still run this workflow manually.')}</p>}
         {w.safety?.paused_at && <section className="form-note" role="status">
-          <strong>{t('Paused after three consecutive failures')}</strong>
-          <p>{t('Review the failed runs below before resuming. Held events will not replay automatically.')}</p>
-          {open.canEdit && <button className="pill-btn" disabled={!!busy} onClick={()=>act('resume',async()=>{
+          <strong>{budgetPause?t('Paused after reaching the {period} run limit',{period:pausedPeriod?t(`${pausedPeriod[0].toUpperCase()+pausedPeriod.slice(1)} run budget`):t('Daily run budget')}):t('Paused after three consecutive failures')}</strong>
+          {budgetPause?<p>{t('This workflow can run again on the next trigger after {when}, or as soon as its run limit is raised.',{when:pausedBudget?new Date(pausedBudget.resetAt).toLocaleString():''})}</p>:<p>{t('Review the failed runs below before resuming. Held events will not replay automatically.')}</p>}
+          {open.canEdit && !budgetPause && <button className="pill-btn" disabled={!!busy} onClick={()=>act('resume',async()=>{
             await api.resumeWorkflow(w.id,w.safety!.generation)
             await refreshOpen(w.id)
           })}>{t('Resume after review')}</button>}
         </section>}
+        <section className="form-note hx-workflow-budget" aria-label={t('Run budget')}>
+          <strong>{t('Run budget')}</strong>
+          <p>{t('Limits apply to every run, including manual runs. Enter 0 for unlimited. Windows use UTC.')}</p>
+          <div className="hx-inline">
+            {(['daily','weekly','monthly'] as const).map(period=>{
+              const status=budget?.[period]
+              const label=t(`${period[0].toUpperCase()+period.slice(1)} run budget`)
+              return (<label key={period}>{t(label)}
+                <input className="hx-cell-input" type="number" min="0" max="1000000" step="1" aria-label={t('{period} run limit',{period:label})} value={budgetDraft[period]} disabled={!open.canEdit||!!busy} onChange={event=>setBudgetDraft(current=>({...current,[period]:event.target.value}))}/>
+                <span className="row-sub">{t('{used} of {limit} runs',{used:status?.used??0,limit:status?.limit?status.limit:t('Unlimited')})}{status?.exhausted&&<span> · {t('resets {when}',{when:new Date(status.resetAt).toLocaleString()})}</span>}</span>
+              </label>)
+            })}
+          </div>
+          {open.canEdit&&<button className="pill-btn" disabled={!!busy||!budgetDraftValid} onClick={()=>act('budget',async()=>{
+            await api.updateWorkflowBudget(w.id,{revision:w.safety?.budget_revision??0,dailyLimit:Number(budgetDraft.daily),weeklyLimit:Number(budgetDraft.weekly),monthlyLimit:Number(budgetDraft.monthly)})
+            await refreshOpen(w.id)
+          })}>{t('Save run limits')}</button>}
+        </section>
         <div className="hx-flow-diagram"><div className="hx-flow-node"><small>{t('Trigger')}</small><strong>{triggerLabel(t, w.trigger, tables)}</strong></div>{w.steps.map((step, index) => <React.Fragment key={index}><span className="hx-flow-connector">↓</span><div className="hx-flow-node"><small>{index + 1}. {stepLabel(t, step.type)}</small><strong>{step.text || step.prompt || step.title || tables.find(table => table.id === step.tableId)?.name}</strong>{step.channel && <span>{step.channel.startsWith('ag:') || step.channel.startsWith('dm:') ? t('Private chat') : step.channel.replace(/^b:/, '#')}</span>}{step.agentId && <span>{t('Agent')}: {agents.find(agent => agent.id === step.agentId)?.name || step.agentId}</span>}{step.to && <span>@{step.to}</span>}{step.summary && <p>{step.summary}</p>}{step.minutes && <span>{step.minutes} min</span>}{step.type==='code'&&<details><summary>{t('Program source')}</summary><pre className="hx-program-source">{step.code}</pre></details>}{step.values && <pre>{JSON.stringify(step.values, null, 2)}</pre>}{step.when && <div className="hx-flow-condition"><small>{t('Execution condition')}</small><p>{describeWorkflowCondition(step.when,tables.find(table=>table.id===w.trigger.tableId)?.columns)}</p></div>}</div></React.Fragment>)}</div>
         <div className="rows">
           <div className="row static">
@@ -387,7 +416,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
         {workflows?.map((w) => (
           <button key={w.id} className="row" onClick={() => openOne(w.id)} data-workflow={w.id}>
             <span className="row-icon"><Icon name="zap" size={18} /></span>
-            <span className="row-main">{w.name}{w.safety?.paused_at && <span className="hx-off"> · {t('Paused after failures')}</span>}{!w.enabled && <span className="hx-off"> · {t('off')}</span>}
+            <span className="row-main">{w.name}{w.safety?.paused_at && <span className="hx-off"> · {w.safety.pause_reason?.startsWith('budget_')?t('Paused by run budget'):t('Paused after failures')}</span>}{!w.enabled && <span className="hx-off"> · {t('off')}</span>}
               <span className="row-sub">{triggerLabel(t, w.trigger, tables)} · {w.steps.length} {t('steps')}</span>
             </span>
             <span className="row-value">›</span>

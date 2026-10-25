@@ -42,10 +42,9 @@ note "Before the deploy, never after."
 "${WRANGLER[@]}" d1 execute tiktokforwork --remote --file schema.sql --yes
 
 say "3. Migrate D1 (column additions)"
-# Statement by statement, because D1 aborts a file at its first error: on a
-# database schema.sql already built, every ALTER here fails with "duplicate
-# column name", and running them together meant that expected failure skipped
-# everything after it.
+# Statement by statement, because D1 aborts a file at its first error. Some
+# columns are already in schema.sql for fresh databases; new additions are
+# applied here, and a duplicate-column error means only that one is done.
 status=0
 while IFS= read -r stmt; do
   [ -z "$stmt" ] && continue

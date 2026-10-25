@@ -1014,3 +1014,29 @@ test('workflow revision HTTP route returns accessible history and rejects invali
  const data=await result.json();expect(data.items.map(item=>item.definition.name)).toEqual(['History edited','History original']);
  expect((await get(`/workflows/${workflow.id}/revisions?orgId=${encodeURIComponent(ORG)}&before=-1`,mika)).status).toBe(400);
 });
+
+test('workflow run budgets enforce limits, reject stale editors, and resume after usage rolls into a new window',async()=>{
+ const created=await send('POST','/workflows',mika,{orgId:ORG,name:'Budgeted workflow',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Budgeted run'}]});
+ expect(created.status).toBe(201);
+ const {workflow}=await created.json();
+ const budgetResponse=await send('PUT',`/workflows/${workflow.id}/budget`,mika,{orgId:ORG,revision:0,dailyLimit:1,weeklyLimit:0,monthlyLimit:0});
+ expect(budgetResponse.status).toBe(200);
+ const saved=await budgetResponse.json();expect(saved.budget).toMatchObject({revision:1,daily:{limit:1,used:0,exhausted:false}});
+ const first=await send('POST',`/workflows/${workflow.id}/run`,mika,{orgId:ORG,text:''});
+ expect(first.status).toBe(201);
+ const {run:firstRun}=await first.json();expect(firstRun.status).toBe('done');
+ const detail=await(await get(`/workflows/${workflow.id}?orgId=${encodeURIComponent(ORG)}`,mika)).json();
+ expect(detail.workflow.safety).toMatchObject({pause_reason:'budget_daily',budget:{daily:{limit:1,used:1,exhausted:true}}});
+ const blocked=await send('POST',`/workflows/${workflow.id}/run`,mika,{orgId:ORG,text:''});
+ expect(blocked.status).toBe(409);expect((await blocked.json()).reason).toBe('budget_daily');
+ const stale=await send('PUT',`/workflows/${workflow.id}/budget`,mika,{orgId:ORG,revision:0,dailyLimit:2,weeklyLimit:0,monthlyLimit:0});
+ expect(stale.status).toBe(409);
+ const raised=await send('PUT',`/workflows/${workflow.id}/budget`,mika,{orgId:ORG,revision:1,dailyLimit:2,weeklyLimit:0,monthlyLimit:0});
+ expect(raised.status).toBe(200);expect((await raised.json()).safety.paused_at).toBeNull();
+ const second=await send('POST',`/workflows/${workflow.id}/run`,mika,{orgId:ORG,text:''});
+ expect(second.status).toBe(201);expect((await second.json()).run.status).toBe('done');
+ expect((await(await get(`/workflows/${workflow.id}?orgId=${encodeURIComponent(ORG)}`,mika)).json()).workflow.safety.pause_reason).toBe('budget_daily');
+ await env.DB.prepare("UPDATE hx_workflow_runs SET started_at='2000-01-01T00:00:00.000Z' WHERE org_id=?1 AND workflow_id=?2").bind(ORG,workflow.id).run();
+ const afterReset=await send('POST',`/workflows/${workflow.id}/run`,mika,{orgId:ORG,text:''});
+ const afterResetBody=await afterReset.json();expect(afterReset.status,JSON.stringify(afterResetBody)).toBe(201);expect(afterResetBody.run.status).toBe('done');
+});

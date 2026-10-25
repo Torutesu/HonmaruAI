@@ -14,6 +14,8 @@ import workflowRevisionSql from "../workflow-revisions.sql?raw";
 beforeEach(async () => {
   await reset();
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  // Keep the workflow budget columns in step with the production migration.
+  for (const sql of workflowBudgetColumns) await env.DB.exec(sql);
   await env.DB.exec(workspaceFilesSql.replace(/\n/g, " "));
   await env.DB.exec(workflowRuntimeSql.replace(/\n/g, " "));
   await env.DB.exec(workflowRevisionSql.replace(/\n/g, " "));
@@ -23,3 +25,9 @@ beforeEach(async () => {
 });
 
 const migrationIndexes = migrationsSql.split("\n").filter((line) => /^CREATE (UNIQUE )?INDEX IF NOT EXISTS/.test(line));
+const workflowBudgetColumns = [
+  "ALTER TABLE hx_workflow_safety ADD COLUMN daily_run_limit INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE hx_workflow_safety ADD COLUMN weekly_run_limit INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE hx_workflow_safety ADD COLUMN monthly_run_limit INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE hx_workflow_safety ADD COLUMN budget_revision INTEGER NOT NULL DEFAULT 0",
+];

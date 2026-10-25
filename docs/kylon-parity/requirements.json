@@ -764,11 +764,11 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/spendGuard.js, worker/src/ledger.js",
-      "acceptance": "全体の日次D1コスト上限でバックグラウンド処理を自動pauseする基盤あり。個別Automationの実行予算、日/週/月の残高、同時実行時の原子的な確保、pauseからの回復を検証",
+      "code": "worker/src/spendGuard.js, worker/src/ledger.js, worker/src/harness/workflowSafety.js, worker/src/harness/workflows.js, worker/src/harness/routes.js, web-react/src/screens/HarnessWorkflows.tsx",
+      "acceptance": "個別Workflowの日/週/月の実行回数上限、CAS設定、原子的なrun admission、上限時pauseと期間更新/上限変更後の自動回復あり。Kylon同等の費用/credit予算、事前警告、実コスト換算は未実装",
       "evidence": {
-        "verified": "15分ごとにD1 read/writeの日次しきい値を監視し、stopを超えたときバックグラウンド処理を00:00 UTCまでpauseする spendGuard と spend-guard.test.js が存在。全体コスト保護として部分実装済み。",
-        "remaining": "Kylon同等の個別Automationの日/週/月実行上限、並行ジョブ間の原子的な予算確保、上限到達時のユーザー向けpause理由と回復を実装・確認する。"
+        "verified": "全体D1コスト保護に加え、Workflowごとの日/週/月run-countを集計し、同時run admissionのSQL条件で上限を守る。完了時pause、期限/上限変更後のgeneration CAS回復、作成者向け上限/使用数/reset UIを追加。フルCI・本番反映のSHAと実画面確認はverification.mdに追記する。",
+        "remaining": "これは実行回数予算で、Kylonのcredit/USD相当費用上限・閾値事前警告・外部AI費用の完全計測ではない。トークン費用の正確な予約/消費/返却台帳、プロセス障害時の回復を実装・確認する。"
       }
     },
     {

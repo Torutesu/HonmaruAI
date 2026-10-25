@@ -66,7 +66,9 @@ export interface Step {
 }
 export interface WorkflowSourceState {source:{threadId:string;channel:string;body:string;createdAt:string}|null;canBind:boolean;candidates:Array<{id:string;channel:string;body:string;createdAt:string}>;nextCursor:number|null}
 export interface WorkflowNotice { workflowId: string; generation: string; runId: string; createdAt: string; readAt: string|null; name: string; paused: boolean }
-export interface WorkflowSafety { generation: string; failure_streak: number; paused_at: string | null; pause_reason: string | null }
+export interface WorkflowBudgetPeriod { limit: number; used: number; resetAt: string; exhausted: boolean }
+export interface WorkflowBudget { revision: number; daily: WorkflowBudgetPeriod; weekly: WorkflowBudgetPeriod; monthly: WorkflowBudgetPeriod }
+export interface WorkflowSafety { generation: string; failure_streak: number; paused_at: string | null; pause_reason: string | null; daily_run_limit?: number; weekly_run_limit?: number; monthly_run_limit?: number; budget_revision?: number; budget?: WorkflowBudget | null }
 export interface Workflow {
   updatedAt?: string
   safety?: WorkflowSafety | null
@@ -187,6 +189,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     generateWorkflow: (prompt: string, channel?: string, options?: {requestId: string; captureSource?: boolean}) => call<{ workflow: Workflow; source: string }>('POST', '/workflows/generate', { prompt, channel, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...options }),
     createWorkflow: (w: { name: string; trigger: Trigger; steps: Step[] }) => call<{ workflow: Workflow; hookUrl?: string }>('POST', '/workflows', w as unknown as Record<string, unknown>),
     updateWorkflow: (id: string, patch: Record<string, unknown>) => call<{ workflow: Workflow }>('PUT', `/workflows/${id}`, patch),
+    updateWorkflowBudget: (id:string,budget:{revision:number;dailyLimit:number;weeklyLimit:number;monthlyLimit:number}) => call<{budget:WorkflowBudget;safety:WorkflowSafety}>('PUT',`/workflows/${id}/budget`,budget),
     changeWorkflowHook: (id: string, action: 'rotate' | 'revoke', expectedSecret: string | null) => call<{ workflow: Workflow }>('POST', `/workflows/${id}/webhook`, { action, expectedSecret }),
     replayWorkflowEvents: (id: string, eventIds: string[]) => call<{ runs: Array<{ eventId: string; runId: string; status: string }>; skipped: number }>('POST', `/workflows/${id}/webhook/replay`, { eventIds }),
     heldWorkflowEvent: (id: string, eventId: string) => call<{ event: { id: string; receivedAt: string; expiresAt: string; input: unknown } }>('GET', `/workflows/${id}/webhook/events/${encodeURIComponent(eventId)}`),

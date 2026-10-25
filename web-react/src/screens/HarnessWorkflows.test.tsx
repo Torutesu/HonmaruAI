@@ -385,3 +385,17 @@ test('manual setup focuses the builder instead of stacking the generation form a
  expect(tree.root.findAllByProps({className:'hx-generation'})).toHaveLength(0);
  expect(tree.root.findAllByProps({className:'hx-builder'})).toHaveLength(1);
 });
+test('workflow detail edits UTC run limits and displays usage with the saved revision',async()=>{
+ const detailed={...workflow,safety:{generation:'g1',failure_streak:0,paused_at:null,pause_reason:null,daily_run_limit:3,weekly_run_limit:0,monthly_run_limit:0,budget_revision:4,budget:{revision:4,daily:{limit:3,used:1,resetAt:'2026-10-27T00:00:00Z',exhausted:false},weekly:{limit:0,used:2,resetAt:'2026-11-02T00:00:00Z',exhausted:false},monthly:{limit:0,used:2,resetAt:'2026-11-01T00:00:00Z',exhausted:false}}}}
+ state.api.workflow.mockResolvedValue({workflow:detailed,runs:[],canEdit:true})
+ state.api.updateWorkflowBudget=vi.fn().mockResolvedValue({budget:detailed.safety.budget,safety:detailed.safety})
+ await open()
+ const budgetInputs=tree.root.findAllByProps({'aria-label':'{period} run limit'})
+ expect(budgetInputs).toHaveLength(3)
+ const daily=budgetInputs[0]
+ expect(daily.props.value).toBe('3')
+ expect(JSON.stringify(tree.toJSON())).toContain('{used} of {limit} runs')
+ await act(async()=>daily.props.onChange({target:{value:'5'}}))
+ await act(async()=>{await button('Save run limits').props.onClick()})
+ expect(state.api.updateWorkflowBudget).toHaveBeenCalledWith(workflow.id,{revision:4,dailyLimit:5,weeklyLimit:0,monthlyLimit:0})
+})

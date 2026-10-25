@@ -806,4 +806,10 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-revision-value dt { color:var(--hx-muted); }
 .hx-revision-value dd { margin:0 0 6px; white-space:pre-wrap; }
 .hx-workflow-history > .hx-actions { margin-top:12px; }
+.hx-workflow-budget { margin:12px 0 16px; padding:14px; border:1px solid var(--hx-border,var(--bone)); border-radius:10px; background:var(--hx-surface,var(--signal-white)); color:var(--hx-text,var(--ink-black)); }
+.hx-workflow-budget > p { margin:6px 0 12px; color:var(--hx-muted,var(--ash)); font-size:12px; line-height:1.5; }
+.hx-workflow-budget .hx-inline { display:flex; flex-wrap:wrap; align-items:stretch; gap:12px; margin-bottom:12px; }
+.hx-workflow-budget .hx-inline > label { display:grid; flex:1 1 150px; min-width:0; gap:6px; color:var(--hx-text,var(--ink-black)); font-size:12px; }
+.hx-workflow-budget .hx-inline input { width:100%; min-width:0; border-color:var(--hx-border,var(--bone)); background:var(--hx-surface,var(--signal-white)); color:var(--hx-text,var(--ink-black)); }
+.hx-workflow-budget .row-sub { color:var(--hx-muted,var(--ash)); font-size:11px; }
 @media(max-width:600px) { .hx-revision-pair { grid-template-columns:minmax(0,1fr); } }
