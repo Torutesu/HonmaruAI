@@ -1,6 +1,14 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Current version": "現在の版",
+  "Choose a new file version": "新しい版のファイルを選択",
+  "Upload new version": "新しい版をアップロード",
+  "The file changed. Refresh its history before uploading a new version.": "ファイルが更新されています。履歴を再読み込みしてから新しい版をアップロードしてください。",
+  "Preview could not be displayed.": "プレビューを表示できませんでした。",
+  "Preview timed out. Try again.": "プレビューの読み込みがタイムアウトしました。再試行してください。",
+  "This file is too large to preview. Download it instead.": "プレビューの容量上限を超えています。ダウンロードして確認してください。",
+  "Preview is not available for this file type.": "この形式はプレビューできません。",
   "Include deleted files": "削除済みファイルも表示",
   "Move to deleted files": "削除済みに移動",
   "The file changed. Refresh its history before deleting.": "ファイルが更新されています。履歴を再読み込みしてから削除してください。",

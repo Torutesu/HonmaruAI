@@ -821,17 +821,17 @@
       "id": "KY-073",
       "category": "Files",
       "requirement": "ファイルの版管理・復元",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/file",
-      "code": "worker/src/files.js",
+      "code": "worker/src/harness/fileVersionLedger.js",
       "acceptance": "コンテンツ版・競合・復元後の新しい版・参照履歴",
       "evidence": {
         "auditDate": "2026-10-25",
         "reference": "https://docs.kylon.io/cli/workspace/file",
         "observedContract": "versions list; version get; deletion tombstone; revert copies old content into a new version and requires expected-current-version; purged content cannot be read or restored.",
-        "codeAudit": "worker/src/files.js implements message attachment upload/serve/delete, without revision or restore operations. No file_versions/fileVersions/expected-current-version implementation found in worker/src, schema.sql or migrations.sql.",
-        "remaining": "Implement versioned workspace file identity, immutable content versions, revision conflict checks, room-scoped access on history/restore, deletion tombstones and UI history/restore. Preserve existing message attachment behavior and retention guarantees."
+        "codeAudit": "Versioned workspace files now have scoped HTTP routes, immutable versions, compare-and-swap uploads/restores, staging recovery, tombstones, hold-aware purge/retention and account/workspace cleanup. Web lists/history/paging/restore/recoverable deletion and upload controls exist. Release candidate 4d5a8249 is under CI; none of this feature is confirmed deployed.",
+        "remaining": "Production migration/deploy and authenticated file roundtrip; multi-user and mobile verification; persistent reservation recovery/empty reservation cleanup; previews; recent/folder views and creator tabs; agent file tools; reference-history and binary export coverage. Component fixture light/dark rendering is not full Kylon parity evidence."
       }
     },
     {

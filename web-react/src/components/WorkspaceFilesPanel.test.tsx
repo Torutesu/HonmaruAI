@@ -56,3 +56,27 @@ test('deleted files are explicitly included and deletion uses the loaded version
  expect(api.remove).toHaveBeenCalledWith('file',51);expect(api.versions).toHaveBeenCalledTimes(2)
  act(()=>renderer!.unmount())
 })
+
+test('a replacement appends to the existing file using the loaded current version',async()=>{
+ const api={list:vi.fn().mockResolvedValue({files:[file],next:null}),versions:vi.fn().mockResolvedValue({versions:[{...version(51),currentVersion:51}]}),upload:vi.fn().mockResolvedValue({saved:true,version:52})} as unknown as WorkspaceFileApi
+ let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
+ await act(async()=>{renderer!.root.findByProps({className:'hx-file-row'}).props.onClick()})
+ const content=new Blob(['updated content'],{type:'text/plain'})
+ await act(async()=>{renderer!.root.findByProps({'aria-label':'Choose a new file version'}).props.onChange({target:{files:[content],value:'chosen'}})})
+ expect(api.upload).toHaveBeenCalledWith('file',51,content,expect.any(AbortSignal));expect(api.versions).toHaveBeenCalledTimes(2);expect(api.list).toHaveBeenCalledTimes(2)
+ act(()=>renderer!.unmount())
+})
+
+test('opening history preserves an in-flight room upload until the panel closes',async()=>{
+ let finish!:(value:{saved:true;version:number})=>void
+ const api={create:vi.fn().mockResolvedValue({id:'new-file',version:0}),upload:vi.fn(()=>new Promise(resolve=>{finish=resolve})),list:vi.fn().mockResolvedValue({files:[file],next:null}),versions:vi.fn().mockResolvedValue({versions:[{...version(51),currentVersion:51}]})} as unknown as WorkspaceFileApi
+ let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
+ await act(async()=>{renderer!.root.findAllByProps({type:'file'})[0].props.onChange({target:{files:[{name:'new.txt',size:5}],value:'chosen'}})})
+ const signal=vi.mocked(api.upload).mock.calls[0][3]!
+ await act(async()=>{renderer!.root.findByProps({className:'hx-file-row'}).props.onClick()})
+ expect(signal.aborted).toBe(false)
+ await act(async()=>{finish({saved:true,version:1})});expect(api.list).toHaveBeenCalledTimes(2)
+ act(()=>renderer!.unmount());expect(signal.aborted).toBe(true)
+})

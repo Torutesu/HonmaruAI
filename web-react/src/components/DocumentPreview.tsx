@@ -179,3 +179,5 @@ function PdfPage({pdf,page,zoom,query}:{pdf:PDFDocumentProxy;page:number;zoom:nu
   <details className="document-extracted"><summary>ページのテキスト</summary><pre><Highlight text={layerData?.text||''} query={query} flexibleWhitespace/></pre></details>
  </div>
 }
+
+export function DocumentContent({bytes,kind}:{bytes:Uint8Array;kind:'pdf'|'csv'|'text'}){return kind==='pdf'?<PdfDocument bytes={bytes}/>:<TextDocument bytes={bytes} csv={kind==='csv'}/>}

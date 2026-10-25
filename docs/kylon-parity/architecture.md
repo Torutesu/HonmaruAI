@@ -158,7 +158,7 @@ gateway/workflow-runner.mjs executes top-level TypeScript inside the pinned netw
 
 The installed Mac LaunchAgent contains the matching runtime. A real VM smoke verified SDK transport with an in-memory callback; localhost E2E verified D1 transport with a fixture node. Neither proves an authenticated production VM-to-D1 roundtrip, and physical reboot has not been tested. Current bounds remain 60 seconds, 64 state operations, 2 MB transport each direction and 32 KB logs. Schema-bound agent calls, external-effect tooling and Kylon's longer runtime remain incomplete. Deployment and screenshot evidence is in verification.md.
 
-## Workspace file versions — implementation contract (KY-073, not implemented)
+## Workspace file versions — implementation contract (KY-073, partially implemented; unreleased)
 
 Use /hx/files for stable workspace-file identities and version/history/restore routes. Keep message_files and /files/:id attachment behavior intact: existing attachment retention and message deletion must not silently become recoverable. A workspace file has an explicit room or workspace scope, creator, logical path, current version and deleted state. Versions keep immutable content metadata and a unique object key; a deletion creates a contentless tombstone. Restore copies an unpurged content version into a new current version and requires expectedCurrentVersion. Never move the current pointer back to an old revision.
 
