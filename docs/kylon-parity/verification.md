@@ -3599,3 +3599,15 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - Status/history SQL now selects only returned metadata instead of materializing document source and lease fields before discarding them. Added a matching org/requester/scope/time index in both normal deployment schema and focused document schema for bounded recent-history reads. No production migration performed manually.
 - Existing 22 document tests passed (`/tmp/honmaru-document-history-metadata-tests.log`), retaining authorization, model-loop, publication and lifecycle coverage. No production latency improvement claim without measurement. Candidate CI 40192911584 remains live Worker with six required jobs passed; candidate unchanged.
+
+### 2026-10-25 — agent/history release candidate
+
+- Inspected CI concurrency: group is workflow plus branch ref. Created updated snapshot `360abb611c2807288854df2a1e323a9e9c26d7ae`, parent `5bb6d76f06142953b2dc22a5ec93ce5f13a6191a`, and pushed `codex/document-agent-release` so the earlier long Worker run is not cancelled. Exact new CI `40193965836` confirmed in progress. Main unchanged at 0e3f572c.
+- Snapshot includes terminal UI recovery, cancellation coverage, trusted origin/ownership, scoped agent conversion tools, model-loop integration, recent-history API/UI refresh and metadata/index improvements. Older candidate 5bb6d76f is not the final release target.
+- Deployment dependency/migration checks passed 18 tests (`/tmp/honmaru-document-deploy-checks.log`). Combined document/MCP/model-tool suites passed (`/tmp/honmaru-document-agent-release-tests.log`). Full exact-SHA seven-job CI and production rollout still required.
+
+### 2026-10-25 — native Kylon file-folder comparison
+
+- Native Kylon CUA confirmed file upload menu has file/folder entries; recent view has agent/user origin radios; folder view hides those radios and shows All files breadcrumb plus folder icon and empty-folder text. General room had no files in either origin. Synthetic PDF selection remained Open-disabled; cancelled chooser without uploading. No populated preview parity claim.
+- Honmaru folder empty-state now uses folder icon and matching empty-folder wording when unfiltered; root breadcrumb says All files. Existing extra origin filtering is retained pending a deliberate treatment of advanced filters. Build passed (`/tmp/honmaru-file-folder-fidelity-build.log`). This small UI refinement is outside current candidate.
+- Earlier candidate 5bb6d76f CI 40192911584 completed all seven required jobs successfully. Latest 360abb61 CI 40193965836 has six required jobs passed, Worker running. Main unchanged; only latest candidate is eligible for final feature rollout.
