@@ -77,6 +77,8 @@ struct ConversationView: View {
     @State private var canvasOpen = false
     @State private var agentsOpen = false
     @State private var recordOpen = false
+    /// A guest invite for this channel alone, once it is made.
+    @State private var guestInvite: MintedInvite?
 
     private var conversation: ChatConversation? { store.conversation(for: view) }
     private var title: String {
@@ -211,6 +213,7 @@ struct ConversationView: View {
         .sheet(isPresented: $canvasOpen) { ChatCanvasSheet(view: view, title: title).environmentObject(appState) }
         .sheet(isPresented: $agentsOpen) { ChatChannelAgentsSheet(store: store, view: view, title: title) }
         .sheet(isPresented: $recordOpen) { ChannelRecordSheet(view: view, title: title).environmentObject(appState) }
+        .sheet(item: $guestInvite) { invite in ChatGuestInviteSheet(invite: invite, channel: conversation?.name ?? title) }
         .sheet(item: Binding(get: { profileRef.map { IdentifiedRef(ref: $0) } }, set: { profileRef = $0?.ref })) { r in
             ChatProfileSheet(store: store, ref: r.ref)
         }
@@ -775,6 +778,17 @@ struct ConversationView: View {
         keptDraft = nil
     }
 
+    /// A link that lets someone in as a guest of this channel and nothing
+    /// else — the way to bring in a client or a contractor for one project.
+    private func inviteGuest() async {
+        guard view.hasPrefix("b:"), let orgId = appState.currentUser?.teamID, let base = appState.backendBaseURL else { return }
+        do {
+            guestInvite = try await TeamService.mintInviteLink(orgId: orgId, role: "guest", channels: [String(view.dropFirst(2))], backendBaseURL: base)
+        } catch {
+            notes.append(error.localizedDescription)
+        }
+    }
+
     private func open(card id: String) {
         if let card = appState.cardService.card(id: id) { openCard = card }
         else { notes.append(String(localized: "That decision is in your feed.")) }
@@ -821,6 +835,7 @@ struct ConversationView: View {
                 }
                 if let c = conversation, c.kind == .channel {
                     Button { recordOpen = true } label: { Label("Record (Markdown)", systemImage: "doc.text.magnifyingglass") }
+                    Button { Task { await inviteGuest() } } label: { Label("Invite a guest to this channel", systemImage: "person.badge.plus") }
                 }
                 Button { Task { await store.toggleStar(view) } } label: {
                     Label(store.isStarred(view) ? LocalizedStringKey("Unstar") : LocalizedStringKey("Star"), systemImage: store.isStarred(view) ? "star.slash" : "star")

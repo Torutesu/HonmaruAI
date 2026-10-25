@@ -11,6 +11,8 @@ interface Props {
   /// The workspace's name, for the title.
   orgName?: string | null
   initialTab?: 'people' | 'agent'
+  /// Opened from a channel: a guest of that channel alone, to begin with.
+  channel?: { slug: string; name: string } | null
   onClose: () => void
 }
 
@@ -22,7 +24,7 @@ interface Channel { slug: string; name: string }
 /// over; either way they are introduced in the channels ticked here when
 /// they join. An agent: a link that works once, for fifteen minutes, which
 /// the agent opens to get its own MCP token.
-export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, orgName, initialTab = 'people', onClose }) => {
+export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, orgName, initialTab = 'people', channel = null, onClose }) => {
   const t = useT()
   const headers = useMemo(() => ({ 'content-type': 'application/json', 'x-session-token': sessionToken }), [sessionToken])
   const [tab, setTab] = useState<'people' | 'agent'>(initialTab)
@@ -35,7 +37,7 @@ export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, o
   const [error, setError] = useState<string | null>(null)
   const [agentLink, setAgentLink] = useState<{ url: string; expiresAt: string } | null>(null)
   // A member sees every public channel; a guest only the ones ticked.
-  const [role, setRole] = useState<'member' | 'guest'>('member')
+  const [role, setRole] = useState<'member' | 'guest'>(channel ? 'guest' : 'member')
 
   useEffect(() => {
     let ignore = false
@@ -44,14 +46,17 @@ export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, o
       .then((data) => {
         if (ignore) return
         const list: Channel[] = (data.businesses || []).map((b: { slug: string; name: string }) => ({ slug: b.slug, name: b.name }))
+        // A private channel opened from is one this list may not carry.
+        if (channel && !list.some((c) => c.slug === channel.slug)) list.unshift(channel)
         setChannels(list)
         // Everywhere, until somebody says otherwise — as a new colleague is
-        // introduced to the whole office.
-        setPicked(new Set(list.map((c) => c.slug)))
+        // introduced to the whole office; from a channel, that channel.
+        setPicked(new Set(channel ? [channel.slug] : list.map((c) => c.slug)))
       })
       .catch(() => { if (!ignore) setChannels([]) })
     return () => { ignore = true }
-  }, [httpBase, orgId, headers])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [httpBase, orgId, headers, channel?.slug])
 
   const shown = (channels || []).filter((c) => !query.trim() || c.name.toLowerCase().includes(query.trim().toLowerCase()))
   const allPicked = Boolean(channels?.length) && channels!.every((c) => picked.has(c.slug))
@@ -147,7 +152,7 @@ export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, o
   return (
     <Dialog
       className="invite-dialog"
-      title={orgName ? t('Invite to {name}', { name: orgName }) : t('Invite to your workspace')}
+      title={channel ? t('Invite to #{name}', { name: channel.name }) : orgName ? t('Invite to {name}', { name: orgName }) : t('Invite to your workspace')}
       lede={t('Bring people and agents into your workspace.')}
       art={art}
       onClose={onClose}

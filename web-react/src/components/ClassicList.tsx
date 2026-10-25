@@ -808,6 +808,9 @@ export const ClassicList: React.FC<Props> = ({
 
   // Bringing people or an agent in, from the list itself.
   const [inviting, setInviting] = useState<null | 'people' | 'agent'>(null)
+  // Inviting from a channel: a guest of that channel alone, to begin with.
+  const [inviteTo, setInviteTo] = useState<{ slug: string; name: string } | null>(null)
+  const inviteGuest = (th: { slug?: string; name: string }) => { if (!th.slug) return; setInviteTo({ slug: th.slug, name: th.name }); setInviting('people') }
   // On a phone the list is five places along the bottom, as in Slack's app:
   // Home and DMs here, Activity and Later below, You is a screen of its own.
   const [phoneTab, setPhoneTab] = useState<'home' | 'dms'>('home')
@@ -1156,6 +1159,7 @@ export const ClassicList: React.FC<Props> = ({
       out.push({ kind: 'sep' })
       out.push({ kind: 'item', label: t('Rename channel…'), icon: 'edit', onSelect: () => setRenameDialog({ slug: th.slug!, name: th.name }), data: 'rename' })
       if (th.private) out.push({ kind: 'item', label: t('Add people…'), icon: 'invite', onSelect: () => setAddingTo(v), data: 'add-people' })
+      out.push({ kind: 'item', label: t('Invite a guest to this channel…'), icon: 'invite', onSelect: () => inviteGuest(th), data: 'invite-guest' })
       out.push({ kind: 'sep' })
       out.push({ kind: 'item', label: t('Archive channel…'), icon: 'box', danger: true, onSelect: () => setArchiveDialog({ thread: th }), data: 'archive' })
       if (th.private) out.push({ kind: 'item', label: t('Leave channel'), danger: true, onSelect: () => void leaveChannel(th), data: 'leave' })
@@ -5879,6 +5883,7 @@ export const ClassicList: React.FC<Props> = ({
               {th.kind === 'channel' && <SheetRow icon="repeat" label={t('Automations')} hint={String(automationCount[th.view!] ?? 0)} onClick={close(() => openSide({ kind: 'details', tab: 'automations' }))} data="automations" />}
               {th.kind === 'channel' && th.slug && <SheetRow icon="settings" label={t('Channel settings')} onClick={close(() => { forgetWanted(); setSettings(true); setRenaming(null) })} data="settings" />}
               {th.private && <SheetRow icon="invite" label={t('Add people')} onClick={close(() => setAddingTo(th.view!))} data="add-people" />}
+              {th.kind === 'channel' && th.slug && <SheetRow icon="invite" label={t('Invite a guest to this channel')} onClick={close(() => inviteGuest(th))} data="invite-guest" />}
               {th.private && <SheetRow icon="x" label={t('Leave channel')} onClick={close(() => void leaveChannel(th))} danger data="leave" />}
             </div>
           </Sheet>
@@ -6124,7 +6129,7 @@ export const ClassicList: React.FC<Props> = ({
               level={(prefs[current.view] || 'default') as NotifyLevel}
               onLevel={(lv) => void setPref(current.view!, lv)}
               onSettings={current.kind === 'channel' && current.slug ? () => { forgetWanted(); setSettings(true); setRenaming(null) } : null}
-              onInvite={(managed) => ((current.private || managed) ? setAddingTo(current.view!) : setInviting('people'))}
+              onInvite={(managed) => ((current.private || managed) ? setAddingTo(current.view!) : inviteGuest(current))}
               onProfile={(ref) => void openProfile(ref)}
               onlineRefs={onlineRefs}
               onJump={(id) => void goToCite(current.view!, { id, parentId: null, at: '' })}
@@ -6134,7 +6139,7 @@ export const ClassicList: React.FC<Props> = ({
           )
       )}
       {inviting && (
-        <InviteDialog httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} orgName={orgName} initialTab={inviting} onClose={() => setInviting(null)} />
+        <InviteDialog httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} orgName={orgName} initialTab={inviting} channel={inviteTo} onClose={() => { setInviting(null); setInviteTo(null) }} />
       )}
       {popout && (() => {
         const m = memberByRef(popout.ref)
