@@ -39,6 +39,9 @@ import { tableContract } from "./tableContract.js";
 import { appAccess, mayUseApp, mayUseTable, setAppAccess, visibleResources } from './resourceAccess.js';
 import { mayUseConversation } from './conversationAccess.js';
 import { listMembers as memoryMembers } from '../team.js';
+import { createAgentAccessRequest, requestableAgentOptions, roomAgentAccessPlans } from './agentAccessRequests.js';
+import { announceCards } from '../announce.js';
+import { notifyCard, anyChannelConfigured } from '../notify.js';
 // The harness routes (docs/kylon-gap-plan.md): the workspace's mode, Tables
 // and Apps. Every route asks for a member who is not a guest; building is a
 // member's, deleting someone else's is an admin's.
@@ -174,6 +177,23 @@ export async function handleHarness(request, env, url, context = {}) {
   const who = await member(env, request, orgId);
   if (who.denied) return who.denied;
   const me = who.session.github_id;
+  if (parts[0] === 'hx' && parts[1] === 'agent-access-options') {
+    if (request.method !== 'GET') return json({ message: 'Method not allowed.' }, 405);
+    const roster=await memoryMembers(env.DB,orgId,me);
+    const actor=roster.find(m=>String(m.userId)===String(me));
+    if(!actor||String(actor.role||'guest').toLowerCase()==='guest')return json({agents:[],addableAgents:[]});
+    const agents=await requestableAgentOptions(env.DB,orgId,who.user.login);
+    const workspacePeople=roster.filter(m=>String(m.role||'guest').toLowerCase()!=='guest')
+      .map(m=>({kind:'person',id:String(m.userId),eligible:true,membership:m.joinedAt}));
+    const accessible=await listAgents(env.DB,orgId,who.user.login);
+    const plans=await roomAgentAccessPlans(env.DB,orgId,accessible.map(a=>a.id),workspacePeople,me);
+    const memberRefs=new Map(roster.map(m=>[String(m.userId),m.ref]));
+    const addableAgents=accessible.map(a=>{
+      const plan=plans.get(a.id)||{missing:[],canGrantAccess:false};
+      return {id:a.id,name:a.name,avatarUrl:a.avatarUrl||null,missingAccessMembers:plan.missing.map(m=>({ref:memberRefs.get(m.id),name:m.name})).filter(m=>m.ref),canGrantAccess:plan.canGrantAccess};
+    });
+    return json({ agents, addableAgents });
+  }
   if (url.pathname === '/hx/rooms/webhooks') {
     if (!['GET','POST','PUT'].includes(request.method)) return json({message:'Method not allowed.'},405);
     const channel = request.method === 'GET' ? url.searchParams.get('channel') : input.channel;
@@ -598,6 +618,18 @@ export async function handleHarness(request, env, url, context = {}) {
       .first();
     // Someone else's personal agent is theirs alone: it is not here at all.
     if (!agent || (agent.scope === "personal" && agent.owner_login !== who.user.login)) return json({ message: "No such agent." }, 404);
+    if (sub === 'access-request' && request.method === 'POST') {
+      if (agent.scope !== 'team') return json({ message: 'No such shared team agent.' }, 404);
+      const result = await createAgentAccessRequest(env.DB, orgId, { agentId, requesterId: me, requestKey: input.requestKey });
+      if (result.error) return fail(result);
+      if (result.created) {
+        const cards=result.cards||[result.card];
+        await announceCards(env, orgId, cards);
+        if (anyChannelConfigured(env)) await Promise.all(cards.map(card=>notifyCard(env, { card, kind: 'created', excludeLogin: null, orgId }).catch(() => {})));
+        await audit(env, request, { orgId, action: 'agent.access_requested', actor: person(who.user), entity: { type: 'custom_agent', id: agentId, name: agent.name }, details: { requestId: result.request.id } });
+      }
+      return json({ request: result.request }, result.created ? 201 : 200);
+    }
     if (!(await mayAccessAgent(env.DB, orgId, { ...agent, ownerLogin: agent.owner_login }, who.user.login))) return json({ message: "No such agent." }, 404);
     const delegatedRole=(await explicitAgentRoles(env.DB,orgId,[agentId],who.user.login)).get(agentId);
     const managedProfile=!!await env.DB.prepare('SELECT 1 FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(orgId,agentId).first();
@@ -948,7 +980,7 @@ async function approvalsFor(env, orgId, login, me) {
     .bind(orgId, login)
     .all();
   const pending = (results || []).map((r) => { try { return JSON.parse(r.data); } catch { return null; } }).filter(Boolean);
-  const cards = pending.filter((c) => c.workflowApproval || c.proxyAction || c.proposal || String(c.senderUserID || "").startsWith("agent:"));
+  const cards = pending.filter((c) => c.workflowApproval || c.proxyAction || c.proposal || c.agentAccessRequest || String(c.senderUserID || "").startsWith("agent:"));
   const { results: waiting } = await env.DB
     .prepare(`SELECT r.id, r.workflow_id, r.card_id, r.started_at, w.name FROM hx_workflow_runs r JOIN hx_workflows w ON w.id = r.workflow_id
       WHERE r.org_id = ?1 AND r.status = 'waiting' AND (r.started_by = ?2 OR w.created_by = ?2) ORDER BY r.started_at DESC LIMIT 100`)
@@ -956,7 +988,7 @@ async function approvalsFor(env, orgId, login, me) {
     .all();
   return {
     pendingDecisions: pending.length,
-    toDecide: cards.map((c) => ({ id: c.id, title: c.title, summary: c.summary, createdAt: c.createdAt, kind: c.workflowApproval ? "workflow" : c.proxyAction ? "agent" : c.proposal ? "proposal" : "agent", source: c.sourceDetail || c.sourceApp || null })),
+    toDecide: cards.map((c) => ({ id: c.id, title: c.title, summary: c.summary, createdAt: c.createdAt, kind: c.workflowApproval ? "workflow" : c.agentAccessRequest ? "access" : c.proxyAction ? "agent" : c.proposal ? "proposal" : "agent", source: c.sourceDetail || c.sourceApp || null })),
     waitingOnOthers: (await visibleResources(waiting || [], async w => Boolean(await getRun(env.DB, orgId, w.id, { viewerId: me })))).map((w) => ({ runId: w.id, workflowId: w.workflow_id, workflow: w.name, cardId: w.card_id, startedAt: w.started_at })),
   };
 }

@@ -88,3 +88,16 @@ test('direct Add entry waits for authoritative details and returns to the member
  expect(tree.root.findByType('member-dialog' as any).props.loading).toBe(false)
  act(()=>tree.unmount())
 })
+
+test('selected grant choice is sent to the server when adding an agent',async()=>{
+ const initial={...detail(),addableAgents:[{id:'agent',name:'Agent',missingAccessMembers:[{id:'person',name:'Person'}],canGrantAccess:true}]}
+ const final={...detail(),members:{...detail().members,agents:[{id:'agent',name:'Agent',roomRole:'member'}]}}
+ const fetcher=vi.fn().mockResolvedValueOnce(response(initial)).mockResolvedValueOnce(response({added:true})).mockResolvedValueOnce(response(final))
+ vi.stubGlobal('fetch',fetcher);const changed=vi.fn();let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<RoomMembers api={api} view="b:room" initialAdding onClose={vi.fn()} onInvite={vi.fn()} onProfile={vi.fn()} onChanged={changed}/>)})
+ const picker=tree.root.findByType(RoomMemberPicker),selected={...picker.props.candidates[0],grantAccess:true}
+ await act(async()=>picker.props.onAdd([selected]))
+ expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({agentId:'agent',grantAccess:true})
+ expect(changed).toHaveBeenCalledOnce()
+ act(()=>tree.unmount())
+})

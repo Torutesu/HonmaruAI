@@ -4,6 +4,7 @@ import {upsertUser,upsertMembership,listBusinesses} from '../src/db.js';
 import {memberRef} from '../src/team.js';
 import {createManagedRoom} from '../src/harness/roomCreation.js';
 import {roomRoleState,deleteManagedRoom} from '../src/harness/roomRoles.js';
+import {mayAccessAgent} from '../src/harness/agents.js';
 const org='room-creation';
 const draft=overrides=>({requestId:'creation-request-123',name:'Planning',private:true,guidelines:'Use clear decisions.',color:'teal',memberRefs:[],agentIds:[],...overrides});
 test('legacy role casing and numeric-looking IDs use the same snapshot as member presentation',async()=>{
@@ -32,6 +33,45 @@ test('creates a complete private room with selected people, agents, color, guide
  expect(result.room.color).toBe('teal');
  expect((await listBusinesses(env.DB,org,{viewer:'creator'})).find(room=>room.slug===result.room.slug)?.color).toBe('teal');
  expect(await listBusinesses(env.DB,org,{viewer:'guest'})).toEqual([]);
+});
+test('room creation grants only selected eligible members when the Agent owner chooses it',async()=>{
+ await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES (?1,'helper','private','[]','now')").bind(org).run();
+ const result=await createManagedRoom(env.DB,org,'creator',draft({memberRefs:[await memberRef(org,'reader')],agentIds:['helper'],grantAccessAgentIds:['helper']}));
+ expect(result.created).toBe(true);
+ expect((await env.DB.prepare("SELECT role,member_since FROM hx_agent_members WHERE org_id=?1 AND agent_id='helper' AND user_id='reader'").bind(org).first()).role).toBe('member');
+ expect(await env.DB.prepare("SELECT 1 FROM hx_agent_members WHERE org_id=?1 AND agent_id='helper' AND user_id='guest'").bind(org).first()).toBeNull();
+ expect((await roomRoleState(env.DB,org,result.room.channel)).members.map(m=>m.id).sort()).toEqual(['creator','helper','reader']);
+});
+test('room creation preserves existing team people access while granting newly selected members',async()=>{
+ await upsertUser(env.DB,{githubId:'shared',login:'shared',name:'shared',locale:'en'});
+ await upsertMembership(env.DB,org,'shared','member');
+ await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES (?1,'helper','people','[\"shared\"]','now')").bind(org).run();
+ const result=await createManagedRoom(env.DB,org,'creator',draft({
+  memberRefs:[await memberRef(org,'reader'),await memberRef(org,'shared')],agentIds:['helper'],grantAccessAgentIds:['helper']
+ }));
+ expect(result.created).toBe(true);
+ expect(await env.DB.prepare("SELECT access,people FROM hx_agent_profiles WHERE org_id=?1 AND agent_id='helper'").bind(org).first()).toMatchObject({access:'people',people:'["shared"]'});
+ expect(await mayAccessAgent(env.DB,org,{id:'helper',scope:'team',ownerLogin:'creator'},'shared')).toBe(true);
+ expect(await mayAccessAgent(env.DB,org,{id:'helper',scope:'team',ownerLogin:'creator'},'reader')).toBe(true);
+});
+test('personal agent access is kept private while selected initial room members are granted access',async()=>{
+ await env.DB.prepare("UPDATE custom_agents SET scope='personal' WHERE org_id=?1 AND id='helper'").bind(org).run();
+ await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES (?1,'helper','everyone','[]','now')").bind(org).run();
+ const result=await createManagedRoom(env.DB,org,'creator',draft({memberRefs:[await memberRef(org,'reader')],agentIds:['helper'],grantAccessAgentIds:['helper']}));
+ expect(result.created).toBe(true);
+ expect((await env.DB.prepare("SELECT scope FROM custom_agents WHERE org_id=?1 AND id='helper'").bind(org).first()).scope).toBe('team');
+ expect((await env.DB.prepare("SELECT access,people FROM hx_agent_profiles WHERE org_id=?1 AND agent_id='helper'").bind(org).first()).access).toBe('private');
+ expect(await env.DB.prepare("SELECT 1 FROM hx_agent_members WHERE org_id=?1 AND agent_id='helper' AND user_id='reader'").bind(org).first()).not.toBeNull();
+});
+test('room creation rechecks grant recipients when Agent access changes before commit',async()=>{
+ await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES (?1,'helper','private','[]','now')").bind(org).run();
+ const raced={prepare:sql=>env.DB.prepare(sql),batch:async statements=>{
+  await env.DB.prepare("UPDATE hx_agent_profiles SET access='everyone' WHERE org_id=?1 AND agent_id='helper'").bind(org).run();
+  return env.DB.batch(statements);
+ }};
+ expect((await createManagedRoom(raced,org,'creator',draft({memberRefs:[await memberRef(org,'reader')],agentIds:['helper'],grantAccessAgentIds:['helper']}))).status).toBe(409);
+ for(const table of ['businesses','hx_room_creations','hx_room_access','conversation_members','channel_agents','hx_agent_members'])
+  expect(await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE org_id=?1`).bind(org).first('n')).toBe(0);
 });
 test('concurrent identical retries create only one room; changed payload cannot reuse the request',async()=>{
  const results=await Promise.all([createManagedRoom(env.DB,org,'creator',draft()),createManagedRoom(env.DB,org,'creator',draft())]);

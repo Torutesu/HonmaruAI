@@ -14,7 +14,7 @@ import {ReadPositions} from '../utils/readPositions'
 import {RoomSettings} from './RoomSettings'
 import { RoomMembers } from './RoomMembers'
 import { ROOM_COLORS } from '../utils/roomColors'
-import { RoomCreateDialog, type RoomCreateInput } from './RoomCreateDialog'
+import { RoomCreateDialog, type RoomCreateInput, type RoomPerson } from './RoomCreateDialog'
 import { RoomJoinDialog } from './RoomJoinDialog'
 import { ThreadReferences } from './ThreadReferences'
 import {useThreadPins} from '../utils/threadPins'
@@ -1031,6 +1031,8 @@ export const ClassicList: React.FC<Props> = ({
   const roomCreationScope=useRef(0)
   useEffect(()=>{roomCreationScope.current++;return()=>{roomCreationScope.current++}},[api.orgId,api.httpBase,api.sessionToken])
   const [creatingRoom, setCreatingRoom] = useState(false)
+  const [requestableRoomAgents,setRequestableRoomAgents]=useState<Array<{id:string;name:string;avatarUrl?:string|null;accessRequestStatus:'none'|'pending'}>>([])
+  const [addableRoomAgents,setAddableRoomAgents]=useState<Array<{id:string;name:string;avatarUrl?:string|null;missingAccessMembers:Array<{ref:string;name:string}>;canGrantAccess:boolean}>>([])
   const [joiningRoom, setJoiningRoom] = useState(false)
   const [roomMembersView,setRoomMembersView]=useState<string|null>(null)
   const [adding, setAdding] = useState(false)
@@ -1042,6 +1044,35 @@ export const ClassicList: React.FC<Props> = ({
   const [problem, setProblem] = useState<string | null>(null)
   // The channel's own controls, behind ⋯ — as in a chat client, not in the way.
   const [settings, setSettings] = useState(false)
+
+  const refreshRequestableRoomAgents=useCallback(async()=>{
+    const response=await fetch(`${api.httpBase}/hx/agent-access-options?${new URLSearchParams({orgId:api.orgId})}`,{headers:authHeaders})
+    const result=await response.json().catch(()=>({}))
+    if(!response.ok)throw Error(result.message||'Agent access options did not load.')
+    if(Array.isArray(result.agents))setRequestableRoomAgents(result.agents)
+    if(Array.isArray(result.addableAgents))setAddableRoomAgents(result.addableAgents)
+    window.dispatchEvent(new Event('honmaru:agents-changed'))
+  },[api.httpBase,api.orgId,authHeaders])
+  useEffect(()=>{
+    if(!harness||!creatingRoom){setRequestableRoomAgents([]);setAddableRoomAgents([]);return}
+    let active=true
+    void fetch(`${api.httpBase}/hx/agent-access-options?${new URLSearchParams({orgId:api.orgId})}`,{headers:authHeaders})
+      .then(async response=>{const result=await response.json().catch(()=>({}));if(!response.ok)throw Error(result.message||'Agent access options did not load.');return result})
+      .then(result=>{if(active&&Array.isArray(result.agents))setRequestableRoomAgents(result.agents);if(active&&Array.isArray(result.addableAgents))setAddableRoomAgents(result.addableAgents)})
+      .catch(()=>{if(active){setRequestableRoomAgents([]);setAddableRoomAgents([])}})
+    return()=>{active=false}
+  },[harness,creatingRoom,api.httpBase,api.orgId,authHeaders])
+  useEffect(()=>{
+    if(!harness||!creatingRoom||!requestableRoomAgents.some(agent=>agent.accessRequestStatus==='pending'))return
+    const timer=window.setInterval(()=>{void refreshRequestableRoomAgents().catch(()=>{})},15000)
+    return()=>window.clearInterval(timer)
+  },[harness,creatingRoom,requestableRoomAgents,refreshRequestableRoomAgents])
+  const requestRoomAgentAccess=useCallback(async(agent:RoomPerson)=>{
+    const response=await fetch(`${api.httpBase}/hx/agents/${encodeURIComponent(agent.id)}/access-request`,{method:'POST',headers:{...authHeaders,'content-type':'application/json'},body:JSON.stringify({orgId:api.orgId,requestKey:crypto.randomUUID()})})
+    const result=await response.json().catch(()=>({}))
+    if(!response.ok)throw Error(result.message||'That access request did not send.')
+    await refreshRequestableRoomAgents()
+  },[api.httpBase,api.orgId,authHeaders,refreshRequestableRoomAgents])
 
   const createChannel = async () => {
     const name = newName.trim()
@@ -5837,8 +5868,9 @@ export const ClassicList: React.FC<Props> = ({
       {harness && roomMembersView && roomMemberDialog(roomMembersView,()=>setRoomMembersView(null))}
       {harness && creatingRoom && onCreateRoom && <RoomCreateDialog key={api.orgId} people={[
         ...members.filter(m=>!m.mine).map(m=>({id:m.ref,kind:'person' as const,name:m.name,avatarUrl:m.avatarUrl||undefined})),
-        ...agents.map(a=>({id:a.id,kind:'agent' as const,name:a.name,avatarUrl:a.avatarUrl||undefined})),
-      ]} onClose={()=>setCreatingRoom(false)} onCreate={async input=>{
+        ...addableRoomAgents.map(a=>({id:a.id,kind:'agent' as const,name:a.name,avatarUrl:a.avatarUrl||undefined,missingAccessMembers:a.missingAccessMembers,canGrantAccess:a.canGrantAccess})),
+        ...requestableRoomAgents.map(a=>({id:a.id,kind:'agent' as const,name:a.name,avatarUrl:a.avatarUrl||undefined,requestOnly:true,accessRequestStatus:a.accessRequestStatus})),
+      ]} onRequestAgentAccess={requestRoomAgentAccess} onClose={()=>setCreatingRoom(false)} onCreate={async input=>{
         const scope=roomCreationScope.current;const room=await onCreateRoom(input);if(scope!==roomCreationScope.current)return;setCreatingRoom(false);setChannelsTick(n=>n+1);choose(`channel:${room.slug}`)
       }}/>}
       {harness && joiningRoom && <RoomJoinDialog key={api.orgId} api={api} onClose={() => setJoiningRoom(false)} onJoined={channel => {

@@ -2232,3 +2232,45 @@ CREATE INDEX IF NOT EXISTS hx_document_jobs_queue ON hx_document_jobs(gateway_id
 CREATE INDEX IF NOT EXISTS hx_document_jobs_history ON hx_document_jobs(org_id,created_by,scope,created_at DESC,id DESC);
 
 CREATE TABLE IF NOT EXISTS hx_document_nodes (gateway_id TEXT PRIMARY KEY,org_id TEXT NOT NULL,last_seen_at INTEGER NOT NULL);
+
+-- Explicit, repeatable Agent access request tables.
+/* Persistent Agent access requests are separate from room membership. */
+CREATE TABLE IF NOT EXISTS hx_agent_access_requests (
+  org_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  requester_id TEXT NOT NULL,
+  requester_login TEXT NOT NULL,
+  requester_membership TEXT NOT NULL,
+  owner_login TEXT NOT NULL,
+  request_key TEXT NOT NULL,
+  card_id TEXT NOT NULL,
+  nonce TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','approved','declined','cancelled','expired')),
+  created_at TEXT NOT NULL,
+  decided_by TEXT,
+  decided_at TEXT,
+  PRIMARY KEY (org_id,id),
+  UNIQUE (org_id,requester_id,request_key),
+  UNIQUE (org_id,card_id),
+  FOREIGN KEY (org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hx_agent_access_requests_pending
+  ON hx_agent_access_requests(org_id,agent_id,requester_id,requester_membership) WHERE status='pending';
+CREATE INDEX IF NOT EXISTS idx_hx_agent_access_requests_owner
+  ON hx_agent_access_requests(org_id,owner_login,status,created_at);
+
+CREATE TABLE IF NOT EXISTS hx_agent_access_request_approvers (
+  org_id TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  card_id TEXT NOT NULL,
+  recipient_login TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN('pending','approved','declined')),
+  created_at TEXT NOT NULL,
+  decided_at TEXT,
+  PRIMARY KEY(org_id,request_id,recipient_login),
+  UNIQUE(org_id,card_id),
+  FOREIGN KEY(org_id,request_id) REFERENCES hx_agent_access_requests(org_id,id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_hx_agent_access_request_approvers_pending
+  ON hx_agent_access_request_approvers(org_id,recipient_login,status);

@@ -67,6 +67,9 @@ export interface DecisionCard {
   // Your AI offering to automate something you keep asking for. Approving
   // the card creates the routine.
   proposal?: Proposal
+  // A private approval card that grants one named requester use of one
+  // shared team Agent. It does not change room membership.
+  agentAccessRequest?: { requestId: string; agentId: string }
   // Your daily report, drafted in your voice: you read it, change it, and
   // post it to its channel yourself.
   dailyReport?: DailyReport

@@ -1,5 +1,6 @@
 // Room roles are independent of workspace and agent roles. A grant belongs
 // to the current membership/assignment, so leaving and returning never revives it.
+import {roomAgentAccessPlan} from './agentAccessRequests.js';
 const subjects = `SELECT 'person' AS kind,u.github_id AS id,u.name,u.login,
     m.created_at||'/'||c.added_at AS membership,CASE WHEN LOWER(COALESCE(m.role,'guest'))='guest' THEN 0 ELSE 1 END AS eligible,
     CASE WHEN LOWER(COALESCE(m.role,'guest'))='guest' THEN 'member' ELSE COALESCE(r.role,'member') END AS role
@@ -277,21 +278,52 @@ export async function publicRooms(db, orgId, actorId) {
   return results.map(r=>({...r,joined:!!r.joined}));
 }
 
-export async function addManagedRoomAgent(db,orgId,channel,{actorId,agentId}) {
+export async function addManagedRoomAgent(db,orgId,channel,{actorId,agentId,grantAccess=false}) {
   const state=await roomRoleState(db,orgId,channel);
   if(!state?.managed) {
     const policy=await db.prepare('SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2').bind(orgId,channel).first();
-    return policy?{error:'Room membership changed. Reload before saving.',status:409}:{managed:false};
+    return policy?{error:'Room membership changed. Reload before saving.',status:409}:grantAccess
+      ?{error:'Agent access grants require a managed room. Reload before saving.',status:409}:{managed:false};
   }
   const actor=state.members.find(m=>m.kind==='person'&&m.id===String(actorId)&&m.eligible);
   if(!actor)return {error:'Only a room member can add agents.',status:403};
   if(state.members.some(m=>m.kind==='agent'&&m.id===agentId))return {managed:true,added:false};
-  const nonce=crypto.randomUUID(),at=new Date().toISOString();
+  const accessPlan=grantAccess?await roomAgentAccessPlan(db,orgId,agentId,state.members,actorId):{missing:[],canGrantAccess:false};
+  if(grantAccess&&!accessPlan.canGrantAccess)return {error:'Only an agent owner or member can grant access to room members.',status:403};
+  const grants=grantAccess?accessPlan.missing:[];
+  const grantIds=grants.map(m=>m.id).sort();
+  const grantSnapshot=JSON.stringify(grants.map(m=>[m.id,m.membership,m.login]).sort((a,b)=>a[0].localeCompare(b[0])));
+  const grant=grantIds.length>0,nonce=crypto.randomUUID(),accessNonce=crypto.randomUUID(),at=new Date().toISOString();
   const gate='EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2 AND mutation_id=?3 AND deleted_at IS NULL)';
+  const agentGrantAuthority=`EXISTS(SELECT 1 FROM custom_agents a JOIN users au ON au.github_id=?5
+    JOIN memberships am ON am.org_id=a.org_id AND am.user_github_id=au.github_id AND LOWER(COALESCE(am.role,'guest'))!='guest'
+    WHERE a.org_id=?1 AND a.id=?7 AND a.deleted_at IS NULL AND a.provider IS NULL
+      AND ((a.scope='personal' AND a.owner_login=au.login) OR (a.scope='team' AND
+        (a.owner_login=au.login OR EXISTS(SELECT 1 FROM hx_agent_members ar
+          JOIN memberships arm ON arm.org_id=ar.org_id AND arm.user_github_id=ar.user_id
+            AND arm.created_at=ar.member_since AND LOWER(COALESCE(arm.role,'guest'))!='guest'
+          WHERE ar.org_id=a.org_id AND ar.agent_id=a.id AND ar.user_id=au.github_id AND ar.role IN('admin','member'))))))`;
+  const agentGrantAuthorityAfterNonce=agentGrantAuthority.replaceAll('?5','?6');
+  const grantSnapshotSql=`SELECT json_group_array(json_array(id,membership,login)) FROM (
+    SELECT CAST(m.user_github_id AS TEXT) AS id,m.created_at||'/'||c.added_at AS membership,u.login
+    FROM memberships m JOIN users u ON u.github_id=m.user_github_id
+    JOIN conversation_members c ON c.org_id=m.org_id AND c.login=u.login AND c.channel=?2
+    JOIN custom_agents a ON a.org_id=m.org_id AND a.id=?7 AND a.deleted_at IS NULL AND a.provider IS NULL
+    LEFT JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
+    WHERE m.org_id=?1 AND m.user_github_id IN(SELECT value FROM json_each(?9))
+      AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND NOT ((a.scope!='personal' OR a.owner_login=u.login) AND (
+        p.agent_id IS NULL OR p.access='everyone' OR a.owner_login=u.login
+        OR (p.access='people' AND EXISTS(SELECT 1 FROM json_each(p.people) WHERE value=u.login))
+        OR (a.scope='team' AND EXISTS(SELECT 1 FROM hx_agent_members ar
+          WHERE ar.org_id=a.org_id AND ar.agent_id=a.id AND ar.user_id=u.github_id
+            AND ar.member_since=m.created_at AND LOWER(COALESCE(m.role,'guest'))!='guest'))
+      )) ORDER BY m.user_github_id)`;
   const result=await db.batch([
     db.prepare(`UPDATE hx_room_access SET version=version+1,mutation_id=?3
       WHERE org_id=?1 AND channel=?2 AND version=?4 AND deleted_at IS NULL
       AND EXISTS(SELECT 1 FROM (${subjects}) WHERE kind='person' AND id=?5 AND eligible=1 AND membership=?6)
+      AND (?8=0 OR (${agentGrantAuthority}) AND (${grantSnapshotSql})=?10)
       AND EXISTS(SELECT 1 FROM custom_agents a LEFT JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
         JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?5 AND LOWER(COALESCE(m.role,'guest'))!='guest'
         JOIN users u ON u.github_id=m.user_github_id
@@ -302,12 +334,41 @@ export async function addManagedRoomAgent(db,orgId,channel,{actorId,agentId}) {
             WHERE r.org_id=a.org_id AND r.agent_id=a.id AND r.user_id=?5 AND r.member_since=m.created_at)))
         AND NOT EXISTS(SELECT 1 FROM channel_agents ca JOIN custom_agents other ON other.org_id=ca.org_id AND other.id=ca.agent_id AND other.deleted_at IS NULL
           WHERE ca.org_id=?1 AND ca.channel=?2 AND (other.handle=a.handle OR other.id=a.id)))`)
-      .bind(orgId,channel,nonce,state.version,String(actorId),actor.membership,agentId),
+      .bind(orgId,channel,nonce,state.version,String(actorId),actor.membership,agentId,grant?1:0,JSON.stringify(grantIds),grantSnapshot),
+    db.prepare(`INSERT OR IGNORE INTO hx_agent_access(org_id,agent_id,version)
+      SELECT ?1,?7,0 WHERE ?8=1 AND ${gate} AND ${agentGrantAuthority}`)
+      .bind(orgId,channel,nonce,state.version,String(actorId),actor.membership,agentId,grant?1:0),
+    db.prepare(`UPDATE hx_agent_access SET version=version+1,mutation_id=?4
+      WHERE org_id=?1 AND agent_id=?7 AND ?8=1 AND ${gate} AND ${agentGrantAuthorityAfterNonce}`)
+      .bind(orgId,channel,nonce,accessNonce,state.version,String(actorId),agentId,grant?1:0),
+    db.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,specialty,tier,mention_only,access,people,updated_by,updated_at)
+      SELECT ?1,?7,'','standard',0,'private','[]',?5,?6
+      WHERE EXISTS(SELECT 1 FROM hx_agent_access WHERE org_id=?1 AND agent_id=?7 AND mutation_id=?4)
+      ON CONFLICT(org_id,agent_id) DO UPDATE SET access=CASE WHEN EXISTS(
+        SELECT 1 FROM custom_agents WHERE org_id=?1 AND id=?7 AND scope='personal' AND owner_login=?5) THEN 'private' ELSE hx_agent_profiles.access END,
+        people=CASE WHEN EXISTS(SELECT 1 FROM custom_agents WHERE org_id=?1 AND id=?7 AND scope='personal' AND owner_login=?5) THEN '[]' ELSE hx_agent_profiles.people END,
+        updated_by=excluded.updated_by,updated_at=excluded.updated_at`)
+      .bind(orgId,channel,nonce,accessNonce,actor.login,at,agentId),
+    db.prepare(`UPDATE custom_agents SET scope='team',updated_by=?5,updated_at=?6 WHERE org_id=?1 AND id=?7 AND scope='personal'
+      AND EXISTS(SELECT 1 FROM hx_agent_access WHERE org_id=?1 AND agent_id=?7 AND mutation_id=?4)`)
+      .bind(orgId,channel,nonce,accessNonce,actor.login,at,agentId),
+    db.prepare(`INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,updated_by,updated_at,member_since)
+      SELECT ?1,?7,m.user_github_id,'member',?5,?6,m.created_at FROM memberships m JOIN users u ON u.github_id=m.user_github_id
+      WHERE m.org_id=?1 AND m.user_github_id IN(SELECT value FROM json_each(?9)) AND LOWER(COALESCE(m.role,'guest'))!='guest'
+        AND EXISTS(SELECT 1 FROM hx_agent_access WHERE org_id=?1 AND agent_id=?7 AND mutation_id=?4)
+        AND ${gate}
+      ON CONFLICT(org_id,agent_id,user_id) DO UPDATE SET
+        role=CASE WHEN hx_agent_members.member_since!=excluded.member_since THEN 'member' ELSE hx_agent_members.role END,
+        member_since=excluded.member_since,updated_by=excluded.updated_by,updated_at=excluded.updated_at`)
+      .bind(orgId,channel,nonce,accessNonce,actor.login,at,agentId,grant?1:0,JSON.stringify(grantIds)),
     db.prepare(`DELETE FROM hx_room_roles WHERE org_id=?1 AND channel=?2 AND subject_kind='agent' AND subject_id=?4 AND ${gate}`).bind(orgId,channel,nonce,agentId),
-    db.prepare(`INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) SELECT ?1,?2,?4,?5,?6 WHERE ${gate}`)
-      .bind(orgId,channel,nonce,agentId,actor.login,at),
+    db.prepare(`INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) SELECT ?1,?2,?4,?5,?6 WHERE ${gate}
+      AND (?7=0 OR EXISTS(SELECT 1 FROM hx_agent_access WHERE org_id=?1 AND agent_id=?4 AND mutation_id=?8))`)
+      .bind(orgId,channel,nonce,agentId,actor.login,at,grant?1:0,accessNonce),
   ]);
-  return result[0].meta?.changes?{managed:true,added:true}:{error:'Room membership or agent access changed. Reload before saving.',status:409};
+  return result[0].meta?.changes&&result[7].meta?.changes&&(!grant||result[2].meta?.changes)
+    ?{managed:true,added:true,...(grantAccess?{granted:grantIds.length}:{})}
+    :{error:grant?'Agent or room access changed. Reload before saving.':'Room membership or agent access changed. Reload before saving.',status:409};
 }
 
 export async function archiveManagedRoom(db,orgId,channel,{actorId,archived,version,name}) {

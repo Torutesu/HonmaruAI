@@ -25,6 +25,19 @@ test('room creation keeps choices across steps and submits distinct human and ag
  expect(save).toHaveBeenCalledWith(expect.objectContaining({name:'Planning',private:true,guidelines:'Share useful context.',memberRefs:['p1'],agentIds:['a1'],color:'teal'}))
  act(()=>tree.unmount())
 })
+test('room creation explicitly includes the selected Agent access grant',async()=>{
+ const selected=[{id:'p1',kind:'person' as const,name:'Alice',selected:true},{id:'a1',kind:'agent' as const,name:'Assistant',selected:true,canGrantAccess:true,missingAccessMembers:[{ref:'p1',name:'Alice'}]}]
+ const save=vi.fn().mockResolvedValue(undefined);let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<RoomCreateDialog people={selected} onCreate={save} onClose={vi.fn()}/>)})
+ act(()=>button(tree,'Next').props.onClick())
+ act(()=>tree.root.findByProps({id:'room-create-name'}).props.onChange({target:{value:'Planning'}}))
+ act(()=>button(tree,'Next').props.onClick())
+ const radios=tree.root.findAllByProps({type:'radio'});expect(radios.map(radio=>radio.props.checked)).toEqual([true,false])
+ act(()=>radios[1].props.onChange())
+ await act(async()=>button(tree,'Create').props.onClick())
+ expect(save).toHaveBeenCalledWith(expect.objectContaining({agentIds:['a1'],memberRefs:['p1'],grantAccessAgentIds:['a1']}))
+ act(()=>tree.unmount())
+})
 test('failed creation retains the draft and idempotency key while duplicate submits and closing are blocked',async()=>{
  let reject!:(e:Error)=>void;const save=vi.fn().mockImplementationOnce(()=>new Promise((_,r)=>{reject=r})).mockResolvedValue(undefined),close=vi.fn();let tree!:ReturnType<typeof create>
  act(()=>{tree=create(<RoomCreateDialog people={people} onCreate={save} onClose={close}/>)})

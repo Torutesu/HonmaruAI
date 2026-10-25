@@ -2,7 +2,8 @@ import React,{useCallback,useEffect,useRef,useState} from 'react'
 import {RoomMembersDialog,type RoomMemberRow} from './RoomMembersDialog'
 import {RoomMemberPicker,type RoomCandidate} from './RoomMemberPicker'
 interface RoomDetails {
- addableAgents?:Array<{id:string;name:string;avatarUrl?:string|null}>
+ addableAgents?:Array<{id:string;name:string;avatarUrl?:string|null;missingAccessMembers?:Array<{id:string;name:string}>;canGrantAccess?:boolean}>
+ requestableAgents?:Array<{id:string;name:string;avatarUrl?:string|null;accessRequestStatus:'none'|'pending'}>
  channel:{managed?:boolean;version?:number;canInvite?:boolean}
  members:{people:Array<{ref:string;name:string;avatarUrl?:string;roomRole:'admin'|'member';canChangeRole?:boolean;canRemove?:boolean;you?:boolean}>;agents:Array<{id:string;name:string;avatarUrl?:string;roomRole:'admin'|'member';canChangeRole?:boolean;canRemove?:boolean}>}
 }
@@ -42,6 +43,7 @@ export function RoomMembers({api,view,onClose,onInvite,onProfile,onChanged,peopl
  const candidates:RoomCandidate[]=data?[
   ...people.filter(person=>!data.members.people.some(member=>member.ref===person.ref)).map(person=>({...person,id:person.ref,kind:'person' as const})),
   ...(data.addableAgents||[]).map(agent=>({...agent,kind:'agent' as const})),
+  ...(data.requestableAgents||[]).map(agent=>({...agent,kind:'agent' as const,requestOnly:true,accessRequestStatus:agent.accessRequestStatus})),
  ]:[]
  const add=async(selected:RoomCandidate[])=>{
   if(addingPending.current)return
@@ -51,8 +53,9 @@ export function RoomMembers({api,view,onClose,onInvite,onProfile,onChanged,peopl
   try{
    const allowed=new Set(candidates.map(row=>`${row.kind}:${row.id}`))
    if(selected.some(row=>!allowed.has(`${row.kind}:${row.id}`)))throw Error('Reload before saving.')
+   if(selected.some(row=>row.requestOnly))throw Error('Request agent access before adding it to this room.')
    const humans=selected.filter(row=>row.kind==='person').map(row=>row.id)
-   const steps=[...(humans.length?[{path:'members',body:{refs:humans}}]:[]),...selected.filter(row=>row.kind==='agent').map(row=>({path:'channel-agents',body:{agentId:row.id}}))]
+   const steps=[...(humans.length?[{path:'members',body:{refs:humans}}]:[]),...selected.filter(row=>row.kind==='agent').map(row=>({path:'channel-agents',body:{agentId:row.id,grantAccess:row.grantAccess===true}}))]
    for(const step of steps){
     if(generation!==scope.current)return
     const response=await fetch(`${api.httpBase}/channels/${step.path}`,{method:'POST',headers:{'content-type':'application/json','x-session-token':api.sessionToken},body:JSON.stringify({orgId:api.orgId,channel:view,...step.body})})
@@ -69,6 +72,10 @@ export function RoomMembers({api,view,onClose,onInvite,onProfile,onChanged,peopl
    await load();throw e
   }finally{addingPending.current=false}
  }
- if(adding&&!loading)return <RoomMemberPicker candidates={candidates} error={error||(!data?.channel.canInvite?'Reload before saving.':'')} onReload={()=>void load()} onAdd={add} onClose={()=>setAdding(false)} onInvite={()=>{onClose();onInvite()}}/>
+ if(adding&&!loading)return <RoomMemberPicker candidates={candidates} error={error||(!data?.channel.canInvite?'Reload before saving.':'')} onReload={()=>void load()} onAdd={add} onRequestAccess={async agent=>{
+  const response=await fetch(`${api.httpBase}/hx/agents/${encodeURIComponent(agent.id)}/access-request`,{method:'POST',headers:{'content-type':'application/json','x-session-token':api.sessionToken},body:JSON.stringify({orgId:api.orgId,requestKey:crypto.randomUUID()})})
+  const result=await response.json();if(!response.ok)throw Error(result.message||'That access request did not send.')
+  onChanged();await load()
+ }} onClose={()=>setAdding(false)} onInvite={()=>{onClose();onInvite()}}/>
  return <RoomMembersDialog members={members} loading={loading} error={error} onReload={()=>void load()} onClose={onClose} onAdd={data?.channel.canInvite?()=>setAdding(true):undefined} onProfile={onProfile} onRole={(member,role)=>mutate(member,role)} onRemove={member=>mutate(member)}/>
 }

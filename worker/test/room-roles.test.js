@@ -2,6 +2,7 @@ import {env} from 'cloudflare:test';
 import {beforeEach,test,expect} from 'vitest';
 import {upsertUser,upsertMembership} from '../src/db.js';
 import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject,deleteManagedRoom,changeManagedRoomMembers,joinPublicRoom,publicRooms,addManagedRoomAgent,archiveManagedRoom,setRoomPrivacy} from '../src/harness/roomRoles.js';
+import {mayAccessAgent} from '../src/harness/agents.js';
 const org='room-roles',channel='b:planning';
 beforeEach(async()=>{
   for(const [id,role] of [['creator','member'],['reader','member'],['outsider','admin'],['guest','guest']]) {
@@ -479,6 +480,73 @@ test('restricted agent invitations honor people sharing and current explicit gra
   await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1").bind(org).run();
   await env.DB.prepare("UPDATE hx_agent_members SET member_since='obsolete' WHERE org_id=?1").bind(org).run();
   expect((await add()).status).toBe(409);
+});
+
+test('adding an agent can explicitly grant access to current eligible room members only',async()=>{
+ await initializeRoomRoles(env.DB,org,channel,'creator');
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?1,?2,'outsider','joined')").bind(org,channel).run();
+ await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES (?1,'helper','private','[]','now')").bind(org).run();
+ await env.DB.prepare("INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,updated_by,updated_at,member_since) SELECT ?1,'helper','reader','member','creator','now',created_at FROM memberships WHERE org_id=?1 AND user_github_id='reader'").bind(org).run();
+ await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1").bind(org).run();
+ const result=await addManagedRoomAgent(env.DB,org,channel,{actorId:'reader',agentId:'helper',grantAccess:true});
+ expect(result).toMatchObject({managed:true,added:true,granted:1});
+ expect((await env.DB.prepare("SELECT member_since FROM hx_agent_members WHERE org_id=?1 AND agent_id='helper' AND user_id='outsider'").bind(org).first()).member_since)
+  .toBe((await env.DB.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id='outsider'").bind(org).first()).created_at);
+ expect(await env.DB.prepare("SELECT 1 FROM hx_agent_members WHERE org_id=?1 AND agent_id='helper' AND user_id='guest'").bind(org).first()).toBeNull();
+});
+
+test('granting room access preserves a team Agent people allowlist',async()=>{
+ await initializeRoomRoles(env.DB,org,channel,'creator');
+ await upsertUser(env.DB,{githubId:'shared',login:'shared',name:'Shared',locale:'en'});
+ await upsertMembership(env.DB,org,'shared','member');
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?1,?2,'shared','joined'),(?1,?2,'outsider','joined')").bind(org,channel).run();
+ await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES (?1,'helper','people','[\"shared\"]','now')").bind(org).run();
+ await env.DB.prepare("INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,updated_by,updated_at,member_since) SELECT ?1,'helper','reader','member','creator','now',created_at FROM memberships WHERE org_id=?1 AND user_github_id='reader'").bind(org).run();
+ await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1").bind(org).run();
+ expect(await addManagedRoomAgent(env.DB,org,channel,{actorId:'reader',agentId:'helper',grantAccess:true})).toMatchObject({managed:true,added:true,granted:1});
+ expect(await env.DB.prepare("SELECT access,people FROM hx_agent_profiles WHERE org_id=?1 AND agent_id='helper'").bind(org).first()).toMatchObject({access:'people',people:'["shared"]'});
+ expect(await mayAccessAgent(env.DB,org,{id:'helper',scope:'team',ownerLogin:'creator'},'shared')).toBe(true);
+ expect(await mayAccessAgent(env.DB,org,{id:'helper',scope:'team',ownerLogin:'creator'},'outsider')).toBe(true);
+});
+
+test('adding without access leaves room members ungranted and unauthorized actors cannot grant',async()=>{
+ await initializeRoomRoles(env.DB,org,channel,'creator');
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?1,?2,'outsider','joined')").bind(org,channel).run();
+ await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES (?1,'helper','private','[]','now')").bind(org).run();
+ await env.DB.prepare("INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,updated_by,updated_at,member_since) SELECT ?1,'helper','reader','member','creator','now',created_at FROM memberships WHERE org_id=?1 AND user_github_id='reader'").bind(org).run();
+ await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1").bind(org).run();
+ expect(await addManagedRoomAgent(env.DB,org,channel,{actorId:'reader',agentId:'helper'})).toEqual({managed:true,added:true});
+ expect(await env.DB.prepare("SELECT 1 FROM hx_agent_members WHERE org_id=?1 AND agent_id='helper' AND user_id='outsider'").bind(org).first()).toBeNull();
+ await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1").bind(org).run();
+ expect((await addManagedRoomAgent(env.DB,org,channel,{actorId:'outsider',agentId:'helper',grantAccess:true})).status).toBe(403);
+ expect((await roomRoleState(env.DB,org,channel)).members.some(m=>m.id==='helper')).toBe(false);
+});
+
+test('a personal agent becomes private team access only when its owner grants room access',async()=>{
+ await initializeRoomRoles(env.DB,org,channel,'creator');
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?1,?2,'outsider','joined')").bind(org,channel).run();
+ await env.DB.prepare("UPDATE custom_agents SET scope='personal' WHERE org_id=?1 AND id='helper'").bind(org).run();
+ await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES (?1,'helper','private','[]','now')").bind(org).run();
+ await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1").bind(org).run();
+ expect(await addManagedRoomAgent(env.DB,org,channel,{actorId:'creator',agentId:'helper',grantAccess:true})).toMatchObject({managed:true,added:true,granted:2});
+ expect((await env.DB.prepare("SELECT scope FROM custom_agents WHERE org_id=?1 AND id='helper'").bind(org).first()).scope).toBe('team');
+ expect((await env.DB.prepare("SELECT access FROM hx_agent_profiles WHERE org_id=?1 AND agent_id='helper'").bind(org).first()).access).toBe('private');
+ for(const id of ['reader','outsider'])expect(await env.DB.prepare("SELECT 1 FROM hx_agent_members WHERE org_id=?1 AND agent_id='helper' AND user_id=?2").bind(org,id).first()).not.toBeNull();
+});
+
+test('a room member rejoining during agent grant invalidates the stale grant',async()=>{
+ await initializeRoomRoles(env.DB,org,channel,'creator');
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?1,?2,'outsider','joined')").bind(org,channel).run();
+ await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES (?1,'helper','private','[]','now')").bind(org).run();
+ await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1").bind(org).run();
+ const raced={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+   await env.DB.prepare("UPDATE conversation_members SET added_at='rejoined' WHERE org_id=?1 AND channel=?2 AND login='outsider'").bind(org,channel).run();
+   return env.DB.batch(statements);
+ }};
+ expect((await addManagedRoomAgent(raced,org,channel,{actorId:'creator',agentId:'helper',grantAccess:true})).status).toBe(409);
+ expect((await roomRoleState(env.DB,org,channel)).version).toBe(1);
+ expect(await env.DB.prepare("SELECT 1 FROM channel_agents WHERE org_id=?1 AND channel=?2 AND agent_id='helper'").bind(org,channel).first()).toBeNull();
+ expect(await env.DB.prepare("SELECT 1 FROM hx_agent_members WHERE org_id=?1 AND agent_id='helper' AND user_id='outsider'").bind(org).first()).toBeNull();
 });
 
 

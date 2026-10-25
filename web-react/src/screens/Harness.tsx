@@ -478,7 +478,7 @@ export const HarnessApprovals: React.FC<HarnessProps> = (props) => {
       <div className="rows">
         {data?.toDecide.map((c) => (
           <a key={c.id} className="row" href={hashForCard(c.id)} data-card={c.id}>
-            <span className="row-icon"><Icon name={c.kind === 'workflow' ? 'zap' : 'sparkle'} size={18} /></span>
+            <span className="row-icon"><Icon name={c.kind === 'workflow' ? 'zap' : c.kind === 'access' ? 'shield' : 'sparkle'} size={18} /></span>
             <span className="row-main">{c.title}<span className="row-sub">{[c.source, c.summary].filter(Boolean).join(' · ')}</span></span>
             <span className="row-value">›</span>
           </a>

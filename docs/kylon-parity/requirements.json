@@ -166,7 +166,7 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/agents/overview",
       "code": "worker/src/harness/agentRoles.js",
-      "acceptance": "個別役割・制限付き共有・Memberによる通常メンバー追加削除・自己退出・作成者履歴を保持する所有者移譲・競合検出・最後の人間Admin保護を実装。Agent同士の役割・全実行経路のE2E・本番移譲検証は未完了"
+      "acceptance": "個別役割・制限付き共有・Memberによる通常メンバー追加削除・自己退出・作成者履歴を保持する所有者移譲・競合検出・最後の人間Admin保護に加え、所有者/人間Admin向け非公開の利用申請、申請者だけへの権限付与、他承認者カード同期、ルーム追加時の明示的なアクセス付与選択を実装。Agent同士の役割・全実行経路のE2E・本番マルチユーザー検証は未完了"
     },
     {
       "id": "KY-015",
@@ -237,8 +237,9 @@
       "code": "worker/src/agentRunner.js",
       "acceptance": "停止でモデル・ツール・子実行を中断し課金とUI状態を確定",
       "evidence": {
-        "verified": "Harness assignment stop persists cancelled state, signals only the matching workspace/assignment/generation in AgentRunner, aborts in-flight supported model/tool requests, prevents further model/tool rounds and suppresses late replies. External Claude Managed Agent runs receive an exact-session user.interrupt; Cursor Cloud Agent runs receive the documented run cancel endpoint. Provider stop outcomes are persisted on the assignment and exposed in refreshed UI state with retry for uncertain failures. Focused adapter/route/UI tests pass; full Worker suite is currently running.",
-        "remaining": "Devin/Codex adapters do not expose implemented cancellation here. Existing tools that ignore the optional signal may finish an in-flight side effect. Provider-side billing for an interrupted request may be unknown; production live cancellation and end-to-end confirmation remain unverified. This is partial parity, not a 100% clone."
+        "release": "33f2ca1d deployed to production; CI 40228310355, Worker migration/deploy 40228310408, and Web deploy 40228310357 succeeded.",
+        "verified": "Harness assignment stop persists cancelled state, signals only the matching workspace/assignment/generation in AgentRunner, aborts in-flight supported model/tool requests, prevents further model/tool rounds and suppresses late replies. External Claude Managed Agent runs receive an exact-session user.interrupt; Cursor Cloud Agent runs receive the documented run cancel endpoint. Provider stop outcomes are persisted on the assignment and exposed in refreshed UI state with retry for uncertain failures. Exact-SHA CI passed all nine workflow jobs. Production Worker /health returned ok=true and encryption.all=true; the migration/deploy workflow succeeded. Production Web asset assets/index-CwQcy37i.js (1,057,623 bytes; SHA-256 75636a0078e529515b13f0c3223756226c89b7b05e290fa7f0e87ef7b12a240a) matched a local build byte-for-byte with VITE_API_HOST=tiktokforwork.torubj0904.workers.dev. The signed-in Honmaru app reloaded, and its existing synthetic run status panel rendered. No live external provider cancellation was triggered.",
+        "remaining": "Devin/Codex adapters do not expose implemented cancellation here. Existing tools that ignore the optional signal may finish an in-flight side effect. Provider-side billing for an interrupted request may be unknown; live external cancellation and confirmation of its provider-side terminal state remain unverified. This is partial parity, not a 100% clone."
       }
     },
     {

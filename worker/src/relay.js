@@ -29,6 +29,7 @@ import { listMembers } from "./team.js";
 import { isGuest, isPersonal, isPrivate, accessFor, mayReadCard } from "./access.js";
 import { learnFromDecision } from "./memory.js";
 import { settleWorkflowApproval } from "./harness/workflows.js";
+import { settleAgentAccessRequest } from "./harness/agentAccessRequests.js";
 import { settleProposal } from "./proposals.js";
 import { settleProxyAction } from "./proxy.js";
 import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor } from "./jam.js";
@@ -744,6 +745,14 @@ export class OrgRelay {
           for (const field of ["business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal", "proxyAction", "reminder", "autoApproved", "coveringFor"]) {
             if (card[field] === undefined && existing[field] !== undefined) card[field] = existing[field];
           }
+          // The access request is a server-created, recipient-private approval
+          // card. A client may decide it, but cannot retarget or widen it.
+          if (existing.agentAccessRequest) {
+            card.agentAccessRequest = existing.agentAccessRequest;
+            card.visibility = 'personal';
+            card.senderUserID = existing.senderUserID;
+            card.recipientUserID = existing.recipientUserID;
+          }
         }
       }
       await saveCard(this.db, orgId, card);
@@ -1064,7 +1073,22 @@ export class OrgRelay {
   /// never able to fail it.
   async afterDecision(orgId, card, actorLogin, actorGithubId) {
     try {
-      if (card?.proposal) await settleProposal(this.env, orgId, card);
+      if (card?.agentAccessRequest) {
+        const settled=await settleAgentAccessRequest(this.db, orgId, card);
+        // Owner and Agent-admin copies are separate private cards. Once one
+        // authorized person decides, update the other recipients' live feeds
+        // and append an auditable system decision to each copy.
+        if(settled?.settled) for(const sibling of settled.cards||[]) {
+          const note='Handled by another authorized Agent admin.';
+          await this.log(orgId,{cardId:sibling.id,type:'decided',action:settled.action==='approve'?'approve':'decline',
+            actorUserId:settled.actorLogin,note,snapshot:sibling});
+          const {forEveryone,forRecipient}=upsertEvents(sibling,{isNew:false});
+          for(const ev of forEveryone)await this.broadcastCard(orgId,sibling,ev);
+          for(const ev of forRecipient)this.sendTo(orgId,sibling.recipientUserID,ev);
+          this.state.waitUntil(this.deliver(orgId,sibling,{kind:'decided',excludeLogin:actorLogin,translate:false}));
+        }
+      }
+      else if (card?.proposal) await settleProposal(this.env, orgId, card);
       // An agent's proposal to act outside the chat for its person.
       else if (card?.proxyAction) await settleProxyAction(this.env, orgId, card);
       // A workflow waiting on this person (harness/workflows.js).

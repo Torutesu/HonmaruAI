@@ -10,7 +10,7 @@ test('empty candidate list has workspace invitation rather than a misleading sea
  let tree!:ReturnType<typeof create>
  act(()=>{tree=create(<RoomMemberPicker {...base} candidates={[]}/>)})
  expect(tree.root.findAllByType('input')).toHaveLength(0)
- expect(tree.root.findByType('p').children).toEqual(['All workspace members have already joined.'])
+ expect(tree.root.findByType('p').children).toEqual(['There are no eligible people or agents to add. Invite workspace members or ask an agent owner to share access.'])
  act(()=>tree.root.findByType('button').props.onClick());expect(base.onInvite).toHaveBeenCalledOnce()
  act(()=>tree.unmount())
 })
@@ -25,5 +25,15 @@ test('retains selections on failure, prevents duplicate submits and blocks closi
  await act(async()=>reject(new Error('Conflict')))
  expect(tree.root.findByProps({role:'alert'}).children).toEqual(['Conflict'])
  expect(tree.root.findByProps({type:'checkbox'}).props.checked).toBe(true)
+ act(()=>tree.unmount())
+})
+test('a selected agent names the separate choice to grant member access',()=>{
+ let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<RoomMemberPicker {...base} candidates={[{id:'agent',kind:'agent',name:'Agent',missingAccessMembers:[{id:'person',name:'Person'}],canGrantAccess:true}]}/>)})
+ act(()=>tree.root.findByProps({type:'checkbox'}).props.onChange())
+ const radios=tree.root.findAllByProps({type:'radio'})
+ expect(radios).toHaveLength(2);expect(radios.map(radio=>radio.props.checked)).toEqual([true,false])
+ act(()=>radios[1].props.onChange())
+ expect(tree.root.findAllByProps({type:'radio'}).map(radio=>radio.props.checked)).toEqual([false,true])
  act(()=>tree.unmount())
 })

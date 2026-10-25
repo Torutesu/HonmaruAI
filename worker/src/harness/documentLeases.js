@@ -43,7 +43,7 @@ export async function authorizeDocumentLease(db,{gatewayId,jobId,lease},at=Date.
 }
 export async function heartbeatDocumentJob(db,identity,at=Date.now()){
  const row=await authorizeDocumentLease(db,identity,at);if(!row)return {renewed:false};
- await db.prepare('UPDATE hx_document_nodes SET last_seen_at=?2 WHERE gateway_id=?1').bind(identity.gatewayId,at).run();
+ await db.prepare('UPDATE hx_document_nodes SET last_seen_at=?3 WHERE gateway_id=?1 AND org_id=?2').bind(identity.gatewayId,row.org_id,at).run();
  const r=await db.prepare(`UPDATE hx_document_jobs AS d SET lease_until=MIN(?4+90000,deadline)
  WHERE id=?1 AND gateway_id=?2 AND lease_hash=?3 AND status='running' AND lease_until>?4 AND deadline>?4 AND ${documentLiveAuthority}`).bind(row.id,identity.gatewayId,row.lease_hash,at).run();
  return {renewed:Boolean(r.meta?.changes)};
