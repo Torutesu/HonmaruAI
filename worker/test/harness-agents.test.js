@@ -73,6 +73,18 @@ test("a profile: everyone reads it, only its owner or assigned agent admin chang
   expect((await send("PUT", `/hx/agents/${agentId}/profile`, toru, { orgId: ORG, mentionOnly: true })).status).toBe(200);
 });
 
+test('profile audience changes refresh only the affected members without sharing profile data',async()=>{
+ const events=[];
+ const relayStub={fetch:async(_url,init)=>{events.push(JSON.parse(init.body));return new Response('{}')}};
+ const relay={idFromName:id=>id,get:()=>relayStub};
+ const response=await send('PUT',`/hx/agents/${agentId}/profile`,mika,{orgId:ORG,access:'people',people:['toru']},{ORG_RELAY:relay});
+ expect(response.status).toBe(200);
+ expect(events).toHaveLength(1);
+ const deliveries=events[0].deliveries;
+ expect(deliveries.map(item=>item.to).sort()).toEqual(['kenji','mika','toru']);
+ expect(deliveries.every(item=>item.event.name==='agent_access_changed'&&item.event.value.agentId===agentId&&Object.keys(item.event.value).sort().join(',')==='agentId,version')).toBe(true);
+});
+
 test("told to remember, an agent keeps it without a model, and reads it, its specialty and skills next time, at its tier", async () => {
   await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, specialty: "Accounts receivable", tier: "max" });
   const skill = (await (await send("POST", "/skills", mika, { orgId: ORG, name: "Dunning", body: "Day 7: polite nudge. Day 14: call." })).json()).skill;

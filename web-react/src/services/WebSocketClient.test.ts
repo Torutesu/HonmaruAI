@@ -276,4 +276,20 @@ describe('WebSocketClient', () => {
     socket.emit({ type: 'CUSTOM', name: 'typing', value: { who: { ref: 'r-aki', name: 'Aki' } } })
     expect(heard).toEqual([value])
   })
+
+  it('turns a private Agent access event into an authorized-view refresh signal', async () => {
+    const { socket } = await connectedClient()
+    const target = new EventTarget()
+    const details: unknown[] = []
+    const refresh = vi.fn()
+    target.addEventListener('honmaru:agent-access-changed', event => details.push((event as CustomEvent).detail))
+    target.addEventListener('honmaru:agents-changed', refresh)
+    vi.stubGlobal('window', target)
+
+    socket.emit({ type: 'CUSTOM', name: 'agent_access_changed', value: { agentId: 'agent-a', version: 9 } })
+    socket.emit({ type: 'CUSTOM', name: 'agent_access_changed', value: { version: 10 } })
+
+    expect(details).toEqual([{ agentId: 'agent-a', version: 9 }])
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
 })

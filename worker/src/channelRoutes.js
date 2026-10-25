@@ -12,6 +12,7 @@ import { createManagedRoom } from './harness/roomCreation.js';
 import { addManagedRoomAgent, changeManagedRoomMembers, publicRooms, joinPublicRoom, removeRoomSubject, roomRoleState, setRoomRole } from './harness/roomRoles.js';
 import { explicitAgentRoles } from './harness/agentRoles.js';
 import { requestableAgentOptions, roomAgentAccessPlans } from './harness/agentAccessRequests.js';
+import { announceAgentAccessChanged } from './harness/agentAccessEvents.js';
 import { roomResponses } from "./harness/roomResponses.js";
 import { threadPins, setThreadPin } from "./threadPins.js";
 import {conversationFile,workspaceFileConversation} from './harness/fileConversation.js';
@@ -1708,6 +1709,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       const addition = await addManagedRoomAgent(env.DB, orgId, key, { actorId: ctx.who.session.github_id, agentId: agent.id, grantAccess: body.grantAccess === true });
       if (addition.error) return json({ message: addition.error }, addition.status);
       if (addition.managed ? !addition.added : !(await addChannelAgent(env.DB, { orgId, key, agentId: agent.id, login: me.login }))) return json({ added: false });
+      if (addition.granted > 0) await announceAgentAccessChanged(env, orgId, agent.id, [me.login]);
       await note(serverText(locale, "channel.agentAdded", { who, name: label(agent) }));
       await audit(env, request, { orgId, action: "channel.agent_added", actor: person(me), entity: { type: "agent", id: agent.id, name: `@${agent.handle}` }, details: { channel: ctx.resolved.slug ? `#${ctx.resolved.slug}` : "group" } });
       return json({ added: true });
@@ -1735,6 +1737,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       await audit(env,request,{orgId:body.orgId,action:"channel.created",actor:person(who.user),entity:{type:"channel",id:result.room.slug,name:result.room.name}});
       const members = await listMembers(env.DB,body.orgId,who.session.github_id);
       await announceTo(env,body.orgId,await Promise.all(members.map(async m=>({to:m.login,event:customEvent("businesses",{businesses:await listBusinesses(env.DB,body.orgId,{viewer:m.login})})}))));
+      for (const agentId of result.grantedAgentIds || []) await announceAgentAccessChanged(env,body.orgId,agentId,[who.user.login]);
     }
     return json({...result,businesses:await listBusinesses(env.DB,body.orgId,{viewer:who.user.login})},result.created?201:200);
   }

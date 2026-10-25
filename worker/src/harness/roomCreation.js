@@ -126,7 +126,7 @@ export async function createManagedRoom(db,orgId,actorId,input) {
     ...agentIds.map(id=>db.prepare(`INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) SELECT ?1,?2,?4,?5,?6 WHERE ${gate}`).bind(orgId,channel,nonce,id,actor.login,at)),
     db.prepare(`INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) SELECT ?1,?2,?4,1,?5,?6 WHERE ${gate}`).bind(orgId,channel,nonce,payload.guidelines,actorId,at),
   ]);
-  if(result[0].meta?.changes)return {room:{slug,channel,name:payload.name,color:payload.color,version:1},created:true};
+  if(result[0].meta?.changes)return {room:{slug,channel,name:payload.name,color:payload.color,version:1},created:true,grantedAgentIds:grantGroups.map(group=>group.agentId)};
   const concurrent=await db.prepare('SELECT channel,fingerprint,member_since FROM hx_room_creations WHERE org_id=?1 AND user_id=?2 AND request_id=?3').bind(orgId,actorId,input.requestId).first();
   return concurrent?replay(concurrent):failure('Workspace membership or agent access changed. Reload before creating the room.');
 }

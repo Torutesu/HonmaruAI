@@ -6,7 +6,7 @@ import type {AgentRoleState} from '../utils/harness'
 import './AgentAccessDialog.css'
 
 type Role='admin'|'member'|'none'
-export function AgentAccessDialog({load,save,transfer,onClose}:{load:()=>Promise<AgentRoleState>;save:(ref:string,role:Role,version:number)=>Promise<unknown>;transfer?:(ref:string,version:number)=>Promise<unknown>;onClose:(scope?:'team'|'personal')=>void}) {
+export function AgentAccessDialog({agentId,load,save,transfer,onClose}:{agentId?:string;load:()=>Promise<AgentRoleState>;save:(ref:string,role:Role,version:number)=>Promise<unknown>;transfer?:(ref:string,version:number)=>Promise<unknown>;onClose:(scope?:'team'|'personal')=>void}) {
  const t=useT(),pending=useRef(false),generation=useRef(0)
  const [data,setData]=useState<AgentRoleState|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('')
  const [needsReload,setNeedsReload]=useState(false)
@@ -14,6 +14,16 @@ export function AgentAccessDialog({load,save,transfer,onClose}:{load:()=>Promise
  const [ref,setRef]=useState(''),[role,setRole]=useState<Role>('member')
  const refresh=async()=>{const id=++generation.current;const next=await load();if(id===generation.current){setData(next);setRef('');setRole('member');setTransferTo('');setNeedsReload(false)}}
  useEffect(()=>{let alive=true;void refresh().catch(e=>{if(alive)setError(e instanceof Error?e.message:String(e))});return()=>{alive=false;generation.current++}},[load])
+ useEffect(()=>{
+  if(typeof window==='undefined')return
+  const onChanged=(event:Event)=>{
+   const changed=(event as CustomEvent<{agentId?:string}>).detail?.agentId
+   if(!agentId||changed!==agentId||pending.current)return
+   void refresh().catch(e=>setError(e instanceof Error?e.message:String(e)))
+  }
+  window.addEventListener('honmaru:agent-access-changed',onChanged)
+  return()=>window.removeEventListener('honmaru:agent-access-changed',onChanged)
+ },[agentId,load])
  const reload=async()=>{if(pending.current)return;pending.current=true;setBusy(true);setError('');try{await refresh()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{pending.current=false;setBusy(false)}}
  const current=data?.members.find(m=>m.ref===ref)
  const allowed=data?.canManage||data?.canAddMembers

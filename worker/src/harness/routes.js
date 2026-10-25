@@ -18,6 +18,7 @@ import {roomRoleState} from './roomRoles.js';
 import {managedRoomSettings,saveManagedRoomSettings} from './roomSettings.js';
 import {listBusinesses} from '../db.js';
 import { explicitAgentRoles, agentRoleState, setAgentRole, transferAgentOwnership } from './agentRoles.js';
+import { announceAgentAccessChanged } from './agentAccessEvents.js';
 import { memoryPage, memoryReviewHistory, reviewMemoryEntry, updateMemoryEntry } from './memoryEntries.js';
 import { previewSkillImport } from './skillImport.js';
 import { writeSkillZip } from './skillZip.js';
@@ -642,7 +643,10 @@ export async function handleHarness(request, env, url, context = {}) {
       const target=people.find(p=>p.ref===input.ref);
       if(!target)return json({message:'No such workspace member.'},404);
       const r=await transferAgentOwnership(env.DB,orgId,agentId,{actorId:me,targetId:target.userId,expectedVersion:input.expectedVersion});
-      if(!r.error)await audit(env,request,{orgId,action:'agent.ownership_transferred',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memberRef:target.ref,version:r.version}});
+      if(!r.error){
+        await announceAgentAccessChanged(env,orgId,agentId,[who.user.login,target.login]);
+        await audit(env,request,{orgId,action:'agent.ownership_transferred',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memberRef:target.ref,version:r.version}});
+      }
       return r.error?fail(r):json(r);
     }
     if (sub === 'members') {
@@ -660,15 +664,27 @@ export async function handleHarness(request, env, url, context = {}) {
         const target=people.find(p=>p.ref===input.ref);
         if (!target) return json({message:'No such workspace member.'},404);
         const r=await setAgentRole(env.DB,orgId,agentId,{actorId:me,targetId:target.userId,role:input.role,expectedVersion:input.expectedVersion});
-        if (!r.error) await audit(env,request,{orgId,action:'agent.member_role_changed',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memberRef:target.ref,role:input.role,version:r.version}});
+        if (!r.error) {
+          await announceAgentAccessChanged(env,orgId,agentId,[who.user.login,target.login]);
+          await audit(env,request,{orgId,action:'agent.member_role_changed',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memberRef:target.ref,role:input.role,version:r.version}});
+        }
         return r.error?fail(r):json(r);
       }
     }
     if (sub === "profile") {
       if (request.method === "GET") return json({ profile: await getProfile(env.DB, orgId, agentId), tiers: TIERS, access: ACCESS, canEdit });
       if (request.method === "PUT") {
+        const accessFieldsChanged=input.access!==undefined||input.people!==undefined;
+        const previousAccess=accessFieldsChanged?await getProfile(env.DB,orgId,agentId):null;
         const r = await saveProfile(env.DB, orgId, agentId, input, me);
-        if (!r.error) await audit(env, request, { orgId, action: "agent.profile_changed", actor: person(who.user), entity: { type: "agent", id: agentId }, details: { tier: r.profile.tier, access: r.profile.access, mentionOnly: r.profile.mentionOnly } });
+        if (!r.error) {
+          if(previousAccess&&(previousAccess.access!==r.profile.access||JSON.stringify(previousAccess.people)!==JSON.stringify(r.profile.people))){
+            const affected=[...previousAccess.people,...r.profile.people,who.user.login];
+            if(previousAccess.access==='everyone'||r.profile.access==='everyone')affected.push(...(await memoryMembers(env.DB,orgId,me)).map(member=>member.login));
+            await announceAgentAccessChanged(env,orgId,agentId,affected);
+          }
+          await audit(env, request, { orgId, action: "agent.profile_changed", actor: person(who.user), entity: { type: "agent", id: agentId }, details: { tier: r.profile.tier, access: r.profile.access, mentionOnly: r.profile.mentionOnly } });
+        }
         return r.error ? fail(r) : json({ ...r, canEdit });
       }
     }

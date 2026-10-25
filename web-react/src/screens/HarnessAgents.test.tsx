@@ -25,6 +25,23 @@ test('closing access reloads the directory and dismisses an agent whose grant wa
  }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
 })
 
+test('a private Agent access invalidation reloads the directory and closes a revoked profile',async()=>{
+ let visible=true;let tree!:ReturnType<typeof create>
+ const requests:string[]=[]
+ const fetch=vi.fn(async(input:string)=>{requests.push(input);return {ok:true,json:async()=>({agents:visible?[{id:'a',name:'Shared agent',handle:'shared',scope:'team'}]:[]})}})
+ vi.stubGlobal('fetch',fetch);vi.stubGlobal('window',new EventTarget())
+ try{
+  await act(async()=>{tree=create(<HarnessAgents httpBase="https://example.test" orgId="one" sessionToken="first" onClose={vi.fn()}/>)})
+  await act(async()=>tree.root.findByProps({'data-agent':'a'}).props.onClick())
+  expect(JSON.stringify(tree.toJSON())).toContain('Shared agent')
+  visible=false
+  await act(async()=>{window.dispatchEvent(new Event('honmaru:agents-changed'))})
+  expect(requests.filter(raw=>new URL(raw).pathname==='/channels/agents')).toHaveLength(2)
+  expect(tree.root.findAllByProps({'data-agent':'a'})).toHaveLength(0)
+  expect(JSON.stringify(tree.toJSON())).toContain('Choose a member')
+ }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
+})
+
 test('late agent responses cannot populate a different workspace or session', async () => {
   const pending: Array<(value: unknown) => void> = []
   vi.stubGlobal('fetch', vi.fn(() => new Promise(resolve => pending.push(resolve))))

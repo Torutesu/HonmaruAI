@@ -30,6 +30,7 @@ import { isGuest, isPersonal, isPrivate, accessFor, mayReadCard } from "./access
 import { learnFromDecision } from "./memory.js";
 import { settleWorkflowApproval } from "./harness/workflows.js";
 import { settleAgentAccessRequest } from "./harness/agentAccessRequests.js";
+import { agentRoleState } from "./harness/agentRoles.js";
 import { settleProposal } from "./proposals.js";
 import { settleProxyAction } from "./proxy.js";
 import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor } from "./jam.js";
@@ -1075,6 +1076,14 @@ export class OrgRelay {
     try {
       if (card?.agentAccessRequest) {
         const settled=await settleAgentAccessRequest(this.db, orgId, card);
+        if (settled?.settled && settled.action === 'approve') {
+          try {
+            const agentId=card.agentAccessRequest.agentId,state=await agentRoleState(this.db,orgId,agentId);
+            const recipients=new Set([...(state?.members||[]).map(member=>member.login),settled.actorLogin].filter(login=>typeof login==='string'&&login));
+            const event=customEvent('agent_access_changed',{agentId,version:state?.version??null});
+            for(const login of recipients)this.sendTo(orgId,login,event);
+          } catch(error) { console.error('agent access refresh announce failed',error?.message||error); }
+        }
         // Owner and Agent-admin copies are separate private cards. Once one
         // authorized person decides, update the other recipients' live feeds
         // and append an auditable system decision to each copy.

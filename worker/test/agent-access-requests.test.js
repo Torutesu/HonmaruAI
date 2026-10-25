@@ -3,6 +3,7 @@ import {beforeEach,test,expect,vi} from 'vitest';
 import {upsertUser,upsertMembership} from '../src/db.js';
 import {createAgentAccessRequest,requestableAgentOptions,settleAgentAccessRequest} from '../src/harness/agentAccessRequests.js';
 import {mayAccessAgent} from '../src/harness/agents.js';
+import {announceAgentAccessChanged} from '../src/harness/agentAccessEvents.js';
 import {OrgRelay} from '../src/relay.js';
 import schemaSql from '../schema.sql?raw';
 
@@ -64,6 +65,17 @@ test('an access request is a recipient-private approval card and retries reuse t
  expect(await requestableAgentOptions(env.DB,ORG,'requester')).toMatchObject([{accessRequestStatus:'pending'}]);
 });
 
+test('Agent permission refreshes target current members and affected people without sending role data',async()=>{
+ const deliveries=[];
+ const relayStub={fetch:vi.fn(async(_url,init)=>{deliveries.push(JSON.parse(init.body));return new Response('{}')})};
+ const relay={idFromName:vi.fn(id=>id),get:vi.fn(()=>relayStub)};
+ const result=await announceAgentAccessChanged({...env,ORG_RELAY:relay},ORG,'team-agent',['requester','owner']);
+ expect(result).toMatchObject({announced:3});
+ expect(deliveries).toHaveLength(1);
+ expect(deliveries[0].deliveries.map(item=>item.to).sort()).toEqual(['agent-admin','owner','requester']);
+ expect(deliveries[0].deliveries.every(item=>item.event.name==='agent_access_changed'&&Object.keys(item.event.value).sort().join(',')==='agentId,version')).toBe(true);
+});
+
 test('personal, guest and already accessible agents cannot be requested',async()=>{
  expect((await request('personal-agent')).status).toBe(404);
  expect((await request('team-agent','guest-request-key-00001','guest')).status).toBe(404);
@@ -117,6 +129,7 @@ test('deciding through the relay records and sends the resolved private copy to 
  expect(relay.log).toHaveBeenCalledWith(ORG,expect.objectContaining({type:'decided',cardId:created.card.id,actorUserId:'agent-admin',action:'approve',snapshot:expect.objectContaining({status:'approved'})}));
  expect(relay.broadcastCard).toHaveBeenCalledWith(ORG,expect.objectContaining({id:created.card.id,recipientUserID:'owner',status:'approved'}),expect.any(Object));
  expect(relay.state.waitUntil).toHaveBeenCalledWith(expect.any(Promise));
+ expect(relay.sendTo).toHaveBeenCalledWith(ORG,'requester',expect.objectContaining({name:'agent_access_changed',value:expect.objectContaining({agentId:'team-agent'})}));
 });
 
 test('an Agent admin who loses that role before deciding cannot grant access',async()=>{

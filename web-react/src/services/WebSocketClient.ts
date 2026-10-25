@@ -476,7 +476,17 @@ export class WebSocketClient {
       if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('honmaru:reads-changed', { detail: event.value }))
     } else if (event.name === 'members_changed') {
       // Somebody joined or left: every list of the team is read again.
-      if (typeof window !== 'undefined') window.dispatchEvent(new Event('honmaru:members-changed'))
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('honmaru:members-changed'))
+        window.dispatchEvent(new Event('honmaru:agents-changed'))
+      }
+    } else if (event.name === 'agent_access_changed' && typeof event.value?.agentId === 'string') {
+      // A private invalidation: each recipient reloads its own authorized
+      // Agent view and an open access dialog, without receiving role data.
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('honmaru:agent-access-changed', { detail: event.value }))
+        window.dispatchEvent(new Event('honmaru:agents-changed'))
+      }
     } else if (event.name === 'reaction' && event.value) {
       this.onReaction?.(event.value.cardId, event.value.emoji, Boolean(event.value.on), event.value.by, event.value.reactions || {})
     }

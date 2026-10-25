@@ -89,8 +89,8 @@
       "acceptance": "ルーム追加時に不足するAgent権限を明示し、申請/承認または選択した利用者への明示付与だけで補完。承認でroom memberを増やさず、複数利用者・端末の同期も検証",
       "evidence": {
         "release": "Versioned room roles and separate human/custom-agent membership deployed in e8e5af3d; unified picker 93c400d7/1dcf52cb. Explicit access requests, owner/admin approval and opt-in grant during room creation deployed at c5b069b0.",
-        "verified": "Exact-SHA CI, Worker D1 migration/deployment and Web deployment passed. Tests cover private, idempotent requests, owner/admin approval, membership/owner revocation races, request-only grants, room-creation opt-in grants and no implicit room membership. Existing owner-only Agent transfer remains version-fenced. Production app reloaded on c5b069b0; no real access request or permission grant was issued.",
-        "remaining": "Cross-client immediate refresh and comprehensive multi-user production isolation/role-handoff verification; visually inspecting the new access dialog against Kylon with a synthetic team Agent remains pending."
+        "verified": "Exact-SHA CI, Worker D1 migration/deployment and Web deployment passed for c5b069b0. Tests cover private, idempotent requests, owner/admin approval, membership/owner revocation races, request-only grants, room-creation opt-in grants and no implicit room membership. Existing owner-only Agent transfer remains version-fenced. A targeted version-only refresh event is implemented for role, ownership, profile-audience, request-approval and room-grant changes; local Worker/Web verification passed, with production CI/release pending. Production app reloaded on c5b069b0; no real access request or permission grant was issued.",
+        "remaining": "Production confirmation of this refresh implementation, comprehensive multi-user production isolation/role-handoff verification, and visual comparison of the access dialog against Kylon with a synthetic team Agent."
       }
     },
     {
