@@ -30,6 +30,25 @@ export class AgentRunner {
     useMediaEnv(env);
     this.state = state;
     this.env = env;
+    // A stop request can arrive while an alarm is awaiting a provider. Keep
+    // one controller per assignment generation so the route can interrupt
+    // that request without stopping unrelated agents in the workspace.
+    this.activeAssignments = new Map();
+  }
+
+  assignmentKey({orgId,assignmentId,generation}) {
+    return JSON.stringify([orgId,assignmentId,generation]);
+  }
+
+  registerAssignment(identity,controller) {
+    const key=this.assignmentKey(identity);
+    const controllers=this.activeAssignments.get(key)||new Set();
+    controllers.add(controller);
+    this.activeAssignments.set(key,controllers);
+    return ()=>{
+      controllers.delete(controller);
+      if(!controllers.size)this.activeAssignments.delete(key);
+    };
   }
 
   async fetch(request) {
@@ -38,6 +57,13 @@ export class AgentRunner {
       const input = await request.json().catch(() => null);
       if (!validAgentStatusInput(input)) return new Response('Bad request', {status: 400});
       return Response.json({results: await readAgentJobStatuses(this.state.storage, input)}, {headers: {'cache-control': 'no-store'}});
+    }
+    if (request.method === 'POST' && url.pathname === '/cancel-assignment') {
+      const input=await request.json().catch(()=>null);
+      if(typeof input?.orgId!=='string'||!input.orgId||input.orgId.length>200||typeof input.assignmentId!=='string'||!input.assignmentId||input.assignmentId.length>100||!Number.isSafeInteger(input.generation)||input.generation<0||input.generation>8)return new Response('Bad request',{status:400});
+      const controllers=this.activeAssignments.get(this.assignmentKey(input));
+      for(const controller of controllers||[])controller.abort();
+      return Response.json({cancelled:true,active:Boolean(controllers?.size)},{headers:{'cache-control':'no-store'}});
     }
     if(request.method==='POST'&&url.pathname==='/room-hook-retry') {
       const input=await request.json().catch(()=>null);
@@ -114,7 +140,7 @@ export class AgentRunner {
     // jobs remain queued until their result has been persisted.
     await this.state.storage.delete([...jobs].filter(([,job])=>job.kind === "proxy").map(([key])=>key));
     let retry=false;
-    await Promise.allSettled([...jobs].map(([key,job]) => (job.kind === "room_hook" ? this.runRoomHook(key,job) : job.kind === "proxy" ? runProxy(this.env, job) : job.kind === 'handoff' ? runTrackedAgentJob(this.state.storage,key,job,()=>runQueuedHandoff(this.env,job),{kind:'handoff',onSettled:(result,job)=>settleHandoff(this.env,job,result)}) : runTrackedAgentJob(this.state.storage,key,job,()=>runQueuedAgents(this.env,job,{details:true}),{onSettled:(result,job)=>settleInitialAssignments(this.env,job,result)})).catch((err) => {
+    await Promise.allSettled([...jobs].map(([key,job]) => (job.kind === "room_hook" ? this.runRoomHook(key,job) : job.kind === "proxy" ? runProxy(this.env, job) : job.kind === 'handoff' ? runTrackedAgentJob(this.state.storage,key,job,()=>runQueuedHandoff(this.env,job,{registerAssignment:(identity,controller)=>this.registerAssignment(identity,controller)}),{kind:'handoff',onSettled:(result,job)=>settleHandoff(this.env,job,result)}) : runTrackedAgentJob(this.state.storage,key,job,()=>runQueuedAgents(this.env,job,{details:true,registerAssignment:(identity,controller)=>this.registerAssignment(identity,controller)}),{onSettled:(result,job)=>settleInitialAssignments(this.env,job,result)})).catch((err) => {
       retry=true;
       console.error("queued agent failed", err?.message || err);
     })));
@@ -125,13 +151,13 @@ export class AgentRunner {
 
 /// One job: the message, who wrote it and where, found again from what was
 /// kept — then the agents it calls answer.
-export async function runQueuedAgents(env, { orgId, token, rowId, locale }, {details=false}={}) {
+export async function runQueuedAgents(env, { orgId, token, rowId, locale }, {details=false,registerAssignment=null}={}) {
   const request={orgId,token,rowId};
   const grant=await agentExecutionGrant(env,request);
   const respond=result=>details ? result : result.answered;
   if(!grant)return respond({status:'cancelled',answered:0});
   if(!grant.agents.length)return respond({status:'no_agents',answered:0});
   const authorize=agentExecutionAuthorizer(env,request,grant.row);
-  const answered=await runAgents(env,{...grant,locale,authorize,durableExecution:true});
+  const answered=await runAgents(env,{...grant,locale,authorize,durableExecution:true,registerAssignment});
   return respond({status:!answered && !await authorize() ? 'cancelled' : 'finished',answered});
 }

@@ -206,11 +206,12 @@ class ServiceError extends Error {
   constructor(status, message, code = null) { super(message); this.status = status; this.code = code; }
 }
 
-async function call(url, { key, method = "GET", body } = {}) {
+async function call(url, { key, method = "GET", body, signal = null } = {}) {
   const res = await fetch(url, {
     method,
     headers: { authorization: `Bearer ${key}`, accept: "application/json", ...(body ? { "content-type": "application/json" } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
+    ...(signal ? {signal} : {}),
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
@@ -307,14 +308,14 @@ const claude = {
     return {};
   },
   /// The agent's words since the last hand-off, and whether it has stopped.
-  async read(t, run) {
+  async read(t, run, {signal=null}={}) {
     const api = anthropic(t.apiKey);
     const query = { order: "asc", limit: 200, ...(run.last_event_at ? { "created_at[gt]": run.last_event_at } : {}) };
     const texts = [];
     let stop = null;
     let last = run.last_event_at;
     let error = null;
-    for await (const event of api.beta.sessions.events.list(run.remote_id, query)) {
+    for await (const event of api.beta.sessions.events.list(run.remote_id, query, signal?{signal}:undefined)) {
       last = event.processed_at || last;
       if (event.type === "agent.message") { const text = textOf(event); if (text) texts.push(text); }
       else if (event.type === "user.message") texts.length = 0;
@@ -325,7 +326,7 @@ const claude = {
     }
     let costCents = null;
     if (stop) {
-      const session = await api.beta.sessions.retrieve(run.remote_id).catch(() => null);
+      const session = await api.beta.sessions.retrieve(run.remote_id,null,signal?{signal}:undefined).catch(() => null);
       const amount = Number(session?.usage?.list_cost?.amount);
       if (Number.isFinite(amount)) costCents = amount;
     }
@@ -363,14 +364,14 @@ const devin = {
     await call(`${DEVIN}/${encodeURIComponent(t.remote.account)}/sessions/${encodeURIComponent(run.remote_id)}/messages`, { key: t.apiKey, method: "POST", body: { message: text } });
     return {};
   },
-  async read(t, run) {
+  async read(t, run, {signal=null}={}) {
     const base = `${DEVIN}/${encodeURIComponent(t.remote.account)}/sessions/${encodeURIComponent(run.remote_id)}`;
     const texts = [];
     let answered = false;
     let cursor = run.last_event_at || null;
     for (let page = 0; page < 20; page++) {
       const q = new URLSearchParams({ first: "200", ...(cursor ? { after: cursor } : {}) });
-      const data = await call(`${base}/messages?${q}`, { key: t.apiKey });
+      const data = await call(`${base}/messages?${q}`, { key: t.apiKey,signal });
       for (const m of data?.items || []) {
         if (m.source === "user") { texts.length = 0; answered = false; }
         else if (m.source === "devin" && String(m.message || "").trim()) { texts.push(String(m.message).trim()); answered = true; }
@@ -378,7 +379,7 @@ const devin = {
       if (data?.end_cursor) cursor = data.end_cursor;
       if (!data?.has_next_page) break;
     }
-    const session = await call(base, { key: t.apiKey });
+    const session = await call(base, { key: t.apiKey,signal });
     const detail = session?.status_detail || null;
     let stop = null;
     if (session?.status === "error" || detail === "error") stop = "terminated";
@@ -429,9 +430,9 @@ const cursor = {
       throw err;
     }
   },
-  async read(t, run) {
+  async read(t, run, {signal=null}={}) {
     if (!run.remote_turn) return { texts: [], stop: "terminated", last: null, error: "no run", costCents: null };
-    const got = await call(`${CURSOR}/agents/${encodeURIComponent(run.remote_id)}/runs/${encodeURIComponent(run.remote_turn)}`, { key: t.apiKey });
+    const got = await call(`${CURSOR}/agents/${encodeURIComponent(run.remote_id)}/runs/${encodeURIComponent(run.remote_turn)}`, { key: t.apiKey,signal });
     let stop = null;
     if (got?.status === "FINISHED") stop = "end_turn";
     else if (got?.status === "ERROR" || got?.status === "CANCELLED" || got?.status === "EXPIRED") stop = "terminated";
@@ -455,7 +456,7 @@ const cursor = {
 
 const GITHUB = "https://api.github.com";
 
-async function gh(t, path, { method = "GET", body } = {}) {
+async function gh(t, path, { method = "GET", body, signal = null } = {}) {
   const res = await fetch(`${GITHUB}${path}`, {
     method,
     headers: {
@@ -463,6 +464,7 @@ async function gh(t, path, { method = "GET", body } = {}) {
       "x-github-api-version": "2022-11-28", ...(body ? { "content-type": "application/json" } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
+    ...(signal ? {signal} : {}),
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new ServiceError(res.status, String(data?.message || `HTTP ${res.status}`));
@@ -512,13 +514,13 @@ const codex = {
     const said = await gh(t, `/repos/${pr.repo}/issues/${pr.number}/comments`, { method: "POST", body: { body: mention(text) } });
     return { turn: String(said.id), tasks: 1 };
   },
-  async read(t, run) {
+  async read(t, run, {signal=null}={}) {
     const pr = codexPr(run);
     if (!pr) return { texts: [], stop: "terminated", last: null, error: "no pull request", costCents: null };
     const after = Number(run.remote_turn || 0);
     const texts = [];
     for (let page = 1; page <= 5; page++) {
-      const comments = await gh(t, `/repos/${pr.repo}/issues/${pr.number}/comments?per_page=100&page=${page}`);
+      const comments = await gh(t, `/repos/${pr.repo}/issues/${pr.number}/comments?per_page=100&page=${page}`,{signal});
       for (const c of comments || []) {
         const login = String(c?.user?.login || "");
         if (Number(c.id) <= after || login === t.remote?.login || !/codex/i.test(login)) continue;
@@ -675,8 +677,8 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
 
 /// What a run has done since it was last looked at: its words since the last
 /// hand-off, and whether it has stopped, and why.
-export async function readRun(env, t, run) {
-  return ADAPTERS[t.provider].read(t, run);
+export async function readRun(env, t, run, options = {}) {
+  return ADAPTERS[t.provider].read(t, run, options);
 }
 
 /// Runs still working, oldest first: what the minute cron looks in on.

@@ -62,6 +62,18 @@ test('alarm backs off when a job result cannot be persisted',async()=>{
  expect(setAlarm.mock.calls[0][0]).toBeGreaterThanOrEqual(started+15000);
 });
 
+test('assignment cancellation aborts only its exact generation and validates internal input',async()=>{
+ const runner=new AgentRunner({storage:store()},env);
+ const first=new AbortController(),other=new AbortController();
+ const unregister=runner.registerAssignment({orgId:'org',assignmentId:'assignment-one',generation:3},first);
+ runner.registerAssignment({orgId:'org',assignmentId:'assignment-one',generation:4},other);
+ const response=await runner.fetch(new Request('https://agents/cancel-assignment',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({orgId:'org',assignmentId:'assignment-one',generation:3})}));
+ expect(response.status).toBe(200);expect(await response.json()).toEqual({cancelled:true,active:true});
+ expect(first.signal.aborted).toBe(true);expect(other.signal.aborted).toBe(false);
+ expect((await runner.fetch(new Request('https://agents/cancel-assignment',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}))).status).toBe(400);
+ unregister();
+});
+
 import assert from 'node:assert/strict';
 test('settlement failure retains work, recovery settles interruption without repeating execution',async()=>{
  const s=store();let calls=0;const execute=async()=>{calls++;return {status:'finished',answered:1}};

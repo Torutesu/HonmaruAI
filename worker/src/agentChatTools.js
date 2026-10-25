@@ -1,6 +1,15 @@
 import {noteUsage} from './ledger.js';
 import {isControlTool, handoffOperation} from './agentToolControl.js';
 
+async function raceSignal(promise,signal,value) {
+  if(!signal)return promise;
+  if(signal.aborted)return value;
+  let abort;
+  const aborted=new Promise(resolve=>{abort=()=>resolve(value);signal.addEventListener('abort',abort,{once:true});});
+  try{return await Promise.race([promise,aborted]);}
+  finally{signal.removeEventListener('abort',abort);}
+}
+
 // OpenRouter's normalized function-calling protocol. Only Harness callers
 // opt in; the configured model/key stay unchanged. No hosted/paid tools are
 // provisioned here, and uncertain model/tool calls are never retried.
@@ -8,10 +17,10 @@ export function canChatTools(provider) {
   return provider?.providerName === 'OpenRouter' && provider.endpoint === 'https://openrouter.ai/api/v1/chat/completions';
 }
 
-export async function chatTools({provider, instructions, input, tools, authorize = null, onRound = null, deadline = Date.now() + 240000}) {
+export async function chatTools({provider, instructions, input, tools, authorize = null, onRound = null, deadline = Date.now() + 240000, signal = null}) {
   let called = false, calls = 0, rounds = 0;
   const done = (extra = {}) => ({called, answer: null, calls, rounds, ...extra});
-  const permitted = async () => !authorize || await authorize();
+  const permitted = async () => !signal?.aborted && (!authorize || await authorize());
   const definitions = Object.entries(tools).map(([name, tool]) => ({type: 'function', function: {name, description: tool.description, parameters: tool.parameters}}));
   const messages = [{role: 'system', content: instructions}, {role: 'user', content: input}];
   const receipts = new Map();
@@ -29,10 +38,10 @@ export async function chatTools({provider, instructions, input, tools, authorize
     try {
       const response = await fetch(provider.endpoint, {method: 'POST', headers,
         body: JSON.stringify({model: provider.model, messages, tools: definitions, tool_choice: finalOnly ? 'none' : 'auto', max_tokens: 3000}),
-        signal: AbortSignal.timeout(Math.max(1, Math.min(150000, deadline - Date.now())))});
-      if (!response.ok) return done({refused: !called, status: response.status});
+        signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(Math.max(1, Math.min(150000, deadline - Date.now())))]) : AbortSignal.timeout(Math.max(1, Math.min(150000, deadline - Date.now())))});
+      if (!response.ok) return signal?.aborted?done({cancelled:true}):done({refused: !called, status: response.status});
       data = await response.json();
-    } catch { return done(); }
+    } catch { return signal?.aborted?done({cancelled:true}):done(); }
     called = true;
     noteUsage(provider, 'agent', data);
     if (!await permitted()) return done({cancelled: true});
@@ -68,11 +77,14 @@ export async function chatTools({provider, instructions, input, tools, authorize
             const expired = Symbol('tool deadline');
             let timer;
             try {
-              value = await Promise.race([
-                Promise.resolve().then(() => tool.run(args)),
+              const operation=Promise.resolve().then(() => tool.run(args,{signal}));
+              operation.catch(()=>{});
+              value = await raceSignal(Promise.race([
+                operation,
                 new Promise(resolve => {timer = setTimeout(() => resolve(expired), remaining);}),
-              ]);
+              ]),signal,expired);
             } finally {clearTimeout(timer);}
+            if(signal?.aborted)return {cancelled:true};
             // Timeout cannot undo an already-started external operation. Do
             // not execute siblings, retry this tool or infer its outcome.
             if (value === expired || Date.now() >= deadline) return {interrupted: true};

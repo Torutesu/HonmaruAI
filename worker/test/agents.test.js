@@ -956,7 +956,10 @@ test('only the requester or agent manager can stop the observed assignment gener
  expect((await send('POST','/channels/agent-runs/stop',kenji,body)).status).toBe(403);
  expect((await send('POST','/channels/agent-runs/stop',mika,{...body,generation:0})).status).toBe(409);
  expect((await send('POST','/channels/agent-runs/stop',mika,{...body,channel:'ag:unknown'})).status).toBe(404);
- const stopped=await send('POST','/channels/agent-runs/stop',mika,body);expect(stopped.status).toBe(200);expect(await stopped.json()).toEqual({stopped:true});
+ const cancellationCalls=[];
+ const stopBinding={idFromName:id=>id,get:()=>({fetch:async(url,init)=>{cancellationCalls.push({path:new URL(url).pathname,body:JSON.parse(init.body)});return Response.json({cancelled:true,active:true});}})};
+ const stopped=await send('POST','/channels/agent-runs/stop',mika,body,{AGENT_RUNNER:stopBinding});expect(stopped.status).toBe(200);expect(await stopped.json()).toEqual({stopped:true});
+ expect(cancellationCalls).toEqual([{path:'/cancel-assignment',body:{orgId:ORG,assignmentId:f.assignmentId,generation:1}}]);
  expect((await send('POST','/channels/agent-runs/stop',mika,body)).status).toBe(200);
  const {runQueuedHandoff}=await import('../src/harness/agentHandoffRun.js');
  expect(await runQueuedHandoff(env,{orgId:ORG,rowId:'status-hop'})).toEqual({status:'cancelled',answered:0});
@@ -987,6 +990,22 @@ test('an uncertain tool deadline leaves the assignment interrupted, not finished
  const result=await runAgentAssignment(env,{orgId:ORG,session:await getSession(env.DB,mika),row:f.row,agent:f.target,existing:assignment},async()=>{calls++;return {interrupted:true};});
  expect(calls).toBe(1);expect(result.interrupted).toBe(true);
  expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(ORG,f.assignmentId).first()).toEqual({status:'interrupted'});
+});
+
+test('an aborted assignment settles cancelled and unregisters its controller',async()=>{
+ const f=await assignmentStatusFixture();
+ const {claimHandoff}=await import('../src/harness/agentAssignments.js');
+ const {runAgentAssignment}=await import('../src/harness/runAgentAssignment.js');
+ const {getSession}=await import('../src/db.js');
+ await claimHandoff(env.DB,{orgId:ORG,operationId:'status-hop'});
+ const assignment=await env.DB.prepare('SELECT * FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(ORG,f.assignmentId).first();
+ let controller,unregistered=false,receivedSignal;
+ const result=await runAgentAssignment(env,{orgId:ORG,session:await getSession(env.DB,mika),row:f.row,agent:f.target,existing:assignment,
+  registerCancellation:(_identity,value)=>{controller=value;return()=>{unregistered=true;};}},async({signal})=>{
+   receivedSignal=signal;controller.abort();return {cancelled:true};
+  });
+ expect(receivedSignal.aborted).toBe(true);expect(result).toEqual({cancelled:true});expect(unregistered).toBe(true);
+ expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(ORG,f.assignmentId).first()).toEqual({status:'cancelled'});
 });
 
 test('a file-thread question sends its saved text to the model and persists the grounded reply',async()=>{

@@ -21,6 +21,15 @@ const MAX_FUNCTION_CALLS = 16;
 const MAX_TOOL_OUTPUT = 20000;
 const CALL_TIMEOUT_MS = 150000;
 
+async function raceSignal(promise,signal,value) {
+  if(!signal)return promise;
+  if(signal.aborted)return value;
+  let abort;
+  const aborted=new Promise(resolve=>{abort=()=>resolve(value);signal.addEventListener('abort',abort,{once:true});});
+  try{return await Promise.race([promise,aborted]);}
+  finally{signal.removeEventListener('abort',abort);}
+}
+
 /// A reasoning model: the ones that plan tool calls themselves and take
 /// `reasoning.effort`.
 export function isReasoningModel(model) {
@@ -47,7 +56,7 @@ const COUNTRY = { ja: "JP", en: "US", es: "ES", fr: "FR", de: "DE", ko: "KR", zh
 /// `plain`: the workspace's own model, the search tool bare, no reasoning
 /// settings — nothing a model might refuse — the retry when the full call
 /// is turned down. Our own tools stay.
-export async function research({ provider, env, instructions, input, tools = {}, language = "en", deadline = Date.now() + 240000, effort, plain = false, onRound = null, webSearch = true, maxOutput = null, mustLook = false, authorize = null }) {
+export async function research({ provider, env, instructions, input, tools = {}, language = "en", deadline = Date.now() + 240000, effort, plain = false, onRound = null, webSearch = true, maxOutput = null, mustLook = false, authorize = null, signal = null }) {
   const endpoint = provider.endpoint.replace(/\/chat\/completions$/, "/responses");
   const model = plain ? provider.model : agentModelFor(env, provider);
   const reasoning = isReasoningModel(model);
@@ -80,10 +89,11 @@ export async function research({ provider, env, instructions, input, tools = {},
   let finalOnly = false;
   const cancelled = () => ({ called, answer: null, sources: [], rounds, calls, cancelled: true });
   while (rounds < MAX_ROUNDS + 1) {
-    if (authorize && !await authorize()) return cancelled();
+    if (signal?.aborted || (authorize && !await authorize())) return cancelled();
     rounds += 1;
     // Still at it: whoever is watching keeps seeing the agent writing.
     if (rounds > 1 && onRound) await Promise.resolve(onRound(rounds)).catch(() => {});
+    if (signal?.aborted || (authorize && !await authorize())) return cancelled();
     const body = {
       model,
       instructions,
@@ -104,7 +114,7 @@ export async function research({ provider, env, instructions, input, tools = {},
         method: "POST",
         headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(Math.max(10000, Math.min(CALL_TIMEOUT_MS, deadline - Date.now()))),
+        signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(Math.max(10000, Math.min(CALL_TIMEOUT_MS, deadline - Date.now())))]) : AbortSignal.timeout(Math.max(10000, Math.min(CALL_TIMEOUT_MS, deadline - Date.now()))),
       });
       if (!res.ok) {
         const reason = await res.text().catch(() => "");
@@ -116,6 +126,7 @@ export async function research({ provider, env, instructions, input, tools = {},
       }
       data = await res.json();
     } catch (err) {
+      if(signal?.aborted)return cancelled();
       console.error("agent research call failed", err?.message || err);
       if (!previous) return { called, answer: null, refused: true };
       break;
@@ -125,7 +136,7 @@ export async function research({ provider, env, instructions, input, tools = {},
     noteSearches(provider, "agent", data.model || model, (Array.isArray(data.output) ? data.output : []).filter((i) => i?.type === "web_search_call").length);
     last = data;
     previous = data.id || null;
-    if (authorize && !await authorize()) return cancelled();
+    if (signal?.aborted || (authorize && !await authorize())) return cancelled();
 
     for (const c of readResponse(data).sources) note(cited, c.url, c.title);
     const pending = (Array.isArray(data.output) ? data.output : []).filter((item) => item?.type === "function_call");
@@ -143,12 +154,22 @@ export async function research({ provider, env, instructions, input, tools = {},
         let args = {};
         try { args = JSON.parse(call.arguments || "{}"); } catch { /* the tool says so below */ }
         try {
-          if (authorize && !await authorize()) return { type: "function_call_output", call_id: call.call_id, output: "Access changed. Execution stopped." };
-          const result = tool ? await tool.run(args) : `No tool named ${call.name}.`;
+          if (signal?.aborted || (authorize && !await authorize())) return { type: "function_call_output", call_id: call.call_id, output: "Access changed. Execution stopped." };
+          const cancelledTool=Symbol('cancelled tool');
+          let result;
+          if(!tool)result=`No tool named ${call.name}.`;
+          else if(signal) {
+            const operation=Promise.resolve().then(()=>tool.run(args,{signal}));
+            operation.catch(()=>{});
+            result=await raceSignal(operation,signal,cancelledTool);
+          } else result=await tool.run(args);
+          if(result===cancelledTool)return {cancelled:true};
+          if(signal?.aborted)return {cancelled:true};
           const operationId = isControlTool(tool) ? handoffOperation(result) : null;
           if (operationId) return {handedOff: {operationId}};
           output = typeof result === "string" ? result : JSON.stringify(result) ?? String(result);
         } catch (err) {
+          if(signal?.aborted)return {cancelled:true};
           output = `The tool failed: ${String(err?.message || err).slice(0, 200)}`;
         }
         if (call.name === "read_url" && typeof args.url === "string" && !/^(Could not|No )/.test(output)) {
@@ -160,10 +181,12 @@ export async function research({ provider, env, instructions, input, tools = {},
     const results = new Map();
     for (const call of pending.filter(call => isControlTool(tools[call.name]))) {
       const result = await runCall(call);
+      if(result.cancelled)return cancelled();
       if (result.handedOff) return {called, answer: null, sources: [], rounds, calls, handedOff: result.handedOff};
       results.set(call, result);
     }
     await Promise.all(pending.filter(call => !isControlTool(tools[call.name])).map(async call => results.set(call, await runCall(call))));
+    if(signal?.aborted)return cancelled();
     next = pending.map(call => results.get(call));
     if (calls >= MAX_FUNCTION_CALLS || rounds >= MAX_ROUNDS || Date.now() > deadline - 30000) finalOnly = true;
   }

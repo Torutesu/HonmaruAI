@@ -5,7 +5,7 @@ import {markControlTool,handoffControl} from '../agentToolControl.js';
 import {drainAgentHandoffs} from './agentHandoffDispatch.js';
 import {serverText} from '../serverCopy.js';
 
-export async function runAgentAssignment(env,{orgId,session,row,agent,authorize=null,existing=null,locale='en',publish},execute) {
+export async function runAgentAssignment(env,{orgId,session,row,agent,authorize=null,existing=null,locale='en',publish,registerCancellation=null},execute) {
   let assignment=existing;
   if(!assignment && session?.token) {
     const begun=await beginAuthorizedAssignment(env,{orgId,token:session.token,rowId:row.id},agent.id);
@@ -14,7 +14,8 @@ export async function runAgentAssignment(env,{orgId,session,row,agent,authorize=
   }
   if(!assignment)return execute({authorize,tools:{}});
   const identity={orgId,assignmentId:assignment.id,generation:assignment.generation,agentId:agent.id};
-  const permitted=async()=>Boolean((!authorize || await authorize(agent.id)) && await assignmentExecutionGrant(env,identity));
+  const controller=new AbortController();
+  const permitted=async()=>Boolean(!controller.signal.aborted && (!authorize || await authorize(agent.id)) && await assignmentExecutionGrant(env,identity));
   const tools={};
   const grant=await assignmentExecutionGrant(env,identity);
   const targets=grant?(await assignmentTargets(env,grant)).filter(target=>target.id!==agent.id && !JSON.parse(assignment.visited).includes(target.id)):[];
@@ -36,16 +37,23 @@ export async function runAgentAssignment(env,{orgId,session,row,agent,authorize=
       },
     });
   }
+  const unregister=registerCancellation?.(identity,controller);
   try {
-    if(!await permitted()) {await endAssignment(env.DB,{...identity,status:'cancelled'});return;}
-    const result=await execute({authorize:permitted,tools,replyFence:{assignmentId:assignment.id,generation:assignment.generation,sourceId:row.id,sourceBody:row.body,sourceAuthor:row.author_login,sourceParent:row.parent_id}});
+    if(!await permitted()) {await endAssignment(env.DB,{...identity,status:'cancelled'});return {cancelled:true};}
+    const result=await execute({authorize:permitted,signal:controller.signal,tools,replyFence:{assignmentId:assignment.id,generation:assignment.generation,sourceId:row.id,sourceBody:row.body,sourceAuthor:row.author_login,sourceParent:row.parent_id}});
     if(await assignmentOwns(env.DB,identity)) {
-      if(!await permitted())await endAssignment(env.DB,{...identity,status:'cancelled'});
+      if(controller.signal.aborted || !await permitted())await endAssignment(env.DB,{...identity,status:'cancelled'});
       else if(!await externalAssignmentPending(env.DB,identity))await endAssignment(env.DB,{...identity,status:result?.interrupted?'interrupted':'finished'});
     }
     return result;
   } catch(error) {
+    if(controller.signal.aborted) {
+      if(!await externalAssignmentPending(env.DB,identity))await endAssignment(env.DB,{...identity,status:'cancelled'});
+      return {cancelled:true};
+    }
     if(!await externalAssignmentPending(env.DB,identity))await endAssignment(env.DB,{...identity,status:'failed'});
     throw error;
+  } finally {
+    unregister?.();
   }
 }

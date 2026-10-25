@@ -235,7 +235,11 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/agents/overview",
       "code": "worker/src/agentRunner.js",
-      "acceptance": "停止でモデル・ツール・子実行を中断し課金とUI状態を確定"
+      "acceptance": "停止でモデル・ツール・子実行を中断し課金とUI状態を確定",
+      "evidence": {
+        "verified": "Harness assignment stop persists cancelled state, signals only the matching workspace/assignment/generation in AgentRunner, aborts in-flight OpenAI Responses/OpenRouter and fallback model requests, passes the signal to tools and external-provider status polling, prevents further model/tool rounds and suppresses late replies. Focused assignment/model-loop tests pass.",
+        "remaining": "An already accepted remote teammate run cannot be stopped by Honmaru unless that provider exposes and Honmaru implements a stop operation. Existing tools that ignore the optional signal may finish an in-flight side effect. Provider-side billing for an interrupted request may be unknown; live production cancellation and end-to-end UI confirmation remain unverified."
+      }
     },
     {
       "id": "KY-021",

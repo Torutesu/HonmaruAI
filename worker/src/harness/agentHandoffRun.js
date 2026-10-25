@@ -15,7 +15,7 @@ export async function settleHandoff(env,job,result) {
   await endAssignment(env.DB,{...execution.identity,status});
 }
 
-export async function runQueuedHandoff(env,{orgId,rowId}) {
+export async function runQueuedHandoff(env,{orgId,rowId},{registerAssignment=null}={}) {
   const execution=await handoffExecution(env.DB,orgId,rowId);
   if(!execution)return {status:'cancelled',answered:0};
   const {operation,identity}=execution;
@@ -30,7 +30,7 @@ export async function runQueuedHandoff(env,{orgId,rowId}) {
   }
   const assignment={...grant.assignment,status:'running'};
   const authorize=async()=>Boolean(await assignmentExecutionGrant(env,identity));
-  const answered=await runAgents(env,{...grant,assignment,durableExecution:true,requestOverride:operation.brief,locale:grant.user.locale || 'en',authorize});
+  const answered=await runAgents(env,{...grant,assignment,durableExecution:true,requestOverride:operation.brief,locale:grant.user.locale || 'en',authorize,registerAssignment});
   const current=await env.DB.prepare('SELECT generation,status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(orgId,identity.assignmentId).first();
   return {status:current?.generation>identity.generation?'handed_off':current?.status==='running' && await externalAssignmentPending(env.DB,identity)?'awaiting_external':current?.status || 'interrupted',answered};
 }

@@ -71,6 +71,21 @@ test('expired deadline does not start a model request',async()=>{
  expect(await run({deadline:Date.now()-1})).toMatchObject({called:false,rounds:0,answer:null});
 });
 
+test('stopping an active Harness chat call aborts its fetch signal and discards a late response',async()=>{
+ const controller=new AbortController();let markStarted,release;
+ const started=new Promise(resolve=>{markStarted=resolve;});
+ fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'}).reply(opts=>{
+  markStarted(opts.signal);
+  return new Promise(resolve=>{release=()=>resolve({statusCode:200,data:{choices:[{message:{content:'stale'}}]}});});
+ });
+ const pending=run({signal:controller.signal});
+ const providerSignal=await started;
+ controller.abort();
+ expect(providerSignal.aborted).toBe(true);
+ release();
+ expect(await pending).toMatchObject({called:true,answer:null,cancelled:true,rounds:1});
+});
+
 test('a refused Harness tool request does not silently fall back to an unsupported answer',async()=>{
  fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'}).reply(400,{error:'tools unsupported'});
  const out=await askAgent({provider:provider(),agent:{name:'Agent',handle:'agent',instructions:''},request:'task',transcript:[],harnessTools:true,tools:{lookup:tool(async()=>{throw new Error('must not run');})}});

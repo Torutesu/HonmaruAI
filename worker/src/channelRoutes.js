@@ -454,7 +454,7 @@ export function allOwnAgents(agents, login) {
 
 /// The agents' answers, side by side: each reads the conversation,
 /// researches with its tools, and answers as itself when it is ready.
-export async function runAgents(env, { orgId, session, user, resolved, row, members, locale, agents, authorize = null, roomHookSource = false, assignment = null, requestOverride = null, durableExecution = false }) {
+export async function runAgents(env, { orgId, session, user, resolved, row, members, locale, agents, authorize = null, roomHookSource = false, assignment = null, requestOverride = null, durableExecution = false, registerAssignment = null }) {
   if (authorize && !await authorize()) return 0;
   const taskText = requestOverride ?? row.body;
   locale = await loadCopy(env, locale || "en", { orgId });
@@ -538,8 +538,9 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   });
   // Every agent called works at once, each answering as soon as it is done:
   // five agents take as long as the slowest, not the sum of all five.
-  const answerOne = async (agent, index, authorizeAgent = authorize, runtimeTools = {}, replyFence = null) => {
+  const answerOne = async (agent, index, authorizeAgent = authorize, runtimeTools = {}, replyFence = null, signal = null) => {
     const authorize = authorizeAgent ? () => authorizeAgent(agent.id) : null;
+    if (signal?.aborted) return {cancelled:true};
     if (authorize && !await authorize()) return;
     // An AI teammate works through its own service, not the workspace's
     // model: it starts, says so, and answers when it is done.
@@ -547,7 +548,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       await progress(agent, "agent");
       const t = await teammateForAgent(env.DB, orgId, agent).catch(() => null);
       try {
-        return await runTeammate(env, { orgId, user, resolved, row, members, locale, agent, t, authorize, roomHookSource, replyFence, taskText, deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000) });
+        return await runTeammate(env, { orgId, user, resolved, row, members, locale, agent, t, authorize, roomHookSource, replyFence, taskText, signal, deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000) });
       } catch(err) {
         if(replyFence)throw err;
         console.error("teammate failed",safe(err?.message));
@@ -576,6 +577,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         // Its specialty, memory and skills, at its tier's model.
         const ready = harness ? await prepareAgent(env, orgId, agent, provider, { channel: resolved.key, userId: session.github_id }) : { agent, provider };
         ready.agent = await withRoomGuidelines(env.DB, orgId, resolved.key, ready.agent);
+        if (signal?.aborted) return {cancelled:true};
         if (authorize && !await authorize()) return;
         const toolsForTurn = { ...tools, ...ready.skillTools, ...runtimeTools };
         const agentForTurn = {
@@ -586,16 +588,17 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
           provider: ready.provider, agent: agentForTurn, request: requestFor(taskText, agent), transcript, playbook, where, research, links, tools: toolsForTurn, env,
           askedBy: user.name || "a teammate", readerLanguage: locale,
           deadline: Date.now() + (env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 25000 : 240000),
-          onRound: () => progress(agent, "agent"), authorize, harnessTools: harness,
+          onRound: () => progress(agent, "agent"), authorize, harnessTools: harness, signal,
         });
         if (result.called && allowance.metered) await allowance.consume();
-        if (result.cancelled || result.handedOff) return;
+        if (result.cancelled || result.handedOff) return result.cancelled?{cancelled:true}:undefined;
         if (result.interrupted) return {interrupted:true};
         // No answer: say why, so nobody waits on silence — the AI service
         // turned it down (no call was paid for), or it ran out of time.
         text = result.answer || serverText(locale, result.called ? "agent.failedEmpty" : "agent.failedService");
         modelAnswered = Boolean(result.answer);
       }
+      if(signal?.aborted)return {cancelled:true};
       if (authorize && !await authorize()) return;
       const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: text, kind: "agent", parentId, roomHookSource, assignmentFence:replyFence });
       if (out.row) {
@@ -605,9 +608,11 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         await emitMessage(env, orgId, out.row);
       }
     } catch (err) {
+      if(signal?.aborted)return {cancelled:true};
       console.error("agent answer failed", safe(err?.message));
       // Failed on the way: still a line in the thread, never silence.
       try {
+        if (signal?.aborted) return {cancelled:true};
         if (authorize && !await authorize()) return;
         const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: serverText(locale, "agent.failedError"), kind: "agent", parentId, roomHookSource, assignmentFence:replyFence });
         if (out.row) await broadcastWithParent(env, orgId, resolved, out.row, members);
@@ -619,9 +624,10 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     }
   };
   const outcomes = await Promise.allSettled(agents.map((agent, index) => {
-    const execute = runtime => answerOne(agent,index,runtime.authorize,runtime.tools,runtime.replyFence);
+    const execute = runtime => answerOne(agent,index,runtime.authorize,runtime.tools,runtime.replyFence,runtime.signal);
     const run = durableExecution && harness && !roomHookSource && session?.token
       ? runAgentAssignment(env,{orgId,session,row,agent,authorize,existing:assignment,locale,
+          registerCancellation:registerAssignment,
           publish:async messageId=>{const message=await getMessage(env.DB,orgId,messageId);if(message&&!message.deleted_at)await broadcastWithParent(env,orgId,resolved,message,members);}},execute)
       : answerOne(agent,index);
     return durableExecution && harness ? run : run.catch(err=>console.error("agent turn failed",safe(err?.message)));
@@ -639,7 +645,7 @@ const teammateParent = (resolved, row) => row.parent_id || (resolved.kind === "a
 /// An AI teammate's turn (teammates.js): the thread handed to it, a line
 /// saying it has started, and its answer when it has one — watched here
 /// while this request may still run, and by the minute cron after that.
-async function runTeammate(env, { orgId, user, resolved, row, members, locale, agent, t, deadline, authorize = null, roomHookSource = false, replyFence = null, taskText = row.body }) {
+async function runTeammate(env, { orgId, user, resolved, row, members, locale, agent, t, deadline, authorize = null, roomHookSource = false, replyFence = null, taskText = row.body, signal = null }) {
   const parentId = teammateParent(resolved, row);
   const say = async (key) => {
     if (authorize && !await authorize()) return;
@@ -665,17 +671,20 @@ async function runTeammate(env, { orgId, user, resolved, row, members, locale, a
   }
   if (started.refused) return say(started.refused === "limit" ? "teammate.limit" : started.refused === "busy" ? "teammate.busy" : "teammate.notHere");
   await say(started.continued ? "teammate.continued" : "teammate.started");
-  await watchTeammateRuns(env, { ids: [started.run.id], deadline });
+  await watchTeammateRuns(env, { ids: [started.run.id], deadline, signal });
+  if(signal?.aborted)return {cancelled:true};
   return {deferred:Boolean(started.run.assignment_id)};
 }
 
 /// Look in on teammates at work, and post what each finished with into the
 /// thread it came from. Once (the minute cron), or until `deadline`.
-export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause = 8000 } = {}) {
+export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause = 8000, signal = null } = {}) {
   const publish=async payload=>postTeammateResult(env,payload.run,await loadTeammate(env.DB,payload.run.org_id,payload.run.provider),payload.read,payload.status,{clientId:`tmp-${payload.deliveryId}`,deliveryAgentId:payload.agentId});
-  if(ids) {for(const id of ids.slice(0,25))await drainTeammateResults(env,publish,{runId:id});}
+  if(signal?.aborted)return;
+  if(ids) {for(const id of ids.slice(0,25)){if(signal?.aborted)return;await drainTeammateResults(env,publish,{runId:id});}}
   else await drainTeammateResults(env,publish);
   for (;;) {
+    if(signal?.aborted)return;
     const runs = await openRuns(env.DB, { ids });
     if (!runs.length) return;
     let working = 0;
@@ -683,7 +692,8 @@ export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause =
       working += 1;
       try {
         const t = await loadTeammate(env.DB, run.org_id, run.provider);
-        const read = canSignIn(t) ? await readRun(env, t, run) : { texts: [], stop: "terminated", last: null, costCents: null };
+        const read = canSignIn(t) ? await readRun(env, t, run,{signal}) : { texts: [], stop: "terminated", last: null, costCents: null };
+        if(signal?.aborted)return;
         const status = await settleRun(env.DB, run, read, new Date(), {deliveryAgentId:t?.agentId});
         if (read.stop || status) working -= 1;
         if (status) {
@@ -691,11 +701,18 @@ export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause =
           else await postTeammateResult(env, run, t, read, status);
         }
       } catch (err) {
+        if(signal?.aborted)return;
         console.error("teammate watch failed", safe(err?.message));
       }
     }
     if (!working || Date.now() + pause + 5000 > deadline) return;
-    await new Promise((resolve) => setTimeout(resolve, pause));
+    await new Promise((resolve) => {
+      const timer=setTimeout(done,pause);
+      function done(){clearTimeout(timer);signal?.removeEventListener('abort',done);resolve();}
+      signal?.addEventListener('abort',done,{once:true});
+      if(signal?.aborted)done();
+    });
+    if(signal?.aborted)return;
   }
 }
 
@@ -1091,6 +1108,12 @@ export async function handleChannels(request, env, url, { route, after }) {
     if(!row || row.deleted_at || row.kind!=='message' || row.channel!==access.resolved.key)return json({message:'No such message.'},404);
     const result=await stopAssignment(env.DB,{orgId:body.orgId,sourceMessageId:row.id,channel:access.resolved.key,assignmentId:body.assignmentId,generation:body.generation,
       actorId:access.who.session.github_id,canManage:await allowed(env.DB,body.orgId,access.who.session.github_id,'agent.manage_others')});
+    if(result.stopped&&env.AGENT_RUNNER) {
+      try {
+        const stub=env.AGENT_RUNNER.get(env.AGENT_RUNNER.idFromName(body.orgId));
+        await stub.fetch('https://agents/cancel-assignment',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({orgId:body.orgId,assignmentId:body.assignmentId,generation:body.generation})});
+      } catch(error) {console.error('agent cancellation signal failed',safe(error?.message));}
+    }
     return result.stopped?json({stopped:true}):json({message:result.message},result.status);
   }
 

@@ -68,6 +68,7 @@ async function mockedFetch(input, init) {
     method: request.method.toUpperCase(),
     headers: Object.fromEntries(request.headers.entries()),
     body,
+    signal: request.signal,
   };
   const pool = pools.get(url.origin);
   const interceptor = pool?.interceptors.find((i) =>

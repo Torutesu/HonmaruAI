@@ -118,6 +118,40 @@ test("revoked access prevents a research request before any model call", async (
   expect(out).toMatchObject({called:false,answer:null,cancelled:true,rounds:0});
 });
 
+test("stopping an active research request aborts its fetch signal and discards a late response",async()=>{
+ const controller=new AbortController();let markStarted,release;
+ const started=new Promise(resolve=>{markStarted=resolve;});
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(opts=>{
+  markStarted(opts.signal);
+  return new Promise(resolve=>{release=()=>resolve({statusCode:200,data:{id:'late-response',output_text:'stale',output:[]}});});
+ });
+ const pending=research({provider:provider(),env:{},instructions:'Check',input:'Check',signal:controller.signal});
+ const providerSignal=await started;
+ expect(providerSignal.aborted).toBe(false);
+ controller.abort();
+ expect(providerSignal.aborted).toBe(true);
+ release();
+ expect(await pending).toMatchObject({called:true,answer:null,cancelled:true,rounds:1});
+});
+
+test("stopping a running research tool returns immediately and prevents another model round",async()=>{
+ const controller=new AbortController();let markStarted,toolSignal,calls=0;
+ const started=new Promise(resolve=>{markStarted=resolve;});
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(200,()=>{
+  calls++;
+  return {id:'tool-request',output:[{type:'function_call',call_id:'wait-call',name:'wait',arguments:'{}'}]};
+ });
+ const pending=research({provider:provider(),env:{},instructions:'Check',input:'Check',signal:controller.signal,
+  tools:{wait:{description:'wait',parameters:{type:'object',properties:{},required:[],additionalProperties:false},run:async(_args,{signal})=>{
+   toolSignal=signal;markStarted();return new Promise(()=>{});
+  }}}});
+ await started;
+ controller.abort();
+ expect(toolSignal.aborted).toBe(true);
+ expect(await pending).toMatchObject({called:true,answer:null,cancelled:true,rounds:1,calls:1});
+ expect(calls).toBe(1);
+});
+
 test("revocation during the model call prevents its requested tools from running", async () => {
   let allowed=true, ran=0;
   fetchMock.get("https://api.openai.com").intercept({path:"/v1/responses",method:"POST"}).reply(200,()=>{
