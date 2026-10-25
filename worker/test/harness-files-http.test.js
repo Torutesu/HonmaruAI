@@ -125,3 +125,23 @@ test('single file metadata is exact, live-authorized and excludes unavailable ve
  await call(`/hx/files/${id}`,'DELETE',{expectedVersion:1});
  expect((await call(`/hx/files/${id}`)).status).toBe(404);
 });
+
+test('versioned files share one authorized conversation across simultaneous opens',async()=>{
+ const scope='g:abcdef0123456789';
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES(?,?,?,'now')").bind(orgId,scope,'file-human').run();
+ const {id}=await (await call('/hx/files','POST',{scope,path:'discussion.txt',requestId:`file-${crypto.randomUUID()}`})).json();
+ const endpoint='/channels/files/conversation';
+ expect((await call(`${endpoint}?fileId=${id}`)).status).toBe(404);
+ await call(`/hx/files/${id}/content?expectedVersion=0&size=5`,'PUT','hello',token,true);
+ const read=await call(`${endpoint}?fileId=${id}`);expect(read.status).toBe(200);expect((await read.json()).threadId).toBeNull();
+ const responses=await Promise.all([call(endpoint,'POST',{orgId,fileId:id}),call(endpoint,'POST',{orgId,fileId:id})]);
+ for(const response of responses)expect(response.status).toBe(200);
+ const results=await Promise.all(responses.map(r=>r.json()));expect(results[0].threadId).toBe(results[1].threadId);
+ const threadId=results[0].threadId;expect(threadId).toBe(`workspace-file-thread-${id}`);
+ expect((await env.DB.prepare('SELECT count(*) AS n FROM channel_messages WHERE org_id=? AND id=?').bind(orgId,threadId).first()).n).toBe(1);
+ await call(`/hx/files/${id}/content?expectedVersion=1&size=3`,'PUT','new',token,true);
+ expect((await (await call(`${endpoint}?fileId=${id}`)).json()).threadId).toBe(threadId);
+ await env.DB.prepare('DELETE FROM conversation_members WHERE org_id=? AND channel=? AND login=?').bind(orgId,scope,'file-human').run();
+ expect((await call(endpoint,'POST',{orgId,fileId:id})).status).toBe(404);
+ expect((await call(`${endpoint}?fileId=${id}`)).status).toBe(404);
+});

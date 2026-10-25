@@ -230,11 +230,11 @@ test('own-agent conversation tools create files in their bound scope and cannot 
  await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES(?,'file-agent','file-agent','Files','Help','personal','toru','now','now')").bind(ORG).run();
  const context={orgId:ORG,session:{github_id:'9401'},personal:true,ownAgentsOnly:true,fileScope:'ag:file-agent|toru',taint:{value:false}};
  for(const change of [{personal:false},{ownAgentsOnly:false},{fileScope:'workspace'}])expect(await fileAgentTools(env,{...context,...change})).toEqual({});
- const tools=await fileAgentTools(env,context);
+ const tools=await fileAgentTools({...env,APP_WEB_URL:'https://workspace.example.test/app/'},context);
  expect(tools.create_file_text.parameters.properties.scope).toBeUndefined();
  const args={requestId:`file-${crypto.randomUUID()}`,path:'report.md',text:'local tool output',contentType:'text/markdown',scope:'workspace'};
  const created=JSON.parse(await tools.create_file_text.run(args));expect(created.saved).toBe(true);
- const link=new URL(created.openUrl);expect(link.origin).toBe('https://app.honmaruai.com');expect(link.hash).toContain(`file=${args.requestId}`);expect(link.hash).not.toContain('scope=workspace');
+ const link=new URL(created.openUrl);expect(link.origin).toBe('https://workspace.example.test');expect(link.pathname).toBe('/app/');expect(link.hash).toContain(`file=${args.requestId}`);expect(link.hash).not.toContain('scope=workspace');
  expect((await env.DB.prepare('SELECT scope FROM hx_workspace_files WHERE id=?').bind(created.fileId).first()).scope).toBe(context.fileScope);
  expect(context.taint.value).toBe(true);
  expect(JSON.parse(await tools.read_file_text.run({fileId:created.fileId,version:1})).text).toBe(args.text);
@@ -249,4 +249,13 @@ test('own-agent conversation tools create files in their bound scope and cannot 
  expect(await assembled.read_url.run({url:'https://example.com/'})).toContain('Not opened');
  await env.DB.prepare("UPDATE custom_agents SET owner_login='someone-else' WHERE id='file-agent'").run();
  expect(JSON.parse(await tools.create_file_text.run({...args,requestId:`file-${crypto.randomUUID()}`})).error).toContain('no longer');
+});
+
+test('conversation file links use configured deployments and exclude inherited credentials',async()=>{
+ const {conversationFileUrl}=await import('../src/harness/fileAgentTools.js');
+ const target={orgId:'team:files',fileScope:'ag:writer|toru',fileId:'file-123'};
+ const url=new URL(conversationFileUrl('http://localhost:4173/app/?token=secret#old',target));
+ expect(url.origin).toBe('http://localhost:4173');expect(url.pathname).toBe('/app/');expect(url.search).toBe('');
+ expect(url.hash).toBe('#/c/ag%3Awriter?org=team%3Afiles&file=file-123');
+ for(const address of [undefined,'invalid','javascript:alert(1)','https://user:password@example.test'])expect(conversationFileUrl(address,target)).toBeNull();
 });

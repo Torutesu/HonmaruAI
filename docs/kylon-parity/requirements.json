@@ -794,8 +794,14 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/file",
-      "code": "worker/src/files.js",
-      "acceptance": "作成者/アップロード者・最近/フォルダの両表示"
+      "code": "web-react/src/components/WorkspaceFilesPanel.tsx",
+      "acceptance": "作成者/アップロード者・最近/フォルダの両表示",
+      "evidence": {
+        "auditDate": "2026-10-25",
+        "verified": "Local full-stack upload, selected-folder upload, recent/folder navigation, human/agent/unknown origin filters, tab-local view restoration and two-tab live invalidation verified. Built-in own-agent file creation/edit tools have D1/R2 integration coverage.",
+        "release": "Origin UI and conversation tools/live refresh included in main 7f602fa8 after exact-candidate seven-job CI success. Production deployment completion remains unverified.",
+        "remaining": "Natural-language model generation and populated agent-file UI; authenticated production upload roundtrip; mobile/multi-user verification; shared-agent execution; populated Kylon comparison."
+      }
     },
     {
       "id": "KY-071",
@@ -830,8 +836,8 @@
         "auditDate": "2026-10-25",
         "reference": "https://docs.kylon.io/cli/workspace/file",
         "observedContract": "versions list; version get; deletion tombstone; revert copies old content into a new version and requires expected-current-version; purged content cannot be read or restored.",
-        "codeAudit": "Versioned workspace files have scoped HTTP routes, immutable versions, compare-and-swap uploads/restores, staging recovery, tombstones, hold-aware purge/retention and account/workspace cleanup. Web listing/history/paging/restore/deletion, file uploads and replacement uploads, safe PDF/text/CSV/raster previews, server-backed folder breadcrumbs and recent ordering exist. Real local full-shell upload/replace/restore/delete/reload/historical-download and selected-folder upload verified. Main 4d5a8249 passed candidate CI and deployment is running; later preview/folder/recent additions have separate release gates and are not confirmed live.",
-        "remaining": "Production migration/deploy and authenticated production file roundtrip; multi-user and mobile verification; persistent reservation recovery/empty reservation cleanup; native directory chooser roundtrip; creator tabs and agent file tools; populated Kylon reference/history comparison; reference-history and full binary export coverage. Local and component checks do not establish full Kylon parity."
+        "codeAudit": "Scoped HTTP/MCP file operations, immutable versions, staged R2 CAS writes, restore, tombstones, retention, empty-reservation cleanup, source classification, own-agent text creation/editing and authorized live invalidation are implemented. Local upload/replace/restore/delete/reload/download and version previews verified. Direct file URLs open room/history and survive reload; cross-workspace Simple-to-Harness navigation verified locally.",
+        "remaining": "Authenticated production file roundtrip and latest deployments; multi-user/mobile and native chooser verification; natural-language agent generation; shared-agent file tools; populated Kylon comparison; reference history and binary/export conversion. File URLs are candidate 79cc7bf0; recovery UI is candidate 18fa9757, not confirmed production."
       }
     },
     {
@@ -842,7 +848,12 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/file",
       "code": "worker/src/fileConversations.js",
-      "acceptance": "ファイル単位の固定ID・同時初回作成・送信元ACLを実装。Web 887件／Workerファイル27件を検証。後続デプロイへの包含はコミット祖先関係で確認。再読込E2Eの当該ケース結果は要再確認。添付削除後も会話は通常履歴に残る。Kylonのファイルと会話の同時表示・全端末比較は残る"
+      "acceptance": "ファイル単位の固定ID・同時初回作成・送信元ACLを実装。Web 887件／Workerファイル27件を検証。後続デプロイへの包含はコミット祖先関係で確認。再読込E2Eの当該ケース結果は要再確認。添付削除後も会話は通常履歴に残る。Kylonのファイルと会話の同時表示・全端末比較は残る",
+      "evidence": {
+        "auditDate": "2026-10-25",
+        "verified": "Versioned file endpoint and detail button now open one deterministic ordinary channel thread. HTTP tests cover concurrent first opens, version updates and membership revocation. Local UI sent a Japanese reply and restored the same thread/reply after reload. Legacy file tests remain passing.",
+        "remaining": "File/preview and conversation simultaneous layout; direct return to source file; natural-language AI context and version references; multi-user notifications/mobile; production deployment and populated Kylon comparison."
+      }
     },
     {
       "id": "KY-075",

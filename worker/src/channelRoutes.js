@@ -13,6 +13,7 @@ import { addManagedRoomAgent, changeManagedRoomMembers, publicRooms, joinPublicR
 import { explicitAgentRoles } from './harness/agentRoles.js';
 import { roomResponses } from "./harness/roomResponses.js";
 import { threadPins, setThreadPin } from "./threadPins.js";
+import {conversationFile,workspaceFileConversation} from './harness/fileConversation.js';
 import { sentFile, fileConversation } from "./fileConversations.js";
 import { threadNotificationPreference } from "./threadNotifications.js";
 import { threadReferences } from "./threadReferences.js";
@@ -1522,7 +1523,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (!input || typeof input !== "object") return json({ message: "Invalid request." }, 400);
     const who = await caller(env, request, input.orgId);
     if (who.denied) return who.denied;
-    const file = await sentFile(env.DB, input.orgId, input.fileId);
+    const file = await sentFile(env.DB, input.orgId, input.fileId) || await conversationFile(env.DB,{orgId:input.orgId,userId:String(who.session.github_id),fileId:input.fileId});
     if (!file) return json({ message: "No such file." }, 404);
     const members = await listMembers(env.DB, input.orgId, who.session.github_id);
     const view = viewOf(file.channel, who.user.login, members);
@@ -1532,7 +1533,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       const limited = await enforce(env, request, "chat");
       if (limited) return limited;
     }
-    const result = await fileConversation(env.DB, { orgId: input.orgId, file, login: who.user.login, create: request.method === "POST" });
+    const result = file.versioned ? await workspaceFileConversation(env.DB,{orgId:input.orgId,userId:String(who.session.github_id),file,create:request.method==='POST'}) : await fileConversation(env.DB, { orgId: input.orgId, file, login: who.user.login, create: request.method === "POST" });
     if (result.error) return json({ message: result.error }, result.status);
     // Reuse the normal per-channel delivery rules. Re-opening also repairs a
     // missed relay event; clients replace messages by their stable ID.

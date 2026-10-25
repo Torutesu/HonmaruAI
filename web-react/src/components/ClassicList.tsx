@@ -3423,7 +3423,7 @@ export const ClassicList: React.FC<Props> = ({
     let live=true
     const open=(event:Event)=>{
       const request=(event as CustomEvent<FileConversationRequest>).detail
-      if(!request || !/^f_[0-9a-f]{24}$/.test(request.fileId))return
+      if(!request || !(/^(?:f_[0-9a-f]{24}|(?:file-)?[a-f0-9-]{36})$/i.test(request.fileId)))return
       void fetch(`${api.httpBase}/channels/files/conversation`,{method:'POST',headers:{...authHeaders,'content-type':'application/json'},body:JSON.stringify({orgId:api.orgId,fileId:request.fileId})})
         .then(async response=>{
           const data=await response.json()

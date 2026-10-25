@@ -35,11 +35,23 @@ export async function fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,f
     const input={...args,scope:fileScope};
     const result=FILE_WRITE_TOOLS.some(t=>t.name===tool.name)?await callFileWriteTool(env,actor,tool.name,input):await callFileReadTool(env,actor,tool.name,input);
     if(result.structuredContent?.saved && result.structuredContent.fileId){
-     const channel=fileScope.slice(0,fileScope.lastIndexOf('|'));
-     result.structuredContent={...result.structuredContent,openUrl:`https://app.honmaruai.com/#/c/${encodeURIComponent(channel)}?${new URLSearchParams({org:orgId,file:result.structuredContent.fileId})}`};
+     const openUrl=conversationFileUrl(env.APP_WEB_URL,{orgId,fileScope,fileId:result.structuredContent.fileId});
+     if(openUrl)result.structuredContent={...result.structuredContent,openUrl};
     }
     return JSON.stringify(result.structuredContent||{error:result.content?.[0]?.text||'File operation failed.'});
    },
   }];
  }));
+}
+
+// Keep links on the configured app deployment, without inherited URL secrets.
+export function conversationFileUrl(webUrl,{orgId,fileScope,fileId}){
+ try{
+  const url=new URL(webUrl);
+  if(!['https:','http:'].includes(url.protocol)||url.username||url.password)return null;
+  const channel=fileScope.slice(0,fileScope.lastIndexOf('|'));
+  if(!channel.startsWith('ag:')||channel.length<=3)return null;
+  url.search='';url.hash=`/c/${encodeURIComponent(channel)}?${new URLSearchParams({org:orgId,file:fileId})}`;
+  return url.toString();
+ }catch{return null;}
 }
