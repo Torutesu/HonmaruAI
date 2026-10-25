@@ -1,11 +1,12 @@
 import React,{lazy,Suspense,useEffect,useState} from 'react'
+import {Icon} from './Icon'
 import {Dialog} from './Dialog'
 import {useT} from '../utils/i18n'
 import {workspaceFilePreviewKind} from '../utils/workspaceFilePreview'
 import type {WorkspaceFileApi,WorkspaceFile,FileVersion} from '../utils/workspaceFiles'
 import './DocumentPreview.css'
 const Content=lazy(()=>import('./DocumentPreview').then(module=>({default:module.DocumentContent})))
-export function WorkspaceFilePreview({api,file,version,onClose}:{api:WorkspaceFileApi;file:WorkspaceFile;version:FileVersion;onClose:()=>void}){
+export function WorkspaceFilePreview({api,file,version,onClose,inline=false}:{api:WorkspaceFileApi;file:WorkspaceFile;version:FileVersion;inline?:boolean;onClose:()=>void}){
  const t=useT(),kind=workspaceFilePreviewKind(version.contentType||'',file.path),[bytes,setBytes]=useState<Uint8Array|null>(null),[error,setError]=useState(''),[attempt,setAttempt]=useState(0)
  useEffect(()=>{let live=true;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);setBytes(null);setError('')
   const load=async()=>{const limit=kind==='pdf'||kind==='image'?25*1024*1024:2*1024*1024
@@ -19,9 +20,8 @@ export function WorkspaceFilePreview({api,file,version,onClose}:{api:WorkspaceFi
   return()=>{live=false;controller.abort();clearTimeout(timer)}
  },[api,file.id,version.version,version.size,kind,attempt,t])
  const fallback=<div role="alert"><p>{t('Preview could not be displayed.')}</p><button onClick={()=>setAttempt(value=>value+1)}>{t('Retry')}</button></div>
- return <Dialog title={`${file.path} · v${version.version}`} className="document-preview" onClose={onClose}>
-  {error?<div role="alert"><p>{error}</p><button onClick={()=>setAttempt(value=>value+1)}>{t('Retry')}</button></div>:bytes&&kind?<PreviewBoundary key={attempt} fallback={fallback}>{kind==='image'?<RasterPreview bytes={bytes} type={version.contentType||''} name={file.path} onError={()=>setError(t('Preview could not be displayed.'))}/>:<Suspense fallback={<p role="status">{t('Loading…')}</p>}><Content bytes={bytes} kind={kind}/></Suspense>}</PreviewBoundary>:<p role="status">{t('Loading…')}</p>}
- </Dialog>
+ const content=error?<div role="alert"><p>{error}</p><button onClick={()=>setAttempt(value=>value+1)}>{t('Retry')}</button></div>:bytes&&kind?<PreviewBoundary key={attempt} fallback={fallback}>{kind==='image'?<RasterPreview bytes={bytes} type={version.contentType||''} name={file.path} onError={()=>setError(t('Preview could not be displayed.'))}/>:<Suspense fallback={<p role="status">{t('Loading…')}</p>}><Content bytes={bytes} kind={kind}/></Suspense>}</PreviewBoundary>:<p role="status">{t('Loading…')}</p>
+ return inline?<section className="document-preview hx-inline-file-preview" aria-label={`${file.path} · v${version.version}`}><header><strong>{file.path.split('/').at(-1)} · v{version.version}</strong><button type="button" onClick={onClose} aria-label={t('Close preview')}><Icon name="x" size={16}/></button></header>{content}</section>:<Dialog title={`${file.path} · v${version.version}`} className="document-preview" onClose={onClose}>{content}</Dialog>
 }
 
 class PreviewBoundary extends React.Component<React.PropsWithChildren<{fallback:React.ReactNode}>,{failed:boolean}>{

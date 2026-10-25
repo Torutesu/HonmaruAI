@@ -36,3 +36,13 @@
 .document-tools input[type=number]{width:64px}
 .dialog.document-preview{max-height:90dvh}
 @media(max-width:600px){.dialog-backdrop:has(>.document-preview){padding:0}.dialog.document-preview{max-height:100dvh}}
+
+.hx-inline-file-preview{display:flex;flex-direction:column;height:480px;max-height:65dvh;min-height:240px;border:1px solid var(--bone);border-radius:10px;overflow:hidden;margin-bottom:16px}
+.hx-inline-file-preview>header{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--bone)}
+.hx-inline-file-preview>header strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:13px}
+.hx-inline-file-preview>header button{flex-shrink:0;display:grid;place-items:center;background:transparent;color:inherit;border:0;padding:5px;cursor:pointer}
+.hx-inline-file-preview .document-tools{padding:8px;gap:6px}
+.hx-inline-file-preview .document-tools input{max-width:100%;min-width:0}
+.hx-inline-file-preview .document-tools label{max-width:100%;min-width:0}
+.hx-inline-file-preview .document-content{padding:10px}
+.hx-inline-file-preview>img{min-height:0;flex:1}

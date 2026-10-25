@@ -36,6 +36,8 @@ const table: Record<string, string> = {
   "Message attachments": "メッセージの添付ファイル",
   "Back to first page": "最初のページに戻る",
   "No files in this room yet": "このルームにはまだファイルがありません",
+  "Close preview": "プレビューを閉じる",
+  "Open source file": "元のファイルを開く",
   "Opening linked file…": "リンク先のファイルを開いています…",
   "This file is unavailable or you no longer have access.": "ファイルが見つからないか、閲覧権限がありません。",
   "Could not open this file. Try again.": "ファイルを開けませんでした。もう一度お試しください。",

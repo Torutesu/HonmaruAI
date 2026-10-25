@@ -32,3 +32,13 @@ test('raster preview releases its object URL and displays decode failures',async
   act(()=>renderer!.unmount())
  }finally{createUrl.mockRestore();revoke.mockRestore()}
 })
+
+test('inline preview keeps content in a labelled region and closes without a dialog',async()=>{
+ const api={download:vi.fn().mockResolvedValue(new Blob(['saved version two']))} as unknown as WorkspaceFileApi
+ const close=vi.fn();let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilePreview api={api} file={file} version={version} inline onClose={close}/>)})
+ expect(renderer!.root.findByType('section').props['aria-label']).toBe('report.txt · v2')
+ expect(JSON.stringify(renderer!.toJSON())).toContain('saved version two')
+ act(()=>renderer!.root.findByProps({'aria-label':'Close preview'}).props.onClick());expect(close).toHaveBeenCalledOnce()
+ act(()=>renderer!.unmount())
+})
