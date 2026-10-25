@@ -15,7 +15,7 @@ export function AppPersonPicker({label,value,members,ready=true,disabled=false,o
   if(disabled||!ready||!members.length)return
   const rect=trigger.current?.getBoundingClientRect()
   if(rect&&typeof window!=='undefined'){
-   const width=Math.min(Math.max(220,rect.width),window.innerWidth-24),spaceBelow=window.innerHeight-rect.bottom-12,above=spaceBelow<220&&rect.top>220
+   const width=Math.min(window.innerWidth-24,Math.max(220,Math.min(rect.width,240))),spaceBelow=window.innerHeight-rect.bottom-12,above=spaceBelow<220&&rect.top>220
    const available=above?rect.top-20:spaceBelow
    setPosition({position:'fixed',zIndex:260,width,left:Math.max(12,Math.min(rect.left,window.innerWidth-width-12)),top:above?rect.top-4:rect.bottom+4,transform:above?'translateY(-100%)':undefined,maxHeight:Math.max(120,Math.min(280,available))})
   }
@@ -43,13 +43,13 @@ export function AppPersonPicker({label,value,members,ready=true,disabled=false,o
    <Icon name="chevron-down" size={14}/>
   </button>
   {open&&<div id={id} className="hx-person-options" style={position}>
-   {members.length>=8&&<div className="hx-person-search"><Icon name="search" size={14}/><input type="search" aria-label="メンバーを検索" placeholder="メンバーを検索" value={query} onChange={event=>{setQuery(event.target.value);setActive(0)}} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();move(event.key)}else if(event.key==='Enter'){event.preventDefault();if(options[active])choose(options[active].ref)}}}/></div>}
+   <div className="hx-person-search"><Icon name="search" size={14}/><input type="search" aria-label="メンバーを検索" placeholder="メンバーを検索" value={query} onChange={event=>{setQuery(event.target.value);setActive(0)}} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();move(event.key)}else if(event.key==='Enter'){event.preventDefault();if(options[active])choose(options[active].ref)}}}/></div>
    <div role="listbox" aria-label={`${label}を選択`} className="hx-person-list">
     {options.map((option,index)=><button key={option.ref||'__unassigned'} id={`${id}-${index}`} data-member-ref={option.ref} type="button" role="option" aria-selected={option.ref===value} className={index===active?'active':''} onMouseDown={event=>event.preventDefault()} onMouseMove={()=>setActive(index)} onClick={()=>choose(option.ref)}>
      {option.ref&&members.some(member=>member.ref===option.ref)?<Avatar name={members.find(member=>member.ref===option.ref)!.name} size={22}/>:option.ref?<span className="hx-person-legacy" aria-hidden="true">?</span>:<span className="hx-person-unassigned" aria-hidden="true"><Icon name="users" size={15}/></span>}
      <span>{option.name}</span>{option.ref===value&&<Icon name="check" size={14}/>}
     </button>)}
-    {members.length>=8&&!visible.length&&<p>該当するメンバーがいません</p>}
+    {!visible.length&&<p>該当するメンバーがいません</p>}
    </div>
   </div>}
  </div>

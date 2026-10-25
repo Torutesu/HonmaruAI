@@ -35,3 +35,13 @@ test('person fields fail closed while members are unavailable and retain legacy 
  expect(trigger.props.disabled).toBe(true);expect(trigger.findAllByType('span').map(span=>span.children.join(''))).toContain('former-member')
  act(()=>tree!.unmount())
 })
+
+test('keeps the Kylon-style member search visible in small workspaces',()=>{
+ stubBrowserGlobals()
+ let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={[{id:'owner',name:'担当者',type:'person'}]} members={[{ref:'user_1',name:'Tano Toru'},{ref:'user_2',name:'Aris'}]} save={vi.fn()} onClose={()=>{}}/>)});
+ act(()=>tree!.root.findByProps({role:'combobox','aria-label':'担当者'}).props.onClick())
+ expect(tree!.root.findByProps({'aria-label':'メンバーを検索'})).toBeTruthy()
+ expect(tree!.root.findAllByProps({role:'option'}).map(option=>option.props['data-member-ref'])).toEqual(['','user_1','user_2'])
+ act(()=>tree!.unmount())
+})
