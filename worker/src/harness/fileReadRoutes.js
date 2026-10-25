@@ -1,3 +1,4 @@
+import {listFileFolders} from './fileFolders.js';
 import {listWorkspaceFiles} from './fileList.js';
 import {listFileVersions,FileVersionInputError} from './fileVersionLedger.js';
 import {downloadFileVersion} from './fileDownload.js';
@@ -15,12 +16,17 @@ export async function handleFileReads(request,env,url,{orgId,userId,headers={}})
    if(!/^[1-9]\d*$/.test(value)||!Number.isSafeInteger(Number(value)))throw new FileVersionInputError(`Invalid ${name}.`);
    return Number(value);
   };
+  if(parts.length===3&&parts[2]==='folders'){
+   const deleted=params.get('includeDeleted');if(deleted!==null&&!['true','false'].includes(deleted))throw new FileVersionInputError('Invalid deleted filter.');
+   return json(await listFileFolders(env.DB,{orgId,userId,scope:params.get('scope'),directory:params.get('directory')??'',cursor:params.get('cursor'),includeDeleted:deleted==='true',limit:integer('limit',50)}));
+  }
   if(parts.length===2){
    const scope=params.get('scope');if(scope===null)throw new FileVersionInputError('File scope is required.');
    const deleted=params.get('includeDeleted');if(deleted!==null&&!['true','false'].includes(deleted))throw new FileVersionInputError('Invalid deleted filter.');
+   const direct=params.get('directOnly');if(direct!==null&&!['true','false'].includes(direct))throw new FileVersionInputError('Invalid directory filter.');
    let cursor=null;
    if(params.has('cursor')){try{cursor=JSON.parse(params.get('cursor'));}catch{throw new FileVersionInputError('Invalid cursor.');}if(!cursor||typeof cursor!=='object'||Array.isArray(cursor))throw new FileVersionInputError('Invalid cursor.');}
-   return json(await listWorkspaceFiles(env.DB,{orgId,userId,scope:scope==='all'?null:scope,query:params.get('query')??'',directory:params.get('directory')??'',type:params.get('type'),createdBy:params.get('createdBy'),since:params.get('since'),until:params.get('until'),includeDeleted:deleted==='true',cursor,limit:integer('limit',50)}));
+   return json(await listWorkspaceFiles(env.DB,{orgId,userId,scope:scope==='all'?null:scope,query:params.get('query')??'',directory:params.get('directory')??'',type:params.get('type'),createdBy:params.get('createdBy'),since:params.get('since'),until:params.get('until'),includeDeleted:deleted==='true',directOnly:direct==='true',cursor,limit:integer('limit',50)}));
   }
   let fileId;try{fileId=decodeURIComponent(parts[2]);}catch{throw new FileVersionInputError('Invalid file identifier.');}
   if(parts.length===4&&parts[3]==='versions')return json({versions:await listFileVersions(env.DB,{orgId,userId,fileId,before:integer('before',null),limit:integer('limit',50)})});

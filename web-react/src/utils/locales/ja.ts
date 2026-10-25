@@ -1,6 +1,12 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "File view": "ファイルの表示",
+  "All files": "すべてのファイル",
+  "Folders": "フォルダ",
+  "Folder path": "フォルダの場所",
+  "First folders": "先頭のフォルダへ",
+  "More folders": "次のフォルダ",
   "Current version": "現在の版",
   "Choose a new file version": "新しい版のファイルを選択",
   "Upload new version": "新しい版をアップロード",

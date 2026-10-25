@@ -58,3 +58,23 @@ test('lost create responses can be recovered without adopting another author or 
  expect(await (await call(`/hx/files/${id}/versions/1/content`)).text()).toBe('hello');
  expect((await call('/hx/files','POST',{...command,requestId:'invalid'})).status).toBe(400);
 });
+
+test('folder listing is hierarchical paginated and excludes inaccessible content',async()=>{
+ const ids=[];
+ for(const path of ['Alpha/one.txt','Alpha/nested/two.txt','Beta/three.txt','root.txt']){
+  const {id}=await (await call('/hx/files','POST',{scope:'workspace',path})).json();ids.push(id);
+  expect((await call(`/hx/files/${id}/content?expectedVersion=0&size=1`,'PUT','x',token,true)).status).toBe(200);
+ }
+ let page=await (await call('/hx/files/folders?scope=workspace&limit=1')).json();expect(page).toEqual({folders:[{name:'Alpha',path:'Alpha/'}],next:'Alpha'});
+ page=await (await call('/hx/files/folders?scope=workspace&limit=1&cursor=Alpha')).json();expect(page).toEqual({folders:[{name:'Beta',path:'Beta/'}],next:null});
+ expect((await (await call('/hx/files/folders?scope=workspace&directory=Alpha%2F')).json()).folders).toEqual([{name:'nested',path:'Alpha/nested/'}]);
+ expect((await (await call('/hx/files/folders?scope=g:private')).json()).folders).toEqual([]);
+ await call(`/hx/files/${ids[2]}`,'DELETE',{expectedVersion:1});
+ expect((await (await call('/hx/files/folders?scope=workspace')).json()).folders).toHaveLength(1);
+ expect((await (await call('/hx/files/folders?scope=workspace&includeDeleted=true')).json()).folders).toHaveLength(2);
+ expect((await (await call('/hx/files?scope=workspace&directOnly=true')).json()).files.map(f=>f.path)).toEqual(['root.txt']);
+ expect((await (await call('/hx/files?scope=workspace&directOnly=true&directory=Alpha')).json()).files.map(f=>f.path)).toEqual(['Alpha/one.txt']);
+ expect((await call('/hx/files?scope=workspace&directOnly=invalid')).status).toBe(400);
+ expect((await call('/hx/files/folders?scope=all')).status).toBe(400);
+ expect((await call('/hx/files/folders?scope=workspace&directory=..')).status).toBe(400);
+});

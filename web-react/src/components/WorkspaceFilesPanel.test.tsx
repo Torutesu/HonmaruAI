@@ -80,3 +80,20 @@ test('opening history preserves an in-flight room upload until the panel closes'
  await act(async()=>{finish({saved:true,version:1})});expect(api.list).toHaveBeenCalledTimes(2)
  act(()=>renderer!.unmount());expect(signal.aborted).toBe(true)
 })
+
+test('folder navigation requests direct children, scopes search and resets pagination on breadcrumbs',async()=>{
+ const api={list:vi.fn().mockResolvedValue({files:[],next:null}),folders:vi.fn().mockImplementation(async(_scope,directory)=>({folders:directory?[]:[{name:'Alpha',path:'Alpha/'}],next:null}))} as unknown as WorkspaceFileApi
+ let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
+ const button=(label:string)=>renderer!.root.findAllByType('button').find(b=>b.children.includes(label))
+ await act(async()=>{button('Folders')!.props.onClick()})
+ expect(api.folders).toHaveBeenLastCalledWith('workspace','',false,undefined,expect.any(AbortSignal))
+ await act(async()=>{renderer!.root.findByProps({className:'hx-file-folder'}).props.onClick()})
+ expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({directory:'Alpha/',directOnly:true})
+ await act(async()=>{renderer!.root.findByProps({'aria-label':'Search files'}).props.onChange({target:{value:'note'}})})
+ await act(async()=>{renderer!.root.findByType('form').props.onSubmit({preventDefault(){}})})
+ expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({directory:'Alpha/',directOnly:false,query:'note'})
+ await act(async()=>{button('Files')!.props.onClick()})
+ expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({directory:'',directOnly:true,query:''})
+ act(()=>renderer!.unmount())
+})
