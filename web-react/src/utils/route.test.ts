@@ -187,3 +187,10 @@ it('app section links restore each screen and retain conversation context withou
  for(const hash of ['#/list',hashForAppSource('app','team:acme','data'),hashForApp('other','team:acme'),hashForApp('app','team:other')])expect(appSectionHash(hash,'app','team:acme','settings')).toBeNull()
  expect(parseRoute('#/apps/app/team%3Aacme?section=unknown').appSection).toBeUndefined()
 })
+
+it('file links remain bound to a valid conversation route',()=>{
+ const id='file-12345678-1234-4234-8234-123456789abc'
+ expect(parseRoute(`#/c/b%3Adesign?org=team%3Aacme&file=${id}`)).toMatchObject({openView:'b:design',openOrg:'team:acme',fileId:id})
+ expect(parseRoute(`#/c/invalid?file=${id}`).fileId).toBeUndefined()
+ expect(parseRoute('#/c/b%3Adesign?file=../private').fileId).toBeUndefined()
+})

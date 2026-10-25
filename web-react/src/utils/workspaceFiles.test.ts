@@ -24,3 +24,12 @@ test('conflicts preserve HTTP status for a refresh decision without retrying mut
  await expect(api.restore('file',1,2)).rejects.toMatchObject({name:'WorkspaceFileError',status:409,message:'Refresh the file'})
  expect(fetcher).toHaveBeenCalledTimes(1);expect(new WorkspaceFileError('failure',503).status).toBe(503)
 })
+
+test('direct metadata lookup uses encoded identifiers and keeps session credentials out of the link',async()=>{
+ const fetcher=vi.fn().mockResolvedValue(new Response('{"file":{"id":"file/one","version":2}}'));vi.stubGlobal('fetch',fetcher)
+ const controller=new AbortController(),api=workspaceFileApi('https://api.example/','org one','private-token')
+ expect(await api.get('file/one',controller.signal)).toEqual({file:{id:'file/one',version:2}})
+ const [address,request]=fetcher.mock.calls[0]
+ expect(address).toBe('https://api.example/hx/files/file%2Fone?orgId=org+one')
+ expect(request.headers['x-session-token']).toBe('private-token');expect(request.signal).toBe(controller.signal)
+})

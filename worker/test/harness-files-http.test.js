@@ -108,3 +108,20 @@ test('HTTP upload origin comes from the authenticated endpoint and migration is 
  await env.DB.prepare('DROP TABLE hx_workspace_file_origins').run();
  expect((await call('/hx/files?scope=workspace')).status).toBe(503);
 });
+
+test('single file metadata is exact, live-authorized and excludes unavailable versions',async()=>{
+ const {id}=await (await call('/hx/files','POST',{scope:'workspace',path:'linked.txt'})).json();
+ expect((await call(`/hx/files/${id}`)).status).toBe(404); // uncommitted reservation
+ await call(`/hx/files/${id}/content?expectedVersion=0&size=5`,'PUT','hello',token,true);
+ const response=await call(`/hx/files/${id}`);
+ expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toContain('no-store');
+ const body=await response.json();expect(body.file).toMatchObject({id,path:'linked.txt',scope:'workspace',origin:'human',version:1,size:5});
+ expect(JSON.stringify(body)).not.toMatch(/object_key|content_hash|hello/);
+ expect((await call('/hx/files/missing')).status).toBe(404);
+ expect((await call(`/hx/files/${id}`,'GET',undefined,guest)).status).toBe(403);
+ await env.DB.prepare('UPDATE hx_workspace_files SET scope=? WHERE org_id=? AND id=?').bind('g:closed',orgId,id).run();
+ expect((await call(`/hx/files/${id}`)).status).toBe(404);
+ await env.DB.prepare('UPDATE hx_workspace_files SET scope=? WHERE org_id=? AND id=?').bind('workspace',orgId,id).run();
+ await call(`/hx/files/${id}`,'DELETE',{expectedVersion:1});
+ expect((await call(`/hx/files/${id}`)).status).toBe(404);
+});

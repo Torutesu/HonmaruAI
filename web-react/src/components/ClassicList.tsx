@@ -117,6 +117,7 @@ interface Props {
   harness?: boolean
   newRequest?: number
   homeRequest?: number
+  linkedFile?: {id:string;channel:string} | null
   linkedThreadId?: string | null
   sourceAppId?: string | null
   sourceAppSection?: 'data'
@@ -346,7 +347,7 @@ function when(iso?: string): string {
 /// the relay's, not invented. On a phone it is one pane at a time: the
 /// sidebar, then the conversation with a way back.
 export const ClassicList: React.FC<Props> = ({
-  jamStates, harness = false, newRequest = 0, homeRequest = 0, sourceAppId = null, sourceAppSection, sourceAppDraft, linkedThreadId = null, userId, orgName, pending, sent, decided, businesses, presence,
+  linkedFile = null, jamStates, harness = false, newRequest = 0, homeRequest = 0, sourceAppId = null, sourceAppSection, sourceAppDraft, linkedThreadId = null, userId, orgName, pending, sent, decided, businesses, presence,
   onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, onApps, onWorkflow, workspaceMenu,
   onCreateRoom, onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen, onOpenAgentProfile, onPlaces, onStatus, statusOpen, active = true,
 }) => {
@@ -3546,9 +3547,9 @@ export const ClassicList: React.FC<Props> = ({
 
   // ---- What the header opens ----
   // The journal ("Context"), or the channel's details on one of its tabs.
-  const [side, setSide] = useState<null | { kind: 'references' } | { kind: 'journal' } | { kind: 'app'; id: string; section?:'data'; conversation?:boolean; fromReferences?:boolean } | { kind: 'canvas' } | { kind: 'files' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
+  const [side, setSide] = useState<null | { kind: 'references' } | { kind: 'journal' } | { kind: 'app'; id: string; section?:'data'; conversation?:boolean; fromReferences?:boolean } | { kind: 'canvas' } | { kind: 'files'; fileId?:string } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
   const sourceThreadApp = Boolean(harness && thread && (side?.kind==='app'||side?.kind==='references') && !detail && !profile && !activityOpen && current?.view)
-  const openSide = (next: { kind: 'references' } | { kind: 'journal' } | { kind: 'app'; id: string; section?:'data'; conversation?:boolean; fromReferences?:boolean } | { kind: 'canvas' } | { kind: 'files' } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
+  const openSide = (next: { kind: 'references' } | { kind: 'journal' } | { kind: 'app'; id: string; section?:'data'; conversation?:boolean; fromReferences?:boolean } | { kind: 'canvas' } | { kind: 'files'; fileId?:string } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
     setDetailId(null); setThread(null); setProfile(null); setPins(null)
     setSide((prev) => (prev && prev.kind === next.kind && (prev.kind === 'journal' || prev.kind === 'files' || prev.kind === 'canvas' || (next.kind === 'resources' && prev.kind === 'resources' && prev.resource === next.resource) || (next.kind === 'details' && prev.kind === 'details' && prev.tab === next.tab)) ? null : next))
   }
@@ -3556,6 +3557,7 @@ export const ClassicList: React.FC<Props> = ({
   // sidebar's right-click menu): set before choosing, applied once it opens.
   const sideOnOpen = useRef<null | { kind: 'details'; tab: DetailsTab }>(null)
   useEffect(() => { setSide(sideOnOpen.current); sideOnOpen.current = null }, [current?.key])
+  useEffect(()=>{if(harness && linkedFile && current?.view===linkedFile.channel){setDetailId(null);setProfile(null);setSide({kind:'files',fileId:linkedFile.id})}},[harness,linkedFile?.id,linkedFile?.channel,current?.view])
   useEffect(()=>{
     const pending=pendingSource.current
     if(!pending || !harness || pending.appId!==sourceAppId)return
@@ -6094,7 +6096,7 @@ export const ClassicList: React.FC<Props> = ({
           : side.kind === 'app'
           ? <aside className="hx-app-pane slk-pane"><AppView key={`${api.orgId}:${side.id}`} httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} api={resourceClient} appId={side.id} openConversation={side.conversation} initialSection={side.section} onClose={() => setSide(null)} onBack={() => setSide(side.fromReferences&&thread?{kind:'references'}:{ kind: 'resources', resource: 'apps' })} /></aside>
           : side.kind === 'files'
-          ? <RoomFilesPanel key={`${api.orgId}:${api.sessionToken}:${current.view}`} api={resourceClient.files} channel={current.view} preferenceKey={workspaceFileViewKey(api.httpBase,api.orgId,userId,current.view)} onClose={()=>setSide(null)} onAttachments={()=>setSide({kind:'details',tab:'attachments'})}/>
+          ? <RoomFilesPanel key={`${api.orgId}:${api.sessionToken}:${current.view}`} api={resourceClient.files} channel={current.view} targetFileId={side.fileId} preferenceKey={workspaceFileViewKey(api.httpBase,api.orgId,userId,current.view)} onClose={()=>setSide(null)} onAttachments={()=>setSide({kind:'details',tab:'attachments'})}/>
           : side.kind === 'resources'
           ? <HarnessRoomResources key={`${api.orgId}:${userId}:${current.view}:${side.resource}`} api={api} channel={current.view} kind={side.resource}
               onClose={() => setSide(null)} onOpenApp={id => { if (id) setSide({ kind: 'app', id }); else { setSide(null); onApps?.() } }} onOpenWorkflow={id => { setSide(null); onWorkflow?.(id) }}

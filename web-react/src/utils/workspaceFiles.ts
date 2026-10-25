@@ -18,6 +18,7 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
   return (await response(route,method,body===undefined?undefined:JSON.stringify(body),query,'application/json',signal)).json()
  }
  return {
+  get:(id:string,signal?:AbortSignal)=>json<{file:WorkspaceFile}>(path(id),'GET',undefined,undefined,signal),
   resolveScope:(channel:string,signal?:AbortSignal)=>json<{scope:string}>('/hx/files/scope','GET',undefined,{channel},signal),
   list:(search:FileSearch,signal?:AbortSignal)=>{
    const query:Record<string,string>={scope:search.scope}

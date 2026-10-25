@@ -36,6 +36,7 @@ export type Screen = 'tools' | 'history' | 'notifications' | 'plans' | 'profile'
 export type Mode = 'cards' | 'classic'
 
 export interface Route {
+  fileId?: string | null
   workflowId?: string | null
   workflowOrg?: string | null
   threadId?: string | null
@@ -117,8 +118,8 @@ export function parseRoute(hash: string): Route {
     let view = raw
     try { view = decodeURIComponent(view) } catch { /* as written */ }
     const openView = /^(b|dm|g|ag):[^\s]{1,200}$/.test(view) ? view : null
-    const org = new URLSearchParams(query).get('org')
-    return { screen: null, mode: 'classic', cardId: null, join: null, openView, openOrg: openView && org && isOrgId(org) ? org : null }
+    const params = new URLSearchParams(query), org = params.get('org'), file = params.get('file')
+    return { screen: null, mode: 'classic', cardId: null, join: null, openView, openOrg: openView && org && isOrgId(org) ? org : null, ...(openView && file && /^file-[0-9a-f-]{36}$/i.test(file) ? {fileId:file} : {}) }
   }
   if (head === 'workflows' && rest.length) {
     const decode = (value: string) => { try { return decodeURIComponent(value) } catch { return '' } }

@@ -128,3 +128,15 @@ test('a socket file notification refreshes both the open list and its visible hi
   expect(api.list).toHaveBeenCalledTimes(2);expect(api.versions).toHaveBeenCalledTimes(2)
  }finally{act(()=>tree?.unmount());vi.unstubAllGlobals();vi.useRealTimers()}
 })
+
+test('a linked file opens outside listing filters, but never under a different room',async()=>{
+ const api={list:vi.fn().mockResolvedValue({files:[],next:null}),get:vi.fn().mockResolvedValue({file}),versions:vi.fn().mockResolvedValue({versions:[version(51)]})} as unknown as WorkspaceFileApi
+ let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" targetFileId="file" onClose={vi.fn()} onAttachments={vi.fn()}/>)})
+ expect(renderer!.root.findByType('h2').children).toContain('history.txt')
+ await act(async()=>{renderer!.unmount()})
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="g:other" targetFileId="file" onClose={vi.fn()} onAttachments={vi.fn()}/>)})
+ expect(renderer!.root.findAllByType('h2')).toHaveLength(0)
+ expect(renderer!.root.findByProps({role:'alert'}).findByType('p').children).toContain('File is unavailable.')
+ await act(async()=>{renderer!.unmount()})
+})

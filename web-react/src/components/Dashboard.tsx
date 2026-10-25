@@ -266,8 +266,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     if (route.openOrg && route.openOrg !== orgId) return
     try { localStorage.setItem('mode', 'classic'); sessionStorage.setItem('list.openView', view) } catch {}
     window.dispatchEvent(new CustomEvent('honmaru:open-view', { detail: view }))
-    navigate(hashForMode('classic'), true)
-  }, [route.openView, route.openOrg, orgId, navigate])
+    if(!route.fileId)navigate(hashForMode('classic'), true)
+  }, [route.openView, route.openOrg, route.fileId, orgId, navigate])
   // A `?card=` link from before the hash routes: turned into one, once.
   useEffect(() => {
     try {
@@ -640,7 +640,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     if (!workspaces.length) return
     if (workspaces.some((w) => w.id === org)) {
       try { localStorage.setItem('mode', 'classic'); sessionStorage.setItem('list.openView', view) } catch {}
-      navigate(hashForMode('classic'), true)
+      if(!route.fileId)navigate(hashForMode('classic'), true)
       onSwitchOrg(org)
       return
     }
@@ -1078,6 +1078,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           jamStates={jamSnapshot.states}
           newRequest={harnessNewRequest}
           homeRequest={harnessHomeRequest}
+          linkedFile={route.fileId && route.openView && (!route.openOrg || route.openOrg === orgId) ? {id:route.fileId,channel:route.openView} : null}
           linkedThreadId={route.threadId && (!route.threadOrg || route.threadOrg === orgId) ? route.threadId : null}
           sourceAppId={route.appSource && route.appOrg===orgId ? route.appId : null}
           sourceAppSection={route.appSourceSection}

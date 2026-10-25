@@ -10,8 +10,9 @@ const date=value=>{
 };
 // Internal. Scope must be explicit: callers resolve the active room; null is
 // an intentional search across all visible scopes, never a default fallback.
-export async function listWorkspaceFiles(db,{orgId,userId,scope,query='',directory='',type=null,createdBy=null,since=null,until=null,includeDeleted=false,directOnly=false,order='path',origin=null,cursor=null,limit=50}) {
+export async function listWorkspaceFiles(db,{orgId,userId,scope,query='',directory='',type=null,createdBy=null,since=null,until=null,includeDeleted=false,directOnly=false,order='path',origin=null,cursor=null,limit=50,fileId=null}) {
  if(!text(orgId)||!orgId||!text(userId)||!userId||(scope!==null&&(!text(scope)||!scope))||!text(query)||!text(directory)||!Number.isInteger(limit)||limit<1||limit>100||typeof includeDeleted!=='boolean'||typeof directOnly!=='boolean'||!['path','recent'].includes(order)||(createdBy!==null&&(!text(createdBy)||!createdBy))||(type!==null&&!Object.hasOwn(types,type)))throw new FileVersionInputError('Invalid file search.');
+ if(fileId!==null&&(!text(fileId)||!fileId))throw new FileVersionInputError('Invalid file identifier.');
  if(origin!==null&&!['human','agent','unknown'].includes(origin))throw new FileVersionInputError('Invalid file origin filter.');
  if(cursor!==null&&(!text(cursor.path)||!text(cursor.id)||!cursor.id))throw new FileVersionInputError('Invalid file cursor.');
  if(directOnly&&directory)directory=workspaceFilePath(directory.replace(/\/$/,''))+'/';
@@ -21,14 +22,14 @@ export async function listWorkspaceFiles(db,{orgId,userId,scope,query='',directo
  const {results}=await db.prepare(`SELECT f.id,f.scope,f.path,COALESCE(o.source,'unknown') AS origin,CASE WHEN EXISTS(SELECT 1 FROM users author WHERE author.github_id=f.created_by) THEN f.created_by ELSE 'deleted-user' END AS created_by,f.created_at,f.updated_at,f.current_version,v.kind,v.content_type,v.size
   FROM hx_workspace_files f JOIN hx_workspace_file_versions v ON v.org_id=f.org_id AND v.file_id=f.id AND v.version=f.current_version
   LEFT JOIN hx_workspace_file_origins o ON o.org_id=f.org_id AND o.file_id=f.id
-  WHERE f.org_id=?1 AND (?14 IS NULL OR COALESCE(o.source,'unknown')=?14) AND ${fileScopeAuthority('f.org_id','f.scope','?2')}
+  WHERE f.org_id=?1 AND (?15 IS NULL OR f.id=?15) AND (?14 IS NULL OR COALESCE(o.source,'unknown')=?14) AND ${fileScopeAuthority('f.org_id','f.scope','?2')}
    AND (?3 IS NULL OR f.scope=?3) AND instr(lower(f.path),lower(?4))>0 AND substr(f.path,1,length(?5))=?5
    AND (?13=0 OR instr(substr(f.path,length(?5)+1),'/')=0)
    AND (?6 IS NULL OR f.created_by=?6) AND (?7 IS NULL OR f.created_at>=?7) AND (?8 IS NULL OR f.created_at<=?8)
    AND (?9=1 OR v.kind='content') AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges p WHERE p.org_id=v.org_id AND p.file_id=v.file_id AND p.version=v.version)
    AND ${order==='recent'?"(?10 IS NULL OR f.updated_at<?10 OR (f.updated_at=?10 AND f.id<?11))":"(?10 IS NULL OR f.path>?10 OR (f.path=?10 AND f.id>?11))"}
    ${type===null?'':`AND ${types[type]}`} ORDER BY ${order==='recent'?'f.updated_at DESC,f.id DESC':'f.path,f.id'} LIMIT ?12`)
-  .bind(orgId,userId,scope,query,directory,createdBy,since,until,includeDeleted?1:0,(order==='recent'?cursor?.updatedAt:cursor?.path)??null,cursor?.id??null,limit+1,directOnly?1:0,origin).all();
+  .bind(orgId,userId,scope,query,directory,createdBy,since,until,includeDeleted?1:0,(order==='recent'?cursor?.updatedAt:cursor?.path)??null,cursor?.id??null,limit+1,directOnly?1:0,origin,fileId).all();
  const rows=results.slice(0,limit),last=rows.at(-1);
  return {files:rows.map(row=>({id:row.id,scope:row.scope,path:row.path,origin:row.origin,createdBy:row.created_by,createdAt:row.created_at,updatedAt:row.updated_at,version:row.current_version,deleted:row.kind==='deleted',contentType:row.content_type,size:row.size})),next:results.length>limit?{path:last.path,id:last.id,...(order==='recent'?{updatedAt:last.updated_at}:{})}:null};
 }

@@ -234,6 +234,7 @@ test('own-agent conversation tools create files in their bound scope and cannot 
  expect(tools.create_file_text.parameters.properties.scope).toBeUndefined();
  const args={requestId:`file-${crypto.randomUUID()}`,path:'report.md',text:'local tool output',contentType:'text/markdown',scope:'workspace'};
  const created=JSON.parse(await tools.create_file_text.run(args));expect(created.saved).toBe(true);
+ const link=new URL(created.openUrl);expect(link.origin).toBe('https://app.honmaruai.com');expect(link.hash).toContain(`file=${args.requestId}`);expect(link.hash).not.toContain('scope=workspace');
  expect((await env.DB.prepare('SELECT scope FROM hx_workspace_files WHERE id=?').bind(created.fileId).first()).scope).toBe(context.fileScope);
  expect(context.taint.value).toBe(true);
  expect(JSON.parse(await tools.read_file_text.run({fileId:created.fileId,version:1})).text).toBe(args.text);

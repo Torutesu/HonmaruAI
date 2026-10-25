@@ -21,7 +21,7 @@ export async function fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,f
  return Object.fromEntries([...FILE_READ_TOOLS,...FILE_WRITE_TOOLS].map(tool=>{
   const {scope:unused,...properties}=tool.inputSchema.properties;
   return [tool.name,{
-   description:tool.description+' This tool is restricted to files in this conversation; do not request other scopes.',
+   description:tool.description+' This tool is restricted to files in this conversation; do not request other scopes. After saving, include the returned openUrl as a Markdown link so the user can open the file in this conversation.',
    parameters:{...tool.inputSchema,properties,required:tool.inputSchema.required.filter(key=>key!=='scope')},strict:false,
    run:async(args={})=>{
     if(!await current())return JSON.stringify({error:'This agent conversation is no longer available.'});
@@ -34,6 +34,10 @@ export async function fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,f
     if(taint)taint.value=true;
     const input={...args,scope:fileScope};
     const result=FILE_WRITE_TOOLS.some(t=>t.name===tool.name)?await callFileWriteTool(env,actor,tool.name,input):await callFileReadTool(env,actor,tool.name,input);
+    if(result.structuredContent?.saved && result.structuredContent.fileId){
+     const channel=fileScope.slice(0,fileScope.lastIndexOf('|'));
+     result.structuredContent={...result.structuredContent,openUrl:`https://app.honmaruai.com/#/c/${encodeURIComponent(channel)}?${new URLSearchParams({org:orgId,file:result.structuredContent.fileId})}`};
+    }
     return JSON.stringify(result.structuredContent||{error:result.content?.[0]?.text||'File operation failed.'});
    },
   }];

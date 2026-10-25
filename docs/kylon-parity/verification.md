@@ -3272,3 +3272,19 @@ Candidate 865607d0 CI 40183432626 has six required jobs passing with Worker stil
 Local full-stack CUA sent a synthetic Keyboard focus verification message, picked it with ArrowUp, entered edit with E, then pressed Escape and Backspace. The in-app deletion confirmation appeared with the correct message; Escape cancelled it and restored focus to the message. No deletion was performed. Screenshot: /tmp/honmaru-keyboard-delete-confirm-20261025.png. This successful attempt does not explain or waive CI 40183730311's intermittent failure.
 
 The existing E2E failure now captures active element/row IDs and classes, editing/dialog presence and a screenshot before failing. No retry, timeout increase or weakened assertion was introduced. node --check e2e/spec.mjs passed. Further CI evidence is required to identify the failing state.
+
+### 2026-10-25 — direct file metadata for conversation links
+Added GET /hx/files/:id and the Web API client get method as the foundation for opening generated-file links without searching paginated or source-filtered listings. The query uses the existing live fileScopeAuthority and an exact bound file identifier. It returns only committed, unpurged current content metadata; missing, private/inaccessible, reserved and deleted files are unavailable. No storage key or content is returned, and responses remain private/no-store. The public list API does not accept the new internal identifier filter.
+
+Worker HTTP/ledger suites: 25 tests passed, including exact metadata, guest rejection, inaccessible scope and tombstone behavior. Web API tests: 4 passed; Web production build passed. Conversation link rendering/navigation is still incomplete and this endpoint is not deployed yet.
+
+Release: candidate 865607d013ed568b35c1f96b3b42d88e3080648a CI 40183432626 completed successfully with all seven required jobs passing. Verified remote main ecfebd24 and candidate ancestry, then fast-forwarded main to 865607d0. Deployment success is not yet verified. Later conversation-tool/live-refresh candidates remain gated on their own CI.
+
+### 2026-10-25 — file links open their conversation and history
+Conversation routes accept a validated file identifier. Dashboard retains these routes through mode loading and workspace switching; ClassicList opens the Files panel only after the requested conversation is current. The panel resolves canonical room scope and loads metadata through the new live-authorized endpoint, rejects a scope mismatch, clears previous selection on target changes, and offers retry on failure. Source/list filters do not hide a directly linked file. Own-agent save receipts now return an HTTPS openUrl for their server-bound agent conversation and instruct the model to include it in its reply. No session credential is in the URL.
+
+Local CUA followed a file URL into File verification, opened the correct existing file's v5/history despite the saved human-only filter, reloaded the URL and recovered the same detail, then previewed its real saved content. Screenshot /tmp/honmaru-file-link-preview-20261025.png. Natural-language agent reply/link generation and cross-workspace UI switching still require actual end-to-end verification.
+
+Validation: route/panel focused tests 37 passed, Worker agent MCP 11 passed, full Web 1,195 tests passed, build passed. After clearing selection on target change, panel suite and build passed again. Earlier root-level build/test invocations used the wrong package directory; passing results used the Web/Worker package configurations.
+
+Release: exact candidate 7f602fa8 CI 40184262223 passed all seven required jobs, including the message-key E2E that failed in an older candidate. That does not establish the earlier intermittent failure's root cause; diagnostic capture remains in the next candidate. Verified main 865607d0 and ancestry, then fast-forwarded main to 7f602fa8. File-link changes are not yet deployed.

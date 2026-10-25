@@ -10,17 +10,17 @@ import {WorkspaceFilePreview} from './WorkspaceFilePreview'
 import {workspaceFilePreviewKind} from '../utils/workspaceFilePreview'
 import {WorkspaceFileUpload} from './WorkspaceFileUpload'
 
-export function RoomFilesPanel({api,channel,preferenceKey,onClose,onAttachments}:{api:WorkspaceFileApi;channel:string;preferenceKey?:string;onClose:()=>void;onAttachments:()=>void}){
+export function RoomFilesPanel({api,channel,targetFileId,preferenceKey,onClose,onAttachments}:{api:WorkspaceFileApi;channel:string;targetFileId?:string;preferenceKey?:string;onClose:()=>void;onAttachments:()=>void}){
  const t=useT(),[scope,setScope]=useState<string|null>(null),[error,setError]=useState(''),[revision,setRevision]=useState(0)
  useEffect(()=>{let live=true;const controller=new AbortController();setScope(null);setError('')
   api.resolveScope(channel,controller.signal).then(result=>{if(live)setScope(result.scope)}).catch(error=>{if(live)setError(String(error.message||error))})
   return()=>{live=false;controller.abort()}
  },[api,channel,revision])
- if(scope)return <WorkspaceFilesPanel key={`${scope}:${preferenceKey}`} api={api} scope={scope} preferenceKey={preferenceKey} onClose={onClose} onAttachments={onAttachments}/>
+ if(scope)return <WorkspaceFilesPanel key={`${scope}:${preferenceKey}`} api={api} scope={scope} targetFileId={targetFileId} preferenceKey={preferenceKey} onClose={onClose} onAttachments={onAttachments}/>
  return <aside className="hx-room-resource slk-pane hx-files-panel" aria-label={t('Files')}><header><strong>{t('Files')}</strong><button onClick={onClose} aria-label={t('Close resources')}><Icon name="x" size={16}/></button></header><div className="hx-files-state" role={error?'alert':'status'}>{error||t('Loading…')}{error&&<button onClick={()=>setRevision(value=>value+1)}>{t('Retry')}</button>}</div><footer><button onClick={onAttachments}>{t('Message attachments')}</button></footer></aside>
 }
 
-export function WorkspaceFilesPanel({api,scope,preferenceKey,onClose,onAttachments}:{api:WorkspaceFileApi;scope:string;preferenceKey?:string;onClose:()=>void;onAttachments:()=>void}){
+export function WorkspaceFilesPanel({api,scope,targetFileId,preferenceKey,onClose,onAttachments}:{api:WorkspaceFileApi;scope:string;targetFileId?:string;preferenceKey?:string;onClose:()=>void;onAttachments:()=>void}){
  const [saved]=useState(()=>readWorkspaceFileView(preferenceKey))
  const t=useT(),[query,setQuery]=useState(saved.search),[search,setSearch]=useState(saved.search),[revision,setRevision]=useState(0)
  const [files,setFiles]=useState<WorkspaceFile[]|null>(null),[cursor,setCursor]=useState<FileCursor|null>(null),[next,setNext]=useState<FileCursor|null>(null)
@@ -39,9 +39,12 @@ export function WorkspaceFilesPanel({api,scope,preferenceKey,onClose,onAttachmen
  useEffect(()=>{setSelected(null);setCursor(null);setFolderCursor(undefined)},[api,scope])
  useEffect(()=>saveWorkspaceFileView(preferenceKey,{folderMode,directory,search,includeDeleted,origin}),[preferenceKey,folderMode,directory,search,includeDeleted,origin])
  useEffect(()=>subscribeWorkspaceFileRefresh(()=>setRevision(value=>value+1)),[api,scope])
+ const [targetError,setTargetError]=useState(''),[targetAttempt,setTargetAttempt]=useState(0)
+ useEffect(()=>{let live=true;const controller=new AbortController();setTargetError('');setSelected(null);if(targetFileId)api.get(targetFileId,controller.signal).then(({file})=>{if(!live)return;if(file.scope!==scope)throw new Error('File is unavailable.');setSelected(file)},error=>{if(live)setTargetError(String(error.message||error))}).catch(error=>{if(live)setTargetError(String(error.message||error))});return()=>{live=false;controller.abort()}},[api,scope,targetFileId,targetAttempt])
  const openDirectory=(path:string)=>{setDirectory(path);setCursor(null);setFolderCursor(undefined);setQuery('');setSearch('')}
  return <aside className="hx-room-resource slk-pane hx-files-panel" aria-label={t('Files')}>
   <header><strong>{t('Files')}</strong><button type="button" onClick={onClose} aria-label={t('Close resources')}><Icon name="x" size={16}/></button></header>
+  {targetError&&<div className="hx-files-state" role="alert"><p>{targetError}</p><button onClick={()=>setTargetAttempt(value=>value+1)}>{t('Retry')}</button></div>}
   <div className="hx-files-toolbar">
    {!selected&&<div className="hx-files-origin" role="group" aria-label={t('File source')}>
     {(['agent','human'] as const).map(source=><button type="button" key={source} title={t(source==='agent'?'Created by agents':'Uploaded by users')} aria-pressed={origin===source} onClick={()=>{setOrigin(source);setCursor(null);setFolderCursor(undefined)}}>{t(source==='agent'?'Created by agents':'Uploaded by users')}</button>)}
