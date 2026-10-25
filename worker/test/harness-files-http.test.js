@@ -187,3 +187,32 @@ test('AI file replies pin the version and recheck live authority',async()=>{
  expect(JSON.parse(await tools.read_thread_file.run())).toHaveProperty('error');
  expect(await fileThreadTools(env,context)).toEqual({});
 });
+
+test('file AI pages preserve Unicode and reject a root deleted during storage read',async()=>{
+ const {fileThreadTools}=await import('../src/harness/fileThreadTools.js');
+ const {setMode}=await import('../src/harness/mode.js');
+ const scope='g:abcdef0123456789';
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES(?,?,?,'now')").bind(orgId,scope,'file-human').run();
+ const {id}=await (await call('/hx/files','POST',{scope,path:'long.txt'})).json();
+ const text='あ😀\n'.repeat(8000),size=new TextEncoder().encode(text).length;
+ expect((await call(`/hx/files/${id}/content?expectedVersion=0&size=${size}`,'PUT',text,token,true)).status).toBe(200);
+ const {threadId}=await (await call('/channels/files/conversation','POST',{orgId,fileId:id})).json();
+ await setMode(env.DB,orgId,'harness','file-human');
+ const context={orgId,session:{github_id:'file-human'},fileScope:scope,fileThreadId:threadId,taint:{value:false}};
+ const {read_thread_file:tool}=await fileThreadTools(env,context);
+ let offset=0,parts=[];
+ do{
+  const raw=await tool.run({offset});expect(raw.length).toBeLessThan(20000);
+  const page=JSON.parse(raw);expect(page.version).toBe(1);expect(page.totalCharacters).toBe(24000);
+  expect(Array.from(page.text).length).toBeLessThanOrEqual(16000);parts.push(page.text);offset=page.nextOffset;
+ }while(offset!==null);
+ expect(parts.length).toBeGreaterThan(1);expect(parts.join('')).toBe(text);
+ for(const offset of [-1,0.5,24001])expect(JSON.parse(await tool.run({offset}))).toHaveProperty('error');
+ const changing={...env,MEDIA:{get:async key=>{
+  const object=await env.MEDIA.get(key);
+  await env.DB.prepare('UPDATE channel_messages SET deleted_at=? WHERE org_id=? AND id=?').bind(new Date().toISOString(),orgId,threadId).run();
+  return object;
+ }}};
+ const stale=await fileThreadTools(changing,context);
+ const result=JSON.parse(await stale.read_thread_file.run({offset:0}));expect(result).toHaveProperty('error');expect(result).not.toHaveProperty('text');
+});

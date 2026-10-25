@@ -3366,3 +3366,9 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Added provider-mocked HTTP integration: save UTF-8 file, open its deterministic thread, ask an assigned agent with parentId, observe read_thread_file tool call, assert actual stored text/version reaches model input, and verify grounded reply persisted. One targeted integration passed (`/tmp/honmaru-file-thread-model-test.log`). No live model charges; actual model behavior remains unverified.
 - Fixtures were corrected to supply orgId in the file endpoint query and use parentId (thread reply), not replyTo (inline quote); the model test uses inline execution explicitly.
 - Exact candidate daf8e3f5613bcd8ca62e28dba55596373e34497a CI 40186748028 passed all seven required jobs. Confirmed remote main 7f602fa8 and ancestry, then fast-forwarded main to daf8e3f5. Deployment still pending; this candidate includes file conversation/inline preview/PDF fixes, not the later UUID route or AI reader additions.
+
+### 2026-10-25 — Complete AI text pages and mid-read deletion
+- Fixed a mismatch with the model runner's 20,000-character output cap: the file-thread reader now returns valid JSON pages with Unicode offsets and nextOffset instead of silently truncating long text. Pages adapt to JSON escaping, stay under 18,000 UTF-16 units, and include at most 16,000 Unicode characters.
+- Revalidates the exact live file/thread after storage read, preventing a root deleted during object access from returning its content.
+- 14 real D1/R2 HTTP tests passed, including full reconstruction of a 24,000-character Japanese/emoji/newline file, invalid offsets, bounded valid JSON pages, and root deletion during MEDIA.get (`/tmp/honmaru-file-ai-pagination-tests.log`). The existing answer loop still has finite tool/round budgets; a single answer is not guaranteed to read every large file in full.
+- Production daf8e3f5 deploy jobs remain live; newer AI changes are not claimed as deployed.

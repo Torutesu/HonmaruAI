@@ -1006,7 +1006,7 @@ test('a file-thread question sends its saved text to the model and persists the 
   const body=JSON.parse(opts.body);
   expect(body.tools.some(tool=>tool.name==='read_thread_file')).toBe(true);
   expect(body.tools.some(tool=>tool.name==='create_file_text')).toBe(false);
-  return {id:'file-read-1',output:[{type:'function_call',name:'read_thread_file',call_id:'file-call',arguments:'{}'}]};
+  return {id:'file-read-1',output:[{type:'function_call',name:'read_thread_file',call_id:'file-call',arguments:JSON.stringify({offset:0})}]};
  });
  fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(200,opts=>{
   const body=JSON.parse(opts.body);expect(body.previous_response_id).toBe('file-read-1');
