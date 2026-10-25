@@ -114,6 +114,36 @@ export async function handleHarness(request, env, url, context = {}) {
   const limited = await enforce(env, request, isGatewayNodeRoute(url.pathname) ? "gateway/edge" : "team");
   if (limited) return limited;
 
+  if (/^\/hx\/files(?:\/|$)/.test(url.pathname)) {
+    const orgId=url.searchParams.get('orgId'),who=await member(env,request,orgId);
+    if(who.denied)return who.denied;
+    const {results}=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_files','hx_workspace_file_versions','hx_workspace_file_purges','hx_workspace_file_uploads','hx_file_account_erasures')").all();
+    if(results.length!==5)return json({message:'Workspace file storage is not ready.'},503);
+    const identity={orgId,userId:String(who.session.github_id),headers:CORS_HEADERS};
+    if(request.method==='GET' && url.pathname==='/hx/files/scope'){
+      const room=await resolveChannel(env.DB,orgId,who.user,url.searchParams.get('channel'));
+      if(!room)return json({message:'No such room.'},404);
+      const {fileScopeAuthority}=await import('./fileAuthority.js');
+      const accessible=await env.DB.prepare(`SELECT 1 AS ok WHERE ${fileScopeAuthority('?1','?2','?3')}`).bind(orgId,room.key,identity.userId).first();
+      if(!accessible)return json({message:'No such room.'},404);
+      const response=json({scope:room.key});response.headers.set('Cache-Control','no-store');return response;
+    }
+    if(request.method==='GET'){
+      const {handleFileReads}=await import('./fileReadRoutes.js');
+      return handleFileReads(request,env,url,identity);
+    }
+    if(request.method==='PUT'&&url.pathname.endsWith('/content')){
+      const uploadLimit=await enforce(env,request,'media');if(uploadLimit)return uploadLimit;
+    }
+    const {handleFileWrites}=await import('./fileWriteRoutes.js');
+    const response=await handleFileWrites(request,env,url,{...identity,canWrite:await allowed(env.DB,orgId,who.session.github_id,'harness.build'),principalType:'human'});
+    if(response.ok){
+      const result=await response.clone().json();
+      await audit(env,request,{orgId,action:'workspace.file_changed',actor:person(who.user),entity:{type:'file',id:result.id||url.pathname.split('/')[3]},details:{method:request.method,operation:url.pathname.split('/')[4]||'file',version:result.version??null}});
+    }
+    return response;
+  }
+
   const visualRoute = url.pathname === "/hx/rooms/visual";
   const read = request.method === "GET" || request.method === "DELETE";
   const input = read || visualRoute ? null : await body(request);

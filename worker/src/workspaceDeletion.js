@@ -18,8 +18,9 @@ export const GRACE_DAYS = 30;
 const DAY = 86_400_000;
 
 /// Tables a deletion leaves alone: the audit log's, to its own retention;
-/// and the deletion's own bookkeeping.
-const SPARED = new Set(["audit_events", "audit_seals", "audit_principal_keys", "org_audit_settings", "audit_streams", "workspace_deletions", "workspace_tombstones"]);
+/// the deletion's own bookkeeping; and anonymized upload cleanup identities
+/// which must outlive late storage completions.
+const SPARED = new Set(["audit_events", "audit_seals", "audit_principal_keys", "org_audit_settings", "audit_streams", "workspace_deletions", "workspace_tombstones", "hx_workspace_file_uploads"]);
 /// Rows deleted per statement, and statements per workspace per run: the
 /// rest is picked up the next day.
 const BATCH = 2000;
@@ -105,6 +106,12 @@ async function workspaceTables(db) {
 /// Returns whether it is all gone.
 export async function purgeWorkspace(env, orgId, { budget = BATCHES_PER_RUN } = {}) {
   let left = budget;
+  // File uploads can finish after their request has disappeared. Keep only
+  // their cleanup identities so recovery can remove late writes after the
+  // workspace's ordinary rows and object prefix have already been deleted.
+  // This table is optional until the workspace-file migration is deployed.
+  const fileUploads = await env.DB.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='hx_workspace_file_uploads'").first();
+  if (fileUploads) await env.DB.prepare("UPDATE hx_workspace_file_uploads SET status='cleanup',expires_at=0,created_by='',file_id='',expected_version=0 WHERE org_id=?").bind(orgId).run();
   if (env.MEDIA) {
     // Objects kept outside org/<id>/, named only by its rows: deleted while
     // those rows still say which they are.

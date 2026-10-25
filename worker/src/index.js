@@ -297,6 +297,8 @@ export default {
     // Once an hour: the hours just gone, sealed into the archive.
     if (at.getUTCMinutes() < 15) {
       ctx.waitUntil(sealPending(env, { now: at.getTime() }).catch((err) => console.error("audit sealing failed", err?.message || err)));
+      ctx.waitUntil(import('./harness/fileMaintenance.js').then(({maintainWorkspaceFiles})=>maintainWorkspaceFiles(env,{now:at.getTime()}))
+        .catch(()=>console.error('workspace file maintenance failed')));
     }
     // Once a day: messages and files past a workspace's retention go, and
     // compliance exports past their week.

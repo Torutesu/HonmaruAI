@@ -1,6 +1,20 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  "Permanently deleted": "完全に削除済み",
+  "Version history": "バージョン履歴",
+  "Message attachments": "メッセージの添付ファイル",
+  "Back to first page": "最初のページに戻る",
+  "No files in this room yet": "このルームにはまだファイルがありません",
+  "No matching files": "一致するファイルはありません",
+  "Search files": "ファイルを検索",
+  "Files must be 25 MB or smaller.": "ファイルは25 MB以下にしてください。",
+  "Retry failed uploads": "失敗したファイルを再試行",
+  "Queued for upload": "アップロード待機中",
+  "Upload failed": "アップロードに失敗しました",
+  "Uploaded": "アップロード済み",
+  "Upload folder": "フォルダをアップロード",
+  "Upload files": "ファイルをアップロード",
   "Code runs without network or host files, with a 60-second limit. Results are visible only to the requester.": "コードはネットワークやホストのファイルにアクセスできない環境で実行され、制限時間は60秒です。結果は実行した本人だけが閲覧できます。",
   "Run code": "コードを実行",
   "Export a default function that receives the input. Types are transformed inside the isolated machine; type checking is not performed.": "入力を受け取る関数をdefault exportしてください。型の変換は隔離環境内で行い、型チェックは実施しません。",

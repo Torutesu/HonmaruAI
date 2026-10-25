@@ -1,6 +1,7 @@
 import { reset, env } from "cloudflare:test";
 import { beforeEach } from "vitest";
 import workflowRuntimeSql from "../workflow-runtime.sql?raw";
+import workspaceFilesSql from "../workspace-files.sql?raw";
 import schemaSql from "../schema.sql?raw";
 import migrationsSql from "../migrations.sql?raw";
 import workflowRevisionSql from "../workflow-revisions.sql?raw";
@@ -13,6 +14,7 @@ import workflowRevisionSql from "../workflow-revisions.sql?raw";
 beforeEach(async () => {
   await reset();
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  await env.DB.exec(workspaceFilesSql.replace(/\n/g, " "));
   await env.DB.exec(workflowRuntimeSql.replace(/\n/g, " "));
   await env.DB.exec(workflowRevisionSql.replace(/\n/g, " "));
   // The indexes that live in migrations.sql, as a deploy builds them: the

@@ -2917,3 +2917,176 @@ Verified remote main was still c3ee6aaa and a direct ancestor, then fast-forward
 Exact release 5bec41e42ae765d3c5542eccc4e6b876cf8d7dbf passed main CI 40118687110 and both production deployments. Worker run 40118687149/job 120945317026 completed success after tests and D1 migrations; deployed version d17996dc-3d3e-4550-9726-4089d801c71a. Independent health request returned ok=true and encryption.all=true. Web run 40118687111/job 120945316840 completed success, preview https://d7d847cf.honmaru-web.pages.dev. Both https://app.honmaruai.com and https://honmaru-web.pages.dev independently returned /assets/index-CgvIoapG.js, matching deployment logs. Private logs are /tmp/honmaru-62966a05-120945317026.log and /tmp/honmaru-62966a05-120945316840.log.
 
 The installed Mac runtime is already compatible, but authenticated production program-to-VM-to-D1 execution remains unverified. Native CUA still reports locked; no repeated user unlock request. Physical reboot remains untested. New UI candidate e058765f89c30466529dc0942963c98d5805e06d is NOT deployed: CI 40119447798 remains active, E2E 120947587180 succeeded, artifact 12569839562 inspected under /tmp/honmaru-e2e-40119447798/. Desktop dark line numbers align; mobile scroll alignment passed but screenshot showed navigation covering lower content. Primary follow-up 7a0630eb reserves mobile home navigation height and asserts viewport non-overlap; it is not in candidate e058765f and still needs browser verification. Do not promote that candidate as the complete UI correction. No new paid service; Simple mode preserved. Broader parity remains incomplete.
+
+
+## Actual mobile Harness navigation overlap corrected (2026-10-25)
+
+Candidate 723c9487 passed CI 40169897013, but its mobile image still showed lower code lines covered. The initial test inspected hidden .tabbar and fell back to innerHeight, so its success did not prove the visible Harness rail was excluded. Replaced that rule with a mobile-only bottom:52px on direct Harness resource screens, matching .hx-rail, and made E2E require the visible .hx-rail instead of silently falling back. No Simple-mode selector changed.
+
+Candidate 66591eea7ee8e4ba808d64b08e4b93fa47d3fc2a is under CI 40171167814. E2E job 121102102053 completed success. Retrieved screenshots to /tmp/honmaru-e2e-40171167814/ and inspected workflow-program-mobile-lines.png: rows 78-80 and the editor bottom are now visible with no navigation overlay; prior screenshots ended at row 77. Inspected workflow-program-mobile-save.png: save footer remains visible and its trial click passed. Worker job 121102102246 remains active at last observation. Await all required CI before promoting. Production remains 5bec41e4; this UI update is not yet published. Authenticated production execution, physical reboot, broader SDK and full parity requirements remain incomplete.
+
+
+## Workflow editor UI published (2026-10-25)
+
+Candidate 66591eea7ee8e4ba808d64b08e4b93fa47d3fc2a completed all required CI in 40171167814. After verifying main remained its ancestor 5bec41e4, fast-forwarded main to this exact candidate. Web deploy 40172107975/job 121104939405 completed success; preview https://1545fe52.honmaru-web.pages.dev. Independent HTTP reads of app.honmaruai.com and honmaru-web.pages.dev both returned index-CaziwZnq.js, matching deploy build/verification logs. This publishes synchronized code line numbers and the actual mobile Harness rail clearance already visually verified above. Worker/gateway sources did not change, so the deployed Worker remains 5bec41e4, version d17996dc-3d3e-4550-9726-4089d801c71a; no additional Worker rollout is expected. Main CI 40172107917 is still running separately. Production authenticated browser/VM execution and remaining parity gaps remain unverified/incomplete. No new charge and no Simple-mode code removal.
+
+
+## Workspace file version ledger foundation (2026-10-25, internal only)
+
+Added workspace-files.sql and fileVersionLedger.js, intentionally without routes, production migrations or user-facing availability. Stable organization/scope/path identities, immutable version rows, deletion tombstones and purge markers are represented. Append uses a D1 batch with current-version compare-and-swap; restore references an unpurged source with matching content metadata and appends a new version instead of rewinding history. Six real workerd/D1 tests passed in /tmp/honmaru-file-ledger-tests.log: concurrent winner preservation, stale writes/restores, immutable history, tombstone restoration, purged/mismatched source rejection, cross-workspace keys, path identity and invalid input atomicity.
+
+This ledger is NOT an authorization layer or complete file feature. It has no public call sites. Transactional live authority, R2 staging/readback/cleanup, retention/holds/purge, organization/account deletion, API and history/restore UI remain required before exposing writes. Existing message attachments and production schema are unchanged. Do not mark KY-073 implemented based on these tests.
+
+## Authenticated native screen verification and staged file upload (2026-10-25)
+
+Native CUA became available. Installed /Applications/Honmaru AI.app initially showed the authenticated chat and floating app. Opening Tools showed an error boundary, followed by an empty native window; bounded local diagnostics recorded script-load-error at 07:29:11Z. Reload/Force Reload did not visibly restore the window. Quitting and reopening the app preserved the session and restored chat. Tools and API & Webhook then loaded successfully, including resolved empty webhook/key lists. Inspected dark screenshot /tmp/honmaru-production-webhooks-20261025.png. No key/webhook was created and no external event was sent. This verifies display after restart, not a permanent fix for the initial load failure. Main CI 40172107917 still had Worker running at the last check; Web deploy remains successful.
+
+Internal file upload now creates a tracked per-upload R2 key, validates exact bounded byte length/hash before storage, verifies stored size, then commits through the live-authority/version/lease fence. A lost DB commit response checks authoritative history before deleting any object. Failed deletion uses the existing media deletion queue. FixedLengthStream cancellation produced unhandled runtime rejections in failure tests; replaced it with a single capped payload buffer before R2 put. Both focused suites passed (21 tests, zero unhandled errors), including empty content, competing uploads, revoked membership, short/long payloads, cleanup failure and lost commit response. Log: /tmp/honmaru-file-upload-tests.log.
+
+Still internal and unreleased: tracked upload recovery, retention/holds/purge/account lifecycle, routes and UI remain necessary. No production migration or file API exposure was added. KY-073 and full parity remain incomplete. No paid service or Simple-mode change.
+
+## Interrupted file upload recovery (2026-10-25, internal only)
+
+Added a bounded recovery pass with a SQL lease-revocation fence. Expired stages transition to cleanup only if no immutable version references their object key; committed stages are removed without deleting content. Cleanup markers survive removal of the file identity and are retained/revisited hourly because an R2 write can complete after an earlier deletion. A failed R2 delete enters the existing retry queue and is reported as failed, not cleaned. No claim that observing one absent object proves permanent removal. The stage expiry index and bounded pass keep each invocation limited; scheduling and eventual tombstone compaction remain part of lifecycle integration before exposure.
+
+Real D1/R2 focused suites passed 24 tests, zero unhandled errors (/tmp/honmaru-file-upload-recovery-tests.log). Additional evidence covers a put completing after recovery, a later object reappearance, a committed upload with lost response, file identity deletion, active lease preservation, bounded batches and deletion failure accounting. No production schema, route, cron or UI exposure yet. Main CI 40172107917/job 121104939479 remains in progress at the last authoritative check; other required jobs and Web deployment succeeded. Full parity remains incomplete.
+
+## File restoration and guarded download (2026-10-25, internal only)
+
+Restoration now reads an authorized historical object and copies its bytes to a fresh staged key. The final immutable append verifies the original version still exists unpurged, its hash/type/size match the copied bytes, the caller still has access, and the expected current version still matches. A successful restoration records restored_from and never rewinds history or shares the old object key. Internal download verifies size/hash and rechecks live authority/purge after fetching bytes; returns an attachment with no-store, nosniff and restrictive CSP, without a durable signed URL.
+
+Focused real D1/R2 suites passed 32 tests, zero unhandled errors (/tmp/honmaru-file-restore-tests.log). Added cases cover deleted-file restoration, independent object identity, stale restore rejection, corrupted bytes, purge during copying, revoked read permission, and download revocation/purge races. These helpers are not HTTP routes or production features. Lifecycle/hold/purge/account integration, API and UI remain incomplete. No schema deployment, added charge or Simple-mode change. Main CI 40172107917 Worker remained live at latest check; no restart was attempted.
+
+## Historical file purge foundation (2026-10-25, internal only)
+
+Rechecked https://docs.kylon.io/cli/workspace/file: historical purge is Human-only, creator or room admin, requires an audit reason, refuses the current version; all-history purge of deleted files is also required and remains pending. Implemented the single-version internal primitive using current scope authorization plus creator/workspace-admin authority. Independent room-admin roles and HTTP Human-principal binding remain integration work; no public route exists. An initial admin-only draft was corrected before commit to permit the creator.
+
+The purge marker (actor/time/reason) and physical media deletion queue entry commit in one D1 batch. Active person holds covering file/version creators or channel holds covering the stored scope prevent purge. Current content is refused. Shared historical object keys are retained until every reference is purged; append refuses keys already purged or queued for deletion. Purge is logically irreversible at the transaction; subsequently created holds cannot restore already purged bytes. Account-deletion identity snapshots and broader retention integration remain pending.
+
+Focused D1/R2 suites passed 38 tests, zero unhandled errors (/tmp/honmaru-file-purge-tests.log), including current-version refusal, unauthorized members, creator permission, missing reasons, active/released holds, inaccessible scope despite admin role, shared keys, queue creation and retired-key reuse refusal. No real user data purged, no production deployment, no paid service, Simple unchanged. File feature and full Kylon parity remain incomplete.
+
+## Deleted-file history purge and durable hold identity (2026-10-25, internal only)
+
+Added whole-history purge for a deleted file with a required expected current version. Live content and stale confirmations after restoration cannot be purged. Any active hold covering any historical writer blocks the whole operation rather than partially purging history. Single-version purge retains its version-specific behavior. Files and immutable versions now snapshot the creator login at creation; hold checks use both the historical login and current identity, preserving old-login holds across rename or user removal. This schema remains unreleased; production migration is still intentionally absent.
+
+Focused suites passed 42 tests, zero unhandled errors (/tmp/honmaru-file-purge-all-tests.log). New checks cover whole-history deletion, repeat invocation, queue counts, stale expected version, restored content, historical-writer hold, and rename/deletion of that writer. No production user content was deleted. Human principal binding, independent room-admin semantics, retention/account cleanup, API/UI, migration and deployment remain outstanding.
+
+Main CI 40172107917 for production 66591eea is now completed SUCCESS, including previously running Worker 121104939479. All required jobs succeeded; Windows/iOS were skipped by workflow policy. Web deploy 40172107975 remains successful. This CI result covers that published UI revision, not these later internal file changes. Full parity remains incomplete, no new service charge and Simple unchanged.
+
+## File listing/search foundation (2026-10-25, internal only)
+
+Added scoped current-version metadata listing with live per-file authority, explicit room/workspace/all-visible scope selection, literal case-insensitive path search, directory-prefix filter, MIME buckets, creator/date filters, optional deleted files and bounded keyset pagination by path/id. Omitted scope is rejected rather than silently becoming a cross-room search. Incomplete initial uploads have no current version and remain absent; object keys and hashes are not serialized. Added an organization/path/id index for pagination.
+
+Focused D1/R2 suites passed 45 tests, zero unhandled errors (/tmp/honmaru-file-list-tests.log). Coverage includes metadata shape, literal wildcard text, type/creator/date/prefix filters, private-room visibility, revoked membership, deleted-file inclusion, uncommitted files, pagination and invalid scope/range bounds. This is an internal query, not a published Files screen or API. Lifecycle integration and UI remain required; full parity remains incomplete. Simple and production behavior unchanged; no new service charge.
+
+## Workspace deletion integration for file storage (2026-10-25)
+
+Inspected existing workspace deletion: it discovers org-scoped tables automatically and deletes the org object prefix, but late uploads could complete after that prefix sweep. Added optional-table cleanup fencing at purge start: retained upload cleanup records are stripped of actor/file identity and marked for recovery; ordinary file/version/purge rows are still removed by the existing generic deletion. Recovery can remove an object reappearing after the prefix sweep. File authority now rejects workspaces whose purge has started or whose deletion tombstone exists, even if a membership row temporarily survives. Scheduled grace periods retain the existing behavior.
+
+Focused suites plus existing workspace deletion tests passed 55 tests, zero unhandled errors (/tmp/honmaru-file-workspace-deletion-tests.log). Added end-to-end storage fixture verifies generic deletion removes data, anonymizes the cleanup record, then recovery removes a simulated late put. Another test verifies claimed/completed deletion prevents reads, listing and uploads. No actual workspace deletion was performed. Changes remain local and unreleased. Recovery scheduling, account erasure/export, retention/holds and public API/UI still require integration before exposing file storage. Existing workspace deletion policy is unchanged; this does not claim a new workspace-wide hold policy. No new charge or Simple removal.
+
+## Account export and in-flight file cleanup integration (2026-10-25)
+
+Inspected account.js policy before integration: shared organizational records survive with identity removed, while personal data is erased. Added workspace file identities and own version metadata to account export, filtered through current file scope authority; no object keys, hashes or durable download credentials are exported. This is metadata export, not a complete binary archive. Missing unreleased file tables follow the existing optional-table behavior.
+
+After account membership/credential removal, deletion now marks the user's remaining upload stages for cleanup and clears the actor. Live authority prevents new stages and in-flight commits; late R2 completion is cleaned without publishing a version. Existing account deletion tests and file suites passed 60 tests, zero unhandled errors (/tmp/honmaru-file-account-tests.log), including account export after room access loss and deletion during an actual paused storage write.
+
+Still pending before file exposure: anonymization of identities in already committed shared file/version records while preserving active hold evidence; personal DM/agent file erasure; binary export; retention, public routes/UI and production deployment. No claim that full account erasure integration is complete. No actual account deletion was performed. Simple retained and no new charge.
+
+## Shared file identity erasure (2026-10-25, internal feature)
+
+Account deletion now anonymizes shared file/version author identity after removing the user, without changing content or history. The immutable-version trigger permits only the exact deleted-user identity substitution when the author account no longer exists; every content/key/hash/size/version/time field must remain identical. Active person/channel holds preserve identity evidence internally. File lists and history serialize deleted-user for absent author accounts even while a hold retains the internal evidence. The anonymizer can be invoked again after hold release; automatic post-release scheduling remains outstanding.
+
+Focused file and existing account deletion suites verify exact before/after preservation, protection against content modification disguised as anonymization, active-hold preservation, public metadata redaction, release/retry, and refusal to anonymize a still-existing user. No real account deleted. Schema is still unreleased, so the revised initial trigger has not been applied to production. Personal DM/agent file erasure, purge-audit identity policy, retention/release scheduling, binary export, API/UI and production rollout remain incomplete. No new charge, Simple retained.
+
+Final focused validation: 63 tests passed, zero unhandled errors, /tmp/honmaru-file-anonymization-tests.log.
+
+## Deferred account erasure and periodic recovery (2026-10-25, unreleased)
+
+Account deletion durably queues file identity reconciliation before removing identity. Bounded recovery retries held records hourly, never erases an existing account, and removes the queue's retained login after all file author fields are anonymized. The anonymizer still runs immediately after normal account deletion. Interrupted requests remain tracked rather than implicitly authorizing account removal.
+
+Added file maintenance to the existing hourly scheduled branch, under the existing spend brake. It requires all five file tables; absent/partial unreleased schema is a no-op. Upload cleanup and account reconciliation run independently and settle before reporting a failure. No new schedule/service was created. This is source integration, not proof of production execution.
+
+Focused suites passed 66 tests, zero unhandled errors (/tmp/honmaru-file-erasure-recovery-tests.log); index.js syntax and diff whitespace checks passed. New tests cover active hold/release recovery, retained identity removal, live-account protection and partial-schema no-op. Personal file erasure, retention, binary export, public APIs/UI and deployment remain outstanding. No actual user data deletion or new charge; Simple unchanged.
+
+## Personal-room file erasure (2026-10-25, unreleased)
+
+Account reconciliation now removes up to 25 eligible personal files per pass before shared-author anonymization. Scope matching uses literal delimited DM participants and agent-room suffixes, not LIKE wildcards. Current/historical content keys enter the existing physical deletion queue atomically with identity removal; upload stages retain anonymous cleanup keys for late writes. A shared file referencing the same legacy object protects that object. An active channel hold or matching creator/history-author hold prevents removal. The account reconciliation queue remains until personal files and retained author identities are gone, allowing post-release and bounded follow-up work.
+
+Tests exercise exact/similar login room names, DM and agent scope removal, shared preservation, actual media retry deletion, held personal data and post-release recovery. No real account/file was deleted. Public file routes/UI, retention policy integration, binary export, room-admin policy and production deployment remain outstanding. Existing Simple behavior preserved; no new charge.
+
+Final validation: 69 focused/account tests passed with zero unhandled errors, /tmp/honmaru-personal-file-erasure-tests.log, including shared-object protection during personal erasure.
+
+## Renamed/departed writer hold protection (2026-10-25)
+
+Review found that personal-file erasure checked historical logins but could miss a hold targeting a writer's current renamed login. After that writer departed, joining only users also lost the mapping. Both personal erasure and historical purge now resolve held identities through current users and the retained file-account erasure queue, in addition to immutable creation-time login snapshots. The queue is retained precisely while held author identities remain, and its login is removed after successful reconciliation.
+
+Regression fixtures cover rename, hold under the new login, departure of that writer, then departure of the personal-room owner; content stays until release and both requests reconcile afterward. A separate historical-version fixture verifies creator-authorized purge remains blocked after the renamed writer departs and succeeds only after hold release. No production operation or data deletion; full file/UI parity remains incomplete.
+
+Final validation: 71 focused/account tests passed, zero unhandled errors, /tmp/honmaru-file-renamed-hold-tests.log. Simple unchanged; no added charge.
+
+## Historical file retention foundation (2026-10-25, internal only)
+
+Added bounded historical-content expiration using existing org_governance.retention_files_days. Null/unset/nonpositive policies do not expire content. Each purge rechecks the current positive integer policy, age and holds inside the same transaction that records the system retention reason and queues object deletion. Current versions are explicitly excluded even when old; their expiration requires a separate tombstone transition, still pending. Shared legacy object references remain protected.
+
+Fixtures cover opt-in behavior, eligible historical purge, current-version survival, person hold exclusion, and a policy disabled between candidate selection and transaction. No scheduler connection or production exposure yet for retention; this does not complete retention semantics. No real content deleted, new service or Simple change. Current-version expiration, APIs/UI, binary export and deployment remain outstanding.
+
+Final focused validation: 74 tests passed, zero unhandled errors, /tmp/honmaru-file-retention-tests.log, including explicit survival of an already expired current version under this history-only helper.
+
+## Current file expiration and maintenance connection (2026-10-25, unreleased)
+
+Added current-version expiration as an atomic append of a system:retention deletion tombstone plus expected-version current-pointer update. Source version, current policy and holds are rechecked inside the transaction; a concurrent fresh write or newly introduced hold prevents expiration. Historical purge then runs with its own fresh policy/hold check. The system actor is preserved in serialized history rather than mislabeled as a deleted user. Both phases are bounded and connected to existing hourly file maintenance, alongside upload and account cleanup; no new paid service or schedule.
+
+Focused suites passed 77 tests, zero unhandled errors (/tmp/honmaru-current-file-retention-tests.log). Added cases prove tombstone-before-purge, repeated expiration no-op, a newer write winning the race, and a hold added after candidate selection. Existing account and file checks pass. This verifies local D1/R2 fixtures and source scheduling, not production execution. Public routes/UI, binary export, room-admin semantics, migrations and rollout remain outstanding. Simple retained and full parity incomplete.
+
+## File read transport adapter (2026-10-25, not mounted)
+
+Added GET adapters for scoped list/search, version history and version content. Query validation rejects omitted scope, malformed cursors/numbers/deleted flags; caller-supplied authenticated org/user identity is used instead of query identity. Download preserves attachment/no-store/nosniff protections and trusted CORS headers. Non-GET requests return 405 and unknown file paths 404. The adapter is deliberately not registered in handleHarness yet; existing member() authentication was inspected and will supply identity at mounting. Unit transport tests do not prove session authentication or deployed routes.
+
+Focused file/account suites passed 79 tests with zero unhandled errors (/tmp/honmaru-file-read-routes-tests.log), including successful metadata/history/content transport, invalid input and caller-vs-query identity. Public API mounting, write adapters, room-admin semantics, binary export, Files UI, migrations and deployment remain incomplete. No production behavior changed, new service or Simple removal.
+
+## File write transport adapters (2026-10-25, not mounted)
+
+Added create-identity, raw-byte upload, tombstone deletion, historical restore and historical/whole-deleted-file purge adapters. Uploads require exact declared size and expected current version; JSON commands are capped at 8 KiB. Identity/build permission/principal type come from the trusted authentication caller, never command fields. Permanent purge refuses non-Human principals. Failed authority/expected-version mutations return generic conflict responses without exposing file existence. No claim of authenticated public route completion: these adapters are still unregistered and the outer session/build/grant/audit integration remains required.
+
+Focused suites passed 82 tests, zero unhandled errors (/tmp/honmaru-file-write-routes-tests.log). Fixtures perform create/upload/stale-delete/delete/restore/download; verify permission/principal spoofing refusal; reject missing versions, oversized commands and declared-length mismatch without publishing a version. UI, route mounting, room-admin policy, binary export, production migrations and rollout remain incomplete. No real file changes or new charge; Simple maintained.
+
+## Room administration for files (2026-10-25, unreleased)
+
+Connected file delete/purge authority to existing independent hx_room_roles for managed business rooms. A person room-admin grant must match both current workspace membership and room participation timestamps; role removal or room rejoin invalidates it. Creator and existing workspace-admin behavior remain, with independent scope authorization still required. File scope authorization now also refuses a managed room carrying deleted_at even before its business row is archived.
+
+Real D1 fixtures verify a member-level workspace user with room-admin rights can delete/purge another creator's file, stale grants after rejoin and demotion cannot delete, and a deleted room refuses read/list/upload. Other scope/hold/retention/account checks remain in the focused suite. This uses existing room-role semantics, not a new grant system; no Simple-room roles were initialized or changed. No production deployment or new charge. Public route mounting, Files UI, binary export and migration/rollout remain incomplete.
+
+Final validation: 85 tests passed, zero unhandled errors, /tmp/honmaru-file-room-authority-tests.log.
+
+## Authenticated file routes mounted in source (2026-10-25, not deployed)
+
+Registered file read/write adapters ahead of generic JSON parsing in handleHarness. Existing member() validates session, membership and workspace policy; guests are refused. Build permission comes from allowed(), and the session-only entry supplies Human principal type. Raw upload streams remain unread until the upload adapter. Existing media/team rate limits apply; successful changes record workspace.file_changed audits without content. All five file tables must exist or authenticated requests receive 503. No production migration/deploy yet, so this is source mounting, not live availability.
+
+Worker.fetch integration tests pass (3) in /tmp/honmaru-files-http-auth-tests.log: session-based create/upload/read/conflict/delete/restore/list with four success audits; missing-session/guest/partial-schema refusal; admin cannot bypass private scope or another workspace. Earlier core file suites passed 74 tests in /tmp/honmaru-files-http-tests.log. An initial test-file write used the wrong relative directory and failed before creation; corrected the path and ran the new HTTP suite explicitly, so that earlier core-only pass was not counted as HTTP evidence. No production data changed, no new charge, Simple unchanged. Files UI, binary export, migrations, complete release checks and rollout remain incomplete.
+
+## Web file client and live Kylon panel reference (2026-10-25)
+
+Added a typed workspaceFileApi exposed through harnessApi.files: scoped search/cursor, create/upload, history, blob download, version-fenced delete/restore and Human purge commands. Org identity is included in every route query; credentials stay in headers. Binary upload is not JSON-encoded and DELETE retains the expected-version body, unlike the generic existing harness helper. Abort signals are supported for reads/uploads. HTTP conflicts preserve status and are not automatically replayed. Three focused Web client tests and full Web TypeScript checking passed (/tmp/honmaru-file-web-client-tests.log, /tmp/honmaru-file-web-client-types.log). This is client plumbing, not a rendered Files UI.
+
+Native Kylon initially showed a blank window; quit/reopen restored the authenticated account. Opened general, then Files without sending messages or uploading anything. Live panel is on the right, approximately 360 px wide, rounded border and inset beneath the room header; title/close, creator filter Agent/User, recent/folder icon toggle, upload icon menu (file/folder), and centered creator-specific empty state. Reference /tmp/kylon-room-files-reference-20261025.png. Native AX confirms exact labels and roomPanel=files navigation. Room has no files in either observed creator tab, so populated rows/history/preview remain unverified. The backend still needs agent-origin classification/folder behavior for these controls; do not fake these with static tabs. No production deploy, paid action or Simple removal.
+
+### 2026-10-25 — room files panel integration (unreleased)
+Added the Harness room Files panel with search, keyset pagination, version history and authenticated downloads. Message attachments remain accessible from its footer; Simple mode is unchanged. Room views resolve through an authenticated `/hx/files/scope` endpoint and the file audience predicate, rather than treating DM/agent display IDs as stored scopes. Applied existing Harness theme tokens for both appearances; downloads abort when leaving history. TypeScript passed including the final cancellation adjustment; four real Worker HTTP tests passed including rejected missing/private scopes, guests and unauthenticated callers. Honmaru native production API & Webhook screen was accessible via CUA without an unlock request.
+
+The new panel has NOT been visually verified or deployed. Upload UI, creator tabs, folder view, previews, full history pagination, production schema migration and release checks remain outstanding. KY-073 and 100% parity remain incomplete; no new paid services.
+
+### 2026-10-25 — file and folder upload controls (unreleased)
+Added file/folder picker menu, relative folder paths, sequential uploads, per-file outcomes and explicit failed-upload retry to the room file panel. Successful path reservations retain their ID during retry, with expectedVersion=0 so retry cannot overwrite an existing content version. Aborting/unmounting stops content transfer and subsequent files; 25 MiB checks happen before reservation. Added Japanese strings and existing Harness theme colors. Six client/component tests pass, including reservation reuse after transfer failure, unmount during reservation, oversized rejection and binary transport/conflicts. TypeScript passes.
+
+Remaining: persistent recovery of an initial reservation when its response is lost or the panel closes, empty reservation cleanup, actual rendered picker/upload verification, creator classification/tabs, folder browsing, preview, history operations, migration and deployment. No production exposure or parity-complete claim. Simple mode and message attachments remain unchanged.
+
+### 2026-10-25 — replayable initial file reservations (unreleased)
+The upload UI now assigns a stable random request ID before its first create request and preserves it across explicit retries. The authenticated create route accepts that ID and recovers an existing reservation only for the same actor, scope and normalized path with current_version=0 and live file authority. Conflicting paths, other authors and published content return conflict; malformed request IDs return 400. No new schema is required for this operation. Five Worker HTTP tests and seven client/component tests pass, including lost create response replay and protection of another author's reservation and existing bytes. TypeScript passes.
+
+This closes lost-response recovery while the upload job remains mounted. Cross-reload recovery, abandoned empty-reservation cleanup, rendered QA, remaining Kylon file controls and production migration/deployment are still pending. No full parity or production completion claim.
+
+### 2026-10-25 — production file schema migration registration
+Registered the five file tables, three indexes and immutable-version trigger as single-line idempotent CREATE statements in migrations.sql, consumed by the existing deploy migration runner. The global Worker test setup now creates workspace-files.sql before migration indexes. A new real D1 test drops the file tables to emulate an older database, executes the actual production statements twice and checks all tables, the trigger, key columns and agreement with the source definition. File ledger/upload/API and account/workspace deletion tests all pass: 99 tests across six files, log /tmp/honmaru-file-migration-all.log.
+
+Initially adding these definitions to the monolithic schema.sql caused the flattened test setup statement to exceed D1's size limit; that change was removed. Fresh and existing deploys both run migrations.sql after schema.sql, so the existing production path handles these additions without expanding the monolithic statement. No workflow configuration changes and no production migration was executed in this turn. Full CI, rendered file UX verification and production deployment remain outstanding.

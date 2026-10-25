@@ -22,6 +22,9 @@
 // with their actor anonymized — and the privacy policy says so, because an
 // undisclosed retention is a worse answer than a disclosed one.
 
+import {fileScopeAuthority} from './harness/fileAuthority.js';
+import {anonymizeFileAccount,queueFileAccountErasure} from './harness/fileAccount.js';
+
 const ANONYMOUS = "deleted-user";
 
 /// Everything this deployment holds about one person, in one document.
@@ -113,6 +116,21 @@ export async function exportAccount(db, githubId, login) {
     playbookRules: login
       ? await tryAll("SELECT org_id, text, origin, created_at FROM memories WHERE created_by = ?1", login)
       : [],
+    // Export file identities/history, never object keys or reusable download
+    // credentials. Contents remain available through the authorized download
+    // path; leaving a private room must not grant access through this export.
+    workspaceFiles: await tryAll(
+      `SELECT f.org_id,f.id,f.scope,f.path,f.created_at,f.updated_at,f.current_version
+       FROM hx_workspace_files f WHERE f.created_by=?1 AND ${fileScopeAuthority('f.org_id','f.scope','?1')}
+       ORDER BY f.org_id,f.id`, id
+    ),
+    workspaceFileVersions: await tryAll(
+      `SELECT v.org_id,v.file_id,v.version,v.kind,v.content_type,v.size,v.created_at,v.restored_from,
+        EXISTS(SELECT 1 FROM hx_workspace_file_purges p WHERE p.org_id=v.org_id AND p.file_id=v.file_id AND p.version=v.version) AS purged
+       FROM hx_workspace_file_versions v JOIN hx_workspace_files f ON f.org_id=v.org_id AND f.id=v.file_id
+       WHERE v.created_by=?1 AND ${fileScopeAuthority('f.org_id','f.scope','?1')}
+       ORDER BY v.org_id,v.file_id,v.version`, id
+    ),
   };
   return out;
 }
@@ -139,6 +157,7 @@ async function anonymizeCardDocuments(db, table, column, login) {
 
 export async function deleteAccount(db, githubId, login) {
   const id = String(githubId);
+  await queueFileAccountErasure(db,id,login);
 
   // Read before the users row goes: `login_codes` is keyed by the address, not
   // by the account, so this is the only thing that still knows the two are the
@@ -253,6 +272,10 @@ export async function deleteAccount(db, githubId, login) {
     "DELETE FROM users WHERE github_id = ?1",
     // Keep the deletion tombstone until redemption can no longer find the user.
     "DELETE FROM complimentary_access WHERE user_github_id = ?1",
+    // Membership is already gone, so neither a new upload stage nor an
+    // in-flight commit can pass live authority. Keep anonymous cleanup keys
+    // for storage operations that complete after the account disappears.
+    "UPDATE hx_workspace_file_uploads SET created_by='',status='cleanup',expires_at=0 WHERE created_by=?1",
   ]) {
     try {
       await db.prepare(sql).bind(id).run();
@@ -262,4 +285,5 @@ export async function deleteAccount(db, githubId, login) {
       if (!/no such table/i.test(String(err?.message))) throw err;
     }
   }
+  await anonymizeFileAccount(db,id,login);
 }
