@@ -19,6 +19,31 @@ import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 // outcome kept where anyone can read it.
 
 const CADENCES = ['daily', 'weekdays', 'weekly', 'monthly']
+const WEBHOOK_SENDER_EXAMPLE = `const { createHmac, randomUUID } = require('node:crypto')
+
+const endpoint = new URL(process.env.HONMARU_WEBHOOK_URL)
+const secret = process.env.HONMARU_WEBHOOK_SECRET
+endpoint.searchParams.delete('secret')
+
+const eventId = randomUUID() // Reuse this ID and the same body when retrying
+const body = JSON.stringify({ orderId: 'order-123' })
+const timestamp = String(Math.floor(Date.now() / 1000))
+const signature = createHmac('sha256', secret)
+  .update(\`${'${timestamp}.${eventId}.${body}'}\`)
+  .digest('hex')
+
+const response = await fetch(endpoint, {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    'x-hook-secret': secret,
+    'x-webhook-timestamp': timestamp,
+    'x-webhook-event-id': eventId,
+    'x-webhook-signature': \`v1=\${signature}\`,
+  },
+  body,
+})
+console.log(response.status, await response.json())`
 
 function HeldEventPreview({ receivedAt, load }: { receivedAt: string; load: () => Promise<{ event: { input: unknown } }> }) {
   const t = useT()
@@ -36,7 +61,7 @@ function HeldEventPreview({ receivedAt, load }: { receivedAt: string; load: () =
     <summary>{new Date(receivedAt).toLocaleString()} · {t('Received payload')}</summary>
     {busy && <p role="status">{t('Loading…')}</p>}
     {error && <div><p role="alert">{error}</p><button type="button" disabled={!!busy} onClick={readPayload}>{t('Retry')}</button></div>}
-    {payload && <pre>{JSON.stringify(payload.input, null, 2)}</pre>}
+    {payload && <pre className="hx-held-payload">{JSON.stringify(payload.input, null, 2)}</pre>}
   </details>
 }
 
@@ -330,9 +355,16 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
         </section>}
         {open.canEdit && w.trigger.type === 'webhook' && <section aria-label={t('Webhook')}>
           <div className="rows-title">{t('Webhook')}</div>
+          {w.hookUrl && !w.webhookSignatureRequired && <p className="form-note">{t('This existing webhook still accepts its URL secret alone. Generate a new URL to switch it to signed requests.')}</p>}
+          {w.hookUrl && w.webhookSignatureRequired && <details className="form-note">
+            <summary>{t('Send signed webhook events')}</summary>
+            <p>{t('Sign the exact JSON body with the webhook secret. Use a fresh timestamp and a stable event ID for retries; signed requests expire after 5 minutes and event IDs are remembered for 7 days.')}</p>
+            <p>{t('Store the URL and secret in your sender’s environment as HONMARU_WEBHOOK_URL and HONMARU_WEBHOOK_SECRET.')}</p>
+            <pre className="hx-program-source">{WEBHOOK_SENDER_EXAMPLE}</pre>
+          </details>}
           {!w.hookUrl && <p className="form-note">{t('This webhook is revoked. Generate a new URL to accept events again.')}</p>}
           {hookAction ? <div className="form-note">
-            <p>{t(hookAction === 'rotate' ? 'The current webhook URL will stop working. Update your sender with the new URL.' : 'The webhook URL will stop accepting events. Existing runs are not cancelled.')}</p>
+            <p>{t(hookAction === 'rotate' ? 'The current webhook URL will stop working. Update your sender with the new URL and signed-request headers.' : 'The webhook URL will stop accepting events. Existing runs are not cancelled.')}</p>
             <div className="hx-actions">
               <button className="pill-btn danger" disabled={!!busy} onClick={() => act('hook', async () => {
                 const result = await api.changeWorkflowHook(w.id, hookAction, w.hookSecret ?? null)

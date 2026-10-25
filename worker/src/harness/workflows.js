@@ -7,6 +7,7 @@ import {ensureWorkflowSafety,readWorkflowSafety,workflowBudgetStatus,workflowBud
 import {managedAutomationGuard,managedAutomationRelease,managedAutomationMayRun} from './appAutomationGuard.js';
 import { mayUseTable } from './resourceAccess.js';
 import { holdWorkflowEvent } from './workflowHeld.js';
+import { WORKFLOW_WEBHOOK_REPLAY_TTL_MS, verifyWorkflowWebhook } from './workflowWebhookSignature.js';
 import { mayUseConversation } from './conversationAccess.js';
 // Workflows (docs/kylon-gap-plan.md): a saved piece of work with a trigger
 // and steps, and every run kept where anyone can read what it did.
@@ -136,6 +137,7 @@ export function normalizeSteps(raw) {
 const publicWorkflow = (r, { withSecret = false } = {}) => r && ({
   id: r.id, orgId: r.org_id, name: r.name, enabled: Boolean(r.enabled),
   trigger: parse(r.trigger, {}), steps: parse(r.steps, []),
+  webhookSignatureRequired: Boolean(r.webhook_signature_required),
   nextRunAt: r.next_run_at, lastRunAt: r.last_run_at,
   createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
   ...(withSecret && r.hook_secret ? { hookSecret: r.hook_secret } : {}),
@@ -227,9 +229,9 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
   const secret = t.trigger.type === "webhook" ? hex(crypto.getRandomValues(new Uint8Array(24))) : null;
   const next = t.trigger.type === "schedule" && input?.enabled !== false ? nextRunAt(t.trigger) : null;
   const insert = db
-    .prepare(`INSERT INTO hx_workflows (id, org_id, name, enabled, trigger, steps, hook_secret, next_run_at, created_by, created_at, updated_at)
-      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)`)
-    .bind(id, orgId, name, input?.enabled === false ? 0 : 1, JSON.stringify(t.trigger), JSON.stringify(s.steps), secret, next, String(by), at);
+    .prepare(`INSERT INTO hx_workflows (id, org_id, name, enabled, trigger, steps, hook_secret, webhook_signature_required, next_run_at, created_by, created_at, updated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)`)
+    .bind(id, orgId, name, input?.enabled === false ? 0 : 1, JSON.stringify(t.trigger), JSON.stringify(s.steps), secret, t.trigger.type === 'webhook' ? 1 : 0, next, String(by), at);
   const statements = [...(commitGuard ? [commitGuard(id)] : []), insert];
   if(source) statements.push(db.prepare(`INSERT INTO hx_workflow_sources(org_id,workflow_id,channel,thread_id,created_by)
     VALUES(?1,?2,?3,(SELECT id FROM channel_messages WHERE org_id=?1 AND id=?4 AND channel=?3 AND parent_id IS NULL AND deleted_at IS NULL AND body=?6 AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?5 AND role!='guest')),?5)`)
@@ -276,7 +278,8 @@ export async function updateWorkflow(db, orgId, id, input) {
   const result = await db
     .prepare(`UPDATE hx_workflows SET name = ?1, enabled = ?2, trigger = ?3, steps = ?4,
       next_run_at = CASE WHEN ?2=1 AND enabled=?2 AND trigger=?3 THEN next_run_at ELSE ?5 END, updated_at = ?6,
-      hook_secret = CASE WHEN ?9 IS NULL THEN NULL WHEN json_extract(trigger, '$.type') = 'webhook' THEN hook_secret ELSE ?9 END
+      hook_secret = CASE WHEN ?9 IS NULL THEN NULL WHEN json_extract(trigger, '$.type') = 'webhook' THEN hook_secret ELSE ?9 END,
+      webhook_signature_required = CASE WHEN json_extract(?3,'$.type')='webhook' AND json_extract(trigger,'$.type')!='webhook' THEN 1 ELSE webhook_signature_required END
       WHERE id = ?7 AND org_id = ?8 AND updated_at = ?10`)
     .bind(name, enabled ? 1 : 0, JSON.stringify(trigger), JSON.stringify(steps), next, updatedAt, id, orgId, hookCandidate, wf.updatedAt)
     .run();
@@ -293,7 +296,7 @@ export async function changeWorkflowHook(db, orgId, id, input) {
     return { error: 'Reload the workflow before changing its webhook.', status: 400 };
   }
   const secret = input.action === 'rotate' ? hex(crypto.getRandomValues(new Uint8Array(24))) : null;
-  const result = await db.prepare(`UPDATE hx_workflows SET hook_secret=?1, updated_at=?2
+  const result = await db.prepare(`UPDATE hx_workflows SET hook_secret=?1, webhook_signature_required=CASE WHEN ?1 IS NULL THEN webhook_signature_required ELSE 1 END, updated_at=?2
     WHERE org_id=?3 AND id=?4 AND json_extract(trigger,'$.type')='webhook' AND hook_secret IS ?5`)
     .bind(secret, now(), orgId, id, input.expectedSecret).run();
   if (!result.meta?.changes) return { error: 'The webhook changed. Reload the workflow and try again.', status: 409 };
@@ -366,7 +369,7 @@ async function rowScope(db, orgId, tableId, row) {
 
 /// Start a run. `input` is what started it: { text } by hand, the posted
 /// JSON for a webhook, { row, before } for a row.
-export async function startRun(env, { orgId, workflow, trigger, input = null, startedBy = null, depth = 0, heldEventId = null, incomingHookSecret = null }) {
+export async function startRun(env, { orgId, workflow, trigger, input = null, startedBy = null, depth = 0, heldEventId = null, incomingHookSecret = null, incomingHookEvent = null }) {
   let safety=await ensureWorkflowSafety(env.DB,orgId,workflow.id);
   if(!safety)return null;
   if(safety.pause_reason?.startsWith('budget_'))safety=await recoverWorkflowBudgetPause(env.DB,orgId,workflow.id,safety);
@@ -388,6 +391,7 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
       WHERE (?12 IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_held_events h JOIN hx_workflows w ON w.id=h.workflow_id AND w.org_id=h.org_id
         WHERE h.id=?12 AND h.org_id=?2 AND h.workflow_id=?3 AND h.run_id IS NULL AND h.expires_at>?10 AND w.enabled=1 AND json_extract(w.trigger,'$.type')='webhook'))
       AND (?13 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE id=?3 AND org_id=?2 AND enabled=1 AND hook_secret=?13 AND json_extract(trigger,'$.type')='webhook'))
+      AND (?28 IS NULL OR NOT EXISTS(SELECT 1 FROM hx_workflow_webhook_receipts h WHERE h.org_id=?2 AND h.workflow_id=?3 AND h.event_id=?28 AND h.expires_at>?10))
       AND NOT EXISTS(SELECT 1 FROM hx_workflow_runs WHERE org_id=?2 AND workflow_id=?3 AND status IN ('running','waiting'))
       AND EXISTS(SELECT 1 FROM hx_workflow_safety s WHERE s.org_id=?2 AND s.workflow_id=?3 AND s.generation=?19 AND s.paused_at IS NULL
         AND (s.daily_run_limit=0 OR (SELECT COUNT(*) FROM hx_workflow_runs r WHERE r.org_id=?2 AND r.workflow_id=?3 AND r.started_at>=?20 AND r.started_at<=?23)<s.daily_run_limit)
@@ -399,7 +403,7 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
           AND (s.monthly_ai_budget_micros=0 OR ((SELECT COALESCE(SUM(u.estimated_micros),0) FROM hx_workflow_usage u WHERE u.org_id=?2 AND u.workflow_id=?3 AND u.created_at>=?26 AND u.created_at<=?27)<s.monthly_ai_budget_micros AND NOT EXISTS(SELECT 1 FROM hx_workflow_usage u WHERE u.org_id=?2 AND u.workflow_id=?3 AND u.created_at>=?26 AND u.created_at<=?27 AND u.estimated_micros IS NULL))))))
       AND ${managedAutomationGuard('?2','?3','?14')}
       AND (?14 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?2 AND id=?3 AND name=?15 AND json(trigger)=json(?16) AND json(steps)=json(?17) AND created_by=?18))`)
-      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, admittedAt, tooLarge ? admittedAt : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation,windows.dailyStart,windows.weeklyStart,windows.monthlyStart,admittedAt,aiWindows['24h'].start,aiWindows['7d'].start,aiWindows['30d'].start,admittedAt),
+      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, admittedAt, tooLarge ? admittedAt : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation,windows.dailyStart,windows.weeklyStart,windows.monthlyStart,admittedAt,aiWindows['24h'].start,aiWindows['7d'].start,aiWindows['30d'].start,admittedAt,incomingHookEvent?.eventId || null),
     env.DB.prepare(`INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at)
       SELECT ?1,?2,json_set(?3,'$.definitionRevision',(
         SELECT MAX(h.revision) FROM hx_workflow_revisions h WHERE h.org_id=?2 AND h.workflow_id=json_extract(?3,'$.id')
@@ -417,8 +421,25 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
     ...(heldEventId ? [env.DB.prepare(`UPDATE hx_workflow_held_events SET run_id=?1 WHERE id=?2 AND org_id=?3 AND workflow_id=?4 AND run_id IS NULL
       AND EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?3)`).bind(id, heldEventId, orgId, workflow.id)] : []),
     ...workflowSettlementStatements(env.DB,orgId,id),
+    ...(incomingHookEvent ? [env.DB.prepare(`INSERT INTO hx_workflow_webhook_receipts(org_id,workflow_id,event_id,payload_hash,received_at,expires_at,status,run_id)
+      SELECT ?2,?3,?4,?5,?6,?7,'accepted',?1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?2
+      ON CONFLICT(org_id,workflow_id,event_id) DO UPDATE SET payload_hash=excluded.payload_hash,received_at=excluded.received_at,expires_at=excluded.expires_at,status='accepted',run_id=excluded.run_id,held_event_id=NULL
+      WHERE hx_workflow_webhook_receipts.expires_at<=excluded.received_at`)
+      .bind(id,orgId,workflow.id,incomingHookEvent.eventId,incomingHookEvent.payloadHash,admittedAt,new Date(Date.parse(admittedAt)+WORKFLOW_WEBHOOK_REPLAY_TTL_MS).toISOString())] : []),
+    ...(heldEventId ? [env.DB.prepare(`UPDATE hx_workflow_webhook_receipts SET status='replayed',run_id=?1
+      WHERE org_id=?2 AND workflow_id=?3 AND held_event_id=?4 AND expires_at>?5
+      AND EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?2)`)
+      .bind(id,orgId,workflow.id,heldEventId,admittedAt)] : []),
   ]);
   if (!created[0].meta?.changes) {
+    if (incomingHookEvent) {
+      const receipt = await env.DB.prepare(`SELECT payload_hash,status,run_id,held_event_id FROM hx_workflow_webhook_receipts
+        WHERE org_id=?1 AND workflow_id=?2 AND event_id=?3 AND expires_at>?4`)
+        .bind(orgId,workflow.id,incomingHookEvent.eventId,admittedAt).first();
+      if (receipt) return receipt.payload_hash === incomingHookEvent.payloadHash
+        ? { status: 'duplicate', duplicate: true, runId: receipt.run_id, eventId: receipt.held_event_id }
+        : { status: 'conflict', reason: 'event_id_reused' };
+    }
     if(created[2].results?.length)return { status: 'skipped', reason: 'already_running' };
     const current=await readWorkflowSafety(env.DB,orgId,workflow.id);
     const reason=workflowBudgetReason(await workflowBudgetStatus(env.DB,orgId,workflow.id,Date.parse(admittedAt)));
@@ -704,6 +725,10 @@ export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } 
     .bind(at.toISOString()).all();
   if (expiredOrgs.results.length) await env.DB.batch(expiredOrgs.results.map(({ org_id }) =>
     env.DB.prepare('DELETE FROM hx_workflow_held_events WHERE org_id=?1 AND expires_at<=?2').bind(org_id, at.toISOString())));
+  const expiredReceiptOrgs = await env.DB.prepare('SELECT DISTINCT org_id FROM hx_workflow_webhook_receipts WHERE expires_at<=?1 LIMIT 100')
+    .bind(at.toISOString()).all();
+  if (expiredReceiptOrgs.results.length) await env.DB.batch(expiredReceiptOrgs.results.map(({ org_id }) =>
+    env.DB.prepare('DELETE FROM hx_workflow_webhook_receipts WHERE org_id=?1 AND expires_at<=?2').bind(org_id, at.toISOString())));
   const { results } = await env.DB
     // Every workspace's, by design: the cron's sweep. Each run then acts
     // only in its workflow's own org_id.
@@ -730,8 +755,8 @@ export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } 
   return ran;
 }
 
-/// A webhook call: the workflow named by id, its secret in the URL or the
-/// x-hook-secret header. The posted JSON is the run's input.
+/// New webhook credentials authenticate a timestamped HMAC over the event ID
+/// and exact request body. Unrotated legacy credentials remain compatible.
 export async function handleWorkflowHook(request, env, url) {
   const m = url.pathname.match(/^\/hooks\/workflows\/([A-Za-z0-9_]+)$/);
   if (!m || request.method !== "POST") return null;
@@ -742,19 +767,43 @@ export async function handleWorkflowHook(request, env, url) {
   const wf = row && publicWorkflow(row, { withSecret: true });
   const reply = (body, status) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
   if (!wf || wf.trigger.type !== "webhook" || !wf.hookSecret || !timingSafeEqual(secret, wf.hookSecret)) return reply({ message: "No such hook." }, 404);
-  const text = await request.text();
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  // Preserve the established 64,000-character input limit while bounding the
+  // UTF-8 body allocation to the maximum encoding of that many characters.
+  if (bytes.byteLength > 192000) return reply({ message: "Too large." }, 413);
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+  catch { return reply({ message: "Body must be valid UTF-8." }, 400); }
   if (text.length > 64000) return reply({ message: "Too large." }, 413);
+  let incomingHookEvent = null;
+  if (wf.webhookSignatureRequired) {
+    const signature = await verifyWorkflowWebhook({
+      secret: wf.hookSecret,
+      timestamp: request.headers.get('x-webhook-timestamp'),
+      eventId: request.headers.get('x-webhook-event-id'),
+      signature: request.headers.get('x-webhook-signature'),
+      body: text,
+    });
+    if (!signature.valid) return reply({ message: "Invalid or expired webhook signature." }, 401);
+    incomingHookEvent = { eventId: request.headers.get('x-webhook-event-id'), payloadHash: signature.payloadHash };
+  }
   const input = parse(text, { text });
   const payload = input && typeof input === 'object' ? input : { text };
   if (!wf.enabled) {
-    const held = await holdWorkflowEvent(env.DB, wf, secret, payload);
-    return held.error ? reply({ message: held.error }, held.status) : reply({ eventId: held.id, status: 'held', expiresAt: held.expiresAt }, 202);
+    const held = await holdWorkflowEvent(env.DB, wf, secret, payload, incomingHookEvent);
+    if (held.error) return reply({ message: held.error }, held.status);
+    if (held.duplicate) return reply({ status: 'duplicate', eventId: held.id, runId: held.runId || undefined }, 200);
+    return reply({ eventId: held.id, status: 'held', expiresAt: held.expiresAt }, 202);
   }
-  const run = await startRun(env, { orgId: wf.orgId, workflow: wf, trigger: "webhook", input: payload, incomingHookSecret: secret });
+  const run = await startRun(env, { orgId: wf.orgId, workflow: wf, trigger: "webhook", input: payload, incomingHookSecret: secret, incomingHookEvent });
   if(run?.status==='paused'){
-    const held=await holdWorkflowEvent(env.DB,wf,secret,payload);
-    return held.error?reply({message:held.error},held.status):reply({eventId:held.id,status:'held',expiresAt:held.expiresAt},202);
+    const held=await holdWorkflowEvent(env.DB,wf,secret,payload,incomingHookEvent);
+    if (held.error) return reply({message:held.error},held.status);
+    if (held.duplicate) return reply({status:'duplicate',eventId:held.id,runId:held.runId||undefined},200);
+    return reply({eventId:held.id,status:'held',expiresAt:held.expiresAt},202);
   }
+  if (run?.status === 'duplicate') return reply({ status: 'duplicate', runId: run.runId || undefined, eventId: run.eventId || undefined }, 200);
+  if (run?.status === 'conflict') return reply({ message: 'This event ID was already used for a different payload.' }, 409);
   if (run?.status === 'skipped') return reply(run, 202);
   if (!run) return reply({ message: 'The webhook changed. Retry this delivery with its current URL.' }, 409);
   return reply({ runId: run?.id, status: run?.status }, 202);

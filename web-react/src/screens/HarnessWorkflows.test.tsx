@@ -7,7 +7,7 @@ const state = vi.hoisted(() => ({ api: null as any }))
 vi.mock('./HarnessShared', async original => ({ ...(await original<any>()), useApi: () => state.api }))
 vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text, t: (text: string) => text }))
 const props = { httpBase: 'https://example.test', orgId: 'one', sessionToken: 'test', onClose: () => {} }
-const workflow = { id: 'wf_one', name: 'Billing', enabled: true, trigger: { type: 'webhook' }, steps: [], hookSecret: 'a'.repeat(48), hookUrl: 'https://example.test/hook?secret=old' }
+const workflow = { id: 'wf_one', name: 'Billing', enabled: true, trigger: { type: 'webhook' }, steps: [], hookSecret: 'a'.repeat(48), hookUrl: 'https://example.test/hook?secret=old', webhookSignatureRequired: true }
 const aiBudget={revision:0,action:'warn' as const,'24h':{limitUsd:0,usedUsd:0,unpricedCalls:0,resetAt:null,exhausted:false},'7d':{limitUsd:0,usedUsd:0,unpricedCalls:0,resetAt:null,exhausted:false},'30d':{limitUsd:0,usedUsd:0,unpricedCalls:0,resetAt:null,exhausted:false}}
 let tree: ReturnType<typeof create>
 beforeEach(() => {
@@ -45,6 +45,8 @@ test('unlimited workflow run budgets do not render a fake unlimited run total',a
 })
 test('webhook revocation requires confirmation, uses the observed secret, and displays revoked state', async () => {
   await open()
+  expect(JSON.stringify(tree.toJSON())).toContain('x-webhook-signature')
+  expect(JSON.stringify(tree.toJSON())).toContain('HONMARU_WEBHOOK_SECRET')
   await act(async () => { button('Revoke webhook').props.onClick() })
   expect(state.api.changeWorkflowHook).not.toHaveBeenCalled()
   expect(JSON.stringify(tree.toJSON())).toContain('Existing runs are not cancelled.')
@@ -60,6 +62,13 @@ test('webhook revocation requires confirmation, uses the observed secret, and di
   await act(async () => { await button('Generate new webhook URL').props.onClick() })
   expect(state.api.changeWorkflowHook).toHaveBeenLastCalledWith(workflow.id, 'rotate', null)
   expect(JSON.stringify(tree.toJSON())).toContain('https://example.test/hook?secret=new')
+})
+test('legacy webhook senders remain compatible until their credential is rotated', async () => {
+  state.api.workflow.mockResolvedValue({ workflow: { ...workflow, webhookSignatureRequired: false }, runs: [], canEdit: true })
+  await open()
+  const text = JSON.stringify(tree.toJSON())
+  expect(text).toContain('This existing webhook still accepts its URL secret alone.')
+  expect(text).not.toContain('x-webhook-signature')
 })
 test('a conflict retains the current display and reports the failure instead of pretending to rotate', async () => {
   state.api.changeWorkflowHook.mockRejectedValue(new Error('The webhook changed. Reload the workflow and try again.'))
@@ -217,7 +226,7 @@ test('held payload is fetched only when expanded and remains inert text', async 
   expect(state.api.heldWorkflowEvent).not.toHaveBeenCalled()
   await act(async () => { tree.root.findByProps({className:'hx-run-detail'}).props.onToggle({ currentTarget: { open: true } }) })
   expect(state.api.heldWorkflowEvent).toHaveBeenCalledWith(workflow.id, 'preview_one')
-  expect(tree.root.findByType('pre').children.join('')).toBe(JSON.stringify(input,null,2))
+  expect(tree.root.findByProps({className:'hx-held-payload'}).children.join('')).toBe(JSON.stringify(input,null,2))
   expect(tree.root.findAllByType('script')).toHaveLength(0)
   await act(async () => { tree.root.findByProps({className:'hx-run-detail'}).props.onToggle({ currentTarget: { open: true } }) })
   expect(state.api.heldWorkflowEvent).toHaveBeenCalledTimes(1)
@@ -249,7 +258,7 @@ test('failed held-payload inspection can retry without replaying the event', asy
   expect(tree.root.findByProps({ role: 'alert' }).children).toContain('Network unavailable')
   await act(async () => { button('Retry').props.onClick() })
   expect(state.api.heldWorkflowEvent).toHaveBeenCalledTimes(2)
-  expect(tree.root.findByType('pre').children.join('')).toContain('"ok": true')
+  expect(tree.root.findByProps({className:'hx-held-payload'}).children.join('')).toContain('"ok": true')
   expect(tree.root.findAllByProps({ role: 'alert' })).toHaveLength(0)
   expect(state.api.replayWorkflowEvents).not.toHaveBeenCalled()
 })

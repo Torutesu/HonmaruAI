@@ -153,6 +153,25 @@ test("an existing complimentary grant survives adding provider synchronization c
     });
 });
 
+test('signed webhook replay columns and uniqueness migrate an existing held-event table safely', async () => {
+  await env.DB.exec(schemaSql.replace(/\n/g, ' '));
+  await env.DB.prepare(`INSERT INTO hx_workflows(id,org_id,name,enabled,trigger,steps,created_by,created_at,updated_at)
+    VALUES('legacy-webhook','legacy-org','Existing sender',1,'{"type":"webhook"}','[]','owner','before','before')`).run();
+  await env.DB.exec('DROP TABLE hx_workflow_held_events');
+  await env.DB.exec('CREATE TABLE hx_workflow_held_events (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, input TEXT NOT NULL, received_at TEXT NOT NULL, expires_at TEXT NOT NULL, run_id TEXT)');
+  await applyDeploy(env.DB);
+  await applyDeploy(env.DB);
+  const { results } = await env.DB.prepare('PRAGMA table_info(hx_workflow_held_events)').all();
+  expect(results.map(row => row.name)).toEqual(expect.arrayContaining(['webhook_event_id', 'payload_hash']));
+  const index = await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_hx_held_webhook_event'").first();
+  expect(index.sql).toContain('UNIQUE INDEX');
+  expect(index.sql).toContain('WHERE webhook_event_id IS NOT NULL');
+  expect(await env.DB.prepare("SELECT webhook_signature_required FROM hx_workflows WHERE id='legacy-webhook'").first())
+    .toEqual({ webhook_signature_required: 0 });
+  const receipts = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='hx_workflow_webhook_receipts'").first();
+  expect(receipts).toBeTruthy();
+});
+
 test('adding skill ownership preserves legacy creator attribution and content',async()=>{
   await env.DB.exec('DROP TABLE IF EXISTS hx_skills');
   await env.DB.exec("CREATE TABLE hx_skills (id TEXT PRIMARY KEY,org_id TEXT NOT NULL,name TEXT NOT NULL,description TEXT,body TEXT NOT NULL,created_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,metadata TEXT NOT NULL DEFAULT '{}')");

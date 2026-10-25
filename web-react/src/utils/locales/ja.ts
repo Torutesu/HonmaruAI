@@ -3033,6 +3033,11 @@ const table: Record<string, string> = {
   "Connect an execution node in Settings to run this program.": "このプログラムを実行するには、設定で実行ノードを接続してください。",
   "Saved state is available through @honmaru/workflow-sdk.": "保存した状態は @honmaru/workflow-sdk から利用できます。",
   "Program source exceeds 48 KB.": "プログラムのソースが48 KBを超えています。",
+  "Send signed webhook events": "署名付きWebhookイベントを送信する",
+  "Sign the exact JSON body with the webhook secret. Use a fresh timestamp and a stable event ID for retries; signed requests expire after 5 minutes and event IDs are remembered for 7 days.": "WebhookシークレットでJSON本文そのものに署名してください。時刻は毎回更新し、再送では同じイベントIDを使います。署名付きリクエストは5分で期限切れになり、イベントIDは7日間記録されます。",
+  "Store the URL and secret in your sender’s environment as HONMARU_WEBHOOK_URL and HONMARU_WEBHOOK_SECRET.": "送信元の環境変数 HONMARU_WEBHOOK_URL と HONMARU_WEBHOOK_SECRET にURLとシークレットを保存してください。",
+  "This existing webhook still accepts its URL secret alone. Generate a new URL to switch it to signed requests.": "この既存Webhookは、引き続きURL内のシークレットだけで受信します。署名付きリクエストへ切り替えるにはURLを再発行してください。",
+  "The current webhook URL will stop working. Update your sender with the new URL and signed-request headers.": "現在のWebhook URLは使えなくなります。送信元を新しいURLと署名付きリクエストヘッダーに更新してください。",
 }
 
 export default table

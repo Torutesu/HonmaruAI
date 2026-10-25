@@ -75,7 +75,7 @@ export interface Workflow {
   updatedAt?: string
   safety?: WorkflowSafety | null
   id: string; name: string; enabled: boolean; trigger: Trigger; steps: Step[]
-  nextRunAt: string | null; lastRunAt: string | null; createdBy: string; hookUrl?: string; hookSecret?: string
+  nextRunAt: string | null; lastRunAt: string | null; createdBy: string; hookUrl?: string; hookSecret?: string; webhookSignatureRequired?: boolean
 }
 export interface WorkflowRevision {revision:number;recordedAt:string;definition:Pick<Workflow,'name'|'enabled'|'trigger'|'steps'> & {createdBy:string}}
 export type AutomationDefinition = Pick<Workflow, 'name' | 'enabled' | 'trigger' | 'steps'>

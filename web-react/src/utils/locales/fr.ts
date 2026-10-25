@@ -2032,6 +2032,11 @@ const table: Record<string, string> = {
   "Anyone with write access to the repository comes in by themselves": "Toute personne ayant un accès en écriture au dépôt entre d'elle-même",
   "Mentions, replies and a sound for posts": "Mentions, réponses et un son pour les messages",
   "Every post, on the phone too": "Chaque message, aussi sur le téléphone",
+  "Send signed webhook events": "Envoyer des événements webhook signés",
+  "Sign the exact JSON body with the webhook secret. Use a fresh timestamp and a stable event ID for retries; signed requests expire after 5 minutes and event IDs are remembered for 7 days.": "Signez le corps JSON exact avec le secret du webhook. Utilisez un horodatage récent et conservez le même ID d’événement lors des nouvelles tentatives. Les requêtes signées expirent après 5 minutes et les ID sont conservés 7 jours.",
+  "Store the URL and secret in your sender’s environment as HONMARU_WEBHOOK_URL and HONMARU_WEBHOOK_SECRET.": "Enregistrez l’URL et le secret dans l’environnement de l’émetteur sous HONMARU_WEBHOOK_URL et HONMARU_WEBHOOK_SECRET.",
+  "This existing webhook still accepts its URL secret alone. Generate a new URL to switch it to signed requests.": "Ce webhook existant accepte encore uniquement le secret de l’URL. Générez une nouvelle URL pour passer aux requêtes signées.",
+  "The current webhook URL will stop working. Update your sender with the new URL and signed-request headers.": "L’URL actuelle du webhook cessera de fonctionner. Mettez à jour l’émetteur avec la nouvelle URL et les en-têtes des requêtes signées.",
 }
 
 export default table

@@ -52,7 +52,7 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   if(bindings.length>100)return conflict();
   const snapshots=[],missing=[];
   for(const binding of stopping?[]:bindings) {
-    const row=await db.prepare('SELECT id,name,enabled,trigger,steps,created_by FROM hx_workflows WHERE org_id=?1 AND id=?2').bind(orgId,binding.workflow_id).first();
+    const row=await db.prepare('SELECT id,name,enabled,trigger,steps,created_by,webhook_signature_required FROM hx_workflows WHERE org_id=?1 AND id=?2').bind(orgId,binding.workflow_id).first();
     if(!row) {
       if(!reviewed.some(item=>item.key===binding.declaration_key && item.action==='recreate'))return conflict();
       missing.push(binding.workflow_id);continue;
@@ -87,7 +87,8 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
       AND NOT EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?1 AND id IN (SELECT value FROM json_each(?13)))
       AND NOT EXISTS(SELECT 1 FROM json_each(?9) snapshot LEFT JOIN hx_workflows w ON w.org_id=?1 AND w.id=json_extract(snapshot.value,'$.id')
         WHERE w.id IS NULL OR w.name!=json_extract(snapshot.value,'$.name') OR w.enabled!=json_extract(snapshot.value,'$.enabled')
-          OR w.trigger!=json_extract(snapshot.value,'$.trigger') OR w.steps!=json_extract(snapshot.value,'$.steps') OR w.created_by!=json_extract(snapshot.value,'$.created_by'))`)
+          OR w.trigger!=json_extract(snapshot.value,'$.trigger') OR w.steps!=json_extract(snapshot.value,'$.steps') OR w.created_by!=json_extract(snapshot.value,'$.created_by')
+          OR w.webhook_signature_required!=json_extract(snapshot.value,'$.webhook_signature_required'))`)
     .bind(orgId,app.id,plan.revision,published,releaseId,at,String(by),app.version,JSON.stringify(snapshots),added,MAX_WORKFLOWS,stopping?1:0,JSON.stringify(missing))];
   statements.push(db.prepare(`UPDATE hx_apps SET version=?4,updated_at=?5,definition=?6 WHERE org_id=?1 AND id=?2 AND ${guard}`).bind(orgId,app.id,releaseId,version,at,JSON.stringify(definition)));
   statements.push(db.prepare(`INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at)
@@ -101,11 +102,12 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
       const applied={enabled:Boolean(live.enabled),trigger:JSON.parse(live.trigger)};
       const sameSchedule=sameAutomation({name:'',steps:[],enabled:item.enabled,trigger:item.trigger},{name:'',steps:[],enabled:applied.enabled,trigger:applied.trigger});
       statements.push(db.prepare(`UPDATE hx_workflows SET name=?5,enabled=?6,trigger=?7,steps=?8,next_run_at=CASE WHEN ?12=1 THEN next_run_at ELSE ?9 END,updated_at=?10,
-        hook_secret=CASE WHEN ?11 IS NULL THEN NULL WHEN json_extract(trigger,'$.type')='webhook' THEN hook_secret ELSE ?11 END
+        hook_secret=CASE WHEN ?11 IS NULL THEN NULL WHEN json_extract(trigger,'$.type')='webhook' THEN hook_secret ELSE ?11 END,
+        webhook_signature_required=CASE WHEN json_extract(?7,'$.type')='webhook' AND json_extract(trigger,'$.type')!='webhook' THEN 1 ELSE webhook_signature_required END
         WHERE org_id=?1 AND id=?4 AND ${guard}`).bind(orgId,app.id,releaseId,id,item.name,item.enabled?1:0,JSON.stringify(item.trigger),JSON.stringify(item.steps),next,at,candidate,sameSchedule?1:0));
     } else {
-      statements.push(db.prepare(`INSERT INTO hx_workflows(id,org_id,name,enabled,trigger,steps,hook_secret,next_run_at,created_by,created_at,updated_at)
-        SELECT ?4,?1,?5,?6,?7,?8,?9,?10,?11,?12,?12 WHERE ${guard}`).bind(orgId,app.id,releaseId,id,item.name,item.enabled?1:0,JSON.stringify(item.trigger),JSON.stringify(item.steps),item.trigger.type==='webhook'?secret():null,next,String(by),at));
+      statements.push(db.prepare(`INSERT INTO hx_workflows(id,org_id,name,enabled,trigger,steps,hook_secret,webhook_signature_required,next_run_at,created_by,created_at,updated_at)
+        SELECT ?4,?1,?5,?6,?7,?8,?9,?10,?11,?12,?13,?13 WHERE ${guard}`).bind(orgId,app.id,releaseId,id,item.name,item.enabled?1:0,JSON.stringify(item.trigger),JSON.stringify(item.steps),item.trigger.type==='webhook'?secret():null,item.trigger.type==='webhook'?1:0,next,String(by),at));
     }
     statements.push(db.prepare(`INSERT INTO hx_app_automation_bindings(org_id,app_id,declaration_key,workflow_id,applied,release_id)
       SELECT ?1,?2,?4,?5,?6,?3 WHERE ${guard}
