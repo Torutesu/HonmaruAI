@@ -67,8 +67,10 @@ export interface Step {
 export interface WorkflowSourceState {source:{threadId:string;channel:string;body:string;createdAt:string}|null;canBind:boolean;candidates:Array<{id:string;channel:string;body:string;createdAt:string}>;nextCursor:number|null}
 export interface WorkflowNotice { workflowId: string; generation: string; runId: string; createdAt: string; readAt: string|null; name: string; paused: boolean }
 export interface WorkflowBudgetPeriod { limit: number; used: number; resetAt: string; exhausted: boolean }
-export interface WorkflowBudget { revision: number; daily: WorkflowBudgetPeriod; weekly: WorkflowBudgetPeriod; monthly: WorkflowBudgetPeriod }
-export interface WorkflowSafety { generation: string; failure_streak: number; paused_at: string | null; pause_reason: string | null; daily_run_limit?: number; weekly_run_limit?: number; monthly_run_limit?: number; budget_revision?: number; budget?: WorkflowBudget | null }
+export interface WorkflowAiBudgetPeriod { limitUsd:number; usedUsd:number; unpricedCalls:number; resetAt:string|null; exhausted:boolean }
+export interface WorkflowAiBudget { revision:number; action:'warn'|'pause'; '24h':WorkflowAiBudgetPeriod; '7d':WorkflowAiBudgetPeriod; '30d':WorkflowAiBudgetPeriod }
+export interface WorkflowBudget { revision: number; daily: WorkflowBudgetPeriod; weekly: WorkflowBudgetPeriod; monthly: WorkflowBudgetPeriod; ai:WorkflowAiBudget }
+export interface WorkflowSafety { generation: string; failure_streak: number; paused_at: string | null; pause_reason: string | null; daily_run_limit?: number; weekly_run_limit?: number; monthly_run_limit?: number; daily_ai_budget_micros?:number; weekly_ai_budget_micros?:number; monthly_ai_budget_micros?:number; ai_budget_action?:'warn'|'pause'; budget_revision?: number; budget?: WorkflowBudget | null }
 export interface Workflow {
   updatedAt?: string
   safety?: WorkflowSafety | null
@@ -82,8 +84,8 @@ export interface AutomationPlanItem { key: string; workflowId: string | null; st
 export interface AppAutomationState { version: number; revision: number; draft: AutomationBundle; published: AutomationBundle | null; releaseId: string | null; publishedAt: string | null; plan?: AutomationPlanItem[] }
 export interface RunLog { step: number; type: StepType; status: string; output?: string; error?: string; at: string }
 export interface HeldWorkflowEvents { count: number; oldestExpiry: string | null; events: Array<{ id: string; receivedAt: string; expiresAt: string }>; discardEventIds?: string[] }
-export interface RunUsageCounters { calls:number; inputTokens:number; outputTokens:number; unknownCalls:number }
-export interface RunUsage extends RunUsageCounters { coverage:'recorded-responses-only'; steps:Array<RunUsageCounters & {stepNumber:number}> }
+export interface RunUsageCounters { calls:number; inputTokens:number; outputTokens:number; unknownCalls:number; unpricedCalls:number; estimatedMicros:number }
+export interface RunUsage extends RunUsageCounters { coverage:'priced-token-estimate'; estimatedUsd:number; steps:Array<RunUsageCounters & {stepNumber:number}> }
 export interface Run { definitionRevision?:number|null; usage?:RunUsage; id: string; trigger: string; status: string; log: RunLog[]; startedAt: string; finishedAt: string | null; cardId: string | null }
 export interface Followup { id: string; threadId?: string | null; channel: string; instruction: string; dueAt: string; status: string; agentId: string | null; result?: string | null; doneAt?: string | null }
 export interface Gateway { id: string; name: string; createdAt: number; lastSeenAt: number | null; revokedAt: number | null }
@@ -189,7 +191,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     generateWorkflow: (prompt: string, channel?: string, options?: {requestId: string; captureSource?: boolean}) => call<{ workflow: Workflow; source: string }>('POST', '/workflows/generate', { prompt, channel, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...options }),
     createWorkflow: (w: { name: string; trigger: Trigger; steps: Step[] }) => call<{ workflow: Workflow; hookUrl?: string }>('POST', '/workflows', w as unknown as Record<string, unknown>),
     updateWorkflow: (id: string, patch: Record<string, unknown>) => call<{ workflow: Workflow }>('PUT', `/workflows/${id}`, patch),
-    updateWorkflowBudget: (id:string,budget:{revision:number;dailyLimit:number;weeklyLimit:number;monthlyLimit:number}) => call<{budget:WorkflowBudget;safety:WorkflowSafety}>('PUT',`/workflows/${id}/budget`,budget),
+    updateWorkflowBudget: (id:string,budget:{revision:number;dailyLimit:number;weeklyLimit:number;monthlyLimit:number;dailyAiLimitUsd:number;weeklyAiLimitUsd:number;monthlyAiLimitUsd:number;aiBudgetAction:'warn'|'pause'}) => call<{budget:WorkflowBudget;safety:WorkflowSafety}>('PUT',`/workflows/${id}/budget`,budget),
     changeWorkflowHook: (id: string, action: 'rotate' | 'revoke', expectedSecret: string | null) => call<{ workflow: Workflow }>('POST', `/workflows/${id}/webhook`, { action, expectedSecret }),
     replayWorkflowEvents: (id: string, eventIds: string[]) => call<{ runs: Array<{ eventId: string; runId: string; status: string }>; skipped: number }>('POST', `/workflows/${id}/webhook/replay`, { eventIds }),
     heldWorkflowEvent: (id: string, eventId: string) => call<{ event: { id: string; receivedAt: string; expiresAt: string; input: unknown } }>('GET', `/workflows/${id}/webhook/events/${encodeURIComponent(eventId)}`),

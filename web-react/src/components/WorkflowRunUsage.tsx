@@ -6,9 +6,11 @@ import {getLocale} from '../utils/locale'
 export function WorkflowRunUsage({usage}:{usage:Run['usage']}){
  const t=useT(),number=(n:number)=>n.toLocaleString(getLocale())
  if(!usage?.calls)return <p className="row-sub">{t('No recorded AI usage. This does not confirm zero usage.')}</p>
- const counters=(value:{inputTokens:number;outputTokens:number;unknownCalls:number})=><>
+ const counters=(value:{inputTokens:number;outputTokens:number;unknownCalls:number;estimatedMicros:number;unpricedCalls:number})=><>
   {t('Input tokens')}: {number(value.inputTokens)} · {t('Output tokens')}: {number(value.outputTokens)}
+  {' · '}{t('Estimated model cost')}: ${(value.estimatedMicros/1_000_000).toFixed(6)}
   {value.unknownCalls>0&&<> · {t('Responses with unknown usage')}: {number(value.unknownCalls)}</>}
+  {value.unpricedCalls>0&&<> · {t('{count} unpriced calls',{count:number(value.unpricedCalls)})}</>}
  </>
  return <details className="hx-run-detail"><summary className="row-sub">{t('Recorded AI usage')} · {counters(usage)}</summary>
   <p className="form-note">{t('Provider-reported responses only. Unrecorded calls and external tool charges are not included.')}</p>

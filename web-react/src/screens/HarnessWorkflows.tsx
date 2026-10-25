@@ -156,7 +156,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [prompt, setPrompt] = useState('')
   const [manual, setManual] = useState(false)
   const [open, setOpen] = useState<{ workflow: Workflow; runs: Run[]; canEdit: boolean; held?: HeldWorkflowEvents } | null>(null)
-  const [budgetDraft,setBudgetDraft]=useState({daily:'0',weekly:'0',monthly:'0'})
+  const [budgetDraft,setBudgetDraft]=useState({daily:'0',weekly:'0',monthly:'0',ai24h:'0',ai7d:'0',ai30d:'0',aiAction:'warn' as 'warn'|'pause'})
   const [hook, setHook] = useState<string | null>(null)
   const [hookAction, setHookAction] = useState<'rotate' | 'revoke' | null>(null)
   const [replaySelection, setReplaySelection] = useState<string[] | null>(null)
@@ -168,7 +168,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   useEffect(()=>{
     const safety=open?.workflow.safety
     if(!safety)return
-    setBudgetDraft({daily:String(safety.daily_run_limit??0),weekly:String(safety.weekly_run_limit??0),monthly:String(safety.monthly_run_limit??0)})
+    setBudgetDraft({daily:String(safety.daily_run_limit??0),weekly:String(safety.weekly_run_limit??0),monthly:String(safety.monthly_run_limit??0),ai24h:String(safety.budget?.ai?.['24h']?.limitUsd??0),ai7d:String(safety.budget?.ai?.['7d']?.limitUsd??0),ai30d:String(safety.budget?.ai?.['30d']?.limitUsd??0),aiAction:safety.budget?.ai?.action??'warn'})
   },[open?.workflow.id,open?.workflow.safety?.budget_revision])
   const activeWorkflowId=!editing&&open?.runs.some(run=>run.status==='running')?open.workflow.id:null
   useEffect(()=>{
@@ -237,9 +237,11 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     const w = open.workflow
     const budget=w.safety?.budget
     const budgetPause=w.safety?.pause_reason?.startsWith('budget_')===true
-    const pausedPeriod=budgetPause?(w.safety?.pause_reason?.slice('budget_'.length) as 'daily'|'weekly'|'monthly'):null
-    const pausedBudget=pausedPeriod?budget?.[pausedPeriod]:null
-    const budgetDraftValid=Object.values(budgetDraft).every(value=>value!==''&&Number.isSafeInteger(Number(value))&&Number(value)>=0&&Number(value)<=1_000_000)
+    const aiBudgetPause=w.safety?.pause_reason?.startsWith('budget_ai_')===true
+    const aiPausedPeriod=aiBudgetPause?({budget_ai_24h:'24h',budget_ai_7d:'7d',budget_ai_30d:'30d'} as const)[w.safety?.pause_reason as 'budget_ai_24h'|'budget_ai_7d'|'budget_ai_30d']:undefined
+    const pausedPeriod=budgetPause&&!aiBudgetPause?(w.safety?.pause_reason?.slice('budget_'.length) as 'daily'|'weekly'|'monthly'):null
+    const pausedBudget=aiPausedPeriod?budget?.ai?.[aiPausedPeriod]:pausedPeriod?budget?.[pausedPeriod]:null
+    const budgetDraftValid=['daily','weekly','monthly'].every(key=>{const value=budgetDraft[key as 'daily'|'weekly'|'monthly'];return value!==''&&Number.isSafeInteger(Number(value))&&Number(value)>=0&&Number(value)<=1_000_000})&&['ai24h','ai7d','ai30d'].every(key=>{const value=Number(budgetDraft[key as 'ai24h'|'ai7d'|'ai30d']);return budgetDraft[key as 'ai24h'|'ai7d'|'ai30d']!==''&&Number.isFinite(value)&&value>=0&&value<=1_000_000&&Math.abs(value*1_000_000-Math.round(value*1_000_000))<0.001})
     return (
       <Shell className="hx-resource-screen" title={w.name} onClose={() => { detailRequest.current++; if(props.onNavigateWorkflow){props.onNavigateWorkflow();return}setOpen(null); load() }} nested actions={
         <button className="pill-btn quiet" disabled={!!busy} onClick={() => act('refresh', async () => {
@@ -249,8 +251,8 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
       }>
         {!w.enabled && !w.safety?.paused_at && <p className="form-note">{t('Automatic triggers are paused. You can still run this workflow manually.')}</p>}
         {w.safety?.paused_at && <section className="form-note" role="status">
-          <strong>{budgetPause?t('Paused after reaching the {period} run limit',{period:pausedPeriod?t(`${pausedPeriod[0].toUpperCase()+pausedPeriod.slice(1)} run budget`):t('Daily run budget')}):t('Paused after three consecutive failures')}</strong>
-          {budgetPause?<p>{t('This workflow can run again on the next trigger after {when}, or as soon as its run limit is raised.',{when:pausedBudget?new Date(pausedBudget.resetAt).toLocaleString():''})}</p>:<p>{t('Review the failed runs below before resuming. Held events will not replay automatically.')}</p>}
+          <strong>{aiBudgetPause?t('Paused by estimated AI usage budget'):budgetPause?t('Paused after reaching the {period} run limit',{period:pausedPeriod?t(`${pausedPeriod[0].toUpperCase()+pausedPeriod.slice(1)} run budget`):t('Daily run budget')}):t('Paused after three consecutive failures')}</strong>
+          {aiBudgetPause&&w.safety?.pause_reason==='budget_ai_unpriced'?<p>{t('AI usage could not be priced. This workflow can resume after the unpriced usage leaves its rolling window or the limit is changed.')}</p>:aiBudgetPause?<p>{t('This workflow can run again on its next trigger after {when}, or when its AI usage budget is raised.',{when:pausedBudget?.resetAt?new Date(pausedBudget.resetAt).toLocaleString():''})}</p>:budgetPause?<p>{t('This workflow can run again on the next trigger after {when}, or as soon as its run limit is raised.',{when:pausedBudget?.resetAt?new Date(pausedBudget.resetAt).toLocaleString():''})}</p>:<p>{t('Review the failed runs below before resuming. Held events will not replay automatically.')}</p>}
           {open.canEdit && !budgetPause && <button className="pill-btn" disabled={!!busy} onClick={()=>act('resume',async()=>{
             await api.resumeWorkflow(w.id,w.safety!.generation)
             await refreshOpen(w.id)
@@ -269,10 +271,28 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
               </label>)
             })}
           </div>
+          <div className="rows-title">{t('Estimated AI usage budget')}</div>
+          <p>{t('Rolling windows use estimated USD list prices from recorded model tokens. They are not provider invoices or Kylon credits; tool fees and unreported usage may be missing.')}</p>
+          <label className="hx-inline">{t('When an AI estimate reaches its limit')}
+            <select aria-label={t('When an AI estimate reaches its limit')} value={budgetDraft.aiAction} disabled={!open.canEdit||!!busy} onChange={event=>setBudgetDraft(current=>({...current,aiAction:event.target.value as 'warn'|'pause'}))}>
+              <option value="warn">{t('Warn only')}</option><option value="pause">{t('Pause after the current run')}</option>
+            </select>
+          </label>
+          <div className="hx-inline">
+            {(['24h','7d','30d'] as const).map(period=>{
+              const key=period==='24h'?'ai24h':period==='7d'?'ai7d':'ai30d'
+              const status=budget?.ai?.[period]
+              const label=t(`${period} rolling AI budget`)
+              return <label key={period}>{label}
+                <input className="hx-cell-input" type="number" min="0" max="1000000" step="0.000001" aria-label={label} value={budgetDraft[key]} disabled={!open.canEdit||!!busy} onChange={event=>setBudgetDraft(current=>({...current,[key]:event.target.value}))}/>
+                <span className="row-sub">{status?.limitUsd?t('{used} of {limit} estimated',{used:status.usedUsd.toFixed(6),limit:status.limitUsd.toFixed(6)}):t('No AI usage limit ({used} estimated)',{used:(status?.usedUsd??0).toFixed(6)})}{status?.unpricedCalls?` · ${t('{count} unpriced calls',{count:status.unpricedCalls})}`:''}{status?.exhausted&&status.resetAt?<span> · {t('rolling reset {when}',{when:new Date(status.resetAt).toLocaleString()})}</span>:null}</span>
+              </label>
+            })}
+          </div>
           {open.canEdit&&<button className="pill-btn" disabled={!!busy||!budgetDraftValid} onClick={()=>act('budget',async()=>{
-            await api.updateWorkflowBudget(w.id,{revision:w.safety?.budget_revision??0,dailyLimit:Number(budgetDraft.daily),weeklyLimit:Number(budgetDraft.weekly),monthlyLimit:Number(budgetDraft.monthly)})
+            await api.updateWorkflowBudget(w.id,{revision:w.safety?.budget_revision??0,dailyLimit:Number(budgetDraft.daily),weeklyLimit:Number(budgetDraft.weekly),monthlyLimit:Number(budgetDraft.monthly),dailyAiLimitUsd:Number(budgetDraft.ai24h),weeklyAiLimitUsd:Number(budgetDraft.ai7d),monthlyAiLimitUsd:Number(budgetDraft.ai30d),aiBudgetAction:budgetDraft.aiAction})
             await refreshOpen(w.id)
-          })}>{t('Save run limits')}</button>}
+          })}>{t('Save budget settings')}</button>}
         </section>
         <div className="hx-flow-diagram"><div className="hx-flow-node"><small>{t('Trigger')}</small><strong>{triggerLabel(t, w.trigger, tables)}</strong></div>{w.steps.map((step, index) => <React.Fragment key={index}><span className="hx-flow-connector">↓</span><div className="hx-flow-node"><small>{index + 1}. {stepLabel(t, step.type)}</small><strong>{step.text || step.prompt || step.title || tables.find(table => table.id === step.tableId)?.name}</strong>{step.channel && <span>{step.channel.startsWith('ag:') || step.channel.startsWith('dm:') ? t('Private chat') : step.channel.replace(/^b:/, '#')}</span>}{step.agentId && <span>{t('Agent')}: {agents.find(agent => agent.id === step.agentId)?.name || step.agentId}</span>}{step.to && <span>@{step.to}</span>}{step.summary && <p>{step.summary}</p>}{step.minutes && <span>{step.minutes} min</span>}{step.type==='code'&&<details><summary>{t('Program source')}</summary><pre className="hx-program-source">{step.code}</pre></details>}{step.values && <pre>{JSON.stringify(step.values, null, 2)}</pre>}{step.when && <div className="hx-flow-condition"><small>{t('Execution condition')}</small><p>{describeWorkflowCondition(step.when,tables.find(table=>table.id===w.trigger.tableId)?.columns)}</p></div>}</div></React.Fragment>)}</div>
         <div className="rows">
@@ -416,7 +436,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
         {workflows?.map((w) => (
           <button key={w.id} className="row" onClick={() => openOne(w.id)} data-workflow={w.id}>
             <span className="row-icon"><Icon name="zap" size={18} /></span>
-            <span className="row-main">{w.name}{w.safety?.paused_at && <span className="hx-off"> · {w.safety.pause_reason?.startsWith('budget_')?t('Paused by run budget'):t('Paused after failures')}</span>}{!w.enabled && <span className="hx-off"> · {t('off')}</span>}
+            <span className="row-main">{w.name}{w.safety?.paused_at && <span className="hx-off"> · {w.safety.pause_reason?.startsWith('budget_ai_')?t('Paused by estimated AI usage budget'):w.safety.pause_reason?.startsWith('budget_')?t('Paused by run budget'):t('Paused after failures')}</span>}{!w.enabled && <span className="hx-off"> · {t('off')}</span>}
               <span className="row-sub">{triggerLabel(t, w.trigger, tables)} · {w.steps.length} {t('steps')}</span>
             </span>
             <span className="row-value">›</span>

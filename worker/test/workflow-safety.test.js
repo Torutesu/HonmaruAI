@@ -75,3 +75,50 @@ test('run budgets use compare-and-swap settings, pause at the cap, and recover a
  expect(recovered).toMatchObject({paused_at:null,pause_reason:null,failure_streak:0});
  expect(recovered.generation).not.toBe(generation);
 });
+test('USD budget accepts cent fractions despite floating point representation and rejects more than six decimals',async()=>{
+ await ensureWorkflowSafety(env.DB,org,wf);
+ const saved=await saveWorkflowBudget(env.DB,org,wf,{revision:0,dailyLimit:0,weeklyLimit:0,monthlyLimit:0,dailyAiLimitUsd:1.005,weeklyAiLimitUsd:0,monthlyAiLimitUsd:0,aiBudgetAction:'warn'});
+ expect(saved.budget.ai['24h'].limitUsd).toBe(1.005);
+ expect(await saveWorkflowBudget(env.DB,org,wf,{revision:1,dailyLimit:0,weeklyLimit:0,monthlyLimit:0,dailyAiLimitUsd:0.0000001,weeklyAiLimitUsd:0,monthlyAiLimitUsd:0,aiBudgetAction:'warn'})).toMatchObject({status:400});
+});
+test('rolling AI spend budgets use catalogued token estimates, CAS settings, pause, and recover',async()=>{
+ const {generation}=await ensureWorkflowSafety(env.DB,org,wf);
+ await run('ai-budget-run','done',generation,new Date().toISOString());
+ await env.DB.prepare("INSERT INTO hx_workflow_usage(id,org_id,workflow_id,run_id,step_number,provider,model,input_tokens,output_tokens,byok,created_at,estimated_micros) VALUES('ai-usage',?1,?2,'ai-budget-run',1,'OpenAI','gpt-4o-mini',1000000,0,1,?3,150000)").bind(org,wf,new Date().toISOString()).run();
+ const saved=await saveWorkflowBudget(env.DB,org,wf,{revision:0,dailyLimit:0,weeklyLimit:0,monthlyLimit:0,dailyAiLimitUsd:.1,weeklyAiLimitUsd:0,monthlyAiLimitUsd:0,aiBudgetAction:'pause'});
+ expect(saved).toMatchObject({budget:{revision:1,ai:{action:'pause','24h':{limitUsd:.1,usedUsd:.15,exhausted:true}}},safety:{paused_at:expect.any(String),pause_reason:'budget_ai_24h'}});
+ expect(await saveWorkflowBudget(env.DB,org,wf,{revision:0,dailyLimit:0,weeklyLimit:0,monthlyLimit:0,dailyAiLimitUsd:.1,weeklyAiLimitUsd:0,monthlyAiLimitUsd:0,aiBudgetAction:'pause'})).toMatchObject({status:409});
+ const safety=await readWorkflowSafety(env.DB,org,wf);
+ const held=await recoverWorkflowBudgetPause(env.DB,org,wf,safety);
+ expect(held.pause_reason).toBe('budget_ai_24h');
+ await env.DB.prepare("UPDATE hx_workflow_usage SET created_at='2000-01-01T00:00:00.000Z' WHERE org_id=?1 AND id='ai-usage'").bind(org).run();
+ const recovered=await recoverWorkflowBudgetPause(env.DB,org,wf,await readWorkflowSafety(env.DB,org,wf));
+ expect(recovered).toMatchObject({paused_at:null,pause_reason:null});
+ expect(recovered.generation).not.toBe(generation);
+});
+test('unknown AI cost pauses only when a workflow opted into pause mode',async()=>{
+ const {generation}=await ensureWorkflowSafety(env.DB,org,wf);
+ await run('unknown-ai-run','done',generation,new Date().toISOString());
+ await env.DB.prepare("INSERT INTO hx_workflow_usage(id,org_id,workflow_id,run_id,step_number,provider,model,input_tokens,output_tokens,byok,created_at,estimated_micros) VALUES('unknown-usage',?1,?2,'unknown-ai-run',1,'Unknown','new-model',NULL,NULL,0,?3,NULL)").bind(org,wf,new Date().toISOString()).run();
+ const saved=await saveWorkflowBudget(env.DB,org,wf,{revision:0,dailyLimit:0,weeklyLimit:0,monthlyLimit:0,dailyAiLimitUsd:1,weeklyAiLimitUsd:0,monthlyAiLimitUsd:0,aiBudgetAction:'pause'});
+ expect(saved).toMatchObject({safety:{paused_at:expect.any(String),pause_reason:'budget_ai_unpriced'},budget:{ai:{'24h':{unpricedCalls:1,exhausted:false}}}});
+});
+test('run settlement atomically pauses after its recorded token estimate exceeds a pause-mode cap',async()=>{
+ const {generation}=await ensureWorkflowSafety(env.DB,org,wf);
+ await saveWorkflowBudget(env.DB,org,wf,{revision:0,dailyLimit:0,weeklyLimit:0,monthlyLimit:0,dailyAiLimitUsd:.1,weeklyAiLimitUsd:0,monthlyAiLimitUsd:0,aiBudgetAction:'pause'});
+ const now=new Date().toISOString();
+ await run('settled-ai-cap','done',generation,now);
+ await env.DB.prepare("INSERT INTO hx_workflow_usage(id,org_id,workflow_id,run_id,step_number,provider,model,input_tokens,output_tokens,byok,created_at,estimated_micros) VALUES('settled-ai-usage',?1,?2,'settled-ai-cap',1,'OpenAI','gpt-4o-mini',1000000,0,0,?3,150000)").bind(org,wf,now).run();
+ await settle('settled-ai-cap');
+ expect(await readWorkflowSafety(env.DB,org,wf)).toMatchObject({paused_at:expect.any(String),pause_reason:'budget_ai_24h'});
+ expect(await env.DB.prepare('SELECT run_id,recipient_id FROM hx_workflow_safety_notices WHERE org_id=?1 AND workflow_id=?2').bind(org,wf).first()).toMatchObject({run_id:'settled-ai-cap',recipient_id:'owner'});
+});
+test('warn mode creates a durable notice without pausing the workflow after its rolling cap',async()=>{
+ const {generation}=await ensureWorkflowSafety(env.DB,org,wf);
+ await saveWorkflowBudget(env.DB,org,wf,{revision:0,dailyLimit:0,weeklyLimit:0,monthlyLimit:0,dailyAiLimitUsd:.1,weeklyAiLimitUsd:0,monthlyAiLimitUsd:0,aiBudgetAction:'warn'});
+ await run('ai-warn-run','done',generation,new Date().toISOString());
+ await env.DB.prepare("INSERT INTO hx_workflow_usage(id,org_id,workflow_id,run_id,step_number,provider,model,input_tokens,output_tokens,byok,created_at,estimated_micros) VALUES('warn-usage',?1,?2,'ai-warn-run',1,'OpenAI','gpt-4o-mini',1000000,0,0,?3,150000)").bind(org,wf,new Date().toISOString()).run();
+ await settle('ai-warn-run');
+ expect(await readWorkflowSafety(env.DB,org,wf)).toMatchObject({paused_at:null,pause_reason:null});
+ expect(await env.DB.prepare("SELECT period,estimated_micros,limit_micros FROM hx_workflow_ai_budget_notices WHERE org_id=?1 AND workflow_id=?2").bind(org,wf).all()).toMatchObject({results:[{period:'24h',estimated_micros:150000,limit_micros:100000}]});
+});

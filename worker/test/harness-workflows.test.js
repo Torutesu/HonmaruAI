@@ -939,6 +939,32 @@ test('pause delivery posts once to the bound thread despite concurrent retries a
  expect(await deliverWorkflowNotices(env,ORG,workflow.id)).toBe(0);
 });
 
+test('warning-mode AI budget posts a price-estimate notice once to the bound source thread',async()=>{
+ const {postMessage}=await import('../src/channels.js');
+ const {ensureWorkflowSafety,saveWorkflowBudget,workflowSettlementStatements}=await import('../src/harness/workflowSafety.js');
+ const {deliverWorkflowAiBudgetNotices}=await import('../src/harness/workflowNoticeDelivery.js');
+ const {workflow}=await(await send('POST','/workflows',mika,{orgId:ORG,name:'AI budget warning',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Review'}]})).json();
+ const root=await postMessage(env.DB,{orgId:ORG,key:'b:ops',authorLogin:'mika',body:'Budget warning source'});
+ await send('POST',`/workflows/${workflow.id}/source`,mika,{orgId:ORG,messageId:root.row.id});
+ const {generation}=await ensureWorkflowSafety(env.DB,ORG,workflow.id);
+ await saveWorkflowBudget(env.DB,ORG,workflow.id,{revision:0,dailyLimit:0,weeklyLimit:0,monthlyLimit:0,dailyAiLimitUsd:.1,weeklyAiLimitUsd:0,monthlyAiLimitUsd:0,aiBudgetAction:'warn'});
+ const runId='ai-budget-warning-run',now=new Date().toISOString();
+ await env.DB.batch([
+  env.DB.prepare("INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,log,started_at,finished_at) VALUES(?1,?2,?3,'manual','done','[]',?4,?4)").bind(runId,ORG,workflow.id,now),
+  env.DB.prepare("INSERT INTO hx_workflow_run_definitions(run_id,org_id,definition,created_at) VALUES(?1,?2,?3,?4)").bind(runId,ORG,JSON.stringify({safetyGeneration:generation}),now),
+  env.DB.prepare("INSERT INTO hx_workflow_usage(id,org_id,workflow_id,run_id,step_number,provider,model,input_tokens,output_tokens,byok,created_at,estimated_micros) VALUES('ai-budget-warning-usage',?1,?2,?3,1,'OpenAI','gpt-4o-mini',1000000,0,0,?4,150000)").bind(ORG,workflow.id,runId,now),
+ ]);
+ await env.DB.batch(workflowSettlementStatements(env.DB,ORG,runId));
+ expect(await deliverWorkflowAiBudgetNotices(env,ORG,workflow.id)).toBe(1);
+ expect(await deliverWorkflowAiBudgetNotices(env,ORG,workflow.id)).toBe(0);
+ const replies=await env.DB.prepare('SELECT body,kind FROM channel_messages WHERE org_id=?1 AND parent_id=?2').bind(ORG,root.row.id).all();
+ expect(replies.results).toHaveLength(1);
+ expect(replies.results[0].kind).toBe('ai');
+ expect(replies.results[0].body).toContain('rolling 24 hours');
+ expect(replies.results[0].body).toContain('not an invoice');
+ expect(await env.DB.prepare('SELECT delivered_at FROM hx_workflow_ai_budget_notices WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).first()).toMatchObject({delivered_at:expect.any(String)});
+});
+
 test('conditional steps save their decision, skip unmatched effects and retain step numbering',async()=>{
  const when={path:['input','amount'],op:'gt',value:100};
  const response=await send('POST','/workflows',mika,{orgId:ORG,name:'Conditional invoice',trigger:{type:'manual'},steps:[

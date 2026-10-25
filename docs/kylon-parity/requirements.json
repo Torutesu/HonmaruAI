@@ -763,12 +763,12 @@
       "requirement": "実行予算と自動pause",
       "status": "partial",
       "priority": "P0",
-      "source": "https://docs.kylon.io/cli/workspace/workflow",
+      "source": "https://kylon.io/help/limit-credit-usage",
       "code": "worker/src/spendGuard.js, worker/src/ledger.js, worker/src/harness/workflowSafety.js, worker/src/harness/workflows.js, worker/src/harness/routes.js, web-react/src/screens/HarnessWorkflows.tsx",
-      "acceptance": "個別Workflowの日/週/月の実行回数上限、CAS設定、原子的なrun admission、上限時pauseと期間更新/上限変更後の自動回復あり。Kylon同等の費用/credit予算、事前警告、実コスト換算は未実装",
+      "acceptance": "個別Workflowの暦日/週/月回数上限に加え、直近24時間/7日/30日の記録トークンによるUSD参考価格上限、warn-only/実行後pause、作成元thread通知、単価不明時の可視化、CAS設定、原子的なrun admission、期間更新/上限変更後の自動回復を実装。provider invoice・Kylon creditsと一致するとは扱わない",
       "evidence": {
-        "verified": "全体D1コスト保護に加え、Workflowごとの日/週/月run-countを集計し、同時run admissionのSQL条件で上限を守る。完了時pause、期限/上限変更後のgeneration CAS回復、作成者向け上限/使用数/reset UIを追加。フルCI・本番反映のSHAと実画面確認はverification.mdに追記する。",
-        "remaining": "これは実行回数予算で、Kylonのcredit/USD相当費用上限・閾値事前警告・外部AI費用の完全計測ではない。トークン費用の正確な予約/消費/返却台帳、プロセス障害時の回復を実装・確認する。"
+        "verified": "回数上限に加え、既知のモデル単価によるマイクロUSD概算を記録しrolling 24h/7d/30dで集計。warn-onlyは元スレッドへ重複抑止付き通知、pauseは実行完了後に停止し、単価不明の記録を無料扱いせずpauseモードで停止。Worker/UI focused tests pass; full CI and production evidence will be recorded in verification.md after rollout.",
+        "remaining": "USDの参考価格でありKylon creditsやprovider invoiceとの換算ではない。外部検索/connector料金、未報告usage、プロセス障害前の未記録usageは網羅できず、run開始前の金額予約・部分runの中断精算もない。本番D1移行・CI・実画面確認はリリース後の証拠が必要。"
       }
     },
     {

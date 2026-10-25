@@ -1,15 +1,20 @@
 // postMessage's parameters: workspace ?2, channel ?3, author ?4, parent ?9;
-// internal notice identity: workflow ?14, generation ?15, creator ?16.
+// workflow identity: workflow ?14, generation ?15, creator ?16, budget notice ?17.
+// Only the workflow's current creator may receive durable system notices.
 export const workflowNoticeGuard=`EXISTS (
- SELECT 1 FROM hx_workflow_safety_notices n
- JOIN hx_workflow_safety s ON s.org_id=n.org_id AND s.workflow_id=n.workflow_id AND s.generation=n.generation
- JOIN hx_workflows w ON w.org_id=n.org_id AND w.id=n.workflow_id AND w.created_by=n.recipient_id
- JOIN hx_workflow_sources source ON source.org_id=n.org_id AND source.workflow_id=n.workflow_id AND source.created_by=n.recipient_id
- JOIN memberships m ON m.org_id=n.org_id AND m.user_github_id=n.recipient_id
- JOIN users u ON u.github_id=n.recipient_id
- WHERE n.org_id=?2 AND n.workflow_id=?14 AND n.generation=?15 AND n.recipient_id=?16
- AND s.paused_at IS NOT NULL AND m.role!='guest' AND source.channel=?3 AND source.thread_id=?9
- AND ?4='__workflow'
+ SELECT 1 FROM hx_workflows w
+ JOIN hx_workflow_sources source ON source.org_id=w.org_id AND source.workflow_id=w.id AND source.created_by=w.created_by
+ JOIN memberships m ON m.org_id=w.org_id AND m.user_github_id=w.created_by
+ JOIN users u ON u.github_id=w.created_by
+ WHERE w.org_id=?2 AND w.id=?14 AND w.created_by=?16
+ AND source.channel=?3 AND source.thread_id=?9 AND m.role!='guest' AND ?4='__workflow'
+ AND (
+   EXISTS(SELECT 1 FROM hx_workflow_safety_notices n
+     JOIN hx_workflow_safety s ON s.org_id=n.org_id AND s.workflow_id=n.workflow_id AND s.generation=n.generation
+     WHERE n.org_id=?2 AND n.workflow_id=?14 AND n.generation=?15 AND n.recipient_id=?16 AND s.paused_at IS NOT NULL)
+   OR EXISTS(SELECT 1 FROM hx_workflow_ai_budget_notices n
+     WHERE n.org_id=?2 AND n.workflow_id=?14 AND n.id=?17 AND n.recipient_id=?16)
+ )
  AND (
   (substr(?3,1,2)='b:' AND EXISTS(SELECT 1 FROM businesses b WHERE b.org_id=?2 AND 'b:'||b.slug=?3 AND b.archived_at IS NULL
     AND (b.private=0 OR EXISTS(SELECT 1 FROM conversation_members c WHERE c.org_id=?2 AND c.channel=?3 AND c.login=u.login))))

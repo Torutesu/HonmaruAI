@@ -8,6 +8,7 @@ vi.mock('./HarnessShared', async original => ({ ...(await original<any>()), useA
 vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text, t: (text: string) => text }))
 const props = { httpBase: 'https://example.test', orgId: 'one', sessionToken: 'test', onClose: () => {} }
 const workflow = { id: 'wf_one', name: 'Billing', enabled: true, trigger: { type: 'webhook' }, steps: [], hookSecret: 'a'.repeat(48), hookUrl: 'https://example.test/hook?secret=old' }
+const aiBudget={revision:0,action:'warn' as const,'24h':{limitUsd:0,usedUsd:0,unpricedCalls:0,resetAt:null,exhausted:false},'7d':{limitUsd:0,usedUsd:0,unpricedCalls:0,resetAt:null,exhausted:false},'30d':{limitUsd:0,usedUsd:0,unpricedCalls:0,resetAt:null,exhausted:false}}
 let tree: ReturnType<typeof create>
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ agents: [] }) }))
@@ -36,7 +37,7 @@ test('workflow history shows elapsed time without inventing duration for unfinis
 });
 test('unlimited workflow run budgets do not render a fake unlimited run total',async()=>{
  const unlimited={limit:0,used:0,resetAt:'2026-10-27T00:00:00.000Z',exhausted:false}
- state.api.workflow.mockResolvedValue({workflow:{...workflow,safety:{generation:'g',failure_streak:0,paused_at:null,pause_reason:null,daily_run_limit:0,weekly_run_limit:0,monthly_run_limit:0,budget_revision:0,budget:{revision:0,daily:unlimited,weekly:unlimited,monthly:unlimited}}},canEdit:true,runs:[]})
+ state.api.workflow.mockResolvedValue({workflow:{...workflow,safety:{generation:'g',failure_streak:0,paused_at:null,pause_reason:null,daily_run_limit:0,weekly_run_limit:0,monthly_run_limit:0,budget_revision:0,budget:{revision:0,daily:unlimited,weekly:unlimited,monthly:unlimited,ai:aiBudget}}},canEdit:true,runs:[]})
  await open()
  const text=JSON.stringify(tree.toJSON())
  expect(text).toContain('No limit ({used} used)')
@@ -394,7 +395,7 @@ test('manual setup focuses the builder instead of stacking the generation form a
  expect(tree.root.findAllByProps({className:'hx-builder'})).toHaveLength(1);
 });
 test('workflow detail edits UTC run limits and displays usage with the saved revision',async()=>{
- const detailed={...workflow,safety:{generation:'g1',failure_streak:0,paused_at:null,pause_reason:null,daily_run_limit:3,weekly_run_limit:0,monthly_run_limit:0,budget_revision:4,budget:{revision:4,daily:{limit:3,used:1,resetAt:'2026-10-27T00:00:00Z',exhausted:false},weekly:{limit:0,used:2,resetAt:'2026-11-02T00:00:00Z',exhausted:false},monthly:{limit:0,used:2,resetAt:'2026-11-01T00:00:00Z',exhausted:false}}}}
+ const detailed={...workflow,safety:{generation:'g1',failure_streak:0,paused_at:null,pause_reason:null,daily_run_limit:3,weekly_run_limit:0,monthly_run_limit:0,budget_revision:4,budget:{revision:4,daily:{limit:3,used:1,resetAt:'2026-10-27T00:00:00Z',exhausted:false},weekly:{limit:0,used:2,resetAt:'2026-11-02T00:00:00Z',exhausted:false},monthly:{limit:0,used:2,resetAt:'2026-11-01T00:00:00Z',exhausted:false},ai:{...aiBudget,revision:4,'24h':{limitUsd:2,usedUsd:0.25,unpricedCalls:0,resetAt:null,exhausted:false}}}}}
  state.api.workflow.mockResolvedValue({workflow:detailed,runs:[],canEdit:true})
  state.api.updateWorkflowBudget=vi.fn().mockResolvedValue({budget:detailed.safety.budget,safety:detailed.safety})
  await open()
@@ -404,6 +405,6 @@ test('workflow detail edits UTC run limits and displays usage with the saved rev
  expect(daily.props.value).toBe('3')
  expect(JSON.stringify(tree.toJSON())).toContain('{used} of {limit} runs')
  await act(async()=>daily.props.onChange({target:{value:'5'}}))
- await act(async()=>{await button('Save run limits').props.onClick()})
- expect(state.api.updateWorkflowBudget).toHaveBeenCalledWith(workflow.id,{revision:4,dailyLimit:5,weeklyLimit:0,monthlyLimit:0})
+ await act(async()=>{await button('Save budget settings').props.onClick()})
+ expect(state.api.updateWorkflowBudget).toHaveBeenCalledWith(workflow.id,{revision:4,dailyLimit:5,weeklyLimit:0,monthlyLimit:0,dailyAiLimitUsd:2,weeklyAiLimitUsd:0,monthlyAiLimitUsd:0,aiBudgetAction:'warn'})
 })

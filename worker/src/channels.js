@@ -600,7 +600,7 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
       WHERE a.org_id=?2 AND a.id=?14 AND a.generation=?15 AND a.status='running' AND 'agent:'||a.current_agent_id=?4 AND a.channel=?3 AND a.thread_id=?9
       AND s.channel=a.channel AND s.kind='message' AND COALESCE(s.parent_id,s.id)=a.thread_id AND s.id=?16 AND s.body=?17 AND s.author_login=?18 AND COALESCE(s.parent_id,'')=?19 AND s.deleted_at IS NULL)` : '';
     const noticeLive=workflowNotice?` AND ${workflowNoticeGuard}`:'';
-    const noticeValues=workflowNotice?[workflowNotice.workflowId,workflowNotice.generation,workflowNotice.recipientId]:[];
+    const noticeValues=workflowNotice?[workflowNotice.workflowId,workflowNotice.generation||'',workflowNotice.recipientId,workflowNotice.budgetNoticeId||'']:[];
     const fenceValues=assignmentFence?[assignmentFence.assignmentId,assignmentFence.generation,assignmentFence.sourceId,assignmentFence.sourceBody,assignmentFence.sourceAuthor,assignmentFence.sourceParent || '']:[];
 
     if (files?.ids?.length) {
