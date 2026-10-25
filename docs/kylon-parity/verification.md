@@ -3382,3 +3382,9 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Real UI switching from image to PDF correctly changed the source file, but switching afterward to an ordinary thread incorrectly retained the PDF panel. Track only the automatically opened source and close that panel when leaving its file thread; independently selected panels are preserved.
 - Repeated PDF-thread → ordinary-thread transition in the local browser: source details open for PDF and disappear on the ordinary thread. Screenshot `/tmp/honmaru-file-thread-exit-panel-20261025.png`. Web build passed (`/tmp/honmaru-file-thread-panel-transition-build.log`).
 - This supersedes the automatic-panel behavior in candidate 5b752267; not yet deployed.
+
+### 2026-10-25 — File MIME filter UI
+- Rechecked https://docs.kylon.io/cli/workspace/file: file list supports image/video/media/pdf/doc/html categories. Honmaru backend/API already implemented these; exposed them in the file panel with Japanese labels and existing dark palette.
+- Type changes reset file/folder cursors; per-tab room view restores valid categories, rejecting invalid saved values. Filtering with no results shows the matching-files empty state. Folder navigation remains available, including folders without matching descendants.
+- Panel/view tests: 17 passed (`/tmp/honmaru-file-type-ui-tests.log`); build passed (`/tmp/honmaru-file-type-ui-build.log`). Existing source-selector test now targets that specific select rather than assuming one selector in the panel.
+- Actual local dark UI: selecting PDF removes text/image rows and retains document-preview.pdf. Screenshot `/tmp/honmaru-file-type-filter-20261025.png`. Kylon's exact filter-control layout, mobile and production rendering still unverified.

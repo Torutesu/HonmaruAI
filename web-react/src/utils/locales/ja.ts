@@ -7,6 +7,12 @@ const table: Record<string, string> = {
   'File source': 'ファイルの作成元',
   'Created by agents': 'エージェントが作成',
   'Uploaded by users': 'ユーザーがアップロード',
+  'Images': '画像',
+  'Videos': '動画',
+  'Documents': '文書',
+  'File type': 'ファイル形式',
+  'All types': 'すべての形式',
+  'Images and videos': '画像と動画',
   'Unknown file source': '作成元不明のファイル',
 
   "Workspace settings could not load.": "ワークスペースの設定を読み込めませんでした。",

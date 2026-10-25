@@ -110,9 +110,9 @@ test('origin switches filter files and folders together and discard previous pag
  expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({origin:'agent',order:'path'})
  expect(vi.mocked(api.list).mock.calls.at(-1)![0].cursor).toBeUndefined()
  expect(api.folders).toHaveBeenLastCalledWith('workspace','',false,undefined,expect.any(AbortSignal),'agent')
- await act(async()=>tree!.root.findByType('select').props.onChange({target:{value:'unknown'}}))
+ await act(async()=>tree!.root.findAllByType('select').find(select=>select.props['aria-label']==='File source')!.props.onChange({target:{value:'unknown'}}))
  expect(vi.mocked(api.list).mock.calls.at(-1)![0].origin).toBe('unknown')
- await act(async()=>tree!.root.findByType('select').props.onChange({target:{value:'all'}}))
+ await act(async()=>tree!.root.findAllByType('select').find(select=>select.props['aria-label']==='File source')!.props.onChange({target:{value:'all'}}))
  expect(vi.mocked(api.list).mock.calls.at(-1)![0].origin).toBeUndefined()
  act(()=>tree!.unmount())
 })
@@ -166,4 +166,17 @@ test('linked file errors are readable and retry retrieves the requested file',as
  expect(renderer!.root.findAllByProps({role:'alert'})).toHaveLength(0)
  expect(renderer!.root.findByType('h2').children).toContain('history.txt')
  await act(async()=>{renderer!.unmount()})
+})
+
+test('changing file type clears pagination and clearing the filter restores all files',async()=>{
+ const api={list:vi.fn().mockResolvedValue({files:[file],next:{path:'history.txt',id:'file'}})} as unknown as WorkspaceFileApi
+ let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/>)})
+ await act(async()=>{renderer!.root.findAllByType('button').find(b=>b.children.includes('Next'))!.props.onClick()})
+ expect(vi.mocked(api.list).mock.calls.at(-1)?.[0].cursor).toBeTruthy()
+ await act(async()=>{renderer!.root.findByProps({'aria-label':'File type'}).props.onChange({target:{value:'pdf'}})})
+ expect(vi.mocked(api.list).mock.calls.at(-1)?.[0]).toMatchObject({type:'pdf'});expect(vi.mocked(api.list).mock.calls.at(-1)?.[0].cursor).toBeUndefined()
+ await act(async()=>{renderer!.root.findByProps({'aria-label':'File type'}).props.onChange({target:{value:''}})})
+ expect(vi.mocked(api.list).mock.calls.at(-1)?.[0].type).toBeUndefined()
+ act(()=>renderer!.unmount())
 })

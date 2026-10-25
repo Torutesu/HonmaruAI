@@ -55,3 +55,5 @@
 .hx-files-origin-more:focus-within{outline:2px solid var(--blue);outline-offset:2px}
 
 .hx-thread-file-open{display:flex;align-items:center;gap:6px;flex-shrink:0;margin:8px 16px;align-self:flex-start}
+.hx-files-type {display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 16px 12px;font-size:12px;color:var(--hx-muted)}
+.hx-files-type select {max-width:65%;padding:5px 8px;border:1px solid var(--hx-hover);border-radius:7px;background:var(--hx-surface);color:var(--hx-text);font:inherit}

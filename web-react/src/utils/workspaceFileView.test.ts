@@ -23,3 +23,10 @@ test('origin selection survives tab reload and old saved views keep all sources'
  raw=JSON.stringify({version:1,...view,origin:undefined});expect(readWorkspaceFileView('key').origin).toBeUndefined()
  raw=JSON.stringify({version:1,...view,origin:'invalid'});expect(readWorkspaceFileView('key').origin).toBeUndefined()
 })
+
+test('file type filters survive reload while invalid saved types are discarded',()=>{
+ let raw='';vi.stubGlobal('sessionStorage',{getItem:()=>raw,setItem:(_key:string,value:string)=>{raw=value}})
+ const view={folderMode:false,directory:'',search:'',includeDeleted:false,type:'pdf' as const}
+ saveWorkspaceFileView('type',view);expect(readWorkspaceFileView('type').type).toBe('pdf')
+ raw=JSON.stringify({version:1,...view,type:'invalid'});expect(readWorkspaceFileView('type').type).toBeUndefined()
+})
