@@ -227,13 +227,16 @@ test('owned conversation document tools bind scope, reject foreign receipts and 
 
 test('model tool loop queues a document, receives saved status and returns its conversation link',async()=>{
  const {fetchMock}=await import('./helpers/fetch-mock.js');
- const {agentTools}=await import('../src/agentTools.js');
+ const {agentInstructionsForTools,agentTools}=await import('../src/agentTools.js');
  const {chatTools}=await import('../src/agentChatTools.js');
  const {claimDocumentJob}=await import('../src/harness/documentLeases.js');
  const {publishDocumentArtifact}=await import('../src/harness/documentArtifacts.js');
  await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES(?,'export-agent','export-agent','Writer','Help','personal',?,'now','now')").bind(org,actor).run();
  await env.DB.prepare('INSERT INTO hx_document_nodes(gateway_id,org_id,last_seen_at) VALUES(?,?,?)').bind(input.gatewayId,org,Date.now()).run();
  const tools=await agentTools({...env,APP_WEB_URL:'https://example.test/'},{orgId:org,session:{github_id:actor},personal:true,ownAgentsOnly:true,fileScope:'ag:export-agent|'+actor});
+ const instructions=agentInstructionsForTools('Only handle JavaScript calculations.',tools);
+ expect(instructions).toContain('This capability complements your specialty.');
+ expect(agentInstructionsForTools('Only handle JavaScript calculations.',{})).toBe('Only handle JavaScript calculations.');
  const toolCall=(id,name,args)=>({id,type:'function',function:{name,arguments:JSON.stringify(args)}});
  const messages=body=>JSON.parse(body).messages.filter(m=>m.role==='tool').map(m=>JSON.parse(m.content));
  let savedLink,jobId;
@@ -241,7 +244,9 @@ test('model tool loop queues a document, receives saved status and returns its c
  try{
   const reply=handler=>fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'}).reply(200,async opts=>({choices:[{message:await handler(opts)}]}));
   reply(async opts=>{
-   expect(JSON.parse(opts.body).tools.some(t=>t.function.name==='create_document')).toBe(true);
+   const request=JSON.parse(opts.body);
+   expect(request.tools.some(t=>t.function.name==='create_document')).toBe(true);
+   expect(request.messages[0].content).toContain("Do not ask the user to grant a capability");
    return {tool_calls:[toolCall('nodes','list_document_nodes',{})]};
   });
   reply(async opts=>{
@@ -259,7 +264,7 @@ test('model tool loop queues a document, receives saved status and returns its c
    const done=messages(opts.body).at(-1);expect(done.job.status).toBe('succeeded');savedLink=done.openUrl;
    expect(savedLink).toContain('file=file-');return {content:`[PDFを開く](${savedLink})`};
   });
-  const result=await chatTools({provider:{providerName:'OpenRouter',endpoint:'https://openrouter.ai/api/v1/chat/completions',apiKey:'synthetic',model:'test',usage:[]},instructions:'Use document tools and report only actual saved results.',input:'日本語のレポートをPDFにしてください。',tools});
+  const result=await chatTools({provider:{providerName:'OpenRouter',endpoint:'https://openrouter.ai/api/v1/chat/completions',apiKey:'synthetic',model:'test',usage:[]},instructions,input:'日本語のレポートをPDFにしてください。',tools});
   expect(result.calls).toBe(3);expect(result.answer).toBe(`[PDFを開く](${savedLink})`);
   expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_document_jobs').first()).n).toBe(1);
   expect((await env.DB.prepare('SELECT source FROM hx_workspace_file_origins WHERE file_id=?').bind('file-'+jobId).first()).source).toBe('agent');

@@ -18,6 +18,11 @@ import { accessFor } from "./access.js";
 import { getUserByGithubId } from "./db.js";
 import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
 
+export function agentInstructionsForTools(instructions, tools) {
+  if (!["list_document_nodes", "create_document", "get_document_status"].every(name => typeof tools?.[name]?.run === "function")) return instructions;
+  return `${instructions}\n\nWhen the user requests a PDF or Word document and these tools are available, use list_document_nodes, create_document, and get_document_status to complete the request in this private conversation. This capability complements your specialty. Do not ask the user to grant a capability already included in this turn's tool list, and do not claim a listed tool is unavailable unless it returns an error. Confirm success with get_document_status and include only the returned file link.`;
+}
+
 const query = (what) => ({
   type: "object",
   properties: { query: { type: "string", description: what } },

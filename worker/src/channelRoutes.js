@@ -27,7 +27,7 @@ import { withRoomGuidelines } from "./harness/guidelines.js";
 import { followupRequest, scheduleFollowup } from "./harness/followups.js";
 import { attachedTexts } from "./dlpFiles.js";
 import { linksIn, readLinks, linksBlock } from "./links.js";
-import { agentTools } from "./agentTools.js";
+import { agentInstructionsForTools, agentTools } from "./agentTools.js";
 import { translateMessages } from "./translate.js";
 import { getSession, isMember, getUserByGithubId, getUserByLogin, saveCard, getCard, listBusinesses } from "./db.js";
 import { claimDraft, releaseDraft, postedCard, refineDailyReport, saveDraftText, discardDraft, dailyChannelFor } from "./dailyReport.js";
@@ -577,8 +577,13 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         const ready = harness ? await prepareAgent(env, orgId, agent, provider, { channel: resolved.key, userId: session.github_id }) : { agent, provider };
         ready.agent = await withRoomGuidelines(env.DB, orgId, resolved.key, ready.agent);
         if (authorize && !await authorize()) return;
+        const toolsForTurn = { ...tools, ...ready.skillTools, ...runtimeTools };
+        const agentForTurn = {
+          ...ready.agent,
+          instructions: agentInstructionsForTools(ready.agent.instructions, toolsForTurn),
+        };
         const result = await askAgent({
-          provider: ready.provider, agent: ready.agent, request: requestFor(taskText, agent), transcript, playbook, where, research, links, tools: { ...tools, ...ready.skillTools, ...runtimeTools }, env,
+          provider: ready.provider, agent: agentForTurn, request: requestFor(taskText, agent), transcript, playbook, where, research, links, tools: toolsForTurn, env,
           askedBy: user.name || "a teammate", readerLanguage: locale,
           deadline: Date.now() + (env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 25000 : 240000),
           onRound: () => progress(agent, "agent"), authorize, harnessTools: harness,
