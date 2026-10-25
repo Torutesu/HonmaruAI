@@ -1,3 +1,4 @@
+import {fileThreadTools} from './harness/fileThreadTools.js';
 import {fileAgentTools} from './harness/fileAgentTools.js';
 import { executionAgentTools } from './harness/executionTools.js';
 /// The function tools an agent may call while it researches. Few, each
@@ -24,7 +25,7 @@ const query = (what) => ({
   additionalProperties: false,
 });
 
-export async function agentTools(env, { orgId, session, language = "en", personal = false, ownAgentsOnly = false, fileScope = null }) {
+export async function agentTools(env, { orgId, session, language = "en", personal = false, ownAgentsOnly = false, fileScope = null, fileThreadId = null }) {
   const reader = await readerEnvFor(env, orgId).catch(() => env);
   // Set once one of the person's apps has answered: from then on no page is
   // opened in this answer, so nothing an app said can leave inside a link.
@@ -47,6 +48,7 @@ export async function agentTools(env, { orgId, session, language = "en", persona
       },
     },
   };
+  Object.assign(tools, await fileThreadTools(env,{orgId,session,fileScope,fileThreadId,taint}));
   if (!personal) return tools;
 
   tools.search_team_decisions = {

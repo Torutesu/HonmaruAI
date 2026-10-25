@@ -3355,3 +3355,9 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 ### 2026-10-25 — Server-generated file IDs in deep links
 - HTTP file creation without requestId uses raw UUIDs, while channel route parsing previously accepted only `file-UUID`. Channel deep links now support both server-issued forms using strict UUID grouping; malformed IDs remain rejected.
 - Route and file-thread tests: 29 passed (`/tmp/honmaru-file-uuid-route-tests.log`). Production rollout of this change remains pending.
+
+### 2026-10-25 — AI access to versioned file conversations
+- Added `read_thread_file` to agent replies in existing versioned file threads. Server binds file ID and canonical channel; model arguments cannot select another file. The answer snapshots its starting version, and subsequent answers can use the newer version.
+- Every invocation rechecks live file/thread access and uses the existing bounded UTF-8 reader. Reading marks the answer private so public URL reads are blocked afterward. General personal tools remain unavailable in shared thread replies; Simple mode exposes no file reader.
+- Real D1/R2 tests: 25 file HTTP/MCP tests passed; after adding agentTools integration coverage, 13 HTTP tests passed. Verified fixed version across an upload, fresh version for a new answer, wrong scope/root rejection, revocation, and read_url blocking.
+- Remaining: real model/UI reply validation, PDF/image interpretation, production rollout. This is not full KY074 completion.

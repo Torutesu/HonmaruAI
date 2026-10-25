@@ -158,3 +158,32 @@ test('versioned files share one authorized conversation across simultaneous open
  for(const create of [false,true])expect((await workspaceFileConversation(env.DB,{orgId,userId:'file-human',file,create})).status).toBe(404);
  expect((await env.DB.prepare('SELECT count(*) AS n FROM channel_messages WHERE org_id=? AND id=?').bind(orgId,`workspace-file-thread-${id}`).first()).n).toBe(0);
  });
+
+test('AI file replies pin the version and recheck live authority',async()=>{
+ const {fileThreadTools}=await import('../src/harness/fileThreadTools.js');
+ const {setMode}=await import('../src/harness/mode.js');
+ const scope='g:abcdef0123456789';
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES(?,?,?,'now')").bind(orgId,scope,'file-human').run();
+ const {id}=await (await call('/hx/files','POST',{scope,path:'context.txt'})).json();
+ expect((await call(`/hx/files/${id}/content?expectedVersion=0&size=5`,'PUT','hello',token,true)).status).toBe(200);
+ const {threadId}=await (await call('/channels/files/conversation','POST',{orgId,fileId:id})).json();
+ const taint={value:false};const context={orgId,session:{github_id:'file-human'},fileScope:scope,fileThreadId:threadId,taint};
+ expect(await fileThreadTools(env,context)).toEqual({});
+ await setMode(env.DB,orgId,'harness','file-human');
+ expect(await fileThreadTools(env,{...context,fileScope:'g:other'})).toEqual({});
+ expect(await fileThreadTools(env,{...context,fileThreadId:'unrelated'})).toEqual({});
+ const tools=await fileThreadTools(env,context);expect(Object.keys(tools)).toEqual(['read_thread_file']);
+ expect((await call(`/hx/files/${id}/content?expectedVersion=1&size=3`,'PUT','new',token,true)).status).toBe(200);
+ expect(JSON.parse(await tools.read_thread_file.run({fileId:'other',version:2}))).toMatchObject({fileId:id,version:1,text:'hello',untrustedContent:true});
+ expect(taint.value).toBe(true);
+ const {agentTools}=await import('../src/agentTools.js');
+ const integrated=await agentTools(env,{...context,personal:false});
+ expect(Object.keys(integrated).sort()).toEqual(['read_thread_file','read_url']);
+ expect(JSON.parse(await integrated.read_thread_file.run())).toMatchObject({version:2,text:'new'});
+ expect(await integrated.read_url.run({url:'https://example.com'})).toContain('Not opened');
+ const fresh=await fileThreadTools(env,context);
+ expect(JSON.parse(await fresh.read_thread_file.run())).toMatchObject({version:2,text:'new'});
+ await env.DB.prepare('DELETE FROM conversation_members WHERE org_id=? AND channel=? AND login=?').bind(orgId,scope,'file-human').run();
+ expect(JSON.parse(await tools.read_thread_file.run())).toHaveProperty('error');
+ expect(await fileThreadTools(env,context)).toEqual({});
+});
