@@ -38,9 +38,10 @@ struct TeamInvite: Identifiable, Decodable, Equatable {
 /// What minting a code returns: the code, and the link the web opens it
 /// from where the deployment has a web address. The link is what you hand
 /// over; the code is what you read out when you cannot.
-struct MintedInvite: Decodable, Equatable {
+struct MintedInvite: Decodable, Equatable, Identifiable {
     let code: String
     let link: String?
+    var id: String { code }
 }
 
 enum TeamServiceError: LocalizedError {
@@ -118,8 +119,12 @@ enum TeamService {
     }
 
     /// A code and, where the web has an address, the link that opens it.
-    static func mintInviteLink(orgId: String, role: String, backendBaseURL: URL) async throws -> MintedInvite {
-        let req = try request("invites/create", method: "POST", body: ["orgId": orgId, "role": role], backendBaseURL: backendBaseURL)
+    /// `channels` are the ones they are introduced in — for a guest, the
+    /// only ones they will see.
+    static func mintInviteLink(orgId: String, role: String, channels: [String]? = nil, backendBaseURL: URL) async throws -> MintedInvite {
+        var body: [String: Any] = ["orgId": orgId, "role": role]
+        if let channels { body["channels"] = channels }
+        let req = try request("invites/create", method: "POST", body: body, backendBaseURL: backendBaseURL)
         let (data, response) = try await Reauth.send(req)
         try check(data, response)
         return try JSONDecoder().decode(MintedInvite.self, from: data)

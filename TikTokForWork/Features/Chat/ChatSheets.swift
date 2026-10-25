@@ -1204,6 +1204,39 @@ struct PickedVideo: Transferable {
     }
 }
 
+/// A guest invite for one channel, made: the link to hand over, and what
+/// it lets in — that channel, nothing else in the workspace.
+struct ChatGuestInviteSheet: View {
+    let invite: MintedInvite
+    let channel: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var copied = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    if let raw = invite.link, let url = URL(string: raw) {
+                        Text(verbatim: raw).font(.footnote.monospaced()).textSelection(.enabled).lineLimit(3)
+                        ShareLink(item: url, message: Text("Join #\(channel) on Honmaru AI")) { Label("Share", systemImage: "square.and.arrow.up") }
+                        Button {
+                            UIPasteboard.general.string = raw
+                            copied = true
+                        } label: { Label(copied ? LocalizedStringKey("Copied") : LocalizedStringKey("Copy link"), systemImage: copied ? "checkmark" : "doc.on.doc") }
+                    } else {
+                        Text(verbatim: invite.code).font(.footnote.monospaced()).textSelection(.enabled)
+                    }
+                } footer: {
+                    Text("Anyone who opens this link within three days joins as a guest of #\(channel), and sees nothing else in the workspace.")
+                }
+            }
+            .navigationTitle("Invite a guest").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        .presentationDetents([.medium])
+    }
+}
+
 /// What is attached to the reply about to be sent: each with a way to take
 /// it off, and a spinner while more are on their way up.
 struct ChatAttachedStrip: View {

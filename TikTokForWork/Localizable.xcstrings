@@ -44275,6 +44275,122 @@
           }
         }
       }
+    },
+    "Invite a guest to this channel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャンネルにゲストを招待"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitar a un invitado a este canal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inviter un invité dans ce canal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einen Gast in diesen Kanal einladen"
+          }
+        }
+      }
+    },
+    "Invite a guest": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲストを招待"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitar a un invitado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inviter un invité"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gast einladen"
+          }
+        }
+      }
+    },
+    "Join #%@ on Honmaru AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Honmaru AI の #%@ に参加してください"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Únete a #%@ en Honmaru AI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejoignez #%@ sur Honmaru AI"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tritt #%@ auf Honmaru AI bei"
+          }
+        }
+      }
+    },
+    "Anyone who opens this link within three days joins as a guest of #%@, and sees nothing else in the workspace.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3日以内にこのリンクを開いた人は、#%@ のゲストとして参加します。ワークスペースのほかの場所は見えません。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quien abra este enlace en los próximos tres días se une como invitado de #%@ y no ve nada más del espacio de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toute personne qui ouvre ce lien dans les trois jours rejoint #%@ en tant qu'invité et ne voit rien d'autre de l'espace de travail."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wer diesen Link innerhalb von drei Tagen öffnet, tritt als Gast von #%@ bei und sieht sonst nichts im Arbeitsbereich."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

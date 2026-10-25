@@ -4200,13 +4200,30 @@ await step('compliance: retention chosen, a legal hold placed, and an export mad
 })
 
 await step('a guest invited to one channel sees that channel and nothing else', async () => {
-  const link = await page.evaluate(async (host) => {
-    const r = await fetch(`${host}/invites/create`, {
-      method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') },
-      body: JSON.stringify({ orgId: localStorage.getItem('orgId'), role: 'guest', channels: ['kitchen'] }),
-    })
-    return (await r.json()).link
-  }, API)
+  // From the channel itself: its menu invites a guest of that channel alone.
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: await phone.storageState(), permissions: ['clipboard-read', 'clipboard-write'] })
+  let link = null
+  try {
+    const d = await ctx.newPage()
+    await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
+    await d.waitForSelector('.slk-side .cl-thread[data-view="b:kitchen"]', { timeout: 20000 })
+    await d.click('.slk-side .cl-thread[data-view="b:kitchen"]', { button: 'right' })
+    await d.click('.row-menu [data-row-menu="invite-guest"]', { timeout: 5000 })
+      .catch(() => { throw new Error('a channel’s menu has no way to invite a guest to it') })
+    await d.waitForSelector('.invite-dialog [data-invite-role="guest"][aria-checked="true"]', { timeout: 5000 })
+      .catch(() => { throw new Error('inviting from a channel did not start as a guest') })
+    // Only that channel ticked, once the list is in.
+    await d.waitForFunction(() => document.querySelectorAll('.invite-dialog input[type="checkbox"]').length > 1, null, { timeout: 10000 })
+    const ticked = await d.$$eval('.invite-dialog input[type="checkbox"]:checked', (els) => els.map((el) => el.closest('label')?.textContent?.trim()))
+    if (ticked.length !== 1 || !/Kitchen/i.test(ticked[0] || '')) throw new Error(`inviting from #Kitchen ticked ${JSON.stringify(ticked)}`)
+    await d.click('.invite-dialog .invite-copy-url')
+    for (let i = 0; i < 20 && !link; i++) {
+      const text = await d.evaluate(() => navigator.clipboard.readText()).catch(() => '')
+      if (/#\/join\//.test(text)) link = text
+      else await d.waitForTimeout(250)
+    }
+    await d.screenshot({ path: `${SHOTS}/66a-invite-guest.png` })
+  } finally { await ctx.close() }
   if (!link) throw new Error('no guest invitation link was made')
   const g = await freshAccount('Gin', `e2e-guest-${Date.now()}@example.com`, { start: link })
   await g.evaluate(() => { location.hash = '#/list' })
