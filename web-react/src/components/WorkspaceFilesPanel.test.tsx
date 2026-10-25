@@ -137,6 +137,33 @@ test('a linked file opens outside listing filters, but never under a different r
  await act(async()=>{renderer!.unmount()})
  await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="g:other" targetFileId="file" onClose={vi.fn()} onAttachments={vi.fn()}/>)})
  expect(renderer!.root.findAllByType('h2')).toHaveLength(0)
- expect(renderer!.root.findByProps({role:'alert'}).findByType('p').children).toContain('File is unavailable.')
+ expect(renderer!.root.findByProps({role:'alert'}).findByType('p').children).toContain('This file is unavailable or you no longer have access.')
+ await act(async()=>{renderer!.unmount()})
+})
+
+test('a slow earlier file-link response cannot replace a newer target',async()=>{
+ let finishFirst!:(value:{file:WorkspaceFile})=>void
+ const api={list:vi.fn().mockResolvedValue({files:[],next:null}),get:vi.fn((id:string)=>id==='first'?new Promise(resolve=>{finishFirst=resolve}):Promise.resolve({file:{...file,id:'second',path:'second.txt'}})),versions:vi.fn().mockResolvedValue({versions:[version(51)]})} as unknown as WorkspaceFileApi
+ let renderer:ReturnType<typeof create>
+ const props={api,scope:'workspace',onClose:vi.fn(),onAttachments:vi.fn()}
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel {...props} targetFileId="first"/>)})
+ await act(async()=>{renderer!.update(<WorkspaceFilesPanel {...props} targetFileId="second"/>)})
+ expect(renderer!.root.findByType('h2').children).toContain('second.txt')
+ await act(async()=>{finishFirst({file:{...file,id:'first',path:'first.txt'}})})
+ expect(renderer!.root.findByType('h2').children).toContain('second.txt')
+ await act(async()=>{renderer!.unmount()})
+})
+
+test('linked file errors are readable and retry retrieves the requested file',async()=>{
+ const get=vi.fn().mockRejectedValueOnce(new Error('internal transport details')).mockResolvedValue({file})
+ const api={list:vi.fn().mockResolvedValue({files:[],next:null}),get,versions:vi.fn().mockResolvedValue({versions:[version(51)]})} as unknown as WorkspaceFileApi
+ let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" targetFileId="file" onClose={vi.fn()} onAttachments={vi.fn()}/>)})
+ const alert=renderer!.root.findByProps({role:'alert'})
+ expect(alert.findByType('p').children).toContain('Could not open this file. Try again.')
+ await act(async()=>{alert.findByType('button').props.onClick()})
+ expect(get).toHaveBeenCalledTimes(2)
+ expect(renderer!.root.findAllByProps({role:'alert'})).toHaveLength(0)
+ expect(renderer!.root.findByType('h2').children).toContain('history.txt')
  await act(async()=>{renderer!.unmount()})
 })

@@ -39,12 +39,20 @@ export function WorkspaceFilesPanel({api,scope,targetFileId,preferenceKey,onClos
  useEffect(()=>{setSelected(null);setCursor(null);setFolderCursor(undefined)},[api,scope])
  useEffect(()=>saveWorkspaceFileView(preferenceKey,{folderMode,directory,search,includeDeleted,origin}),[preferenceKey,folderMode,directory,search,includeDeleted,origin])
  useEffect(()=>subscribeWorkspaceFileRefresh(()=>setRevision(value=>value+1)),[api,scope])
- const [targetError,setTargetError]=useState(''),[targetAttempt,setTargetAttempt]=useState(0)
- useEffect(()=>{let live=true;const controller=new AbortController();setTargetError('');setSelected(null);if(targetFileId)api.get(targetFileId,controller.signal).then(({file})=>{if(!live)return;if(file.scope!==scope)throw new Error('File is unavailable.');setSelected(file)},error=>{if(live)setTargetError(String(error.message||error))}).catch(error=>{if(live)setTargetError(String(error.message||error))});return()=>{live=false;controller.abort()}},[api,scope,targetFileId,targetAttempt])
+ const [targetState,setTargetState]=useState<'loading'|'unavailable'|'error'|''>(''),[targetAttempt,setTargetAttempt]=useState(0)
+ useEffect(()=>{
+  let live=true;const controller=new AbortController();setSelected(null);setTargetState(targetFileId?'loading':'')
+  if(targetFileId)void api.get(targetFileId,controller.signal).then(({file})=>{
+   if(!live)return
+   if(file.id!==targetFileId||file.scope!==scope){setTargetState('unavailable');return}
+   setSelected(file);setTargetState('')
+  }).catch(error=>{if(live)setTargetState(error instanceof WorkspaceFileError&&[403,404].includes(error.status)?'unavailable':'error')})
+  return()=>{live=false;controller.abort()}
+ },[api,scope,targetFileId,targetAttempt])
  const openDirectory=(path:string)=>{setDirectory(path);setCursor(null);setFolderCursor(undefined);setQuery('');setSearch('')}
  return <aside className="hx-room-resource slk-pane hx-files-panel" aria-label={t('Files')}>
   <header><strong>{t('Files')}</strong><button type="button" onClick={onClose} aria-label={t('Close resources')}><Icon name="x" size={16}/></button></header>
-  {targetError&&<div className="hx-files-state" role="alert"><p>{targetError}</p><button onClick={()=>setTargetAttempt(value=>value+1)}>{t('Retry')}</button></div>}
+  {targetState&&<div className="hx-files-state" role={targetState==='loading'?'status':'alert'}><p>{t(targetState==='loading'?'Opening linked file…':targetState==='unavailable'?'This file is unavailable or you no longer have access.':'Could not open this file. Try again.')}</p>{targetState!=='loading'&&<button onClick={()=>setTargetAttempt(value=>value+1)}>{t('Try again')}</button>}</div>}
   <div className="hx-files-toolbar">
    {!selected&&<div className="hx-files-origin" role="group" aria-label={t('File source')}>
     {(['agent','human'] as const).map(source=><button type="button" key={source} title={t(source==='agent'?'Created by agents':'Uploaded by users')} aria-pressed={origin===source} onClick={()=>{setOrigin(source);setCursor(null);setFolderCursor(undefined)}}>{t(source==='agent'?'Created by agents':'Uploaded by users')}</button>)}

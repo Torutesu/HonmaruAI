@@ -3288,3 +3288,15 @@ Local CUA followed a file URL into File verification, opened the correct existin
 Validation: route/panel focused tests 37 passed, Worker agent MCP 11 passed, full Web 1,195 tests passed, build passed. After clearing selection on target change, panel suite and build passed again. Earlier root-level build/test invocations used the wrong package directory; passing results used the Web/Worker package configurations.
 
 Release: exact candidate 7f602fa8 CI 40184262223 passed all seven required jobs, including the message-key E2E that failed in an older candidate. That does not establish the earlier intermittent failure's root cause; diagnostic capture remains in the next candidate. Verified main 865607d0 and ancestry, then fast-forwarded main to 7f602fa8. File-link changes are not yet deployed.
+
+### 2026-10-25 — file link across Simple/Harness workspaces
+Created File link switch QA using the local synthetic account's UI (localhost only). It opened in Simple mode with the original feed/list controls. From that workspace, followed the existing File verification file URL naming the original personal workspace. The app showed its workspace-loading state, switched to the correct Harness workspace/room and displayed the requested file's v5/history. Screenshot: /tmp/honmaru-file-link-workspace-switch-20261025.png. No invitations or external account changes were made; the local QA workspace remains available for subsequent testing.
+
+Added a focused regression test for two successive file-link targets with the first response delayed: the late response cannot replace the second file's detail. Panel suite 11 tests passed. This does not yet verify a real model-generated natural-language reply or production file links.
+
+Deployment investigation: ecfebd24 Worker run 40184108259 remained in its Test step, while Web 40184108255 explicitly waited for the matching Worker deployment. Newer main 7f602fa8 deploy runs 40185243466/40185243467 were pending. These were live jobs, not missing or terminal; no restart or bypass was performed.
+
+### 2026-10-25 — linked-file loading and recovery states
+Added explicit linked-file loading, unavailable/access-denied and transport-failure states. Errors use localizable user-facing copy instead of raw transport messages. Retry clears the error and fetches the same target again; metadata must match both requested ID and canonical room scope. The existing stale-response guard remains in place.
+
+Local CUA navigated from a valid detail to a nonexistent synthetic file ID, observed the Japanese loading message followed by the unavailable message, with no previous-file detail remaining. Fixed the button wording from the generic Retry translation (再送信) to もう一度試す. Screenshot /tmp/honmaru-file-link-unavailable-20261025.png. Panel suite 12 tests and Web build passed; the new test covers failed lookup followed by successful retry. Deployment and full Kylon parity remain unverified.
