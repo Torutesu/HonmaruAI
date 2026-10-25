@@ -36,7 +36,7 @@ export function WorkspaceFilesPanel({api,scope,onClose,onAttachments}:{api:Works
  const openDirectory=(path:string)=>{setDirectory(path);setCursor(null);setFolderCursor(undefined);setQuery('');setSearch('')}
  return <aside className="hx-room-resource slk-pane hx-files-panel" aria-label={t('Files')}>
   <header><strong>{t('Files')}</strong><button type="button" onClick={onClose} aria-label={t('Close resources')}><Icon name="x" size={16}/></button></header>
-   <WorkspaceFileUpload key={scope} api={api} scope={scope} onSaved={()=>setRevision(value=>value+1)}/>
+   <WorkspaceFileUpload key={scope} api={api} scope={scope} directory={folderMode?directory:''} onSaved={()=>setRevision(value=>value+1)}/>
   {selected?<WorkspaceFileHistory key={`${scope}:${selected.id}`} api={api} file={selected} onBack={()=>setSelected(null)} onChanged={()=>setRevision(value=>value+1)}/>:<>
    <div className="hx-files-view" role="group" aria-label={t('File view')}><button aria-pressed={!folderMode} onClick={()=>{setFolderMode(false);setCursor(null);setFolderCursor(undefined)}}><Icon name="file" size={14}/>{t('All files')}</button><button aria-pressed={folderMode} onClick={()=>{setFolderMode(true);setCursor(null);setFolderCursor(undefined)}}><Icon name="folder" size={14}/>{t('Folders')}</button></div>
    {folderMode&&<nav className="hx-files-breadcrumbs" aria-label={t('Folder path')}><button onClick={()=>openDirectory('')}>{t('Files')}</button>{directory.split('/').filter(Boolean).map((name,index,parts)=><React.Fragment key={index}><Icon name="chevron-right" size={12}/><button aria-current={index===parts.length-1?'location':undefined} onClick={()=>openDirectory(parts.slice(0,index+1).join('/')+'/')}>{name}</button></React.Fragment>)}</nav>}

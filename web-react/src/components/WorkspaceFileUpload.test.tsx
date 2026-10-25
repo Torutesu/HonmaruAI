@@ -46,3 +46,14 @@ test('a lost reservation response is retried with the same request identifier',a
  expect(api.create).toHaveBeenCalledTimes(2);expect(vi.mocked(api.create).mock.calls[0]).toEqual(vi.mocked(api.create).mock.calls[1]);expect(api.upload).toHaveBeenCalledTimes(1)
  act(()=>renderer!.unmount())
 })
+
+test('uploads keep the selected destination even when navigation changes before retry',async()=>{
+ const api={create:vi.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValue({id:'reserved',version:0}),upload:vi.fn().mockResolvedValue({saved:true,version:1})} as unknown as WorkspaceFileApi
+ const onSaved=vi.fn();let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFileUpload api={api} scope="workspace" directory="Team/" onSaved={onSaved}/> )})
+ await act(async()=>{renderer!.root.findAllByType('input')[0].props.onChange({target:{files:[file],value:'selected'}})})
+ await act(async()=>{renderer!.update(<WorkspaceFileUpload api={api} scope="workspace" directory="Other/" onSaved={onSaved}/> )})
+ await act(async()=>{renderer!.root.findAllByType('button').find(button=>button.children.includes('Retry failed uploads'))!.props.onClick()})
+ expect(vi.mocked(api.create).mock.calls.map(call=>call[1])).toEqual(['Team/reports/report.txt','Team/reports/report.txt'])
+ expect(onSaved).toHaveBeenCalledTimes(1);act(()=>renderer!.unmount())
+})
