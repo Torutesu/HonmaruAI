@@ -6,7 +6,18 @@ import {createSession,upsertUser,upsertMembership} from '../src/db.js';
 import {createApp} from '../src/harness/apps.js';
 import {addRow} from '../src/harness/tables.js';
 const org='personal:conversation';let owner,member,guest,other,app,row;
-const request=(method,token,input={},target=app.id)=>worker.fetch(new Request('https://test/apps/'+target+'/conversation'+(method==='GET'?'?'+new URLSearchParams({orgId:org,...input}):''),{method,headers:{'x-session-token':token,'content-type':'application/json'},...(method==='GET'?{}:{body:JSON.stringify({orgId:org,...input})})}),env);
+const pendingBackground=[];
+const testContext={waitUntil(work){pendingBackground.push(Promise.resolve(work));}};
+async function fetchWorker(request){
+ const response=await worker.fetch(request,env,testContext);
+ while(pendingBackground.length){
+  const settled=await Promise.allSettled(pendingBackground.splice(0));
+  const failed=settled.find(result=>result.status==='rejected');
+  if(failed)throw failed.reason;
+ }
+ return response;
+}
+const request=(method,token,input={},target=app.id)=>fetchWorker(new Request('https://test/apps/'+target+'/conversation'+(method==='GET'?'?'+new URLSearchParams({orgId:org,...input}):''),{method,headers:{'x-session-token':token,'content-type':'application/json'},...(method==='GET'?{}:{body:JSON.stringify({orgId:org,...input})})}));
 beforeEach(async()=>{
  await env.DB.exec(schema.replace(/\n/g,' '));
  const tokens=[];
@@ -16,7 +27,7 @@ beforeEach(async()=>{
  ({row}=await addRow(env.DB,org,app.tableId,{title:'First'},'9201'));
 });
 const post=(token,body,requestId='request_0000000001',scope={})=>request('POST',token,{body,requestId,...scope});
-const createRequest=(path,token,input)=>worker.fetch(new Request('https://test'+path,{method:'POST',headers:{'x-session-token':token,'content-type':'application/json'},body:JSON.stringify({orgId:org,...input})}),env);
+const createRequest=(path,token,input)=>fetchWorker(new Request('https://test'+path,{method:'POST',headers:{'x-session-token':token,'content-type':'application/json'},body:JSON.stringify({orgId:org,...input})}));
 async function privateSource(){
  const {postMessage}=await import('../src/channels.js');
  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?,'confidential','Confidential',1,'9201',?)").bind(org,new Date().toISOString()).run();
@@ -161,7 +172,7 @@ test('simultaneous retries converge and other apps or records never share a thre
  expect((await request('GET',owner,{tableId:app.tableId,rowId:row.id},another.id)).status).toBe(404);
 });
 
-const featureRequest=(suffix,method,token,input={})=>worker.fetch(new Request('https://test/apps/'+app.id+'/'+suffix+(method==='GET'?'?orgId='+encodeURIComponent(org):''),{method,headers:{'x-session-token':token,'content-type':'application/json'},...(method==='GET'?{}:{body:JSON.stringify({orgId:org,...input})})}),env);
+const featureRequest=(suffix,method,token,input={})=>fetchWorker(new Request('https://test/apps/'+app.id+'/'+suffix+(method==='GET'?'?orgId='+encodeURIComponent(org):''),{method,headers:{'x-session-token':token,'content-type':'application/json'},...(method==='GET'?{}:{body:JSON.stringify({orgId:org,...input})})}));
 test('source inheritance reuses the original thread and preserves room access, record separation and retries',async()=>{
  const {postMessage}=await import('../src/channels.js');
  const {linkApp}=await import('../src/harness/apps.js');
@@ -201,8 +212,8 @@ test('creation records its supplied source thread but refuses an unavailable sou
 });
 
 test('Activity and app inbox share scoped mentions, read state and revoked access',async()=>{
- const activity=async(token)=>await (await worker.fetch(new Request('https://test/channels/activity?orgId='+encodeURIComponent(org),{headers:{'x-session-token':token}}),env)).json();
- const read=async(token,items)=>worker.fetch(new Request('https://test/channels/read',{method:'POST',headers:{'x-session-token':token,'content-type':'application/json'},body:JSON.stringify({orgId:org,channel:'activity',...(items?{items}:{})})}),env);
+ const activity=async(token)=>await (await fetchWorker(new Request('https://test/channels/activity?orgId='+encodeURIComponent(org),{headers:{'x-session-token':token}}))).json();
+ const read=async(token,items)=>fetchWorker(new Request('https://test/channels/read',{method:'POST',headers:{'x-session-token':token,'content-type':'application/json'},body:JSON.stringify({orgId:org,channel:'activity',...(items?{items}:{})})}));
  await post(owner,'@user9202 record mention','activity_request_1',{tableId:app.tableId,rowId:row.id});
  const first=(await activity(member)).items.find(i=>i.app);expect(first).toMatchObject({type:'mention',unread:true,app:{id:app.id,tableId:app.tableId,rowId:row.id},message:{body:'@user9202 record mention'}});
  expect((await activity(owner)).items.filter(i=>i.app)).toEqual([]);
