@@ -1,3 +1,4 @@
+import {installDelayedRepaint} from './repaint.js'
 // Honmaru AI for the desktop: the web app in its own window, with what a
 // browser tab cannot do — it stays running in the tray when closed (so
 // notifications keep coming, as Discord's does), shows the unread count on
@@ -344,9 +345,6 @@ function createWindow() {
   const windowContents = win.webContents
   windowContents.on('did-finish-load', () => {
     appLoaded = onAppPage(); tellAttention(true)
-    // A macOS reload can finish with a live DOM but a stale native surface.
-    // Request a repaint without reloading again or changing window geometry.
-    if (process.platform === 'darwin' && !windowContents.isDestroyed()) windowContents.invalidate()
   })
   // A navigation the guard stopped reports as aborted (-3) while the app is
   // still there; anything else means it did not load.
@@ -354,6 +352,9 @@ function createWindow() {
     if (isMainFrame && code !== -3) appLoaded = false
   })
   const loadingWindow = win
+  if (process.platform === 'darwin') installDelayedRepaint(windowContents, {
+    visible: () => !loadingWindow.isDestroyed() && loadingWindow.isVisible() && !loadingWindow.isMinimized(),
+  })
   const recordLoad = createLoadDiagnostics(path.join(app.getPath('userData'), 'load-diagnostics.json'), app.getVersion())
   installProcessDiagnostics(app, loadingWindow.webContents, recordLoad)
   installLoadRecovery(loadingWindow.webContents, {
