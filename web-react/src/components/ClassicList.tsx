@@ -3560,9 +3560,13 @@ export const ClassicList: React.FC<Props> = ({
   useEffect(() => { setSide(sideOnOpen.current); sideOnOpen.current = null }, [current?.key])
   // File conversations open with their source beside them, including a
   // reload/deep link. Closing the panel stays closed until another thread opens.
+  const automaticThreadFile=useRef<string|null>(null)
   useEffect(()=>{
-    const fileId=thread&&workspaceFileForThread(thread.parent.id)
-    if(harness&&fileId&&current?.view===thread?.channel)setSide({kind:'files',fileId})
+    const previous=automaticThreadFile.current
+    const fileId=harness&&thread&&current?.view===thread.channel?workspaceFileForThread(thread.parent.id):null
+    automaticThreadFile.current=fileId
+    if(fileId)setSide({kind:'files',fileId})
+    else if(previous)setSide(side=>side?.kind==='files'&&side.fileId===previous?null:side)
   },[harness,thread?.parent.id,thread?.channel,current?.view])
   useEffect(()=>{if(harness && linkedFile && current?.view===linkedFile.channel){setDetailId(null);setProfile(null);setSide({kind:'files',fileId:linkedFile.id})}},[harness,linkedFile?.id,linkedFile?.channel,current?.view])
   useEffect(()=>{
