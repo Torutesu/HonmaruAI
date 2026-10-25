@@ -185,3 +185,40 @@ test('file editing rejects binary files and current permission loss',async()=>{
  expect((await callFileWriteTool(env,{orgId:ORG,githubId:'9401'},'update_file_text',{fileId:'binary-edit',expectedVersion:1,text:'text'})).isError).toBe(true);
  expect((await env.DB.prepare("SELECT current_version FROM hx_workspace_files WHERE id='binary-edit'").first()).current_version).toBe(1);
 });
+
+test('agent creates text with trusted provenance, retries without duplicate versions and cannot replace existing paths',async()=>{
+ await env.DB.exec((await import('../workspace-files.sql?raw')).default.replace(/\n/g,' '));
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'harness'})});
+ const writer=await mint(['read','write']),reader=await mint(['read']);
+ const args={scope:'workspace',path:'Generated/report.md',requestId:`file-${crypto.randomUUID()}`,text:'\ufeff# レポート',contentType:'text/markdown',origin:'human'};
+ expect(await names(reader)).not.toContain('create_file_text');
+ expect((await tool(reader,'create_file_text',args)).result.isError).toBe(true);
+ const created=(await tool(writer,'create_file_text',args)).result.structuredContent;
+ expect(created).toEqual({fileId:args.requestId,version:1,saved:true,replayed:false});
+ expect((await tool(writer,'create_file_text',args)).result.structuredContent).toMatchObject({fileId:args.requestId,version:1,replayed:true});
+ expect((await tool(reader,'list_workspace_files',{scope:'workspace',origin:'agent'})).result.structuredContent.files).toEqual([expect.objectContaining({id:args.requestId,origin:'agent',version:1})]);
+ expect((await tool(reader,'read_file_text',{fileId:args.requestId,version:1})).result.structuredContent.text).toBe(args.text);
+ for(const altered of [{text:'different'},{contentType:'text/plain'},{path:'elsewhere.txt'},{requestId:`file-${crypto.randomUUID()}`}])expect((await tool(writer,'create_file_text',{...args,...altered})).result.isError).toBe(true);
+ expect((await tool(reader,'list_file_versions',{fileId:args.requestId})).result.structuredContent.versions).toHaveLength(1);
+ await env.DB.prepare("UPDATE hx_workspace_files SET scope='g:lost' WHERE id=?").bind(args.requestId).run();
+ expect((await tool(writer,'create_file_text',args)).result.isError).toBe(true);
+ expect((await tool(writer,'create_file_text',{...args,requestId:`file-${crypto.randomUUID()}`,scope:'g:private'})).result.isError).toBe(true);
+});
+
+test('agent file creation resumes its reservation, rejects human reservations and keeps one version under concurrent retries',async()=>{
+ const {createFileLedger}=await import('../src/harness/fileVersionLedger.js');
+ await env.DB.exec((await import('../workspace-files.sql?raw')).default.replace(/\n/g,' '));
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'harness'})});
+ const writer=await mint(['read','write']);
+ const args={scope:'workspace',path:'resumed.txt',requestId:`file-${crypto.randomUUID()}`,text:'resumed',contentType:'text/plain'};
+ await createFileLedger(env.DB,{orgId:ORG,fileId:args.requestId,scope:args.scope,path:args.path,createdBy:'9401',origin:'agent'});
+ const results=await Promise.all([tool(writer,'create_file_text',args),tool(writer,'create_file_text',args)]);
+ expect(results.some(r=>r.result.structuredContent?.saved)).toBe(true);
+ expect((await tool(writer,'list_file_versions',{fileId:args.requestId})).result.structuredContent.versions).toHaveLength(1);
+ expect((await tool(writer,'create_file_text',args)).result.structuredContent.replayed).toBe(true);
+ const human={...args,path:'human.txt',requestId:`file-${crypto.randomUUID()}`};
+ await createFileLedger(env.DB,{orgId:ORG,fileId:human.requestId,scope:human.scope,path:human.path,createdBy:'9401',origin:'human'});
+ expect((await tool(writer,'create_file_text',human)).result.isError).toBe(true);
+ for(const change of [{requestId:'invalid'},{path:'../escape.txt'},{contentType:'image/png'},{text:'あ'.repeat(50000)}])expect((await tool(writer,'create_file_text',{...args,requestId:`file-${crypto.randomUUID()}`,path:'invalid.txt',...change})).result.isError).toBe(true);
+ expect((await tool(writer,'list_file_versions',{fileId:human.requestId})).result.structuredContent.versions).toEqual([]);
+});

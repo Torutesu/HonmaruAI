@@ -37,7 +37,7 @@ export async function callFileReadTool(env,agent,name,args={}) {
   if(!response)return err('File content is unavailable.');
   const bytes=await response.arrayBuffer();
   if(bytes.byteLength>128*1024)return err('Text reads are limited to 128 KiB.');
-  let text;try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes)}catch{return err('This file is not valid UTF-8 text.');}
+  let text;try{text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes)}catch{return err('This file is not valid UTF-8 text.');}
   return out({fileId:args.fileId,version:source.version,contentType:source.contentType,size:bytes.byteLength,text,untrustedContent:true});
  }catch(error){if(error instanceof FileVersionInputError)return err(error.message);throw error;}
 }
