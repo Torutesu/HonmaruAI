@@ -3509,3 +3509,18 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Human-only document admission now publishes immutable file origin `human` in the same D1 batch as the matching version. The node cannot supply origin/author/destination. Future agent admission must explicitly attribute its trusted principal; not exposed yet.
 - Audits record conversion/cancellation requests by the authenticated person and accepted artifact deliveries by the authenticated node. Retried deliveries are receipt events, not claims of another conversion. Details contain only job/version identifiers and status; source text, lease and token are omitted. Uses existing best-effort audit infrastructure; this is not a new atomic audit guarantee.
 - Document D1/HTTP suite passed 16 tests including origin and request/delivery audit presence. `/tmp/honmaru-document-origin-audit-tests.log`. Full release CI still required before production activation.
+
+- Audit regression suites additionally passed 9 tests (`/tmp/honmaru-document-audit-regression.log`). Created release snapshot `a7ce005779063c6e92f4fe6c7a5466c5efadcacd`, parent `0e3f572c21e17c639564a756de3b3dda05b6057f`, branch `codex/document-conversion-release`. Exact candidate CI `40192173570` confirmed live in progress. Main is unchanged; do not promote until seven required jobs and remaining visual/rollout checks are verified.
+
+### 2026-10-25 — recover progress after transient status failure
+
+- Reopening the document dialog now resumes a previously failed status poll. Existing job progress no longer depends on node discovery (and node discovery cannot overwrite a job-status error). The stored job is fetched, not submitted again.
+- Added regression with restored receipt, first status request failing, then reopening successfully recovering the saved document even when node discovery is unavailable. Focused document UI/receipt suite passed 6 tests; build passed. Logs `/tmp/honmaru-document-reopen-tests.log`, `/tmp/honmaru-document-reopen-build.log`.
+- Candidate a7ce0057 CI 40192173570 was confirmed still live: relay, desktop, gateway passed; Worker/web/shared/E2E running. This new UI recovery fix is not in that snapshot yet; include it in the next candidate before promotion.
+
+### 2026-10-25 — document light/dark visual correction
+
+- CUA is operating again. Actual light-mode inspection found document actions rendered as browser-default buttons. Applied the existing dialog button classes, primary action contrast, focus-visible outline and a single-column format layout below 400px. Changed status/node retry wording from message-oriented Retry to Try again.
+- Verified saved receipt and new-document form in light mode, restored the synthetic QA account to dark, and verified dark form plus scrolling to the retry control with the footer remaining visible. Screenshots: `/tmp/honmaru-document-light-buttons-20261025.png`, `/tmp/honmaru-document-light-form-20261025.png`, `/tmp/honmaru-document-dark-buttons-20261025.png`. Narrow viewport remains unverified.
+- Focused UI/receipt tests passed 6; web build passed. Logs `/tmp/honmaru-document-themed-tests.log`, `/tmp/honmaru-document-themed-build.log`. Initial test failed because its label lookup still used Retry; updated to the new visible label, then passed.
+- Main 0e3f572c CI 40191119027 now has all seven required jobs passed. Its Worker deploy 40191119046 is live in D1 column additions, Web 40191119111 waits for Worker. Document candidate a7ce0057 CI still has Worker and E2E running; five required jobs passed. No document production activation claimed.

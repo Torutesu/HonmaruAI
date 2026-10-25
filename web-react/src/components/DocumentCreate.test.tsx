@@ -11,7 +11,7 @@ test('ready node required and failed admission retries reuse the same request ID
  let r:ReturnType<typeof create>;await act(async()=>{r=create(<DocumentCreate api={api} scope="b:room" onOpen={vi.fn()}/> )})
  const button=(text:string)=>r!.root.findAllByType('button').find(b=>b.children.includes(text))!
  await act(async()=>{r!.root.findByProps({'aria-label':'Create document'}).props.onClick()});expect(button('Create document').props.disabled).toBe(true)
- vi.mocked(api.documentNodes).mockResolvedValue({nodes:[{id:'node',name:'Mac mini'}]});await act(async()=>{button('Retry').props.onClick()});expect(r!.root.findAllByProps({role:'alert'})).toHaveLength(0)
+ vi.mocked(api.documentNodes).mockResolvedValue({nodes:[{id:'node',name:'Mac mini'}]});await act(async()=>{button('Try again').props.onClick()});expect(r!.root.findAllByProps({role:'alert'})).toHaveLength(0)
  await act(async()=>{r!.root.findByType('input').props.onChange({target:{value:'Report'}});r!.root.findByType('textarea').props.onChange({target:{value:'# Hello'}})})
  await act(async()=>{button('Create document').props.onClick()});await act(async()=>{button('Create document').props.onClick()})
  expect(api.createDocument).toHaveBeenCalledTimes(2);expect(vi.mocked(api.createDocument).mock.calls[0][0]).toEqual(vi.mocked(api.createDocument).mock.calls[1][0]);expect(vi.mocked(api.createDocument).mock.calls[0][0].path).toBe('Report.pdf')
@@ -35,5 +35,16 @@ test('restored receipt fetches server status without creating another conversion
  let r:ReturnType<typeof create>;await act(async()=>{r=create(<DocumentCreate api={api} scope="b:room" receiptKey="account/room" onOpen={vi.fn()}/> )})
  await act(async()=>{await vi.advanceTimersByTimeAsync(1000)});expect(api.createDocument).not.toHaveBeenCalled();expect(api.documentJob).toHaveBeenCalledWith(id,expect.any(AbortSignal))
  await act(async()=>{r!.root.findByProps({'aria-label':'Create document'}).props.onClick()});expect(r!.root.findAllByType('strong').some(n=>n.children.includes('Recovered.pdf'))).toBe(true)
+ act(()=>r!.unmount());vi.unstubAllGlobals();vi.useRealTimers()
+})
+test('reopening progress retries a failed status read without requiring available nodes',async()=>{
+ vi.useFakeTimers();const id='12345678-1234-1234-1234-123456789012'
+ vi.stubGlobal('sessionStorage',{getItem:()=>id,setItem:()=>{},removeItem:()=>{}})
+ const api={documentNodes:vi.fn().mockRejectedValue(Error('nodes unavailable')),createDocument:vi.fn(),documentJob:vi.fn().mockRejectedValueOnce(Error('status offline')).mockResolvedValue({job:{id,status:'succeeded',path:'Recovered.pdf',fileId:'file-id',version:1}})} as unknown as WorkspaceFileApi
+ let r:ReturnType<typeof create>;await act(async()=>{r=create(<DocumentCreate api={api} scope="b:room" receiptKey="account/room" onOpen={vi.fn()}/> )})
+ await act(async()=>{await vi.advanceTimersByTimeAsync(1000)})
+ await act(async()=>{r!.root.findByProps({'aria-label':'Create document'}).props.onClick()});await act(async()=>{await vi.advanceTimersByTimeAsync(1000)})
+ expect(api.documentNodes).not.toHaveBeenCalled();expect(api.documentJob).toHaveBeenCalledTimes(2);expect(api.createDocument).not.toHaveBeenCalled()
+ expect(r!.root.findAllByType('strong').some(n=>n.children.includes('Recovered.pdf'))).toBe(true)
  act(()=>r!.unmount());vi.unstubAllGlobals();vi.useRealTimers()
 })
