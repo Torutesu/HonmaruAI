@@ -830,8 +830,8 @@
         "auditDate": "2026-10-25",
         "reference": "https://docs.kylon.io/cli/workspace/file",
         "observedContract": "versions list; version get; deletion tombstone; revert copies old content into a new version and requires expected-current-version; purged content cannot be read or restored.",
-        "codeAudit": "Versioned workspace files now have scoped HTTP routes, immutable versions, compare-and-swap uploads/restores, staging recovery, tombstones, hold-aware purge/retention and account/workspace cleanup. Web lists/history/paging/restore/recoverable deletion and upload controls exist. Release candidate 4d5a8249 is under CI; none of this feature is confirmed deployed.",
-        "remaining": "Production migration/deploy and authenticated file roundtrip; multi-user and mobile verification; persistent reservation recovery/empty reservation cleanup; previews; recent/folder views and creator tabs; agent file tools; reference-history and binary export coverage. Component fixture light/dark rendering is not full Kylon parity evidence."
+        "codeAudit": "Versioned workspace files have scoped HTTP routes, immutable versions, compare-and-swap uploads/restores, staging recovery, tombstones, hold-aware purge/retention and account/workspace cleanup. Web listing/history/paging/restore/deletion, file uploads and replacement uploads, safe PDF/text/CSV/raster previews, server-backed folder breadcrumbs and recent ordering exist. Real local full-shell upload/replace/restore/delete/reload/historical-download and selected-folder upload verified. Main 4d5a8249 passed candidate CI and deployment is running; later preview/folder/recent additions have separate release gates and are not confirmed live.",
+        "remaining": "Production migration/deploy and authenticated production file roundtrip; multi-user and mobile verification; persistent reservation recovery/empty reservation cleanup; native directory chooser roundtrip; creator tabs and agent file tools; populated Kylon reference/history comparison; reference-history and full binary export coverage. Local and component checks do not establish full Kylon parity."
       }
     },
     {

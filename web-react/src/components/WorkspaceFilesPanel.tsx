@@ -27,7 +27,7 @@ export function WorkspaceFilesPanel({api,scope,onClose,onAttachments}:{api:Works
  const [error,setError]=useState(''),[selected,setSelected]=useState<WorkspaceFile|null>(null)
  useEffect(()=>{const controller=new AbortController();let live=true;setFiles(null);setError('')
   Promise.all([
-   api.list({scope,includeDeleted,query:search,...(folderMode?{directory,directOnly:!search}:{}),...(cursor?{cursor}:{})},controller.signal),
+   api.list({scope,includeDeleted,query:search,order:folderMode?'path':'recent',...(folderMode?{directory,directOnly:!search}:{}),...(cursor?{cursor}:{})},controller.signal),
    folderMode&&!search?api.folders(scope,directory,includeDeleted,folderCursor,controller.signal):Promise.resolve({folders:[],next:null})
   ]).then(([result,tree])=>{if(live){setFiles(result.files);setNext(result.next);setFolders(tree.folders);setFolderNext(tree.next)}}).catch(error=>{if(live)setError(String(error.message||error))})
   return()=>{live=false;controller.abort()}
@@ -38,7 +38,7 @@ export function WorkspaceFilesPanel({api,scope,onClose,onAttachments}:{api:Works
   <header><strong>{t('Files')}</strong><button type="button" onClick={onClose} aria-label={t('Close resources')}><Icon name="x" size={16}/></button></header>
    <WorkspaceFileUpload key={scope} api={api} scope={scope} directory={folderMode?directory:''} onSaved={()=>setRevision(value=>value+1)}/>
   {selected?<WorkspaceFileHistory key={`${scope}:${selected.id}`} api={api} file={selected} onBack={()=>setSelected(null)} onChanged={()=>setRevision(value=>value+1)}/>:<>
-   <div className="hx-files-view" role="group" aria-label={t('File view')}><button aria-pressed={!folderMode} onClick={()=>{setFolderMode(false);setCursor(null);setFolderCursor(undefined)}}><Icon name="file" size={14}/>{t('All files')}</button><button aria-pressed={folderMode} onClick={()=>{setFolderMode(true);setCursor(null);setFolderCursor(undefined)}}><Icon name="folder" size={14}/>{t('Folders')}</button></div>
+   <div className="hx-files-view" role="group" aria-label={t('File view')}><button aria-pressed={!folderMode} onClick={()=>{setFolderMode(false);setCursor(null);setFolderCursor(undefined)}}><Icon name="file" size={14}/>{t('Recent')}</button><button aria-pressed={folderMode} onClick={()=>{setFolderMode(true);setCursor(null);setFolderCursor(undefined)}}><Icon name="folder" size={14}/>{t('Folders')}</button></div>
    {folderMode&&<nav className="hx-files-breadcrumbs" aria-label={t('Folder path')}><button onClick={()=>openDirectory('')}>{t('Files')}</button>{directory.split('/').filter(Boolean).map((name,index,parts)=><React.Fragment key={index}><Icon name="chevron-right" size={12}/><button aria-current={index===parts.length-1?'location':undefined} onClick={()=>openDirectory(parts.slice(0,index+1).join('/')+'/')}>{name}</button></React.Fragment>)}</nav>}
    <label className="hx-files-deleted"><input type="checkbox" checked={includeDeleted} onChange={event=>{setCursor(null);setFolderCursor(undefined);setIncludeDeleted(event.target.checked)}}/>{t('Include deleted files')}</label>
    <form className="hx-files-search" onSubmit={event=>{event.preventDefault();setCursor(null);setFolderCursor(undefined);setSearch(query)}}><Icon name="search" size={15}/><input aria-label={t('Search files')} placeholder={t('Search files')} value={query} onChange={event=>setQuery(event.target.value)}/><button type="submit" aria-label={t('Search')}><Icon name="chevron-right" size={15}/></button></form>

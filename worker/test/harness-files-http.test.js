@@ -78,3 +78,22 @@ test('folder listing is hierarchical paginated and excludes inaccessible content
  expect((await call('/hx/files/folders?scope=all')).status).toBe(400);
  expect((await call('/hx/files/folders?scope=workspace&directory=..')).status).toBe(400);
 });
+
+test('recent files page by timestamp and ID without skipping equal-time rows',async()=>{
+ const ids=[];
+ for(const path of ['z-old.txt','a-new.txt','b-new.txt']){
+  const {id}=await (await call('/hx/files','POST',{scope:'workspace',path})).json();ids.push(id);
+  await call(`/hx/files/${id}/content?expectedVersion=0&size=1`,'PUT','x',token,true);
+ }
+ await env.DB.prepare('UPDATE hx_workspace_files SET updated_at=? WHERE org_id=?').bind('2026-10-24T10:00:00.000Z',orgId).run();
+ await env.DB.prepare('UPDATE hx_workspace_files SET updated_at=? WHERE org_id=? AND id=?').bind('2026-10-23T10:00:00.000Z',orgId,ids[0]).run();
+ const actual=[];let cursor=null;
+ do{
+  const response=await call('/hx/files?scope=workspace&order=recent&limit=1'+(cursor?'&cursor='+encodeURIComponent(JSON.stringify(cursor)):''));expect(response.status).toBe(200);
+  const page=await response.json();actual.push(...page.files.map(file=>file.id));cursor=page.next;
+ }while(cursor);
+ expect(actual).toEqual([...ids.slice(1).sort().reverse(),ids[0]]);
+ const invalid=encodeURIComponent(JSON.stringify({path:'a-new.txt',id:ids[1]}));
+ expect((await call('/hx/files?scope=workspace&order=recent&cursor='+invalid)).status).toBe(400);
+ expect((await call('/hx/files?scope=workspace&order=invalid')).status).toBe(400);
+});

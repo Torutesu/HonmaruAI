@@ -87,6 +87,8 @@ test('folder navigation requests direct children, scopes search and resets pagin
  await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
  const button=(label:string)=>renderer!.root.findAllByType('button').find(b=>b.children.includes(label))
  await act(async()=>{button('Folders')!.props.onClick()})
+ expect(vi.mocked(api.list).mock.calls[0][0].order).toBe('recent')
+ expect(vi.mocked(api.list).mock.calls.at(-1)![0].order).toBe('path')
  expect(api.folders).toHaveBeenLastCalledWith('workspace','',false,undefined,expect.any(AbortSignal))
  await act(async()=>{renderer!.root.findByProps({className:'hx-file-folder'}).props.onClick()})
  expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({directory:'Alpha/',directOnly:true})
