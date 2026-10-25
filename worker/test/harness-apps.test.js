@@ -155,6 +155,23 @@ test("a model's design is used when it holds up, and ignored when it does not", 
   expect(bad.source).toBe("template");
 });
 
+test("natural-language assignee fields become workspace-member references", async () => {
+  const raw = JSON.stringify({ name: "Task board", icon: "📋", columns: [
+    { name: "タスク名", type: "text" }, { name: "担当者", type: "text" },
+    { name: "期限", type: "date" }, { name: "状態", type: "select", options: ["未着手", "完了"] },
+  ], views: [{ type: "table", name: "すべて" }] });
+  const result = await specFromPrompt("担当者はワークスペースのメンバーから選択するタスク管理アプリ", { complete: async () => raw });
+  expect(result.spec.columns.map(({ name, type }) => [name, type])).toEqual([
+    ["タスク名", "text"], ["担当者", "person"], ["期限", "date"], ["状態", "select"],
+  ]);
+  const freeForm = await specFromPrompt("担当者を自由記述で入力する管理アプリ", { complete: async () => raw });
+  expect(freeForm.spec.columns.find(column => column.name === "担当者").type).toBe("text");
+  const separateFreeForm = await specFromPrompt("担当者はワークスペースのメンバーから選択し、メモ欄は自由記述で管理", { complete: async () => raw });
+  expect(separateFreeForm.spec.columns.find(column => column.name === "担当者").type).toBe("person");
+  const english = await specFromPrompt("a task tracker with an assignee", { complete: async () => JSON.stringify({ name: "Tasks", columns: [{ name: "Assignee", type: "text" }] }) });
+  expect(english.spec.columns[0].type).toBe("person");
+});
+
 test("views drop what the table no longer has, and count what is overdue", () => {
   const { columns } = normalizeColumns([{ name: "Status", type: "select", options: ["Open", "Done"] }, { name: "Due", type: "date" }, { name: "Amount", type: "number" }]);
   const def = normalizeDefinition({ views: [
