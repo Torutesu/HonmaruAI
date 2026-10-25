@@ -74,6 +74,22 @@ function List({ entries, onClose, onBack, level, label }: { entries: MenuEntry[]
   const ref = useRef<HTMLUListElement>(null)
   const [open, setOpen] = useState<number | null>(null)
   const [flip, setFlip] = useState(false)
+  const closeSubmenuTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancelSubmenuClose = () => {
+    if (closeSubmenuTimer.current !== null) clearTimeout(closeSubmenuTimer.current)
+    closeSubmenuTimer.current = null
+  }
+  const delaySubmenuClose = () => {
+    cancelSubmenuClose()
+    // A submenu is positioned beside its parent, leaving a small diagonal
+    // pointer path between the two. Keep it open long enough to cross that
+    // gap, as desktop menus do, instead of making the target disappear.
+    closeSubmenuTimer.current = setTimeout(() => {
+      closeSubmenuTimer.current = null
+      setOpen(null)
+    }, 250)
+  }
+  useEffect(() => () => cancelSubmenuClose(), [])
   useLayoutEffect(() => {
     // A submenu that would run off the right edge opens to the left.
     const el = ref.current
@@ -112,7 +128,7 @@ function List({ entries, onClose, onBack, level, label }: { entries: MenuEntry[]
         }
         const sub = entry.submenu && entry.submenu.length > 0
         return (
-          <li key={i} role="none" onMouseEnter={() => setOpen(sub ? i : null)} onMouseLeave={() => { if (sub) setOpen(null) }}>
+          <li key={i} role="none" onMouseEnter={() => { cancelSubmenuClose(); setOpen(sub ? i : null) }} onMouseLeave={() => { if (sub) delaySubmenuClose() }}>
             <button
               type="button"
               role={entry.checked !== undefined ? 'menuitemradio' : 'menuitem'}
