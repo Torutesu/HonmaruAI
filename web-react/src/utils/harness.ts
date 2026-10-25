@@ -258,6 +258,13 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
   // switch must not show the previous workspace's mode or admin controls.
   const scope = JSON.stringify([httpBase, orgId, sessionToken])
   const preferenceKey = `hx.simple.${httpBase}.${orgId}`
+  // Only presentation is cached. Never persist session tokens or grants.
+  const displayKey = `hx.displayMode.${JSON.stringify([httpBase,orgId])}`
+  const [offline,setOffline]=useState(()=>typeof navigator!=='undefined'&&navigator.onLine===false)
+  const rememberMode=(mode:WorkspaceMode)=>{try{localStorage.setItem(displayKey,mode)}catch{}}
+  const offlineMode=():WorkspaceMode=>{try{const mode=localStorage.getItem(displayKey);return isMode(mode)?mode:'simple'}catch{return 'simple'}}
+  useEffect(()=>{const update=()=>setOffline(navigator.onLine===false);window.addEventListener('online',update);window.addEventListener('offline',update);return()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update)}},[])
+
   const readPreference = () => { try { return localStorage.getItem(preferenceKey) === 'true' } catch { return false } }
   const [snapshot, setSnapshot] = useState({ scope: '', mode: 'simple' as WorkspaceMode, canEdit: false, loaded: false, error:'' })
   const [preference, setPreference] = useState({ key: preferenceKey, simple: readPreference() })
@@ -269,21 +276,23 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
     let live = true
     setSnapshot({ scope, mode: 'simple', canEdit: false, loaded: false, error:'' })
     if (!orgId || !sessionToken) return
+    if(offline){setSnapshot({scope,mode:offlineMode(),canEdit:false,loaded:false,error:''});return}
     const controller=new AbortController()
     const fail=()=>{if(live)setSnapshot({scope,mode:'simple',canEdit:false,loaded:false,error:'Workspace settings could not load.'})}
     const timer=setTimeout(()=>{controller.abort();fail()},15000)
     harnessApi(httpBase, orgId, sessionToken).getMode(controller.signal)
-      .then(d => { if (live&&!controller.signal.aborted) {if(isMode(d.mode))setSnapshot({ scope, mode: d.mode, canEdit: d.canEdit === true, loaded: true,error:'' });else fail()} })
+      .then(d => { if (live&&!controller.signal.aborted) {if(isMode(d.mode)){rememberMode(d.mode);setSnapshot({ scope, mode: d.mode, canEdit: d.canEdit === true, loaded: true,error:'' })}else fail()} })
       .catch(()=>{if(!controller.signal.aborted)fail()}).finally(()=>clearTimeout(timer))
     const onChange = (e: Event) => {
       const next = (e as CustomEvent<{ orgId: string; httpBase: string; mode: WorkspaceMode }>).detail
       if (next?.orgId === orgId && next.httpBase === httpBase && isMode(next.mode)) {
+        rememberMode(next.mode)
         setSnapshot(s => s.scope === scope ? { ...s, mode: next.mode } : s)
       }
     }
     window.addEventListener('hx-mode', onChange)
     return () => { live = false;clearTimeout(timer);controller.abort(); window.removeEventListener('hx-mode', onChange) }
-  }, [httpBase, orgId, sessionToken, scope,retryCount])
+  }, [httpBase, orgId, sessionToken, scope,retryCount,offline])
   useEffect(() => {
     const update = (event?: Event) => {
       const detail = event?.type === 'hx-simple' ? (event as CustomEvent<{ key: string; simple: boolean }>).detail : null
@@ -303,12 +312,13 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
   const setMode = useCallback(async (next: WorkspaceMode) => {
     const d = await harnessApi(httpBase, orgId, sessionToken).setMode(next)
     if (!isMode(d.mode)) throw new Error('Invalid workspace mode.')
+    rememberMode(d.mode)
     setSnapshot(s => s.scope === scope ? { ...s, mode: d.mode } : s)
     window.dispatchEvent(new CustomEvent('hx-mode', { detail: { orgId, httpBase, mode: d.mode } }))
     return d.mode
   }, [httpBase, orgId, sessionToken, scope])
   return { mode: simpleOnly ? 'simple' as const : current.mode, workspaceMode: current.mode,
-    canEdit: current.canEdit, loaded: current.loaded,error:current.error,retry, setMode, simpleOnly, setSimpleOnly }
+    canEdit: !offline&&current.canEdit, loaded: current.loaded,offline,error:current.error,retry, setMode, simpleOnly, setSimpleOnly }
 }
 
 /// A cell as the table shows it.

@@ -32,3 +32,14 @@
 .hx-files-view{display:flex;gap:4px;padding:8px 16px}.hx-files-view button{display:flex;align-items:center;gap:6px;border:0;border-radius:7px;background:transparent;padding:7px 10px;font:inherit;font-size:12px;cursor:pointer;color:var(--hx-muted)}.hx-files-view button[aria-pressed=true]{background:var(--hx-hover);color:var(--hx-text)}
 .hx-files-breadcrumbs{display:flex;align-items:center;flex-wrap:wrap;gap:3px;padding:4px 16px 10px;color:var(--hx-muted)}.hx-files-breadcrumbs button{border:0;background:transparent;font:inherit;font-size:12px;cursor:pointer;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hx-files-breadcrumbs button[aria-current]{color:var(--hx-text)}
 .hx-file-folder{display:flex;align-items:center;gap:10px;width:100%;border:0;background:transparent;padding:10px 8px;text-align:left;border-radius:8px;cursor:pointer}.hx-file-folder:hover{background:var(--hx-hover)}.hx-file-folder span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+
+/* Keep navigation and upload on one compact rail, as in the reference panel.
+   Status remains in normal flow so errors and long paths cannot cover files. */
+.hx-files-toolbar{position:relative;display:grid;grid-template-columns:1fr auto;align-items:start;gap:8px;margin:4px 16px 8px}
+.hx-files-toolbar .hx-files-view{grid-column:1;grid-row:1;justify-self:end;gap:2px;padding:2px;background:var(--hx-hover);border-radius:7px}
+.hx-files-toolbar .hx-files-view button{width:28px;height:24px;justify-content:center;padding:0;border-radius:5px}
+.hx-files-toolbar .hx-files-view button[aria-pressed=true]{background:var(--hx-surface);box-shadow:0 0 0 1px var(--hx-hover),0 1px 3px #0001}
+.hx-files-toolbar .hx-files-upload{display:contents}
+.hx-files-toolbar .hx-files-upload>button{grid-column:2;grid-row:1;width:28px;height:28px;display:flex;align-items:center;justify-content:center;padding:0}
+.hx-files-toolbar .hx-files-upload-menu{right:0;top:32px;text-align:left}
+.hx-files-toolbar .hx-files-upload-status{grid-column:1/-1;min-width:0;padding:0}

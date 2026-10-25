@@ -3191,3 +3191,17 @@ Validation: focused hook/loading UI suites 8 passed; full Web suite 1,186 passed
 Replaced the single immediate invalidation with four bounded paint requests after document load (0/1/3/10 seconds). Navigation/destruction cancels pending work; hidden/minimized/destroyed windows are excluded. No reload, geometry change, credential access or recurring timer is introduced.
 
 Validation: desktop 128 tests passed and local unsigned dist:dir build succeeded. CUA ran the local build without replacing /Applications. Reloaded chat and API & Webhook screens both visibly rendered; after the API reload, clicking Create Webhook opened its form normally (no webhook submitted). Screenshots /tmp/honmaru-repaint-check.png and /tmp/honmaru-repaint-api-check.png. This limited observation does not prove the intermittent blank surface is eliminated. Desktop distribution remains unreleased.
+
+### 2026-10-25 — compact file navigation toolbar
+Matched the observed reference's compact list/folder icon switch and adjacent upload affordance. Tooltips and accessible labels preserve navigation meaning. Upload status stays in normal document flow, spanning the toolbar width; the upload component remains mounted while viewing history. Empty-file illustration now uses the file icon. Creator-origin tabs remain incomplete: existing ledger rows do not record a reliable human/agent origin and must not be guessed from user identity.
+
+Validation: existing file panel/upload suites 12 passed; Web production build passed. CUA on the real local full-stack app verified folder/recent switching, upload-menu opening and Escape focus restoration in dark mode. Screenshot /tmp/honmaru-file-toolbar-20261025.png. This is local evidence, not production confirmation.
+
+Release status: exact MCP candidate 5d1b7872 passed all seven required CI jobs and was fast-forwarded to main after d8f3e1b8. Its deployment is queued behind d8. Candidate 7b5c30bc E2E failed; do not promote until diagnosed and repaired.
+
+### 2026-10-25 — preserve offline viewing behind the mode gate
+Candidate 7b5c30bc E2E 40181025988 failed exactly the existing offline-shell scenario: Dashboard's new mode-loading gate prevented cached feed/card display without a server response. Fixed the application rather than weakening the E2E. Offline mode uses only the last confirmed presentation value keyed by server/workspace (no tokens, user data or grants), falling back to the existing Simple shell when unknown. canEdit remains false. Reconnection re-enters mode loading and fetches current server authority; no offline write permission is inferred.
+
+Validation: mode hook 8 tests passed, including offline remount, workspace isolation and reconnect revalidation. Full Web 1,187 tests/179 files passed; build passed. Exact-candidate offline E2E is still required before promotion.
+
+Deployment update: d8f3e1b8 Worker run 40180615717 and Web run 40180615691 both succeeded. Production HTML serves index-Dha3Y8Av.js. Main currently 5d1b7872; later mode-loading/repaint/toolbar changes are not production yet.

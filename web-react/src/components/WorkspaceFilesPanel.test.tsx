@@ -13,7 +13,7 @@ test('history navigates past fifty versions with an exclusive cursor and returns
  let renderer:ReturnType<typeof create>
  await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
  await act(async()=>{renderer!.root.findByProps({className:'hx-file-row'}).props.onClick()})
- const button=(label:string)=>renderer!.root.findAllByType('button').find(b=>b.children.includes(label))
+ const button=(label:string)=>renderer!.root.findAllByType('button').find(b=>b.children.includes(label)||b.props['aria-label']===label)
  await act(async()=>{button('Older versions')!.props.onClick()})
  expect(vi.mocked(api.versions).mock.calls.at(-1)?.slice(0,2)).toEqual(['file',2]);expect(button('Older versions')).toBeUndefined()
  expect(renderer!.root.findAllByProps({className:'hx-file-version'})).toHaveLength(1)
@@ -85,7 +85,7 @@ test('folder navigation requests direct children, scopes search and resets pagin
  const api={list:vi.fn().mockResolvedValue({files:[],next:null}),folders:vi.fn().mockImplementation(async(_scope,directory)=>({folders:directory?[]:[{name:'Alpha',path:'Alpha/'}],next:null}))} as unknown as WorkspaceFileApi
  let renderer:ReturnType<typeof create>
  await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
- const button=(label:string)=>renderer!.root.findAllByType('button').find(b=>b.children.includes(label))
+ const button=(label:string)=>renderer!.root.findAllByType('button').find(b=>b.children.includes(label)||b.props['aria-label']===label)
  await act(async()=>{button('Folders')!.props.onClick()})
  expect(vi.mocked(api.list).mock.calls[0][0].order).toBe('recent')
  expect(vi.mocked(api.list).mock.calls.at(-1)![0].order).toBe('path')

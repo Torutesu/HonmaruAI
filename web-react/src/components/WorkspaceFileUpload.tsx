@@ -35,7 +35,7 @@ export function WorkspaceFileUpload({api,scope,directory='',onSaved}:{api:Worksp
  return <div className="hx-files-upload" ref={root} onKeyDown={event=>{if(event.key==='Escape'&&menu){event.stopPropagation();setMenu(false);trigger.current?.focus()}}}>
   <input hidden type="file" multiple ref={input} onChange={choose}/>
   <input hidden type="file" multiple ref={folder} {...{webkitdirectory:''}} onChange={choose}/>
-  <button ref={trigger} type="button" disabled={busy} aria-label={t('Upload files')} aria-expanded={menu} onClick={()=>setMenu(value=>!value)}><Icon name="upload" size={16}/></button>
+  <button ref={trigger} type="button" disabled={busy} aria-label={t('Upload files')} title={t('Upload files')} aria-expanded={menu} onClick={()=>setMenu(value=>!value)}><Icon name="upload" size={16}/></button>
   {menu&&<div className="hx-files-upload-menu"><button autoFocus onClick={()=>{setMenu(false);input.current?.click()}}>{t('Upload files')}</button><button onClick={()=>{setMenu(false);folder.current?.click()}}>{t('Upload folder')}</button></div>}
   {!!jobs.length&&<div className="hx-files-upload-status" aria-live="polite">{jobs.map((job,index)=><div key={index}><span>{job.path}</span><small>{t(job.state==='saved'?'Uploaded':job.state==='failed'?'Upload failed':job.state==='uploading'?'Uploading…':'Queued for upload')}</small>{job.error&&<p role="alert">{job.error}</p>}</div>)}{!busy&&jobs.some(job=>job.state==='failed')&&<button onClick={()=>void run(jobs)}>{t('Retry failed uploads')}</button>}{!busy&&<button onClick={()=>setJobs([])}>{t('Dismiss')}</button>}</div>}
  </div>

@@ -288,7 +288,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
   const relayHttpUrl = relayUrl.replace(/^ws/, 'http')
   // Simple or harness (docs/kylon-gap-plan.md): what the rail offers.
-  const { mode: workspaceMode, simpleOnly, loaded: workspaceModeLoaded,error:workspaceModeError,retry:retryWorkspaceMode,setSimpleOnly } = useWorkspaceMode(relayHttpUrl, orgId, sessionToken)
+  const { mode: workspaceMode, simpleOnly, loaded: workspaceModeLoaded,offline:workspaceModeOffline,error:workspaceModeError,retry:retryWorkspaceMode,setSimpleOnly } = useWorkspaceMode(relayHttpUrl, orgId, sessionToken)
   useEffect(()=>{if(route.appSource && route.appOrg===orgId && workspaceModeLoaded && workspaceMode!=='harness')navigate(hashForMode('classic'),true)},[route.appSource,route.appOrg,orgId,workspaceModeLoaded,workspaceMode,navigate])
   useEffect(() => {
     if (simpleOnly && screen && screen !== 'harness' && HARNESS_SCREENS.has(screen)) closeScreen()
@@ -1010,7 +1010,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     />
   )
 
-  if(orgId&&sessionToken&&!workspaceModeLoaded&&!simpleOnly)return <WorkspaceModeLoading error={workspaceModeError} onRetry={retryWorkspaceMode} onSimple={()=>setSimpleOnly(true)}/>
+  if(orgId&&sessionToken&&!workspaceModeLoaded&&!simpleOnly&&!workspaceModeOffline)return <WorkspaceModeLoading error={workspaceModeError} onRetry={retryWorkspaceMode} onSimple={()=>setSimpleOnly(true)}/>
 
   return (
     // `screen-open` is what lets the rail stay on a laptop while a screen is

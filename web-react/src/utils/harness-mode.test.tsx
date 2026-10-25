@@ -17,6 +17,7 @@ const answer = async (index: number, mode: 'simple' | 'harness', canEdit = false
 }
 beforeEach(() => {
   requests = []; values.clear()
+  vi.stubGlobal('navigator',{onLine:true})
   vi.stubGlobal('localStorage', storage)
   vi.stubGlobal('window', new EventTarget())
   vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise<Response>(resolve => requests.push({ init, resolve }))))
@@ -97,4 +98,24 @@ test('timed-out and malformed responses cannot switch the loading shell to a sta
   act(()=>result.setSimpleOnly(true))
   expect(result).toMatchObject({mode:'simple',simpleOnly:true,canEdit:false})
  }finally{vi.useRealTimers()}
+})
+
+test('offline reload preserves only workspace presentation and revalidates when reconnected',async()=>{
+ act(()=>{tree=create(<Probe/>)})
+ await answer(0,'harness',true)
+ expect([...values.values()]).not.toContain('session-a')
+ act(()=>tree!.unmount())
+ vi.stubGlobal('navigator',{onLine:false})
+ act(()=>{tree=create(<Probe/>)})
+ expect(result).toMatchObject({mode:'harness',offline:true,loaded:false,canEdit:false})
+ expect(requests).toHaveLength(1)
+ act(()=>tree!.update(<Probe org="other"/>))
+ expect(result).toMatchObject({mode:'simple',canEdit:false,loaded:false})
+ act(()=>tree!.update(<Probe/>))
+ expect(result.mode).toBe('harness')
+ await act(async()=>{vi.stubGlobal('navigator',{onLine:true});window.dispatchEvent(new Event('online'))})
+ expect(requests).toHaveLength(2)
+ expect(result).toMatchObject({offline:false,loaded:false,canEdit:false})
+ await answer(1,'simple',false)
+ expect(result).toMatchObject({mode:'simple',loaded:true,canEdit:false})
 })
