@@ -132,7 +132,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     inheritConversation: (id:string,messageId:string) => call('POST',`/apps/${id}/conversation-source`,{messageId}),
     conversationNotifications: (id:string) => call<{items:Array<{messageId:number;body:string;tableId:string;rowId:string;readAt:string|null;kind:string}>}>('GET',`/apps/${id}/conversation-notifications`),
     readConversationNotification: (id:string,messageId:number) => call('POST',`/apps/${id}/conversation-notifications`,{messageId}),
-    members: () => call<{members:Array<{ref:string;name:string}>}>('GET','/members'),
+    members: () => call<{members:Array<{ref:string;name:string;avatarUrl?:string|null}>}>('GET','/members'),
     personalViews: (id:string) => call<PersonalViews>('GET', `/hx/personal-views/${id}`),
     savePersonalViews: (id:string, state:PersonalViews) => call<PersonalViews>('PUT', `/hx/personal-views/${id}`, {expectedRevision:state.revision,views:state.views,layouts:state.layouts,activeView:state.activeView}),
     appPins: () => call<{pins:string[]}>('GET', '/hx/app-pins'),

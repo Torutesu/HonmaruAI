@@ -2,6 +2,7 @@ import React from 'react'
 import {act,create} from 'react-test-renderer'
 import {afterEach,expect,test,vi} from 'vitest'
 import {AppRecordDialog} from './AppRecordDialog'
+import {Avatar} from './Avatar'
 vi.mock('./Dialog',()=>({Dialog:({children,footer,onClose}:any)=><div><button onClick={onClose}>閉じる</button>{children}{footer}</div>}))
 afterEach(()=>vi.unstubAllGlobals())
 
@@ -12,11 +13,12 @@ function stubBrowserGlobals(){
 
 test('person fields search workspace members, select by keyboard and submit the stable reference',async()=>{
  stubBrowserGlobals()
- const members=[...Array.from({length:8},(_,i)=>({ref:`user_${i+1}`,name:`Member ${i+1}`})),{ref:'mika',name:'Mika'}]
+ const members=[...Array.from({length:8},(_,i)=>({ref:`user_${i+1}`,name:`Member ${i+1}`,...(i===0?{avatarUrl:'https://avatars.example/user1.png'}:{})})),{ref:'mika',name:'Mika'}]
  const save=vi.fn().mockResolvedValue(undefined);let tree:ReturnType<typeof create>
  act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={[{id:'owner',name:'担当者',type:'person'}]} members={members} save={save} onClose={()=>{}}/>)});
  const trigger=tree!.root.findByProps({role:'combobox', 'aria-label':'担当者'})
  act(()=>trigger.props.onClick())
+ expect(tree!.root.findAllByType(Avatar).some(avatar=>avatar.props.url==='https://avatars.example/user1.png')).toBe(true)
  const search=tree!.root.findByProps({'aria-label':'メンバーを検索'})
  act(()=>search.props.onChange({target:{value:'Mika'}}))
  expect(tree!.root.findAllByProps({role:'option'}).map(option=>option.props['data-member-ref'])).toEqual(['','mika'])
