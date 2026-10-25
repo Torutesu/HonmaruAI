@@ -3388,3 +3388,7 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Type changes reset file/folder cursors; per-tab room view restores valid categories, rejecting invalid saved values. Filtering with no results shows the matching-files empty state. Folder navigation remains available, including folders without matching descendants.
 - Panel/view tests: 17 passed (`/tmp/honmaru-file-type-ui-tests.log`); build passed (`/tmp/honmaru-file-type-ui-build.log`). Existing source-selector test now targets that specific select rather than assuming one selector in the panel.
 - Actual local dark UI: selecting PDF removes text/image rows and retains document-preview.pdf. Screenshot `/tmp/honmaru-file-type-filter-20261025.png`. Kylon's exact filter-control layout, mobile and production rendering still unverified.
+
+### 2026-10-25 — File origin tab label fit
+- Actual 360px file panel truncated the Japanese source labels. Visible tabs now use Agents/Users, while full Created by agents/Uploaded by users descriptions remain in title and aria-label.
+- Real dark UI confirms both Japanese labels fit alongside view/upload icons; screenshot `/tmp/honmaru-file-origin-labels-20261025.png`. Panel tests 13 passed and web build passed (`/tmp/honmaru-file-origin-label-tests.log`, `/tmp/honmaru-file-origin-label-build.log`).
