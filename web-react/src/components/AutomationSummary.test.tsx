@@ -17,3 +17,14 @@ test('review resolves authorized resource names while retaining unknown identifi
  for(const text of ['対象テーブル: 案件','対象列: 進捗','エージェント: 営業担当','unavailable-agent'])expect(html).toContain(text)
  expect(html).toContain('<dt>進捗</dt>')
 })
+
+test('review describes cron, interval and one-time schedule forms',()=>{
+ for (const [trigger,label] of [
+  [{type:'schedule',kind:'cron',expr:'0 9 * * 1-5',timezone:'Asia/Tokyo'},'Cron 0 9 * * 1-5'],
+  [{type:'schedule',kind:'every',everyMs:1800000},'30分ごと'],
+  [{type:'schedule',kind:'at',at:'2026-10-27T00:00:00.000Z'},'一度だけ'],
+ ] as const) {
+  const html=renderToStaticMarkup(<AutomationSummary definition={{name:'Schedule',enabled:true,trigger:trigger as any,steps:[{type:'post',text:'Run'}]}}/> )
+  expect(html).toContain(label)
+ }
+})

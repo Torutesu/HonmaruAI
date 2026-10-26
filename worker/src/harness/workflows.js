@@ -24,7 +24,7 @@ import { mayUseConversation } from './conversationAccess.js';
 
 import { saveCard, getUserByLogin, isMember } from "../db.js";
 import { postMessage } from "../channels.js";
-import { nextRunAt, CADENCES, isTimeZone } from "../schedule.js";
+import { nextRunAt, nextScheduledRunAt, CADENCES, isTimeZone, isIsoInstant, MIN_SCHEDULE_INTERVAL_MS, MAX_SCHEDULE_INTERVAL_MS, validateCronExpression } from "../schedule.js";
 import { appendCardEvent } from "../events.js";
 import { announceCards } from "../announce.js";
 import { localizeForRecipient } from "../localize.js";
@@ -58,6 +58,21 @@ export function normalizeTrigger(raw) {
   const type = TRIGGERS.includes(raw?.type) ? raw.type : null;
   if (!type) return { error: `trigger.type must be one of ${TRIGGERS.join(", ")}` };
   if (type === "schedule") {
+    if (raw.kind === "cron") {
+      const parsed = validateCronExpression(raw.expr);
+      if (parsed.error) return parsed;
+      if (raw.timezone !== undefined && !isTimeZone(raw.timezone)) return { error: "Invalid schedule timezone." };
+      return { trigger: { type, kind: "cron", expr: raw.expr.trim(), timezone: isTimeZone(raw.timezone) ? raw.timezone : "UTC" } };
+    }
+    if (raw.kind === "every") {
+      if (!Number.isSafeInteger(raw.everyMs) || raw.everyMs < MIN_SCHEDULE_INTERVAL_MS || raw.everyMs > MAX_SCHEDULE_INTERVAL_MS - Date.now()) return { error: "An interval schedule must be at least 10 minutes and fit in the supported date range." };
+      return { trigger: { type, kind: "every", everyMs: raw.everyMs } };
+    }
+    if (raw.kind === "at") {
+      if (!isIsoInstant(raw.at)) return { error: "A one-time schedule needs an ISO timestamp with a timezone." };
+      return { trigger: { type, kind: "at", at: new Date(raw.at).toISOString() } };
+    }
+    if (raw.kind !== undefined) return { error: "A schedule kind is cron, every, or at." };
     if (!CADENCES.includes(raw.cadence)) return { error: `A schedule needs a cadence: ${CADENCES.join(", ")}` };
     for (const [key,min,max] of [['hour',0,23],['minute',0,59],...(raw.cadence==='weekly'?[['weekday',0,6]]:[]),...(raw.cadence==='monthly'?[['monthday',1,31]]:[])]) {
       if (raw[key] !== undefined && (!Number.isInteger(raw[key]) || raw[key]<min || raw[key]>max)) return {error:`Invalid schedule ${key}.`};
@@ -846,7 +861,7 @@ export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } 
     // Claimed by moving its next time on, so two crons cannot both run it.
     const claim = await env.DB
       .prepare("UPDATE hx_workflows SET next_run_at = ?1 WHERE id = ?2 AND org_id = ?4 AND next_run_at = ?3")
-      .bind(nextRunAt(wf.trigger, at), wf.id, r.next_run_at, wf.orgId)
+      .bind(nextScheduledRunAt(wf.trigger, r.next_run_at, at), wf.id, r.next_run_at, wf.orgId)
       .run();
     if (!claim.meta?.changes) continue;
     try {

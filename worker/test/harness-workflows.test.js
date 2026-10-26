@@ -1186,6 +1186,17 @@ test('schedule definitions reject invalid values rather than silently shifting e
  for(const patch of [{hour:24},{hour:-1},{minute:60},{minute:null},{weekday:7},{weekday:1.5},{timezone:'Not/AZone'},{timezone:''},{cadence:'monthly',monthday:0},{cadence:'monthly',monthday:32}])expect(normalizeTrigger({...schedule,...patch}).error).toBeTruthy();
  expect(normalizeTrigger(schedule).trigger).toEqual(schedule);
  expect(normalizeTrigger({type:'schedule',cadence:'daily'}).trigger).toMatchObject({hour:9,minute:0,timezone:'UTC'});
+ expect(normalizeTrigger({type:'schedule',kind:'cron',expr:'0 9 * * 1-5',timezone:'Asia/Tokyo'}).trigger).toEqual({type:'schedule',kind:'cron',expr:'0 9 * * 1-5',timezone:'Asia/Tokyo'});
+ expect(normalizeTrigger({type:'schedule',kind:'every',everyMs:600000}).trigger).toEqual({type:'schedule',kind:'every',everyMs:600000});
+ expect(normalizeTrigger({type:'schedule',kind:'at',at:'2026-10-26T09:00:00+09:00'}).trigger.at).toBe('2026-10-26T00:00:00.000Z');
+ for(const invalid of [
+  {type:'schedule',kind:'cron',expr:'* * * * *',timezone:'UTC'},
+  {type:'schedule',kind:'cron',expr:'0 9 * * *',timezone:'Not/AZone'},
+  {type:'schedule',kind:'every',everyMs:599999},
+  {type:'schedule',kind:'every',everyMs:8640000000000001},
+  {type:'schedule',kind:'at',at:'2026-02-30T09:00:00Z'},
+  {type:'schedule',kind:'unknown'},
+ ]) expect(normalizeTrigger(invalid).error).toBeTruthy();
 });
 
 test('workflow revision HTTP route returns accessible history and rejects invalid cursors',async()=>{

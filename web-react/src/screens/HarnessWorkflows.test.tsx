@@ -343,7 +343,7 @@ test('invalid schedule time zones keep the draft unsavable until corrected',asyn
  await act(async()=>{button('Edit workflow').props.onClick()});
  await act(async()=>{tree.root.findByProps({'aria-label':'Time zone'}).props.onChange({target:{value:'Wrong/Zone'}})});
  expect(button('Save workflow').props.disabled).toBe(true);
- expect(JSON.stringify(tree.toJSON())).toContain('Enter a valid time and time zone.');
+ expect(JSON.stringify(tree.toJSON())).toContain('Enter a valid schedule and time zone.');
  await act(async()=>{tree.root.findByProps({'aria-label':'Time zone'}).props.onChange({target:{value:'UTC'}})});
  expect(button('Save workflow').props.disabled).toBe(false);
 });

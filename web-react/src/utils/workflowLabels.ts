@@ -10,7 +10,12 @@ export function stepLabel(t: (k: string) => string, type: StepType) {
 }
 
 export function triggerLabel(t: (k: string, v?: Record<string, string | number>) => string, tr: Trigger, tables: Table[]) {
-  if (tr.type === 'schedule') return `${t('Schedule')}: ${t(tr.cadence || 'daily')}${tr.cadence === 'weekly' ? ` · ${weekdayName(tr.weekday ?? 1)}` : tr.cadence === 'monthly' ? ` · ${t('Day {day}',{day:tr.monthday ?? 1})}` : ''} ${String(tr.hour ?? 9).padStart(2, '0')}:${String(tr.minute ?? 0).padStart(2, '0')} ${tr.timezone || ''}`
+  if (tr.type === 'schedule') {
+    if (tr.kind === 'cron') return `${t('Cron: {expression}',{expression:tr.expr||''})} · ${tr.timezone||'UTC'}`
+    if (tr.kind === 'every') { const minutes=Math.round((tr.everyMs||0)/60000); return t('Every {interval} minutes',{interval:minutes}) }
+    if (tr.kind === 'at') return `${t('Once at')} ${tr.at&&Number.isFinite(Date.parse(tr.at))?new Date(tr.at).toLocaleString(getLocale()):tr.at||''}`
+    return `${t('Schedule')}: ${t(tr.cadence || 'daily')}${tr.cadence === 'weekly' ? ` · ${weekdayName(tr.weekday ?? 1)}` : tr.cadence === 'monthly' ? ` · ${t('Day {day}',{day:tr.monthday ?? 1})}` : ''} ${String(tr.hour ?? 9).padStart(2, '0')}:${String(tr.minute ?? 0).padStart(2, '0')} ${tr.timezone || ''}`
+  }
   if (tr.type === 'row') {
     const table = tables.find((x) => x.id === tr.tableId)
     const where = tr.where ? Object.entries(tr.where).map(([k, v]) => `${table?.columns.find(column=>column.id===k)?.name||k} = ${v.join('/')}`).join(', ') : ''

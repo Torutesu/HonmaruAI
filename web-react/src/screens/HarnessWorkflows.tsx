@@ -3,10 +3,11 @@ import {WorkflowHistory} from '../components/WorkflowHistory'
 import {describeWorkflowCondition} from '../utils/workflowCondition'
 import {getLocale} from '../utils/locale'
 import {runDuration} from '../utils/runDuration'
-import {stepLabel,triggerLabel,weekdayName} from '../utils/workflowLabels'
+import {stepLabel,triggerLabel} from '../utils/workflowLabels'
 import {WorkflowRunUsage} from '../components/WorkflowRunUsage'
 import {WorkflowSource} from '../components/WorkflowSource'
 import {WorkflowNotices} from '../components/WorkflowNotices'
+import {ScheduleTriggerFields} from '../components/ScheduleTriggerFields'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
@@ -18,7 +19,6 @@ import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 // built from a form rather than a graph, with every run and every step's
 // outcome kept where anyone can read it.
 
-const CADENCES = ['daily', 'weekdays', 'weekly', 'monthly']
 const WEBHOOK_SENDER_EXAMPLE = `const { createHmac, randomUUID } = require('node:crypto')
 
 const endpoint = new URL(process.env.HONMARU_WEBHOOK_URL)
@@ -80,6 +80,12 @@ function Builder({ api, tables, agents, onSave, onCancel, busy, initial }: { api
   const steps=format==='code'?[program]:formSteps
   const programValid=format!=='code'||Boolean(program.gatewayId&&program.code?.trim()&&new TextEncoder().encode(program.code).length<=48000)
   const scheduleValid = trigger.type !== 'schedule' || (()=>{
+    if (trigger.kind === 'every') return Number.isSafeInteger(trigger.everyMs) && trigger.everyMs! >= 600000 && trigger.everyMs! <= 8640000000000000-Date.now()
+    if (trigger.kind === 'at') return Boolean(trigger.at && Number.isFinite(Date.parse(trigger.at)) && Date.parse(trigger.at) > Date.now())
+    if (trigger.kind === 'cron') {
+      try { new Intl.DateTimeFormat('en',{timeZone:trigger.timezone}); } catch { return false }
+      return Boolean(trigger.expr?.trim()) && trigger.expr!.trim().split(/\s+/).length === 5
+    }
     try { new Intl.DateTimeFormat('en',{timeZone:trigger.timezone}); } catch { return false }
     return Boolean(trigger.timezone?.trim()) && Number.isInteger(trigger.hour) && trigger.hour!>=0 && trigger.hour!<=23 && Number.isInteger(trigger.minute) && trigger.minute!>=0 && trigger.minute!<=59
   })()
@@ -101,21 +107,9 @@ function Builder({ api, tables, agents, onSave, onCancel, busy, initial }: { api
           <option value="row">{t('A table row event')}</option>
         </select>
         {trigger.type === 'schedule' && (
-          <span className="hx-inline">
-            <select value={trigger.cadence} onChange={(e) => setTrigger({ ...trigger, cadence: e.target.value })} aria-label={t('Cadence')}>
-              {CADENCES.map((c) => <option key={c} value={c}>{t(c)}</option>)}
-            </select>
-            {trigger.cadence === 'weekly' && <select aria-label={t('Weekday')} value={trigger.weekday ?? 1} onChange={e=>setTrigger({...trigger,weekday:Number(e.target.value)})}>
-              {Array.from({length:7},(_,day)=><option key={day} value={day}>{weekdayName(day)}</option>)}
-            </select>}
-            {trigger.cadence === 'monthly' && <select aria-label={t('Day of month')} value={trigger.monthday ?? 1} onChange={e=>setTrigger({...trigger,monthday:Number(e.target.value)})}>
-              {Array.from({length:31},(_,index)=><option key={index+1} value={index+1}>{t('Day {day}',{day:index+1})}</option>)}
-            </select>}
-            <input type="time" className="hx-cell-input" value={`${String(trigger.hour ?? 9).padStart(2, '0')}:${String(trigger.minute ?? 0).padStart(2, '0')}`} onChange={(e) => { const [h, m] = e.target.value.split(':').map(Number); setTrigger({ ...trigger, hour: h, minute: m }) }} aria-label={t('Time')} />
-            <input className="hx-cell-input" aria-label={t('Time zone')} value={trigger.timezone || ''} placeholder="Asia/Tokyo" onChange={e=>setTrigger({...trigger,timezone:e.target.value})} />
-            {!scheduleValid && <span className="form-error" role="alert">{t('Enter a valid time and time zone.')}</span>}
-            {trigger.cadence === 'monthly' && <span className="row-sub">{t('If the date does not exist, runs on the last day of the month.')}</span>}
-          </span>
+          <><ScheduleTriggerFields trigger={trigger} onChange={setTrigger} legacyDefault="weekdays" />
+            {!scheduleValid && <span className="form-error" role="alert">{t('Enter a valid schedule and time zone.')}</span>}
+          </>
         )}
         {trigger.type === 'row' && (
           <span className="hx-inline">

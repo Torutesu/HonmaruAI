@@ -19,6 +19,19 @@ test('rejects invalid schedules and row values rather than changing their meanin
  const trigger={type:'schedule',cadence:'daily',hour:9,minute:0,timezone:'Asia/Tokyo'};
  expect(normalizeAppAutomations(bundle([{...item(),trigger}])).automations.items[0].trigger).toEqual(trigger);
  for(const change of [{hour:24},{minute:-1},{timezone:'not/a-zone'},{cadence:'weekly',weekday:7},{cadence:'monthly',monthday:0}])expect(normalizeAppAutomations(bundle([{...item(),trigger:{...trigger,...change}}])).error).toBeTruthy();
+ for(const valid of [
+  {type:'schedule',kind:'cron',expr:'0 9 * * 1-5',timezone:'Asia/Tokyo'},
+  {type:'schedule',kind:'every',everyMs:600000},
+  {type:'schedule',kind:'at',at:'2026-10-26T09:00:00+09:00'},
+ ]) {
+  const result=normalizeAppAutomations(bundle([{...item(),trigger:valid}]));
+  expect(result.automations.items[0].trigger).toEqual(valid.kind==='at'?{...valid,at:'2026-10-26T00:00:00.000Z'}:valid);
+ }
+ for(const invalid of [
+  {type:'schedule',kind:'cron',expr:'* * * * *',timezone:'UTC'},
+  {type:'schedule',kind:'every',everyMs:1},
+  {type:'schedule',kind:'at',at:'not-a-date'},
+ ]) expect(normalizeAppAutomations(bundle([{...item(),trigger:invalid}])).error).toBeTruthy();
  expect(normalizeAppAutomations(bundle([{...item(),steps:[{type:'add_row',tableId:'table',values:[]}]}])).error).toBeTruthy();
 });
 test('app automations can declare unfiltered row deletion triggers',()=>{
