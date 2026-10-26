@@ -2286,3 +2286,16 @@ CREATE TABLE IF NOT EXISTS hx_agent_access_request_approvers (
 );
 CREATE INDEX IF NOT EXISTS idx_hx_agent_access_request_approvers_pending
   ON hx_agent_access_request_approvers(org_id,recipient_login,status);
+
+/* Row-change trigger receipts make a retried delivery start at most one run. */
+CREATE TABLE IF NOT EXISTS hx_workflow_row_receipts (
+  org_id TEXT NOT NULL,
+  workflow_id TEXT NOT NULL REFERENCES hx_workflows(id) ON DELETE CASCADE,
+  event_hash TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  run_id TEXT,
+  PRIMARY KEY (org_id,workflow_id,event_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_hx_workflow_row_receipts_expiry
+  ON hx_workflow_row_receipts(expires_at);

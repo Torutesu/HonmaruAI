@@ -4,7 +4,7 @@ import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { joined, until } from "./helpers.js";
-import { render, runDueWorkflows, normalizeSteps, startRun } from "../src/harness/workflows.js";
+import { render, runDueWorkflows, normalizeSteps, normalizeTrigger, onRowChange, startRun } from "../src/harness/workflows.js";
 import { signWorkflowWebhook } from "../src/harness/workflowWebhookSignature.js";
 import { runDueFollowups, followupRequest } from "../src/harness/followups.js";
 
@@ -99,6 +99,61 @@ test("a row turning overdue runs the workflow: it posts, waits on a person's app
   });
   expect(done.log.map((l) => [l.type, l.status])).toEqual([["post", "ok"], ["approval", "ok"], ["post", "ok"]]);
   expect((await messages(mika)).map((m) => m.body)).toContain("Reminder to Acme approved: Approved by Toru");
+});
+
+test("row event filters use strict scalar types, treat missing separately from null, and ignore duplicate delivery", async () => {
+  const make = async (name, where) => {
+    const result = await send("POST", "/workflows", mika, {
+      orgId: ORG, name,
+      trigger: { type: "row", tableId: invoices, on: "changed", ...(where === undefined ? {} : { where }) },
+      steps: [{ type: "post", channel: "b:ops", text: name }],
+    });
+    expect(result.status).toBe(201);
+    return (await result.json()).workflow;
+  };
+  const numeric = await make("Numeric match", { Amount: 5 });
+  const string = await make("String does not match", { Amount: "5" });
+  const membership = await make("Numeric membership", { Amount: [4, 5] });
+  const wrongMembership = await make("String membership does not match", { Amount: ["5"] });
+  const missing = await make("Missing field does not match", { Absent: null });
+  const nullMatch = await make("Explicit null match", { Amount: null });
+  const any = await make("Any actual change");
+  const { getTable } = await import("../src/harness/tables.js");
+  const table = await getTable(env.DB, ORG, invoices);
+
+  const before = { id: "row-filter-1", values: { amount: 1, status: "Sent" }, updatedAt: "2026-01-01T00:00:00.000Z" };
+  const after = { id: before.id, values: { amount: 5, status: "Overdue" }, updatedAt: "2026-01-01T00:00:01.000Z" };
+  expect(await onRowChange(env, { orgId: ORG, table, before, row: after, by: "9302" })).toBe(3);
+  // Replaying the exact same source event has one durable receipt per workflow.
+  expect(await onRowChange(env, { orgId: ORG, table, before, row: after, by: "9302" })).toBe(0);
+
+  const nullBefore = { id: "row-filter-2", values: { amount: 1 }, updatedAt: "2026-01-01T00:00:02.000Z" };
+  const nullAfter = { id: nullBefore.id, values: { amount: null }, updatedAt: "2026-01-01T00:00:03.000Z" };
+  expect(await onRowChange(env, { orgId: ORG, table, before: nullBefore, row: nullAfter, by: "9302" })).toBe(2);
+
+  const missingAfter = { id: "row-filter-3", values: {}, updatedAt: "2026-01-01T00:00:04.000Z" };
+  const missingBefore = { id: missingAfter.id, values: { amount: 1 }, updatedAt: "2026-01-01T00:00:05.000Z" };
+  expect(await onRowChange(env, { orgId: ORG, table, before: missingBefore, row: missingAfter, by: "9302" })).toBe(1);
+
+  const noOpBefore = { id: "row-filter-4", values: { amount: 5 }, updatedAt: "2026-01-01T00:00:06.000Z" };
+  const noOpAfter = { id: noOpBefore.id, values: { amount: 5 }, updatedAt: "2026-01-01T00:00:07.000Z" };
+  expect(await onRowChange(env, { orgId: ORG, table, before: noOpBefore, row: noOpAfter, by: "9302" })).toBe(0);
+
+  const runs = async (workflow) => (await (await get(`/workflows/${workflow.id}?${q({ orgId: ORG })}`, mika)).json()).runs;
+  expect(await runs(numeric)).toHaveLength(1);
+  expect(await runs(string)).toHaveLength(0);
+  expect(await runs(membership)).toHaveLength(1);
+  expect(await runs(wrongMembership)).toHaveLength(0);
+  expect(await runs(missing)).toHaveLength(0);
+  expect(await runs(nullMatch)).toHaveLength(1);
+  expect(await runs(any)).toHaveLength(3);
+});
+
+test("row filters reject nested values and non-flat filter objects", () => {
+  expect(normalizeTrigger({ type: "row", tableId: invoices, where: ["Overdue"] }).error).toBeTruthy();
+  expect(normalizeTrigger({ type: "row", tableId: invoices, where: { Amount: { gt: 5 } } }).error).toBeTruthy();
+  expect(normalizeTrigger({ type: "row", tableId: invoices, where: { Amount: [5, { value: 6 }] } }).error).toBeTruthy();
+  expect(normalizeTrigger({ type: "row", tableId: invoices, where: { Amount: [5, null, "5"] } }).trigger.where).toEqual({ Amount: [5, null, "5"] });
 });
 
 test("declined, a run ends where it stood", async () => {
