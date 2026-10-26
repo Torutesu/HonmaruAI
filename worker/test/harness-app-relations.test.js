@@ -1,0 +1,73 @@
+import { env } from 'cloudflare:test';
+import { beforeEach, expect, test } from 'vitest';
+import schemaSql from '../schema.sql?raw';
+import worker from '../src/index.js';
+import { createSession, upsertMembership, upsertUser } from '../src/db.js';
+
+const orgId='personal:relations';let owner,app;
+const headers=token=>({'content-type':'application/json','x-session-token':token});
+const call=(path,token,body,method)=>worker.fetch(new Request(`https://example.com${path}${body?'':`${path.includes('?')?'&':'?'}orgId=${orgId}`}`,{
+  method:method||(body?'POST':'GET'),headers:headers(token),...(body?{body:JSON.stringify({orgId,...body})}:{})
+}),{...env});
+const dbCall=(body)=>call(`/apps/${app.id}/database`,owner,body);
+async function installRelations(){
+  const migration=await dbCall({action:'migrate',id:'relations_v1',version:0,operations:[
+    {op:'create_entity',entity:'customers',name:'Customers',columns:[{name:'Name',type:'text'}]},
+    {op:'add_columns',entity:'primary',columns:[{name:'Customer',type:'relation',targetEntity:'customers'},{name:'Watchers',type:'relation',targetEntity:'customers',multiple:true}]},
+  ]});
+  expect(migration.status).toBe(200);
+  const database=await (await call(`/apps/${app.id}/database`,owner)).json();
+  return database.entities.find(entity=>entity.key==='customers');
+}
+async function deleteRow(tableId,row){return call(`/tables/${tableId}/rows/${row.id}?orgId=${orgId}&expectedUpdatedAt=${encodeURIComponent(row.updatedAt)}`,owner,undefined,'DELETE')}
+
+beforeEach(async()=>{
+  await env.DB.exec(schemaSql.replace(/\n/g,' '));
+  await upsertUser(env.DB,{githubId:'8101',login:'relation-owner',name:'Relation Owner'});
+  await upsertMembership(env.DB,orgId,'8101','admin');
+  owner=await createSession(env.DB,'8101','gho_relation_owner');
+  app=(await (await call('/apps',owner,{name:'Relation app',columns:[{name:'Task',type:'text'}]})).json()).app;
+});
+
+test('app relations require valid same-app targets and protect linked records from deletion',async()=>{
+  const invalid=await dbCall({action:'migrate',id:'invalid_relation',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Broken',type:'relation',targetEntity:'missing'}]}]});
+  expect(invalid.status).toBe(400);
+  const customerEntity=await installRelations();
+  const customer=(await (await call(`/tables/${customerEntity.table.id}/rows`,owner,{values:{name:'Acme'}})).json()).row;
+  const foreignApp=(await (await call('/apps',owner,{name:'Other app',columns:[{name:'Name',type:'text'}]})).json()).app;
+  const foreign=(await (await call(`/tables/${foreignApp.tableId}/rows`,owner,{values:{name:'Outside'}})).json()).row;
+  expect((await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'Bad',customer:'row_missing'}})).status).toBe(400);
+  expect((await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'Bad',customer:foreign.id}})).status).toBe(400);
+  expect((await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'Bad multi',watchers:'not-an-array'},validation:'strict'})).status).toBe(400);
+
+  const row=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'Linked',customer:customer.id,watchers:[customer.id]}})).json()).row;
+  expect(row.values).toMatchObject({customer:customer.id,watchers:[customer.id]});
+  expect((await deleteRow(customerEntity.table.id,customer)).status).toBe(409);
+  const unlinked=(await (await call(`/tables/${app.tableId}/rows/${row.id}`,owner,{values:{customer:null,watchers:[]},expectedUpdatedAt:row.updatedAt},'PATCH')).json()).row;
+  expect(unlinked.values).toMatchObject({customer:null,watchers:[]});
+  expect((await deleteRow(customerEntity.table.id,customer)).status).toBe(200);
+});
+
+test('a preview can add linked records together and merge rejects an orphaned final state',async()=>{
+  const customerEntity=await installRelations();
+  let {fork}=await (await dbCall({action:'fork'})).json();
+  let changed=await (await dbCall({action:'fork_write',forkId:fork.id,revision:fork.revision,entity:'customers',operation:'create',values:{name:'Draft customer'}})).json();
+  const customerId=changed.result.id;fork.revision=changed.revision;
+  changed=await (await dbCall({action:'fork_write',forkId:fork.id,revision:fork.revision,entity:'primary',operation:'create',values:{task:'Draft task',customer:customerId,watchers:[customerId]}})).json();
+  fork.revision=changed.revision;
+  let review=await (await dbCall({action:'merge_preview',forkId:fork.id,revision:fork.revision})).json();
+  expect(review.changes.map(change=>change.operation)).toEqual(['create','create']);
+  expect(review.conflicts).toEqual([]);
+  expect((await dbCall({action:'merge_apply',forkId:fork.id,revision:fork.revision,checksum:review.checksum})).status).toBe(200);
+  const appRows=await (await call(`/tables/${app.tableId}`,owner)).json();
+  const customerRows=await (await call(`/tables/${customerEntity.table.id}`,owner)).json();
+  expect(appRows.rows[0].values.customer).toBe(customerRows.rows[0].id);
+
+  const fresh=(await (await dbCall({action:'fork'})).json()).fork;
+  const broken=fresh.entities.map(entity=>entity.key==='customers'?{...entity,rows:[]}:entity);
+  await env.DB.prepare('UPDATE hx_app_forks SET data=?1,revision=revision+1 WHERE org_id=?2 AND app_id=?3 AND created_by=?4 AND id=?5')
+    .bind(JSON.stringify(broken),orgId,app.id,'8101',fresh.id).run();
+  const rejected=await dbCall({action:'merge_preview',forkId:fresh.id,revision:fresh.revision+1});
+  expect(rejected.status).toBe(409);
+  expect((await rejected.json()).message).toMatch(/linked|relation/i);
+});

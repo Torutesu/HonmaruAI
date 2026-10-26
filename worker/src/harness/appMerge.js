@@ -1,4 +1,4 @@
-import { databaseView, readFork, digest } from './appDatabase.js';
+import { databaseView, readFork, digest, relationStateError } from './appDatabase.js';
 import { validateValues } from './tableContract.js';
 const err=(error,status=409)=>({error,status});
 const canonical=value=>JSON.stringify(value, Object.keys(value).sort());
@@ -29,6 +29,10 @@ export async function previewMerge(db,orgId,app,by,input) {
     const net=changes.filter(c=>c.entity===entity.key).reduce((n,c)=>n+(c.operation==='create'?1:c.operation==='remove'?-1:0),0);
     if(results.length+net>5000)return err('Production row limit would be exceeded.',400);
   }
+  // Validate the reviewed final state, so one preview may add a linked row
+  // and its parent together while deletes that leave dangling links are refused.
+  const relationError=relationStateError(fork.entities);
+  if(relationError)return err(relationError,409);
   if(changes.length>50)return err('Merge at most 50 changed records at once. Use a smaller preview.',400);
   const review={forkId:fork.id,revision:fork.revision,changes,conflicts};
   const checksum=await digest(JSON.stringify({review,snapshots}));

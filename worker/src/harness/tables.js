@@ -1,11 +1,12 @@
 import { validateValues } from "./tableContract.js";
+import { appRelationDeleteGuard, appRelationWriteGuard, hasAppRelationsToRow, validateAppRelations } from './appRelations.js';
 // Tables: the typed database under an App (docs/kylon-gap-plan.md).
 //
 // A table names its columns; a row is JSON keyed by column id. Values are
 // coerced to the column's type on the way in, so a view or an agent reading
 // a row never has to guess whether "1,200" is a number.
 
-export const COLUMN_TYPES = ["text", "number", "date", "select", "checkbox", "url", "person", "email"];
+export const COLUMN_TYPES = ["text", "number", "date", "select", "checkbox", "url", "person", "email", "relation"];
 export const MAX_COLUMNS = 40;
 export const MAX_ROWS = 5000;
 export const MAX_TABLES_PER_ORG = 200;
@@ -23,7 +24,7 @@ function columnId(name, taken) {
 }
 
 /// Clean a column list, or say what is wrong with it.
-export function normalizeColumns(input, existing = []) {
+export function normalizeColumns(input, existing = [], { allowRelations = false } = {}) {
   if (!Array.isArray(input) || input.length === 0) return { error: "A table needs at least one column." };
   if (input.length > MAX_COLUMNS) return { error: `A table has at most ${MAX_COLUMNS} columns.` };
   const taken = new Set();
@@ -42,6 +43,13 @@ export function normalizeColumns(input, existing = []) {
         .map((o) => String(o ?? "").trim().slice(0, 40))
         .filter(Boolean);
       column.options = [...new Set(options)].slice(0, 30);
+    }
+    if (type === "relation") {
+      if (!allowRelations) return { error: "Relations can only be added through an app database migration." };
+      const targetEntity = String(raw.targetEntity ?? "");
+      if (!/^[a-z][a-z0-9_]{0,39}$/.test(targetEntity)) return { error: "A relation field names a valid app entity." };
+      column.targetEntity = targetEntity;
+      column.multiple = raw.multiple === true;
     }
     out.push(column);
   }
@@ -79,6 +87,15 @@ export function coerce(column, value) {
     }
     case "person":
       return String(value).trim().replace(/^@/, "").slice(0, 64) || null;
+    case "relation":
+      if (column.multiple) {
+        if (!Array.isArray(value)) return value;
+        if (value.some(item => typeof item !== 'string')) return value;
+        const ids=value.map(item=>item.trim());
+        if(ids.length>100||ids.some(id=>!id||id.length>64))return ids;
+        return [...new Set(ids)];
+      }
+      return typeof value==='string' ? value.trim().slice(0,65) || null : value;
     default:
       return String(value).slice(0, 5000);
   }
@@ -235,14 +252,21 @@ export async function addRow(db, orgId, tableId, values, by, validation) {
   if (!table) return { error: "No such table.", status: 404 };
   const invalid = checkValues(table, values, validation);
   if (invalid) return invalid;
+  const storedValues = validation === 'strict' ? values : cleanValues(table.columns, values);
+  const relationError = await validateAppRelations(db, orgId, tableId, table.columns, storedValues);
+  if (relationError) return relationError;
+  const relationGuard = await appRelationWriteGuard(db, orgId, tableId, table.columns, storedValues, 8);
+  if (relationGuard.error) return relationGuard.error;
   const count = await db.prepare("SELECT COUNT(*) AS n, MAX(position) AS p FROM hx_rows WHERE table_id = ?1 AND org_id = ?2").bind(tableId, orgId).first();
   if (Number(count?.n || 0) >= MAX_ROWS) return { error: `A table holds at most ${MAX_ROWS} rows.` };
   const id = newId("row");
   const at = now();
-  await db
-    .prepare("INSERT INTO hx_rows (id, table_id, org_id, data, position, created_by, updated_by, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?7)")
-    .bind(id, tableId, orgId, JSON.stringify(validation === "strict" ? values : cleanValues(table.columns, values)), Number(count?.p || 0) + 1, String(by), at)
+  const inserted = await db
+    .prepare(`INSERT INTO hx_rows (id, table_id, org_id, data, position, created_by, updated_by, created_at, updated_at)
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?7 WHERE ${relationGuard.sql}`)
+    .bind(id, tableId, orgId, JSON.stringify(storedValues), Number(count?.p || 0) + 1, String(by), at, ...relationGuard.binds)
     .run();
+  if (!inserted.meta?.changes) return { error: 'A linked record changed before this record could be saved. Reload and try again.', status: 409 };
   return { table, row: await getRow(db, orgId, tableId, id) };
 }
 
@@ -257,11 +281,15 @@ export async function updateRow(db, orgId, tableId, rowId, values, by, expectedU
   const invalid = checkValues(table, values, validation);
   if (invalid) return invalid;
   const merged = { ...before.values, ...(validation === "strict" ? values : cleanValues(table.columns, values)) };
+  const relationError = await validateAppRelations(db, orgId, tableId, table.columns, merged);
+  if (relationError) return relationError;
+  const relationGuard = await appRelationWriteGuard(db, orgId, tableId, table.columns, merged, 8);
+  if (relationGuard.error) return relationGuard.error;
   // Strictly advance even when two writes happen within the same millisecond.
   const at = new Date(Math.max(Date.now(), Date.parse(before.updatedAt) + 1)).toISOString();
   const changed = await db
-    .prepare("UPDATE hx_rows SET data = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4 AND table_id = ?5 AND org_id = ?6 AND updated_at = ?7 RETURNING *")
-    .bind(JSON.stringify(merged), String(by), at, rowId, tableId, orgId, before.updatedAt)
+    .prepare(`UPDATE hx_rows SET data = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4 AND table_id = ?5 AND org_id = ?6 AND updated_at = ?7 AND (${relationGuard.sql}) RETURNING *`)
+    .bind(JSON.stringify(merged), String(by), at, rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds)
     .first();
   if (!changed) return rowConflict();
   return { table, before, row: publicRow(changed) };
@@ -275,8 +303,13 @@ export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt) {
   const before = await getRow(db, orgId, tableId, rowId);
   if (!before) return { error: "No such row.", status: 404 };
   if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== before.updatedAt) return rowConflict();
-  const deleted = await db.prepare("DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3 AND updated_at = ?4 RETURNING id").bind(rowId, tableId, orgId, before.updatedAt).first();
-  if (!deleted) return rowConflict();
+  if (await hasAppRelationsToRow(db, orgId, tableId, rowId)) return { error: 'This record is linked from another app record. Remove that link before deleting it.', status: 409 };
+  const relationGuard = await appRelationDeleteGuard(db, orgId, tableId, 5);
+  const deleted = await db.prepare(`DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3 AND updated_at = ?4 AND (${relationGuard.sql}) RETURNING id`).bind(rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds).first();
+  if (!deleted) {
+    if (await hasAppRelationsToRow(db, orgId, tableId, rowId)) return { error: 'This record is linked from another app record. Remove that link before deleting it.', status: 409 };
+    return rowConflict();
+  }
   return { table, deleted: true, before };
 }
 

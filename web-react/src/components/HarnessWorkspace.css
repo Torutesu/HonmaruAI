@@ -458,6 +458,7 @@
 .hx-record-dialog .dlg-btn.primary { background:var(--hx-action); color:var(--hx-action-text); border-color:var(--hx-action); }
 .hx-record-form { display:flex; flex-direction:column; gap:18px; }
 .hx-record-form .dlg-input { border-radius:12px; background:var(--hx-surface); color:var(--hx-text); }
+.hx-record-form .hx-relation-select[multiple] { height:auto; min-height:84px; padding:7px 10px; }
 .hx-record-form textarea { height:auto; min-height:72px; padding:10px 12px; resize:vertical; }
 .hx-record-form label:first-child textarea { min-height:98px; }
 .hx-record-form .dlg-label { color:var(--hx-text); }

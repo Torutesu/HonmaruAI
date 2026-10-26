@@ -5,6 +5,23 @@ const err = (error, status = 400) => ({ error, status });
 const keyOK = k => typeof k === 'string' && /^[a-z][a-z0-9_]{0,39}$/.test(k);
 export const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('');
 
+export function relationStateError(entities) {
+  const byKey = new Map((entities || []).map(entity => [entity.key, new Set((entity.rows || []).map(row => row.id))]));
+  for (const entity of entities || []) for (const column of entity.table.columns || []) {
+    if (column.type !== 'relation') continue;
+    const targets = byKey.get(column.targetEntity);
+    if (!targets) return `The relation field "${column.name}" points to an unavailable app entity.`;
+    for (const row of entity.rows || []) {
+      const value = row.values?.[column.id];
+      if (value == null) continue;
+      if (column.multiple && (!Array.isArray(value) || value.length > 100 || new Set(value).size !== value.length)) return `The linked records in "${column.name}" are invalid.`;
+      const ids = column.multiple ? value : [value];
+      if (ids.some(id => typeof id !== 'string' || !targets.has(id))) return `A record linked from "${column.name}" no longer exists in this app.`;
+    }
+  }
+  return null;
+}
+
 export async function databaseView(db, orgId, app) {
   const state = await db.prepare('SELECT version FROM hx_app_database_state WHERE org_id=?1 AND app_id=?2').bind(orgId, app.id).first();
   const { results } = await db.prepare('SELECT entity_key, table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 ORDER BY entity_key').bind(orgId, app.id).all();
@@ -24,7 +41,7 @@ export function planMigration(current, operations) {
     if (op.op === 'create_entity') {
       if (entities.has(op.entity) || entities.size >= 12) return err('Entity already exists or the 12-entity limit was reached.');
       if (typeof op.name !== 'string' || !op.name.trim() || op.name.length > 80) return err('Give the entity a name (1–80 characters).');
-      const cols = normalizeColumns(op.columns);
+      const cols = normalizeColumns(op.columns, [], { allowRelations: true });
       if (cols.error) return cols;
       const table = { id: `tbl_${crypto.randomUUID().replace(/-/g, '')}`, name: op.name.trim(), columns: cols.columns };
       entities.set(op.entity, table); changed.set(op.entity, { table, create: true });
@@ -32,11 +49,14 @@ export function planMigration(current, operations) {
       const table = entities.get(op.entity);
       if (!table) return err('No such entity.');
       if (!Array.isArray(op.columns) || !op.columns.length || op.columns.some(c => c.id || table.columns.some(old => old.name.toLowerCase() === String(c.name).toLowerCase()))) return err('Add new columns; existing columns cannot be replaced.');
-      const cols = normalizeColumns([...table.columns, ...op.columns], table.columns);
+      const cols = normalizeColumns([...table.columns, ...op.columns], table.columns, { allowRelations: true });
       if (cols.error) return cols;
       const next = { ...table, columns: cols.columns };
       entities.set(op.entity, next); changed.set(op.entity, { ...changed.get(op.entity), table: next });
     } else return err('Only create_entity and add_columns are supported.');
+  }
+  for (const table of entities.values()) for (const column of table.columns) {
+    if (column.type === 'relation' && !entities.has(column.targetEntity)) return err(`The relation field "${column.name}" points to an unavailable app entity.`);
   }
   return { changes: [...changed].map(([key, value]) => ({ key, ...value })) };
 }
@@ -76,7 +96,7 @@ export async function generateMigration(prompt, current, complete) {
   if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 4000) return err('Describe the database change in 1–4000 characters.');
   if (!complete) return err('AI generation is unavailable within the current allowance.', 503);
   try {
-    const raw = await complete('Return JSON {"operations":[...]}. Additive database migration only: {op:"create_entity",entity:"lowercase_key",name:"Name",columns:[{name,type,options?}]} or {op:"add_columns",entity:"existing_key",columns:[{name,type,options?}]}. Types: text,number,date,select,checkbox,url,person,email. Internal owners, assignees, reviewers, interviewers and approvers use person references to workspace members, not free text unless explicitly requested. Never delete or replace columns. No column IDs in new columns. Current schema: '+JSON.stringify(current.entities), prompt);
+    const raw = await complete('Return JSON {"operations":[...]}. Additive database migration only: {op:"create_entity",entity:"lowercase_key",name:"Name",columns:[{name,type,options?}]} or {op:"add_columns",entity:"existing_key",columns:[{name,type,options?}]}. Types: text,number,date,select,checkbox,url,person,email,relation. A relation column uses targetEntity with an existing app entity key and optional multiple:true to link more than one record. Relation values are stable record IDs and must reference records in this same app. Internal owners, assignees, reviewers, interviewers and approvers use person references to workspace members, not free text unless explicitly requested. Never delete or replace columns. No column IDs in new columns. Current schema: '+JSON.stringify(current.entities), prompt);
     const plan = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
     const operations = Array.isArray(plan.operations) ? plan.operations.map(operation => operation && Array.isArray(operation.columns)
       ? { ...operation, columns: normalizeMemberFields(prompt, operation.columns) } : operation) : plan.operations;
@@ -130,6 +150,8 @@ export async function mutateFork(db, orgId, appId, by, input) {
     result = { id: crypto.randomUUID(), values: input.values, updatedAt: at }; entity.rows.push(result);
   } else if (input.operation === 'update') { row.values = { ...row.values, ...input.values }; row.updatedAt = at; result = row; }
   else { entity.rows = entity.rows.filter(r => r.id !== input.rowId); result = { deleted: true }; }
+  const relationError = relationStateError(fork.entities);
+  if (relationError) return err(relationError, 409);
   const data = JSON.stringify(fork.entities);
   if (new TextEncoder().encode(data).length > 750000) return err('Preview database is too large.', 413);
   const saved = await db.prepare('UPDATE hx_app_forks SET data=?1,revision=revision+1 WHERE org_id=?2 AND app_id=?3 AND created_by=?4 AND id=?5 AND revision=?6 AND NOT EXISTS (SELECT 1 FROM hx_app_fork_merges m WHERE m.fork_id=hx_app_forks.id)').bind(data, orgId, appId, String(by), fork.id, fork.revision).run();

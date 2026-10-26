@@ -43,6 +43,7 @@
   width: 100%; min-width: 90px; border: 1px solid transparent; border-radius: var(--radius-input);
   background: transparent; padding: 6px; font: 13px var(--font-body); color: var(--ink-black); box-sizing: border-box;
 }
+.hx-cell-select[multiple] { height:auto; min-height:64px; padding:4px 6px; }
 .hx-cell-input:hover, .hx-cell-select:hover { border-color: var(--bone); }
 .hx-cell-input:focus, .hx-cell-select:focus { border-color: var(--ink-black); outline: none; background: var(--signal-white); }
 .hx-step .hx-cell-input, .hx-builder .hx-cell-input, .hx-step select, .hx-builder select, .row .hx-cell-input { border-color: var(--bone); background: var(--signal-white); }
