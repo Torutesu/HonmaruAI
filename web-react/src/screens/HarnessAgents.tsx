@@ -130,6 +130,15 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
     setMemories(m.memories); setMemoryCursor(m.nextCursor); setSkills(s.skills); setAllSkills(all.skills)
   }), [api, act, agent.id, memoryChannel, memorySearch])
   useEffect(() => { load(); return () => { ++memoryLoad.current } }, [load])
+  useEffect(()=>{
+    if(typeof window==='undefined')return
+    const refresh=(event:Event)=>{
+      const changed=(event as CustomEvent<{agentId?:string}>).detail?.agentId
+      if(changed===agent.id)void load()
+    }
+    window.addEventListener('honmaru:agent-access-changed',refresh)
+    return()=>window.removeEventListener('honmaru:agent-access-changed',refresh)
+  },[agent.id,load])
 
   const save = (patch: Partial<AgentProfile>) => act('save', async () => {
     const r = await api.saveProfile(agent.id, patch)

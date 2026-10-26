@@ -42,6 +42,21 @@ test('a private Agent access invalidation reloads the directory and closes a rev
  }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
 })
 
+test('a targeted Agent access event reloads the open profile permissions',async()=>{
+ let tree!:ReturnType<typeof create>
+ const requests:string[]=[]
+ vi.stubGlobal('fetch',vi.fn(async(input:string)=>{requests.push(input);return {ok:true,json:async()=>({agents:[{id:'a',name:'Shared agent',handle:'shared',scope:'team'}],profile:{tier:'standard',people:[],access:'private'},canEdit:false,memories:[],skills:[],followups:[],scopes:[]})}}))
+ vi.stubGlobal('window',new EventTarget())
+ try{
+  await act(async()=>{tree=create(<HarnessAgents httpBase="https://example.test" orgId="one" sessionToken="first" onClose={vi.fn()}/>)})
+  await act(async()=>tree.root.findByProps({'data-agent':'a'}).props.onClick())
+  const profileReads=()=>requests.filter(raw=>new URL(raw).pathname==='/hx/agents/a/profile').length
+  expect(profileReads()).toBe(1)
+  await act(async()=>{window.dispatchEvent(new CustomEvent('honmaru:agent-access-changed',{detail:{agentId:'a',version:2}}))})
+  expect(profileReads()).toBe(2)
+ }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
+})
+
 test('late agent responses cannot populate a different workspace or session', async () => {
   const pending: Array<(value: unknown) => void> = []
   vi.stubGlobal('fetch', vi.fn(() => new Promise(resolve => pending.push(resolve))))
