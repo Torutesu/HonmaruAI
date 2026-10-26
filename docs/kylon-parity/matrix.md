@@ -78,8 +78,8 @@
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
 | KY-038 | 会話・テンプレートからDatabase App | 一部 | P1 | [worker/src/harness/appGeneration.js](../../worker/src/harness/appGeneration.js) | PR #443で元の依頼文の自動保存、元会話の表示、要求IDによる再送、保存済み生成定義の再利用、非公開元スレッドの公開範囲継承を追加（本番反映済み）。テンプレート照合とAI生成の区別、業務要件を保持する全体比較は継続 |
-| KY-039 | アプリ単位のDBと複数entity | 一部 | P0 | [worker/src/harness/tables.js](../../worker/src/harness/tables.js) | アプリACLを継承する複数entityと型付きテーブルを追加。relationと参照整合性は残る |
-| KY-040 | 標準CRUD・型検証 | 一部 | P0 | [worker/src/harness/tables.js](../../worker/src/harness/tables.js) | strict値検証・行CAS・HTTP/MCPページングを追加。参照整合性・スキーマ変更との競合は未実装 |
+| KY-039 | アプリ単位のDBと複数entity | 一部 | P0 | [worker/src/harness/appDatabase.js](../../worker/src/harness/appDatabase.js), [worker/src/harness/tables.js](../../worker/src/harness/tables.js) | アプリACLを継承する複数entity・型付きテーブル・同一アプリ内の単一/複数relationを実装。参照先の存在検証、リンク中の削除防止、previewの最終状態検証をPR #514（`470dabf1`）で追加。物理的にAppごとの専用Postgres DBと専用loginを持たずD1を論理分離している差、Kylon実画面での一致確認は残る |
+| KY-040 | 標準CRUD・型検証 | 一部 | P0 | [worker/src/harness/tables.js](../../worker/src/harness/tables.js), [worker/src/harness/appDatabase.js](../../worker/src/harness/appDatabase.js) | strict値検証・行CAS・HTTP/MCPページング・relationの参照整合性と削除競合ガードをPR #514（`470dabf1`）で追加。migrationはschema version/CASと既存列の競合検知を持つ。破壊的/データ変換migrationはKY-048の残差 |
 | KY-041 | 表・ボード・カレンダー | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | table/board/metricsに終日calendarを追加。月移動・日付編集・未設定・閏日を検証。時刻・タイムゾーン付き予定とnative画面は残る |
 | KY-042 | 保存ビュー・列順・幅・フィルタ・グループ | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 共有フィルター・グループに加え、個人ビュー・列順・列幅・選択中ビューのユーザー別保存を追加。権限分離・競合拒否。列の表示切替（タイトル常時表示）もユーザー別保存。ID・作成日時・更新日時の読取専用システム列、ヘッダーの昇順/降順/解除とフィルターを追加（初期非表示、個人設定に保存）。折り返しの個人設定保存・新規レコード入力ダイアログ・全画面表示を追加。全操作の完全一致は引き続き検証対象 |
 | KY-043 | レコードに紐づく会話 | 一部 | P1 | [worker/src/harness/appConversations.js](../../worker/src/harness/appConversations.js) | 作成元スレッドの履歴・返信・既読を共用。独立アプリ／レコード会話に明示的AI返信・メンション・アプリ内通知・既読同期を追加。全体Activityの表示・既読・対象会話への移動を統合。独立会話のOSプッシュと実機比較未確認部分は残る |
