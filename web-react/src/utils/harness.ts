@@ -6,7 +6,7 @@ export type SkillImportInput = string | { zipBase64: string } | { files: SkillFi
 export interface AppMessage { id:number; authorId:string; authorName:string; body:string; createdAt:string }
 export interface AppConversation { threadId:string; messages:AppMessage[]; hasMore:boolean; source?:{channel:string;threadId:string;messages:Array<{id:string;body:string;authorName?:string;kind?:string;createdAt:string}>}|null; aiReplies?:Array<{messageId:number;status:string;error?:string}> }
 export interface PersonalViews { activeView?: string; revision: number; views: View[]; computed: View[]; layouts: Record<string, {order:string[];widths:Record<string,number>;hidden?:string[];wrapText?:boolean}> }
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 // The harness (docs/kylon-gap-plan.md), as the web app talks to it: the
 // workspace's mode, and the Apps, Tables, Workflows, Follow-ups, Approvals,
@@ -148,8 +148,9 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     execute: (gatewayId: string, code: string, input: unknown, requestId: string, language?:'javascript'|'typescript') => call<{ job: GatewayJob }>('POST', '/gateways/jobs', { gatewayId, code, input, requestId,...(language==='typescript'?{language}:{}) }),
     cancelExecution: (id: string) => call('POST', `/gateways/jobs/${encodeURIComponent(id)}/cancel`),
     home: () => call<HomeData>('GET', '/harness/home'),
-    getMode: (signal?:AbortSignal) => call<{ mode: WorkspaceMode; canEdit: boolean }>('GET', '/orgs/mode',undefined,undefined,signal),
+    getMode: (signal?:AbortSignal) => call<{ mode: WorkspaceMode; canEdit: boolean; simpleOnly?: boolean; revision?: number }>('GET', '/orgs/mode',undefined,undefined,signal),
     setMode: (mode: WorkspaceMode) => call<{ mode: WorkspaceMode; canEdit: boolean }>('PUT', '/orgs/mode', { mode }),
+    setDisplayPreference: (simpleOnly: boolean) => call<{ simpleOnly: boolean; revision: number }>('PUT', '/hx/display-preference', { simpleOnly }),
 
     templates: () => call<{ templates: Template[] }>('GET', '/apps/templates'),
     apps: (channel?: string) => call<{ apps: App[] }>('GET', '/apps', undefined, channel ? { channel } : {}),
@@ -255,6 +256,10 @@ export type HarnessApi = ReturnType<typeof harnessApi>
 export const WANT_MODE_KEY = 'hx.wantMode'
 export const SET_MODE_EVENT = 'honmaru:set-mode'
 export const isMode = (m: unknown): m is WorkspaceMode => m === 'simple' || m === 'harness'
+// A short, non-cryptographic namespace for local presentation caches. Never
+// place a session token itself in a storage key; server preferences are keyed
+// by the authenticated account and are what synchronizes separate devices.
+function localSessionScope(token:string){let a=2166136261,b=0x9e3779b9;for(let i=0;i<token.length;i++){const c=token.charCodeAt(i);a=Math.imul(a^c,16777619);b=Math.imul(b^c,2246822519)}return `${(a>>>0).toString(36)}${(b>>>0).toString(36)}`}
 
 /// Simple until this workspace answers. Browser preference changes only
 /// presentation; it never writes the workspace's shared configuration.
@@ -262,7 +267,8 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
   // Keep authorization results tied to their exact request scope. A workspace
   // switch must not show the previous workspace's mode or admin controls.
   const scope = JSON.stringify([httpBase, orgId, sessionToken])
-  const preferenceKey = `hx.simple.${httpBase}.${orgId}`
+  const preferenceKey = `hx.simple.${httpBase}.${orgId}.${localSessionScope(sessionToken)}`
+  const pendingPreferenceKey = `hx.simple.pending.${httpBase}.${orgId}.${localSessionScope(sessionToken)}`
   // Only presentation is cached. Never persist session tokens or grants.
   const displayKey = `hx.displayMode.${JSON.stringify([httpBase,orgId])}`
   const [offline,setOffline]=useState(()=>typeof navigator!=='undefined'&&navigator.onLine===false)
@@ -270,9 +276,20 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
   const offlineMode=():WorkspaceMode=>{try{const mode=localStorage.getItem(displayKey);return isMode(mode)?mode:'simple'}catch{return 'simple'}}
   useEffect(()=>{const update=()=>setOffline(navigator.onLine===false);window.addEventListener('online',update);window.addEventListener('offline',update);return()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update)}},[])
 
-  const readPreference = () => { try { return localStorage.getItem(preferenceKey) === 'true' } catch { return false } }
+  const readPreference = () => { try { const value=localStorage.getItem(preferenceKey);if(!value)return false;const parsed=JSON.parse(value);return typeof parsed?.simpleOnly==='boolean'?parsed.simpleOnly:value==='true' } catch { return false } }
+  const readPendingPreference = ():boolean|null=>{try{const value=localStorage.getItem(pendingPreferenceKey);return value==='true'?true:value==='false'?false:null}catch{return null}}
+  const savePreference = (simple:boolean,revision=0)=>{try{localStorage.setItem(preferenceKey,JSON.stringify({simpleOnly:simple,revision}))}catch{}}
+  const savePendingPreference = (simple:boolean|null)=>{try{if(simple===null)localStorage.removeItem(pendingPreferenceKey);else localStorage.setItem(pendingPreferenceKey,String(simple))}catch{}}
   const [snapshot, setSnapshot] = useState({ scope: '', mode: 'simple' as WorkspaceMode, canEdit: false, loaded: false, error:'' })
-  const [preference, setPreference] = useState({ key: preferenceKey, simple: readPreference() })
+  const [preference, setPreference] = useState({ key: preferenceKey, simple: readPreference(), revision:0 })
+  const preferenceRef=useRef(preference)
+  const [preferenceError,setPreferenceError]=useState(false)
+  const preferenceWrite=useRef(Promise.resolve())
+  const applyPreference=useCallback((simple:boolean,revision?:number)=>{
+    const current=preferenceRef.current
+    const next={key:preferenceKey,simple,revision:revision??(current.key===preferenceKey?current.revision:0)}
+    preferenceRef.current=next;setPreference(next)
+  },[preferenceKey])
   const simpleOnly = preference.key === preferenceKey ? preference.simple : readPreference()
   const current = snapshot.scope === scope ? snapshot : { mode: 'simple' as WorkspaceMode, canEdit: false, loaded: false, error:'' }
   const [retryCount,setRetryCount]=useState(0)
@@ -285,8 +302,25 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
     const controller=new AbortController()
     const fail=()=>{if(live)setSnapshot({scope,mode:'simple',canEdit:false,loaded:false,error:'Workspace settings could not load.'})}
     const timer=setTimeout(()=>{controller.abort();fail()},15000)
-    harnessApi(httpBase, orgId, sessionToken).getMode(controller.signal)
-      .then(d => { if (live&&!controller.signal.aborted) {if(isMode(d.mode)){rememberMode(d.mode);setSnapshot({ scope, mode: d.mode, canEdit: d.canEdit === true, loaded: true,error:'' })}else fail()} })
+    const api=harnessApi(httpBase, orgId, sessionToken)
+    api.getMode(controller.signal)
+      .then(async d => {
+        if (!live||controller.signal.aborted) return
+        if(!isMode(d.mode)){fail();return}
+        let simple=typeof d.simpleOnly==='boolean'?d.simpleOnly:readPreference()
+        let revision=Number.isSafeInteger(d.revision)&&Number(d.revision)>=0?Number(d.revision):0
+        // Retry an offline preference when this same signed-in session
+        // reconnects. An unscoped legacy key is deliberately not imported:
+        // it could belong to somebody else on a shared device.
+        const pending=readPendingPreference()
+        if(pending!==null){
+          const wanted=pending
+          try{const saved=await api.setDisplayPreference(wanted);if(!live||controller.signal.aborted)return;simple=saved.simpleOnly;revision=saved.revision;savePendingPreference(null);setPreferenceError(false)}
+          catch{simple=wanted;savePendingPreference(wanted);if(live&&!controller.signal.aborted)setPreferenceError(true)}
+        }
+        savePreference(simple,revision);rememberMode(d.mode);applyPreference(simple,revision)
+        setSnapshot({ scope, mode: d.mode, canEdit: d.canEdit === true, loaded: true,error:'' })
+      })
       .catch(()=>{if(!controller.signal.aborted)fail()}).finally(()=>clearTimeout(timer))
     const onChange = (e: Event) => {
       const next = (e as CustomEvent<{ orgId: string; httpBase: string; mode: WorkspaceMode }>).detail
@@ -297,23 +331,49 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
     }
     window.addEventListener('hx-mode', onChange)
     return () => { live = false;clearTimeout(timer);controller.abort(); window.removeEventListener('hx-mode', onChange) }
-  }, [httpBase, orgId, sessionToken, scope,retryCount,offline])
+  }, [httpBase, orgId, sessionToken, scope,retryCount,offline,applyPreference])
   useEffect(() => {
     const update = (event?: Event) => {
-      const detail = event?.type === 'hx-simple' ? (event as CustomEvent<{ key: string; simple: boolean }>).detail : null
+      const detail = event?.type === 'hx-simple' ? (event as CustomEvent<{ key: string; simple: boolean; revision?:number }>).detail : null
       if (detail && detail.key !== preferenceKey) return
-      setPreference({ key: preferenceKey, simple: detail ? detail.simple : readPreference() })
+      const current=preferenceRef.current
+      if(detail&&Number.isSafeInteger(detail.revision)&&current.key===preferenceKey&&Number(detail.revision)<current.revision)return
+      applyPreference(detail ? detail.simple : readPreference(),detail?.revision)
     }
     update()
     window.addEventListener('hx-simple', update)
     window.addEventListener('storage', update)
     return () => { window.removeEventListener('hx-simple', update); window.removeEventListener('storage', update) }
-  }, [preferenceKey])
+  }, [preferenceKey,applyPreference])
+  useEffect(()=>{
+    const onRemote=(event:Event)=>{
+      const detail=(event as CustomEvent<{orgId:string;simpleOnly:boolean;revision:number}>).detail
+      if(detail?.orgId!==orgId||typeof detail.simpleOnly!=='boolean'||!Number.isSafeInteger(detail.revision))return
+      const current=preferenceRef.current
+      const pending=readPendingPreference()
+      if((current.key===preferenceKey&&detail.revision<current.revision)||(pending!==null&&pending!==detail.simpleOnly))return
+      savePreference(detail.simpleOnly,detail.revision);savePendingPreference(null);setPreferenceError(false)
+      applyPreference(detail.simpleOnly,detail.revision)
+      window.dispatchEvent(new CustomEvent('hx-simple',{detail:{key:preferenceKey,simple:detail.simpleOnly,revision:detail.revision}}))
+    }
+    window.addEventListener('honmaru:display-preference-changed',onRemote)
+    return()=>window.removeEventListener('honmaru:display-preference-changed',onRemote)
+  },[orgId,preferenceKey,applyPreference])
   const setSimpleOnly = useCallback((simple: boolean) => {
-    try { localStorage.setItem(preferenceKey, String(simple)) } catch { /* Current browser session still works. */ }
-    setPreference({ key: preferenceKey, simple })
+    savePreference(simple,preferenceRef.current.key===preferenceKey?preferenceRef.current.revision:0)
+    savePendingPreference(simple)
+    applyPreference(simple)
     window.dispatchEvent(new CustomEvent('hx-simple', { detail: { key: preferenceKey, simple } }))
-  }, [preferenceKey])
+    if(offline)return Promise.resolve({simpleOnly:simple,revision:preferenceRef.current.revision,pending:true})
+    const write=preferenceWrite.current.catch(()=>{}).then(async()=>{
+      const wanted=readPreference()
+      const saved=await harnessApi(httpBase,orgId,sessionToken).setDisplayPreference(wanted)
+      if(readPreference()===saved.simpleOnly){savePreference(saved.simpleOnly,saved.revision);savePendingPreference(null);setPreferenceError(false);applyPreference(saved.simpleOnly,saved.revision);window.dispatchEvent(new CustomEvent('hx-simple',{detail:{key:preferenceKey,simple:saved.simpleOnly,revision:saved.revision}}))}
+      return saved
+    }).catch(error=>{const latest=readPreference();savePendingPreference(latest);setPreferenceError(true);throw error})
+    preferenceWrite.current=write.then(()=>undefined,()=>undefined)
+    return write
+  },[httpBase,orgId,sessionToken,preferenceKey,offline,applyPreference])
   const setMode = useCallback(async (next: WorkspaceMode) => {
     const d = await harnessApi(httpBase, orgId, sessionToken).setMode(next)
     if (!isMode(d.mode)) throw new Error('Invalid workspace mode.')
@@ -323,7 +383,7 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
     return d.mode
   }, [httpBase, orgId, sessionToken, scope])
   return { mode: simpleOnly ? 'simple' as const : current.mode, workspaceMode: current.mode,
-    canEdit: !offline&&current.canEdit, loaded: current.loaded,offline,error:current.error,retry, setMode, simpleOnly, setSimpleOnly }
+    canEdit: !offline&&current.canEdit, loaded: current.loaded,offline,error:current.error,retry, setMode, simpleOnly, setSimpleOnly,preferenceError }
 }
 
 /// A cell as the table shows it.

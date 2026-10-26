@@ -52,6 +52,7 @@ import { allowed } from "../permissions.js";
 import { audit, person } from "../audit.js";
 import { enforce } from "../ratelimit.js";
 import { getMode, setMode, MODES } from "./mode.js";
+import { getDisplayPreference, setDisplayPreference } from "./displayPreferences.js";
 import {
   listTables, getTable, createTable, updateTable, deleteTable,
   listRows, addRow, updateRow, deleteRow,
@@ -159,6 +160,22 @@ export async function handleHarness(request, env, url, context = {}) {
   const orgId = read || visualRoute ? url.searchParams.get("orgId") : input.orgId;
   const parts = url.pathname.split("/").filter(Boolean);
 
+  // A Simple-only preference belongs to this signed-in member, not to the
+  // workspace. It is delivered only to that person's open devices.
+  if (url.pathname === '/hx/display-preference') {
+    if (request.method !== 'PUT') return json({ message: 'Method not allowed.' }, 405);
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    if (typeof input?.simpleOnly !== 'boolean') return json({ message: 'simpleOnly must be true or false.' }, 400);
+    const preference = await setDisplayPreference(env.DB, orgId, who.session.github_id, input.simpleOnly);
+    if (preference.error) return fail(preference);
+    await announceTo(env, orgId, [{
+      to: who.user.login,
+      event: appActivityEvent('display_preference_changed', { orgId, ...preference }),
+    }]);
+    return json(preference);
+  }
+
   if (parts[0] === 'gateways') return handleGateways(request, env, url, input);
 
   // ── Mode ──────────────────────────────────────────────────────────────
@@ -172,7 +189,8 @@ export async function handleHarness(request, env, url, context = {}) {
       if (result.error) return fail(result);
       await audit(env, request, { orgId, action: "workspace.mode_changed", actor: person(who.user), details: { mode: result.mode } });
     } else if (request.method !== "GET") return null;
-    return json({ orgId, mode: await getMode(env.DB, orgId), modes: MODES, canEdit });
+    const preference = await getDisplayPreference(env.DB, orgId, who.session.github_id);
+    return json({ orgId, mode: await getMode(env.DB, orgId), modes: MODES, canEdit, ...preference });
   }
 
   const who = await member(env, request, orgId);

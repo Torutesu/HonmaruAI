@@ -1695,6 +1695,18 @@ CREATE TABLE IF NOT EXISTS org_settings (
   updated_at    TEXT NOT NULL
 );
 
+/* Per-person presentation choice: unlike org_settings.mode this only affects
+   the user who set it. Membership removal clears the cached choice. */
+CREATE TABLE IF NOT EXISTS hx_user_display_preferences (
+  org_id        TEXT NOT NULL,
+  user_id       TEXT NOT NULL,
+  simple_only   INTEGER NOT NULL DEFAULT 0 CHECK(simple_only IN (0,1)),
+  revision      INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0),
+  updated_at    TEXT NOT NULL,
+  PRIMARY KEY (org_id,user_id),
+  FOREIGN KEY (org_id,user_id) REFERENCES memberships(org_id,user_github_id) ON DELETE CASCADE
+);
+
 /* A typed table: the database under an App. Columns are JSON
    [{ id, name, type, options? }] (harness/tables.js). */
 CREATE TABLE IF NOT EXISTS hx_tables (

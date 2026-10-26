@@ -4,6 +4,7 @@ import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { computeView, normalizeDefinition, specFromPrompt } from "../src/harness/apps.js";
 import { coerce, normalizeColumns } from "../src/harness/tables.js";
+import { joined, message } from "./helpers.js";
 
 // The harness (docs/kylon-gap-plan.md): a workspace's mode, its Tables, and
 // the Apps built on them. Simple stays the default; the harness routes answer
@@ -47,6 +48,31 @@ test("a workspace is simple until an admin makes it a harness", async () => {
   // And back, losing nothing.
   await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode: "simple" });
   expect((await (await get(`/orgs/mode?orgId=${ORG}`, mika)).json()).mode).toBe("simple");
+});
+
+test("Simple-only display preference syncs to the same member, not the workspace or other members", async () => {
+  await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode: "harness" });
+  const initial = await (await get(`/orgs/mode?orgId=${ORG}`, mika)).json();
+  expect(initial).toMatchObject({ mode: "harness", simpleOnly: false, revision: 0 });
+
+  const { ws: mikaSocket, messages: mikaMessages } = await joined(ORG, mika);
+  const { ws: toruSocket, messages: toruMessages } = await joined(ORG, toru);
+  const saved = await send("PUT", "/hx/display-preference", mika, { orgId: ORG, simpleOnly: true });
+  expect(saved.status).toBe(200);
+  expect(await saved.json()).toMatchObject({ simpleOnly: true, revision: 1 });
+  const changed = await message(mikaMessages, event => event.name === "display_preference_changed");
+  expect(changed?.value).toMatchObject({ orgId: ORG, simpleOnly: true, revision: 1 });
+  expect(toruMessages.some(event => event.name === "display_preference_changed")).toBe(false);
+  expect((await (await get(`/orgs/mode?orgId=${ORG}`, mika)).json())).toMatchObject({ mode: "harness", simpleOnly: true, revision: 1 });
+  expect((await (await get(`/orgs/mode?orgId=${ORG}`, toru)).json())).toMatchObject({ mode: "harness", simpleOnly: false, revision: 0 });
+
+  const invalid = await send("PUT", "/hx/display-preference", mika, { orgId: ORG, simpleOnly: "true" });
+  expect(invalid.status).toBe(400);
+  expect((await send("PUT", "/hx/display-preference", outsider, { orgId: ORG, simpleOnly: true })).status).toBe(403);
+  expect((await send("PUT", "/hx/display-preference", guest, { orgId: ORG, simpleOnly: true })).status).toBe(200);
+  expect((await (await get(`/orgs/mode?orgId=${ORG}`, mika)).json()).mode).toBe("harness");
+  mikaSocket.close();
+  toruSocket.close();
 });
 
 test("someone outside the workspace, or a guest in it, reaches none of it", async () => {

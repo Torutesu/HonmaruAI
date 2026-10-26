@@ -292,4 +292,18 @@ describe('WebSocketClient', () => {
     expect(details).toEqual([{ agentId: 'agent-a', version: 9 }])
     expect(refresh).toHaveBeenCalledTimes(1)
   })
+
+  it('forwards the targeted personal display preference to the active workspace hook', async () => {
+    const { socket } = await connectedClient()
+    const target = new EventTarget()
+    const details: unknown[] = []
+    target.addEventListener('honmaru:display-preference-changed', event => details.push((event as CustomEvent).detail))
+    vi.stubGlobal('window', target)
+
+    const preference = { orgId: 'core-team', simpleOnly: true, revision: 4 }
+    socket.emit({ type: 'CUSTOM', name: 'display_preference_changed', value: preference })
+    socket.emit({ type: 'CUSTOM', name: 'display_preference_changed', value: { simpleOnly: false } })
+
+    expect(details).toEqual([preference])
+  })
 })

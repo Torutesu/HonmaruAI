@@ -36,7 +36,7 @@ import { ModePicker } from './HarnessHome'
 
 export const HarnessHub: React.FC<HarnessProps & { onOpen: (s: HarnessScreen) => void }> = (props) => {
   const t = useT()
-  const { mode, workspaceMode, canEdit, loaded, setMode, simpleOnly, setSimpleOnly } = useWorkspaceMode(props.httpBase, props.orgId, props.sessionToken)
+  const { mode, workspaceMode, canEdit, loaded, setMode, simpleOnly, setSimpleOnly, preferenceError } = useWorkspaceMode(props.httpBase, props.orgId, props.sessionToken)
   const { busy, error, setError, act } = useAct()
   // A mode asked for from the desktop app's menu: applied once the server
   // has said whether this person may, and refused out loud when not.
@@ -73,9 +73,10 @@ export const HarnessHub: React.FC<HarnessProps & { onOpen: (s: HarnessScreen) =>
       <p className="lede">{t('One workspace where your team and AI agents run the business together. Simple mode keeps Honmaru as it is: the decision feed and the chat.')}</p>
       <div className="rows">
         <label className="row">
-          <input type="checkbox" checked={simpleOnly} onChange={e => setSimpleOnly(e.target.checked)} />
-          <span className="row-main">{t('Use only Simple in this browser')}<span className="row-sub">{t('Keep the decision feed and chat. Shared apps and workflows stay saved.')}</span></span>
+          <input type="checkbox" checked={simpleOnly} onChange={e => { void setSimpleOnly(e.target.checked).catch(() => {}) }} />
+          <span className="row-main">{t('Use only Simple on all your devices')}<span className="row-sub">{t('Only your view changes. Shared apps and workflows stay saved; other members are unaffected.')}</span></span>
         </label>
+        {preferenceError && <div className="form-error">{t('Could not sync your Simple preference. Your choice is saved on this device.')}</div>}
       </div>
       <div className="rows-title">{t('Workspace mode')}</div>
       <ModePicker mode={workspaceMode} canEdit={canEdit} busy={busy === 'mode'} onPick={(m) => void act('mode', async () => { await setMode(m); if (m === 'harness' && !simpleOnly) props.onOpen('home') })} />

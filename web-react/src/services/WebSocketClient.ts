@@ -487,6 +487,10 @@ export class WebSocketClient {
         window.dispatchEvent(new CustomEvent('honmaru:agent-access-changed', { detail: event.value }))
         window.dispatchEvent(new Event('honmaru:agents-changed'))
       }
+    } else if (event.name === 'display_preference_changed' && typeof event.value?.orgId === 'string') {
+      // Personal presentation choice: the relay addresses this event to the
+      // signed-in user's devices only, never to other workspace members.
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('honmaru:display-preference-changed', { detail: event.value }))
     } else if (event.name === 'reaction' && event.value) {
       this.onReaction?.(event.value.cardId, event.value.emoji, Boolean(event.value.on), event.value.by, event.value.reactions || {})
     }

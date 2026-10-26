@@ -1069,7 +1069,7 @@
       "priority": "P0",
       "source": "https://kylon.io/pricing",
       "code": "web-react/src/utils/harness.ts",
-      "acceptance": "今回Web/Electronブラウザ設定を追加。native/端末間同期は未実装"
+      "acceptance": "ユーザー×workspace単位のサーバー設定、同一ユーザー接続への限定通知、オフライン変更の再接続同期、他メンバーと共有Workspaceモードの非変更を検証。実端末2台での本番同期と各ネイティブ画面の比較は未検証"
     },
     {
       "id": "KY-093",

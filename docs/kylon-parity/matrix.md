@@ -18,7 +18,7 @@
 | KY-004 | ルームガイドライン | 一部 | P0 | [worker/src/harness/guidelines.js](../../worker/src/harness/guidelines.js) | 4096字・競合検知・毎ターン反映。BYOと全AI入口への適用が残る |
 | KY-005 | オブジェクト固定スレッド | 一部 | P1 | [worker/src/harness/appConversations.js](../../worker/src/harness/appConversations.js) | 作成元スレッドの履歴・返信・既読を共用。独立アプリ／レコード会話に明示的AI返信・メンション・アプリ内通知・既読同期を追加。全体Activityの表示・既読・対象会話への移動を統合。独立会話のOSプッシュと実機比較未確認部分は残る |
 | KY-006 | ルームへのリソース紐付け | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 所有ルームと参照リンクを区別し非公開データが他ルームへ漏れない |
-| KY-007 | ルームメンバーとエージェント権限の分離 | 一部 | P0 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 明示的な人間・Agent所属と役割UI、共通追加ダイアログ、アクセス申請/Owner・Admin承認、ルーム作成時の選択的な利用権付与をc5b069b0で本番公開。承認は申請者のAgent権限だけを付与しルームには追加しない。所有者移譲はバージョン競合検知付き。権限・共有先変更、申請承認、ルーム作成/Agent追加の付与後に関係者だけへバージョン通知し、開いた一覧・メンバー画面を再読込する実装を追加。正確なSHAのCIと本番反映は確認中。複数利用者による本番隔離検証と合成Agentを使ったKylon実画面比較は残る |
+| KY-007 | ルームメンバーとエージェント権限の分離 | 一部 | P0 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 明示的な人間・Agent所属と役割UI、共通追加ダイアログ、アクセス申請/Owner・Admin承認、ルーム作成時の選択的な利用権付与を本番公開。承認は申請者のAgent権限だけを付与しルームには追加しない。所有者移譲はバージョン競合検知付き。権限・共有先変更、申請承認、ルーム作成/Agent追加の付与後は関係者だけへバージョン通知し、開いた一覧・メンバー・Agent詳細を再読込。最終SHA `decdf511` のCI #2086/#2087 とWorker #236/Web #307は成功。複数利用者による本番隔離検証と合成Agentを使ったKylon実画面比較は残る |
 | KY-008 | ルーム横断検索 | 一部 | P1 | [worker/src/channels.js](../../worker/src/channels.js) | メッセージだけでなくファイル本文・レコードも同じACLで検索 |
 | KY-009 | ルームのアーカイブ・退出・削除 | 一部 | P1 | [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js) | 管理対象ルームの最後の人間Admin保護、退出時の権限失効、削除後の閉鎖履歴、退会時の後任引き継ぎを公開済み。空のQAルームの可逆アーカイブを本番確認。自動GitHub除名・アカウント削除・復旧・保持期間・実行中自動化は残る |
 | KY-010 | チャットから作業開始・送信先自動選択 | 一部 | P1 | [web-react/src/components/ClassicList.tsx](../../web-react/src/components/ClassicList.tsx) | 候補ルームに権限を適用し曖昧な送信先を確認 |
@@ -159,7 +159,7 @@
 | KY-089 | agent数上限 | 一部 | P1 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 固定最大数ではなくplan別active数・trial数を制御 |
 | KY-090 | 音声入力・AIとの音声会話 | 一部 | P2 | [web-react/src/components/JamPanel.tsx](../../web-react/src/components/JamPanel.tsx) | 人同士のJamとAI音声通話を区別して検証 |
 | KY-091 | Web/Mac/iOS/Androidの機能一致 | 一部 | P1 | [apps/mobile/README.md](../../apps/mobile/README.md) | 端末ごとの操作・通知・ファイル・オフラインを受入試験 |
-| KY-092 | ユーザーごとのSimple表示維持 | 一部 | P0 | [web-react/src/utils/harness.ts](../../web-react/src/utils/harness.ts) | 今回Web/Electronブラウザ設定を追加。native/端末間同期は未実装 |
+| KY-092 | ユーザーごとのSimple表示維持 | 一部 | P0 | [web-react/src/utils/harness.ts](../../web-react/src/utils/harness.ts) | 共有Workspaceモードと分離したユーザー×Workspace設定を追加。WebSocketで同一ユーザーの接続端末だけへ即時通知し、オフライン変更は再接続時に同期。別メンバーの設定・Workspaceデータを変更しないことをWorker統合/Web hookテストで確認。実端末2台の本番同期と、Mac/iOS/Android各アプリの設定画面比較は残る |
 | KY-093 | Simpleデータを破壊しない拡張 | 実装あり | P0 | [worker/src/harness/mode.js](../../worker/src/harness/mode.js) | 既定Simple・追加schema・切替で削除しない。リリース時に回帰試験 |
 
 2026-10-16追記: 会話スコープ記憶、予約実行の会話アクセス再検証、フォローアップの一覧・ホーム・MCPの隔離、run定義固定を追加。詳細は [検証記録](verification.md)。
@@ -179,7 +179,7 @@ Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing an
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-094 | ルーム受信Webhookから専用スレッドとエージェント実行 | 一部・未公開 | P1 | [roomHooks.js](../../worker/src/harness/roomHooks.js) | 名前付き管理・失効・専用スレッド・重複抑止・永続配送・権限再確認・確認付き再実行をローカル実装。返信保存時の原子的権限チェックとSimple配置の維持を検証。本番反映・実画面比較・複数利用者での本番受入は残る |
+| KY-094 | ルーム受信Webhookから専用スレッドとエージェント実行 | 一部 | P1 | [roomHooks.js](../../worker/src/harness/roomHooks.js) | 名前付き管理・失効・専用スレッド・重複抑止・永続配送・権限再確認・確認付き再実行を本番コードへ反映。2026-10-26、KylonとHonmaruのサインイン済みアプリでルーム設定→詳細設定→Webhook管理を読み取り確認。両方で説明・名前入力・空状態・無効な作成ボタン・閉じる導線が表示され、Honmaruのダークテーマ実画面でも同じ構成を確認。本番一覧は空。受信イベントからの本番スレッド生成、複数利用者での受入、失効をまたぐエージェント実行の実機比較は未確認 |
 | KY-095 | ルームのカスタムビジュアルアップロード | 一部 | P1 | [RoomColorPicker.tsx](../../web-react/src/components/RoomColorPicker.tsx) | 本番Macで合成PNGのアップロード・一覧/ヘッダー表示・再読み込み保持・削除を確認。閲覧権限はAPIテスト済み。物理端末間反映と複数利用者での本番検証は残る。参照では入口のみ確認 |
 
 既存のエージェント画像は公開URLを返すため、非公開ルーム画像へそのまま流用しない。既存MEDIA保存先は利用候補だが、ルームACLで認証する読み取り経路と失効後の表示破棄が必要。新規サービス契約は不要の設計方針とし、未実装を完了扱いしない。
