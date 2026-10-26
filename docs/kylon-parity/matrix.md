@@ -159,7 +159,7 @@
 | KY-089 | agent数上限 | 一部 | P1 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 固定最大数ではなくplan別active数・trial数を制御 |
 | KY-090 | 音声入力・AIとの音声会話 | 一部 | P2 | [web-react/src/components/JamPanel.tsx](../../web-react/src/components/JamPanel.tsx) | 人同士のJamとAI音声通話を区別して検証 |
 | KY-091 | Web/Mac/iOS/Androidの機能一致 | 一部 | P1 | [apps/mobile/README.md](../../apps/mobile/README.md) | 端末ごとの操作・通知・ファイル・オフラインを受入試験 |
-| KY-092 | ユーザーごとのSimple表示維持 | 一部 | P0 | [web-react/src/utils/harness.ts](../../web-react/src/utils/harness.ts) | 共有Workspaceモードと分離したユーザー×Workspace設定を追加。WebSocketで同一ユーザーの接続端末だけへ即時通知し、オフライン変更は再接続時に同期。別メンバーの設定・Workspaceデータを変更しないことをWorker統合/Web hookテストで確認。実端末2台の本番同期と、Mac/iOS/Android各アプリの設定画面比較は残る |
+| KY-092 | ユーザーごとのSimple表示維持 | 一部 | P0 | [web-react/src/utils/harness.ts](../../web-react/src/utils/harness.ts) | 共有Workspaceモードと分離したユーザー×Workspace設定、同一ユーザー端末だけへのWebSocket通知、オフライン再接続同期を実装。`474e4fc557d4` をmain公開しCI #2088/#2089、Worker #237（schema/column migration・deploy・health）、Web #308を確認。本番ネイティブ画面のAXツリーで `/#/harness` と「すべての端末でシンプル版を使う」未チェック、共有モードHarnessを確認。設定値は変更していない。2台での書込→同期実測、iOS/Android設定画面比較、ピクセル目視は未完了（確認時の画面キャプチャが黒一色） |
 | KY-093 | Simpleデータを破壊しない拡張 | 実装あり | P0 | [worker/src/harness/mode.js](../../worker/src/harness/mode.js) | 既定Simple・追加schema・切替で削除しない。リリース時に回帰試験 |
 
 2026-10-16追記: 会話スコープ記憶、予約実行の会話アクセス再検証、フォローアップの一覧・ホーム・MCPの隔離、run定義固定を追加。詳細は [検証記録](verification.md)。
