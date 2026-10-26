@@ -71,6 +71,7 @@ test('a preview can add linked records together and merge rejects an orphaned fi
   expect(appRows.rows[0].values.customer).toBe(customerRows.rows[0].id);
 
   const fresh=(await (await dbCall({action:'fork'})).json()).fork;
+  expect((await dbCall({action:'fork_write',forkId:fresh.id,revision:fresh.revision,entity:'customers',operation:'remove',rowId:customerRows.rows[0].id})).status).toBe(409);
   const broken=fresh.entities.map(entity=>entity.key==='customers'?{...entity,rows:[]}:entity);
   await env.DB.prepare('UPDATE hx_app_forks SET data=?1,revision=revision+1 WHERE org_id=?2 AND app_id=?3 AND created_by=?4 AND id=?5')
     .bind(JSON.stringify(broken),orgId,app.id,'8101',fresh.id).run();

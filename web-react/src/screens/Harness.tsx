@@ -306,8 +306,9 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
 
   const load = useCallback(() => act('load', async () => {
     const sequence=++loadSequence.current
-    const [next,preferences,database]=await Promise.all([api.app(appId),api.personalViews(appId),api.appDatabase(appId).catch(()=>null)])
+    const [next,preferences]=await Promise.all([api.app(appId),api.personalViews(appId)])
     const targetKeys=new Set(next.table.columns.filter(column=>column.type==='relation'&&column.targetEntity).map(column=>column.targetEntity!))
+    const database=targetKeys.size?await api.appDatabase(appId).catch(()=>null):null
     const targets=await Promise.all((database?.entities||[]).filter(entity=>targetKeys.has(entity.key)).map(async entity=>{
       if(entity.key==='primary')return {...entity,rows:next.rows}
       try{return {...entity,rows:(await api.entityRows(entity.table.id)).rows}}catch{return {...entity,rows:[]}}

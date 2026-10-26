@@ -17,6 +17,7 @@ export async function validateAppRelations(db, orgId, tableId, columns, values) 
   const app = await appForTable(db, orgId, tableId);
   if (!app) return invalid('Relation fields must belong to an app database.');
   const entities = await entityTables(db, orgId, app);
+  const requested = new Map(), columnsByTarget = new Map();
   for (const column of relations) {
     const targetTable = entities.get(column.targetEntity);
     if (!targetTable) return invalid('A relation field points to an unavailable app entity.', column.id);
@@ -26,8 +27,20 @@ export async function validateAppRelations(db, orgId, tableId, columns, values) 
     const ids = column.multiple ? value : [value];
     for (const id of ids) {
       if (typeof id !== 'string' || !id || id.length > 64) return invalid('A linked record ID is invalid.', column.id);
-      const found = await db.prepare('SELECT 1 AS found FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3').bind(orgId, targetTable, id).first();
-      if (!found) return invalid('A linked record no longer exists in this app.', column.id);
+    }
+    let targetIds = requested.get(targetTable);
+    if (!targetIds) { targetIds = new Set(); requested.set(targetTable, targetIds); }
+    for (const id of ids) targetIds.add(id);
+    columnsByTarget.set(column.id, { tableId: targetTable, ids });
+  }
+  for (const [targetTable, ids] of requested) {
+    const { results = [] } = await db.prepare(`SELECT target.id FROM hx_rows target
+      JOIN json_each(?1) requested ON requested.value=target.id
+      WHERE target.org_id=?2 AND target.table_id=?3`).bind(JSON.stringify([...ids]), orgId, targetTable).all();
+    const found = new Set(results.map(row => row.id));
+    for (const column of relations) {
+      const check = columnsByTarget.get(column.id);
+      if (check?.tableId === targetTable && check.ids.some(id => !found.has(id))) return invalid('A linked record no longer exists in this app.', column.id);
     }
   }
   return null;
