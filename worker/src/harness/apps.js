@@ -93,9 +93,14 @@ const matches = (values, where) => !where || Object.entries(where).every(([k, al
 /// an agent over MCP — reads the same numbers.
 export function computeView(view, table, rows, today = new Date().toISOString().slice(0, 10)) {
   let shown = rows.filter((r) => (!view.where || Object.entries(view.where).every(([key, allowed]) => allowed.includes(String(queryValue(r,key) ?? '')))) && (view.filters || []).every(f => {
-    const value=queryValue(r,f.column); const empty=value==null || value===''; const text=String(value ?? '');
+    const value=queryValue(r,f.column); const empty=value==null || value==='' || Array.isArray(value)&&value.length===0; const text=String(value ?? '');
     if(f.op==='empty') return empty;
     if(f.op==='not_empty') return !empty;
+    const column=table.columns.find(c=>c.id===f.column);
+    if(column?.type==='relation'&&['eq','neq','contains'].includes(f.op)) {
+      const has=Array.isArray(value)?value.some(id=>String(id)===f.value):text===f.value;
+      return f.op==='neq'?!has:has;
+    }
     if(isSystemTimestamp(f.column)) {
       // The editor and visible timestamps have second precision.
       const a=Math.floor(Date.parse(text)/1000), b=Math.floor(Date.parse(f.value)/1000);
@@ -109,7 +114,7 @@ export function computeView(view, table, rows, today = new Date().toISOString().
     if(f.op==='neq') return text!==f.value;
     if(f.op==='contains') return text.toLocaleLowerCase().includes(f.value.toLocaleLowerCase());
     if(empty) return false;
-    const numeric=table.columns.find(c=>c.id===f.column)?.type==='number';
+    const numeric=column?.type==='number';
     const a=numeric?Number(value):text, b=numeric?Number(f.value):f.value;
     return f.op==='gt'?a>b:a<b;
   }));
