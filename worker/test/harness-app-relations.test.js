@@ -46,6 +46,13 @@ test('app relations require valid same-app targets and protect linked records fr
   const unlinked=(await (await call(`/tables/${app.tableId}/rows/${row.id}`,owner,{values:{customer:null,watchers:[]},expectedUpdatedAt:row.updatedAt},'PATCH')).json()).row;
   expect(unlinked.values).toMatchObject({customer:null,watchers:[]});
   expect((await deleteRow(customerEntity.table.id,customer)).status).toBe(200);
+
+  const raceTarget=(await (await call(`/tables/${customerEntity.table.id}/rows`,owner,{values:{name:'Concurrent'}})).json()).row;
+  const {deleteRow:deleteRecord}=await import('../src/harness/tables.js');
+  const racingDb={prepare(sql){const statement=env.DB.prepare(sql);if(!sql.startsWith('DELETE FROM hx_rows'))return statement;return {bind(...values){const bound=statement.bind(...values);return {first:async()=>{await env.DB.prepare('INSERT INTO hx_rows (id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at) VALUES (?1,?2,?3,?4,0,?5,?5,?6,?6)').bind('row_race',app.tableId,orgId,JSON.stringify({customer:raceTarget.id}),'8101',new Date().toISOString()).run();return bound.first()}}}}}};
+  expect((await deleteRecord(racingDb,orgId,customerEntity.table.id,raceTarget.id,raceTarget.updatedAt)).status).toBe(409);
+  await env.DB.prepare('DELETE FROM hx_rows WHERE org_id=?1 AND id=?2').bind(orgId,'row_race').run();
+  expect((await deleteRecord(env.DB,orgId,customerEntity.table.id,raceTarget.id,raceTarget.updatedAt)).deleted).toBe(true);
 });
 
 test('a preview can add linked records together and merge rejects an orphaned final state',async()=>{
