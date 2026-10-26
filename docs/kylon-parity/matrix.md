@@ -102,7 +102,7 @@
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-056 | 手動・スケジュール・Webhook・レコード変更 | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 現在4種。cron/every/at・deleteイベントと時差/DSTを追加 |
+| KY-056 | 手動・スケジュール・Webhook・レコード変更 | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | テーブル行削除イベントと削除値を渡さない挙動を追加。Kylon形式のcron/every/at、App/entity単位のinsert/update/delete、より細かな時差/DST対応が残る |
 | KY-057 | 型付きイベントフィルタ | 実装あり | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | フラットAND、厳密な型付きscalar一致/候補配列、missingは不一致・nullは明示一致、条件のfalse→true、変更列判定、7日間の原子的なイベント重複排除と期限切れ掃除を実装・検証。削除イベントはKY-056 |
 | KY-058 | 保存定義の不変revision | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 新規runの定義を原子的に保存し承認後も同じ手順で再開。定義revision履歴・比較UI・旧runの移行は残る |
 | KY-059 | TypeScript SDKと永続checkpoint | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 再開時に完了済み外部操作を繰り返さない |

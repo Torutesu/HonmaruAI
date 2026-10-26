@@ -25,7 +25,7 @@ export function normalizeAppAutomations(raw) {
     const triggerKeys = trigger.type === 'schedule' ? ['type','cadence','hour','minute','timezone','weekday','monthday'] : trigger.type === 'row' ? ['type','tableId','on','where','column'] : ['type'];
     if (!keys(trigger, triggerKeys)) return fail('Unknown trigger fields.');
     if (trigger.type === 'schedule' && (!integer(trigger.hour,0,23) || !integer(trigger.minute,0,59) || !isTimeZone(trigger.timezone) || (trigger.cadence === 'weekly' && !integer(trigger.weekday,0,6)) || (trigger.cadence === 'monthly' && !integer(trigger.monthday,1,31)))) return fail('The automation schedule is invalid.');
-    if (trigger.type === 'row' && (!text(trigger.tableId,64) || !['added','changed','any'].includes(trigger.on) || (trigger.where !== undefined && !object(trigger.where)) || (trigger.column !== undefined && !text(trigger.column,64)))) return fail('The row trigger is invalid.');
+    if (trigger.type === 'row' && (!text(trigger.tableId,64) || !['added','changed','deleted','any'].includes(trigger.on) || (trigger.where !== undefined && !object(trigger.where)) || (trigger.column !== undefined && !text(trigger.column,64)))) return fail('The row trigger is invalid.');
     const normalizedTrigger = normalizeTrigger(trigger);
     if (normalizedTrigger.error) return fail(normalizedTrigger.error);
     if (!Array.isArray(item.steps)) return fail('Each automation needs steps.');

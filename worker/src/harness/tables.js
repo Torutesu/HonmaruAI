@@ -270,12 +270,14 @@ export async function updateRow(db, orgId, tableId, rowId, values, by, expectedU
 const rowConflict = () => ({ error: "This row changed. Reload the app before trying again.", status: 409 });
 
 export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt) {
+  const table = await getTable(db, orgId, tableId);
+  if (!table) return { error: "No such row.", status: 404 };
   const before = await getRow(db, orgId, tableId, rowId);
   if (!before) return { error: "No such row.", status: 404 };
   if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== before.updatedAt) return rowConflict();
   const deleted = await db.prepare("DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3 AND updated_at = ?4 RETURNING id").bind(rowId, tableId, orgId, before.updatedAt).first();
   if (!deleted) return rowConflict();
-  return { deleted: true, before };
+  return { table, deleted: true, before };
 }
 
 function checkValues(table, values, validation) {

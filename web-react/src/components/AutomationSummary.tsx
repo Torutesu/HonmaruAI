@@ -4,7 +4,7 @@ import type {AutomationDefinition,Step,Trigger,Table} from '../utils/harness'
 function triggerText(trigger:Trigger) {
  if(trigger.type==='manual')return '手動で実行したとき'
  if(trigger.type==='webhook')return 'Webhookを受信したとき'
- if(trigger.type==='row')return `データが${trigger.on==='added'?'追加':trigger.on==='changed'?'更新':'追加・更新'}されたとき`
+ if(trigger.type==='row')return `データが${trigger.on==='added'?'追加':trigger.on==='changed'?'更新':trigger.on==='deleted'?'削除':'追加・更新'}されたとき`
  const cadence=({daily:'毎日',weekdays:'平日',weekly:'毎週',monthly:'毎月'} as Record<string,string>)[trigger.cadence||'']||trigger.cadence
  const day=trigger.cadence==='weekly'?` ${['日','月','火','水','木','金','土'][trigger.weekday??0]}曜日`:trigger.cadence==='monthly'?` ${trigger.monthday}日`:''
  return `${cadence}${day} ${String(trigger.hour??0).padStart(2,'0')}:${String(trigger.minute??0).padStart(2,'0')}（${trigger.timezone}）`

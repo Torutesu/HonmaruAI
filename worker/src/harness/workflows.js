@@ -70,7 +70,8 @@ export function normalizeTrigger(raw) {
   }
   if (type === "row") {
     if (!raw.tableId) return { error: "A row trigger names its table." };
-    const on = ["added", "changed", "any"].includes(raw.on) ? raw.on : "any";
+    const on = ["added", "changed", "deleted", "any"].includes(raw.on) ? raw.on : "any";
+    if (on === "deleted" && (raw.where !== undefined || raw.column)) return { error: "A delete trigger has no field data; remove its field filter and watched column." };
     const t = { type, tableId: String(raw.tableId), on };
     if (raw.where !== undefined) {
       if (!raw.where || typeof raw.where !== "object" || Array.isArray(raw.where) || Object.keys(raw.where).length > 40) return { error: "A row filter must be a flat object with at most 40 fields." };
@@ -718,9 +719,12 @@ function canonicalJson(value) {
 async function rowEventFingerprint(table, before, row) {
   const payload = {
     tableId: table.id,
-    rowId: row.id,
+    rowId: (row || before).id,
     before: before ? { updatedAt: before.updatedAt || null, values: before.values || {} } : null,
-    after: { updatedAt: row.updatedAt || null, values: row.values || {} },
+    after: row ? { updatedAt: row.updatedAt || null, values: row.values || {} } : null,
+    // Keep the established add/change fingerprint stable across deploys so
+    // an in-flight redelivery still matches its receipt. Deletions are new.
+    ...(!row ? { event: "deleted" } : {}),
   };
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(payload)));
   return hex(new Uint8Array(digest));
@@ -743,6 +747,7 @@ export async function onRowChange(env, { orgId, table, before, row, by, depth = 
     if (!(await mayUseTable(env.DB, orgId, table.id, wf.createdBy))) continue;
     // A workflow's own change does not start the same workflow again.
     if (by === `workflow:${wf.id}`) continue;
+    if (t.on === "deleted") continue;
     if (t.on === "added" && before) continue;
     if (t.on === "changed" && !before) continue;
     if (!whereHolds(t.where, row.values, table.columns)) continue;
@@ -762,6 +767,36 @@ export async function onRowChange(env, { orgId, table, before, row, by, depth = 
     const run = await startRun(env, {
       orgId, workflow: wf, trigger: "row", startedBy: by, depth,
       input: { tableId: table.id, row: await rowScope(env.DB, orgId, table.id, row), before: before ? await rowScope(env.DB, orgId, table.id, before) : null },
+      rowEventHash,
+    });
+    if (run?.id) started += 1;
+  }
+  return started;
+}
+
+/// A row deletion is an event without field data. Existing `any` triggers
+/// keep their add/change meaning; deletion requires an explicit trigger.
+export async function onRowDelete(env, { orgId, table, row, by, depth = 0 }) {
+  if (depth >= MAX_DEPTH || !table?.id || !row?.id) return 0;
+  const { results } = await env.DB
+    .prepare("SELECT * FROM hx_workflows WHERE org_id = ?1 AND enabled = 1 AND json_extract(trigger, '$.type') = 'row' AND json_extract(trigger, '$.tableId') = ?2")
+    .bind(orgId, table.id)
+    .all()
+    .catch(() => ({ results: [] }));
+  let started = 0;
+  for (const r of results || []) {
+    const wf = publicWorkflow(r);
+    const t = wf.trigger;
+    if (!(await mayUseTable(env.DB, orgId, table.id, wf.createdBy))) continue;
+    if (by === `workflow:${wf.id}`) continue;
+    if (t.on !== "deleted") continue;
+    // Kylon's delete event omits record fields. Do not evaluate conditions
+    // against the pre-delete row or expose that data to the run.
+    if (t.where || t.column) continue;
+    const rowEventHash = await rowEventFingerprint(table, row, null);
+    const run = await startRun(env, {
+      orgId, workflow: wf, trigger: "row", startedBy: by, depth,
+      input: { tableId: table.id, event: "deleted", row: { id: row.id } },
       rowEventHash,
     });
     if (run?.id) started += 1;
