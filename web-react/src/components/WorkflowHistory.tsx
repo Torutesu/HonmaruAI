@@ -2,10 +2,10 @@ import React,{useEffect,useRef,useState} from 'react'
 import type {HarnessApi,WorkflowRevision,Table} from '../utils/harness'
 import {useT} from '../utils/i18n'
 import {getLocale} from '../utils/locale'
-import {stepLabel,triggerLabel} from '../utils/workflowLabels'
+import {stepLabel,triggerLabel,type WorkflowAppOption} from '../utils/workflowLabels'
 import {describeWorkflowCondition} from '../utils/workflowCondition'
 
-export function WorkflowHistory({api,workflowId,tables=[],agents=[]}:{api:HarnessApi;workflowId:string;tables?:Table[];agents?:Array<{id:string;name:string}>}){
+export function WorkflowHistory({api,workflowId,tables=[],agents=[],apps=[]}:{api:HarnessApi;workflowId:string;tables?:Table[];agents?:Array<{id:string;name:string}>;apps?:WorkflowAppOption[]}){
  const t=useT(),generation=useRef(0),pending=useRef(false)
  const [items,setItems]=useState<WorkflowRevision[]>([]),[cursor,setCursor]=useState<number|null>(null)
  const [loaded,setLoaded]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('')
@@ -28,7 +28,7 @@ export function WorkflowHistory({api,workflowId,tables=[],agents=[]}:{api:Harnes
  const display=(definition:WorkflowRevision['definition'],key:typeof fields[number][0])=>{
   if(key==='name')return <p>{definition.name}</p>
   if(key==='enabled')return <p>{t(definition.enabled?'On':'Off')}</p>
-  if(key==='trigger')return <p>{triggerLabel(t,definition.trigger,tables)}{definition.trigger.column&&<><br/>{tables.find(table=>table.id===definition.trigger.tableId)?.columns.find(column=>column.id===definition.trigger.column)?.name||definition.trigger.column}</>}</p>
+  if(key==='trigger')return <p>{triggerLabel(t,definition.trigger,tables,apps)}{definition.trigger.column&&<><br/>{tables.find(table=>table.id===definition.trigger.tableId)?.columns.find(column=>column.id===definition.trigger.column)?.name||definition.trigger.column}</>}</p>
   return <ol className="hx-revision-steps">{definition.steps.map((step,index)=><li key={index}>
    <strong>{stepLabel(t,step.type)}</strong>
    {step.type==='code'&&<><p>{t('Execution node')}: {step.gatewayId}</p><pre className="hx-program-source">{step.code}</pre></>}

@@ -22,13 +22,14 @@ export function normalizeAppAutomations(raw) {
     used.add(item.key);
     const trigger = item.trigger;
     if (!object(trigger)) return fail('Each automation needs a trigger.');
-    const triggerKeys = trigger.type === 'schedule' ? (trigger.kind==='cron'?['type','kind','expr','timezone']:trigger.kind==='every'?['type','kind','everyMs']:trigger.kind==='at'?['type','kind','at']:['type','cadence','hour','minute','timezone','weekday','monthday']) : trigger.type === 'row' ? ['type','tableId','on','where','column'] : ['type'];
+    const triggerKeys = trigger.type === 'schedule' ? (trigger.kind==='cron'?['type','kind','expr','timezone']:trigger.kind==='every'?['type','kind','everyMs']:trigger.kind==='at'?['type','kind','at']:['type','cadence','hour','minute','timezone','weekday','monthday']) : trigger.type === 'row' ? ['type','tableId','on','where','column'] : trigger.type === 'app_record_change' ? ['type','appId','entityId','events','when'] : ['type'];
     if (!keys(trigger, triggerKeys)) return fail('Unknown trigger fields.');
     if (trigger.type === 'schedule' && trigger.kind === 'cron' && (!text(trigger.expr,240) || !isTimeZone(trigger.timezone) || validateCronExpression(trigger.expr).error)) return fail('The automation cron schedule is invalid.');
     if (trigger.type === 'schedule' && trigger.kind === 'every' && (!integer(trigger.everyMs,MIN_SCHEDULE_INTERVAL_MS,MAX_SCHEDULE_INTERVAL_MS))) return fail('The automation interval is outside the supported range.');
     if (trigger.type === 'schedule' && trigger.kind === 'at' && !isIsoInstant(trigger.at)) return fail('The one-time automation timestamp is invalid.');
     if (trigger.type === 'schedule' && trigger.kind === undefined && (!integer(trigger.hour,0,23) || !integer(trigger.minute,0,59) || !isTimeZone(trigger.timezone) || (trigger.cadence === 'weekly' && !integer(trigger.weekday,0,6)) || (trigger.cadence === 'monthly' && !integer(trigger.monthday,1,31)))) return fail('The automation schedule is invalid.');
     if (trigger.type === 'row' && (!text(trigger.tableId,64) || !['added','changed','deleted','any'].includes(trigger.on) || (trigger.where !== undefined && !object(trigger.where)) || (trigger.column !== undefined && !text(trigger.column,64)))) return fail('The row trigger is invalid.');
+    if (trigger.type === 'app_record_change' && (!text(trigger.appId,64) || !text(trigger.entityId,64) || !Array.isArray(trigger.events) || !trigger.events.length || trigger.events.length>3 || trigger.events.some(event=>!['insert','update','delete'].includes(event)) || new Set(trigger.events).size!==trigger.events.length || (trigger.when!==undefined && (!object(trigger.when)||!keys(trigger.when,['where'])||!object(trigger.when.where))))) return fail('The app record trigger is invalid.');
     const normalizedTrigger = normalizeTrigger(trigger);
     if (normalizedTrigger.error) return fail(normalizedTrigger.error);
     if (!Array.isArray(item.steps)) return fail('Each automation needs steps.');
@@ -49,6 +50,21 @@ export function normalizeAppAutomations(raw) {
     items.push({key:item.key,name:item.name.trim(),enabled:item.enabled,trigger:normalizedTrigger.trigger,steps:normalizedSteps.steps});
   }
   return {automations:{version:1,items}};
+}
+
+export async function validateAutomationAppScope(db,orgId,appId,automations) {
+  for(const item of automations?.items||[]) {
+    const trigger=item.trigger;
+    if(trigger?.type!=='app_record_change')continue;
+    if(trigger.appId!==appId)return {error:'An app automation can only watch its own app records.',status:400};
+    const table=trigger.entityId==='primary'
+      ?await db.prepare('SELECT t.columns FROM hx_apps a JOIN hx_tables t ON t.org_id=a.org_id AND t.id=a.table_id WHERE a.org_id=?1 AND a.id=?2').bind(orgId,appId).first()
+      :await db.prepare('SELECT t.columns FROM hx_app_entities e JOIN hx_tables t ON t.org_id=e.org_id AND t.id=e.table_id WHERE e.org_id=?1 AND e.app_id=?2 AND e.entity_key=?3').bind(orgId,appId,trigger.entityId).first();
+    if(!table)return {error:'An app record trigger must reference an entity in this app.',status:400};
+    let columns;try{columns=JSON.parse(table.columns)}catch{return {error:'The app record entity schema is invalid.',status:409}}
+    if(Object.keys(trigger.when?.where||{}).some(key=>!columns.some(column=>column.id===key||column.name.toLowerCase()===key.toLowerCase())))return {error:'An app record condition references an unknown field.',status:400};
+  }
+  return null;
 }
 
 // Stable comparison ignores JSON object insertion order, but retains step

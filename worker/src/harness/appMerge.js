@@ -65,5 +65,15 @@ export async function mergeFork(db,orgId,app,by,input) {
     else statements.push(db.prepare(`DELETE FROM hx_rows WHERE org_id=?1 AND table_id=?5 AND id=?4 AND ${guard}`).bind(orgId,app.id,nonce,c.id,c.tableId));
   }
   const results=await db.batch(statements);
-  return results[0].meta?.changes?{merged:true,mergedAt:at,changed:plan.changes.length,forkId:plan.forkId,checksum:plan.checksum}:err('Production or preview changed during merge. Review again.');
+  if(!results[0].meta?.changes)return err('Production or preview changed during merge. Review again.');
+  const originalRows=new Map(plan.snapshots.flatMap(entity=>entity.rows.map(row=>[`${entity.tableId}:${row.id}`,row])));
+  // The route consumes these only after the atomic merge has committed, then
+  // removes them from the public response. Keep the exact prior revision so
+  // row-change receipts remain stable when a preview merge is replayed.
+  const changedRecords=plan.changes.map(change=>({
+    tableId:change.tableId,id:change.id,operation:change.operation,
+    before:change.before,after:change.after,
+    beforeUpdatedAt:originalRows.get(`${change.tableId}:${change.id}`)?.updatedAt||null,
+  }));
+  return {merged:true,mergedAt:at,changed:plan.changes.length,forkId:plan.forkId,checksum:plan.checksum,changedRecords};
 }

@@ -1,7 +1,7 @@
 import {allowed} from '../permissions.js';
 import {readAutomationPlan} from './appAutomationPlan.js';
 import {readAutomationDraft} from './appAutomationDraft.js';
-import {automationDefinition,sameAutomation} from './appAutomationDefinition.js';
+import {automationDefinition,sameAutomation,validateAutomationAppScope} from './appAutomationDefinition.js';
 import {mayViewWorkflow,unknownApprover,MAX_WORKFLOWS} from './workflows.js';
 import {mayUseApp} from './resourceAccess.js';
 import {nextRunAt} from '../schedule.js';
@@ -44,6 +44,8 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
     if(reviewed.some(review=>!plan.plan.some(item=>item.key===review.key && ['drifted','missing'].includes(item.status))))return conflict();
   }
   const desired=input.action==='publish'?plan.draft.items:[];
+  const scope=await validateAutomationAppScope(db,orgId,app.id,{items:desired});
+  if(scope)return scope;
   for(const item of desired) {
     if(!await mayViewWorkflow(db,orgId,item,by))return {error:'An automation references an unavailable resource.',status:403};
     const invalid=await unknownApprover(db,orgId,item.steps);if(invalid)return {...invalid,status:400};

@@ -3,7 +3,7 @@ import {WorkflowHistory} from '../components/WorkflowHistory'
 import {describeWorkflowCondition} from '../utils/workflowCondition'
 import {getLocale} from '../utils/locale'
 import {runDuration} from '../utils/runDuration'
-import {stepLabel,triggerLabel} from '../utils/workflowLabels'
+import {stepLabel,triggerLabel,type WorkflowAppOption} from '../utils/workflowLabels'
 import {WorkflowRunUsage} from '../components/WorkflowRunUsage'
 import {WorkflowSource} from '../components/WorkflowSource'
 import {WorkflowNotices} from '../components/WorkflowNotices'
@@ -12,7 +12,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import {StepEditor} from '../components/WorkflowStepEditor'
-import type { Workflow, Run, Step, StepType, Trigger, TriggerType, Table, HeldWorkflowEvents, HarnessApi } from '../utils/harness'
+import type { Workflow, Run, Step, StepType, Trigger, TriggerType, Table, App, ConditionScalar, HeldWorkflowEvents, HarnessApi } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 
 // Workflows (docs/kylon-gap-plan.md): a trigger and the steps after it,
@@ -66,11 +66,12 @@ function HeldEventPreview({ receivedAt, load }: { receivedAt: string; load: () =
 }
 
 interface AgentFace { id: string; handle: string; name: string; emoji?: string | null }
+interface AppTriggerChoice extends WorkflowAppOption { app: App }
 
 const blankStep = (type: StepType): Step => ({ type, ...(type === 'followup' ? { minutes: 1440 } : {}) })
 
 
-function Builder({ api, tables, agents, onSave, onCancel, busy, initial }: { api:HarnessApi; initial?: Workflow; tables: Table[]; agents: AgentFace[]; onSave: (w: { name: string; trigger: Trigger; steps: Step[] }) => void; onCancel: () => void; busy: boolean }) {
+function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, initial }: { api:HarnessApi; initial?: Workflow; tables: Table[]; agents: AgentFace[]; triggerApps:AppTriggerChoice[]; onSave: (w: { name: string; trigger: Trigger; steps: Step[] }) => void; onCancel: () => void; busy: boolean }) {
   const t = useT()
   const [name, setName] = useState(initial?.name || '')
   const [trigger, setTrigger] = useState<Trigger>(initial ? structuredClone(initial.trigger) : { type: 'manual' })
@@ -79,6 +80,7 @@ function Builder({ api, tables, agents, onSave, onCancel, busy, initial }: { api
   const [program,setProgram]=useState<Step>(initial?.steps[0]?.type==='code'?structuredClone(initial.steps[0]):{type:'code',code:'console.log("Hello from your workflow");'})
   const steps=format==='code'?[program]:formSteps
   const programValid=format!=='code'||Boolean(program.gatewayId&&program.code?.trim()&&new TextEncoder().encode(program.code).length<=48000)
+  const appTriggerValid=trigger.type!=='app_record_change'||Boolean(trigger.appId&&trigger.entityId&&trigger.events?.length)
   const scheduleValid = trigger.type !== 'schedule' || (()=>{
     if (trigger.kind === 'every') return Number.isSafeInteger(trigger.everyMs) && trigger.everyMs! >= 600000 && trigger.everyMs! <= 8640000000000000-Date.now()
     if (trigger.kind === 'at') return Boolean(trigger.at && Number.isFinite(Date.parse(trigger.at)) && Date.parse(trigger.at) > Date.now())
@@ -91,6 +93,13 @@ function Builder({ api, tables, agents, onSave, onCancel, busy, initial }: { api
   })()
   const table = tables.find((x) => x.id === trigger.tableId)
   const whereCol = table?.columns.find((c) => c.type === 'select')
+  const triggerApp = triggerApps.find(option => option.app.id === trigger.appId)
+  const triggerEntity = triggerApp?.entities.find(entity => entity.key === trigger.entityId)
+  const setAppWhere = (key:string,value:ConditionScalar|ConditionScalar[]|undefined) => {
+    const where={...trigger.when?.where}
+    if(value===undefined || (Array.isArray(value)&&!value.length)) delete where[key]; else where[key]=value
+    setTrigger({...trigger,when:Object.keys(where).length?{where}:undefined})
+  }
   const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone } catch { return 'UTC' } })()
   return (
     <div className="hx-builder">
@@ -99,12 +108,13 @@ function Builder({ api, tables, agents, onSave, onCancel, busy, initial }: { api
       <div className="hx-step">
         <select value={trigger.type} onChange={(e) => {
           const type = e.target.value as TriggerType
-          setTrigger(type === 'schedule' ? { type, cadence: 'weekdays', hour: 9, minute: 0, timezone: tz } : type === 'row' ? { type, on: 'changed', tableId: tables[0]?.id } : { type })
+          setTrigger(type === 'schedule' ? { type, cadence: 'weekdays', hour: 9, minute: 0, timezone: tz } : type === 'row' ? { type, on: 'changed', tableId: tables[0]?.id } : type === 'app_record_change' ? {type,appId:triggerApps[0]?.app.id,entityId:triggerApps[0]?.entities[0]?.key,events:['insert','update']} : { type })
         }} aria-label={t('Trigger')}>
           <option value="manual">{t('By hand')}</option>
           <option value="schedule">{t('On a schedule')}</option>
           <option value="webhook">{t('A webhook')}</option>
           <option value="row">{t('A table row event')}</option>
+          <option value="app_record_change">{t('An app record changes')}</option>
         </select>
         {trigger.type === 'schedule' && (
           <><ScheduleTriggerFields trigger={trigger} onChange={setTrigger} legacyDefault="weekdays" />
@@ -132,6 +142,18 @@ function Builder({ api, tables, agents, onSave, onCancel, busy, initial }: { api
           </span>
         )}
         {trigger.type === 'row' && tables.length === 0 && <div className="row-sub">{t('Build an app first: its table is what a row trigger watches.')}</div>}
+        {trigger.type === 'app_record_change' && <span className="hx-inline">
+          <select aria-label={t('App')} value={trigger.appId||''} onChange={e=>{const option=triggerApps.find(x=>x.app.id===e.target.value);setTrigger({type:'app_record_change',appId:e.target.value,entityId:option?.entities[0]?.key,events:trigger.events?.length?trigger.events:['insert','update']})}}>
+            <option value="">{t('Choose an app')}</option>{triggerApps.map(option=><option key={option.app.id} value={option.app.id}>{option.app.name}</option>)}
+          </select>
+          <select aria-label={t('Entity')} value={trigger.entityId||''} onChange={e=>setTrigger({...trigger,entityId:e.target.value,when:undefined})}>
+            <option value="">{t('Choose an entity')}</option>{triggerApp?.entities.map(entity=><option key={entity.key} value={entity.key}>{entity.table.name}</option>)}
+          </select>
+          {(['insert','update','delete'] as const).map(event=><label className="hx-inline" key={event}><input type="checkbox" checked={trigger.events?.includes(event)||false} onChange={e=>{const events=new Set(trigger.events||[]);e.target.checked?events.add(event):events.delete(event);setTrigger({...trigger,events:[...events] as Trigger['events']})}}/>{t(event==='insert'?'is added':event==='update'?'is updated':'is deleted')}</label>)}
+          {triggerEntity?.table.columns.map(column=><fieldset key={column.id}><legend>{column.name}</legend>{column.type==='select'?<>{(column.options||[]).map(value=><label className="hx-inline" key={value}><input type="checkbox" checked={(trigger.when?.where[column.id] as ConditionScalar[]|undefined)?.includes(value)||false} onChange={e=>{const old=trigger.when?.where[column.id];const values=Array.isArray(old)?old:old===undefined?[]:[old];setAppWhere(column.id,e.target.checked?[...values,value]:values.filter(v=>v!==value))}}/>{value}</label>)}<small>{t('Choose no values to match every value.')}</small></>:column.type==='checkbox'?<label className="hx-inline">{t('Equals')}<select value={trigger.when?.where[column.id]===true?'true':trigger.when?.where[column.id]===false?'false':''} onChange={e=>setAppWhere(column.id,e.target.value===''?undefined:e.target.value==='true')}><option value="">{t('Any value')}</option><option value="true">{t('Checked')}</option><option value="false">{t('Unchecked')}</option></select></label>:<label className="hx-inline">{t('Equals')}<input type={column.type==='number'?'number':column.type==='date'?'date':'text'} value={String(trigger.when?.where[column.id]??'')} onChange={e=>setAppWhere(column.id,e.target.value===''?undefined:column.type==='number'?Number(e.target.value):e.target.value)}/></label>}</fieldset>)}
+          {trigger.events?.includes('delete')&&trigger.when?.where&&<span className="row-sub">{t('Delete events have no field data and do not match this condition.')}</span>}
+          {!triggerApps.length&&<div className="row-sub">{t('No accessible apps are available for a record trigger.')}</div>}
+        </span>}
       </div>
       <label className="hx-inline">{t('Workflow format')} <select aria-label={t('Workflow format')} value={format} onChange={event=>setFormat(event.target.value)}>
         <option value="form">{t('Form steps')}</option><option value="code">{t('TypeScript program')}</option>
@@ -144,7 +166,7 @@ function Builder({ api, tables, agents, onSave, onCancel, busy, initial }: { api
           step={s}
           tables={tables}
           agents={agents}
-          triggerTable={trigger.type === 'row' ? table : undefined}
+          triggerTable={trigger.type === 'row' ? table : trigger.type === 'app_record_change' ? triggerEntity?.table : undefined}
           onChange={(next) => setSteps(steps.map((x, j) => (j === i ? next : x)))}
           onRemove={() => setSteps(steps.filter((_, j) => j !== i))}
         />
@@ -154,7 +176,7 @@ function Builder({ api, tables, agents, onSave, onCancel, busy, initial }: { api
       </>}
       <div className="playbook-add-foot">
         <button className="btn-text" onClick={onCancel}>{t('Cancel')}</button>
-        <button className="pill-btn" disabled={busy || !name.trim() || steps.length === 0 || !scheduleValid || !programValid} onClick={() => onSave({ name, trigger, steps })}>{t('Save workflow')}</button>
+        <button className="pill-btn" disabled={busy || !name.trim() || steps.length === 0 || !scheduleValid || !programValid || !appTriggerValid} onClick={() => onSave({ name, trigger, steps })}>{t('Save workflow')}</button>
       </div>
     </div>
   )
@@ -171,6 +193,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const api = useApi(props)
   const [workflows, setWorkflows] = useState<Workflow[] | null>(null)
   const [tables, setTables] = useState<Table[]>([])
+  const [triggerApps,setTriggerApps]=useState<AppTriggerChoice[]>([])
   const [agents, setAgents] = useState<AgentFace[]>([])
   const [editing, setEditing] = useState<Workflow | null>(null)
   const [building, setBuilding] = useState(false)
@@ -216,8 +239,14 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
 
 
   const load = useCallback(() => act('load', async () => {
-    const [w, tb] = await Promise.all([api.workflows(), api.tables()])
+    const [w, tb, appList] = await Promise.all([api.workflows(), api.tables(),api.apps?.().catch(()=>({apps:[]}))||Promise.resolve({apps:[]})])
     setWorkflows(w.workflows); setTables(tb.tables)
+    const appChoices:Array<AppTriggerChoice|null>=[]
+    for(let index=0;index<appList.apps.length;index+=6){
+      const batch=await Promise.all(appList.apps.slice(index,index+6).map(async app=>{try{if(!api.appDatabase)return null;const database=await api.appDatabase(app.id);return {app,entities:database.entities}}catch{return null}}))
+      appChoices.push(...batch)
+    }
+    setTriggerApps(appChoices.filter((choice):choice is AppTriggerChoice=>Boolean(choice)))
     const res = await fetch(`${props.httpBase}/channels/agents?orgId=${encodeURIComponent(props.orgId)}`, { headers: { 'x-session-token': props.sessionToken } }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => ({})) : {}
     setAgents((data.agents || []) as AgentFace[])
@@ -246,7 +275,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
 
   if (open && editing) return <Shell className="hx-resource-screen" title={t('Edit workflow')} onClose={() => { if(!busy)setEditing(null) }} nested>
     {error && <div className="form-error" role="alert">{error}</div>}
-    <Builder api={api} key={editing.id} initial={editing} tables={tables} agents={agents} busy={!!busy}
+    <Builder api={api} key={editing.id} initial={editing} tables={tables} agents={agents} triggerApps={triggerApps} busy={!!busy}
       onCancel={() => { if(!busy)setEditing(null) }} onSave={draft => act('save',async()=>{
         await api.updateWorkflow(editing.id,{...draft,expectedUpdatedAt:editing.updatedAt})
         await refreshOpen(editing.id)
@@ -315,17 +344,17 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
             await refreshOpen(w.id)
           })}>{t('Save budget settings')}</button>}
         </section>
-        <div className="hx-flow-diagram"><div className="hx-flow-node"><small>{t('Trigger')}</small><strong>{triggerLabel(t, w.trigger, tables)}</strong></div>{w.steps.map((step, index) => <React.Fragment key={index}><span className="hx-flow-connector">↓</span><div className="hx-flow-node"><small>{index + 1}. {stepLabel(t, step.type)}</small><strong>{step.text || step.prompt || step.title || tables.find(table => table.id === step.tableId)?.name}</strong>{step.channel && <span>{step.channel.startsWith('ag:') || step.channel.startsWith('dm:') ? t('Private chat') : step.channel.replace(/^b:/, '#')}</span>}{step.agentId && <span>{t('Agent')}: {agents.find(agent => agent.id === step.agentId)?.name || step.agentId}</span>}{step.to && <span>@{step.to}</span>}{step.summary && <p>{step.summary}</p>}{step.minutes && <span>{step.minutes} min</span>}{step.type==='code'&&<details><summary>{t('Program source')}</summary><pre className="hx-program-source">{step.code}</pre></details>}{step.values && <pre>{JSON.stringify(step.values, null, 2)}</pre>}{step.when && <div className="hx-flow-condition"><small>{t('Execution condition')}</small><p>{describeWorkflowCondition(step.when,tables.find(table=>table.id===w.trigger.tableId)?.columns)}</p></div>}</div></React.Fragment>)}</div>
+        <div className="hx-flow-diagram"><div className="hx-flow-node"><small>{t('Trigger')}</small><strong>{triggerLabel(t, w.trigger, tables, triggerApps)}</strong></div>{w.steps.map((step, index) => <React.Fragment key={index}><span className="hx-flow-connector">↓</span><div className="hx-flow-node"><small>{index + 1}. {stepLabel(t, step.type)}</small><strong>{step.text || step.prompt || step.title || tables.find(table => table.id === step.tableId)?.name}</strong>{step.channel && <span>{step.channel.startsWith('ag:') || step.channel.startsWith('dm:') ? t('Private chat') : step.channel.replace(/^b:/, '#')}</span>}{step.agentId && <span>{t('Agent')}: {agents.find(agent => agent.id === step.agentId)?.name || step.agentId}</span>}{step.to && <span>@{step.to}</span>}{step.summary && <p>{step.summary}</p>}{step.minutes && <span>{step.minutes} min</span>}{step.type==='code'&&<details><summary>{t('Program source')}</summary><pre className="hx-program-source">{step.code}</pre></details>}{step.values && <pre>{JSON.stringify(step.values, null, 2)}</pre>}{step.when && <div className="hx-flow-condition"><small>{t('Execution condition')}</small><p>{describeWorkflowCondition(step.when,tables.find(table=>table.id===w.trigger.tableId)?.columns)}</p></div>}</div></React.Fragment>)}</div>
         <div className="rows">
           <div className="row static">
-            <span className="row-main">{triggerLabel(t, w.trigger, tables)}
+            <span className="row-main">{triggerLabel(t, w.trigger, tables, triggerApps)}
               <span className="row-sub">{w.steps.map((s) => stepLabel(t, s.type)).join(' → ')}</span>
               {w.nextRunAt && !w.safety?.paused_at && <span className="row-sub">{t('Next run {when}', { when: new Date(w.nextRunAt).toLocaleString() })}</span>}
               {w.hookUrl && <code className="hx-code">{w.hookUrl}</code>}
             </span>
           </div>
         </div>
-        <WorkflowHistory key={`${w.id}:${w.updatedAt}`} api={api} workflowId={w.id} tables={tables} agents={agents}/>
+        <WorkflowHistory key={`${w.id}:${w.updatedAt}`} api={api} workflowId={w.id} tables={tables} agents={agents} apps={triggerApps}/>
         <WorkflowSource key={w.id} api={api} workflowId={w.id} orgId={props.orgId}/>
         {(error||syncError) && <div className="form-error" role="alert">{error||syncError}</div>}
         {open.canEdit && (
@@ -448,6 +477,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
           api={api}
           tables={tables}
           agents={agents}
+          triggerApps={triggerApps}
           busy={busy === 'save'}
           onCancel={() => setBuilding(false)}
           onSave={(w) => act('save', async () => {
@@ -465,7 +495,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
           <button key={w.id} className="row" onClick={() => openOne(w.id)} data-workflow={w.id}>
             <span className="row-icon"><Icon name="zap" size={18} /></span>
             <span className="row-main">{w.name}{w.safety?.paused_at && <span className="hx-off"> · {w.safety.pause_reason?.startsWith('budget_ai_')?t('Paused by estimated AI usage budget'):w.safety.pause_reason?.startsWith('budget_')?t('Paused by run budget'):t('Paused after failures')}</span>}{!w.enabled && <span className="hx-off"> · {t('off')}</span>}
-              <span className="row-sub">{triggerLabel(t, w.trigger, tables)} · {w.steps.length} {t('steps')}</span>
+              <span className="row-sub">{triggerLabel(t, w.trigger, tables, triggerApps)} · {w.steps.length} {t('steps')}</span>
             </span>
             <span className="row-value">›</span>
           </button>

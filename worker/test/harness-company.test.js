@@ -144,6 +144,10 @@ test('external writes are constrained to the approved method/path and never repl
 });
 
 test('reviewed preview merge is atomic, scoped, replayable and seals the preview',async()=>{
+ await env.DB.prepare("INSERT INTO org_settings (org_id,mode,updated_at) VALUES (?1,'harness','now') ON CONFLICT(org_id) DO UPDATE SET mode='harness',updated_at='now'").bind(orgId).run();
+ const automation=await call('/workflows',owner,{name:'Handle merged app records',enabled:true,trigger:{type:'app_record_change',appId:app.id,entityId:'primary',events:['insert']},steps:[{type:'update_row',values:{task:'Handled by workflow'}}]});
+ expect(automation.status).toBe(201);
+ const {workflow}=await automation.json();
  const {fork}=await (await run('database',{action:'fork'})).json();
  await run('database',{action:'fork_write',forkId:fork.id,revision:1,entity:'primary',operation:'create',values:{task:'Merged record'}});
  const request={forkId:fork.id,revision:2};
@@ -153,9 +157,14 @@ test('reviewed preview merge is atomic, scoped, replayable and seals the preview
  expect((await (await call('/tables/'+app.tableId,owner)).json()).rows).toEqual([]);
  expect((await run('database',{action:'merge_apply',...request,checksum:'wrong'})).status).toBe(409);
  const merge={action:'merge_apply',...request,checksum:review.checksum};
- expect(await (await run('database',merge)).json()).toMatchObject({merged:true,changed:1});
+ const applied=await (await run('database',merge)).json();
+ expect(applied).toMatchObject({merged:true,changed:1});
+ expect(applied).not.toHaveProperty('changedRecords');
  expect(await (await run('database',merge)).json()).toMatchObject({merged:true,replay:true});
- expect((await (await call('/tables/'+app.tableId,owner)).json()).rows).toMatchObject([{values:{task:'Merged record'}}]);
+ expect((await (await call('/tables/'+app.tableId,owner)).json()).rows).toMatchObject([{values:{task:'Handled by workflow'}}]);
+ const {runs}=await (await call(`/workflows/${workflow.id}`,owner)).json();
+ expect(runs).toHaveLength(1);
+ expect(runs[0]).toMatchObject({trigger:'app_record_change',input:{records:[{event:'insert',recordId:review.changes[0].id,data:{task:'Merged record'}}]}});
  expect((await run('database',{action:'fork_write',...request,entity:'primary',operation:'create',values:{task:'late'}})).status).toBe(409);
 });
 

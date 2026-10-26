@@ -1,5 +1,5 @@
 import {readAutomationDraft} from './appAutomationDraft.js';
-import {diffAppAutomations,normalizeAppAutomations} from './appAutomationDefinition.js';
+import {diffAppAutomations,normalizeAppAutomations,validateAutomationAppScope} from './appAutomationDefinition.js';
 import {getWorkflow,mayViewWorkflow} from './workflows.js';
 
 // The route checks app editor rights first. A workflow can drift into a
@@ -9,6 +9,8 @@ export async function readAutomationPlan(db,orgId,appId,viewerId) {
   const state=await readAutomationDraft(db,orgId,appId);
   const normalized=normalizeAppAutomations(state.draft);
   if(normalized.error)return {error:'The saved automation draft is invalid.',status:409};
+  const scope=await validateAutomationAppScope(db,orgId,appId,normalized.automations);
+  if(scope)return {error:'The saved automation draft references an unavailable app entity.',status:409};
   const {results:rows}=await db.prepare('SELECT declaration_key,workflow_id,applied FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2 LIMIT 101').bind(orgId,appId).all();
   if(rows.length>100)return {error:'Too many automation bindings to reconcile.',status:409};
   const bindings=[],workflows=[];

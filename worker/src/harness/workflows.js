@@ -5,7 +5,7 @@ import {workflowSourceMayRun} from './workflowSourceAuthority.js';
 import {tryWorkflowNotice} from './workflowNoticeDelivery.js';
 import {ensureWorkflowSafety,readWorkflowSafety,workflowBudgetStatus,workflowBudgetWindows,workflowAiBudgetWindows,workflowBudgetReason,recoverWorkflowBudgetPause,pauseWorkflowForBudget,workflowSettlementStatements} from './workflowSafety.js';
 import {managedAutomationGuard,managedAutomationRelease,managedAutomationMayRun} from './appAutomationGuard.js';
-import { mayUseTable } from './resourceAccess.js';
+import { mayUseApp, mayUseTable } from './resourceAccess.js';
 import { holdWorkflowEvent } from './workflowHeld.js';
 import { WORKFLOW_WEBHOOK_REPLAY_TTL_MS, verifyWorkflowWebhook } from './workflowWebhookSignature.js';
 import { mayUseConversation } from './conversationAccess.js';
@@ -35,7 +35,7 @@ import { prepareAgent, mayRunAgent } from "./agents.js";
 import { scheduleFollowup } from "./followups.js";
 import { withRoomGuidelines } from "./guidelines.js";
 
-export const TRIGGERS = ["manual", "schedule", "webhook", "row"];
+export const TRIGGERS = ["manual", "schedule", "webhook", "row", "app_record_change"];
 export const STEP_TYPES = ["post", "agent", "add_row", "update_row", "approval", "followup", "code"];
 export const MAX_STEPS = 12;
 export const MAX_WORKFLOWS = 100;
@@ -104,7 +104,40 @@ export function normalizeTrigger(raw) {
     if (raw.column) t.column = String(raw.column);
     return { trigger: t };
   }
+  if (type === "app_record_change") {
+    if (typeof raw.appId !== 'string' || !raw.appId.trim() || raw.appId.length > 64) return { error: "An app record trigger names its app." };
+    if (typeof raw.entityId !== 'string' || !raw.entityId.trim() || raw.entityId.length > 64) return { error: "An app record trigger names its entity." };
+    if (!Array.isArray(raw.events) || raw.events.length < 1 || raw.events.length > 3 || raw.events.some(event => !['insert','update','delete'].includes(event)) || new Set(raw.events).size !== raw.events.length) return { error: "Choose one or more app record events: insert, update, or delete." };
+    const t = { type, appId: raw.appId, entityId: raw.entityId, events: [...raw.events].sort() };
+    if (raw.when !== undefined) {
+      if (!raw.when || typeof raw.when !== 'object' || Array.isArray(raw.when) || Object.keys(raw.when).some(key => key !== 'where') || !raw.when.where || typeof raw.when.where !== 'object' || Array.isArray(raw.when.where) || Object.keys(raw.when.where).length > 40) return { error: "An app record condition contains a flat where object with at most 40 fields." };
+      const where = {};
+      for (const [key, condition] of Object.entries(raw.when.where)) {
+        if (!key || key.length > 80) return { error: "An app record condition field name is invalid." };
+        const scalar = value => value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value));
+        if (Array.isArray(condition)) {
+          if (condition.length > 100 || condition.some(value => !scalar(value))) return { error: "An app record condition must use scalar values or an array of at most 100 scalar candidates." };
+        } else if (!scalar(condition)) return { error: "An app record condition must use scalar values or an array of scalar candidates." };
+        Object.defineProperty(where, key, { value: condition, enumerable: true, configurable: true, writable: true });
+      }
+      if (Object.keys(where).length) t.when = { where };
+    }
+    return { trigger: t };
+  }
   return { trigger: { type } };
+}
+
+async function appEntityTable(db, orgId, appId, entityId) {
+  if (entityId === 'primary') return (await db.prepare('SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2').bind(orgId, appId).first())?.table_id || null;
+  return (await db.prepare('SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 AND entity_key=?3').bind(orgId, appId, entityId).first())?.table_id || null;
+}
+
+async function validAppRecordTrigger(db, orgId, trigger) {
+  if (trigger.type !== 'app_record_change') return true;
+  const tableId=await appEntityTable(db, orgId, trigger.appId, trigger.entityId);
+  if(!tableId)return false;
+  const table=await getTable(db,orgId,tableId);
+  return Boolean(table&&Object.keys(trigger.when?.where||{}).every(key=>table.columns.some(column=>column.id===key||column.name.toLowerCase()===key.toLowerCase())));
 }
 
 export function normalizeSteps(raw) {
@@ -211,6 +244,7 @@ export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
     if(source&&!await mayUseConversation(db,orgId,viewerId,source.channel))return false;
   }
   if (workflow.trigger?.tableId && !(await mayUseTable(db, orgId, workflow.trigger.tableId, viewerId))) return false;
+  if (workflow.trigger?.type === 'app_record_change' && !(await mayUseApp(db, orgId, workflow.trigger.appId, viewerId))) return false;
   for (const step of workflow.steps || []) {
     if (step.tableId && !(await mayUseTable(db, orgId, step.tableId, viewerId))) return false;
     if (step.channel && !(await mayUseConversation(db, orgId, viewerId, step.channel))) return false;
@@ -251,6 +285,7 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
   const unavailable=await unavailableProgramNode(db,orgId,s.steps);
   if(unavailable)return unavailable;
   if (t.trigger.type === "row" && !(await getTable(db, orgId, t.trigger.tableId))) return { error: "No such table." };
+  if (t.trigger.type === 'app_record_change' && (!(await validAppRecordTrigger(db, orgId, t.trigger)) || !(await mayUseApp(db, orgId, t.trigger.appId, by)))) return { error: "Choose an app and entity you can access." };
   const n = await db.prepare("SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id = ?1").bind(orgId).first();
   if (Number(n?.n || 0) >= MAX_WORKFLOWS) return { error: "This workspace has as many workflows as it can hold." };
   const id = newId("wf");
@@ -277,7 +312,7 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
   return { workflow: await getWorkflow(db, orgId, id, { withSecret: true }),...(announcementId?{announcementId}:{}) };
 }
 
-export async function updateWorkflow(db, orgId, id, input) {
+export async function updateWorkflow(db, orgId, id, input, changedBy = null) {
   const wf = await getWorkflow(db, orgId, id);
   if (!wf) return { error: "No such workflow.", status: 404 };
   if (input.expectedUpdatedAt !== undefined && (typeof input.expectedUpdatedAt !== 'string' || input.expectedUpdatedAt !== wf.updatedAt)) return { error: 'The workflow changed. Reload it before saving your changes.', status: 409 };
@@ -287,6 +322,7 @@ export async function updateWorkflow(db, orgId, id, input) {
     const t = normalizeTrigger(input.trigger);
     if (t.error) return t;
     trigger = t.trigger;
+    if (trigger.type === 'app_record_change' && (!(await validAppRecordTrigger(db, orgId, trigger)) || !(await mayUseApp(db, orgId, trigger.appId, wf.createdBy)) || (changedBy !== null && !(await mayUseApp(db, orgId, trigger.appId, changedBy))))) return { error: "Choose an app and entity you can access." };
   }
   let steps = wf.steps;
   if (input.steps !== undefined) {
@@ -360,6 +396,8 @@ export async function getRun(db, orgId, runId, { viewerId } = {}) {
     const definition = frozen ? JSON.parse(frozen.definition) : await getWorkflow(db, orgId, run.workflowId);
     if (!(await mayViewWorkflow(db, orgId, definition, viewerId))) return null;
     if (run.input?.tableId && !(await mayUseTable(db, orgId, run.input.tableId, viewerId))) return null;
+    const inputAppId = run.input?.records?.find(record => record?.appId)?.appId;
+    if (inputAppId && !(await mayUseApp(db, orgId, inputAppId, viewerId))) return null;
   }
   if(run)run.usage=await workflowRunUsage(db,orgId,runId);
   return run;
@@ -528,8 +566,14 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     await tryWorkflowNotice(env,orgId,workflow.id);
     return getRun(db, orgId, runId);
   }
-  const sourceTable = workflow.trigger?.tableId || run.input?.tableId;
+  const sourceTable = workflow.trigger?.tableId || run.input?.tableId || (workflow.trigger?.type === 'app_record_change' ? await appEntityTable(db,orgId,workflow.trigger.appId,workflow.trigger.entityId) : null);
   if (sourceTable && !(await mayUseTable(db, orgId, sourceTable, workflow.createdBy))) {
+    await db.batch([db.prepare("UPDATE hx_workflow_runs SET status = 'failed', finished_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), runId, orgId),...workflowSettlementStatements(db,orgId,runId)]);
+    await tryWorkflowNotice(env,orgId,workflow.id);
+    return getRun(db, orgId, runId);
+  }
+  if (workflow.trigger?.type === 'app_record_change' &&
+    (!(await validAppRecordTrigger(db, orgId, workflow.trigger)) || !(await mayUseApp(db, orgId, workflow.trigger.appId, workflow.createdBy)))) {
     await db.batch([db.prepare("UPDATE hx_workflow_runs SET status = 'failed', finished_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), runId, orgId),...workflowSettlementStatements(db,orgId,runId)]);
     await tryWorkflowNotice(env,orgId,workflow.id);
     return getRun(db, orgId, runId);
@@ -538,6 +582,10 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
   const log = run.log;
   const scope = { input: run.input || {}, steps: {}, workflow: { name: workflow.name } };
   if (run.input?.row) scope.row = run.input.row;
+  else if (run.input?.records?.[0]) {
+    const record=run.input.records[0];
+    scope.row=await rowScope(db,orgId,sourceTable,{id:record.recordId,values:record.data||{}});
+  }
   if (run.input?.before) scope.before = run.input.before;
   log.forEach((entry, i) => { scope.steps[i + 1] = entry; });
   let status = "done";
@@ -625,7 +673,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, runId, depth
       return { status: "ok", output: r.row.id, rowId: r.row.id };
     }
     case "update_row": {
-      const tableId = step.tableId || scope.input?.tableId;
+      const tableId = step.tableId || scope.input?.tableId || (workflow.trigger?.type==='app_record_change'?await appEntityTable(db,orgId,workflow.trigger.appId,workflow.trigger.entityId):null);
       const rowId = step.rowId ? render(step.rowId, scope) : scope.row?.id;
       if (tableId && !(await mayUseTable(db, orgId, tableId, owner))) return { status: "failed", error: "Table access required." };
       if (!tableId || !rowId) return { status: "failed", error: "No row to change." };
@@ -745,6 +793,43 @@ async function rowEventFingerprint(table, before, row) {
   return hex(new Uint8Array(digest));
 }
 
+async function appRecordWorkflows(db, orgId, tableId) {
+  const { results } = await db.prepare(`SELECT w.* FROM hx_workflows w
+    WHERE w.org_id=?1 AND w.enabled=1 AND json_extract(w.trigger,'$.type')='app_record_change'
+      AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=w.org_id AND a.id=json_extract(w.trigger,'$.appId')
+        AND ((a.table_id=?2 AND json_extract(w.trigger,'$.entityId')='primary') OR EXISTS(
+          SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=?2
+            AND e.entity_key=json_extract(w.trigger,'$.entityId'))))`).bind(orgId, tableId).all().catch(() => ({ results: [] }));
+  return results || [];
+}
+
+async function startAppRecordRuns(env, { orgId, table, before, row, by, depth }) {
+  const isDelete = row == null;
+  const event = isDelete ? 'delete' : before ? 'update' : 'insert';
+  if (!isDelete && before && !valuesChanged(before.values, row.values)) return 0;
+  let started = 0;
+  for (const record of await appRecordWorkflows(env.DB, orgId, table.id)) {
+    const workflow = publicWorkflow(record), trigger = workflow.trigger;
+    if (!trigger.events.includes(event) || (by === `workflow:${workflow.id}`)) continue;
+    if (!(await mayUseApp(env.DB, orgId, trigger.appId, workflow.createdBy))) continue;
+    // App predicates are flat AND conditions on the post-change fields. A
+    // delete has no field payload by design, so a predicate never matches it.
+    if (isDelete && trigger.when?.where) continue;
+    if (!isDelete && !whereHolds(trigger.when?.where, row.values, table.columns)) continue;
+    const appRecord = {
+      event, appId: trigger.appId, entityId: trigger.entityId, recordId: (row || before).id,
+      ...(!isDelete ? { data: row.values || {} } : {}),
+    };
+    const rowEventHash = await rowEventFingerprint(table, before, row);
+    const result = await startRun(env, {
+      orgId, workflow, trigger: 'app_record_change', startedBy: by, depth,
+      input: { tableId: table.id, records: [appRecord], totalCount: 1, truncated: false }, rowEventHash,
+    });
+    if (result?.id) started += 1;
+  }
+  return started;
+}
+
 /// A row added or changed: every enabled workflow watching that table runs,
 /// when the change is the kind it watches and the row now matches. A
 /// change that leaves the watched column as it was starts nothing.
@@ -786,6 +871,7 @@ export async function onRowChange(env, { orgId, table, before, row, by, depth = 
     });
     if (run?.id) started += 1;
   }
+  started += await startAppRecordRuns(env, { orgId, table, before, row, by, depth });
   return started;
 }
 
@@ -816,6 +902,7 @@ export async function onRowDelete(env, { orgId, table, row, by, depth = 0 }) {
     });
     if (run?.id) started += 1;
   }
+  started += await startAppRecordRuns(env, { orgId, table, before: row, row: null, by, depth });
   return started;
 }
 

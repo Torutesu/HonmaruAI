@@ -648,7 +648,7 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
-      "acceptance": "現在4種。cron/every/at・deleteイベントと時差/DSTを追加"
+      "acceptance": "Schedule cron/every/at・timezone/DST、テーブル行追加/更新/削除、app_record_changeのinsert/update/delete、entity・App権限検証、型を保つflat when.where、records payloadと削除データの非送信を検証。Kylon実画面・本番・高頻度集約は別途確認"
     },
     {
       "id": "KY-057",
@@ -658,7 +658,7 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
-      "acceptance": "missing/null/数値/配列・変更前後・重複配信を検証"
+      "acceptance": "テーブル行とapp_record_changeのflat AND条件を検証: missing/null/数値/配列、型の厳密一致、変更判定、重複配信、deleteにデータがない場合の条件動作"
     },
     {
       "id": "KY-058",
