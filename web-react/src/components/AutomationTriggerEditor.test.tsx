@@ -11,8 +11,20 @@ test('changing trigger kinds clears incompatible old configuration',()=>{
 test('weekly schedules include an explicit weekday and retain timezone and time',()=>{
  const onChange=vi.fn();let tree:any
  act(()=>{tree=create(<AutomationTriggerEditor trigger={{type:'schedule',cadence:'daily',hour:14,minute:25,timezone:'Asia/Tokyo'}} tables={[]} onChange={onChange}/>)})
- act(()=>tree.root.findAllByType('select')[1].props.onChange({target:{value:'weekly'}}))
+ act(()=>tree.root.findAllByType('select')[2].props.onChange({target:{value:'weekly'}}))
  expect(onChange).toHaveBeenLastCalledWith({type:'schedule',cadence:'weekly',weekday:1,hour:14,minute:25,timezone:'Asia/Tokyo'});act(()=>tree.unmount())
+})
+test('calendar, cron, interval and one-time schedules switch to explicit trigger shapes',()=>{
+ const onChange=vi.fn();let tree:any
+ act(()=>{tree=create(<AutomationTriggerEditor trigger={{type:'schedule',cadence:'daily',hour:14,minute:25,timezone:'Asia/Tokyo'}} tables={[]} onChange={onChange}/> )})
+ const selects=tree.root.findAllByType('select')
+ act(()=>selects[1].props.onChange({target:{value:'cron'}}))
+ expect(onChange).toHaveBeenLastCalledWith({type:'schedule',kind:'cron',expr:'0 9 * * 1-5',timezone:'Asia/Tokyo'})
+ act(()=>tree.update(<AutomationTriggerEditor trigger={{type:'schedule',kind:'every',everyMs:1800000}} tables={[]} onChange={onChange}/>))
+ expect(tree.root.findAllByType('input').some((input:any)=>input.props['aria-label']==='Interval in minutes')).toBe(true)
+ act(()=>tree.update(<AutomationTriggerEditor trigger={{type:'schedule',kind:'at',at:'2026-10-27T00:00:00.000Z'}} tables={[]} onChange={onChange}/>))
+ expect(tree.root.findAllByType('input').some((input:any)=>input.props['aria-label']==='Run at')).toBe(true)
+ act(()=>tree.unmount())
 })
 test('changing the row table clears filters and watched columns for the previous table',()=>{
  const onChange=vi.fn();let tree:any

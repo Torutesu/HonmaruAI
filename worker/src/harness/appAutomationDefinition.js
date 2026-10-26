@@ -1,5 +1,5 @@
 import {normalizeTrigger, normalizeSteps} from './workflows.js';
-import {isTimeZone} from '../schedule.js';
+import {isTimeZone,isIsoInstant,MIN_SCHEDULE_INTERVAL_MS,MAX_SCHEDULE_INTERVAL_MS,validateCronExpression} from '../schedule.js';
 
 export const MAX_APP_AUTOMATIONS = 12;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -22,9 +22,12 @@ export function normalizeAppAutomations(raw) {
     used.add(item.key);
     const trigger = item.trigger;
     if (!object(trigger)) return fail('Each automation needs a trigger.');
-    const triggerKeys = trigger.type === 'schedule' ? ['type','cadence','hour','minute','timezone','weekday','monthday'] : trigger.type === 'row' ? ['type','tableId','on','where','column'] : ['type'];
+    const triggerKeys = trigger.type === 'schedule' ? (trigger.kind==='cron'?['type','kind','expr','timezone']:trigger.kind==='every'?['type','kind','everyMs']:trigger.kind==='at'?['type','kind','at']:['type','cadence','hour','minute','timezone','weekday','monthday']) : trigger.type === 'row' ? ['type','tableId','on','where','column'] : ['type'];
     if (!keys(trigger, triggerKeys)) return fail('Unknown trigger fields.');
-    if (trigger.type === 'schedule' && (!integer(trigger.hour,0,23) || !integer(trigger.minute,0,59) || !isTimeZone(trigger.timezone) || (trigger.cadence === 'weekly' && !integer(trigger.weekday,0,6)) || (trigger.cadence === 'monthly' && !integer(trigger.monthday,1,31)))) return fail('The automation schedule is invalid.');
+    if (trigger.type === 'schedule' && trigger.kind === 'cron' && (!text(trigger.expr,240) || !isTimeZone(trigger.timezone) || validateCronExpression(trigger.expr).error)) return fail('The automation cron schedule is invalid.');
+    if (trigger.type === 'schedule' && trigger.kind === 'every' && (!integer(trigger.everyMs,MIN_SCHEDULE_INTERVAL_MS,MAX_SCHEDULE_INTERVAL_MS))) return fail('The automation interval is outside the supported range.');
+    if (trigger.type === 'schedule' && trigger.kind === 'at' && !isIsoInstant(trigger.at)) return fail('The one-time automation timestamp is invalid.');
+    if (trigger.type === 'schedule' && trigger.kind === undefined && (!integer(trigger.hour,0,23) || !integer(trigger.minute,0,59) || !isTimeZone(trigger.timezone) || (trigger.cadence === 'weekly' && !integer(trigger.weekday,0,6)) || (trigger.cadence === 'monthly' && !integer(trigger.monthday,1,31)))) return fail('The automation schedule is invalid.');
     if (trigger.type === 'row' && (!text(trigger.tableId,64) || !['added','changed','deleted','any'].includes(trigger.on) || (trigger.where !== undefined && !object(trigger.where)) || (trigger.column !== undefined && !text(trigger.column,64)))) return fail('The row trigger is invalid.');
     const normalizedTrigger = normalizeTrigger(trigger);
     if (normalizedTrigger.error) return fail(normalizedTrigger.error);
