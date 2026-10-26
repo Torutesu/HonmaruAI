@@ -602,6 +602,10 @@ test('app automation drafts are private to editors, inert and protected against 
  const path=`/apps/${app.id}/automations`;
  const first=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(first).toMatchObject({revision:0,version:app.version,draft:{version:1,items:[]},published:null});
  const automations={version:1,items:[{key:'review',name:'Review',enabled:true,trigger:{type:'manual'},steps:[{type:'post',channel:'b:general',text:'draft-private-note'}]}]};
+ const appTrigger={type:'app_record_change',appId:app.id,entityId:'missing-entity',events:['update']};
+ expect((await send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations:{version:1,items:[{...automations.items[0],trigger:appTrigger}]}})).status).toBe(400);
+ expect((await send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations:{version:1,items:[{...automations.items[0],trigger:{...appTrigger,appId:'other_app',entityId:'primary'}}]}})).status).toBe(400);
+ expect((await send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations:{version:1,items:[{...automations.items[0],trigger:{type:'app_record_change',appId:app.id,entityId:'primary',events:['update'],when:{where:{no_such_field:'x'}}}}]}})).status).toBe(400);
  expect((await get(`${path}?orgId=${ORG}`,mika)).status).toBe(403);
  expect((await send('PUT',path,mika,{orgId:ORG,version:app.version,revision:0,automations})).status).toBe(403);
  const results=await Promise.all([send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations}),send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations})]);

@@ -463,7 +463,7 @@ export async function handleHarness(request, env, url, context = {}) {
         ...(mine && wf.trigger.type === 'webhook' ? { held: await heldWorkflowSummary(env.DB, orgId, wfId) } : {}) });
       if (!mine) return json({ message: "Only its maker or an admin can change this workflow." }, 403);
       if (request.method === "PUT") {
-        const r = await updateWorkflow(env.DB, orgId, wfId, input);
+        const r = await updateWorkflow(env.DB, orgId, wfId, input, me);
         return r.error ? fail(r) : json({ ...r, hookUrl: hookUrl(url, r.workflow) });
       }
       if (request.method === "DELETE") {
@@ -879,7 +879,19 @@ export async function handleHarness(request, env, url, context = {}) {
         if (input.action === 'migrate') return respond(await applyMigration(env.DB, orgId, app, input, me), 'app.database_migrated');
         if (input.action === 'fork') return respond(await forkDatabase(env.DB, orgId, app, me), 'app.database_forked');
         if (input.action === 'merge_preview') { const result=await previewMerge(env.DB,orgId,app,me,input); const {snapshots,...review}=result; return respond(review); }
-        if (input.action === 'merge_apply') return respond(await mergeFork(env.DB,orgId,app,me,input), 'app.preview_merged');
+        if (input.action === 'merge_apply') {
+          const result=await mergeFork(env.DB,orgId,app,me,input);
+          if(result.error)return respond(result);
+          const {changedRecords=[],...publicResult}=result;
+          if(result.merged&&!result.replay)for(const change of changedRecords) {
+            const table=await getTable(env.DB,orgId,change.tableId);
+            if(!table)continue;
+            const before=change.operation==='create'?null:{id:change.id,values:change.before||{},updatedAt:change.beforeUpdatedAt};
+            if(change.operation==='remove')await afterRowDelete(env,{orgId,table,row:before,by:me});
+            else await afterRowChange(env,{orgId,table,before,row:{id:change.id,values:change.after||{},updatedAt:result.mergedAt},by:me});
+          }
+          return respond(publicResult,'app.preview_merged');
+        }
         if (input.action === 'fork_write') return respond(await mutateFork(env.DB, orgId, appId, me, input), 'app.preview_changed');
       }
       if (sub === 'actions') {
@@ -914,8 +926,10 @@ export async function handleHarness(request, env, url, context = {}) {
         const tables=await visibleResources(await listTables(env.DB,orgId),t=>mayUseTable(env.DB,orgId,t.id,me));
         const agents=await listAgents(env.DB,orgId,who.user.login),visibleAgents=[];
         for(const agent of agents)if(await mayAccessAgent(env.DB,orgId,agent,who.user.login))visibleAgents.push({id:agent.id,name:agent.name});
+        const appSchema=await databaseView(env.DB,orgId,app);
+        const appRecords=[{id:appId,name:app.name,entities:appSchema.entities.map(entity=>({id:entity.key,name:entity.table?.name,columns:entity.table?.columns||[]}))}];
         const complete=input.useModel===false?null:await completer(env,orgId,me,'app_automation_generate',{maxTokens:2400});
-        const result=await appAutomationFromPrompt(env.DB,orgId,me,{prompt:input.prompt,timezone:input.timezone,complete,tables,agents:visibleAgents});
+        const result=await appAutomationFromPrompt(env.DB,orgId,me,{prompt:input.prompt,timezone:input.timezone,complete,tables,agents:visibleAgents,appRecords});
         return result.error?fail(result):json(result);
       }
       if (request.method === 'GET') {

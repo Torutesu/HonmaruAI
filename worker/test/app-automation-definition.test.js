@@ -39,6 +39,18 @@ test('app automations can declare unfiltered row deletion triggers',()=>{
  expect(normalizeAppAutomations(bundle([{...item(),trigger}])).automations.items[0].trigger).toEqual(trigger);
  expect(normalizeAppAutomations(bundle([{...item(),trigger:{...trigger,where:{status:['Done']}}}])).error).toContain('no field data');
 });
+test('app automations retain Kylon app record event and strict where shapes',()=>{
+ const trigger={type:'app_record_change',appId:'app_one',entityId:'primary',events:['insert','delete'],when:{where:{status:['ready','blocked'],priority:2}}};
+ const result=normalizeAppAutomations(bundle([{...item(),trigger}]));
+ expect(result.automations.items[0].trigger).toEqual({...trigger,events:['delete','insert']});
+ for(const invalid of [
+  {...trigger,events:[]},
+  {...trigger,events:['remove']},
+  {...trigger,events:['insert','insert']},
+  {...trigger,when:{all:[]}},
+  {...trigger,when:{where:{status:{eq:'ready'}}}},
+ ])expect(normalizeAppAutomations(bundle([{...item(),trigger:invalid}])).error).toBeTruthy();
+});
 test('comparison ignores metadata and property order but detects enabled, content and step order drift',()=>{
  const a=item(),b={...a,hookSecret:'do not export',lastRunAt:'now',trigger:{type:'manual'}};
  expect(sameAutomation(a,b)).toBe(true);expect(sameAutomation(a,{...b,enabled:true})).toBe(false);

@@ -48,10 +48,11 @@ export interface MergeReview { forkId: string; revision: number; checksum: strin
 export interface AppDatabase { version: number; entities: AppEntity[]; migrations: Array<{id:string;version:number;checksum:string;plan:unknown;createdAt:string}>; fork: AppFork | null }
 export interface Template { id: string; name: string; icon: string; description: string }
 
-export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'row'
+export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'row' | 'app_record_change'
 export interface Trigger {
   type: TriggerType
   tableId?: string; on?: 'added' | 'changed' | 'deleted' | 'any'; where?: Record<string, string[]>; column?: string
+  appId?: string; entityId?: string; events?: Array<'insert'|'update'|'delete'>; when?: {where:Record<string,ConditionScalar|ConditionScalar[]>}
   kind?: 'cron' | 'every' | 'at'; expr?: string; everyMs?: number; at?: string
   cadence?: string; hour?: number; minute?: number; weekday?: number; monthday?: number; timezone?: string
 }

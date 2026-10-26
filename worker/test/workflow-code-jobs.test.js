@@ -1,7 +1,7 @@
 import {env} from 'cloudflare:test';
 import {test,expect,beforeEach} from 'vitest';
 import {upsertUser,upsertMembership} from '../src/db.js';
-import {enqueueWorkflowProgram,settleWorkflowProgram} from '../src/harness/workflowCodeJobs.js';
+import {enqueueWorkflowProgram,settleWorkflowProgram,workflowProgramAccessCTE,workflowProgramJobAccess} from '../src/harness/workflowCodeJobs.js';
 import {ensureWorkflowSafety} from '../src/harness/workflowSafety.js';
 import {readExecution,cancelExecution,enqueueExecution} from '../src/harness/executions.js';
 import {expireGatewayJobs} from '../src/harness/gateways.js';
@@ -146,6 +146,26 @@ test('program output and cancellation follow revoked source access, including a 
  await env.DB.prepare("DELETE FROM hx_workflow_sources WHERE workflow_id='program-wf'").run();
  expect((await readExecution(env.DB,'program-org','program-owner',jobId)).status).toBe(404);
  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(jobId).first()).status).toBe('queued');
+});
+test('app record programs receive Kylon records and are fenced if the app becomes private',async()=>{
+ await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('program-table','program-org','Source','[]','someone-else','now','now')").run();
+ await env.DB.prepare("INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at) VALUES('program-app','program-org','Source','program-table','{}','someone-else','now','now')").run();
+ definition.trigger={type:'app_record_change',appId:'program-app',entityId:'primary',events:['insert']};
+ await env.DB.prepare("UPDATE hx_workflow_runs SET trigger='app_record_change',input=?1 WHERE id='program-run'").bind(JSON.stringify({tableId:'program-table',records:[{event:'insert',appId:'program-app',entityId:'primary',recordId:'row-1',data:{status:'open'}}],totalCount:1,truncated:false})).run();
+ await env.DB.prepare("UPDATE hx_workflow_run_definitions SET definition=?1 WHERE run_id='program-run'").bind(JSON.stringify(definition)).run();
+ const {jobId}=await enqueue();expect(jobId).toBeTruthy();
+ const payload=JSON.parse((await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(jobId).first()).payload);
+ expect(payload.context.trigger).toEqual({kind:'app_record_change',records:[{event:'insert',appId:'program-app',entityId:'primary',recordId:'row-1',data:{status:'open'}}],totalCount:1,truncated:false});
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES('program-org','program-app','private',1)").run();
+ expect((await readExecution(env.DB,'program-org','program-owner',jobId)).status).toBe(404);
+ const authorization=await env.DB.prepare(`${workflowProgramAccessCTE('?1')} SELECT id,(${workflowProgramJobAccess}) AS allowed,NOT (${workflowProgramJobAccess}) AS blocked FROM hx_gateway_jobs WHERE id=?2`).bind(3000,jobId).first();
+ expect(authorization).toMatchObject({id:jobId,allowed:0,blocked:1});
+ const token=`hgw_${crypto.randomUUID()}${crypto.randomUUID()}`;
+ const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token))),byte=>byte.toString(16).padStart(2,'0')).join('');
+ await env.DB.prepare("UPDATE hx_gateways SET token_hash=?1 WHERE id='program-node'").bind(hash).run();
+ const response=await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['workflow-program-v1']})}),env,{waitUntil(){}});
+ expect(response.status).toBe(200);expect((await response.json()).job).toBeNull();
+ expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(jobId).first()).status).toBe('failed');
 });
 test('program output fails closed when its frozen definition is missing',async()=>{
  const {jobId}=await enqueue();

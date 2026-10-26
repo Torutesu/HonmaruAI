@@ -18,6 +18,11 @@ test('review resolves authorized resource names while retaining unknown identifi
  expect(html).toContain('<dt>進捗</dt>')
 })
 
+test('app record trigger review resolves app, entity and typed filter names',()=>{
+ const html=renderToStaticMarkup(<AutomationSummary apps={[{app:{id:'app-id',name:'請求書'},entities:[{key:'primary',table:{id:'table-id',name:'請求書レコード',columns:[{id:'enabled',name:'有効',type:'checkbox'}]}}]}]} definition={{name:'有効化通知',enabled:true,trigger:{type:'app_record_change',appId:'app-id',entityId:'primary',events:['update'],when:{where:{enabled:false}}},steps:[]}}/> )
+ for(const text of ['対象アプリ: 請求書','対象エンティティ: 請求書レコード','<dt>有効</dt>','false'])expect(html).toContain(text)
+})
+
 test('review describes cron, interval and one-time schedule forms',()=>{
  for (const [trigger,label] of [
   [{type:'schedule',kind:'cron',expr:'0 9 * * 1-5',timezone:'Asia/Tokyo'},'Cron 0 9 * * 1-5'],

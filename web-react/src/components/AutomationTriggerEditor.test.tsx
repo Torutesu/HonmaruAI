@@ -1,7 +1,7 @@
 import React from 'react'
 import {act,create} from 'react-test-renderer'
 import {expect,test,vi} from 'vitest'
-import {AutomationTriggerEditor} from './AutomationTriggerEditor'
+import {AutomationTriggerEditor,type TriggerAppOption} from './AutomationTriggerEditor'
 test('changing trigger kinds clears incompatible old configuration',()=>{
  const onChange=vi.fn();let tree:any
  act(()=>{tree=create(<AutomationTriggerEditor trigger={{type:'row',tableId:'old',on:'changed',where:{status:['Done']}}} tables={[]} onChange={onChange}/>)})
@@ -40,5 +40,20 @@ test('delete events clear value filters and hide field based controls',()=>{
  act(()=>tree.update(<AutomationTriggerEditor trigger={{type:'row',tableId:'table',on:'deleted'}} tables={[{id:'table',name:'Records',columns:[{id:'status',name:'Status',type:'select',options:['Done']}]}]} onChange={onChange}/>))
  expect(tree.root.findAllByType('select')).toHaveLength(3)
  expect(tree.root.findAllByType('fieldset')).toHaveLength(0)
+ act(()=>tree.unmount())
+})
+test('app record trigger selects app entities and exposes typed event filters',()=>{
+ const onChange=vi.fn();let tree:any
+ const apps:TriggerAppOption[]=[{app:{id:'app_1',name:'Invoices'},entities:[{key:'primary',table:{id:'table_1',name:'Invoices',columns:[{id:'status',name:'Status',type:'select',options:['Open','Paid']},{id:'amount',name:'Amount',type:'number'},{id:'enabled',name:'Enabled',type:'checkbox'}]}}]}]
+ act(()=>{tree=create(<AutomationTriggerEditor trigger={{type:'manual'}} tables={[]} apps={apps} onChange={onChange}/>)})
+ act(()=>tree.root.findAllByType('select')[0].props.onChange({target:{value:'app_record_change'}}))
+ expect(onChange).toHaveBeenLastCalledWith({type:'app_record_change',appId:'app_1',entityId:'primary',events:['insert','update']})
+ act(()=>tree.update(<AutomationTriggerEditor trigger={{type:'app_record_change',appId:'app_1',entityId:'primary',events:['update']}} tables={[]} apps={apps} onChange={onChange}/>))
+ expect(tree.root.findAllByType('fieldset')).toHaveLength(4)
+ expect(tree.root.findAllByType('select')).toHaveLength(4)
+ act(()=>tree.update(<AutomationTriggerEditor trigger={{type:'app_record_change',appId:'app_1',entityId:'primary',events:['update'],when:{where:{enabled:false}}}} tables={[]} apps={apps} onChange={onChange}/>))
+ expect(tree.root.findAllByType('select').at(-1)?.props.value).toBe('false')
+ act(()=>tree.root.findAllByType('select').at(-1)?.props.onChange({target:{value:'true'}}))
+ expect(onChange).toHaveBeenLastCalledWith({type:'app_record_change',appId:'app_1',entityId:'primary',events:['update'],when:{where:{enabled:true}}})
  act(()=>tree.unmount())
 })

@@ -1,10 +1,12 @@
 import React from 'react'
 import type {AutomationDefinition,Step,Trigger,Table} from '../utils/harness'
+import type {TriggerAppOption} from './AutomationTriggerEditor'
 
 function triggerText(trigger:Trigger) {
  if(trigger.type==='manual')return '手動で実行したとき'
  if(trigger.type==='webhook')return 'Webhookを受信したとき'
  if(trigger.type==='row')return `データが${trigger.on==='added'?'追加':trigger.on==='changed'?'更新':trigger.on==='deleted'?'削除':'追加・更新'}されたとき`
+ if(trigger.type==='app_record_change')return `アプリのレコードが${(trigger.events||[]).map(event=>event==='insert'?'追加':event==='update'?'更新':'削除').join('・')}されたとき`
  if(trigger.kind==='cron')return `Cron ${trigger.expr}（${trigger.timezone||'UTC'}）`
  if(trigger.kind==='every') { const minutes=Math.round((trigger.everyMs||0)/60000);return minutes%60===0?`${minutes/60}時間ごと`:`${minutes}分ごと` }
  if(trigger.kind==='at')return `一度だけ ${trigger.at?new Date(trigger.at).toLocaleString('ja-JP'):''}`
@@ -13,7 +15,7 @@ function triggerText(trigger:Trigger) {
  return `${cadence}${day} ${String(trigger.hour??0).padStart(2,'0')}:${String(trigger.minute??0).padStart(2,'0')}（${trigger.timezone}）`
 }
 const labels={code:'TypeScriptプログラム',post:'ルームに投稿',agent:'エージェントに依頼',add_row:'レコードを追加',update_row:'レコードを更新',approval:'承認を依頼',followup:'後でフォローアップ'}
-interface Resources {tables?:Table[];agents?:Array<{id:string;name:string}>}
+interface Resources {tables?:Table[];agents?:Array<{id:string;name:string}>;apps?:TriggerAppOption[]}
 function StepSummary({step,tables=[],agents=[],triggerTable}:{step:Step;triggerTable?:Table}&Resources) {
  const table=tables.find(t=>t.id===step.tableId)||triggerTable
  return <li><strong>{labels[step.type]}</strong>
@@ -28,13 +30,17 @@ function StepSummary({step,tables=[],agents=[],triggerTable}:{step:Step;triggerT
   {step.values&&<dl>{Object.entries(step.values).map(([key,value])=><React.Fragment key={key}><dt>{table?.columns.find(c=>c.id===key)?.name||key}</dt><dd>{typeof value==='object'?JSON.stringify(value):String(value)}</dd></React.Fragment>)}</dl>}
  </li>
 }
-export function AutomationSummary({definition,tables=[],agents=[]}:{definition:AutomationDefinition|null}&Resources) {
+export function AutomationSummary({definition,tables=[],agents=[],apps=[]}:{definition:AutomationDefinition|null}&Resources) {
  if(!definition)return <p>処理なし</p>
- const table=tables.find(t=>t.id===definition.trigger.tableId)
+ const app=definition.trigger.type==='app_record_change'?apps.find(option=>option.app.id===definition.trigger.appId):undefined
+ const entity=app?.entities.find(option=>option.key===definition.trigger.entityId)
+ const table=entity?.table||tables.find(t=>t.id===definition.trigger.tableId)
  return <div className="hx-automation-summary"><p><strong>{definition.name}</strong> · {definition.enabled?'有効':'停止'}</p><p>{triggerText(definition.trigger)}</p>
+  {definition.trigger.type==='app_record_change'&&<p>対象アプリ: {app?.app.name||definition.trigger.appId||'—'} · 対象エンティティ: {entity?.table.name||definition.trigger.entityId||'—'}</p>}
   {definition.trigger.tableId&&<p>対象テーブル: {table?.name||definition.trigger.tableId}</p>}
   {definition.trigger.column&&<p>対象列: {table?.columns.find(c=>c.id===definition.trigger.column)?.name||definition.trigger.column}</p>}
   {definition.trigger.where&&<dl>{Object.entries(definition.trigger.where).map(([key,values])=><React.Fragment key={key}><dt>{table?.columns.find(c=>c.id===key)?.name||key}</dt><dd>{values.join(' / ')}</dd></React.Fragment>)}</dl>}
+  {definition.trigger.type==='app_record_change'&&definition.trigger.when?.where&&<dl>{Object.entries(definition.trigger.when.where).map(([key,value])=><React.Fragment key={key}><dt>{table?.columns.find(c=>c.id===key||c.name.toLowerCase()===key.toLowerCase())?.name||key}</dt><dd>{Array.isArray(value)?value.map(String).join(' / '):String(value)}</dd></React.Fragment>)}</dl>}
   <ol>{definition.steps.map((step,index)=><StepSummary key={index} step={step} tables={tables} agents={agents} triggerTable={table}/>)}</ol>
   <details><summary>詳細データ</summary><pre>{JSON.stringify(definition,null,2)}</pre></details>
  </div>

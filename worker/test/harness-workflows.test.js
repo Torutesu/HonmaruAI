@@ -40,7 +40,7 @@ const signedWebhook = async (hookUrl, secret, body = '{}', eventId = `evt-${++we
   });
 };
 
-let invoices;
+let invoices, invoicesAppId;
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership, upsertBusiness } = await import("../src/db.js");
@@ -53,7 +53,7 @@ beforeEach(async () => {
   mika = await createSession(env.DB, "9302", "gho_m");
   await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode: "harness" });
   const app = (await (await send("POST", "/apps", mika, { orgId: ORG, template: "invoices", sample: false })).json()).app;
-  invoices = app.tableId;
+  invoices = app.tableId; invoicesAppId = app.id;
 });
 
 const overdueFlow = () => ({
@@ -142,6 +142,42 @@ test("delete events bypass field-data filters, and delete-only triggers reject t
   expect((await (await get(`/workflows/${legacyAny.workflow.id}?${q({ orgId: ORG })}`, mika)).json()).runs).toHaveLength(1);
 });
 
+test('app record triggers scope to an app entity, filter insert/update data, and omit deleted fields', async () => {
+  const invalid=await send('POST','/workflows',mika,{orgId:ORG,name:'Invalid app entity',trigger:{type:'app_record_change',appId:invoicesAppId,entityId:'missing-entity',events:['update']},steps:[{type:'post',channel:'b:ops',text:'No run'}]});
+  expect(invalid.status).toBe(400);
+  const invalidField=await send('POST','/workflows',mika,{orgId:ORG,name:'Invalid app field',trigger:{type:'app_record_change',appId:invoicesAppId,entityId:'primary',events:['update'],when:{where:{no_such_field:'x'}}},steps:[{type:'post',channel:'b:ops',text:'No run'}]});
+  expect(invalidField.status).toBe(400);
+  const updated = await send('POST','/workflows',mika,{orgId:ORG,name:'App status changes',trigger:{type:'app_record_change',appId:invoicesAppId,entityId:'primary',events:['update'],when:{where:{Status:'Overdue'}}},steps:[{type:'post',channel:'b:ops',text:'Overdue {{row.Client}}'}]});
+  expect(updated.status).toBe(201);
+  const {workflow}=await updated.json();
+  const added=await (await send('POST',`/tables/${invoices}/rows`,mika,{orgId:ORG,values:{Client:'Acme',Status:'Draft'}})).json();
+  expect((await (await get(`/workflows/${workflow.id}?${q({orgId:ORG})}`,mika)).json()).runs).toHaveLength(0);
+  await send('PATCH',`/tables/${invoices}/rows/${added.row.id}`,mika,{orgId:ORG,values:{Status:'Overdue'}});
+  const runs=(await (await get(`/workflows/${workflow.id}?${q({orgId:ORG})}`,mika)).json()).runs;
+  expect(runs).toHaveLength(1);
+  expect(runs[0]).toMatchObject({trigger:'app_record_change',input:{totalCount:1,truncated:false,records:[{event:'update',appId:invoicesAppId,entityId:'primary',recordId:added.row.id,data:expect.objectContaining({status:'Overdue'})}]}});
+  expect((await messages(mika)).map(message=>message.body)).toContain('Overdue Acme');
+
+  const deletion=await send('POST','/workflows',mika,{orgId:ORG,name:'App record deleted',trigger:{type:'app_record_change',appId:invoicesAppId,entityId:'primary',events:['delete']},steps:[{type:'post',channel:'b:ops',text:'Removed {{input.records.0.recordId}}'}]});
+  expect(deletion.status).toBe(201);
+  const {workflow:deleteFlow}=await deletion.json();
+  const privateRow=(await (await send('POST',`/tables/${invoices}/rows`,mika,{orgId:ORG,values:{Client:'Private Customer',Status:'Draft'}})).json()).row;
+  await send('DELETE',`/tables/${invoices}/rows/${privateRow.id}?${q({orgId:ORG,expectedUpdatedAt:privateRow.updatedAt})}`,mika);
+  const deleteRuns=(await (await get(`/workflows/${deleteFlow.id}?${q({orgId:ORG})}`,mika)).json()).runs;
+  expect(deleteRuns).toHaveLength(1);
+  expect(deleteRuns[0].input.records[0]).toEqual({event:'delete',appId:invoicesAppId,entityId:'primary',recordId:privateRow.id});
+  expect(JSON.stringify(deleteRuns[0].input)).not.toContain('Private Customer');
+});
+
+test('admin editors cannot redirect a workflow to an app they cannot access',async()=>{
+  const {workflow}=await (await send('POST','/workflows',mika,{orgId:ORG,name:'Private app workflow',trigger:{type:'manual'},steps:[{type:'approval',to:'toru',title:'Review'}]})).json();
+  await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)").bind(ORG,invoicesAppId).run();
+  const response=await send('PUT',`/workflows/${workflow.id}`,toru,{orgId:ORG,trigger:{type:'app_record_change',appId:invoicesAppId,entityId:'primary',events:['update']}});
+  expect(response.status).toBe(400);
+  expect((await response.json()).message).toMatch(/app and entity you can access/);
+  expect((await (await get(`/workflows/${workflow.id}?${q({orgId:ORG})}`,mika)).json()).workflow.trigger.type).toBe('manual');
+});
+
 test("row event filters use strict scalar types, treat missing separately from null, and ignore duplicate delivery", async () => {
   const make = async (name, where) => {
     const result = await send("POST", "/workflows", mika, {
@@ -195,6 +231,18 @@ test("row filters reject nested values and non-flat filter objects", () => {
   expect(normalizeTrigger({ type: "row", tableId: invoices, where: { Amount: { gt: 5 } } }).error).toBeTruthy();
   expect(normalizeTrigger({ type: "row", tableId: invoices, where: { Amount: [5, { value: 6 }] } }).error).toBeTruthy();
   expect(normalizeTrigger({ type: "row", tableId: invoices, where: { Amount: [5, null, "5"] } }).trigger.where).toEqual({ Amount: [5, null, "5"] });
+});
+
+test('app record triggers validate Kylon event names and flat strict predicates',()=>{
+  expect(normalizeTrigger({type:'app_record_change',appId:'app',entityId:'primary',events:['update','insert'],when:{where:{status:['open','blocked'],priority:2}}}).trigger)
+    .toEqual({type:'app_record_change',appId:'app',entityId:'primary',events:['insert','update'],when:{where:{status:['open','blocked'],priority:2}}});
+  for(const invalid of [
+    {type:'app_record_change',appId:'app',entityId:'primary',events:[]},
+    {type:'app_record_change',appId:'app',entityId:'primary',events:['remove']},
+    {type:'app_record_change',appId:'app',entityId:'primary',events:['insert','insert']},
+    {type:'app_record_change',appId:'app',entityId:'primary',events:['update'],when:{where:{status:{eq:'open'}}}},
+    {type:'app_record_change',appId:'app',entityId:'primary',events:['update'],when:{all:[]}},
+  ])expect(normalizeTrigger(invalid).error).toBeTruthy();
 });
 
 test("declined, a run ends where it stood", async () => {
