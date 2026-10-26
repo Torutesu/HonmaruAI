@@ -32,3 +32,19 @@ test('conflicting edit keeps the draft and does not close',async()=>{
  act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={columns} record={{id:'row_1',values:{title:'Original'},updatedAt:'2026-10-18T00:00:00Z'}} save={save} onClose={onClose}/>)});
  act(()=>tree!.root.findByType('textarea').props.onChange({target:{value:'My changes'}}));await act(async()=>{await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})});expect(onClose).not.toHaveBeenCalled();expect(tree!.root.findByType('textarea').props.value).toBe('My changes');expect(tree!.root.findByProps({role:'alert'}).children).toContain('別のユーザーが更新しました');act(()=>tree!.unmount())
 })
+
+test('relation fields select same-app records and support multiple links',async()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});
+ const save=vi.fn().mockResolvedValue(undefined),customer={id:'customer_1',values:{name:'Acme'},updatedAt:'2026-10-18T00:00:00Z'};
+ const relationEntities=[{key:'customers',table:{id:'customers',name:'Customers',columns:[{id:'name',name:'Name',type:'text' as const}]},rows:[customer]}];
+ const relationColumns=[{id:'customer',name:'Customer',type:'relation' as const,targetEntity:'customers'},{id:'watchers',name:'Watchers',type:'relation' as const,targetEntity:'customers',multiple:true}];
+ let tree:ReturnType<typeof create>;
+ act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={relationColumns} relationEntities={relationEntities} save={save} onClose={()=>{}}/>)});
+ const selects=tree!.root.findAllByType('select');expect(selects).toHaveLength(2);expect(selects[1].props.multiple).toBe(true);
+ expect(selects[0].findAllByType('option').map(option=>option.children.join(''))).toContain('Acme');
+ act(()=>selects[0].props.onChange({target:{value:'customer_1'}}));
+ act(()=>selects[1].props.onChange({currentTarget:{selectedOptions:[{value:'customer_1'}]}}));
+ await act(async()=>{await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})});
+ expect(save).toHaveBeenCalledWith({customer:'customer_1',watchers:['customer_1']});
+ act(()=>tree!.unmount());
+})

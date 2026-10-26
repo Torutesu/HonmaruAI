@@ -9,6 +9,9 @@ export function valuesSchema(columns) {
     if (c.type === 'url') schema = { type: ['string', 'null'], format: 'uri', pattern: '^https?://', maxLength: 2000 };
     if (c.type === 'person') schema = { type: ['string', 'null'], minLength: 1, maxLength: 64 };
     if (c.type === 'select') schema = { type: ['string', 'null'], enum: [...(c.options || []), null] };
+    if (c.type === 'relation') schema = c.multiple
+      ? { type: ['array', 'null'], maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 64 }, description: `Record IDs from app entity ${c.targetEntity}.` }
+      : { type: ['string', 'null'], minLength: 1, maxLength: 64, description: `Record ID from app entity ${c.targetEntity}.` };
     return [c.id, { title: c.name, ...schema }];
   })) };
 }
@@ -21,8 +24,9 @@ export function validateValues(columns, values) {
     const rule = Object.hasOwn(schema.properties, key) ? schema.properties[key] : undefined;
     let valid = !!rule;
     if (rule && value !== null) {
-      valid = rule.type.includes(typeof value);
+      valid = rule.type.includes(Array.isArray(value) ? 'array' : typeof value);
       if (typeof value === 'number') valid &&= Number.isFinite(value);
+      if (Array.isArray(value)) valid &&= value.length <= (rule.maxItems ?? Infinity) && (!rule.uniqueItems || new Set(value).size === value.length) && value.every(item => typeof item === 'string' && item.length >= (rule.items?.minLength ?? 0) && item.length <= (rule.items?.maxLength ?? Infinity));
       if (typeof value === 'string') {
         valid &&= value.length <= (rule.maxLength ?? Infinity) && value.length >= (rule.minLength ?? 0);
         if (rule.format === 'date') {

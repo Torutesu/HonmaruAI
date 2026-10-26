@@ -15,8 +15,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 export type WorkspaceMode = 'simple' | 'harness'
 
-export type ColumnType = 'text' | 'number' | 'date' | 'select' | 'checkbox' | 'url' | 'person' | 'email'
-export interface Column { id: string; name: string; type: ColumnType; options?: string[] }
+export type ColumnType = 'text' | 'number' | 'date' | 'select' | 'checkbox' | 'url' | 'person' | 'email' | 'relation'
+export interface Column { id: string; name: string; type: ColumnType; options?: string[]; targetEntity?: string; multiple?: boolean }
 export interface Table { id: string; name: string; columns: Column[] }
 export interface Row { createdAt?: string; id: string; values: Record<string, unknown>; updatedAt: string }
 export interface Metric { label: string; op: string; column?: string; value: number | null }

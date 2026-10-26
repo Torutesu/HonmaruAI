@@ -22,7 +22,7 @@ import { Icon } from '../components/Icon'
 import { hashForApp, hashForAppSource, hashForCard, consumeAppDraftHash, appSectionHash, type AppSection } from '../utils/route'
 import {
   useWorkspaceMode, cellText, metricText, WANT_MODE_KEY, SET_MODE_EVENT, isMode, type WorkspaceMode,
-  type App, type Template, type Table, type Row, type View, type Column, type HarnessApi,
+  type App, type Template, type Table, type Row, type View, type Column, type HarnessApi, type AppEntity,
 } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps, type HarnessScreen } from './HarnessShared'
 import { ModePicker } from './HarnessHome'
@@ -215,11 +215,29 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
   )
 }
 
-function CellInput({ column, value, onSave, wrap = false, width, members=[] }: { column: Column; value: unknown; onSave: (v: unknown) => void; wrap?:boolean; width?:number;members?:Array<{ref:string;name:string}> }) {
+type RelationEntity = AppEntity & { rows: Row[] }
+function relationOptionLabel(entity: RelationEntity, row: Row) {
+  const title = entity.table.columns[0]
+  return title ? cellText(title, row.values[title.id]) || row.id : row.id
+}
+
+function CellInput({ column, value, onSave, wrap = false, width, members=[], relationEntities=[] }: { column: Column; value: unknown; onSave: (v: unknown) => void; wrap?:boolean; width?:number;members?:Array<{ref:string;name:string}>;relationEntities?:RelationEntity[] }) {
   const [draft, setDraft] = useState<string>(value == null ? '' : String(value))
   useEffect(() => { setDraft(value == null ? '' : String(value)) }, [value])
   const textArea=useRef<HTMLTextAreaElement>(null)
   useEffect(()=>{if(textArea.current){textArea.current.style.height='auto';textArea.current.style.height=`${textArea.current.scrollHeight}px`}},[draft,wrap,width])
+  if(column.type==='relation') {
+    const entity=relationEntities.find(item=>item.key===column.targetEntity)
+    const selectedIds=Array.isArray(value)?value.map(String):[]
+    const selectedId=value==null||Array.isArray(value)?'':String(value)
+    const known=new Set(entity?.rows.map(row=>row.id)||[])
+    const missing=column.multiple?selectedIds.filter(id=>!known.has(id)):selectedId&&!known.has(selectedId)?[selectedId]:[]
+    return <select className="hx-cell-select" aria-label={column.name} multiple={column.multiple||undefined} value={column.multiple?selectedIds:selectedId} onChange={e=>onSave(column.multiple?Array.from(e.currentTarget.selectedOptions,option=>option.value):e.target.value||null)}>
+      {!column.multiple&&<option value="">—</option>}
+      {missing.map(id=><option key={id} value={id}>{id}（未取得）</option>)}
+      {(entity?.rows||[]).map(row=><option key={row.id} value={row.id}>{relationOptionLabel(entity!,row)}</option>)}
+    </select>
+  }
   if(column.type==='person'&&members.length) return <select className="hx-cell-select" aria-label={column.name} value={String(value??'')} onChange={e=>onSave(e.target.value||null)}><option value="">—</option>{value&&!members.some(m=>m.ref===String(value))?<option value={String(value)}>{String(value)}</option>:null}{members.map(m=><option key={m.ref} value={m.ref}>{m.name}</option>)}</select>
   if(wrap&&['text','person'].includes(column.type)) return <textarea ref={textArea} className="hx-cell-input hx-wrapped-input" rows={1} value={draft} onChange={e=>setDraft(e.target.value)} onBlur={()=>{if(draft!==(value==null?'':String(value)))onSave(draft)}} aria-label={column.name}/>
   if (column.type === 'checkbox') {
@@ -251,6 +269,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const floatApp=useFloatingApp()
   const t = useT()
   const [data, setData] = useState<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize?: boolean } | null>(null)
+  const [relationEntities,setRelationEntities]=useState<RelationEntity[]>([])
   const loadSequence=useRef(0)
   const currentApi=useRef(api);currentApi.current=api
   const [loadedApi,setLoadedApi]=useState<HarnessApi|null>(null)
@@ -285,7 +304,18 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { busy, error, act } = useAct()
 
-  const load = useCallback(() => act('load', async () => { const sequence=++loadSequence.current; const [next,preferences] = await Promise.all([api.app(appId),api.personalViews(appId)]); if(sequence!==loadSequence.current)return;setLoadedApi(api);setData(next); setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(initialSection || (next.app.definition.custom?.published ? 'overview' : 'data')) } }), [api, appId, act, initialSection])
+  const load = useCallback(() => act('load', async () => {
+    const sequence=++loadSequence.current
+    const [next,preferences]=await Promise.all([api.app(appId),api.personalViews(appId)])
+    const targetKeys=new Set(next.table.columns.filter(column=>column.type==='relation'&&column.targetEntity).map(column=>column.targetEntity!))
+    const database=targetKeys.size?await api.appDatabase(appId).catch(()=>null):null
+    const targets=await Promise.all((database?.entities||[]).filter(entity=>targetKeys.has(entity.key)).map(async entity=>{
+      if(entity.key==='primary')return {...entity,rows:next.rows}
+      try{return {...entity,rows:(await api.entityRows(entity.table.id)).rows}}catch{return {...entity,rows:[]}}
+    }))
+    if(sequence!==loadSequence.current)return
+    setLoadedApi(api);setData(next);setRelationEntities(targets);setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(initialSection || (next.app.definition.custom?.published ? 'overview' : 'data')) }
+  }), [api, appId, act, initialSection])
   useEffect(() => { setEditingRecord(null);setCreating(false);setChatScope(initialConversation||{});setChatOpen(Boolean(initialConversation)||Boolean(openConversation));load();return()=>{loadSequence.current++;initializedSection.current=false} }, [load,initialConversation,openConversation])
 
   const selectSection=(next:AppSection)=>{setSection(next);onSectionChange?.(next);const hash=appSectionHash(location.hash,appId,orgId,next);if(!floating&&hash&&hash!==location.hash)location.hash=hash}
@@ -299,7 +329,13 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const layout = displayLayout(table.columns,personal.layouts[view.id])
   const orderedColumns = [...(layout?.order || []),...layout.columns.map(c=>c.id)].filter((id,i,ids)=>ids.indexOf(id)===i).map(id=>layout.columns.find(c=>c.id===id)).filter((c):c is Column=>!!c)
   const displayColumns = orderedColumns.filter(c=>c.id===table.columns[0]?.id || !layout?.hidden?.includes(c.id))
-  const shownRows = (view.rows || []).filter(row => !search || table.columns.some(c => cellText(c, row.values[c.id]).toLowerCase().includes(search.toLowerCase())))
+  const displayCellText=(column:Column,value:unknown)=>{
+    if(column.type!=='relation')return cellText(column,value)
+    const entity=relationEntities.find(item=>item.key===column.targetEntity)
+    const label=(id:string)=>{const row=entity?.rows.find(item=>item.id===id);return row&&entity?relationOptionLabel(entity,row):id}
+    return (Array.isArray(value)?value:value==null?[]:[value]).map(id=>label(String(id))).join(', ')
+  }
+  const shownRows = (view.rows || []).filter(row => !search || table.columns.some(c => displayCellText(c, row.values[c.id]).toLowerCase().includes(search.toLowerCase())))
 
   const save = (row: Row, column: Column, value: unknown) => act(`cell:${row.id}`, async () => {
     await api.updateRow(table.id, row.id, { [column.id]: value }, row.updatedAt)
@@ -316,11 +352,11 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       nested
       actions={<><button className="pill-btn quiet" onClick={() => selectSection('custom')}><Icon name="grid" size={14} />{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => selectSection('settings')}><Icon name="share" size={14} />{t('Sharing')}</button><AppConversationInbox api={api} appId={app.id} onOpen={scope=>{setChatScope(scope);setChatOpen(true)}}/><button className="hx-app-icon-button" aria-label={chatOpen?'アプリチャットを閉じる':'アプリチャットを開く'} aria-pressed={chatOpen} onClick={()=>{setChatScope({});setChatOpen(!chatOpen)}}><Icon name="message" size={16}/></button><button className="hx-app-icon-button" aria-label={fullscreen?'全画面表示を終了':'全画面表示'} aria-pressed={fullscreen} onClick={()=>setFullscreen(!fullscreen)}><Icon name={fullscreen?'minimize':'maximize'} size={16}/></button><HarnessAppMenu api={api} appId={app.id} orgId={orgId} onSection={selectSection} onFloat={!floating&&floatApp&&['overview','data'].includes(section)?()=>{floatApp(app.id,section);onClose()}:undefined} /><button className="hx-app-icon-button" aria-label={floating?'フローティングアプリを閉じる':'パネルを閉じる'} onClick={onClose}><Icon name="x" size={16}/></button></>}
     >
-      {chatOpen&&<AppConversationPanel key={`${orgId}:${app.id}:${chatScope.rowId||"app"}`} api={api} appId={app.id} {...chatScope} title={chatScope.rowId?"レコードチャット":app.name} initialDraft={chatScope.rowId||consumedDraft.current===initialDraft?undefined:initialDraft} onInitialDraftConsumed={consumeDraft} context={chatScope.rowId?(cellText(table.columns[0],data.rows.find(r=>r.id===chatScope.rowId)?.values[table.columns[0].id])||'選択したレコード'):section==='data'?`現在のデータ表示: ${view.name}`:undefined} onClose={()=>setChatOpen(false)}/>}
+      {chatOpen&&<AppConversationPanel key={`${orgId}:${app.id}:${chatScope.rowId||"app"}`} api={api} appId={app.id} {...chatScope} title={chatScope.rowId?"レコードチャット":app.name} initialDraft={chatScope.rowId||consumedDraft.current===initialDraft?undefined:initialDraft} onInitialDraftConsumed={consumeDraft} context={chatScope.rowId?(displayCellText(table.columns[0],data.rows.find(r=>r.id===chatScope.rowId)?.values[table.columns[0].id])||'選択したレコード'):section==='data'?`現在のデータ表示: ${view.name}`:undefined} onClose={()=>setChatOpen(false)}/>}
       <div ref={mainInteraction} className="hx-app-main">
       {section !== 'overview' && section !== 'data' && <nav className="hx-app-sections" aria-label={t('App sections')}>{(['overview', 'data', 'custom', 'backend', 'settings'] as const).map(tab => <button key={tab} aria-current={section === tab ? 'page' : undefined} className={section === tab ? 'on' : ''} onClick={() => selectSection(tab)}>{t(tab === 'overview' ? 'Overview' : tab === 'data' ? 'Data viewer' : tab === 'custom' ? 'Customize app' : tab === 'backend' ? '実行基盤' : 'Settings')}</button>)}</nav>}
-      {creating&&<AppRecordDialog appName={app.name} columns={table.columns} members={recordMembers} membersReady={recordMembersReady} save={async values=>{await api.addRow(table.id,values,'strict');await load()}} onClose={()=>setCreating(false)}/>}
-      {editingRecord&&<AppRecordDialog key={editingRecord.id} appName={app.name} columns={table.columns} members={recordMembers} membersReady={recordMembersReady} record={editingRecord} conversation={<AppConversationPanel key={`${orgId}:${app.id}:${editingRecord.id}`} api={api} appId={app.id} tableId={table.id} rowId={editingRecord.id} title="レコードチャット" context={cellText(table.columns[0],editingRecord.values[table.columns[0].id])||editingRecord.id}/>} save={async values=>{if(Object.keys(values).length)await api.updateRow(table.id,editingRecord.id,values,editingRecord.updatedAt);await load()}} onClose={()=>setEditingRecord(null)}/>}
+      {creating&&<AppRecordDialog appName={app.name} columns={table.columns} relationEntities={relationEntities} members={recordMembers} membersReady={recordMembersReady} save={async values=>{await api.addRow(table.id,values,'strict');await load()}} onClose={()=>setCreating(false)}/>}
+      {editingRecord&&<AppRecordDialog key={editingRecord.id} appName={app.name} columns={table.columns} relationEntities={relationEntities} members={recordMembers} membersReady={recordMembersReady} record={editingRecord} conversation={<AppConversationPanel key={`${orgId}:${app.id}:${editingRecord.id}`} api={api} appId={app.id} tableId={table.id} rowId={editingRecord.id} title="レコードチャット" context={displayCellText(table.columns[0],editingRecord.values[table.columns[0].id])||editingRecord.id}/>} save={async values=>{if(Object.keys(values).length)await api.updateRow(table.id,editingRecord.id,values,editingRecord.updatedAt);await load()}} onClose={()=>setEditingRecord(null)}/>}
       {section === 'backend' && <CompanyApp app={app} api={api} canManage={data.canCustomize !== false} reload={load} />}
       {section === 'custom' && data.canCustomize === false && <p>カスタムコードの編集・公開は、作成者または管理者が行えます。</p>}
       {section === 'custom' && data.canCustomize !== false && <CustomAppEditor httpBase={httpBase} app={app} table={table} rows={data.rows} api={api} reload={load} />}
@@ -367,11 +403,11 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
                 const title = table.columns[0]
                 return (
                   <div className="hx-card" key={row.id}>
-                    <button className="hx-card-title hx-record-title" onClick={()=>setEditingRecord(row)} aria-label={`${title ? cellText(title,row.values[title.id]) || '無題' : row.id}の詳細を開く`}>{title ? cellText(title, row.values[title.id]) || '—' : row.id}<Icon name="maximize" size={13}/></button>
+                    <button className="hx-card-title hx-record-title" onClick={()=>setEditingRecord(row)} aria-label={`${title ? displayCellText(title,row.values[title.id]) || '無題' : row.id}の詳細を開く`}>{title ? displayCellText(title, row.values[title.id]) || '—' : row.id}<Icon name="maximize" size={13}/></button>
                     {table.columns.slice(1, 4).filter((c) => c.id !== view.groupBy && row.values[c.id] != null).map((c) => (
-                      <div className="hx-card-field" key={c.id}><span>{c.name}</span> {cellText(c, row.values[c.id])}</div>
+                      <div className="hx-card-field" key={c.id}><span>{c.name}</span> {displayCellText(c, row.values[c.id])}</div>
                     ))}
-                    {groupCol && <CellInput column={groupCol} value={row.values[groupCol.id]} onSave={(v) => save(row, groupCol, v)} />}
+                    {groupCol && <CellInput relationEntities={relationEntities} column={groupCol} value={row.values[groupCol.id]} onSave={(v) => save(row, groupCol, v)} />}
                   </div>
                 )
               })}
@@ -393,9 +429,9 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
               {group.rows.map((row) => (
                 <tr key={row.id} data-row={row.id}>
                   {displayColumns.map((c) => (
-                    <td key={c.id}>{isSystemColumn(c.id)?<span className="hx-system-cell" title={c.id==='$row.id'?row.id:c.id==='$row.createdAt'?row.createdAt:row.updatedAt}>{systemCellText(row,c.id)}</span>:<CellInput members={recordMembers} width={layout.widths[c.id]||180} wrap={layout.wrapText===true} column={c} value={row.values[c.id]} onSave={(v) => save(row, c, v)} />}</td>
+                    <td key={c.id}>{isSystemColumn(c.id)?<span className="hx-system-cell" title={c.id==='$row.id'?row.id:c.id==='$row.createdAt'?row.createdAt:row.updatedAt}>{systemCellText(row,c.id)}</span>:<CellInput relationEntities={relationEntities} members={recordMembers} width={layout.widths[c.id]||180} wrap={layout.wrapText===true} column={c} value={row.values[c.id]} onSave={(v) => save(row, c, v)} />}</td>
                   ))}
-                  <td><div className="hx-record-actions"><button className="hx-app-icon-button" aria-label={`${cellText(table.columns[0],row.values[table.columns[0].id])||'無題'}の詳細を開く`} onClick={()=>setEditingRecord(row)}><Icon name="maximize" size={14}/></button><button className="btn-text danger" onClick={() => removeRow(row)} disabled={busy === `del:${row.id}`} aria-label={t('Delete row')}><Icon name="trash" size={14} /></button></div></td>
+                  <td><div className="hx-record-actions"><button className="hx-app-icon-button" aria-label={`${displayCellText(table.columns[0],row.values[table.columns[0].id])||'無題'}の詳細を開く`} onClick={()=>setEditingRecord(row)}><Icon name="maximize" size={14}/></button><button className="btn-text danger" onClick={() => removeRow(row)} disabled={busy === `del:${row.id}`} aria-label={t('Delete row')}><Icon name="trash" size={14} /></button></div></td>
                 </tr>
               ))}</React.Fragment>)}
             </tbody>
