@@ -69,7 +69,7 @@ import { generateWorkflow } from './workflowCreation.js';
 import { completer } from "./model.js";
 import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
 import { followupHistory, listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
-import { onRowChange } from "./workflows.js";
+import { onRowChange, onRowDelete } from "./workflows.js";
 import { profilesFor, mayAccessAgent } from "./agents.js";
 import { listAgents } from "../customAgents.js";
 import { resolveChannel, viewOf } from "../channels.js";
@@ -409,7 +409,9 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (rowId && request.method === "DELETE") {
         const r = await deleteRow(env.DB, orgId, tableId, rowId, url.searchParams.get("expectedUpdatedAt") ?? undefined);
-        return r.error ? fail(r) : json(r);
+        if (r.error) return fail(r);
+        await afterRowDelete(env, { orgId, table: r.table, row: r.before, by: me });
+        return json({ deleted: true, before: r.before });
       }
     }
     return null;
@@ -1001,6 +1003,14 @@ async function afterRowChange(env, change) {
     await onRowChange(env, change);
   } catch (e) {
     console.error("harness: row hook failed", e?.message);
+  }
+}
+
+async function afterRowDelete(env, change) {
+  try {
+    await onRowDelete(env, change);
+  } catch (e) {
+    console.error("harness: row delete hook failed", e?.message);
   }
 }
 

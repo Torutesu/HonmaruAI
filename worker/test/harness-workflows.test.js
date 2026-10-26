@@ -4,7 +4,7 @@ import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { joined, until } from "./helpers.js";
-import { render, runDueWorkflows, normalizeSteps, normalizeTrigger, onRowChange, startRun } from "../src/harness/workflows.js";
+import { render, runDueWorkflows, normalizeSteps, normalizeTrigger, onRowChange, onRowDelete, startRun } from "../src/harness/workflows.js";
 import { signWorkflowWebhook } from "../src/harness/workflowWebhookSignature.js";
 import { runDueFollowups, followupRequest } from "../src/harness/followups.js";
 
@@ -99,6 +99,47 @@ test("a row turning overdue runs the workflow: it posts, waits on a person's app
   });
   expect(done.log.map((l) => [l.type, l.status])).toEqual([["post", "ok"], ["approval", "ok"], ["post", "ok"]]);
   expect((await messages(mika)).map((m) => m.body)).toContain("Reminder to Acme approved: Approved by Toru");
+});
+
+test("a row delete trigger runs once and carries only the deleted row id", async () => {
+  const { workflow } = await (await send("POST", "/workflows", mika, {
+    orgId: ORG, name: "Record removed",
+    trigger: { type: "row", tableId: invoices, on: "deleted" },
+    steps: [{ type: "post", channel: "b:ops", text: "Record {{row.id}} was removed." }],
+  })).json();
+  const added = await (await send("POST", `/tables/${invoices}/rows`, mika, {
+    orgId: ORG, values: { Client: "Private Customer", "Invoice #": "INV-DEL", Amount: 1200, Status: "Draft" },
+  })).json();
+  const response = await send("DELETE", `/tables/${invoices}/rows/${added.row.id}?${q({ orgId: ORG, expectedUpdatedAt: added.row.updatedAt })}`, mika);
+  expect(response.status).toBe(200);
+  const { runs } = await (await get(`/workflows/${workflow.id}?${q({ orgId: ORG })}`, mika)).json();
+  expect(runs).toHaveLength(1);
+  expect(runs[0]).toMatchObject({ trigger: "row", status: "done", input: { tableId: invoices, event: "deleted", row: { id: added.row.id } } });
+  expect(JSON.stringify(runs[0].input)).not.toContain("Private Customer");
+  expect((await messages(mika)).map(message => message.body)).toContain(`Record ${added.row.id} was removed.`);
+
+  const deleted = { id: added.row.id, values: added.row.values, updatedAt: added.row.updatedAt };
+  expect(await onRowDelete(env, { orgId: ORG, table: { id: invoices }, row: deleted, by: "9302" })).toBe(0);
+  expect((await (await get(`/workflows/${workflow.id}?${q({ orgId: ORG })}`, mika)).json()).runs).toHaveLength(1);
+});
+
+test("delete events bypass field-data filters, and delete-only triggers reject them", async () => {
+  expect(normalizeTrigger({ type: "row", tableId: invoices, on: "deleted", where: { Status: "Draft" } }).error).toContain("no field data");
+  expect(normalizeTrigger({ type: "row", tableId: invoices, on: "deleted", column: "Status" }).error).toContain("no field data");
+  const filtered = await (await send("POST", "/workflows", mika, {
+    orgId: ORG, name: "Filtered any event", trigger: { type: "row", tableId: invoices, on: "any", where: { Status: "Draft" } },
+    steps: [{ type: "post", channel: "b:ops", text: "This filter has no delete payload." }],
+  })).json();
+  const legacyAny = await (await send("POST", "/workflows", mika, {
+    orgId: ORG, name: "Existing any event", trigger: { type: "row", tableId: invoices, on: "any" },
+    steps: [{ type: "post", channel: "b:ops", text: "Existing any means add or change." }],
+  })).json();
+  const added = await (await send("POST", `/tables/${invoices}/rows`, mika, { orgId: ORG, values: { Client: "Acme", "Invoice #": "INV-FILTER", Amount: 100, Status: "Draft" } })).json();
+  expect(await onRowDelete(env, { orgId: ORG, table: { id: invoices }, row: added.row, by: "9302" })).toBe(0);
+  const { runs } = await (await get(`/workflows/${filtered.workflow.id}?${q({ orgId: ORG })}`, mika)).json();
+  expect(runs).toHaveLength(1); // The matching add is retained; deletion did not start another run.
+  expect(runs[0].input.event).toBeUndefined();
+  expect((await (await get(`/workflows/${legacyAny.workflow.id}?${q({ orgId: ORG })}`, mika)).json()).runs).toHaveLength(1);
 });
 
 test("row event filters use strict scalar types, treat missing separately from null, and ignore duplicate delivery", async () => {

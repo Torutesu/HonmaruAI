@@ -51,7 +51,7 @@ export interface Template { id: string; name: string; icon: string; description:
 export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'row'
 export interface Trigger {
   type: TriggerType
-  tableId?: string; on?: 'added' | 'changed' | 'any'; where?: Record<string, string[]>; column?: string
+  tableId?: string; on?: 'added' | 'changed' | 'deleted' | 'any'; where?: Record<string, string[]>; column?: string
   cadence?: string; hour?: number; minute?: number; weekday?: number; monthday?: number; timezone?: string
 }
 export type StepType = 'post' | 'agent' | 'add_row' | 'update_row' | 'approval' | 'followup' | 'code'

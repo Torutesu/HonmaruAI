@@ -98,7 +98,7 @@ function Builder({ api, tables, agents, onSave, onCancel, busy, initial }: { api
           <option value="manual">{t('By hand')}</option>
           <option value="schedule">{t('On a schedule')}</option>
           <option value="webhook">{t('A webhook')}</option>
-          <option value="row">{t('A row added or changed')}</option>
+          <option value="row">{t('A table row event')}</option>
         </select>
         {trigger.type === 'schedule' && (
           <span className="hx-inline">
@@ -122,17 +122,19 @@ function Builder({ api, tables, agents, onSave, onCancel, busy, initial }: { api
             <select value={trigger.tableId || ''} onChange={(e) => setTrigger({ ...trigger, tableId: e.target.value, where: undefined })} aria-label={t('Table')}>
               {tables.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select>
-            <select value={trigger.on} onChange={(e) => setTrigger({ ...trigger, on: e.target.value as Trigger['on'] })} aria-label={t('When')}>
+            <select value={trigger.on} onChange={(e) => setTrigger({ ...trigger, on: e.target.value as Trigger['on'], ...(e.target.value==='deleted'?{where:undefined,column:undefined}:{}) })} aria-label={t('When')}>
               <option value="added">{t('is added')}</option>
               <option value="changed">{t('is changed')}</option>
+              <option value="deleted">{t('is deleted')}</option>
               <option value="any">{t('is added or changed')}</option>
             </select>
-            {whereCol && (
+            {whereCol && trigger.on!=='deleted' && (
               <select value={trigger.where?.[whereCol.id]?.[0] || ''} onChange={(e) => setTrigger({ ...trigger, where: e.target.value ? { [whereCol.id]: [e.target.value] } : undefined })} aria-label={whereCol.name}>
                 <option value="">{t('any {column}', { column: whereCol.name })}</option>
                 {(whereCol.options || []).map((o) => <option key={o} value={o}>{whereCol.name} = {o}</option>)}
               </select>
             )}
+            {trigger.on==='deleted'&&<span className="row-sub">{t('Delete events do not include record fields.')}</span>}
           </span>
         )}
         {trigger.type === 'row' && tables.length === 0 && <div className="row-sub">{t('Build an app first: its table is what a row trigger watches.')}</div>}

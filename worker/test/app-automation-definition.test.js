@@ -21,6 +21,11 @@ test('rejects invalid schedules and row values rather than changing their meanin
  for(const change of [{hour:24},{minute:-1},{timezone:'not/a-zone'},{cadence:'weekly',weekday:7},{cadence:'monthly',monthday:0}])expect(normalizeAppAutomations(bundle([{...item(),trigger:{...trigger,...change}}])).error).toBeTruthy();
  expect(normalizeAppAutomations(bundle([{...item(),steps:[{type:'add_row',tableId:'table',values:[]}]}])).error).toBeTruthy();
 });
+test('app automations can declare unfiltered row deletion triggers',()=>{
+ const trigger={type:'row',tableId:'records',on:'deleted'};
+ expect(normalizeAppAutomations(bundle([{...item(),trigger}])).automations.items[0].trigger).toEqual(trigger);
+ expect(normalizeAppAutomations(bundle([{...item(),trigger:{...trigger,where:{status:['Done']}}}])).error).toContain('no field data');
+});
 test('comparison ignores metadata and property order but detects enabled, content and step order drift',()=>{
  const a=item(),b={...a,hookSecret:'do not export',lastRunAt:'now',trigger:{type:'manual'}};
  expect(sameAutomation(a,b)).toBe(true);expect(sameAutomation(a,{...b,enabled:true})).toBe(false);
