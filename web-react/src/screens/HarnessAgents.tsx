@@ -134,7 +134,16 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
     if(typeof window==='undefined')return
     const refresh=(event:Event)=>{
       const changed=(event as CustomEvent<{agentId?:string}>).detail?.agentId
-      if(changed===agent.id)void load()
+      if(changed===agent.id){
+        // Drop cached permissions and private detail data before asking the
+        // server again. A revoked member must not keep seeing stale controls
+        // or memory while that request is in flight.
+        ++memoryLoad.current
+        setProfile(null); setCanEdit(false); setPeople('')
+        setMemories([]); setMemoryCursor(null); setSkills([]); setAllSkills([]); setMemoryScopes([])
+        setHistoryMemory(null); setConvertingMemory(null); setReviewingMemory(null); setMemoryDraft(null); setRemember('')
+        void load()
+      }
     }
     window.addEventListener('honmaru:agent-access-changed',refresh)
     return()=>window.removeEventListener('honmaru:agent-access-changed',refresh)
