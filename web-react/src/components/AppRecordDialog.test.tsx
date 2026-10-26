@@ -35,16 +35,42 @@ test('conflicting edit keeps the draft and does not close',async()=>{
 
 test('relation fields select same-app records and support multiple links',async()=>{
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});
+ vi.stubGlobal('window',{innerWidth:1280,innerHeight:800,addEventListener:vi.fn(),removeEventListener:vi.fn()});
  const save=vi.fn().mockResolvedValue(undefined),customer={id:'customer_1',values:{name:'Acme'},updatedAt:'2026-10-18T00:00:00Z'};
- const relationEntities=[{key:'customers',table:{id:'customers',name:'Customers',columns:[{id:'name',name:'Name',type:'text' as const}]},rows:[customer]}];
+ const other={id:'customer_2',values:{name:'Beacon'},updatedAt:'2026-10-18T00:00:00Z'};
+ const relationEntities=[{key:'customers',table:{id:'customers',name:'Customers',columns:[{id:'name',name:'Name',type:'text' as const}]},rows:[customer,other]}];
  const relationColumns=[{id:'customer',name:'Customer',type:'relation' as const,targetEntity:'customers'},{id:'watchers',name:'Watchers',type:'relation' as const,targetEntity:'customers',multiple:true}];
  let tree:ReturnType<typeof create>;
  act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={relationColumns} relationEntities={relationEntities} save={save} onClose={()=>{}}/>)});
- const selects=tree!.root.findAllByType('select');expect(selects).toHaveLength(2);expect(selects[1].props.multiple).toBe(true);
- expect(selects[0].findAllByType('option').map(option=>option.children.join(''))).toContain('Acme');
- act(()=>selects[0].props.onChange({target:{value:'customer_1'}}));
- act(()=>selects[1].props.onChange({currentTarget:{selectedOptions:[{value:'customer_1'}]}}));
+ const customerPicker=tree!.root.findByProps({'aria-label':'Customer'}),watchersPicker=tree!.root.findByProps({'aria-label':'Watchers'});
+ act(()=>customerPicker.props.onClick());
+ act(()=>tree!.root.findByProps({'aria-label':'Customerを検索'}).props.onChange({target:{value:'Acm'}}));
+ expect(tree!.root.findAllByProps({role:'option'}).some(option=>option.findAllByType('span').some(span=>span.children.includes('Acme')))).toBe(true);
+ expect(tree!.root.findAllByProps({role:'option'}).some(option=>option.findAllByType('span').some(span=>span.children.includes('Beacon')))).toBe(false);
+ const acme=tree!.root.findAllByProps({role:'option'}).find(option=>option.findAllByType('span').some(span=>span.children.includes('Acme')))!;
+ act(()=>acme.props.onClick());
+ act(()=>watchersPicker.props.onClick());
+ const watcherOption=tree!.root.findAllByProps({role:'option'}).find(option=>option.findAllByType('span').some(span=>span.children.includes('Acme')))!;
+ act(()=>watcherOption.props.onClick());
+ expect(tree!.root.findAllByProps({className:'hx-relation-chip'})).toHaveLength(1);
  await act(async()=>{await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})});
  expect(save).toHaveBeenCalledWith({customer:'customer_1',watchers:['customer_1']});
  act(()=>tree!.unmount());
+})
+
+test('relation picker searches by label or id, supports keyboard selection and clears a single link',async()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});
+ vi.stubGlobal('window',{innerWidth:1280,innerHeight:800,addEventListener:vi.fn(),removeEventListener:vi.fn()});
+ const save=vi.fn().mockResolvedValue(undefined),rows=[{id:'record_1',values:{name:'Acme'},updatedAt:'2026-10-18T00:00:00Z'},{id:'record_2',values:{name:'Beacon'},updatedAt:'2026-10-18T00:00:00Z'}];let tree:ReturnType<typeof create>
+ const relation={id:'customer',name:'Customer',type:'relation' as const,targetEntity:'customers'}
+ act(()=>{tree=create(<AppRecordDialog appName="Tasks" columns={[relation]} relationEntities={[{key:'customers',table:{id:'customers',name:'Customers',columns:[{id:'name',name:'Name',type:'text' as const}]},rows}]} save={save} onClose={()=>{}}/>)});
+ const trigger=tree!.root.findByProps({'aria-label':'Customer'});act(()=>trigger.props.onClick());
+ const search=tree!.root.findByProps({'aria-label':'Customerを検索'});act(()=>search.props.onChange({target:{value:'record_2'}}));
+ act(()=>search.props.onKeyDown({key:'Enter',nativeEvent:{isComposing:false},preventDefault:vi.fn()}));
+ expect(tree!.root.findByProps({'aria-label':'Customer'}).props['aria-expanded']).toBe(false);
+ expect(tree!.root.findByProps({'aria-label':'Customer'}).findAllByType('span').some(span=>span.children.includes('Beacon'))).toBe(true);
+ act(()=>tree!.root.findByProps({'aria-label':'Customer'}).props.onClick());
+ const clear=tree!.root.findAllByProps({className:'hx-relation-option'}).find(button=>button.findAllByType('span').some(span=>span.children.join('')==='Customerなし'))!;act(()=>clear.props.onClick());
+ await act(async()=>{await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})});
+ expect(save).toHaveBeenCalledWith({customer:null});act(()=>tree!.unmount())
 })
