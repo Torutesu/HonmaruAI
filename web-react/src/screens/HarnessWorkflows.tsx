@@ -80,7 +80,7 @@ function Builder({ api, tables, agents, onSave, onCancel, busy, initial }: { api
   const steps=format==='code'?[program]:formSteps
   const programValid=format!=='code'||Boolean(program.gatewayId&&program.code?.trim()&&new TextEncoder().encode(program.code).length<=48000)
   const scheduleValid = trigger.type !== 'schedule' || (()=>{
-    if (trigger.kind === 'every') return Number.isSafeInteger(trigger.everyMs) && trigger.everyMs! >= 600000 && trigger.everyMs! <= 315360000000
+    if (trigger.kind === 'every') return Number.isSafeInteger(trigger.everyMs) && trigger.everyMs! >= 600000 && trigger.everyMs! <= 8640000000000000-Date.now()
     if (trigger.kind === 'at') return Boolean(trigger.at && Number.isFinite(Date.parse(trigger.at)) && Date.parse(trigger.at) > Date.now())
     if (trigger.kind === 'cron') {
       try { new Intl.DateTimeFormat('en',{timeZone:trigger.timezone}); } catch { return false }

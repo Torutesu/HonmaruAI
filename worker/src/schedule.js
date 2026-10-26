@@ -11,7 +11,9 @@ import { serverText } from "./serverCopy.js";
 
 export const CADENCES = ["daily", "weekdays", "weekly", "monthly"];
 export const MIN_SCHEDULE_INTERVAL_MS = 10 * 60 * 1000;
-export const MAX_SCHEDULE_INTERVAL_MS = 10 * 365 * 24 * 60 * 60 * 1000;
+// The only interval ceiling is JavaScript's largest representable instant;
+// the public Kylon schedule contract specifies a minimum, not a ten-year cap.
+export const MAX_SCHEDULE_INTERVAL_MS = 8_640_000_000_000_000;
 
 const WEEKDAYS_EN = [
   ["sunday", "sun"], ["monday", "mon"], ["tuesday", "tue", "tues"], ["wednesday", "wed"],
@@ -89,7 +91,8 @@ export function nextRunAt(routine, from = new Date()) {
   if (routine?.kind === "at") return isIsoInstant(routine.at) && Date.parse(routine.at) > from.getTime() ? new Date(routine.at).toISOString() : null;
   if (routine?.kind === "every") {
     if (!Number.isSafeInteger(routine.everyMs) || routine.everyMs < MIN_SCHEDULE_INTERVAL_MS || routine.everyMs > MAX_SCHEDULE_INTERVAL_MS) return null;
-    return new Date(from.getTime() + routine.everyMs).toISOString();
+    const next = from.getTime() + routine.everyMs;
+    return Number.isSafeInteger(next) && next <= MAX_SCHEDULE_INTERVAL_MS ? new Date(next).toISOString() : null;
   }
   if (routine?.kind === "cron") return nextCronRunAt(routine, from);
   if (!CADENCES.includes(routine?.cadence)) return null;
@@ -122,7 +125,8 @@ export function nextScheduledRunAt(routine, previousDueAt, now = new Date()) {
   const previous = Date.parse(previousDueAt || "");
   if (!Number.isSafeInteger(interval) || interval < MIN_SCHEDULE_INTERVAL_MS || interval > MAX_SCHEDULE_INTERVAL_MS || !Number.isFinite(previous)) return nextRunAt(routine, now);
   const steps = Math.max(1, Math.floor((now.getTime() - previous) / interval) + 1);
-  return new Date(previous + steps * interval).toISOString();
+  const next = previous + steps * interval;
+  return Number.isSafeInteger(next) && next <= MAX_SCHEDULE_INTERVAL_MS ? new Date(next).toISOString() : null;
 }
 
 function clampInt(value, min, max, fallback) {

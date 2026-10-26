@@ -65,7 +65,7 @@ export function normalizeTrigger(raw) {
       return { trigger: { type, kind: "cron", expr: raw.expr.trim(), timezone: isTimeZone(raw.timezone) ? raw.timezone : "UTC" } };
     }
     if (raw.kind === "every") {
-      if (!Number.isSafeInteger(raw.everyMs) || raw.everyMs < MIN_SCHEDULE_INTERVAL_MS || raw.everyMs > MAX_SCHEDULE_INTERVAL_MS) return { error: "An interval schedule must be between 10 minutes and 10 years." };
+      if (!Number.isSafeInteger(raw.everyMs) || raw.everyMs < MIN_SCHEDULE_INTERVAL_MS || raw.everyMs > MAX_SCHEDULE_INTERVAL_MS - Date.now()) return { error: "An interval schedule must be at least 10 minutes and fit in the supported date range." };
       return { trigger: { type, kind: "every", everyMs: raw.everyMs } };
     }
     if (raw.kind === "at") {

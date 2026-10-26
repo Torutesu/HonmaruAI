@@ -1193,7 +1193,7 @@ test('schedule definitions reject invalid values rather than silently shifting e
   {type:'schedule',kind:'cron',expr:'* * * * *',timezone:'UTC'},
   {type:'schedule',kind:'cron',expr:'0 9 * * *',timezone:'Not/AZone'},
   {type:'schedule',kind:'every',everyMs:599999},
-  {type:'schedule',kind:'every',everyMs:315360000001},
+  {type:'schedule',kind:'every',everyMs:8640000000000001},
   {type:'schedule',kind:'at',at:'2026-02-30T09:00:00Z'},
   {type:'schedule',kind:'unknown'},
  ]) expect(normalizeTrigger(invalid).error).toBeTruthy();

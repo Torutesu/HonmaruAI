@@ -3,7 +3,7 @@ import {useT} from '../utils/i18n'
 import type {Trigger} from '../utils/harness'
 
 const MIN_INTERVAL_MS = 10 * 60 * 1000
-const MAX_INTERVAL_MINUTES = 10 * 365 * 24 * 60
+const MAX_INTERVAL_MINUTES = Math.floor(8_640_000_000_000_000 / 60000)
 
 function localDateTime(value?: string) {
   if (!value || !Number.isFinite(Date.parse(value))) return ''
