@@ -321,4 +321,7 @@ CREATE TABLE IF NOT EXISTS hx_workflow_webhook_receipts (org_id TEXT NOT NULL, w
 CREATE INDEX IF NOT EXISTS idx_hx_workflow_webhook_receipts_expiry ON hx_workflow_webhook_receipts(expires_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_hx_held_webhook_event ON hx_workflow_held_events(org_id,workflow_id,webhook_event_id) WHERE webhook_event_id IS NOT NULL;
 
+CREATE TABLE IF NOT EXISTS hx_workflow_row_receipts (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL REFERENCES hx_workflows(id) ON DELETE CASCADE, event_hash TEXT NOT NULL, received_at TEXT NOT NULL, expires_at TEXT NOT NULL, run_id TEXT, PRIMARY KEY(org_id,workflow_id,event_hash));
+CREATE INDEX IF NOT EXISTS idx_hx_workflow_row_receipts_expiry ON hx_workflow_row_receipts(expires_at);
+
 CREATE TABLE IF NOT EXISTS hx_workspace_file_origins (org_id TEXT NOT NULL, file_id TEXT NOT NULL, source TEXT NOT NULL CHECK(source IN ('human','agent')), PRIMARY KEY(org_id,file_id), FOREIGN KEY(org_id,file_id) REFERENCES hx_workspace_files(org_id,id) ON DELETE CASCADE);

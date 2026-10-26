@@ -45,6 +45,7 @@ export const MAX_DEPTH = 3;
 /// The most a run keeps of what started it, as JSON: room for a webhook's
 /// whole 64,000-character body even where escaping makes it longer.
 export const MAX_INPUT = 200000;
+const ROW_EVENT_DEDUPE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const now = () => new Date().toISOString();
 const newId = (p) => `${p}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
@@ -71,7 +72,19 @@ export function normalizeTrigger(raw) {
     if (!raw.tableId) return { error: "A row trigger names its table." };
     const on = ["added", "changed", "any"].includes(raw.on) ? raw.on : "any";
     const t = { type, tableId: String(raw.tableId), on };
-    if (raw.where && typeof raw.where === "object") t.where = raw.where;
+    if (raw.where !== undefined) {
+      if (!raw.where || typeof raw.where !== "object" || Array.isArray(raw.where) || Object.keys(raw.where).length > 40) return { error: "A row filter must be a flat object with at most 40 fields." };
+      const where = {};
+      for (const [key, condition] of Object.entries(raw.where)) {
+        if (!key || key.length > 80) return { error: "A row filter field name is invalid." };
+        const scalar = (value) => value === null || typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value));
+        if (Array.isArray(condition)) {
+          if (condition.length > 100 || condition.some((value) => !scalar(value))) return { error: "A row filter value must be a scalar or an array of at most 100 scalar candidates." };
+        } else if (!scalar(condition)) return { error: "A row filter value must be a scalar or an array of scalar candidates." };
+        Object.defineProperty(where, key, { value: condition, enumerable: true, configurable: true, writable: true });
+      }
+      t.where = where;
+    }
     if (raw.column) t.column = String(raw.column);
     return { trigger: t };
   }
@@ -369,7 +382,7 @@ async function rowScope(db, orgId, tableId, row) {
 
 /// Start a run. `input` is what started it: { text } by hand, the posted
 /// JSON for a webhook, { row, before } for a row.
-export async function startRun(env, { orgId, workflow, trigger, input = null, startedBy = null, depth = 0, heldEventId = null, incomingHookSecret = null, incomingHookEvent = null }) {
+export async function startRun(env, { orgId, workflow, trigger, input = null, startedBy = null, depth = 0, heldEventId = null, incomingHookSecret = null, incomingHookEvent = null, rowEventHash = null }) {
   let safety=await ensureWorkflowSafety(env.DB,orgId,workflow.id);
   if(!safety)return null;
   if(safety.pause_reason?.startsWith('budget_'))safety=await recoverWorkflowBudgetPause(env.DB,orgId,workflow.id,safety);
@@ -392,6 +405,7 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
         WHERE h.id=?12 AND h.org_id=?2 AND h.workflow_id=?3 AND h.run_id IS NULL AND h.expires_at>?10 AND w.enabled=1 AND json_extract(w.trigger,'$.type')='webhook'))
       AND (?13 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE id=?3 AND org_id=?2 AND enabled=1 AND hook_secret=?13 AND json_extract(trigger,'$.type')='webhook'))
       AND (?28 IS NULL OR NOT EXISTS(SELECT 1 FROM hx_workflow_webhook_receipts h WHERE h.org_id=?2 AND h.workflow_id=?3 AND h.event_id=?28 AND h.expires_at>?10))
+      AND (?29 IS NULL OR NOT EXISTS(SELECT 1 FROM hx_workflow_row_receipts h WHERE h.org_id=?2 AND h.workflow_id=?3 AND h.event_hash=?29 AND h.expires_at>?10))
       AND NOT EXISTS(SELECT 1 FROM hx_workflow_runs WHERE org_id=?2 AND workflow_id=?3 AND status IN ('running','waiting'))
       AND EXISTS(SELECT 1 FROM hx_workflow_safety s WHERE s.org_id=?2 AND s.workflow_id=?3 AND s.generation=?19 AND s.paused_at IS NULL
         AND (s.daily_run_limit=0 OR (SELECT COUNT(*) FROM hx_workflow_runs r WHERE r.org_id=?2 AND r.workflow_id=?3 AND r.started_at>=?20 AND r.started_at<=?23)<s.daily_run_limit)
@@ -403,7 +417,7 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
           AND (s.monthly_ai_budget_micros=0 OR ((SELECT COALESCE(SUM(u.estimated_micros),0) FROM hx_workflow_usage u WHERE u.org_id=?2 AND u.workflow_id=?3 AND u.created_at>=?26 AND u.created_at<=?27)<s.monthly_ai_budget_micros AND NOT EXISTS(SELECT 1 FROM hx_workflow_usage u WHERE u.org_id=?2 AND u.workflow_id=?3 AND u.created_at>=?26 AND u.created_at<=?27 AND u.estimated_micros IS NULL))))))
       AND ${managedAutomationGuard('?2','?3','?14')}
       AND (?14 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?2 AND id=?3 AND name=?15 AND json(trigger)=json(?16) AND json(steps)=json(?17) AND created_by=?18))`)
-      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, admittedAt, tooLarge ? admittedAt : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation,windows.dailyStart,windows.weeklyStart,windows.monthlyStart,admittedAt,aiWindows['24h'].start,aiWindows['7d'].start,aiWindows['30d'].start,admittedAt,incomingHookEvent?.eventId || null),
+      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, admittedAt, tooLarge ? admittedAt : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation,windows.dailyStart,windows.weeklyStart,windows.monthlyStart,admittedAt,aiWindows['24h'].start,aiWindows['7d'].start,aiWindows['30d'].start,admittedAt,incomingHookEvent?.eventId || null,rowEventHash),
     env.DB.prepare(`INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at)
       SELECT ?1,?2,json_set(?3,'$.definitionRevision',(
         SELECT MAX(h.revision) FROM hx_workflow_revisions h WHERE h.org_id=?2 AND h.workflow_id=json_extract(?3,'$.id')
@@ -426,12 +440,23 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
       ON CONFLICT(org_id,workflow_id,event_id) DO UPDATE SET payload_hash=excluded.payload_hash,received_at=excluded.received_at,expires_at=excluded.expires_at,status='accepted',run_id=excluded.run_id,held_event_id=NULL
       WHERE hx_workflow_webhook_receipts.expires_at<=excluded.received_at`)
       .bind(id,orgId,workflow.id,incomingHookEvent.eventId,incomingHookEvent.payloadHash,admittedAt,new Date(Date.parse(admittedAt)+WORKFLOW_WEBHOOK_REPLAY_TTL_MS).toISOString())] : []),
+    ...(rowEventHash ? [env.DB.prepare(`INSERT INTO hx_workflow_row_receipts(org_id,workflow_id,event_hash,received_at,expires_at,run_id)
+      SELECT ?2,?3,?4,?5,?6,?1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?2
+      ON CONFLICT(org_id,workflow_id,event_hash) DO UPDATE SET received_at=excluded.received_at,expires_at=excluded.expires_at,run_id=excluded.run_id
+      WHERE hx_workflow_row_receipts.expires_at<=excluded.received_at`)
+      .bind(id,orgId,workflow.id,rowEventHash,admittedAt,new Date(Date.parse(admittedAt)+ROW_EVENT_DEDUPE_TTL_MS).toISOString())] : []),
     ...(heldEventId ? [env.DB.prepare(`UPDATE hx_workflow_webhook_receipts SET status='replayed',run_id=?1
       WHERE org_id=?2 AND workflow_id=?3 AND held_event_id=?4 AND expires_at>?5
       AND EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?2)`)
       .bind(id,orgId,workflow.id,heldEventId,admittedAt)] : []),
   ]);
   if (!created[0].meta?.changes) {
+    if (rowEventHash) {
+      const receipt = await env.DB.prepare(`SELECT run_id FROM hx_workflow_row_receipts
+        WHERE org_id=?1 AND workflow_id=?2 AND event_hash=?3 AND expires_at>?4`)
+        .bind(orgId,workflow.id,rowEventHash,admittedAt).first();
+      if (receipt) return { status: 'duplicate', duplicate: true, runId: receipt.run_id };
+    }
     if (incomingHookEvent) {
       const receipt = await env.DB.prepare(`SELECT payload_hash,status,run_id,held_event_id FROM hx_workflow_webhook_receipts
         WHERE org_id=?1 AND workflow_id=?2 AND event_id=?3 AND expires_at>?4`)
@@ -677,10 +702,29 @@ const whereHolds = (where, values, columns) => {
   if (!where) return true;
   return Object.entries(where).every(([k, allowed]) => {
     const col = columns.find((c) => c.id === k || c.name.toLowerCase() === String(k).toLowerCase());
-    const v = col ? values[col.id] : values[k];
-    return (Array.isArray(allowed) ? allowed : [allowed]).map(String).includes(String(v ?? ""));
+    const key = col?.id || k;
+    if (!Object.hasOwn(values || {}, key)) return false;
+    const value = values[key];
+    return Array.isArray(allowed) ? allowed.includes(value) : value === allowed;
   });
 };
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+
+async function rowEventFingerprint(table, before, row) {
+  const payload = {
+    tableId: table.id,
+    rowId: row.id,
+    before: before ? { updatedAt: before.updatedAt || null, values: before.values || {} } : null,
+    after: { updatedAt: row.updatedAt || null, values: row.values || {} },
+  };
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(payload)));
+  return hex(new Uint8Array(digest));
+}
 
 /// A row added or changed: every enabled workflow watching that table runs,
 /// when the change is the kind it watches and the row now matches. A
@@ -704,17 +748,38 @@ export async function onRowChange(env, { orgId, table, before, row, by, depth = 
     if (!whereHolds(t.where, row.values, table.columns)) continue;
     if (before && t.column) {
       const col = table.columns.find((c) => c.id === t.column || c.name.toLowerCase() === t.column.toLowerCase());
-      if (col && before.values[col.id] === row.values[col.id]) continue;
+      if (!col) continue;
+      const oldValue = Object.hasOwn(before.values || {}, col.id) ? before.values[col.id] : undefined;
+      const newValue = Object.hasOwn(row.values || {}, col.id) ? row.values[col.id] : undefined;
+      if (oldValue === newValue) continue;
     }
     // When the change already matched before, it is not news.
     if (before && t.where && whereHolds(t.where, before.values, table.columns) && !t.column) continue;
-    await startRun(env, {
+    // Ignore an update that changed only metadata. It is not a row-change
+    // event and should not create a run (or make a retried no-op look new).
+    if (before && !valuesChanged(before.values, row.values)) continue;
+    const rowEventHash = await rowEventFingerprint(table, before, row);
+    const run = await startRun(env, {
       orgId, workflow: wf, trigger: "row", startedBy: by, depth,
       input: { tableId: table.id, row: await rowScope(env.DB, orgId, table.id, row), before: before ? await rowScope(env.DB, orgId, table.id, before) : null },
+      rowEventHash,
     });
-    started += 1;
+    if (run?.id) started += 1;
   }
   return started;
+}
+
+function valuesChanged(before = {}, after = {}) {
+  const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  for (const key of keys) {
+    const hasBefore = Object.hasOwn(before || {}, key), hasAfter = Object.hasOwn(after || {}, key);
+    if (hasBefore !== hasAfter) return true;
+    const a = before[key], b = after[key];
+    if (a && b && typeof a === "object" && typeof b === "object") {
+      if (canonicalJson(a) !== canonicalJson(b)) return true;
+    } else if (a !== b) return true;
+  }
+  return false;
 }
 
 /// The cron's part: scheduled workflows whose time has come.
@@ -729,6 +794,10 @@ export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } 
     .bind(at.toISOString()).all();
   if (expiredReceiptOrgs.results.length) await env.DB.batch(expiredReceiptOrgs.results.map(({ org_id }) =>
     env.DB.prepare('DELETE FROM hx_workflow_webhook_receipts WHERE org_id=?1 AND expires_at<=?2').bind(org_id, at.toISOString())));
+  const expiredRowReceiptOrgs = await env.DB.prepare('SELECT DISTINCT org_id FROM hx_workflow_row_receipts WHERE expires_at<=?1 LIMIT 100')
+    .bind(at.toISOString()).all();
+  if (expiredRowReceiptOrgs.results.length) await env.DB.batch(expiredRowReceiptOrgs.results.map(({ org_id }) =>
+    env.DB.prepare('DELETE FROM hx_workflow_row_receipts WHERE org_id=?1 AND expires_at<=?2').bind(org_id, at.toISOString())));
   const { results } = await env.DB
     // Every workspace's, by design: the cron's sweep. Each run then acts
     // only in its workflow's own org_id.
