@@ -83,8 +83,6 @@ const cdp = await page.context().newCDPSession(page)
 const keys = `${process.env.RUNNER_TEMP || '/tmp'}/mac-keys`
 if (MAC) {
   execFileSync('defaults', ['write', 'com.apple.inputmethod.Kotoeri', 'JIMPrefLiveConversionKey', '-bool', 'false'])
-  // An input method already running read its settings when it started.
-  for (const name of ['JapaneseIM-RomajiTyping', 'JapaneseIM']) { try { execFileSync('killall', [name], { stdio: 'ignore' }) } catch { /* not running */ } }
   execFileSync('swiftc', ['-O', '-o', keys, `${root}e2e/mac-keys.swift`], { stdio: 'inherit' })
   console.log(execFileSync(keys, ['status']).toString().trim())
 }
@@ -114,9 +112,12 @@ async function typeJapanese(romaji, { ms = 60 } = {}) {
 }
 const latin = /[A-Za-z]/
 const valueOf = (selector) => page.$eval(selector, (el) => el.value)
-// Empty, the way React sees it, and nothing half-converted left behind.
+// Empty, with the keys a person would use, so the app's own state agrees.
 async function clear(selector) {
-  await page.$eval(selector, (el) => { const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value').set; set.call(el, ''); el.dispatchEvent(new Event('input', { bubbles: true })) })
+  await page.focus(selector)
+  await page.keyboard.press(MAC ? 'Meta+a' : 'Control+a')
+  await page.keyboard.press('Backspace')
+  await page.waitForTimeout(200)
   const left = await valueOf(selector)
   if (left) throw new Error(`could not empty the box: ${JSON.stringify(left)}`)
 }
@@ -137,14 +138,20 @@ const heard = () => page.evaluate(() => (window.__ime || []).join(' '))
 /// that came through as a Latin letter, is a different string.
 async function expectTyped(selector, romaji, expected, { ms = 60, wait = 0, name }) {
   await page.click(selector)
+  // Whatever a step before left behind is not this one's to answer for.
+  if (await valueOf(selector)) await clear(selector)
+  // The very element clicked: if the app swaps the box out mid-word, the
+  // keys typed into the old one are gone, and this says so.
+  await page.$eval(selector, (el) => { el.dataset.imeProbe = '1' })
   if (wait) await page.waitForTimeout(wait)
   await listen()
   await typeJapanese(romaji, { ms })
   const value = await valueOf(selector)
+  const same = await page.$eval(selector, (el) => ({ kept: el.dataset.imeProbe === '1', focused: document.activeElement === el }))
   await page.screenshot({ path: `${SHOTS}/${name}.png` })
   const log = await heard()
-  console.log(`${name}: ${JSON.stringify(value)}\n  heard: ${log.slice(0, 900)}`)
-  if (value !== expected) throw new Error(`expected ${JSON.stringify(expected)}, the box holds ${JSON.stringify(value)}${latin.test(value) ? ' (Latin letters leaked)' : ''}`)
+  console.log(`${name}: ${JSON.stringify(value)} (same box: ${same.kept}, focused: ${same.focused})\n  heard: ${log.slice(0, 900)}`)
+  if (value !== expected) throw new Error(`expected ${JSON.stringify(expected)}, the box holds ${JSON.stringify(value)}${latin.test(value) ? ' (Latin letters leaked)' : ''}${same.kept ? '' : ' — the box was replaced while typing'}`)
   return value
 }
 
@@ -155,6 +162,16 @@ await step('the Mac app opens a channel, signed in', async () => {
   await page.click('.cl-thread[data-view="b:kitchen"]')
   await page.waitForSelector(COMPOSER, { timeout: 15000 })
 })
+
+if (MAC) {
+  // A Mac in use has had its input method running for hours. Here it has
+  // just been switched on: one key wakes it, and what that key does is not
+  // the app's to answer for.
+  await page.click(COMPOSER)
+  await typeJapanese('a⏎')
+  console.log(`warm-up: ${JSON.stringify(await valueOf(COMPOSER))}`)
+  await clear(COMPOSER)
+}
 
 await step('にほんご becomes 日本語 in the message box, and confirming it sends nothing', async () => {
   const before = (await said()).length
@@ -180,13 +197,13 @@ if (MAC) {
   // Opening the app and typing at once is what a person does. Each box is
   // tried straight after the page loads and again once it has settled, so a
   // first key lost to the load shows as the difference between the two.
-  for (const wait of [0, 3000]) {
-    await step(`straight after the page loads (${wait ? 'settled' : 'at once'}), the message box gets every key`, async () => {
+  for (const [i, wait] of [0, 0, 0, 3000].entries()) {
+    await step(`straight after the page loads (${wait ? 'settled' : `at once, try ${i + 1}`}), the message box gets every key`, async () => {
       await page.reload({ waitUntil: 'load' })
       await page.waitForSelector(`${COMPOSER}, .cl-thread[data-view="b:kitchen"]`, { timeout: 30000 })
       if (!(await page.$(COMPOSER))) await page.click('.cl-thread[data-view="b:kitchen"]')
       await page.waitForSelector(COMPOSER, { timeout: 15000 })
-      await expectTyped(COMPOSER, 'sakanawoyaku⏎', 'さかなをやく', { wait, name: `05-composer-after-load-${wait}` })
+      await expectTyped(COMPOSER, 'sakanawoyaku⏎', 'さかなをやく', { wait, name: `05-composer-after-load-${i}-${wait}` })
       await clear(COMPOSER)
     })
   }
@@ -199,7 +216,7 @@ await step('the Harness home box keeps what was typed and builds nothing on the 
   page.on('request', watch)
   const box = '.hx-home-ask input'
   try {
-    for (const wait of MAC ? [0, 3000] : [0]) {
+    for (const [i, wait] of (MAC ? [0, 0, 0, 3000] : [0]).entries()) {
       // The window was open in the other mode: it learns of the switch on a
       // reload, and only a harness has a home to go to.
       await page.reload({ waitUntil: 'load' })
@@ -209,7 +226,7 @@ await step('the Harness home box keeps what was typed and builds nothing on the 
         await page.waitForSelector(box, { timeout: 10000 }).catch(() => {})
       }
       await page.waitForSelector(box, { timeout: 10000 })
-      if (MAC) await expectTyped(box, 'seikyuusho⏎', 'せいきゅうしょ', { wait, name: `04-harness-home-${wait}` })
+      if (MAC) await expectTyped(box, 'seikyuusho⏎', 'せいきゅうしょ', { wait, name: `04-harness-home-${i}-${wait}` })
       else await expectTyped(box, 'seikyuusho␣⏎', '請求書', { name: '04-harness-home-0' })
       if (builds.length) throw new Error('the Enter that confirmed the conversion started a build')
     }
