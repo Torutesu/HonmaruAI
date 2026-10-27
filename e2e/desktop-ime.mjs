@@ -82,6 +82,9 @@ const cdp = await page.context().newCDPSession(page)
 
 const keys = `${process.env.RUNNER_TEMP || '/tmp'}/mac-keys`
 if (MAC) {
+  execFileSync('defaults', ['write', 'com.apple.inputmethod.Kotoeri', 'JIMPrefLiveConversionKey', '-bool', 'false'])
+  // An input method already running read its settings when it started.
+  for (const name of ['JapaneseIM-RomajiTyping', 'JapaneseIM']) { try { execFileSync('killall', [name], { stdio: 'ignore' }) } catch { /* not running */ } }
   execFileSync('swiftc', ['-O', '-o', keys, `${root}e2e/mac-keys.swift`], { stdio: 'inherit' })
   console.log(execFileSync(keys, ['status']).toString().trim())
 }
@@ -110,9 +113,40 @@ async function typeJapanese(romaji, { ms = 60 } = {}) {
   await page.waitForTimeout(500)
 }
 const latin = /[A-Za-z]/
-const japanese = /[぀-ヿ一-鿿]/
 const valueOf = (selector) => page.$eval(selector, (el) => el.value)
-const clear = (selector) => page.$eval(selector, (el) => { const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value').set; set.call(el, ''); el.dispatchEvent(new Event('input', { bubbles: true })) })
+// Empty, the way React sees it, and nothing half-converted left behind.
+async function clear(selector) {
+  await page.$eval(selector, (el) => { const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value').set; set.call(el, ''); el.dispatchEvent(new Event('input', { bubbles: true })) })
+  const left = await valueOf(selector)
+  if (left) throw new Error(`could not empty the box: ${JSON.stringify(left)}`)
+}
+// What the page itself received, so a lost key says where it was lost.
+async function listen() {
+  await page.evaluate(() => {
+    window.__ime = []
+    if (window.__imeOn) return
+    window.__imeOn = true
+    for (const type of ['keydown', 'compositionstart', 'compositionend', 'beforeinput', 'focusin', 'focusout'])
+      document.addEventListener(type, (e) => window.__ime?.push(type === 'keydown' ? `kd:${e.key}${e.isComposing ? '*' : ''}`
+        : type.startsWith('focus') ? `${type}:${e.target?.tagName}` : `${type.replace('composition', 'c')}:${e.data ?? ''}`), true)
+  })
+}
+const heard = () => page.evaluate(() => (window.__ime || []).join(' '))
+
+/// Types into `selector`, then demands exactly `expected`: a key lost, or one
+/// that came through as a Latin letter, is a different string.
+async function expectTyped(selector, romaji, expected, { ms = 60, wait = 0, name }) {
+  await page.click(selector)
+  if (wait) await page.waitForTimeout(wait)
+  await listen()
+  await typeJapanese(romaji, { ms })
+  const value = await valueOf(selector)
+  await page.screenshot({ path: `${SHOTS}/${name}.png` })
+  const log = await heard()
+  console.log(`${name}: ${JSON.stringify(value)}\n  heard: ${log.slice(0, 900)}`)
+  if (value !== expected) throw new Error(`expected ${JSON.stringify(expected)}, the box holds ${JSON.stringify(value)}${latin.test(value) ? ' (Latin letters leaked)' : ''}`)
+  return value
+}
 
 const COMPOSER = '.slk-composer textarea.slk-input'
 await step('the Mac app opens a channel, signed in', async () => {
@@ -124,60 +158,62 @@ await step('the Mac app opens a channel, signed in', async () => {
 
 await step('にほんご becomes 日本語 in the message box, and confirming it sends nothing', async () => {
   const before = (await said()).length
-  await page.click(COMPOSER)
-  await typeJapanese('nihongo␣⏎')
-  const value = await valueOf(COMPOSER)
-  await page.screenshot({ path: `${SHOTS}/01-composer.png` })
-  if (latin.test(value) || !japanese.test(value)) throw new Error(`the box holds ${JSON.stringify(value)}`)
+  await expectTyped(COMPOSER, 'nihongo␣⏎', '日本語', { name: '01-composer' })
   if ((await said()).length !== before) throw new Error('the Enter that confirmed the conversion sent the message')
   await clear(COMPOSER)
 })
 
 if (MAC) {
-  // What the field report describes: fast typing, across a 。, and every key
-  // still going through the input method.
-  await step('a long sentence typed fast stays Japanese all the way through', async () => {
-    await page.click(COMPOSER)
-    await typeJapanese('korehasiyoukana.watasinokankyounomondaikana.nidotoonajikotowosinaiyouni⏎', { ms: 25 })
-    const value = await valueOf(COMPOSER)
-    await page.screenshot({ path: `${SHOTS}/02-fast.png` })
-    if (latin.test(value) || !japanese.test(value)) throw new Error(`letters leaked as Latin: ${JSON.stringify(value)}`)
+  // The sentence from the field report, typed fast, across 。: every key
+  // must reach the input method, none lost and none left as a letter.
+  await step('a long sentence typed fast arrives whole, kana for every key', async () => {
+    await expectTyped(COMPOSER, 'korehasiyoukana.watasinokankyounomondaikana.nidotoonajikotowosinaiyouni⏎',
+      'これはしようかな。わたしのかんきょうのもんだいかな。にどとおなじことをしないように', { ms: 25, name: '02-fast' })
     await clear(COMPOSER)
   })
   await step('typing again after the window loses and regains focus still converts', async () => {
     execFileSync('osascript', ['-e', 'tell application "Finder" to activate'])
     await page.waitForTimeout(800)
-    await page.click(COMPOSER).catch(() => {})
-    await typeJapanese('nihongo␣⏎')
-    const value = await valueOf(COMPOSER)
-    await page.screenshot({ path: `${SHOTS}/03-refocus.png` })
-    if (latin.test(value) || !japanese.test(value)) throw new Error(`after refocusing the box holds ${JSON.stringify(value)}`)
+    await expectTyped(COMPOSER, 'nihongo␣⏎', '日本語', { name: '03-refocus' })
     await clear(COMPOSER)
   })
+  // Opening the app and typing at once is what a person does. Each box is
+  // tried straight after the page loads and again once it has settled, so a
+  // first key lost to the load shows as the difference between the two.
+  for (const wait of [0, 3000]) {
+    await step(`straight after the page loads (${wait ? 'settled' : 'at once'}), the message box gets every key`, async () => {
+      await page.reload({ waitUntil: 'load' })
+      await page.waitForSelector(`${COMPOSER}, .cl-thread[data-view="b:kitchen"]`, { timeout: 30000 })
+      if (!(await page.$(COMPOSER))) await page.click('.cl-thread[data-view="b:kitchen"]')
+      await page.waitForSelector(COMPOSER, { timeout: 15000 })
+      await expectTyped(COMPOSER, 'sakanawoyaku⏎', 'さかなをやく', { wait, name: `05-composer-after-load-${wait}` })
+      await clear(COMPOSER)
+    })
+  }
 }
 
-await step('the Harness home box keeps 請求書 and builds nothing on the confirming Enter', async () => {
+await step('the Harness home box keeps what was typed and builds nothing on the confirming Enter', async () => {
   await api('PUT', '/orgs/mode', { mode: 'harness' })
   const builds = []
   const watch = (r) => { if (r.method() === 'POST' && /\/apps\/generate$/.test(new URL(r.url()).pathname)) builds.push(r.url()) }
   page.on('request', watch)
-  // The window was open in the other mode: it learns of the switch on a
-  // reload, and only a harness has a home to go to.
-  await page.reload({ waitUntil: 'load' })
-  await page.waitForSelector('[data-tab="apps"], .harness-workspace', { timeout: 30000 })
   const box = '.hx-home-ask input'
-  for (let i = 0; i < 3 && !(await page.$(box)); i++) {
-    await page.evaluate(() => { location.hash = '#/home' })
-    await page.waitForSelector(box, { timeout: 10000 }).catch(() => {})
-  }
-  await page.waitForSelector(box, { timeout: 10000 })
-  await page.click(box)
-  await typeJapanese('seikyuusho␣⏎')
-  const value = await valueOf(box)
-  await page.screenshot({ path: `${SHOTS}/04-harness-home.png` })
-  page.off('request', watch)
-  if (builds.length) throw new Error(`confirming the conversion started a build (box: ${JSON.stringify(value)})`)
-  if (latin.test(value) || !japanese.test(value)) throw new Error(`the box holds ${JSON.stringify(value)}`)
+  try {
+    for (const wait of MAC ? [0, 3000] : [0]) {
+      // The window was open in the other mode: it learns of the switch on a
+      // reload, and only a harness has a home to go to.
+      await page.reload({ waitUntil: 'load' })
+      await page.waitForSelector('[data-tab="apps"], .harness-workspace', { timeout: 30000 })
+      for (let i = 0; i < 3 && !(await page.$(box)); i++) {
+        await page.evaluate(() => { location.hash = '#/home' })
+        await page.waitForSelector(box, { timeout: 10000 }).catch(() => {})
+      }
+      await page.waitForSelector(box, { timeout: 10000 })
+      if (MAC) await expectTyped(box, 'seikyuusho⏎', 'せいきゅうしょ', { wait, name: `04-harness-home-${wait}` })
+      else await expectTyped(box, 'seikyuusho␣⏎', '請求書', { name: '04-harness-home-0' })
+      if (builds.length) throw new Error('the Enter that confirmed the conversion started a build')
+    }
+  } finally { page.off('request', watch) }
 })
 
 if (thrown.length) results.push(`  note  page errors: ${thrown.join(' | ')}`)

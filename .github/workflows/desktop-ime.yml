@@ -47,7 +47,10 @@ jobs:
       - name: Can this machine type?
         # Keystrokes posted without Accessibility trust go nowhere, and the
         # test would then fail as if the app had dropped them. Say which.
+        # Live conversion off before the input method first starts, so what
+        # Return commits is exactly the kana typed and the test can demand it.
         run: |
+          defaults write com.apple.inputmethod.Kotoeri JIMPrefLiveConversionKey -bool false
           swift e2e/mac-keys.swift status
           swift e2e/mac-keys.swift japanese
       - run: E2E_SPEC=e2e/desktop-ime.mjs ./e2e/run.sh
