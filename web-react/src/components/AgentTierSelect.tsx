@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
 import { Icon } from './Icon'
 import { useT } from '../utils/i18n'
-import { composing } from '../utils/keys'
+import { composing, enterKey } from '../utils/keys'
 import './AgentTierSelect.css'
 
 export type AgentTier = 'lite' | 'standard' | 'max'
@@ -61,7 +61,7 @@ export function AgentTierSelect({ value, onChange, disabled = false, compact = f
           event.preventDefault()
           if (!open) { show(); return }
           setActive(current => event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (current + (event.key === 'ArrowDown' ? 1 : 2)) % 3)
-        } else if (open && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); choose(tiers[active]) }
+        } else if (open && (enterKey(event) || event.key === ' ')) { event.preventDefault(); choose(tiers[active]) }
         else if (event.key === 'Tab') close()
       }}>
       <span><strong>{names[value]}</strong>{!compact && <small>{t(hints[value])}</small>}</span><Icon name="chevron-down" size={14}/>

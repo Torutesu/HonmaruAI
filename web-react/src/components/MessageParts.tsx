@@ -14,7 +14,7 @@ import { messageMenuEntries, type MessageMenuActions } from '../utils/messageMen
 import { keepOnScreen, focusGoesBack } from './RowMenu'
 import { recordingSource, type RecordingSource } from '../utils/mediaUrls'
 import { emojiDataState, gridStep, isEmojiOnly, loadEmojiData, pickerSections, rememberEmoji, useEmojiData, useEmojiDataState, useQuickReactions, useRecentEmoji } from '../utils/emojiSearch'
-import { composing } from '../utils/keys'
+import { composing, enterKey } from '../utils/keys'
 import { safeHref } from '../utils/markdown'
 
 // The pieces of a message a chat client has and a plain log does not:
@@ -88,7 +88,7 @@ export const EmojiPicker: React.FC<{ onPick: (emoji: string) => void; onClose: (
     }
     if (e.target === search.current) {
       if (e.key === 'ArrowDown' && total) { e.preventDefault(); focusCell(current) }
-      if (e.key === 'Enter' && searching) {
+      if (enterKey(e) && searching) {
         e.preventDefault()
         const first = sections[0]?.cells[0]
         if (first) pick(first.emoji)
@@ -758,7 +758,7 @@ const Spoiler: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const reveal = (e: React.SyntheticEvent) => { e.preventDefault(); e.stopPropagation(); setShown(true) }
   return (
     <span className="slk-spoiler" role="button" tabIndex={0} aria-label={t('Spoiler, press to reveal')}
-      onClick={reveal} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') reveal(e) }}>
+      onClick={reveal} onKeyDown={(e) => { if (enterKey(e) || e.key === ' ') reveal(e) }}>
       <span aria-hidden="true">{children}</span>
     </span>
   )

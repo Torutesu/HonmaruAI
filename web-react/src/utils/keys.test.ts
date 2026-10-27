@@ -91,3 +91,21 @@ it("scopes attachment shortcut to primary modifier and deliberate non-IME input"
  expect(attachmentShortcut({...e,metaKey:false,ctrlKey:true},false)).toBe(true);
  for(const guard of [{isComposing:true},{nativeEvent:{keyCode:229}},{altKey:true},{shiftKey:true},{repeat:true},{defaultPrevented:true}])expect(attachmentShortcut({...e,...guard},true)).toBe(false);
 })
+
+// The Enter that picks a kanji is not the Enter that sends, builds or saves.
+// Every screen that compared the key itself got this wrong on its own: the
+// Harness home built an app from half-converted kana, and a table cell
+// closed itself on the first conversion. So nothing compares it by hand —
+// `enterKey` does, or the line says it is asking about `composing(` itself.
+describe('Enter is only ever read through enterKey', () => {
+  it('has no hand-written Enter check in the app', () => {
+    const files = import.meta.glob(['../**/*.{ts,tsx}', '!../**/*.test.{ts,tsx}', '!./keys.ts'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+    const bare = /\bkey\s*[!=]==?\s*['"]Enter['"]|['"]Enter['"]\s*[!=]==?\s*[\w.]*\bkey\b|case\s+['"]Enter['"]/
+    const found = Object.entries(files).flatMap(([file, text]) => text.split('\n')
+      .map((line, i) => ({ file, line: i + 1, text: line }))
+      .filter(({ text }) => bare.test(text) && !text.includes('composing(')))
+      .map(({ file, line }) => `${file}:${line}`)
+    expect(Object.keys(files).length).toBeGreaterThan(100)
+    expect(found).toEqual([])
+  })
+})

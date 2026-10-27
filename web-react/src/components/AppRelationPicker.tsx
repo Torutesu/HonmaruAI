@@ -1,6 +1,7 @@
 import React, {useEffect, useId, useMemo, useRef, useState} from 'react'
 import {Icon} from './Icon'
 import type {Column, Row} from '../utils/harness'
+import {enterKey} from '../utils/keys'
 
 export type RelationOption = {id:string;label:string}
 
@@ -52,12 +53,12 @@ function RelationField({column,value,options=[],disabled=false,onChange}:{column
    {selected.map(option=><span className="hx-relation-chip" key={option.id}><span title={option.label}>{option.label}</span><button type="button" aria-label={`${option.label}を解除`} disabled={disabled} onClick={()=>remove(option.id)}>×</button></span>)}
   </div>}
   <button ref={trigger} type="button" className="hx-relation-trigger" aria-label={column.name} aria-haspopup="listbox" aria-expanded={open} aria-controls={open?`${id}-list`:undefined} disabled={disabled}
-   onClick={()=>open?close():show()} onKeyDown={event=>{if(disabled||event.nativeEvent.isComposing)return;if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();if(!open)show();else move(event.key)}else if(open&&event.key==='Enter'){event.preventDefault();const option=visible[active];if(option)choose(option.id)}else if(event.key==='Escape'&&open){event.preventDefault();close()}}}>
+   onClick={()=>open?close():show()} onKeyDown={event=>{if(disabled||event.nativeEvent.isComposing)return;if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();if(!open)show();else move(event.key)}else if(open&&enterKey(event)){event.preventDefault();const option=visible[active];if(option)choose(option.id)}else if(event.key==='Escape'&&open){event.preventDefault();close()}}}>
    <span className={selected.length?'':'hx-relation-placeholder'}>{label}</span>
    <Icon name="chevron-down" size={14}/>
   </button>
   {open&&<div className="hx-relation-options" style={position}>
-   <div className="hx-relation-search"><Icon name="search" size={14}/><input ref={search} type="search" aria-label={`${column.name}を検索`} placeholder="検索…" value={query} onChange={event=>{setQuery(event.target.value);setActive(0)}} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();move(event.key)}else if(event.key==='Enter'){event.preventDefault();const option=visible[active];if(option)choose(option.id)}else if(event.key==='Tab')close()}}/></div>
+   <div className="hx-relation-search"><Icon name="search" size={14}/><input ref={search} type="search" aria-label={`${column.name}を検索`} placeholder="検索…" value={query} onChange={event=>{setQuery(event.target.value);setActive(0)}} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();move(event.key)}else if(enterKey(event)){event.preventDefault();const option=visible[active];if(option)choose(option.id)}else if(event.key==='Tab')close()}}/></div>
    <div id={`${id}-list`} role="listbox" aria-label={`${column.name}の候補`} aria-multiselectable={multiple||undefined} className="hx-relation-list">
     {!multiple&&<button type="button" role="option" className="hx-relation-option" aria-selected={!selectedIds.length} onMouseDown={event=>event.preventDefault()} onClick={()=>{onChange(null);close();trigger.current?.focus()}}><span>{column.name}なし</span>{!selectedIds.length&&<Icon name="check" size={14}/>}</button>}
     {visible.map((option,index)=>{const checked=selectedIds.includes(option.id);return <button key={option.id} id={`${id}-${index}`} type="button" role="option" aria-selected={checked} className={`hx-relation-option${index===active?' active':''}`} onMouseDown={event=>event.preventDefault()} onMouseMove={()=>setActive(index)} onClick={()=>choose(option.id)}>

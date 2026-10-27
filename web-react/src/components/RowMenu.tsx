@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Icon } from './Icon'
 import type { IconName } from './Icon'
-import { composing } from '../utils/keys'
+import { composing, enterKey } from '../utils/keys'
 
 /// A menu that opens where you right-clicked, the way a desktop chat app's
 /// does: items, a line between groups, a small heading, a tick beside the
@@ -143,7 +143,7 @@ function List({ entries, onClose, onBack, level, label }: { entries: MenuEntry[]
                 onClose()
                 entry.onSelect?.()
               }}
-              onKeyDown={(e) => { if (sub && (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); setOpen(i) } }}
+              onKeyDown={(e) => { if (sub && (e.key === 'ArrowRight' || enterKey(e) || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); setOpen(i) } }}
             >
               <span className="row-menu-mark" aria-hidden="true">
                 {entry.checked ? <Icon name="check" size={14} /> : entry.icon ? <Icon name={entry.icon} size={14} /> : null}

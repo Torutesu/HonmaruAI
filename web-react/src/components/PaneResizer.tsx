@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { enterKey } from '../utils/keys'
 
 /// The edge of a pane beside the conversation, dragged to make the pane
 /// wider or narrower — a thread pane as wide as its replies want, or as
@@ -116,7 +117,7 @@ export function PaneResizer({ pane, label, title, onWidth, onReset }: {
       onKeyDown={(e) => {
         const el = pane.current
         if (!el) return
-        if (e.key === 'Enter') { e.preventDefault(); el.style.width = ''; onReset(); return }
+        if (enterKey(e)) { e.preventDefault(); el.style.width = ''; onReset(); return }
         const next = keyWidth(e.key, el.getBoundingClientRect().width, roomFor(el), e.shiftKey)
         if (next === null) return
         e.preventDefault()

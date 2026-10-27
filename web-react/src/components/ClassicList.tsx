@@ -1282,7 +1282,7 @@ export const ClassicList: React.FC<Props> = ({
   /// The same from the keyboard: Enter or Space on a mention that holds
   /// focus, as on any button. (Space would otherwise scroll the page.)
   const onMentionKey = (e: React.KeyboardEvent) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return
+    if (!enterKey(e) && e.key !== ' ') return
     const el = e.target as HTMLElement
     if (!el.dataset?.mentionRef) return
     e.preventDefault()
