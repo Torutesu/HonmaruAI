@@ -7,6 +7,7 @@ import type { HomeData, WorkspaceMode } from '../utils/harness'
 import type { Business } from '../types/card'
 import { useApi, useAct, type HarnessProps, type HarnessScreen } from './HarnessShared'
 import { OPEN_APP_KEY } from '../components/RoomApps'
+import { enterKey } from '../utils/keys'
 
 // The harness's home (docs/kylon-gap-plan.md): where a harness workspace
 // opens. Not the decision feed: the company at a glance — what waits on you,
@@ -112,7 +113,7 @@ export const HarnessHome: React.FC<HarnessProps & {
             className="hx-cell-input"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && prompt.trim()) void build() }}
+            onKeyDown={(e) => { if (enterKey(e) && prompt.trim()) void build() }}
             placeholder={t('Describe an app to build — e.g. an invoice tracker for #ops')}
             aria-label={t('Describe an app')}
           />

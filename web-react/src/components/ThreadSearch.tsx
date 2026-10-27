@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState} from 'react'
 import type {ChannelMessage} from '../types/card'
 import {Icon} from './Icon'
 import {textMatchRanges} from '../utils/textMatches'
+import {enterKey} from '../utils/keys'
 type Api={httpBase:string;orgId:string;sessionToken:string}
 export function ThreadSearch({api,channel,threadId,onClose,onSelect,focusKey=0}:{api:Api;channel:string;threadId?:string;focusKey?:number;onClose:()=>void;onSelect:(message:ChannelMessage,signal:AbortSignal)=>void|Promise<void>}){
  const [query,setQuery]=useState(''),[messages,setMessages]=useState<ChannelMessage[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState(false),[index,setIndex]=useState(0),[retry,setRetry]=useState(0)
@@ -56,7 +57,7 @@ export function ThreadSearch({api,channel,threadId,onClose,onSelect,focusKey=0}:
   return()=>{observer.disconnect();registry.delete(threadId?'thread-search':'room-search')}
  },[query,threadId])
  const move=(delta:number)=>{if(!messages.length)return;const next=(index+delta+messages.length)%messages.length;setIndex(next);choose(messages[next])}
- return <div ref={host} className="hx-thread-search-bar" role="search" aria-label={threadId?"スレッド内を検索":"ルーム内を検索"} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(event.key==='Escape'){event.preventDefault();event.stopPropagation();onClose()}else if(event.key==='Enter'&&!event.nativeEvent.isComposing){event.preventDefault();move(event.shiftKey?-1:1)}}}>
+ return <div ref={host} className="hx-thread-search-bar" role="search" aria-label={threadId?"スレッド内を検索":"ルーム内を検索"} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(event.key==='Escape'){event.preventDefault();event.stopPropagation();onClose()}else if(enterKey(event)){event.preventDefault();move(event.shiftKey?-1:1)}}}>
   <Icon name="search" size={16}/><input autoFocus aria-label={threadId?"スレッド内の検索語":"ルーム内の検索語"} maxLength={200} placeholder="検索" value={query} onChange={event=>setQuery(event.target.value)}/>
   <span role="status">{busy?'検索中':moving?'移動中':error?'取得失敗':query.trim()?`${messages.length?index+1:0} / ${messages.length}`:''}</span>
   {error&&<button type="button" aria-label="検索を再試行" onClick={()=>setRetry(n=>n+1)}><Icon name="repeat" size={14}/></button>}

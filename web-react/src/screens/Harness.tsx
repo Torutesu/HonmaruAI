@@ -26,6 +26,7 @@ import {
 } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps, type HarnessScreen } from './HarnessShared'
 import { ModePicker } from './HarnessHome'
+import { enterKey } from '../utils/keys'
 
 // The harness screens (docs/kylon-gap-plan.md): Apps, Workflows, Approvals,
 // Skills and agents as members, and the hub that switches a workspace into
@@ -259,7 +260,7 @@ function CellInput({ column, value, onSave, wrap = false, width, members=[], rel
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => { if (draft !== (value == null ? '' : String(value))) onSave(draft) }}
-      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+      onKeyDown={(e) => { if (enterKey(e)) (e.target as HTMLInputElement).blur() }}
       aria-label={column.name}
     />
   )

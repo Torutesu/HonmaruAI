@@ -1,6 +1,7 @@
 import React, {useEffect, useId, useRef, useState} from 'react'
 import {Avatar} from './Avatar'
 import {Icon} from './Icon'
+import {enterKey} from '../utils/keys'
 
 export interface AppPerson { ref:string; name:string; avatarUrl?:string|null }
 
@@ -38,12 +39,12 @@ export function AppPersonPicker({label,value,members,ready=true,disabled=false,o
  const unavailable=!ready?'メンバーを読み込み中…':members.length?'': '選択できるメンバーがいません'
  return <div ref={root} className="hx-person-picker" onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node))close()}}>
   <button ref={trigger} type="button" className="hx-person-trigger" role="combobox" aria-label={label} aria-haspopup="listbox" aria-expanded={open} aria-controls={open?id:undefined} aria-activedescendant={open?`${id}-${active}`:undefined} disabled={disabled||!ready||!members.length}
-   onClick={()=>open?close():show()} onKeyDown={event=>{if(disabled||event.nativeEvent.isComposing)return;if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();if(!open)show();else move(event.key)}else if(open&&(event.key==='Enter'||event.key===' ')){event.preventDefault();if(options[active])choose(options[active].ref)}else if(event.key==='Tab')close()}}>
+   onClick={()=>open?close():show()} onKeyDown={event=>{if(disabled||event.nativeEvent.isComposing)return;if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();if(!open)show();else move(event.key)}else if(open&&(enterKey(event)||event.key===' ')){event.preventDefault();if(options[active])choose(options[active].ref)}else if(event.key==='Tab')close()}}>
    <span className="hx-person-trigger-value">{selected?<><Avatar name={selected.name} url={selected.avatarUrl} size={20}/><span>{selected.name}</span></>:value?<span>{value}</span>:<span className="hx-person-placeholder">{unavailable||`${label}を選択`}</span>}</span>
    <Icon name="chevron-down" size={14}/>
   </button>
   {open&&<div id={id} className="hx-person-options" style={position}>
-   <div className="hx-person-search"><Icon name="search" size={14}/><input type="search" aria-label="メンバーを検索" placeholder="メンバーを検索" value={query} onChange={event=>{setQuery(event.target.value);setActive(0)}} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();move(event.key)}else if(event.key==='Enter'){event.preventDefault();if(options[active])choose(options[active].ref)}}}/></div>
+   <div className="hx-person-search"><Icon name="search" size={14}/><input type="search" aria-label="メンバーを検索" placeholder="メンバーを検索" value={query} onChange={event=>{setQuery(event.target.value);setActive(0)}} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();move(event.key)}else if(enterKey(event)){event.preventDefault();if(options[active])choose(options[active].ref)}}}/></div>
    <div role="listbox" aria-label={`${label}を選択`} className="hx-person-list">
     {options.map((option,index)=>{const member=memberByRef.get(option.ref);return <button key={option.ref||'__unassigned'} id={`${id}-${index}`} data-member-ref={option.ref} type="button" role="option" aria-selected={option.ref===value} className={index===active?'active':''} onMouseDown={event=>event.preventDefault()} onMouseMove={()=>setActive(index)} onClick={()=>choose(option.ref)}>
      {member?<Avatar name={member.name} url={member.avatarUrl} size={22}/>:option.ref?<span className="hx-person-legacy" aria-hidden="true">?</span>:<span className="hx-person-unassigned" aria-hidden="true"><Icon name="users" size={15}/></span>}
