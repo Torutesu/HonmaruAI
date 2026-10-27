@@ -111,6 +111,20 @@ async function typeJapanese(romaji, { ms = 60 } = {}) {
   await page.waitForTimeout(500)
 }
 const latin = /[A-Za-z]/
+/// Focus a box the way a person does. On a Mac that is a real mouse click
+/// at its place on the screen: a click injected into the page focuses the
+/// element but not the window's text view that macOS sends keys through.
+async function press(selector) {
+  if (!MAC) return page.click(selector)
+  execFileSync(keys, ['activate', String(shell.pid)])
+  const at = await page.$eval(selector, (el) => {
+    el.scrollIntoView({ block: 'center' })
+    const r = el.getBoundingClientRect()
+    return { x: window.screenX + r.left + Math.min(40, r.width / 2), y: window.screenY + (window.outerHeight - window.innerHeight) + r.top + r.height / 2 }
+  })
+  console.log(execFileSync(keys, ['click', String(Math.round(at.x)), String(Math.round(at.y))]).toString().trim())
+  if (!(await page.$eval(selector, (el) => document.activeElement === el))) throw new Error(`a real click at ${Math.round(at.x)},${Math.round(at.y)} did not focus ${selector}`)
+}
 const valueOf = (selector) => page.$eval(selector, (el) => el.value)
 // Empty, with the keys a person would use, so the app's own state agrees.
 async function clear(selector) {
@@ -128,16 +142,18 @@ async function listen() {
     if (window.__imeOn) return
     window.__imeOn = true
     for (const type of ['keydown', 'compositionstart', 'compositionend', 'beforeinput', 'focusin', 'focusout'])
-      document.addEventListener(type, (e) => window.__ime?.push(type === 'keydown' ? `kd:${e.key}${e.isComposing ? '*' : ''}`
+      document.addEventListener(type, (e) => window.__ime?.push(type === 'keydown' ? `kd:${e.key}${e.isComposing ? '*' : ''}${e.keyCode === 229 ? '' : `#${e.keyCode}`}`
         : type.startsWith('focus') ? `${type}:${e.target?.tagName}` : `${type.replace('composition', 'c')}:${e.data ?? ''}`), true)
+    // After every handler in the app has had the key: did one of them eat it?
+    window.addEventListener('keydown', (e) => { if (e.defaultPrevented) window.__ime?.push(`PREVENTED:${e.key}`) })
   })
 }
-const heard = () => page.evaluate(() => (window.__ime || []).join(' '))
+const heard = () => page.evaluate(() => `${document.hasFocus() ? '' : '[page not focused] '}${(window.__ime || []).join(' ')}`)
 
 /// Types into `selector`, then demands exactly `expected`: a key lost, or one
 /// that came through as a Latin letter, is a different string.
 async function expectTyped(selector, romaji, expected, { ms = 60, wait = 0, name }) {
-  await page.click(selector)
+  await press(selector)
   // Whatever a step before left behind is not this one's to answer for.
   if (await valueOf(selector)) await clear(selector)
   // The very element clicked: if the app swaps the box out mid-word, the
@@ -167,7 +183,7 @@ if (MAC) {
   // A Mac in use has had its input method running for hours. Here it has
   // just been switched on: one key wakes it, and what that key does is not
   // the app's to answer for.
-  await page.click(COMPOSER)
+  await press(COMPOSER)
   await typeJapanese('a⏎')
   console.log(`warm-up: ${JSON.stringify(await valueOf(COMPOSER))}`)
   await clear(COMPOSER)

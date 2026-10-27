@@ -5,6 +5,7 @@
 //   swift e2e/mac-keys.swift status
 //   swift e2e/mac-keys.swift japanese          # select Japanese – Romaji
 //   swift e2e/mac-keys.swift activate <pid>    # bring that app to the front
+//   swift e2e/mac-keys.swift click <x> <y>     # a real mouse click there
 //   swift e2e/mac-keys.swift type <ms> <keys>  # n i h o n g o, ␣ space, ⏎ return
 import AppKit
 import Carbon
@@ -56,6 +57,20 @@ case "activate":
   app.activate(options: [.activateAllWindows])
   for _ in 0..<50 where NSWorkspace.shared.frontmostApplication?.processIdentifier != pid { usleep(100_000) }
   say("frontmost=\(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0)")
+case "click":
+  // A real click at a point on the screen (top-left origin, in points), as
+  // a mouse makes it: it also makes the view under it the one keys go to.
+  let rest = Array(args.dropFirst())
+  guard rest.count == 2, let x = Double(rest[0]), let y = Double(rest[1]) else { fail("click <x> <y>") }
+  let at = CGPoint(x: x, y: y)
+  let source = CGEventSource(stateID: .hidSystemState)
+  CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: at, mouseButton: .left)?.post(tap: .cghidEventTap)
+  usleep(50_000)
+  CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: at, mouseButton: .left)?.post(tap: .cghidEventTap)
+  usleep(40_000)
+  CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: at, mouseButton: .left)?.post(tap: .cghidEventTap)
+  usleep(150_000)
+  say("clicked \(Int(x)),\(Int(y))")
 case "type":
   let rest = Array(args.dropFirst())
   guard rest.count == 2, let ms = UInt32(rest[0]) else { fail("type <ms> <keys>") }
