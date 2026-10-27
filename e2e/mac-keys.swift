@@ -35,17 +35,22 @@ case "status":
   say("trusted=\(AXIsProcessTrusted()) source=\(current())")
 case "japanese":
   let wanted = ["com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese", "com.apple.inputmethod.Kotoeri.Japanese"]
-  guard let source = sources(all: true).first(where: { wanted.contains(id($0)) }) else {
-    fail("no Japanese input source installed: \(sources(all: true).map(id).filter { $0.contains("Kotoeri") })")
+  if wanted.contains(current()) { say("source=\(current())"); exit(0) }
+  // A mode (…RomajiTyping.Japanese) cannot be selected until the input
+  // method it belongs to (…RomajiTyping) is enabled, and what is newly
+  // enabled only shows up in a list read afterwards.
+  let kotoeri = sources(all: true).filter { id($0).hasPrefix("com.apple.inputmethod.Kotoeri.RomajiTyping") || wanted.contains(id($0)) }
+  if kotoeri.isEmpty { fail("no Japanese input method installed: \(sources(all: true).map(id).filter { $0.contains("inputmethod") })") }
+  for s in kotoeri.sorted(by: { id($0).count < id($1).count }) { _ = TISEnableInputSource(s) }
+  var last: OSStatus = noErr
+  for _ in 0..<30 where !wanted.contains(current()) {
+    usleep(200_000)
+    if let mode = sources(all: false).first(where: { wanted.contains(id($0)) }) { last = TISSelectInputSource(mode) }
   }
-  var status = TISEnableInputSource(source)
-  if status != noErr { fail("enable \(id(source)): \(status)") }
-  status = TISSelectInputSource(source)
-  if status != noErr { fail("select \(id(source)): \(status)") }
-  // The switch is asynchronous; wait until the system says it is in use.
-  for _ in 0..<50 where !wanted.contains(current()) { usleep(100_000) }
   say("source=\(current())")
-  if !wanted.contains(current()) { exit(2) }
+  if !wanted.contains(current()) {
+    fail("could not select Japanese (last status \(last)); enabled: \(sources(all: false).map(id)); installed Kotoeri: \(kotoeri.map(id))")
+  }
 case "activate":
   guard let raw = args.dropFirst().first, let pid = pid_t(raw), let app = NSRunningApplication(processIdentifier: pid) else { fail("no app with that pid") }
   app.activate(options: [.activateAllWindows])
