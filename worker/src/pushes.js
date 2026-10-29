@@ -159,7 +159,8 @@ export async function queueMessagePushes(env, orgId, row, { members = null, now 
   // what the phone will be told (web-react utils/forYou.ts) — a group
   // message, a reply to you, a keyword, a thread you wrote in — rather than
   // guessing from the message alone.
-  await announceTo(env, orgId, to.map(({ login, reason }) => ({ to: login, event: customEvent("message_for_you", { id: row.id, reason }) })), { timeoutMs: durable ? 10000 : null });
+  const deliveries = to.map(({ login, reason }) => ({ to: login, event: customEvent("message_for_you", { id: row.id, reason }) }));
+  if (!durable) await announceTo(env, orgId, deliveries);
   const due = new Date(now + PUSH_DELAY_MS).toISOString();
   const at = new Date(now).toISOString();
   try {
@@ -176,6 +177,9 @@ export async function queueMessagePushes(env, orgId, row, { members = null, now 
     await Promise.all(to.map(({ login, reason }) => deliverMessagePush(env, { org_id: orgId, login, message_id: row.id, reason }, { now, membersOf })
       .catch((e) => console.error("direct push failed", e?.message || e))));
   }
+  // Phone jobs survive relay failure; the durable intent retries the desktop
+  // notification until that relay accepts it, without inserting another push.
+  if (durable) await announceTo(env, orgId, deliveries, { strict: true });
   return to.length;
 }
 

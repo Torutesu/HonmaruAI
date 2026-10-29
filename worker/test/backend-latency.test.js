@@ -1,5 +1,5 @@
 import {env} from 'cloudflare:test';
-import {expect,test} from 'vitest';
+import {expect,test,vi} from 'vitest';
 import {postMessage,getMessage,hydrate,present,threadsFor,deleteMessage} from '../src/channels.js';
 import {drainMessageDelivery} from '../src/messageDelivery.js';
 import {deliverAcceptedMessages} from '../src/channelRoutes.js';
@@ -34,6 +34,8 @@ test.each([1,10,30])('Threads batches %i eligible threads, preserves previews/un
   expect(result).toHaveLength(n);
   for(const item of result){expect(item.replies).toHaveLength(2);expect(item.replyCount).toBe(2);expect(item.parent.replyCount).toBe(2);expect(item.unread).toBe(true);}
   expect(db.metrics.length).toBeLessThanOrEqual(12);
+  // Participant windows are grouped once, never re-evaluated per parent.
+  expect(db.metrics.reduce((sum,row)=>sum+row.read,0)).toBeLessThan(5000);
   console.log('threads-d1',JSON.stringify({threads:n,statements:db.metrics.length,rowsReturned:db.metrics.reduce((s,x)=>s+x.rows,0),rowsRead:db.metrics.reduce((s,x)=>s+x.read,0)}));
 });
 
@@ -123,9 +125,11 @@ test('Live relay HTTP failure stays retryable; notification queue still complete
   const relay={idFromName:x=>x,get:()=>({fetch:async(url,init)=>{events.push(JSON.parse(init.body));return new Response('{}',{status});}})};
   await Promise.all(['live','push'].map(kind=>deliverAcceptedMessages({...env,ORG_RELAY:relay},{kind,orgId:org,messageId:row.id,now:1})));
   const jobs=(await env.DB.prepare('SELECT kind,status FROM channel_message_delivery').all()).results;
-  expect(jobs).toContainEqual({kind:'push',status:'done'});expect(jobs).toContainEqual({kind:'live',status:'pending'});
+  expect(jobs).toContainEqual({kind:'push',status:'pending'});expect(jobs).toContainEqual({kind:'live',status:'pending'});
   expect((await env.DB.prepare('SELECT login,message_id FROM push_queue').all()).results).toEqual([{login:'bob',message_id:row.id}]);
-  status=200;await deliverAcceptedMessages({...env,ORG_RELAY:relay},{kind:'live',now:20000});
+  status=200;await Promise.all(['live','push'].map(kind=>deliverAcceptedMessages({...env,ORG_RELAY:relay},{kind,now:20000})));
+  expect((await env.DB.prepare('SELECT login,message_id FROM push_queue').all()).results).toHaveLength(1);
+  expect((await env.DB.prepare("SELECT status FROM channel_message_delivery WHERE kind='push'").first()).status).toBe('done');
   expect((await env.DB.prepare("SELECT status FROM channel_message_delivery WHERE kind='live'").first()).status).toBe('done');
   expect(events.flatMap(x=>x.events||[]).filter(e=>e.name==='channel_message').every(e=>e.value.message.id===row.id)).toBe(true);
 });
@@ -169,4 +173,22 @@ test('Rejected candidates cross bounded D1 chunks; a read before a later reply d
   expect(result).toHaveLength(30);expect(result[0].parent.id).toBe('p70');expect(result[0].unread).toBe(true);
   expect(db.metrics.every(row=>row.binds<=100)).toBe(true);
   expect(db.metrics.filter(row=>row.sql.includes('cr.last_read_at AS thread_read_at'))).toHaveLength(2);
+});
+
+
+test('Later jobs acquire a fresh lease after a slow earlier delivery, with retry backoff measured from completion',async()=>{
+  await postMessage(env.DB,input);await postMessage(env.DB,input);
+  const stamp=Date.now();let elapsed=0,calls=0;
+  const clock=vi.spyOn(Date,'now').mockImplementation(()=>stamp+elapsed);
+  try {
+    await drainMessageDelivery(env.DB,async(orgId,messageId)=>{
+      calls++;
+      const job=await env.DB.prepare("SELECT lease_until FROM channel_message_delivery WHERE org_id=?1 AND message_id=?2 AND kind='live'").bind(orgId,messageId).first();
+      expect(job.lease_until).toBeGreaterThan(1000+elapsed);
+      if(calls===1){elapsed=65000;throw new Error('slow failure');}
+    },{kind:'live',now:1000});
+    expect(calls).toBe(2);
+    const retry=await env.DB.prepare("SELECT next_attempt FROM channel_message_delivery WHERE kind='live' AND status='pending'").first();
+    expect(retry.next_attempt).toBeGreaterThan(1000+elapsed);
+  } finally {clock.mockRestore();}
 });

@@ -309,10 +309,13 @@ export async function hydrate(db, orgId, rows, members = null) {
           FROM firsts WHERE occurrence = 1
         ), bounded AS (
           SELECT parent_id, who FROM faces WHERE position <= 5 ORDER BY parent_id, position
+        ), counts AS (
+          SELECT parent_id, COUNT(*) AS reply_count, MAX(created_at) AS last_reply_at FROM replies GROUP BY parent_id
+        ), participants AS (
+          SELECT parent_id, json_group_array(who) AS reply_logins FROM bounded GROUP BY parent_id
         )
-        SELECT parent_id, COUNT(*) AS reply_count, MAX(created_at) AS last_reply_at,
-          COALESCE((SELECT json_group_array(who) FROM bounded b WHERE b.parent_id = replies.parent_id), '[]') AS reply_logins
-        FROM replies GROUP BY parent_id`)
+        SELECT c.parent_id, c.reply_count, c.last_reply_at, COALESCE(p.reply_logins, '[]') AS reply_logins
+        FROM counts c LEFT JOIN participants p ON p.parent_id = c.parent_id`)
         .bind(orgId, ...chunk, members ? JSON.stringify(members.filter(m => m.ref).map(m => m.login)) : null).all(),
       db.prepare(`SELECT message_id, emoji, login FROM message_reactions
                    WHERE org_id = ?1 AND message_id IN (${marks}) ORDER BY created_at`)
