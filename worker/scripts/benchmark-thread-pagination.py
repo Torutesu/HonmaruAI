@@ -31,6 +31,8 @@ def query(paged, boundary=''):
 legacy, bounded = query(False), query(True)
 assert '${' not in legacy + bounded
 schema = (repo / 'worker/schema.sql').read_text()
+migrations = (repo / 'worker/migrations.sql').read_text()
+schema += '\n' + '\n'.join(re.findall(r'^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS \w+ ON channel_messages\([^\n]+;', migrations, re.M))
 
 def stats(samples):
     ordered = sorted(samples)

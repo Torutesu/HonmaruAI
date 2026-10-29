@@ -20,7 +20,7 @@ Jam reuses the scoped cache and joins the main pane's debounced reconnect refres
 
 ## Index and remaining summary cost
 
-`idx_channel_thread_page` is `(org_id,parent_id,created_at) WHERE deleted_at IS NULL`. SQLite includes rowid as the final index tie-breaker. The query uses reverse index order for newest-first pages. A cursor first seeks its equal timestamp with `rowid < boundary`, then fills any remainder using earlier timestamps; the partial index excludes arbitrarily dense soft-deleted tails. Fresh schema and migration both include it. No live migration was run.
+`idx_channel_thread_page` is `(org_id,parent_id,created_at) WHERE deleted_at IS NULL`. SQLite includes rowid as the final index tie-breaker. The query uses reverse index order for newest-first pages. A cursor first seeks its equal timestamp with `rowid < boundary`, then fills any remainder using earlier timestamps; the partial index excludes arbitrarily dense soft-deleted tails. The migration creates the index after adding legacy thread/deletion columns. The benchmark applies the schema and relevant migration indexes in that order. No live migration was run.
 
 Pagination bounds displayed reply hydration/signing and file/reaction lookup IDs to the parent plus 50 replies. This branch still uses the existing `hydrate()` reply-summary query for the parent: it reads all matching replies to calculate counts/participants. Its scan cost is separate and is addressed by the backend-summary work (#504/#506), not by the page limit. Do not interpret the reply SELECT benchmark as a measurement of the complete endpoint.
 
