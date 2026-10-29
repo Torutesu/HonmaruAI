@@ -4,6 +4,7 @@ export interface ChannelActivity {
   channel: string
   lastAt: string
   preview: string
+  originalPreview?: string
   lastBy: string | null
   last?: ChannelMessage
 }

@@ -55,7 +55,7 @@ test("a reply in the same channel says who it answers and how that began", async
   const res = await send(toru, "Let's push back to +5%", { replyTo: m.id });
   expect(res.status).toBe(201);
   const { message } = await res.json();
-  const quote = { id: m.id, kind: "message", authorName: "Mika", authorRef: refs.Mika, excerpt: "Roaster wants +8% from Friday", deleted: false };
+  const quote = { id: m.id, kind: "message", authorName: "Mika", authorRef: refs.Mika, excerpt: "Roaster wants +8% from Friday", source: { channel: "b:cafe", body: m.body, lang: "en", fileName: null }, deleted: false };
   expect(message.replyTo).toEqual(quote);
   // In the conversation, not in a thread: the main log has both, and the
   // original gains no thread for it.
@@ -249,4 +249,16 @@ test("the asking line carries its original whole; earlier replies the short quot
   const after = await transcriptUpTo(env.DB, ORG, "b:cafe", ask.createdAt);
   expect(after).toHaveLength(2);
   expect(after.join("\n")).not.toContain("replying to");
+});
+
+
+test('reference source uses the reader channel handle, and never leaks another conversation source', async () => {
+  const { toMessage } = await import('../src/channels.js');
+  const original = { id: 'source', channel: 'dm:toru|mika', kind: 'message', body: '明日から始めます', author_login: 'mika' };
+  const reply = { id: 'reply', channel: original.channel, reply_to_id: original.id, kind: 'message', body: 'Reply', author_login: 'toru' };
+  const message = toMessage(reply, 'toru', 'dm:opaque-mika', [], { original });
+  expect(message.replyTo.source).toMatchObject({ channel: 'dm:opaque-mika', body: original.body, lang: 'ja' });
+  const inaccessible = toMessage(reply, 'toru', 'dm:opaque-mika', [], { original: { ...original, channel: 'b:private' } });
+  expect(inaccessible.replyTo).toMatchObject({ deleted: true });
+  expect(inaccessible.replyTo.source).toBeUndefined();
 });

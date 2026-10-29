@@ -30,7 +30,7 @@ import { followupRequest, scheduleFollowup } from "./harness/followups.js";
 import { attachedTexts } from "./dlpFiles.js";
 import { linksIn, readLinks, linksBlock } from "./links.js";
 import { agentInstructionsForTools, agentTools } from "./agentTools.js";
-import { translateMessages } from "./translate.js";
+import { translateMessages, sourceHash } from "./translate.js";
 import { getSession, isMember, getUserByGithubId, getUserByLogin, saveCard, getCard, listBusinesses } from "./db.js";
 import { claimDraft, releaseDraft, postedCard, refineDailyReport, saveDraftText, discardDraft, dailyChannelFor } from "./dailyReport.js";
 import { providerFor, readerEnvFor } from "./orgAI.js";
@@ -772,7 +772,7 @@ async function previewsInLanguage(env, orgId, user, items) {
   }
   return items.map(({ _row, ...item }) => {
     const text = _row && byId[_row.id];
-    return text && text.trim() !== String(_row.body).trim() ? { ...item, preview: text.replace(/\s+/g, " ").trim().slice(0, 120) } : item;
+    return text && text.trim() !== String(_row.body).trim() ? { ...item, originalPreview: item.preview, preview: text.replace(/\s+/g, " ").trim().slice(0, 120) } : { ...item, originalPreview: item.preview };
   });
 }
 
@@ -1674,7 +1674,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       return json({ message: "Translation failed on the server.", code: "translate_failed" }, 502);
     }
     if (provider) await settleUsage(env.DB, provider, { orgId: body.orgId, githubId: ctx.who.session.github_id }).catch(() => {});
-    return json({ translations: out.byId, failed: out.failed || {}, locale });
+    return json({ translations: out.byId, sourceHashes: Object.fromEntries(rows.filter(r => !r.deleted_at && typeof out.byId[r.id] === "string").map(r => [r.id, sourceHash(r.body)])), failed: out.failed || {}, locale });
   }
 
   // An agent brought into a channel or a group, or taken out of it. Anyone

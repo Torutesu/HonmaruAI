@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ChannelMessage } from '../types/card'
-import { SPOILER_MASK, replyExcerpt, quoteOf, refreshQuotes, excerptParts, withoutThread } from './replies'
+import { SPOILER_MASK, replyExcerpt, quoteOf, refreshQuotes, excerptParts, withoutThread, displayedQuote, replySources } from './replies'
 
 const msg = (over: Partial<ChannelMessage> = {}): ChannelMessage => ({
   id: 'm1', channel: 'b:cafe', kind: 'message', body: 'Roaster wants +8%', authorName: 'Mika', authorRef: 'r-mika',
@@ -56,7 +56,7 @@ describe('replyExcerpt', () => {
 describe('quoteOf', () => {
   it('quotes a teammate by name and ref, the AI by neither', () => {
     expect(quoteOf(msg({ body: 'the code is ||1234||' }))).toEqual({
-      id: 'm1', kind: 'message', authorName: 'Mika', authorRef: 'r-mika', excerpt: `the code is ${SPOILER_MASK}`, deleted: false,
+      id: 'm1', kind: 'message', authorName: 'Mika', authorRef: 'r-mika', excerpt: `the code is ${SPOILER_MASK}`, source: { channel: 'b:cafe', body: 'the code is ||1234||', lang: undefined, fileName: null }, deleted: false,
     })
     expect(quoteOf(msg({ kind: 'ai', authorName: null, authorRef: null }))).toMatchObject({ kind: 'ai', authorName: null, authorRef: null })
   })
@@ -115,5 +115,31 @@ describe('excerptParts', () => {
     expect(excerptParts(`${SPOILER_MASK}${SPOILER_MASK}`)).toEqual([null, null])
     expect(excerptParts('plain')).toEqual(['plain'])
     expect(excerptParts('')).toEqual([])
+  })
+})
+
+
+describe('viewer reply excerpts (#522)', () => {
+  it('resolves late translations at render time, using the source version and Show original policy', () => {
+    const source = msg({ body: '明日から始めます', lang: 'ja' })
+    const quote = quoteOf(source)
+    expect(displayedQuote(quote, source.channel, undefined, () => source.body).excerpt).toBe(source.body)
+    expect(displayedQuote(quote, source.channel, undefined, () => 'Starts tomorrow').excerpt).toBe('Starts tomorrow')
+    expect(quote.excerpt).toBe(source.body)
+    expect(replySources([msg({ id: 'reply', replyTo: quote })])[1].body).toBe(source.body)
+    expect(displayedQuote(quote, 'b:elsewhere', undefined, () => 'private').excerpt).toBe(quote.excerpt)
+  })
+  it('uses the current source for edits and deletion, never a kept translation after unsend', () => {
+    const quote = quoteOf(msg())
+    expect(displayedQuote(quote, 'b:cafe', msg({ body: 'edited' }), m => m.body).excerpt).toBe('edited')
+    expect(displayedQuote(quote, 'b:cafe', msg({ deleted: true }), () => 'private').deleted).toBe(true)
+    expect(refreshQuotes([msg({ id: 'reply', threadParent: quote })], msg({ deleted: true }))[0].threadParent?.deleted).toBe(true)
+  })
+  it('falls back to masked original if a translator drops spoiler marks; preserves files and excerpt bounds', () => {
+    const source = msg({ body: '秘密 ||1234||' })
+    expect(displayedQuote(quoteOf(source), source.channel, source, () => 'secret 1234').excerpt).toBe('秘密 ████')
+    expect(displayedQuote(quoteOf(msg()), 'b:cafe', msg(), () => '😀'.repeat(150)).excerpt).toBe('😀'.repeat(119) + '…')
+    const file = msg({ body: '', files: [{ id: 'f', name: 'plan.pdf' } as any] })
+    expect(displayedQuote(quoteOf(file), file.channel, file, () => '').excerpt).toBe('📎 plan.pdf')
   })
 })
