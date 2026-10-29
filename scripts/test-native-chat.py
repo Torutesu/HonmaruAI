@@ -287,8 +287,8 @@ checks = r'''
         check(pages.thread!.replies.contains { $0.id == "tmp-page" })
         // Revalidation cannot discard earlier loaded pages or reset their cursor.
         check(await pages.openThread(channel: "b:general", parentId: "page-root"))
-        check(pages.thread!.replies.count == 53 && !pages.thread!.hasOlder)
-        check(pages.threadCache.values.first!.replies.count == 52, "Only confirmed replies enter the cache")
+        check(pages.thread!.replies.count == 52 && !pages.thread!.hasOlder)
+        check(pages.threadCache.values.first!.replies.count == 51, "Only confirmed replies enter the cache")
         // Reconnect must bridge >50 missed replies before restoring cached cursors.
         func numbered(_ value: Int) -> ChatMessage {
             // Every reply shares one timestamp: only real ID overlap proves continuity.
@@ -297,7 +297,7 @@ checks = r'''
         let gapRoot = message("gap-root")
         let reconnect = ChatStore(), bridgeGate = Gate<ChatThread>()
         reconnect.thread = ChatThread(parent: gapRoot, replies: (1...50).map(numbered), more: false)
-        reconnect.recordThreadRange(reconnect.thread!, fetchedIds: Set(reconnect.thread!.replies.map(\.id)))
+        reconnect.recordThreadRange(reconnect.thread!, serverOrder: reconnect.thread!.replies.map(\.id))
         reconnect.closeThread()
         var gapRequests: [String?] = []
         ChatService.getPage = { cursor in
@@ -323,6 +323,94 @@ checks = r'''
         check(Set(reconnect.thread!.replies.map(\.id)) == Set((1...151).map { numbered($0).id } + ["tmp-gap"]))
         check(reconnect.thread!.replies.first { $0.id == "n001" }?.body == "edited while gap pending")
         check(!reconnect.thread!.hasOlder)
+        func cacheHundred(_ target: ChatStore, make: @escaping (Int) -> ChatMessage, hasEarlier: Bool = false) async {
+            ChatService.getPage = { cursor in
+                if cursor == nil { return ChatThread(parent: gapRoot, replies: (51...100).map(make), more: true, nextCursor: "seed-before-51") }
+                return ChatThread(parent: gapRoot, replies: (1...50).map(make), more: hasEarlier, nextCursor: hasEarlier ? "older-than-1" : nil)
+            }
+            check(await target.openThread(channel: "b:general", parentId: "gap-root"))
+            await target.loadOlderThread()
+            check(target.thread!.replies.count == 100)
+        }
+        // A deletion inside a reread window must not return from the cache.
+        let offlineDelete = ChatStore()
+        await cacheHundred(offlineDelete, make: numbered)
+        // A surviving older reply and a held reply both quote deleted 90.
+        var quotingOld = numbered(10); quotingOld.replyTo = ChatQuote(of: numbered(90))
+        offlineDelete.upsert(quotingOld)
+        offlineDelete.heldSends["tmp-deleted-quote"] = ChatOutbox.Entry(clientId: "tmp-deleted-quote", user: "alice", orgId: "A", view: "b:general", text: "held quote", decide: false, parentId: "gap-root", alsoChannel: false, files: [], replyTo: ChatQuote(of: numbered(90)), createdAt: reply.createdAt, reason: "offline")
+        offlineDelete.closeThread()
+        ChatService.getPage = { cursor in
+            check(cursor == nil)
+            return ChatThread(parent: gapRoot, replies: (50...100).filter { $0 != 90 }.map(numbered), more: true, nextCursor: "delete-before-50")
+        }
+        check(await offlineDelete.openThread(channel: "b:general", parentId: "gap-root"))
+        check(offlineDelete.thread!.replies.count == 100, "99 live server rows and one held reply")
+        check(!offlineDelete.thread!.replies.contains { $0.id == "n090" })
+        check(offlineDelete.thread!.replies.first { $0.id == "n010" }?.replyTo?.deleted == true)
+        check(offlineDelete.heldSends["tmp-deleted-quote"]?.replyTo?.deleted == true)
+        check(offlineDelete.heldSends["tmp-deleted-quote"]?.replyTo?.excerpt == "")
+        check(!offlineDelete.threadRanges[offlineDelete.viewKey("gap-root")!]!.ids.contains("n090"))
+        check(!offlineDelete.thread!.hasOlder)
+        // Even an absent visible row must invalidate quotes once its covered ID is missing.
+        let absentCovered = ChatStore()
+        await cacheHundred(absentCovered, make: numbered)
+        absentCovered.upsert(quotingOld)
+        absentCovered.thread?.replies.removeAll { $0.id == "n090" }
+        absentCovered.messages["b:general"] = [numbered(90)]
+        absentCovered.closeThread()
+        ChatService.getPage = { _ in ChatThread(parent: gapRoot, replies: (50...100).filter { $0 != 90 }.map(numbered), more: true, nextCursor: "absent-before-50") }
+        check(await absentCovered.openThread(channel: "b:general", parentId: "gap-root"))
+        check(absentCovered.thread!.replies.first { $0.id == "n010" }?.replyTo?.deleted == true)
+        check(absentCovered.messages["b:general"]!.isEmpty)
+        // Boundary position comes from wire order, even when all dates tie and IDs run backwards.
+        func reversedId(_ number: Int) -> ChatMessage {
+            message(String(format: "reverse-%03d", 200 - number), parent: "gap-root")
+        }
+        let tiedDelete = ChatStore()
+        await cacheHundred(tiedDelete, make: reversedId, hasEarlier: true)
+        tiedDelete.closeThread()
+        ChatService.getPage = { _ in ChatThread(parent: gapRoot, replies: (50...100).filter { $0 != 50 && $0 != 90 }.map(reversedId), more: true, nextCursor: "older-than-51") }
+        check(await tiedDelete.openThread(channel: "b:general", parentId: "gap-root"))
+        // 50 was before the actual boundary 51, so remains an unvalidated older row.
+        check(tiedDelete.thread!.replies.contains { $0.id == reversedId(50).id })
+        check(!tiedDelete.thread!.replies.contains { $0.id == reversedId(90).id })
+        check(tiedDelete.thread!.replies.map(\.id) == (1...100).filter { $0 != 90 }.map { reversedId($0).id })
+        check(tiedDelete.thread!.nextCursor == "older-than-1")
+        // The raw lower boundary must itself be known; a later overlap cannot cover ties before it.
+        let unknownBoundary = ChatStore()
+        await cacheHundred(unknownBoundary, make: reversedId)
+        unknownBoundary.closeThread()
+        var boundaryRequests: [String?] = []
+        var insertedBoundary = message("new-nonlexical-boundary", parent: "gap-root")
+        insertedBoundary.createdAt = reply.createdAt
+        ChatService.getPage = { cursor in
+            boundaryRequests.append(cursor)
+            if cursor == nil { return ChatThread(parent: gapRoot, replies: [insertedBoundary] + (51...100).filter { $0 != 90 }.map(reversedId), more: true, nextCursor: "before-new-boundary") }
+            return ChatThread(parent: gapRoot, replies: (1...49).map(reversedId), more: false)
+        }
+        check(await unknownBoundary.openThread(channel: "b:general", parentId: "gap-root"))
+        check(boundaryRequests.count == 2)
+        check(!unknownBoundary.thread!.replies.contains { $0.id == reversedId(50).id || $0.id == reversedId(90).id })
+        check(unknownBoundary.thread!.replies.contains { $0.id == insertedBoundary.id })
+        // A real live event after capture survives the reread, independently of retained prefix.
+        let liveRefresh = ChatStore(), refreshGate = Gate<ChatThread>()
+        await cacheHundred(liveRefresh, make: numbered)
+        liveRefresh.closeThread()
+        ChatService.getPage = { _ in try await refreshGate.wait() }
+        let refreshing = Task { await liveRefresh.openThread(channel: "b:general", parentId: "gap-root") }; await drain()
+        var arrivingAfterCapture = numbered(101); arrivingAfterCapture.createdAt = "2026-10-03T09:00:00Z"
+        liveRefresh.upsert(arrivingAfterCapture)
+        let staleReactionResponse = Gate<ChatMessage?>()
+        ChatService.postReaction = { _ in try await staleReactionResponse.wait() }
+        let staleReaction = Task { await liveRefresh.react(numbered(90), "👍") }; await drain()
+        refreshGate.resolve(ChatThread(parent: gapRoot, replies: (50...100).filter { $0 != 90 }.map(numbered), more: true, nextCursor: "live-before-50"))
+        check(await refreshing.value)
+        check(liveRefresh.thread!.replies.contains { $0.id == "n101" })
+        check(!liveRefresh.thread!.replies.contains { $0.id == "n090" })
+        staleReactionResponse.resolve(numbered(90).settingReaction("👍", mine: true, myRef: "me"))
+        await staleReaction.value
+        check(!liveRefresh.thread!.replies.contains { $0.id == "n090" }, "A late local overlay response cannot resurrect a covered deletion")
         // A live arrival cached before navigation cannot become continuity proof.
         let polluted = ChatStore()
         ChatService.getPage = { _ in ChatThread(parent: gapRoot, replies: (1...50).map(numbered), more: false) }
@@ -375,7 +463,7 @@ checks = r'''
         // Previously loaded earlier pages keep their earliest cursor after proven overlap.
         let earlierCache = ChatStore()
         earlierCache.thread = ChatThread(parent: gapRoot, replies: (21...120).map(numbered), more: true, nextCursor: "before-21")
-        earlierCache.recordThreadRange(earlierCache.thread!, fetchedIds: Set(earlierCache.thread!.replies.map(\.id)))
+        earlierCache.recordThreadRange(earlierCache.thread!, serverOrder: earlierCache.thread!.replies.map(\.id))
         earlierCache.closeThread()
         var earlierRequests: [String?] = []
         ChatService.getPage = { cursor in
@@ -394,7 +482,7 @@ checks = r'''
         // A broken bridge keeps cached history/error state and retry fetches the gap.
         let retryGap = ChatStore()
         retryGap.thread = ChatThread(parent: gapRoot, replies: (1...50).map(numbered), more: false)
-        retryGap.recordThreadRange(retryGap.thread!, fetchedIds: Set(retryGap.thread!.replies.map(\.id)))
+        retryGap.recordThreadRange(retryGap.thread!, serverOrder: retryGap.thread!.replies.map(\.id))
         retryGap.closeThread()
         var failBridge = true
         ChatService.getPage = { cursor in
@@ -411,7 +499,7 @@ checks = r'''
         // Scope changes while a gap page is pending cannot install stale history.
         let scopeGap = ChatStore(), scopeBridge = Gate<ChatThread>()
         scopeGap.thread = ChatThread(parent: gapRoot, replies: (1...50).map(numbered), more: false)
-        scopeGap.recordThreadRange(scopeGap.thread!, fetchedIds: Set(scopeGap.thread!.replies.map(\.id)))
+        scopeGap.recordThreadRange(scopeGap.thread!, serverOrder: scopeGap.thread!.replies.map(\.id))
         scopeGap.closeThread()
         ChatService.getPage = { cursor in
             if cursor == nil { return ChatThread(parent: gapRoot, replies: (101...150).map(numbered), more: true, nextCursor: "scope-gap") }
@@ -493,7 +581,7 @@ checks = r'''
         context.closeThread(); staleContext.resolve(linked); await obsolete.value
         check(context.threadReference == nil && !context.threadReferenceLoading)
         ChatService.getPage = nil
-        print("Native chat regressions passed: linked reads/races, quotes/outbox, optimistic reactions/reconciliation, media scope, displayed read cutoff, bounded pages/cache/reference context, reconnect gaps/ties/retry/scope, legacy reference/reaction reconciliation, server-only range provenance.")
+        print("Native chat regressions passed: linked reads/races, quotes/outbox, optimistic reactions/reconciliation, media scope, displayed read cutoff, bounded pages/cache/reference context, reconnect gaps/ties/retry/scope, legacy reference/reaction reconciliation, server-only range provenance, covered-window deletions/quotes/ties/live changes.")
     }
 }
 '''

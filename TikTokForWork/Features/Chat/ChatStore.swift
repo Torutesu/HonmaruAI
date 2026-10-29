@@ -169,7 +169,8 @@ final class ChatStore: ObservableObject {
     /// The continuous history proven by server pages, independent of visible
     /// live/outbox additions. An empty established range differs from no read.
     private struct ThreadRange {
-        let ids: Set<String>
+        let orderedIds: [String]
+        var ids: Set<String> { Set(orderedIds) }
         let more: Bool?
         let nextCursor: String?
     }
@@ -466,7 +467,8 @@ final class ChatStore: ObservableObject {
     private struct ThreadRead {
         var thread: ChatThread
         /// IDs from the server page, excluding live overlays outside its range.
-        let fetchedIds: Set<String>
+        let fetchedOrder: [String]
+        var fetchedIds: Set<String> { Set(fetchedOrder) }
     }
     private var threadReads: [String: Task<ThreadRead?, Never>] = [:]
     private var threadNavigation = UUID()
@@ -496,14 +498,16 @@ final class ChatStore: ObservableObject {
     }
 
     /// Only successful page installation may change continuity proof.
-    private func recordThreadRange(_ page: ChatThread, fetchedIds: Set<String>, keeping priorIds: Set<String> = []) {
+    private func recordThreadRange(_ page: ChatThread, serverOrder: [String]) {
         guard let key = viewKey(page.parent.id) else { return }
-        threadRanges[key] = ThreadRange(ids: fetchedIds.union(priorIds), more: page.more, nextCursor: page.nextCursor)
+        var seen: Set<String> = []
+        let ordered = serverOrder.filter { seen.insert($0).inserted }
+        threadRanges[key] = ThreadRange(orderedIds: ordered, more: page.more, nextCursor: page.nextCursor)
     }
 
     private func threadRead(_ page: ChatThread, after revision: Int) -> ThreadRead? {
         guard let merged = mergingChanges(into: page, after: revision) else { return nil }
-        return ThreadRead(thread: merged, fetchedIds: Set(page.replies.map(\.id)))
+        return ThreadRead(thread: merged, fetchedOrder: page.replies.map(\.id))
     }
 
     private var messageRevision = 0
@@ -544,7 +548,7 @@ final class ChatStore: ObservableObject {
                   let t = await readThread(channel: item.parent.channel, parentId: item.parent.id),
                   generation == scopeGeneration else { continue }
             if threadCache[key] == nil {
-                recordThreadRange(t.thread, fetchedIds: t.fetchedIds)
+                recordThreadRange(t.thread, serverOrder: t.fetchedOrder)
                 threadCache[key] = t.thread
             }
         }
@@ -1102,7 +1106,7 @@ final class ChatStore: ObservableObject {
     }
     private func setOwnReaction(_ m: ChatMessage, _ emoji: String, mine: Bool, myRef: String, status: String? = nil) {
         guard let current = currentMessage(m), !current.isDeleted else { return }
-        upsert(current.settingReaction(emoji, mine: mine, myRef: myRef, status: status))
+        upsert(current.settingReaction(emoji, mine: mine, myRef: myRef, status: status), recordChange: false)
     }
     /// A timeout may have committed the toggle. Read before any retry.
     private func reconcileReaction(_ m: ChatMessage, _ emoji: String, generation: UUID) async -> Bool? {
@@ -1274,10 +1278,25 @@ final class ChatStore: ObservableObject {
         guard !Task.isCancelled, generation == scopeGeneration, navigation == threadNavigation, requestedBase == base else { return false }
         threadLoading = false
         guard let connected, let read = mergingChanges(into: connected.thread, after: revision) else { threadFailed = true; return false }
-        let connectedToPrior = priorRange.map { !$0.ids.isDisjoint(with: connected.fetchedIds) } ?? false
-        let keepPrior = read.more == true && connectedToPrior && !(priorRange?.ids.subtracting(connected.fetchedIds).isEmpty ?? true)
-        let refreshed = refreshedThread(read, keeping: thread, range: keepPrior ? priorRange : nil)
-        recordThreadRange(refreshed, fetchedIds: connected.fetchedIds, keeping: keepPrior ? (priorRange?.ids ?? []) : [])
+        // A retained prefix must end before a known server-order boundary.
+        // Everything else in the reread suffix is current data or is gone.
+        let olderOrder: [String]
+        if read.more == true, let first = connected.fetchedOrder.first, let priorRange,
+           let boundary = priorRange.orderedIds.firstIndex(of: first) {
+            olderOrder = Array(priorRange.orderedIds[..<boundary])
+        } else { olderOrder = [] }
+        let visibleIds = Set(read.replies.map(\.id))
+        let retainedIds = Set(olderOrder)
+        let missing = (priorRange?.ids ?? []).subtracting(retainedIds).subtracting(visibleIds)
+        let keptById = Dictionary(kept.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for id in missing {
+            var deleted = keptById[id] ?? ChatMessage(id: id, channel: channel, kind: "message", body: "", mine: false,
+                                                       createdAt: read.parent.createdAt, parentId: parentId, alsoChannel: true)
+            deleted.deleted = true
+            upsert(deleted)
+        }
+        let refreshed = refreshedThread(read, keeping: thread, olderIds: retainedIds, range: olderOrder.isEmpty ? nil : priorRange)
+        recordThreadRange(refreshed, serverOrder: olderOrder + connected.fetchedOrder)
         thread = refreshed
         if let reference, reference != parentId, !(thread?.replies.contains { $0.id == reference } ?? false) {
             threadJump = nil
@@ -1298,9 +1317,11 @@ final class ChatStore: ObservableObject {
     /// Old content stays visible during this bounded-page catch-up and retry.
     private func reconnectThread(_ first: ThreadRead, to priorRange: ThreadRange?, navigation: UUID, generation: UUID) async -> ThreadRead? {
         var result = first
+        var fetchedOrder = first.fetchedOrder
         var fetchedIds = first.fetchedIds
         var cursors: Set<String> = []
-        while let priorRange, priorRange.ids.isDisjoint(with: fetchedIds), result.thread.more == true {
+        while let priorRange, result.thread.more == true,
+              fetchedOrder.first.map({ !priorRange.ids.contains($0) }) ?? true {
             guard let cursor = result.thread.nextCursor, !cursor.isEmpty, cursors.insert(cursor).inserted,
                   !Task.isCancelled, navigation == threadNavigation, generation == scopeGeneration else { return nil }
             guard let page = await readThread(channel: result.thread.parent.channel, parentId: result.thread.parent.id, before: cursor) else { return nil }
@@ -1311,19 +1332,20 @@ final class ChatStore: ObservableObject {
             result.thread.parent = page.thread.parent
             result.thread.more = page.thread.more
             result.thread.nextCursor = page.thread.nextCursor
+            fetchedOrder = page.fetchedOrder.filter { !fetchedIds.contains($0) } + fetchedOrder
             fetchedIds.formUnion(page.fetchedIds)
         }
         result.thread.replies = orderedReplies(result.thread.replies)
-        return ThreadRead(thread: result.thread, fetchedIds: fetchedIds)
+        return ThreadRead(thread: result.thread, fetchedOrder: fetchedOrder)
     }
 
     /// A fresh newest page keeps already loaded older pages and local sends.
-    private func refreshedThread(_ fresh: ChatThread, keeping kept: ChatThread?, range: ThreadRange?) -> ChatThread {
+    private func refreshedThread(_ fresh: ChatThread, keeping kept: ChatThread?, olderIds: Set<String>, range: ThreadRange?) -> ChatThread {
         guard let kept, kept.parent.id == fresh.parent.id, kept.parent.channel == fresh.parent.channel else {
             return ChatThread(parent: applyingReactionChanges(to: fresh.parent), replies: withHeld(fresh.replies, view: fresh.parent.channel, thread: fresh.parent.id), more: fresh.more, nextCursor: fresh.nextCursor)
         }
         let serverIds = Set(fresh.replies.map(\.id))
-        let older = kept.replies.filter { !serverIds.contains($0.id) && !$0.id.hasPrefix("tmp-") }
+        let older = kept.replies.filter { olderIds.contains($0.id) && !serverIds.contains($0.id) && !$0.id.hasPrefix("tmp-") }
         let replies = orderedReplies(older + fresh.replies)
         return ChatThread(parent: applyingReactionChanges(to: fresh.parent), replies: withHeld(fresh.more == true ? replies : fresh.replies, view: fresh.parent.channel, thread: fresh.parent.id), more: range == nil ? fresh.more : range?.more, nextCursor: range == nil ? fresh.nextCursor : range?.nextCursor)
     }
@@ -1342,8 +1364,8 @@ final class ChatStore: ObservableObject {
         let added = older.replies.filter { !known.contains($0.id) }
         current.replies = withHeld(orderedReplies(added + current.replies), view: current.parent.channel, thread: current.parent.id)
         current.more = older.more; current.nextCursor = older.nextCursor
-        let priorIds = viewKey(current.parent.id).flatMap { threadRanges[$0]?.ids } ?? []
-        recordThreadRange(current, fetchedIds: page.fetchedIds, keeping: priorIds)
+        let priorOrder = viewKey(current.parent.id).flatMap { threadRanges[$0]?.orderedIds } ?? []
+        recordThreadRange(current, serverOrder: page.fetchedOrder + priorOrder.filter { !page.fetchedIds.contains($0) })
         thread = current
         Task { [weak self] in
             guard let self, generation == self.scopeGeneration else { return }
@@ -1526,14 +1548,16 @@ final class ChatStore: ObservableObject {
     }
 
     /// A changed or new message, wherever it shows.
-    func upsert(_ incoming: ChatMessage) {
+    func upsert(_ incoming: ChatMessage, recordChange: Bool = true) {
         var m = incoming
         if let myRef {
             if m.authorRef == myRef { m.mine = true }
             m.reactions = m.reactions?.map { var r = $0; r.mine = r.refs.contains(myRef); return r }
         }
-        messageRevision += 1
-        messageChanges["\(m.channel)|\(m.id)"] = (messageRevision, m)
+        if recordChange {
+            messageRevision += 1
+            messageChanges["\(m.channel)|\(m.id)"] = (messageRevision, m)
+        }
         if m.isDeleted { reactionChanges = reactionChanges.filter { !$0.key.hasPrefix("\(m.channel)|\(m.id)|") } }
         refreshQuotes(from: m)
         m = applyingReactionChanges(to: m)
