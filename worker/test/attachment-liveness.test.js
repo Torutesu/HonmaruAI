@@ -38,6 +38,22 @@ beforeEach(async () => {
   await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=? AND slug='closed'").bind(orgId).run();
 });
 
+test('a complete 100-file renewal request stays within the D1 parameter limit', async () => {
+  const ids = Array.from({length:100}, (_, i) => `f_${(i+1).toString(16).padStart(24,'0')}`);
+  await env.DB.batch(ids.map(id => env.DB.prepare(`INSERT INTO message_files
+    (id,org_id,channel,uploader,name,type,size,created_at) VALUES(?,?,'b:general','reader','fixture.txt','text/plain',7,'2026-10-01')`).bind(id,orgId)));
+  const sizes = [];
+  const db = { prepare(sql) { return { bind(...args) {
+    sizes.push(args.length);
+    expect(args.length).toBeLessThanOrEqual(100);
+    return env.DB.prepare(sql).bind(...args);
+  }}; }};
+  const refreshed = await files.freshFileUrls({...env,DB:db},{orgId,login:'reader',ids});
+  expect(Object.keys(refreshed).sort()).toEqual([...ids].sort());
+  expect(sizes).toContain(91);
+  expect(sizes).toContain(11);
+});
+
 test.each(['reply','root'])('a %s tombstone denies attachment renewal and API-origin reads before cleanup starts', async target => {
   await message('root'); await message('reply','root');
   const root = await attachment({messageId:'root'});

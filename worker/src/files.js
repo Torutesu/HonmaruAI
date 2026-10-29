@@ -162,10 +162,16 @@ export async function freshFileUrls(env, { orgId, login, ids }, now = Date.now()
   const wanted = [...new Set((Array.isArray(ids) ? ids : []).filter((id) => typeof id === "string" && ID.test(id)))].slice(0, 100);
   const out = {};
   if (!wanted.length) return out;
-  const { results = [] } = await env.DB.prepare(
-    `SELECT f.* FROM message_files f WHERE f.org_id = ?1 AND f.id IN (${wanted.map((_, i) => `?${i + 2}`).join(", ")})
-      AND (f.message_id IS NULL OR ${LIVE_FILE_SOURCE})`
-  ).bind(orgId, ...wanted).all();
+  const results = [];
+  // Leave a binding for the workspace within D1's 100-parameter limit.
+  for (let i = 0; i < wanted.length; i += 90) {
+    const chunk = wanted.slice(i, i + 90);
+    const page = await env.DB.prepare(
+      `SELECT f.* FROM message_files f WHERE f.org_id = ?1 AND f.id IN (${chunk.map((_, j) => `?${j + 2}`).join(", ")})
+        AND (f.message_id IS NULL OR ${LIVE_FILE_SOURCE})`
+    ).bind(orgId, ...chunk).all();
+    results.push(...(page.results || []));
+  }
   const access = await accessFor(env.DB, orgId, login);
   for (const row of results) {
     if (!mayRead(row.channel, access)) continue;
