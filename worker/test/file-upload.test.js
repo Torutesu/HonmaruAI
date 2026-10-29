@@ -513,8 +513,9 @@ const seedFileRoomAdmin=async()=>{
  await env.DB.prepare("INSERT INTO hx_room_access(org_id,channel,version) VALUES ('upload-org','b:managed',1)").run();
  await env.DB.prepare("INSERT INTO hx_room_roles SELECT 'upload-org','b:managed','person','manager','admin',created_at||'/first-join','writer','2026-10-25' FROM memberships WHERE org_id='upload-org' AND user_github_id='manager'").run();
 };
-test('a current room administrator can delete and purge a different creators file',async()=>{
+test.each(['member','engineer','maintainer'])('a current %s room administrator can delete and purge a different creators file',async(role)=>{
  await seedFileRoomAdmin();
+ await upsertMembership(env.DB,'upload-org','manager',role);
  expect(await appendFileVersion(env.DB,{...base,createdBy:'manager',expectedVersion:1,kind:'deleted'})).toEqual({saved:true,version:2});
  expect(await purgeFileVersion(env.DB,{...base,userId:'manager',version:1,reason:'Room cleanup'})).toEqual({purged:true});
 });
