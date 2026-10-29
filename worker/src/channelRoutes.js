@@ -1558,6 +1558,15 @@ export async function handleChannels(request, env, url, { route, after }) {
     const orgId = url.searchParams.get("orgId");
     const ctx = await inChannel(env, request, { orgId, channel: url.searchParams.get("channel") });
     if (ctx.denied) return ctx.denied;
+    // A quoted or linked reply outside loaded pages needs one authorized row,
+    // without walking or hydrating the entire history.
+    if (url.searchParams.has("reference")) {
+      const parent = await getMessage(env.DB, orgId, url.searchParams.get("messageId") || "");
+      const reference = await getMessage(env.DB, orgId, url.searchParams.get("reference") || "");
+      if (!parent || parent.deleted_at || parent.parent_id || parent.channel !== ctx.resolved.key || !reference || reference.deleted_at || reference.channel !== ctx.resolved.key || (reference.id !== parent.id && reference.parent_id !== parent.id)) return json({ message: "No such message." }, 404);
+      const [message] = await present(env.DB, orgId, [reference], ctx.who.user.login, ctx.view, ctx.members);
+      return json({ reference: message });
+    }
     let page;
     try { page = threadPageRequest(url.searchParams); }
     catch (error) { return json({ message: error.message }, 400); }

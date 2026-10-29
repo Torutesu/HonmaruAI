@@ -83,4 +83,57 @@ test("unupgraded clients retain complete arrays and pages retain tenant/channel 
   const other = new Request(`https://example.com/channels/thread?${new URLSearchParams({ orgId: "personal:else", channel: CHANNEL, messageId: "root", limit: "50", before: paged.nextCursor })}`, { headers: { "x-session-token": token } });
   expect((await worker.fetch(other, env, { waitUntil() {} })).status).toBe(403);
   expect(await listThread(env.DB, ORG, "b:else", "root", "reader", "b:else", [], request({ limit: "50" }))).toBeNull();
-});
+}, 60000);
+
+test("reference context hydrates one authorized reply and never leaks other or deleted threads", async () => {
+  await seed(51);
+  const reference = "root-00051";
+  const response = await get({ reference });
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body.reference.id).toBe(reference);
+  expect(body).not.toHaveProperty("replies");
+  expect((await get({ reference: "absent" })).status).toBe(404);
+  await seed(1, { parent: "other-root" });
+  expect((await get({ reference: "other-root-00001" })).status).toBe(404);
+  await env.DB.prepare("UPDATE channel_messages SET deleted_at='2026-10-29T00:00:00.000Z' WHERE id=?1").bind(reference).run();
+  expect((await get({ reference })).status).toBe(404);
+  const page = await (await get({ limit: "50" })).json();
+  expect(page.replies.some(row => row.id === reference)).toBe(false);
+  await env.DB.prepare("UPDATE channel_messages SET deleted_at='2026-10-29T00:00:00.000Z' WHERE id='root'").run();
+  expect((await get({ reference: "root-00001" })).status).toBe(404);
+  expect((await get({ limit: "50", before: page.nextCursor || "" })).status).toBe(404);
+}, 60000);
+
+test("file lookup and signed attachments cover only the parent and displayed reply page", async () => {
+  await seed(100);
+  await env.DB.prepare(`INSERT INTO message_files(id,org_id,channel,message_id,uploader,name,type,size,created_at)
+    SELECT 'file-' || id,org_id,channel,id,'reader','Synthetic.txt','text/plain',16,created_at
+    FROM channel_messages WHERE org_id=?1 AND parent_id='root'`).bind(ORG).run();
+  const fileLookups = [];
+  const observed = {
+    prepare(sql) {
+      const statement = env.DB.prepare(sql);
+      return { bind(...values) { if (sql.startsWith("SELECT * FROM message_files WHERE")) fileLookups.push(values.slice(1)); return statement.bind(...values); } };
+    },
+  };
+  const result = await listThread(observed, ORG, CHANNEL, "root", "reader", CHANNEL, [], request({ limit: "50" }));
+  expect(result.replies).toHaveLength(50);
+  expect(fileLookups.flat()).toEqual(["root", ...result.replies.map(row => row.id)]);
+  expect(result.replies.flatMap(row => row.files)).toHaveLength(50);
+  expect(result.replies.every(row => row.files[0].url.startsWith("/files/file-"))).toBe(true);
+  expect(result.replies.every(row => row.files[0].expiresAt > Date.now())).toBe(true);
+}, 60000);
+
+test("a dense soft-deleted tail still seeks the partial page index", async () => {
+  await seed(1000);
+  await env.DB.prepare("UPDATE channel_messages SET deleted_at='2026-10-29T00:00:00.000Z' WHERE parent_id='root' AND rowid > (SELECT rowid FROM channel_messages WHERE id='root-00941')").run();
+  const result = await read(request({ limit: "50" }));
+  expect(result.replies).toHaveLength(50);
+  expect(result.parent.replyCount).toBe(60);
+  const plan = await env.DB.prepare("EXPLAIN QUERY PLAN SELECT id FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND deleted_at IS NULL AND (created_at,rowid)<(?3,?4) ORDER BY created_at DESC,rowid DESC LIMIT 51").bind(ORG, 'root', '2026-10-29T00:00:00.000Z', 1000000).all();
+  expect(plan.results.map(row => row.detail).join(' ')).toContain('idx_channel_thread_page');
+  expect(plan.results.map(row => row.detail).join(' ')).not.toContain('TEMP B-TREE');
+  const index = await env.DB.prepare("SELECT sql FROM sqlite_master WHERE name='idx_channel_thread_page'").first();
+  expect(index.sql).toContain('WHERE deleted_at IS NULL');
+}, 60000);

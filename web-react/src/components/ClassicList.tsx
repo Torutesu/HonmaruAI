@@ -24,6 +24,7 @@ import { MessageAppCards } from './MessageAppCards'
 import { AppView } from '../screens/Harness'
 import { harnessApi, type AppConversation } from '../utils/harness'
 import { HarnessRoomResources } from './HarnessRoomResources'
+import type { ThreadSnapshot } from '../utils/threadMessageCache'
 import { channelMessageCache, mergeLatestMessages } from '../utils/channelMessageCache'
 import { newerPin } from '../utils/messagePin'
 import { ReadGuard } from '../utils/readGuard'
@@ -1681,11 +1682,14 @@ export const ClassicList: React.FC<Props> = ({
   }, [view, loadMessages])
   /// A thread's replies, the same way: kept for when it is opened, from
   /// Threads, Activity or its "replies" line.
-  const loadThread = useCallback((channel: string, parentId: string, force = false) => messageCache.threads.load(channel, parentId, async () => {
+  const readThreadPage = useCallback(async (channel: string, parentId: string, before?: string) => {
     if (cacheScope.current !== messageCache) return { status: 0, data: null }
-    const response = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(parentId)}`, { headers: authHeaders })
+    const query = new URLSearchParams({ orgId: api.orgId, channel, messageId: parentId, limit: '50' })
+    if (before) query.set('before', before)
+    const response = await fetch(`${api.httpBase}/channels/thread?${query}`, { headers: authHeaders })
     return { status: response.status, data: response.ok ? await response.json() : null }
-  }, force), [api.httpBase, api.orgId, authHeaders, messageCache])
+  }, [api.httpBase, api.orgId, authHeaders, messageCache])
+  const loadThread = useCallback((channel: string, parentId: string, force = false) => messageCache.threads.load(channel, parentId, before => readThreadPage(channel, parentId, before), force), [messageCache, readThreadPage])
   const prefetchThread = useCallback((channel: string, parentId: string | null | undefined) => {
     if (channel && parentId && !isTemp({ id: parentId })) void loadThread(channel, parentId)
   }, [loadThread])
@@ -2570,10 +2574,22 @@ export const ClassicList: React.FC<Props> = ({
   // `loading` while its replies are being read (the count the conversation
   // showed stands meanwhile, never a "0 replies"); `failed` when they could
   // not be (#216).
-  const [thread, setThreadPane] = useState<{ channel: string; parent: ChannelMessage; replies: ChannelMessage[]; loading?: boolean; failed?: boolean } | null>(null)
+  const [thread, setThreadPane] = useState<(ThreadSnapshot & { channel: string; loading?: boolean; failed?: boolean; loadingOlder?: boolean; olderFailed?: boolean }) | null>(null)
   // Each thread asked for counts one up, and so does closing the pane: an
   // answer that comes back after a newer ask, or after the pane was closed
   // (another conversation, another workspace), is not drawn and reads nothing.
+  const [threadReference, setThreadReference] = useState<{ id: string; message?: ChannelMessage; failed?: boolean } | null>(null)
+  const referenceAsk = useRef(0)
+  useEffect(() => { referenceAsk.current++; setThreadReference(null) }, [thread?.parent.id, messageCache])
+  useEffect(() => {
+    const changed = (event: Event) => {
+      const message = (event as CustomEvent<ChannelMessage>).detail
+      if (message?.id === threadReference?.id || (message?.deleted && message.id === thread?.parent.id)) referenceAsk.current++
+      setThreadReference(previous => previous && message && (message.id === previous.id || (message.deleted && message.id === thread?.parent.id)) ? { id: previous.id, message: message.deleted ? undefined : message, failed: Boolean(message.deleted) } : previous)
+    }
+    window.addEventListener('honmaru:channel-message', changed)
+    return () => window.removeEventListener('honmaru:channel-message', changed)
+  }, [thread?.parent.id, threadReference?.id])
   const threadAsk = useRef(0)
   const threadOwner = useRef(messageCache)
   const setThread = useCallback((next: React.SetStateAction<typeof thread>) => {
@@ -3170,9 +3186,35 @@ export const ClassicList: React.FC<Props> = ({
     const snapshot = messageCache.threads.get(channel, parentId) || result
     const back = heldFor(channel, parentId, snapshot.replies)
     setThread(prev => prev && prev.channel === channel && prev.parent.id === parentId
-      ? { channel, parent: prev.parent.editPending ? prev.parent : newerPin(prev.parent, snapshot.parent), replies: withHeld(mergeLatestMessages(prev.replies, snapshot.replies, before, false, true), back) }
+      ? { channel, more: snapshot.more, nextCursor: snapshot.nextCursor, parent: prev.parent.editPending ? prev.parent : newerPin(prev.parent, snapshot.parent), replies: withHeld(mergeLatestMessages(prev.replies, snapshot.replies, before, false, true), back) }
       : prev)
     return true
+  }
+  const loadOlderThread = async (channel: string, parentId: string) => {
+    const ask = threadAsk.current
+    const before = thread?.replies || []
+    setThread(previous => previous?.parent.id === parentId ? { ...previous, loadingOlder: true, olderFailed: false } : previous)
+    const result = await messageCache.threads.loadOlder(channel, parentId, cursor => readThreadPage(channel, parentId, cursor))
+    if (ask !== threadAsk.current || cacheScope.current !== messageCache || result === 'obsolete') return
+    if (result === 'denied') { setThread(null); return }
+    const log = document.querySelector<HTMLElement>('.slk-thread-pane .slk-thread-log, .slk-inbox-thread .slk-thread-log')
+    const anchor = log ? { height: log.scrollHeight, top: log.scrollTop } : null
+    setThread(previous => previous?.channel === channel && previous.parent.id === parentId ? result
+      ? { ...previous, ...result, channel, loadingOlder: false, olderFailed: false, replies: withHeld(mergeLatestMessages(previous.replies, result.replies, before, false, true), heldFor(channel, parentId, result.replies)) }
+      : { ...previous, loadingOlder: false, olderFailed: true } : previous)
+    if (result && log && anchor) requestAnimationFrame(() => { if (log.isConnected && ask === threadAsk.current) log.scrollTop = anchor.top + log.scrollHeight - anchor.height })
+  }
+  const showThreadReference = async (channel: string, parentId: string, id: string) => {
+    if (cacheScope.current !== messageCache || threadOwner.current !== messageCache) return
+    const ask = ++referenceAsk.current
+    setThreadReference({ id })
+    const query = new URLSearchParams({ orgId: api.orgId, channel, messageId: parentId, reference: id })
+    const response = await fetch(`${api.httpBase}/channels/thread?${query}`, { headers: authHeaders }).catch(() => null)
+    const data = response?.ok ? await response.json().catch(() => null) : null
+    if (ask !== referenceAsk.current || cacheScope.current !== messageCache) return
+    const message = data?.reference
+    const available = message?.id === id && message.channel === channel && !message.deleted
+    setThreadReference({ id, message: available ? message : undefined, failed: !available })
   }
   const openThread = async (channel: string, m: ChannelMessage, force = false): Promise<void> => {
     // A reply shown in the conversation opens the thread it is in.
@@ -3190,7 +3232,7 @@ export const ClassicList: React.FC<Props> = ({
     const kept = cached?.replies || []
     const before = same ? thread.replies : kept
     const replies = withHeld(keepTemps(kept, same ? thread.replies : undefined), heldFor(channel, m.id, kept))
-    setThread({ channel, parent: cached?.parent || m, replies, loading: force || !messageCache.threads.fresh(channel, m.id) })
+    setThread({ channel, more: cached?.more, nextCursor: cached?.nextCursor, parent: cached?.parent || m, replies, loading: force || !messageCache.threads.fresh(channel, m.id) })
     // Preserve the object destination for reload, without replacing a newer route.
     if(harness && (location.hash==='#/list' || (thread && location.hash===hashForThread(thread.parent.id,api.orgId)))){
       const hash=hashForThread(m.id,api.orgId)
@@ -3222,13 +3264,15 @@ export const ClassicList: React.FC<Props> = ({
       || messagesRef.current[channel]?.find(row => row.id === parentId)
       || { id: parentId, channel, kind: 'message', body: '', createdAt: '' } as ChannelMessage
     threadInActivity.current = true
-    setThread({ channel, parent: head, replies: withHeld(keepTemps(kept, same ? thread.replies : undefined), heldFor(channel, parentId, kept)), loading: !messageCache.threads.fresh(channel, parentId) })
+    setThread({ channel, more: cached?.more, nextCursor: cached?.nextCursor, parent: head, replies: withHeld(keepTemps(kept, same ? thread.replies : undefined), heldFor(channel, parentId, kept)), loading: !messageCache.threads.fresh(channel, parentId) })
     if (!await refreshThread(channel, parentId, ask, before)) return
     markThreadRead(channel, parentId)
     requestAnimationFrame(() => {
+      if (ask !== threadAsk.current || cacheScope.current !== messageCache) return
       const id = focusId === parentId ? `thread-${focusId}` : focusId
       const el = document.querySelector(`.slk-inbox-thread #${CSS.escape(`msg-${id}`)}`)
       if (el) { el.scrollIntoView({ block: 'center' }); setFlash(id); setTimeout(() => setFlash(null), 1600) }
+      else void showThreadReference(channel, parentId, focusId)
     })
   }
   /// Read this thread, here and on every other device: Threads stops
@@ -3311,6 +3355,7 @@ export const ClassicList: React.FC<Props> = ({
   // signals at once; a moment's wait makes them one.
   const resyncNow = useRef<() => void>(() => {})
   resyncNow.current = () => {
+    referenceAsk.current++; setThreadReference(null)
     messageCache.invalidate()
     setChannelsTick((n) => n + 1)
     if (view) void loadMessages(view)
@@ -3399,9 +3444,12 @@ export const ClassicList: React.FC<Props> = ({
     if (j.parentId) {
       const parent = list.find((m) => m.id === j.parentId) || ({ id: j.parentId, channel: j.view, kind: 'message', body: '', authorName: null, authorRef: null, mine: false, cardId: null, createdAt: '' } as ChannelMessage)
       // The reply itself, found in the thread once it has loaded.
+      const ask = threadAsk.current + 1
       void openThread(j.view, parent).then(() => requestAnimationFrame(() => {
+        if (ask !== threadAsk.current || cacheScope.current !== messageCache) return
         const el = document.querySelector(`.slk-thread-pane #${CSS.escape(`msg-${j.id}`)}`)
         if (el) { el.scrollIntoView({ block: 'center' }); setFlash(j.id); setTimeout(() => setFlash(null), 1600) }
+        else void showThreadReference(j.view, j.parentId!, j.id)
       }))
     } else {
       requestAnimationFrame(() => jumpTo(j.id))
@@ -4070,7 +4118,7 @@ export const ClassicList: React.FC<Props> = ({
     const lit = id === parentId ? `thread-${id}` : id
     const at = `#${CSS.escape(`msg-${lit}`)}`
     const el = document.querySelector(`.slk-thread-pane ${at}, .slk-inbox-thread ${at}`)
-    if (!el) { setToast(t('Could not find the original message.')); return }
+    if (!el) { if (thread?.parent.id === parentId) void showThreadReference(thread.channel, parentId, id); return }
     el.scrollIntoView({ block: 'center', behavior: 'smooth' }); setFlash(lit); setTimeout(() => setFlash(null), 1600)
   }
   /// The face beside a message: yours, or whoever wrote it.
@@ -4816,11 +4864,10 @@ export const ClassicList: React.FC<Props> = ({
   /// is drawn — or, while the replies are still being read, the count the
   /// conversation already showed, with "Loading…" (#216). An empty thread
   /// says so only once it is known to be empty.
-  const threadCount = (thread: { channel: string; parent: ChannelMessage; replies: ChannelMessage[]; loading?: boolean; failed?: boolean }) => {
+  const threadCount = (thread: ThreadSnapshot & { channel: string; loading?: boolean; failed?: boolean; loadingOlder?: boolean; olderFailed?: boolean }) => {
     const drawn = thread.replies.length
     const known = Math.max(drawn, thread.parent.replyCount || 0)
-    const n = thread.loading || thread.failed ? known : drawn
-    const words = n === 1 ? t('1 reply') : t('{n} replies', { n })
+    const words = known === 1 ? t('1 reply') : t('{n} replies', { n: known })
     if (thread.loading) return <span role="status" aria-live="polite" aria-busy="true">{known > 0 ? `${words} · ` : ''}{t('Loading…')}</span>
     if (thread.failed) {
       return (
@@ -4831,7 +4878,7 @@ export const ClassicList: React.FC<Props> = ({
     }
     return <span>{words}</span>
   }
-  const threadBody = (thread: { channel: string; parent: ChannelMessage; replies: ChannelMessage[]; loading?: boolean; failed?: boolean }) => (
+  const threadBody = (thread: ThreadSnapshot & { channel: string; loading?: boolean; failed?: boolean; loadingOlder?: boolean; olderFailed?: boolean }) => (
     <>
           {harness&&workspaceFileForThread(thread.parent.id)&&<button type="button" className="slk-link-button hx-thread-file-open" onClick={()=>{setDetailId(null);setProfile(null);setSide({kind:'files',fileId:workspaceFileForThread(thread.parent.id)!})}}><Icon name="file" size={16}/>{t('Open source file')}</button>}
           <FollowingLog className="slk-thread-log" tabIndex={0} role="region" aria-label={t('Messages')}
@@ -4856,8 +4903,10 @@ export const ClassicList: React.FC<Props> = ({
                   </>
                 ))}
                 {i === 0 && (
-                  <div className="slk-thread-count" role={thread.loading || thread.failed ? "status" : harness ? undefined : "separator"}>
+                  <div className="slk-thread-count" role={thread.loading || thread.failed || thread.loadingOlder ? "status" : harness || thread.more ? undefined : "separator"}>
                     {threadCount(thread)}
+                    {thread.more && <button type="button" className="slk-link-button" disabled={thread.loading || thread.loadingOlder} onClick={() => void loadOlderThread(thread.channel, thread.parent.id)}>{thread.loadingOlder ? t('Loading…') : t('Load older replies')}</button>}
+                    {thread.olderFailed && <span role="alert">{t("Couldn't load the replies.")}</span>}
                   </div>
                 )}
               </React.Fragment>
@@ -5938,6 +5987,11 @@ export const ClassicList: React.FC<Props> = ({
       {reactAt && (
         <EmojiPickerAt at={{ x: reactAt.x, y: reactAt.y }} onPick={(e) => react(reactAt.channel, reactAt.m, e)} onClose={closeReactAt} />
       )}
+      {threadReference && <Dialog title={t('Original message')} onClose={() => { referenceAsk.current++; setThreadReference(null) }}>
+        {threadReference.failed ? <p role="alert">{t('That message is not somewhere you can read.')}</p>
+          : threadReference.message ? <><p><b>{whoSaid(threadReference.message)}</b> · {when(threadReference.message.createdAt)}</p><div className="slk-text">{rich(shownBody(threadReference.message).text)}</div></>
+          : <p role="status">{t('Loading…')}</p>}
+      </Dialog>}
       {renameDialog && (
         <Dialog
           title={t('Rename channel')}

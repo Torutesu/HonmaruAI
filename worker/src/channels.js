@@ -382,7 +382,7 @@ export function threadPageRequest(params) {
 /// newest replies and retain an opaque timestamp/rowid boundary for older ones.
 export async function listThread(db, orgId, key, parentId, viewerLogin, view, members, page = null) {
   const parent = await getMessage(db, orgId, parentId);
-  if (!parent || parent.channel !== key || parent.parent_id) return null;
+  if (!parent || parent.channel !== key || parent.parent_id || (page && parent.deleted_at)) return null;
   const older = page?.before ? "AND (m.created_at, m.rowid) < (?4, ?5)" : "";
   const { results } = await db
     .prepare(
