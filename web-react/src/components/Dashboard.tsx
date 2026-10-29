@@ -582,11 +582,28 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     const res = await fetch(`${relayHttpUrl}/me`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': sessionToken }, body: JSON.stringify({ pausedUntil: null }) }).catch(() => null)
     if (res?.ok) setQuietState({ ...getQuietState(), pausedUntil: null })
   }
+  const translationOwner = JSON.stringify([relayHttpUrl, sessionToken, userId])
+  const translationOwnerRef = useRef(translationOwner)
+  translationOwnerRef.current = translationOwner
+  const [translationPreference, setTranslationPreference] = useState<{ owner: string; enabled: boolean; revision: number } | null>(null)
+  const translationPreferenceVersion = useRef(0)
+  const savedTranslationPreference = (enabled: boolean) => {
+    if (translationOwnerRef.current !== translationOwner) return
+    translationPreferenceVersion.current += 1
+    setTranslationPreference({ owner: translationOwner, enabled, revision: translationPreferenceVersion.current })
+  }
   const loadWorkspaces = useCallback(async () => {
+    const preferenceVersion = translationPreferenceVersion.current
+
     try {
       const res = await fetch(`${relayHttpUrl}/me`, { headers: { 'x-session-token': sessionToken } })
       if (!res.ok) return
       const me = await res.json()
+      if (translationOwnerRef.current !== translationOwner) return
+      if (preferenceVersion === translationPreferenceVersion.current) {
+        translationPreferenceVersion.current += 1
+        setTranslationPreference({ owner: translationOwner, enabled: me.translateMessages !== false, revision: translationPreferenceVersion.current })
+      }
       if (Array.isArray(me.orgs)) setWorkspaces(me.orgs)
       setQuietState({ pausedUntil: me.notifyPausedUntil || null, schedule: me.notifySchedule || null })
       setNotificationCopy(me.notificationCopy)
@@ -594,7 +611,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     } catch { /* the switcher shows what it last knew */ }
     // Read again when the language changes, for the notification words, and
     // on every switch: a workspace just made or joined is in the list at once.
-  }, [relayHttpUrl, sessionToken, localeVersion, orgId])
+  }, [relayHttpUrl, sessionToken, localeVersion, orgId, translationOwner])
   useEffect(() => { void loadWorkspaces() }, [loadWorkspaces])
   useEffect(() => {
     const onChange = () => { void loadWorkspaces() }
@@ -1096,6 +1113,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onNudge={handleNudge}
           onDecide={(id, action) => handleDecision(id, action)}
           api={api}
+          translationEnabled={translationPreference?.owner === translationOwner ? translationPreference.enabled : null}
+          translationPreferenceRevision={translationPreference?.owner === translationOwner ? translationPreference.revision : 0}
           onSearch={() => setPalette(true)}
           onCompose={() => setPanel('compose')}
           onTellAI={(text) => { setComposeSeed({ id: String(Date.now()), text }); setPanel('compose') }}
@@ -1436,6 +1455,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
             else setScreen(where, 'profile')
           }}
           onLocaleChange={() => setLocaleVersion((v) => v + 1)}
+          onTranslationChange={savedTranslationPreference}
           onSwitchOrg={switchWorkspaceByHand}
           onLogout={onLogout}
           onClose={closeScreen}

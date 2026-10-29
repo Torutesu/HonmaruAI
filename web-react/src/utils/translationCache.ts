@@ -11,8 +11,33 @@ const MAX = 800
 
 type Entry = [from: string, text: string, at: number]
 const memory = new Map<string, Record<string, Entry>>()
+let generation = 0
+let memoryIdentity: string | null = null
+
+function sharedIdentity(): string | null {
+  try { return JSON.stringify([localStorage.getItem('account.owner'), localStorage.getItem('account.translationGeneration')]) } catch { return null }
+}
+
+export function invalidateTranslationRequests(): void {
+  generation += 1
+  // Other tabs share storage, not this module's counter.
+  try { localStorage.setItem('account.translationGeneration', crypto.randomUUID()) } catch { /* the local generation still fences blocked storage */ }
+}
+
+/// Captured before any await; clearing/claiming an account invalidates late writes.
+export function translationFence(): () => boolean {
+  const captured = generation
+  const capturedIdentity = sharedIdentity()
+  return () => captured === generation && capturedIdentity === sharedIdentity()
+}
 
 function load(orgId: string): Record<string, Entry> {
+  // Another tab can replace the account/storage without clearing this module.
+  const identity = JSON.stringify([generation, sharedIdentity()])
+  if (memoryIdentity !== identity) {
+    memory.clear()
+    memoryIdentity = identity
+  }
   const hit = memory.get(orgId)
   if (hit) return hit
   let kept: Record<string, Entry> = {}
@@ -26,7 +51,7 @@ function load(orgId: string): Record<string, Entry> {
 }
 
 /// A short fingerprint of a message's words — the Worker's sourceHash.
-function wordsHash(text: string): string {
+export function wordsHash(text: string): string {
   let h = 0x811c9dc5
   for (const c of String(text || '')) {
     h ^= c.codePointAt(0) || 0
@@ -54,8 +79,8 @@ export function keptTranslation(orgId: string, id: string, lang: string, body: s
   return null
 }
 
-export function keepTranslations(orgId: string, lang: string, items: { id: string; from: string; text: string }[], now = Date.now()): void {
-  if (!items.length) return
+export function keepTranslations(orgId: string, lang: string, items: { id: string; from: string; text: string }[], now = Date.now(), current: () => boolean = () => true): void {
+  if (!items.length || !current()) return
   const all = { ...load(orgId) }
   for (const i of items) all[translationKey(i.id, lang, i.from)] = [i.from, i.text, now]
   // Newest kept, capped: a long history is not worth a quota error.
@@ -76,6 +101,7 @@ export function translationBatches<T>(list: T[], size = 60): T[][] {
 }
 
 export function forgetTranslations(): void {
+  invalidateTranslationRequests()
   memory.clear()
 }
 
@@ -104,4 +130,27 @@ export const FAILURE_LABEL: Record<TranslateFailure, string> = {
   server: 'Server error',
   provider: 'Translator error',
   quota: 'AI allowance used up',
+}
+
+/// No caller receives data across an account, workspace, session or unmount boundary.
+/// Checking after both awaits matters: response.json() may still be pending at sign-out.
+export async function readTranslationBatch(url: string, init: RequestInit, current: () => boolean): Promise<{ response: Response | null; data: TranslationResponse | null } | undefined> {
+  if (!current()) return undefined
+  const response = await fetch(url, init).catch(() => null)
+  if (!current()) return undefined
+  const data = response?.ok ? await response.json().catch(() => null) : null
+  if (!current()) return undefined
+  return { response, data }
+}
+
+export interface TranslationResponse {
+  translations?: Record<string, string>
+  sourceHashes?: Record<string, string>
+  failed?: Record<string, string>
+  locale?: string
+  off?: boolean
+}
+
+export function matchesTranslation(data: TranslationResponse, id: string, body: string, lang: string): boolean {
+  return data.locale === lang && data.sourceHashes?.[id] === wordsHash(body) && typeof data.translations?.[id] === 'string'
 }

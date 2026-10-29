@@ -187,10 +187,10 @@ export function toMessage(row, viewerLogin, view, members, extra = {}) {
     reactions: deleted ? [] : reactions,
     files: deleted ? [] : (extra.files || []),
     // An inline reply carries the message it answers, as that is now.
-    ...(!deleted && row.reply_to_id ? { replyTo: quoteOf(row, extra.original || null, members) } : {}),
+    ...(!deleted && row.reply_to_id ? { replyTo: quoteOf(row, extra.original || null, members, view) } : {}),
     // A thread reply sent to the conversation too: it says so, and what the
     // thread it answers starts with.
-    ...(row.parent_id && row.also_channel ? { alsoChannel: true, ...(!deleted ? { threadParent: quoteOf({ ...row, reply_to_id: row.parent_id }, extra.threadParent || null, members) } : {}) } : {}),
+    ...(row.parent_id && row.also_channel ? { alsoChannel: true, ...(!deleted ? { threadParent: quoteOf({ ...row, reply_to_id: row.parent_id }, extra.threadParent || null, members, view) } : {}) } : {}),
     // An agent answering for a person who was mentioned: whose it is.
     ...(row.on_behalf_of ? { onBehalfOf: (() => { const p = members.find((m) => m.login === row.on_behalf_of); return { name: p?.name || null, ref: p?.ref || null }; })() } : {}),
     ...(agent ? { agent: { id: agent.id, handle: agent.handle, name: agent.name, emoji: agent.emoji || null, avatarUrl: agent.avatar_url || agent.avatarUrl || null } } : {}),
@@ -230,7 +230,7 @@ export function replyExcerpt(body, fileName = null, max = QUOTE_CHARS) {
 /// starts, or only that it is gone. `original` is that message as it is
 /// now, null when there is none; one from another conversation is never
 /// shown, whatever the id says.
-export function quoteOf(row, original, members) {
+export function quoteOf(row, original, members, view = row.channel) {
   const id = row.reply_to_id;
   if (!original || original.deleted_at || original.channel !== row.channel) {
     return { id, kind: null, authorName: null, authorRef: null, excerpt: "", deleted: true };
@@ -242,6 +242,7 @@ export function quoteOf(row, original, members) {
     authorName: original.kind === "ai" ? null : (author?.name || original.author_name || null),
     authorRef: author?.ref || null,
     excerpt: replyExcerpt(original.body, original.file_name),
+    source: { channel: view, body: original.body || "", lang: messageLanguage(original.body), fileName: original.file_name || null },
     deleted: false,
   };
 }

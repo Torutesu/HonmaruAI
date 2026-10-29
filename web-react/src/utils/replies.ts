@@ -40,6 +40,7 @@ export function quoteOf(m: ChannelMessage): ReplyQuote {
     authorName: m.kind === 'ai' ? null : m.authorName,
     authorRef: m.authorRef,
     excerpt: replyExcerpt(m.body, m.files?.[0]?.name || null),
+    source: { channel: m.channel, body: m.body, lang: m.lang, fileName: m.files?.[0]?.name || null },
     deleted: false,
   }
 }
@@ -48,9 +49,13 @@ export function quoteOf(m: ChannelMessage): ReplyQuote {
 /// quotes it quotes it as it is now. The same list back when none does, so
 /// nothing redraws for it.
 export function refreshQuotes(list: ChannelMessage[], changed: ChannelMessage): ChannelMessage[] {
-  if (!list.some((x) => x.replyTo?.id === changed.id)) return list
+  if (!list.some((x) => x.replyTo?.id === changed.id || x.threadParent?.id === changed.id)) return list
   const quote = quoteOf(changed)
-  return list.map((x) => (x.replyTo?.id === changed.id ? { ...x, replyTo: quote } : x))
+  return list.map((x) => x.replyTo?.id !== changed.id && x.threadParent?.id !== changed.id ? x : {
+    ...x,
+    ...(x.replyTo?.id === changed.id ? { replyTo: quote } : {}),
+    ...(x.threadParent?.id === changed.id ? { threadParent: quote } : {}),
+  })
 }
 
 /// A message unsent, gone from a conversation's list, and with it the
@@ -70,4 +75,98 @@ export function excerptParts(excerpt: string): Array<string | null> {
     if (part) out.push(part)
   })
   return out
+}
+
+/// Old references without source metadata remain readable in their original form.
+/// A loaded source (including a live tombstone) always wins over a wire quote.
+export function displayedQuote(quote: ReplyQuote, channel: string, current: ChannelMessage | undefined, display: (m: ChannelMessage) => string): ReplyQuote {
+  if (quote.deleted) return quote
+  const source = current?.channel === channel && current.id === quote.id ? current : sourceOfQuote(quote, channel)
+  if (!source) return quote
+  if (source.deleted) return quoteOf(source)
+  const canonical = quoteOf(source)
+  // A translation cannot prove it kept a spoiler private. Quote the masked source.
+  const original = replyExcerpt(source.body, null, Infinity)
+  const body = original.includes(SPOILER_MASK) ? source.body : display(source)
+  return { ...canonical, excerpt: replyExcerpt(body, source.files?.[0]?.name || null) }
+}
+
+export function sourceOfQuote(quote: ReplyQuote, channel: string): ChannelMessage | undefined {
+  const source = quote.source
+  if (quote.deleted || !source || source.channel !== channel) return undefined
+  return {
+    id: quote.id, channel, body: source.body, lang: source.lang, kind: quote.kind || 'message',
+    authorName: quote.authorName, authorRef: quote.authorRef, createdAt: '', mine: false, cardId: null,
+    ...(source.fileName ? { files: [{ id: '', name: source.fileName, type: '', size: 0, url: '' }] } : {}),
+  }
+}
+
+/// Include readable referenced sources even when they are outside the loaded page.
+export function replySources(list: ChannelMessage[]): ChannelMessage[] {
+  const all = new Map(list.map(m => [m.id, m]))
+  for (const m of list) for (const quote of [m.replyTo, m.threadParent]) {
+    if (!quote || all.has(quote.id)) continue
+    const source = sourceOfQuote(quote, m.channel)
+    if (source) all.set(source.id, source)
+  }
+  return [...all.values()]
+}
+
+export function missingReplySource(id: string, channel: string): ChannelMessage {
+  return { id, channel, kind: 'message', body: '', authorName: null, authorRef: null, mine: false, cardId: null, createdAt: '', deleted: true }
+}
+
+interface ReferenceRead {
+  epoch: number
+  sequence: number
+  events: Map<string, number>
+}
+
+/// Socket events and overlapping reads have separate clocks. Only an event
+/// received during a read protects its source from that read's answer.
+export class ReferenceReads {
+  readonly sources = new Map<string, ChannelMessage>()
+  private events = new Map<string, number>()
+  private applied = new Map<string, number>()
+  private sequence = 0
+  private epoch = 0
+
+  reset(): void {
+    this.sources.clear()
+    this.events.clear()
+    this.applied.clear()
+    this.epoch += 1
+  }
+
+  receive(source: ChannelMessage): void {
+    const key = `${source.channel}:${source.id}`
+    if (this.sources.get(key)?.deleted && !source.deleted) return
+    this.sources.set(key, source)
+    this.events.set(key, (this.events.get(key) || 0) + 1)
+  }
+
+  begin(): ReferenceRead {
+    return { epoch: this.epoch, sequence: ++this.sequence, events: new Map(this.events) }
+  }
+
+  apply(read: ReferenceRead, list: ChannelMessage[]): void {
+    if (read.epoch !== this.epoch) return
+    const sources = replySources(list)
+    for (const m of list) for (const quote of [m.replyTo, m.threadParent]) {
+      if (quote?.deleted) sources.push(missingReplySource(quote.id, m.channel))
+    }
+    const unique = new Map(sources.map(source => [`${source.channel}:${source.id}`, source]))
+    for (const [key, source] of unique) {
+      if (this.sources.get(key)?.deleted) continue
+      if (source.deleted) {
+        this.sources.set(key, source)
+        this.applied.set(key, Math.max(this.applied.get(key) || 0, read.sequence))
+        continue
+      }
+      if ((this.events.get(key) || 0) !== (read.events.get(key) || 0)) continue
+      if ((this.applied.get(key) || 0) > read.sequence) continue
+      this.sources.set(key, source)
+      this.applied.set(key, read.sequence)
+    }
+  }
 }

@@ -1,9 +1,9 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Recent document conversions': '最近の文書作成',
   'Load older replies': '以前の返信を読み込む',
   'Original message': '元のメッセージ',
-  'Recent document conversions': '最近の文書作成',
   'Could not load recent documents.': '最近の文書作成を読み込めませんでした。',
   'This folder is empty': 'このフォルダは空です',
   'Create document': 'ドキュメントを作成',

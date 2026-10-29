@@ -1,5 +1,5 @@
 import { clearMessageCaches } from './channelMessageCache'
-import { forgetTranslations } from './translationCache'
+import { forgetTranslations, invalidateTranslationRequests } from './translationCache'
 import type { DecisionCard } from '../types/card'
 
 // The last snapshot, kept in this browser, so the inbox has something to
@@ -72,6 +72,7 @@ export const accountOwner = (server: string, userId: string): string => `${serve
 /// known (from before this was recorded, or written after a sign-out) — is
 /// cleared first.
 export function claimAccountData(owner: string, storage: Storage = localStorage): void {
+  invalidateTranslationRequests()
   let kept: string | null = null
   try { kept = storage.getItem(OWNER_KEY) } catch { /* blocked */ }
   if (kept !== owner) clearAccountData(storage)
