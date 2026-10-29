@@ -73,23 +73,24 @@ export async function resolveChannel(db, orgId, viewer, channel, members) {
     // read failed.
     let row;
     try {
-      row = await db.prepare("SELECT private FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).first();
+      row = await db.prepare("SELECT private, created_at FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).first();
     } catch {
       return null;
     }
+    const deliveryBoundary = { businessCreatedAt: row?.created_at || null, allowVirtual: !row };
     if (!row?.private) {
       // With guests in the workspace, a public channel has a list of who
       // reads it too — and a guest who is not on it is not told it exists.
-      if (!(await hasGuests(db, orgId))) return { key: channel, kind: "business", slug };
+      if (!(await hasGuests(db, orgId))) return { key: channel, kind: "business", slug, deliveryBoundary };
       const logins = await publicAudience(db, orgId, channel);
       if (!logins.includes(viewer.login)) return null;
-      return { key: channel, kind: "business", slug, logins };
+      return { key: channel, kind: "business", slug, logins, deliveryBoundary };
     }
     // A private channel: its members, and for anybody else nothing — not
     // even that it is there.
     const logins = await membersOf(db, orgId, channel);
     if (!logins.includes(viewer.login)) return null;
-    return { key: channel, kind: "business", slug, private: true, logins };
+    return { key: channel, kind: "business", slug, private: true, logins, deliveryBoundary };
   }
   if (isGroupKey(channel)) {
     const logins = await membersOf(db, orgId, channel);
@@ -572,7 +573,7 @@ async function messageByClientId(db, orgId, authorLogin, clientId) {
 /// than sent without it.
 const FILES_GONE = "A file in this message is no longer there. Attach it again.";
 
-export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, deliveryTasks = false, assignmentFence = null, workflowNotice = null }) {
+export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, deliveryTasks = false, deliveryBoundary = null, assignmentFence = null, workflowNotice = null }) {
   if(workflowNotice && (kind!=='ai'||authorLogin!=='__workflow'||!parentId||files||withFiles||assignmentFence||agentRequest||roomHookSource||typeof workflowNotice.workflowId!=='string'||typeof workflowNotice.generation!=='string'||typeof workflowNotice.recipientId!=='string'))return {error:'Invalid workflow notice.',status:403};
   if (roomHookSource && (!parentId || kind !== 'agent' || !authorLogin?.startsWith('agent:'))) return {error:'Invalid webhook reply.',status:403};
   if(assignmentFence && (kind!=='agent' || !parentId || files?.ids?.length || withFiles || typeof assignmentFence.assignmentId!=='string' || !Number.isSafeInteger(assignmentFence.generation) || typeof assignmentFence.sourceId!=='string' || typeof assignmentFence.sourceBody!=='string' || typeof assignmentFence.sourceAuthor!=='string'))return {error:'Invalid execution reply.',status:403};
@@ -617,7 +618,7 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
   const values = [id, orgId, key, authorLogin, kind, text, cardId, now, parentId, replyTo || null, remembered, parentId && alsoChannel ? 1 : 0, kind === "agent" && onBehalfOf ? onBehalfOf : null];
   const marks = values.map((_, i) => `?${i + 1}`).join(", ");
   const dispatch = agentRequest ? await agentRequestStatement(db,{orgId,row:{id,channel:key,author_login:authorLogin,kind,body:text,parent_id:parentId},...agentRequest}) : null;
-  const deliveries = deliveryTasks ? messageDeliveryStatements(db, orgId, id) : [];
+  const deliveries = deliveryTasks ? messageDeliveryStatements(db, orgId, id, deliveryBoundary) : [];
   try {
     // A reply is written only while its parent is still there, in the same
     // statement: a thread deleted after the check above takes no reply.

@@ -1,3 +1,4 @@
+import {messageDeliveryAllowed,discardPendingMessagePushes} from './messageDelivery.js';
 import { deliverOnce, retryable, retryDelay, MAX_ATTEMPTS } from './notificationJobs.js';
 import { threadMuted } from "./threadNotifications.js";
 // A message that needs somebody, pushed to their phone — but only when they
@@ -153,6 +154,10 @@ export async function queueMessagePushes(env, orgId, row, { members = null, now 
   if (!env?.DB || !row?.id) return 0;
   const list = members || await listMembers(env.DB, orgId, null);
   const to = await recipientsOf(env.DB, orgId, row, list, { askedBy });
+  if (durable && !await messageDeliveryAllowed(env.DB,orgId,row.id,{requireIntent:true})) {
+    await discardPendingMessagePushes(env.DB,orgId,row.id);
+    return 0;
+  }
   if (!to.length) return 0;
   // The same decision, told to each of these people's open apps at once: a
   // desktop app has no push service, and shows a notification for exactly
@@ -179,7 +184,13 @@ export async function queueMessagePushes(env, orgId, row, { members = null, now 
   }
   // Phone jobs survive relay failure; the durable intent retries the desktop
   // notification until that relay accepts it, without inserting another push.
-  if (durable) await announceTo(env, orgId, deliveries, { strict: true });
+  if (durable) {
+    if (!await messageDeliveryAllowed(env.DB,orgId,row.id,{requireIntent:true})) {
+      await discardPendingMessagePushes(env.DB,orgId,row.id);
+      return 0;
+    }
+    await announceTo(env, orgId, deliveries, { strict: true });
+  }
   return to.length;
 }
 
@@ -220,6 +231,7 @@ async function deliverMessagePush(env, job, { now = Date.now(), membersOf = new 
   // Recheck before translating or sending any of the message's contents.
   const audience = await audienceOf(db, job.org_id, msg.channel);
   if (audience && !audience.includes(job.login)) return { skipped: true };
+  if (!await messageDeliveryAllowed(db,job.org_id,msg.id)) return { skipped: true };
   const pref = await db.prepare(
     "SELECT level FROM channel_prefs WHERE org_id = ?1 AND login = ?2 AND channel = ?3"
   ).bind(job.org_id, job.login, msg.channel).first();

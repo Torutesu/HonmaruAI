@@ -1,4 +1,4 @@
-import {drainMessageDelivery} from './messageDelivery.js';
+import {drainMessageDelivery,messageDeliveryAllowed,discardPendingMessagePushes} from './messageDelivery.js';
 import {externalIdentity,externalReplyGrant} from './harness/externalAssignment.js';
 import {endAssignment} from './harness/agentAssignments.js';
 import {drainTeammateResults} from './teammateResultDispatch.js';
@@ -1216,7 +1216,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       room,mode,row:{kind:'message',author_login:who.user.login,channel:resolved.key,parent_id:parentId,body:typeof body.body==='string'?body.body.replace(/\r\n/g,'\n').trim():''}}) : null;
     const agentRequest = preResponders?.length ? {sessionKey:who.session.token,agentIds:preResponders.map(agent=>agent.id),locale:who.user.locale || 'en'} : null;
     const tRouting = Date.now();
-    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId, replyTo, withFiles, files: { login: who.user.login, ...uploads }, clientId, alsoChannel, agentRequest, deliveryTasks: true });
+    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId, replyTo, withFiles, files: { login: who.user.login, ...uploads }, clientId, alsoChannel, agentRequest, deliveryTasks: true, deliveryBoundary: resolved.deliveryBoundary });
     const tWrite = Date.now();
     if (out.error) return json({ message: out.error, ...(out.code ? { code: out.code } : {}) }, out.status || 400);
     // Each committed send has two independent durable tasks. A duplicate
@@ -2409,7 +2409,7 @@ export async function handleChannels(request, env, url, { route, after }) {
 
 /// For the cron: tell a conversation, known only by its stored key, about a
 /// message that just went into it.
-export async function broadcastStored(env, orgId, key, row, { liveOnly = false } = {}) {
+export async function broadcastStored(env, orgId, key, row, { liveOnly = false, authorize = null } = {}) {
   const members = await listMembers(env.DB, orgId, null);
   let resolved;
   const logins = await audienceOf(env.DB, orgId, key);
@@ -2418,6 +2418,7 @@ export async function broadcastStored(env, orgId, key, row, { liveOnly = false }
   else if (key.startsWith("g:")) resolved = { key, kind: "group", logins };
   else if (key.startsWith("ag:")) resolved = { key, kind: "agent", logins };
   else return;
+  if (authorize && !await authorize()) return;
   if (!liveOnly) await queueMessagePushes(env, orgId, row, { members }).catch(() => {});
   await broadcastWithParent(env, orgId, resolved, row, members, { strict: liveOnly });
   if (!liveOnly) await emitMessage(env, orgId, row);
@@ -2428,9 +2429,14 @@ export async function broadcastStored(env, orgId, key, row, { liveOnly = false }
 export async function deliverAcceptedMessages(env, options) {
   return drainMessageDelivery(env.DB, async (orgId, messageId) => {
     const row = await getMessage(env.DB, orgId, messageId);
-    if (!row || row.deleted_at) return;
+    if (!row || !await messageDeliveryAllowed(env.DB,orgId,messageId,{requireIntent:true})) {
+      await discardPendingMessagePushes(env.DB,orgId,messageId);
+      return;
+    }
     const started = Date.now();
-    if (options.kind === 'live') await broadcastStored(env, orgId, row.channel, row, { liveOnly: true });
+    if (options.kind === 'live') await broadcastStored(env, orgId, row.channel, row, {
+      liveOnly: true, authorize: () => messageDeliveryAllowed(env.DB,orgId,messageId,{requireIntent:true}),
+    });
     else await queueMessagePushes(env, orgId, row, { durable: true });
     console.log(JSON.stringify({ event: 'message_delivery', kind: options.kind, taskMs: Date.now() - started, commitToDeliveryMs: Date.now() - Date.parse(row.created_at) }));
   }, options).catch(() => console.error('message delivery sweep failed'));
