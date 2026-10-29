@@ -15,7 +15,7 @@ import { keepOnScreen, focusGoesBack } from './RowMenu'
 import { recordingSource, type RecordingSource } from '../utils/mediaUrls'
 import { emojiDataState, gridStep, isEmojiOnly, loadEmojiData, pickerSections, rememberEmoji, useEmojiData, useEmojiDataState, useQuickReactions, useRecentEmoji } from '../utils/emojiSearch'
 import { composing, enterKey } from '../utils/keys'
-import { safeHref } from '../utils/markdown'
+import { closingParen, safeHref } from '../utils/markdown'
 
 // The pieces of a message a chat client has and a plain log does not:
 // formatting, reactions, the emoji picker, and the bar of things you can do
@@ -851,7 +851,19 @@ function JamAudio({ link }: { link: string }) {
 function inline(line: string, mentionClass: (name: string) => MentionLook, nested = false): React.ReactNode[] {
   // Doubled marks (Discord's ||spoiler||, __underline__, ~~strike~~) come
   // before their single forms so "__a__" is not read as "_" + "_a_" + "_".
-  const tokens = line.split(/(\[(?:\\.|[^\]\\\n])+\]\(#\/(?:apps|workflows)\/[^\s)]+\)|`[^`\n]+`|https?:\/\/[^\s<>"）」|]+|:[a-z0-9_+-]{1,30}:|[@＠][^\s@＠,，。、!?！？:;|]+|\|\|[^|\n]+\|\||\*\*[^*\n]+\*\*|\*[^*\n]+\*|(?<![\p{L}\p{N}_])__[^_\n]+__(?![\p{L}\p{N}_])|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_])|~~[^~\n]+~~|~[^~\n]+~)/gu)
+  const tokens: string[] = []
+  const token = /(\[(?:\\.|[^\]\\\n])+\]\(|`[^`\n]+`|https?:\/\/[^\s<>"）」|]+|:[a-z0-9_+-]{1,30}:|[@＠][^\s@＠,，。、!?！？:;|]+|\|\|[^|\n]+\|\||\*\*[^*\n]+\*\*|\*[^*\n]+\*|(?<![\p{L}\p{N}_])__[^_\n]+__(?![\p{L}\p{N}_])|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_])|~~[^~\n]+~~|~[^~\n]+~)/gu
+  let from = 0
+  let match: RegExpExecArray | null
+  while ((match = token.exec(line))) {
+    if (match[0].endsWith('](')) {
+      const close = closingParen(line, token.lastIndex)
+      if (close >= 0) token.lastIndex = close + 1
+    }
+    tokens.push(line.slice(from, match.index), line.slice(match.index, token.lastIndex))
+    from = token.lastIndex
+  }
+  tokens.push(line.slice(from))
   // A line that is nothing but emoji — characters, or this workspace's own
   // — draws them large.
   const onlyEmoji = !nested && isEmojiOnly(line, (token) => Boolean(customEmojiUrl(token)))
@@ -861,6 +873,12 @@ function inline(line: string, mentionClass: (name: string) => MentionLook, neste
     if(workflowLink)return <a key={i} href={workflowLink.href} className="hx-inline-app-link">{workflowLink.label}</a>
     const appLink=parseAppLink(part)
     if(appLink)return <a key={i} href={appLink.href} className="hx-inline-app-link">{appLink.label}</a>
+    const labeled = /^\[((?:\\.|[^\]\\\n])+)\]\(([\s\S]*)\)$/.exec(part)
+    if (labeled) {
+      const label = labeled[1].replace(/\\(.)/g, '$1')
+      const href = safeHref(labeled[2])
+      return href ? <a key={i} href={href} target="_blank" rel="noopener noreferrer">{label}</a> : <React.Fragment key={i}>{label}</React.Fragment>
+    }
     if (/^`[^`]+`$/.test(part)) return <code key={i} className="slk-code">{part.slice(1, -1)}</code>
     if (CUSTOM_EMOJI.test(part)) {
       const url = customEmojiUrl(part)
