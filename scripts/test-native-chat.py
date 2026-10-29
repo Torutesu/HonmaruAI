@@ -23,7 +23,7 @@ models += between(service, 'struct ChatThreadItem:', '/// A user group:')
 models += between(service, 'struct ChatThread:', 'struct ChatScheduled:')
 models += between(store, 'struct ChatOutbox {', '/// Everything the chat tab knows')
 
-methods = between(store, '    private var threadReads:', '    var unreadThreads:')
+methods = between(store, '    private struct ThreadRead', '    var unreadThreads:')
 methods += between(store, '    func open(_ view:', '    /// Messages in another language')
 methods += between(store, '    func markRead(_ view:', '    /// A conversation\'s latest messages')
 methods += between(store, '    private func heldMessage(', '    /// The server has it: its copy')
@@ -289,6 +289,128 @@ checks = r'''
         check(await pages.openThread(channel: "b:general", parentId: "page-root"))
         check(pages.thread!.replies.count == 53 && !pages.thread!.hasOlder)
         check(pages.threadCache.values.first!.replies.count == 52, "Only confirmed replies enter the cache")
+        // Reconnect must bridge >50 missed replies before restoring cached cursors.
+        func numbered(_ value: Int) -> ChatMessage {
+            // Every reply shares one timestamp: only real ID overlap proves continuity.
+            message(String(format: "n%03d", value), parent: "gap-root")
+        }
+        let gapRoot = message("gap-root")
+        let reconnect = ChatStore(), bridgeGate = Gate<ChatThread>()
+        reconnect.thread = ChatThread(parent: gapRoot, replies: (1...50).map(numbered), more: false)
+        reconnect.closeThread()
+        var gapRequests: [String?] = []
+        ChatService.getPage = { cursor in
+            gapRequests.append(cursor)
+            switch cursor {
+            case nil: return ChatThread(parent: gapRoot, replies: (101...150).map(numbered), more: true, nextCursor: "before-101")
+            case "before-101": return try await bridgeGate.wait()
+            case "before-51": return ChatThread(parent: gapRoot, replies: (1...50).map(numbered), more: false)
+            default: preconditionFailure("Unexpected gap cursor")
+            }
+        }
+        let catchingUp = Task { await reconnect.openThread(channel: "b:general", parentId: "gap-root") }; await drain()
+        check(reconnect.threadLoading && reconnect.thread!.replies.count == 50)
+        // An edit of an old cached ID is a live overlay, not overlap from a server page.
+        var editedOld = numbered(1); editedOld.body = "edited while gap pending"
+        reconnect.upsert(editedOld)
+        var newLive = numbered(151); newLive.createdAt = "2026-10-02T09:00:00Z"
+        reconnect.upsert(newLive)
+        reconnect.heldSends["tmp-gap"] = ChatOutbox.Entry(clientId: "tmp-gap", user: "alice", orgId: "A", view: "b:general", text: "held during reconnect", decide: false, parentId: "gap-root", alsoChannel: false, files: [], replyTo: nil, createdAt: reply.createdAt, reason: "offline")
+        bridgeGate.resolve(ChatThread(parent: gapRoot, replies: (51...100).map(numbered), more: true, nextCursor: "before-51"))
+        check(await catchingUp.value)
+        check(gapRequests.count == 3 && gapRequests[2] == "before-51")
+        check(Set(reconnect.thread!.replies.map(\.id)) == Set((1...151).map { numbered($0).id } + ["tmp-gap"]))
+        check(reconnect.thread!.replies.first { $0.id == "n001" }?.body == "edited while gap pending")
+        check(!reconnect.thread!.hasOlder)
+        // Previously loaded earlier pages keep their earliest cursor after proven overlap.
+        let earlierCache = ChatStore()
+        earlierCache.thread = ChatThread(parent: gapRoot, replies: (21...120).map(numbered), more: true, nextCursor: "before-21")
+        earlierCache.closeThread()
+        var earlierRequests: [String?] = []
+        ChatService.getPage = { cursor in
+            earlierRequests.append(cursor)
+            switch cursor {
+            case nil: return ChatThread(parent: gapRoot, replies: (221...270).map(numbered), more: true, nextCursor: "before-221")
+            case "before-221": return ChatThread(parent: gapRoot, replies: (171...220).map(numbered), more: true, nextCursor: "before-171")
+            case "before-171": return ChatThread(parent: gapRoot, replies: (121...170).map(numbered), more: true, nextCursor: "before-121")
+            case "before-121": return ChatThread(parent: gapRoot, replies: (71...120).map(numbered), more: true, nextCursor: "before-71")
+            default: preconditionFailure("Unexpected older cache cursor")
+            }
+        }
+        check(await earlierCache.openThread(channel: "b:general", parentId: "gap-root"))
+        check(earlierRequests.count == 4 && earlierCache.thread!.replies.count == 250)
+        check(earlierCache.thread!.hasOlder && earlierCache.thread!.nextCursor == "before-21")
+        // A broken bridge keeps cached history/error state and retry fetches the gap.
+        let retryGap = ChatStore()
+        retryGap.thread = ChatThread(parent: gapRoot, replies: (1...50).map(numbered), more: false)
+        retryGap.closeThread()
+        var failBridge = true
+        ChatService.getPage = { cursor in
+            if cursor == nil { return ChatThread(parent: gapRoot, replies: (101...150).map(numbered), more: true, nextCursor: "gap-retry") }
+            if failBridge { throw URLError(.notConnectedToInternet) }
+            if cursor == "gap-retry" { return ChatThread(parent: gapRoot, replies: (51...100).map(numbered), more: true, nextCursor: "gap-retry-oldest") }
+            return ChatThread(parent: gapRoot, replies: (1...50).map(numbered), more: false)
+        }
+        check(!(await retryGap.openThread(channel: "b:general", parentId: "gap-root")))
+        check(retryGap.threadFailed && !retryGap.threadLoading && retryGap.thread!.replies.count == 50)
+        failBridge = false
+        await retryGap.retryThread()
+        check(!retryGap.threadFailed && retryGap.thread!.replies.count == 150)
+        // Scope changes while a gap page is pending cannot install stale history.
+        let scopeGap = ChatStore(), scopeBridge = Gate<ChatThread>()
+        scopeGap.thread = ChatThread(parent: gapRoot, replies: (1...50).map(numbered), more: false)
+        scopeGap.closeThread()
+        ChatService.getPage = { cursor in
+            if cursor == nil { return ChatThread(parent: gapRoot, replies: (101...150).map(numbered), more: true, nextCursor: "scope-gap") }
+            return try await scopeBridge.wait()
+        }
+        let scopeCatchup = Task { await scopeGap.openThread(channel: "b:general", parentId: "gap-root") }; await drain()
+        scopeGap.scopeGeneration = UUID(); scopeGap.closeThread()
+        scopeBridge.resolve(ChatThread(parent: gapRoot, replies: (51...100).map(numbered), more: true, nextCursor: "stale-oldest"))
+        check(!(await scopeCatchup.value) && scopeGap.thread == nil && !scopeGap.threadLoading)
+        // Equal timestamps retain wire order rather than sorting arbitrary IDs.
+        let wireOrder = ChatStore()
+        let tiedMessages = ["z-id", "a-id", "m-id"].map { message($0, parent: "tie-root") }
+        ChatService.getPage = { _ in ChatThread(parent: message("tie-root"), replies: tiedMessages, more: false) }
+        check(await wireOrder.openThread(channel: "b:general", parentId: "tie-root"))
+        check(wireOrder.thread!.replies.map(\.id) == ["z-id", "a-id", "m-id"])
+        // A Threads summary has no older-page cursor; overlap cannot make it complete.
+        let summary = ChatStore()
+        summary.threads = [ChatThreadItem(parent: gapRoot, replies: [numbered(149), numbered(150)], replyCount: 150, lastReplyAt: reply.createdAt, unread: true)]
+        var summaryRequests = 0
+        ChatService.getPage = { cursor in
+            check(cursor == nil); summaryRequests += 1
+            return ChatThread(parent: gapRoot, replies: (101...150).map(numbered), more: true, nextCursor: "summary-older")
+        }
+        check(await summary.openThread(channel: "b:general", parentId: "gap-root"))
+        check(summaryRequests == 1 && summary.thread!.hasOlder && summary.thread!.nextCursor == "summary-older")
+        // The reference decoder accepts both contracts, and rejects wrong roots/deletions.
+        let source = message("legacy-reply", parent: "legacy-root")
+        let sourceJSON = try JSONEncoder().encode(source)
+        let boundedJSON = Data("{\"reference\":\(String(decoding: sourceJSON, as: UTF8.self))}".utf8)
+        let boundedResponse = try JSONDecoder().decode(ChatThreadReferenceResponse.self, from: boundedJSON)
+        check(try boundedResponse.message(channel: "b:general", parentId: "legacy-root", messageId: source.id).id == source.id)
+        let completeJSON = try JSONEncoder().encode(ChatThread(parent: message("legacy-root"), replies: [source]))
+        let legacyResponse = try JSONDecoder().decode(ChatThreadReferenceResponse.self, from: completeJSON)
+        check(try legacyResponse.message(channel: "b:general", parentId: "legacy-root", messageId: source.id).id == source.id)
+        do { _ = try legacyResponse.message(channel: "b:general", parentId: "wrong-root", messageId: source.id); preconditionFailure("Wrong root accepted") } catch {}
+        var deletedSource = source; deletedSource.deleted = true
+        let deletedJSON = try JSONEncoder().encode(ChatThread(parent: message("legacy-root"), replies: [deletedSource]))
+        let deletedResponse = try JSONDecoder().decode(ChatThreadReferenceResponse.self, from: deletedJSON)
+        do { _ = try deletedResponse.message(channel: "b:general", parentId: "legacy-root", messageId: source.id); preconditionFailure("Deleted source accepted") } catch {}
+        // Legacy child-reaction timeout reconciles the committed toggle without reposting.
+        ChatService.getPage = nil
+        var committedChild = source; committedChild.reactions = [ChatReaction(emoji: "👍", count: 1, refs: ["me"], mine: true)]
+        let committedLegacyJSON = try JSONEncoder().encode(ChatThread(parent: message("legacy-root"), replies: [committedChild]))
+        ChatService.getReference = { id in try JSONDecoder().decode(ChatThreadReferenceResponse.self, from: committedLegacyJSON).message(channel: "b:general", parentId: "legacy-root", messageId: id) }
+        let legacyReaction = ChatStore(), legacyTimeout = Gate<ChatMessage?>()
+        legacyReaction.thread = ChatThread(parent: message("legacy-root"), replies: [source])
+        var legacyPosts = 0
+        ChatService.postReaction = { _ in legacyPosts += 1; return try await legacyTimeout.wait() }
+        let oldReaction = Task { await legacyReaction.react(source, "👍") }; await drain()
+        legacyTimeout.reject(URLError(.timedOut)); await oldReaction.value
+        check(legacyPosts == 1 && legacyReaction.thread!.replies[0].reactions?.first?.mine == true)
+        check(legacyReaction.thread!.replies[0].reactions?.first?.status == nil)
         // Legacy backend replies decode as complete; pagination metadata is optional.
         let legacyData = try JSONEncoder().encode(ChatThread(parent: pageRoot, replies: latest))
         let legacy = try JSONDecoder().decode(ChatThread.self, from: legacyData)
@@ -318,7 +440,7 @@ checks = r'''
         context.closeThread(); staleContext.resolve(linked); await obsolete.value
         check(context.threadReference == nil && !context.threadReferenceLoading)
         ChatService.getPage = nil
-        print("Native chat regressions passed: linked reads/races, quotes/outbox, optimistic reactions/reconciliation, media scope, displayed read cutoff, bounded pages/cache/reference context.")
+        print("Native chat regressions passed: linked reads/races, quotes/outbox, optimistic reactions/reconciliation, media scope, displayed read cutoff, bounded pages/cache/reference context, reconnect gaps/ties/retry/scope, legacy reference/reaction reconciliation.")
     }
 }
 '''

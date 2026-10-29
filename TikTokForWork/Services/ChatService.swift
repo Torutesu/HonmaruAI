@@ -369,6 +369,24 @@ struct ChatThread: Codable {
     var hasOlder: Bool { more == true && nextCursor?.isEmpty == false }
 }
 
+/// New servers return one reference; older servers return their complete thread.
+struct ChatThreadReferenceResponse: Decodable {
+    let reference: ChatMessage?
+    let parent: ChatMessage?
+    let replies: [ChatMessage]?
+
+    func message(channel: String, parentId: String, messageId: String) throws -> ChatMessage {
+        let found: ChatMessage?
+        if let reference { found = reference }
+        else if parent?.id == parentId && parent?.channel == channel { found = replies?.first { $0.id == messageId } }
+        else { found = nil }
+        guard let found, found.id == messageId, found.channel == channel, found.parentId == parentId, !found.isDeleted else {
+            throw ChatService.Failure.server(404, nil)
+        }
+        return found
+    }
+}
+
 struct ChatScheduled: Codable, Identifiable, Hashable {
     let id: String
     let body: String
@@ -573,8 +591,8 @@ enum ChatService {
 
     /// One authorized reply's current context, without loading intervening history.
     static func threadReference(orgId: String, channel: String, parentId: String, messageId: String, base: URL) async throws -> ChatMessage {
-        struct R: Decodable { let reference: ChatMessage }
-        return try await call("GET", "/channels/thread", base: base, query: ["orgId": orgId, "channel": channel, "messageId": parentId, "reference": messageId], as: R.self).reference
+        let response = try await call("GET", "/channels/thread", base: base, query: ["orgId": orgId, "channel": channel, "messageId": parentId, "reference": messageId], as: ChatThreadReferenceResponse.self)
+        return try response.message(channel: channel, parentId: parentId, messageId: messageId)
     }
 
     static func pins(orgId: String, channel: String, base: URL) async throws -> [ChatMessage] {

@@ -455,23 +455,30 @@ final class ChatStore: ObservableObject {
 
     /// A thread, read once more a moment later when the first read fails —
     /// a phone's connection drops for a second often enough.
-    private var threadReads: [String: Task<ChatThread?, Never>] = [:]
+    private struct ThreadRead {
+        var thread: ChatThread
+        /// IDs from the server page, excluding live overlays outside its range.
+        let fetchedIds: Set<String>
+    }
+    private var threadReads: [String: Task<ThreadRead?, Never>] = [:]
     private var threadNavigation = UUID()
     var threadPresentation: UUID { threadNavigation }
     private var threadTarget: (channel: String, parentId: String)?
     /// Prefetch and navigation share a read, including its explicit retry.
-    private func readThread(channel: String, parentId: String, before: String? = nil) async -> ChatThread? {
+    private func readThread(channel: String, parentId: String, before: String? = nil) async -> ThreadRead? {
         guard let orgId, let base else { return nil }
         let generation = scopeGeneration
         let key = "\(generation)|\(base)|\(channel)|\(parentId)|\(before ?? "")"
         if let pending = threadReads[key] { return await pending.value }
         let revision = messageRevision
-        let pending = Task { () -> ChatThread? in
-            if let t = try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, before: before, base: base) { return self.mergingChanges(into: t, after: revision) }
+        let pending = Task { () -> ThreadRead? in
+            if let t = try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, before: before, base: base) {
+                return self.threadRead(t, after: revision)
+            }
             do { try await Task.sleep(for: .seconds(1)); try Task.checkCancellation() } catch { return nil }
             guard generation == self.scopeGeneration else { return nil }
             guard let t = try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, before: before, base: base) else { return nil }
-            return self.mergingChanges(into: t, after: revision)
+            return self.threadRead(t, after: revision)
         }
         threadReads[key] = pending
         let result = await pending.value
@@ -480,8 +487,21 @@ final class ChatStore: ObservableObject {
         return result
     }
 
+    private func threadRead(_ page: ChatThread, after revision: Int) -> ThreadRead? {
+        guard let merged = mergingChanges(into: page, after: revision) else { return nil }
+        return ThreadRead(thread: merged, fetchedIds: Set(page.replies.map(\.id)))
+    }
+
     private var messageRevision = 0
     private var messageChanges: [String: (revision: Int, message: ChatMessage)] = [:]
+    /// Preserve the server's tie order across page boundaries; IDs are not row order.
+    private func orderedReplies(_ replies: [ChatMessage]) -> [ChatMessage] {
+        replies.enumerated().sorted { left, right in
+            if left.element.createdAt == right.element.createdAt { return left.offset < right.offset }
+            return left.element.createdAt < right.element.createdAt
+        }.map(\.element)
+    }
+
     private func mergingChanges(into read: ChatThread, after revision: Int) -> ChatThread? {
         var result = read
         for change in messageChanges.values.filter({ $0.revision > revision }).sorted(by: { $0.revision < $1.revision }) {
@@ -498,7 +518,7 @@ final class ChatStore: ObservableObject {
                 else { result.replies.append(m) }
             }
         }
-        result.replies.sort { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+        result.replies = orderedReplies(result.replies)
         return result
     }
 
@@ -509,7 +529,7 @@ final class ChatStore: ObservableObject {
             guard let key = viewKey(item.parent.id), threadCache[key] == nil, thread?.parent.id != item.parent.id,
                   let t = await readThread(channel: item.parent.channel, parentId: item.parent.id),
                   generation == scopeGeneration else { continue }
-            if threadCache[key] == nil { threadCache[key] = t }
+            if threadCache[key] == nil { threadCache[key] = t.thread }
         }
     }
     var unreadThreads: Int { threads.filter(\.unread).count }
@@ -1226,13 +1246,18 @@ final class ChatStore: ObservableObject {
         referenceNavigation = UUID()
         threadReference = nil; threadReferenceId = nil; threadReferenceLoading = false; threadReferenceFailed = false
         let reference = threadJump
+        let cachedIds = Set(kept.filter { !$0.id.hasPrefix("tmp-") }.map(\.id))
+        let revision = messageRevision
         threadFailed = false
         threadLoading = true
-        let read = await readThread(channel: channel, parentId: parentId)
+        let first = await readThread(channel: channel, parentId: parentId)
+        guard !Task.isCancelled, generation == scopeGeneration, navigation == threadNavigation, requestedBase == base else { return false }
+        guard let first else { threadLoading = false; threadFailed = true; return false }
+        let connected = await reconnectThread(first, to: cachedIds, navigation: navigation, generation: generation)
         guard !Task.isCancelled, generation == scopeGeneration, navigation == threadNavigation, requestedBase == base else { return false }
         threadLoading = false
-        guard let read else { threadFailed = true; return false }
-        thread = refreshedThread(read, keeping: thread)
+        guard let connected, let read = mergingChanges(into: connected.thread, after: revision) else { threadFailed = true; return false }
+        thread = refreshedThread(read, keeping: thread, connected: !cachedIds.isDisjoint(with: connected.fetchedIds))
         if let reference, reference != parentId, !(thread?.replies.contains { $0.id == reference } ?? false) {
             threadJump = nil
             threadReferenceId = reference; threadReferenceLoading = true
@@ -1248,17 +1273,40 @@ final class ChatStore: ObservableObject {
         return true
     }
 
+    /// Bridge missed newest pages before treating cached history as contiguous.
+    /// Old content stays visible during this bounded-page catch-up and retry.
+    private func reconnectThread(_ first: ThreadRead, to cachedIds: Set<String>, navigation: UUID, generation: UUID) async -> ThreadRead? {
+        var result = first
+        var fetchedIds = first.fetchedIds
+        var cursors: Set<String> = []
+        while !cachedIds.isEmpty && cachedIds.isDisjoint(with: fetchedIds) && result.thread.more == true {
+            guard let cursor = result.thread.nextCursor, !cursor.isEmpty, cursors.insert(cursor).inserted,
+                  !Task.isCancelled, navigation == threadNavigation, generation == scopeGeneration else { return nil }
+            guard let page = await readThread(channel: result.thread.parent.channel, parentId: result.thread.parent.id, before: cursor) else { return nil }
+            guard !Task.isCancelled, navigation == threadNavigation, generation == scopeGeneration else { return nil }
+            guard page.thread.more != true || !page.fetchedIds.subtracting(fetchedIds).isEmpty else { return nil }
+            let known = Set(result.thread.replies.map(\.id))
+            result.thread.replies = page.thread.replies.filter { !known.contains($0.id) } + result.thread.replies
+            result.thread.parent = page.thread.parent
+            result.thread.more = page.thread.more
+            result.thread.nextCursor = page.thread.nextCursor
+            fetchedIds.formUnion(page.fetchedIds)
+        }
+        result.thread.replies = orderedReplies(result.thread.replies)
+        return ThreadRead(thread: result.thread, fetchedIds: fetchedIds)
+    }
+
     /// A fresh newest page keeps already loaded older pages and local sends.
-    private func refreshedThread(_ fresh: ChatThread, keeping kept: ChatThread?) -> ChatThread {
+    private func refreshedThread(_ fresh: ChatThread, keeping kept: ChatThread?, connected: Bool) -> ChatThread {
         guard let kept, kept.parent.id == fresh.parent.id, kept.parent.channel == fresh.parent.channel else {
             return ChatThread(parent: applyingReactionChanges(to: fresh.parent), replies: withHeld(fresh.replies, view: fresh.parent.channel, thread: fresh.parent.id), more: fresh.more, nextCursor: fresh.nextCursor)
         }
         let serverIds = Set(fresh.replies.map(\.id))
         let older = kept.replies.filter { !serverIds.contains($0.id) && !$0.id.hasPrefix("tmp-") }
-        // A legacy full response is complete. For paged responses the older
-        // cursor stays at the earliest contiguous page already held.
-        let hasOlderPages = fresh.more == true && older.contains { old in fresh.replies.first.map { (old.createdAt, old.id) < ($0.createdAt, $0.id) } ?? false }
-        let replies = (older + fresh.replies).sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+        // Keep the old earliest cursor only after a server page overlaps it.
+        // Timestamp order alone cannot prove that reconnect missed no pages.
+        let hasOlderPages = fresh.more == true && connected && !older.isEmpty
+        let replies = orderedReplies(older + fresh.replies)
         return ChatThread(parent: applyingReactionChanges(to: fresh.parent), replies: withHeld(fresh.more == true ? replies : fresh.replies, view: fresh.parent.channel, thread: fresh.parent.id), more: hasOlderPages ? kept.more : fresh.more, nextCursor: hasOlderPages ? kept.nextCursor : fresh.nextCursor)
     }
 
@@ -1267,13 +1315,14 @@ final class ChatStore: ObservableObject {
         let navigation = threadNavigation
         let generation = scopeGeneration
         threadOlderLoading = true; threadOlderFailed = false
-        let older = await readThread(channel: shown.parent.channel, parentId: shown.parent.id, before: cursor)
+        let page = await readThread(channel: shown.parent.channel, parentId: shown.parent.id, before: cursor)
         guard !Task.isCancelled, navigation == threadNavigation, generation == scopeGeneration, var current = thread else { return }
         threadOlderLoading = false
-        guard let older, older.nextCursor != cursor else { threadOlderFailed = true; return }
+        guard let page, page.thread.nextCursor != cursor else { threadOlderFailed = true; return }
+        let older = page.thread
         let known = Set(current.replies.map(\.id))
         let added = older.replies.filter { !known.contains($0.id) }
-        current.replies = withHeld((added + current.replies).sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }, view: current.parent.channel, thread: current.parent.id)
+        current.replies = withHeld(orderedReplies(added + current.replies), view: current.parent.channel, thread: current.parent.id)
         current.more = older.more; current.nextCursor = older.nextCursor
         thread = current
         Task { [weak self] in

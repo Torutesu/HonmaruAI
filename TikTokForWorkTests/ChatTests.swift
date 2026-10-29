@@ -776,3 +776,21 @@ final class ChatThreadPageTests: XCTestCase {
         XCTAssertEqual(page.nextCursor, "opaque-next-page")
     }
 }
+
+final class ChatThreadReferenceResponseTests: XCTestCase {
+    func testBoundedAndLegacyReferenceResponsesSelectTheSameAuthorizedReply() throws {
+        let parent = ChatMessage(id: "root", channel: "b:general", kind: "message", body: "hello", mine: false, createdAt: "2026-10-01T09:00:00Z")
+        var reply = ChatMessage(id: "reply", channel: "b:general", kind: "message", body: "answer", mine: false, createdAt: parent.createdAt, parentId: parent.id)
+        let legacyData = try JSONEncoder().encode(ChatThread(parent: parent, replies: [reply]))
+        let legacy = try JSONDecoder().decode(ChatThreadReferenceResponse.self, from: legacyData)
+        XCTAssertEqual(try legacy.message(channel: parent.channel, parentId: parent.id, messageId: reply.id), reply)
+        XCTAssertThrowsError(try legacy.message(channel: parent.channel, parentId: "another-root", messageId: reply.id))
+        let boundedData = try JSONSerialization.data(withJSONObject: ["reference": JSONSerialization.jsonObject(with: JSONEncoder().encode(reply))])
+        let bounded = try JSONDecoder().decode(ChatThreadReferenceResponse.self, from: boundedData)
+        XCTAssertEqual(try bounded.message(channel: parent.channel, parentId: parent.id, messageId: reply.id), reply)
+        reply.deleted = true
+        let deletedData = try JSONEncoder().encode(ChatThread(parent: parent, replies: [reply]))
+        let deleted = try JSONDecoder().decode(ChatThreadReferenceResponse.self, from: deletedData)
+        XCTAssertThrowsError(try deleted.message(channel: parent.channel, parentId: parent.id, messageId: reply.id))
+    }
+}
