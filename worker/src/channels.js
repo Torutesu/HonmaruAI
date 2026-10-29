@@ -291,16 +291,18 @@ export async function hydrate(db, orgId, rows, members = null) {
     const chunk = ids.slice(i, i + 90);
     const marks = chunk.map((_, j) => `?${j + 2}`).join(", ");
     const people = `?${chunk.length + 2}`;
+    const requested = chunk.map((_, j) => `(?${j + 2})`).join(", ");
     const [replies, reactions] = await Promise.all([
       // Aggregate in SQLite: only one row and at most five visible faces per
       // parent cross D1. Counts still scan that parent's live reply index.
-      // Keep each parent outside the reply scan instead of probing it per child.
-      db.prepare(`WITH replies AS (
+      // Selected IDs drive parent lookups; materialize once so counts and faces
+      // cannot choose separate scans of the whole room for each parent.
+      db.prepare(`WITH replies AS MATERIALIZED (
           SELECT m.parent_id, m.created_at, m.rowid AS sequence,
             CASE WHEN m.kind = 'ai' THEN 'ai' ELSE m.author_login END AS who
-          FROM channel_messages p CROSS JOIN channel_messages m
-            ON m.org_id = p.org_id AND m.parent_id = p.id AND m.channel = p.channel
-          WHERE p.org_id = ?1 AND p.id IN (${marks}) AND p.deleted_at IS NULL AND m.deleted_at IS NULL
+          FROM (VALUES ${requested}) wanted CROSS JOIN channel_messages p ON p.id = wanted.column1 AND p.org_id = ?1
+          CROSS JOIN channel_messages m ON m.org_id = p.org_id AND m.parent_id = p.id AND m.channel = p.channel
+          WHERE p.deleted_at IS NULL AND m.deleted_at IS NULL
         ), firsts AS (
           SELECT parent_id, who, created_at, sequence,
             ROW_NUMBER() OVER (PARTITION BY parent_id, who ORDER BY created_at, sequence) AS occurrence

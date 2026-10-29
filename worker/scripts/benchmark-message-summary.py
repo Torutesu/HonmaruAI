@@ -4,7 +4,7 @@ import json, re, sqlite3, statistics, subprocess, time
 from pathlib import Path
 root=Path(__file__).resolve().parents[1]
 source=(root/'src/channels.js').read_text()
-sql=re.search(r'db.prepare\(`(WITH replies AS \(.*?)`\)',source,re.S).group(1).replace('${marks}','?2').replace('${people}','?3')
+sql=re.search(r'db.prepare\(`(WITH replies AS (?:MATERIALIZED )?\(.*?)`\)',source,re.S).group(1).replace('${marks}','?2').replace('${requested}','(?2)').replace('${people}','?3')
 old="SELECT parent_id, author_login, kind, created_at FROM channel_messages WHERE org_id=?1 AND deleted_at IS NULL AND parent_id IN (?2) ORDER BY created_at"
 output={'scope':'synthetic local SQLite; not Cloudflare D1 or production latency','sqlite':sqlite3.sqlite_version,'cases':[]}
 for count in [10,1000,10000]:
