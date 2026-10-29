@@ -149,7 +149,7 @@ export async function recipientsOf(db, orgId, row, members, { askedBy = null } =
 
 /// Queue the pushes for a message just said. Cheap: one query when nobody
 /// is for it.
-export async function queueMessagePushes(env, orgId, row, { members = null, now = Date.now(), askedBy = null } = {}) {
+export async function queueMessagePushes(env, orgId, row, { members = null, now = Date.now(), askedBy = null, durable = false } = {}) {
   if (!env?.DB || !row?.id) return 0;
   const list = members || await listMembers(env.DB, orgId, null);
   const to = await recipientsOf(env.DB, orgId, row, list, { askedBy });
@@ -159,7 +159,7 @@ export async function queueMessagePushes(env, orgId, row, { members = null, now 
   // what the phone will be told (web-react utils/forYou.ts) — a group
   // message, a reply to you, a keyword, a thread you wrote in — rather than
   // guessing from the message alone.
-  await announceTo(env, orgId, to.map(({ login, reason }) => ({ to: login, event: customEvent("message_for_you", { id: row.id, reason }) })));
+  await announceTo(env, orgId, to.map(({ login, reason }) => ({ to: login, event: customEvent("message_for_you", { id: row.id, reason }) })), { timeoutMs: durable ? 10000 : null });
   const due = new Date(now + PUSH_DELAY_MS).toISOString();
   const at = new Date(now).toISOString();
   try {
@@ -167,6 +167,7 @@ export async function queueMessagePushes(env, orgId, row, { members = null, now 
       `INSERT OR IGNORE INTO push_queue (org_id, login, message_id, reason, created_at, due_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
     ).bind(orgId, login, row.id, reason, at, due)));
   } catch (err) {
+    if (durable) throw err;
     // A queue that cannot be written to (D1 refusing writes past its daily
     // limit) used to lose these pushes: the callers only log the throw. Then
     // they go now, without the minute's wait to see whether it was read.

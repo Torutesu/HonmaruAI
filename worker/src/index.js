@@ -49,7 +49,7 @@ import { handleAutomation } from "./automation.js";
 import { handleHarness } from "./harness/routes.js";
 import { runDueWorkflows, handleWorkflowHook } from "./harness/workflows.js";
 import { runDueFollowups } from "./harness/followups.js";
-import { handleChannels, broadcastStored, watchTeammateRuns, caller } from "./channelRoutes.js";
+import { handleChannels, broadcastStored, deliverAcceptedMessages, watchTeammateRuns, caller } from "./channelRoutes.js";
 import { handleAudit, audit, auditEverywhere, person, migrateLegacyAudit } from "./audit.js";
 import { shredPerson } from "./auditCrypto.js";
 import { allowed, ensureOwner, soleOwnerships } from "./permissions.js";
@@ -246,6 +246,7 @@ export default {
       ctx.waitUntil(drainCardNotifications(env, notifyCardNow).catch(() => console.error("notification retry drain failed")));
       ctx.waitUntil(runMinuteJobs(env, { now: new Date(event?.scheduledTime || Date.now()), broadcast: (orgId, key, row) => broadcastStored(env, orgId, key, row) })
         .catch((err) => console.error("minute jobs failed", err?.message || err)));
+      for (const kind of ['live', 'push']) ctx.waitUntil(deliverAcceptedMessages(env, { kind }));
       ctx.waitUntil(drainAgentRequests(env).catch(() => console.error("agent request dispatch failed")));
       ctx.waitUntil(drainAgentHandoffs(env).catch(() => console.error("agent handoff dispatch failed")));
       ctx.waitUntil(drainRoomHookDispatch(env).catch(() => console.error("room webhook dispatch failed")));
