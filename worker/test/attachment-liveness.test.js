@@ -98,7 +98,7 @@ test('only live matching sources or the uploaders own unsent files renew', async
   const live = await attachment({messageId:'live'});
   const own = await attachment();
   const others = [await attachment({uploader:'someone-else'}),await attachment({messageId:'foreign'}),await attachment({messageId:'live',channel:'b:other'}),await attachment({messageId:'closed',channel:'b:closed'}),await attachment({workspace:'other-workspace'})];
-  expect(Object.keys(await renew([live.id,own.id,...others.map(row=>row.id)]))).toEqual([live.id,own.id]);
+  expect(Object.keys(await renew([live.id,own.id,...others.map(row=>row.id)])).sort()).toEqual([live.id,own.id].sort());
   expect((await read(live)).status).toBe(200);
   expect((await read(own)).status).toBe(200);
   expect((await read(others[1])).status).toBe(404);
