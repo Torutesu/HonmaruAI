@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from './Icon'
 import { Avatar } from './Avatar'
@@ -6,6 +6,8 @@ import { JAM_REACTIONS, audioDevices, canShareScreen, canTranscribe, screenShare
 import type { ChannelMessage } from '../types/card'
 import './JamPanel.css'
 import { composing } from '../utils/keys'
+import { channelMessageCache } from '../utils/channelMessageCache'
+import type { ThreadSnapshot } from '../utils/threadMessageCache'
 
 interface Props {
   call: JamCall
@@ -214,26 +216,68 @@ export const JamPanel: React.FC<Props> = ({ call, where, api, faceOf, me, onLeav
 }
 
 /// The Jam's own thread: replies under the message it started with.
-const JamThread: React.FC<{ api: Props['api']; channel: string; messageId: string | null }> = ({ api, channel, messageId }) => {
+export const JamThread: React.FC<{ api: Props['api']; channel: string; messageId: string | null }> = ({ api, channel, messageId }) => {
   const t = useT()
-  const [replies, setReplies] = useState<ChannelMessage[] | null>(null)
+  const cache = useMemo(() => channelMessageCache(api).threads, [api.httpBase, api.orgId, api.sessionToken])
+  const [snapshot, setSnapshot] = useState<ThreadSnapshot | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [failed, setFailed] = useState(false)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  const log = useRef<HTMLDivElement>(null)
+  const scope = JSON.stringify([api.httpBase, api.orgId, api.sessionToken, channel, messageId])
+  const currentScope = useRef(scope); currentScope.current = scope
+  const live = useRef(true)
+  const request = useRef(0)
   const headers = useMemo(() => ({ 'x-session-token': api.sessionToken }), [api.sessionToken])
+  const readPage = useCallback(async (before?: string) => {
+    const query = new URLSearchParams({ orgId: api.orgId, channel, messageId: messageId || '', limit: '50' })
+    if (before) query.set('before', before)
+    const response = await fetch(`${api.httpBase}/channels/thread?${query}`, { headers })
+    return { status: response.status, data: response.ok ? await response.json() : null }
+  }, [api.httpBase, api.orgId, channel, messageId, headers])
+  const read = useCallback(async (older = false, force = false) => {
+    if (!messageId) return
+    const ask = ++request.current
+    setLoading(older || force || !cache.fresh(channel, messageId)); setFailed(false)
+    const result = await (older ? cache.loadOlder(channel, messageId, readPage) : cache.load(channel, messageId, readPage, force))
+    if (!live.current || currentScope.current !== scope || ask !== request.current || result === 'obsolete') return
+    const element = log.current
+    const anchor = older && element ? { height: element.scrollHeight, top: element.scrollTop } : null
+    if (result && typeof result === 'object') setSnapshot(result)
+    else { if (result === 'denied') setSnapshot(null); setFailed(true) }
+    setLoading(false)
+    if (anchor && element) requestAnimationFrame(() => { if (live.current && currentScope.current === scope && element.isConnected) element.scrollTop = anchor.top + element.scrollHeight - anchor.height })
+  }, [cache, channel, messageId, readPage, scope])
   useEffect(() => {
-    if (!messageId) { setReplies([]); return }
-    let ignore = false
-    fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(messageId)}`, { headers })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!ignore) setReplies(d?.replies || []) })
-      .catch(() => { if (!ignore) setReplies([]) })
+    live.current = true
+    setSnapshot(messageId ? cache.get(channel, messageId) || null : null)
+    setLoading(false); setFailed(false); setDraft(''); setSending(false)
+    void read()
     const on = (e: Event) => {
-      const m = (e as CustomEvent<ChannelMessage>).detail
-      if (m?.parentId === messageId) setReplies((prev) => (prev ? (prev.some((x) => x.id === m.id) ? prev.map((x) => (x.id === m.id ? m : x)) : [...prev, m]) : [m]))
+      const message = (e as CustomEvent<ChannelMessage>).detail
+      if (!messageId || message?.channel !== channel || (message.parentId !== messageId && message.id !== messageId)) return
+      cache.change(message)
+      setSnapshot(cache.get(channel, messageId) || null)
+    }
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+    const reconnect = () => {
+      cache.invalidate()
+      clearTimeout(reconnectTimer)
+      // ClassicList refreshes the same scoped cache after its 300ms debounce.
+      // Join that read, or use its fresh result, instead of invalidating it again.
+      reconnectTimer = setTimeout(() => { void read() }, 350)
     }
     window.addEventListener('honmaru:channel-message', on)
-    return () => { ignore = true; window.removeEventListener('honmaru:channel-message', on) }
-  }, [api.httpBase, api.orgId, channel, messageId, headers])
+    window.addEventListener('honmaru:resync', reconnect)
+    window.addEventListener('honmaru:members-changed', reconnect)
+    return () => {
+      live.current = false; request.current++; clearTimeout(reconnectTimer)
+      window.removeEventListener('honmaru:channel-message', on)
+      window.removeEventListener('honmaru:resync', reconnect)
+      window.removeEventListener('honmaru:members-changed', reconnect)
+    }
+  }, [cache, channel, messageId, read])
   const send = async () => {
     const body = draft.trim()
     if (!body || !messageId || sending) return
@@ -244,14 +288,18 @@ const JamThread: React.FC<{ api: Props['api']; channel: string; messageId: strin
         body: JSON.stringify({ orgId: api.orgId, channel, body, parentId: messageId }),
       })
       const data = await res.json().catch(() => ({}))
-      if (res.ok && data.message) { setDraft(''); setReplies((prev) => (prev && !prev.some((x) => x.id === data.message.id) ? [...prev, data.message] : prev)) }
-    } finally { setSending(false) }
+      if (!live.current || currentScope.current !== scope) return
+      if (res.ok && data.message) { setDraft(''); cache.change(data.message); setSnapshot(cache.get(channel, messageId) || null) }
+    } catch { if (live.current && currentScope.current === scope) setFailed(true) } finally { if (live.current && currentScope.current === scope) setSending(false) }
   }
+  const replies = snapshot?.replies || []
   return (
     <div className="jam-thread">
-      <div className="jam-thread-log">
-        {replies === null && <p className="jam-empty">{t('Loading…')}</p>}
-        {replies && replies.length === 0 && <p className="jam-empty">{t('Links, notes, anything for the people in this Jam. It stays in the channel under the Jam.')}</p>}
+      <div className="jam-thread-log" ref={log}>
+        {snapshot?.more && <button type="button" className="slk-link-button" disabled={loading} onClick={() => void read(true)}>{t('Load older replies')}</button>}
+        {failed && <p role="alert">{t("Couldn't load the replies.")} <button type="button" onClick={() => void read(false, true)}>{t('Try again')}</button></p>}
+        {loading && <p className="jam-empty" role="status">{t('Loading…')}</p>}
+        {!loading && !failed && replies.length === 0 && <p className="jam-empty">{t('Links, notes, anything for the people in this Jam. It stays in the channel under the Jam.')}</p>}
         {(replies || []).filter((m) => !m.deleted).map((m) => (
           <p key={m.id} className="jam-line"><b>{m.kind === 'ai' ? t('Your AI') : m.mine ? t('You') : (m.authorName || t('a teammate'))}</b> <span>{m.body}</span></p>
         ))}

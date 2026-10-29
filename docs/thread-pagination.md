@@ -1,22 +1,22 @@
 # Thread reply pages
 
-Issue #505. Web initial opens and prefetches request the newest 50 replies. Replies display oldest first; the parent is returned separately. Older pages remain available in both the thread pane and the Activity thread using the same keyboard-accessible control.
+Issue #505. Web inbox/thread-pane and Jam initial opens, plus prefetches, request the newest 50 replies. The title-conflict reload also requests a bounded page while using only its parent. Replies display oldest first; the parent is returned separately. Older pages remain available in both the thread pane and the Activity thread using the same keyboard-accessible control.
 
 ## API contract
 
 - `GET /channels/thread?orgId=…&channel=…&messageId=…&limit=50` returns `{parent,replies,more,nextCursor}`. `limit` accepts integers 1–50. Each page returns at most that many replies; the SQL reads one additional sentinel before hydration.
 - `before=<nextCursor>` requests older replies. Treat the base64url token as opaque. Its server-side timestamp/rowid boundary survives deletion of the message at that boundary. Both ordering columns define the boundary, so timestamp ties cannot disappear between pages.
 - Omitting `limit` preserves the legacy complete `{parent,replies}` response. A cursor without a limit and malformed limits/cursors return 400. This avoids silently truncating old clients; native clients opt in separately.
-- `reference=<replyId>` uses the same endpoint for a separate `{reference:ChannelMessage}` response. It checks channel access and a live parent plus a live same-channel/same-thread message, then hydrates only that message. Unknown/deleted/foreign references return 404. The browser displays unloaded quote/link targets in the existing accessible dialog, without inserting an isolated message into the continuous history range.
+- `reference=<replyId>` uses the same endpoint for a separate `{reference:ChannelMessage}` response. It checks channel access and a live parent plus a live same-channel/same-thread message, then hydrates only that message. Unknown/deleted/foreign references return 404. The browser displays unloaded quote/link targets in the existing accessible dialog with standard attachment rendering, without inserting an isolated message into the continuous history range.
 - Channel/workspace authorization precedes every page or reference lookup. Deleted parents cannot be opened with page cursors; references to deleted rows return no old content.
 
 ## Cache and live behavior
 
-The account/server/workspace-scoped cache shares prefetch, open, reopen and page requests. Older pages merge by stable IDs. The oldest loaded cursor stays available across visits and local state updates. Pending and failed sends remain owned by the existing outbox and are reconciled after page reads. Live edits, quote changes, arrivals and tombstones received during any request override the response.
+The account/server/workspace-scoped cache shares prefetch, open, reopen and page requests. Older pages merge by stable IDs. The oldest loaded cursor stays available across visits and local state updates. Older-only reads retain the latest page's freshness timestamp, so reading history cannot hide newly arrived replies on reopen. Pending and failed sends remain owned by the existing outbox and are reconciled after page reads. Live edits, quote changes, arrivals and tombstones received during any request override the response.
 
 A reconnect starts from the newest page and continues through the oldest loaded message. This fills gaps larger than 50 replies after sleep, refreshes edits/deletions inside loaded history and retains that history. Every request stays at 50 replies; the complete loaded range can require multiple requests. If its oldest message was deleted, revalidation continues past its timestamp, or through the end of a timestamp tie, rather than silently leaving an ambiguous gap. A refresh fails atomically: an offline error retains the prior snapshot and access denial discards it. Newer invalidation restarts a pending older read as a latest-range refresh.
 
-Older-page insertion captures and restores the current thread log offset. The common thread body supplies the control in both inbox and side pane. Unloaded Activity, message links and quoted replies request only the referenced message for a focus-managed context dialog.
+Jam reuses the scoped cache and joins the main pane's debounced reconnect refresh. Older-page insertion captures and restores the current thread log offset. The common thread body supplies the control in both inbox and side pane. Unloaded Activity, message links and quoted replies request only the referenced message for a focus-managed context dialog.
 
 ## Index and remaining summary cost
 

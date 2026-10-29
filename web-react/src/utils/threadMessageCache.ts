@@ -110,7 +110,7 @@ export class ThreadMessageCache {
           snapshot = changed(snapshot, message)
           if (!snapshot) { this.entries.delete(key); return 'denied' }
         }
-        this.remember(channel, snapshot.parent, snapshot.replies, true)
+        this.remember(channel, snapshot.parent, snapshot.replies, !older)
         this.entries.get(key)!.snapshot = snapshot
         return snapshot
       }

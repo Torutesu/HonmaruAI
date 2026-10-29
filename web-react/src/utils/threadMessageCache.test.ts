@@ -177,3 +177,17 @@ it('upgrades an invalidated older-page request to a latest range refresh', async
   expect(read.mock.calls.map(([cursor]) => cursor)).toEqual(['older', undefined])
   expect(cache.get('b:a', 'root')!.replies).toEqual(page(51, 101).replies)
 })
+
+it('an older-only read cannot make an expired latest page fresh on reopen', async () => {
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(1000)
+  const cache = new ThreadMessageCache()
+  await cache.load('b:a', 'root', async () => ok(page(51, 100, 'older')))
+  clock.mockReturnValue(301_000)
+  await cache.loadOlder('b:a', 'root', async () => ok(page(1, 50)))
+  expect(cache.fresh('b:a', 'root')).toBe(false)
+  const latest = vi.fn(async (cursor?: string) => ok(!cursor ? page(52, 101, 'new-52') : cursor === 'new-52' ? page(2, 51, 'new-2') : page(1, 1)))
+  await cache.load('b:a', 'root', latest)
+  expect(latest).toHaveBeenCalledTimes(3)
+  expect(cache.get('b:a', 'root')!.replies.at(-1)?.id).toBe('101')
+  expect(cache.fresh('b:a', 'root')).toBe(true)
+})

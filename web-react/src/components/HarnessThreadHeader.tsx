@@ -50,7 +50,7 @@ export function HarnessThreadHeader({api,channel,parent,room,onClose,onParent,pi
   const requestedScope=scope
   setBusy(true)
   try{
-   const query=new URLSearchParams({orgId:api.orgId,channel,messageId:parent.id})
+   const query=new URLSearchParams({orgId:api.orgId,channel,messageId:parent.id,limit:'50'})
    const response=await fetch(`${api.httpBase}/channels/thread?${query}`,{headers:{'x-session-token':api.sessionToken}})
    if(!response.ok)throw new Error('最新の名前を確認できませんでした。')
    const result=await response.json();if(!live.current||currentScope.current!==requestedScope)return

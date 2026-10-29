@@ -26,7 +26,7 @@ test('conflicts retain the draft and require reading the latest version before r
  let tree:ReturnType<typeof create>;act(()=>{tree=create(<HarnessThreadHeader api={api} channel="b:general" parent={parent} room="general" onClose={()=>{}} onParent={()=>{}}/>)})
  begin(tree!);act(()=>tree!.root.findByType('input').props.onChange({target:{value:'My draft'}}))
  await act(async()=>button(tree!,'保存').props.onClick());expect(button(tree!,'保存').props.disabled).toBe(true);expect(tree!.root.findByType('input').props.value).toBe('My draft')
- await act(async()=>button(tree!,'最新の名前を確認').props.onClick());expect(tree!.root.findByType('input').props.value).toBe('My draft')
+ await act(async()=>button(tree!,'最新の名前を確認').props.onClick());expect(tree!.root.findByType('input').props.value).toBe('My draft');expect(new URL(fetch.mock.calls[1][0]).searchParams.get('limit')).toBe('50')
  await act(async()=>button(tree!,'保存').props.onClick());expect(JSON.parse(fetch.mock.calls[2][1].body).version).toBe(4);act(()=>tree!.unmount())
 })
 test('a save resolving after leaving the thread does not update another screen',async()=>{

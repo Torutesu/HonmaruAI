@@ -17,6 +17,7 @@ import { ROOM_COLORS } from '../utils/roomColors'
 import { RoomCreateDialog, type RoomCreateInput, type RoomPerson } from './RoomCreateDialog'
 import { RoomJoinDialog } from './RoomJoinDialog'
 import { ThreadReferences } from './ThreadReferences'
+import { ThreadReferenceDialog } from './ThreadReferenceDialog'
 import {useThreadPins} from '../utils/threadPins'
 import { HarnessThreadHeader } from './HarnessThreadHeader'
 import { RoomThreadDirectory } from './RoomThreadDirectory'
@@ -5987,11 +5988,11 @@ export const ClassicList: React.FC<Props> = ({
       {reactAt && (
         <EmojiPickerAt at={{ x: reactAt.x, y: reactAt.y }} onPick={(e) => react(reactAt.channel, reactAt.m, e)} onClose={closeReactAt} />
       )}
-      {threadReference && <Dialog title={t('Original message')} onClose={() => { referenceAsk.current++; setThreadReference(null) }}>
-        {threadReference.failed ? <p role="alert">{t('That message is not somewhere you can read.')}</p>
-          : threadReference.message ? <><p><b>{whoSaid(threadReference.message)}</b> · {when(threadReference.message.createdAt)}</p><div className="slk-text">{rich(shownBody(threadReference.message).text)}</div></>
-          : <p role="status">{t('Loading…')}</p>}
-      </Dialog>}
+      {threadReference && <ThreadReferenceDialog message={threadReference.message} failed={threadReference.failed} base={api.httpBase}
+        name={threadReference.message ? whoSaid(threadReference.message) : ''} at={threadReference.message ? when(threadReference.message.createdAt) : ''}
+        onClose={() => { referenceAsk.current++; setThreadReference(null) }}>
+        {threadReference.message && rich(shownBody(threadReference.message).text)}
+      </ThreadReferenceDialog>}
       {renameDialog && (
         <Dialog
           title={t('Rename channel')}
