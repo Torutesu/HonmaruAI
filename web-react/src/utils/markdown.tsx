@@ -34,7 +34,7 @@ export function safeHref(raw: string): string | null {
 
 /// Where the address that starts at `from` ends: the `)` that balances,
 /// so a Wikipedia link with parentheses in it stays one link.
-function closingParen(source: string, from: number): number {
+export function closingParen(source: string, from: number): number {
   let depth = 0
   for (let j = from; j < source.length; j++) {
     if (source[j] === '(') depth += 1

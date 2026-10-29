@@ -2,6 +2,7 @@ import type { ChannelMessage } from '../types/card'
 import { isTemp } from './pendingSend'
 import { ViewCache } from './viewCache'
 import { newerPin } from './messagePin'
+import { ThreadMessageCache } from './threadMessageCache'
 
 // Memory only: message contents and session identities never go to disk.
 // A bounded cache survives switching away from the chat screen in this tab.
@@ -13,6 +14,7 @@ export class ChannelMessageCache {
   readonly identity = ++nextIdentity
   /// Profiles, threads and lists, for the same account and workspace.
   readonly views = new ViewCache()
+  readonly threads = new ThreadMessageCache()
   messages: Record<string, ChannelMessage[]> = {}
   more: Record<string, boolean> = {}
   private fetched = new Map<string, number>()
@@ -31,8 +33,8 @@ export class ChannelMessageCache {
       delete this.messages[channel]; delete this.more[channel]; this.fetched.delete(channel)
     }
   }
-  invalidate() { this.generation++; this.fetched.clear(); this.pending.clear() }
-  clear() { this.invalidate(); this.messages = {}; this.more = {}; this.views.clear() }
+  invalidate() { this.threads.invalidate(); this.generation++; this.fetched.clear(); this.pending.clear() }
+  clear() { this.invalidate(); this.messages = {}; this.more = {}; this.views.clear(); this.threads.clear() }
   forget(channel: string) { delete this.messages[channel]; delete this.more[channel]; this.fetched.delete(channel) }
   load(channel: string, fetchPage: (isCurrent: () => boolean) => Promise<boolean>, force = false): Promise<void> {
     this.touched.set(channel, ++this.sequence)
