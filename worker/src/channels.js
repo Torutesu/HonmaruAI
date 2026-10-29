@@ -360,21 +360,45 @@ export async function listMessages(db, orgId, resolved, viewerLogin, view, membe
   return { messages: await present(db, orgId, rows, viewerLogin, view, members), more };
 }
 
-/// A thread: the message it hangs off, and every reply under it, oldest first.
-export async function listThread(db, orgId, key, parentId, viewerLogin, view, members) {
+/// Legacy callers keep complete history until they opt into bounded pages.
+export function threadPageRequest(params) {
+  if (!params.has("limit")) {
+    if (params.has("before")) throw new Error("A thread cursor requires a page limit.");
+    return null;
+  }
+  const limit = Number(params.get("limit"));
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new Error("Thread page limit must be between 1 and 50.");
+  const before = params.get("before");
+  if (!before) return { limit, before: null };
+  try {
+    if (before.length > 256 || !/^[A-Za-z0-9_-]+$/.test(before)) throw new Error();
+    const cursor = JSON.parse(atob(before.replace(/-/g, "+").replace(/_/g, "/")));
+    if (!Array.isArray(cursor) || cursor.length !== 2 || typeof cursor[0] !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(cursor[0]) || !Number.isSafeInteger(cursor[1]) || cursor[1] < 1) throw new Error();
+    return { limit, before: cursor };
+  } catch { throw new Error("Invalid thread cursor."); }
+}
+
+/// A thread: parent plus replies, oldest first. Paged readers start at the
+/// newest replies and retain an opaque timestamp/rowid boundary for older ones.
+export async function listThread(db, orgId, key, parentId, viewerLogin, view, members, page = null) {
   const parent = await getMessage(db, orgId, parentId);
   if (!parent || parent.channel !== key || parent.parent_id) return null;
+  const older = page?.before ? "AND (m.created_at, m.rowid) < (?4, ?5)" : "";
   const { results } = await db
     .prepare(
-      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m
+      `SELECT m.*, m.rowid AS thread_rowid, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
-        WHERE m.org_id = ?1 AND m.parent_id = ?2 AND m.deleted_at IS NULL
-        ORDER BY m.created_at, m.rowid`
+        WHERE m.org_id = ?1 AND m.parent_id = ?2 AND m.deleted_at IS NULL ${older}
+        ORDER BY m.created_at ${page ? "DESC" : "ASC"}, m.rowid ${page ? "DESC" : "ASC"} ${page ? "LIMIT ?3" : ""}`
     )
-    .bind(orgId, parentId)
+    .bind(orgId, parentId, ...(page ? [page.limit + 1, ...(page.before || [])] : []))
     .all();
-  const [head, ...replies] = await present(db, orgId, [parent, ...(results || [])], viewerLogin, view, members);
-  return { parent: head, replies };
+  const more = Boolean(page && results?.length > page.limit);
+  const rows = page ? (results || []).slice(0, page.limit).reverse() : results || [];
+  const oldest = rows[0];
+  const nextCursor = more && oldest ? btoa(JSON.stringify([oldest.created_at, oldest.thread_rowid])).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") : null;
+  const [head, ...replies] = await present(db, orgId, [parent, ...rows], viewerLogin, view, members);
+  return { parent: head, replies, ...(page ? { more, nextCursor } : {}) };
 }
 
 /// Pinned messages in a channel, newest pin first.

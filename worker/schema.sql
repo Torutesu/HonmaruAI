@@ -634,6 +634,7 @@ CREATE TABLE IF NOT EXISTS channel_messages (
 /* The index for `client_id` is in migrations.sql, after the ALTER that adds
    it, for the same reason as `ref` above. */
 CREATE INDEX IF NOT EXISTS idx_channel_messages ON channel_messages(org_id, channel, created_at);
+CREATE INDEX IF NOT EXISTS idx_channel_thread_page ON channel_messages(org_id, parent_id, created_at);
 
 /* One emoji from one person on one message. A browser is told who reacted
    by member ref, never by login. */

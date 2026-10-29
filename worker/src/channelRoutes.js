@@ -53,7 +53,7 @@ import { custom as customEvent } from "./agui/events.js";
 import {
   resolveChannel, listMessages, postMessage, getMessage, linkCard, transcriptUpTo, channelActivity, clientIdOk,
   viewOf, asksTheAI, asksForDecision, withoutAI, MAX_MESSAGE_CHARS,
-  present, listThread, listPins, editMessage, deleteMessage, toggleReaction, setPinned, setPreviewsHidden,
+  present, listThread, threadPageRequest, listPins, editMessage, deleteMessage, toggleReaction, setPinned, setPreviewsHidden,
   markRead, markUnreadFrom, markActivitySeen, readThreadsSeenInActivity, readsFor, activityFeed, searchMessages, threadsFor, roomThreads,
 } from "./channels.js";
 import { safe } from "./log.js";
@@ -1558,7 +1558,10 @@ export async function handleChannels(request, env, url, { route, after }) {
     const orgId = url.searchParams.get("orgId");
     const ctx = await inChannel(env, request, { orgId, channel: url.searchParams.get("channel") });
     if (ctx.denied) return ctx.denied;
-    const thread = await listThread(env.DB, orgId, ctx.resolved.key, url.searchParams.get("messageId") || "", ctx.who.user.login, ctx.view, ctx.members);
+    let page;
+    try { page = threadPageRequest(url.searchParams); }
+    catch (error) { return json({ message: error.message }, 400); }
+    const thread = await listThread(env.DB, orgId, ctx.resolved.key, url.searchParams.get("messageId") || "", ctx.who.user.login, ctx.view, ctx.members, page);
     if (!thread) return json({ message: "No such thread." }, 404);
     return json({ ...thread, parent: { ...thread.parent, canRenameThread: !thread.parent.deleted && !(await isGuest(env.DB, orgId, ctx.who.session.github_id)) } });
   }
