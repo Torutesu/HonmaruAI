@@ -55,7 +55,7 @@ test("a reply in the same channel says who it answers and how that began", async
   const res = await send(toru, "Let's push back to +5%", { replyTo: m.id });
   expect(res.status).toBe(201);
   const { message } = await res.json();
-  const quote = { id: m.id, kind: "message", authorName: "Mika", authorRef: refs.Mika, excerpt: "Roaster wants +8% from Friday", source: { channel: "b:cafe", body: m.body, lang: "en", fileName: null }, deleted: false };
+  const quote = { id: m.id, kind: "message", authorName: "Mika", authorRef: refs.Mika, excerpt: "Roaster wants +8% from Friday", source: { channel: "b:cafe", body: m.body, lang: m.lang, fileName: null }, deleted: false };
   expect(message.replyTo).toEqual(quote);
   // In the conversation, not in a thread: the main log has both, and the
   // original gains no thread for it.
@@ -119,9 +119,11 @@ test("the quote hides a spoiler, even one the cut would have halved", async () =
   const r = await say(toru, "no way", { replyTo: m.id });
   expect(r.replyTo.excerpt).toBe(`The winner is ${SPOILER_MASK} — don't tell`);
   expect(JSON.stringify(r)).not.toContain("Kenji||");
+  expect(r.replyTo).not.toHaveProperty("source");
   const long = `${"a".repeat(110)} ||the secret that runs past the cut||`;
   const r2 = await say(toru, "hm", { replyTo: (await say(mika, long)).id });
   expect(r2.replyTo.excerpt).not.toContain("secret");
+  expect(JSON.stringify(r2.replyTo)).not.toContain("secret");
   expect(Array.from(r2.replyTo.excerpt).length).toBeLessThanOrEqual(120);
 });
 
