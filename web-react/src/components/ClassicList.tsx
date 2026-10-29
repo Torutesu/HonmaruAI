@@ -573,7 +573,7 @@ export const ClassicList: React.FC<Props> = ({
       })
       .catch(() => { /* the list still shows every decision */ })
     return () => { ignore = true }
-  }, [api.httpBase, api.orgId, authHeaders, channelsTick, translationEnabled])
+  }, [api.httpBase, api.orgId, authHeaders, channelsTick, translationEnabled, translationPreferenceRevision])
   // A group somebody just started with you.
   useEffect(() => {
     const on = (e: Event) => {

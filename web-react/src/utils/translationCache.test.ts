@@ -145,11 +145,22 @@ describe('translation response boundaries (#523, #532)', () => {
     expect(old()).toBe(false)
   })
 
-  it('a same-owner existing-session adoption in another tab does not invalidate pending requests', () => {
+  it('a same-owner existing-session adoption in another tab does not strand a held response', async () => {
     claimAccountData('server|same')
-    const pending = translationFence()
+    const body = deferred<any>()
+    const json = vi.fn(() => body.promise)
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json })))
+    const current = translationFence()
+    const pending = readTranslationBatch('/translate', {}, current)
+    await Promise.resolve(); await Promise.resolve()
+    expect(json).toHaveBeenCalledOnce()
     adoptAccountData('server|same')
-    expect(pending()).toBe(true)
+    body.resolve({ locale: 'en', translations: { m: 'translated' } })
+    const completed = await pending
+    expect(current()).toBe(true)
+    expect(completed?.data?.translations?.m).toBe('translated')
+    keepTranslations('org', 'en', [{ id: 'm', from: 'source', text: completed!.data!.translations!.m }], Date.now(), current)
+    expect(keptTranslation('org', 'm', 'en', 'source')).toBe('translated')
   })
 
   it("new-owner adoption cannot re-persist this tab's previous account memory", () => {
