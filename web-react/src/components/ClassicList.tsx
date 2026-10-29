@@ -29,6 +29,7 @@ import { newerPin } from '../utils/messagePin'
 import { ReadGuard } from '../utils/readGuard'
 import { ReadWrites } from '../utils/readWrites'
 import { toggleReaction } from '../utils/reactions'
+import { useTranslationPreference } from '../utils/useTranslationPreference'
 import { sameWords, wantsTranslation } from '../utils/translationRule'
 import { FAILURE_LABEL, failureOf, translationFence, readTranslationBatch, matchesTranslation, keepTranslations, keptTranslation, translationBatches, translationKey, type TranslateFailure } from '../utils/translationCache'
 import { ChannelCanvas } from './ChannelCanvas'
@@ -125,6 +126,7 @@ interface Props {
   sourceAppDraft?: string
   userId: string
   translationEnabled?: boolean | null
+  translationPreferenceRevision?: number
   orgName: string
   pending: DecisionCard[]
   sent: DecisionCard[]
@@ -349,7 +351,7 @@ function when(iso?: string): string {
 /// the relay's, not invented. On a phone it is one pane at a time: the
 /// sidebar, then the conversation with a way back.
 export const ClassicList: React.FC<Props> = ({
-  linkedFile = null, jamStates, harness = false, newRequest = 0, homeRequest = 0, sourceAppId = null, sourceAppSection, sourceAppDraft, linkedThreadId = null, userId, translationEnabled = null, orgName, pending, sent, decided, businesses, presence,
+  linkedFile = null, jamStates, harness = false, newRequest = 0, homeRequest = 0, sourceAppId = null, sourceAppSection, sourceAppDraft, linkedThreadId = null, userId, translationEnabled = null, translationPreferenceRevision = 0, orgName, pending, sent, decided, businesses, presence,
   onOpen, onNudge, onDecide, api, onSearch, onCompose, onTellAI, onDeleteCard, onViewChange, onOpenRecord, onImmersive, renderCard, onWorkspace, onApps, onWorkflow, workspaceMenu,
   onCreateRoom, onCreateChannel, onRenameChannel, onDeleteChannel, onOpenScreen, onOpenAgentProfile, onPlaces, onStatus, statusOpen, active = true,
 }) => {
@@ -2622,9 +2624,9 @@ export const ClassicList: React.FC<Props> = ({
     ...(thread ? [thread.parent, ...thread.replies] : []),
   ].map(m => [`${m.channel}:${m.id}`, m])), [messages, thread, activityItems, threadItems, laterItems])
   const latestTranslationSource = (m: ChannelMessage) => referenceUpdates.current.get(`${m.channel}:${m.id}`) || loadedTranslationSources.current.get(`${m.channel}:${m.id}`) || m
-  const [serverTranslateOff, setTranslateOff] = useState(false)
-  const translateOff = translationEnabled !== true || serverTranslateOff
-  const translationScope = JSON.stringify([api.httpBase, api.orgId, api.sessionToken, userId, readerLang, translationEnabled])
+  const { off: translateOff, scope: translationScope, setServerOff: setTranslateOff } = useTranslationPreference(
+    translationEnabled, translationPreferenceRevision, JSON.stringify([api.httpBase, api.orgId, api.sessionToken, userId, readerLang]),
+  )
   const activeTranslationScope = useRef(translationScope)
   activeTranslationScope.current = translationScope
   const [keptScope, setKeptScope] = useState(translationScope)
@@ -2632,7 +2634,6 @@ export const ClassicList: React.FC<Props> = ({
   useLayoutEffect(() => {
     setTranslations({})
     setOriginals(new Set())
-    setTranslateOff(false)
     setKeptScope(translationScope)
     asking.current.clear()
     setTranslating({})

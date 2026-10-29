@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi, afterEach } from 'vitest'
 import { failureOf, forgetTranslations, keepTranslations, keptTranslation, translationBatches, translationKey, translationFence, readTranslationBatch, wordsHash, matchesTranslation } from './translationCache'
-import { clearAccountData, claimAccountData, releaseAccountData } from './cardCache'
+import { clearAccountData, claimAccountData, releaseAccountData, adoptAccountData } from './cardCache'
 
 function fakeStorage(): Storage {
   const m = new Map<string, string>()
@@ -143,6 +143,28 @@ describe('translation response boundaries (#523, #532)', () => {
     const old = translationFence()
     localStorage.setItem('account.translationGeneration', 'different-tab-session')
     expect(old()).toBe(false)
+  })
+
+  it('a same-owner existing-session adoption in another tab does not invalidate pending requests', () => {
+    claimAccountData('server|same')
+    const pending = translationFence()
+    adoptAccountData('server|same')
+    expect(pending()).toBe(true)
+  })
+
+  it("new-owner adoption cannot re-persist this tab's previous account memory", () => {
+    claimAccountData('server|old')
+    keepTranslations('shared-org', 'en', [{ id: 'private-old', from: 'Synthetic private original', text: 'Synthetic private translation' }])
+    // A different tab clears shared storage and claims a new account; this
+    // module's Map remains alive, just as in a tab handling a storage event.
+    localStorage.removeItem('translations:shared-org')
+    localStorage.setItem('account.owner', 'server|new')
+    localStorage.setItem('account.translationGeneration', 'new-tab-generation')
+    adoptAccountData('server|new')
+    keepTranslations('shared-org', 'en', [{ id: 'new', from: 'New original', text: 'New translation' }])
+    expect(localStorage.getItem('translations:shared-org')).not.toContain('Synthetic private')
+    expect(keptTranslation('shared-org', 'private-old', 'en', 'Synthetic private original')).toBeNull()
+    expect(keptTranslation('shared-org', 'new', 'en', 'New original')).toBe('New translation')
   })
 
   it('same-account remount keeps already-valid translations, but cannot reuse pending requests', () => {

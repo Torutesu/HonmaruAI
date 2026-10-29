@@ -12,6 +12,11 @@ const MAX = 800
 type Entry = [from: string, text: string, at: number]
 const memory = new Map<string, Record<string, Entry>>()
 let generation = 0
+let memoryIdentity: string | null = null
+
+function sharedIdentity(): string | null {
+  try { return JSON.stringify([localStorage.getItem('account.owner'), localStorage.getItem('account.translationGeneration')]) } catch { return null }
+}
 
 export function invalidateTranslationRequests(): void {
   generation += 1
@@ -22,12 +27,17 @@ export function invalidateTranslationRequests(): void {
 /// Captured before any await; clearing/claiming an account invalidates late writes.
 export function translationFence(): () => boolean {
   const captured = generation
-  const identity = () => { try { return JSON.stringify([localStorage.getItem('account.owner'), localStorage.getItem('account.translationGeneration')]) } catch { return null } }
-  const capturedIdentity = identity()
-  return () => captured === generation && capturedIdentity === identity()
+  const capturedIdentity = sharedIdentity()
+  return () => captured === generation && capturedIdentity === sharedIdentity()
 }
 
 function load(orgId: string): Record<string, Entry> {
+  // Another tab can replace the account/storage without clearing this module.
+  const identity = JSON.stringify([generation, sharedIdentity()])
+  if (memoryIdentity !== identity) {
+    memory.clear()
+    memoryIdentity = identity
+  }
   const hit = memory.get(orgId)
   if (hit) return hit
   let kept: Record<string, Entry> = {}

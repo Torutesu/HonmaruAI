@@ -585,12 +585,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   const translationOwner = JSON.stringify([relayHttpUrl, sessionToken, userId])
   const translationOwnerRef = useRef(translationOwner)
   translationOwnerRef.current = translationOwner
-  const [translationPreference, setTranslationPreference] = useState<{ owner: string; enabled: boolean } | null>(null)
+  const [translationPreference, setTranslationPreference] = useState<{ owner: string; enabled: boolean; revision: number } | null>(null)
   const translationPreferenceVersion = useRef(0)
   const savedTranslationPreference = (enabled: boolean) => {
     if (translationOwnerRef.current !== translationOwner) return
     translationPreferenceVersion.current += 1
-    setTranslationPreference({ owner: translationOwner, enabled })
+    setTranslationPreference({ owner: translationOwner, enabled, revision: translationPreferenceVersion.current })
   }
   const loadWorkspaces = useCallback(async () => {
     const preferenceVersion = translationPreferenceVersion.current
@@ -600,7 +600,10 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (!res.ok) return
       const me = await res.json()
       if (translationOwnerRef.current !== translationOwner) return
-      if (preferenceVersion === translationPreferenceVersion.current) setTranslationPreference({ owner: translationOwner, enabled: me.translateMessages !== false })
+      if (preferenceVersion === translationPreferenceVersion.current) {
+        translationPreferenceVersion.current += 1
+        setTranslationPreference({ owner: translationOwner, enabled: me.translateMessages !== false, revision: translationPreferenceVersion.current })
+      }
       if (Array.isArray(me.orgs)) setWorkspaces(me.orgs)
       setQuietState({ pausedUntil: me.notifyPausedUntil || null, schedule: me.notifySchedule || null })
       setNotificationCopy(me.notificationCopy)
@@ -1111,6 +1114,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onDecide={(id, action) => handleDecision(id, action)}
           api={api}
           translationEnabled={translationPreference?.owner === translationOwner ? translationPreference.enabled : null}
+          translationPreferenceRevision={translationPreference?.owner === translationOwner ? translationPreference.revision : 0}
           onSearch={() => setPalette(true)}
           onCompose={() => setPanel('compose')}
           onTellAI={(text) => { setComposeSeed({ id: String(Date.now()), text }); setPanel('compose') }}

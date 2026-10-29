@@ -82,7 +82,6 @@ export function claimAccountData(owner: string, storage: Storage = localStorage)
 /// A session this browser already had, found still good on opening: what it
 /// kept is that account's unless it was recorded as someone else's.
 export function adoptAccountData(owner: string, storage: Storage = localStorage): void {
-  invalidateTranslationRequests()
   let kept: string | null = null
   try { kept = storage.getItem(OWNER_KEY) } catch { /* blocked */ }
   if (kept && kept !== owner) clearAccountData(storage)
