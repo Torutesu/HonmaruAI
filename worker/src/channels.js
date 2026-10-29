@@ -383,16 +383,25 @@ export function threadPageRequest(params) {
 export async function listThread(db, orgId, key, parentId, viewerLogin, view, members, page = null) {
   const parent = await getMessage(db, orgId, parentId);
   if (!parent || parent.channel !== key || parent.parent_id || (page && parent.deleted_at)) return null;
-  const older = page?.before ? "AND (m.created_at, m.rowid) < (?4, ?5)" : "";
-  const { results } = await db
+  const select = (older, limit = page?.limit + 1, boundary = []) => db
     .prepare(
       `SELECT m.*, m.rowid AS thread_rowid, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
         WHERE m.org_id = ?1 AND m.parent_id = ?2 AND m.deleted_at IS NULL ${older}
         ORDER BY m.created_at ${page ? "DESC" : "ASC"}, m.rowid ${page ? "DESC" : "ASC"} ${page ? "LIMIT ?3" : ""}`
     )
-    .bind(orgId, parentId, ...(page ? [page.limit + 1, ...(page.before || [])] : []))
+    .bind(orgId, parentId, ...(page ? [limit, ...boundary] : []))
     .all();
+  // Equality on created_at lets SQLite seek its implicit rowid tie-breaker.
+  // A tuple comparison alone scans the whole timestamp tie before rowid.
+  const first = page?.before
+    ? await select("AND m.created_at = ?4 AND m.rowid < ?5", page.limit + 1, page.before)
+    : await select("");
+  const results = first.results || [];
+  if (page?.before && results.length <= page.limit) {
+    const earlier = await select("AND m.created_at < ?4", page.limit + 1 - results.length, [page.before[0]]);
+    results.push(...(earlier.results || []));
+  }
   const more = Boolean(page && results?.length > page.limit);
   const rows = page ? (results || []).slice(0, page.limit).reverse() : results || [];
   const oldest = rows[0];

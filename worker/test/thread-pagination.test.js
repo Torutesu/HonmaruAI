@@ -131,8 +131,9 @@ test("a dense soft-deleted tail still seeks the partial page index", async () =>
   const result = await read(request({ limit: "50" }));
   expect(result.replies).toHaveLength(50);
   expect(result.parent.replyCount).toBe(60);
-  const plan = await env.DB.prepare("EXPLAIN QUERY PLAN SELECT id FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND deleted_at IS NULL AND (created_at,rowid)<(?3,?4) ORDER BY created_at DESC,rowid DESC LIMIT 51").bind(ORG, 'root', '2026-10-29T00:00:00.000Z', 1000000).all();
+  const plan = await env.DB.prepare("EXPLAIN QUERY PLAN SELECT id FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND deleted_at IS NULL AND created_at=?3 AND rowid<?4 ORDER BY created_at DESC,rowid DESC LIMIT 51").bind(ORG, 'root', '2026-10-29T00:00:00.000Z', 1000000).all();
   expect(plan.results.map(row => row.detail).join(' ')).toContain('idx_channel_thread_page');
+  expect(plan.results.map(row => row.detail).join(' ')).toContain('rowid<?');
   expect(plan.results.map(row => row.detail).join(' ')).not.toContain('TEMP B-TREE');
   const index = await env.DB.prepare("SELECT sql FROM sqlite_master WHERE name='idx_channel_thread_page'").first();
   expect(index.sql).toContain('WHERE deleted_at IS NULL');

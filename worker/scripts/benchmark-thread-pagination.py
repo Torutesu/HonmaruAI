@@ -23,8 +23,8 @@ body = source.split('export async function listThread(', 1)[1].split('\n///', 1)
 sql = re.search(r'\.prepare\(\s*`([^`]+)`', body).group(1)
 assert '${older}' in sql and 'LIMIT ?3' in sql
 
-def query(paged):
-    return (sql.replace('${older}', '')
+def query(paged, boundary=''):
+    return (sql.replace('${older}', boundary)
             .replace('${page ? "DESC" : "ASC"}', 'DESC' if paged else 'ASC')
             .replace('${page ? "LIMIT ?3" : ""}', 'LIMIT ?3' if paged else ''))
 
@@ -80,6 +80,18 @@ for count in (0, 1, 50, 1000, 10000):
     newest = [row['id'] for row in db.execute(bounded, ('fixture', 'root', 51))][:50]
     assert newest == list(reversed(ids[-50:]))
     item = {'visible_replies': count, 'legacy': current, 'paged': page, 'presented_replies': min(count, 50)}
+    if count == 10000:
+        # A deep cursor inside one huge timestamp tie must seek rowid directly.
+        db.execute("UPDATE channel_messages SET created_at=? WHERE org_id='fixture'", (now,))
+        cursor_sql = query(True, 'AND m.created_at = ?4 AND m.rowid < ?5')
+        near = measure(db, cursor_sql, ('fixture', 'root', 51, now, 9000))
+        deep = measure(db, cursor_sql, ('fixture', 'root', 51, now, 100))
+        assert near['sql_rows'] == deep['sql_rows'] == 51
+        assert deep['sqlite_vm_instructions'] < 4000
+        assert deep['sqlite_vm_instructions'] < near['sqlite_vm_instructions'] * 2
+        assert 'rowid<?' in ' '.join(row['detail'] for row in deep['plan'])
+        item['all_timestamp_ties_cursor_near'] = near
+        item['all_timestamp_ties_cursor_deep'] = deep
     result['cases'].append(item)
     print(json.dumps({'visible_replies': count, 'legacy_p50_ms': current['query_fetch']['p50_ms'], 'paged_p50_ms': page['query_fetch']['p50_ms'], 'legacy_rows': current['sql_rows'], 'paged_rows': page['sql_rows'], 'paged_vm_instructions': page['sqlite_vm_instructions']}), flush=True)
     db.close()
