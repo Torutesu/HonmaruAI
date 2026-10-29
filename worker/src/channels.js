@@ -294,11 +294,13 @@ export async function hydrate(db, orgId, rows, members = null) {
     const [replies, reactions] = await Promise.all([
       // Aggregate in SQLite: only one row and at most five visible faces per
       // parent cross D1. Counts still scan that parent's live reply index.
+      // Keep each parent outside the reply scan instead of probing it per child.
       db.prepare(`WITH replies AS (
           SELECT m.parent_id, m.created_at, m.rowid AS sequence,
             CASE WHEN m.kind = 'ai' THEN 'ai' ELSE m.author_login END AS who
-          FROM channel_messages m JOIN channel_messages p ON p.org_id = m.org_id AND p.id = m.parent_id AND p.channel = m.channel
-          WHERE m.org_id = ?1 AND m.deleted_at IS NULL AND p.deleted_at IS NULL AND m.parent_id IN (${marks})
+          FROM channel_messages p CROSS JOIN channel_messages m
+            ON m.org_id = p.org_id AND m.parent_id = p.id AND m.channel = p.channel
+          WHERE p.org_id = ?1 AND p.id IN (${marks}) AND p.deleted_at IS NULL AND m.deleted_at IS NULL
         ), firsts AS (
           SELECT parent_id, who, created_at, sequence,
             ROW_NUMBER() OVER (PARTITION BY parent_id, who ORDER BY created_at, sequence) AS occurrence
