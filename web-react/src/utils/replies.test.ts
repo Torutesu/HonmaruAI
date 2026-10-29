@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ChannelMessage } from '../types/card'
-import { SPOILER_MASK, replyExcerpt, quoteOf, refreshQuotes, excerptParts, withoutThread, displayedQuote, replySources } from './replies'
+import { SPOILER_MASK, replyExcerpt, quoteOf, refreshQuotes, excerptParts, withoutThread, displayedQuote, replySources, applyReferenceRead, missingReplySource } from './replies'
 
 const msg = (over: Partial<ChannelMessage> = {}): ChannelMessage => ({
   id: 'm1', channel: 'b:cafe', kind: 'message', body: 'Roaster wants +8%', authorName: 'Mika', authorRef: 'r-mika',
@@ -141,5 +141,49 @@ describe('viewer reply excerpts (#522)', () => {
     expect(displayedQuote(quoteOf(msg()), 'b:cafe', msg(), () => '😀'.repeat(150)).excerpt).toBe('😀'.repeat(119) + '…')
     const file = msg({ body: '', files: [{ id: 'f', name: 'plan.pdf' } as any] })
     expect(displayedQuote(quoteOf(file), file.channel, file, () => '').excerpt).toBe('📎 plan.pdf')
+  })
+})
+
+
+describe('authoritative reference refresh ordering', () => {
+  it('replaces event A with current server B after a reconnect, including unloaded wire sources', () => {
+    const a = msg({ body: 'A' })
+    const b = msg({ body: 'B' })
+    const updates = new Map([[`${a.channel}:${a.id}`, a]])
+    const before = new Map(updates)
+    const reply = msg({ id: 'reply', replyTo: quoteOf(b) })
+    applyReferenceRead(updates, before, [reply])
+    expect(displayedQuote(quoteOf(a), a.channel, updates.get(`${a.channel}:${a.id}`), m => m.body).excerpt).toBe('B')
+  })
+  it('never lets a late fetch of A override live B received during that fetch', () => {
+    const a = msg({ body: 'A' })
+    const b = msg({ body: 'B' })
+    const key = `${a.channel}:${a.id}`
+    const updates = new Map([[key, a]])
+    const before = new Map(updates)
+    updates.set(key, b)
+    applyReferenceRead(updates, before, [a])
+    expect(updates.get(key)).toBe(b)
+  })
+  it('keeps live deletion authoritative, and marks a directly revalidated missing source deleted', () => {
+    const source = msg()
+    const key = `${source.channel}:${source.id}`
+    const gone = missingReplySource(source.id, source.channel)
+    const updates = new Map([[key, gone]])
+    applyReferenceRead(updates, new Map(updates), [source])
+    expect(updates.get(key)?.deleted).toBe(true)
+    updates.set(key, source)
+    applyReferenceRead(updates, new Map(updates), [gone])
+    expect(displayedQuote(quoteOf(source), source.channel, updates.get(key), () => 'cached private').deleted).toBe(true)
+  })
+  it('does not infer deletion from a paginated absence; a current deleted wire quote does revoke it', () => {
+    const source = msg()
+    const key = `${source.channel}:${source.id}`
+    const updates = new Map([[key, source]])
+    applyReferenceRead(updates, new Map(updates), [])
+    expect(updates.get(key)).toBe(source)
+    const reply = msg({ id: 'reply', replyTo: quoteOf({ ...source, deleted: true }) })
+    applyReferenceRead(updates, new Map(updates), [reply])
+    expect(updates.get(key)?.deleted).toBe(true)
   })
 })

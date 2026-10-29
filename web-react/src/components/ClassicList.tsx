@@ -72,7 +72,7 @@ import { DailyReportDraft } from './DailyReport'
 import { MessageActions, CardActions, Reactions, EmojiPicker, EmojiPickerAt, EmojiGlyph, FormatBar, bulletOnSpace, continueBlock, renderRich, LinkCards, SlashMenu, SchedulePicker, parseScheduleCommand, TypingLine, ReplyQuoteLine, ThreadReplyLine, ReplyingBar, UnsentNote } from './MessageParts'
 import { heard as heardTyping, said, expire, nextExpiry as nextTypingExpiry, typistsIn, typedIn, stoppedIn, sendTyping } from '../utils/typing'
 import type { Typist, TypingEvent, Outgoing as TypingOut, Place, Signal } from '../utils/typing'
-import { quoteOf, refreshQuotes, withoutThread, displayedQuote, replySources } from '../utils/replies'
+import { quoteOf, refreshQuotes, withoutThread, displayedQuote, replySources, applyReferenceRead, missingReplySource } from '../utils/replies'
 import { ChannelJournal, ChannelDetails, JamButton, JamBar } from './ChannelPanes'
 import type { DetailsTab, JournalCite, NotifyLevel } from './ChannelPanes'
 import { JamCall } from '../utils/jam'
@@ -427,6 +427,14 @@ export const ClassicList: React.FC<Props> = ({
   if (referenceIdentityRef.current !== referenceIdentity) {
     referenceUpdates.current.clear()
     referenceIdentityRef.current = referenceIdentity
+  }
+  const referenceRead = () => {
+    const before = new Map(referenceUpdates.current)
+    const identity = referenceIdentityRef.current
+    const accountCurrent = translationFence()
+    return (list: ChannelMessage[]) => {
+      if (accountCurrent() && referenceIdentityRef.current === identity) applyReferenceRead(referenceUpdates.current, before, list)
+    }
   }
   const authHeaders = useMemo(() => ({ 'x-session-token': api.sessionToken }), [api.sessionToken])
   /// What was last shown, for this account and workspace (#209): drawn at
@@ -849,20 +857,23 @@ export const ClassicList: React.FC<Props> = ({
   const [sentItems, setSentItems] = useState<ChannelMessage[] | null>(() => views.get<ChannelMessage[]>('sent') ?? null)
   useEffect(() => { if (sentItems) views.set('sent', sentItems, { read: false }) }, [sentItems, views])
   const loadSent = useCallback(() => {
+    const readReferences = referenceRead()
     return fetch(`${api.httpBase}/channels/sent?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (data) { views.set('sent', data.items || []); setSentItems(data.items || []) } })
+      .then((data) => { if (data) { readReferences(data.items || []); views.set('sent', data.items || []); setSentItems(data.items || []) } })
       .catch(() => { /* the list stays as it was */ })
   }, [api.httpBase, api.orgId, authHeaders, views])
   const [threadItems, setThreadItems] = useState<ThreadItem[] | null>(() => views.get<ThreadItem[]>('threads') ?? null)
   useEffect(() => { if (threadItems) views.set('threads', threadItems, { read: false }) }, [threadItems, views])
   const loadThreads = useCallback(() => {
     const ticket = readGuard.ask('threads')
+    const readReferences = referenceRead()
     return fetch(`${api.httpBase}/channels/threads?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!data || !readGuard.fresh('threads', ticket)) return
         const list = readGuard.threadList<ThreadItem>(data.threads || [])
+        readReferences(list.flatMap(x => [x.parent, ...x.replies]))
         views.set('threads', list); setThreadItems(list)
       })
       .catch(() => { /* the list stays as it was */ })
@@ -902,11 +913,13 @@ export const ClassicList: React.FC<Props> = ({
   const [activityPick, setActivityPick] = useState<string | null>(null)
   const loadActivity = useCallback(() => {
     const ticket = readGuard.ask('activity')
+    const readReferences = referenceRead()
     return fetch(`${api.httpBase}/channels/activity?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!data || !readGuard.fresh('activity', ticket)) return
         const list = readGuard.activity<ActivityItem>(data.items || [], activityKey)
+        readReferences(list.map(x => x.message))
         views.set('activity', list); setActivityItems(list)
       })
       .catch(() => { /* nothing new is the same as nothing loaded */ })
@@ -1634,10 +1647,14 @@ export const ClassicList: React.FC<Props> = ({
   /// loaded; only a hole too big to join starts again from the page.
   const loadMessages = useCallback((channel: string, force = true) => messageCache.load(channel, async (isCurrent) => {
     const before = messagesRef.current[channel] || []
+    const readReferences = referenceRead()
     return fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}`, { headers: authHeaders })
       .then((r) => {
         if ([401, 403, 404].includes(r.status) && isCurrent() && cacheScope.current === messageCache) {
           messageCache.forget(channel)
+          readReferences([...referenceUpdates.current.values()].filter(m => m.channel === channel).map(m => missingReplySource(m.id, channel)))
+          setReplyingTo(prev => prev?.view === channel ? { ...prev, quote: { ...prev.quote, deleted: true, source: undefined, excerpt: '' } } : prev)
+          setThreadReplying(prev => prev?.quote.source?.channel === channel ? { ...prev, quote: { ...prev.quote, deleted: true, source: undefined, excerpt: '' } } : prev)
           setMessages((prev) => { const next = { ...prev }; delete next[channel]; return next })
         }
         return r.ok ? r.json() : null
@@ -1647,6 +1664,7 @@ export const ClassicList: React.FC<Props> = ({
         // What is still on its way, or did not go, is only here: kept —
         // and what did not go before this page loaded, back where it was.
         const page = (data.messages || []) as ChannelMessage[]
+        readReferences(page)
         const had = messagesRef.current[channel]
         const back = heldFor(channel, undefined, page)
         setMessages((prev) => ({ ...prev, [channel]: withHeld(mergeLatestMessages(prev[channel] || [], page, before, leavesGap(prev[channel], page, PAGE), !hasOlder(data, PAGE)), back) }))
@@ -1663,11 +1681,13 @@ export const ClassicList: React.FC<Props> = ({
     const list = messagesRef.current[channel]
     if (loadingOlder.current || !list?.length || !more[channel]) return
     loadingOlder.current = true
+    const readReferences = referenceRead()
     try {
       const res = await fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&${olderThan(list[0])}`, { headers: authHeaders })
       const data = res.ok ? await res.json() : null
       if (!data) return
       const older = (data.messages || []) as ChannelMessage[]
+      readReferences(older)
       // A place is kept only for a page that puts something above. One that
       // adds nothing (the conversation had exactly a page) changes no length,
       // and the place kept would be used by whatever arrived next — a jump
@@ -1699,10 +1719,12 @@ export const ClassicList: React.FC<Props> = ({
     if (!channel || !parentId || isTemp({ id: parentId })) return
     const key = `thread:${channel}:${parentId}`
     if (views.fresh(key, AHEAD_FRESH_MS) || threadLoads.current.has(key)) return
+    const readReferences = referenceRead()
     const task = fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(parentId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!data?.parent) return
+        readReferences([data.parent, ...(data.replies || [])])
         views.set(key, ((data.replies || []) as ChannelMessage[]).filter((r) => !isTemp(r)))
         views.set(`threadHead:${channel}:${parentId}`, data.parent)
       })
@@ -2488,9 +2510,10 @@ export const ClassicList: React.FC<Props> = ({
   // before the Done lands after it.
   const laterDone = useRef<Set<string>>(new Set())
   const loadLater = useCallback(() => {
+    const readReferences = referenceRead()
     return fetch(`${api.httpBase}/channels/later?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d) setLaterItems(((d.items || []) as Array<{ id: string; remindAt: string | null; remindedAt: string | null; message: ChannelMessage }>).filter((x) => !laterDone.current.has(x.id))) })
+      .then((d) => { if (d) { readReferences((d.items || []).map((x: { message: ChannelMessage }) => x.message)); setLaterItems(((d.items || []) as Array<{ id: string; remindAt: string | null; remindedAt: string | null; message: ChannelMessage }>).filter((x) => !laterDone.current.has(x.id))) } })
       .catch(() => {})
   }, [api.httpBase, api.orgId, authHeaders])
   useEffect(() => { void loadLater() }, [loadLater])
@@ -2754,6 +2777,31 @@ export const ClassicList: React.FC<Props> = ({
     } finally { translationRequests.current.delete(controller) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api.httpBase, api.orgId, authHeaders, translations, translateOff, readerLang, translationScope])
+  const refreshQuotedSources = useCallback(async (channel: string, ids: string[]) => {
+    const accountCurrent = translationFence()
+    const readReferences = referenceRead()
+    const current = () => accountCurrent() && referenceIdentityRef.current === referenceIdentity && cacheScope.current === messageCache
+    for (const batch of translationBatches(ids)) {
+      if (!current()) return
+      const query = new URLSearchParams({ orgId: api.orgId, channel, sourceIds: JSON.stringify(batch) })
+      const res = await fetch(`${api.httpBase}/channels/messages?${query}`, { headers: authHeaders }).catch(() => null)
+      if (!current()) return
+      const data = res?.ok ? await res.json().catch(() => null) : null
+      if (!current()) return
+      const missing: unknown[] = Array.isArray(data?.missingIds) ? data.missingIds : ([401, 403, 404].includes(res?.status || 0) ? batch : [])
+      if (!data && !missing.length) continue
+      const sources: ChannelMessage[] = [
+        ...(Array.isArray(data?.messages) ? data.messages : []),
+        ...missing.filter((id): id is string => typeof id === 'string' && batch.includes(id)).map((id) => missingReplySource(id, channel)),
+      ]
+      readReferences(sources)
+      void translate(channel, sources)
+      // The source may be outside every loaded page; its quote still repaints.
+      setReplyingTo(prev => prev?.view === channel ? { ...prev } : prev)
+      setThreadReplying(prev => prev ? { ...prev } : prev)
+      setMessages(prev => ({ ...prev }))
+    }
+  }, [api.httpBase, api.orgId, authHeaders, referenceIdentity, messageCache, translate])
   // Whatever is on screen: the open conversation, and the thread beside it.
   useEffect(() => {
     if (!view) return
@@ -3241,9 +3289,11 @@ export const ClassicList: React.FC<Props> = ({
       history.replaceState(history.state,'',hash)
       window.dispatchEvent(new HashChangeEvent('hashchange'))
     }
+    const readReferences = referenceRead()
     const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(m.id)}`, { headers: authHeaders }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) : null
     if (ask !== threadAsk.current) return
+    if (data?.parent) readReferences([data.parent, ...(data.replies || [])])
     if (!data) setThread((prev) => (prev && prev.parent.id === m.id ? { ...prev, loading: false, failed: true } : prev))
     // Replies of yours still on their way, or that did not go — sent while
     // it was open before, or before this page loaded — back in it.
@@ -3271,10 +3321,12 @@ export const ClassicList: React.FC<Props> = ({
       threadInActivity.current = true
       setThread((prev) => ({ channel, parent: head, replies: keepTemps(kept, prev && prev.parent.id === parentId ? prev.replies : undefined), loading: true }))
     }
+    const readReferences = referenceRead()
     const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(parentId)}`, { headers: authHeaders }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) : null
     // Another thread picked since, or the pane closed: that one stands.
     if (ask !== threadAsk.current) return
+    if (data?.parent) readReferences([data.parent, ...(data.replies || [])])
     if (!data?.parent) {
       // Kept on screen when the read fails, saying so, rather than taken away.
       if (kept && head) setThread((prev) => (prev && prev.parent.id === parentId ? { ...prev, loading: false, failed: true } : prev))
@@ -3375,12 +3427,29 @@ export const ClassicList: React.FC<Props> = ({
     messageCache.invalidate()
     setChannelsTick((n) => n + 1)
     if (view) void loadMessages(view)
+    const referenced = new Map<string, Set<string>>()
+    const addReference = (channel: string, quote: ReplyQuote | null | undefined) => {
+      if (!quote || quote.deleted || isTemp({ id: quote.id })) return
+      if (!referenced.has(channel)) referenced.set(channel, new Set())
+      referenced.get(channel)!.add(quote.id)
+    }
+    const visible = [
+      ...(view ? messages[view] || [] : []), ...(thread ? [thread.parent, ...thread.replies] : []),
+      ...(activityOpen ? (activityItems || []).map(i => i.message) : []),
+      ...(threadsOpen ? (threadItems || []).flatMap(i => [i.parent, ...i.replies]) : []),
+      ...(pins || []),
+    ]
+    for (const m of visible) for (const quote of [m.replyTo, m.threadParent]) addReference(m.channel, quote)
+    if (replyingTo) addReference(replyingTo.view, replyingTo.quote)
+    if (thread && threadReplying) addReference(thread.channel, threadReplying.quote)
+    for (const [channel, ids] of referenced) void refreshQuotedSources(channel, [...ids])
     if (thread) {
       const { channel, parent } = thread
       const before = new Set(thread.replies.map((r) => r.id))
+      const readReferences = referenceRead()
       fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(parent.id)}`, { headers: authHeaders })
         .then((r) => (r.ok ? r.json() : null))
-        .then((data) => { if (data?.parent) setThread((prev) => (prev && prev.parent.id === parent.id ? { ...prev, parent: data.parent, replies: refreshedReplies(data.replies || [], prev.replies, before) } : prev)) })
+        .then((data) => { if (data?.parent) { readReferences([data.parent, ...(data.replies || [])]); setThread((prev) => (prev && prev.parent.id === parent.id ? { ...prev, parent: data.parent, replies: refreshedReplies(data.replies || [], prev.replies, before) } : prev)) } })
         .catch(() => { /* the thread stays as it was */ })
     }
     if (activityItems) void loadActivity()
@@ -3400,8 +3469,10 @@ export const ClassicList: React.FC<Props> = ({
   }, [])
   const loadPins = async (channel: string) => {
     if (pins) { setPins(null); return }
+    const readReferences = referenceRead()
     const res = await fetch(`${api.httpBase}/channels/pins?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}`, { headers: authHeaders }).catch(() => null)
     const data = res?.ok ? await res.json().catch(() => null) : null
+    if (data) readReferences(data.messages || [])
     setPins(data?.messages || [])
   }
   const jumpTo = (id: string) => {

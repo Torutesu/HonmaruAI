@@ -1167,6 +1167,15 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (!resolved) return json({ message: "No such channel." }, 404);
     const view = viewOf(resolved.key, who.user.login, members);
     if (request.method === "GET") {
+      // Revalidate references outside the loaded page without searching another channel.
+      if (url.searchParams.has("sourceIds")) {
+        let ids;
+        try { ids = JSON.parse(url.searchParams.get("sourceIds")); } catch { return json({ message: "Invalid source IDs." }, 400); }
+        if (!Array.isArray(ids) || ids.length > 60 || ids.some(id => typeof id !== "string" || !id || id.length > 80)) return json({ message: "Invalid source IDs." }, 400);
+        ids = [...new Set(ids)];
+        const rows = (await Promise.all(ids.map(id => getMessage(env.DB, orgId, id)))).filter(row => row && row.channel === resolved.key);
+        return json({ messages: await present(env.DB, orgId, rows, who.user.login, view, members), missingIds: ids.filter(id => !rows.some(row => row.id === id)) });
+      }
       const before = url.searchParams.get("before") || undefined;
       // The oldest message held, with `before` its time: a cursor that does
       // not skip a message sharing that millisecond.

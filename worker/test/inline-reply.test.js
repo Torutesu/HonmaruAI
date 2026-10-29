@@ -262,3 +262,22 @@ test('reference source uses the reader channel handle, and never leaks another c
   expect(inaccessible.replyTo).toMatchObject({ deleted: true });
   expect(inaccessible.replyTo.source).toBeUndefined();
 });
+
+test('reference revalidation returns current same-channel sources and authoritative deletion only', async () => {
+  const source = await say(mika, 'Version A');
+  const elsewhere = await say(mika, 'Other conversation text', { channel: 'b:kitchen' });
+  const { editMessage } = await import('../src/channels.js');
+  // Resolve the writer of the fixture's email-backed account.
+  const actual = await env.DB.prepare('SELECT author_login FROM channel_messages WHERE id = ?1').bind(source.id).first();
+  await editMessage(env.DB, { orgId: ORG, id: source.id, authorLogin: actual.author_login, body: 'Version B' });
+  const read = () => get(`/channels/messages?${q({ orgId: ORG, channel: 'b:cafe', sourceIds: JSON.stringify([source.id, elsewhere.id, 'absent']) })}`, kenji);
+  const current = await (await read()).json();
+  expect(current.messages.map(m => [m.id, m.body])).toEqual([[source.id, 'Version B']]);
+  expect(current.missingIds).toEqual([elsewhere.id, 'absent']);
+  expect(JSON.stringify(current)).not.toContain('Other conversation text');
+  await del('/channels/messages', mika, { orgId: ORG, channel: 'b:cafe', messageId: source.id });
+  const removed = await (await read()).json();
+  expect(removed.messages[0]).toMatchObject({ id: source.id, deleted: true, body: '' });
+  expect((await get(`/channels/messages?${q({ orgId: ORG, channel: 'b:cafe', sourceIds: JSON.stringify([source.id]) })}`, 'invalid')).status).toBe(401);
+  expect((await get(`/channels/messages?${q({ orgId: ORG, channel: 'b:cafe', sourceIds: JSON.stringify(Array.from({ length: 61 }, (_, i) => String(i))) })}`, kenji)).status).toBe(400);
+});

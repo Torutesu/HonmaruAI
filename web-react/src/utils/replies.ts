@@ -111,3 +111,22 @@ export function replySources(list: ChannelMessage[]): ChannelMessage[] {
   }
   return [...all.values()]
 }
+
+export function missingReplySource(id: string, channel: string): ChannelMessage {
+  return { id, channel, kind: 'message', body: '', authorName: null, authorRef: null, mine: false, cardId: null, createdAt: '', deleted: true }
+}
+
+/// A completed authorized read replaces old overrides, but never an event
+/// received during that read or a deletion already observed by this viewer.
+export function applyReferenceRead(updates: Map<string, ChannelMessage>, before: Map<string, ChannelMessage>, list: ChannelMessage[]): void {
+  const sources = replySources(list)
+  for (const m of list) for (const quote of [m.replyTo, m.threadParent]) {
+    if (quote?.deleted) sources.push(missingReplySource(quote.id, m.channel))
+  }
+  const unique = new Map(sources.map(source => [`${source.channel}:${source.id}`, source]))
+  for (const [key, source] of unique) {
+    const current = updates.get(key)
+    if (current?.deleted || current !== before.get(key)) continue
+    updates.set(key, source)
+  }
+}
