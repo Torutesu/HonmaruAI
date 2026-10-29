@@ -233,7 +233,7 @@
 .classic.slk.slk .slk-msg:hover .slk-hover-time { visibility: visible; }
 .classic.slk.slk .slk-body { flex: 1; min-width: 0; }
 .classic.slk.slk .slk-meta { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; line-height: 1.3; }
-.classic.slk.slk .slk-author { font-weight: 800; font-size: 15px; color: var(--slk-ink); }
+.classic.slk.slk .slk-author { min-width: 0; max-width: 100%; overflow-wrap: anywhere; text-align: start; font-weight: 800; font-size: 15px; color: var(--slk-ink); }
 .classic.slk.slk .slk-to { font-size: 13px; color: var(--slk-dim); }
 .classic.slk.slk .slk-time { font-size: 12px; color: var(--slk-faint); font-variant-numeric: tabular-nums; }
 .classic.slk.slk .slk-title {
@@ -1848,7 +1848,7 @@ body.slk-resizing iframe { pointer-events: none; }
 .classic.slk.slk .slk-reply-quote > svg { flex: none; color: var(--slk-faint); }
 .classic.slk.slk .slk-reply-quote:hover { background: var(--slk-hover); color: var(--slk-ink); }
 .classic.slk.slk .slk-reply-quote:focus-visible { outline: 2px solid var(--slk-accent); outline-offset: 1px; }
-.classic.slk.slk .slk-reply-who { flex: none; font-weight: 700; color: var(--slk-ink); }
+.classic.slk.slk .slk-reply-who { flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; color: var(--slk-ink); }
 .classic.slk.slk .slk-reply-excerpt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .classic.slk.slk .slk-reply-quote.gone { cursor: default; font-style: italic; color: var(--slk-faint); }
 .classic.slk.slk .slk-reply-quote.gone:hover { background: none; color: var(--slk-faint); }

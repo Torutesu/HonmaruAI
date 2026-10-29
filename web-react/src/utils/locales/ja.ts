@@ -1,6 +1,8 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Full screen': '全画面表示',
+  'Could not enter fullscreen. Try the video controls.': '全画面表示にできませんでした。動画の操作メニューからお試しください。',
   'Recent document conversions': '最近の文書作成',
   'Could not load recent documents.': '最近の文書作成を読み込めませんでした。',
   'This folder is empty': 'このフォルダは空です',
