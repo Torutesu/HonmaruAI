@@ -116,17 +116,57 @@ export function missingReplySource(id: string, channel: string): ChannelMessage 
   return { id, channel, kind: 'message', body: '', authorName: null, authorRef: null, mine: false, cardId: null, createdAt: '', deleted: true }
 }
 
-/// A completed authorized read replaces old overrides, but never an event
-/// received during that read or a deletion already observed by this viewer.
-export function applyReferenceRead(updates: Map<string, ChannelMessage>, before: Map<string, ChannelMessage>, list: ChannelMessage[]): void {
-  const sources = replySources(list)
-  for (const m of list) for (const quote of [m.replyTo, m.threadParent]) {
-    if (quote?.deleted) sources.push(missingReplySource(quote.id, m.channel))
+interface ReferenceRead {
+  epoch: number
+  sequence: number
+  events: Map<string, number>
+}
+
+/// Socket events and overlapping reads have separate clocks. Only an event
+/// received during a read protects its source from that read's answer.
+export class ReferenceReads {
+  readonly sources = new Map<string, ChannelMessage>()
+  private events = new Map<string, number>()
+  private applied = new Map<string, number>()
+  private sequence = 0
+  private epoch = 0
+
+  reset(): void {
+    this.sources.clear()
+    this.events.clear()
+    this.applied.clear()
+    this.epoch += 1
   }
-  const unique = new Map(sources.map(source => [`${source.channel}:${source.id}`, source]))
-  for (const [key, source] of unique) {
-    const current = updates.get(key)
-    if (current?.deleted || current !== before.get(key)) continue
-    updates.set(key, source)
+
+  receive(source: ChannelMessage): void {
+    const key = `${source.channel}:${source.id}`
+    if (this.sources.get(key)?.deleted && !source.deleted) return
+    this.sources.set(key, source)
+    this.events.set(key, (this.events.get(key) || 0) + 1)
+  }
+
+  begin(): ReferenceRead {
+    return { epoch: this.epoch, sequence: ++this.sequence, events: new Map(this.events) }
+  }
+
+  apply(read: ReferenceRead, list: ChannelMessage[]): void {
+    if (read.epoch !== this.epoch) return
+    const sources = replySources(list)
+    for (const m of list) for (const quote of [m.replyTo, m.threadParent]) {
+      if (quote?.deleted) sources.push(missingReplySource(quote.id, m.channel))
+    }
+    const unique = new Map(sources.map(source => [`${source.channel}:${source.id}`, source]))
+    for (const [key, source] of unique) {
+      if (this.sources.get(key)?.deleted) continue
+      if (source.deleted) {
+        this.sources.set(key, source)
+        this.applied.set(key, Math.max(this.applied.get(key) || 0, read.sequence))
+        continue
+      }
+      if ((this.events.get(key) || 0) !== (read.events.get(key) || 0)) continue
+      if ((this.applied.get(key) || 0) > read.sequence) continue
+      this.sources.set(key, source)
+      this.applied.set(key, read.sequence)
+    }
   }
 }

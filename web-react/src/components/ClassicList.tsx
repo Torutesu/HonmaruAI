@@ -72,7 +72,7 @@ import { DailyReportDraft } from './DailyReport'
 import { MessageActions, CardActions, Reactions, EmojiPicker, EmojiPickerAt, EmojiGlyph, FormatBar, bulletOnSpace, continueBlock, renderRich, LinkCards, SlashMenu, SchedulePicker, parseScheduleCommand, TypingLine, ReplyQuoteLine, ThreadReplyLine, ReplyingBar, UnsentNote } from './MessageParts'
 import { heard as heardTyping, said, expire, nextExpiry as nextTypingExpiry, typistsIn, typedIn, stoppedIn, sendTyping } from '../utils/typing'
 import type { Typist, TypingEvent, Outgoing as TypingOut, Place, Signal } from '../utils/typing'
-import { quoteOf, refreshQuotes, withoutThread, displayedQuote, replySources, applyReferenceRead, missingReplySource } from '../utils/replies'
+import { quoteOf, refreshQuotes, withoutThread, displayedQuote, replySources, ReferenceReads, missingReplySource } from '../utils/replies'
 import { ChannelJournal, ChannelDetails, JamButton, JamBar } from './ChannelPanes'
 import type { DetailsTab, JournalCite, NotifyLevel } from './ChannelPanes'
 import { JamCall } from '../utils/jam'
@@ -421,19 +421,20 @@ export const ClassicList: React.FC<Props> = ({
     setServerReads(previous=>({...previous,[v]:at}));setSeenTick(n=>n+1);return true
   }
   const readAt = (v: string) => [seenAt(api.orgId, v), serverReads[v] || ''].sort().pop() || ''
-  const referenceUpdates = useRef(new Map<string, ChannelMessage>())
+  const referenceReads = useRef(new ReferenceReads())
+  const referenceUpdates = useRef(referenceReads.current.sources)
   const referenceIdentity = JSON.stringify([api.httpBase, api.orgId, api.sessionToken, userId])
   const referenceIdentityRef = useRef(referenceIdentity)
   if (referenceIdentityRef.current !== referenceIdentity) {
-    referenceUpdates.current.clear()
+    referenceReads.current.reset()
     referenceIdentityRef.current = referenceIdentity
   }
   const referenceRead = () => {
-    const before = new Map(referenceUpdates.current)
+    const before = referenceReads.current.begin()
     const identity = referenceIdentityRef.current
     const accountCurrent = translationFence()
     return (list: ChannelMessage[]) => {
-      if (accountCurrent() && referenceIdentityRef.current === identity) applyReferenceRead(referenceUpdates.current, before, list)
+      if (accountCurrent() && referenceIdentityRef.current === identity) referenceReads.current.apply(before, list)
     }
   }
   const authHeaders = useMemo(() => ({ 'x-session-token': api.sessionToken }), [api.sessionToken])
@@ -1925,7 +1926,7 @@ export const ClassicList: React.FC<Props> = ({
       // read from the refs, not from a flag set for somebody else.
       const reactions = (m.reactions || []).map((r) => ({ ...r, mine: myRef ? r.refs.includes(myRef) : r.mine }))
       const msg = { ...m, mine, reactions }
-      referenceUpdates.current.set(`${m.channel}:${m.id}`, msg)
+      referenceReads.current.receive(msg)
       maybeNewEmoji(`${m.body || ''} ${reactions.map((r) => r.emoji).join(' ')}`)
       if (m.parentId) {
         // A reply: into the thread if it is open — our own, back before the
@@ -3048,7 +3049,7 @@ export const ClassicList: React.FC<Props> = ({
 
   /// Put a changed message wherever it shows: the log, the thread, the pins.
   const replaceMessage = (channel: string, msg: ChannelMessage) => {
-    referenceUpdates.current.set(`${channel}:${msg.id}`, msg)
+    referenceReads.current.receive(msg)
     if (msg.parentId) {
       setThread((prev) => (prev && prev.parent.id === msg.parentId
         ? { ...prev, replies: refreshQuotes(msg.deleted ? prev.replies.filter((x) => x.id !== msg.id) : prev.replies.map((x) => (x.id === msg.id ? msg : x)), msg) }

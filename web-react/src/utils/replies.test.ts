@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ChannelMessage } from '../types/card'
-import { SPOILER_MASK, replyExcerpt, quoteOf, refreshQuotes, excerptParts, withoutThread, displayedQuote, replySources, applyReferenceRead, missingReplySource } from './replies'
+import { SPOILER_MASK, replyExcerpt, quoteOf, refreshQuotes, excerptParts, withoutThread, displayedQuote, replySources, ReferenceReads, missingReplySource } from './replies'
 
 const msg = (over: Partial<ChannelMessage> = {}): ChannelMessage => ({
   id: 'm1', channel: 'b:cafe', kind: 'message', body: 'Roaster wants +8%', authorName: 'Mika', authorRef: 'r-mika',
@@ -149,41 +149,87 @@ describe('authoritative reference refresh ordering', () => {
   it('replaces event A with current server B after a reconnect, including unloaded wire sources', () => {
     const a = msg({ body: 'A' })
     const b = msg({ body: 'B' })
-    const updates = new Map([[`${a.channel}:${a.id}`, a]])
-    const before = new Map(updates)
+    const reads = new ReferenceReads()
+    reads.receive(a)
+    const before = reads.begin()
     const reply = msg({ id: 'reply', replyTo: quoteOf(b) })
-    applyReferenceRead(updates, before, [reply])
-    expect(displayedQuote(quoteOf(a), a.channel, updates.get(`${a.channel}:${a.id}`), m => m.body).excerpt).toBe('B')
+    reads.apply(before, [reply])
+    expect(displayedQuote(quoteOf(a), a.channel, reads.sources.get(`${a.channel}:${a.id}`), m => m.body).excerpt).toBe('B')
   })
   it('never lets a late fetch of A override live B received during that fetch', () => {
     const a = msg({ body: 'A' })
     const b = msg({ body: 'B' })
-    const key = `${a.channel}:${a.id}`
-    const updates = new Map([[key, a]])
-    const before = new Map(updates)
-    updates.set(key, b)
-    applyReferenceRead(updates, before, [a])
-    expect(updates.get(key)).toBe(b)
+    const reads = new ReferenceReads()
+    reads.receive(a)
+    const before = reads.begin()
+    reads.receive(b)
+    reads.apply(before, [a])
+    expect(reads.sources.get(`${a.channel}:${a.id}`)).toBe(b)
+  })
+  it.each([false, true])('newer read B wins either completion order when an initial event exists=%s', initialEvent => {
+    for (const reverse of [false, true]) {
+      const a = msg({ body: 'A' })
+      const b = msg({ body: 'B' })
+      const reads = new ReferenceReads()
+      if (initialEvent) reads.receive(a)
+      const pageRead = reads.begin()
+      const sourceRead = reads.begin()
+      if (reverse) { reads.apply(sourceRead, [b]); reads.apply(pageRead, [a]) }
+      else { reads.apply(pageRead, [{ ...a }]); reads.apply(sourceRead, [b]) }
+      expect(reads.sources.get(`${a.channel}:${a.id}`)?.body).toBe('B')
+    }
+  })
+  it.each([false, true])('an event during overlapping reads wins both completion orders; reverse=%s', reverse => {
+    const a = msg({ body: 'A' })
+    const reads = new ReferenceReads()
+    reads.receive(a)
+    const first = reads.begin()
+    const second = reads.begin()
+    const live = msg({ body: 'Live C' })
+    reads.receive(live)
+    for (const ticket of reverse ? [second, first] : [first, second]) reads.apply(ticket, [a])
+    expect(reads.sources.get(`${a.channel}:${a.id}`)).toBe(live)
   })
   it('keeps live deletion authoritative, and marks a directly revalidated missing source deleted', () => {
     const source = msg()
     const key = `${source.channel}:${source.id}`
     const gone = missingReplySource(source.id, source.channel)
-    const updates = new Map([[key, gone]])
-    applyReferenceRead(updates, new Map(updates), [source])
-    expect(updates.get(key)?.deleted).toBe(true)
-    updates.set(key, source)
-    applyReferenceRead(updates, new Map(updates), [gone])
-    expect(displayedQuote(quoteOf(source), source.channel, updates.get(key), () => 'cached private').deleted).toBe(true)
+    const reads = new ReferenceReads()
+    reads.receive(gone)
+    reads.apply(reads.begin(), [source])
+    expect(reads.sources.get(key)?.deleted).toBe(true)
+    reads.receive(source)
+    expect(reads.sources.get(key)?.deleted).toBe(true)
+    reads.reset()
+    reads.receive(source)
+    reads.apply(reads.begin(), [gone])
+    expect(displayedQuote(quoteOf(source), source.channel, reads.sources.get(key), () => 'cached private').deleted).toBe(true)
   })
   it('does not infer deletion from a paginated absence; a current deleted wire quote does revoke it', () => {
     const source = msg()
     const key = `${source.channel}:${source.id}`
-    const updates = new Map([[key, source]])
-    applyReferenceRead(updates, new Map(updates), [])
-    expect(updates.get(key)).toBe(source)
+    const reads = new ReferenceReads()
+    reads.receive(source)
+    reads.apply(reads.begin(), [])
+    expect(reads.sources.get(key)).toBe(source)
     const reply = msg({ id: 'reply', replyTo: quoteOf({ ...source, deleted: true }) })
-    applyReferenceRead(updates, new Map(updates), [reply])
-    expect(updates.get(key)?.deleted).toBe(true)
+    reads.apply(reads.begin(), [reply])
+    expect(reads.sources.get(key)?.deleted).toBe(true)
+  })
+  it('a confirmed tombstone wins even when a newer-started read returned the last live version first', () => {
+    const source = msg()
+    const reads = new ReferenceReads()
+    const olderRead = reads.begin()
+    const newerRead = reads.begin()
+    reads.apply(newerRead, [source])
+    reads.apply(olderRead, [missingReplySource(source.id, source.channel)])
+    expect(reads.sources.get(`${source.channel}:${source.id}`)?.deleted).toBe(true)
+  })
+  it('a previous identity read cannot populate the replacement identity map', () => {
+    const reads = new ReferenceReads()
+    const previous = reads.begin()
+    reads.reset()
+    reads.apply(previous, [msg()])
+    expect(reads.sources.size).toBe(0)
   })
 })
