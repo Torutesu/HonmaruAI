@@ -23,7 +23,7 @@ models += between(service, 'struct ChatThreadItem:', '/// A user group:')
 models += between(service, 'struct ChatThread:', 'struct ChatScheduled:')
 models += between(store, 'struct ChatOutbox {', '/// Everything the chat tab knows')
 
-methods = between(store, '    private struct ThreadRead', '    var unreadThreads:')
+methods = between(store, '    private struct ThreadRange', '    /// The open thread\'s replies') + between(store, '    private struct ThreadRead', '    var unreadThreads:')
 methods += between(store, '    func open(_ view:', '    /// Messages in another language')
 methods += between(store, '    func markRead(_ view:', '    /// A conversation\'s latest messages')
 methods += between(store, '    private func heldMessage(', '    /// The server has it: its copy')
@@ -297,6 +297,7 @@ checks = r'''
         let gapRoot = message("gap-root")
         let reconnect = ChatStore(), bridgeGate = Gate<ChatThread>()
         reconnect.thread = ChatThread(parent: gapRoot, replies: (1...50).map(numbered), more: false)
+        reconnect.recordThreadRange(reconnect.thread!, fetchedIds: Set(reconnect.thread!.replies.map(\.id)))
         reconnect.closeThread()
         var gapRequests: [String?] = []
         ChatService.getPage = { cursor in
@@ -322,9 +323,59 @@ checks = r'''
         check(Set(reconnect.thread!.replies.map(\.id)) == Set((1...151).map { numbered($0).id } + ["tmp-gap"]))
         check(reconnect.thread!.replies.first { $0.id == "n001" }?.body == "edited while gap pending")
         check(!reconnect.thread!.hasOlder)
+        // A live arrival cached before navigation cannot become continuity proof.
+        let polluted = ChatStore()
+        ChatService.getPage = { _ in ChatThread(parent: gapRoot, replies: (1...50).map(numbered), more: false) }
+        check(await polluted.openThread(channel: "b:general", parentId: "gap-root"))
+        polluted.upsert(numbered(150))
+        check(polluted.thread!.replies.last!.id == "n150")
+        check(polluted.threadRanges[polluted.viewKey("gap-root")!]!.ids == Set((1...50).map { numbered($0).id }))
+        polluted.closeThread()
+        var pollutedRequests: [String?] = []
+        ChatService.getPage = { cursor in
+            pollutedRequests.append(cursor)
+            switch cursor {
+            case nil: return ChatThread(parent: gapRoot, replies: (101...150).map(numbered), more: true, nextCursor: "polluted-101")
+            case "polluted-101": return ChatThread(parent: gapRoot, replies: (51...100).map(numbered), more: true, nextCursor: "polluted-51")
+            case "polluted-51": return ChatThread(parent: gapRoot, replies: (1...50).map(numbered), more: false)
+            default: preconditionFailure("Unexpected polluted cursor")
+            }
+        }
+        check(await polluted.openThread(channel: "b:general", parentId: "gap-root"))
+        check(pollutedRequests.count == 3 && polluted.thread!.replies.count == 150 && !polluted.thread!.hasOlder)
+        // An established empty server range must bridge to the beginning, not to a live row.
+        let emptyRange = ChatStore()
+        ChatService.getPage = { _ in ChatThread(parent: gapRoot, replies: [], more: false) }
+        check(await emptyRange.openThread(channel: "b:general", parentId: "gap-root"))
+        emptyRange.upsert(numbered(150)); emptyRange.closeThread()
+        check(emptyRange.threadRanges[emptyRange.viewKey("gap-root")!]!.ids.isEmpty)
+        var emptyRequests = 0
+        ChatService.getPage = { cursor in
+            emptyRequests += 1
+            switch cursor {
+            case nil: return ChatThread(parent: gapRoot, replies: (101...150).map(numbered), more: true, nextCursor: "empty-101")
+            case "empty-101": return ChatThread(parent: gapRoot, replies: (51...100).map(numbered), more: true, nextCursor: "empty-51")
+            case "empty-51": return ChatThread(parent: gapRoot, replies: (1...50).map(numbered), more: false)
+            default: preconditionFailure("Unexpected empty-range cursor")
+            }
+        }
+        check(await emptyRange.openThread(channel: "b:general", parentId: "gap-root"))
+        check(emptyRequests == 3 && emptyRange.thread!.replies.count == 150 && !emptyRange.thread!.hasOlder)
+        // A never-read live-only snapshot has no established server range/cursor.
+        let unknownRange = ChatStore()
+        unknownRange.thread = ChatThread(parent: gapRoot, replies: [])
+        unknownRange.upsert(numbered(150)); unknownRange.closeThread()
+        var unknownRequests = 0
+        ChatService.getPage = { cursor in
+            check(cursor == nil); unknownRequests += 1
+            return ChatThread(parent: gapRoot, replies: (101...150).map(numbered), more: true, nextCursor: "unknown-101")
+        }
+        check(await unknownRange.openThread(channel: "b:general", parentId: "gap-root"))
+        check(unknownRequests == 1 && unknownRange.thread!.hasOlder && unknownRange.thread!.nextCursor == "unknown-101")
         // Previously loaded earlier pages keep their earliest cursor after proven overlap.
         let earlierCache = ChatStore()
         earlierCache.thread = ChatThread(parent: gapRoot, replies: (21...120).map(numbered), more: true, nextCursor: "before-21")
+        earlierCache.recordThreadRange(earlierCache.thread!, fetchedIds: Set(earlierCache.thread!.replies.map(\.id)))
         earlierCache.closeThread()
         var earlierRequests: [String?] = []
         ChatService.getPage = { cursor in
@@ -343,6 +394,7 @@ checks = r'''
         // A broken bridge keeps cached history/error state and retry fetches the gap.
         let retryGap = ChatStore()
         retryGap.thread = ChatThread(parent: gapRoot, replies: (1...50).map(numbered), more: false)
+        retryGap.recordThreadRange(retryGap.thread!, fetchedIds: Set(retryGap.thread!.replies.map(\.id)))
         retryGap.closeThread()
         var failBridge = true
         ChatService.getPage = { cursor in
@@ -359,6 +411,7 @@ checks = r'''
         // Scope changes while a gap page is pending cannot install stale history.
         let scopeGap = ChatStore(), scopeBridge = Gate<ChatThread>()
         scopeGap.thread = ChatThread(parent: gapRoot, replies: (1...50).map(numbered), more: false)
+        scopeGap.recordThreadRange(scopeGap.thread!, fetchedIds: Set(scopeGap.thread!.replies.map(\.id)))
         scopeGap.closeThread()
         ChatService.getPage = { cursor in
             if cursor == nil { return ChatThread(parent: gapRoot, replies: (101...150).map(numbered), more: true, nextCursor: "scope-gap") }
@@ -440,7 +493,7 @@ checks = r'''
         context.closeThread(); staleContext.resolve(linked); await obsolete.value
         check(context.threadReference == nil && !context.threadReferenceLoading)
         ChatService.getPage = nil
-        print("Native chat regressions passed: linked reads/races, quotes/outbox, optimistic reactions/reconciliation, media scope, displayed read cutoff, bounded pages/cache/reference context, reconnect gaps/ties/retry/scope, legacy reference/reaction reconciliation.")
+        print("Native chat regressions passed: linked reads/races, quotes/outbox, optimistic reactions/reconciliation, media scope, displayed read cutoff, bounded pages/cache/reference context, reconnect gaps/ties/retry/scope, legacy reference/reaction reconciliation, server-only range provenance.")
     }
 }
 '''
