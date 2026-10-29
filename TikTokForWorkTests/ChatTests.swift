@@ -764,3 +764,15 @@ final class ChatLiveConsistencyTests: XCTestCase {
         XCTAssertTrue(removing.settingReaction("❤️", mine: false, myRef: "me").reactions?.isEmpty == true)
     }
 }
+
+final class ChatThreadPageTests: XCTestCase {
+    func testLegacyAndPagedThreadMetadataDecode() throws {
+        let parent = ChatMessage(id: "root", channel: "b:general", kind: "message", body: "hello", mine: false, createdAt: "2026-10-01T09:00:00Z")
+        let legacy = try JSONDecoder().decode(ChatThread.self, from: JSONEncoder().encode(ChatThread(parent: parent, replies: [])))
+        XCTAssertFalse(legacy.hasOlder)
+        XCTAssertNil(legacy.nextCursor)
+        let page = try JSONDecoder().decode(ChatThread.self, from: JSONEncoder().encode(ChatThread(parent: parent, replies: [], more: true, nextCursor: "opaque-next-page")))
+        XCTAssertTrue(page.hasOlder)
+        XCTAssertEqual(page.nextCursor, "opaque-next-page")
+    }
+}

@@ -68,12 +68,18 @@ struct Warning { var view: String; var replyTo: ChatQuote? }
 @MainActor enum ChatService {
     enum Failure: Error { case notSignedIn; case server(Int, String?) }
     static var getThread: ((String, String, String) async throws -> ChatThread)!
+    static var getPage: ((String?) async throws -> ChatThread)?
+    static var getReference: ((String) async throws -> ChatMessage)!
     static var getMessages: ((String) async throws -> [ChatMessage]) = { _ in [] }
     static var postReaction: ((String) async throws -> ChatMessage?)!
     static var postUpload: ((String, String) async throws -> ChatFile)!
     static var readWait: (() async -> Void)?
     static var readPositions: [String] = []
-    static func thread(orgId: String, channel: String, messageId: String, base: URL) async throws -> ChatThread { try await getThread(orgId, channel, messageId) }
+    static func thread(orgId: String, channel: String, messageId: String, before: String? = nil, base: URL) async throws -> ChatThread {
+        if let getPage { return try await getPage(before) }
+        return try await getThread(orgId, channel, messageId)
+    }
+    static func threadReference(orgId: String, channel: String, parentId: String, messageId: String, base: URL) async throws -> ChatMessage { try await getReference(messageId) }
     static func messages(orgId: String, channel: String, base: URL) async throws -> [ChatMessage] { try await getMessages(channel) }
     static func react(orgId: String, channel: String, messageId: String, emoji: String, base: URL) async throws -> ChatMessage? { try await postReaction(emoji) }
     static func upload(orgId: String, channel: String, data: Data, type: String, name: String, width: Int?, height: Int?, base: URL, token: String) async throws -> ChatFile { try await postUpload(orgId, token) }
@@ -89,11 +95,18 @@ struct Warning { var view: String; var replyTo: ChatQuote? }
     var members = [Member(ref: "me", mine: true, name: "Reader")]
     var myRef: String? { members.first { $0.mine }?.ref }
     var messages: [String: [ChatMessage]] = [:]
-    var threadReplies: [String: [ChatMessage]] = [:]
+    var threadCache: [String: ChatThread] = [:]
     var threads: [ChatThreadItem] = []
-    var thread: ChatThread? { didSet { if let t = thread, let key = viewKey(t.parent.id) { threadReplies[key] = t.replies.filter { !$0.id.hasPrefix("tmp-") } } } }
+    var thread: ChatThread? { didSet { if let t = thread, let key = viewKey(t.parent.id) { var cached = t; cached.replies = t.replies.filter { !$0.id.hasPrefix("tmp-") }; threadCache[key] = cached } } }
     var threadLoading = false
     var threadFailed = false
+    var threadOlderLoading = false
+    var threadOlderFailed = false
+    var threadReferenceId: String?
+    var threadReferenceLoading = false
+    var threadReferenceFailed = false
+    var threadReference: ChatMessage?
+    var referenceNavigation = UUID()
     var threadReadTo: [String: String] = [:]
     var threadJump: String?
     var error: String?
@@ -178,7 +191,7 @@ checks = r'''
         original.body = "corrected"; store.upsert(original)
         check(store.messages["b:general"]![0].replyTo?.excerpt == "corrected")
         check(store.thread!.replies[0].replyTo?.excerpt == "corrected")
-        check(store.threadReplies.values.flatMap { $0 }.first { $0.id == "quoted" }?.replyTo?.excerpt == "corrected")
+        check(store.threadCache.values.flatMap { $0.replies }.first { $0.id == "quoted" }?.replyTo?.excerpt == "corrected")
         original.deleted = true; store.upsert(original)
         check(store.messages["b:general"]![0].replyTo?.deleted == true && store.messages["b:general"]![0].replyTo?.excerpt == "")
         check(store.threads[0].replies[0].replyTo?.deleted == true)
@@ -247,7 +260,65 @@ checks = r'''
         await reads.readOpenThread()
         check(ChatService.readPositions == [reply.createdAt] && reads.inbox[0].unread)
         check(PushService.cutoffs.last! == ChatDates.parse(reply.createdAt))
-        print("Native chat regressions passed: linked reads/races, quotes/outbox, optimistic reactions/reconciliation, media scope, displayed read cutoff.")
+        // Bounded pages keep loaded history, live arrivals and failed sends.
+        let pages = ChatStore(), olderGate = Gate<ChatThread>()
+        let pageRoot = message("page-root")
+        let latest = (0..<50).map { message("page-\($0)", parent: "page-root") }
+        var cursors: [String?] = []
+        ChatService.getPage = { cursor in
+            cursors.append(cursor)
+            if cursor != nil { return try await olderGate.wait() }
+            return ChatThread(parent: pageRoot, replies: latest, more: true, nextCursor: "opaque-first")
+        }
+        pages.heldSends["tmp-page"] = ChatOutbox.Entry(clientId: "tmp-page", user: "alice", orgId: "A", view: "b:general", text: "held", decide: false, parentId: "page-root", alsoChannel: false, files: [], replyTo: nil, createdAt: reply.createdAt, reason: "offline")
+        check(await pages.openThread(channel: "b:general", parentId: "page-root"))
+        check(pages.thread!.replies.count == 51 && pages.thread!.hasOlder)
+        let earlier = Task { await pages.loadOlderThread() }; await drain()
+        check(cursors.count == 2 && cursors[1] == "opaque-first")
+        var arriving = message("page-live", parent: "page-root"); arriving.createdAt = "2026-10-02T09:00:00Z"
+        pages.upsert(arriving)
+        var oldReply = message("old-page", parent: "page-root"); oldReply.createdAt = "2026-09-01T09:00:00Z"
+        var staleDuplicate = latest[0]; staleDuplicate.body = "stale duplicate"
+        olderGate.resolve(ChatThread(parent: pageRoot, replies: [oldReply, staleDuplicate], more: false))
+        await earlier.value
+        check(pages.thread!.replies.count == 53 && !pages.thread!.hasOlder)
+        check(pages.thread!.replies.first!.id == "old-page")
+        check(pages.thread!.replies.first { $0.id == latest[0].id }?.body == "hello")
+        check(pages.thread!.replies.contains { $0.id == "tmp-page" })
+        // Revalidation cannot discard earlier loaded pages or reset their cursor.
+        check(await pages.openThread(channel: "b:general", parentId: "page-root"))
+        check(pages.thread!.replies.count == 53 && !pages.thread!.hasOlder)
+        check(pages.threadCache.values.first!.replies.count == 52, "Only confirmed replies enter the cache")
+        // Legacy backend replies decode as complete; pagination metadata is optional.
+        let legacyData = try JSONEncoder().encode(ChatThread(parent: pageRoot, replies: latest))
+        let legacy = try JSONDecoder().decode(ChatThread.self, from: legacyData)
+        check(!legacy.hasOlder && legacy.nextCursor == nil)
+        let pageData = try JSONEncoder().encode(ChatThread(parent: pageRoot, replies: latest, more: true, nextCursor: "opaque-next"))
+        check(try JSONDecoder().decode(ChatThread.self, from: pageData).nextCursor == "opaque-next")
+        // An unloaded linked reply gets one bounded context lookup, never an older-page walk.
+        let context = ChatStore(), contextGate = Gate<ChatMessage>()
+        var contextCalls = 0, pageCalls = 0
+        ChatService.getPage = { cursor in
+            check(cursor == nil); pageCalls += 1
+            return ChatThread(parent: pageRoot, replies: latest, more: true, nextCursor: "opaque-first")
+        }
+        ChatService.getReference = { id in check(id == "linked-old"); contextCalls += 1; return try await contextGate.wait() }
+        context.threadJump = "linked-old"
+        check(await context.openThread(channel: "b:general", parentId: "page-root")); await drain()
+        check(pageCalls == 1 && contextCalls == 1 && context.threadReferenceLoading)
+        let linked = message("linked-old", "current authorized words", parent: "page-root")
+        let previousReads = ChatService.readPositions.count
+        contextGate.resolve(linked); await drain()
+        check(context.threadReference?.body == "current authorized words")
+        check(context.thread!.replies.count == 50 && !context.thread!.replies.contains { $0.id == "linked-old" })
+        check(ChatService.readPositions.count == previousReads, "Context lookup cannot mark newer replies read")
+        let staleContext = Gate<ChatMessage>()
+        ChatService.getReference = { _ in try await staleContext.wait() }
+        let obsolete = Task { await context.loadThreadReference("linked-old") }; await drain()
+        context.closeThread(); staleContext.resolve(linked); await obsolete.value
+        check(context.threadReference == nil && !context.threadReferenceLoading)
+        ChatService.getPage = nil
+        print("Native chat regressions passed: linked reads/races, quotes/outbox, optimistic reactions/reconciliation, media scope, displayed read cutoff, bounded pages/cache/reference context.")
     }
 }
 '''

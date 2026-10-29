@@ -363,6 +363,10 @@ struct ChatSidebar: Codable, Hashable {
 struct ChatThread: Codable {
     var parent: ChatMessage
     var replies: [ChatMessage]
+    /// Absent on older backends, which return the complete thread.
+    var more: Bool? = nil
+    var nextCursor: String? = nil
+    var hasOlder: Bool { more == true && nextCursor?.isEmpty == false }
 }
 
 struct ChatScheduled: Codable, Identifiable, Hashable {
@@ -561,8 +565,16 @@ enum ChatService {
         return try await call("GET", "/channels/messages", base: base, query: q, as: R.self).messages
     }
 
-    static func thread(orgId: String, channel: String, messageId: String, base: URL) async throws -> ChatThread {
-        try await call("GET", "/channels/thread", base: base, query: ["orgId": orgId, "channel": channel, "messageId": messageId], as: ChatThread.self)
+    static func thread(orgId: String, channel: String, messageId: String, before: String? = nil, base: URL) async throws -> ChatThread {
+        var query = ["orgId": orgId, "channel": channel, "messageId": messageId, "limit": "50"]
+        if let before { query["before"] = before }
+        return try await call("GET", "/channels/thread", base: base, query: query, as: ChatThread.self)
+    }
+
+    /// One authorized reply's current context, without loading intervening history.
+    static func threadReference(orgId: String, channel: String, parentId: String, messageId: String, base: URL) async throws -> ChatMessage {
+        struct R: Decodable { let reference: ChatMessage }
+        return try await call("GET", "/channels/thread", base: base, query: ["orgId": orgId, "channel": channel, "messageId": parentId, "reference": messageId], as: R.self).reference
     }
 
     static func pins(orgId: String, channel: String, base: URL) async throws -> [ChatMessage] {

@@ -25,6 +25,7 @@ struct ChatThreadSheet: View {
     /// Photos were picked past what one reply carries, and left out.
     @State private var photoLimitNote = false
     @FocusState private var focused: Bool
+    @AccessibilityFocusState private var referenceButtonFocused: Bool
     /// Whether the newest reply is in view. There, what arrives is scrolled
     /// to; up in the earlier replies, the place is kept and what arrived is
     /// counted on the way back down.
@@ -48,7 +49,7 @@ struct ChatThreadSheet: View {
                             // While the replies are read: the count the
                             // conversation already showed, and that they are
                             // coming — not "0 replies" over an empty sheet.
-                            let known = store.threadLoading || store.threadFailed ? max(t.replies.count, t.parent.replyCount ?? 0) : t.replies.count
+                            let known = store.threadLoading || store.threadFailed || t.hasOlder ? max(t.replies.count, t.parent.replyCount ?? 0) : t.replies.count
                             Text(known == 1 ? String(localized: "1 reply") : String(localized: "\(known) replies"))
                                 .font(.caption.weight(.semibold)).foregroundStyle(Theme.Colors.textSecondary)
                             if store.threadLoading && t.replies.count < known {
@@ -58,6 +59,7 @@ struct ChatThreadSheet: View {
                             VStack { Divider() }
                         }.padding(.horizontal, 16).padding(.vertical, 8)
                         if store.threadFailed { failedNote(t.parent) }
+                        historyControls(t, proxy: proxy)
                         ForEach(t.replies) { row($0) }
                         // The replies still on their way, in their shape.
                         if store.threadLoading, (t.parent.replyCount ?? 0) > t.replies.count {
@@ -80,12 +82,15 @@ struct ChatThreadSheet: View {
             .modifier(ChatTracksBottom(atBottom: $atBottom))
             // A reply arriving: followed when the newest was in view, or when
             // it is your own; otherwise left below and counted.
-            .onChange(of: store.thread?.replies.count ?? 0) { old, new in
-                guard new > old, let t = store.thread else { return }
+            .onChange(of: store.thread?.replies.last?.id) { old, new in
+                guard new != nil, new != old, let old, let t = store.thread,
+                      let previous = t.replies.firstIndex(where: { $0.id == old }) else { return }
+                let arrived = t.replies.count - previous - 1
+                guard arrived > 0 else { return }
                 if atBottom || t.replies.last?.mine == true {
                     withAnimation { proxy.scrollTo(Self.bottom, anchor: .bottom) }
                 } else {
-                    unseen += new - old
+                    unseen += arrived
                 }
             }
             .onChange(of: store.thread.map { store.thinking[$0.parent.channel] != nil } ?? false) { _, _ in
@@ -97,7 +102,11 @@ struct ChatThreadSheet: View {
             .onChange(of: quoteJump) { _, id in
                 guard let id else { return }
                 quoteJump = nil
-                withAnimation { proxy.scrollTo(id, anchor: .center) }
+                if store.thread?.replies.contains(where: { $0.id == id }) == true || store.thread?.parent.id == id {
+                    withAnimation { proxy.scrollTo(id, anchor: .center) }
+                } else {
+                    Task { await store.loadThreadReference(id) }
+                }
             }
             // Opened at one reply (Search, Activity, Sent, a notification):
             // there, marked for a moment, once the replies have been read.
@@ -238,6 +247,9 @@ struct ChatThreadSheet: View {
                 if let id = store.thread?.parent.id { store.setDraft("thread:\(id)", text) }
             }
             .sheet(item: $reactingTo) { m in ChatEmojiPicker { e in Task { await store.react(m, e) } } }
+            .sheet(item: $store.threadReference, onDismiss: { referenceButtonFocused = true }) { message in
+                ChatThreadReferenceSheet(message: message) { store.threadReference = nil }
+            }
             }
         }
         // Everyone's photos and the workspace's emoji, however the sheet was opened.
@@ -245,6 +257,40 @@ struct ChatThreadSheet: View {
         .environment(\.chatAssets, store.assets)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    @ViewBuilder
+    private func historyControls(_ t: ChatThread, proxy: ScrollViewProxy) -> some View {
+        if let reference = store.threadReferenceId {
+            VStack(alignment: .leading, spacing: 4) {
+                if store.threadReferenceLoading {
+                    ProgressView("Loading linked reply…")
+                } else {
+                    if store.threadReferenceFailed { Text("That reply is unavailable. It may have been deleted, or you may no longer have access.").font(.caption) }
+                    Button(store.threadReferenceFailed ? "Try linked reply again" : "View linked reply") {
+                        Task { await store.loadThreadReference(reference) }
+                    }
+                    .accessibilityFocused($referenceButtonFocused)
+                }
+            }.padding(.horizontal, 16).padding(.vertical, 8)
+        }
+        if t.hasOlder || store.threadOlderFailed {
+            Button {
+                let anchor = t.replies.first?.id
+                let presentation = store.threadPresentation
+                Task {
+                    await store.loadOlderThread()
+                    guard store.threadPresentation == presentation, store.thread?.parent.id == t.parent.id, let anchor else { return }
+                    proxy.scrollTo(anchor, anchor: .top)
+                }
+            } label: {
+                if store.threadOlderLoading { ProgressView("Loading earlier replies…") }
+                else { Text(store.threadOlderFailed ? "Couldn't load earlier replies. Try again" : "Load earlier replies") }
+            }
+            .disabled(store.threadOlderLoading)
+            .font(.caption.weight(.semibold)).padding(.horizontal, 16).padding(.vertical, 8)
+            .accessibilityIdentifier("threadLoadOlder")
+        }
     }
 
     private static let bottom = "threadBottom"
@@ -1284,6 +1330,30 @@ struct ChatAttachedStrip: View {
     }
 }
 
+/// A bounded source lookup, read separately from the thread's contiguous history.
+private struct ChatThreadReferenceSheet: View {
+    let message: ChatMessage
+    let onClose: () -> Void
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(verbatim: message.authorName ?? "Someone").font(.headline)
+                    Text(message.date, style: .date).font(.caption).foregroundStyle(Theme.Colors.textSecondary)
+                    Text(ChatText.attributed(message.body)).textSelection(.enabled)
+                    if let quote = message.replyTo {
+                        Text(quote.deleted ? String(localized: "Original message was deleted") : quote.excerpt).font(.footnote).foregroundStyle(Theme.Colors.textSecondary)
+                    }
+                    ForEach(message.files ?? []) { file in Label(file.name, systemImage: "paperclip") }
+                }.frame(maxWidth: .infinity, alignment: .leading).padding()
+            }
+            .navigationTitle("Linked reply").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { CloseButton { onClose() } } }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
 /// The open thread, read as it is seen: a reply arriving while the newest
 /// is in view, coming back down to the newest, and coming back to the app
 /// with the thread open (ChatStore.readOpenThread). Apart from the sheet's
@@ -1294,7 +1364,7 @@ private struct ReadsOpenThread: ViewModifier {
     @Environment(\.scenePhase) private var scenePhase
 
     private func read() {
-        guard atBottom, scenePhase == .active else { return }
+        guard atBottom, scenePhase == .active, store.threadReference == nil, !store.threadReferenceLoading, store.threadJump == nil else { return }
         let target = store.thread?.parent.id
         let presentation = store.threadPresentation
         Task {
@@ -1306,6 +1376,8 @@ private struct ReadsOpenThread: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onAppear { read() }
+            .onChange(of: store.threadReference?.id) { _, _ in read() }
+            .onChange(of: store.threadReferenceLoading) { _, _ in read() }
             .onChange(of: store.thread?.parent.id) { _, _ in read() }
             .onChange(of: store.threadLoading) { _, _ in read() }
             .onChange(of: store.thread?.replies.count ?? 0) { _, _ in read() }

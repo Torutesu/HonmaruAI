@@ -148,7 +148,12 @@ final class ChatStore: ObservableObject {
     @Published var thread: ChatThread? {
         // The thread as it stands — replies sent, edited, arrived live —
         // kept for the next time it is opened (#209).
-        didSet { if let t = thread, let key = viewKey(t.parent.id) { threadReplies[key] = t.replies.filter { !$0.id.hasPrefix("tmp-") } } }
+        didSet {
+            if var t = thread, let key = viewKey(t.parent.id) {
+                t.replies.removeAll { $0.id.hasPrefix("tmp-") }
+                threadCache[key] = t
+            }
+        }
     }
     @Published var error: String?
     /// A tapped notification's message, in this workspace, waiting for
@@ -160,11 +165,18 @@ final class ChatStore: ObservableObject {
     /// What was last shown, in memory, for this account and workspace: a
     /// thread's replies and a teammate's profile, drawn at once when opened
     /// again and replaced by what the server says behind them.
-    private var threadReplies: [String: [ChatMessage]] = [:]
+    private var threadCache: [String: ChatThread] = [:]
     /// The open thread's replies still being read, or not read: said in the
     /// sheet rather than shown as a thread with nothing in it.
     @Published private(set) var threadLoading = false
     @Published private(set) var threadFailed = false
+    @Published private(set) var threadOlderLoading = false
+    @Published private(set) var threadOlderFailed = false
+    @Published private(set) var threadReferenceId: String?
+    @Published private(set) var threadReferenceLoading = false
+    @Published private(set) var threadReferenceFailed = false
+    @Published var threadReference: ChatMessage?
+    private var referenceNavigation = UUID()
     /// How far each thread was last read here, so a reply arriving while it
     /// is open is read once.
     private var threadReadTo: [String: String] = [:]
@@ -259,6 +271,9 @@ final class ChatStore: ObservableObject {
         scopeGeneration = UUID()
         threadNavigation = UUID()
         threadTarget = nil
+        referenceNavigation = UUID()
+        threadOlderLoading = false; threadOlderFailed = false
+        threadReference = nil; threadReferenceId = nil; threadReferenceLoading = false; threadReferenceFailed = false
         quoteUpdates = [:]
         messageChanges = [:]
         messageRevision = 0
@@ -445,17 +460,17 @@ final class ChatStore: ObservableObject {
     var threadPresentation: UUID { threadNavigation }
     private var threadTarget: (channel: String, parentId: String)?
     /// Prefetch and navigation share a read, including its explicit retry.
-    private func readThread(channel: String, parentId: String) async -> ChatThread? {
+    private func readThread(channel: String, parentId: String, before: String? = nil) async -> ChatThread? {
         guard let orgId, let base else { return nil }
         let generation = scopeGeneration
-        let key = "\(generation)|\(base)|\(channel)|\(parentId)"
+        let key = "\(generation)|\(base)|\(channel)|\(parentId)|\(before ?? "")"
         if let pending = threadReads[key] { return await pending.value }
         let revision = messageRevision
         let pending = Task { () -> ChatThread? in
-            if let t = try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, base: base) { return self.mergingChanges(into: t, after: revision) }
+            if let t = try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, before: before, base: base) { return self.mergingChanges(into: t, after: revision) }
             do { try await Task.sleep(for: .seconds(1)); try Task.checkCancellation() } catch { return nil }
             guard generation == self.scopeGeneration else { return nil }
-            guard let t = try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, base: base) else { return nil }
+            guard let t = try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, before: before, base: base) else { return nil }
             return self.mergingChanges(into: t, after: revision)
         }
         threadReads[key] = pending
@@ -491,10 +506,10 @@ final class ChatStore: ObservableObject {
         let generation = scopeGeneration
         for item in threads.filter(\.unread).prefix(3) {
             guard generation == scopeGeneration else { return }
-            guard let key = viewKey(item.parent.id), threadReplies[key] == nil, thread?.parent.id != item.parent.id,
+            guard let key = viewKey(item.parent.id), threadCache[key] == nil, thread?.parent.id != item.parent.id,
                   let t = await readThread(channel: item.parent.channel, parentId: item.parent.id),
                   generation == scopeGeneration else { continue }
-            if threadReplies[key] == nil { threadReplies[key] = t.replies }
+            if threadCache[key] == nil { threadCache[key] = t }
         }
     }
     var unreadThreads: Int { threads.filter(\.unread).count }
@@ -1059,9 +1074,14 @@ final class ChatStore: ObservableObject {
         reactionChanges[key]?.status = "pending"
         setOwnReaction(m, emoji, mine: change.shown, myRef: change.myRef, status: "pending")
         do {
-            let read = try await ChatService.thread(orgId: orgId, channel: m.channel, messageId: m.parentId ?? m.id, base: base)
+            let found: ChatMessage?
+            if let parent = m.parentId {
+                found = try await ChatService.threadReference(orgId: orgId, channel: m.channel, parentId: parent, messageId: m.id, base: base)
+            } else {
+                found = try await ChatService.thread(orgId: orgId, channel: m.channel, messageId: m.id, base: base).parent
+            }
             guard generation == scopeGeneration else { return nil }
-            guard let found = ([read.parent] + read.replies).first(where: { $0.id == m.id }), !found.isDeleted else {
+            guard let found, !found.isDeleted else {
                 reactionChanges[key] = nil
                 var removed = m; removed.deleted = true; upsert(removed)
                 return nil
@@ -1198,21 +1218,91 @@ final class ChatStore: ObservableObject {
         threadTarget = (channel, parentId)
         let generation = scopeGeneration
         let requestedBase = base
-        let head = cachedParent ?? messages[channel]?.first { $0.id == parentId } ?? threads.first { $0.parent.channel == channel && $0.parent.id == parentId }?.parent
-        let kept = viewKey(parentId).flatMap { threadReplies[$0] } ?? threads.first { $0.parent.channel == channel && $0.parent.id == parentId }?.replies ?? []
-        thread = head.map { ChatThread(parent: $0, replies: withHeld(kept, view: channel, thread: parentId)) }
+        let cached = viewKey(parentId).flatMap { threadCache[$0] }
+        let head = cachedParent ?? cached?.parent ?? messages[channel]?.first { $0.id == parentId } ?? threads.first { $0.parent.channel == channel && $0.parent.id == parentId }?.parent
+        let kept = cached?.replies ?? threads.first { $0.parent.channel == channel && $0.parent.id == parentId }?.replies ?? []
+        thread = head.map { ChatThread(parent: $0, replies: withHeld(kept, view: channel, thread: parentId), more: cached?.more, nextCursor: cached?.nextCursor) }
+        threadOlderLoading = false; threadOlderFailed = false
+        referenceNavigation = UUID()
+        threadReference = nil; threadReferenceId = nil; threadReferenceLoading = false; threadReferenceFailed = false
+        let reference = threadJump
         threadFailed = false
         threadLoading = true
         let read = await readThread(channel: channel, parentId: parentId)
         guard !Task.isCancelled, generation == scopeGeneration, navigation == threadNavigation, requestedBase == base else { return false }
         threadLoading = false
         guard let read else { threadFailed = true; return false }
-        thread = ChatThread(parent: applyingReactionChanges(to: read.parent), replies: withHeld(read.replies, view: channel, thread: parentId))
+        thread = refreshedThread(read, keeping: thread)
+        if let reference, reference != parentId, !(thread?.replies.contains { $0.id == reference } ?? false) {
+            threadJump = nil
+            threadReferenceId = reference; threadReferenceLoading = true
+            Task { [weak self] in
+                guard let self, navigation == self.threadNavigation else { return }
+                await self.loadThreadReference(reference)
+            }
+        }
         Task { [weak self] in
             guard let self, generation == self.scopeGeneration else { return }
             await self.translate(channel, [read.parent] + read.replies)
         }
         return true
+    }
+
+    /// A fresh newest page keeps already loaded older pages and local sends.
+    private func refreshedThread(_ fresh: ChatThread, keeping kept: ChatThread?) -> ChatThread {
+        guard let kept, kept.parent.id == fresh.parent.id, kept.parent.channel == fresh.parent.channel else {
+            return ChatThread(parent: applyingReactionChanges(to: fresh.parent), replies: withHeld(fresh.replies, view: fresh.parent.channel, thread: fresh.parent.id), more: fresh.more, nextCursor: fresh.nextCursor)
+        }
+        let serverIds = Set(fresh.replies.map(\.id))
+        let older = kept.replies.filter { !serverIds.contains($0.id) && !$0.id.hasPrefix("tmp-") }
+        // A legacy full response is complete. For paged responses the older
+        // cursor stays at the earliest contiguous page already held.
+        let hasOlderPages = fresh.more == true && older.contains { old in fresh.replies.first.map { (old.createdAt, old.id) < ($0.createdAt, $0.id) } ?? false }
+        let replies = (older + fresh.replies).sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+        return ChatThread(parent: applyingReactionChanges(to: fresh.parent), replies: withHeld(fresh.more == true ? replies : fresh.replies, view: fresh.parent.channel, thread: fresh.parent.id), more: hasOlderPages ? kept.more : fresh.more, nextCursor: hasOlderPages ? kept.nextCursor : fresh.nextCursor)
+    }
+
+    func loadOlderThread() async {
+        guard let shown = thread, shown.hasOlder, let cursor = shown.nextCursor, !threadOlderLoading else { return }
+        let navigation = threadNavigation
+        let generation = scopeGeneration
+        threadOlderLoading = true; threadOlderFailed = false
+        let older = await readThread(channel: shown.parent.channel, parentId: shown.parent.id, before: cursor)
+        guard !Task.isCancelled, navigation == threadNavigation, generation == scopeGeneration, var current = thread else { return }
+        threadOlderLoading = false
+        guard let older, older.nextCursor != cursor else { threadOlderFailed = true; return }
+        let known = Set(current.replies.map(\.id))
+        let added = older.replies.filter { !known.contains($0.id) }
+        current.replies = withHeld((added + current.replies).sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }, view: current.parent.channel, thread: current.parent.id)
+        current.more = older.more; current.nextCursor = older.nextCursor
+        thread = current
+        Task { [weak self] in
+            guard let self, generation == self.scopeGeneration else { return }
+            await self.translate(shown.parent.channel, added)
+        }
+    }
+
+    /// Context lives outside the contiguous reply pages and never advances read state.
+    func loadThreadReference(_ id: String) async {
+        guard let shown = thread, let orgId, let base else { return }
+        let request = UUID()
+        referenceNavigation = request
+        let navigation = threadNavigation
+        let generation = scopeGeneration
+        let revision = messageRevision
+        threadReference = nil; threadReferenceId = id; threadReferenceLoading = true; threadReferenceFailed = false
+        do {
+            var found = try await ChatService.threadReference(orgId: orgId, channel: shown.parent.channel, parentId: shown.parent.id, messageId: id, base: base)
+            guard !Task.isCancelled, request == referenceNavigation, navigation == threadNavigation, generation == scopeGeneration, thread?.parent.id == shown.parent.id else { return }
+            threadReferenceLoading = false
+            if let update = messageChanges["\(found.channel)|\(found.id)"], update.revision > revision { found = update.message }
+            if let quote = found.replyTo, let current = quoteUpdates["\(found.channel)|\(quote.id)"] { found.replyTo = current }
+            guard found.id == id, found.channel == shown.parent.channel, found.parentId == shown.parent.id, !found.isDeleted else { threadReferenceFailed = true; return }
+            threadReference = found
+        } catch {
+            guard request == referenceNavigation, navigation == threadNavigation, generation == scopeGeneration else { return }
+            threadReferenceLoading = false; threadReferenceFailed = true
+        }
     }
 
     func openThread(_ m: ChatMessage) async {
@@ -1226,6 +1316,9 @@ final class ChatStore: ObservableObject {
 
     /// Closing the sheet invalidates pending navigation without marking it read.
     func closeThread() {
+        referenceNavigation = UUID()
+        threadReference = nil; threadReferenceId = nil; threadReferenceLoading = false; threadReferenceFailed = false
+        threadOlderLoading = false; threadOlderFailed = false
         threadTarget = nil
         threadNavigation = UUID()
         threadLoading = false
@@ -1382,13 +1475,17 @@ final class ChatStore: ObservableObject {
         })?.key, !(messages[m.channel]?.contains { $0.id == m.id } ?? false), !(thread?.replies.contains { $0.id == m.id } ?? false) {
             return landed(held, as: m)
         }
-        for key in Array(threadReplies.keys) {
-            if m.isDeleted { threadReplies[key]?.removeAll { $0.channel == m.channel && $0.id == m.id } }
-            else if let i = threadReplies[key]?.firstIndex(where: { $0.channel == m.channel && $0.id == m.id }) { threadReplies[key]?[i] = m }
+        if threadReference?.channel == m.channel && threadReference?.id == m.id { threadReference = m.isDeleted ? nil : m; threadReferenceFailed = m.isDeleted }
+        for key in Array(threadCache.keys) {
+            guard var cached = threadCache[key], cached.parent.channel == m.channel else { continue }
+            if cached.parent.id == m.id && !m.isDeleted { cached.parent = m }
+            if m.isDeleted { cached.replies.removeAll { $0.id == m.id } }
+            else if let i = cached.replies.firstIndex(where: { $0.id == m.id }) { cached.replies[i] = m }
+            threadCache[key] = cached
         }
         if m.isDeleted, m.parentId == nil {
             threads.removeAll { $0.parent.channel == m.channel && $0.parent.id == m.id }
-            if let key = viewKey(m.id) { threadReplies[key] = nil }
+            if let key = viewKey(m.id) { threadCache[key] = nil }
         }
         for i in threads.indices where threads[i].parent.channel == m.channel {
             if threads[i].parent.id == m.id && !m.isDeleted { threads[i].parent = m }
@@ -1415,7 +1512,7 @@ final class ChatStore: ObservableObject {
         if m.isDeleted, m.parentId == nil { list = Self.withoutReplies(of: m.id, in: list) }
         if messages[m.channel] != nil { messages[m.channel] = list }
         if thread?.parent.id == m.id {
-            if m.isDeleted { thread = nil } else { thread?.parent = m }
+            if m.isDeleted { closeThread() } else { thread?.parent = m }
         }
     }
 
@@ -1427,7 +1524,12 @@ final class ChatStore: ObservableObject {
         quoteUpdates["\(original.channel)|\(original.id)"] = ChatQuote(of: original)
         let refresh: (ChatMessage) -> ChatMessage = { $0.refreshingQuotes(from: original) }
         for channel in Array(messages.keys) { messages[channel] = messages[channel]?.map(refresh) }
-        for key in Array(threadReplies.keys) { threadReplies[key] = threadReplies[key]?.map(refresh) }
+        for key in Array(threadCache.keys) {
+            guard var cached = threadCache[key] else { continue }
+            cached.parent = refresh(cached.parent); cached.replies = cached.replies.map(refresh)
+            threadCache[key] = cached
+        }
+        if let reference = threadReference { threadReference = refresh(reference) }
         threads = threads.map { var t = $0; t.parent = refresh(t.parent); t.replies = t.replies.map(refresh); return t }
         if var t = thread { t.parent = refresh(t.parent); t.replies = t.replies.map(refresh); thread = t }
         for id in Array(heldSends.keys) {
