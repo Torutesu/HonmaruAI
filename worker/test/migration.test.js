@@ -96,7 +96,7 @@ test("thread paging indexes are created after upgrading a pre-thread messages ta
     id TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel TEXT NOT NULL,
     author_login TEXT, kind TEXT NOT NULL DEFAULT 'message', body TEXT NOT NULL,
     card_id TEXT, created_at TEXT NOT NULL
-  )`);
+  )`.replace(/\n/g, " "));
   await env.DB.exec("INSERT INTO channel_messages(id,org_id,channel,body,created_at) VALUES('legacy-root','legacy-org','b:general','Keep this message','2026-01-01')");
   await applyDeploy(env.DB);
   await applyDeploy(env.DB);
