@@ -53,7 +53,7 @@ import { custom as customEvent } from "./agui/events.js";
 import {
   resolveChannel, listMessages, postMessage, getMessage, linkCard, transcriptUpTo, channelActivity, clientIdOk,
   viewOf, asksTheAI, asksForDecision, withoutAI, MAX_MESSAGE_CHARS,
-  present, listThread, listPins, editMessage, deleteMessage, toggleReaction, setPinned, setPreviewsHidden,
+  present, referenceMessages, listThread, listPins, editMessage, deleteMessage, toggleReaction, setPinned, setPreviewsHidden,
   markRead, markUnreadFrom, markActivitySeen, readThreadsSeenInActivity, readsFor, activityFeed, searchMessages, threadsFor, roomThreads,
 } from "./channels.js";
 import { safe } from "./log.js";
@@ -1173,7 +1173,7 @@ export async function handleChannels(request, env, url, { route, after }) {
         try { ids = JSON.parse(url.searchParams.get("sourceIds")); } catch { return json({ message: "Invalid source IDs." }, 400); }
         if (!Array.isArray(ids) || ids.length > 60 || ids.some(id => typeof id !== "string" || !id || id.length > 80)) return json({ message: "Invalid source IDs." }, 400);
         ids = [...new Set(ids)];
-        const rows = (await Promise.all(ids.map(id => getMessage(env.DB, orgId, id)))).filter(row => row && row.channel === resolved.key);
+        const rows = await referenceMessages(env.DB, orgId, resolved.key, ids);
         return json({ messages: await present(env.DB, orgId, rows, who.user.login, view, members), missingIds: ids.filter(id => !rows.some(row => row.id === id)) });
       }
       const before = url.searchParams.get("before") || undefined;

@@ -532,6 +532,25 @@ export async function getMessage(db, orgId, id) {
     .first();
 }
 
+/// Current reference sources in one already-authorized channel. An interrupted
+/// thread unsend cannot expose a late child whose root is no longer live.
+export async function referenceMessages(db, orgId, key, ids) {
+  if (!ids.length) return [];
+  const { results = [] } = await db.prepare(`SELECT m.*, td.title AS thread_title, td.version AS thread_version,
+      COALESCE(u.name,
+        (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login),
+        (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name
+    FROM channel_messages m
+    LEFT JOIN users u ON u.login = m.author_login
+    LEFT JOIN channel_thread_details td ON td.org_id = m.org_id AND td.message_id = m.id
+    WHERE m.org_id = ?1 AND m.channel = ?2 AND m.id IN (${ids.map((_, i) => `?${i + 3}`).join(",")})
+      AND (m.deleted_at IS NOT NULL OR m.parent_id IS NULL OR EXISTS (
+        SELECT 1 FROM channel_messages root WHERE root.org_id = m.org_id AND root.channel = m.channel
+          AND root.id = m.parent_id AND root.parent_id IS NULL AND root.deleted_at IS NULL))`)
+    .bind(orgId, key, ...ids).all();
+  return results;
+}
+
 /// The browser's id for a send (`tmp-…`). Anything else is not a retry key.
 const CLIENT_ID = /^tmp-[0-9a-z-]{1,76}$/;
 export const clientIdOk = (id) => typeof id === "string" && CLIENT_ID.test(id);
