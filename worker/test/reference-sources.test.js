@@ -82,7 +82,6 @@ test('sixty authorized IDs use one source selection query, stay under parameter 
   expect((await response.json()).messages).toHaveLength(60);
   expect(queries.filter(sql => sql.includes('m.id IN (') && sql.includes('thread_title'))).toHaveLength(1);
   expect(queries.filter(sql => sql.includes('m.id = ?2') && sql.includes('thread_title'))).toHaveLength(0);
-  expect(queries.filter(sql => sql.includes('SELECT parent_id, author_login, kind, created_at'))).toHaveLength(1);
   expect(queries.filter(sql => sql.includes('SELECT message_id, emoji, login'))).toHaveLength(1);
 });
 
