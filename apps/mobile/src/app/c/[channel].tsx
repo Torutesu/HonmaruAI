@@ -14,19 +14,42 @@ import { ChannelSync, inConversation, replyStats, splitMentions, threadOf, type 
 import type { Message } from '@honmaru/protocol'
 import { useSession } from '../../lib/session'
 import { loadDraft, saveDraft } from '../../lib/drafts'
+import { conversationScope } from '../../lib/conversationScope'
 
 export default function Channel() {
   const { channel, name, org } = useLocalSearchParams<{ channel: string; name?: string; org?: string }>()
-  const { api, orgId, me, chooseOrg } = useSession()
+  const { orgId, me, chooseOrg } = useSession()
   const linkedOrg = typeof org === 'string' && org ? org : null
-  const foreign = Boolean(linkedOrg && me && !(me.orgs || []).some((o) => o.id === linkedOrg))
-  // Until the link's workspace is the current one, nothing is opened.
-  const here = !linkedOrg || foreign ? orgId : (orgId === linkedOrg ? orgId : null)
+  const malformedOrg = org !== undefined && !linkedOrg
+  const here = malformedOrg ? null : conversationScope(orgId, linkedOrg, me?.orgs)
+  const foreign = malformedOrg || Boolean(linkedOrg && me && !(me.orgs || []).some((o) => o.id === linkedOrg))
+  const [switchFailed, setSwitchFailed] = useState<string | null>(null)
   useEffect(() => {
-    if (linkedOrg && !foreign && me && orgId !== linkedOrg) void chooseOrg(linkedOrg)
+    let live = true
+    if (linkedOrg && !foreign && me && orgId !== linkedOrg) {
+      void chooseOrg(linkedOrg).catch(() => { if (live) setSwitchFailed(linkedOrg) })
+    }
+    return () => { live = false }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkedOrg, foreign, me, orgId])
-  const sync = useMemo(() => new ChannelSync(api, here || '', channel), [api, here, channel])
+  if (!here) return (
+    <View style={styles.screen}>
+      <Stack.Screen options={{ title: name ? `# ${name}` : channel }} />
+      <Text style={styles.error} accessibilityRole="alert">
+        {foreign ? 'This link is to a workspace you are not in.' : switchFailed === linkedOrg ? 'The workspace could not be opened. Reopen the link to try again.' : 'Opening workspace…'}
+      </Text>
+    </View>
+  )
+  // Unmount the entire conversation on a route/account/workspace change,
+  // including its drafts, retries and late completion callbacks.
+  return <ChannelConversation key={`${me?.login || ''}|${here}|${channel}`} here={here} channel={channel} name={name} />
+}
+
+function ChannelConversation({ here, channel, name }: { here: string; channel: string; name?: string }) {
+  const { api, me } = useSession()
+  const active = useRef(true)
+  useEffect(() => { active.current = true; return () => { active.current = false } }, [])
+  const sync = useMemo(() => new ChannelSync(api, here, channel), [api, here, channel])
   const [state, setState] = useState<ChannelState>(sync.snapshot)
   const [draft, setDraft] = useState('')
   // The thread open over the conversation, by the message it hangs off.
@@ -61,24 +84,23 @@ export default function Channel() {
   const thread = threadId ? threadOf(state.messages, threadId) : null
 
   useEffect(() => {
-    if (!here || foreign) return
     const off = sync.subscribe(setState)
-    void sync.open().then(() => sync.markRead())
+    void sync.open().then(() => { if (active.current) return sync.markRead() })
     // Back to the front: whatever was said meanwhile, and no more.
-    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') void sync.catchUp().then(() => sync.markRead()) })
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') void sync.catchUp().then(() => { if (active.current) return sync.markRead() }) })
     return () => { off(); sub.remove() }
-  }, [sync, here, foreign])
+  }, [sync, here])
 
   const send = () => {
     const text = draft.trim()
-    if (!text) return
+    if (!text || !active.current) return
     const both = Boolean(threadId) && alsoChannel
     setDraft('')
     setAlsoChannel(false)
     // Not reached, it stays in the conversation, failed, to send again; only
     // words the server refused come back to the box, to change.
-    void sync.send(text, me?.login || '', { parentId: threadId, alsoChannel: both }).then(() => sync.markRead())
-      .catch((err: { held?: boolean }) => { if (!err?.held) { setDraft(text); setAlsoChannel(both) } })
+    void sync.send(text, me?.login || '', { parentId: threadId, alsoChannel: both }).then(() => { if (active.current) return sync.markRead() })
+      .catch((err: { held?: boolean }) => { if (active.current && !err?.held) { setDraft(text); setAlsoChannel(both) } })
   }
   // A reply shown in the conversation opens the thread it is in.
   const openThread = (m: Message) => setThreadId(m.parentId || m.id)
@@ -92,7 +114,6 @@ export default function Channel() {
           <Text style={styles.backText}>‹ {name ? `# ${name}` : 'Back'}</Text>
         </Pressable>
       ) : null}
-      {foreign ? <Text style={styles.error}>This link is to a workspace you are not in.</Text> : null}
       <FlashList
         data={thread ? [thread.parent, ...thread.replies] : shown}
         // The key a message was sent under, kept once the server has it, so
@@ -105,7 +126,7 @@ export default function Channel() {
             replies={thread ? undefined : replies.get(item.id)}
             parent={!thread && item.parentId ? state.messages.find((m) => m.id === item.parentId) : undefined}
             onOpenThread={thread ? undefined : () => openThread(item)}
-            onRetry={() => { void sync.retry(item.id).then(() => sync.markRead()).catch(() => {}) }}
+            onRetry={() => { void sync.retry(item.id).then(() => { if (active.current) return sync.markRead() }).catch(() => {}) }}
             onDiscard={() => sync.discard(item.id)}
           />
         )}

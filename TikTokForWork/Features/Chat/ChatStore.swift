@@ -64,7 +64,7 @@ struct ChatOutbox {
         let parentId: String?
         let alsoChannel: Bool
         let files: [ChatFile]
-        let replyTo: ChatQuote?
+        var replyTo: ChatQuote?
         /// When it was first sent.
         let createdAt: String
         /// Why it did not go, when that is known.
@@ -245,6 +245,7 @@ final class ChatStore: ObservableObject {
 
     /// Whose chat this is, and in which workspace: "user|org".
     private var scope = ""
+    private var scopeGeneration = UUID()
     private var scopeWatch: AnyCancellable?
 
     /// Another account or workspace: everything held for the last one goes,
@@ -255,6 +256,15 @@ final class ChatStore: ObservableObject {
     private func adopt(_ next: String) {
         guard next != scope else { return }
         scope = next
+        scopeGeneration = UUID()
+        threadNavigation = UUID()
+        threadTarget = nil
+        quoteUpdates = [:]
+        messageChanges = [:]
+        messageRevision = 0
+        threadReads.values.forEach { $0.cancel() }
+        threadReads = [:]
+        reactionChanges = [:]
         members = []; businesses = []; groups = []; emoji = []; threads = []; userGroups = []
         sidebar = ChatSidebar(); activity = [:]; reads = [:]; prefs = [:]; mine = nil; agents = []
         messages = [:]; more = [:]; olderLoading = []; olderFailed = []
@@ -430,20 +440,60 @@ final class ChatStore: ObservableObject {
 
     /// A thread, read once more a moment later when the first read fails —
     /// a phone's connection drops for a second often enough.
+    private var threadReads: [String: Task<ChatThread?, Never>] = [:]
+    private var threadNavigation = UUID()
+    var threadPresentation: UUID { threadNavigation }
+    private var threadTarget: (channel: String, parentId: String)?
+    /// Prefetch and navigation share a read, including its explicit retry.
     private func readThread(channel: String, parentId: String) async -> ChatThread? {
         guard let orgId, let base else { return nil }
-        if let t = try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, base: base) { return t }
-        try? await Task.sleep(for: .seconds(1))
-        return try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, base: base)
+        let generation = scopeGeneration
+        let key = "\(generation)|\(base)|\(channel)|\(parentId)"
+        if let pending = threadReads[key] { return await pending.value }
+        let revision = messageRevision
+        let pending = Task { () -> ChatThread? in
+            if let t = try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, base: base) { return self.mergingChanges(into: t, after: revision) }
+            do { try await Task.sleep(for: .seconds(1)); try Task.checkCancellation() } catch { return nil }
+            guard generation == self.scopeGeneration else { return nil }
+            guard let t = try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, base: base) else { return nil }
+            return self.mergingChanges(into: t, after: revision)
+        }
+        threadReads[key] = pending
+        let result = await pending.value
+        threadReads[key] = nil
+        guard generation == scopeGeneration else { return nil }
+        return result
     }
 
-    /// The unread threads, read before they are opened (#273): opening one
-    /// then shows all of it at once. Kept in memory only, as the rest is.
+    private var messageRevision = 0
+    private var messageChanges: [String: (revision: Int, message: ChatMessage)] = [:]
+    private func mergingChanges(into read: ChatThread, after revision: Int) -> ChatThread? {
+        var result = read
+        for change in messageChanges.values.filter({ $0.revision > revision }).sorted(by: { $0.revision < $1.revision }) {
+            let m = change.message
+            guard m.channel == result.parent.channel else { continue }
+            result.parent = result.parent.refreshingQuotes(from: m)
+            result.replies = result.replies.map { $0.refreshingQuotes(from: m) }
+            if m.id == result.parent.id {
+                guard !m.isDeleted else { return nil }
+                result.parent = m
+            } else if m.parentId == result.parent.id {
+                if m.isDeleted { result.replies.removeAll { $0.id == m.id } }
+                else if let i = result.replies.firstIndex(where: { $0.id == m.id }) { result.replies[i] = m }
+                else { result.replies.append(m) }
+            }
+        }
+        result.replies.sort { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+        return result
+    }
+
     private func readAhead() async {
+        let generation = scopeGeneration
         for item in threads.filter(\.unread).prefix(3) {
+            guard generation == scopeGeneration else { return }
             guard let key = viewKey(item.parent.id), threadReplies[key] == nil, thread?.parent.id != item.parent.id,
-                  let orgId, let base,
-                  let t = try? await ChatService.thread(orgId: orgId, channel: item.parent.channel, messageId: item.parent.id, base: base) else { continue }
+                  let t = await readThread(channel: item.parent.channel, parentId: item.parent.id),
+                  generation == scopeGeneration else { continue }
             if threadReplies[key] == nil { threadReplies[key] = t.replies }
         }
     }
@@ -548,15 +598,15 @@ final class ChatStore: ObservableObject {
 
     func open(_ view: String) async {
         guard let orgId, let base else { return }
-        let scope = self.scope
+        let generation = scopeGeneration
         do {
             let list = try await ChatService.messages(orgId: orgId, channel: view, base: base)
-            guard scope == self.scope else { return }
+            guard !Task.isCancelled, generation == self.scopeGeneration else { return }
             messages[view] = withHeld(list, view: view, thread: nil)
             more[view] = list.count >= page
             olderFailed.remove(view)
         } catch {
-            guard scope == self.scope else { return }
+            guard !Task.isCancelled, generation == self.scopeGeneration else { return }
             // Not read: what was never shown stays new, here, on the other
             // devices and on the lock screen. Opening it again reads it.
             self.error = error.localizedDescription
@@ -564,13 +614,21 @@ final class ChatStore: ObservableObject {
             if messages[view] == nil { messages[view] = withHeld([], view: view, thread: nil) }
             return
         }
-        await markRead(view)
-        await translate(view, messages[view] ?? [])
+        // Visible content must not wait on acknowledgments or translations.
+        Task { [weak self] in
+            guard let self, generation == self.scopeGeneration else { return }
+            await self.markRead(view)
+        }
+        Task { [weak self] in
+            guard let self, generation == self.scopeGeneration else { return }
+            await self.translate(view, self.messages[view] ?? [])
+        }
     }
 
     /// Messages in another language, put into this reader's (translate.js).
     func translate(_ channel: String, _ list: [ChatMessage]) async {
         guard let orgId, let base else { return }
+        let generation = scopeGeneration
         let reader = String((appState?.readerLanguageCode ?? "en").prefix(2)).lowercased()
         let tr = ChatTranslations.shared
         // This account's, in this workspace: what was kept on the phone
@@ -584,15 +642,18 @@ final class ChatStore: ObservableObject {
         // first sixty sent and the rest marked asked and never sent.
         let batches = ChatTranslations.batches(want)
         for (i, asked) in batches.enumerated() {
+            guard generation == scopeGeneration else { return }
             let got: ChatService.Translations
             do {
                 got = try await ChatService.translate(orgId: orgId, channel: channel, ids: asked.map(\.id), locale: reader, base: base)
             } catch {
                 // The rest were not asked about either: each fails the same
                 // way, and may be asked about again.
+                guard generation == scopeGeneration else { return }
                 tr.answered(Array(batches[i...].joined()), error: ChatTranslateFailure.of(error))
                 return
             }
+            guard generation == scopeGeneration else { return }
             if got.off == true { tr.off = true; tr.answered(Array(batches[i...].joined()), error: nil, reasons: [:]); return }
             for m in asked { if let text = got.translations[m.id] { tr.store(m.id, from: m.body, text: text, lang: reader) } }
             tr.answered(asked, error: nil, reasons: got.failed ?? [:])
@@ -792,7 +853,12 @@ final class ChatStore: ObservableObject {
             // Kept from before the app was last closed: not sent, to send again.
             ChatSends.shared.states[h.clientId] = .failed(h.reason ?? String(localized: "The app closed before it was sent."))
         }
-        return list + held.map { heldMessage($0) }
+        return (list + held.map { heldMessage($0) }).map { message in
+            var m = applyingReactionChanges(to: message)
+            if let q = m.replyTo, let fresh = quoteUpdates["\(m.channel)|\(q.id)"] { m.replyTo = fresh }
+            if let q = m.threadParent, let fresh = quoteUpdates["\(m.channel)|\(q.id)"] { m.threadParent = fresh }
+            return m
+        }
     }
 
     /// The server has it: its copy where ours was, and up to full opacity.
@@ -901,11 +967,31 @@ final class ChatStore: ObservableObject {
         return await send(w.view, text: w.text, decide: w.decide, parentId: w.parentId, alsoChannel: w.alsoChannel, replyTo: w.replyTo, at: w.at, files: w.files, acknowledged: true, clientId: w.clientId)
     }
 
-    /// A picture or a file for the message about to be sent, uploaded now.
-    func upload(_ view: String, data: Data, type: String, name: String, width: Int? = nil, height: Int? = nil) async -> ChatFile? {
-        guard let orgId, let base else { return nil }
-        do { return try await ChatService.upload(orgId: orgId, channel: view, data: data, type: type, name: name, width: width, height: height, base: base) }
-        catch { self.error = error.localizedDescription; return nil }
+    /// Bound before picker loading/export begins, never retargeted after a wait.
+    struct MediaScope: Equatable {
+        let generation: UUID
+        let user: String
+        let orgId: String
+        let base: URL
+        let channel: String
+        let token: String
+    }
+    func mediaScope(_ channel: String) -> MediaScope? {
+        guard let user = appState?.currentUser?.id, let orgId, let base, let token = SessionStore.sessionToken else { return nil }
+        return MediaScope(generation: scopeGeneration, user: user, orgId: orgId, base: base, channel: channel, token: token)
+    }
+    func isCurrent(_ origin: MediaScope) -> Bool {
+        !Task.isCancelled && origin.generation == scopeGeneration && origin.user == appState?.currentUser?.id && origin.orgId == orgId && origin.base == base && origin.token == SessionStore.sessionToken
+    }
+    func upload(_ origin: MediaScope, data: Data, type: String, name: String, width: Int? = nil, height: Int? = nil) async -> ChatFile? {
+        guard isCurrent(origin) else { return nil }
+        do {
+            let file = try await ChatService.upload(orgId: origin.orgId, channel: origin.channel, data: data, type: type, name: name, width: width, height: height, base: origin.base, token: origin.token)
+            return isCurrent(origin) ? file : nil
+        } catch {
+            if isCurrent(origin) { self.error = error.localizedDescription }
+            return nil
+        }
     }
 
     /// A conversation with several people: the same people, the same one.
@@ -938,12 +1024,105 @@ final class ChatStore: ObservableObject {
         do { if let out = try await ChatService.delete(orgId: orgId, channel: m.channel, messageId: m.id, base: base) { upsert(out, askedIn: scope) } }
         catch { self.error = error.localizedDescription }
     }
+    private struct ReactionChange {
+        let desired: Bool
+        let myRef: String
+        var shown: Bool
+        var status: String
+    }
+    private var reactionChanges: [String: ReactionChange] = [:]
+    private func reactionKey(_ m: ChatMessage, _ emoji: String) -> String { "\(m.channel)|\(m.id)|\(emoji)" }
+    private func currentMessage(_ m: ChatMessage) -> ChatMessage? {
+        if thread?.parent.channel == m.channel {
+            if thread?.parent.id == m.id { return thread?.parent }
+            if let reply = thread?.replies.first(where: { $0.id == m.id }) { return reply }
+        }
+        if let message = messages[m.channel]?.first(where: { $0.id == m.id }) { return message }
+        if let parent = threads.first(where: { $0.parent.channel == m.channel && $0.parent.id == m.id })?.parent { return parent }
+        return threads.flatMap(\.replies).first { $0.channel == m.channel && $0.id == m.id }
+    }
+    private func applyingReactionChanges(to m: ChatMessage) -> ChatMessage {
+        reactionChanges.reduce(m) { message, item in
+            let prefix = "\(m.channel)|\(m.id)|"
+            guard item.key.hasPrefix(prefix), !m.isDeleted else { return message }
+            return message.settingReaction(String(item.key.dropFirst(prefix.count)), mine: item.value.shown, myRef: item.value.myRef, status: item.value.status)
+        }
+    }
+    private func setOwnReaction(_ m: ChatMessage, _ emoji: String, mine: Bool, myRef: String, status: String? = nil) {
+        guard let current = currentMessage(m), !current.isDeleted else { return }
+        upsert(current.settingReaction(emoji, mine: mine, myRef: myRef, status: status))
+    }
+    /// A timeout may have committed the toggle. Read before any retry.
+    private func reconcileReaction(_ m: ChatMessage, _ emoji: String, generation: UUID) async -> Bool? {
+        guard let orgId, let base, let change = reactionChanges[reactionKey(m, emoji)] else { return nil }
+        let key = reactionKey(m, emoji)
+        reactionChanges[key]?.status = "pending"
+        setOwnReaction(m, emoji, mine: change.shown, myRef: change.myRef, status: "pending")
+        do {
+            let read = try await ChatService.thread(orgId: orgId, channel: m.channel, messageId: m.parentId ?? m.id, base: base)
+            guard generation == scopeGeneration else { return nil }
+            guard let found = ([read.parent] + read.replies).first(where: { $0.id == m.id }), !found.isDeleted else {
+                reactionChanges[key] = nil
+                var removed = m; removed.deleted = true; upsert(removed)
+                return nil
+            }
+            let mine = found.reactions?.first(where: { $0.emoji == emoji }).map { $0.refs.contains(change.myRef) } ?? false
+            reactionChanges[key] = nil
+            setOwnReaction(m, emoji, mine: mine, myRef: change.myRef)
+            return mine
+        } catch {
+            guard generation == scopeGeneration else { return nil }
+            reactionChanges[key]?.status = "failed"
+            setOwnReaction(m, emoji, mine: change.shown, myRef: change.myRef, status: "failed")
+            self.error = String(localized: "Reaction could not be confirmed. Tap its retry icon to check again.")
+            return nil
+        }
+    }
     func react(_ m: ChatMessage, _ emoji: String) async {
-        guard let orgId, let base else { return }
+        guard let orgId, let base, let myRef, let current = currentMessage(m), !current.isDeleted else { return }
+        let generation = scopeGeneration
+        let key = reactionKey(m, emoji)
+        let desired: Bool
+        let previous: Bool
+        if let change = reactionChanges[key] {
+            guard change.status == "failed" else { return }
+            guard let confirmed = await reconcileReaction(m, emoji, generation: generation), generation == scopeGeneration else { return }
+            // The first toggle already reached the server: retry only confirmed it.
+            guard confirmed != change.desired else { return }
+            previous = confirmed
+            desired = change.desired
+        } else {
+            previous = current.reactions?.first(where: { $0.emoji == emoji })?.mine ?? false
+            desired = !previous
+        }
         Haptics.light()
-        let scope = self.scope
-        do { if let out = try await ChatService.react(orgId: orgId, channel: m.channel, messageId: m.id, emoji: emoji, base: base) { upsert(out, askedIn: scope) } }
-        catch { self.error = error.localizedDescription }
+        reactionChanges[key] = ReactionChange(desired: desired, myRef: myRef, shown: desired, status: "pending")
+        setOwnReaction(m, emoji, mine: desired, myRef: myRef, status: "pending")
+        do {
+            guard let out = try await ChatService.react(orgId: orgId, channel: m.channel, messageId: m.id, emoji: emoji, base: base) else { throw ChatService.Failure.server(0, nil) }
+            guard generation == scopeGeneration else { return }
+            reactionChanges[key] = nil
+            if out.isDeleted { upsert(out); return }
+            // The full response can predate another reaction's response/event.
+            // Settle our bit only, keeping every other current reaction intact.
+            setOwnReaction(m, emoji, mine: desired, myRef: myRef)
+        } catch {
+            guard generation == scopeGeneration else { return }
+            let definite: Bool
+            switch error {
+            case ChatService.Failure.notSignedIn: definite = true
+            case ChatService.Failure.server(let status, _): definite = (400..<500).contains(status) && status != 408
+            default: definite = false
+            }
+            if definite {
+                reactionChanges[key]?.shown = previous
+                reactionChanges[key]?.status = "failed"
+                setOwnReaction(m, emoji, mine: previous, myRef: myRef, status: "failed")
+                self.error = String(localized: "Reaction was not saved. Tap its retry icon to try again.")
+            } else {
+                _ = await reconcileReaction(m, emoji, generation: generation)
+            }
+        }
     }
     /// Take the link cards off your own message, for everyone.
     func hidePreviews(_ m: ChatMessage) async {
@@ -1010,57 +1189,49 @@ final class ChatStore: ObservableObject {
         if level == "default" { prefs[view] = nil } else { prefs[view] = level }
         try? await ChatService.setPref(orgId: orgId, channel: view, level: level, base: base)
     }
-    /// The thread under a message known only by its id — a notification's.
-    /// False when it could not be fetched.
-    func openThread(channel: String, parentId: String) async -> Bool {
-        if let head = messages[channel]?.first(where: { $0.id == parentId }) { await openThread(head); return true }
-        let scope = self.scope
-        guard let orgId, let base,
-              let t = try? await ChatService.thread(orgId: orgId, channel: channel, messageId: parentId, base: base),
-              scope == self.scope else { return false }
-        await openThread(t.parent)
+    /// One navigation owns its loading state. A late A cannot replace B,
+    /// including A -> B -> A and a workspace switched away and back.
+    @discardableResult
+    func openThread(channel: String, parentId: String, cachedParent: ChatMessage? = nil) async -> Bool {
+        let navigation = UUID()
+        threadNavigation = navigation
+        threadTarget = (channel, parentId)
+        let generation = scopeGeneration
+        let requestedBase = base
+        let head = cachedParent ?? messages[channel]?.first { $0.id == parentId } ?? threads.first { $0.parent.channel == channel && $0.parent.id == parentId }?.parent
+        let kept = viewKey(parentId).flatMap { threadReplies[$0] } ?? threads.first { $0.parent.channel == channel && $0.parent.id == parentId }?.replies ?? []
+        thread = head.map { ChatThread(parent: $0, replies: withHeld(kept, view: channel, thread: parentId)) }
+        threadFailed = false
+        threadLoading = true
+        let read = await readThread(channel: channel, parentId: parentId)
+        guard !Task.isCancelled, generation == scopeGeneration, navigation == threadNavigation, requestedBase == base else { return false }
+        threadLoading = false
+        guard let read else { threadFailed = true; return false }
+        thread = ChatThread(parent: applyingReactionChanges(to: read.parent), replies: withHeld(read.replies, view: channel, thread: parentId))
+        Task { [weak self] in
+            guard let self, generation == self.scopeGeneration else { return }
+            await self.translate(channel, [read.parent] + read.replies)
+        }
         return true
     }
 
     func openThread(_ m: ChatMessage) async {
-        guard let orgId, let base else { return }
-        // A reply shown in the conversation opens the thread it is in.
-        if let parentId = m.parentId {
-            if let head = messages[m.channel]?.first(where: { $0.id == parentId }) ?? threads.first(where: { $0.parent.id == parentId })?.parent {
-                return await openThread(head)
-            }
-            let scope = self.scope
-            thread = nil; threadFailed = false; threadLoading = true
-            let found = await readThread(channel: m.channel, parentId: parentId)
-            guard scope == self.scope else { return }
-            guard let t = found else {
-                threadLoading = false; threadFailed = true
-                return
-            }
-            return await openThread(t.parent)
-        }
-        // What is kept from last time — or, never opened here, the last
-        // replies Threads already holds — at once; the server's behind it.
-        // An empty sheet saying "0 replies" while it loaded read as a thread
-        // with nothing in it.
-        let kept = viewKey(m.id).flatMap { threadReplies[$0] } ?? threads.first(where: { $0.parent.id == m.id })?.replies ?? []
-        thread = ChatThread(parent: m, replies: withHeld(kept, view: m.channel, thread: m.id))
-        threadFailed = false; threadLoading = true
-        let read = await readThread(channel: m.channel, parentId: m.id)
-        guard thread?.parent.id == m.id else { return }
+        await openThread(channel: m.channel, parentId: m.parentId ?? m.id, cachedParent: m.parentId == nil ? m : nil)
+    }
+
+    func retryThread() async {
+        guard let target = threadTarget else { return }
+        await openThread(channel: target.channel, parentId: target.parentId)
+    }
+
+    /// Closing the sheet invalidates pending navigation without marking it read.
+    func closeThread() {
+        threadTarget = nil
+        threadNavigation = UUID()
         threadLoading = false
-        // Not read, it is not marked read: its replies stay new until they
-        // have been shown (Try again reads them).
-        guard let read else { threadFailed = true; return }
-        thread = ChatThread(parent: read.parent, replies: withHeld(read.replies, view: m.channel, thread: m.id))
-        if let t = thread { await translate(m.channel, [t.parent] + t.replies) }
-        // A thread opened is a thread read: Threads and Activity both stop
-        // calling its replies new.
-        inbox = inbox.map { var i = $0; if i.unread && i.message.parentId == m.id { i.unread = false }; return i }
-        if let i = threads.firstIndex(where: { $0.parent.id == m.id }) { threads[i].unread = false }
-        threadReadTo[m.id] = read.replies.map(\.createdAt).max() ?? ChatDates.string(.now)
-        PushService.clearDelivered(channel: m.channel, parentId: m.id, orgId: orgId)
-        await ChatService.markThreadRead(orgId: orgId, channel: m.channel, parentId: m.id, base: base)
+        threadFailed = false
+        thread = nil
+        threadJump = nil
     }
     /// The open thread, read up to its newest reply: one that came while it
     /// was in front of you. Opening it was the only read before, so a reply
@@ -1068,13 +1239,13 @@ final class ChatStore: ObservableObject {
     /// screen, and the other devices kept calling it unread.
     func readOpenThread() async {
         guard let orgId, let base, let t = thread else { return }
-        let newest = t.replies.filter { !$0.mine && !$0.id.hasPrefix("tmp-") }.map(\.createdAt).max() ?? ""
+        let newest = t.replies.filter { !$0.id.hasPrefix("tmp-") }.map(\.createdAt).max() ?? t.parent.createdAt
         guard !newest.isEmpty, newest > (threadReadTo[t.parent.id] ?? "") else { return }
         threadReadTo[t.parent.id] = newest
-        inbox = inbox.map { var i = $0; if i.unread && i.message.parentId == t.parent.id { i.unread = false }; return i }
-        if let i = threads.firstIndex(where: { $0.parent.id == t.parent.id }) { threads[i].unread = false }
-        PushService.clearDelivered(channel: t.parent.channel, parentId: t.parent.id, orgId: orgId)
-        await ChatService.markThreadRead(orgId: orgId, channel: t.parent.channel, parentId: t.parent.id, base: base)
+        inbox = inbox.map { var i = $0; if i.unread && i.message.parentId == t.parent.id && i.message.createdAt <= newest { i.unread = false }; return i }
+        if let i = threads.firstIndex(where: { $0.parent.id == t.parent.id }), threads[i].lastReplyAt <= newest { threads[i].unread = false }
+        PushService.clearDelivered(channel: t.parent.channel, parentId: t.parent.id, orgId: orgId, readUpTo: ChatDates.parse(newest))
+        await ChatService.markThreadRead(orgId: orgId, channel: t.parent.channel, parentId: t.parent.id, at: newest, base: base)
     }
     func pins(_ view: String) async -> [ChatMessage] {
         guard let orgId, let base else { return [] }
@@ -1199,12 +1370,30 @@ final class ChatStore: ObservableObject {
             if m.authorRef == myRef { m.mine = true }
             m.reactions = m.reactions?.map { var r = $0; r.mine = r.refs.contains(myRef); return r }
         }
+        messageRevision += 1
+        messageChanges["\(m.channel)|\(m.id)"] = (messageRevision, m)
+        if m.isDeleted { reactionChanges = reactionChanges.filter { !$0.key.hasPrefix("\(m.channel)|\(m.id)|") } }
+        refreshQuotes(from: m)
+        m = applyingReactionChanges(to: m)
         // Ours, brought by the socket before the answer to the send: in the
         // place of the copy on its way, not beside it.
         if m.mine, !m.id.hasPrefix("tmp-"), let held = heldSends.first(where: { id, h in
             h.orgId == orgId && h.view == m.channel && h.text == m.body && h.parentId == m.parentId && ChatSends.shared.states[id] == .pending
         })?.key, !(messages[m.channel]?.contains { $0.id == m.id } ?? false), !(thread?.replies.contains { $0.id == m.id } ?? false) {
             return landed(held, as: m)
+        }
+        for key in Array(threadReplies.keys) {
+            if m.isDeleted { threadReplies[key]?.removeAll { $0.channel == m.channel && $0.id == m.id } }
+            else if let i = threadReplies[key]?.firstIndex(where: { $0.channel == m.channel && $0.id == m.id }) { threadReplies[key]?[i] = m }
+        }
+        if m.isDeleted, m.parentId == nil {
+            threads.removeAll { $0.parent.channel == m.channel && $0.parent.id == m.id }
+            if let key = viewKey(m.id) { threadReplies[key] = nil }
+        }
+        for i in threads.indices where threads[i].parent.channel == m.channel {
+            if threads[i].parent.id == m.id && !m.isDeleted { threads[i].parent = m }
+            if m.isDeleted { threads[i].replies.removeAll { $0.id == m.id } }
+            else if let j = threads[i].replies.firstIndex(where: { $0.id == m.id }) { threads[i].replies[j] = m }
         }
         if let parent = m.parentId {
             if thread?.parent.id == parent {
@@ -1228,6 +1417,24 @@ final class ChatStore: ObservableObject {
         if thread?.parent.id == m.id {
             if m.isDeleted { thread = nil } else { thread?.parent = m }
         }
+    }
+
+    private var quoteUpdates: [String: ChatQuote] = [:]
+    func quote(of original: ChatMessage) -> ChatQuote {
+        quoteUpdates["\(original.channel)|\(original.id)"] ?? ChatQuote(of: currentMessage(original) ?? original)
+    }
+    private func refreshQuotes(from original: ChatMessage) {
+        quoteUpdates["\(original.channel)|\(original.id)"] = ChatQuote(of: original)
+        let refresh: (ChatMessage) -> ChatMessage = { $0.refreshingQuotes(from: original) }
+        for channel in Array(messages.keys) { messages[channel] = messages[channel]?.map(refresh) }
+        for key in Array(threadReplies.keys) { threadReplies[key] = threadReplies[key]?.map(refresh) }
+        threads = threads.map { var t = $0; t.parent = refresh(t.parent); t.replies = t.replies.map(refresh); return t }
+        if var t = thread { t.parent = refresh(t.parent); t.replies = t.replies.map(refresh); thread = t }
+        for id in Array(heldSends.keys) {
+            guard let h = heldSends[id], h.user == appState?.currentUser?.id, h.orgId == orgId, h.view == original.channel, h.replyTo?.id == original.id else { continue }
+            heldSends[id]?.replyTo = ChatQuote(of: original)
+        }
+        if dataWarning?.view == original.channel, dataWarning?.replyTo?.id == original.id { dataWarning?.replyTo = ChatQuote(of: original) }
     }
 
     private func receiveMessage(_ data: Data?) {

@@ -21,13 +21,14 @@ struct ChatThreadSheet: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var attached: [ChatFile] = []
     @State private var uploading = 0
+    @State private var mediaSelection = UUID()
     /// Photos were picked past what one reply carries, and left out.
     @State private var photoLimitNote = false
     @FocusState private var focused: Bool
     /// Whether the newest reply is in view. There, what arrives is scrolled
     /// to; up in the earlier replies, the place is kept and what arrived is
     /// counted on the way back down.
-    @State private var atBottom = true
+    @State private var atBottom = false
     @State private var unseen = 0
     /// The reply the next one answers, inline (swiped, or Reply).
     @State private var replyingTo: ChatMessage?
@@ -71,6 +72,7 @@ struct ChatThreadSheet: View {
                 } else if store.threadFailed {
                     failedNote(nil)
                 } else {
+                    Text("Loading thread…").font(.caption).accessibilityAddTraits(.updatesFrequently)
                     ChatSkeletonMessages(count: 4).padding(.top, 8)
                 }
             }
@@ -103,8 +105,11 @@ struct ChatThreadSheet: View {
                 guard found, let id = store.threadJump else { return }
                 store.threadJump = nil
                 highlight = id
+                let target = store.thread?.parent.id
+                let presentation = store.threadPresentation
                 Task {
                     try? await Task.sleep(for: .milliseconds(300))
+                    guard !Task.isCancelled, store.threadPresentation == presentation, store.thread?.parent.id == target else { return }
                     withAnimation { proxy.scrollTo(id, anchor: .center) }
                     try? await Task.sleep(for: .seconds(1.6))
                     if highlight == id { withAnimation { highlight = nil } }
@@ -167,9 +172,13 @@ struct ChatThreadSheet: View {
                             guard !taken.isEmpty else { return }
                             // Their places are kept from now, before the first has gone up.
                             uploading += taken.count
+                            guard let origin = store.mediaScope(channel), let parentId = store.thread?.parent.id else { uploading -= taken.count; return }
+                            let selection = mediaSelection
                             Task {
-                                for file in await ChatPhotos.upload(taken, to: channel, store: store) { attached.append(file) }
-                                uploading -= taken.count
+                                let files = await ChatPhotos.upload(taken, origin: origin, store: store)
+                                guard store.isCurrent(origin), mediaSelection == selection, store.thread?.parent.id == parentId else { return }
+                                attached.append(contentsOf: files)
+                                uploading = max(0, uploading - taken.count)
                             }
                         }
                         TextField("Reply… — @AI to ask the AI", text: $draft, axis: .vertical)
@@ -215,14 +224,15 @@ struct ChatThreadSheet: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { CloseButton { dismiss() } } }
             // Its message deleted, the thread went with it: nothing left to show.
             .onChange(of: store.thread?.parent.id, initial: true) { old, new in
+                mediaSelection = UUID(); attached = []; uploading = 0
                 alsoChannel = false
-                atBottom = true
+                atBottom = false
                 unseen = 0
                 replyingTo = nil
                 // A reply half-written in a thread is kept, per thread, and
                 // is there again when the thread is opened again.
                 draft = new.map { store.draft("thread:\($0)") } ?? ""
-                if old != nil && new == nil { dismiss() }
+                if old != nil && new == nil && !store.threadLoading { dismiss() }
             }
             .onChange(of: draft) { _, text in
                 if let id = store.thread?.parent.id { store.setDraft("thread:\(id)", text) }
@@ -231,6 +241,7 @@ struct ChatThreadSheet: View {
             }
         }
         // Everyone's photos and the workspace's emoji, however the sheet was opened.
+        .onDisappear { mediaSelection = UUID(); attached = []; uploading = 0; store.closeThread() }
         .environment(\.chatAssets, store.assets)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
@@ -256,7 +267,7 @@ struct ChatThreadSheet: View {
     /// The quote the next reply carries, of that reply as it is now.
     private var replyQuote: ChatQuote? {
         guard let r = replyingTo else { return nil }
-        return ChatQuote(of: store.thread?.replies.first { $0.id == r.id } ?? r)
+        return store.quote(of: r)
     }
 
     /// Answer this one. Every reply here answers the thread's first message
@@ -272,11 +283,16 @@ struct ChatThreadSheet: View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Colors.textTertiary)
             Text("Couldn't load the replies.").font(.caption).foregroundStyle(Theme.Colors.textSecondary)
-            if let parent {
-                Button("Try again") { Task { await store.openThread(parent) } }.font(.caption.weight(.semibold))
-            }
+            Button("Try again") {
+                Task {
+                    if let parent { await store.openThread(parent) }
+                    else { await store.retryThread() }
+                }
+            }.font(.caption.weight(.semibold))
             Spacer(minLength: 0)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Could not load the current thread. Try again.")
         .padding(.horizontal, 16).padding(.vertical, parent == nil ? 40 : 6)
     }
 
@@ -1158,26 +1174,27 @@ enum ChatPhotos {
     /// time rather than one after another; the files come back in the order
     /// picked.
     @MainActor
-    static func upload(_ items: [PhotosPickerItem], to view: String, store: ChatStore) async -> [ChatFile] {
+    static func upload(_ items: [PhotosPickerItem], origin: ChatStore.MediaScope, store: ChatStore) async -> [ChatFile] {
         let stamp = Int(Date().timeIntervalSince1970)
         return await withTaskGroup(of: (Int, ChatFile?).self) { group in
             for (i, item) in items.enumerated() {
                 group.addTask { @MainActor in
+                    guard store.isCurrent(origin) else { return (i, nil) }
                     if ChatPhotos.isVideo(item) {
                         guard let picked = try? await item.loadTransferable(type: PickedVideo.self) else { return (i, nil) }
                         defer { try? FileManager.default.removeItem(at: picked.url) }
                         guard let video = await ChatPhotos.preparedVideo(picked.url) else {
-                            store.error = String(localized: "That video is too long to send. A file can be at most 25 MB.")
+                            if store.isCurrent(origin) { store.error = String(localized: "That video is too long to send. A file can be at most 25 MB.") }
                             return (i, nil)
                         }
                         let name = "video-\(stamp)-\(i + 1).mp4"
-                        return (i, await store.upload(view, data: video.mp4, type: "video/mp4", name: name, width: video.width, height: video.height))
+                        return (i, await store.upload(origin, data: video.mp4, type: "video/mp4", name: name, width: video.width, height: video.height))
                     }
                     guard let data = try? await item.loadTransferable(type: Data.self) else { return (i, nil) }
                     let ready = await Task.detached(priority: .userInitiated) { ChatPhotos.prepared(data) }.value
                     guard let photo = ready else { return (i, nil) }
                     let name = "photo-\(stamp)-\(i + 1).jpg"
-                    return (i, await store.upload(view, data: photo.jpeg, type: "image/jpeg", name: name, width: photo.width, height: photo.height))
+                    return (i, await store.upload(origin, data: photo.jpeg, type: "image/jpeg", name: name, width: photo.width, height: photo.height))
                 }
             }
             var done: [(Int, ChatFile)] = []
@@ -1278,11 +1295,19 @@ private struct ReadsOpenThread: ViewModifier {
 
     private func read() {
         guard atBottom, scenePhase == .active else { return }
-        Task { await store.readOpenThread() }
+        let target = store.thread?.parent.id
+        let presentation = store.threadPresentation
+        Task {
+            guard !Task.isCancelled, atBottom, store.threadPresentation == presentation, store.thread?.parent.id == target else { return }
+            await store.readOpenThread()
+        }
     }
 
     func body(content: Content) -> some View {
         content
+            .onAppear { read() }
+            .onChange(of: store.thread?.parent.id) { _, _ in read() }
+            .onChange(of: store.threadLoading) { _, _ in read() }
             .onChange(of: store.thread?.replies.count ?? 0) { _, _ in read() }
             .onChange(of: atBottom) { _, _ in read() }
             .onChange(of: scenePhase) { _, _ in read() }
