@@ -57,7 +57,7 @@ test("a thread reply sent to the conversation too is read in both, with the thre
   const { message, parent: after } = await res.json();
   expect(message.parentId).toBe(parent.id);
   expect(message.alsoChannel).toBe(true);
-  expect(message.threadParent).toEqual({ id: parent.id, kind: "message", authorName: "Mika", authorRef: refs.Mika, excerpt: "Roaster wants +8% from Friday", source: { channel: "b:cafe", body: parent.body, lang: "en", fileName: null }, deleted: false });
+  expect(message.threadParent).toEqual({ id: parent.id, kind: "message", authorName: "Mika", authorRef: refs.Mika, excerpt: "Roaster wants +8% from Friday", source: { channel: "b:cafe", body: parent.body, lang: parent.lang, fileName: null }, deleted: false });
   expect(after.replyCount).toBe(1);
   // In the conversation, after the message it answers.
   const main = await list(kenji);

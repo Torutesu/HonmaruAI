@@ -242,7 +242,10 @@ export function quoteOf(row, original, members, view = row.channel) {
     authorName: original.kind === "ai" ? null : (author?.name || original.author_name || null),
     authorRef: author?.ref || null,
     excerpt: replyExcerpt(original.body, original.file_name),
-    source: { channel: view, body: original.body || "", lang: messageLanguage(original.body), fileName: original.file_name || null },
+    // Quote metadata must not carry the hidden words behind a masked excerpt.
+    ...(String(original.body || "").includes("||") ? {} : {
+      source: { channel: view, body: original.body || "", lang: messageLanguage(original.body), fileName: original.file_name || null },
+    }),
     deleted: false,
   };
 }
