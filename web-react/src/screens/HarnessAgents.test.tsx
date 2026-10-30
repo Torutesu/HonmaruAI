@@ -170,3 +170,36 @@ test('late review-log responses cannot cross a changed conversation scope',async
   expect(JSON.stringify(tree.toJSON())).not.toContain('Previous scope evidence')
  } finally {act(()=>tree?.unmount());vi.unstubAllGlobals()}
 })
+
+test('the agent Connections tab toggles only the current member’s own app grant',async()=>{
+ let tree!:ReturnType<typeof create>, granted=false
+ const requests:Array<{url:URL;method:string;body:any}> = []
+ vi.stubGlobal('fetch',vi.fn(async(input:string,init:any={})=>{
+  const url=new URL(input), method=init.method||'GET', body=init.body?JSON.parse(init.body):null
+  requests.push({url,method,body})
+  if(url.pathname==='/channels/agents') return {ok:true,json:async()=>({agents:[{id:'a',name:'Research agent',handle:'research',scope:'team'}]})}
+  if(url.pathname==='/hx/agents/a/profile') return {ok:true,json:async()=>({profile:{specialty:'',tier:'standard',mentionOnly:false,access:'everyone',people:[]},canEdit:false})}
+  if(url.pathname==='/hx/agents/a/apps') {
+   if(method==='POST') granted=true
+   if(method==='DELETE') granted=false
+   return {ok:true,json:async()=>({connections:[{server:'linear',name:'Linear',description:'Issues',iconUrl:null,verified:true,allowWrites:false,connectedAt:'2026-10-30T00:00:00Z',granted}]})}
+  }
+  if(url.pathname.endsWith('/memory/scopes')) return {ok:true,json:async()=>({scopes:[]})}
+  if(url.pathname.endsWith('/memory')) return {ok:true,json:async()=>({memories:[],nextCursor:null,canEdit:false})}
+  if(url.pathname.endsWith('/skills')) return {ok:true,json:async()=>({skills:[]})}
+  return {ok:true,json:async()=>({})}
+ }))
+ try {
+  await act(async()=>{tree=create(<HarnessAgents httpBase="https://example.test" orgId="one" sessionToken="session" onClose={vi.fn()}/>)})
+  await act(async()=>tree.root.findByProps({'data-agent':'a'}).props.onClick())
+  await act(async()=>tree.root.findAllByProps({role:'tab'}).find(tab=>tab.children.includes('Connections'))!.props.onClick())
+  const checkbox=()=>tree.root.findByProps({'aria-label':'Allow {agent} to use {app}'})
+  expect(checkbox().props.checked).toBe(false)
+  await act(async()=>checkbox().props.onChange({currentTarget:{checked:true}}))
+  expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='POST'&&r.body.server==='linear')).toBe(true)
+  expect(checkbox().props.checked).toBe(true)
+  await act(async()=>checkbox().props.onChange({currentTarget:{checked:false}}))
+  expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='DELETE'&&r.url.searchParams.get('server')==='linear')).toBe(true)
+  expect(checkbox().props.checked).toBe(false)
+ } finally {act(()=>tree?.unmount());vi.unstubAllGlobals()}
+})

@@ -2050,6 +2050,12 @@ const table: Record<string, string> = {
   "Elapsed time, including approval waits": "Tiempo transcurrido, incluidas las esperas de aprobación",
   "Running for {duration}": "En ejecución desde hace {duration}",
   "Execution took {duration}": "Tiempo de ejecución: {duration}",
+  "Connections": "Conexiones",
+  "Apps this agent may use": "Apps que puede usar este agente",
+  "Only your own connected accounts appear here. A grant applies to this agent and your account; it does not share the connection with other people.": "Aquí solo aparecen tus cuentas conectadas. El permiso se aplica a este agente y a tu cuenta; no comparte la conexión con otras personas.",
+  "No connected apps are available. Connect one in Tools → Apps first.": "No hay apps conectadas disponibles. Conecta una primero en Herramientas → Apps.",
+  "Workspace owner permits write tools for eligible agents.": "La disponibilidad de herramientas de escritura también depende de la configuración del propietario del espacio de trabajo.",
+  "Allow {agent} to use {app}": "Permitir que {agent} use {app}",
 }
 
 export default table

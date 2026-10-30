@@ -3106,6 +3106,12 @@ const table: Record<string, string> = {
   "Refresh history": "履歴を更新",
   "Waiting for approval": "承認待ち",
   "Succeeded": "成功",
+  "Connections": "連携",
+  "Apps this agent may use": "このエージェントが使えるアプリ",
+  "Only your own connected accounts appear here. A grant applies to this agent and your account; it does not share the connection with other people.": "ここには自分で接続したアカウントだけが表示されます。許可はこのエージェントとあなたのアカウントの組み合わせに適用され、他の人とは共有されません。",
+  "No connected apps are available. Connect one in Tools → Apps first.": "利用できる接続済みアプリがありません。「ツール → アプリ」で先に接続してください。",
+  "Workspace owner permits write tools for eligible agents.": "書き込みツールの利用可否は、ワークスペース所有者の設定にも左右されます。",
+  "Allow {agent} to use {app}": "{agent}に{app}の利用を許可",
 }
 
 export default table

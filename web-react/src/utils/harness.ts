@@ -97,6 +97,7 @@ export interface GatewayJob { id: string; gatewayId: string; status: string; cre
 export interface Skill { sourceScope?: { agentId: string; channel: string | null } | null; createdByName?: string; metadata?: Record<string, unknown>; visibility?: 'workspace' | 'private'; accessVersion?: number; canShare?: boolean; canEdit?: boolean; id: string; name: string; description: string; body: string; agents?: string[]; createdBy: string }
 export interface AgentRoleState { version: number; scope: 'team' | 'personal'; canManage: boolean; canAddMembers?: boolean; members: Array<{ref: string; name: string; role: 'admin' | 'member'; owner: boolean; mine?: boolean}>; candidates: Array<{ref: string; name: string}> }
 export interface AgentProfile { specialty: string; tier: 'lite' | 'standard' | 'max'; mentionOnly: boolean; access: 'everyone' | 'people' | 'private'; people: string[] }
+export interface AgentAppConnection { server: string; name: string; description: string; iconUrl: string | null; verified: boolean; allowWrites: boolean; connectedAt: string; granted: boolean }
 export interface HomeData {
   mode: WorkspaceMode
   approvals: {
@@ -232,6 +233,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     deleteSkill: (id: string) => call<{ deleted: boolean }>('DELETE', `/skills/${id}`),
 
     agentMembers: (agentId: string) => call<AgentRoleState>('GET', `/hx/agents/${agentId}/members`),
+    agentApps: (agentId: string) => call<{ connections: AgentAppConnection[] }>('GET', `/hx/agents/${agentId}/apps`),
+    setAgentApp: (agentId: string, server: string, granted: boolean) => call<{ connections: AgentAppConnection[] }>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { server } : undefined, granted ? undefined : { server }),
     transferAgentOwnership: (agentId:string,ref:string,expectedVersion:number)=>call<{version:number}>('PUT',`/hx/agents/${agentId}/ownership`,{ref,expectedVersion}),
     setAgentMember: (agentId: string, ref: string, role: 'admin' | 'member' | 'none', expectedVersion: number) => call<{version:number}>('PUT', `/hx/agents/${agentId}/members`, {ref,role,expectedVersion}),
     profile: (agentId: string) => call<{ profile: AgentProfile; canEdit: boolean }>('GET', `/hx/agents/${agentId}/profile`),

@@ -22,7 +22,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { Icon } from '../components/Icon'
-import type { AgentProfile, AgentMemory, Skill } from '../utils/harness'
+import type { AgentProfile, AgentMemory, AgentAppConnection, Skill } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 
 // Agents as members, and the skills they work by (docs/kylon-gap-plan.md).
@@ -95,13 +95,14 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
   const t = useT()
   const api = useApi(props)
   const { agent } = props
-  const [section, setSection] = useState<'profile' | 'skills' | 'memory' | 'followups'>('profile')
+  const [section, setSection] = useState<'profile' | 'connections' | 'skills' | 'memory' | 'followups'>('profile')
   const [editingProfile, setEditingProfile] = useState(false)
   const [accessDialog,setAccessDialog]=useState(false)
   const loadAccess=useCallback(()=>api.agentMembers(agent.id),[api,agent.id])
   const [profileDialog, setProfileDialog] = useState(false)
   const [avatarPreview, setAvatarPreview] = useState(false)
   const [profile, setProfile] = useState<AgentProfile | null>(null)
+  const [agentApps, setAgentApps] = useState<AgentAppConnection[] | null>(null)
   const [canEdit, setCanEdit] = useState(false)
   const [memories, setMemories] = useState<AgentMemory[]>([])
   const [memoryCursor, setMemoryCursor] = useState<string | null>(null)
@@ -123,10 +124,10 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
 
   const load = useCallback(() => act('load', async () => {
     const version = ++memoryLoad.current
-    const [p, m, s, all, scopes] = await Promise.all([api.profile(agent.id), api.memoryPage(agent.id, memoryChannel, undefined, memorySearch), api.agentSkills(agent.id), api.skills(), api.memoryScopes(agent.id)])
+    const [p, m, s, all, scopes, apps] = await Promise.all([api.profile(agent.id), api.memoryPage(agent.id, memoryChannel, undefined, memorySearch), api.agentSkills(agent.id), api.skills(), api.memoryScopes(agent.id), api.agentApps(agent.id).catch(() => ({ connections: [] }))])
     if (version !== memoryLoad.current) return
     setMemoryScopes(scopes.scopes)
-    setProfile(p.profile); setCanEdit(p.canEdit); setPeople(p.profile.people.map((x) => `@${x}`).join(' '))
+    setProfile(p.profile); setCanEdit(p.canEdit); setPeople(p.profile.people.map((x) => `@${x}`).join(' ')); setAgentApps(apps.connections || [])
     setMemories(m.memories); setMemoryCursor(m.nextCursor); setSkills(s.skills); setAllSkills(all.skills)
   }), [api, act, agent.id, memoryChannel, memorySearch])
   useEffect(() => { load(); return () => { ++memoryLoad.current } }, [load])
@@ -139,7 +140,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
         // server again. A revoked member must not keep seeing stale controls
         // or memory while that request is in flight.
         ++memoryLoad.current
-        setProfile(null); setCanEdit(false); setPeople('')
+        setProfile(null); setCanEdit(false); setPeople(''); setAgentApps(null)
         setMemories([]); setMemoryCursor(null); setSkills([]); setAllSkills([]); setMemoryScopes([])
         setHistoryMemory(null); setConvertingMemory(null); setReviewingMemory(null); setMemoryDraft(null); setRemember('')
         void load()
@@ -159,7 +160,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
     <Shell title={`${agent.emoji || '🤖'} ${agent.name}`} onClose={props.onBack} nested actions={saved ? <span className="row-sub">{t('Saved.')}</span> : null}>
       {error && <div className="form-error">{error}</div>}
       <div className="hx-profile-heading"><button className="hx-profile-avatar-trigger" aria-label={t("Show {name}’s avatar", { name: agent.name })} aria-haspopup="dialog" onClick={() => setAvatarPreview(true)}><AgentAvatar agent={agent} className="hx-profile-avatar" /></button><h1>{agent.name}</h1><button className="pill-btn quiet" onClick={props.onMessage} aria-label={t('Message')}><Icon name="message" size={18} /></button></div>
-      <div className="hx-profile-tabs" role="tablist">{(['profile','skills','memory','followups'] as const).map(key => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)}>{t(key === 'profile' ? 'Profile' : key === 'skills' ? 'Skills' : key === 'memory' ? 'Memory' : 'Follow-ups')}</button>)}</div>
+      <div className="hx-profile-tabs" role="tablist">{(['profile','connections','skills','memory','followups'] as const).map(key => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)}>{t(key === 'profile' ? 'Profile' : key === 'connections' ? 'Connections' : key === 'skills' ? 'Skills' : key === 'memory' ? 'Memory' : 'Follow-ups')}</button>)}</div>
       {accessDialog && <AgentAccessDialog agentId={agent.id} load={loadAccess} transfer={(ref,version)=>api.transferAgentOwnership(agent.id,ref,version)} save={(ref,role,version)=>api.setAgentMember(agent.id,ref,role,version)} onClose={scope=>{setAccessDialog(false);props.onAccessChanged();if(scope)props.onUpdated({id:agent.id,scope});void load()}}/>}
       {avatarPreview && <AgentAvatarPreview agent={agent} onClose={() => setAvatarPreview(false)}/>}
       {profileDialog && <EditAgentProfile agent={agent} profile={profile} onClose={() => setProfileDialog(false)} onSave={async (patch, picture) => {
@@ -235,6 +236,26 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
       </section>
       </>}
       <div hidden={section !== 'profile'}><AgentPersona agent={agent} httpBase={props.httpBase} orgId={props.orgId} sessionToken={props.sessionToken} canEdit={canEdit} onUpdated={props.onUpdated} onDiscuss={props.onMessage}/></div>
+      {section === 'connections' && <>
+        <div className="rows-title">{t('Apps this agent may use')}</div>
+        <p className="row-sub">{t('Only your own connected accounts appear here. A grant applies to this agent and your account; it does not share the connection with other people.')}</p>
+        {agentApps === null ? <div className="empty">{t('Loading…')}</div> : agentApps.length === 0 ? <div className="studio-empty">{t('No connected apps are available. Connect one in Tools → Apps first.')}</div> : <div className="rows">
+          {agentApps.map(app => <label className="row static" key={app.server} data-agent-app={app.server}>
+            {app.iconUrl && <img src={app.iconUrl} alt="" width={20} height={20} referrerPolicy="no-referrer" />}
+            <span className="row-main">{app.name}{app.verified && <span className="sso-badge ok">{t('Verified')}</span>}
+              {app.description && <span className="row-sub">{app.description}</span>}
+              {app.allowWrites && <span className="row-sub">{t('Workspace owner permits write tools for eligible agents.')}</span>}
+            </span>
+            <input type="checkbox" aria-label={t('Allow {agent} to use {app}', { agent: agent.name, app: app.name })} checked={app.granted} disabled={busy !== null} onChange={e => {
+              const granted = e.currentTarget.checked
+              void act('connection', async () => {
+                const result = await api.setAgentApp(agent.id, app.server, granted)
+                setAgentApps(result.connections)
+              })
+            }} />
+          </label>)}
+        </div>}
+      </>}
       {section === 'skills' && <>
       <AgentSkillCatalog key={`${props.orgId}:${agent.id}`} skills={allSkills.filter(s=>!s.sourceScope || s.sourceScope.agentId===agent.id)} installed={skills} canEdit={canEdit} onPreviewImport={async markdown => (await api.previewSkillImport(markdown)).draft} onSaveImport={async draft => {
         const version = memoryLoad.current

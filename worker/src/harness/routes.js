@@ -44,6 +44,7 @@ import { createAgentAccessRequest, requestableAgentOptions, roomAgentAccessPlans
 import { announceCards } from '../announce.js';
 import { notifyCard, anyChannelConfigured } from '../notify.js';
 import { handleRemoteMcp } from './remoteMcp.js';
+import { agentAppConnections, setAgentAppGrant } from '../smitheryApps.js';
 // The harness routes (docs/kylon-gap-plan.md): the workspace's mode, Tables
 // and Apps. Every route asks for a member who is not a guest; building is a
 // member's, deleting someone else's is an admin's.
@@ -667,9 +668,9 @@ export async function handleHarness(request, env, url, context = {}) {
     const delegatedRole=(await explicitAgentRoles(env.DB,orgId,[agentId],who.user.login)).get(agentId);
     const managedProfile=!!await env.DB.prepare('SELECT 1 FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(orgId,agentId).first();
     const canEdit = agent.owner_login === who.user.login || delegatedRole==='admin' || (!managedProfile&&await allowed(env.DB, orgId, me, "agent.manage_others"));
-    // Anyone who may talk to it may tell it to remember something, as in
-    // the chat; everything else is its maker's or an admin's.
-    if (!read && !canEdit && sub !== 'members' && !(sub === "memory" && request.method === "POST")) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
+    // Anyone who may talk to it may add a private grant for their own app
+    // connection. Agent-wide settings remain its maker's or an admin's.
+    if (!read && !canEdit && sub !== 'members' && sub !== 'apps' && !(sub === "memory" && request.method === "POST")) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
     if (sub === 'ownership' && request.method==='PUT') {
       const people=await memoryMembers(env.DB,orgId,me);
       const target=people.find(p=>p.ref===input.ref);
@@ -702,6 +703,27 @@ export async function handleHarness(request, env, url, context = {}) {
         }
         return r.error?fail(r):json(r);
       }
+    }
+    if (sub === 'apps') {
+      if (await getMode(env.DB, orgId) !== 'harness') return json({ message: 'Agent app permissions are available in Harness mode.' }, 404);
+      if (request.method === 'GET') {
+        return json({ connections: await agentAppConnections(env.DB, { orgId, agentId, githubId: me }) });
+      }
+      if (request.method === 'POST' || request.method === 'DELETE') {
+        const server = String(input?.server || url.searchParams.get('server') || '');
+        const granted = request.method === 'POST';
+        const result = await setAgentAppGrant(env.DB, { orgId, agentId, githubId: me, server, granted });
+        if (result.error) return json({ message: result.error }, result.status || 400);
+        await audit(env, request, {
+          orgId,
+          action: granted ? 'agent.connection_granted' : 'agent.connection_revoked',
+          actor: person(who.user),
+          entity: { type: 'custom_agent', id: agentId },
+          details: { app: server },
+        });
+        return json({ connections: result.connections });
+      }
+      return json({ message: 'Method not allowed.' }, 405);
     }
     if (sub === "profile") {
       if (request.method === "GET") return json({ profile: await getProfile(env.DB, orgId, agentId), tiers: TIERS, access: ACCESS, canEdit });
