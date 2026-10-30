@@ -54,6 +54,7 @@ struct ConversationView: View {
     @State private var confirmDelete: ChatMessage?
     @State private var reactingTo: ChatMessage?
     @State private var showThread = false
+    @State private var mediaSelection = UUID()
     @State private var showPins = false
     @State private var pins: [ChatMessage] = []
     @State private var profileRef: String?
@@ -158,11 +159,13 @@ struct ConversationView: View {
             }
             // Read again in another workspace: one channel name can be two
             // workspaces' conversations.
-            .task(id: "\(appState.currentUser?.teamID ?? "")|\(view)") {
+            .task(id: "\(appState.currentUser?.id ?? "")|\(appState.currentUser?.teamID ?? "")|\(view)|\(thread ?? "")|\(jump ?? "")") {
                 replyingTo = nil
                 newSince = store.reads[view]
                 draft = store.draft(view)
-                await store.open(view)
+                mediaSelection = UUID()
+                attached = []; uploading = 0
+                async let channelOpened: Void = store.open(view)
                 // Opened from a notification: here now.
                 if store.pendingOpen?.channel == view { store.pendingOpen = nil }
                 // Opened at a reply (Search, Activity, Sent, a notification):
@@ -170,7 +173,15 @@ struct ConversationView: View {
                 var shown = true
                 if let thread {
                     store.threadJump = jump
-                    if await store.openThread(channel: view, parentId: thread) { showThread = true } else { store.threadJump = nil; shown = false }
+                    showThread = true
+                    shown = await store.openThread(channel: view, parentId: thread)
+                    guard !Task.isCancelled else { return }
+                }
+                await channelOpened
+                guard !Task.isCancelled else { return }
+                if thread != nil {
+                    // The sheet owns errors/retry and its read position.
+                    return
                 }
                 if let target = thread ?? jump {
                     // Further back than the newest page: read back to it. A
@@ -208,7 +219,8 @@ struct ConversationView: View {
             if editing == nil { store.setDraft(view, text) }
         }
         .sheet(item: $reactingTo) { m in ChatEmojiPicker { e in Task { await store.react(m, e) } } }
-        .sheet(isPresented: $showThread) { ChatThreadSheet(store: store, onOpenCard: open(card:)) }
+        .onDisappear { mediaSelection = UUID(); attached = []; uploading = 0 }
+        .sheet(isPresented: $showThread, onDismiss: { store.closeThread() }) { ChatThreadSheet(store: store, onOpenCard: open(card:)) }
         .sheet(isPresented: $showPins) { pinsSheet }
         .sheet(isPresented: $canvasOpen) { ChatCanvasSheet(view: view, title: title).environmentObject(appState) }
         .sheet(isPresented: $agentsOpen) { ChatChannelAgentsSheet(store: store, view: view, title: title) }
@@ -509,7 +521,9 @@ struct ConversationView: View {
                         guard !taken.isEmpty else { return }
                         // Their places are kept from now, before the first has gone up.
                         uploading += taken.count
-                        Task { await attach(taken) }
+                        guard let origin = store.mediaScope(view) else { uploading -= taken.count; return }
+                        let selection = mediaSelection
+                        Task { await attach(taken, origin: origin, selection: selection) }
                     }
                     // Quote, list, numbered list, bold and the rest, as on the web.
                     Menu {
@@ -567,9 +581,11 @@ struct ConversationView: View {
     /// Picked photos and videos, made ready and uploaded (ChatPhotos.upload) and held
     /// for the message you are about to send. They are already counted in
     /// `uploading`, and given back once they are up.
-    private func attach(_ items: [PhotosPickerItem]) async {
-        for file in await ChatPhotos.upload(items, to: view, store: store) { attached.append(file) }
-        uploading -= items.count
+    private func attach(_ items: [PhotosPickerItem], origin: ChatStore.MediaScope, selection: UUID) async {
+        let files = await ChatPhotos.upload(items, origin: origin, store: store)
+        guard store.isCurrent(origin), selection == mediaSelection else { return }
+        attached.append(contentsOf: files)
+        uploading = max(0, uploading - items.count)
     }
 
     @ViewBuilder
@@ -759,7 +775,7 @@ struct ConversationView: View {
     /// so one edited or unsent meanwhile is quoted as it stands.
     private var replyQuote: ChatQuote? {
         guard let r = replyingTo else { return nil }
-        return ChatQuote(of: list.first { $0.id == r.id } ?? r)
+        return store.quote(of: r)
     }
 
     private func beginEdit(_ m: ChatMessage) {
