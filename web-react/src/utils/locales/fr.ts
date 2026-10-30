@@ -2051,6 +2051,8 @@ const table: Record<string, string> = {
   "Succeeded": "Réussi",
   "Cancelled": "Annulé",
   "Elapsed time, including approval waits": "Temps écoulé, attente d’approbation comprise",
+  "Running for {duration}": "En cours depuis {duration}",
+  "Execution took {duration}": "Durée d’exécution : {duration}",
 }
 
 export default table

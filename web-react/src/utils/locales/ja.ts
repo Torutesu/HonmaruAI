@@ -139,6 +139,8 @@ const table: Record<string, string> = {
   "Agent execution": "エージェントの実行状態",
   "Agent execution queued": "実行待ち",
   "Agent execution running": "実行中",
+  "Running for {duration}": "{duration}実行中",
+  "Execution took {duration}": "実行時間 {duration}",
   "Agent processing ended": "処理終了",
   "Agent execution failed": "実行失敗",
   "Agent execution interrupted; outcome unconfirmed": "実行中断・結果未確認",

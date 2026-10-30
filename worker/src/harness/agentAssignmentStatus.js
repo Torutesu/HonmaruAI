@@ -8,7 +8,7 @@ export async function decorateAssignmentStatuses(db,orgId,results,{actorId=null,
   if(!validAgentStatusInput({orgId,rowIds}))throw new Error('Invalid assignment status scope');
   const marks=rowIds.map((_,i)=>`?${i+2}`).join(',');
   const face=(id,name,handle,emoji,avatarUrl)=>({id,name:name || '',handle:handle || '',emoji:emoji || null,avatarUrl:avatarUrl || null});
-  const {results:assignments}=await db.prepare(`SELECT a.id,a.actor_id,a.source_message_id,a.current_agent_id,a.generation,a.status,a.remote_stop_status,c.name,c.handle,c.emoji,c.avatar_url
+  const {results:assignments}=await db.prepare(`SELECT a.id,a.actor_id,a.source_message_id,a.current_agent_id,a.generation,a.status,a.created_at,a.updated_at,a.remote_stop_status,c.name,c.handle,c.emoji,c.avatar_url
     FROM hx_agent_assignments a LEFT JOIN custom_agents c ON c.org_id=a.org_id AND c.id=a.current_agent_id
     WHERE a.org_id=?1 AND a.source_message_id IN (${marks}) ORDER BY a.created_at,a.id LIMIT 400`).bind(orgId,...rowIds).all();
   if(!assignments.length)return results;
@@ -27,7 +27,7 @@ export async function decorateAssignmentStatuses(db,orgId,results,{actorId=null,
   const grouped=new Map();
   for(const a of assignments) {
     const group=grouped.get(a.source_message_id)||[];
-    if(group.length<20)group.push({id:a.id,generation:a.generation,status:a.status,...(a.remote_stop_status?{providerStopStatus:a.remote_stop_status}:{}),canStop:['running','pending'].includes(a.status) && (canManage || a.actor_id===String(actorId)),agent:face(a.current_agent_id,a.name,a.handle,a.emoji,a.avatar_url),hops:chains.get(a.id)||[]});
+    if(group.length<20)group.push({id:a.id,generation:a.generation,status:a.status,startedAt:a.created_at,updatedAt:a.updated_at,...(a.remote_stop_status?{providerStopStatus:a.remote_stop_status}:{}),canStop:['running','pending'].includes(a.status) && (canManage || a.actor_id===String(actorId)),agent:face(a.current_agent_id,a.name,a.handle,a.emoji,a.avatar_url),hops:chains.get(a.id)||[]});
     grouped.set(a.source_message_id,group);
   }
   return results.map(result=>grouped.has(result.rowId)?{...result,assignments:grouped.get(result.rowId)}:result);

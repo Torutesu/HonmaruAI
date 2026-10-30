@@ -945,6 +945,7 @@ test('assignment status exposes scoped chain metadata with per-viewer stop right
   const response=await call(url,{headers:headers(token)},f.over);expect(response.status).toBe(200);
   const body=await response.json();const a=body.results[0].assignments[0];
   expect(a).toMatchObject({id:f.assignmentId,generation:1,status:'pending',canStop,agent:{id:f.target.id,name:'Reviewer',emoji:'📝',avatarUrl:'https://example.com/reviewer.png'},hops:[{id:'status-hop',from:{id:f.source.id},to:{id:f.target.id,emoji:'📝',avatarUrl:'https://example.com/reviewer.png'}}]});
+  expect(Number.isFinite(Date.parse(a.startedAt))).toBe(true);expect(Number.isFinite(Date.parse(a.updatedAt))).toBe(true);
   const text=JSON.stringify(body);for(const value of ['Private handoff brief','session_key','source_hash','actor_id','instructions'])expect(text).not.toContain(value);
  }
  const mixed=await call(`${url}&messageId=foreign`,{headers:headers(mika)},f.over);expect(mixed.status).toBe(404);
