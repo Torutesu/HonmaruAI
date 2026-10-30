@@ -31,6 +31,29 @@ test('tool refusal falls back to complete instructions without tools',async()=>{
  expect(fallback.tools).toBeUndefined();expect(fallback.messages[0].content).toBe('Full procedure');
  expect(opts.onUsage).toHaveBeenCalledTimes(1);
 });
+test('a required evidence tool is called first, and provider refusal does not silently answer without it',async()=>{
+ const opts=options();opts.provider.endpoint='https://required-tool.example/chat';
+ const run=vi.fn(async()=> 'Invoice INV-7 is paid');let first;
+ fetchMock.get('https://required-tool.example').intercept({path:'/chat',method:'POST'}).reply(200,o=>{first=JSON.parse(o.body);return {choices:[{message:{tool_calls:[call('evidence')]}}]}});
+ fetchMock.get('https://required-tool.example').intercept({path:'/chat',method:'POST'}).reply(200,{choices:[{message:{content:'INV-7 is paid (source: Linear, issue INV-7).'}}]});
+ expect(await completeWithTools({...opts,tools:read(run),requireTool:true,requiredToolNames:['read_installed_skill']})).toContain('source: Linear');
+ expect(first.tool_choice).toBe('required');
+ expect(run).toHaveBeenCalledExactlyOnceWith({skill_id:'one'});
+
+ opts.provider.endpoint='https://required-refusal.example/chat';
+ fetchMock.get('https://required-refusal.example').intercept({path:'/chat',method:'POST'}).reply(400,'Unsupported tools');
+ expect(await completeWithTools({...opts,tools:read(run),requireTool:true,requiredToolNames:['read_installed_skill']})).toBeNull();
+ expect(run).toHaveBeenCalledTimes(1);
+});
+test('an unrelated tool call does not satisfy a required external evidence tool',async()=>{
+ const opts=options();opts.provider.endpoint='https://evidence-boundary.example/chat';
+ const run=vi.fn(async()=> 'A memory value'),bodies=[];
+ fetchMock.get('https://evidence-boundary.example').intercept({path:'/chat',method:'POST'}).reply(200,o=>{bodies.push(JSON.parse(o.body));return {choices:[{message:{tool_calls:[call('memory')]}}]}});
+ fetchMock.get('https://evidence-boundary.example').intercept({path:'/chat',method:'POST'}).reply(200,o=>{bodies.push(JSON.parse(o.body));return {choices:[{message:{content:'Verified from Linear.'}}]}});
+ expect(await completeWithTools({...opts,tools:read(run),requireTool:true,requiredToolNames:['app1_search_issues']})).toBeNull();
+ expect(bodies[0].tool_choice).toBe('required');
+ expect(run).toHaveBeenCalledOnce();
+});
 test('tool rounds are bounded and final completion cannot execute another call',async()=>{
  const opts=options(),run=vi.fn(async()=> 'Procedure');let rounds=0;
  fetchMock.get('https://model.example').intercept({path:'/chat',method:'POST'}).reply(200,o=>{
