@@ -18,7 +18,6 @@ import { Dialog } from '../components/Dialog'
 import { InviteDialog } from '../components/InviteDialog'
 import './Studio.css'
 import { composing, enterKey } from '../utils/keys'
-import { RemoteMcpServers } from '../components/RemoteMcpServers'
 
 interface Connector { id: string; label: string; status: string }
 
@@ -675,7 +674,6 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
         ))}
         {matches.length === 0 && connectors !== null && <p className="studio-empty">{search.trim() ? t('No app matches “{q}”.', { q: search.trim() }) : t('No connectors are available on this deployment.')}</p>}
       </div>
-      {orgId && sessionToken && <RemoteMcpServers httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
       {orgId && sessionToken && <SmitheryApps httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
     </section>
   )

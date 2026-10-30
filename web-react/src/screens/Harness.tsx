@@ -16,6 +16,7 @@ import { CompanyApp } from '../components/CompanyApp'
 import { CustomAppEditor, CustomAppFrame } from "../components/CustomApp"
 import { AppSharing } from '../components/AppSharing'
 import { AppCalendar } from '../components/AppCalendar'
+import { RemoteMcpServers } from '../components/RemoteMcpServers'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
@@ -184,6 +185,8 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
       </>}
       {note && <div className="form-note">{note}</div>}
       {error && <div className="form-error">{error}</div>}
+
+      <RemoteMcpServers httpBase={props.httpBase} orgId={props.orgId} sessionToken={props.sessionToken} />
 
       <label className="hx-library-search"><Icon name="search" size={16} /><input type="search" aria-label="アプリを検索" placeholder="アプリを検索" value={query} onChange={e => setQuery(e.target.value)} /></label>
       {apps === null && <div className="empty">{t('Loading…')}</div>}

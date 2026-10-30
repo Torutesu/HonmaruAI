@@ -8,7 +8,10 @@ vi.mock('./HarnessShared', async importOriginal => ({
   ...await importOriginal<typeof import('./HarnessShared')>(),
   useApi: () => state.api,
 }))
-vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text }))
+vi.mock('../utils/i18n', () => {
+  const identity = (text: string) => text
+  return { useT: () => identity }
+})
 vi.mock('../utils/appPins', () => ({ useAppPins: () => ({ pins: [], toggle: vi.fn() }) }))
 let finish: (value: any) => void
 let tree: ReturnType<typeof create> | undefined
@@ -18,6 +21,10 @@ test('new record labels use the primary table when its title differs from the ap
 })
 beforeEach(() => {
   vi.stubGlobal('location', { hash: '#/apps' })
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => ({
+    ok: true,
+    json: async () => input.includes('/orgs/mode') ? { mode: 'harness' } : { servers: [], canManage: true },
+  })))
   state.api = {
     apps: vi.fn().mockResolvedValue({ apps: [] }),
     templates: vi.fn().mockResolvedValue({ templates: [] }),
@@ -28,6 +35,11 @@ beforeEach(() => {
 })
 afterEach(() => { if (tree) act(() => tree!.unmount()); tree = undefined; vi.unstubAllGlobals() })
 const button = (label: string) => tree!.root.findAllByType('button').find(node => node.props.children === label)!
+test('Remote MCP server settings are available from the Harness Apps library', async () => {
+  await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
+  expect(tree!.root.findByProps({ id: 'remote-mcp-title' }).children).toContain('Remote MCP servers')
+  expect(tree!.root.findAllByProps({ className: 'remote-mcp-empty' }).some(node => node.children.includes('No Remote MCP servers connected yet.'))).toBe(true)
+})
 async function start(prompt='First request') {
   await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
   act(() => button('Build an app').props.onClick())
