@@ -105,7 +105,7 @@
 .hx-run-empty { color: var(--hx-muted, var(--ash)); padding: 12px 0; }
 .hx-status { font-weight: 600; }
 .hx-status.done, .hx-status.ok { color: var(--emerald); }
-.hx-status.failed, .hx-status.declined { color: #a11258; }
+.hx-status.failed, .hx-status.declined { color: var(--hx-danger, #a11258); }
 .hx-status.waiting, .hx-status.running { color: var(--brand-violet); }
 
 @media (prefers-color-scheme: dark) {

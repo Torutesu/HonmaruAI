@@ -113,10 +113,13 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
   const { pins, toggle } = useAppPins(props.orgId,api)
   const [apps, setApps] = useState<App[] | null>(null)
   const [templates, setTemplates] = useState<Template[]>([])
+  const [storedOpenApp] = useState<string | null>(() => {
+    try { const id = sessionStorage.getItem('hx.openApp'); sessionStorage.removeItem('hx.openApp'); return id } catch { return null }
+  })
   // An app opened from a room's details (RoomApps) arrives already open.
   const [open, setOpen] = useState<string | null>(() => {
     if (props.requestedAppId) return props.requestedAppId
-    try { const id = sessionStorage.getItem('hx.openApp'); sessionStorage.removeItem('hx.openApp'); return id } catch { return null }
+    return storedOpenApp
   })
   const [prompt, setPrompt] = useState('')
   const [creating, setCreating] = useState(false)
@@ -135,8 +138,8 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
     if (previousRequestedApp.current !== props.requestedAppId) setOpen(props.requestedAppId || null)
     previousRequestedApp.current = props.requestedAppId
   }, [props.requestedAppId])
-  const openApp = (id: string) => { setOpen(id); location.hash = hashForApp(id, props.orgId) }
-  if (open) return <AppView key={open} {...props} api={api} appId={open} onBack={() => { setOpen(null); location.hash = '#/apps'; load() }} />
+  const openApp = (id: string) => { setOpen(id); location.hash = hashForApp(id, props.orgId, undefined, 'data') }
+  if (open) return <AppView key={open} {...props} initialSection={props.initialSection || (storedOpenApp === open ? 'data' : undefined)} api={api} appId={open} onBack={() => { setOpen(null); location.hash = '#/apps'; load() }} />
 
   const generate = () => act('generate', async () => {
     const startingHash = location.hash
@@ -282,7 +285,10 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const [personal,setPersonal] = useState<PersonalViews>({revision:0,views:[],computed:[],layouts:{}})
   const initializedSection = useRef(false)
   const [viewIndex, setViewIndex] = useState(0)
-  const [section, setSection] = useState<'overview' | 'data' | 'settings' | 'custom' | 'backend'>('overview')
+  const [section, setSection] = useState<AppSection>(initialSection || 'overview')
+  useEffect(() => {
+    setSection(initialSection || (data ? (data.app.definition.custom?.published ? 'overview' : 'data') : 'overview'))
+  }, [initialSection, data?.app.definition.custom?.published])
   const [search, setSearch] = useState('')
   const [searchExpanded,setSearchExpanded]=useState(false)
   const searchInput=useRef<HTMLInputElement>(null)
