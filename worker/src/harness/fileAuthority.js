@@ -2,7 +2,7 @@
 // Check live membership and the exact stored audience in the mutation itself.
 export function fileScopeAuthority(org,scope,actor) {
  return `EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id
- WHERE m.org_id=${org} AND m.user_github_id=${actor} AND lower(m.role) IN ('owner','admin','member')
+ WHERE m.org_id=${org} AND m.user_github_id=${actor} AND lower(m.role) IN ('owner','admin','member','designer','engineer','triager','maintainer')
  AND NOT EXISTS(SELECT 1 FROM workspace_deletions deletion WHERE deletion.org_id=m.org_id AND deletion.purge_started_at IS NOT NULL)
  AND NOT EXISTS(SELECT 1 FROM workspace_tombstones deleted WHERE deleted.org_id=m.org_id)
  AND (
@@ -28,5 +28,5 @@ export function fileDeleteAuthority(org,creator,actor,scope) {
   JOIN users person ON person.github_id=member.user_github_id
   JOIN conversation_members room_member ON room_member.org_id=role.org_id AND room_member.channel=role.channel AND room_member.login=person.login
   WHERE role.org_id=${org} AND role.channel=${scope} AND role.subject_kind='person' AND role.subject_id=${actor} AND role.role='admin'
-   AND lower(member.role) IN ('owner','admin','member') AND role.member_since=member.created_at||'/'||room_member.added_at))`;
+   AND lower(member.role) IN ('owner','admin','member','designer','engineer','triager','maintainer') AND role.member_since=member.created_at||'/'||room_member.added_at))`;
 }

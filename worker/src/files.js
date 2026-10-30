@@ -118,6 +118,12 @@ function sameText(a, b) {
   return diff === 0;
 }
 
+// A reply cannot outlive its root, including an interrupted thread deletion.
+const LIVE_FILE_SOURCE = `EXISTS (SELECT 1 FROM channel_messages source
+  WHERE source.org_id = f.org_id AND source.channel = f.channel AND source.id = f.message_id AND source.deleted_at IS NULL
+    AND (source.parent_id IS NULL OR EXISTS (SELECT 1 FROM channel_messages root
+      WHERE root.org_id = source.org_id AND root.channel = source.channel AND root.id = source.parent_id AND root.deleted_at IS NULL)))`;
+
 // ---- Rows ----
 
 /// Where a reader fetches a file, and until when (ms): on the media
@@ -151,13 +157,21 @@ export async function toFile(db, row, now = Date.now()) {
 /// POST /media/urls — new addresses for files a client already shows, for
 /// one whose address ran out. Only for files the caller could read now: in
 /// a conversation they are in, sent, or theirs not yet sent.
+/// Existing media-origin links keep their signed expiry; that Worker reads no source rows.
 export async function freshFileUrls(env, { orgId, login, ids }, now = Date.now()) {
   const wanted = [...new Set((Array.isArray(ids) ? ids : []).filter((id) => typeof id === "string" && ID.test(id)))].slice(0, 100);
   const out = {};
   if (!wanted.length) return out;
-  const { results = [] } = await env.DB.prepare(
-    `SELECT * FROM message_files WHERE org_id = ?1 AND id IN (${wanted.map((_, i) => `?${i + 2}`).join(", ")})`
-  ).bind(orgId, ...wanted).all();
+  const results = [];
+  // Leave a binding for the workspace within D1's 100-parameter limit.
+  for (let i = 0; i < wanted.length; i += 90) {
+    const chunk = wanted.slice(i, i + 90);
+    const page = await env.DB.prepare(
+      `SELECT f.* FROM message_files f WHERE f.org_id = ?1 AND f.id IN (${chunk.map((_, j) => `?${j + 2}`).join(", ")})
+        AND (f.message_id IS NULL OR ${LIVE_FILE_SOURCE})`
+    ).bind(orgId, ...chunk).all();
+    results.push(...(page.results || []));
+  }
   const access = await accessFor(env.DB, orgId, login);
   for (const row of results) {
     if (!mayRead(row.channel, access)) continue;
@@ -297,6 +311,19 @@ export async function dropFiles(env, orgId, messageId) {
   await env.DB.prepare("DELETE FROM message_files WHERE org_id = ?1 AND message_id = ?2").bind(orgId, messageId).run();
 }
 
+/// Tombstones and their attachment rows are durable retry work if unsend stops
+/// before dropFiles. Keep the row until bytes are gone or their retries are stored.
+export async function sweepDeletedFiles(env) {
+  if (!env.MEDIA) return 0;
+  const { results = [] } = await env.DB.prepare(`SELECT f.id, f.org_id FROM message_files f
+    WHERE f.message_id IS NOT NULL AND NOT ${LIVE_FILE_SOURCE} LIMIT 100`).all();
+  for (const row of results) {
+    await deleteFileObject(env, row.org_id, row.id);
+    await env.DB.prepare("DELETE FROM message_files WHERE org_id = ?1 AND id = ?2").bind(row.org_id, row.id).run();
+  }
+  return results.length;
+}
+
 /// Uploads nobody sent within a day, swept by the cron.
 ///
 /// A message can still be sent with one between the sweep finding it and
@@ -414,7 +441,8 @@ export async function serveFile(request, env, url) {
   const id = m[1];
   const now = Math.floor(Date.now() / 1000);
   const until = Number(url.searchParams.get("e"));
-  const row = await env.DB.prepare("SELECT * FROM message_files WHERE id = ?1").bind(id).first();
+  const row = await env.DB.prepare(`SELECT f.* FROM message_files f WHERE f.id = ?1
+    AND (f.message_id IS NULL OR ${LIVE_FILE_SOURCE})`).bind(id).first();
   if (!row || !(await fileAddressHolds(env, url, row, now))) return new Response("Not found", { status: 404 });
   const guard = {
     "x-content-type-options": "nosniff",

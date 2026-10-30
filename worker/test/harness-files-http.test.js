@@ -216,3 +216,24 @@ test('file AI pages preserve Unicode and reject a root deleted during storage re
  const stale=await fileThreadTools(changing,context);
  const result=JSON.parse(await stale.read_thread_file.run({offset:0}));expect(result).toHaveProperty('error');expect(result).not.toHaveProperty('text');
 });
+
+
+test.each(['owner','admin','member','designer','engineer','triager','maintainer'])('supported %s standing can create list read update and discuss files with equivalent room access',async(role)=>{
+ await upsertMembership(env.DB,orgId,'file-human',role);
+ const room='g:abcdef0123456789';
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES(?,?,?,'now')").bind(orgId,room,'file-human').run();
+ for(const scope of ['workspace',room]){
+  const response=await call('/hx/files','POST',{scope,path:`${role}.txt`});expect(response.status).toBe(201);const {id}=await response.json();
+  expect((await call(`/hx/files/${id}/content?expectedVersion=0&size=5`,'PUT','hello',token,true)).status).toBe(200);
+  expect((await (await call(`/hx/files?scope=${scope}`)).json()).files.map(file=>file.id)).toContain(id);
+  expect((await call(`/hx/files/${id}`)).status).toBe(200);
+  expect(await (await call(`/hx/files/${id}/versions/1/content`)).text()).toBe('hello');
+  expect((await call(`/hx/files/${id}/content?expectedVersion=1&size=3`,'PUT','new',token,true)).status).toBe(200);
+  if(scope!=='workspace'){
+   const discussion=await call('/channels/files/conversation','POST',{orgId,fileId:id});expect(discussion.status).toBe(200);expect((await discussion.json()).threadId).toBeTruthy();
+   await env.DB.prepare('DELETE FROM conversation_members WHERE org_id=? AND channel=?').bind(orgId,room).run();
+   expect((await call(`/hx/files/${id}`)).status).toBe(404);
+   expect((await call('/channels/files/conversation','POST',{orgId,fileId:id})).status).toBe(404);
+  }
+ }
+});

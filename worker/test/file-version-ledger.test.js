@@ -68,9 +68,9 @@ test('archived, missing and unknown scopes fail closed',async()=>{
  for(const scopeName of ['b:missing','unknown','g:missing','dm:file-owner|missing','ag:missing|file-owner'])
   expect(await createFileLedger(env.DB,{...scope,fileId:scopeName,scope:scopeName,path:'report.txt'})).toEqual({created:false});
 });
-test('another room member may edit but cannot delete another creator file',async()=>{
+test.each(['member','designer','engineer','triager','maintainer'])('%s standing may edit but cannot delete another creator file without administrator authority',async(role)=>{
  await upsertUser(env.DB,{githubId:'editor',login:'file-editor',name:'Editor'});
- await upsertMembership(env.DB,'files-one','editor','member');
+ await upsertMembership(env.DB,'files-one','editor',role);
  expect(await save({createdBy:'editor'})).toEqual({saved:true,version:1});
  expect(await save({createdBy:'editor',expectedVersion:1,kind:'deleted',objectKey:null,contentHash:null,contentType:null,size:null})).toEqual({saved:false});
  await upsertMembership(env.DB,'files-one','editor','admin');
@@ -160,4 +160,21 @@ test('file change announcements target current readers without carrying file or 
  deliveries.length=0;
  await env.DB.prepare("DELETE FROM conversation_members WHERE channel='g:private'").run();
  await announceFileChanged({...env,ORG_RELAY:relay},scope.orgId,scope.fileId);expect(deliveries).toEqual([]);
+});
+
+
+test('supported engineer standing still requires a current agent grant for file access',async()=>{
+ await upsertMembership(env.DB,'files-one','owner','engineer');
+ await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES('files-one','file-agent','file-agent','Fixture Agent','','team','someone-else','now','now')").run();
+ await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES('files-one','file-agent','private','[]','now')").run();
+ const agentFile={...scope,fileId:'agent-file',scope:'ag:file-agent|file-owner',path:'agent.txt'};
+ expect(await createFileLedger(env.DB,agentFile)).toEqual({created:false});
+ await env.DB.prepare("INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,member_since,updated_by,updated_at) SELECT org_id,'file-agent',user_github_id,'member',created_at,'owner','now' FROM memberships WHERE org_id='files-one' AND user_github_id='owner'").run();
+ expect(await createFileLedger(env.DB,agentFile)).toEqual({created:true});
+ expect(await save({fileId:'agent-file'})).toEqual({saved:true,version:1});
+ expect(await readContent({fileId:'agent-file'})).not.toBeNull();
+ await env.DB.prepare("UPDATE hx_agent_members SET member_since='stale' WHERE org_id='files-one' AND agent_id='file-agent'").run();
+ expect(await readContent({fileId:'agent-file'})).toBeNull();
+ expect(await save({fileId:'agent-file',expectedVersion:1})).toEqual({saved:false});
+ expect(await createFileLedger(env.DB,{...agentFile,fileId:'stale-file',path:'stale.txt'})).toEqual({created:false});
 });
