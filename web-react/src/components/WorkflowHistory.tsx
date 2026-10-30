@@ -5,11 +5,12 @@ import {getLocale} from '../utils/locale'
 import {stepLabel,triggerLabel,type WorkflowAppOption} from '../utils/workflowLabels'
 import {describeWorkflowCondition} from '../utils/workflowCondition'
 
-export function WorkflowHistory({api,workflowId,tables=[],agents=[],apps=[]}:{api:HarnessApi;workflowId:string;tables?:Table[];agents?:Array<{id:string;name:string}>;apps?:WorkflowAppOption[]}){
+export function WorkflowHistory({api,workflowId,tables=[],agents=[],apps=[],canRestore=false,currentUpdatedAt,safetyPaused=false,onRestore}:{api:HarnessApi;workflowId:string;tables?:Table[];agents?:Array<{id:string;name:string}>;apps?:WorkflowAppOption[];canRestore?:boolean;currentUpdatedAt?:string;safetyPaused?:boolean;onRestore?:(revision:number,confirmAutoPaused:boolean)=>Promise<void>|void}){
  const t=useT(),generation=useRef(0),pending=useRef(false)
  const [items,setItems]=useState<WorkflowRevision[]>([]),[cursor,setCursor]=useState<number|null>(null)
  const [loaded,setLoaded]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('')
  const [from,setFrom]=useState<number|null>(null),[to,setTo]=useState<number|null>(null)
+ const [restoreRevision,setRestoreRevision]=useState<number|null>(null),[confirmRestore,setConfirmRestore]=useState(false),[restoring,setRestoring]=useState(false)
  useEffect(()=>()=>{generation.current++},[])
  const load=async(more=false)=>{
   if(pending.current)return
@@ -18,11 +19,20 @@ export function WorkflowHistory({api,workflowId,tables=[],agents=[],apps=[]}:{ap
    const result=await api.workflowRevisions(workflowId,more?cursor??undefined:undefined)
    if(token!==generation.current)return
    setItems(old=>more?[...old,...result.items]:result.items);setCursor(result.nextCursor);setLoaded(true)
-   if(!more){setTo(result.items[0]?.revision??null);setFrom(result.items[1]?.revision??result.items[0]?.revision??null)}
+   if(!more){setTo(result.items[0]?.revision??null);setFrom(result.items[1]?.revision??result.items[0]?.revision??null);setRestoreRevision(result.items[1]?.revision??null);setConfirmRestore(false)}
   }catch(e){if(token===generation.current){setItems([]);setLoaded(false);setCursor(null);setError(e instanceof Error?e.message:String(e))}}
   finally{if(token===generation.current){pending.current=false;setBusy(false)}}
  }
  const before=items.find(item=>item.revision===from),after=items.find(item=>item.revision===to)
+ const restoreTarget=items.find(item=>item.revision===restoreRevision)
+ const restoreIsAutoPaused=Boolean(safetyPaused&&restoreTarget?.definition.enabled)
+ const submitRestore=async()=>{
+  if(!restoreTarget||!onRestore||!currentUpdatedAt||restoring)return
+  setRestoring(true);setError('')
+  try{await onRestore(restoreTarget.revision,restoreIsAutoPaused);setConfirmRestore(false)}
+  catch(e){setError(e instanceof Error?e.message:String(e))}
+  finally{setRestoring(false)}
+ }
  const fields=[['name','Name'],['enabled','Automatic triggers'],['trigger','Trigger'],['steps','Steps']] as const
  const rowValue=(value:unknown)=>typeof value==='string'?value:JSON.stringify(value,null,2)
  const display=(definition:WorkflowRevision['definition'],key:typeof fields[number][0])=>{
@@ -51,6 +61,17 @@ export function WorkflowHistory({api,workflowId,tables=[],agents=[],apps=[]}:{ap
   {busy&&<p role="status">{t('Loading…')}</p>}
   {loaded&&!items.length&&<p>{t('No accessible versions on this page.')}</p>}
   {!!items.length&&<>
+   {canRestore&&onRestore&&currentUpdatedAt&&items.some(item=>item.revision!==items[0]?.revision)&&<section className="hx-revision-restore" aria-label={t('Restore workflow version')}>
+    <label>{t('Restore workflow version')} <select className="hx-cell-select" aria-label={t('Restore workflow version')} value={restoreRevision??''} disabled={restoring} onChange={e=>{setRestoreRevision(Number(e.target.value));setConfirmRestore(false)}}>
+     {items.filter(item=>item.revision!==items[0]?.revision).map(item=><option key={item.revision} value={item.revision}>{t('Version {version}',{version:item.revision})} · {new Date(item.recordedAt).toLocaleString(getLocale())} · {item.definition.name}</option>)}
+    </select></label>
+    <p>{t('Restoring sets the name, automatic-trigger setting, trigger and steps from this version. It creates a new immutable version, does not start a run, and in-flight runs keep their saved definition. Safety pauses and budget limits stay as they are.')}</p>
+    {restoreIsAutoPaused&&<p className="hx-revision-restore-warning">{t('This version enables automatic triggers. The workflow will remain safety-paused until you resume it separately.')}</p>}
+    {!confirmRestore?<button className="pill-btn quiet" disabled={!restoreTarget||restoring} onClick={()=>setConfirmRestore(true)}>{t('Restore this version…')}</button>:<div className="hx-revision-restore-confirm" role="group" aria-label={t('Confirm restore')}>
+     <p>{t('Restore version {version} as a new workflow definition?',{version:restoreTarget?.revision??''})}</p>
+     <div className="hx-actions"><button className="pill-btn" disabled={restoring||!restoreTarget} onClick={()=>void submitRestore()}>{restoring?t('Restoring…'):t('Restore as new version')}</button><button className="btn-text" disabled={restoring} onClick={()=>setConfirmRestore(false)}>{t('Cancel')}</button></div>
+    </div>}
+   </section>}
    <div className="hx-inline">{([['Compare from',from,setFrom],['Compare to',to,setTo]] as const).map(([label,value,set])=><label key={label}>{t(label)} <select className="hx-cell-select" aria-label={t(label)} value={value??''} onChange={e=>set(Number(e.target.value))}>
     {items.map(item=><option key={item.revision} value={item.revision}>{t('Version {version}',{version:item.revision})} · {new Date(item.recordedAt).toLocaleString(getLocale())}</option>)}
    </select></label>)}</div>

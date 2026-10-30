@@ -81,6 +81,7 @@ export interface Workflow {
   nextRunAt: string | null; lastRunAt: string | null; createdBy: string; hookUrl?: string; hookSecret?: string; webhookSignatureRequired?: boolean
 }
 export interface WorkflowRevision {revision:number;recordedAt:string;definition:Pick<Workflow,'name'|'enabled'|'trigger'|'steps'> & {createdBy:string}}
+export interface WorkflowRevisionRestore {workflow:Workflow;restoredRevision:number;revision:number|null;safetyPaused:boolean}
 export type AutomationDefinition = Pick<Workflow, 'name' | 'enabled' | 'trigger' | 'steps'>
 export interface AutomationBundle { version: 1; items: Array<AutomationDefinition & {key: string}> }
 export interface AutomationPlanItem { key: string; workflowId: string | null; status: 'added'|'changed'|'unchanged'|'removed'|'retired'|'drifted'|'missing'; declared: AutomationDefinition | null; published: AutomationDefinition | null; live: AutomationDefinition | null }
@@ -190,6 +191,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     deleteRow: (tableId: string, rowId: string, expectedUpdatedAt?: string) => call<{ deleted: boolean }>('DELETE', `/tables/${tableId}/rows/${rowId}`, undefined, expectedUpdatedAt ? { expectedUpdatedAt } : {}),
 
     workflowRevisions: (id:string,before?:number) => call<{items:WorkflowRevision[];nextCursor:number|null}>('GET', `/workflows/${id}/revisions`,undefined,before===undefined?{}:{before:String(before)}),
+    restoreWorkflowRevision: (id:string,input:{revision:number;expectedUpdatedAt:string;confirmAutoPaused?:boolean}) => call<WorkflowRevisionRestore>('POST',`/workflows/${id}/rollback`,input),
     workflows: () => call<{ workflows: Workflow[] }>('GET', '/workflows'),
     workflow: (id: string) => call<{ workflow: Workflow; runs: Run[]; canEdit: boolean; held?: HeldWorkflowEvents }>('GET', `/workflows/${id}`),
     generateWorkflow: (prompt: string, channel?: string, options?: {requestId: string; captureSource?: boolean}) => call<{ workflow: Workflow; source: string }>('POST', '/workflows/generate', { prompt, channel, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...options }),

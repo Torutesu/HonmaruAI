@@ -830,6 +830,12 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-revision-value dt { color:var(--hx-muted); }
 .hx-revision-value dd { margin:0 0 6px; white-space:pre-wrap; }
 .hx-workflow-history > .hx-actions { margin-top:12px; }
+.hx-revision-restore { display:grid; gap:8px; margin:14px 0; padding:14px; border:1px solid var(--hx-border); border-radius:8px; background:var(--hx-surface); }
+.hx-revision-restore > label { display:grid; gap:6px; max-width:560px; color:var(--hx-muted); font-size:12px; }
+.hx-revision-restore select { width:100%; min-width:0; padding:8px; border:1px solid var(--hx-border); border-radius:6px; background:var(--hx-surface); color:var(--hx-text); font:inherit; }
+.hx-revision-restore > p,.hx-revision-restore-confirm > p { margin:0; font-size:12px; line-height:1.5; color:var(--hx-muted); }
+.hx-revision-restore .hx-revision-restore-warning { padding:9px 11px; border-left:3px solid var(--hx-danger); border-radius:4px; color:var(--hx-text); background:color-mix(in srgb,var(--hx-danger) 8%,var(--hx-surface)); }
+.hx-revision-restore-confirm { display:grid; gap:8px; padding-top:8px; }
 .hx-workflow-budget { margin:12px 0 16px; padding:14px; border:1px solid var(--hx-border,var(--bone)); border-radius:10px; background:var(--hx-surface,var(--signal-white)); color:var(--hx-text,var(--ink-black)); }
 .hx-workflow-budget > p { margin:6px 0 12px; color:var(--hx-muted,var(--ash)); font-size:12px; line-height:1.5; }
 .hx-workflow-budget .hx-inline { display:flex; flex-wrap:wrap; align-items:stretch; gap:12px; margin-bottom:12px; }
