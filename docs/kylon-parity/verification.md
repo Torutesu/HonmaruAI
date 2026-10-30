@@ -3722,3 +3722,10 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - The signed-in Kylon test thread showed work-duration receipts below agent replies (for example, `44秒作業しました` and `1分8秒作業しました`). Honmaru's existing room-authorized execution summary showed agent, status, stop controls and handoff history, but no elapsed duration.
 - Honmaru now returns assignment start/update timestamps only through `/channels/agent-runs`, after the existing per-message channel access checks. The UI shows live elapsed time for active assignments and the saved duration after completion. This is the whole assignment chain, including handoffs; it does not claim per-reply or per-tool timing. Tool inputs and outputs are not included.
 - No schema or migration change, and no new paid service. The full Web suite passed (194 files / 1,325 tests); TypeScript and the production Vite build passed. Existing large-bundle and ineffective dynamic import warnings remain. The focused Worker assignment-status/API test passed; the full Worker suite, PR CI, production deployment and signed-in Honmaru screen check are pending.
+
+### 2026-10-31 — Workflow run-history deployment audit
+
+- Honmaru grouped workflow history by local start day and added a failed-only filter in commit `1c80323`. The successful production Deploy Web #324 used merge commit `ebbafde`, which includes `1c80323`.
+- The earlier local verification passed the affected AutomationRuns and HarnessWorkflows suites (47 tests), the Worker workflow suite (65 tests), and the TypeScript/Vite build. That local build reported existing large-bundle and ineffective dynamic import warnings.
+- The signed-in Kylon test room contained no workflows, so a populated Kylon run-history view could not be compared. The Honmaru screen inspected in this audit was in Simple mode, so the Harness run grouping/filter were not visually rechecked today. Full step input/output/error/cost/permission trace remains open under KY-061.
+- Simple mode and its data were not changed. No new paid service was used.
