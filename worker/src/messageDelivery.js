@@ -1,0 +1,62 @@
+// Delivery intent commits with its message. Each path owns a lease and retry
+// clock, so notification lookups never hold up connected readers.
+export function messageDeliveryStatements(db, orgId, messageId, boundary = null) {
+  return ['live', 'push'].map(kind => db.prepare(`INSERT INTO channel_message_delivery (org_id,message_id,kind,business_created_at,allow_virtual)
+    SELECT m.org_id,m.id,?3,CASE WHEN ?4=1 THEN ?5 ELSE b.created_at END,
+      CASE WHEN ?4=1 THEN ?6 WHEN substr(m.channel,1,2)='b:' AND b.slug IS NULL THEN 1 ELSE 0 END
+    FROM channel_messages m LEFT JOIN businesses b ON b.org_id=m.org_id AND 'b:'||b.slug=m.channel
+    WHERE m.org_id=?1 AND m.id=?2 AND m.deleted_at IS NULL
+    ON CONFLICT DO NOTHING`).bind(orgId,messageId,kind,boundary?1:0,boundary?.businessCreatedAt||null,boundary?.allowVirtual===true?1:0));
+}
+
+export async function drainMessageDelivery(db, deliver, {kind, orgId=null, messageId=null, now=Date.now(), limit=20}={}) {
+  if (!['live','push'].includes(kind)) throw new Error('Invalid message delivery kind');
+  const sweepStarted = Date.now();
+  await db.prepare(`UPDATE channel_message_delivery SET status='failed',lease=NULL,lease_until=0
+    WHERE kind=?1 AND status='pending' AND attempts>=10 AND lease_until<=?2
+      AND (?3 IS NULL OR org_id=?3) AND (?4 IS NULL OR message_id=?4)`)
+    .bind(kind,now,orgId,messageId).run();
+  const {results=[]}=await db.prepare(`SELECT org_id,message_id,attempts FROM channel_message_delivery
+    WHERE kind=?1 AND status='pending' AND attempts<10 AND next_attempt<=?2 AND lease_until<=?2
+      AND (?3 IS NULL OR org_id=?3) AND (?4 IS NULL OR message_id=?4)
+    ORDER BY next_attempt,message_id LIMIT ?5`).bind(kind,now,orgId,messageId,Math.min(50,Math.max(1,limit))).all();
+  // Advance each lease when it is acquired, even if earlier jobs were slow.
+  // Bounded work per sweep; separate kind sweeps run independently.
+  for (const row of results) {
+    const current = now + Date.now() - sweepStarted;
+    const lease=crypto.randomUUID();
+    const claim=await db.prepare(`UPDATE channel_message_delivery SET lease=?4,lease_until=?5,attempts=attempts+1
+      WHERE org_id=?1 AND message_id=?2 AND kind=?3 AND status='pending' AND attempts<10 AND next_attempt<=?6 AND lease_until<=?6`)
+      .bind(row.org_id,row.message_id,kind,lease,current+60000,current).run();
+    if (!claim.meta?.changes) continue;
+    let status='done';
+    try { await deliver(row.org_id,row.message_id); }
+    catch { status=row.attempts>=9?'failed':'pending'; }
+    const finished = now + Date.now() - sweepStarted;
+    await db.prepare(`UPDATE channel_message_delivery SET status=?5,lease=NULL,lease_until=0,next_attempt=?6
+      WHERE org_id=?1 AND message_id=?2 AND kind=?3 AND lease=?4`)
+      .bind(row.org_id,row.message_id,kind,lease,status,finished+Math.min(3600000,15000*2**Math.min(row.attempts,8))).run();
+  }
+}
+
+// Physical legacy-room deletion must not turn a private source into an
+// implicit public room. Only an explicitly virtual acceptance may stay virtual.
+export async function messageDeliveryAllowed(db,orgId,messageId,{requireIntent=false}={}) {
+  return Boolean(await db.prepare(`SELECT 1 FROM channel_messages m
+    LEFT JOIN channel_message_delivery d ON d.org_id=m.org_id AND d.message_id=m.id AND d.kind='push'
+    WHERE m.org_id=?1 AND m.id=?2 AND m.deleted_at IS NULL AND (?3=0 OR d.message_id IS NOT NULL)
+      AND (m.parent_id IS NULL OR EXISTS(SELECT 1 FROM channel_messages root
+        WHERE root.org_id=m.org_id AND root.channel=m.channel AND root.id=m.parent_id
+          AND root.deleted_at IS NULL AND root.parent_id IS NULL))
+      AND (d.message_id IS NULL OR substr(m.channel,1,2)!='b:' OR (
+        NOT EXISTS(SELECT 1 FROM hx_room_access r WHERE r.org_id=m.org_id AND r.channel=m.channel AND r.deleted_at IS NOT NULL)
+        AND ((d.allow_virtual=1 AND d.business_created_at IS NULL AND NOT EXISTS(
+          SELECT 1 FROM businesses b WHERE b.org_id=m.org_id AND 'b:'||b.slug=m.channel))
+        OR (d.business_created_at IS NOT NULL AND EXISTS(SELECT 1 FROM businesses b
+          WHERE b.org_id=m.org_id AND 'b:'||b.slug=m.channel AND b.created_at=d.business_created_at)))))`)
+    .bind(orgId,messageId,requireIntent?1:0).first());
+}
+
+export async function discardPendingMessagePushes(db,orgId,messageId) {
+  await db.prepare('DELETE FROM push_queue WHERE org_id=?1 AND message_id=?2 AND sent_at IS NULL').bind(orgId,messageId).run();
+}
