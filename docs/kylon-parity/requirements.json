@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-10-26",
+  "asOf": "2026-10-30",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -436,12 +436,12 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/app",
       "code": "worker/src/harness/appDatabase.js",
-      "acceptance": "単一JSON行テーブルから所有権・型・relationを備えたデータ契約へ拡張",
+      "acceptance": "App ACLを継承する複数entity・型付きテーブル・単一/複数relation、参照先存在検証、リンク中削除防止、preview最終状態検証を受け入れる。専用Postgres DB/loginとD1論理分離の差、Kylon実画面一致は残る",
       "evidence": {
-        "reviewedAt": "2026-10-18",
-        "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
-        "implementedScope": "App-scoped primary/additional entities, inherited table ACL and bounded additive schema operations.",
-        "remaining": "Relations and referential integrity remain incomplete.",
+        "reviewedAt": "2026-10-30",
+        "inspectedMain": "1c587b85fd",
+        "implementedScope": "App-scoped primary/additional entities, typed tables, inherited table ACL, single/multiple same-app relations, reference existence checks, linked-row delete protection, and final-state preview validation (PR #514).",
+        "remaining": "Honmaru uses D1 logical isolation rather than Kylon's dedicated per-App Postgres DB/login; Kylon relation editor visual parity remains unverified.",
         "verification": "docs/kylon-parity/verification.md"
       }
     },
@@ -453,7 +453,7 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/app",
       "code": "worker/src/harness/tables.js",
-      "acceptance": "strict値検証・行CAS・HTTP/MCPページングを追加。参照整合性・スキーマ変更との競合は未実装"
+      "acceptance": "strict値検証・行CAS・HTTP/MCPページング・relation参照整合性と削除競合ガードを受け入れる。schema version/CASと既存列競合検知を実装。破壊的/データ変換migrationはKY-048"
     },
     {
       "id": "KY-041",
@@ -473,7 +473,7 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
       "code": "worker/src/harness/apps.js",
-      "acceptance": "共有ビューのフィルター（等値・除外・部分一致・空欄・大小比較）とtable/boardのグループ編集を追加。expectedVersionで古い編集を拒否。個人ビュー・列順・列幅・選択中ビューをユーザー別D1に保存し、同一アカウントで復元。列の表示切替も同じ個人設定に保存し、非表示中の列順・幅を保持。タイトル列は常時表示。ID・作成日時・更新日時の読取専用システム列、ヘッダーの昇順/降順/解除とフィルターを追加（初期非表示、個人設定に保存）。全操作の完全一致は引き続き検証対象"
+      "acceptance": "共有/個人ビュー、列順・幅・選択・表示切替・wrap設定、system列、並べ替え、table/board/calendar、フィルターとグループ編集をユーザー別に保存し復元。Relation列は表示名検索と複数リンクの含む/含まないを検証。全操作の完全一致は引き続き検証対象"
     },
     {
       "id": "KY-043",
@@ -654,11 +654,11 @@
       "id": "KY-057",
       "category": "Automations",
       "requirement": "型付きイベントフィルタ",
-      "status": "partial",
+      "status": "implemented",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
-      "acceptance": "テーブル行とapp_record_changeのflat AND条件を検証: missing/null/数値/配列、型の厳密一致、変更判定、重複配信、deleteにデータがない場合の条件動作"
+      "acceptance": "フラットAND、厳密な型付きscalar一致/候補配列、missingは不一致・nullは明示一致、条件のfalse→true、変更列判定、7日間の原子的なイベント重複排除と期限切れ掃除を検証。削除イベントの扱いはKY-056"
     },
     {
       "id": "KY-058",
@@ -1089,7 +1089,7 @@
       "priority": "P1",
       "source": "https://app.kylon.io",
       "code": "worker/src/harness/roomHooks.js",
-      "acceptance": "2026-10-23参照実画面を確認。名前付き管理・失効・受信専用スレッド・重複抑止・永続配送・現在の所属とエージェント利用権・中断後の確認付き再実行をローカル実装。返信INSERT時の権限失効と既存Simple配置の維持を検証。本番反映、実画面比較、複数利用者での本番受入は未完了。"
+      "acceptance": "名前付き管理・失効・受信専用スレッド・重複抑止・永続配送・現在の所属とエージェント利用権・中断後の確認付き再実行を実装。2026-10-30、KylonとHonmaru本番の署名済みデスクトップで空のWebhook管理画面を読み取り比較し、説明・名前入力・disabled作成・空状態・閉じる導線の一致を確認。本番イベントからのスレッド生成、複数利用者での受入は未完了。"
     },
     {
       "id": "KY-095",
