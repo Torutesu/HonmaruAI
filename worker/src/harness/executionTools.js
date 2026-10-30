@@ -50,12 +50,36 @@ export async function executionAgentTools(env, { orgId, session, personal, ownAg
   if (allowed.error || !allowed.gateways.length) return {};
   return Object.fromEntries(EXECUTION_TOOLS.map(tool => [tool.name, {
     description: tool.description, parameters: tool.inputSchema, strict: false,
-    run: async args => {
+    run: async (args, { signal } = {}) => {
       let result = await callExecutionTool(env, actor, tool.name, args);
+      // Agent cancellation must reach work that has already crossed the
+      // queue boundary. The gateway invalidates the lease, then its heartbeat
+      // stops the isolated VM; a completed result remains untouched.
+      const jobId = ['run_javascript', 'run_app_action'].includes(tool.name)
+        ? result.structuredContent?.job?.id
+        : null;
+      if (jobId && signal) {
+        const cancel = async () => {
+          try {
+            const outcome = await callExecutionTool(env, actor, 'cancel_execution', { jobId });
+            if (outcome.isError || outcome.structuredContent?.error) {
+              console.error('Agent execution cancellation failed.', outcome.content?.[0]?.text || outcome.structuredContent?.error);
+            }
+            return outcome;
+          } catch (error) {
+            console.error('Agent execution cancellation failed.', error?.message || error);
+            return null;
+          }
+        };
+        if (signal.aborted) {
+          const cancelled = await cancel();
+          if (cancelled && !cancelled.isError) result = cancelled;
+        } else signal.addEventListener('abort', () => { void cancel(); }, { once: true });
+      }
       // Avoid burning the model's tool budget polling while a VM boots.
       if (tool.name === 'get_execution' || tool.name === 'get_app_execution') {
         const until = Date.now() + 15000;
-        while (['queued', 'running'].includes(result.structuredContent?.job?.status) && Date.now() < until) {
+        while (!signal?.aborted && ['queued', 'running'].includes(result.structuredContent?.job?.status) && Date.now() < until) {
           await new Promise(resolve => setTimeout(resolve, 1000));
           result = await callExecutionTool(env, actor, tool.name, args);
         }
