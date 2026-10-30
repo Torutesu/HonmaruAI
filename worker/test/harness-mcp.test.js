@@ -67,7 +67,10 @@ test('node execution requires execute scope, preserves ownership and leaves Simp
   expect(queued.status).toBe('queued');
   expect((await tool(executor, 'run_javascript', args)).result.structuredContent.job.id).toBe(queued.id);
   expect((await tool(executor, 'run_javascript', { ...args, code: 'return 0' })).result.isError).toBe(true);
-  const nodeCall = async (path, body) => (await call('/gateways/' + path, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${nodeToken}` }, body: JSON.stringify(body) })).json();
+  const nodeCall = async (path, body) => {
+    const response = await call('/gateways/' + path, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${nodeToken}` }, body: JSON.stringify(body) });
+    return { status: response.status, ...(await response.json()) };
+  };
   const { job } = await nodeCall('claim', {});
   expect(job.id).toBe(queued.id);
   await nodeCall(`jobs/${job.id}/finish`, { lease: job.lease, status: 'succeeded', stdout: '42', exitCode: 0 });
@@ -88,6 +91,50 @@ test('node execution requires execute scope, preserves ownership and leaves Simp
   await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'simple' }) });
   expect(await names(executor)).not.toContain('run_javascript');
   expect(await executionAgentTools(env, context)).toEqual({});
+});
+
+test('cancelling an agent stops its running JavaScript and published app action', async () => {
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
+  const { gateway, token: nodeToken } = await (await call('/gateways', { method: 'POST', headers: headers(toru), body: JSON.stringify({ orgId: ORG, name: 'Mac mini' }) })).json();
+  const { app } = await (await call('/apps', { method: 'POST', headers: headers(toru), body: JSON.stringify({ orgId: ORG, template: 'crm' }) })).json();
+  const { saveAction } = await import('../src/harness/appCapabilities.js');
+  expect(await saveAction(env.DB, ORG, app.id, { name: 'agent_task', version: 0, action: 'draft', code: 'return input' }, '9401')).toMatchObject({ saved: true, version: 1 });
+  expect(await saveAction(env.DB, ORG, app.id, { name: 'agent_task', version: 1, action: 'publish' }, '9401')).toMatchObject({ saved: true, version: 2 });
+  const actor = { orgId: ORG, githubId: '9401' };
+  const { callExecutionTool, executionAgentTools } = await import('../src/harness/executionTools.js');
+  const tools = await executionAgentTools(env, { orgId: ORG, session: { github_id: '9401' }, personal: true, ownAgentsOnly: true });
+  const nodeCall = async (path, body) => {
+    const response = await call('/gateways/' + path, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${nodeToken}` }, body: JSON.stringify(body) });
+    return { status: response.status, ...(await response.json()) };
+  };
+
+  const startAndCancel = async (toolName, args) => {
+    const controller = new AbortController();
+    const started = JSON.parse(await tools[toolName].run(args, { signal: controller.signal }));
+    expect(started.job.status).toBe('queued');
+    const claimed = await nodeCall('claim', {});
+    expect(claimed.job.id).toBe(started.job.id);
+    controller.abort();
+    let latest;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      latest = await callExecutionTool(env, actor, 'get_execution', { jobId: started.job.id });
+      if (latest.structuredContent?.job?.status === 'cancelled') break;
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    expect(latest.structuredContent.job.status).toBe('cancelled');
+    const heartbeat = await nodeCall(`jobs/${started.job.id}/heartbeat`, { lease: claimed.job.lease });
+    expect(heartbeat.status).toBe(409);
+  };
+
+  const alreadyAborted = new AbortController();
+  alreadyAborted.abort();
+  const stoppedBeforeQueueReply = JSON.parse(await tools.run_javascript.run(
+    { gatewayId: gateway.id, requestId: 'agent-cancel-race', code: 'return input', input: 2 },
+    { signal: alreadyAborted.signal },
+  ));
+  expect(stoppedBeforeQueueReply.job.status).toBe('cancelled');
+  await startAndCancel('run_javascript', { gatewayId: gateway.id, requestId: 'agent-cancel-js', code: 'return input', input: 1 });
+  await startAndCancel('run_app_action', { appId: app.id, name: 'agent_task', version: 2, gatewayId: gateway.id, requestId: 'agent-cancel-app', input: { ok: true } });
 });
 
 test('MCP reports an overlapping workflow trigger as skipped without dereferencing a nonexistent run', async () => {
