@@ -3094,6 +3094,8 @@ const table: Record<string, string> = {
   "This existing webhook still accepts its URL secret alone. Generate a new URL to switch it to signed requests.": "この既存Webhookは、引き続きURL内のシークレットだけで受信します。署名付きリクエストへ切り替えるにはURLを再発行してください。",
   "The current webhook URL will stop working. Update your sender with the new URL and signed-request headers.": "現在のWebhook URLは使えなくなります。送信元を新しいURLと署名付きリクエストヘッダーに更新してください。",
   "Run history": "実行履歴",
+  "Version not recorded": "版未記録",
+  "Original definition snapshot unavailable": "元の定義スナップショットがありません",
   "Failed runs only": "失敗のみ",
   "No failed runs.": "失敗した実行はありません。",
   "No runs yet.": "まだ実行されていません。",

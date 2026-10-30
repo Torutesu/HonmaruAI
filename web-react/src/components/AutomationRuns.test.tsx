@@ -163,3 +163,18 @@ test('failed-only filter shows matching runs and a clear empty state',async()=>{
  expect(JSON.stringify(tree.toJSON())).toContain(t('No failed runs.'))
  act(()=>tree.unmount())
 })
+
+test('execution history distinguishes verified revisions from unknown provenance',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[
+  {id:'versioned',startedAt:'2026-10-24T12:00:00Z',status:'done',definitionRevision:4,definitionSnapshotAvailable:true,log:[]},
+  {id:'unmatched',startedAt:'2026-10-24T11:00:00Z',status:'done',definitionRevision:null,definitionSnapshotAvailable:true,log:[]},
+  {id:'no-snapshot',startedAt:'2026-10-24T10:00:00Z',status:'done',definitionRevision:null,definitionSnapshotAvailable:false,log:[]},
+ ]});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+ await act(async()=>refresh(tree).props.onClick())
+ const rendered=JSON.stringify(tree.toJSON())
+ expect(rendered).toContain(t('Version {version}',{version:4}))
+ expect(rendered).toContain(t('Version not recorded'))
+ expect(rendered).toContain(t('Original definition snapshot unavailable'))
+ act(()=>tree.unmount())
+})

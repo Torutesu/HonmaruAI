@@ -455,7 +455,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
           {group.runs.map((r) => (
             <div key={r.id} className="row static hx-run" data-run={r.id}>
               <div className="row-main">
-                <span className={`hx-status ${r.status}`}>{t(r.status)}</span> <time dateTime={Number.isFinite(new Date(r.startedAt).getTime())?r.startedAt:undefined}>{runTimestampLabel(r.startedAt,getLocale(),t('Date unavailable'))}</time> · {t(r.trigger)}{r.definitionRevision && <span className="row-sub">{t('Version {version}',{version:r.definitionRevision})}</span>}
+                <span className={`hx-status ${r.status}`}>{t(r.status)}</span> <time dateTime={Number.isFinite(new Date(r.startedAt).getTime())?r.startedAt:undefined}>{runTimestampLabel(r.startedAt,getLocale(),t('Date unavailable'))}</time> · {t(r.trigger)}{r.definitionRevision ? <span className="row-sub">{t('Version {version}',{version:r.definitionRevision})}</span> : r.definitionSnapshotAvailable===true ? <span className="row-sub">{t('Version not recorded')}</span> : r.definitionSnapshotAvailable===false ? <span className="row-sub">{t('Original definition snapshot unavailable')}</span> : null}
                 {runDuration(r)!==null&&<> · <span title={t('Elapsed time, including approval waits')}>{runDuration(r)}</span></>}
                 <WorkflowRunUsage usage={r.usage}/>
                 {r.log.map((l) => {

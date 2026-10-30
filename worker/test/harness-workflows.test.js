@@ -1315,6 +1315,35 @@ test('workflow rollback is maker/admin-only, compare-and-swap protected, and aud
  expect((await env.DB.prepare("SELECT action FROM audit_events WHERE org_id=?1 AND action='workflow.revision_restored'").bind(ORG).all()).results).toHaveLength(1);
 });
 
+test('legacy workflow runs show only an exact revision that existed when their snapshot started',async()=>{
+ const {createWorkflow,listRuns,getRun}=await import('../src/harness/workflows.js');
+ const {workflow}=await createWorkflow(env.DB,ORG,{name:'Legacy history',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Stable'}]},'9302');
+ const definition={name:workflow.name,enabled:workflow.enabled,trigger:workflow.trigger,steps:workflow.steps,createdBy:workflow.createdBy};
+ await env.DB.prepare('DELETE FROM hx_workflow_revisions WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).run();
+ for(const [revision,recordedAt] of [[1,'2026-10-28T00:00:00.000Z'],[2,'2026-10-30T00:00:00.000Z']]){
+  await env.DB.prepare('INSERT INTO hx_workflow_revisions(org_id,workflow_id,revision,definition,recorded_at) VALUES(?1,?2,?3,?4,?5)')
+   .bind(ORG,workflow.id,revision,JSON.stringify(definition),recordedAt).run();
+ }
+ const addRun=async(id,startedAt,snapshot)=>{
+  await env.DB.prepare("INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at,finished_at) VALUES(?1,?2,?3,'manual','done',NULL,'[]',0,'9302',?4,?4)")
+   .bind(id,ORG,workflow.id,startedAt).run();
+  if(snapshot!==undefined)await env.DB.prepare('INSERT INTO hx_workflow_run_definitions(run_id,org_id,definition,created_at) VALUES(?1,?2,?3,?4)')
+   .bind(id,ORG,JSON.stringify(snapshot),'2026-10-30T00:00:00.000Z').run();
+ };
+ const frozen={...definition,id:workflow.id,safetyGeneration:'legacy'};
+ await addRun('run-before-revision','2026-10-27T00:00:00.000Z',frozen);
+ await addRun('run-matched-as-of','2026-10-29T00:00:00.000Z',frozen);
+ await addRun('run-unmatched-snapshot','2026-10-29T00:00:00.000Z',{...frozen,name:'Unrecorded edit'});
+ await addRun('run-without-snapshot','2026-10-29T00:00:00.000Z');
+ const runs=await listRuns(env.DB,ORG,workflow.id);
+ const byId=Object.fromEntries(runs.map(run=>[run.id,run]));
+ expect(byId['run-matched-as-of']).toMatchObject({definitionRevision:1,definitionSnapshotAvailable:true});
+ expect(byId['run-before-revision']).toMatchObject({definitionRevision:null,definitionSnapshotAvailable:true});
+ expect(byId['run-unmatched-snapshot']).toMatchObject({definitionRevision:null,definitionSnapshotAvailable:true});
+ expect(byId['run-without-snapshot']).toMatchObject({definitionRevision:null,definitionSnapshotAvailable:false});
+ expect(await getRun(env.DB,ORG,'run-matched-as-of')).toMatchObject({definitionRevision:1,definitionSnapshotAvailable:true});
+});
+
 test('workflow run budgets enforce limits, reject stale editors, and resume after usage rolls into a new window',async()=>{
  const created=await send('POST','/workflows',mika,{orgId:ORG,name:'Budgeted workflow',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Budgeted run'}]});
  expect(created.status).toBe(201);
