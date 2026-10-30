@@ -90,6 +90,24 @@ test("a deploy onto a database predating the invite ref still succeeds", async (
   expect(idx).toBeTruthy();
 });
 
+test("thread paging indexes are created after upgrading a pre-thread messages table", async () => {
+  await env.DB.exec("DROP TABLE channel_messages");
+  await env.DB.exec(`CREATE TABLE channel_messages (
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel TEXT NOT NULL,
+    author_login TEXT, kind TEXT NOT NULL DEFAULT 'message', body TEXT NOT NULL,
+    card_id TEXT, created_at TEXT NOT NULL
+  )`.replace(/\n/g, " "));
+  await env.DB.exec("INSERT INTO channel_messages(id,org_id,channel,body,created_at) VALUES('legacy-root','legacy-org','b:general','Keep this message','2026-01-01')");
+  await applyDeploy(env.DB);
+  await applyDeploy(env.DB);
+  expect(await env.DB.prepare("SELECT body,parent_id,deleted_at FROM channel_messages WHERE id='legacy-root'").first())
+    .toEqual({body:'Keep this message',parent_id:null,deleted_at:null});
+  const index = await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_channel_thread_page'").first();
+  expect(index.sql).toContain("WHERE deleted_at IS NULL");
+  const plan = await env.DB.prepare("EXPLAIN QUERY PLAN SELECT id FROM channel_messages WHERE org_id='legacy-org' AND parent_id='legacy-root' AND deleted_at IS NULL ORDER BY created_at DESC,rowid DESC LIMIT 51").all();
+  expect(plan.results.map(row => row.detail).join(' ')).toContain('idx_channel_thread_page');
+});
+
 test("adding webhook execution attribution preserves existing teammate runs", async () => {
   await env.DB.exec("DROP TABLE IF EXISTS ai_teammate_runs");
   await env.DB.exec("CREATE TABLE ai_teammate_runs (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, provider TEXT NOT NULL, channel TEXT NOT NULL, thread_id TEXT NOT NULL, remote_id TEXT NOT NULL, remote_turn TEXT, status TEXT NOT NULL, cost_cents INTEGER NOT NULL DEFAULT 0, last_event_at TEXT, started_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, on_behalf_of TEXT)");

@@ -47,6 +47,7 @@ ALTER TABLE channel_messages ADD COLUMN parent_id TEXT;
 ALTER TABLE channel_messages ADD COLUMN pinned_at TEXT;
 ALTER TABLE channel_messages ADD COLUMN pinned_by TEXT;
 CREATE INDEX IF NOT EXISTS idx_channel_messages_parent ON channel_messages(org_id, parent_id);
+CREATE INDEX IF NOT EXISTS idx_channel_thread_page ON channel_messages(org_id, parent_id, created_at) WHERE deleted_at IS NULL;
 ALTER TABLE memberships ADD COLUMN status_emoji TEXT;
 ALTER TABLE memberships ADD COLUMN status_text TEXT;
 ALTER TABLE memberships ADD COLUMN status_until TEXT;
