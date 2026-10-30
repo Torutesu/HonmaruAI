@@ -98,7 +98,7 @@ function smithery() {
 
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
-  await env.DB.exec("DELETE FROM rate_limits; DELETE FROM audit_events; DELETE FROM sessions; DELETE FROM memberships; DELETE FROM users; DELETE FROM org_apps; DELETE FROM app_connections; DELETE FROM app_connection_tombstones;");
+  await env.DB.exec("DELETE FROM rate_limits; DELETE FROM audit_events; DELETE FROM sessions; DELETE FROM memberships; DELETE FROM users; DELETE FROM org_apps; DELETE FROM app_connections; DELETE FROM hx_agent_app_grants; DELETE FROM app_connection_tombstones;");
   forgetPolicies();
   fake = smithery();
   const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
@@ -123,6 +123,7 @@ async function connect(token, secret, orgId = ORG) {
   const id = [...fake.connections.keys()].find((k) => fake.connections.get(k).secret === null);
   fake.connections.get(id).state = "connected";
   fake.connections.get(id).secret = secret;
+  await env.DB.prepare("UPDATE app_connections SET status = 'connected' WHERE id = ?1").bind(id).run();
   return { res, answer, id };
 }
 const sessionOf = async (token) => env.DB.prepare("SELECT * FROM sessions WHERE token = ?1").bind(await sessionKey(token)).first();
@@ -272,5 +273,82 @@ test("an app may write only when every agent called is the caller's own", async 
   expect(allOwnAgents([{ ownerLogin: "toru" }, { ownerLogin: "mika" }], "toru")).toBe(false);
   expect(allOwnAgents([], "toru")).toBe(false);
   expect(allOwnAgents([{ ownerLogin: "toru" }], null)).toBe(false);
+});
+
+test("Harness connections are granted per agent and caller, and revocation stops a tool already in memory", async () => {
+  await allow({ allowWrites: true });
+  const mikaConnection = await connect(mika, "MIKA-ONLY-DATA");
+  const toruConnection = await connect(owner, "TORU-ONLY-DATA");
+  const mode = await call("/orgs/mode", owner, { method: "PUT", body: { orgId: ORG, mode: "harness" } });
+  expect(mode.status).toBe(200);
+  const agentId = "agent-mika-private";
+  const createdAt = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO custom_agents
+    (org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES (?1,?2,'mika-scout','Mika Scout','Read the allowed app only.','team','mika',?3,?3)`)
+    .bind(ORG, agentId, createdAt).run();
+
+  const path = `/hx/agents/${agentId}/apps`;
+  const before = await (await call(`${path}?${q}`, mika)).json();
+  expect(before.connections).toEqual([expect.objectContaining({ server: "linear", name: "Linear", granted: false })]);
+  const toruBefore = await (await call(`${path}?${q}`, owner)).json();
+  expect(toruBefore.connections).toEqual([expect.objectContaining({ server: "linear", name: "Linear", granted: false })]);
+
+  const otherAgent = await appTools(apiEnv(), { orgId: ORG, session: await sessionOf(mika), agentId: "another-agent", taint: { value: false }, writes: true, requireAgentGrant: true });
+  expect(otherAgent).toEqual({});
+  const initiallyDenied = await appTools(apiEnv(), { orgId: ORG, session: await sessionOf(mika), agentId, taint: { value: false }, writes: true, requireAgentGrant: true });
+  expect(initiallyDenied).toEqual({});
+  const agentBeforeGrant = await agentTools(apiEnv(), { orgId: ORG, session: await sessionOf(mika), personal: true, ownAgentsOnly: true, agentId });
+  expect(Object.keys(agentBeforeGrant).filter((name) => name.startsWith("app"))).toEqual([]);
+
+  expect((await call(path, mika, { method: "POST", body: { orgId: ORG, server: "missing" } })).status).toBe(404);
+  expect((await call(path, owner, { method: "POST", body: { orgId: ORG, server: "linear" } })).status).toBe(200);
+  const granted = await (await call(path, mika, { method: "POST", body: { orgId: ORG, server: "linear" } })).json();
+  expect(granted.connections[0]).toMatchObject({ server: "linear", granted: true });
+
+  const taint = { value: false };
+  const tools = await appTools(apiEnv(), { orgId: ORG, session: await sessionOf(mika), agentId, taint, writes: true, requireAgentGrant: true });
+  expect(Object.keys(tools).sort()).toEqual(["app1_archive_everything", "app1_create_issue", "app1_search_issues"]);
+  const agentAfterGrant = await agentTools(apiEnv(), { orgId: ORG, session: await sessionOf(mika), personal: true, ownAgentsOnly: true, agentId });
+  expect(Object.keys(agentAfterGrant).filter((name) => name.startsWith("app")).sort()).toEqual(["app1_archive_everything", "app1_create_issue", "app1_search_issues"]);
+  expect(await tools.app1_search_issues.run({ query: "x" })).toContain("MIKA-ONLY-DATA");
+  expect(taint.value).toBe(true);
+  expect(fake.calls).toHaveLength(1);
+
+  await env.DB.prepare("UPDATE org_apps SET allow_writes = 0 WHERE org_id = ?1 AND server = 'linear'").bind(ORG).run();
+  expect(await tools.app1_create_issue.run({ title: "must not be created" })).toContain("no longer permits this agent to write");
+  expect(fake.calls).toHaveLength(1);
+  await env.DB.prepare("UPDATE org_apps SET allow_writes = 1 WHERE org_id = ?1 AND server = 'linear'").bind(ORG).run();
+
+  const toruGrant = await call(path, owner, { method: "POST", body: { orgId: ORG, server: "linear" } });
+  expect(toruGrant.status).toBe(200);
+  const toruTools = await agentTools(apiEnv(), { orgId: ORG, session: await sessionOf(owner), personal: true, ownAgentsOnly: false, agentId });
+  expect(Object.keys(toruTools).filter((name) => name.startsWith("app"))).toEqual(["app1_search_issues"]);
+  const toruRead = await toruTools.app1_search_issues.run({ query: "x" });
+  expect(toruRead).toContain("TORU-ONLY-DATA");
+  expect(toruRead).not.toContain("MIKA-ONLY-DATA");
+  expect(fake.calls).toHaveLength(2);
+  expect((await call(`${path}?${q}&server=linear`, owner, { method: "DELETE" })).status).toBe(200);
+  expect(await toruTools.app1_search_issues.run({ query: "y" })).toContain("no longer allowed");
+  expect(fake.calls).toHaveLength(2);
+
+  expect((await call(`${path}?${q}&server=linear`, mika, { method: "DELETE" })).status).toBe(200);
+  const deniedAfterRevoke = await tools.app1_search_issues.run({ query: "y" });
+  expect(deniedAfterRevoke).toContain("no longer allowed");
+  expect(fake.calls).toHaveLength(2);
+  expect(fake.apiKeyReads).toEqual([]);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_agent_app_grants WHERE org_id = ?1").bind(ORG).first()).toEqual({ n: 0 });
+
+  // The opt-in grant UI and policy are Harness-only; the existing Simple
+  // personal-agent tool path still sees the person's own connected apps.
+  await call("/orgs/mode", owner, { method: "PUT", body: { orgId: ORG, mode: "simple" } });
+  const simple = await agentTools(apiEnv(), { orgId: ORG, session: await sessionOf(mika), personal: true, ownAgentsOnly: true });
+  expect(Object.keys(simple).filter((name) => name.startsWith("app")).sort()).toEqual(["app1_archive_everything", "app1_create_issue", "app1_search_issues"]);
+  expect(mikaConnection.id).toBeTruthy();
+  expect(toruConnection.id).toBeTruthy();
+  await env.DB.prepare("INSERT INTO hx_agent_app_grants (org_id, agent_id, user_github_id, server, created_at) VALUES (?1, ?2, '9702', 'linear', ?3)")
+    .bind(ORG, agentId, new Date().toISOString()).run();
+  await call(`/apps/connect?${q}&server=linear`, mika, { method: "DELETE" });
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_agent_app_grants WHERE org_id = ?1 AND user_github_id = '9702'").bind(ORG).first()).toEqual({ n: 0 });
 });
 

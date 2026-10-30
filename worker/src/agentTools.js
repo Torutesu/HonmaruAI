@@ -17,6 +17,7 @@ import { searchDecisions } from "./insights.js";
 import { accessFor } from "./access.js";
 import { getUserByGithubId } from "./db.js";
 import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
+import { getMode } from "./harness/mode.js";
 
 export function agentInstructionsForTools(instructions, tools) {
   if (!["list_document_nodes", "create_document", "get_document_status"].every(name => typeof tools?.[name]?.run === "function")) return instructions;
@@ -30,7 +31,7 @@ const query = (what) => ({
   additionalProperties: false,
 });
 
-export async function agentTools(env, { orgId, session, language = "en", personal = false, ownAgentsOnly = false, fileScope = null, fileThreadId = null }) {
+export async function agentTools(env, { orgId, session, language = "en", personal = false, ownAgentsOnly = false, fileScope = null, fileThreadId = null, agentId = null }) {
   const reader = await readerEnvFor(env, orgId).catch(() => env);
   // Set once one of the person's apps has answered: from then on no page is
   // opened in this answer, so nothing an app said can leave inside a link.
@@ -89,6 +90,7 @@ export async function agentTools(env, { orgId, session, language = "en", persona
   // The apps this person connected through Smithery, theirs alone: only in
   // this, their own conversation with the agent (smitheryApps.js).
   const { appTools } = await import("./smitheryApps.js");
-  Object.assign(tools, await appTools(env, { orgId, session, taint, writes: ownAgentsOnly }).catch(() => ({})));
+  const requireAgentGrant = (await getMode(env.DB, orgId).catch(() => "simple")) === "harness";
+  Object.assign(tools, await appTools(env, { orgId, session, taint, writes: ownAgentsOnly, agentId, requireAgentGrant }).catch(() => ({})));
   return tools;
 }

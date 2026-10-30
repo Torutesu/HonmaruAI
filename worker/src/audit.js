@@ -36,6 +36,8 @@ export const AUDIT_ACTIONS = {
   "apps.disconnected": { category: "auth", severity: "notice", text: "{actor} disconnected an app" },
   "apps.connection_removed": { category: "auth", severity: "notice", text: "An app connection of {entity} ended" },
   "apps.tool_called": { category: "data", severity: "info", text: "{actor}'s AI read from a connected app" },
+  "agent.connection_granted": { category: "auth", severity: "notice", text: "{actor} allowed an app for an agent" },
+  "agent.connection_revoked": { category: "auth", severity: "notice", text: "{actor} removed an app from an agent" },
   "remote_mcp.server_added": { category: "auth", severity: "notice", text: "{actor} connected a Remote MCP server" },
   "remote_mcp.server_discovered": { category: "auth", severity: "info", text: "{actor} refreshed tools from a Remote MCP server" },
   "remote_mcp.tools_changed": { category: "workspace", severity: "warning", text: "{actor} changed the tools agents may use on a Remote MCP server" },

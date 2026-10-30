@@ -1592,6 +1592,20 @@ CREATE TABLE IF NOT EXISTS app_connections (
   UNIQUE (org_id, user_github_id, server)
 );
 
+/* A person may give one of their own Smithery connections to one Harness
+   agent. Grants are private to that person and start empty; Simple mode keeps
+   its existing connection behavior. */
+CREATE TABLE IF NOT EXISTS hx_agent_app_grants (
+  org_id          TEXT NOT NULL,
+  agent_id        TEXT NOT NULL,
+  user_github_id  TEXT NOT NULL,
+  server          TEXT NOT NULL,
+  created_at      TEXT NOT NULL,
+  PRIMARY KEY (org_id, agent_id, user_github_id, server)
+);
+CREATE INDEX IF NOT EXISTS idx_hx_agent_app_grants_connection
+  ON hx_agent_app_grants(org_id, user_github_id, server);
+
 /* Connections ended here whose deletion at Smithery has not gone through
    yet; the sweep retries them. */
 CREATE TABLE IF NOT EXISTS app_connection_tombstones (

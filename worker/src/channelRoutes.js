@@ -518,6 +518,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   const tools = provider && allowance?.allowed
     ? await agentTools(env, {
       orgId, session, language: locale, personal: resolved.kind === "agent" && !row.parent_id, fileScope:resolved.key, fileThreadId:row.parent_id,
+      agentId: resolved.kind === "agent" && !row.parent_id && agents.length === 1 ? agents[0].id : null,
       // An app that may write does so only for agents the person wrote
       // themselves: a teammate's agent's instructions never steer it.
       ownAgentsOnly: allOwnAgents(agents, user.login),
