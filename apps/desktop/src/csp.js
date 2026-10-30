@@ -33,7 +33,8 @@ const socketOrigin = (origin) => origin.replace(/^https:/, 'wss:').replace(/^htt
 ///   other inline script, nothing from another site.
 /// - Styles: the app's own stylesheets. (React's `style={…}` props are set
 ///   through the DOM, which a CSP does not restrict.)
-/// - Connections: the app, the API over https, and the relay over wss.
+/// - Connections: the app, the API over https, the relay over wss, and
+///   trusted media hosts for document previews fetched by the app.
 /// - Images: the app, the API, data: and blob: (pasted pictures, previews),
 ///   and any https site — people's avatars come from GitHub and Google, and a
 ///   link's preview shows that site's own picture. An image cannot run code.
@@ -52,7 +53,7 @@ export function buildCsp({ apiOrigins = [], mediaOrigins = MEDIA_ORIGINS, script
     ['default-src', ["'self'"]],
     ['script-src', ["'self'", ...hashes, ...(dev ? ["'unsafe-inline'"] : [])]],
     ['style-src', ["'self'", ...(dev ? ["'unsafe-inline'"] : [])]],
-    ['connect-src', ["'self'", ...api, ...api.map(socketOrigin), ...local]],
+    ['connect-src', ["'self'", ...api, ...api.map(socketOrigin), ...media, ...local]],
     ['img-src', ["'self'", ...api, 'data:', 'blob:', 'https:', ...local]],
     ['media-src', ["'self'", ...api, ...media, 'blob:', ...local]],
     ['font-src', ["'self'", 'data:']],
