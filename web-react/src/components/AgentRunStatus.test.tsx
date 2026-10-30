@@ -5,7 +5,7 @@ import {AgentRunStatus} from './AgentRunStatus'
 import type {ChannelMessage} from '../types/card'
 const chosenLocale = vi.hoisted(() => ({value: 'en'}))
 vi.mock('../utils/locale', () => ({getLocale: () => chosenLocale.value}))
-vi.mock('../utils/i18n', () => ({useT: () => (text: string) => text}))
+vi.mock('../utils/i18n', () => ({useT: () => (text: string, vars?: Record<string,string|number>) => Object.entries(vars||{}).reduce((value,[key,replacement])=>value.replaceAll(`{${key}}`,String(replacement)),text)}))
 const api = {httpBase: 'https://api.example', orgId: 'org', sessionToken: 'one'}
 const message = (id: string) => ({id, kind: 'message', body: `Request ${id}`} as ChannelMessage)
 const ok = (status: string, rowId = 'one') => ({ok: true, json: async () => ({available: true, results: [{rowId, status, answered: 0}]})})
@@ -104,6 +104,20 @@ test('uses agent identity images and emoji in assignments and handoff history', 
  expect(JSON.stringify(tree.toJSON())).toContain('🔎')
  expect(tree.root.findAllByProps({title: '@research'})).toHaveLength(1)
  act(() => tree.unmount())
+})
+
+test('shows live and completed agent work duration from the authorized assignment timestamps',async()=>{
+ setup();vi.setSystemTime(new Date('2026-10-24T00:00:12Z'))
+ let status:'running'|'finished'='running'
+ const fetch=vi.fn().mockImplementation(async()=>({ok:true,json:async()=>({available:true,results:[{rowId:'one',status:'finished',answered:1,assignments:[{id:'assignment',generation:0,status,startedAt:'2026-10-24T00:00:00Z',updatedAt:status==='finished'?'2026-10-24T00:00:14Z':'2026-10-24T00:00:00Z',agent:{id:'agent',name:'Researcher',handle:'research'},hops:[]}]}]})}))
+ vi.stubGlobal('fetch',fetch);let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AgentRunStatus api={api} channel="b:general" messages={[message('one')]}/>)})
+ expect(JSON.stringify(tree.toJSON())).toContain('Running for 12 sec')
+ status='finished'
+ await act(async()=>{await vi.advanceTimersByTimeAsync(5000)})
+ expect(JSON.stringify(tree.toJSON())).toContain('Execution took 14 sec')
+ expect(tree.root.findAllByProps({className:'slk-run-duration'})).toHaveLength(1)
+ act(()=>tree.unmount())
 })
 
 test.each(['ja', 'de', 'invalid_locale'])('formats handoff time with the app language %s, tolerating stale locale settings', async locale => {

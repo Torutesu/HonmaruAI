@@ -39,7 +39,7 @@
 | KY-018 | スレッドの単一リーダーと引継ぎ | 一部 | P0 | [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js) | 重複起動防止・明示handoff・失敗時のリーダー交代 |
 | KY-019 | エージェント同士のループ抑止 | 一部 | P0 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 明示宛先以外の自動再起動を防ぎ最大handoff回数を記録 |
 | KY-020 | 実行停止・キャンセル伝播 | 一部 | P0 | [worker/src/agentRunner.js](../../worker/src/agentRunner.js), [worker/src/teammates.js](../../worker/src/teammates.js) | 世代単位停止をローカルモデル／ツールに伝播。個人DMのAgentが開始したMac mini JavaScript・公開アプリ処理も中断時にジョブを取消し、ゲートウェイのリースを失効。Claude Managed AgentsとCursor Cloud Agentsは公式停止APIへ正確なrun IDで要求し、結果を永続化してUIに表示・失敗時に再試行。Devin/Codex、signal非対応ツールの進行中副作用、費用精算、本番ライブ停止確認は残る |
-| KY-021 | ターンごとの実行プロセス | 一部 | P1 | [worker/src/agentRunner.js](../../worker/src/agentRunner.js) | 開始/ツール/失敗/完了を永続化し権限ある人だけ追跡 |
+| KY-021 | ターンごとの実行プロセス | 一部 | P1 | [worker/src/agentRunner.js](../../worker/src/agentRunner.js), [web-react/src/components/AgentRunStatus.tsx](../../web-react/src/components/AgentRunStatus.tsx) | チャット依頼の実行状態・引き継ぎと開始から終了までの時間を保存・表示。個別のツール呼び出し/入出力 trace、外部providerの詳細な稼働時間、全traceのACL比較は残る |
 | KY-022 | クラウド隔離コンピューター | 未実装 | P0 | [worker/src/agentRunner.js](../../worker/src/agentRunner.js) | 任意コード・ファイル・ネットワークを実行単位で隔離 |
 | KY-023 | ローカルゲートウェイ・再接続 | 一部 | P1 | [worker/src/harness/gateways.js](../../worker/src/harness/gateways.js) | Mac mini隔離JS・常駐・ログイン時接続・プロセス/ランタイム復旧と本番個人DMの実ツール往復を検証。物理再起動・スリープ復帰の実機試験は残る |
 | KY-024 | Codex/Claude Code/Devinの実行選択 | 一部 | P1 | [worker/src/teammates.js](../../worker/src/teammates.js) | クラウドAPI接続とローカルCLIを区別して実機で検証 |

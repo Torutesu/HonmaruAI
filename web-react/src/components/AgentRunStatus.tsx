@@ -7,10 +7,11 @@ import {formatDate} from '../utils/dateFormat'
 import {Icon} from './Icon'
 import {AgentRunStop} from './AgentRunStop'
 import {AgentAvatar, type AgentLook} from './AgentAvatar'
+import {formatElapsedDuration} from '../utils/runDuration'
 
 type Api = {httpBase: string; orgId: string; sessionToken: string}
 type AgentFace = AgentLook & {id: string; name: string; handle: string}
-type Assignment = {id: string; generation: number; status: string; providerStopStatus?: string; canStop?: boolean; agent: AgentFace; hops: {id: string; from: AgentFace; to: AgentFace; at: string}[]}
+type Assignment = {id: string; generation: number; status: string; startedAt?: string; updatedAt?: string; providerStopStatus?: string; canStop?: boolean; agent: AgentFace; hops: {id: string; from: AgentFace; to: AgentFace; at: string}[]}
 type Run = {rowId: string; status: string; answered: number; version?: number; assignments?: Assignment[]}
 const activeStatus = (status: string) => ['pending_delivery', 'queued', 'running', 'pending'].includes(status)
 const activeRun = (run: Run) => activeStatus(run.status) || Boolean(run.assignments?.some(assignment => activeStatus(assignment.status)))
@@ -18,6 +19,8 @@ const faceValid = (face: AgentFace) => face && typeof face.id === 'string' && ty
 function assignmentsFrom(value: unknown): Assignment[] {
   if (!Array.isArray(value)) return []
   return value.filter(assignment => assignment && typeof assignment.id === 'string' && Number.isSafeInteger(assignment.generation) && assignment.generation >= 0 && assignment.generation <= 8 && ['pending','running','finished','failed','cancelled','interrupted'].includes(assignment.status) && faceValid(assignment.agent)).slice(0, 20).map(assignment => ({...assignment,
+    ...(typeof assignment.startedAt==='string'&&assignment.startedAt.length<=64?{startedAt:assignment.startedAt}:{}),
+    ...(typeof assignment.updatedAt==='string'&&assignment.updatedAt.length<=64?{updatedAt:assignment.updatedAt}:{}),
     hops: (Array.isArray(assignment.hops) ? assignment.hops : []).filter((hop: Assignment['hops'][number]) => hop && typeof hop.id === 'string' && faceValid(hop.from) && faceValid(hop.to) && typeof hop.at === 'string').slice(0, 8),
   }))
 }
@@ -99,7 +102,7 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
       <span className="slk-run-source" title={sources.find(m => m.id === run.rowId)?.body}>{sources.find(m => m.id === run.rowId)?.body.slice(0, 100) || t('Message')}</span>
       {!run.assignments?.length && <span>{t(labels[run.status])}</span>}
       {Boolean(run.assignments?.length) && <div className="slk-run-assignments">{run.assignments!.map(assignment => <div className="slk-run-assignment" key={assignment.id}>
-        <div className="slk-run-assignee"><RunFace agent={assignment.agent}/><span className="slk-run-agent-name" title={`@${assignment.agent.handle}`}>{assignment.agent.name || t('Agent')}</span><span className="slk-run-assignment-status">{t(assignment.status === 'cancelled' ? 'Agent execution cancelled' : labels[assignment.status])}</span></div>
+        <div className="slk-run-assignee"><RunFace agent={assignment.agent}/><span className="slk-run-agent-name" title={`@${assignment.agent.handle}`}>{assignment.agent.name || t('Agent')}</span><span className="slk-run-assignment-status">{t(assignment.status === 'cancelled' ? 'Agent execution cancelled' : labels[assignment.status])}</span>{assignment.startedAt&&(()=>{const active=activeStatus(assignment.status),endedAt=active?null:assignment.updatedAt||null,duration=(active||endedAt)?formatElapsedDuration(assignment.startedAt,endedAt,getLocale()):null;return duration===null?null:<span className="slk-run-duration">{t(active?'Running for {duration}':'Execution took {duration}',{duration})}</span>})()}</div>
         {assignment.status === 'cancelled' && (() => {
           const outcome = assignment.providerStopStatus
           if (!outcome || outcome === 'no_remote_run') return null
