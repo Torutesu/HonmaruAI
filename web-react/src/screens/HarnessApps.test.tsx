@@ -59,6 +59,16 @@ test('room generation opens the saved source route rather than a detached app pa
  expect(state.api.generate).toHaveBeenCalledWith('Build a tracker for #general','b:general',expect.objectContaining({captureSource:true}))
  expect(location.hash).toBe('#/apps/created/team%3Aone?source=1')
 })
+test('opening an app from the library starts in its data viewer', async () => {
+  state.api.apps.mockResolvedValue({ apps: [{
+    id: 'existing', name: 'Tracker', description: 'A task tracker', icon: 'grid', tableId: 'tasks',
+    template: null, version: 2, createdBy: 'user', updatedAt: '2026-10-31T00:00:00Z', channels: [],
+    definition: { views: [], custom: { published: '<main></main>' } },
+  }] })
+  await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
+  await act(async () => { tree!.root.findByProps({ 'aria-label': 'Trackerを開く' }).props.onClick() })
+  expect(location.hash).toBe('#/apps/existing/team%3Aone?section=data')
+})
 test('late completion retains another destination and a revised prompt', async () => {
   const { completion } = await start()
   act(() => tree!.root.findByType('textarea').props.onChange({ target: { value: 'Next request' } }))
