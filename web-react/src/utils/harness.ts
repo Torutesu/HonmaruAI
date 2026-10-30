@@ -90,7 +90,7 @@ export interface RunLog { step: number; type: StepType; status: string; output?:
 export interface HeldWorkflowEvents { count: number; oldestExpiry: string | null; events: Array<{ id: string; receivedAt: string; expiresAt: string }>; discardEventIds?: string[] }
 export interface RunUsageCounters { calls:number; inputTokens:number; outputTokens:number; unknownCalls:number; unpricedCalls:number; estimatedMicros:number }
 export interface RunUsage extends RunUsageCounters { coverage:'priced-token-estimate'; estimatedUsd:number; steps:Array<RunUsageCounters & {stepNumber:number}> }
-export interface Run { definitionRevision?:number|null; usage?:RunUsage; id: string; trigger: string; status: string; log: RunLog[]; startedAt: string; finishedAt: string | null; cardId: string | null }
+export interface Run { definitionRevision?:number|null; definitionSnapshotAvailable?:boolean; usage?:RunUsage; id: string; trigger: string; status: string; log: RunLog[]; startedAt: string; finishedAt: string | null; cardId: string | null }
 export interface Followup { id: string; threadId?: string | null; channel: string; instruction: string; dueAt: string; status: string; agentId: string | null; result?: string | null; doneAt?: string | null }
 export interface Gateway { id: string; name: string; createdAt: number; lastSeenAt: number | null; revokedAt: number | null }
 export interface GatewayJob { id: string; gatewayId: string; status: string; createdAt: number; result: { stdout?: string; stderr?: string; error?: string; exitCode?: number | null } | null }

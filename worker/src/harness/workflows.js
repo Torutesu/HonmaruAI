@@ -205,11 +205,40 @@ const publicWorkflow = (r, { withSecret = false } = {}) => r && ({
   ...(withSecret && r.hook_secret ? { hookSecret: r.hook_secret } : {}),
 });
 
-const publicRun = (r) => r && ({
-  id: r.id, workflowId: r.workflow_id, definitionRevision: r.definition_revision ?? null, trigger: r.trigger, status: r.status,
+const comparableDefinition = (definition) => ({
+  name: definition?.name,
+  enabled: Boolean(definition?.enabled),
+  trigger: definition?.trigger,
+  steps: definition?.steps,
+  createdBy: definition?.createdBy,
+});
+const matchingRevision = (snapshot, startedAt, revisions) => {
+  if (!snapshot || !Array.isArray(revisions)) return null;
+  const started = Date.parse(startedAt);
+  if (!Number.isFinite(started)) return null;
+  const candidate = canonicalJson(comparableDefinition(snapshot));
+  for (const revision of revisions) {
+    const recorded = Date.parse(revision.recorded_at);
+    if (!Number.isFinite(recorded) || recorded > started) continue;
+    try {
+      if (canonicalJson(comparableDefinition(JSON.parse(revision.definition))) === candidate) return revision.revision;
+    } catch { /* An invalid historical definition cannot establish provenance. */ }
+  }
+  return null;
+};
+const publicRun = (r, revisions) => {
+  if (!r) return r;
+  let snapshot = null;
+  const definitionSnapshotAvailable = typeof r.definition_snapshot === 'string';
+  if (definitionSnapshotAvailable) {
+    try { snapshot = JSON.parse(r.definition_snapshot); } catch { /* Keep malformed legacy snapshots explicitly unverified. */ }
+  }
+  return {
+  id: r.id, workflowId: r.workflow_id, definitionRevision: matchingRevision(snapshot, r.started_at, revisions), definitionSnapshotAvailable, trigger: r.trigger, status: r.status,
   input: parse(r.input, null), log: parse(r.log, []), nextStep: r.next_step, cardId: r.card_id,
   startedBy: r.started_by, startedAt: r.started_at, finishedAt: r.finished_at,
-});
+  };
+};
 
 /// Who an approval goes to: a login is global, so it names someone only
 /// while they belong to this workspace. Anyone else would be sent its title
@@ -383,21 +412,29 @@ export async function deleteWorkflow(db, orgId, id) {
   return { deleted: true };
 }
 
+async function workflowRevisionRows(db, orgId, workflowId) {
+  const { results } = await db.prepare('SELECT revision,definition,recorded_at FROM hx_workflow_revisions WHERE org_id=?1 AND workflow_id=?2 ORDER BY revision DESC')
+    .bind(orgId, workflowId).all();
+  return results || [];
+}
+
 export async function listRuns(db, orgId, workflowId, limit = 50, viewerId) {
   const { results } = await db
-    .prepare("SELECT r.*,json_extract(d.definition,'$.definitionRevision') AS definition_revision FROM hx_workflow_runs r LEFT JOIN hx_workflow_run_definitions d ON d.run_id=r.id AND d.org_id=r.org_id WHERE r.org_id = ?1 AND r.workflow_id = ?2 ORDER BY r.started_at DESC LIMIT ?3")
+    .prepare("SELECT r.*,d.definition AS definition_snapshot FROM hx_workflow_runs r LEFT JOIN hx_workflow_run_definitions d ON d.run_id=r.id AND d.org_id=r.org_id WHERE r.org_id = ?1 AND r.workflow_id = ?2 ORDER BY r.started_at DESC LIMIT ?3")
     .bind(orgId, workflowId, Math.min(Number(limit) || 50, 200))
     .all();
+  const revisions = await workflowRevisionRows(db, orgId, workflowId);
   const visible = [];
   for (const row of results || []) {
-    const run = viewerId ? await getRun(db, orgId, row.id, { viewerId }) : publicRun(row);
+    const run = viewerId ? await getRun(db, orgId, row.id, { viewerId, revisions }) : publicRun(row, revisions);
     if (run) visible.push(run);
   }
   return visible;
 }
 
-export async function getRun(db, orgId, runId, { viewerId } = {}) {
-  const run = publicRun(await db.prepare("SELECT r.*,json_extract(d.definition,'$.definitionRevision') AS definition_revision FROM hx_workflow_runs r LEFT JOIN hx_workflow_run_definitions d ON d.run_id=r.id AND d.org_id=r.org_id WHERE r.id = ?1 AND r.org_id = ?2").bind(runId, orgId).first());
+export async function getRun(db, orgId, runId, { viewerId, revisions } = {}) {
+  const row = await db.prepare("SELECT r.*,d.definition AS definition_snapshot FROM hx_workflow_runs r LEFT JOIN hx_workflow_run_definitions d ON d.run_id=r.id AND d.org_id=r.org_id WHERE r.id = ?1 AND r.org_id = ?2").bind(runId, orgId).first();
+  const run = row ? publicRun(row, revisions || await workflowRevisionRows(db, orgId, row.workflow_id)) : null;
   if (run && viewerId) {
     const frozen = await db.prepare("SELECT definition FROM hx_workflow_run_definitions WHERE run_id = ?1 AND org_id = ?2").bind(runId, orgId).first();
     const definition = frozen ? JSON.parse(frozen.definition) : await getWorkflow(db, orgId, run.workflowId);

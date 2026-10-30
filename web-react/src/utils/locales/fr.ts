@@ -2038,6 +2038,8 @@ const table: Record<string, string> = {
   "This existing webhook still accepts its URL secret alone. Generate a new URL to switch it to signed requests.": "Ce webhook existant accepte encore uniquement le secret de l’URL. Générez une nouvelle URL pour passer aux requêtes signées.",
   "The current webhook URL will stop working. Update your sender with the new URL and signed-request headers.": "L’URL actuelle du webhook cessera de fonctionner. Mettez à jour l’émetteur avec la nouvelle URL et les en-têtes des requêtes signées.",
   "Run history": "Historique des exécutions",
+  "Version not recorded": "Version non enregistrée",
+  "Original definition snapshot unavailable": "Instantané de la définition d’origine indisponible",
   "Failed runs only": "Échecs uniquement",
   "No failed runs.": "Aucune exécution en échec.",
   "No runs yet.": "Aucune exécution pour le moment.",
