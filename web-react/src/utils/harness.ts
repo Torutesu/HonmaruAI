@@ -76,6 +76,7 @@ export interface WorkflowSafety { generation: string; failure_streak: number; pa
 export interface Workflow {
   updatedAt?: string
   safety?: WorkflowSafety | null
+  sourceChannel?: string
   id: string; name: string; enabled: boolean; trigger: Trigger; steps: Step[]
   nextRunAt: string | null; lastRunAt: string | null; createdBy: string; hookUrl?: string; hookSecret?: string; webhookSignatureRequired?: boolean
 }

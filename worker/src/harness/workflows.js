@@ -265,10 +265,16 @@ export async function getWorkflow(db, orgId, id, opts = {}) {
 
 export async function listWorkflows(db, orgId, { viewerId } = {}) {
   const { results } = await db.prepare("SELECT * FROM hx_workflows WHERE org_id = ?1 ORDER BY created_at ASC").bind(orgId).all();
+  const {results: sourceRows} = await db.prepare("SELECT workflow_id AS workflowId, channel FROM hx_workflow_sources WHERE org_id = ?1").bind(orgId).all();
+  const sourceChannels = new Map((sourceRows || []).map(source => [source.workflowId, source.channel]));
   const visible = [];
   for (const row of results || []) {
     const wf = publicWorkflow(row);
-    if (!viewerId || await mayViewWorkflow(db, orgId, wf, viewerId)) visible.push({...wf,safety:await readWorkflowSafety(db,orgId,wf.id)});
+    if (!viewerId || await mayViewWorkflow(db, orgId, wf, viewerId)) visible.push({
+      ...wf,
+      ...(viewerId && sourceChannels.has(wf.id) ? {sourceChannel:sourceChannels.get(wf.id)} : {}),
+      safety:await readWorkflowSafety(db,orgId,wf.id),
+    });
   }
   return visible;
 }
