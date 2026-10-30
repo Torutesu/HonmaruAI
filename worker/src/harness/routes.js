@@ -812,7 +812,7 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (request.method === "POST") {
         const r = input.template
-          ? await createFromTemplate(env.DB, { orgId, by: me, template: input.template, name: input.name, channel: input.channel, sourceThreadId:input.sourceThreadId, withSample: input.sample !== false })
+          ? await createFromTemplate(env.DB, { orgId, by: me, template: input.template, name: input.name, tableName: input.tableName, channel: input.channel, sourceThreadId:input.sourceThreadId, withSample: input.sample !== false })
           : await createApp(env.DB, { ...input, orgId, by: me, channel: input.channel });
         if (r.error) return fail(r);
         await audit(env, request, { orgId, action: "app.created", actor: person(who.user), entity: { type: "app", id: r.app.id, name: r.app.name } });

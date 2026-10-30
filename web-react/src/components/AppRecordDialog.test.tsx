@@ -2,9 +2,16 @@ import React from 'react'
 import {act,create} from 'react-test-renderer'
 import {afterEach,expect,test,vi} from 'vitest'
 import {AppRecordDialog} from './AppRecordDialog'
-vi.mock('./Dialog',()=>({Dialog:({children,footer,onClose}:any)=><div><button onClick={onClose}>閉じる</button>{children}{footer}</div>}))
+vi.mock('./Dialog',()=>({Dialog:({children,footer,onClose,title,lede}:any)=><div><h2>{title}</h2><p>{lede}</p><button onClick={onClose}>閉じる</button>{children}{footer}</div>}))
 afterEach(()=>vi.unstubAllGlobals())
 const columns=[{id:'title',name:'タスク名',type:'text' as const},{id:'count',name:'件数',type:'number' as const},{id:'state',name:'状態',type:'select' as const,options:['未着手','完了']}]
+test('a distinct table label names the new record while the app title stays in its description',()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<AppRecordDialog appName="UI確認用タスク" tableName="タスク" columns={columns} save={vi.fn()} onClose={()=>{}}/>)});
+ expect(tree!.root.findByType('h2').children.join('')).toBe('新規タスク')
+ expect(tree!.root.findByType('p').children.join('')).toBe('UI確認用タスクに新しいレコードを作成します。')
+ act(()=>tree!.unmount())
+})
 test('opening and cancelling do not create rows; errors preserve drafts and typed submission',async()=>{
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const save=vi.fn().mockRejectedValueOnce(new Error('保存できません')).mockResolvedValue(undefined),onClose=vi.fn();let tree:ReturnType<typeof create>
  act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={columns} save={save} onClose={onClose}/>)});

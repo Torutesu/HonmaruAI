@@ -107,13 +107,17 @@ test('model output survives a storage retry without a second model call, and rev
  await privateSource();
  const who={session:{github_id:'9201'},user:{github_id:'9201',login:'user9201'}};
  const req=new Request('https://test/apps/generate');
- const input={prompt:'Model app',channel:'b:confidential',captureSource:true,requestId:'generate_model_001'};
- const complete=vi.fn().mockResolvedValue(JSON.stringify({name:'Model app',columns:[{name:'Title',type:'text'}]}));
+ const input={prompt:'Model app',name:'Friendly app title',channel:'b:confidential',captureSource:true,requestId:'generate_model_001'};
+ const complete=vi.fn().mockResolvedValue(JSON.stringify({name:'Model app',tableName:'Records',columns:[{name:'Title',type:'text'}]}));
  const makeCompleter=vi.fn().mockResolvedValue(complete);
  await env.DB.exec("CREATE TRIGGER fail_model_app BEFORE INSERT ON hx_app_versions BEGIN SELECT RAISE(ABORT, 'storage unavailable'); END;");
  try {await expect(generateApp(env,req,org,who,input,{makeCompleter})).rejects.toThrow();}
  finally {await env.DB.exec('DROP TRIGGER fail_model_app');}
- expect((await generateApp(env,req,org,who,input,{makeCompleter})).source).toBe('model');
+ const generated=await generateApp(env,req,org,who,input,{makeCompleter});
+ expect(generated.source).toBe('model');
+ expect(generated.app.name).toBe('Friendly app title');
+ const {getTable}=await import('../src/harness/tables.js');
+ expect((await getTable(env.DB,org,generated.app.tableId)).name).toBe('Records');
  expect(complete).toHaveBeenCalledTimes(1);expect(makeCompleter).toHaveBeenCalledTimes(1);
  const revoke=async()=>async()=>{await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential'").bind(org).run();return JSON.stringify({name:'Cannot publish',columns:[{name:'Title',type:'text'}]});};
  expect((await generateApp(env,req,org,who,{...input,requestId:'generate_model_002'},{makeCompleter:revoke})).status).toBe(403);
