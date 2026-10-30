@@ -107,7 +107,7 @@
 | KY-058 | 保存定義の不変revision | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 新規runの定義を原子的に保存し承認後も同じ手順で再開。定義revision履歴・比較UI・旧runの移行は残る |
 | KY-059 | TypeScript SDKと永続checkpoint | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 再開時に完了済み外部操作を繰り返さない |
 | KY-060 | 条件分岐・batch・制限付き並列 | 一部実装 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 部分失敗・ページング・取りこぼし率を結果に含める |
-| KY-061 | 実行履歴・step結果 | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 全ステップの入力出力・エラー・コスト・権限を追跡 |
+| KY-061 | 実行履歴・step結果 | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js), [web-react/src/screens/HarnessWorkflows.tsx](../../web-react/src/screens/HarnessWorkflows.tsx), [web-react/src/utils/runHistory.ts](../../web-react/src/utils/runHistory.ts) | Kylonは日別グループと失敗フィルターを掲載 ([Run history](https://kylon.io/product/run-history))。Honmaruは実行履歴を日別表示し失敗のみ切替可能（ローカル実装、未公開）。全ステップの入力・出力・エラー・コスト・権限追跡と本番確認は残る |
 | KY-062 | 署名付きWebhookと再送防止 | 実装あり | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 8c753f91 を本番反映。新規・再発行credentialはHMAC-SHA256、5分以内timestamp、event ID、7日間の原子的重複排除を検証。既存URL-only credentialは明示rotationまで互換動作。 |
 | KY-063 | Webhook rotation/revoke/held/replay | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 再発行・失効、停止中イベントの7日/1000件保持、明示IDによる古い順の再実行、二重起動防止、保留イベント破棄UIを本番反映。中断した実行の復旧とWebhook詳細画面の実画面検証は残る。 |
 | KY-064 | 承認待ち・継続 | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 承認者・操作内容・revisionを固定し二重承認を排除 |

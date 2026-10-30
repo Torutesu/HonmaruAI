@@ -1,7 +1,7 @@
 import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { HarnessApps } from './Harness'
+import { HarnessApps, newAppRecordLabel } from './Harness'
 
 const state = vi.hoisted(() => ({ api: null as any }))
 vi.mock('./HarnessShared', async importOriginal => ({
@@ -12,6 +12,10 @@ vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text }))
 vi.mock('../utils/appPins', () => ({ useAppPins: () => ({ pins: [], toggle: vi.fn() }) }))
 let finish: (value: any) => void
 let tree: ReturnType<typeof create> | undefined
+test('new record labels use the primary table when its title differs from the app',()=>{
+  expect(newAppRecordLabel('UI確認用タスク','タスク')).toBe('新規タスク')
+  expect(newAppRecordLabel('Sales CRM','Sales CRM')).toBe('新規レコード')
+})
 beforeEach(() => {
   vi.stubGlobal('location', { hash: '#/apps' })
   state.api = {

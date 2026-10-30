@@ -126,6 +126,7 @@ test("an app from a template: its views, worked out on the server", async () => 
   expect(app).toMatchObject({ name: "Sales CRM", template: "crm", version: 1 });
 
   const rendered = await (await get(`/apps/${app.id}?orgId=${ORG}`, toru)).json();
+  expect(rendered.table.name).toBe("Deals");
   expect(rendered.rows).toHaveLength(3);
   expect(rendered.app.channels).toEqual(["b:sales"]);
   const board = rendered.views.find((v) => v.type === "board");
@@ -139,6 +140,24 @@ test("an app from a template: its views, worked out on the server", async () => 
   const inRoom = await (await get(`/apps?orgId=${ORG}&channel=b:sales`, mika)).json();
   expect(inRoom.apps.map((a) => a.id)).toEqual([app.id]);
   expect(inRoom.apps[0].channels).toEqual(["b:sales"]);
+});
+
+test("an app title and its primary table label stay separate through version restore", async () => {
+  const made = await send("POST", "/apps", mika, {
+    orgId: ORG, name: "UI確認用タスク", tableName: "タスク", sample: false,
+    columns: [{ name: "タスク名", type: "text" }],
+  });
+  expect(made.status).toBe(201);
+  const { app } = await made.json();
+  expect(app.name).toBe("UI確認用タスク");
+  const detail = await (await get(`/apps/${app.id}?orgId=${ORG}`, mika)).json();
+  expect(detail.table.name).toBe("タスク");
+
+  const renamed = await send("PUT", `/tables/${app.tableId}`, mika, { orgId: ORG, name: "作業項目" });
+  expect((await renamed.json()).table.name).toBe("作業項目");
+  const restored = await send("POST", `/apps/${app.id}/versions`, mika, { orgId: ORG, version: 1 });
+  expect(restored.status).toBe(200);
+  expect((await (await get(`/apps/${app.id}?orgId=${ORG}`, mika)).json()).table.name).toBe("タスク");
 });
 
 test("an app is versioned, and an old version comes back as a new one", async () => {
@@ -167,6 +186,8 @@ test("a sentence becomes an app without a model, through the closest template", 
   const body = await res.json();
   expect(body).toMatchObject({ source: "template", room: "ops" });
   expect(body.app.template).toBe("invoices");
+  const rendered = await (await get(`/apps/${body.app.id}?orgId=${ORG}`, mika)).json();
+  expect(rendered.table.name).toBe("Invoices");
 
   expect((await specFromPrompt("a hiring pipeline for designers")).spec.template).toBe("hiring");
   expect((await specFromPrompt("track our office plants")).spec.template).toBe("tracker");
@@ -174,9 +195,11 @@ test("a sentence becomes an app without a model, through the closest template", 
 
 test("a model's design is used when it holds up, and ignored when it does not", async () => {
   const good = await specFromPrompt("warehouse counts", {
-    complete: async () => JSON.stringify({ name: "Warehouse counts", icon: "📦", columns: [{ name: "SKU", type: "text" }, { name: "Count", type: "number" }], views: [{ type: "table", name: "All" }] }),
+    complete: async () => JSON.stringify({ name: "Warehouse counts", tableName: "Inventory", icon: "📦", columns: [{ name: "SKU", type: "text" }, { name: "Count", type: "number" }], views: [{ type: "table", name: "All" }] }),
   });
-  expect(good).toMatchObject({ source: "model", spec: { name: "Warehouse counts" } });
+  expect(good).toMatchObject({ source: "model", spec: { name: "Warehouse counts", tableName: "Inventory" } });
+  const sameName = await specFromPrompt("warehouse counts", { complete: async () => JSON.stringify({ name: "Warehouse counts", columns: [{ name: "SKU", type: "text" }] }) });
+  expect(sameName.spec.tableName).toBe("Warehouse counts");
   const bad = await specFromPrompt("warehouse counts", { complete: async () => "not json" });
   expect(bad.source).toBe("template");
 });

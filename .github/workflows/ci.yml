@@ -18,10 +18,11 @@ jobs:
     name: Local gateway
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
+          package-manager-cache: false
       - run: node --test gateway/test/*.test.mjs
       - name: Release dependency and migration checks
         run: node --test .github/scripts/worker-dependency.test.cjs .github/scripts/migrate-columns.test.cjs
@@ -36,10 +37,11 @@ jobs:
       run:
         working-directory: worker
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
+          package-manager-cache: false
           cache: npm
           cache-dependency-path: worker/package-lock.json
       - run: npm ci
@@ -56,10 +58,11 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
+          package-manager-cache: false
           cache: npm
           cache-dependency-path: server/package-lock.json
       - run: npm ci
@@ -76,10 +79,11 @@ jobs:
       run:
         working-directory: web-react
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
+          package-manager-cache: false
           cache: npm
           cache-dependency-path: web-react/package-lock.json
       - run: npm ci
@@ -98,10 +102,11 @@ jobs:
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
+          package-manager-cache: false
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
       - run: npm ci
@@ -116,10 +121,11 @@ jobs:
     name: Shared core and mobile
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
+          package-manager-cache: false
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Every app at the version in VERSION
@@ -141,14 +147,15 @@ jobs:
     name: End to end
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
+          package-manager-cache: false
       - run: ./e2e/run.sh
       - name: Screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-screenshots
           path: /tmp/e2e-shots
@@ -179,10 +186,11 @@ jobs:
       # run a script whose lines end in \r.
       - name: Keep line endings as committed
         run: git config --global core.autocrlf false
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
+          package-manager-cache: false
       - name: Windows checks in Microsoft Edge
         env:
           E2E_SPEC: e2e/windows.mjs
@@ -191,7 +199,7 @@ jobs:
         run: ./e2e/run.sh
       - name: Screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-screenshots
           path: ${{ runner.temp }}/e2e-shots
@@ -213,7 +221,7 @@ jobs:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install tooling
         # xcbeautify is not preinstalled on every runner image, and with
         # `pipefail` set a missing one fails the step in a way that looks like a
@@ -262,7 +270,7 @@ jobs:
         run: grep -n -A150 "tapShowingTheScreen:" "$RUNNER_TEMP/xcodebuild.log" | head -600 || echo "no UI test printed the screen"
       - name: Test results
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-test-results
           path: ${{ runner.temp }}/ios.xcresult

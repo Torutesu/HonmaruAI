@@ -90,7 +90,7 @@ export async function generateApp(env, request, orgId, who, input, {makeComplete
     const member=await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=? AND user_github_id=? AND role!='guest'").bind(orgId,by).first();
     if(!member){await release();return {error:'Workspace membership is required.',status:403};}
     const spec=made.spec;
-    const result=await createApp(env.DB,{orgId,by,name:name||spec.name,description:spec.description,icon:spec.icon,
+    const result=await createApp(env.DB,{orgId,by,name:name||spec.name,tableName:spec.tableName||spec.name,description:spec.description,icon:spec.icon,
       columns:spec.columns,definition:spec.definition,template:spec.template||null,sample:spec.sample||[],channel,sourceThreadId,privateByDefault},
       {announceInSource:true,...(requestId?{commitGuard:appId=>env.DB.prepare(`UPDATE hx_app_generation_jobs
         SET app_id=CASE WHEN lease_token=? AND lease_until>? AND status='running' THEN ? ELSE NULL END,status='complete'

@@ -85,6 +85,24 @@
 .hx-run-detail > div { margin-top: 8px; font-size: 12px; }
 .hx-run-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12px; margin: 4px 0 8px; padding: 8px; background: var(--mist); border-radius: var(--radius-input); }
 .hx-run-detail time { font-size: 11px; color: var(--ash); }
+.hx-run-history-panel > summary { cursor: pointer; }
+.hx-run-history-tools { display: flex; justify-content: flex-end; margin: 10px 0 6px; }
+.hx-run-filter[aria-pressed="true"] { border-color: color-mix(in srgb, #d14343 48%, var(--hx-border, var(--bone))); color: var(--hx-danger, #c04444); background: color-mix(in srgb, #d14343 8%, var(--hx-surface, var(--signal-white))); }
+.hx-run-filter:focus-visible,
+.hx-run-history-panel > button:focus-visible,
+.hx-run-history-panel > summary:focus-visible { outline: 2px solid var(--hx-accent, var(--brand-violet)); outline-offset: 2px; }
+.hx-run-day { margin: 12px 0 16px; padding: 0 0 4px; border-bottom: 1px solid var(--hx-border, var(--bone)); }
+.hx-run-day:last-child { border-bottom: 0; }
+.hx-run-day h4 { margin: 10px 0 6px; color: var(--hx-muted, var(--ash)); font-size: 12px; font-weight: 650; letter-spacing: .02em; }
+.hx-run-day details { min-width: 0; margin: 0; padding: 9px 10px; border-radius: var(--radius-input); }
+.hx-run-day details + details { margin-top: 4px; }
+.hx-run-day details[open] { background: var(--hx-surface-muted, var(--mist)); }
+.hx-run-day details > summary { cursor: pointer; overflow-wrap: anywhere; }
+.hx-run-day details > summary:focus-visible { outline: 2px solid var(--hx-accent, var(--brand-violet)); outline-offset: 2px; border-radius: 2px; }
+.hx-run-day ol { display: grid; gap: 8px; padding-left: 24px; }
+.hx-run-day pre { max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.hx-run-day small { color: var(--hx-muted, var(--ash)); }
+.hx-run-empty { color: var(--hx-muted, var(--ash)); padding: 12px 0; }
 .hx-status { font-weight: 600; }
 .hx-status.done, .hx-status.ok { color: var(--emerald); }
 .hx-status.failed, .hx-status.declined { color: #a11258; }

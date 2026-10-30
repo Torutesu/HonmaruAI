@@ -218,7 +218,7 @@ export async function appCreationSource(db, orgId, by, sourceThreadId) {
   return { source, private: !room || Boolean(room.private) };
 }
 
-export async function createApp(db, { orgId, by, name, description, icon, columns, definition, template, sample = [], channel, sourceThreadId, privateByDefault = false }, { commitGuard, announceInSource = false } = {}) {
+export async function createApp(db, { orgId, by, name, tableName, description, icon, columns, definition, template, sample = [], channel, sourceThreadId, privateByDefault = false }, { commitGuard, announceInSource = false } = {}) {
   let source=null, sourcePrivate=false;
   if(sourceThreadId){
     const origin = await appCreationSource(db, orgId, by, sourceThreadId);
@@ -230,7 +230,8 @@ export async function createApp(db, { orgId, by, name, description, icon, column
   if (Number(count?.n || 0) >= MAX_APPS_PER_ORG) return { error: "This workspace has as many apps as it can hold." };
   const clean = String(name ?? "").trim().slice(0, 80);
   if (!clean) return { error: "Give the app a name." };
-  const made = await prepareTable(db, { orgId, name: clean, columns, by });
+  const cleanTableName = String(tableName ?? "").trim().slice(0, 80) || clean;
+  const made = await prepareTable(db, { orgId, name: cleanTableName, columns, by });
   if (made.error) return made;
   const table = made.table;
   const def = normalizeDefinition(definition, table.columns);
@@ -249,8 +250,8 @@ export async function createApp(db, { orgId, by, name, description, icon, column
   ).bind(orgId,id)] : [])];
   statements.push(db
     .prepare("INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6)")
-    .bind(id, orgId, JSON.stringify({ name: clean, columns: table.columns, ...def }), "Created", String(by), at));
-  for (const [position,values] of sample.slice(0,20).entries()) statements.push(db.prepare(
+    .bind(id, orgId, JSON.stringify({ name: clean, tableName: table.name, columns: table.columns, ...def }), "Created", String(by), at));
+  for (const [position,values] of (Array.isArray(sample) ? sample : []).slice(0,20).entries()) statements.push(db.prepare(
     'INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
   ).bind(newId('row'),table.id,orgId,JSON.stringify(cleanValues(table.columns,values)),position+1,String(by),String(by),at,at));
   if(channel) statements.push(db.prepare('INSERT INTO hx_app_links(app_id,org_id,channel,created_by,created_at) VALUES (?,?,?,?,?)').bind(id,orgId,String(channel).trim().slice(0,200),String(by),at));
@@ -270,19 +271,19 @@ export async function createApp(db, { orgId, by, name, description, icon, column
   return { app: await getApp(db, orgId, id), ...(announcementId ? {announcementId} : {}) };
 }
 
-export async function createFromTemplate(db, { orgId, by, template, name, channel, sourceThreadId, withSample = true }) {
+export async function createFromTemplate(db, { orgId, by, template, name, tableName, channel, sourceThreadId, withSample = true }) {
   const t = TEMPLATES[template];
   if (!t) return { error: "No such template." };
   return createApp(db, {
     orgId, by, template, channel, sourceThreadId,
-    name: name || t.name, description: t.description, icon: t.icon,
+    name: name || t.name, tableName: tableName || t.tableName || t.name, description: t.description, icon: t.icon,
     columns: t.columns, definition: { views: t.views }, sample: withSample ? t.sample : [],
   });
 }
 
 /// A new version: change the name, the views, or the table's columns. The
 /// previous definition is kept, so a change can be undone.
-export async function updateApp(db, orgId, id, { name, description, icon, columns, definition, note, expectedVersion }, by) {
+export async function updateApp(db, orgId, id, { name, tableName, description, icon, columns, definition, note, expectedVersion }, by) {
   const app = await getApp(db, orgId, id);
   if (!app) return { error: "No such app.", status: 404 };
   if (expectedVersion !== undefined && expectedVersion !== app.version) return { error: "This app changed. Reload before saving.", status: 409 };
@@ -290,8 +291,8 @@ export async function updateApp(db, orgId, id, { name, description, icon, column
   // The table's new columns, written only in the same transaction as the
   // app's new version below: a save that loses to another leaves both alone.
   let schema = null;
-  if (columns !== undefined) {
-    schema = await planTableUpdate(db, orgId, app.tableId, { columns }, { sql: "EXISTS (SELECT 1 FROM hx_apps WHERE id = ?9 AND org_id = ?5 AND version = ?10)", binds: [id, app.version] });
+  if (columns !== undefined || tableName !== undefined) {
+    schema = await planTableUpdate(db, orgId, app.tableId, { name: tableName, columns }, { sql: "EXISTS (SELECT 1 FROM hx_apps WHERE id = ?9 AND org_id = ?5 AND version = ?10)", binds: [id, app.version] });
     if (schema.error) return schema;
     table = schema.table;
   }
@@ -312,7 +313,7 @@ export async function updateApp(db, orgId, id, { name, description, icon, column
     db.prepare(`UPDATE hx_apps SET name = ?1, description = ?2, icon = ?3, definition = ?4, version = ?5, updated_at = ?6 WHERE id = ?7 AND org_id = ?8 AND version = ?9${schema ? " AND changes() = 1" : ""}`)
       .bind(next.name, next.description, next.icon, JSON.stringify(def), version, at, id, orgId, app.version),
     db.prepare("INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) SELECT ?1, ?7, ?2, ?3, ?4, ?5, ?6 WHERE changes() = 1")
-      .bind(id, version, JSON.stringify({ name: next.name, columns: table.columns, ...def }), note ? String(note).slice(0, 200) : null, String(by), at, orgId),
+      .bind(id, version, JSON.stringify({ name: next.name, tableName: table.name, columns: table.columns, ...def }), note ? String(note).slice(0, 200) : null, String(by), at, orgId),
   ]);
   if (!results[schema ? 1 : 0].meta?.changes) return { error: "This app changed. Reload before saving.", status: 409 };
   return { app: await getApp(db, orgId, id) };
@@ -333,7 +334,7 @@ export async function restoreVersion(db, orgId, id, version, by) {
   const row = await db.prepare("SELECT definition FROM hx_app_versions WHERE app_id = ?1 AND org_id = ?2 AND version = ?3").bind(id, orgId, Number(version)).first();
   if (!row) return { error: "No such version.", status: 404 };
   const old = parse(row.definition, {});
-  return updateApp(db, orgId, id, { name: old.name, columns: old.columns, definition: { views: old.views }, note: `Restored version ${version}` }, by);
+  return updateApp(db, orgId, id, { name: old.name, tableName: old.tableName, columns: old.columns, definition: { views: old.views }, note: `Restored version ${version}` }, by);
 }
 
 export async function deleteApp(db, orgId, id) {
@@ -391,9 +392,9 @@ export async function specFromPrompt(prompt, { complete } = {}) {
       const raw = await complete(
         [
           "Design a small internal business app as JSON, nothing else.",
-          'Shape: {"name": string, "icon": one emoji, "description": string, "columns": [{"name": string, "type": "text"|"number"|"date"|"select"|"checkbox"|"url"|"person"|"email", "options"?: string[]}],',
+          'Shape: {"name": app title string, "tableName": primary table label string, "icon": one emoji, "description": string, "columns": [{"name": string, "type": "text"|"number"|"date"|"select"|"checkbox"|"url"|"person"|"email", "options"?: string[]}],',
           '"views": [{"type": "table"|"board"|"metrics"|"calendar", "dateColumn"?: column name, "name": string, "groupBy"?: column name, "sort"?: column name or "-name", "metrics"?: [{"label": string, "op": "count"|"sum"|"avg", "column"?: column name}]}]}',
-          "At most 10 columns. A board needs a select column to group by. Name things in the language of the request. Use type person for internal owners, assignees, reviewers, interviewers and approvers so users select workspace members; do not model those as free text unless the request explicitly asks for that field to be free text.",
+          "At most 10 columns. A board needs a select column to group by. Name things in the language of the request. Keep the app title and primary table label distinct when the request implies they have different names; the table label should be concise and natural for the records users add. Use type person for internal owners, assignees, reviewers, interviewers and approvers so users select workspace members; do not model those as free text unless the request explicitly asks for that field to be free text.",
         ].join("\n"),
         text,
       );
@@ -402,7 +403,7 @@ export async function specFromPrompt(prompt, { complete } = {}) {
         // Give internal assignees a real workspace-member picker even when
         // the model falls back to a generic text column.
         const columns = normalizeMemberFields(text, spec.columns.slice(0, 10));
-        return { spec: { name: spec.name, icon: spec.icon, description: spec.description, columns, definition: { views: spec.views || [] } }, source: "model" };
+        return { spec: { name: spec.name, tableName: typeof spec.tableName === "string" && spec.tableName.trim() ? spec.tableName.trim().slice(0, 80) : spec.name, icon: spec.icon, description: spec.description, columns, definition: { views: spec.views || [] } }, source: "model" };
       }
     } catch { /* fall through to a template */ }
   }
@@ -410,7 +411,7 @@ export async function specFromPrompt(prompt, { complete } = {}) {
   const t = TEMPLATES[id];
   const room = text.match(/#([\p{L}\p{N}_-]+)/u)?.[1];
   return {
-    spec: { name: t.name, icon: t.icon, description: t.description, columns: t.columns, definition: { views: t.views }, template: id, sample: t.sample },
+    spec: { name: t.name, tableName: t.tableName || t.name, icon: t.icon, description: t.description, columns: t.columns, definition: { views: t.views }, template: id, sample: t.sample },
     source: "template",
     room: room || null,
   };

@@ -17,8 +17,9 @@ export function HarnessRoomResources({ api, channel, kind, onClose, onCreate, on
     let live = true; setData(null); setError('')
     Promise.all([client.apps(channel), kind === 'workflows' ? client.workflows() : Promise.resolve({ workflows: [] })]).then(([a, w]) => {
       if (!live) return
+      const appIds = new Set(a.apps.map(app => app.id))
       const tables = new Set(a.apps.map(app => app.tableId))
-      setData({ apps: a.apps, workflows: w.workflows.filter(flow => flow.steps.some(step => (step.channel === channel || step.channel?.startsWith(`${channel}|`))) || Boolean(flow.trigger.tableId && tables.has(flow.trigger.tableId))) })
+      setData({ apps: a.apps, workflows: w.workflows.filter(flow => flow.sourceChannel === channel || Boolean(flow.trigger.appId && appIds.has(flow.trigger.appId)) || flow.steps.some(step => (step.channel === channel || step.channel?.startsWith(`${channel}|`))) || Boolean(flow.trigger.tableId && tables.has(flow.trigger.tableId))) })
     }).catch(e => { if (live) setError(e instanceof Error ? e.message : String(e)) })
     return () => { live = false }
   }, [client, channel, kind, retry])

@@ -25,6 +25,8 @@ test('captures one source and paused workflow across retries; changed requests c
  expect(await count('channel_messages')).toBe(2);
  const source=await workflowSource(env.DB,org,by,first.workflow.id);
  expect(source.source).toMatchObject({channel:'b:ops',body:input.prompt});
+ const {listWorkflows}=await import('../src/harness/workflows.js');
+ expect(await listWorkflows(env.DB,org,{viewerId:by})).toEqual([expect.objectContaining({id:first.workflow.id,sourceChannel:'b:ops'})]);
  const reply=await env.DB.prepare("SELECT body,parent_id FROM channel_messages WHERE org_id=? AND kind='ai'").bind(org).first();
  expect(reply.parent_id).toBe(source.source.threadId);
  expect(reply.body).toContain('#/workflows/'+first.workflow.id+'/'+encodeURIComponent(org));

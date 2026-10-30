@@ -3,6 +3,7 @@ import {WorkflowHistory} from '../components/WorkflowHistory'
 import {describeWorkflowCondition} from '../utils/workflowCondition'
 import {getLocale} from '../utils/locale'
 import {runDuration} from '../utils/runDuration'
+import {groupRunsByStartDay,runDayLabel,runTimestampLabel} from '../utils/runHistory'
 import {stepLabel,triggerLabel,type WorkflowAppOption} from '../utils/workflowLabels'
 import {WorkflowRunUsage} from '../components/WorkflowRunUsage'
 import {WorkflowSource} from '../components/WorkflowSource'
@@ -200,6 +201,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [prompt, setPrompt] = useState('')
   const [manual, setManual] = useState(false)
   const [open, setOpen] = useState<{ workflow: Workflow; runs: Run[]; canEdit: boolean; held?: HeldWorkflowEvents } | null>(null)
+  const [failedRunsOnly,setFailedRunsOnly]=useState(false)
   const [budgetDraft,setBudgetDraft]=useState({daily:'0',weekly:'0',monthly:'0',ai24h:'0',ai7d:'0',ai30d:'0',aiAction:'warn' as 'warn'|'pause'})
   const [hook, setHook] = useState<string | null>(null)
   const [hookAction, setHookAction] = useState<'rotate' | 'revoke' | null>(null)
@@ -209,6 +211,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [syncError,setSyncError]=useState('')
   const detailRequest = useRef(0)
   const { busy, error, act } = useAct()
+  useEffect(()=>setFailedRunsOnly(false),[open?.workflow.id])
   useEffect(()=>{
     const safety=open?.workflow.safety
     if(!safety)return
@@ -292,6 +295,8 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     const pausedPeriod=budgetPause&&!aiBudgetPause?(w.safety?.pause_reason?.slice('budget_'.length) as 'daily'|'weekly'|'monthly'):null
     const pausedBudget=aiPausedPeriod?budget?.ai?.[aiPausedPeriod]:pausedPeriod?budget?.[pausedPeriod]:null
     const budgetDraftValid=['daily','weekly','monthly'].every(key=>{const value=budgetDraft[key as 'daily'|'weekly'|'monthly'];return value!==''&&Number.isSafeInteger(Number(value))&&Number(value)>=0&&Number(value)<=1_000_000})&&['ai24h','ai7d','ai30d'].every(key=>{const value=Number(budgetDraft[key as 'ai24h'|'ai7d'|'ai30d']);return budgetDraft[key as 'ai24h'|'ai7d'|'ai30d']!==''&&Number.isFinite(value)&&value>=0&&value<=1_000_000&&Math.abs(value*1_000_000-Math.round(value*1_000_000))<0.001})
+    const visibleRuns=open.runs.filter(run=>!failedRunsOnly||run.status==='failed')
+    const runDays=groupRunsByStartDay(visibleRuns)
     return (
       <Shell className="hx-resource-screen" title={w.name} onClose={() => { detailRequest.current++; if(props.onNavigateWorkflow){props.onNavigateWorkflow();return}setOpen(null); load() }} nested actions={
         <button className="pill-btn quiet" disabled={!!busy} onClick={() => act('refresh', async () => {
@@ -433,11 +438,13 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
         </section>}
         <div className="rows-title">{t('Runs')}</div>
         {open.runs.length === 0 && <div className="empty">{t('It has not run yet.')}</div>}
-        <div className="rows">
-          {open.runs.map((r) => (
+        {!!open.runs.length&&<div className="hx-run-history-tools"><button type="button" className="pill-btn quiet hx-run-filter" aria-pressed={failedRunsOnly} onClick={()=>setFailedRunsOnly(value=>!value)}>{t('Failed runs only')}</button></div>}
+        {open.runs.length>0&&visibleRuns.length===0&&<p className="hx-run-empty">{t('No failed runs.')}</p>}
+        {runDays.map(([key,group])=><section className="hx-run-day" key={key}><h4>{runDayLabel(group.date,getLocale(),t)}</h4><div className="rows hx-run-day-rows">
+          {group.runs.map((r) => (
             <div key={r.id} className="row static hx-run" data-run={r.id}>
               <div className="row-main">
-                <span className={`hx-status ${r.status}`}>{t(r.status)}</span> <time dateTime={r.startedAt}>{new Date(r.startedAt).toLocaleString(getLocale())}</time> · {t(r.trigger)}{r.definitionRevision && <span className="row-sub">{t('Version {version}',{version:r.definitionRevision})}</span>}
+                <span className={`hx-status ${r.status}`}>{t(r.status)}</span> <time dateTime={Number.isFinite(new Date(r.startedAt).getTime())?r.startedAt:undefined}>{runTimestampLabel(r.startedAt,getLocale(),t('Date unavailable'))}</time> · {t(r.trigger)}{r.definitionRevision && <span className="row-sub">{t('Version {version}',{version:r.definitionRevision})}</span>}
                 {runDuration(r)!==null&&<> · <span title={t('Elapsed time, including approval waits')}>{runDuration(r)}</span></>}
                 <WorkflowRunUsage usage={r.usage}/>
                 {r.log.map((l) => {
@@ -455,7 +462,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
               </div>
             </div>
           ))}
-        </div>
+        </div></section>)}
       </Shell>
     )
   }

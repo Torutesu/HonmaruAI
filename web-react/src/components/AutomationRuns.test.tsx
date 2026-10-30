@@ -1,7 +1,9 @@
 import React from 'react'
 import {act,create} from 'react-test-renderer'
 import {expect,test,vi} from 'vitest'
+import {t} from '../utils/i18n'
 import {AutomationRuns} from './AutomationRuns'
+const refresh=(tree:any)=>tree.root.findAllByType('button').find((button:any)=>button.props['aria-pressed']===undefined)
 test('execution history loads on demand and exposes failed step details',async()=>{
  const workflow=vi.fn().mockResolvedValue({runs:[{id:'run',startedAt:'2026-10-24T00:00:00Z',status:'failed',log:[{step:1,status:'failed',error:'Permission revoked'}]}]});let tree:any
  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
@@ -13,11 +15,11 @@ test('execution history loads on demand and exposes failed step details',async()
 test('failed refresh removes stale results and offers a retry',async()=>{
  const workflow=vi.fn().mockResolvedValueOnce({runs:[{id:'old',startedAt:'2026-10-24T00:00:00Z',status:'done',log:[]}]}).mockRejectedValueOnce(new Error('Access changed')).mockResolvedValue({runs:[]});let tree:any
  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
- await act(async()=>tree.root.findByType('button').props.onClick())
- await act(async()=>tree.root.findByType('button').props.onClick())
- expect(JSON.stringify(tree.toJSON())).not.toContain('実行ID: ');expect(JSON.stringify(tree.toJSON())).toContain('Access changed')
- await act(async()=>tree.root.findByType('button').props.onClick())
- expect(JSON.stringify(tree.toJSON())).toContain('まだ実行されていません。');act(()=>tree.unmount())
+ await act(async()=>refresh(tree).props.onClick())
+ await act(async()=>refresh(tree).props.onClick())
+ expect(JSON.stringify(tree.toJSON())).not.toContain('old');expect(JSON.stringify(tree.toJSON())).toContain('Access changed')
+ await act(async()=>refresh(tree).props.onClick())
+ expect(JSON.stringify(tree.toJSON())).toContain(t('No runs yet.'));act(()=>tree.unmount())
 })
 
 test('switching workflows clears previous history and ignores an outstanding old response',async()=>{
@@ -30,10 +32,10 @@ test('switching workflows clears previous history and ignores an outstanding old
  expect(workflow.mock.calls.map(c=>c[0])).toEqual(['old','new'])
  await act(async()=>resolveOld({runs:[{id:'private-old',startedAt:'2026-10-24T00:00:00Z',status:'done',log:[]}]}))
  expect(JSON.stringify(tree.toJSON())).not.toContain('private-old')
- expect(tree.root.findByType('button').props.disabled).toBe(true)
+ expect(refresh(tree).props.disabled).toBe(true)
  await act(async()=>resolveNew({runs:[{id:'current-new',startedAt:'2026-10-24T00:00:00Z',status:'done',log:[]}]}))
  expect(JSON.stringify(tree.toJSON())).toContain('current-new')
- expect(tree.root.findByType('button').props.disabled).toBe(false)
+ expect(refresh(tree).props.disabled).toBe(false)
  act(()=>tree.unmount())
 })
 
@@ -61,8 +63,8 @@ test('completed run shows elapsed time but waiting and invalid times do not clai
  expect(runDuration({...base,finishedAt:'2026-10-23T23:59:59Z'})).toBeNull()
  const workflow=vi.fn().mockResolvedValue({runs:[{...base,id:'timed',log:[]}]});let tree:any
  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
- await act(async()=>tree.root.findByType('button').props.onClick())
- expect(tree.root.findByType('span').props.title).toContain('承認待ち時間を含む')
+ await act(async()=>refresh(tree).props.onClick())
+ expect(tree.root.findByType('span').props.title).toBe(t('Elapsed time, including approval waits'))
  act(()=>tree.unmount())
 })
 
@@ -78,7 +80,7 @@ test('open active history refreshes, then stops after completion or close',async
   await act(async()=>{await vi.advanceTimersByTimeAsync(30000)})
   expect(workflow).toHaveBeenCalledTimes(2)
   workflow.mockResolvedValue({runs:[active]})
-  await act(async()=>tree.root.findByType('button').props.onClick())
+  await act(async()=>refresh(tree).props.onClick())
   act(()=>tree.root.findAllByType('details')[0].props.onToggle({currentTarget:{open:false}}))
   await act(async()=>{await vi.advanceTimersByTimeAsync(30000)})
   expect(workflow).toHaveBeenCalledTimes(3)
@@ -120,5 +122,44 @@ test('embedded history never offers a resume action to a reader',async()=>{
  await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
  expect(JSON.stringify(tree.toJSON())).toContain('3回連続の失敗')
  expect(tree.root.findAllByType('button')).toHaveLength(1)
+ act(()=>tree.unmount())
+})
+
+test('execution history groups runs by the start date',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[
+  {id:'newer-a',startedAt:'2026-10-24T12:00:00Z',status:'done',log:[]},
+  {id:'newer-b',startedAt:'2026-10-24T08:00:00Z',status:'failed',log:[]},
+  {id:'older',startedAt:'2026-10-22T23:00:00Z',status:'done',log:[]},
+ ]});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+ await act(async()=>refresh(tree).props.onClick())
+ expect(tree.root.findAllByProps({className:'hx-run-day'})).toHaveLength(2)
+ expect(tree.root.findAllByType('h4')).toHaveLength(2)
+ expect(JSON.stringify(tree.toJSON())).toContain('newer-a')
+ expect(JSON.stringify(tree.toJSON())).toContain('newer-b')
+ expect(JSON.stringify(tree.toJSON())).toContain('older')
+ act(()=>tree.unmount())
+})
+
+test('failed-only filter shows matching runs and a clear empty state',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[
+  {id:'good-run',startedAt:'2026-10-24T12:00:00Z',status:'done',log:[]},
+  {id:'bad-run',startedAt:'2026-10-22T12:00:00Z',status:'failed',log:[]},
+ ]});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+ await act(async()=>refresh(tree).props.onClick())
+ const filter=()=>tree.root.findAllByType('button').find((button:any)=>button.props['aria-pressed']!==undefined)
+ await act(async()=>filter().props.onClick())
+ expect(filter().props['aria-pressed']).toBe(true)
+ expect(JSON.stringify(tree.toJSON())).toContain('bad-run')
+ expect(JSON.stringify(tree.toJSON())).not.toContain('good-run')
+ await act(async()=>filter().props.onClick())
+ expect(filter().props['aria-pressed']).toBe(false)
+ expect(JSON.stringify(tree.toJSON())).toContain('good-run')
+ const onlyGood=vi.fn().mockResolvedValue({runs:[{id:'good-only',startedAt:'2026-10-24T12:00:00Z',status:'done',log:[]}]})
+ act(()=>tree.update(<AutomationRuns workflowId="next" api={{workflow:onlyGood}as any}/>))
+ await act(async()=>refresh(tree).props.onClick())
+ await act(async()=>filter().props.onClick())
+ expect(JSON.stringify(tree.toJSON())).toContain(t('No failed runs.'))
  act(()=>tree.unmount())
 })
