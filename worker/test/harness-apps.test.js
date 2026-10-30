@@ -126,6 +126,7 @@ test("an app from a template: its views, worked out on the server", async () => 
   expect(app).toMatchObject({ name: "Sales CRM", template: "crm", version: 1 });
 
   const rendered = await (await get(`/apps/${app.id}?orgId=${ORG}`, toru)).json();
+  expect(rendered.table.name).toBe("Deals");
   expect(rendered.rows).toHaveLength(3);
   expect(rendered.app.channels).toEqual(["b:sales"]);
   const board = rendered.views.find((v) => v.type === "board");
@@ -185,6 +186,8 @@ test("a sentence becomes an app without a model, through the closest template", 
   const body = await res.json();
   expect(body).toMatchObject({ source: "template", room: "ops" });
   expect(body.app.template).toBe("invoices");
+  const rendered = await (await get(`/apps/${body.app.id}?orgId=${ORG}`, mika)).json();
+  expect(rendered.table.name).toBe("Invoices");
 
   expect((await specFromPrompt("a hiring pipeline for designers")).spec.template).toBe("hiring");
   expect((await specFromPrompt("track our office plants")).spec.template).toBe("tracker");

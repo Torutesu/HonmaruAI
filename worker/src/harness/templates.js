@@ -6,6 +6,7 @@
 export const TEMPLATES = {
   crm: {
     name: "Sales CRM",
+    tableName: "Deals",
     icon: "💼",
     description: "Leads to won deals: one pipeline, a stage board and a forecast.",
     keywords: ["crm", "sales", "deal", "deals", "sales pipeline", "lead", "leads", "営業", "商談", "顧客", "案件", "リード"],
@@ -40,6 +41,7 @@ export const TEMPLATES = {
   },
   hiring: {
     name: "Hiring board",
+    tableName: "Candidates",
     icon: "🧑‍💼",
     description: "Every candidate, by stage, with who interviews them.",
     keywords: ["hiring", "hire", "recruit", "recruiting", "candidate", "candidates", "applicant", "採用", "候補者", "応募", "面接"],
@@ -73,6 +75,7 @@ export const TEMPLATES = {
   },
   invoices: {
     name: "Invoice tracker",
+    tableName: "Invoices",
     icon: "🧾",
     description: "What is billed, what is paid, and what is overdue.",
     keywords: ["invoice", "invoices", "billing", "bill", "payment", "receivable", "請求", "請求書", "入金", "売掛", "支払"],
