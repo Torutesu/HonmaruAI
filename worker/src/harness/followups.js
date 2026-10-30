@@ -23,6 +23,7 @@ async function personalFollowupTools(env, row) {
     session: { github_id: String(row.created_by) },
     personal: true,
     ownAgentsOnly: false,
+    agentId: row.agent_id || null,
     fileScope: row.channel,
     fileThreadId: row.thread_id || null,
   });

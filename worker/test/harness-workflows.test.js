@@ -925,6 +925,8 @@ test('a personal-agent follow-up reads connected sources before reporting and ne
     VALUES (?1,'linear','Linear','Issue tracker',1,1,'9301',?2)`).bind(ORG, new Date().toISOString()).run();
   await env.DB.prepare(`INSERT INTO app_connections (id,org_id,user_github_id,server,status,created_at,updated_at)
     VALUES ('connection-mika',?1,'9302','linear','connected',?2,?2)`).bind(ORG, new Date().toISOString()).run();
+  await env.DB.prepare(`INSERT INTO hx_agent_app_grants (org_id,agent_id,user_github_id,server,created_at)
+    VALUES (?1,?2,'9302','linear',?3)`).bind(ORG, agent.id, new Date().toISOString()).run();
   const { followup } = await (await import('../src/harness/followups.js')).scheduleFollowup(env.DB, {
     orgId: ORG, channel, agentId: agent.id, instruction: 'Check whether invoice INV-7 is paid',
     dueAt: new Date(Date.now() + 60_000).toISOString(), by: '9302',
