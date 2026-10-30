@@ -1,5 +1,5 @@
 import {handleDocuments,isDocumentNodeRoute} from './documentRoutes.js';
-import {workflowRevisions} from './workflowRevisions.js';
+import {workflowRevisions,restoreWorkflowRevision} from './workflowRevisions.js';
 import {workflowSource} from './workflowSource.js';
 import {workflowNotices} from './workflowNotices.js';
 import {resumeWorkflowSafety,readWorkflowSafety,saveWorkflowBudget} from './workflowSafety.js';
@@ -448,6 +448,13 @@ export async function handleHarness(request, env, url, context = {}) {
       const before=url.searchParams.has('before')?Number(url.searchParams.get('before')):undefined;
       const result=await workflowRevisions(env.DB,orgId,wfId,me,{before});
       return result.error?fail(result):json(result);
+    }
+    if(sub==='rollback' && request.method==='POST'){
+      if(!mine)return json({message:'Only its maker or an admin can restore this workflow.'},403);
+      const result=await restoreWorkflowRevision(env.DB,orgId,wfId,me,input||{});
+      if(result.error)return fail(result);
+      await audit(env,request,{orgId,action:'workflow.revision_restored',actor:person(who.user),entity:{type:'workflow',id:wfId,name:result.workflow.name},details:{restoredRevision:result.restoredRevision,newRevision:result.revision,automaticTriggersEnabled:result.workflow.enabled,safetyPaused:result.safetyPaused}});
+      return json({...result,hookUrl:hookUrl(url,result.workflow)});
     }
     // The hook's secret is for whoever may change the workflow.
     const shown = mine ? { ...wf, hookUrl: hookUrl(url, wf) } : { ...wf, hookSecret: undefined };

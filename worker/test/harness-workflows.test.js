@@ -1302,6 +1302,19 @@ test('workflow revision HTTP route returns accessible history and rejects invali
  expect((await get(`/workflows/${workflow.id}/revisions?orgId=${encodeURIComponent(ORG)}&before=-1`,mika)).status).toBe(400);
 });
 
+test('workflow rollback is maker/admin-only, compare-and-swap protected, and audited',async()=>{
+ const created=await send('POST','/workflows',toru,{orgId:ORG,name:'Rollback original',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Original'}]});
+ const {workflow}=await created.json();
+ const edited=await send('PUT',`/workflows/${workflow.id}`,toru,{orgId:ORG,name:'Rollback current',expectedUpdatedAt:workflow.updatedAt});
+ const current=(await edited.json()).workflow;
+ expect((await send('POST',`/workflows/${workflow.id}/rollback`,mika,{orgId:ORG,revision:1,expectedUpdatedAt:current.updatedAt})).status).toBe(403);
+ expect((await send('POST',`/workflows/${workflow.id}/rollback`,toru,{orgId:ORG,revision:1,expectedUpdatedAt:workflow.updatedAt})).status).toBe(409);
+ const restored=await send('POST',`/workflows/${workflow.id}/rollback`,toru,{orgId:ORG,revision:1,expectedUpdatedAt:current.updatedAt});
+ expect(restored.status).toBe(200);
+ expect(await restored.json()).toMatchObject({restoredRevision:1,revision:3,workflow:{name:'Rollback original'}});
+ expect((await env.DB.prepare("SELECT action FROM audit_events WHERE org_id=?1 AND action='workflow.revision_restored'").bind(ORG).all()).results).toHaveLength(1);
+});
+
 test('workflow run budgets enforce limits, reject stale editors, and resume after usage rolls into a new window',async()=>{
  const created=await send('POST','/workflows',mika,{orgId:ORG,name:'Budgeted workflow',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Budgeted run'}]});
  expect(created.status).toBe(201);

@@ -1,8 +1,8 @@
 import {env} from 'cloudflare:test';
 import {test,expect,beforeEach} from 'vitest';
 import {upsertUser,upsertMembership,upsertBusiness} from '../src/db.js';
-import {createWorkflow,updateWorkflow} from '../src/harness/workflows.js';
-import {workflowRevisions} from '../src/harness/workflowRevisions.js';
+import {createWorkflow,updateWorkflow,getWorkflow} from '../src/harness/workflows.js';
+import {workflowRevisions,restoreWorkflowRevision} from '../src/harness/workflowRevisions.js';
 let workflow;
 beforeEach(async()=>{
  await upsertUser(env.DB,{githubId:'revision-user',login:'revision-user',name:'Reviewer'});
@@ -62,4 +62,32 @@ test('a run records its matching frozen definition version even if the workflow 
  expect((await listRuns(env.DB,'revision-org',workflow.id))[0].definitionRevision).toBe(1);
  await updateWorkflow(env.DB,'revision-org',workflow.id,{name:'Newest definition'});
  expect((await getRun(env.DB,'revision-org',run.id)).definitionRevision).toBe(1);
+});
+
+test('restoring creates a new immutable version and leaves prior versions intact',async()=>{
+ await updateWorkflow(env.DB,'revision-org',workflow.id,{name:'Second'});
+ const current=await getWorkflow(env.DB,'revision-org',workflow.id);
+ const restored=await restoreWorkflowRevision(env.DB,'revision-org',workflow.id,'revision-user',{revision:1,expectedUpdatedAt:current.updatedAt});
+ expect(restored).toMatchObject({restoredRevision:1,revision:3,workflow:{name:'First'}});
+ expect((await read()).items.map(item=>[item.revision,item.definition.name])).toEqual([[3,'First'],[2,'Second'],[1,'First']]);
+});
+
+test('restoring rejects stale edits and refuses a no-op restore',async()=>{
+ const original=await getWorkflow(env.DB,'revision-org',workflow.id);
+ await updateWorkflow(env.DB,'revision-org',workflow.id,{name:'Second'});
+ expect(await restoreWorkflowRevision(env.DB,'revision-org',workflow.id,'revision-user',{revision:1,expectedUpdatedAt:original.updatedAt})).toMatchObject({status:409});
+ const current=await getWorkflow(env.DB,'revision-org',workflow.id);
+ expect(await restoreWorkflowRevision(env.DB,'revision-org',workflow.id,'revision-user',{revision:2,expectedUpdatedAt:current.updatedAt})).toMatchObject({status:409});
+ expect((await read()).items.map(item=>item.revision)).toEqual([2,1]);
+});
+
+test('restoring an auto-enabled definition while safety-paused needs explicit confirmation and stays paused',async()=>{
+ const scheduled=await createWorkflow(env.DB,'revision-org',{name:'Scheduled',trigger:{type:'schedule',cadence:'daily',hour:9,minute:0,timezone:'UTC'},steps:[{type:'post',channel:'b:public',text:'Daily'}]},'revision-user');
+ await updateWorkflow(env.DB,'revision-org',scheduled.workflow.id,{enabled:false});
+ await env.DB.prepare("INSERT INTO hx_workflow_safety(org_id,workflow_id,generation,failure_streak,paused_at,pause_reason) VALUES(?1,?2,'test-generation',3,'now','consecutive_failures')").bind('revision-org',scheduled.workflow.id).run();
+ const current=await getWorkflow(env.DB,'revision-org',scheduled.workflow.id);
+ const blocked=await restoreWorkflowRevision(env.DB,'revision-org',scheduled.workflow.id,'revision-user',{revision:1,expectedUpdatedAt:current.updatedAt});
+ expect(blocked).toMatchObject({status:409});
+ const restored=await restoreWorkflowRevision(env.DB,'revision-org',scheduled.workflow.id,'revision-user',{revision:1,expectedUpdatedAt:current.updatedAt,confirmAutoPaused:true});
+ expect(restored).toMatchObject({revision:3,workflow:{enabled:true,safety:{paused_at:'now',pause_reason:'consecutive_failures'}},safetyPaused:true});
 });

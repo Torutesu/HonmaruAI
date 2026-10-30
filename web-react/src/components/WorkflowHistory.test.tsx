@@ -64,3 +64,34 @@ test('program revision comparison displays both exact saved sources',async()=>{
  expect(tree.root.findAllByType('pre').map((node:any)=>node.children.join(''))).toEqual(['console.log("before");','console.log("after");']);
  act(()=>tree.unmount());
 });
+
+test('editors explicitly confirm restoring an older version as a new revision',async()=>{
+ const api:any={workflowRevisions:vi.fn().mockResolvedValue({items:[version(3,'Current'),version(2,'Older')],nextCursor:null})}
+ const onRestore=vi.fn().mockResolvedValue(undefined)
+ let tree:any
+ await act(async()=>{tree=create(<WorkflowHistory api={api} workflowId="wf" canRestore currentUpdatedAt="2026-10-29T00:00:00Z" onRestore={onRestore}/>)})
+ await act(async()=>{tree.root.findByType('details').props.onToggle({currentTarget:{open:true}})})
+ expect(JSON.stringify(tree.toJSON())).toContain('Restoring sets the name, automatic-trigger setting')
+ const restore=tree.root.findAllByType('button').find((button:any)=>button.children.includes('Restore this version…'))
+ await act(async()=>{restore.props.onClick()})
+ expect(JSON.stringify(tree.toJSON())).toContain('Restore version {version} as a new workflow definition?')
+ const confirm=tree.root.findAllByType('button').find((button:any)=>button.children.includes('Restore as new version'))
+ await act(async()=>{await confirm.props.onClick()})
+ expect(onRestore).toHaveBeenCalledWith(2,false)
+ act(()=>tree.unmount())
+})
+
+test('restoring an auto-enabled version while safety-paused warns and records explicit confirmation',async()=>{
+ const api:any={workflowRevisions:vi.fn().mockResolvedValue({items:[version(3,'Current'),{...version(2,'Scheduled'),definition:{...definition,enabled:true,trigger:{type:'schedule'}}}],nextCursor:null})}
+ const onRestore=vi.fn().mockResolvedValue(undefined)
+ let tree:any
+ await act(async()=>{tree=create(<WorkflowHistory api={api} workflowId="wf" canRestore currentUpdatedAt="2026-10-29T00:00:00Z" safetyPaused onRestore={onRestore}/>)})
+ await act(async()=>{tree.root.findByType('details').props.onToggle({currentTarget:{open:true}})})
+ expect(JSON.stringify(tree.toJSON())).toContain('remain safety-paused until you resume it separately')
+ const restore=tree.root.findAllByType('button').find((button:any)=>button.children.includes('Restore this version…'))
+ await act(async()=>{restore.props.onClick()})
+ const confirm=tree.root.findAllByType('button').find((button:any)=>button.children.includes('Restore as new version'))
+ await act(async()=>{await confirm.props.onClick()})
+ expect(onRestore).toHaveBeenCalledWith(2,true)
+ act(()=>tree.unmount())
+})

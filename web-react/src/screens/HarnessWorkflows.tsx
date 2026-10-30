@@ -359,7 +359,18 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
             </span>
           </div>
         </div>
-        <WorkflowHistory key={`${w.id}:${w.updatedAt}`} api={api} workflowId={w.id} tables={tables} agents={agents} apps={triggerApps}/>
+        <WorkflowHistory key={`${w.id}:${w.updatedAt}`} api={api} workflowId={w.id} tables={tables} agents={agents} apps={triggerApps}
+          canRestore={open.canEdit} currentUpdatedAt={w.updatedAt} safetyPaused={Boolean(w.safety?.paused_at)}
+          onRestore={async(revision,confirmAutoPaused)=>{
+            let failure:unknown
+            await act('restore',async()=>{
+              try{
+                await api.restoreWorkflowRevision(w.id,{revision,expectedUpdatedAt:w.updatedAt!,...(confirmAutoPaused?{confirmAutoPaused:true}:{})})
+                await refreshOpen(w.id)
+              }catch(error){failure=error;throw error}
+            })
+            if(failure)throw failure
+          }}/>
         <WorkflowSource key={w.id} api={api} workflowId={w.id} orgId={props.orgId}/>
         {(error||syncError) && <div className="form-error" role="alert">{error||syncError}</div>}
         {open.canEdit && (

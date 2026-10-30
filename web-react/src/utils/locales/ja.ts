@@ -97,6 +97,13 @@ const table: Record<string, string> = {
   "No definition changes between these versions.": "この2つの版の定義に変更はありません。",
   "Load older versions": "以前の版を読み込む",
   "Automatic triggers": "自動実行",
+  "Restore workflow version": "ワークフローの版を復元",
+  "Restoring sets the name, automatic-trigger setting, trigger and steps from this version. It creates a new immutable version, does not start a run, and in-flight runs keep their saved definition. Safety pauses and budget limits stay as they are.": "この版の名前、自動実行の設定、トリガー、手順を復元し、新しい変更不可の版として保存します。実行は開始されず、進行中の実行は開始時の定義を使い続けます。安全停止と予算上限は維持されます。",
+  "This version enables automatic triggers. The workflow will remain safety-paused until you resume it separately.": "この版では自動実行が有効です。安全停止は維持されるため、再開操作を別途行うまで実行されません。",
+  "Restore this version…": "この版を復元…",
+  "Confirm restore": "復元の確認",
+  "Restore version {version} as a new workflow definition?": "バージョン {version} を新しいワークフロー定義として復元しますか？",
+  "Restore as new version": "新しい版として復元",
 
   'Time zone': 'タイムゾーン',
   'Enter a valid time and time zone.': '正しい時刻とタイムゾーンを入力してください。',

@@ -346,16 +346,17 @@ export async function updateWorkflow(db, orgId, id, input, changedBy = null) {
   // revokes its URL; returning creates a new one instead of reviving old senders.
   const hookCandidate = trigger.type === "webhook" ? hex(crypto.getRandomValues(new Uint8Array(24))) : null;
   const updatedAt = new Date(Math.max(Date.now(), (Date.parse(wf.updatedAt) || 0) + 1)).toISOString();
-  const result = await db
-    .prepare(`UPDATE hx_workflows SET name = ?1, enabled = ?2, trigger = ?3, steps = ?4,
+  const [result,revisionResult] = await db.batch([
+    db.prepare(`UPDATE hx_workflows SET name = ?1, enabled = ?2, trigger = ?3, steps = ?4,
       next_run_at = CASE WHEN ?2=1 AND enabled=?2 AND trigger=?3 THEN next_run_at ELSE ?5 END, updated_at = ?6,
       hook_secret = CASE WHEN ?9 IS NULL THEN NULL WHEN json_extract(trigger, '$.type') = 'webhook' THEN hook_secret ELSE ?9 END,
       webhook_signature_required = CASE WHEN json_extract(?3,'$.type')='webhook' AND json_extract(trigger,'$.type')!='webhook' THEN 1 ELSE webhook_signature_required END
       WHERE id = ?7 AND org_id = ?8 AND updated_at = ?10`)
-    .bind(name, enabled ? 1 : 0, JSON.stringify(trigger), JSON.stringify(steps), next, updatedAt, id, orgId, hookCandidate, wf.updatedAt)
-    .run();
+    .bind(name, enabled ? 1 : 0, JSON.stringify(trigger), JSON.stringify(steps), next, updatedAt, id, orgId, hookCandidate, wf.updatedAt),
+    db.prepare('SELECT MAX(revision) AS revision FROM hx_workflow_revisions WHERE org_id=?1 AND workflow_id=?2').bind(orgId,id),
+  ]);
   if (!result.meta?.changes) return { error: 'The workflow changed. Reload it before saving your changes.', status: 409 };
-  return { workflow: await getWorkflow(db, orgId, id, { withSecret: true }) };
+  return { workflow: await getWorkflow(db, orgId, id, { withSecret: true }), revision: Number(revisionResult.results?.[0]?.revision)||null };
 }
 
 export async function changeWorkflowHook(db, orgId, id, input) {
