@@ -3379,9 +3379,9 @@ export const ClassicList: React.FC<Props> = ({
     requestAnimationFrame(() => {
       if (ask !== threadAsk.current || cacheScope.current !== messageCache) return
       const id = focusId === parentId ? `thread-${focusId}` : focusId
-      const el = document.querySelector(`.slk-inbox-thread #${CSS.escape(`msg-${id}`)}`)
+      const el = document.querySelector(`.slk-inbox-thread #${CSS.escape(`msg-${id}`)}, .slk-thread-pane #${CSS.escape(`msg-${id}`)}`)
       if (el) { el.scrollIntoView({ block: 'center' }); setFlash(id); setTimeout(() => setFlash(null), 1600) }
-      else void showThreadReference(channel, parentId, focusId)
+      else if (focusId !== parentId) void showThreadReference(channel, parentId, focusId)
     })
   }
   /// Read this thread, here and on every other device: Threads stops
@@ -3574,9 +3574,12 @@ export const ClassicList: React.FC<Props> = ({
       const ask = threadAsk.current + 1
       void openThread(j.view, parent).then(() => requestAnimationFrame(() => {
         if (ask !== threadAsk.current || cacheScope.current !== messageCache) return
-        const el = document.querySelector(`.slk-thread-pane #${CSS.escape(`msg-${j.id}`)}`)
-        if (el) { el.scrollIntoView({ block: 'center' }); setFlash(j.id); setTimeout(() => setFlash(null), 1600) }
-        else void showThreadReference(j.view, j.parentId!, j.id)
+        // The thread's own first message is drawn at its head as `thread-<id>`;
+        // it is on screen already, never an "original message" to fetch.
+        const lit = j.id === j.parentId ? `thread-${j.id}` : j.id
+        const el = document.querySelector(`.slk-thread-pane #${CSS.escape(`msg-${lit}`)}`)
+        if (el) { el.scrollIntoView({ block: 'center' }); setFlash(lit); setTimeout(() => setFlash(null), 1600) }
+        else if (j.id !== j.parentId) void showThreadReference(j.view, j.parentId!, j.id)
       }))
     } else {
       requestAnimationFrame(() => jumpTo(j.id))
