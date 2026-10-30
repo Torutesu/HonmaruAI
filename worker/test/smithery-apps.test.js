@@ -352,3 +352,28 @@ test("Harness connections are granted per agent and caller, and revocation stops
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_agent_app_grants WHERE org_id = ?1 AND user_github_id = '9702'").bind(ORG).first()).toEqual({ n: 0 });
 });
 
+test("an unavailable workspace mode never downgrades Harness app grants to Simple", async () => {
+  await allow();
+  await connect(mika, "MIKA-ONLY-DATA");
+  await call("/orgs/mode", owner, { method: "PUT", body: { orgId: ORG, mode: "harness" } });
+  let modeReads = 0;
+  const failingModeDb = {
+    prepare(sql) {
+      if (/SELECT mode FROM org_settings/.test(String(sql))) {
+        return { bind: () => ({ first: async () => {
+          modeReads += 1;
+          if (modeReads === 2) throw new Error("mode store unavailable");
+          return { mode: "harness" };
+        } }) };
+      }
+      return env.DB.prepare(sql);
+    },
+  };
+  const tools = await agentTools({ ...apiEnv(), DB: failingModeDb }, {
+    orgId: ORG, session: await sessionOf(mika), personal: true, ownAgentsOnly: true, agentId: "agent-mika-private",
+  });
+  expect(Object.keys(tools).filter((name) => name.startsWith("app"))).toEqual([]);
+  expect(modeReads).toBe(2);
+  expect(fake.calls).toHaveLength(0);
+});
+

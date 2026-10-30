@@ -90,7 +90,15 @@ export async function agentTools(env, { orgId, session, language = "en", persona
   // The apps this person connected through Smithery, theirs alone: only in
   // this, their own conversation with the agent (smitheryApps.js).
   const { appTools } = await import("./smitheryApps.js");
-  const requireAgentGrant = (await getMode(env.DB, orgId).catch(() => "simple")) === "harness";
-  Object.assign(tools, await appTools(env, { orgId, session, taint, writes: ownAgentsOnly, agentId, requireAgentGrant }).catch(() => ({})));
+  // A mode lookup failure must not downgrade Harness to Simple: that would
+  // expose every connected app to an agent before its per-agent grant check.
+  // Known Simple keeps its existing behavior; unknown mode gets no app tools.
+  const workspaceMode = await getMode(env.DB, orgId).catch(() => null);
+  if (workspaceMode === "simple" || workspaceMode === "harness") {
+    Object.assign(tools, await appTools(env, {
+      orgId, session, taint, writes: ownAgentsOnly, agentId,
+      requireAgentGrant: workspaceMode === "harness",
+    }).catch(() => ({})));
+  }
   return tools;
 }
