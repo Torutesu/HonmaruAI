@@ -795,11 +795,15 @@
       "id": "KY-069",
       "category": "Automations",
       "requirement": "Follow-upの実ツール実行",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/followups.js",
-      "acceptance": "現状はモデル文章かリマインダー。外部状態を実確認して根拠と一緒に返す"
+      "acceptance": "個人Agent DMのFollow-upで接続済み個人連携を読み取り、実ツール実行を必須化し、結果に含まれるアプリ・ID・URLを根拠として返す。共有チャンネルでは個人連携を使わない",
+      "evidence": {
+        "verified": "個人Agent DMでは既存のread-only Notion/GitHub/Smithery連携をFollow-upへ接続し、外部read toolがある場合は初回モデル応答でtool callを必須化。接続済みアプリが書き込みを許可していてもFollow-upでは読み取りツールだけを公開。接続結果の出典/ID/URLを回答に含めるよう指示し、会話・Agent権限を各tool callの前後で再確認する。共有チャンネルには個人連携を渡さない。",
+        "remaining": "全Follow-upに対する外部コネクタ対応ではなく個人Agent DMに限定。サービスごとの状態・書き込み操作・証跡画面は未実装。実接続アカウントの本番roundtripは未確認。"
+      }
     },
     {
       "id": "KY-070",

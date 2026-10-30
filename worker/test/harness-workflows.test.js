@@ -885,6 +885,51 @@ test.each(['workflow', 'followup'])('%s reads an installed skill through its exe
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM ai_reservations').first()).n).toBe(0);
 });
 
+test('a personal-agent follow-up reads connected sources before reporting and never exposes write tools', async () => {
+  const agent = (await (await send('POST', '/channels/agents', mika, { orgId: ORG, name: 'Invoice checker', handle: 'invoice-checker', instructions: 'Check the invoice status.', scope: 'personal' })).json()).agent;
+  const channel = `ag:${agent.id}|mika`;
+  await env.DB.prepare(`INSERT INTO org_apps (org_id,server,name,description,verified,allow_writes,added_by,added_at)
+    VALUES (?1,'linear','Linear','Issue tracker',1,1,'9301',?2)`).bind(ORG, new Date().toISOString()).run();
+  await env.DB.prepare(`INSERT INTO app_connections (id,org_id,user_github_id,server,status,created_at,updated_at)
+    VALUES ('connection-mika',?1,'9302','linear','connected',?2,?2)`).bind(ORG, new Date().toISOString()).run();
+  const { followup } = await (await import('../src/harness/followups.js')).scheduleFollowup(env.DB, {
+    orgId: ORG, channel, agentId: agent.id, instruction: 'Check whether invoice INV-7 is paid',
+    dueAt: new Date(Date.now() + 60_000).toISOString(), by: '9302',
+  });
+  expect(followup).toBeTruthy();
+  const bodies = [];
+  fetchMock.activate();
+  fetchMock.get('https://api.smithery.ai').intercept({ path: '/tokens', method: 'POST' })
+    .reply(200, { token: 'short-lived-test-token' });
+  fetchMock.get('https://api.smithery.ai').intercept({ path: '/connect/honmaru-test/connection-mika/.tools', method: 'GET' })
+    .reply(200, { tools: [
+      { name: 'search_issues', description: 'Search issues', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+      { name: 'create_issue', description: 'Create issue', inputSchema: { type: 'object', properties: { title: { type: 'string' } }, required: ['title'] } },
+    ] });
+  fetchMock.get('https://api.smithery.ai').intercept({ path: '/connect/honmaru-test/connection-mika/.tools/search_issues', method: 'POST' })
+    .reply(200, { content: [{ type: 'text', text: 'INV-7 status: paid; https://linear.app/acme/issue/INV-7' }] });
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
+    const body = JSON.parse(opts.body); bodies.push(body);
+    expect(body.tool_choice).toBe('required');
+    expect(body.tools.map(tool => tool.function.name)).toContain('app1_search_issues');
+    expect(body.tools.map(tool => tool.function.name)).not.toContain('app1_create_issue');
+    return { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'search-invoice', type: 'function', function: { name: 'app1_search_issues', arguments: JSON.stringify({ query: 'INV-7' }) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
+  });
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
+    bodies.push(JSON.parse(opts.body));
+    return { choices: [{ message: { content: 'Invoice INV-7 is paid (Linear issue INV-7: https://linear.app/acme/issue/INV-7).' } }], usage: { prompt_tokens: 20, completion_tokens: 8 } };
+  });
+  try {
+    const modelEnv = { ...env, OPENAI_API_KEY: 'sk-test', SMITHERY_API_KEY: 'sk-smithery-test', SMITHERY_NAMESPACE: 'honmaru-test' };
+    await runDueFollowups(modelEnv, { now: new Date(Date.now() + 120_000) });
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1].messages.at(-1)).toMatchObject({ role: 'tool', content: expect.stringContaining('INV-7 status: paid') });
+  expect(await env.DB.prepare('SELECT status,result FROM hx_followups WHERE id=?').bind(followup.id).first())
+    .toMatchObject({ status: 'done', result: expect.stringContaining('https://linear.app/acme/issue/INV-7') });
+});
+
 test("a follow-up with no model result fails instead of posting its instruction as a completed answer", async () => {
   const made = await (await send("POST", "/followups", mika, { orgId: ORG, channel: "b:ops", instruction: "Verify the invoice payment", minutes: 1 })).json();
   fetchMock.activate();

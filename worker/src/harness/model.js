@@ -13,10 +13,10 @@ export async function completer(env, orgId, githubId, purpose, { maxTokens = 900
   if (!provider) return null;
   const allowance = await allowanceFor(env, orgId, { githubId: String(githubId) });
   if (!allowance.allowed) return null;
-  return async (system, user, { tools = {}, fallbackSystem = system, authorize = null, recordUsage = null } = {}) => {
+  return async (system, user, { tools = {}, fallbackSystem = system, authorize = null, recordUsage = null, requireTool = false, requiredToolNames = [] } = {}) => {
     let consumed = false;
     try {
-      return await completeWithTools({provider, system, user, tools, fallbackSystem, maxTokens, json, timeoutMs, authorize,
+      return await completeWithTools({provider, system, user, tools, fallbackSystem, maxTokens, json, timeoutMs, authorize, requireTool, requiredToolNames,
         onUsage: async data => {
           noteUsage(provider, purpose, data);
           if (!consumed && allowance.metered) { await allowance.consume(); consumed = true; }
