@@ -10,6 +10,7 @@ import { composing } from '../utils/keys'
 import {documentKind} from '../utils/documentPreview'
 const DocumentPreview=lazy(()=>import('./DocumentPreview'))
 import { fileSrc, useFileUrls } from '../utils/mediaUrls'
+import { watchAttachmentVideo, toggleVideoFullscreen } from '../utils/attachmentVideo'
 
 // Files and pictures: going up from the composer, and shown in a message.
 //
@@ -319,6 +320,8 @@ const Player: React.FC<{ file: FileRef; kind: 'video' | 'audio'; src: string; on
   const t = useT()
   const [broken, setBroken] = useState(false)
   const [from, setFrom] = useState(src)
+  const video = useRef<HTMLVideoElement>(null)
+  const [fullscreenError, setFullscreenError] = useState(false)
   /// How many times the connection has gone from under it.
   const [drops, setDrops] = useState(0)
   /// Where it had got to when it stopped, in seconds.
@@ -326,6 +329,9 @@ const Player: React.FC<{ file: FileRef; kind: 'video' | 'audio'; src: string; on
   /// Its address ran out under it: a new one is on its way, and it goes on
   /// from there when it comes.
   const waiting = useRef(false)
+  useEffect(() => {
+    if (kind === 'video' && video.current && !broken) return watchAttachmentVideo(video.current)
+  }, [kind, drops, broken])
   useEffect(() => {
     if (!waiting.current || src === from) return
     waiting.current = false
@@ -350,20 +356,30 @@ const Player: React.FC<{ file: FileRef; kind: 'video' | 'audio'; src: string; on
   if (broken) return <FileCard file={file} href={downloadUrl(src)} />
   const about = (
     <figcaption className="att-media-about">
-      <Icon name={KIND_ICON[kind]} size={14} />
-      <span className="att-media-name">{file.name}</span>
-      <small>{sizeLabel(file.size)}</small>
-      <FileConversationButton fileId={file.id}/>
-      <a className="att-media-save" href={downloadUrl(src)} target="_blank" rel="noopener noreferrer" aria-label={t('Download {name}', { name: file.name })} title={t('Download')}>
-        <Icon name="download" size={16} />
-      </a>
+      <div className="att-media-details">
+        <Icon name={KIND_ICON[kind]} size={14} />
+        <span className="att-media-name" title={file.name}>{file.name}</span>
+        <small>{sizeLabel(file.size)}</small>
+      </div>
+      <div className="att-media-actions">
+        <FileConversationButton fileId={file.id}/>
+        {kind === 'video' && <button type="button" className="att-media-save" aria-label={t('Full screen')} title={t('Full screen')} onClick={() => {
+          if (!video.current) return
+          setFullscreenError(false)
+          void toggleVideoFullscreen(video.current).catch(() => setFullscreenError(true))
+        }}><Icon name="maximize" size={16} /></button>}
+        <a className="att-media-save" href={downloadUrl(src)} target="_blank" rel="noopener noreferrer" aria-label={t('Download {name}', { name: file.name })} title={t('Download')}>
+          <Icon name="download" size={16} />
+        </a>
+      </div>
+      {fullscreenError && <span role="alert">{t('Could not enter fullscreen. Try the video controls.')}</span>}
     </figcaption>
   )
   if (kind === 'video') {
     const box = videoBox(file.width, file.height)
     return (
       <figure className="att-media video" style={{ width: `min(100%, ${box.width}px)` }} data-file={file.name}>
-        <video key={drops} src={firstFrameUrl(from)} controls preload={drops ? 'none' : 'metadata'} playsInline aria-label={file.name} style={{ aspectRatio: String(box.ratio) }} onError={failed} onLoadedMetadata={resume} />
+        <video key={drops} ref={video} src={firstFrameUrl(from)} controls preload={drops ? 'none' : 'metadata'} playsInline aria-label={file.name} style={{ aspectRatio: String(box.ratio) }} onError={failed} onLoadedMetadata={resume} />
         {about}
       </figure>
     )
@@ -402,9 +418,9 @@ const Lightbox: React.FC<{ files: FileRef[]; at: number; src: (f: FileRef) => st
         else if (dx > 60 && at > 0) onMove(at - 1)
       }}>
       <header className="att-light-head" onClick={(e) => e.stopPropagation()}>
-        <span>{f.name}{files.length > 1 && <small> · {at + 1} / {files.length}</small>}</span>
+        <span className="att-light-name">{f.name}{files.length > 1 && <small> · {at + 1} / {files.length}</small>}</span>
         <FileConversationButton key={f.id} fileId={f.id} onOpen={onClose}/>
-        <a href={src(f)} target="_blank" rel="noopener noreferrer" aria-label={t('Download')}><Icon name="download" size={18} /></a>
+        <a href={downloadUrl(src(f))} target="_blank" rel="noopener noreferrer" aria-label={t('Download')}><Icon name="download" size={18} /></a>
         <button type="button" onClick={onClose} aria-label={t('Close')}><Icon name="x" size={20} /></button>
       </header>
       <img src={src(f)} alt={f.name} onClick={(e) => e.stopPropagation()} />

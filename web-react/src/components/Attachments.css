@@ -59,12 +59,17 @@
 .att-media video { display: block; width: 100%; height: auto; background: #000; object-fit: contain; }
 .att-media audio { display: block; width: calc(100% - 16px); margin: 0 8px; }
 .att-media video:focus-visible, .att-media audio:focus-visible { outline: 2px solid var(--slk-accent, #1264a3); outline-offset: -2px; }
-.att-media-about { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 4px 4px 4px 10px; font-size: 12.5px; }
-.att-media-about > svg { flex: none; color: var(--slk-dim, #616061); }
+.att-media-about { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-height: 36px; padding: 6px; font-size: 12.5px; }
+.att-media-details, .att-media-actions { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.att-media-actions { flex-wrap: wrap; }
+.att-media-actions .file-conversation-control { flex: 1 0 auto; min-width: 0; max-width: 100%; }
+.att-media-actions .file-conversation-control button { max-width: 100%; white-space: nowrap; }
+.att-media-actions .file-conversation-control [role=alert] { overflow-wrap: anywhere; }
+.att-media-details > svg { flex: none; color: var(--slk-dim, #616061); }
 .att-media-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .att-media-about small { flex: none; font-size: 11.5px; color: var(--slk-dim, #616061); }
 .att-media-save {
-  flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: var(--slk-dim, #616061);
+  flex: none; width: 32px; height: 32px; border: none; padding: 0; background: none; cursor: pointer; border-radius: 8px; display: grid; place-items: center; color: var(--slk-dim, #616061);
 }
 .att-media-save:hover { background: var(--slk-hover, #f0f0f0); color: var(--slk-ink, #1d1c1d); }
 .att-media-save:focus-visible { outline: 2px solid var(--slk-accent, #1264a3); outline-offset: -2px; color: var(--slk-ink, #1d1c1d); }
@@ -80,15 +85,22 @@
 }
 @keyframes att-fade { from { opacity: 0; } to { opacity: 1; } }
 .att-light-head {
-  flex: none; display: flex; align-items: center; gap: 8px; min-height: 52px;
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 52px;
   padding: env(safe-area-inset-top) 8px 0 16px;
 }
-.att-light-head span { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-light-head > .att-light-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-light-head > .file-conversation-control { flex: none; max-width: 100%; }
+.att-light-head .file-conversation-control button { white-space: nowrap; }
+.att-light-head .file-conversation-control [role=alert] { overflow-wrap: anywhere; }
 .att-light-head small { font-weight: 400; opacity: .7; }
-.att-light-head a, .att-light-head button {
+.att-light-head > a, .att-light-head > button {
+  flex: none;
   width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; border: none; background: none; color: #fff; cursor: pointer;
 }
-.att-light-head a:hover, .att-light-head button:hover { background: rgba(255, 255, 255, .12); }
+.att-light-head > a:hover, .att-light-head > button:hover { background: rgba(255, 255, 255, .12); }
+@media (max-width: 480px) {
+  .att-light-head > .att-light-name { flex-basis: 100%; }
+}
 .att-light img { flex: 1; min-height: 0; width: 100%; object-fit: contain; padding: 0 0 env(safe-area-inset-bottom); }
 
 /* The paperclip in the composer. */
