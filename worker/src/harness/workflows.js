@@ -695,6 +695,11 @@ async function runStep(env, { orgId, workflow, step, number, scope, runId, depth
       const agentRow = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, step.agentId).first();
       if (!agentRow) return { status: "failed", error: "That agent is gone." };
       if (!(await mayRunAgent(db, orgId, agentRow, owner))) return { status: "failed", error: "Agent access required." };
+      // An Agent grant can change after the workflow step starts. Keep that
+      // live grant in the model/tool-loop fence, alongside workflow/source
+      // access, and check it again immediately before publishing the answer.
+      const authorizeAgent = async () => await authorize() && await mayRunAgent(db, orgId, agentRow, owner)
+        && (!step.channel || await mayUseConversation(db, orgId, owner, step.channel));
       const complete = await completer(env, orgId, owner, "workflow_agent", { json: false, maxTokens: 1200 });
       if (!complete) return { status: "failed", error: "No AI model, or none left today." };
       const prepared = await prepareAgent(env, orgId, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: step.channel || "", userId: owner, allowPrivate: false });
@@ -702,11 +707,14 @@ async function runStep(env, { orgId, workflow, step, number, scope, runId, depth
       const answer = await complete(
         `You are ${agent.name} (@${agent.handle}), doing one step of the workflow "${workflow.name}". Do what the step asks and answer with the result only.\n\n<agent_instructions>\n${agent.researchInstructions || String(agent.instructions).slice(0, 12000)}\n</agent_instructions>`,
         `${render(step.prompt, scope)}\n\n<context>\n${JSON.stringify({ input: scope.input, row: scope.row || null }).slice(0, 6000)}\n</context>`,
-        { tools: prepared.skillTools, authorize, recordUsage:(data,provider)=>recordWorkflowUsage(env.DB,{orgId,workflowId:workflow.id,runId,stepNumber:number,data,provider}), fallbackSystem: `You are ${agent.name}, doing a step of "${workflow.name}". Answer with the result only.\n\n${agent.instructions}` },
+        { tools: prepared.skillTools, authorize: authorizeAgent, recordUsage:(data,provider)=>recordWorkflowUsage(env.DB,{orgId,workflowId:workflow.id,runId,stepNumber:number,data,provider}), fallbackSystem: `You are ${agent.name}, doing a step of "${workflow.name}". Answer with the result only.\n\n${agent.instructions}` },
       );
-      if (!await authorize())return {status:'failed',error:'The automation was stopped, its release changed, or its source access was removed.'};
+      if (!await authorizeAgent())return {status:'failed',error:'The workflow, source, agent, or conversation access changed while this step was running.'};
       if (!answer) return { status: "failed", error: "The agent gave no answer." };
-      if (step.channel) await say(env, orgId, step.channel, answer, { authorLogin: `agent:${agentRow.id}`, kind: "agent" });
+      if (step.channel) {
+        if (!await authorizeAgent())return {status:'failed',error:'The workflow, source, agent, or conversation access changed while this step was running.'};
+        await say(env, orgId, step.channel, answer, { authorLogin: `agent:${agentRow.id}`, kind: "agent" });
+      }
       return { status: "ok", output: String(answer).slice(0, 4000) };
     }
     case "add_row": {

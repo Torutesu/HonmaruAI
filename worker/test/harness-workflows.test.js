@@ -885,6 +885,39 @@ test.each(['workflow', 'followup'])('%s reads an installed skill through its exe
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM ai_reservations').first()).n).toBe(0);
 });
 
+test('a workflow Agent grant revoked during its model turn prevents publishing the reply', async () => {
+  await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' });
+  const { agent } = await (await send('POST', '/channels/agents', toru, {
+    orgId: ORG, name: 'Restricted reviewer', handle: 'restricted-reviewer', instructions: 'Review the release.', scope: 'team',
+  })).json();
+  await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'harness' });
+  await env.DB.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at)
+    VALUES (?1,?2,'people','["mika"]','now')
+    ON CONFLICT(org_id,agent_id) DO UPDATE SET access='people',people='["mika"]'`).bind(ORG, agent.id).run();
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Restricted review', trigger: { type: 'manual' },
+    steps: [{ type: 'agent', agentId: agent.id, channel: 'b:ops', prompt: 'Review the release' }],
+  }, '9302');
+  let requestBody;
+  fetchMock.activate();
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, async opts => {
+    requestBody = JSON.parse(opts.body);
+    await env.DB.prepare("UPDATE hx_agent_profiles SET people='[\"toru\"]' WHERE org_id=?1 AND agent_id=?2").bind(ORG, agent.id).run();
+    return { choices: [{ message: { content: 'This reply must not be published.' } }], usage: { prompt_tokens: 10, completion_tokens: 4 } };
+  });
+  try {
+    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, {
+      orgId: ORG, workflow, trigger: 'manual', startedBy: '9302',
+    });
+    expect(result.status).toBe('failed');
+    expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
+    expect((await messages(mika)).map(message => message.body)).not.toContain('This reply must not be published.');
+    expect(requestBody.messages.some(message => message.content?.includes('Review the release'))).toBe(true);
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
 test('a personal-agent follow-up reads connected sources before reporting and never exposes write tools', async () => {
   const agent = (await (await send('POST', '/channels/agents', mika, { orgId: ORG, name: 'Invoice checker', handle: 'invoice-checker', instructions: 'Check the invoice status.', scope: 'personal' })).json()).agent;
   const channel = `ag:${agent.id}|mika`;
