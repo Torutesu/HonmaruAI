@@ -1,3 +1,4 @@
+import {messageDeliveryAllowed,discardPendingMessagePushes} from './messageDelivery.js';
 import { deliverOnce, retryable, retryDelay, MAX_ATTEMPTS } from './notificationJobs.js';
 import { threadMuted } from "./threadNotifications.js";
 // A message that needs somebody, pushed to their phone — but only when they
@@ -149,17 +150,22 @@ export async function recipientsOf(db, orgId, row, members, { askedBy = null } =
 
 /// Queue the pushes for a message just said. Cheap: one query when nobody
 /// is for it.
-export async function queueMessagePushes(env, orgId, row, { members = null, now = Date.now(), askedBy = null } = {}) {
+export async function queueMessagePushes(env, orgId, row, { members = null, now = Date.now(), askedBy = null, durable = false } = {}) {
   if (!env?.DB || !row?.id) return 0;
   const list = members || await listMembers(env.DB, orgId, null);
   const to = await recipientsOf(env.DB, orgId, row, list, { askedBy });
+  if (durable && !await messageDeliveryAllowed(env.DB,orgId,row.id,{requireIntent:true})) {
+    await discardPendingMessagePushes(env.DB,orgId,row.id);
+    return 0;
+  }
   if (!to.length) return 0;
   // The same decision, told to each of these people's open apps at once: a
   // desktop app has no push service, and shows a notification for exactly
   // what the phone will be told (web-react utils/forYou.ts) — a group
   // message, a reply to you, a keyword, a thread you wrote in — rather than
   // guessing from the message alone.
-  await announceTo(env, orgId, to.map(({ login, reason }) => ({ to: login, event: customEvent("message_for_you", { id: row.id, reason }) })));
+  const deliveries = to.map(({ login, reason }) => ({ to: login, event: customEvent("message_for_you", { id: row.id, reason }) }));
+  if (!durable) await announceTo(env, orgId, deliveries);
   const due = new Date(now + PUSH_DELAY_MS).toISOString();
   const at = new Date(now).toISOString();
   try {
@@ -167,6 +173,7 @@ export async function queueMessagePushes(env, orgId, row, { members = null, now 
       `INSERT OR IGNORE INTO push_queue (org_id, login, message_id, reason, created_at, due_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
     ).bind(orgId, login, row.id, reason, at, due)));
   } catch (err) {
+    if (durable) throw err;
     // A queue that cannot be written to (D1 refusing writes past its daily
     // limit) used to lose these pushes: the callers only log the throw. Then
     // they go now, without the minute's wait to see whether it was read.
@@ -174,6 +181,15 @@ export async function queueMessagePushes(env, orgId, row, { members = null, now 
     const membersOf = new Map([[orgId, list]]);
     await Promise.all(to.map(({ login, reason }) => deliverMessagePush(env, { org_id: orgId, login, message_id: row.id, reason }, { now, membersOf })
       .catch((e) => console.error("direct push failed", e?.message || e))));
+  }
+  // Phone jobs survive relay failure; the durable intent retries the desktop
+  // notification until that relay accepts it, without inserting another push.
+  if (durable) {
+    if (!await messageDeliveryAllowed(env.DB,orgId,row.id,{requireIntent:true})) {
+      await discardPendingMessagePushes(env.DB,orgId,row.id);
+      return 0;
+    }
+    await announceTo(env, orgId, deliveries, { strict: true });
   }
   return to.length;
 }
@@ -215,6 +231,7 @@ async function deliverMessagePush(env, job, { now = Date.now(), membersOf = new 
   // Recheck before translating or sending any of the message's contents.
   const audience = await audienceOf(db, job.org_id, msg.channel);
   if (audience && !audience.includes(job.login)) return { skipped: true };
+  if (!await messageDeliveryAllowed(db,job.org_id,msg.id)) return { skipped: true };
   const pref = await db.prepare(
     "SELECT level FROM channel_prefs WHERE org_id = ?1 AND login = ?2 AND channel = ?3"
   ).bind(job.org_id, job.login, msg.channel).first();

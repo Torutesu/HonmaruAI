@@ -1,3 +1,4 @@
+import {messageDeliveryStatements} from './messageDelivery.js';
 import {workflowNoticeGuard} from './harness/workflowNoticeGuard.js';
 import {agentRequestStatement} from './agentRequestDispatch.js';
 import { roomHookReplyGuard } from './harness/roomHookExecutionGrant.js';
@@ -72,23 +73,24 @@ export async function resolveChannel(db, orgId, viewer, channel, members) {
     // read failed.
     let row;
     try {
-      row = await db.prepare("SELECT private FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).first();
+      row = await db.prepare("SELECT private, created_at FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).first();
     } catch {
       return null;
     }
+    const deliveryBoundary = { businessCreatedAt: row?.created_at || null, allowVirtual: !row };
     if (!row?.private) {
       // With guests in the workspace, a public channel has a list of who
       // reads it too — and a guest who is not on it is not told it exists.
-      if (!(await hasGuests(db, orgId))) return { key: channel, kind: "business", slug };
+      if (!(await hasGuests(db, orgId))) return { key: channel, kind: "business", slug, deliveryBoundary };
       const logins = await publicAudience(db, orgId, channel);
       if (!logins.includes(viewer.login)) return null;
-      return { key: channel, kind: "business", slug, logins };
+      return { key: channel, kind: "business", slug, logins, deliveryBoundary };
     }
     // A private channel: its members, and for anybody else nothing — not
     // even that it is there.
     const logins = await membersOf(db, orgId, channel);
     if (!logins.includes(viewer.login)) return null;
-    return { key: channel, kind: "business", slug, private: true, logins };
+    return { key: channel, kind: "business", slug, private: true, logins, deliveryBoundary };
   }
   if (isGroupKey(channel)) {
     const logins = await membersOf(db, orgId, channel);
@@ -282,17 +284,44 @@ async function agentsOf(db, orgId, rows) {
 
 /// The threads and reactions for a page of messages, in as few queries as
 /// D1's bound-parameter limit allows.
-export async function hydrate(db, orgId, rows) {
+export async function hydrate(db, orgId, rows, members = null) {
   const out = new Map();
   const ids = rows.map((r) => r.id);
   for (const id of ids) out.set(id, { replyCount: 0, lastReplyAt: null, replyLogins: [], reactions: [] });
   for (let i = 0; i < ids.length; i += 90) {
     const chunk = ids.slice(i, i + 90);
     const marks = chunk.map((_, j) => `?${j + 2}`).join(", ");
+    const people = `?${chunk.length + 2}`;
+    const requested = chunk.map((_, j) => `(?${j + 2})`).join(", ");
     const [replies, reactions] = await Promise.all([
-      db.prepare(`SELECT parent_id, author_login, kind, created_at FROM channel_messages
-                   WHERE org_id = ?1 AND deleted_at IS NULL AND parent_id IN (${marks}) ORDER BY created_at`)
-        .bind(orgId, ...chunk).all(),
+      // Aggregate in SQLite: only one row and at most five visible faces per
+      // parent cross D1. Counts still scan that parent's live reply index.
+      // Selected IDs drive parent lookups; materialize once so counts and faces
+      // cannot choose separate scans of the whole room for each parent.
+      db.prepare(`WITH replies AS MATERIALIZED (
+          SELECT m.parent_id, m.created_at, m.rowid AS sequence,
+            CASE WHEN m.kind = 'ai' THEN 'ai' ELSE m.author_login END AS who
+          FROM (VALUES ${requested}) wanted CROSS JOIN channel_messages p ON p.id = wanted.column1 AND p.org_id = ?1
+          CROSS JOIN channel_messages m ON m.org_id = p.org_id AND m.parent_id = p.id AND m.channel = p.channel
+          WHERE p.deleted_at IS NULL AND m.deleted_at IS NULL
+        ), firsts AS (
+          SELECT parent_id, who, created_at, sequence,
+            ROW_NUMBER() OVER (PARTITION BY parent_id, who ORDER BY created_at, sequence) AS occurrence
+          FROM replies WHERE who IS NOT NULL AND who != '' AND
+            (${people} IS NULL OR who = 'ai' OR substr(who,1,6) = 'agent:' OR who IN (SELECT value FROM json_each(${people})))
+        ), faces AS (
+          SELECT parent_id, who, ROW_NUMBER() OVER (PARTITION BY parent_id ORDER BY created_at, sequence) AS position
+          FROM firsts WHERE occurrence = 1
+        ), bounded AS (
+          SELECT parent_id, who FROM faces WHERE position <= 5 ORDER BY parent_id, position
+        ), counts AS (
+          SELECT parent_id, COUNT(*) AS reply_count, MAX(created_at) AS last_reply_at FROM replies GROUP BY parent_id
+        ), participants AS (
+          SELECT parent_id, json_group_array(who) AS reply_logins FROM bounded GROUP BY parent_id
+        )
+        SELECT c.parent_id, c.reply_count, c.last_reply_at, COALESCE(p.reply_logins, '[]') AS reply_logins
+        FROM counts c LEFT JOIN participants p ON p.parent_id = c.parent_id`)
+        .bind(orgId, ...chunk, members ? JSON.stringify(members.filter(m => m.ref).map(m => m.login)) : null).all(),
       db.prepare(`SELECT message_id, emoji, login FROM message_reactions
                    WHERE org_id = ?1 AND message_id IN (${marks}) ORDER BY created_at`)
         .bind(orgId, ...chunk).all(),
@@ -300,12 +329,9 @@ export async function hydrate(db, orgId, rows) {
     for (const r of replies.results || []) {
       const slot = out.get(r.parent_id);
       if (!slot) continue;
-      slot.replyCount += 1;
-      slot.lastReplyAt = r.created_at;
-      // Who answered, for the faces beside "3 replies": a person by login,
-      // the AI as "ai", an agent as "agent:<id>".
-      const who = r.kind === "ai" ? "ai" : r.author_login;
-      if (who && !slot.replyLogins.includes(who)) slot.replyLogins.push(who);
+      slot.replyCount = r.reply_count;
+      slot.lastReplyAt = r.last_reply_at;
+      slot.replyLogins = JSON.parse(r.reply_logins);
     }
     for (const r of reactions.results || []) out.get(r.message_id)?.reactions.push({ emoji: r.emoji, login: r.login });
   }
@@ -315,13 +341,13 @@ export async function hydrate(db, orgId, rows) {
 /// Rows to messages, with their threads, reactions and files — each file
 /// with an address signed for whoever is being shown it.
 export async function present(db, orgId, rows, viewerLogin, view, members) {
-  const [extras, files, agents, originals] = await Promise.all([hydrate(db, orgId, rows), filesFor(db, orgId, rows.map((r) => r.id)), agentsOf(db, orgId, rows), originalsOf(db, orgId, rows)]);
+  const [extras, files, agents, originals] = await Promise.all([hydrate(db, orgId, rows, members), filesFor(db, orgId, rows.map((r) => r.id)), agentsOf(db, orgId, rows), originalsOf(db, orgId, rows)]);
   const now = Date.now();
   return Promise.all(rows.map(async (r) => {
     const x = extras.get(r.id) || {};
     const replyRefs = (x.replyLogins || []).map((l) => (l === "ai" || String(l).startsWith("agent:") ? l : members.find((m) => m.login === l)?.ref)).filter(Boolean).slice(0, 5);
     const own = await Promise.all((files.get(r.id) || []).map((f) => toFile(db, f, now)));
-    return toMessage(r, viewerLogin, view, members, { ...x, replyRefs, files: own, agent: agents.get(r.author_login) || null, original: originals.get(r.reply_to_id) || null, threadParent: r.also_channel ? originals.get(r.parent_id) || null : null });
+    return toMessage(r, viewerLogin, typeof view === "function" ? view(r) : view, members, { ...x, replyRefs, files: own, agent: agents.get(r.author_login) || null, original: originals.get(r.reply_to_id) || null, threadParent: r.also_channel ? originals.get(r.parent_id) || null : null });
   }));
 }
 
@@ -547,7 +573,7 @@ async function messageByClientId(db, orgId, authorLogin, clientId) {
 /// than sent without it.
 const FILES_GONE = "A file in this message is no longer there. Attach it again.";
 
-export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, assignmentFence = null, workflowNotice = null }) {
+export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, deliveryTasks = false, deliveryBoundary = null, assignmentFence = null, workflowNotice = null }) {
   if(workflowNotice && (kind!=='ai'||authorLogin!=='__workflow'||!parentId||files||withFiles||assignmentFence||agentRequest||roomHookSource||typeof workflowNotice.workflowId!=='string'||typeof workflowNotice.generation!=='string'||typeof workflowNotice.recipientId!=='string'))return {error:'Invalid workflow notice.',status:403};
   if (roomHookSource && (!parentId || kind !== 'agent' || !authorLogin?.startsWith('agent:'))) return {error:'Invalid webhook reply.',status:403};
   if(assignmentFence && (kind!=='agent' || !parentId || files?.ids?.length || withFiles || typeof assignmentFence.assignmentId!=='string' || !Number.isSafeInteger(assignmentFence.generation) || typeof assignmentFence.sourceId!=='string' || typeof assignmentFence.sourceBody!=='string' || typeof assignmentFence.sourceAuthor!=='string'))return {error:'Invalid execution reply.',status:403};
@@ -592,6 +618,7 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
   const values = [id, orgId, key, authorLogin, kind, text, cardId, now, parentId, replyTo || null, remembered, parentId && alsoChannel ? 1 : 0, kind === "agent" && onBehalfOf ? onBehalfOf : null];
   const marks = values.map((_, i) => `?${i + 1}`).join(", ");
   const dispatch = agentRequest ? await agentRequestStatement(db,{orgId,row:{id,channel:key,author_login:authorLogin,kind,body:text,parent_id:parentId},...agentRequest}) : null;
+  const deliveries = deliveryTasks ? messageDeliveryStatements(db, orgId, id, deliveryBoundary) : [];
   try {
     // A reply is written only while its parent is still there, in the same
     // statement: a thread deleted after the check above takes no reply.
@@ -618,6 +645,7 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
         db.prepare("UPDATE message_files SET message_id = NULL WHERE org_id = ?1 AND message_id = ?2 AND NOT EXISTS (SELECT 1 FROM channel_messages WHERE org_id = ?1 AND id = ?2)")
           .bind(orgId, id),
         ...(dispatch ? [dispatch] : []),
+        ...deliveries,
       ]);
       if (!done[1].meta?.changes) {
         if (parentId && !(await db.prepare("SELECT 1 FROM channel_messages WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, parentId).first())) {
@@ -627,7 +655,7 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
       }
     } else {
       const insert = db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}${executionLive}${noticeLive}`).bind(...values,...fenceValues,...noticeValues);
-      const put = dispatch ? (await db.batch([insert,dispatch]))[0] : await insert.run();
+      const put = dispatch || deliveries.length ? (await db.batch([insert,...(dispatch ? [dispatch] : []),...deliveries]))[0] : await insert.run();
       if(workflowNotice && !put.meta?.changes)return {error:'Workflow notice access changed.',code:'notice_changed',status:409};
       if (assignmentFence && !put.meta?.changes)return {error:'Execution access changed.',code:'execution_changed',status:409};
       if (parentId && !put.meta?.changes) return roomHookSource ? {error:"Webhook access changed.",code:"webhook_revoked",status:403} : { error: THREAD_GONE, code: "thread_gone" };
@@ -1022,28 +1050,38 @@ export async function threadsFor(db, orgId, login, members, { days = 30, limit =
     byParent.get(r.parent_id).push(r);
   }
   const access = await accessFor(db, orgId, login);
-  const out = [];
+  const parents = new Map();
+  const candidateIds = [...byParent.keys()];
+  for (let i = 0; i < candidateIds.length; i += 89) {
+    const chunk = candidateIds.slice(i, i + 89);
+    const { results = [] } = await db.prepare(
+      `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name,
+        cr.last_read_at AS thread_read_at
+       FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
+       LEFT JOIN channel_reads cr ON cr.org_id = m.org_id AND cr.login = ?2 AND cr.channel = 't:' || m.id
+       WHERE m.org_id = ?1 AND m.id IN (${chunk.map((_, j) => `?${j + 3}`).join(',')})`
+    ).bind(orgId, login, ...chunk).all();
+    for (const parent of results) parents.set(parent.id, parent);
+  }
+  const selected = [];
+  const views = new Map();
   for (const [parentId, replies] of byParent) {
-    if (out.length >= limit) break;
-    const parentRow = await db.prepare(
-      "SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2"
-    ).bind(orgId, parentId).first();
+    if (selected.length >= limit) break;
+    const parentRow = parents.get(parentId);
     if (!parentRow || parentRow.deleted_at) continue;
     if (!inThread.has(parentId) && !named(parentRow) && !replies.some(named)) continue;
     const view = viewOf(parentRow.channel, login, members, access);
     if (!view) continue;
-    const [count, read] = await Promise.all([
-      db.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id = ?1 AND parent_id = ?2 AND deleted_at IS NULL").bind(orgId, parentId).first(),
-      db.prepare("SELECT last_read_at FROM channel_reads WHERE org_id = ?1 AND login = ?2 AND channel = ?3").bind(orgId, login, `t:${parentId}`).first(),
-    ]);
-    const lastMine = replies.find((r) => r.author_login === login)?.created_at || (parentRow.author_login === login ? parentRow.created_at : "");
-    const seen = [read?.last_read_at || "", lastMine].sort().pop();
-    const newest = replies[0];
-    const unread = replies.some((r) => r.author_login !== login && r.created_at > seen);
-    const shown = replies.slice(0, 2).reverse();
-    const [parent, ...last] = await present(db, orgId, [parentRow, ...shown], login, view, members);
-    out.push({ parent, replies: last, replyCount: count?.n || replies.length, lastReplyAt: newest.created_at, unread });
+    views.set(parentRow.channel, view);
+    const lastMine = replies.find((r) => r.author_login === login)?.created_at || (parentRow.author_login === login ? parentRow.created_at : '');
+    const seen = [parentRow.thread_read_at || '', lastMine].sort().pop();
+    selected.push({ parentRow, replies: replies.slice(0, 2).reverse(), lastReplyAt: replies[0].created_at,
+      unread: replies.some((r) => r.author_login !== login && r.created_at > seen) });
   }
+  const shown = await present(db, orgId, selected.flatMap(t => [t.parentRow, ...t.replies]), login, row => views.get(row.channel), members);
+  const byId = new Map(shown.map(row => [row.id, row]));
+  const out = selected.map(t => ({ parent: byId.get(t.parentRow.id), replies: t.replies.map(row => byId.get(row.id)),
+    replyCount: byId.get(t.parentRow.id).replyCount, lastReplyAt: t.lastReplyAt, unread: t.unread }));
   return out;
 }
 

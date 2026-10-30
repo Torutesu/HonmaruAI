@@ -180,10 +180,9 @@ export async function removeChannelAgent(db, { orgId, key, agentId }) {
 
 /// The agents one person can call in one conversation: their own list,
 /// and the ones added there. Their own wins a handle both share.
-export async function agentsHere(db, orgId, login, key) {
-  const own = await listAgents(db, orgId, login);
-  if (!key || !(String(key).startsWith("b:") || String(key).startsWith("g:"))) return own;
-  const added = await channelAgents(db, orgId, key);
+export async function agentsHere(db, orgId, login, key, { added: knownAdded = null } = {}) {
+  const [own, added] = await Promise.all([listAgents(db, orgId, login),
+    key && (String(key).startsWith("b:") || String(key).startsWith("g:")) ? (knownAdded || channelAgents(db, orgId, key)) : []]);
   const handles = new Set(own.map((a) => a.handle));
   const ids = new Set(own.map((a) => a.id));
   return [...own, ...added.filter((a) => !ids.has(a.id) && !handles.has(a.handle))];
@@ -540,8 +539,9 @@ export function forChat(text) {
 ///   who called it there writes on without naming anyone: the
 ///   conversation goes on with whoever they were talking to. Anyone else's
 ///   reply in that thread is between people.
-export async function respondingAgents(db, { orgId, login, resolved, row }) {
-  const here = await agentsHere(db, orgId, login, resolved.key);
+export async function respondingAgents(db, { orgId, login, resolved, row, room = null, mode = null }) {
+  const added = ['business', 'group'].includes(resolved.kind) ? channelAgents(db, orgId, resolved.key) : Promise.resolve([]);
+  const here = await agentsHere(db, orgId, login, resolved.key, { added });
   let agents = agentsCalled(row.body, here);
   // Who was asked by name, or by talking to them in their own
   // conversation. In a thread an agent answered, a reply that does not name
@@ -550,13 +550,13 @@ export async function respondingAgents(db, { orgId, login, resolved, row }) {
   const named = new Set(agents.map((a) => a.id));
   if (resolved.kind === "agent") named.add(resolved.agent.id);
   if (resolved.kind === "agent" && !agents.some((a) => a.id === resolved.agent.id)) {
-    const own = (await listAgents(db, orgId, login)).find((a) => a.id === resolved.agent.id);
+    const own = here.find((a) => a.id === resolved.agent.id);
     if (own) agents = [own, ...agents].slice(0, MAX_CALLED);
   }
-  const mentionedOnly = resolved.kind === "business" && (await roomResponses(db, orgId, resolved.key)).mentionedOnly;
+  const mentionedOnly = resolved.kind === "business" && (room || await roomResponses(db, orgId, resolved.key)).mentionedOnly;
   // As each agent's profile allows (harness/agents.js): who may call it,
   // and whether it waits to be named.
-  const harness = (await getMode(db, orgId)) === "harness";
+  const harness = (mode || await getMode(db, orgId)) === "harness";
   const permitted = await filterResponders(db, orgId, login, agents, { named: harness ? named : null, channel: resolved.key });
   // Automatic routing is Harness-only, for new human requests in rooms.
   // A thread already between people, an explicit addressee, and an agent's
@@ -564,7 +564,7 @@ export async function respondingAgents(db, { orgId, login, resolved, row }) {
   if (permitted.length || agents.length || !harness || mentionedOnly || resolved.kind !== "business" || row.parent_id
     || row.kind !== "message" || !row.author_login || row.author_login.startsWith("agent:")
     || mentionTokens(callingText(row.body)).length) return permitted;
-  const members = await channelAgents(db, orgId, resolved.key);
+  const members = await added;
   const eligible = await filterResponders(db, orgId, login, members, { named: new Set(), channel: resolved.key });
   const routed = chooseRoomAgent(callingText(row.body), eligible, await profilesFor(db, orgId, eligible.map(agent => agent.id)));
   return routed ? [routed] : [];

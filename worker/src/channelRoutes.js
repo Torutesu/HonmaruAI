@@ -1,3 +1,4 @@
+import {drainMessageDelivery,messageDeliveryAllowed,discardPendingMessagePushes} from './messageDelivery.js';
 import {externalIdentity,externalReplyGrant} from './harness/externalAssignment.js';
 import {endAssignment} from './harness/agentAssignments.js';
 import {drainTeammateResults} from './teammateResultDispatch.js';
@@ -124,17 +125,17 @@ export async function inChannel(env, request, { orgId, channel }) {
 /// terms: the room for a public channel, the members of a closed one. The
 /// same event carries a new message, an edit, a deletion, a reaction, a
 /// pin, and a thread's new count — the browser replaces by id.
-async function broadcast(env, orgId, resolved, row, members) {
+async function broadcast(env, orgId, resolved, row, members, options = {}) {
   const fresh = (await getMessage(env.DB, orgId, row.id)) || row;
   if (resolved.kind === "business" && !resolved.logins) {
     const [message] = await present(env.DB, orgId, [fresh], null, resolved.key, members);
-    await announceEvents(env, orgId, [customEvent("channel_message", { message })]);
+    await announceEvents(env, orgId, [customEvent("channel_message", { message })], options);
     return;
   }
   await announceTo(env, orgId, await Promise.all(resolved.logins.map(async (login) => {
     const [message] = await present(env.DB, orgId, [fresh], login, viewOf(resolved.key, login, members), members);
     return { to: login, event: customEvent("channel_message", { message }) };
-  })));
+  })), options);
 }
 
 /// Read on one device, read on all of them: this person's other tabs and
@@ -170,11 +171,11 @@ async function broadcastReplies(env, orgId, resolved, ids, members) {
 }
 
 /// A reply changes its parent too: the count and faces under it.
-export async function broadcastWithParent(env, orgId, resolved, row, members) {
-  await broadcast(env, orgId, resolved, row, members);
+export async function broadcastWithParent(env, orgId, resolved, row, members, options = {}) {
+  await broadcast(env, orgId, resolved, row, members, options);
   if (row.parent_id) {
     const parent = await getMessage(env.DB, orgId, row.parent_id);
-    if (parent) await broadcast(env, orgId, resolved, parent, members);
+    if (parent) await broadcast(env, orgId, resolved, parent, members, options);
   }
 }
 
@@ -1152,6 +1153,7 @@ export async function handleChannels(request, env, url, { route, after }) {
   }
 
   if (path === "/channels/messages" && (request.method === "GET" || request.method === "POST")) {
+    const tStart = Date.now();
     if (request.method === "POST") {
       const limited = await enforce(env, request, "chat");
       if (limited) return limited;
@@ -1203,12 +1205,23 @@ export async function handleChannels(request, env, url, { route, after }) {
       return json({ message: "That send cannot be tried again." }, 400);
     }
     const clientId = typeof body.clientId === "string" && body.clientId ? body.clientId : null;
-    const durableAgentMode = Boolean(env.AGENT_RUNNER && env.AGENT_INLINE !== '1' && who.session.token && await getMode(env.DB,orgId) === 'harness');
+    const tPolicy = Date.now();
+    const mode = env.AGENT_RUNNER && env.AGENT_INLINE !== '1' && who.session.token ? await getMode(env.DB,orgId) : null;
+    const durableAgentMode = mode === 'harness';
+    // A decision flag depends on agent precedence. Ordinary human sends have
+    // no synchronous routing status, so optional discovery can follow the ACK.
+    const deferredResponders = !durableAgentMode && resolved.kind !== 'agent' && body.decide !== true && !asksTheAI(body.body);
+    let room = !deferredResponders && resolved.kind === 'business' ? await roomResponses(env.DB, orgId, resolved.key) : null;
     const preResponders = durableAgentMode ? await respondingAgents(env.DB,{orgId,login:who.user.login,resolved,
-      row:{kind:'message',author_login:who.user.login,channel:resolved.key,parent_id:parentId,body:typeof body.body==='string'?body.body.replace(/\r\n/g,'\n').trim():''}}) : null;
+      room,mode,row:{kind:'message',author_login:who.user.login,channel:resolved.key,parent_id:parentId,body:typeof body.body==='string'?body.body.replace(/\r\n/g,'\n').trim():''}}) : null;
     const agentRequest = preResponders?.length ? {sessionKey:who.session.token,agentIds:preResponders.map(agent=>agent.id),locale:who.user.locale || 'en'} : null;
-    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId, replyTo, withFiles, files: { login: who.user.login, ...uploads }, clientId, alsoChannel, agentRequest });
+    const tRouting = Date.now();
+    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId, replyTo, withFiles, files: { login: who.user.login, ...uploads }, clientId, alsoChannel, agentRequest, deliveryTasks: true, deliveryBoundary: resolved.deliveryBoundary });
+    const tWrite = Date.now();
     if (out.error) return json({ message: out.error, ...(out.code ? { code: out.code } : {}) }, out.status || 400);
+    // Each committed send has two independent durable tasks. A duplicate
+    // clientId also wakes them, without recreating completed jobs.
+    for (const kind of ['live', 'push']) after(() => deliverAcceptedMessages(env, { kind, orgId, messageId: out.row.id }));
     if (out.replay) {
       if(durableAgentMode)after(()=>drainAgentRequests(env,{orgId,messageId:out.row.id}));
       const [message] = await present(env.DB, orgId, [out.row], who.user.login, view, members);
@@ -1221,9 +1234,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     // it names (or the one its thread is talking with) — else @AI — else
     // the agents of the people it names — else Claude on an issue or a
     // report. Nothing answers that nobody called.
-    const responders = preResponders ?? await respondingAgents(env.DB, { orgId, login: who.user.login, resolved, row: out.row }).catch(() => []);
-    const toAgent = resolved.kind === "agent" || responders.length > 0;
-    const roomMentionedOnly = resolved.kind === "business" && (await roomResponses(env.DB, orgId, resolved.key)).mentionedOnly;
+    let responders = preResponders ?? (deferredResponders ? [] : await respondingAgents(env.DB, { orgId, login: who.user.login, resolved, row: out.row, room, mode }).catch(() => []));
+    let toAgent = resolved.kind === 'agent' || responders.length > 0;
+    let roomMentionedOnly = Boolean(room?.mentionedOnly);
     // A card only when asked for one: sent as a decision, or "@AI" asked,
     // in words, for an approval or a card. Any other "@AI" is a question,
     // and the AI answers it in the thread.
@@ -1232,11 +1245,14 @@ export async function handleChannels(request, env, url, { route, after }) {
     const wantsAnswer = calledAI && !wantsDecision;
     const locale = who.user.locale || "en";
     after(async () => {
-      // Whoever this is for hears it on their phone in a minute, unless
-      // they read it or are at the app by then. Queued before the broadcast,
-      // so a broadcast or a webhook that fails cannot take the push with it.
-      await queueMessagePushes(env, orgId, out.row, { members }).catch((err) => console.error("push queue failed", safe(err?.message)));
-      await broadcastWithParent(env, orgId, resolved, out.row, members);
+      const responderStart = Date.now();
+      if (deferredResponders) {
+        room = resolved.kind === 'business' ? await roomResponses(env.DB, orgId, resolved.key) : null;
+        responders = await respondingAgents(env.DB, { orgId, login: who.user.login, resolved, row: out.row, room, mode }).catch(() => []);
+        toAgent = responders.length > 0;
+        roomMentionedOnly = Boolean(room?.mentionedOnly);
+      }
+      console.log(JSON.stringify({ event: 'message_responder_preparation', deferred: deferredResponders, durationMs: Date.now() - responderStart }));
       await emitMessage(env, orgId, out.row);
       if (wantsDecision) {
         await decideFromMessage(env, { orgId, session: who.session, user: who.user, resolved, row: out.row, members, route, locale });
@@ -1259,18 +1275,23 @@ export async function handleChannels(request, env, url, { route, after }) {
         deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000),
       }).catch((err) => console.error("auto-build failed", safe(err?.message)));
     });
-    // What you said, you have read.
-    if (!parentId || alsoChannel) await markRead(env.DB, orgId, who.user.login, resolved.key, out.row.created_at);
-    const [message] = await present(env.DB, orgId, [out.row], who.user.login, view, members);
-    // A reply comes back with its parent as it now stands — its count said
-    // outright, so a client never adds one to a number the live event may
-    // already have raised.
-    let parent = null;
-    if (parentId) {
-      const row = await getMessage(env.DB, orgId, parentId);
-      if (row) [parent] = await present(env.DB, orgId, [row], who.user.login, view, members);
-    }
-    return json({ message, deciding: wantsDecision, ...(parent ? { parent } : {}) }, 201);
+    const tPrepared = Date.now();
+    // Read-position and presentation are independent; parent and reply share
+    // one hydration pass, so a reply never adds a second full presentation.
+    const read = !parentId || alsoChannel ? markRead(env.DB, orgId, who.user.login, resolved.key, out.row.created_at) : Promise.resolve();
+    let tRead, tPresent;
+    const [_, [message, parent]] = await Promise.all([
+      read.then(() => { tRead = Date.now(); }),
+      (async () => {
+        const parentRow = parentId ? await getMessage(env.DB, orgId, parentId) : null;
+        const shown = await present(env.DB, orgId, [out.row, ...(parentRow ? [parentRow] : [])], who.user.login, view, members);
+        tPresent = Date.now();
+        return shown;
+      })(),
+    ]);
+    const response = json({ message, deciding: wantsDecision, ...(parent ? { parent } : {}) }, 201);
+    response.headers.set('server-timing', `policy;dur=${tPolicy-tStart}, routing;dur=${tRouting-tPolicy+tPrepared-tWrite}, write;dur=${tWrite-tRouting}, read;dur=${tRead-tPrepared}, present;dur=${tPresent-tPrepared}, total;dur=${Date.now()-tStart}`);
+    return response;
   }
 
   // Edit or unsend your own message.
@@ -2388,7 +2409,7 @@ export async function handleChannels(request, env, url, { route, after }) {
 
 /// For the cron: tell a conversation, known only by its stored key, about a
 /// message that just went into it.
-export async function broadcastStored(env, orgId, key, row) {
+export async function broadcastStored(env, orgId, key, row, { liveOnly = false, authorize = null } = {}) {
   const members = await listMembers(env.DB, orgId, null);
   let resolved;
   const logins = await audienceOf(env.DB, orgId, key);
@@ -2397,7 +2418,26 @@ export async function broadcastStored(env, orgId, key, row) {
   else if (key.startsWith("g:")) resolved = { key, kind: "group", logins };
   else if (key.startsWith("ag:")) resolved = { key, kind: "agent", logins };
   else return;
-  await queueMessagePushes(env, orgId, row, { members }).catch(() => {});
-  await broadcastWithParent(env, orgId, resolved, row, members);
-  await emitMessage(env, orgId, row);
+  if (authorize && !await authorize()) return;
+  if (!liveOnly) await queueMessagePushes(env, orgId, row, { members }).catch(() => {});
+  await broadcastWithParent(env, orgId, resolved, row, members, { strict: liveOnly });
+  if (!liveOnly) await emitMessage(env, orgId, row);
+}
+
+// Fresh message and audience on every retry: tombstones/retention and revoked
+// private-room membership must not be replayed from an old captured payload.
+export async function deliverAcceptedMessages(env, options) {
+  return drainMessageDelivery(env.DB, async (orgId, messageId) => {
+    const row = await getMessage(env.DB, orgId, messageId);
+    if (!row || !await messageDeliveryAllowed(env.DB,orgId,messageId,{requireIntent:true})) {
+      await discardPendingMessagePushes(env.DB,orgId,messageId);
+      return;
+    }
+    const started = Date.now();
+    if (options.kind === 'live') await broadcastStored(env, orgId, row.channel, row, {
+      liveOnly: true, authorize: () => messageDeliveryAllowed(env.DB,orgId,messageId,{requireIntent:true}),
+    });
+    else await queueMessagePushes(env, orgId, row, { durable: true });
+    console.log(JSON.stringify({ event: 'message_delivery', kind: options.kind, taskMs: Date.now() - started, commitToDeliveryMs: Date.now() - Date.parse(row.created_at) }));
+  }, options).catch(() => console.error('message delivery sweep failed'));
 }

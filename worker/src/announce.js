@@ -17,35 +17,41 @@ export const EVENTS_PATH = "/internal/events";
 
 // Any already-built AG-UI events for one workspace's open sockets — a context
 // saved over REST, which the relay would otherwise have broadcast itself.
-export async function announceEvents(env, orgId, events) {
+export async function announceEvents(env, orgId, events, { strict = false } = {}) {
   if (!events?.length) return { announced: 0 };
   if (!env.ORG_RELAY) return { announced: 0, skipped: "no relay binding" };
   try {
     const stub = env.ORG_RELAY.get(env.ORG_RELAY.idFromName(orgId));
-    await stub.fetch(`https://relay.internal${EVENTS_PATH}?orgId=${encodeURIComponent(orgId)}`, {
+    const response = await stub.fetch(`https://relay.internal${EVENTS_PATH}?orgId=${encodeURIComponent(orgId)}`, {
       method: "POST",
+      ...(strict ? { signal: AbortSignal.timeout(10000) } : {}),
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ events }),
     });
+    if (strict && !response.ok) throw new Error('Message relay unavailable');
     return { announced: events.length };
   } catch (err) {
+    if (strict) throw err;
     console.error("event announce failed", err?.message || err);
     return { announced: 0, error: err?.message || String(err) };
   }
 }
 
 /// Events for named people in one workspace, each their own: `[{ to: login, event }]`.
-export async function announceTo(env, orgId, deliveries) {
+export async function announceTo(env, orgId, deliveries, { strict = false, timeoutMs = strict ? 10000 : null } = {}) {
   if (!deliveries?.length || !env.ORG_RELAY) return { announced: 0 };
   try {
     const stub = env.ORG_RELAY.get(env.ORG_RELAY.idFromName(orgId));
-    await stub.fetch(`https://relay.internal${EVENTS_PATH}?orgId=${encodeURIComponent(orgId)}`, {
+    const response = await stub.fetch(`https://relay.internal${EVENTS_PATH}?orgId=${encodeURIComponent(orgId)}`, {
       method: "POST",
+      ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ deliveries }),
     });
+    if (strict && !response.ok) throw new Error('Message relay unavailable');
     return { announced: deliveries.length };
   } catch (err) {
+    if (strict) throw err;
     console.error("targeted announce failed", err?.message || err);
     return { announced: 0, error: true };
   }
