@@ -166,3 +166,36 @@ test("what could not be translated says why: no translator, or the translator fa
   const kept = await (await post("/channels/translate", mika, { orgId: ORG, channel: "b:cafe", ids: [said.id] }, { OPENAI_API_KEY: undefined })).json();
   expect(kept).toMatchObject({ translations: { [said.id]: "Autumn menu from the 1st" }, failed: {} });
 });
+
+test('fresh and cached translations attest the source actually read, even if the browser captured older words (#532)', async () => {
+  const { sourceHash } = await import('../src/translate.js');
+  const { editMessage } = await import('../src/channels.js');
+  const said = (await (await post('/channels/messages', toru, { orgId: ORG, channel: 'b:cafe', body: '木曜日から始めます' })).json()).message;
+  const currentBody = '金曜日から始めます';
+  await editMessage(env.DB, { orgId: ORG, id: said.id, authorLogin: 'toru', body: currentBody });
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, () => ({
+    choices: [{ message: { content: JSON.stringify({ items: [{ id: said.id, text: 'Starts Friday' }] }) } }],
+  }));
+  const fresh = await (await post('/channels/translate', mika, { orgId: ORG, channel: 'b:cafe', ids: [said.id], locale: 'en' })).json();
+  expect(fresh.translations[said.id]).toBe('Starts Friday');
+  expect(fresh.sourceHashes[said.id]).toBe(sourceHash(currentBody));
+  expect(fresh.sourceHashes[said.id]).not.toBe(sourceHash(said.body));
+  const cached = await (await post('/channels/translate', mika, { orgId: ORG, channel: 'b:cafe', ids: [said.id], locale: 'en' }, { OPENAI_API_KEY: undefined })).json();
+  expect(cached.sourceHashes).toEqual(fresh.sourceHashes);
+  expect(cached.translations).toEqual(fresh.translations);
+  await editMessage(env.DB, { orgId: ORG, id: said.id, authorLogin: 'toru', body: said.body });
+  const reverted = await (await post('/channels/translate', mika, { orgId: ORG, channel: 'b:cafe', ids: [said.id], locale: 'en' }, { OPENAI_API_KEY: undefined })).json();
+  expect(reverted.translations[said.id]).toBeUndefined();
+  expect(reverted.sourceHashes[said.id]).toBeUndefined();
+});
+
+test('sidebar keeps canonical preview available while the viewer disables cached translations (#533)', async () => {
+  const { sourceHash } = await import('../src/translate.js');
+  const said = (await (await post('/channels/messages', toru, { orgId: ORG, channel: 'b:cafe', body: '金曜日から始めます' })).json()).message;
+  await env.DB.prepare('INSERT INTO message_translations (org_id, message_id, locale, source_hash, body, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
+    .bind(ORG, said.id, 'en', sourceHash(said.body), 'Starts Friday', new Date().toISOString()).run();
+  const read = async () => (await (await call(`/channels?orgId=${encodeURIComponent(ORG)}`, { headers: headers(mika) }, { OPENAI_API_KEY: undefined })).json()).activity.find(a => a.channel === 'b:cafe');
+  expect(await read()).toMatchObject({ preview: 'Starts Friday', originalPreview: said.body });
+  await call('/me', { method: 'PUT', headers: headers(mika), body: JSON.stringify({ translateMessages: false }) });
+  expect(await read()).toMatchObject({ preview: said.body, originalPreview: said.body });
+});

@@ -189,10 +189,10 @@ export function toMessage(row, viewerLogin, view, members, extra = {}) {
     reactions: deleted ? [] : reactions,
     files: deleted ? [] : (extra.files || []),
     // An inline reply carries the message it answers, as that is now.
-    ...(!deleted && row.reply_to_id ? { replyTo: quoteOf(row, extra.original || null, members) } : {}),
+    ...(!deleted && row.reply_to_id ? { replyTo: quoteOf(row, extra.original || null, members, view) } : {}),
     // A thread reply sent to the conversation too: it says so, and what the
     // thread it answers starts with.
-    ...(row.parent_id && row.also_channel ? { alsoChannel: true, ...(!deleted ? { threadParent: quoteOf({ ...row, reply_to_id: row.parent_id }, extra.threadParent || null, members) } : {}) } : {}),
+    ...(row.parent_id && row.also_channel ? { alsoChannel: true, ...(!deleted ? { threadParent: quoteOf({ ...row, reply_to_id: row.parent_id }, extra.threadParent || null, members, view) } : {}) } : {}),
     // An agent answering for a person who was mentioned: whose it is.
     ...(row.on_behalf_of ? { onBehalfOf: (() => { const p = members.find((m) => m.login === row.on_behalf_of); return { name: p?.name || null, ref: p?.ref || null }; })() } : {}),
     ...(agent ? { agent: { id: agent.id, handle: agent.handle, name: agent.name, emoji: agent.emoji || null, avatarUrl: agent.avatar_url || agent.avatarUrl || null } } : {}),
@@ -232,7 +232,7 @@ export function replyExcerpt(body, fileName = null, max = QUOTE_CHARS) {
 /// starts, or only that it is gone. `original` is that message as it is
 /// now, null when there is none; one from another conversation is never
 /// shown, whatever the id says.
-export function quoteOf(row, original, members) {
+export function quoteOf(row, original, members, view = row.channel) {
   const id = row.reply_to_id;
   if (!original || original.deleted_at || original.channel !== row.channel) {
     return { id, kind: null, authorName: null, authorRef: null, excerpt: "", deleted: true };
@@ -244,6 +244,10 @@ export function quoteOf(row, original, members) {
     authorName: original.kind === "ai" ? null : (author?.name || original.author_name || null),
     authorRef: author?.ref || null,
     excerpt: replyExcerpt(original.body, original.file_name),
+    // Quote metadata must not carry the hidden words behind a masked excerpt.
+    ...(String(original.body || "").includes("||") ? {} : {
+      source: { channel: view, body: original.body || "", lang: messageLanguage(original.body), fileName: original.file_name || null },
+    }),
     deleted: false,
   };
 }
@@ -552,6 +556,25 @@ export async function getMessage(db, orgId, id) {
     .prepare("SELECT m.*, td.title AS thread_title, td.version AS thread_version, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login LEFT JOIN channel_thread_details td ON td.org_id = m.org_id AND td.message_id = m.id WHERE m.org_id = ?1 AND m.id = ?2")
     .bind(orgId, id)
     .first();
+}
+
+/// Current reference sources in one already-authorized channel. An interrupted
+/// thread unsend cannot expose a late child whose root is no longer live.
+export async function referenceMessages(db, orgId, key, ids) {
+  if (!ids.length) return [];
+  const { results = [] } = await db.prepare(`SELECT m.*, td.title AS thread_title, td.version AS thread_version,
+      COALESCE(u.name,
+        (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login),
+        (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name
+    FROM channel_messages m
+    LEFT JOIN users u ON u.login = m.author_login
+    LEFT JOIN channel_thread_details td ON td.org_id = m.org_id AND td.message_id = m.id
+    WHERE m.org_id = ?1 AND m.channel = ?2 AND m.id IN (${ids.map((_, i) => `?${i + 3}`).join(",")})
+      AND (m.deleted_at IS NOT NULL OR m.parent_id IS NULL OR EXISTS (
+        SELECT 1 FROM channel_messages root WHERE root.org_id = m.org_id AND root.channel = m.channel
+          AND root.id = m.parent_id AND root.parent_id IS NULL AND root.deleted_at IS NULL))`)
+    .bind(orgId, key, ...ids).all();
+  return results;
 }
 
 /// The browser's id for a send (`tmp-…`). Anything else is not a retry key.

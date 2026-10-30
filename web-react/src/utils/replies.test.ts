@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ChannelMessage } from '../types/card'
-import { SPOILER_MASK, replyExcerpt, quoteOf, refreshQuotes, excerptParts, withoutThread } from './replies'
+import { SPOILER_MASK, replyExcerpt, quoteOf, refreshQuotes, excerptParts, withoutThread, displayedQuote, replySources, ReferenceReads, missingReplySource } from './replies'
 
 const msg = (over: Partial<ChannelMessage> = {}): ChannelMessage => ({
   id: 'm1', channel: 'b:cafe', kind: 'message', body: 'Roaster wants +8%', authorName: 'Mika', authorRef: 'r-mika',
@@ -56,7 +56,7 @@ describe('replyExcerpt', () => {
 describe('quoteOf', () => {
   it('quotes a teammate by name and ref, the AI by neither', () => {
     expect(quoteOf(msg({ body: 'the code is ||1234||' }))).toEqual({
-      id: 'm1', kind: 'message', authorName: 'Mika', authorRef: 'r-mika', excerpt: `the code is ${SPOILER_MASK}`, deleted: false,
+      id: 'm1', kind: 'message', authorName: 'Mika', authorRef: 'r-mika', excerpt: `the code is ${SPOILER_MASK}`, source: { channel: 'b:cafe', body: 'the code is ||1234||', lang: undefined, fileName: null }, deleted: false,
     })
     expect(quoteOf(msg({ kind: 'ai', authorName: null, authorRef: null }))).toMatchObject({ kind: 'ai', authorName: null, authorRef: null })
   })
@@ -115,5 +115,121 @@ describe('excerptParts', () => {
     expect(excerptParts(`${SPOILER_MASK}${SPOILER_MASK}`)).toEqual([null, null])
     expect(excerptParts('plain')).toEqual(['plain'])
     expect(excerptParts('')).toEqual([])
+  })
+})
+
+
+describe('viewer reply excerpts (#522)', () => {
+  it('resolves late translations at render time, using the source version and Show original policy', () => {
+    const source = msg({ body: '明日から始めます', lang: 'ja' })
+    const quote = quoteOf(source)
+    expect(displayedQuote(quote, source.channel, undefined, () => source.body).excerpt).toBe(source.body)
+    expect(displayedQuote(quote, source.channel, undefined, () => 'Starts tomorrow').excerpt).toBe('Starts tomorrow')
+    expect(quote.excerpt).toBe(source.body)
+    expect(replySources([msg({ id: 'reply', replyTo: quote })])[1].body).toBe(source.body)
+    expect(displayedQuote(quote, 'b:elsewhere', undefined, () => 'private').excerpt).toBe(quote.excerpt)
+  })
+  it('uses the current source for edits and deletion, never a kept translation after unsend', () => {
+    const quote = quoteOf(msg())
+    expect(displayedQuote(quote, 'b:cafe', msg({ body: 'edited' }), m => m.body).excerpt).toBe('edited')
+    expect(displayedQuote(quote, 'b:cafe', msg({ deleted: true }), () => 'private').deleted).toBe(true)
+    expect(refreshQuotes([msg({ id: 'reply', threadParent: quote })], msg({ deleted: true }))[0].threadParent?.deleted).toBe(true)
+  })
+  it('falls back to masked original if a translator drops spoiler marks; preserves files and excerpt bounds', () => {
+    const source = msg({ body: '秘密 ||1234||' })
+    expect(displayedQuote(quoteOf(source), source.channel, source, () => 'secret 1234').excerpt).toBe('秘密 ████')
+    expect(displayedQuote(quoteOf(msg()), 'b:cafe', msg(), () => '😀'.repeat(150)).excerpt).toBe('😀'.repeat(119) + '…')
+    const file = msg({ body: '', files: [{ id: 'f', name: 'plan.pdf' } as any] })
+    expect(displayedQuote(quoteOf(file), file.channel, file, () => '').excerpt).toBe('📎 plan.pdf')
+  })
+})
+
+
+describe('authoritative reference refresh ordering', () => {
+  it('replaces event A with current server B after a reconnect, including unloaded wire sources', () => {
+    const a = msg({ body: 'A' })
+    const b = msg({ body: 'B' })
+    const reads = new ReferenceReads()
+    reads.receive(a)
+    const before = reads.begin()
+    const reply = msg({ id: 'reply', replyTo: quoteOf(b) })
+    reads.apply(before, [reply])
+    expect(displayedQuote(quoteOf(a), a.channel, reads.sources.get(`${a.channel}:${a.id}`), m => m.body).excerpt).toBe('B')
+  })
+  it('never lets a late fetch of A override live B received during that fetch', () => {
+    const a = msg({ body: 'A' })
+    const b = msg({ body: 'B' })
+    const reads = new ReferenceReads()
+    reads.receive(a)
+    const before = reads.begin()
+    reads.receive(b)
+    reads.apply(before, [a])
+    expect(reads.sources.get(`${a.channel}:${a.id}`)).toBe(b)
+  })
+  it.each([false, true])('newer read B wins either completion order when an initial event exists=%s', initialEvent => {
+    for (const reverse of [false, true]) {
+      const a = msg({ body: 'A' })
+      const b = msg({ body: 'B' })
+      const reads = new ReferenceReads()
+      if (initialEvent) reads.receive(a)
+      const pageRead = reads.begin()
+      const sourceRead = reads.begin()
+      if (reverse) { reads.apply(sourceRead, [b]); reads.apply(pageRead, [a]) }
+      else { reads.apply(pageRead, [{ ...a }]); reads.apply(sourceRead, [b]) }
+      expect(reads.sources.get(`${a.channel}:${a.id}`)?.body).toBe('B')
+    }
+  })
+  it.each([false, true])('an event during overlapping reads wins both completion orders; reverse=%s', reverse => {
+    const a = msg({ body: 'A' })
+    const reads = new ReferenceReads()
+    reads.receive(a)
+    const first = reads.begin()
+    const second = reads.begin()
+    const live = msg({ body: 'Live C' })
+    reads.receive(live)
+    for (const ticket of reverse ? [second, first] : [first, second]) reads.apply(ticket, [a])
+    expect(reads.sources.get(`${a.channel}:${a.id}`)).toBe(live)
+  })
+  it('keeps live deletion authoritative, and marks a directly revalidated missing source deleted', () => {
+    const source = msg()
+    const key = `${source.channel}:${source.id}`
+    const gone = missingReplySource(source.id, source.channel)
+    const reads = new ReferenceReads()
+    reads.receive(gone)
+    reads.apply(reads.begin(), [source])
+    expect(reads.sources.get(key)?.deleted).toBe(true)
+    reads.receive(source)
+    expect(reads.sources.get(key)?.deleted).toBe(true)
+    reads.reset()
+    reads.receive(source)
+    reads.apply(reads.begin(), [gone])
+    expect(displayedQuote(quoteOf(source), source.channel, reads.sources.get(key), () => 'cached private').deleted).toBe(true)
+  })
+  it('does not infer deletion from a paginated absence; a current deleted wire quote does revoke it', () => {
+    const source = msg()
+    const key = `${source.channel}:${source.id}`
+    const reads = new ReferenceReads()
+    reads.receive(source)
+    reads.apply(reads.begin(), [])
+    expect(reads.sources.get(key)).toBe(source)
+    const reply = msg({ id: 'reply', replyTo: quoteOf({ ...source, deleted: true }) })
+    reads.apply(reads.begin(), [reply])
+    expect(reads.sources.get(key)?.deleted).toBe(true)
+  })
+  it('a confirmed tombstone wins even when a newer-started read returned the last live version first', () => {
+    const source = msg()
+    const reads = new ReferenceReads()
+    const olderRead = reads.begin()
+    const newerRead = reads.begin()
+    reads.apply(newerRead, [source])
+    reads.apply(olderRead, [missingReplySource(source.id, source.channel)])
+    expect(reads.sources.get(`${source.channel}:${source.id}`)?.deleted).toBe(true)
+  })
+  it('a previous identity read cannot populate the replacement identity map', () => {
+    const reads = new ReferenceReads()
+    const previous = reads.begin()
+    reads.reset()
+    reads.apply(previous, [msg()])
+    expect(reads.sources.size).toBe(0)
   })
 })

@@ -253,5 +253,7 @@ export interface ReplyQuote {
   authorRef: string | null
   /// Its first words on one line, at most 120 characters.
   excerpt: string
+  /// Canonical same-channel source, supplied only while it is readable.
+  source?: { channel: string; body: string; lang?: string | null; fileName: string | null }
   deleted: boolean
 }

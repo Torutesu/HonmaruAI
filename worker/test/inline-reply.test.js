@@ -55,7 +55,7 @@ test("a reply in the same channel says who it answers and how that began", async
   const res = await send(toru, "Let's push back to +5%", { replyTo: m.id });
   expect(res.status).toBe(201);
   const { message } = await res.json();
-  const quote = { id: m.id, kind: "message", authorName: "Mika", authorRef: refs.Mika, excerpt: "Roaster wants +8% from Friday", deleted: false };
+  const quote = { id: m.id, kind: "message", authorName: "Mika", authorRef: refs.Mika, excerpt: "Roaster wants +8% from Friday", source: { channel: "b:cafe", body: m.body, lang: m.lang, fileName: null }, deleted: false };
   expect(message.replyTo).toEqual(quote);
   // In the conversation, not in a thread: the main log has both, and the
   // original gains no thread for it.
@@ -119,9 +119,11 @@ test("the quote hides a spoiler, even one the cut would have halved", async () =
   const r = await say(toru, "no way", { replyTo: m.id });
   expect(r.replyTo.excerpt).toBe(`The winner is ${SPOILER_MASK} — don't tell`);
   expect(JSON.stringify(r)).not.toContain("Kenji||");
+  expect(r.replyTo).not.toHaveProperty("source");
   const long = `${"a".repeat(110)} ||the secret that runs past the cut||`;
   const r2 = await say(toru, "hm", { replyTo: (await say(mika, long)).id });
   expect(r2.replyTo.excerpt).not.toContain("secret");
+  expect(JSON.stringify(r2.replyTo)).not.toContain("secret");
   expect(Array.from(r2.replyTo.excerpt).length).toBeLessThanOrEqual(120);
 });
 
@@ -249,4 +251,35 @@ test("the asking line carries its original whole; earlier replies the short quot
   const after = await transcriptUpTo(env.DB, ORG, "b:cafe", ask.createdAt);
   expect(after).toHaveLength(2);
   expect(after.join("\n")).not.toContain("replying to");
+});
+
+
+test('reference source uses the reader channel handle, and never leaks another conversation source', async () => {
+  const { toMessage } = await import('../src/channels.js');
+  const original = { id: 'source', channel: 'dm:toru|mika', kind: 'message', body: '明日から始めます', author_login: 'mika' };
+  const reply = { id: 'reply', channel: original.channel, reply_to_id: original.id, kind: 'message', body: 'Reply', author_login: 'toru' };
+  const message = toMessage(reply, 'toru', 'dm:opaque-mika', [], { original });
+  expect(message.replyTo.source).toMatchObject({ channel: 'dm:opaque-mika', body: original.body, lang: 'ja' });
+  const inaccessible = toMessage(reply, 'toru', 'dm:opaque-mika', [], { original: { ...original, channel: 'b:private' } });
+  expect(inaccessible.replyTo).toMatchObject({ deleted: true });
+  expect(inaccessible.replyTo.source).toBeUndefined();
+});
+
+test('reference revalidation returns current same-channel sources and authoritative deletion only', async () => {
+  const source = await say(mika, 'Version A');
+  const elsewhere = await say(mika, 'Other conversation text', { channel: 'b:kitchen' });
+  const { editMessage } = await import('../src/channels.js');
+  // Resolve the writer of the fixture's email-backed account.
+  const actual = await env.DB.prepare('SELECT author_login FROM channel_messages WHERE id = ?1').bind(source.id).first();
+  await editMessage(env.DB, { orgId: ORG, id: source.id, authorLogin: actual.author_login, body: 'Version B' });
+  const read = () => get(`/channels/messages?${q({ orgId: ORG, channel: 'b:cafe', sourceIds: JSON.stringify([source.id, elsewhere.id, 'absent']) })}`, kenji);
+  const current = await (await read()).json();
+  expect(current.messages.map(m => [m.id, m.body])).toEqual([[source.id, 'Version B']]);
+  expect(current.missingIds).toEqual([elsewhere.id, 'absent']);
+  expect(JSON.stringify(current)).not.toContain('Other conversation text');
+  await del('/channels/messages', mika, { orgId: ORG, channel: 'b:cafe', messageId: source.id });
+  const removed = await (await read()).json();
+  expect(removed.messages[0]).toMatchObject({ id: source.id, deleted: true, body: '' });
+  expect((await get(`/channels/messages?${q({ orgId: ORG, channel: 'b:cafe', sourceIds: JSON.stringify([source.id]) })}`, 'invalid')).status).toBe(401);
+  expect((await get(`/channels/messages?${q({ orgId: ORG, channel: 'b:cafe', sourceIds: JSON.stringify(Array.from({ length: 61 }, (_, i) => String(i))) })}`, kenji)).status).toBe(400);
 });

@@ -25,6 +25,7 @@ interface Props {
   decidedCount: number
   onOpen: (screen: 'tools' | 'notifications' | 'history' | 'plans' | 'record' | 'team' | 'insights' | 'automations' | 'playbook' | 'agents' | 'harness') => void
   onLocaleChange: () => void
+  onTranslationChange?: (enabled: boolean) => void
   onSwitchOrg: (orgId: string) => void
   onLogout: () => void
   onClose: () => void
@@ -69,7 +70,7 @@ const DENSITY_LABEL: Record<Density, string> = { cozy: 'Cozy', compact: 'Compact
 /// You: who your AI thinks you are, what it has done for you, and the way out.
 export const Profile: React.FC<Props> = ({
   httpBase, orgId, userId, sessionToken, businesses, pendingCount, decidedCount,
-  onOpen, onLocaleChange, onSwitchOrg, onLogout, onClose,
+  onOpen, onLocaleChange, onTranslationChange, onSwitchOrg, onLogout, onClose,
 }) => {
   const t = useT()
   // Kept in this browser, and drawn the moment it changes.
@@ -77,6 +78,7 @@ export const Profile: React.FC<Props> = ({
   const [me, setMe] = useState<Me | null>(null)
   const [locale, setLocaleState] = useState(getLocale())
   const [error, setError] = useState<string | null>(null)
+  const [translationBusy, setTranslationBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   // Redeeming a code from inside the app. Until this existed, an invite only
   // worked on the day you made your account: the sign-in screen took a code,
@@ -606,15 +608,23 @@ export const Profile: React.FC<Props> = ({
                 role="switch"
                 aria-checked={me?.translateMessages !== false}
                 aria-label={t('Translate messages')}
-                disabled={!me}
+                disabled={!me || translationBusy}
                 data-translate-messages="1"
-                onClick={() => {
+                onClick={async () => {
                   const next = me?.translateMessages === false
-                  setMe((prev) => (prev ? { ...prev, translateMessages: next } : prev))
-                  void fetch(`${httpBase}/me`, {
-                    method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
-                    body: JSON.stringify({ translateMessages: next }),
-                  }).catch(() => {})
+                  setTranslationBusy(true)
+                  try {
+                    const res = await fetch(`${httpBase}/me`, {
+                      method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+                      body: JSON.stringify({ translateMessages: next }),
+                    })
+                    if (!res.ok) { setError(t('That did not save.')); return }
+                    savedHere.current = { ...savedHere.current, translateMessages: next }
+                    setMe(prev => prev ? { ...prev, translateMessages: next } : prev)
+                    setError(null)
+                    onTranslationChange?.(next)
+                  } catch { setError(t('That did not save.')) }
+                  finally { setTranslationBusy(false) }
                 }}
               />
             </div>

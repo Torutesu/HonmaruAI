@@ -31,7 +31,7 @@ import { followupRequest, scheduleFollowup } from "./harness/followups.js";
 import { attachedTexts } from "./dlpFiles.js";
 import { linksIn, readLinks, linksBlock } from "./links.js";
 import { agentInstructionsForTools, agentTools } from "./agentTools.js";
-import { translateMessages } from "./translate.js";
+import { translateMessages, sourceHash } from "./translate.js";
 import { getSession, isMember, getUserByGithubId, getUserByLogin, saveCard, getCard, listBusinesses } from "./db.js";
 import { claimDraft, releaseDraft, postedCard, refineDailyReport, saveDraftText, discardDraft, dailyChannelFor } from "./dailyReport.js";
 import { providerFor, readerEnvFor } from "./orgAI.js";
@@ -54,7 +54,7 @@ import { custom as customEvent } from "./agui/events.js";
 import {
   resolveChannel, listMessages, postMessage, getMessage, linkCard, transcriptUpTo, channelActivity, clientIdOk,
   viewOf, asksTheAI, asksForDecision, withoutAI, MAX_MESSAGE_CHARS,
-  present, listThread, listPins, editMessage, deleteMessage, toggleReaction, setPinned, setPreviewsHidden,
+  present, referenceMessages, listThread, listPins, editMessage, deleteMessage, toggleReaction, setPinned, setPreviewsHidden,
   markRead, markUnreadFrom, markActivitySeen, readThreadsSeenInActivity, readsFor, activityFeed, searchMessages, threadsFor, roomThreads,
 } from "./channels.js";
 import { safe } from "./log.js";
@@ -773,7 +773,7 @@ async function previewsInLanguage(env, orgId, user, items) {
   }
   return items.map(({ _row, ...item }) => {
     const text = _row && byId[_row.id];
-    return text && text.trim() !== String(_row.body).trim() ? { ...item, preview: text.replace(/\s+/g, " ").trim().slice(0, 120) } : item;
+    return text && text.trim() !== String(_row.body).trim() ? { ...item, originalPreview: item.preview, preview: text.replace(/\s+/g, " ").trim().slice(0, 120) } : { ...item, originalPreview: item.preview };
   });
 }
 
@@ -1169,6 +1169,15 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (!resolved) return json({ message: "No such channel." }, 404);
     const view = viewOf(resolved.key, who.user.login, members);
     if (request.method === "GET") {
+      // Revalidate references outside the loaded page without searching another channel.
+      if (url.searchParams.has("sourceIds")) {
+        let ids;
+        try { ids = JSON.parse(url.searchParams.get("sourceIds")); } catch { return json({ message: "Invalid source IDs." }, 400); }
+        if (!Array.isArray(ids) || ids.length > 60 || ids.some(id => typeof id !== "string" || !id || id.length > 80)) return json({ message: "Invalid source IDs." }, 400);
+        ids = [...new Set(ids)];
+        const rows = await referenceMessages(env.DB, orgId, resolved.key, ids);
+        return json({ messages: await present(env.DB, orgId, rows, who.user.login, view, members), missingIds: ids.filter(id => !rows.some(row => row.id === id)) });
+      }
       const before = url.searchParams.get("before") || undefined;
       // The oldest message held, with `before` its time: a cursor that does
       // not skip a message sharing that millisecond.
@@ -1695,7 +1704,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       return json({ message: "Translation failed on the server.", code: "translate_failed" }, 502);
     }
     if (provider) await settleUsage(env.DB, provider, { orgId: body.orgId, githubId: ctx.who.session.github_id }).catch(() => {});
-    return json({ translations: out.byId, failed: out.failed || {}, locale });
+    return json({ translations: out.byId, sourceHashes: Object.fromEntries(rows.filter(r => !r.deleted_at && typeof out.byId[r.id] === "string").map(r => [r.id, sourceHash(r.body)])), failed: out.failed || {}, locale });
   }
 
   // An agent brought into a channel or a group, or taken out of it. Anyone
