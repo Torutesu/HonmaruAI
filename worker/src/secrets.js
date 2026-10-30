@@ -127,6 +127,7 @@ export const aad = {
   webhook: (id) => `org_webhooks.secret:${id}`,
   teammate: (orgId, provider, column) => `ai_teammates.${column}:${orgId}:${provider}`,
   appleRefresh: (subject) => `apple_identities.refresh_token:${subject}`,
+  remoteMcpHeaders: (orgId, id) => `hx_remote_mcp_servers.auth_headers:${orgId}:${id}`,
 };
 
 // Values that mark a session without a GitHub token; not secrets.

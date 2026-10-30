@@ -18,6 +18,7 @@ import { Dialog } from '../components/Dialog'
 import { InviteDialog } from '../components/InviteDialog'
 import './Studio.css'
 import { composing, enterKey } from '../utils/keys'
+import { RemoteMcpServers } from '../components/RemoteMcpServers'
 
 interface Connector { id: string; label: string; status: string }
 
@@ -55,7 +56,7 @@ const EVENT_WORD: Record<string, string> = {
 const SCOPE_WORD: Record<string, string> = {
   read: 'Read decisions, people and the playbook',
   write: 'Ask for decisions',
-  execute: 'Run isolated JavaScript on trusted execution nodes',
+  execute: 'Run trusted code and approved Remote MCP tools',
   'audit:read': 'Read the audit log (admins)',
 }
 const SCOPE_CHIP: Record<string, string> = { read: 'Read', write: 'Ask', execute: 'Execute', 'audit:read': 'Audit log' }
@@ -674,6 +675,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
         ))}
         {matches.length === 0 && connectors !== null && <p className="studio-empty">{search.trim() ? t('No app matches “{q}”.', { q: search.trim() }) : t('No connectors are available on this deployment.')}</p>}
       </div>
+      {orgId && sessionToken && <RemoteMcpServers httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
       {orgId && sessionToken && <SmitheryApps httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} />}
     </section>
   )

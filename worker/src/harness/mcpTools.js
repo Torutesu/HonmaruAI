@@ -12,6 +12,7 @@ import { listTables, listRows, addRow, updateRow } from "./tables.js";
 import { listWorkflows, getWorkflow, startRun } from "./workflows.js";
 import { listFollowups, scheduleFollowup } from "./followups.js";
 import { onRowChange } from "./workflows.js";
+import { callRemoteMcpTool, remoteMcpTools } from "./remoteMcp.js";
 
 export const HARNESS_TOOL_SCOPE = { create_file_text: "write", update_file_text: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", run_workflow: "write", schedule_followup: "write" };
 
@@ -89,6 +90,10 @@ const out = (value) => ({ content: [{ type: "text", text: JSON.stringify(value, 
 const err = (message) => ({ content: [{ type: "text", text: message }], isError: true });
 
 export async function callHarnessTool(env, agent, name, args) {
+  if (name.startsWith("mcp_")) {
+    const remoteTool = (await remoteMcpTools(env.DB, agent.orgId).catch(() => [])).find((tool) => tool.name === name);
+    if (remoteTool) return callRemoteMcpTool(env, agent, remoteTool, args);
+  }
   if (EXECUTION_TOOLS.some(t => t.name === name)) return callExecutionTool(env, agent, name, args);
   if (FILE_WRITE_TOOLS.some(t => t.name === name)) return callFileWriteTool(env, agent, name, args);
   if (FILE_READ_TOOLS.some(t => t.name === name)) return callFileReadTool(env, agent, name, args);

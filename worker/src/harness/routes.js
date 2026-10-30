@@ -43,6 +43,7 @@ import { listMembers as memoryMembers } from '../team.js';
 import { createAgentAccessRequest, requestableAgentOptions, roomAgentAccessPlans } from './agentAccessRequests.js';
 import { announceCards } from '../announce.js';
 import { notifyCard, anyChannelConfigured } from '../notify.js';
+import { handleRemoteMcp } from './remoteMcp.js';
 // The harness routes (docs/kylon-gap-plan.md): the workspace's mode, Tables
 // and Apps. Every route asks for a member who is not a guest; building is a
 // member's, deleting someone else's is an admin's.
@@ -92,7 +93,7 @@ export function json(body, status = 200) {
 const fail = (result) => json({ message: result.error, ...(result.fields ? { fields: result.fields } : {}) }, result.status || 400);
 
 /// The paths this module answers.
-const OURS = /^\/(orgs\/mode|tables|apps|skills|gateways|hx|workflows|followups|approvals|harness\/home)(\/|$)/;
+const OURS = /^\/(orgs\/mode|tables|apps|skills|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
 export async function member(env, request, orgId) {
@@ -196,6 +197,10 @@ export async function handleHarness(request, env, url, context = {}) {
   const who = await member(env, request, orgId);
   if (who.denied) return who.denied;
   const me = who.session.github_id;
+  if (url.pathname === "/remote-mcp" || url.pathname.startsWith("/remote-mcp/")) {
+    const canManage = await allowed(env.DB, orgId, me, "workspace.integrations");
+    return handleRemoteMcp(request, env, url, input, { orgId, who, canManage });
+  }
   if (parts[0] === 'hx' && parts[1] === 'agent-access-options') {
     if (request.method !== 'GET') return json({ message: 'Method not allowed.' }, 405);
     const roster=await memoryMembers(env.DB,orgId,me);

@@ -137,8 +137,8 @@
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
 | KY-076 | 連携カタログとOAuth接続 | 一部 | P1 | 該当実装は未特定 | 掲載件数ではなく認証/検索/読取/書込/解除を連携ごとに検証 |
-| KY-077 | Remote MCP任意サーバー | 未実装 | P1 | 該当実装は未特定 | OAuth/API key・tool一覧・schema・SSRF制限・失効 |
-| KY-078 | Custom API service | 一部 | P1 | [worker/src/harness/appCapabilities.js](../../worker/src/harness/appCapabilities.js) | 6種の公式API host・固定URL/操作・暗号化secret・応答上限・redirect禁止・write再送抑止を追加。任意hostとMCPは未対応 |
+| KY-077 | Remote MCP任意サーバー | 一部 | P1 | [worker/src/harness/remoteMcp.js](../../worker/src/harness/remoteMcp.js) | Harness限定。HTTPS接続、暗号化Bearer/custom header、tool一覧/schema、明示allowlist、execute scope、audit、redirect/size制限、disconnectを実装。OAuth DCRとDNS-pinned egressは未対応 |
+| KY-078 | Custom API service | 一部 | P1 | [worker/src/harness/appCapabilities.js](../../worker/src/harness/appCapabilities.js) | 6種の公式API host・固定URL/操作・暗号化secret・応答上限・redirect禁止・write再送抑止を追加。任意hostは未対応 |
 | KY-079 | Agent単位のConnection grant | 一部 | P0 | [worker/src/agentTools.js](../../worker/src/agentTools.js) | 人の接続とagent/app/workflowの利用権を分離 |
 | KY-080 | Tools discovery/execute/native proxy/upload | 一部 | P1 | [worker/src/mcp.js](../../worker/src/mcp.js) | 同一principalとスコープでREST/CLI/MCPを提供 |
 | KY-081 | LINE公式アカウント受信 | 未実装 | P1 | 該当実装は未特定 | 署名検証・接続単位のイベント保存・LINE Inbox |
