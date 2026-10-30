@@ -2034,6 +2034,18 @@ const table: Record<string, string> = {
   "Store the URL and secret in your sender’s environment as HONMARU_WEBHOOK_URL and HONMARU_WEBHOOK_SECRET.": "Guarda la URL y el secreto en el entorno del emisor como HONMARU_WEBHOOK_URL y HONMARU_WEBHOOK_SECRET.",
   "This existing webhook still accepts its URL secret alone. Generate a new URL to switch it to signed requests.": "Este webhook existente todavía acepta solo el secreto de la URL. Genera una URL nueva para cambiar a solicitudes firmadas.",
   "The current webhook URL will stop working. Update your sender with the new URL and signed-request headers.": "La URL actual del webhook dejará de funcionar. Actualiza el emisor con la nueva URL y los encabezados de las solicitudes firmadas.",
+  "Run history": "Historial de ejecución",
+  "Failed runs only": "Solo fallidos",
+  "No failed runs.": "No hay ejecuciones fallidas.",
+  "No runs yet.": "Aún no hay ejecuciones.",
+  "Run ID: {id}": "ID de ejecución: {id}",
+  "Date unavailable": "Fecha no disponible",
+  "Refresh history": "Actualizar historial",
+  "Completed": "Completada",
+  "Waiting for approval": "Pendiente de aprobación",
+  "Succeeded": "Correcta",
+  "Cancelled": "Cancelada",
+  "Elapsed time, including approval waits": "Tiempo transcurrido, incluidas las esperas de aprobación",
 }
 
 export default table
