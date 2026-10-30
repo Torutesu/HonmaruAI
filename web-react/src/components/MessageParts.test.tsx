@@ -7,6 +7,16 @@ const html = (text: string) => renderToStaticMarkup(<>{renderRich(text, () => 'm
 
 // A message's formatting, the way Slack reads it.
 describe('renderRich', () => {
+  it('renders safe labeled links for the shared conversation and thread formatter', () => {
+    expect(html('Read [the report](https://example.com/report)')).toBe('Read <a href="https://example.com/report" target="_blank" rel="noopener noreferrer">the report</a>')
+    expect(html('[nested](https://example.com/a_(b_(c)))')).toBe('<a href="https://example.com/a_(b_(c))" target="_blank" rel="noopener noreferrer">nested</a>')
+    expect(html('*Read [the report](https://example.com/report)* @Mika')).toContain('<b>Read <a href="https://example.com/report"')
+    expect(html('[bad](javascript:alert(1)) [data](data:text/html,hello)')).not.toContain('<a')
+    expect(html('https://example.com/a_(b)')).toContain('href="https://example.com/a_(b)"')
+    expect(html('[app](#/apps/a/org) [flow](#/workflows/w/org)')).toBe('<a href="#/apps/a/org" class="hx-inline-app-link">app</a> <a href="#/workflows/w/org" class="hx-inline-app-link">flow</a>')
+    expect(html('`[code](https://example.com)`')).toBe('<code class="slk-code">[code](https://example.com)</code>')
+  })
+
   it('puts one blank line between a list and the paragraph after it, not two', () => {
     const out = html('*Done*\n- a\n- b\n\n*Tomorrow*\n- c')
     expect(out).toBe('<b>Done</b><ul class="slk-ul"><li>a</li><li>b</li></ul><br/><b>Tomorrow</b><ul class="slk-ul"><li>c</li></ul>')

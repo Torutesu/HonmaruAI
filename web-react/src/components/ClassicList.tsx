@@ -44,7 +44,7 @@ import { SidebarSection } from './SidebarSection'
 import { Dialog } from './Dialog'
 import type { MenuEntry } from './RowMenu'
 import type { DecisionCard, Business, ChannelMessage, FileRef, ReplyQuote } from '../types/card'
-import { arrive, drawUnder, echoOf, isDoubleSend, isTemp, keepTemps, keptAsYours, keptUnsent, landedCopy, markFailed, markPending, outboxKey, provenYours, readUnsent, reconcile, refreshedReplies, refusedOutright, SEND_TIMEOUT, sendDeadline, sendTime, sharedOutboxKey, tempMessage, tempState, unsentAgain, withHeld } from '../utils/pendingSend'
+import { arrive, drawUnder, echoOf, isDoubleSend, isTemp, keepTemps, keptAsYours, keptUnsent, landedCopy, markFailed, markPending, outboxKey, provenYours, readUnsent, reconcile, refusedOutright, SEND_TIMEOUT, sendDeadline, sendTime, sharedOutboxKey, tempMessage, tempState, unsentAgain, withHeld } from '../utils/pendingSend'
 import type { Unsent } from '../utils/pendingSend'
 import { askingAboutData } from '../utils/authGuard'
 import { draftToClear, withoutDraft } from '../utils/drafts'
@@ -254,9 +254,6 @@ interface AgentWriting { id: string; name: string; emoji: string | null; avatarU
 /// Whose face goes beside something: a name, and their photo if they have one.
 /// `emoji`: an agent's face — a tile, not a person's photo.
 interface Face { name: string; url?: string | null; emoji?: string | null; picture?: string | null }
-/// How long a conversation or thread read ahead of being opened counts as
-/// fresh: pointed at again within it, it is not read again (#273).
-const AHEAD_FRESH_MS = 60_000
 /// How many of each list are read ahead in the background, and how they
 /// are spaced: after the screen has settled, one at a time.
 const AHEAD_COUNT = 3
@@ -1684,22 +1681,14 @@ export const ClassicList: React.FC<Props> = ({
   }, [view, loadMessages])
   /// A thread's replies, the same way: kept for when it is opened, from
   /// Threads, Activity or its "replies" line.
-  const threadLoads = useRef(new Map<string, Promise<void>>())
+  const loadThread = useCallback((channel: string, parentId: string, force = false) => messageCache.threads.load(channel, parentId, async () => {
+    if (cacheScope.current !== messageCache) return { status: 0, data: null }
+    const response = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(parentId)}`, { headers: authHeaders })
+    return { status: response.status, data: response.ok ? await response.json() : null }
+  }, force), [api.httpBase, api.orgId, authHeaders, messageCache])
   const prefetchThread = useCallback((channel: string, parentId: string | null | undefined) => {
-    if (!channel || !parentId || isTemp({ id: parentId })) return
-    const key = `thread:${channel}:${parentId}`
-    if (views.fresh(key, AHEAD_FRESH_MS) || threadLoads.current.has(key)) return
-    const task = fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(parentId)}`, { headers: authHeaders })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!data?.parent) return
-        views.set(key, ((data.replies || []) as ChannelMessage[]).filter((r) => !isTemp(r)))
-        views.set(`threadHead:${channel}:${parentId}`, data.parent)
-      })
-      .catch(() => {})
-      .finally(() => threadLoads.current.delete(key))
-    threadLoads.current.set(key, task)
-  }, [api.httpBase, api.orgId, authHeaders, views])
+    if (channel && parentId && !isTemp({ id: parentId })) void loadThread(channel, parentId)
+  }, [loadThread])
   // What is most likely opened next — the unread conversations, and the
   // unread threads in Threads and Activity — read ahead a few at a time,
   // a moment after the lists come in, not all at once with them.
@@ -1893,6 +1882,7 @@ export const ClassicList: React.FC<Props> = ({
       // read from the refs, not from a flag set for somebody else.
       const reactions = (m.reactions || []).map((r) => ({ ...r, mine: myRef ? r.refs.includes(myRef) : r.mine }))
       const msg = { ...m, mine, reactions }
+      messageCache.threads.change(msg)
       maybeNewEmoji(`${m.body || ''} ${reactions.map((r) => r.emoji).join(' ')}`)
       if (m.parentId) {
         // A reply: into the thread if it is open — our own, back before the
@@ -1941,7 +1931,7 @@ export const ClassicList: React.FC<Props> = ({
     }
     window.addEventListener('honmaru:channel-message', on)
     return () => window.removeEventListener('honmaru:channel-message', on)
-  }, [members, loadMessages, maybeNewEmoji, agentDone])
+  }, [members, loadMessages, maybeNewEmoji, agentDone, messageCache])
   // The AI's steps, as it takes them.
   useEffect(() => {
     const on = (e: Event) => {
@@ -2268,6 +2258,7 @@ export const ClassicList: React.FC<Props> = ({
       else fail(out, res && !res.ok ? refusal(data) : t('That did not send. Try again.'))
       return null
     }
+    messageCache.threads.change(msg)
     outbox.current.delete(tempId)
     keepOutbox(tempId)
     // An edit begun on it while it went carries on, on the server's copy.
@@ -2584,6 +2575,7 @@ export const ClassicList: React.FC<Props> = ({
   // answer that comes back after a newer ask, or after the pane was closed
   // (another conversation, another workspace), is not drawn and reads nothing.
   const threadAsk = useRef(0)
+  const threadOwner = useRef(messageCache)
   const setThread = useCallback((next: React.SetStateAction<typeof thread>) => {
     if (next === null) threadAsk.current += 1
     setThreadPane(next)
@@ -2591,8 +2583,9 @@ export const ClassicList: React.FC<Props> = ({
   // The thread as it stands — replies sent, edited, arrived live — kept for
   // the next time it is opened.
   useEffect(() => {
-    if (thread) views.set(`thread:${thread.channel}:${thread.parent.id}`, thread.replies.filter((r) => !isTemp(r)), { read: false })
-  }, [thread, views])
+    if (thread && threadOwner.current === messageCache) messageCache.threads.remember(thread.channel, thread.parent, thread.replies)
+  }, [thread, messageCache])
+  useEffect(() => { if (threadOwner.current !== messageCache) setThread(null) }, [messageCache, setThread])
 
   // Messages in another language, in yours: translated once on the server
   // and kept; the words they were translated from, so an edit asks again.
@@ -2945,6 +2938,7 @@ export const ClassicList: React.FC<Props> = ({
 
   /// Put a changed message wherever it shows: the log, the thread, the pins.
   const replaceMessage = (channel: string, msg: ChannelMessage) => {
+    messageCache.threads.change(msg)
     if (msg.parentId) {
       setThread((prev) => (prev && prev.parent.id === msg.parentId
         ? { ...prev, replies: refreshQuotes(msg.deleted ? prev.replies.filter((x) => x.id !== msg.id) : prev.replies.map((x) => (x.id === msg.id ? msg : x)), msg) }
@@ -3099,6 +3093,7 @@ export const ClassicList: React.FC<Props> = ({
     setEditing((cur) => (cur?.id === m.id ? null : cur))
     if (!res?.ok) return { gone: false, error: (typeof data.message === 'string' && data.message) || t('That did not work. Try again.') }
     if (data.message && typeof data.message === 'object') replaceMessage(channel, data.message as ChannelMessage)
+    messageCache.threads.change({ ...m, channel, deleted: true })
     // Gone here at once, and its thread with it.
     if (m.alsoChannel) setMessages((prev) => (prev[channel] ? { ...prev, [channel]: prev[channel].filter((x) => x.id !== m.id) } : prev))
     if (!m.parentId) {
@@ -3164,20 +3159,38 @@ export const ClassicList: React.FC<Props> = ({
     }
   })
   const togglePin = (channel: string, m: ChannelMessage) => void act('POST', '/channels/pins', channel, { messageId: m.id, pinned: !m.pinned })
-  const openThread = async (channel: string, m: ChannelMessage): Promise<void> => {
+  const refreshThread = async (channel: string, parentId: string, ask: number, before: ChannelMessage[], force = false) => {
+    const result = await loadThread(channel, parentId, force)
+    if (ask !== threadAsk.current || cacheScope.current !== messageCache || result === 'obsolete') return false
+    if (result === 'denied') { setThread(null); setProblem(t('That did not work. Try again.')); return false }
+    if (!result) {
+      setThread(prev => prev && prev.channel === channel && prev.parent.id === parentId ? { ...prev, loading: false, failed: true } : prev)
+      return false
+    }
+    const snapshot = messageCache.threads.get(channel, parentId) || result
+    const back = heldFor(channel, parentId, snapshot.replies)
+    setThread(prev => prev && prev.channel === channel && prev.parent.id === parentId
+      ? { channel, parent: prev.parent.editPending ? prev.parent : newerPin(prev.parent, snapshot.parent), replies: withHeld(mergeLatestMessages(prev.replies, snapshot.replies, before, false, true), back) }
+      : prev)
+    return true
+  }
+  const openThread = async (channel: string, m: ChannelMessage, force = false): Promise<void> => {
     // A reply shown in the conversation opens the thread it is in.
     if (m.parentId) {
       const head = (messagesRef.current[channel] || []).find((x) => x.id === m.parentId)
-      return openThread(channel, head || { id: m.parentId, channel, kind: m.threadParent?.kind || 'message', body: m.threadParent?.excerpt || '', authorName: m.threadParent?.authorName || null, authorRef: m.threadParent?.authorRef || null, createdAt: m.createdAt } as ChannelMessage)
+      return openThread(channel, head || { id: m.parentId, channel, kind: m.threadParent?.kind || 'message', body: m.threadParent?.excerpt || '', authorName: m.threadParent?.authorName || null, authorRef: m.threadParent?.authorRef || null, createdAt: m.createdAt } as ChannelMessage, force)
     }
     setDetailId(null)
     setProfile(null)
     const ask = ++threadAsk.current
-    if (thread?.parent.id !== m.id) holdFrom(m.id)
-    // The replies read last time, at once; the server's, when they come.
-    const kept = views.get<ChannelMessage[]>(`thread:${channel}:${m.id}`) || []
-    const before = new Set([...kept, ...(thread?.parent.id === m.id ? thread.replies : [])].map((r) => r.id))
-    setThread((prev) => ({ channel, parent: m, replies: prev && prev.parent.id === m.id ? keepTemps(kept, prev.replies) : kept, loading: true }))
+    const same = threadOwner.current === messageCache && thread?.channel === channel && thread.parent.id === m.id
+    threadOwner.current = messageCache
+    if (!same) holdFrom(m.id)
+    const cached = messageCache.threads.get(channel, m.id)
+    const kept = cached?.replies || []
+    const before = same ? thread.replies : kept
+    const replies = withHeld(keepTemps(kept, same ? thread.replies : undefined), heldFor(channel, m.id, kept))
+    setThread({ channel, parent: cached?.parent || m, replies, loading: force || !messageCache.threads.fresh(channel, m.id) })
     // Preserve the object destination for reload, without replacing a newer route.
     if(harness && (location.hash==='#/list' || (thread && location.hash===hashForThread(thread.parent.id,api.orgId)))){
       const hash=hashForThread(m.id,api.orgId)
@@ -3185,15 +3198,8 @@ export const ClassicList: React.FC<Props> = ({
       history.replaceState(history.state,'',hash)
       window.dispatchEvent(new HashChangeEvent('hashchange'))
     }
-    const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(m.id)}`, { headers: authHeaders }).catch(() => null)
-    const data = res?.ok ? await res.json().catch(() => null) : null
-    if (ask !== threadAsk.current) return
-    if (!data) setThread((prev) => (prev && prev.parent.id === m.id ? { ...prev, loading: false, failed: true } : prev))
-    // Replies of yours still on their way, or that did not go — sent while
-    // it was open before, or before this page loaded — back in it.
-    const back = data ? heldFor(channel, m.id, data.replies || []) : []
-    if (data) setThread((prev) => (prev && prev.parent.id === m.id ? { channel, parent: newerPin(prev.parent, data.parent), replies: withHeld(refreshedReplies(data.replies || [], prev.replies, before), back) } : prev))
-    if (data?.parent) views.set(`threadHead:${channel}:${m.id}`, data.parent)
+    await refreshThread(channel, m.id, ask, before, force)
+    if (ask !== threadAsk.current || cacheScope.current !== messageCache) return
     requestAnimationFrame(() => threadComposer.current?.focus())
     markThreadRead(channel, m.id)
   }
@@ -3207,28 +3213,17 @@ export const ClassicList: React.FC<Props> = ({
   }, [activityOpen])
   const showThreadIn = async (channel: string, parentId: string, focusId: string) => {
     const ask = ++threadAsk.current
-    // What was read ahead, or last time, at once; the server's when it comes.
-    const kept = views.get<ChannelMessage[]>(`thread:${channel}:${parentId}`)
-    const head = views.get<ChannelMessage>(`threadHead:${channel}:${parentId}`)
-    const before = new Set([...(kept && head ? kept : []), ...(thread?.parent.id === parentId ? thread.replies : [])].map((r) => r.id))
-    if (kept && head) {
-      threadInActivity.current = true
-      setThread((prev) => ({ channel, parent: head, replies: keepTemps(kept, prev && prev.parent.id === parentId ? prev.replies : undefined), loading: true }))
-    }
-    const res = await fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(parentId)}`, { headers: authHeaders }).catch(() => null)
-    const data = res?.ok ? await res.json().catch(() => null) : null
-    // Another thread picked since, or the pane closed: that one stands.
-    if (ask !== threadAsk.current) return
-    if (!data?.parent) {
-      // Kept on screen when the read fails, saying so, rather than taken away.
-      if (kept && head) setThread((prev) => (prev && prev.parent.id === parentId ? { ...prev, loading: false, failed: true } : prev))
-      else setThread(null)
-      return
-    }
-    views.set(`threadHead:${channel}:${parentId}`, data.parent)
+    const cached = messageCache.threads.get(channel, parentId)
+    const kept = cached?.replies || []
+    const same = threadOwner.current === messageCache && thread?.channel === channel && thread.parent.id === parentId
+    threadOwner.current = messageCache
+    const before = same ? thread.replies : kept
+    const head = cached?.parent || threadItems?.find(item => item.parent.channel === channel && item.parent.id === parentId)?.parent
+      || messagesRef.current[channel]?.find(row => row.id === parentId)
+      || { id: parentId, channel, kind: 'message', body: '', createdAt: '' } as ChannelMessage
     threadInActivity.current = true
-    const back = heldFor(channel, parentId, data.replies || [])
-    setThread((prev) => ({ channel, parent: data.parent, replies: withHeld(refreshedReplies(data.replies || [], prev && prev.parent.id === parentId ? prev.replies : undefined, before), back) }))
+    setThread({ channel, parent: head, replies: withHeld(keepTemps(kept, same ? thread.replies : undefined), heldFor(channel, parentId, kept)), loading: !messageCache.threads.fresh(channel, parentId) })
+    if (!await refreshThread(channel, parentId, ask, before)) return
     markThreadRead(channel, parentId)
     requestAnimationFrame(() => {
       const id = focusId === parentId ? `thread-${focusId}` : focusId
@@ -3319,13 +3314,10 @@ export const ClassicList: React.FC<Props> = ({
     messageCache.invalidate()
     setChannelsTick((n) => n + 1)
     if (view) void loadMessages(view)
-    if (thread) {
-      const { channel, parent } = thread
-      const before = new Set(thread.replies.map((r) => r.id))
-      fetch(`${api.httpBase}/channels/thread?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}&messageId=${encodeURIComponent(parent.id)}`, { headers: authHeaders })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => { if (data?.parent) setThread((prev) => (prev && prev.parent.id === parent.id ? { ...prev, parent: data.parent, replies: refreshedReplies(data.replies || [], prev.replies, before) } : prev)) })
-        .catch(() => { /* the thread stays as it was */ })
+    if (thread && threadOwner.current === messageCache) {
+      const ask = ++threadAsk.current
+      setThread(prev => prev ? { ...prev, loading: true, failed: false } : prev)
+      void refreshThread(thread.channel, thread.parent.id, ask, thread.replies, true)
     }
     if (activityItems) void loadActivity()
     if (threadItems) void loadThreads()
@@ -3337,8 +3329,10 @@ export const ClassicList: React.FC<Props> = ({
       timer = setTimeout(() => resyncNow.current(), 300)
     }
     window.addEventListener('honmaru:resync', on)
+    window.addEventListener('honmaru:members-changed', on)
     return () => {
       window.removeEventListener('honmaru:resync', on)
+      window.removeEventListener('honmaru:members-changed', on)
       if (timer) clearTimeout(timer)
     }
   }, [])
@@ -4827,11 +4821,11 @@ export const ClassicList: React.FC<Props> = ({
     const known = Math.max(drawn, thread.parent.replyCount || 0)
     const n = thread.loading || thread.failed ? known : drawn
     const words = n === 1 ? t('1 reply') : t('{n} replies', { n })
-    if (thread.loading) return <span aria-busy="true">{known > 0 ? `${words} · ` : ''}{t('Loading…')}</span>
+    if (thread.loading) return <span role="status" aria-live="polite" aria-busy="true">{known > 0 ? `${words} · ` : ''}{t('Loading…')}</span>
     if (thread.failed) {
       return (
-        <span>{words} · {t("Couldn't load the replies.")}{' '}
-          <button type="button" className="slk-link-button" onClick={() => void openThread(thread.channel, thread.parent)}>{t('Try again')}</button>
+        <span role="status" aria-live="polite">{words} · {t("Couldn't load the replies.")}{' '}
+          <button type="button" className="slk-link-button" onClick={() => void openThread(thread.channel, thread.parent, true)}>{t('Try again')}</button>
         </span>
       )
     }
