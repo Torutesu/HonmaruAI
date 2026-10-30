@@ -266,9 +266,17 @@ describe('an inline reply', () => {
     const { ReplyQuoteLine } = await import('./MessageParts')
     const out = renderToStaticMarkup(<ReplyQuoteLine quote={quote} name="Mika" onJump={() => {}} />)
     expect(out).toMatch(/^<button type="button" class="slk-reply-quote" title="Go to the message" data-reply-to="m1">/)
-    expect(out).toContain('<span class="sr-only">In reply to </span><b class="slk-reply-who">Mika</b>')
+    expect(out).toContain('<span class="sr-only">In reply to </span><b class="slk-reply-who" title="Mika">Mika</b>')
     expect(out).toContain('the code is <span class="slk-reply-spoiler" role="img" aria-label="Spoiler"></span> ok')
     expect(out).not.toContain('████')
+  })
+
+  it('keeps the complete long quoted author available when the visible label truncates', async () => {
+    const { ReplyQuoteLine } = await import('./MessageParts')
+    const name = 'Alexandria'.repeat(12)
+    const out = renderToStaticMarkup(<ReplyQuoteLine quote={{ ...quote, authorName: name }} name={name} onJump={() => {}} />)
+    expect(out).toContain(`<b class="slk-reply-who" title="${name}">${name}</b>`)
+    expect(out).toContain('class="slk-reply-excerpt"')
   })
 
   it('says only that the original is gone, with nothing to press', async () => {

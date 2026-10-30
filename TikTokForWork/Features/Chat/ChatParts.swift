@@ -715,6 +715,8 @@ struct ChatReactionBar: View {
                             HStack(spacing: 4) {
                                 ChatEmojiGlyph(emoji: r.emoji, size: 16)
                                 Text(verbatim: "\(r.count)").font(.caption.weight(.bold)).monospacedDigit()
+                                if r.status == "pending" { Image(systemName: "clock").font(.caption2) }
+                                if r.status == "failed" { Image(systemName: "arrow.clockwise.circle").font(.caption2) }
                             }
                             .padding(.horizontal, 9).padding(.vertical, 4)
                             .background(r.mine ? Theme.Colors.interactive.opacity(0.14) : Theme.Colors.surfaceRaised, in: Capsule())
@@ -722,6 +724,7 @@ struct ChatReactionBar: View {
                             .foregroundStyle(r.mine ? Theme.Colors.interactive : Theme.Colors.textPrimary)
                         }
                         .buttonStyle(.plain)
+                        .disabled(r.status == "pending")
                         // Who reacted: a long press on the phone, the pointer on an iPad.
                         .contextMenu {
                             Text(verbatim: who(r))
@@ -731,6 +734,8 @@ struct ChatReactionBar: View {
                         }
                         .help(Text(verbatim: who(r)))
                         .accessibilityLabel(Text(verbatim: "\(r.emoji) \(r.count)"))
+                        .accessibilityValue(Text(r.status == "pending" ? "Saving reaction" : r.status == "failed" ? "Reaction failed. Double tap to retry." : r.mine ? "Selected" : "Not selected"))
+                        .accessibilityAddTraits(r.mine ? .isSelected : [])
                         .accessibilityHint(Text(verbatim: who(r)))
                     }
                     Button(action: onAdd) {

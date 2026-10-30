@@ -433,7 +433,7 @@ export const ReplyQuoteLine: React.FC<{ quote: ReplyQuote; name: string; onJump:
     <button type="button" className="slk-reply-quote" onClick={onJump} title={t('Go to the message')} data-reply-to={quote.id}>
       <Icon name="reply" size={12} />
       <span className="sr-only">{t('In reply to')} </span>
-      <b className="slk-reply-who">{name}</b>
+      <b className="slk-reply-who" title={name}>{name}</b>
       <span className="slk-reply-excerpt"><QuoteWords excerpt={quote.excerpt} /></span>
     </button>
   )

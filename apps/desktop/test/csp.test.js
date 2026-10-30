@@ -24,14 +24,25 @@ describe('the policy on the app\'s pages', () => {
     expect(csp['frame-ancestors']).toEqual(["'none'"])
   })
 
-  it('connects to the app, the API over https and the relay over wss, and nowhere else', () => {
-    expect(csp['connect-src']).toEqual(["'self'", API, 'wss://tiktokforwork.torubj0904.workers.dev'])
+  it('connects to the app, API, relay and trusted media host for document previews', () => {
+    expect(csp['connect-src']).toEqual(["'self'", API, 'wss://tiktokforwork.torubj0904.workers.dev', 'https://media.honmaruai.com'])
   })
 
   it('takes every configured API origin, without repeating one', () => {
     const more = parse(buildCsp({ apiOrigins: [API, 'https://api.staging.example', API] }))
-    expect(more['connect-src']).toEqual(["'self'", API, 'https://api.staging.example', 'wss://tiktokforwork.torubj0904.workers.dev', 'wss://api.staging.example'])
+    expect(more['connect-src']).toEqual(["'self'", API, 'https://api.staging.example', 'wss://tiktokforwork.torubj0904.workers.dev', 'wss://api.staging.example', 'https://media.honmaruai.com'])
     expect(more['form-action']).toEqual(["'self'", API, 'https://api.staging.example'])
+  })
+
+  it('allows only configured media origins for fetches, without granting scripts or sockets there', () => {
+    const media = 'https://files.staging.example'
+    const configured = parse(buildCsp({ apiOrigins: [API], mediaOrigins: [media, media, API] }))
+    expect(configured['connect-src']).toEqual(["'self'", API, 'wss://tiktokforwork.torubj0904.workers.dev', media])
+    expect(configured['media-src']).toEqual(["'self'", API, media, 'blob:'])
+    expect(configured['connect-src']).not.toContain('wss://files.staging.example')
+    expect(configured['script-src']).not.toContain(media)
+    expect(configured['frame-src']).not.toContain(media)
+    expect(parse(buildCsp({ apiOrigins: [API], mediaOrigins: [] }))['connect-src']).toEqual(["'self'", API, 'wss://tiktokforwork.torubj0904.workers.dev'])
   })
 
   it('shows pictures from the API, pasted ones, and https sites; media from the API and blobs; frames only the player and isolated runner', () => {

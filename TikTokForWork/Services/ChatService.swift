@@ -10,6 +10,8 @@ struct ChatReaction: Codable, Hashable {
     var count: Int
     var refs: [String]
     var mine: Bool
+    /// Local feedback only; absent from the server's reaction contract.
+    var status: String? = nil
 }
 
 /// A file or a picture on a message. `url` is a signed address — on the
@@ -120,6 +122,35 @@ extension ChatQuote {
         let text = words.isEmpty ? (m.files?.first.map { "📎 \($0.name)" } ?? "") : words
         let excerpt = text.count > 120 ? String(text.prefix(119)).trimmingCharacters(in: .whitespaces) + "…" : text
         self.init(id: m.id, kind: m.kind, authorName: m.isAI ? nil : m.authorName, authorRef: m.isAI ? nil : m.authorRef, excerpt: excerpt, deleted: false)
+    }
+}
+
+/// Refresh references even when the changed original is outside the loaded page.
+extension ChatMessage {
+    func refreshingQuotes(from original: ChatMessage) -> ChatMessage {
+        guard channel == original.channel else { return self }
+        var copy = self
+        if replyTo?.id == original.id { copy.replyTo = ChatQuote(of: original) }
+        if threadParent?.id == original.id { copy.threadParent = ChatQuote(of: original) }
+        return copy
+    }
+
+    /// Change only our membership; other people's concurrent reactions survive.
+    func settingReaction(_ emoji: String, mine: Bool, myRef: String, status: String? = nil) -> ChatMessage {
+        var copy = self
+        var list = reactions ?? []
+        let index = list.firstIndex { $0.emoji == emoji }
+        var reaction = index.map { list[$0] } ?? ChatReaction(emoji: emoji, count: 0, refs: [], mine: false)
+        let wasMine = reaction.mine
+        reaction.refs.removeAll { $0 == myRef }
+        if mine { reaction.refs.append(myRef) }
+        reaction.count = max(0, reaction.count + (mine ? 1 : 0) - (wasMine ? 1 : 0))
+        reaction.mine = mine
+        reaction.status = status
+        if let index { list.remove(at: index) }
+        if reaction.count > 0 || status != nil { list.insert(reaction, at: min(index ?? list.count, list.count)) }
+        copy.reactions = list
+        return copy
     }
 }
 
@@ -300,8 +331,8 @@ struct SignedInSession: Codable, Identifiable, Hashable {
 
 /// A thread you are in, for Threads: its first message, the last replies.
 struct ChatThreadItem: Codable, Identifiable, Hashable {
-    let parent: ChatMessage
-    let replies: [ChatMessage]
+    var parent: ChatMessage
+    var replies: [ChatMessage]
     let replyCount: Int
     let lastReplyAt: String
     var unread: Bool
@@ -332,6 +363,28 @@ struct ChatSidebar: Codable, Hashable {
 struct ChatThread: Codable {
     var parent: ChatMessage
     var replies: [ChatMessage]
+    /// Absent on older backends, which return the complete thread.
+    var more: Bool? = nil
+    var nextCursor: String? = nil
+    var hasOlder: Bool { more == true && nextCursor?.isEmpty == false }
+}
+
+/// New servers return one reference; older servers return their complete thread.
+struct ChatThreadReferenceResponse: Decodable {
+    let reference: ChatMessage?
+    let parent: ChatMessage?
+    let replies: [ChatMessage]?
+
+    func message(channel: String, parentId: String, messageId: String) throws -> ChatMessage {
+        let found: ChatMessage?
+        if let reference { found = reference }
+        else if parent?.id == parentId && parent?.channel == channel { found = replies?.first { $0.id == messageId } }
+        else { found = nil }
+        guard let found, found.id == messageId, found.channel == channel, found.parentId == parentId, !found.isDeleted else {
+            throw ChatService.Failure.server(404, nil)
+        }
+        return found
+    }
 }
 
 struct ChatScheduled: Codable, Identifiable, Hashable {
@@ -530,8 +583,16 @@ enum ChatService {
         return try await call("GET", "/channels/messages", base: base, query: q, as: R.self).messages
     }
 
-    static func thread(orgId: String, channel: String, messageId: String, base: URL) async throws -> ChatThread {
-        try await call("GET", "/channels/thread", base: base, query: ["orgId": orgId, "channel": channel, "messageId": messageId], as: ChatThread.self)
+    static func thread(orgId: String, channel: String, messageId: String, before: String? = nil, base: URL) async throws -> ChatThread {
+        var query = ["orgId": orgId, "channel": channel, "messageId": messageId, "limit": "50"]
+        if let before { query["before"] = before }
+        return try await call("GET", "/channels/thread", base: base, query: query, as: ChatThread.self)
+    }
+
+    /// One authorized reply's current context, without loading intervening history.
+    static func threadReference(orgId: String, channel: String, parentId: String, messageId: String, base: URL) async throws -> ChatMessage {
+        let response = try await call("GET", "/channels/thread", base: base, query: ["orgId": orgId, "channel": channel, "messageId": parentId, "reference": messageId], as: ChatThreadReferenceResponse.self)
+        return try response.message(channel: channel, parentId: parentId, messageId: messageId)
     }
 
     static func pins(orgId: String, channel: String, base: URL) async throws -> [ChatMessage] {
@@ -637,8 +698,7 @@ enum ChatService {
 
     /// A picture or a file, uploaded into a conversation before the message
     /// that carries it is sent. The bytes are the body.
-    static func upload(orgId: String, channel: String, data: Data, type: String, name: String, width: Int? = nil, height: Int? = nil, base: URL) async throws -> ChatFile {
-        guard let token = SessionStore.sessionToken else { throw Failure.notSignedIn }
+    static func upload(orgId: String, channel: String, data: Data, type: String, name: String, width: Int? = nil, height: Int? = nil, base: URL, token: String) async throws -> ChatFile {
         var components = URLComponents(url: base, resolvingAgainstBaseURL: true)
         components?.path = "/channels/files"
         var q = [URLQueryItem(name: "orgId", value: orgId), URLQueryItem(name: "channel", value: channel), URLQueryItem(name: "name", value: name)]
@@ -729,9 +789,9 @@ enum ChatService {
         return try await call("GET", "/channels/threads", base: base, query: ["orgId": orgId], as: R.self).threads
     }
 
-    static func markThreadRead(orgId: String, channel: String, parentId: String, base: URL) async {
+    static func markThreadRead(orgId: String, channel: String, parentId: String, at: String? = nil, base: URL) async {
         struct R: Decodable { let lastReadAt: String? }
-        _ = try? await call("POST", "/channels/read", base: base, body: ["orgId": orgId, "channel": channel, "thread": parentId], as: R.self)
+        _ = try? await call("POST", "/channels/read", base: base, body: ["orgId": orgId, "channel": channel, "thread": parentId, "at": at].compactMapValues { $0 }, as: R.self)
     }
 
     /// Unread from this message on, everywhere. Returns the thread it is in,

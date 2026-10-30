@@ -32,7 +32,10 @@ const refused = new Map<string, number>()
 
 /// Who asks for new addresses: the workspace open now.
 export function configureMediaUrls(next: { httpBase: string; orgId: string; sessionToken: string } | null) {
-  if (api?.orgId !== next?.orgId) { fresh.clear(); failed.clear(); refused.clear() }
+  if (api?.orgId === next?.orgId && api?.sessionToken === next?.sessionToken && api?.httpBase === next?.httpBase) return
+  fresh.clear(); failed.clear(); refused.clear(); asked.clear(); queued.clear()
+  if (timer) clearTimeout(timer)
+  timer = null
   api = next
 }
 
@@ -46,22 +49,32 @@ async function flush() {
   const ids = [...queued]
   queued = new Set()
   if (!api || !ids.length) return
-  const res = await fetch(`${api.httpBase}/media/urls`, {
-    method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': api.sessionToken },
-    body: JSON.stringify({ orgId: api.orgId, ids }),
-  }).catch(() => null)
-  const data = res?.ok ? await res.json().catch(() => null) : null
-  const files = (data?.files || {}) as Record<string, Fresh>
-  for (const [id, f] of Object.entries(files)) if (f?.url) fresh.set(id, { url: f.url, expiresAt: Number(f.expiresAt) || 0 })
-  for (const id of ids) {
-    if (files[id]?.url) { failed.delete(id); refused.delete(id) }
-    else if (data || res?.status === 403 || res?.status === 404) { failed.delete(id); refused.set(id, Date.now()) }
-    else {
-      const times = (failed.get(id)?.times || 0) + 1
-      failed.set(id, { times, at: Date.now() + retryAfter(times) })
+  const current = api
+  for (let start = 0; start < ids.length; start += 100) {
+    if (api !== current) return
+    const chunk = ids.slice(start, start + 100)
+    const res = await fetch(`${current.httpBase}/media/urls`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': current.sessionToken },
+      body: JSON.stringify({ orgId: current.orgId, ids: chunk }),
+    }).catch(() => null)
+    const data = res?.ok ? await res.json().catch(() => null) : null
+    // An account or workspace change must not take up the previous reader's result.
+    if (api !== current) return
+    const files = (data?.files || {}) as Record<string, Fresh>
+    for (const id of chunk) {
+      const f = files[id]
+      if (f?.url) {
+        fresh.set(id, { url: f.url, expiresAt: Number(f.expiresAt) || 0 })
+        failed.delete(id); refused.delete(id)
+      }
+      else if (data || res?.status === 403 || res?.status === 404) { failed.delete(id); refused.set(id, Date.now()) }
+      else {
+        const times = (failed.get(id)?.times || 0) + 1
+        failed.set(id, { times, at: Date.now() + retryAfter(times) })
+      }
     }
+    for (const fn of listeners) fn()
   }
-  for (const fn of listeners) fn()
 }
 
 /// Back online, or the page looked at again: what failed is asked for now
@@ -79,6 +92,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 /// Ask for a new address for this file, with others asked for about now.
 /// Not more than once in ten seconds for the same file.
 export function renew(id: string) {
+  if (!/^f_[0-9a-f]{24}$/.test(id)) return
   const last = asked.get(id) || 0
   if (Date.now() - last < 10_000) return
   asked.set(id, Date.now())
