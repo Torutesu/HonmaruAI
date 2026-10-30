@@ -2,6 +2,34 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAppearance } from '../utils/appearance'
 import type { App, AppAction, AppConnection, AppFork, AppEntity, HarnessApi, Row, Table } from '../utils/harness'
 
+// Generated apps often refer to a field by the label a person sees, while the
+// database API stores values by immutable column ID. Keep IDs intact and add
+// non-conflicting label aliases for reads; accept either form for writes.
+function appRows(table: Table, rows: Row[]): Row[] {
+  const labelCounts = new Map<string, number>()
+  for (const column of table.columns) labelCounts.set(column.name, (labelCounts.get(column.name) || 0) + 1)
+  return rows.map(row => {
+    const values = { ...row.values }
+    for (const column of table.columns) {
+      if (labelCounts.get(column.name) === 1 && !Object.hasOwn(values, column.name) && Object.hasOwn(values, column.id)) {
+        values[column.name] = values[column.id]
+      }
+    }
+    return { ...row, values }
+  })
+}
+
+function appValues(table: Table, values: Record<string, unknown>): Record<string, unknown> {
+  const byName = new Map<string, string>()
+  const ambiguous = new Set<string>()
+  for (const column of table.columns) {
+    if (ambiguous.has(column.name)) continue
+    if (!byName.has(column.name)) byName.set(column.name, column.id)
+    else { byName.delete(column.name); ambiguous.add(column.name) }
+  }
+  return Object.fromEntries(Object.entries(values).map(([key, value]) => [byName.get(key) || key, value]))
+}
+
 // Two opaque-origin frames isolate generated code and its navigation.
 export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId, previewEntities, decorative = false }: { decorative?: boolean; previewEntities?: Array<AppEntity & {rows:Row[]}>; appId?: string; html: string; table: Table; rows: Row[]; httpBase: string; api?: HarnessApi; reload?: () => unknown }) {
   const frame = useRef<HTMLIFrameElement>(null)
@@ -38,10 +66,10 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
       if(current.operation === 'run' && current.action && appId) result = await api.actionChange(appId,{action:'run',name:current.action.name,version:current.action.publishedVersion,gatewayId:current.gatewayId,input:current.args.input,requestId:current.id})
       else if(current.operation === 'connect' && current.connection && appId) result = await api.connectionChange(appId,{action:'request',name:current.connection.name,version:current.connection.version,body:current.args.body,requestId:current.id})
       else
-      if (current.operation === 'create') result = await api.addRow(targetTable.id, current.args.values || {}, 'strict')
+      if (current.operation === 'create') result = await api.addRow(targetTable.id, appValues(targetTable, current.args.values || {}), 'strict')
       else {
         if (!row) throw new Error('No such row in this app.')
-        result = current.operation === 'update' ? await api.updateRow(targetTable.id, row.id, current.args.values || {}, current.expectedUpdatedAt, 'strict') : await api.deleteRow(targetTable.id, row.id, current.expectedUpdatedAt)
+        result = current.operation === 'update' ? await api.updateRow(targetTable.id, row.id, appValues(targetTable, current.args.values || {}), current.expectedUpdatedAt, 'strict') : await api.deleteRow(targetTable.id, row.id, current.expectedUpdatedAt)
       }
       reply(current.id, result, undefined,current.targetWindow)
       await reload?.()
@@ -58,8 +86,8 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
       if (event.data?.type === 'honmaru:rendered' && event.data.renderId === renderId.current) { setRenderState('ready'); return }
       if (event.data?.type !== 'honmaru:request' || typeof event.data.id !== 'string' || event.data.id.length > 80) return
       const { id, operation, args } = event.data
-      if (operation === 'read') { reply(id, { table, rows }); return }
-      if (operation === 'entity' && previewEntities) { const entity=previewEntities.find(e=>e.key===args?.entity); entity?reply(id,{table:entity.table,rows:entity.rows}):reply(id,undefined,'No such preview entity.');return }
+      if (operation === 'read') { reply(id, { table, rows: appRows(table, rows) }); return }
+      if (operation === 'entity' && previewEntities) { const entity=previewEntities.find(e=>e.key===args?.entity); entity?reply(id,{table:entity.table,rows:appRows(entity.table,entity.rows)}):reply(id,undefined,'No such preview entity.');return }
       if (!api) { reply(id, undefined, 'Preview is read-only.'); return }
       let size = Infinity
       try { size = JSON.stringify(args).length } catch { /* cyclic input is invalid */ }
@@ -89,7 +117,7 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
             const entity=(await api.appDatabase(appId)).entities.find(e=>e.key===(args.entity||'primary'))
             if(!entity)throw new Error('No such entity in this app.')
             const data=await api.entityRows(entity.table.id)
-            if(operation==='entity'){reply(id,data);pending.current=null;return}
+            if(operation==='entity'){reply(id,{...data,rows:appRows(entity.table,data.rows)});pending.current=null;return}
             request.targetTable=entity.table
             request.before=data.rows.find(r=>r.id===args.id)
           }

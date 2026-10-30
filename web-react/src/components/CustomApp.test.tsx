@@ -34,6 +34,29 @@ test('preview rejects writes without displaying an approval action', () => {
   act(() => tree!.unmount())
 })
 
+test('generated apps can read and write fields by their visible column labels', async () => {
+  let handler: (e: any) => Promise<void> = async () => {}
+  const columnTable = { id: 'tasks', name: 'Tasks', columns: [{ id: 'task_title', name: 'タスク名', type: 'text' }] }
+  const row = { id: 'r1', updatedAt: 'v1', values: { task_title: 'Prepare launch' } }
+  const contentWindow = { postMessage: vi.fn() }
+  const addRow = vi.fn().mockResolvedValue({ row: { id: 'new' } })
+  const updateRow = vi.fn().mockResolvedValue({ row })
+  vi.stubGlobal('window', { addEventListener: (_: string, fn: any) => { handler = fn }, removeEventListener: vi.fn() })
+  let tree: ReturnType<typeof create>
+  act(() => { tree = create(<CustomAppFrame html="test" table={columnTable as any} rows={[row] as any} httpBase="https://api.example" api={{ addRow, updateRow } as any} />, { createNodeMock: e => e.type === 'iframe' ? { contentWindow } : null }) })
+  await act(async () => { await handler({ source: contentWindow, data: { type: 'honmaru:request', id: 'read', operation: 'read', args: {} } }) })
+  expect(contentWindow.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+    type: 'honmaru:result', id: 'read', value: { table: columnTable, rows: [{ ...row, values: { task_title: 'Prepare launch', 'タスク名': 'Prepare launch' } }] },
+  }), '*')
+  await act(async () => { await handler({ source: contentWindow, data: { type: 'honmaru:request', id: 'create', operation: 'create', args: { values: { 'タスク名': 'Ship release' } } } }) })
+  await act(async () => { await tree!.root.findAllByType('button')[1].props.onClick() })
+  expect(addRow).toHaveBeenCalledWith('tasks', { task_title: 'Ship release' }, 'strict')
+  await act(async () => { await handler({ source: contentWindow, data: { type: 'honmaru:request', id: 'update', operation: 'update', args: { id: 'r1', values: { 'タスク名': 'Review launch' } } } }) })
+  await act(async () => { await tree!.root.findAllByType('button')[1].props.onClick() })
+  expect(updateRow).toHaveBeenCalledWith('tasks', 'r1', { task_title: 'Review launch' }, 'v1', 'strict')
+  act(() => tree!.unmount())
+})
+
 test('approval keeps the row revision that was shown when the change was requested', async () => {
   let handler: (e: any) => void = () => {}
   const contentWindow = { postMessage: vi.fn() }
@@ -152,7 +175,7 @@ test('secondary preview entities read and write only the private database',async
  await act(async()=>{tree=create(<CustomAppEditor app={{id:'app',version:1,definition:{custom:{draft:'test'}}}as any} table={table} rows={[]} api={api} reload={()=>{}} httpBase="https://api.example"/>,{createNodeMock:e=>e.type==='iframe'?{contentWindow}:null})})
  await act(async()=>{await Promise.resolve()})
  await act(async()=>handler({source:contentWindow,data:{type:'honmaru:request',id:'read',operation:'entity',args:{entity:'people'}}}))
- expect(contentWindow.postMessage).toHaveBeenCalledWith(expect.objectContaining({id:'read',value:{table:people,rows:[row]}}),'*')
+ expect(contentWindow.postMessage).toHaveBeenCalledWith(expect.objectContaining({id:'read',value:{table:people,rows:[{...row,values:{name:'Private',Name:'Private'}}]}}),'*')
  await act(async()=>handler({source:contentWindow,data:{type:'honmaru:request',id:'write',operation:'update',args:{id:'person',entity:'people',values:{name:'Updated'}}}}))
  expect(databaseChange).not.toHaveBeenCalled()
  await act(async()=>tree!.root.findAllByType('button').find(b=>b.children.join('')==='この変更を許可')!.props.onClick())
