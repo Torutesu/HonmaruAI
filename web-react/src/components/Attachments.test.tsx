@@ -20,6 +20,7 @@ describe('MessageFiles', () => {
     expect(out).toContain(`<video src="${BASE}/files/f_v?e=1&amp;s=abc#t=0.001" controls="" preload="metadata" playsinline="" aria-label="clip.mp4" style="aspect-ratio:0.5625"></video>`)
     expect(out).toMatch(/<figure class="att-media video" style="width:min\(100%, 203px\)"/)
     expect(out).not.toContain('att-pic')
+    expect(out).toContain('aria-label="Full screen" title="Full screen"')
   })
 
   it('draws a video nobody measured widescreen', () => {
@@ -44,7 +45,7 @@ describe('MessageFiles', () => {
   it('names each player and gives a way to save it, labelled', () => {
     const out = html([file('f_v', 'clip.mp4', 'video/mp4')])
     expect(out).toContain('<figcaption class="att-media-about">')
-    expect(out).toContain('<span class="att-media-name">clip.mp4</span><small>2 KB</small>')
+    expect(out).toContain('<span class="att-media-name" title="clip.mp4">clip.mp4</span><small>2 KB</small>')
     expect(out).toContain(`href="${BASE}/files/f_v?e=1&amp;s=abc&amp;download=1"`)
     expect(out).toContain('aria-label="Download clip.mp4"')
     expect(out).toContain('title="Download"')
@@ -98,6 +99,8 @@ class El {
   currentTime = 0
   /// How many times it was told to play.
   played = 0
+  paused = true
+  pause() { this.paused = true }
   play() { this.played += 1; return Promise.resolve() }
   constructor(public tagName: string, public ownerDocument: Page) {}
   get nodeName() { return this.tagName }

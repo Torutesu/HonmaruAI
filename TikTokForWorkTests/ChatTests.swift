@@ -723,3 +723,74 @@ final class ChatStoreFailureTests: XCTestCase {
         XCTAssertEqual(app.currentUser?.teamID, "org-offline")
     }
 }
+
+/// Pure transformations used by live events, optimistic updates and reloads.
+final class ChatLiveConsistencyTests: XCTestCase {
+    private func message(_ id: String, _ body: String) -> ChatMessage {
+        ChatMessage(id: id, channel: "b:general", kind: "message", body: body, mine: false, createdAt: "2026-10-01T09:00:00Z")
+    }
+
+    func testQuoteRefreshDoesNotNeedTheOriginalInTheLoadedPage() {
+        var original = message("original", "old words")
+        var reply = message("reply", "answer")
+        reply.replyTo = ChatQuote(of: original)
+        original.body = "corrected words"
+        XCTAssertEqual(reply.refreshingQuotes(from: original).replyTo?.excerpt, "corrected words")
+        original.deleted = true
+        let deleted = reply.refreshingQuotes(from: original).replyTo
+        XCTAssertEqual(deleted?.excerpt, "")
+        XCTAssertEqual(deleted?.deleted, true)
+        XCTAssertEqual(reply.refreshingQuotes(from: message("unrelated", "keep")).replyTo, reply.replyTo)
+        var otherWorkspaceChannel = original
+        otherWorkspaceChannel.channel = "b:other"
+        XCTAssertEqual(reply.refreshingQuotes(from: otherWorkspaceChannel).replyTo, reply.replyTo)
+    }
+
+    func testReactionOverlayKeepsConcurrentParticipantsAndZeroCountPendingRemoval() {
+        var m = message("reaction", "hello")
+        m.reactions = [ChatReaction(emoji: "👍", count: 1, refs: ["other"], mine: false)]
+        let pending = m.settingReaction("👍", mine: true, myRef: "me", status: "pending")
+        XCTAssertEqual(pending.reactions?.first?.count, 2)
+        XCTAssertEqual(pending.reactions?.first?.refs, ["other", "me"])
+        let repeated = pending.settingReaction("👍", mine: true, myRef: "me", status: "pending")
+        XCTAssertEqual(repeated.reactions?.first?.count, 2)
+        let removed = repeated.settingReaction("👍", mine: false, myRef: "me")
+        XCTAssertEqual(removed.reactions?.first?.refs, ["other"])
+        XCTAssertEqual(removed.reactions?.first?.count, 1)
+        let alone = message("alone", "hi").settingReaction("❤️", mine: true, myRef: "me")
+        let removing = alone.settingReaction("❤️", mine: false, myRef: "me", status: "pending")
+        XCTAssertEqual(removing.reactions?.first?.count, 0)
+        XCTAssertEqual(removing.reactions?.first?.status, "pending")
+        XCTAssertTrue(removing.settingReaction("❤️", mine: false, myRef: "me").reactions?.isEmpty == true)
+    }
+}
+
+final class ChatThreadPageTests: XCTestCase {
+    func testLegacyAndPagedThreadMetadataDecode() throws {
+        let parent = ChatMessage(id: "root", channel: "b:general", kind: "message", body: "hello", mine: false, createdAt: "2026-10-01T09:00:00Z")
+        let legacy = try JSONDecoder().decode(ChatThread.self, from: JSONEncoder().encode(ChatThread(parent: parent, replies: [])))
+        XCTAssertFalse(legacy.hasOlder)
+        XCTAssertNil(legacy.nextCursor)
+        let page = try JSONDecoder().decode(ChatThread.self, from: JSONEncoder().encode(ChatThread(parent: parent, replies: [], more: true, nextCursor: "opaque-next-page")))
+        XCTAssertTrue(page.hasOlder)
+        XCTAssertEqual(page.nextCursor, "opaque-next-page")
+    }
+}
+
+final class ChatThreadReferenceResponseTests: XCTestCase {
+    func testBoundedAndLegacyReferenceResponsesSelectTheSameAuthorizedReply() throws {
+        let parent = ChatMessage(id: "root", channel: "b:general", kind: "message", body: "hello", mine: false, createdAt: "2026-10-01T09:00:00Z")
+        var reply = ChatMessage(id: "reply", channel: "b:general", kind: "message", body: "answer", mine: false, createdAt: parent.createdAt, parentId: parent.id)
+        let legacyData = try JSONEncoder().encode(ChatThread(parent: parent, replies: [reply]))
+        let legacy = try JSONDecoder().decode(ChatThreadReferenceResponse.self, from: legacyData)
+        XCTAssertEqual(try legacy.message(channel: parent.channel, parentId: parent.id, messageId: reply.id), reply)
+        XCTAssertThrowsError(try legacy.message(channel: parent.channel, parentId: "another-root", messageId: reply.id))
+        let boundedData = try JSONSerialization.data(withJSONObject: ["reference": JSONSerialization.jsonObject(with: JSONEncoder().encode(reply))])
+        let bounded = try JSONDecoder().decode(ChatThreadReferenceResponse.self, from: boundedData)
+        XCTAssertEqual(try bounded.message(channel: parent.channel, parentId: parent.id, messageId: reply.id), reply)
+        reply.deleted = true
+        let deletedData = try JSONEncoder().encode(ChatThread(parent: parent, replies: [reply]))
+        let deleted = try JSONDecoder().decode(ChatThreadReferenceResponse.self, from: deletedData)
+        XCTAssertThrowsError(try deleted.message(channel: parent.channel, parentId: parent.id, messageId: reply.id))
+    }
+}

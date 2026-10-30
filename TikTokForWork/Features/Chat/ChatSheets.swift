@@ -21,13 +21,15 @@ struct ChatThreadSheet: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var attached: [ChatFile] = []
     @State private var uploading = 0
+    @State private var mediaSelection = UUID()
     /// Photos were picked past what one reply carries, and left out.
     @State private var photoLimitNote = false
     @FocusState private var focused: Bool
+    @AccessibilityFocusState private var referenceButtonFocused: Bool
     /// Whether the newest reply is in view. There, what arrives is scrolled
     /// to; up in the earlier replies, the place is kept and what arrived is
     /// counted on the way back down.
-    @State private var atBottom = true
+    @State private var atBottom = false
     @State private var unseen = 0
     /// The reply the next one answers, inline (swiped, or Reply).
     @State private var replyingTo: ChatMessage?
@@ -47,7 +49,7 @@ struct ChatThreadSheet: View {
                             // While the replies are read: the count the
                             // conversation already showed, and that they are
                             // coming — not "0 replies" over an empty sheet.
-                            let known = store.threadLoading || store.threadFailed ? max(t.replies.count, t.parent.replyCount ?? 0) : t.replies.count
+                            let known = store.threadLoading || store.threadFailed || t.hasOlder ? max(t.replies.count, t.parent.replyCount ?? 0) : t.replies.count
                             Text(known == 1 ? String(localized: "1 reply") : String(localized: "\(known) replies"))
                                 .font(.caption.weight(.semibold)).foregroundStyle(Theme.Colors.textSecondary)
                             if store.threadLoading && t.replies.count < known {
@@ -57,6 +59,7 @@ struct ChatThreadSheet: View {
                             VStack { Divider() }
                         }.padding(.horizontal, 16).padding(.vertical, 8)
                         if store.threadFailed { failedNote(t.parent) }
+                        historyControls(t, proxy: proxy)
                         ForEach(t.replies) { row($0) }
                         // The replies still on their way, in their shape.
                         if store.threadLoading, (t.parent.replyCount ?? 0) > t.replies.count {
@@ -71,6 +74,7 @@ struct ChatThreadSheet: View {
                 } else if store.threadFailed {
                     failedNote(nil)
                 } else {
+                    Text("Loading thread…").font(.caption).accessibilityAddTraits(.updatesFrequently)
                     ChatSkeletonMessages(count: 4).padding(.top, 8)
                 }
             }
@@ -78,12 +82,15 @@ struct ChatThreadSheet: View {
             .modifier(ChatTracksBottom(atBottom: $atBottom))
             // A reply arriving: followed when the newest was in view, or when
             // it is your own; otherwise left below and counted.
-            .onChange(of: store.thread?.replies.count ?? 0) { old, new in
-                guard new > old, let t = store.thread else { return }
+            .onChange(of: store.thread?.replies.last?.id) { old, new in
+                guard new != nil, new != old, let old, let t = store.thread,
+                      let previous = t.replies.firstIndex(where: { $0.id == old }) else { return }
+                let arrived = t.replies.count - previous - 1
+                guard arrived > 0 else { return }
                 if atBottom || t.replies.last?.mine == true {
                     withAnimation { proxy.scrollTo(Self.bottom, anchor: .bottom) }
                 } else {
-                    unseen += new - old
+                    unseen += arrived
                 }
             }
             .onChange(of: store.thread.map { store.thinking[$0.parent.channel] != nil } ?? false) { _, _ in
@@ -95,7 +102,11 @@ struct ChatThreadSheet: View {
             .onChange(of: quoteJump) { _, id in
                 guard let id else { return }
                 quoteJump = nil
-                withAnimation { proxy.scrollTo(id, anchor: .center) }
+                if store.thread?.replies.contains(where: { $0.id == id }) == true || store.thread?.parent.id == id {
+                    withAnimation { proxy.scrollTo(id, anchor: .center) }
+                } else {
+                    Task { await store.loadThreadReference(id) }
+                }
             }
             // Opened at one reply (Search, Activity, Sent, a notification):
             // there, marked for a moment, once the replies have been read.
@@ -103,8 +114,11 @@ struct ChatThreadSheet: View {
                 guard found, let id = store.threadJump else { return }
                 store.threadJump = nil
                 highlight = id
+                let target = store.thread?.parent.id
+                let presentation = store.threadPresentation
                 Task {
                     try? await Task.sleep(for: .milliseconds(300))
+                    guard !Task.isCancelled, store.threadPresentation == presentation, store.thread?.parent.id == target else { return }
                     withAnimation { proxy.scrollTo(id, anchor: .center) }
                     try? await Task.sleep(for: .seconds(1.6))
                     if highlight == id { withAnimation { highlight = nil } }
@@ -167,9 +181,13 @@ struct ChatThreadSheet: View {
                             guard !taken.isEmpty else { return }
                             // Their places are kept from now, before the first has gone up.
                             uploading += taken.count
+                            guard let origin = store.mediaScope(channel), let parentId = store.thread?.parent.id else { uploading -= taken.count; return }
+                            let selection = mediaSelection
                             Task {
-                                for file in await ChatPhotos.upload(taken, to: channel, store: store) { attached.append(file) }
-                                uploading -= taken.count
+                                let files = await ChatPhotos.upload(taken, origin: origin, store: store)
+                                guard store.isCurrent(origin), mediaSelection == selection, store.thread?.parent.id == parentId else { return }
+                                attached.append(contentsOf: files)
+                                uploading = max(0, uploading - taken.count)
                             }
                         }
                         TextField("Reply… — @AI to ask the AI", text: $draft, axis: .vertical)
@@ -215,25 +233,64 @@ struct ChatThreadSheet: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { CloseButton { dismiss() } } }
             // Its message deleted, the thread went with it: nothing left to show.
             .onChange(of: store.thread?.parent.id, initial: true) { old, new in
+                mediaSelection = UUID(); attached = []; uploading = 0
                 alsoChannel = false
-                atBottom = true
+                atBottom = false
                 unseen = 0
                 replyingTo = nil
                 // A reply half-written in a thread is kept, per thread, and
                 // is there again when the thread is opened again.
                 draft = new.map { store.draft("thread:\($0)") } ?? ""
-                if old != nil && new == nil { dismiss() }
+                if old != nil && new == nil && !store.threadLoading { dismiss() }
             }
             .onChange(of: draft) { _, text in
                 if let id = store.thread?.parent.id { store.setDraft("thread:\(id)", text) }
             }
             .sheet(item: $reactingTo) { m in ChatEmojiPicker { e in Task { await store.react(m, e) } } }
+            .sheet(item: $store.threadReference, onDismiss: { referenceButtonFocused = true }) { message in
+                ChatThreadReferenceSheet(message: message) { store.threadReference = nil }
+            }
             }
         }
         // Everyone's photos and the workspace's emoji, however the sheet was opened.
+        .onDisappear { mediaSelection = UUID(); attached = []; uploading = 0; store.closeThread() }
         .environment(\.chatAssets, store.assets)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    @ViewBuilder
+    private func historyControls(_ t: ChatThread, proxy: ScrollViewProxy) -> some View {
+        if let reference = store.threadReferenceId {
+            VStack(alignment: .leading, spacing: 4) {
+                if store.threadReferenceLoading {
+                    ProgressView("Loading linked reply…")
+                } else {
+                    if store.threadReferenceFailed { Text("That reply is unavailable. It may have been deleted, or you may no longer have access.").font(.caption) }
+                    Button(store.threadReferenceFailed ? "Try linked reply again" : "View linked reply") {
+                        Task { await store.loadThreadReference(reference) }
+                    }
+                    .accessibilityFocused($referenceButtonFocused)
+                }
+            }.padding(.horizontal, 16).padding(.vertical, 8)
+        }
+        if t.hasOlder || store.threadOlderFailed {
+            Button {
+                let anchor = t.replies.first?.id
+                let presentation = store.threadPresentation
+                Task {
+                    await store.loadOlderThread()
+                    guard store.threadPresentation == presentation, store.thread?.parent.id == t.parent.id, let anchor else { return }
+                    proxy.scrollTo(anchor, anchor: .top)
+                }
+            } label: {
+                if store.threadOlderLoading { ProgressView("Loading earlier replies…") }
+                else { Text(store.threadOlderFailed ? "Couldn't load earlier replies. Try again" : "Load earlier replies") }
+            }
+            .disabled(store.threadOlderLoading)
+            .font(.caption.weight(.semibold)).padding(.horizontal, 16).padding(.vertical, 8)
+            .accessibilityIdentifier("threadLoadOlder")
+        }
     }
 
     private static let bottom = "threadBottom"
@@ -256,7 +313,7 @@ struct ChatThreadSheet: View {
     /// The quote the next reply carries, of that reply as it is now.
     private var replyQuote: ChatQuote? {
         guard let r = replyingTo else { return nil }
-        return ChatQuote(of: store.thread?.replies.first { $0.id == r.id } ?? r)
+        return store.quote(of: r)
     }
 
     /// Answer this one. Every reply here answers the thread's first message
@@ -272,11 +329,16 @@ struct ChatThreadSheet: View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.Colors.textTertiary)
             Text("Couldn't load the replies.").font(.caption).foregroundStyle(Theme.Colors.textSecondary)
-            if let parent {
-                Button("Try again") { Task { await store.openThread(parent) } }.font(.caption.weight(.semibold))
-            }
+            Button("Try again") {
+                Task {
+                    if let parent { await store.openThread(parent) }
+                    else { await store.retryThread() }
+                }
+            }.font(.caption.weight(.semibold))
             Spacer(minLength: 0)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Could not load the current thread. Try again.")
         .padding(.horizontal, 16).padding(.vertical, parent == nil ? 40 : 6)
     }
 
@@ -1158,26 +1220,27 @@ enum ChatPhotos {
     /// time rather than one after another; the files come back in the order
     /// picked.
     @MainActor
-    static func upload(_ items: [PhotosPickerItem], to view: String, store: ChatStore) async -> [ChatFile] {
+    static func upload(_ items: [PhotosPickerItem], origin: ChatStore.MediaScope, store: ChatStore) async -> [ChatFile] {
         let stamp = Int(Date().timeIntervalSince1970)
         return await withTaskGroup(of: (Int, ChatFile?).self) { group in
             for (i, item) in items.enumerated() {
                 group.addTask { @MainActor in
+                    guard store.isCurrent(origin) else { return (i, nil) }
                     if ChatPhotos.isVideo(item) {
                         guard let picked = try? await item.loadTransferable(type: PickedVideo.self) else { return (i, nil) }
                         defer { try? FileManager.default.removeItem(at: picked.url) }
                         guard let video = await ChatPhotos.preparedVideo(picked.url) else {
-                            store.error = String(localized: "That video is too long to send. A file can be at most 25 MB.")
+                            if store.isCurrent(origin) { store.error = String(localized: "That video is too long to send. A file can be at most 25 MB.") }
                             return (i, nil)
                         }
                         let name = "video-\(stamp)-\(i + 1).mp4"
-                        return (i, await store.upload(view, data: video.mp4, type: "video/mp4", name: name, width: video.width, height: video.height))
+                        return (i, await store.upload(origin, data: video.mp4, type: "video/mp4", name: name, width: video.width, height: video.height))
                     }
                     guard let data = try? await item.loadTransferable(type: Data.self) else { return (i, nil) }
                     let ready = await Task.detached(priority: .userInitiated) { ChatPhotos.prepared(data) }.value
                     guard let photo = ready else { return (i, nil) }
                     let name = "photo-\(stamp)-\(i + 1).jpg"
-                    return (i, await store.upload(view, data: photo.jpeg, type: "image/jpeg", name: name, width: photo.width, height: photo.height))
+                    return (i, await store.upload(origin, data: photo.jpeg, type: "image/jpeg", name: name, width: photo.width, height: photo.height))
                 }
             }
             var done: [(Int, ChatFile)] = []
@@ -1267,6 +1330,30 @@ struct ChatAttachedStrip: View {
     }
 }
 
+/// A bounded source lookup, read separately from the thread's contiguous history.
+private struct ChatThreadReferenceSheet: View {
+    let message: ChatMessage
+    let onClose: () -> Void
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(verbatim: message.authorName ?? "Someone").font(.headline)
+                    Text(message.date, style: .date).font(.caption).foregroundStyle(Theme.Colors.textSecondary)
+                    Text(ChatText.attributed(message.body)).textSelection(.enabled)
+                    if let quote = message.replyTo {
+                        Text(quote.deleted ? String(localized: "Original message was deleted") : quote.excerpt).font(.footnote).foregroundStyle(Theme.Colors.textSecondary)
+                    }
+                    ForEach(message.files ?? []) { file in Label(file.name, systemImage: "paperclip") }
+                }.frame(maxWidth: .infinity, alignment: .leading).padding()
+            }
+            .navigationTitle("Linked reply").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { CloseButton { onClose() } } }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
 /// The open thread, read as it is seen: a reply arriving while the newest
 /// is in view, coming back down to the newest, and coming back to the app
 /// with the thread open (ChatStore.readOpenThread). Apart from the sheet's
@@ -1277,12 +1364,22 @@ private struct ReadsOpenThread: ViewModifier {
     @Environment(\.scenePhase) private var scenePhase
 
     private func read() {
-        guard atBottom, scenePhase == .active else { return }
-        Task { await store.readOpenThread() }
+        guard atBottom, scenePhase == .active, store.threadReference == nil, !store.threadReferenceLoading, store.threadJump == nil else { return }
+        let target = store.thread?.parent.id
+        let presentation = store.threadPresentation
+        Task {
+            guard !Task.isCancelled, atBottom, store.threadPresentation == presentation, store.thread?.parent.id == target else { return }
+            await store.readOpenThread()
+        }
     }
 
     func body(content: Content) -> some View {
         content
+            .onAppear { read() }
+            .onChange(of: store.threadReference?.id) { _, _ in read() }
+            .onChange(of: store.threadReferenceLoading) { _, _ in read() }
+            .onChange(of: store.thread?.parent.id) { _, _ in read() }
+            .onChange(of: store.threadLoading) { _, _ in read() }
             .onChange(of: store.thread?.replies.count ?? 0) { _, _ in read() }
             .onChange(of: atBottom) { _, _ in read() }
             .onChange(of: scenePhase) { _, _ in read() }

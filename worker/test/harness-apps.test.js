@@ -443,6 +443,23 @@ test('view filters and arbitrary-column groups compute the same rows for all cli
   expect(computeView({type:'table',filters:[{column:'n',op:'empty',value:''}]},{columns},[{id:'z',values:{n:0}},{id:'e',values:{}}]).rows.map(r=>r.id)).toEqual(['e']);
 });
 
+test('relation filters compare linked record IDs and treat empty multi-relations as empty',()=>{
+ const columns=[{id:'company',name:'Company',type:'relation'},{id:'watchers',name:'Watchers',type:'relation',multiple:true}];
+ const rows=[
+  {id:'a',values:{company:'acme',watchers:['acme','north']}},
+  {id:'b',values:{company:'north',watchers:['north']}},
+  {id:'c',values:{company:null,watchers:[]}},
+  {id:'d',values:{}},
+ ];
+ const select=(column,op,value)=>computeView({type:'table',filters:[{column,op,value}]},{columns},rows).rows.map(row=>row.id);
+ expect(select('company','eq','acme')).toEqual(['a']);
+ expect(select('company','neq','acme')).toEqual(['b','c','d']);
+ expect(select('watchers','eq','north')).toEqual(['a','b']);
+ expect(select('watchers','contains','acme')).toEqual(['a']);
+ expect(select('watchers','empty','')).toEqual(['c','d']);
+ expect(select('watchers','not_empty','')).toEqual(['a','b']);
+});
+
 test('stale view edits do not replace newer definitions', async () => {
   const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
   expect((await send('PUT',`/apps/${app.id}`,toru,{orgId:ORG,expectedVersion:app.version,name:'New name'})).status).toBe(200);
