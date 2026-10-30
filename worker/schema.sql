@@ -1917,6 +1917,23 @@ CREATE TABLE IF NOT EXISTS hx_gateways (id TEXT PRIMARY KEY, org_id TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS hx_gateway_jobs (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, gateway_id TEXT NOT NULL REFERENCES hx_gateways(id), created_by TEXT NOT NULL, request_id TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL, result TEXT, lease_hash TEXT, lease_until INTEGER, deadline INTEGER, created_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER, UNIQUE(org_id, created_by, request_id));
 CREATE INDEX IF NOT EXISTS hx_gateway_jobs_queue ON hx_gateway_jobs(gateway_id, status, created_at);
 
+/* Workspace-managed outbound MCP connections. Authentication headers are
+   sealed under DATA_KEY; each connection has an explicit tool allowlist. */
+CREATE TABLE IF NOT EXISTS hx_remote_mcp_servers (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  auth_headers TEXT NOT NULL DEFAULT '[]',
+  tools_json TEXT NOT NULL DEFAULT '[]',
+  allowed_tools TEXT NOT NULL DEFAULT '[]',
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  connected_at TEXT
+);
+CREATE INDEX IF NOT EXISTS hx_remote_mcp_org ON hx_remote_mcp_servers(org_id, created_at);
+
 /* Company Harness app capabilities; all resources retain the app ACL. */
 CREATE TABLE IF NOT EXISTS hx_app_database_state (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, version INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(org_id,app_id));
 CREATE TABLE IF NOT EXISTS hx_app_entities (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, entity_key TEXT NOT NULL, table_id TEXT NOT NULL UNIQUE, PRIMARY KEY(org_id,app_id,entity_key));

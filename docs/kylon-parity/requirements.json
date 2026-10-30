@@ -904,11 +904,17 @@
       "id": "KY-077",
       "category": "Connections",
       "requirement": "Remote MCP任意サーバー",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/proxy/tools-api",
-      "code": null,
-      "acceptance": "OAuth/API key・tool一覧・schema・SSRF制限・失効"
+      "code": "worker/src/harness/remoteMcp.js",
+      "acceptance": "OAuth/API key・tool一覧・schema・SSRF制限・失効",
+      "evidence": {
+        "reviewedAt": "2026-10-31",
+        "implementedScope": "Harness-only workspace Remote MCP connections support encrypted bearer/custom headers, Streamable HTTP initialization and tool discovery/calls, explicit tool allowlists, HTTPS/public-host checks, redirect and size limits, admin-only management, execute-scoped agent access, audit events and disconnect.",
+        "remaining": "OAuth 2.1 discovery/client registration and DNS-pinned egress are not implemented; nonstandard ports and URL query parameters are rejected.",
+        "verification": "worker/test/remote-mcp.test.js"
+      }
     },
     {
       "id": "KY-078",
@@ -923,7 +929,7 @@
         "reviewedAt": "2026-10-18",
         "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
         "implementedScope": "Six supported API hosts, fixed operations, encrypted credentials, bounded response/time and ambiguous-write retry suppression are implemented.",
-        "remaining": "Arbitrary hosts and MCP connections are not implemented.",
+        "remaining": "Arbitrary custom API hosts are not implemented. Remote MCP is tracked separately under KY-077.",
         "verification": "docs/kylon-parity/verification.md"
       }
     },

@@ -13,6 +13,7 @@ import { enforceSubject } from "./ratelimit.js";
 import { listMemories } from "./memory.js";
 import { safe } from "./log.js";
 import { isGuest, accessFor } from "./access.js";
+import { remoteMcpTools } from "./harness/remoteMcp.js";
 
 // Any agent can ask a person for a decision.
 //
@@ -60,12 +61,13 @@ export function hasScope(scopes, scope) {
   return Array.isArray(scopes) && scopes.includes(scope);
 }
 
-const scopeOfTool = (name) => TOOL_SCOPE[name] || HARNESS_TOOL_SCOPE[name] || "read";
+const scopeOfTool = (name) => name.startsWith("mcp_") ? "execute" : TOOL_SCOPE[name] || HARNESS_TOOL_SCOPE[name] || "read";
 
 /// The harness's tools (harness/mcpTools.js), for a workspace in harness
 /// mode only: a simple workspace's agents see the six tools they always did.
 async function harnessTools(env, agent) {
-  return (await getMode(env.DB, agent.orgId).catch(() => "simple")) === "harness" ? HARNESS_TOOLS : [];
+  if ((await getMode(env.DB, agent.orgId).catch(() => "simple")) !== "harness") return [];
+  return [...HARNESS_TOOLS, ...(await remoteMcpTools(env.DB, agent.orgId).catch(() => []))];
 }
 
 function randomToken() {
@@ -397,7 +399,9 @@ async function handleMessage(env, agent, msg, request, ctx = null) {
       return isNotification ? null : rpcResult(msg.id, {});
     case "tools/list":
       // Only what this token may call.
-      return rpcResult(msg.id, { tools: [...TOOLS, ...(await harnessTools(env, agent))].filter((t) => hasScope(agent.scopes, scopeOfTool(t.name))) });
+      return rpcResult(msg.id, { tools: [...TOOLS, ...(await harnessTools(env, agent))]
+        .filter((t) => hasScope(agent.scopes, scopeOfTool(t.name)))
+        .map(({ name, title, description, inputSchema }) => ({ name, title, description, inputSchema })) });
     case "tools/call": {
       const name = typeof params.name === "string" ? params.name : "";
       const args = params.arguments && typeof params.arguments === "object" ? params.arguments : {};
