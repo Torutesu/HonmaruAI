@@ -59,7 +59,7 @@ test('annotation dialog requires a comment and submits trimmed text',async()=>{
  const onSubmit=vi.fn(),onCancel=vi.fn();let tree:ReturnType<typeof create>
  await act(async()=>{tree=create(<AppAnnotationDialog selection={{target:'Task name',x:30,y:50,rect:{left:22,top:44,width:18,height:5}}} appName="Tasks" section="データビューアー" context="Tasks · All records" onCancel={onCancel} onSubmit={onSubmit}/>)});
  expect(tree!.root.findByProps({role:'dialog'}).props['aria-modal']).toBe('false')
- expect(tree!.root.findByProps({className:'hx-annotation-highlight'}).props.style).toEqual({left:22,top:44,width:18,height:5})
+ expect(tree!.root.findByProps({className:'hx-annotation-highlight'}).props.style).toEqual({left:'22%',top:'44%',width:'18%',height:'5%'})
  expect(tree!.root.findByProps({className:'hx-annotation-context'}).children.join('')).toBe('Tasks · All records · Task name')
  expect(tree!.root.findByType('textarea').props.placeholder).toBe('どのように修正しますか？')
  const submit=()=>tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})
