@@ -899,12 +899,25 @@ test('an app record workflow stops its Agent after its maker loses app access du
     steps: [{ type: 'agent', agentId: agent.id, channel: 'b:ops', prompt: 'Review the changed record.' }],
   }, '9302');
   let requestBody;
+  let requestAborted = false;
   fetchMock.activate();
-  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, async opts => {
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(async opts => {
     requestBody = JSON.parse(opts.body);
-    await env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)
-      ON CONFLICT(org_id,app_id) DO UPDATE SET visibility='private',version=version+1`).bind(ORG, sourceApp.id).run();
-    return { choices: [{ message: { content: 'This private app reply must not be published.' } }], usage: { prompt_tokens: 10, completion_tokens: 4 } };
+    return await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Provider request was not aborted after source access was removed.')), 10000);
+      opts.signal.addEventListener('abort', () => {
+        requestAborted = true;
+        clearTimeout(timeout);
+        reject(new Error('Provider request aborted after source access was removed.'));
+      }, { once: true });
+      setTimeout(() => {
+        env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)
+          ON CONFLICT(org_id,app_id) DO UPDATE SET visibility='private',version=version+1`).bind(ORG, sourceApp.id).run().catch(error => {
+            clearTimeout(timeout);
+            reject(error);
+          });
+      }, 10);
+    });
   });
   try {
     const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, {
@@ -917,6 +930,8 @@ test('an app record workflow stops its Agent after its maker loses app access du
     expect(result.status).toBe('failed');
     expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
     expect((await messages(mika)).map(message => message.body)).not.toContain('This private app reply must not be published.');
+    expect(requestAborted).toBe(true);
+    expect(result.usage).toMatchObject({ calls: 1, unknownCalls: 1, unpricedCalls: 1 });
     expect(requestBody.messages.some(message => message.content?.includes('Review the changed record.'))).toBe(true);
     fetchMock.assertNoPendingInterceptors();
   } finally { fetchMock.deactivate(); }
