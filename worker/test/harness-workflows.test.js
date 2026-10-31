@@ -1017,6 +1017,46 @@ test('a personal-agent follow-up reads connected sources before reporting and ne
     .toMatchObject({ status: 'done', result: expect.stringContaining('https://linear.app/acme/issue/INV-7') });
 });
 
+test('a personal-agent follow-up drops native-source results if its grant is revoked before the model responds', async () => {
+  const agent = (await (await send('POST', '/channels/agents', mika, { orgId: ORG, name: 'Payroll checker', handle: 'payroll-checker', instructions: 'Check the policy.', scope: 'personal' })).json()).agent;
+  const at = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO connector_sync_state (user_github_id,synced_at,org_id) VALUES ('9302',?1,?2)").bind(at, ORG).run();
+  await env.DB.prepare("INSERT INTO connector_config (user_github_id,connector,config,updated_at) VALUES ('9302','notion',?1,?2)")
+    .bind(JSON.stringify({ connected: true }), at).run();
+  const grant = await call(`/hx/agents/${agent.id}/apps`, {
+    method: 'POST', headers: headers(mika), body: JSON.stringify({ orgId: ORG, source: 'notion' }),
+  }, { COMPOSIO_API_KEY: 'ck-test' });
+  expect(grant.status).toBe(200);
+
+  const followupId = 'fu_native_grant_revoke';
+  await env.DB.prepare(`INSERT INTO hx_followups (id,org_id,channel,agent_id,instruction,due_at,status,created_by,created_at)
+    VALUES (?1,?2,?3,?4,'Check the payroll policy',?5,'scheduled','9302',?6)`)
+    .bind(followupId, ORG, `ag:${agent.id}|mika`, agent.id, new Date(Date.now() + 60_000).toISOString(), at).run();
+
+  fetchMock.activate();
+  fetchMock.get('https://backend.composio.dev').intercept({ path: '/api/v3/tools/execute/NOTION_SEARCH_NOTION_PAGE', method: 'POST' })
+    .reply(200, { results: [{ response: { data: { results: [{
+      properties: { Title: { type: 'title', title: [{ plain_text: 'Private payroll policy' }] }, Notes: { type: 'rich_text', rich_text: [{ plain_text: 'Confidential details.' }] } },
+      url: 'https://notion.so/private-payroll-policy',
+    }] } } }] });
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, {
+    choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'private-search', type: 'function', function: { name: 'search_notion', arguments: JSON.stringify({ query: 'payroll policy' }) } }] } }],
+    usage: { prompt_tokens: 10, completion_tokens: 3 },
+  });
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, async () => {
+    await env.DB.prepare("DELETE FROM hx_agent_source_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9302' AND source='notion'").bind(ORG, agent.id).run();
+    return { choices: [{ message: { content: 'Private payroll policy: confidential details.' } }], usage: { prompt_tokens: 20, completion_tokens: 8 } };
+  });
+  try {
+    const ran = await runDueFollowups({ ...env, OPENAI_API_KEY: 'sk-test', COMPOSIO_API_KEY: 'ck-test' }, { now: new Date(Date.now() + 120_000) });
+    expect(ran).toBe(0);
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+  expect(await env.DB.prepare('SELECT status,result FROM hx_followups WHERE id=?1').bind(followupId).first())
+    .toMatchObject({ status: 'failed', result: 'The follow-up did not receive a result. No completion was posted.' });
+  expect((await messages(mika)).some(message => /Private payroll policy|confidential details/i.test(message.body))).toBe(false);
+});
+
 test("a follow-up with no model result fails instead of posting its instruction as a completed answer", async () => {
   const made = await (await send("POST", "/followups", mika, { orgId: ORG, channel: "b:ops", instruction: "Verify the invoice payment", minutes: 1 })).json();
   fetchMock.activate();
