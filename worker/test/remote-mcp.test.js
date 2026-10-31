@@ -4,6 +4,7 @@ import { fetchMock } from "./helpers/fetch-mock.js";
 import worker from "../src/index.js";
 import { agentTools } from "../src/agentTools.js";
 import { cleanHeaders, cleanTools, safeEndpoint, toolName } from "../src/harness/remoteMcp.js";
+import { remoteMcpOAuthStatus } from "../src/harness/remoteMcpOAuth.js";
 
 const ORG = "personal:remote-mcp";
 let session;
@@ -56,6 +57,155 @@ test("Remote MCP headers and tool schemas are bounded and reject reserved or dup
   expect(toolName("0f1e2d3c-4b5a", "find files")).toBe(toolName("0f1e2d3c-4b5a", "find files"));
 });
 
+test("OAuth Remote MCP uses PKCE, validates issuer and redirect, and keeps each member's token private", async () => {
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  const secureEnv = { ...env, DATA_KEY: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))) };
+  const secureCall = (path, init) => worker.fetch(new Request(`https://example.com${path}`, init), secureEnv);
+  await upsertUser(env.DB, { githubId: "9552", login: "remote-reader", name: "Remote Reader" });
+  await upsertMembership(env.DB, ORG, "9552", "member");
+  await secureCall("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
+  const endpoint = "https://mcp-oauth.example.com/mcp";
+  const serverRes = await secureCall("/remote-mcp", {
+    method: "POST", headers: headers(session),
+    body: JSON.stringify({ orgId: ORG, name: "OAuth MCP", endpoint, authMode: "oauth", oauthRegistration: "auto", headers: [] }),
+  });
+  expect(serverRes.status).toBe(201);
+  const { server } = await serverRes.json();
+  const origin = "https://mcp-oauth.example.com";
+  const authOrigin = "https://auth-oauth.example.com";
+  const cimdOrigin = "https://example.com";
+  const mcp = fetchMock.get(origin);
+  const auth = fetchMock.get(authOrigin);
+  mcp.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "initialize" })
+    .reply(401, "", { "www-authenticate": 'Bearer resource_metadata="https://mcp-oauth.example.com/.well-known/oauth-protected-resource/mcp", scope="files:read"' }).times(2);
+  mcp.intercept({ path: "/.well-known/oauth-protected-resource/mcp", method: "GET" })
+    .reply(200, { resource: endpoint, authorization_servers: [authOrigin], scopes_supported: ["files:read"] }).times(2);
+  let metadataLookups = 0;
+  auth.intercept({ path: "/.well-known/oauth-authorization-server", method: "GET" })
+    .reply(() => {
+      metadataLookups += 1;
+      return {
+        statusCode: 200,
+        data: {
+          issuer: authOrigin,
+          authorization_endpoint: `${authOrigin}/authorize?tenant=honmaru`,
+          token_endpoint: `${authOrigin}/token`,
+          registration_endpoint: `${authOrigin}/register`,
+          code_challenge_methods_supported: ["S256"],
+          token_endpoint_auth_methods_supported: [metadataLookups === 1 ? "client_secret_basic" : "none"],
+          authorization_response_iss_parameter_supported: true,
+          ...(metadataLookups > 1 ? { client_id_metadata_document_supported: true } : {}),
+        },
+      };
+    }).times(2);
+  auth.intercept({ path: "/register", method: "POST", body: (body) => {
+    const data = JSON.parse(body);
+    return data.client_name === "Honmaru AI" && data.application_type === "web" && data.token_endpoint_auth_method === "client_secret_basic" && data.redirect_uris?.[0] === "https://example.com/remote-mcp/oauth/callback";
+  } }).reply(201, { client_id: "honmaru-mcp-client", client_secret: "honmaru-mcp-secret", token_endpoint_auth_method: "client_secret_basic" });
+  auth.intercept({ path: "/token", method: "POST", body: (body) => {
+    const data = new URLSearchParams(body);
+    return data.has("client_id") === false && data.has("client_secret") === false
+      && data.get("resource") === endpoint
+      && ((data.get("grant_type") === "authorization_code" && Boolean(data.get("code_verifier")))
+        || (data.get("grant_type") === "refresh_token" && data.get("refresh_token") === "private-refresh-token"));
+  } }).reply((opts) => {
+    expect(opts.headers.authorization).toBe(`Basic ${btoa("honmaru-mcp-client:honmaru-mcp-secret")}`);
+    const form = new URLSearchParams(opts.body);
+    return { statusCode: 200, data: form.get("grant_type") === "refresh_token"
+      ? { access_token: "refreshed-user-token", refresh_token: "private-refresh-token", token_type: "Bearer", expires_in: 3600, scope: "files:read" }
+      : { access_token: "private-user-token", refresh_token: "private-refresh-token", token_type: "Bearer", expires_in: 1, scope: "files:read" } };
+  }).times(2);
+  fetchMock.activate();
+  try {
+    const start = await secureCall(`/remote-mcp/${server.id}/oauth/start`, {
+      method: "POST", headers: headers(session), body: JSON.stringify({ orgId: ORG }),
+    });
+    expect(start.status, await start.clone().text()).toBe(200);
+    const { authorizeUrl } = await start.json();
+    const metadataResponse = await secureCall("/.well-known/oauth-client", { method: "GET" });
+    expect(metadataResponse.status).toBe(200);
+    expect(await metadataResponse.json()).toMatchObject({
+      client_id: `${cimdOrigin}/.well-known/oauth-client`,
+      redirect_uris: [`${cimdOrigin}/remote-mcp/oauth/callback`],
+      token_endpoint_auth_method: "none",
+    });
+    const authorize = new URL(authorizeUrl);
+    expect(authorize.searchParams.get("tenant")).toBe("honmaru");
+    expect(authorize.searchParams.get("response_type")).toBe("code");
+    expect(authorize.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(authorize.searchParams.get("resource")).toBe(endpoint);
+    expect(authorize.searchParams.get("scope")).toBe("files:read");
+    const state = authorize.searchParams.get("state");
+    const callback = await secureCall(`/remote-mcp/oauth/callback?state=${encodeURIComponent(state)}&code=approved-code&iss=${encodeURIComponent(authOrigin)}`, { method: "GET" });
+    expect(callback.status).toBe(200);
+    expect(await callback.text()).toContain("Connected");
+    const credentialRow = await env.DB.prepare("SELECT credential FROM hx_remote_mcp_oauth_credentials WHERE org_id=?1 AND server_id=?2 AND user_github_id='9551'")
+      .bind(ORG, server.id).first();
+    expect(credentialRow.credential.startsWith("enc:v2:")).toBe(true);
+    expect(await remoteMcpOAuthStatus(env.DB, ORG, server.id, "9551")).toBe(true);
+    expect(await remoteMcpOAuthStatus(env.DB, ORG, server.id, "9552")).toBe(false);
+
+    const secondStart = await secureCall(`/remote-mcp/${server.id}/oauth/start`, {
+      method: "POST", headers: headers(session), body: JSON.stringify({ orgId: ORG }),
+    });
+    const secondAuthorize = new URL((await secondStart.json()).authorizeUrl);
+    expect(secondAuthorize.searchParams.get("client_id")).toBe(`${cimdOrigin}/.well-known/oauth-client`);
+    const wrongIssuer = await secureCall(`/remote-mcp/oauth/callback?state=${encodeURIComponent(secondAuthorize.searchParams.get("state"))}&code=wrong-issuer-code&iss=${encodeURIComponent("https://attacker.example.com")}`, { method: "GET" });
+    expect(wrongIssuer.status).toBe(400);
+
+    const { callRemoteMcpTool } = await import("../src/harness/remoteMcp.js");
+    const tool = { name: "mcp_test_read", _remote: { serverId: server.id, toolName: "read" } };
+    await env.DB.prepare("UPDATE hx_remote_mcp_servers SET tools_json=?3,allowed_tools='[\"read\"]' WHERE org_id=?1 AND id=?2")
+      .bind(ORG, server.id, JSON.stringify([{ name: "read", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }])).run();
+    mcp.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "initialize" })
+      .reply((opts) => ({ statusCode: 200, data: { jsonrpc: "2.0", id: JSON.parse(opts.body).id, result: { protocolVersion: "2025-06-18" } }, responseOptions: { headers: { "mcp-session-id": "oauth-session" } } }));
+    mcp.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "notifications/initialized" }).reply(202, null);
+    mcp.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "tools/call" })
+      .reply((opts) => {
+        expect(opts.headers.authorization).toBe("Bearer refreshed-user-token");
+        return { statusCode: 200, data: { jsonrpc: "2.0", id: JSON.parse(opts.body).id, result: { content: [{ type: "text", text: "private result" }] } } };
+      });
+    const agent = { orgId: ORG, githubId: "9551", login: "remote-admin", name: "Remote Admin", agentName: "Research Agent" };
+    const result = await callRemoteMcpTool(secureEnv, agent, tool, {});
+    expect(result.content).toEqual([{ type: "text", text: "private result" }]);
+    const otherMember = await callRemoteMcpTool(secureEnv, { ...agent, githubId: "9552" }, tool, {});
+    expect(otherMember.isError).toBe(true);
+    expect(otherMember.content[0].text).toContain("own OAuth account");
+    fetchMock.assertNoPendingInterceptors();
+
+  } finally {
+    fetchMock.deactivate();
+  }
+});
+
+test("OAuth Remote MCP rejects a different resource identifier in protected-resource metadata", async () => {
+  const secureEnv = { ...env, DATA_KEY: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))) };
+  const secureCall = (path, init) => worker.fetch(new Request(`https://example.com${path}`, init), secureEnv);
+  await secureCall("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
+  const endpoint = "https://mcp-resource-mismatch.example.com/mcp";
+  const added = await secureCall("/remote-mcp", {
+    method: "POST", headers: headers(session),
+    body: JSON.stringify({ orgId: ORG, name: "Mismatched OAuth MCP", endpoint, authMode: "oauth", oauthRegistration: "auto", headers: [] }),
+  });
+  const { server } = await added.json();
+  const mcp = fetchMock.get("https://mcp-resource-mismatch.example.com");
+  mcp.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "initialize" })
+    .reply(401, "", { "www-authenticate": 'Bearer resource_metadata="https://mcp-resource-mismatch.example.com/.well-known/oauth-protected-resource/mcp"' });
+  mcp.intercept({ path: "/.well-known/oauth-protected-resource/mcp", method: "GET" })
+    .reply(200, { resource: "https://mcp-resource-mismatch.example.com/", authorization_servers: ["https://auth-resource-mismatch.example.com"] });
+  fetchMock.activate();
+  try {
+    const response = await secureCall(`/remote-mcp/${server.id}/oauth/start`, {
+      method: "POST", headers: headers(session), body: JSON.stringify({ orgId: ORG }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ message: "The OAuth resource metadata does not identify the configured MCP server." });
+    fetchMock.assertNoPendingInterceptors();
+  } finally {
+    fetchMock.deactivate();
+  }
+});
+
 test("Remote MCP is Harness-only and does not save credentials without encryption", async () => {
   const simple = await call(`/remote-mcp?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) });
   expect(simple.status).toBe(404);
@@ -76,6 +226,11 @@ test("Remote MCP is Harness-only and does not save credentials without encryptio
     body: JSON.stringify({ orgId: ORG, name: "Private MCP", endpoint: "https://mcp.example.com/mcp", headers: [{ name: "Authorization", value: "Bearer do-not-store" }] }),
   });
   expect(rejected.status).toBe(503);
+    const oauthRejected = await call("/remote-mcp", {
+      method: "POST", headers: headers(session),
+      body: JSON.stringify({ orgId: ORG, name: "Private OAuth MCP", endpoint: "https://mcp.example.com/oauth", authMode: "oauth", headers: [] }),
+    });
+    expect(oauthRejected.status).toBe(503);
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_remote_mcp_servers").first()).toMatchObject({ n: 0 });
 });
 

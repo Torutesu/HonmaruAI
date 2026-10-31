@@ -2,6 +2,7 @@ import { aad, openField, sealField } from "../secrets.js";
 import { audit } from "../audit.js";
 import { isPublicUrl } from "../links.js";
 import { getMode } from "./mode.js";
+import { disconnectRemoteMcpOAuth, remoteMcpOAuthAccessToken, remoteMcpOAuthStatus, startRemoteMcpOAuth } from "./remoteMcpOAuth.js";
 
 const REMOTE_MCP_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const MAX_RESPONSE_BYTES = 1_000_000;
@@ -211,7 +212,9 @@ function publicServer(row) {
     id: row.id,
     name: row.name,
     endpoint: row.endpoint,
-    hasAuthentication: Boolean(String(row.auth_headers || "").startsWith("enc:v1:") || String(row.auth_headers || "").startsWith("enc:v2:") || (Array.isArray(headers) && headers.length)),
+    authMode: row.auth_mode || "headers",
+    oauthRegistration: row.oauth_registration || "auto",
+    hasAuthentication: row.auth_mode === "oauth" || Boolean(String(row.auth_headers || "").startsWith("enc:v1:") || String(row.auth_headers || "").startsWith("enc:v2:") || (Array.isArray(headers) && headers.length)),
     tools: tools.map(({ name, title, description, inputSchema }) => ({ name, title, description, inputSchema })),
     allowedTools: parseJSON(row.allowed_tools, []),
     connectedAt: row.connected_at || null,
@@ -236,37 +239,71 @@ async function writeAudit(env, request, who, orgId, action, row, details = {}) {
 export async function handleRemoteMcp(request, env, url, input, { orgId, who, canManage }) {
   if (!orgId) return json({ message: "orgId is required." }, 400);
   if (await getMode(env.DB, orgId) !== "harness") return json({ message: "Remote MCP connections are available in Harness mode." }, 404);
-  const match = url.pathname.match(/^\/remote-mcp(?:\/([^/]+)(?:\/(discover|tools))?)?$/);
+  const match = url.pathname.match(/^\/remote-mcp(?:\/([^/]+)(?:\/(discover|tools|oauth\/(?:start|disconnect)))?)?$/);
   if (!match) return null;
   const [, id, operation] = match;
 
   if (request.method === "GET" && !id) {
     const { results = [] } = await env.DB.prepare("SELECT * FROM hx_remote_mcp_servers WHERE org_id = ?1 ORDER BY created_at DESC LIMIT 20").bind(orgId).all();
-    return json({ servers: results.map(publicServer), canManage });
+    const userId = String(who?.session?.github_id || "");
+    const servers = await Promise.all(results.map(async (row) => ({
+      ...publicServer(row),
+      oauthConnected: row.auth_mode === "oauth" && userId ? await remoteMcpOAuthStatus(env.DB, orgId, row.id, userId) : false,
+    })));
+    return json({ servers, canManage });
   }
   if (request.method === "POST" && !id) {
     if (!canManage) return json({ message: "Only a workspace admin can add a Remote MCP server." }, 403);
     const name = cleanName(input?.name);
     const endpoint = safeEndpoint(input?.endpoint);
     const headers = cleanHeaders(input?.headers);
+    const authMode = input?.authMode === "oauth" ? "oauth" : "headers";
+    const oauthRegistration = authMode === "oauth" && input?.oauthRegistration === "manual" ? "manual" : "auto";
+    const oauthClientId = String(input?.oauthClientId || "").trim();
+    const oauthClientSecret = String(input?.oauthClientSecret || "");
     if (!name || !endpoint) return json({ message: "Enter a name and a valid public HTTPS endpoint without a query string or embedded credentials." }, 400);
     if (!headers) return json({ message: "Headers must have unique valid names and values, with at most 20 entries." }, 400);
+    if (authMode === "oauth" && headers.length) return json({ message: "Choose OAuth or header authentication for a server, not both." }, 400);
+    if (authMode === "oauth" && !env.DATA_KEY) return json({ message: "Workspace encryption is required before OAuth credentials can be saved." }, 503);
+    if (authMode === "oauth" && oauthRegistration === "manual" && (!oauthClientId || oauthClientId.length > 500 || /[\u0000-\u001f\u007f]/.test(oauthClientId) || oauthClientSecret.length > 4096 || /[\u0000-\u001f\u007f]/.test(oauthClientSecret))) {
+      return json({ message: "Manual OAuth setup needs a client ID and an optional client secret no longer than 4,096 characters." }, 400);
+    }
+    if (authMode === "headers" && (input?.oauthClientId || input?.oauthClientSecret)) return json({ message: "OAuth client credentials require OAuth authentication." }, 400);
     if (headers.length && !env.DATA_KEY) return json({ message: "Workspace encryption is required before authentication headers can be saved." }, 503);
     const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_remote_mcp_servers WHERE org_id = ?1").bind(orgId).first();
     if (Number(count?.n || 0) >= 20) return json({ message: "This workspace has reached its limit of 20 Remote MCP servers." }, 409);
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     const sealedHeaders = headers.length ? await sealField(JSON.stringify(headers), aad.remoteMcpHeaders(orgId, id), orgId) : "[]";
-    await env.DB.prepare(`INSERT INTO hx_remote_mcp_servers (id, org_id, name, endpoint, auth_headers, tools_json, allowed_tools, created_by, created_at, updated_at, connected_at)
-      VALUES (?1, ?2, ?3, ?4, ?5, '[]', '[]', ?6, ?7, ?7, NULL)`)
-      .bind(id, orgId, name, endpoint, sealedHeaders, String(who.session.github_id), now).run();
+    const oauthClient = authMode === "oauth" && oauthRegistration === "manual"
+      ? await sealField(JSON.stringify({ clientId: oauthClientId, clientSecret: oauthClientSecret, clientSecretExpiresAt: 0 }), aad.remoteMcpOAuthClient(orgId, id), orgId)
+      : null;
+    await env.DB.prepare(`INSERT INTO hx_remote_mcp_servers (id, org_id, name, endpoint, auth_headers, auth_mode, oauth_registration, oauth_client, tools_json, allowed_tools, created_by, created_at, updated_at, connected_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '[]', '[]', ?9, ?10, ?10, NULL)`)
+      .bind(id, orgId, name, endpoint, sealedHeaders, authMode, oauthRegistration, oauthClient, String(who.session.github_id), now).run();
     const row = await getServer(env.DB, orgId, id);
-    await writeAudit(env, request, who, orgId, "remote_mcp.server_added", row, { endpointHost: new URL(endpoint).hostname, authHeaderCount: headers.length });
+    await writeAudit(env, request, who, orgId, "remote_mcp.server_added", row, { endpointHost: new URL(endpoint).hostname, authHeaderCount: headers.length, authMode });
     return json({ server: publicServer(row) }, 201);
   }
   if (!id) return json({ message: "Method not allowed." }, 405);
   const row = await getServer(env.DB, orgId, id);
   if (!row) return json({ message: "No such Remote MCP server." }, 404);
+  if (request.method === "POST" && operation === "oauth/start") {
+    try {
+      const result = await startRemoteMcpOAuth(env, url, { orgId, serverId: id, userId: who?.session?.github_id });
+      await writeAudit(env, request, who, orgId, "remote_mcp.oauth_started", row);
+      return json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not start OAuth authorization.";
+      const status = /encryption is required/i.test(message) ? 503 : /no such|member account|uses headers/i.test(message) ? 409 : 400;
+      return json({ message }, status);
+    }
+  }
+  if (request.method === "POST" && operation === "oauth/disconnect") {
+    const removed = await disconnectRemoteMcpOAuth(env.DB, orgId, id, who?.session?.github_id);
+    if (removed) await writeAudit(env, request, who, orgId, "remote_mcp.oauth_disconnected", row);
+    return json({ connected: false, removed });
+  }
   if (!canManage) return json({ message: "Only a workspace admin can manage Remote MCP servers." }, 403);
 
   if (request.method === "POST" && operation === "discover") {
@@ -275,7 +312,13 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
     let headers;
     let tools;
     try {
-      headers = await loadHeaders(env, row);
+      if (row.auth_mode === "oauth") {
+        const auth = await remoteMcpOAuthAccessToken(env, { orgId, serverId: row.id, userId: who?.session?.github_id });
+        if (!auth.token) return json({ message: auth.error || "Connect your own OAuth account before discovering tools." }, 409);
+        headers = [{ name: "Authorization", value: `Bearer ${auth.token}` }];
+      } else {
+        headers = await loadHeaders(env, row);
+      }
       tools = await listToolsAt(endpoint, headers);
     } catch (err) {
       return json({ message: err instanceof Error ? err.message : "Could not connect to the MCP server." }, 502);
@@ -346,7 +389,14 @@ export async function callRemoteMcpTool(env, agent, offeredTool, args, { readOnl
   const endpoint = safeEndpoint(row.endpoint);
   if (!endpoint) return { content: [{ type: "text", text: "This Remote MCP endpoint is no longer allowed." }], isError: true };
   try {
-    const headers = await loadHeaders(env, row);
+    let headers;
+    if (row.auth_mode === "oauth") {
+      const auth = await remoteMcpOAuthAccessToken(env, { orgId: agent.orgId, serverId: row.id, userId: agent.githubId });
+      if (!auth.token) return { content: [{ type: "text", text: auth.error || "Connect your OAuth account before using this source." }], isError: true };
+      headers = [{ name: "Authorization", value: `Bearer ${auth.token}` }];
+    } else {
+      headers = await loadHeaders(env, row);
+    }
     const result = await withMcp(endpoint, headers, async ({ protocol, sessionId, deadline }) => {
       const called = await postRpc(endpoint, headers, {
         jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: ref.toolName, arguments: args },

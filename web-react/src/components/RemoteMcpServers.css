@@ -40,6 +40,10 @@
 .remote-mcp-form > label { display: flex; flex-direction: column; gap: 5px; color: var(--st-dim); font-size: 12px; font-weight: 600; }
 .remote-mcp-form input { width: 100%; min-width: 0; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--st-line); border-radius: 7px; outline: none; background: var(--st-bg); color: var(--st-ink); font: inherit; font-size: 12.5px; }
 .remote-mcp-form input:focus { border-color: var(--st-accent); }
+.remote-mcp-form select { width: 100%; min-width: 0; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--st-line); border-radius: 7px; outline: none; background: var(--st-bg); color: var(--st-ink); font: inherit; font-size: 12.5px; }
+.remote-mcp-form select:focus { border-color: var(--st-accent); }
+.remote-mcp-form > label.remote-mcp-toggle { flex-direction: row; align-items: center; gap: 8px; }
+.remote-mcp-toggle input { width: auto; accent-color: var(--st-accent); }
 .remote-mcp-header-label { color: var(--st-dim); font-size: 12px; font-weight: 600; }
 .remote-mcp-header-row { display: grid; grid-template-columns: minmax(120px, .75fr) minmax(160px, 1fr) auto; align-items: center; gap: 7px; }
 .remote-mcp-submit { align-self: flex-start; margin-top: 3px; }
@@ -48,6 +52,7 @@
   .remote-mcp { padding: 12px; }
   .remote-mcp-server-head { align-items: flex-start; flex-direction: column; }
   .remote-mcp-actions { width: 100%; }
+  .remote-mcp-actions { flex-wrap: wrap; }
   .remote-mcp-actions .studio-btn { flex: 1; justify-content: center; }
   .remote-mcp-header-row { grid-template-columns: 1fr auto; }
   .remote-mcp-header-row input:first-child { grid-column: 1; }

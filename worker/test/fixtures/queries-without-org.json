@@ -1,5 +1,5 @@
 {
-  "account.js": 35,
+  "account.js": 37,
   "agentInvites.js": 2,
   "audit.js": 1,
   "auditCrypto.js": 1,
@@ -29,5 +29,6 @@
   "webhooks.js": 8,
   "harness/followups.js": 1,
   "harness/templateShares.js": 1,
-  "harness/workflows.js": 2
+  "harness/workflows.js": 2,
+  "harness/remoteMcpOAuth.js": 1
 }

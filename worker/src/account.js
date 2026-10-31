@@ -259,6 +259,9 @@ export async function deleteAccount(db, githubId, login) {
 
   for (const sql of [
     "DELETE FROM hx_document_jobs WHERE created_by = ?1",
+    // Account erasure intentionally spans every workspace: remove this user’s credentials and pending OAuth states even if a membership row is already absent.
+    "DELETE FROM hx_remote_mcp_oauth_credentials WHERE user_github_id = ?1",
+    "DELETE FROM hx_remote_mcp_oauth_states WHERE user_github_id = ?1",
     "DELETE FROM sessions WHERE github_id = ?1",
     "DELETE FROM apple_identities WHERE user_github_id = ?1",
     "DELETE FROM memberships WHERE user_github_id = ?1",

@@ -1957,6 +1957,9 @@ CREATE TABLE IF NOT EXISTS hx_remote_mcp_servers (
   name TEXT NOT NULL,
   endpoint TEXT NOT NULL,
   auth_headers TEXT NOT NULL DEFAULT '[]',
+  auth_mode TEXT NOT NULL DEFAULT 'headers' CHECK(auth_mode IN ('headers','oauth')),
+  oauth_registration TEXT NOT NULL DEFAULT 'auto' CHECK(oauth_registration IN ('auto','manual')),
+  oauth_client TEXT,
   tools_json TEXT NOT NULL DEFAULT '[]',
   allowed_tools TEXT NOT NULL DEFAULT '[]',
   created_by TEXT NOT NULL,
@@ -1965,6 +1968,37 @@ CREATE TABLE IF NOT EXISTS hx_remote_mcp_servers (
   connected_at TEXT
 );
 CREATE INDEX IF NOT EXISTS hx_remote_mcp_org ON hx_remote_mcp_servers(org_id, created_at);
+CREATE TABLE IF NOT EXISTS hx_remote_mcp_oauth_credentials (
+  org_id TEXT NOT NULL,
+  server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE,
+  user_github_id TEXT NOT NULL,
+  membership_since TEXT NOT NULL,
+  credential TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(org_id,server_id,user_github_id)
+);
+CREATE INDEX IF NOT EXISTS hx_remote_mcp_oauth_user ON hx_remote_mcp_oauth_credentials(org_id,user_github_id,server_id);
+CREATE TABLE IF NOT EXISTS hx_remote_mcp_oauth_states (
+  state_hash TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE,
+  user_github_id TEXT NOT NULL,
+  membership_since TEXT NOT NULL,
+  code_verifier TEXT NOT NULL,
+  client_secret TEXT NOT NULL DEFAULT '',
+  token_auth_method TEXT NOT NULL DEFAULT 'none',
+  issuer TEXT NOT NULL,
+  token_endpoint TEXT NOT NULL,
+  redirect_uri TEXT NOT NULL DEFAULT '',
+  client_id TEXT NOT NULL,
+  resource TEXT NOT NULL,
+  scope TEXT,
+  require_issuer INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS hx_remote_mcp_oauth_states_expiry ON hx_remote_mcp_oauth_states(expires_at);
 
 /* Company Harness app capabilities; all resources retain the app ACL. */
 CREATE TABLE IF NOT EXISTS hx_app_database_state (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, version INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(org_id,app_id));

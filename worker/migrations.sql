@@ -328,6 +328,17 @@ CREATE INDEX IF NOT EXISTS idx_hx_workflow_row_receipts_expiry ON hx_workflow_ro
 CREATE TABLE IF NOT EXISTS hx_agent_source_grants (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, user_github_id TEXT NOT NULL, membership_since TEXT NOT NULL, source TEXT NOT NULL CHECK(source IN ('notion','github')), created_at TEXT NOT NULL, PRIMARY KEY(org_id,agent_id,user_github_id,source), FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS hx_agent_remote_mcp_grants (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, user_github_id TEXT NOT NULL, membership_since TEXT NOT NULL, server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE, created_at TEXT NOT NULL, PRIMARY KEY(org_id,agent_id,user_github_id,server_id), FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE);
 
+ALTER TABLE hx_remote_mcp_servers ADD COLUMN auth_mode TEXT NOT NULL DEFAULT 'headers' CHECK(auth_mode IN ('headers','oauth'));
+ALTER TABLE hx_remote_mcp_servers ADD COLUMN oauth_registration TEXT NOT NULL DEFAULT 'auto' CHECK(oauth_registration IN ('auto','manual'));
+ALTER TABLE hx_remote_mcp_servers ADD COLUMN oauth_client TEXT;
+CREATE TABLE IF NOT EXISTS hx_remote_mcp_oauth_credentials (org_id TEXT NOT NULL, server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE, user_github_id TEXT NOT NULL, membership_since TEXT NOT NULL, credential TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,server_id,user_github_id));
+CREATE INDEX IF NOT EXISTS hx_remote_mcp_oauth_user ON hx_remote_mcp_oauth_credentials(org_id,user_github_id,server_id);
+CREATE TABLE IF NOT EXISTS hx_remote_mcp_oauth_states (state_hash TEXT PRIMARY KEY, org_id TEXT NOT NULL, server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE, user_github_id TEXT NOT NULL, membership_since TEXT NOT NULL, code_verifier TEXT NOT NULL, issuer TEXT NOT NULL, token_endpoint TEXT NOT NULL, client_id TEXT NOT NULL, resource TEXT NOT NULL, scope TEXT, require_issuer INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
+ALTER TABLE hx_remote_mcp_oauth_states ADD COLUMN client_secret TEXT NOT NULL DEFAULT '';
+ALTER TABLE hx_remote_mcp_oauth_states ADD COLUMN token_auth_method TEXT NOT NULL DEFAULT 'none';
+ALTER TABLE hx_remote_mcp_oauth_states ADD COLUMN redirect_uri TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS hx_remote_mcp_oauth_states_expiry ON hx_remote_mcp_oauth_states(expires_at);
+
 CREATE TABLE IF NOT EXISTS hx_workspace_file_origins (org_id TEXT NOT NULL, file_id TEXT NOT NULL, source TEXT NOT NULL CHECK(source IN ('human','agent')), PRIMARY KEY(org_id,file_id), FOREIGN KEY(org_id,file_id) REFERENCES hx_workspace_files(org_id,id) ON DELETE CASCADE);
 
 CREATE TABLE IF NOT EXISTS hx_app_annotations (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, table_id TEXT NOT NULL DEFAULT '', row_id TEXT NOT NULL DEFAULT '', message_source TEXT NOT NULL CHECK(message_source IN ('app','channel')), message_id TEXT NOT NULL, target TEXT NOT NULL, x REAL NOT NULL CHECK(x BETWEEN 0 AND 100), y REAL NOT NULL CHECK(y BETWEEN 0 AND 100), section TEXT NOT NULL CHECK(section IN ('overview','data')), author_id TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(org_id,app_id,message_source,message_id));
