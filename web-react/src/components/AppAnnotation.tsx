@@ -172,8 +172,10 @@ export function AppAnnotationDialog({ selection, appName, section, context, onCa
   selection: AppAnnotationSelection; appName: string; section: string; context?:string; onCancel: () => void; onSubmit: (comment: string) => void
 }) {
   const [comment, setComment] = useState('')
-  const left=`max(12px, min(${selection.x}%, calc(100% - 324px)))`
-  const top=`max(12px, min(calc(${selection.y}% + 30px), calc(100% - 170px)))`
+  const anchorLeft=selection.rect?.left??selection.x
+  const anchorBottom=selection.rect?selection.rect.top+selection.rect.height:selection.y
+  const left=`max(12px, min(${anchorLeft}%, calc(100% - 324px)))`
+  const top=`max(12px, min(calc(${anchorBottom}% + 8px), calc(100% - 170px)))`
   return <>
     {selection.rect&&<div className="hx-annotation-highlight" aria-hidden="true" style={{left:`${selection.rect.left}%`,top:`${selection.rect.top}%`,width:`${selection.rect.width}%`,height:`${selection.rect.height}%`}}/>}
     <div className="hx-annotation-popover" style={{left,top}} role="dialog" aria-modal="false" aria-labelledby="hx-annotation-title" tabIndex={-1} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();onCancel()}}}>

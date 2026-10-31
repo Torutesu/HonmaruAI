@@ -1152,10 +1152,10 @@
       "priority": "P1",
       "source": "https://kylon.io/help/build-an-app",
       "code": "web-react/src/components/AppAnnotation.tsx, worker/src/harness/appAnnotations.js, worker/src/harness/routes.js",
-      "acceptance": "対象範囲・親画面要素・公開sandboxカスタム画面のsemantic target・画面位置を特定し、アプリ会話に編集可能な下書きとして渡す。送信後はアプリ単位でマーカーを永続化し、権限確認後に一覧・画面上で再表示する。送信は利用者が選択。作成元スレッドを含む認証済み本番E2E比較は残る。",
+      "acceptance": "対象範囲・親画面要素・公開sandboxカスタム画面のsemantic target・画面位置を特定し、アプリ会話に編集可能な下書きとして渡す。送信後はアプリ単位でマーカーを永続化し、権限確認後に一覧・画面上で再表示する。送信は利用者が選択。作成と再読込後のピン・本文復元を認証済み本番で確認。作成元スレッド、複数ユーザーの本番拒否、二台同期の受入は残る。",
       "evidence": {
-        "verified": "2026-10-31にログイン済みKylon実画面で注釈モード、範囲ドラッグ、固定ツールバー、注釈一覧パネル、空状態、選択範囲に沿うコメント入力UIを確認。HonmaruはPR #576（merge c14a0f6）でD1永続化、認可付き一覧、ピン/カード表示、下書き添付メタデータ復元を本番公開。main CI、Worker/Web deploy成功。両本番URLはHTTP 200でindex-BirZ4z4B.jsを配信し、ログイン済みネイティブ画面で一覧とアンカー入力UIを確認。送信前にキャンセルし、会話/レコードは変更していない。画面QAで範囲ハイライトのpx/%変換不具合を見つけ、CSS変換修正・focused tests 8件・Web build成功。修正PRと本番再確認は継続中。",
-        "remaining": "認証済み本番でマーカー作成・再読込・一覧選択・権限拒否・作成元スレッド同期をE2E確認し、ハイライト修正を再デプロイしてライト/ダーク両テーマを比較する。"
+        "verified": "2026-10-31、PR #576（merge c14a0f6）でD1永続化、認可付き一覧、ピン/カード表示、下書き添付メタデータ復元を本番公開。PR #577（merge 233faf0）で範囲矩形のCSSパーセント描画を修正し、Web deploy #41198169985成功。app.honmaruai.comとhonmaru-web.pages.devはHTTP 200で同じindex-Dnv3eCoH.jsを配信し、Worker healthはok/encryption.all true。同一の空アプリをログイン済みKylonとHonmaruで表示し、範囲ドラッグ・注釈入力UIを比較。Kylonの点線枠/範囲左下の入力欄に近づけるUI改善はローカル実装・focused tests/build成功、次のPR反映待ち。Honmaru本番のQAアプリにAIを起動しない短い注釈メッセージを1件送信し、ピン生成、再読込後のピン復元、開いたカードの本文復元を確認。Kylonの編集はキャンセル。アプリの行データは0件のまま。",
+        "remaining": "Kylonに合わせた点線枠/入力欄配置修正のCI・本番反映、別ユーザーからの拒否を含む複数ユーザー本番検証、二台同期、作成元スレッド経由の本番比較が残る。"
       }
     }
   ]
