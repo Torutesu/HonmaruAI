@@ -3777,5 +3777,11 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 ### 2026-10-31 — Workflow source App grant revalidation
 
 - Audited KY-066 after the Agent grant fence was added. An `app_record_change` workflow checked its App/Table access before starting, but that source grant was not part of the authorization callback used between model/tool rounds. If the app owner changed the app to private while an Agent was answering, that in-flight answer could pass the old checks.
-- `continueRun` now revalidates the live source Table/App grant through that same callback. A focused Worker regression test made the source app private during the mocked provider response and confirmed the answer was not published. The test passed locally; PR CI and production Worker deployment are pending.
+- `continueRun` now revalidates the live source Table/App grant through that same callback. A focused Worker regression test made the source app private during the mocked provider response and confirmed the answer was not published. The focused test and full Worker test suite passed.
 - Connection grants remain under audit; the current workflow step schema has no direct connector action. Simple mode is unaffected, and the change uses existing infrastructure without adding a paid service.
+
+### 2026-10-31 — Workflow source grant revalidation production release
+
+- PR [#579](https://github.com/Torutesu/HonmaruAI/pull/579) merged as `413f8f801b1102253996edc700d9846e26434873`. The PR CI and exact-SHA push CI passed; merge commit CI [#41204157599](https://github.com/Torutesu/HonmaruAI/actions/runs/41204157599) passed Worker, Web, E2E, Desktop, Relay, Shared core/Mobile and Local gateway. iOS and Windows/Edge were skipped by push policy.
+- Worker production deploy [#41204157502](https://github.com/Torutesu/HonmaruAI/actions/runs/41204157502) passed the Worker suite, D1 migration checks, deployment and post-deploy verification. No schema migration was added by this change. Production `/health` returned `ok: true` and `encryption.all: true` after deployment.
+- This release closes the observed gap for `app_record_change` source App/Table access inside Workflow Agent model/tool authorization fences. KY-066 remains partial: provider requests are not actively interrupted and settled on grant revocation, and workflow-wide Connection authorization is not implemented; the current step schema has no direct connector action. No new paid service was added and Simple mode remains available.

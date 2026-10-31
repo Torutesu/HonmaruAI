@@ -767,7 +767,7 @@
       "code": "worker/src/harness/agents.js, worker/src/harness/workflows.js",
       "acceptance": "Agentの現行grant・会話権限に加えてapp_record_change元App/Table権限を各モデル往復・ツール実行fenceで再検証。Connection grantを使う全経路と実行中provider requestのキャンセル・精算は継続監査",
       "evidence": {
-        "verified": "2026-10-31、WorkflowのAgent応答中に元Appをprivate化しても応答を公開しないfocused regression testが成功。実装・CI・Worker本番反映は次のPR待ち。",
+        "verified": "2026-10-31、WorkflowのAgent応答中に元Appをprivate化しても応答を公開しないfocused regression testが成功。PR #579はmerge commit 413f8f801b1102253996edc700d9846e26434873としてmainへ統合。main CI run 41204157599はsuccess、Worker deploy run 41204157502はD1 migration・column migration・deploy・verifyすべてsuccess。公開後 /health は ok=true、encryption.all=true。",
         "remaining": "直接のConnection stepは現在のworkflow step型に含まれない。今後追加する接続stepを含む全副作用経路、provider requestの中断、途中usageの精算を通した監査は残る。"
       }
     },
