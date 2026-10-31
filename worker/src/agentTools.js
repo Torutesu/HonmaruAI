@@ -32,7 +32,7 @@ const query = (what) => ({
   additionalProperties: false,
 });
 
-export async function agentTools(env, { orgId, session, language = "en", personal = false, ownAgentsOnly = false, fileScope = null, fileThreadId = null, agentId = null }) {
+export async function agentTools(env, { orgId, session, language = "en", personal = false, ownAgentsOnly = false, fileScope = null, fileThreadId = null, agentId = null, onNativeSourceUsed = null }) {
   const reader = await readerEnvFor(env, orgId).catch(() => env);
   // Set once one of the person's apps has answered: from then on no page is
   // opened in this answer, so nothing an app said can leave inside a link.
@@ -90,7 +90,7 @@ export async function agentTools(env, { orgId, session, language = "en", persona
         if (!await sourceAllowed("notion")) return "Not searched: this Agent no longer has permission to use your Notion connection.";
         const found = await searchNotion(env, session.github_id, String(q || "")).catch(() => []);
         if (!await sourceAllowed("notion")) return "Not searched: Notion access changed while the request was running; the result was discarded.";
-        if (found.length) taint.value = true;
+        if (found.length) { taint.value = true; onNativeSourceUsed?.("notion"); }
         return formatSourcesForModel(found);
       },
     };
@@ -103,7 +103,7 @@ export async function agentTools(env, { orgId, session, language = "en", persona
         if (!await sourceAllowed("github")) return "Not searched: this Agent no longer has permission to use your GitHub connection.";
         const found = await searchGithubIssues(session, orgId, String(q || ""), env).catch(() => []);
         if (!await sourceAllowed("github")) return "Not searched: GitHub access changed while the request was running; the result was discarded.";
-        if (found.length) taint.value = true;
+        if (found.length) { taint.value = true; onNativeSourceUsed?.("github"); }
         return formatSourcesForModel(found);
       },
     };

@@ -369,6 +369,49 @@ test("an agent researches with a reasoning model, web search and its own tools, 
   expect(calls.results[1]).toMatchObject({ purpose: "agent", usd: 0.01 });
 });
 
+test("Harness auto-research honors per-agent native source grants", async () => {
+  const made = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json();
+  await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode: "harness" });
+  const connectedAt = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO connector_sync_state (user_github_id,synced_at,org_id) VALUES ('8802',?1,?2)")
+    .bind(connectedAt, ORG).run();
+  await env.DB.prepare("INSERT INTO connector_config (user_github_id,connector,config,updated_at) VALUES ('8802','notion',?1,?2)")
+    .bind(JSON.stringify({ connected: true }), connectedAt).run();
+
+  const prompts = [];
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    prompts.push(JSON.parse(opts.body));
+    return { id: `resp_${prompts.length}`, model: "gpt-5-mini", output: [{ type: "message", content: [{ type: "output_text", text: "Done." }] }], usage: { input_tokens: 50, output_tokens: 10 } };
+  }).times(2);
+
+  let notionSearches = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.origin === "https://backend.composio.dev") {
+      notionSearches += 1;
+      return Response.json({ results: [{ response: { data: { results: [{
+        properties: { Title: { type: "title", title: [{ plain_text: "Private payroll policy" }] }, Notes: { type: "rich_text", rich_text: [{ plain_text: "Never share payroll details." }] } },
+        url: "https://notion.so/private-payroll-policy",
+      }] } } }] });
+    }
+    return realFetch(input, init);
+  };
+  try {
+    await send("POST", "/channels/messages", mika, { orgId: ORG, channel: `ag:${made.agent.id}`, body: "Find our payroll policy" }, { OPENAI_API_KEY: "sk-test", COMPOSIO_API_KEY: "ck-test" });
+    expect(notionSearches).toBe(0);
+    expect(JSON.stringify(prompts[0])).not.toContain("Private payroll policy");
+
+    const grant = await send("POST", `/hx/agents/${made.agent.id}/apps`, mika, { orgId: ORG, source: "notion" }, { COMPOSIO_API_KEY: "ck-test" });
+    expect(grant.status).toBe(200);
+    await send("POST", "/channels/messages", mika, { orgId: ORG, channel: `ag:${made.agent.id}`, body: "Find our payroll policy" }, { OPENAI_API_KEY: "sk-test", COMPOSIO_API_KEY: "ck-test" });
+    expect(notionSearches).toBe(1);
+    expect(JSON.stringify(prompts[1])).toContain("Private payroll policy");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("an agent that cannot answer says why in the thread, never silence", async () => {
   await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(401, { error: { message: "bad key" } }).times(2);

@@ -948,7 +948,7 @@
       "acceptance": "人の接続とagent/app/workflowの利用権を分離",
       "evidence": {
         "reviewedAt": "2026-10-31",
-        "implementedScope": "Harness Agentごと・呼び出しユーザーごとにNotion/GitHub native searchを初期拒否し、接続済みソースのみ許可可能。実行直前と検索完了後にmembership世代・grant・接続状態を再検証し、途中失効後は結果を破棄。Smithery App grantとは別テーブル。Simpleの従来接続経路を維持。",
+        "implementedScope": "Harness Agentごと・呼び出しユーザーごとにNotion/GitHub native searchを初期拒否し、接続済みソースのみ許可可能。手動ツール、自動リサーチ、スケジュール済みFollow-upは検索前後とモデル応答・公開前にmembership世代・grant・接続状態を再検証し、失効後は結果を破棄。Smithery App grantとは別テーブル。Simpleの従来接続経路を維持。",
         "remaining": "任意の外部Connectionのgrant、App/Workflow作成者と実行ユーザーのgrant統合、全操作カテゴリのKylon同等性、PR CI・本番deploy・実画面確認",
         "verification": "docs/kylon-parity/verification.md"
       }

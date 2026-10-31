@@ -9,13 +9,15 @@ import { getMessage, postMessage } from "../channels.js";
 import { completer } from "./model.js";
 import { prepareAgent, mayRunAgent } from "./agents.js";
 import { withRoomGuidelines } from "./guidelines.js";
+import { getMode } from "./mode.js";
+import { mayUseAgentSource } from "./agentConnections.js";
 
 export const MAX_PER_CHANNEL = 50;
 
 // Personal integrations contain their owner's private data. Make them
 // available only in that person's direct conversation with an agent; the
 // app tools are read-only here, even if the workspace permits writes.
-async function personalFollowupTools(env, row) {
+async function personalFollowupTools(env, row, onNativeSourceUsed = null) {
   if (!/^ag:[^|]+\|[^|]+$/.test(String(row.channel || ""))) return {};
   const { agentTools } = await import("../agentTools.js");
   return agentTools(env, {
@@ -26,6 +28,7 @@ async function personalFollowupTools(env, row) {
     agentId: row.agent_id || null,
     fileScope: row.channel,
     fileThreadId: row.thread_id || null,
+    onNativeSourceUsed,
   });
 }
 
@@ -165,7 +168,19 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
       }
       return null;
     };
-    const authorize=async()=>!(await accessFailure());
+    const nativeSourcesUsed = new Set();
+    const nativeSourcesStillAllowed = async () => {
+      if (!nativeSourcesUsed.size || !r.agent_id) return true;
+      const mode = await getMode(env.DB, r.org_id).catch(() => null);
+      if (mode === "simple") return true;
+      if (mode !== "harness") return false;
+      const session = { github_id: String(r.created_by) };
+      for (const source of nativeSourcesUsed) {
+        if (!await mayUseAgentSource(env, { orgId: r.org_id, agentId: r.agent_id, session, source })) return false;
+      }
+      return true;
+    };
+    const authorize=async()=>!(await accessFailure()) && await nativeSourcesStillAllowed();
     let body = r.instruction;
     let author = null;
     let kind = "ai";
@@ -189,7 +204,7 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
         const prepared = agentRow
           ? await prepareAgent(env, r.org_id, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: r.channel || "", userId: r.created_by })
           : { agent: { name: "AI", handle: "AI", instructions: "You are the team's AI." } };
-        const personalTools = await personalFollowupTools(env, r);
+        const personalTools = await personalFollowupTools(env, r, source => nativeSourcesUsed.add(source));
         const tools = { ...prepared.skillTools, ...personalTools };
         const setupFailure=await accessFailure();
         if(setupFailure)throw new Error(setupFailure);
@@ -205,7 +220,7 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
       } else {
         body = `⏰ Follow-up: ${r.instruction}`;
       }
-      const deliveryFailure=await accessFailure();
+      const deliveryFailure=await accessFailure() || (!await nativeSourcesStillAllowed() ? 'Connected source access required.' : null);
       if(deliveryFailure)throw new Error(deliveryFailure);
       const out = await postMessage(env.DB, { orgId: r.org_id, key: r.channel, authorLogin: author, body: String(body).slice(0, 8000), kind, parentId: r.thread_id || null });
       if (!out?.row) throw new Error(out?.error || "The follow-up could not be delivered.");
