@@ -1,5 +1,5 @@
 import { createMcpClient } from "./client.js";
-import { runGatewayForeground } from "./gateway.js";
+import { formatGatewayStatus, getGatewayStatus, runGatewayForeground } from "./gateway.js";
 
 const HELP = `Honmaru workspace CLI
 
@@ -37,6 +37,7 @@ workspace data, so review the target and arguments before running them.
 const GATEWAY_HELP = `Honmaru local execution gateway
 
 Usage:
+  honmaru gateway status [--json]
   honmaru gateway run
 
 Environment:
@@ -46,6 +47,8 @@ Environment:
 The gateway polls for isolated jobs and connects outbound. It does not open an
 inbound port. Stop it with Ctrl+C. Do not pass the node token as a command-line
 argument.
+
+The status command reports the macOS LaunchAgent state without reading or printing credentials.
 `;
 
 const ALIAS_VALUE_FLAGS = new Set([
@@ -266,7 +269,7 @@ function formatTools(tools) {
   }).join("\n");
 }
 
-export async function runCli(argv, { env = process.env, fetcher = fetch, stdout = process.stdout, stderr = process.stderr, gatewayRunner = runGatewayForeground } = {}) {
+export async function runCli(argv, { env = process.env, fetcher = fetch, stdout = process.stdout, stderr = process.stderr, gatewayRunner = runGatewayForeground, gatewayStatusReader = getGatewayStatus } = {}) {
   const writeOut = (value) => stdout.write(`${value}\n`);
   const writeError = (value) => stderr.write(`honmaru: ${value}\n`);
   const [root, action, ...rest] = argv;
@@ -279,6 +282,20 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
     if (!gatewayAction || gatewayAction === "help" || gatewayAction === "--help" || gatewayAction === "-h" || gatewayArgs.includes("--help") || gatewayArgs.includes("-h")) {
       writeOut(GATEWAY_HELP.trimEnd());
       return 0;
+    }
+    if (gatewayAction === "status") {
+      const json = gatewayArgs.length === 1 && gatewayArgs[0] === "--json";
+      if (gatewayArgs.length && !json) {
+        writeError("Usage: honmaru gateway status [--json].");
+        return 2;
+      }
+      try {
+        writeOut(formatGatewayStatus(await gatewayStatusReader(), { json }));
+        return 0;
+      } catch (error) {
+        writeError(error instanceof Error ? error.message : "Could not inspect the local gateway service.");
+        return 1;
+      }
     }
     if (gatewayAction !== "run" || gatewayArgs.length) {
       writeError("Usage: honmaru gateway run [--help].");

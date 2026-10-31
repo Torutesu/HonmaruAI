@@ -45,11 +45,13 @@ Use `--api-url URL` to override the environment URL for one command. The CLI req
 Register a trusted node under **Studio → Harness → Execution nodes**, then keep its separate node token in the environment on that machine:
 
 ```sh
+npm exec --workspace @honmaru/cli -- honmaru gateway status
+npm exec --workspace @honmaru/cli -- honmaru gateway status --json
 export HONMARU_API_URL="https://your-honmaru-api-origin"
 export HONMARU_GATEWAY_TOKEN="hgw_…"
 npm exec --workspace @honmaru/cli -- honmaru gateway run
 ```
 
-`gateway run` starts the repository's existing outbound-only worker in the foreground; stop it with Ctrl+C. The node token is inherited through the environment and is never added to process arguments or printed. This does not install or manage the launch-at-login service.
+`gateway status` reports whether the macOS LaunchAgent is installed and loaded, including its process state and PID when available. It does not read the service configuration or token. `gateway run` starts the repository's existing outbound-only worker in the foreground; stop it with Ctrl+C. The node token is inherited through the environment and is never added to process arguments or printed. This does not install or manage the launch-at-login service.
 
-The aliases are an incremental CLI surface, not full Kylon CLI parity. Gateway status/repair, browser/device sign-in, secure credential storage, resource commands for Rooms/messages/Agents/connections/Skills and the remaining Kylon command families are still open.
+The aliases are an incremental CLI surface, not full Kylon CLI parity. Gateway repair/upgrade, browser/device sign-in, secure credential storage, resource commands for Rooms/messages/Agents/connections/Skills and the remaining Kylon command families are still open.
