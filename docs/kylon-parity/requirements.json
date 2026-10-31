@@ -916,8 +916,8 @@
       "evidence": {
         "reviewedAt": "2026-11-01",
         "implementedScope": "Harness-only workspace Remote MCP connections support encrypted bearer/custom headers, Streamable HTTP initialization and tool discovery/calls, explicit tool allowlists, HTTPS/public-host checks, redirect and size limits, admin-only management, execute-scoped API access, audit events and disconnect. Private Agent conversations add per-caller grants, expose only workspace-approved tools marked read-only, recheck the caller grant and exact tool allowlist/annotation before and after calls and before publishing, and block results if access changes in flight; shared conversations and Simple mode do not receive this access.",
-        "remaining": "OAuth 2.1 discovery/client registration, DNS-pinned egress, a Kylon-scale connector catalog, write-capable per-Agent grants and app/workflow execution integration are not implemented; nonstandard ports and URL query parameters are rejected. New Agent-grant work is on a follow-up branch and awaits PR CI and production verification.",
-        "verification": "worker/test/remote-mcp.test.js (pending PR CI and production screen verification)"
+        "remaining": "OAuth 2.1 discovery/client registration, DNS-pinned egress, a Kylon-scale connector catalog, write-capable per-Agent grants and app/workflow execution integration are not implemented; nonstandard ports and URL query parameters are rejected. No production Remote MCP server or Agent grant was created.",
+        "verification": "PR #584 merged as 2f2acc9ef8532f20fa67e87fa4e7da118739ec01; exact-head CI #41222310212, main CI #41224384637, Worker deploy #41224384634, Web deploy #41224384626; worker/test/remote-mcp.test.js and signed-in production Connections/Apps screens verified. No configured server was available for a live tool call."
       }
     },
     {
