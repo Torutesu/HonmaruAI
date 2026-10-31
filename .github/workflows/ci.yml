@@ -131,6 +131,7 @@ jobs:
       - name: Every app at the version in VERSION
         run: node scripts/check-versions.mjs
       - run: npm ci
+      - run: npm test --workspace @honmaru/cli
       - run: npm test --workspace @honmaru/core
       - run: npm run typecheck --workspace @honmaru/core
       - run: npm run typecheck --workspace @honmaru/mobile
