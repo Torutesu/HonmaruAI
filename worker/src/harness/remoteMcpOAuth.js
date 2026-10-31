@@ -307,7 +307,7 @@ export async function startRemoteMcpOAuth(env, url, { orgId, serverId, userId })
   const resourceInfo = await discoverProtectedResource(endpoint);
   const authorizationServer = await discoverAuthorizationServer(resourceInfo.issuer);
   const redirectUri = `${url.origin}/remote-mcp/oauth/callback`;
-  await env.DB.prepare("DELETE FROM hx_remote_mcp_oauth_states WHERE expires_at <= ?1").bind(new Date().toISOString()).run();
+  await env.DB.prepare("DELETE FROM hx_remote_mcp_oauth_states WHERE org_id=?1 AND expires_at <= ?2").bind(orgId, new Date().toISOString()).run();
   const client = await registerClient(env, row, authorizationServer, redirectUri);
   const state = randomToken(32);
   const stateHash = await hash(state);
@@ -415,6 +415,7 @@ export async function finishRemoteMcpOAuth(env, url) {
   const state = url.searchParams.get("state") || "";
   if (!/^[A-Za-z0-9_-]{43}$/.test(state)) return callbackPage({ ok: false, appUrl: env.APP_WEB_URL });
   const stateHash = await hash(state);
+  // The high-entropy state hash is globally unique, so this callback lookup can identify exactly one pending row without a workspace context.
   const row = await env.DB.prepare("DELETE FROM hx_remote_mcp_oauth_states WHERE state_hash=?1 RETURNING *").bind(stateHash).first().catch(() => null);
   if (!row || row.expires_at <= new Date().toISOString()) return callbackPage({ ok: false, appUrl: env.APP_WEB_URL });
   const fail = async (reason) => {
