@@ -14,8 +14,8 @@ jobs:
       - name: Preserve source line endings
         working-directory: ${{ runner.temp }}
         run: git config --global core.autocrlf false
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Require distribution credentials
@@ -64,7 +64,7 @@ jobs:
           if ($remove.ExitCode -ne 0) { throw 'Uninstall failed.' }
           for ($i = 0; $i -lt 15 -and (Test-Path $appPath); $i++) { Start-Sleep -Seconds 2 }
           if (Test-Path $appPath) { throw 'App remains after uninstall.' }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Honmaru-AI-Windows-signed-release-candidate
           path: |
