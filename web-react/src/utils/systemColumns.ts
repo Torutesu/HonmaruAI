@@ -15,6 +15,27 @@ export function displayLayout(columns:Column[], layout?:PersonalViews['layouts']
   const hidden=[...new Set([...(layout?.hidden||[]),...SYSTEM_COLUMN_IDS.filter(id=>!layout?.order?.includes(id))])].filter(id=>ids.includes(id)&&id!==columns[0]?.id)
   return {columns:all,order,hidden,widths:layout?.widths||{},...(layout?.wrapText ? {wrapText:true} : {})}
 }
+const defaultAppColumnWidth=180
+const minAppColumnWidth=80
+const maxAppColumnWidth=600
+const appRowActionsWidth=80
+export function fitTableColumns(columns:Column[],savedWidths:Record<string,number>,availableWidth:number) {
+  const available=Number.isFinite(availableWidth)?Math.max(0,Math.floor(availableWidth)):0
+  const fixed=new Map<string,number>()
+  const flexible:Column[]=[]
+  for(const column of columns){
+    const width=savedWidths[column.id]
+    if(Number.isFinite(width))fixed.set(column.id,Math.max(minAppColumnWidth,Math.min(maxAppColumnWidth,Math.round(width))))
+    else flexible.push(column)
+  }
+  const fixedWidth=[...fixed.values()].reduce((sum,width)=>sum+width,0)
+  const remaining=available-fixedWidth-appRowActionsWidth
+  const flexWidth=flexible.length?Math.max(defaultAppColumnWidth,Math.min(maxAppColumnWidth,Math.floor(remaining/flexible.length))):defaultAppColumnWidth
+  const widths=Object.fromEntries(columns.map(column=>[column.id,fixed.get(column.id)??flexWidth]))
+  const contentWidth=Object.values(widths).reduce((sum,width)=>sum+width,0)+appRowActionsWidth
+  const width=Math.max(available,contentWidth)
+  return {width,widths,actionsWidth:appRowActionsWidth,spacerWidth:width-contentWidth}
+}
 export function systemCellText(row:Row,id:string) {
   if(id==='$row.id') return row.id
   const value=id==='$row.createdAt'?row.createdAt:row.updatedAt

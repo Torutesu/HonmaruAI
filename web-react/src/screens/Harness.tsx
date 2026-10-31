@@ -3,7 +3,7 @@ import {AppConversationInbox} from '../components/AppConversationInbox'
 import {AppConversationPanel} from '../components/AppConversationPanel'
 import {AppRecordDialog} from '../components/AppRecordDialog'
 import {AppDataMenu} from '../components/AppDataMenu'
-import {displayLayout, isSystemColumn, systemCellText, nextColumnSort} from '../utils/systemColumns'
+import {displayLayout, fitTableColumns, isSystemColumn, systemCellText, nextColumnSort} from '../utils/systemColumns'
 import { ColumnResize } from '../components/ColumnResize'
 import { PersonalViewControls } from '../components/PersonalViewControls'
 import type { PersonalViews } from '../utils/harness'
@@ -279,6 +279,20 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const t = useT()
   const [data, setData] = useState<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize?: boolean } | null>(null)
   const [relationEntities,setRelationEntities]=useState<RelationEntity[]>([])
+  const [tableAvailableWidth,setTableAvailableWidth]=useState(0)
+  const tableResizeCleanup=useRef<(()=>void)|null>(null)
+  const tableWrapRef=useCallback((node:HTMLDivElement|null)=>{
+    tableResizeCleanup.current?.();tableResizeCleanup.current=null
+    if(!node)return
+    const measure=()=>setTableAvailableWidth(Math.max(0,Math.floor(node.clientWidth)))
+    measure()
+    if(typeof ResizeObserver!=='undefined'){
+      const observer=new ResizeObserver(measure);observer.observe(node);tableResizeCleanup.current=()=>observer.disconnect()
+    }else{
+      window.addEventListener('resize',measure);tableResizeCleanup.current=()=>window.removeEventListener('resize',measure)
+    }
+  },[])
+  useEffect(()=>()=>tableResizeCleanup.current?.(),[])
   const loadSequence=useRef(0)
   const currentApi=useRef(api);currentApi.current=api
   const [loadedApi,setLoadedApi]=useState<HarnessApi|null>(null)
@@ -341,6 +355,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const layout = displayLayout(table.columns,personal.layouts[view.id])
   const orderedColumns = [...(layout?.order || []),...layout.columns.map(c=>c.id)].filter((id,i,ids)=>ids.indexOf(id)===i).map(id=>layout.columns.find(c=>c.id===id)).filter((c):c is Column=>!!c)
   const displayColumns = orderedColumns.filter(c=>c.id===table.columns[0]?.id || !layout?.hidden?.includes(c.id))
+  const tableSizing=fitTableColumns(displayColumns,layout.widths,tableAvailableWidth)
   const displayCellText=(column:Column,value:unknown)=>{
     if(column.type!=='relation')return cellText(column,value)
     const entity=relationEntities.find(item=>item.key===column.targetEntity)
@@ -429,21 +444,22 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       )}
 
       {view.type === 'table' && (
-        <div className="hx-table-wrap">
-          <table className={`hx-table hx-personal-table${layout.wrapText?' hx-wrap-text':''}`} style={{width:displayColumns.reduce((n,c)=>n+(layout?.widths[c.id]||180),80)}}>
-            <colgroup>{displayColumns.map(c=><col key={c.id} style={{width:layout?.widths[c.id]||180}}/>)}<col style={{width:80}}/></colgroup>
+        <div className="hx-table-wrap" ref={tableWrapRef}>
+          <table className={`hx-table hx-personal-table${layout.wrapText?' hx-wrap-text':''}`} style={{width:tableSizing.width,minWidth:tableSizing.width}}>
+            <colgroup>{displayColumns.map(c=><col key={c.id} style={{width:tableSizing.widths[c.id]}}/>)}<col style={{width:tableSizing.actionsWidth}}/><col style={{width:tableSizing.spacerWidth}}/></colgroup>
             <thead>
-              <tr>{displayColumns.map((c) => <th key={c.id} aria-sort={view.sort===c.id?'ascending':view.sort===`-${c.id}`?'descending':'none'}><button className="hx-column-sort" disabled={!canEditView||busy!==null} aria-label={`${c.name}で${view.sort===c.id?'降順に並べ替え':view.sort===`-${c.id}`?'並べ替えを解除':'昇順に並べ替え'}`} onClick={()=>void act('sort',()=>saveView({sort:nextColumnSort(view.sort,c.id)}))}>{c.name}<Icon name={view.sort===c.id?'arrow-up':view.sort===`-${c.id}`?'arrow-down':'sort'} size={12}/></button><ColumnResize name={c.name} width={layout?.widths[c.id]||180} save={width=>act('layout',()=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{...personal.layouts[view.id],hidden:layout.hidden,order:orderedColumns.map(c=>c.id),widths:{...layout?.widths,[c.id]:width}}}}))}/></th>)}<th aria-label={t('Actions')} /></tr>
+              <tr>{displayColumns.map((c) => <th key={c.id} aria-sort={view.sort===c.id?'ascending':view.sort===`-${c.id}`?'descending':'none'}><button className="hx-column-sort" disabled={!canEditView||busy!==null} aria-label={`${c.name}で${view.sort===c.id?'降順に並べ替え':view.sort===`-${c.id}`?'並べ替えを解除':'昇順に並べ替え'}`} onClick={()=>void act('sort',()=>saveView({sort:nextColumnSort(view.sort,c.id)}))}>{c.name}<Icon name={view.sort===c.id?'arrow-up':view.sort===`-${c.id}`?'arrow-down':'sort'} size={12}/></button><ColumnResize name={c.name} width={tableSizing.widths[c.id]} save={width=>act('layout',()=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{...personal.layouts[view.id],hidden:layout.hidden,order:orderedColumns.map(c=>c.id),widths:{...layout?.widths,[c.id]:width}}}}))}/></th>)}<th aria-label={t('Actions')} /><th className="hx-table-spacer" aria-hidden="true" /></tr>
             </thead>
             <tbody>
               {(view.groupBy ? (view.lanes || []).map(lane=>({...lane,rows:lane.rows.filter(row=>shownRows.some(r=>r.id===row.id))})) : [{key:null,rows:shownRows}]).map((group,groupIndex)=><React.Fragment key={group.key ?? groupIndex}>
-              {view.groupBy && <tr className="hx-table-group"><th colSpan={displayColumns.length+1}>{group.key ?? '未設定'} <span className="hx-count">{group.rows.length}</span></th></tr>}
+              {view.groupBy && <tr className="hx-table-group"><th colSpan={displayColumns.length+2}>{group.key ?? '未設定'} <span className="hx-count">{group.rows.length}</span></th></tr>}
               {group.rows.map((row) => (
                 <tr key={row.id} data-row={row.id}>
                   {displayColumns.map((c) => (
-                    <td key={c.id}>{isSystemColumn(c.id)?<span className="hx-system-cell" title={c.id==='$row.id'?row.id:c.id==='$row.createdAt'?row.createdAt:row.updatedAt}>{systemCellText(row,c.id)}</span>:<CellInput relationEntities={relationEntities} members={recordMembers} width={layout.widths[c.id]||180} wrap={layout.wrapText===true} column={c} value={row.values[c.id]} onSave={(v) => save(row, c, v)} />}</td>
+                    <td key={c.id}>{isSystemColumn(c.id)?<span className="hx-system-cell" title={c.id==='$row.id'?row.id:c.id==='$row.createdAt'?row.createdAt:row.updatedAt}>{systemCellText(row,c.id)}</span>:<CellInput relationEntities={relationEntities} members={recordMembers} width={tableSizing.widths[c.id]} wrap={layout.wrapText===true} column={c} value={row.values[c.id]} onSave={(v) => save(row, c, v)} />}</td>
                   ))}
                   <td><div className="hx-record-actions"><button className="hx-app-icon-button" aria-label={`${displayCellText(table.columns[0],row.values[table.columns[0].id])||'無題'}の詳細を開く`} onClick={()=>setEditingRecord(row)}><Icon name="maximize" size={14}/></button><button className="btn-text danger" onClick={() => removeRow(row)} disabled={busy === `del:${row.id}`} aria-label={t('Delete row')}><Icon name="trash" size={14} /></button></div></td>
+                  <td className="hx-table-spacer" aria-hidden="true" />
                 </tr>
               ))}</React.Fragment>)}
             </tbody>
