@@ -115,7 +115,7 @@
 | KY-066 | 実行者の権限を再検証 | 一部 | P0 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js), [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | Workflow内Agentの各モデル往復・ツール呼び出し前後でmakerの現行Agent grantと会話アクセスを再検証し、回答公開直前にも確認（このブランチで実装、CI前）。App/table/Connection grantの全経路監査、実行中プロバイダー要求のキャンセル・精算は残る |
 | KY-067 | 実行予算と自動pause | 一部 | P0 | [worker/src/harness/workflowSafety.js](../../worker/src/harness/workflowSafety.js) | 回数上限に加え、直近24h/7d/30日の記録トークンからUSD参考価格を集計しwarnまたは実行後pauseするAutomation予算を実装。単価不明usageの可視化、作成元thread通知、CAS設定、原子的admissionを検証。Kylon credits・invoice換算、外部tool料金、事前予約・部分実行の精算は未対応 |
 | KY-068 | 一回限りのFollow-up | 一部 | P1 | [worker/src/harness/followups.js](../../worker/src/harness/followups.js) | 相対/絶対時刻・スレッド・通知先・停止・権限変更後を検証 |
-| KY-069 | Follow-upの実ツール実行 | 未実装 | P1 | [worker/src/harness/followups.js](../../worker/src/harness/followups.js) | 現状はモデル文章かリマインダー。外部状態を実確認して根拠と一緒に返す |
+| KY-069 | Follow-upの実ツール実行 | 一部 | P1 | [worker/src/harness/followups.js](../../worker/src/harness/followups.js) | 個人Agent DMではread-only Notion/GitHub/Smithery連携を使い、ツール実行と出典/ID/URLを回答に含めるよう指示。共有チャンネルへ個人連携は渡さない。全Follow-upのコネクタ対応、書き込み操作、証跡画面、実接続の本番往復は残る |
 
 ## Files
 

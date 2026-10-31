@@ -102,6 +102,9 @@ export async function revokeTemplateShare(db, orgId, appId, shareId) {
 
 async function readShareRow(db, token) {
   if (!validToken(token)) return null;
+  // Public preview has no authenticated workspace context. The random,
+  // one-time bearer token is reduced to its unique SHA-256 hash before lookup;
+  // the row still stores its owning org_id for all member-only operations.
   const row = await db.prepare(`SELECT snapshot, expires_at AS expiresAt, revoked_at AS revokedAt
     FROM hx_template_shares WHERE token_hash=?1`).bind(await digest(token)).first();
   if (!row || row.revokedAt || row.expiresAt <= now()) return null;

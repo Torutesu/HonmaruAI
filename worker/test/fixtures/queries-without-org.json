@@ -28,5 +28,6 @@
   "teammates.js": 3,
   "webhooks.js": 8,
   "harness/followups.js": 1,
+  "harness/templateShares.js": 1,
   "harness/workflows.js": 2
 }
