@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeEach, expect, test } from "vitest";
 import { fetchMock } from "./helpers/fetch-mock.js";
 import worker from "../src/index.js";
+import { agentTools } from "../src/agentTools.js";
 import { cleanHeaders, cleanTools, safeEndpoint, toolName } from "../src/harness/remoteMcp.js";
 
 const ORG = "personal:remote-mcp";
@@ -120,6 +121,106 @@ test("an admin discovers a Remote MCP tool, allows it, and only execute-scoped a
     const result = await (await rpc(executor, "tools/call", { name: exposed.name, arguments: { query: "releases" } })).json();
     expect(result.result.content).toEqual([{ type: "text", text: "approved result" }]);
     expect((await call(`/remote-mcp/${server.id}?orgId=${encodeURIComponent(ORG)}`, { method: "DELETE", headers: headers(session) })).status).toBe(200);
+  } finally {
+    fetchMock.assertNoPendingInterceptors();
+    fetchMock.deactivate();
+  }
+});
+
+test("a personal Agent needs its caller's grant and live tool allowlist for Remote MCP results", async () => {
+  await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
+  const madeAgent = await call("/channels/agents", {
+    method: "POST", headers: headers(session),
+    body: JSON.stringify({ orgId: ORG, name: "Private researcher", handle: "private-researcher", instructions: "Search the approved knowledge source.", scope: "personal" }),
+  });
+  expect(madeAgent.status).toBe(201);
+  const { agent } = await madeAgent.json();
+  const addedResponse = await call("/remote-mcp", {
+    method: "POST", headers: headers(session),
+    body: JSON.stringify({ orgId: ORG, name: "Knowledge MCP", endpoint: "https://knowledge.example.com/mcp", headers: [] }),
+  });
+  expect(addedResponse.status).toBe(201);
+  const { server } = await addedResponse.json();
+
+  const origin = "https://knowledge.example.com";
+  const endpoint = fetchMock.get(origin);
+  const message = (opts) => JSON.parse(opts.body);
+  endpoint.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "initialize" })
+    .reply((opts) => ({ statusCode: 200, data: { jsonrpc: "2.0", id: message(opts).id, result: { protocolVersion: "2025-06-18" } }, responseOptions: { headers: { "mcp-session-id": "agent-session" } } })).times(4);
+  endpoint.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "notifications/initialized" })
+    .reply(202, null).times(4);
+  endpoint.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "tools/list" })
+    .reply((opts) => ({ statusCode: 200, data: { jsonrpc: "2.0", id: message(opts).id, result: { tools: [
+      { name: "search_policy", title: "Search policy", description: "Search approved policy content.", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }, annotations: { readOnlyHint: true } },
+      { name: "get_manual", title: "Get manual", description: "Read approved manuals.", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }, annotations: { readOnlyHint: true } },
+      { name: "delete_record", title: "Delete record", description: "Delete a record.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } },
+    ] } } }));
+  let calls = 0;
+  endpoint.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "tools/call" })
+    .reply(async (opts) => {
+      calls += 1;
+      if (calls === 2) {
+        await env.DB.prepare("DELETE FROM hx_agent_remote_mcp_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9551' AND server_id=?3")
+          .bind(ORG, agent.id, server.id).run();
+      } else if (calls === 3) {
+        await env.DB.prepare("UPDATE hx_remote_mcp_servers SET allowed_tools=?1 WHERE org_id=?2 AND id=?3")
+          .bind(JSON.stringify(["get_manual"]), ORG, server.id).run();
+      }
+      return { statusCode: 200, data: { jsonrpc: "2.0", id: message(opts).id, result: { content: [{ type: "text", text: calls === 1 ? "approved policy result" : "revoked private result" }] } } };
+    }).times(3);
+
+  fetchMock.activate();
+  try {
+    const discovered = await call(`/remote-mcp/${server.id}/discover`, {
+      method: "POST", headers: headers(session), body: JSON.stringify({ orgId: ORG }),
+    });
+    expect(discovered.status).toBe(200);
+    const allow = await call(`/remote-mcp/${server.id}/tools`, {
+      method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, allowedTools: ["search_policy", "get_manual", "delete_record"] }),
+    });
+    expect((await allow.json()).server.allowedTools).toEqual(["search_policy", "get_manual", "delete_record"]);
+
+    let state = await (await call(`/hx/agents/${agent.id}/apps?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) })).json();
+    expect(state.remoteMcpConnections).toMatchObject([{ serverId: server.id, available: true, enabled: false, readOnlyToolCount: 2 }]);
+    let tools = await agentTools(env, { orgId: ORG, session: { github_id: "9551" }, personal: true, agentId: agent.id });
+    expect(Object.keys(tools).filter((name) => name.startsWith("mcp_"))).toEqual([]);
+
+    const otherId = "9552";
+    const { upsertUser, upsertMembership, createSession } = await import("../src/db.js");
+    await upsertUser(env.DB, { githubId: otherId, login: "remote-reader", name: "Remote Reader" });
+    await upsertMembership(env.DB, ORG, otherId, "member");
+    const otherSession = await createSession(env.DB, otherId, "gho_remote_reader");
+    const denied = await call(`/hx/agents/${agent.id}/apps`, {
+      method: "POST", headers: headers(otherSession), body: JSON.stringify({ orgId: ORG, remoteMcpServerId: server.id }),
+    });
+    expect(denied.status).toBe(404);
+
+    const granted = await call(`/hx/agents/${agent.id}/apps`, {
+      method: "POST", headers: headers(session), body: JSON.stringify({ orgId: ORG, remoteMcpServerId: server.id }),
+    });
+    expect(granted.status).toBe(200);
+    state = await granted.json();
+    expect(state.remoteMcpConnections).toMatchObject([{ serverId: server.id, available: true, enabled: true, readOnlyToolCount: 2 }]);
+    tools = await agentTools(env, { orgId: ORG, session: { github_id: "9551" }, personal: true, agentId: agent.id });
+    const readOnly = Object.keys(tools).find((name) => name.startsWith("mcp_"));
+    expect(readOnly).toBeTruthy();
+    expect(Object.keys(tools).some((name) => name.includes("delete_record"))).toBe(false);
+    expect(await tools[readOnly].run({ query: "policy" })).toBe("approved policy result");
+    expect(await tools.read_url.run({ url: "https://example.com" })).toMatch(/Not opened/);
+    expect(await tools[readOnly].run({ query: "policy" })).toMatch(/result was discarded/);
+    state = await (await call(`/hx/agents/${agent.id}/apps?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) })).json();
+    expect(state.remoteMcpConnections).toMatchObject([{ serverId: server.id, available: true, enabled: false, readOnlyToolCount: 2 }]);
+
+    const regranted = await call(`/hx/agents/${agent.id}/apps`, {
+      method: "POST", headers: headers(session), body: JSON.stringify({ orgId: ORG, remoteMcpServerId: server.id }),
+    });
+    expect(regranted.status).toBe(200);
+    expect(await tools[readOnly].run({ query: "policy" })).toMatch(/result was discarded/);
+    state = await (await call(`/hx/agents/${agent.id}/apps?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) })).json();
+    expect(state.remoteMcpConnections).toMatchObject([{ serverId: server.id, available: true, enabled: true, readOnlyToolCount: 1 }]);
+
+    const shared = await agentTools(env, { orgId: ORG, session: { github_id: "9551" }, personal: false, agentId: agent.id });
+    expect(Object.keys(shared).some((name) => name.startsWith("mcp_"))).toBe(false);
   } finally {
     fetchMock.assertNoPendingInterceptors();
     fetchMock.deactivate();

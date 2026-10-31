@@ -79,11 +79,20 @@ export function cleanTools(value) {
     try { encoded = JSON.stringify(inputSchema); } catch { continue; }
     if (encoded.length > MAX_TOOL_SCHEMA_BYTES) continue;
     names.add(name);
+    const annotations = item.annotations && typeof item.annotations === "object" && !Array.isArray(item.annotations)
+      ? {
+          readOnlyHint: item.annotations.readOnlyHint === true,
+          destructiveHint: item.annotations.destructiveHint === true,
+          idempotentHint: item.annotations.idempotentHint === true,
+          openWorldHint: item.annotations.openWorldHint === true,
+        }
+      : {};
     tools.push({
       name,
       title: String(item.title || name).slice(0, 120),
       description: String(item.description || "").slice(0, 2_000),
       inputSchema,
+      annotations,
     });
   }
   return tools;
@@ -291,6 +300,7 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
     return json({ server: publicServer(updated) });
   }
   if (request.method === "DELETE" && !operation) {
+    await env.DB.prepare("DELETE FROM hx_agent_remote_mcp_grants WHERE org_id = ?1 AND server_id = ?2").bind(orgId, id).run().catch(() => {});
     await env.DB.prepare("DELETE FROM hx_remote_mcp_servers WHERE org_id = ?1 AND id = ?2").bind(orgId, id).run();
     await writeAudit(env, request, who, orgId, "remote_mcp.server_removed", row);
     return json({ removed: true });
@@ -300,19 +310,20 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
 
 /// The MCP tools a token may see. Connections and their allowlists are both
 /// workspace-owned; an agent still needs the separate execute token scope.
-export async function remoteMcpTools(db, orgId) {
+export async function remoteMcpTools(db, orgId, { readOnlyOnly = false } = {}) {
   const { results = [] } = await db.prepare("SELECT id, name, tools_json, allowed_tools FROM hx_remote_mcp_servers WHERE org_id = ?1 ORDER BY created_at").bind(orgId).all();
   const exposed = [];
   for (const row of results) {
     const allowed = new Set(parseJSON(row.allowed_tools, []));
     for (const tool of cleanTools(parseJSON(row.tools_json, []))) {
-      if (!allowed.has(tool.name)) continue;
+      if (!allowed.has(tool.name) || (readOnlyOnly && (!tool.annotations.readOnlyHint || tool.annotations.destructiveHint))) continue;
       const name = toolName(row.id, tool.name);
       exposed.push({
         name,
         title: `${row.name}: ${tool.title}`.slice(0, 120),
         description: `Connected Remote MCP server “${row.name}”. ${tool.description || `Call the ${tool.name} tool.`}`.slice(0, 2_000),
         inputSchema: tool.inputSchema,
+        annotations: tool.annotations,
         _remote: { serverId: row.id, toolName: tool.name },
       });
     }
@@ -320,12 +331,18 @@ export async function remoteMcpTools(db, orgId) {
   return exposed;
 }
 
-export async function callRemoteMcpTool(env, agent, offeredTool, args) {
+export async function callRemoteMcpTool(env, agent, offeredTool, args, { readOnlyOnly = false } = {}) {
   const ref = offeredTool?._remote;
   if (!ref || !args || typeof args !== "object" || Array.isArray(args)) return null;
   if (JSON.stringify(args).length > 64_000) return { content: [{ type: "text", text: "Tool arguments are too large." }], isError: true };
   const row = await getServer(env.DB, agent.orgId, ref.serverId);
   if (!row || !parseJSON(row.allowed_tools, []).includes(ref.toolName)) return { content: [{ type: "text", text: "This remote MCP tool is no longer enabled." }], isError: true };
+  if (readOnlyOnly) {
+    const current = cleanTools(parseJSON(row.tools_json, [])).find((tool) => tool.name === ref.toolName);
+    if (!current?.annotations.readOnlyHint || current.annotations.destructiveHint) {
+      return { content: [{ type: "text", text: "This Remote MCP tool is not marked read-only." }], isError: true };
+    }
+  }
   const endpoint = safeEndpoint(row.endpoint);
   if (!endpoint) return { content: [{ type: "text", text: "This Remote MCP endpoint is no longer allowed." }], isError: true };
   try {

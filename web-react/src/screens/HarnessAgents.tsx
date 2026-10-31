@@ -23,7 +23,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { Icon } from '../components/Icon'
-import type { AgentProfile, AgentMemory, AgentAppConnection, AgentNativeConnection, Skill, SharedSkillInfo } from '../utils/harness'
+import type { AgentProfile, AgentMemory, AgentAppConnection, AgentNativeConnection, AgentRemoteMcpConnection, Skill, SharedSkillInfo } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 
 // Agents as members, and the skills they work by (docs/kylon-gap-plan.md).
@@ -105,6 +105,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
   const [profile, setProfile] = useState<AgentProfile | null>(null)
   const [agentApps, setAgentApps] = useState<AgentAppConnection[] | null>(null)
   const [nativeConnections, setNativeConnections] = useState<AgentNativeConnection[] | null>(null)
+  const [remoteMcpConnections, setRemoteMcpConnections] = useState<AgentRemoteMcpConnection[] | null>(null)
   const [canEdit, setCanEdit] = useState(false)
   const [memories, setMemories] = useState<AgentMemory[]>([])
   const [memoryCursor, setMemoryCursor] = useState<string | null>(null)
@@ -126,10 +127,10 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
 
   const load = useCallback(() => act('load', async () => {
     const version = ++memoryLoad.current
-    const [p, m, s, all, scopes, apps] = await Promise.all([api.profile(agent.id), api.memoryPage(agent.id, memoryChannel, undefined, memorySearch), api.agentSkills(agent.id), api.skills(), api.memoryScopes(agent.id), api.agentApps(agent.id).catch(() => ({ connections: [], nativeConnections: [] }))])
+    const [p, m, s, all, scopes, apps] = await Promise.all([api.profile(agent.id), api.memoryPage(agent.id, memoryChannel, undefined, memorySearch), api.agentSkills(agent.id), api.skills(), api.memoryScopes(agent.id), api.agentApps(agent.id).catch(() => ({ connections: [], nativeConnections: [], remoteMcpConnections: [] }))])
     if (version !== memoryLoad.current) return
     setMemoryScopes(scopes.scopes)
-    setProfile(p.profile); setCanEdit(p.canEdit); setPeople(p.profile.people.map((x) => `@${x}`).join(' ')); setAgentApps(apps.connections || []); setNativeConnections(apps.nativeConnections || [])
+    setProfile(p.profile); setCanEdit(p.canEdit); setPeople(p.profile.people.map((x) => `@${x}`).join(' ')); setAgentApps(apps.connections || []); setNativeConnections(apps.nativeConnections || []); setRemoteMcpConnections(apps.remoteMcpConnections || [])
     setMemories(m.memories); setMemoryCursor(m.nextCursor); setSkills(s.skills); setAllSkills(all.skills)
   }), [api, act, agent.id, memoryChannel, memorySearch])
   useEffect(() => { load(); return () => { ++memoryLoad.current } }, [load])
@@ -254,6 +255,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
                 const result = await api.setAgentApp(agent.id, app.server, granted)
                 setAgentApps(result.connections)
                 setNativeConnections(result.nativeConnections || [])
+                setRemoteMcpConnections(result.remoteMcpConnections || [])
               })
             }} />
           </label>)}
@@ -274,10 +276,32 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
                   const result = await api.setAgentNativeSource(agent.id, connection.source, granted)
                   setAgentApps(result.connections || [])
                   setNativeConnections(result.nativeConnections || [])
+                  setRemoteMcpConnections(result.remoteMcpConnections || [])
                 })
               }} />
             </label>
           })}
+        </div>}
+        <div className="rows-title">{t('Remote MCP sources')}</div>
+        <p className="row-sub">{t('Only workspace-approved tools marked read-only are available. Your grant applies to this Agent in your private conversations.')}</p>
+        {remoteMcpConnections === null ? <div className="empty">{t('Loading…')}</div> : remoteMcpConnections.length === 0 ? <div className="studio-empty">{t('No Remote MCP servers are available. A workspace admin can connect one in Tools → Apps.')}</div> : <div className="rows">
+          {remoteMcpConnections.map(connection => <label className="row static" key={connection.serverId} data-agent-remote-mcp={connection.serverId}>
+            <span className="row-icon"><Icon name="plug" size={18} /></span>
+            <span className="row-main">{connection.name}
+              <span className="row-sub">{connection.available
+                ? t('Allow this Agent to read {count} workspace-approved tools in your private conversations.', { count: connection.readOnlyToolCount })
+                : t('This server has no workspace-approved tools marked read-only. A workspace admin can refresh its tool list in Tools → Apps.')}</span>
+            </span>
+            <input type="checkbox" aria-label={t('Allow {agent} to use read-only tools from {server}', { agent: agent.name, server: connection.name })} checked={connection.enabled} disabled={!connection.available || busy !== null} onChange={e => {
+              const granted = e.currentTarget.checked
+              void act('connection', async () => {
+                const result = await api.setAgentRemoteMcpConnection(agent.id, connection.serverId, granted)
+                setAgentApps(result.connections || [])
+                setNativeConnections(result.nativeConnections || [])
+                setRemoteMcpConnections(result.remoteMcpConnections || [])
+              })
+            }} />
+          </label>)}
         </div>}
       </>}
       {section === 'skills' && <>

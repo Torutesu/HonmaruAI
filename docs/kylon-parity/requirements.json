@@ -914,10 +914,10 @@
       "code": "worker/src/harness/remoteMcp.js",
       "acceptance": "OAuth/API key・tool一覧・schema・SSRF制限・失効",
       "evidence": {
-        "reviewedAt": "2026-10-31",
-        "implementedScope": "Harness-only workspace Remote MCP connections support encrypted bearer/custom headers, Streamable HTTP initialization and tool discovery/calls, explicit tool allowlists, HTTPS/public-host checks, redirect and size limits, admin-only management, execute-scoped agent access, audit events and disconnect.",
-        "remaining": "OAuth 2.1 discovery/client registration and DNS-pinned egress are not implemented; nonstandard ports and URL query parameters are rejected.",
-        "verification": "worker/test/remote-mcp.test.js"
+        "reviewedAt": "2026-11-01",
+        "implementedScope": "Harness-only workspace Remote MCP connections support encrypted bearer/custom headers, Streamable HTTP initialization and tool discovery/calls, explicit tool allowlists, HTTPS/public-host checks, redirect and size limits, admin-only management, execute-scoped API access, audit events and disconnect. Private Agent conversations add per-caller grants, expose only workspace-approved tools marked read-only, recheck the caller grant and exact tool allowlist/annotation before and after calls and before publishing, and block results if access changes in flight; shared conversations and Simple mode do not receive this access.",
+        "remaining": "OAuth 2.1 discovery/client registration, DNS-pinned egress, a Kylon-scale connector catalog, write-capable per-Agent grants and app/workflow execution integration are not implemented; nonstandard ports and URL query parameters are rejected. New Agent-grant work is on a follow-up branch and awaits PR CI and production verification.",
+        "verification": "worker/test/remote-mcp.test.js (pending PR CI and production screen verification)"
       }
     },
     {
@@ -947,10 +947,10 @@
       "code": "worker/src/agentTools.js",
       "acceptance": "人の接続とagent/app/workflowの利用権を分離",
       "evidence": {
-        "reviewedAt": "2026-10-31",
-        "implementedScope": "Harness Agentごと・呼び出しユーザーごとにNotion/GitHub native searchを初期拒否し、接続済みソースのみ許可可能。手動ツール、自動リサーチ、スケジュール済みFollow-upは検索前後とモデル応答・公開前にmembership世代・grant・接続状態を再検証し、失効後は結果を破棄。Smithery App grantとは別テーブル。Simpleの従来接続経路を維持。",
-        "remaining": "任意の外部Connectionのgrant、App/Workflow作成者と実行ユーザーのgrant統合、全操作カテゴリのKylon同等性、PR CI・本番deploy・実画面確認",
-        "verification": "docs/kylon-parity/verification.md"
+        "reviewedAt": "2026-11-01",
+        "implementedScope": "PR #583 is merged and deployed. Harness Agentごと・呼び出しユーザーごとにNotion/GitHub native searchを初期拒否し、接続済みソースのみ許可可能。手動ツール、自動リサーチ、スケジュール済みFollow-upは検索前後とモデル応答・公開前にmembership世代・grant・接続状態を再検証し、失効後は結果を破棄。Smithery App grantとは別テーブル。Simpleの従来接続経路を維持。",
+        "remaining": "任意の外部Connectionのgrant、App/Workflow作成者と実行ユーザーのgrant統合、全操作カテゴリのKylon同等性",
+        "verification": "docs/kylon-parity/verification.md (main CI 41217441410; Worker deploy 41217441413; Web deploy 41217441411; signed-in Agent Connections screen)"
       }
     },
     {

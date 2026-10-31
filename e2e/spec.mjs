@@ -1923,27 +1923,42 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     // batched state update on slower CI runners.
     await d.waitForFunction(() => !document.querySelector('.palette') && !document.querySelector('.palette-scrim'), null, { timeout: 5000 })
       .catch(() => { throw new Error('selecting a search result left the palette over the list') })
+    // Resolving a thread reply can also open its original-message preview if
+    // the reply is not in the loaded page yet. That modal correctly blocks
+    // the inbox behind it, so dismiss it when the lookup needed it.
+    const closeOriginalPreview = async () => {
+      const preview = d.locator('.dialog[aria-label="Original message"]')
+      if (!(await preview.isVisible().catch(() => false))) return false
+      await preview.locator('.dialog-close').click()
+      await preview.waitFor({ state: 'detached', timeout: 5000 })
+      return true
+    }
+    await closeOriginalPreview()
     // The Activity inbox is there and opens. Keep enough state in the CI log
     // to tell an overlay from a hidden, clipped, or disabled button if this
     // ever regresses again.
     try {
-      await d.click('[data-activity="1"]')
+      await d.click('[data-activity="1"]', { timeout: 3000 })
     } catch (err) {
-      const state = await d.evaluate(() => {
-        const button = document.querySelector('[data-activity="1"]')
-        const rect = button?.getBoundingClientRect()
-        const overlays = [...document.querySelectorAll('.scrim, [role="dialog"], .slk-pane')]
-          .map((el) => ({ className: String(el.className), display: getComputedStyle(el).display, visibility: getComputedStyle(el).visibility, pointerEvents: getComputedStyle(el).pointerEvents, zIndex: getComputedStyle(el).zIndex, rect: el.getBoundingClientRect().toJSON() }))
-        return {
-          href: location.href,
-          active: document.activeElement?.tagName,
-          button: button && { text: button.textContent, disabled: button.disabled, display: getComputedStyle(button).display, visibility: getComputedStyle(button).visibility, pointerEvents: getComputedStyle(button).pointerEvents, rect: rect?.toJSON(), hitStack: rect ? document.elementsFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2).slice(0, 5).map((el) => `${el.tagName}.${String(el.className).slice(0, 60)}`) : [] },
-          overlays,
-        }
-      })
-      await d.screenshot({ path: `${SHOTS}/activity-click-failed.png` }).catch(() => {})
-      console.error('Activity click diagnostic:', JSON.stringify(state))
-      throw err
+      if (await closeOriginalPreview()) {
+        await d.click('[data-activity="1"]', { timeout: 10000 })
+      } else {
+        const state = await d.evaluate(() => {
+          const button = document.querySelector('[data-activity="1"]')
+          const rect = button?.getBoundingClientRect()
+          const overlays = [...document.querySelectorAll('.scrim, [role="dialog"], .slk-pane')]
+            .map((el) => ({ className: String(el.className), display: getComputedStyle(el).display, visibility: getComputedStyle(el).visibility, pointerEvents: getComputedStyle(el).pointerEvents, zIndex: getComputedStyle(el).zIndex, rect: el.getBoundingClientRect().toJSON() }))
+          return {
+            href: location.href,
+            active: document.activeElement?.tagName,
+            button: button && { text: button.textContent, disabled: button.disabled, display: getComputedStyle(button).display, visibility: getComputedStyle(button).visibility, pointerEvents: getComputedStyle(button).pointerEvents, rect: rect?.toJSON(), hitStack: rect ? document.elementsFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2).slice(0, 5).map((el) => `${el.tagName}.${String(el.className).slice(0, 60)}`) : [] },
+            overlays,
+          }
+        })
+        await d.screenshot({ path: `${SHOTS}/activity-click-failed.png` }).catch(() => {})
+        console.error('Activity click diagnostic:', JSON.stringify(state))
+        throw err
+      }
     }
     await d.waitForSelector('.slk-inbox-tabs [role="tab"]', { timeout: 10000 })
       .catch(async () => { await d.screenshot({ path: `${SHOTS}/activity-did-not-open.png` }); throw new Error('Activity did not open') })
