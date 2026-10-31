@@ -997,11 +997,15 @@
       "id": "KY-085",
       "category": "Connections",
       "requirement": "Workspace CLIの全操作",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/proxy/tools-api",
       "code": "worker/src/mcp.js",
-      "acceptance": "JSON出力・scope・ユーザー/agent principal・終了コード・失敗閉鎖"
+      "acceptance": "JSON出力・scope・ユーザー/agent principal・終了コード・失敗閉鎖",
+      "evidence": {
+        "verified": "2026-10-31 main 2481adb0 / PR #569で実行ノード一覧、隔離JavaScript実行のqueue/read/cancel、公開App actionのlist/run/read CLIを追加。既存MCPツールへのaliasとして動作し、サーバーがscope・membership・実行結果の所有者を再検証する。App actionは公開versionを固定し、request IDで再試行を冪等化。SimpleではHarness専用aliasを拒否し、既存Simple tool/callは維持。CLI 24/24テストとPR CI全9ジョブ成功。",
+        "remaining": "Workspace MCPで提供する全操作は未alias（Room/message/Agent/connection/skillなど）。全aliasのJSON・失敗終了コード・user/agent principal・SSO/IP restrictionを含む受入検証と、CLIからの本番実行は未完了。"
+      }
     },
     {
       "id": "KY-086",
@@ -1136,8 +1140,8 @@
       "code": "web-react/src/components/HarnessWorkspace.css",
       "acceptance": "Kylon実画面では未選択セルを通常テキストとして表示し、操作時に編集状態を示す。Honmaruもセルを通常時は平坦にし、hover/focusでは視認可能な枠を出す。ダークテーマの面・文字・境界を中立色に揃え、Simpleテーマは維持する。両テーマと本番画面で確認する。",
       "evidence": {
-        "verified": "2026-10-31にログイン済みKylon/Honmaruのデータビューアーを実画面比較。Honmaruは非選択のセルも入力枠として表示し、ダーク面に強い緑かぶりがある差を確認。ローカルでCSSを修正しWeb buildとVitest全1328件が通過。",
-        "remaining": "候補CSSの本番反映、ログイン済み画面でセル通常/hover/focusとライト/ダークを最終確認。"
+        "verified": "2026-10-31にログイン済みKylon/Honmaruのデータビューアーを実画面比較。Honmaruは非選択のセルも入力枠として表示し、ダーク面に強い緑かぶりがある差を確認。CSSを修正しWeb buildとVitest全1328件が通過。PR #568 / main 3b0775b9で本番反映。app.honmaruai.com と honmaru-web.pages.dev はHTTP 200で、両方が配信するindex-D7uHhdMs.cssにneutral dark surface/border tokensを確認。",
+        "remaining": "今回のブラウザーはログアウト状態でHarnessデータビューへ到達できず、Mac画面取得はロックエラー。公開ログイン前画面とbundle反映まで確認。セル通常/hover/focus、ライト/ダーク両テーマの認証済み本番画面確認は未完了。"
       }
     }
   ]
