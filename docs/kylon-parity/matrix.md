@@ -202,11 +202,11 @@ Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing an
 
 ### 2026-10-31 — アプリ注釈
 
-[Kylon公式のアプリ作成ヘルプ](https://kylon.io/help/build-an-app) に記載された注釈機能をログイン済み画面で確認。アプリの範囲を指定しAgentへ修正コメントを渡す導線をKY-098として追加。Honmaruでは範囲選択と会話への下書き挿入を実装した。注釈そのものの保存・画面への再表示・複数注釈管理・実機E2Eが残るため、一部のまま追跡する。
+[Kylon公式のアプリ作成ヘルプ](https://kylon.io/help/build-an-app) に記載された注釈機能をログイン済み画面で確認。アプリの範囲を指定しAgentへ修正コメントを渡す導線をKY-098として追加。Honmaruでは範囲選択・親画面の要素特定・公開sandboxカスタム画面内の安全な要素名照会・会話への下書き挿入を実装した。注釈マーカー、アクセス権、作成元スレッドを含む認証済み本番E2Eが残るため、一部のまま追跡する。
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-098 | アプリ画面への範囲注釈とAgentへの修正依頼 | 一部 | P1 | [AppAnnotation.tsx](../../web-react/src/components/AppAnnotation.tsx) | 対象範囲・要素・位置を指定し、アプリ会話に編集可能な下書きとして渡す。自動送信しない。注釈マークの永続化/再表示、複数注釈管理、権限境界、作成元スレッドを含む認証済み本番E2E比較が残る |
+| KY-098 | アプリ画面への範囲注釈とAgentへの修正依頼 | 一部 | P1 | [AppAnnotation.tsx](../../web-react/src/components/AppAnnotation.tsx), [customRunner.js](../../worker/src/harness/customRunner.js) | 対象範囲・親画面要素・公開sandboxカスタム画面の要素名・位置を指定し、アプリ会話に編集可能な下書きとして渡す。送信は利用者が選択。注釈マーカー、アクセス権、作成元スレッドを含む認証済み本番E2E比較が残る |
 
 ### 2026-10-26 — Kylon usage controls
 
