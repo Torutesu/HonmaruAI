@@ -17,8 +17,8 @@ jobs:
       - name: Preserve source line endings
         working-directory: ${{ runner.temp }}
         run: git config --global core.autocrlf false
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
@@ -67,7 +67,7 @@ jobs:
             if ($app.WaitForExit(20000)) { throw 'App exited during startup' }
             'Windows x64 startup passed for 20 seconds. Store installation and signed-in workflows require further verification.' | Set-Content dist/startup-result.txt
           } finally { taskkill /PID $app.Id /T /F 2>$null }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Honmaru-AI-Windows-Store
           path: |

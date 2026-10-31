@@ -37,8 +37,8 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - name: The Mac app's own packages (Electron included)
@@ -56,7 +56,7 @@ jobs:
       - run: E2E_SPEC=e2e/desktop-ime.mjs ./e2e/run.sh
       - name: Screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-ime-screenshots
           path: /tmp/e2e-shots
