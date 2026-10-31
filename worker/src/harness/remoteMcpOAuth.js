@@ -130,7 +130,7 @@ async function discoverProtectedResource(endpoint) {
   }
   if (!metadata) throw new Error(lastError?.message || "The MCP server did not publish OAuth Protected Resource Metadata.");
   const resource = safeOAuthUrl(metadata.resource || endpoint);
-  if (!resource || new URL(resource).origin !== new URL(endpoint).origin) {
+  if (!resource || resource !== endpoint) {
     throw new Error("The OAuth resource metadata does not identify the configured MCP server.");
   }
   const issuers = Array.isArray(metadata.authorization_servers) ? metadata.authorization_servers : [];
