@@ -6,6 +6,8 @@
 
 2026-10-23 公開状況: 原子的ルーム作成と3段階UI、保存色、役割変更・メンバーUIを本番公開済み。93c400d7のCIは全必須ジョブ成功。1dcf52cbで管理対象ルームの追加入口も共通化し、d8e85c76のWebデプロイで公開。10色パレット・Escape時の入力保持・CIバージョン修正もa673f31eで本番公開し、全必須CI成功と本番作成／再読み込みを確認。既定ルーム、プライバシー編集、全利用者・端末での検証は未完了。
 
+2026-11-01 連携の公開状況: PR #588/#589の公開を確認。MCP Registryはコミュニティ掲載の公開サーバーであり、Kylonの審査済み大規模Integration catalogとは同等と扱わない。OAuthメタデータはWorker本番で応答し、ログイン済みHonmaru Appsで公開一覧と検索結果を確認。Simple利用経路は従来の分岐を維持。認証情報や外部サーバーは追加していない。残差の詳細はKY-076/077を参照。
+
 ## Rooms
 
 [比較元の公式仕様](https://kylon.io/product/workspace)
@@ -136,8 +138,8 @@
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-076 | 連携カタログとOAuth接続 | 一部 | P1 | 該当実装は未特定 | 掲載件数ではなく認証/検索/読取/書込/解除を連携ごとに検証 |
-| KY-077 | Remote MCP任意サーバー | 一部 | P1 | [worker/src/harness/remoteMcp.js](../../worker/src/harness/remoteMcp.js), [worker/src/harness/agentRemoteMcp.js](../../worker/src/harness/agentRemoteMcp.js), [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | Harness限定。HTTPS接続、暗号化Bearer/custom header、tool一覧/schema、明示allowlist、execute scopeに加え、個人Agent会話のcaller grant・読み取り専用制限、およびWorkflow Agent stepからのworkspace承認済み読み取り専用tool呼び出しを追加。Harness mode・tool allowlist・実行権限を呼び出し前後と回答公開前に再検査し、失効後の結果は公開しない。Simple/shared会話にはRemote MCPを追加しない。PR #586を`bec8c471`として統合、PR CI #41228613594全9件成功、Worker deploy #41230080171成功。Worker version `ad1b84e2-c219-4356-bb5a-3b53ac5f49ab`のhealthと暗号化チェックを確認。実サーバー・credential・Agent grantは作成しておらず、live tool callは未検証。main CI #41230983711は7実行ジョブすべて成功、iOS/Windowsはpush時スキップ。OAuth DCR、DNS-pinned egress、3,000件規模のコネクタカタログ、書き込みgrant、App/non-Agent Workflow実行連携は未対応 |
+| KY-076 | 連携カタログとOAuth接続 | 一部 | P1 | [RemoteMcpServers.tsx](../../web-react/src/components/RemoteMcpServers.tsx), [remoteMcp.js](../../worker/src/harness/remoteMcp.js) | PR #588でOAuth 2.1接続UIとクライアントメタデータを追加し、PR #589でMCP Registryの公開Streamable HTTPカタログを追加。PR #589のmain CI #41244670659、Worker deploy #41244670786、Web deploy #41244670593は成功。ログイン済み本番Macで一覧と「github」検索結果を確認し、接続は保存していない。全Kylon連携の広いカタログ、各Providerの認証往復・読取/書込・解除の受入は残る |
+| KY-077 | Remote MCP任意サーバー | 一部 | P1 | [worker/src/harness/remoteMcp.js](../../worker/src/harness/remoteMcp.js), [worker/src/harness/agentRemoteMcp.js](../../worker/src/harness/agentRemoteMcp.js), [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js), [RemoteMcpServers.tsx](../../web-react/src/components/RemoteMcpServers.tsx) | Harness限定。HTTPS接続、暗号化Bearer/custom header、tool一覧/schema、明示allowlist、execute scope、個人Agent会話のcaller grant・読み取り専用制限、Workflow Agent stepからのworkspace承認済み読み取り専用tool呼び出しを実装。OAuth 2.1 UI/PKCE callback・クライアントメタデータ (PR #588) と公開MCP Registry一覧・検索・cursor paging (PR #589) を追加。Harness mode・tool allowlist・実行権限を呼び出し前後と回答公開前に再検査し、失効後の結果は公開しない。Simple/shared会話にはRemote MCPを追加しない。main SHA `1aa267bf2c0f`、CI #41244670659、Worker #41244670786、Web #41244670593はいずれも成功。Worker healthとmetadata endpointが200で、ログイン済み本番Apps画面でカタログ閲覧・GitHub検索を確認。実サーバー・credential・Agent grantは作成しておらず、実Provider OAuth往復/live tool callは未検証。Dynamic Client Registration、DNS-pinned egress、3,000件規模のキュレーション済みコネクタカタログ、書き込みgrant、App/non-Agent Workflow実行連携は未対応 |
 | KY-078 | Custom API service | 一部 | P1 | [worker/src/harness/appCapabilities.js](../../worker/src/harness/appCapabilities.js) | 6種の公式API host・固定URL/操作・暗号化secret・応答上限・redirect禁止・write再送抑止を追加。任意hostは未対応 |
 | KY-079 | Agent単位のConnection grant | 一部 | P0 | [worker/src/agentTools.js](../../worker/src/agentTools.js), [worker/src/harness/agentConnections.js](../../worker/src/harness/agentConnections.js), [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js), [worker/src/harness/followups.js](../../worker/src/harness/followups.js) | PR #583を本番反映し、サインイン済み実画面でNotion/GitHub grantを確認。Harnessで手動・自動検索とFollow-upを利用者ごとに初期拒否・許可・再認可。Smithery App grantは別管理。Simpleは従来どおり。任意の外部Connection、アプリ作成・Workflow実行主体との統合は残る |
 | KY-080 | Tools discovery/execute/native proxy/upload | 一部 | P1 | [worker/src/mcp.js](../../worker/src/mcp.js) | 同一principalとスコープでREST/CLI/MCPを提供 |
