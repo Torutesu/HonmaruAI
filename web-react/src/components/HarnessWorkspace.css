@@ -525,7 +525,7 @@
 .hx-record-metadata dt { color:var(--hx-muted); }
 .hx-record-metadata dd { margin:0; overflow-wrap:anywhere; user-select:text; }
 
-.hx-app-main { min-width:0; }
+.hx-app-main { position:relative; min-width:0; }
 .hx-app-with-chat > .screen-body { display:grid; grid-template-columns:minmax(300px,38%) minmax(0,1fr); gap:0; }
 .hx-app-with-chat .hx-app-main { padding-left:20px; }
 .hx-object-chat { display:flex; flex-direction:column; min-height:420px; max-height:calc(100dvh - 110px); min-width:0; background:var(--hx-surface); color:var(--hx-text); border-left:1px solid var(--hx-border); font-size:13px; }
@@ -850,3 +850,18 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-workflow-budget .hx-inline input { width:100%; min-width:0; border-color:var(--hx-border,var(--bone)); background:var(--hx-surface,var(--signal-white)); color:var(--hx-text,var(--ink-black)); }
 .hx-workflow-budget .row-sub { color:var(--hx-muted,var(--ash)); font-size:11px; }
 @media(max-width:600px) { .hx-revision-pair { grid-template-columns:minmax(0,1fr); } }
+
+.hx-annotation-layer { position:absolute; inset:0; z-index:85; touch-action:none; cursor:crosshair; background:color-mix(in srgb,var(--hx-accent) 5%,transparent); outline:1px solid color-mix(in srgb,var(--hx-accent) 35%,transparent); }
+.hx-annotation-layer:focus-visible { outline:2px solid var(--hx-accent); outline-offset:-2px; }
+.hx-annotation-instruction { position:sticky; top:10px; z-index:1; width:max-content; max-width:calc(100% - 24px); margin:10px 12px 0 auto; padding:8px 11px; border:1px solid var(--hx-border); border-radius:10px; background:var(--hx-surface); color:var(--hx-text); box-shadow:0 4px 14px #0002; font-size:12px; }
+.hx-annotation-instruction span { margin-left:10px; color:var(--hx-muted); }
+.hx-annotation-selection { position:absolute; border:2px solid var(--hx-accent); background:color-mix(in srgb,var(--hx-accent) 13%,transparent); pointer-events:none; }
+.hx-annotation-scrim { position:fixed; inset:0; z-index:260; display:grid; place-items:center; padding:20px; background:#0007; }
+.hx-annotation-dialog { display:grid; gap:14px; width:min(440px,100%); padding:20px; border:1px solid var(--hx-border); border-radius:14px; background:var(--hx-surface); color:var(--hx-text); box-shadow:0 18px 54px #0005; }
+.hx-annotation-dialog h2 { margin:0; font-size:16px; }
+.hx-annotation-dialog p,.hx-annotation-dialog small { margin:0; color:var(--hx-muted); font-size:12px; line-height:1.5; }
+.hx-annotation-dialog label { display:grid; gap:7px; font-size:12px; }
+.hx-annotation-dialog textarea { box-sizing:border-box; width:100%; min-height:110px; resize:vertical; padding:10px; border:1px solid var(--hx-border); border-radius:9px; background:var(--hx-hover); color:var(--hx-text); font:inherit; font-size:13px; }
+.hx-annotation-dialog textarea:focus-visible { outline:2px solid var(--hx-accent); outline-offset:1px; }
+.hx-annotation-actions { display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
+.hx-annotation-actions .pill-btn { border-radius:9px; }
