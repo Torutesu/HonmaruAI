@@ -2152,15 +2152,32 @@ await step('right-clicking a channel in the sidebar offers what a desktop chat a
     await d.click('.row-menu [data-row-menu="copy-link"]')
     const copied = await d.evaluate(() => navigator.clipboard.readText())
     if (!/#\/c\/b%3Afront-desk$/.test(copied)) throw new Error(`Copy link copied ${copied}`)
-    // Star it from the menu.
+    // Normalize the starting state: the same channel can already be starred
+    // by an earlier scenario. Exercise both directions and wait for the
+    // server save before reopening the menu, so this checks the UI rather
+    // than relying on fixture ordering or a fast local state update.
     await menu('Front desk')
-    await d.click('.row-menu [data-row-menu="star"]')
-    await d.waitForSelector('.row-menu', { state: 'detached', timeout: 3000 })
-    await d.waitForSelector(`${rowOf('Front desk')}`, { timeout: 5000 })
+    let starLabel = await d.innerText('.row-menu [data-row-menu="star"]')
+    if (/Unstar/.test(starLabel)) {
+      await Promise.all([
+        d.waitForResponse((r) => r.url().includes('/channels/sidebar') && r.request().method() === 'PUT', { timeout: 10000 }),
+        d.click('.row-menu [data-row-menu="star"]'),
+      ])
+      await menu('Front desk')
+      starLabel = await d.innerText('.row-menu [data-row-menu="star"]')
+    }
+    if (!/Star channel/.test(starLabel)) throw new Error(`an unstarred channel offers ${starLabel}`)
+    await Promise.all([
+      d.waitForResponse((r) => r.url().includes('/channels/sidebar') && r.request().method() === 'PUT', { timeout: 10000 }),
+      d.click('.row-menu [data-row-menu="star"]'),
+    ])
     await menu('Front desk')
-    const starLabel = await d.innerText('.row-menu [data-row-menu="star"]')
+    starLabel = await d.innerText('.row-menu [data-row-menu="star"]')
     if (!/Unstar/.test(starLabel)) throw new Error(`after starring, the menu still says ${starLabel}`)
-    await d.click('.row-menu [data-row-menu="star"]')
+    await Promise.all([
+      d.waitForResponse((r) => r.url().includes('/channels/sidebar') && r.request().method() === 'PUT', { timeout: 10000 }),
+      d.click('.row-menu [data-row-menu="star"]'),
+    ])
     // Just mentions: ticked the next time the menu opens.
     await menu('Front desk')
     // Saved first, then shown: wait for the server to take it, not a clock.

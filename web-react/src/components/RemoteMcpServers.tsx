@@ -9,7 +9,15 @@ type RemoteServer = {
   authMode?: 'headers' | 'oauth'; oauthRegistration?: 'auto' | 'manual'; oauthConnected?: boolean
   tools: RemoteTool[]; allowedTools: string[]; connectedAt: string | null; createdAt: string
 }
-type HeaderRow = { id: string; name: string; value: string }
+type HeaderRow = { id: string; name: string; value: string; required?: boolean; description?: string }
+type RegistryServer = {
+  name: string; title: string; description: string; version: string; endpoint: string
+  headers: Array<{ name: string; required: boolean; description: string }>
+}
+
+function registryEndpointHost(endpoint: string) {
+  try { return new URL(endpoint).hostname } catch { return endpoint }
+}
 
 export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: string; orgId: string; sessionToken: string }) {
   const t = useT()
@@ -25,6 +33,10 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
   const [oauthRegistration, setOauthRegistration] = useState<'auto' | 'manual'>('auto')
   const [oauthClientId, setOauthClientId] = useState('')
   const [oauthClientSecret, setOauthClientSecret] = useState('')
+  const [catalogQuery, setCatalogQuery] = useState('')
+  const [catalog, setCatalog] = useState<{ servers: RegistryServer[]; nextCursor: string | null } | null>(null)
+  const [catalogBusy, setCatalogBusy] = useState(false)
+  const [catalogError, setCatalogError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
@@ -54,6 +66,33 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(data.message || t('That did not work. Try again in a moment.'))
     return data
+  }
+
+  const searchCatalog = async (cursor?: string, queryValue = catalogQuery) => {
+    const query = queryValue.trim()
+    if (query.length > 0 && query.length < 2) { setCatalogError(t('Enter at least 2 characters to search, or browse the catalog.')); return }
+    setCatalogBusy(true); setCatalogError(null)
+    try {
+      const params = new URLSearchParams({ ...(query ? { q: query } : {}), ...(cursor ? { cursor } : {}) })
+      const search = params.toString()
+      const result = await call(`/remote-mcp/registry${search ? `?${search}` : ''}`, 'GET') as { servers?: RegistryServer[]; nextCursor?: string | null }
+      setCatalog((previous) => ({
+        servers: cursor ? [...(previous?.servers || []), ...(result.servers || [])] : (result.servers || []),
+        nextCursor: result.nextCursor || null,
+      }))
+    } catch (err) { setCatalogError(err instanceof Error ? err.message : String(err)) }
+    finally { setCatalogBusy(false) }
+  }
+
+  const useCatalogServer = (server: RegistryServer) => {
+    setName(server.title.slice(0, 80))
+    setEndpoint(server.endpoint)
+    const required = server.headers.filter((header) => header.required)
+    setAuthMode('headers')
+    setOauthRegistration('auto'); setOauthClientId(''); setOauthClientSecret(''); setBearer('')
+    setHeaders(required.map((header) => ({ id: crypto.randomUUID(), name: header.name, value: '', required: header.required, description: header.description })))
+    setNote(required.length ? t('The listing marks these headers as required. Enter credentials yourself; registry examples are never copied.') : t('The listing does not specify required headers. Review the provider’s authentication and pricing before saving.'))
+    setError(null)
   }
 
   const addServer = async (event: React.FormEvent) => {
@@ -130,7 +169,7 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
           <span className="remote-mcp-icon"><Icon name="plug" size={17} /></span>
           <div><h2 id="remote-mcp-title">{t('Remote MCP servers')}</h2><p>{t('Connect an MCP server and allow selected tools for workspace agents.')}</p></div>
         </div>
-        <button type="button" className="studio-icon-btn" aria-expanded={expanded} aria-label={expanded ? t('Collapse') : t('Expand')} onClick={() => setExpanded((value) => !value)}>
+        <button type="button" className="studio-icon-btn" aria-expanded={expanded} aria-label={expanded ? t('Collapse Remote MCP section') : t('Expand Remote MCP section')} onClick={() => setExpanded((value) => !value)}>
           <Icon name="chevron-down" size={15} className={expanded ? 'remote-mcp-chevron open' : 'remote-mcp-chevron'} />
         </button>
       </div>
@@ -138,6 +177,36 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
         {error && <div className="remote-mcp-message error" role="alert">{error}</div>}
         {note && <div className="remote-mcp-message" role="status">{note}</div>}
         <p className="remote-mcp-security">{t('HTTPS Streamable HTTP only. Credentials are encrypted at rest. Redirects, local IP addresses and private hostnames are blocked. Agents need an API token with Execute access, and only checked tools are exposed.')}</p>
+        <div className="remote-mcp-catalog" data-remote-mcp-catalog>
+          <div className="remote-mcp-catalog-heading">
+            <div><h3>{t('Browse the public MCP catalog')}</h3><p>{t('Browse or search public Streamable HTTP server listings in the MCP Registry and add one to this workspace.')}</p></div>
+            <span>{t('Community listings')}</span>
+          </div>
+          <form className="remote-mcp-catalog-search" onSubmit={(event) => { event.preventDefault(); void searchCatalog() }}>
+            <input type="search" value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder={t('Search MCP servers, e.g. GitHub')} aria-label={t('Search MCP servers')} maxLength={100} />
+            <button type="submit" className="studio-btn" disabled={catalogBusy || catalogQuery.trim().length < 2}>{catalogBusy ? t('Searching…') : t('Search catalog')}</button>
+            <button type="button" className="studio-btn" disabled={catalogBusy} onClick={() => { setCatalogQuery(''); void searchCatalog(undefined, '') }}>{catalogBusy ? t('Searching…') : t('Browse catalog')}</button>
+          </form>
+          <p className="remote-mcp-catalog-disclaimer">{t('Listings are community submitted and are not reviewed by Honmaru. Providers set their own data access, account requirements, pricing and uptime. Search does not connect or send data to a listed provider.')}</p>
+          {catalogError && <div className="remote-mcp-message error" role="alert">{catalogError}</div>}
+          {catalog && <>
+            <div className="remote-mcp-catalog-grid">
+              {catalog.servers.map((server) => (
+                <article className="remote-mcp-catalog-card" key={server.name} data-registry-server={server.name}>
+                  <div className="remote-mcp-catalog-copy">
+                    <strong>{server.title}</strong>
+                    <small>{server.description || server.name}</small>
+                    <span>{registryEndpointHost(server.endpoint)}{server.version ? ` · v${server.version}` : ''}</span>
+                    <span>{server.headers.some((header) => header.required) ? t('Listing marks required headers') : t('Authentication not specified in listing')}</span>
+                  </div>
+                  <button type="button" className="studio-btn" disabled={!canManage} onClick={() => useCatalogServer(server)}>{canManage ? t('Use server') : t('Admin only')}</button>
+                </article>
+              ))}
+              {catalog.servers.length === 0 && <p className="remote-mcp-empty">{t('No active public HTTPS servers matched this search.')}</p>}
+            </div>
+            {catalog.nextCursor && <button type="button" className="studio-btn" disabled={catalogBusy} onClick={() => void searchCatalog(catalog.nextCursor || undefined)}>{catalogBusy ? t('Searching…') : t('Load more')}</button>}
+          </>}
+        </div>
         <div className="remote-mcp-list">
           {servers.map((server) => (
             <article className="remote-mcp-server" key={server.id} data-remote-mcp-server={server.id}>
@@ -194,7 +263,7 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
                 <div className="remote-mcp-header-label">{t('Additional headers')}</div>
                 {headers.map((header) => <div className="remote-mcp-header-row" key={header.id}>
                   <input value={header.name} onChange={(event) => setHeaders((rows) => rows.map((item) => item.id === header.id ? { ...item, name: event.target.value } : item))} placeholder={t('Header name')} aria-label={t('Header name')} />
-                  <input type="password" autoComplete="new-password" value={header.value} onChange={(event) => setHeaders((rows) => rows.map((item) => item.id === header.id ? { ...item, value: event.target.value } : item))} placeholder={t('Header value')} aria-label={t('Header value')} />
+                  <input type="password" autoComplete="new-password" value={header.value} required={header.required === true} aria-description={header.description || undefined} title={header.description || undefined} onChange={(event) => setHeaders((rows) => rows.map((item) => item.id === header.id ? { ...item, value: event.target.value } : item))} placeholder={t('Header value')} aria-label={t('Header value')} />
                   <button type="button" className="remote-mcp-remove" onClick={() => setHeaders((rows) => rows.filter((item) => item.id !== header.id))}>{t('Remove')}</button>
                 </div>)}
                 {headers.length < 10 && <button type="button" className="remote-mcp-add-header" onClick={() => setHeaders((rows) => [...rows, { id: crypto.randomUUID(), name: '', value: '' }])}>+ {t('Add header')}</button>}

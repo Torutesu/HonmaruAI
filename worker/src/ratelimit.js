@@ -20,6 +20,9 @@ export const LIMITS = {
   // Guessing an authorization code should not be cheap.
   "oauth/token": { max: 10, windowSeconds: 300 },
   "remote-mcp/oauth": { max: 10, windowSeconds: 300 },
+  // Search the public MCP registry on someone's behalf; keep a single user
+  // from making the workspace API a registry proxy.
+  "remote-mcp/registry": { max: 30, windowSeconds: 300 },
   // Asking for a sign-in code sends a mail, which is the cost to bound; it
   // guesses nothing (the code's own attempt counter does that). Its own
   // bucket, because a whole office signs in from one address, and ten

@@ -41,6 +41,41 @@ test('Remote MCP server settings are available from the Harness Apps library', a
   expect(tree!.root.findByProps({ id: 'remote-mcp-title' }).children).toContain('Remote MCP servers')
   expect(tree!.root.findAllByProps({ className: 'remote-mcp-empty' }).some(node => node.children.includes('No Remote MCP servers connected yet.'))).toBe(true)
 })
+test('public MCP catalog results can be reviewed and selected for the connection form', async () => {
+  const registryServer = {
+    name: 'io.github.example/calendar', title: 'Calendar MCP', description: 'Manage calendar events', version: '1.2.0',
+    endpoint: 'https://calendar.example.com/mcp', headers: [{ name: 'Authorization', required: true, description: 'Paste a token from the provider.' }],
+  }
+  const fetchStub = vi.fn(async (input: string) => ({
+    ok: true,
+    json: async () => input.includes('/orgs/mode')
+      ? { mode: 'harness' }
+      : input.includes('/remote-mcp/registry') ? { servers: [registryServer], nextCursor: null } : { servers: [], canManage: true },
+  }))
+  vi.stubGlobal('fetch', fetchStub)
+  await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
+  const search = tree!.root.findByProps({ 'aria-label': 'Search MCP servers' })
+  act(() => search.props.onChange({ target: { value: 'calendar' } }))
+  const searchForm = tree!.root.findByProps({ className: 'remote-mcp-catalog-search' })
+  await act(async () => {
+    searchForm.props.onSubmit({ preventDefault: vi.fn() })
+    await new Promise(resolve => setTimeout(resolve, 0))
+  })
+  expect(fetchStub.mock.calls.map(([url]) => url)).toContain('https://api.example/remote-mcp/registry?q=calendar&orgId=team%3Aone')
+  expect(tree!.root.findByProps({ 'data-registry-server': registryServer.name }).findAllByType('strong')[0].children).toContain('Calendar MCP')
+  await act(async () => { tree!.root.findAllByType('button').find(node => node.children.includes('Use server'))!.props.onClick() })
+  expect(tree!.root.findAllByType('input').map(node => node.props.value)).toContain('Calendar MCP')
+  expect(tree!.root.findAllByType('input').map(node => node.props.value)).toContain('https://calendar.example.com/mcp')
+  expect(tree!.root.findByProps({ className: 'remote-mcp-message' }).children).toContain('The listing marks these headers as required. Enter credentials yourself; registry examples are never copied.')
+  expect(tree!.root.findByProps({ 'aria-label': 'Header value' }).props.required).toBe(true)
+  expect(tree!.root.findByProps({ 'aria-label': 'Header value' }).props['aria-description']).toBe('Paste a token from the provider.')
+  expect(tree!.root.findAllByType('select')[0].props.value).toBe('headers')
+  await act(async () => {
+    tree!.root.findAllByType('button').find(node => node.children.includes('Browse catalog'))!.props.onClick()
+    await new Promise(resolve => setTimeout(resolve, 0))
+  })
+  expect(fetchStub.mock.calls.map(([url]) => url)).toContain('https://api.example/remote-mcp/registry?orgId=team%3Aone')
+})
 test('Remote MCP OAuth lets members connect their own account from the Harness Apps screen', async () => {
   const oauthServer = {
     id: 'oauth-server', name: 'Private CRM', endpoint: 'https://mcp.crm.example.com/mcp', hasAuthentication: true,
