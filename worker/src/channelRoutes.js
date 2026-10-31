@@ -27,6 +27,7 @@ import { checkOutgoing } from "./dlp.js";
 import { prepareAgent, rememberRequest, addAgentMemory } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
 import { mayUseAgentSource } from "./harness/agentConnections.js";
+import { mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
 import { withRoomGuidelines } from "./harness/guidelines.js";
 import { followupRequest, scheduleFollowup } from "./harness/followups.js";
 import { attachedTexts } from "./dlpFiles.js";
@@ -485,6 +486,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   // be somebody else's to read if the answer went into a shared channel.
   let research = "";
   const nativeSourcesUsed = new Set();
+  const remoteMcpServersUsed = new Set();
   const sourceGrantAgentId = resolved.kind === "agent" && !row.parent_id && agents.length === 1 ? agents[0].id : null;
   const mayResearchSource = async (source, available) => {
     if (!available) return false;
@@ -541,7 +543,10 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     ? await agentTools(env, {
       orgId, session, language: locale, personal: resolved.kind === "agent" && !row.parent_id, fileScope:resolved.key, fileThreadId:row.parent_id,
       agentId: sourceGrantAgentId,
+      agentName: agents.length === 1 ? agents[0].name : null,
+      agentLogin: user.login,
       onNativeSourceUsed: source => nativeSourcesUsed.add(source),
+      onRemoteMcpUsed: serverId => remoteMcpServersUsed.add(serverId),
       // An app that may write does so only for agents the person wrote
       // themselves: a teammate's agent's instructions never steer it.
       ownAgentsOnly: allOwnAgents(agents, user.login),
@@ -570,6 +575,9 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       if (harness && sourceGrantAgentId === agent.id) {
         for (const source of nativeSourcesUsed) {
           if (!await mayUseAgentSource(env, { orgId, agentId: agent.id, session, source })) return false;
+        }
+        for (const serverId of remoteMcpServersUsed) {
+          if (!await mayUseAgentRemoteMcp(env, { orgId, agentId: agent.id, session, serverId })) return false;
         }
       }
       return true;

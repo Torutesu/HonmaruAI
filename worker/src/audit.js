@@ -38,6 +38,8 @@ export const AUDIT_ACTIONS = {
   "apps.tool_called": { category: "data", severity: "info", text: "{actor}'s AI read from a connected app" },
   "agent.connection_granted": { category: "auth", severity: "notice", text: "{actor} allowed an app for an agent" },
   "agent.connection_revoked": { category: "auth", severity: "notice", text: "{actor} removed an app from an agent" },
+  "agent.remote_mcp_granted": { category: "auth", severity: "notice", text: "{actor} allowed a read-only Remote MCP source for an agent" },
+  "agent.remote_mcp_revoked": { category: "auth", severity: "notice", text: "{actor} removed a Remote MCP source from an agent" },
   "remote_mcp.server_added": { category: "auth", severity: "notice", text: "{actor} connected a Remote MCP server" },
   "remote_mcp.server_discovered": { category: "auth", severity: "info", text: "{actor} refreshed tools from a Remote MCP server" },
   "remote_mcp.tools_changed": { category: "workspace", severity: "warning", text: "{actor} changed the tools agents may use on a Remote MCP server" },

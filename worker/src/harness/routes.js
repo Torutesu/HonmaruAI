@@ -48,6 +48,7 @@ import { notifyCard, anyChannelConfigured } from '../notify.js';
 import { handleRemoteMcp } from './remoteMcp.js';
 import { agentAppConnections, setAgentAppGrant } from '../smitheryApps.js';
 import { agentSourceConnections, setAgentSourceConnection } from './agentConnections.js';
+import { agentRemoteMcpConnections, setAgentRemoteMcpConnection } from './agentRemoteMcp.js';
 // The harness routes (docs/kylon-gap-plan.md): the workspace's mode, Tables
 // and Apps. Every route asks for a member who is not a guest; building is a
 // member's, deleting someone else's is an admin's.
@@ -798,11 +799,12 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === 'apps') {
       if (await getMode(env.DB, orgId) !== 'harness') return json({ message: 'Agent app permissions are available in Harness mode.' }, 404);
       if (request.method === 'GET') {
-        const [connections, nativeConnections] = await Promise.all([
+        const [connections, nativeConnections, remoteMcpConnections] = await Promise.all([
           agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
           agentSourceConnections(env, { orgId, agentId, session: who.session }),
+          agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me }),
         ]);
-        return json({ connections, nativeConnections: nativeConnections.connections });
+        return json({ connections, nativeConnections: nativeConnections.connections, remoteMcpConnections });
       }
       if (request.method === 'POST' || request.method === 'DELETE') {
         const source = String(input?.source || url.searchParams.get('source') || '');
@@ -818,7 +820,30 @@ export async function handleHarness(request, env, url, context = {}) {
             entity: { type: 'custom_agent', id: agentId },
             details: { source },
           });
-          return json({ connections: await agentAppConnections(env.DB, { orgId, agentId, githubId: me }), nativeConnections: result.connections });
+          return json({
+            connections: await agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
+            nativeConnections: result.connections,
+            remoteMcpConnections: await agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me }),
+          });
+        }
+        const remoteMcpServerId = String(input?.remoteMcpServerId || url.searchParams.get('remoteMcpServerId') || '');
+        if (remoteMcpServerId) {
+          const granted = request.method === 'POST';
+          const result = await setAgentRemoteMcpConnection(env, { orgId, agentId, session: who.session, serverId: remoteMcpServerId, enabled: granted });
+          if (result.error) return json({ message: result.error }, result.status || 400);
+          await announceAgentAccessChanged(env, orgId, agentId, [who.user.login]);
+          await audit(env, request, {
+            orgId,
+            action: granted ? 'agent.remote_mcp_granted' : 'agent.remote_mcp_revoked',
+            actor: person(who.user),
+            entity: { type: 'custom_agent', id: agentId },
+            details: { serverId: remoteMcpServerId },
+          });
+          return json({
+            connections: await agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
+            nativeConnections: (await agentSourceConnections(env, { orgId, agentId, session: who.session })).connections,
+            remoteMcpConnections: result.connections,
+          });
         }
         const server = String(input?.server || url.searchParams.get('server') || '');
         const granted = request.method === 'POST';
@@ -831,7 +856,11 @@ export async function handleHarness(request, env, url, context = {}) {
           entity: { type: 'custom_agent', id: agentId },
           details: { app: server },
         });
-        return json({ connections: result.connections, nativeConnections: (await agentSourceConnections(env, { orgId, agentId, session: who.session })).connections });
+        return json({
+          connections: result.connections,
+          nativeConnections: (await agentSourceConnections(env, { orgId, agentId, session: who.session })).connections,
+          remoteMcpConnections: await agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me }),
+        });
       }
       return json({ message: 'Method not allowed.' }, 405);
     }

@@ -3182,6 +3182,12 @@ const table: Record<string, string> = {
   'Use the connected {source} source in this Agent’s private conversations.': 'このAgentとの個別会話で、接続済みの{source}ソースを使います。',
   'Connect {source} for this workspace in Tools before allowing it.': '許可する前に、ツール画面でこのワークスペースの{source}を接続してください。',
   'Allow {agent} to use the connected {source} source': '{agent}に接続済みの{source}ソースの利用を許可',
+  'Remote MCP sources': 'Remote MCPソース',
+  'Only workspace-approved tools marked read-only are available. Your grant applies to this Agent in your private conversations.': 'ワークスペースが許可し、読み取り専用とされたツールだけを利用できます。許可はこのAgentとの個別会話に適用されます。',
+  'No Remote MCP servers are available. A workspace admin can connect one in Tools → Apps.': '利用可能なRemote MCPサーバーがありません。ワークスペース管理者が「ツール → アプリ」から接続できます。',
+  'Allow this Agent to read {count} workspace-approved tools in your private conversations.': 'ご本人との個別会話で、このAgentにワークスペースが許可した読み取り専用ツール{count}件の利用を許可します。',
+  'This server has no workspace-approved tools marked read-only.': 'このサーバーには、ワークスペースが許可した読み取り専用ツールがありません。',
+  'Allow {agent} to use read-only tools from {server}': '{agent}に{server}の読み取り専用ツールの利用を許可',
 }
 
 export default table

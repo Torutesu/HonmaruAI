@@ -2167,6 +2167,20 @@ CREATE TABLE IF NOT EXISTS hx_agent_source_grants (
   FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
 );
 
+/* A user may grant their private Agent conversation read-only access to
+   workspace-managed Remote MCP servers. Membership stamps stop a rejoin
+   from reviving the grant. */
+CREATE TABLE IF NOT EXISTS hx_agent_remote_mcp_grants (
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  user_github_id TEXT NOT NULL,
+  membership_since TEXT NOT NULL,
+  server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, agent_id, user_github_id, server_id),
+  FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
+);
+
 /* Atomic member departure receipts gate the associated ownership writes. */
 CREATE TABLE IF NOT EXISTS hx_member_departures (
   org_id TEXT NOT NULL, user_id TEXT NOT NULL, nonce TEXT NOT NULL,

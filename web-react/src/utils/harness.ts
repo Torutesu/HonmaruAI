@@ -105,7 +105,8 @@ export interface AgentRoleState { version: number; scope: 'team' | 'personal'; c
 export interface AgentProfile { specialty: string; tier: 'lite' | 'standard' | 'max'; mentionOnly: boolean; access: 'everyone' | 'people' | 'private'; people: string[] }
 export interface AgentAppConnection { server: string; name: string; description: string; iconUrl: string | null; verified: boolean; allowWrites: boolean; connectedAt: string; granted: boolean }
 export interface AgentNativeConnection { source: 'notion' | 'github'; available: boolean; enabled: boolean }
-export interface AgentConnectionState { connections: AgentAppConnection[]; nativeConnections: AgentNativeConnection[] }
+export interface AgentRemoteMcpConnection { serverId: string; name: string; available: boolean; enabled: boolean; readOnlyToolCount: number }
+export interface AgentConnectionState { connections: AgentAppConnection[]; nativeConnections: AgentNativeConnection[]; remoteMcpConnections?: AgentRemoteMcpConnection[] }
 export interface HomeData {
   mode: WorkspaceMode
   approvals: {
@@ -255,6 +256,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     agentApps: (agentId: string) => call<AgentConnectionState>('GET', `/hx/agents/${agentId}/apps`),
     setAgentApp: (agentId: string, server: string, granted: boolean) => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { server } : undefined, granted ? undefined : { server }),
     setAgentNativeSource: (agentId: string, source: AgentNativeConnection['source'], granted: boolean) => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { source } : undefined, granted ? undefined : { source }),
+    setAgentRemoteMcpConnection: (agentId: string, serverId: string, granted: boolean) => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { remoteMcpServerId: serverId } : undefined, granted ? undefined : { remoteMcpServerId: serverId }),
     transferAgentOwnership: (agentId:string,ref:string,expectedVersion:number)=>call<{version:number}>('PUT',`/hx/agents/${agentId}/ownership`,{ref,expectedVersion}),
     setAgentMember: (agentId: string, ref: string, role: 'admin' | 'member' | 'none', expectedVersion: number) => call<{version:number}>('PUT', `/hx/agents/${agentId}/members`, {ref,role,expectedVersion}),
     profile: (agentId: string) => call<{ profile: AgentProfile; canEdit: boolean }>('GET', `/hx/agents/${agentId}/profile`),

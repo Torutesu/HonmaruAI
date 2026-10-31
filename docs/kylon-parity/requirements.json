@@ -914,10 +914,10 @@
       "code": "worker/src/harness/remoteMcp.js",
       "acceptance": "OAuth/API key・tool一覧・schema・SSRF制限・失効",
       "evidence": {
-        "reviewedAt": "2026-10-31",
-        "implementedScope": "Harness-only workspace Remote MCP connections support encrypted bearer/custom headers, Streamable HTTP initialization and tool discovery/calls, explicit tool allowlists, HTTPS/public-host checks, redirect and size limits, admin-only management, execute-scoped agent access, audit events and disconnect.",
-        "remaining": "OAuth 2.1 discovery/client registration and DNS-pinned egress are not implemented; nonstandard ports and URL query parameters are rejected.",
-        "verification": "worker/test/remote-mcp.test.js"
+        "reviewedAt": "2026-11-01",
+        "implementedScope": "Harness-only workspace Remote MCP connections support encrypted bearer/custom headers, Streamable HTTP initialization and tool discovery/calls, explicit tool allowlists, HTTPS/public-host checks, redirect and size limits, admin-only management, execute-scoped API access, audit events and disconnect. Private Agent conversations add per-caller grants, expose only workspace-approved tools marked read-only, recheck the grant before/after calls, and block results if revoked in flight; shared conversations and Simple mode do not receive this access.",
+        "remaining": "OAuth 2.1 discovery/client registration, DNS-pinned egress, a Kylon-scale connector catalog, write-capable per-Agent grants and app/workflow execution integration are not implemented; nonstandard ports and URL query parameters are rejected. New Agent-grant work is on a follow-up branch and awaits PR CI and production verification.",
+        "verification": "worker/test/remote-mcp.test.js (pending PR CI and production screen verification)"
       }
     },
     {

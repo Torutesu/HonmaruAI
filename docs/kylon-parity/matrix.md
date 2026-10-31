@@ -137,7 +137,7 @@
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
 | KY-076 | 連携カタログとOAuth接続 | 一部 | P1 | 該当実装は未特定 | 掲載件数ではなく認証/検索/読取/書込/解除を連携ごとに検証 |
-| KY-077 | Remote MCP任意サーバー | 一部 | P1 | [worker/src/harness/remoteMcp.js](../../worker/src/harness/remoteMcp.js) | Harness限定。HTTPS接続、暗号化Bearer/custom header、tool一覧/schema、明示allowlist、execute scope、audit、redirect/size制限、disconnectを実装。PR #562でJSON応答のCORSを修正、Worker deploy #258成功後に本番UIで「Failed to fetch」消失を確認。OAuth DCRとDNS-pinned egressは未対応 |
+| KY-077 | Remote MCP任意サーバー | 一部 | P1 | [worker/src/harness/remoteMcp.js](../../worker/src/harness/remoteMcp.js), [worker/src/harness/agentRemoteMcp.js](../../worker/src/harness/agentRemoteMcp.js) | Harness限定。HTTPS接続、暗号化Bearer/custom header、tool一覧/schema、明示allowlist、execute scopeに加えて、個人Agent会話では利用者ごとの明示許可と読み取り専用注釈の再検査を追加。Workspace管理者の許可だけでは個人データをAgentに渡さず、Simpleは従来どおり。OAuth DCR、DNS-pinned egress、3,000件規模のコネクタカタログ、書き込み操作のAgent単位grantは未対応。PR/本番反映待ち |
 | KY-078 | Custom API service | 一部 | P1 | [worker/src/harness/appCapabilities.js](../../worker/src/harness/appCapabilities.js) | 6種の公式API host・固定URL/操作・暗号化secret・応答上限・redirect禁止・write再送抑止を追加。任意hostは未対応 |
 | KY-079 | Agent単位のConnection grant | 一部 | P0 | [worker/src/agentTools.js](../../worker/src/agentTools.js), [worker/src/harness/agentConnections.js](../../worker/src/harness/agentConnections.js), [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js), [worker/src/harness/followups.js](../../worker/src/harness/followups.js) | HarnessでNotion/GitHubの手動・自動検索とFollow-upを利用者ごとに初期拒否・許可・再認可。Smithery App grantは別管理。Simpleは従来どおり。任意の外部Connection、アプリ作成・Workflow実行主体との統合は残る |
 | KY-080 | Tools discovery/execute/native proxy/upload | 一部 | P1 | [worker/src/mcp.js](../../worker/src/mcp.js) | 同一principalとスコープでREST/CLI/MCPを提供 |

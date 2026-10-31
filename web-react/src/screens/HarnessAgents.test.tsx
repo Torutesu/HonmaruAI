@@ -212,8 +212,8 @@ test('late review-log responses cannot cross a changed conversation scope',async
  } finally {act(()=>tree?.unmount());vi.unstubAllGlobals()}
 })
 
-test('the agent Connections tab toggles only the current member’s own app grant',async()=>{
- let tree!:ReturnType<typeof create>, granted=false, nativeGranted=false
+test('the agent Connections tab toggles only the current member’s own app and Remote MCP grants',async()=>{
+ let tree!:ReturnType<typeof create>, granted=false, nativeGranted=false, remoteMcpGranted=false
  const requests:Array<{url:URL;method:string;body:any}> = []
  vi.stubGlobal('fetch',vi.fn(async(input:string,init:any={})=>{
   const url=new URL(input), method=init.method||'GET', body=init.body?JSON.parse(init.body):null
@@ -225,7 +225,9 @@ test('the agent Connections tab toggles only the current member’s own app gran
    if(method==='DELETE'&&url.searchParams.has('server')) granted=false
    if(method==='POST'&&body?.source==='notion') nativeGranted=true
    if(method==='DELETE'&&url.searchParams.get('source')==='notion') nativeGranted=false
-   return {ok:true,json:async()=>({connections:[{server:'linear',name:'Linear',description:'Issues',iconUrl:null,verified:true,allowWrites:false,connectedAt:'2026-10-30T00:00:00Z',granted}],nativeConnections:[{source:'notion',available:true,enabled:nativeGranted},{source:'github',available:false,enabled:false}]})}
+   if(method==='POST'&&body?.remoteMcpServerId==='remote-1') remoteMcpGranted=true
+   if(method==='DELETE'&&url.searchParams.get('remoteMcpServerId')==='remote-1') remoteMcpGranted=false
+   return {ok:true,json:async()=>({connections:[{server:'linear',name:'Linear',description:'Issues',iconUrl:null,verified:true,allowWrites:false,connectedAt:'2026-10-30T00:00:00Z',granted}],nativeConnections:[{source:'notion',available:true,enabled:nativeGranted},{source:'github',available:false,enabled:false}],remoteMcpConnections:[{serverId:'remote-1',name:'Knowledge server',available:true,enabled:remoteMcpGranted,readOnlyToolCount:2}]})}
   }
   if(url.pathname.endsWith('/memory/scopes')) return {ok:true,json:async()=>({scopes:[]})}
   if(url.pathname.endsWith('/memory')) return {ok:true,json:async()=>({memories:[],nextCursor:null,canEdit:false})}
@@ -252,5 +254,13 @@ test('the agent Connections tab toggles only the current member’s own app gran
   await act(async()=>notion().props.onChange({currentTarget:{checked:false}}))
   expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='DELETE'&&r.url.searchParams.get('source')==='notion')).toBe(true)
   expect(notion().props.checked).toBe(false)
+  const remoteMcp=()=>tree.root.findByProps({'data-agent-remote-mcp':'remote-1'}).findByProps({'aria-label':'Allow {agent} to use read-only tools from {server}'})
+  expect(remoteMcp().props.checked).toBe(false)
+  await act(async()=>remoteMcp().props.onChange({currentTarget:{checked:true}}))
+  expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='POST'&&r.body.remoteMcpServerId==='remote-1')).toBe(true)
+  expect(remoteMcp().props.checked).toBe(true)
+  await act(async()=>remoteMcp().props.onChange({currentTarget:{checked:false}}))
+  expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='DELETE'&&r.url.searchParams.get('remoteMcpServerId')==='remote-1')).toBe(true)
+  expect(remoteMcp().props.checked).toBe(false)
  } finally {act(()=>tree?.unmount());vi.unstubAllGlobals()}
 })
