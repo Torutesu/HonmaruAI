@@ -93,7 +93,7 @@
 | KY-051 | デプロイ履歴・ログ・ロールバック | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 現行定義のversionと実デプロイの復元を区別 |
 | KY-052 | App用Connection grant | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 個人/アプリ/固定URL/HTTP操作のgrant、暗号化資格情報、確認付きproxyを追加。組織共有grantとOAuth更新は残る |
 | KY-053 | Appに同梱する自動化と差分検出 | 一部実装 | P1 | [worker/src/harness/appAutomationRelease.js](../../worker/src/harness/appAutomationRelease.js) | declared/liveのdrift・下書き停止・公開時反映 |
-| KY-054 | テンプレート共有とバージョン | 未実装 | P2 | [worker/src/harness/templates.js](../../worker/src/harness/templates.js) | 秘密情報・実データを除去して固定バージョンで共有 |
+| KY-054 | テンプレート共有とバージョン | 一部 | P2 | [worker/src/harness/templateShares.js](../../worker/src/harness/templateShares.js) | アプリ版を固定したURL共有、1/7/30/90日期限、失効、別workspaceへの取り込みを追加。リンクはハッシュ保存で、レコード・説明・カスタムコード・接続情報を含めず、項目名等は共有前確認を要求。招待制/カタログとschema labelの自動機密検出、Kylon実画面比較は残る |
 | KY-055 | App移動・削除とデータ保持 | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | ルーム移動時に会話ACLを再確認し削除時DB保持方針を明示 |
 
 ## Automations
@@ -115,7 +115,7 @@
 | KY-066 | 実行者の権限を再検証 | 一部 | P0 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js), [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | Workflow内Agentの各モデル往復・ツール呼び出し前後でmakerの現行Agent grantと会話アクセスを再検証し、回答公開直前にも確認（このブランチで実装、CI前）。App/table/Connection grantの全経路監査、実行中プロバイダー要求のキャンセル・精算は残る |
 | KY-067 | 実行予算と自動pause | 一部 | P0 | [worker/src/harness/workflowSafety.js](../../worker/src/harness/workflowSafety.js) | 回数上限に加え、直近24h/7d/30日の記録トークンからUSD参考価格を集計しwarnまたは実行後pauseするAutomation予算を実装。単価不明usageの可視化、作成元thread通知、CAS設定、原子的admissionを検証。Kylon credits・invoice換算、外部tool料金、事前予約・部分実行の精算は未対応 |
 | KY-068 | 一回限りのFollow-up | 一部 | P1 | [worker/src/harness/followups.js](../../worker/src/harness/followups.js) | 相対/絶対時刻・スレッド・通知先・停止・権限変更後を検証 |
-| KY-069 | Follow-upの実ツール実行 | 未実装 | P1 | [worker/src/harness/followups.js](../../worker/src/harness/followups.js) | 現状はモデル文章かリマインダー。外部状態を実確認して根拠と一緒に返す |
+| KY-069 | Follow-upの実ツール実行 | 一部 | P1 | [worker/src/harness/followups.js](../../worker/src/harness/followups.js) | 個人Agent DMではread-only Notion/GitHub/Smithery連携を使い、ツール実行と出典/ID/URLを回答に含めるよう指示。共有チャンネルへ個人連携は渡さない。全Follow-upのコネクタ対応、書き込み操作、証跡画面、実接続の本番往復は残る |
 
 ## Files
 

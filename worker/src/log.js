@@ -9,7 +9,7 @@
 // exists to protect is worse than no log. Everything here is either an id, a
 // route, or a number.
 
-const REDACT = /(?:gho_|ghp_|sk-|Bearer\s+)\S+/gi;
+const REDACT = /(?:gho_|ghp_|sk-|Bearer\s+)\S+|(?:tpl_|skl_)[a-f0-9]{64}/gi;
 
 export function safe(message) {
   return String(message ?? "").replace(REDACT, "[redacted]").slice(0, 500);
@@ -27,6 +27,7 @@ export function logJSON(fields) {
 /// are the same route, and a per-org route name makes that impossible to see.
 export function routeLabel(method, pathname) {
   const collapsed = pathname
+    .replace(/^(\/(?:template|skill)-shares\/)(?:tpl_|skl_)[a-f0-9]{64}(?=\/|$)/, "$1:token")
     .replace(/^\/orgs\/[^/]+\/[^/]+/, "/orgs/:owner/:repo")
     .replace(/\/cards\/[^/]+/, "/cards/:id")
     .replace(/^\/media\/[^/]+$/, "/media/:id")

@@ -58,6 +58,7 @@ const Agents = React.lazy(() => import('../screens/Agents').then((m) => ({ defau
 const HarnessHome = React.lazy(() => import('../screens/HarnessHome').then((m) => ({ default: m.HarnessHome })))
 const HarnessHub = React.lazy(() => import('../screens/Harness').then((m) => ({ default: m.HarnessHub })))
 const HarnessApps = React.lazy(() => import('../screens/Harness').then((m) => ({ default: m.HarnessApps })))
+const HarnessTemplateImport = React.lazy(() => import('../screens/Harness').then((m) => ({ default: m.HarnessTemplateImport })))
 const HarnessApprovals = React.lazy(() => import('../screens/Harness').then((m) => ({ default: m.HarnessApprovals })))
 const HarnessWorkflows = React.lazy(() => import('../screens/HarnessWorkflows').then((m) => ({ default: m.HarnessWorkflows })))
 const HarnessSkills = React.lazy(() => import('../screens/HarnessAgents').then((m) => ({ default: m.HarnessSkills })))
@@ -1433,6 +1434,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
         <HarnessHub httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} onOpen={(where) => setScreen(where, 'harness')} />
       )}
       {screen === 'apps' && (!route.appOrg || route.appOrg === orgId) && <HarnessApps key={`${orgId}:${sessionToken}`} requestedAppId={route.appId} initialConversation={route.appConversation} initialSection={route.appSection} initialDraft={route.appDraft} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
+      {screen === 'templateImport' && <HarnessTemplateImport key={`${orgId}:${sessionToken}`} token={route.sharedTemplateToken || ''} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'workflows' && (!route.workflowOrg || route.workflowOrg === orgId) && <HarnessWorkflows requestedWorkflowId={route.workflowId} onNavigateWorkflow={id => navigate(id ? hashForWorkflow(id, orgId) : '#/workflows')} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'approvals' && <HarnessApprovals httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'skills' && <HarnessSkills httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}

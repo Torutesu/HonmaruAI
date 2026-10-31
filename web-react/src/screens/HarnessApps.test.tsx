@@ -1,7 +1,7 @@
 import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { HarnessApps, newAppRecordLabel } from './Harness'
+import { HarnessApps, HarnessTemplateImport, newAppRecordLabel } from './Harness'
 
 const state = vi.hoisted(() => ({ api: null as any }))
 vi.mock('./HarnessShared', async importOriginal => ({
@@ -83,4 +83,22 @@ test('completion from an unmounted account cannot navigate the new account', asy
   location.hash = '#/apps/other/team%3Atwo'
   await act(async () => { finish({ app: { id: 'created' }, source: 'template' }); await completion })
   expect(location.hash).toBe('#/apps/other/team%3Atwo')
+})
+
+test('a shared template can be inspected and imported from its link', async () => {
+  state.api = {
+    sharedTemplate: vi.fn().mockResolvedValue({ expiresAt: '2026-11-07T00:00:00Z', snapshot: {
+      format: 1, app: { name: 'Pipeline', description: 'Deals by stage', icon: '📊' }, version: 2, tableName: 'Deals',
+      columns: [{ name: 'Company', type: 'text' }, { name: 'Stage', type: 'select', options: ['Lead', 'Won'] }],
+      definition: { views: [{ id: 'board', type: 'board', name: 'Stages', groupBy: 'stage' }] },
+    } }),
+    importSharedTemplate: vi.fn().mockResolvedValue({ app: { id: 'imported' }, sourceVersion: 2 }),
+  }
+  await act(async () => { tree = create(<HarnessTemplateImport httpBase="https://api.example" orgId="team:one" sessionToken="one" token={'tpl_' + 'ab'.repeat(32)} onClose={() => {}} />) })
+  expect(tree!.root.findAllByType('h2')[0].children).toContain('Pipeline')
+  await act(async () => { tree!.root.findAllByType('button').find(node => node.children.includes('Import template'))!.props.onClick() })
+  expect(state.api.importSharedTemplate).toHaveBeenCalledWith('tpl_' + 'ab'.repeat(32), undefined)
+  expect(tree!.root.findAllByType('strong').some(node => node.children.includes('Template imported.'))).toBe(true)
+  await act(async () => { tree!.root.findAllByType('button').find(node => node.children.includes('Open in Apps'))!.props.onClick() })
+  expect(location.hash).toBe('#/apps/imported/team%3Aone')
 })

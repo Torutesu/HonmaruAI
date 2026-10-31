@@ -505,12 +505,20 @@ export const ClassicList: React.FC<Props> = ({
   /// Into one of your sections (or back where it came from, with null).
   const moveTo = (view: string, sectionId: string | null) => saveLayout({
     ...layout,
+    // A conversation has one place in the sidebar. Moving a starred item
+    // into a personal section must unstar it too; otherwise the section
+    // renderer hides it as a duplicate and leaves the destination empty.
+    starred: layout.starred.filter((v) => v !== view),
     sections: layout.sections.map((x) => ({ ...x, views: x.id === sectionId ? [...x.views.filter((v) => v !== view), view] : x.views.filter((v) => v !== view) })),
   })
   const newSection = (name: string, view?: string) => {
     const id = Math.random().toString(36).slice(2, 10)
     const sections = layout.sections.map((x) => ({ ...x, views: view ? x.views.filter((v) => v !== view) : x.views }))
-    saveLayout({ ...layout, sections: [...sections, { id, name, views: view ? [view] : [] }] })
+    saveLayout({
+      ...layout,
+      starred: view ? layout.starred.filter((v) => v !== view) : layout.starred,
+      sections: [...sections, { id, name, views: view ? [view] : [] }],
+    })
   }
   /// Fold a section, or open it again. One of your own is saved folded on
   /// the server too, so the phone and the laptop agree — that flag and

@@ -17,6 +17,8 @@ test("routes collapse ids so lines group", () => {
   expect(routeLabel("GET", "/media/8f2c-uuid")).toBe("GET /media/:id");
   expect(routeLabel("POST", "/connectors/gmail/sync")).toBe("POST /connectors/:id/sync");
   expect(routeLabel("POST", "/ai/route")).toBe("POST /ai/route");
+  expect(routeLabel("GET", `/template-shares/tpl_${"ab".repeat(32)}/download`)).toBe("GET /template-shares/:token/download");
+  expect(routeLabel("GET", `/skill-shares/skl_${"cd".repeat(32)}`)).toBe("GET /skill-shares/:token");
 });
 
 test("credentials never reach a log line", () => {
@@ -25,6 +27,8 @@ test("credentials never reach a log line", () => {
   expect(safe("failed with gho_16C7e42F292c6912E7710c838347Ae178B4a")).toBe("failed with [redacted]");
   expect(safe("Authorization: Bearer sk-proj-abc123")).toBe("Authorization: [redacted]");
   expect(safe("OpenAI rejected sk-abc123def")).toBe("OpenAI rejected [redacted]");
+  expect(safe(`failed with tpl_${"ab".repeat(32)}`)).toBe("failed with [redacted]");
+  expect(safe(`failed with skl_${"cd".repeat(32)}`)).toBe("failed with [redacted]");
   expect(safe("x".repeat(900)).length).toBe(500);
 });
 

@@ -2092,7 +2092,7 @@ await step('right-clicking a channel in the sidebar offers what a desktop chat a
     await d.waitForSelector('.slk-side', { timeout: 20000 })
     const rowOf = (name) => `.slk-side .cl-thread:has(.cl-title:text-is("${name}"))`
     const menu = async (name) => {
-      await d.click(rowOf(name), { button: 'right' })
+      await d.locator(`${rowOf(name)} .cl-open`).click({ button: 'right' })
       await d.waitForSelector('.row-menu', { timeout: 5000 }).catch(() => { throw new Error(`right-clicking #${name} opened no menu`) })
     }
     await menu('Front desk')
@@ -3738,6 +3738,9 @@ await step('a star, a section of your own, and a user group one mention reaches'
     await Promise.all([saved('Shop floor'), desk.click('[data-section-create]')])
     await desk.waitForSelector('.slk-side .cl-section:has(h2:has-text("Shop floor")) .cl-thread[data-view="b:front-desk"]', { timeout: 10000 })
       .catch(() => { throw new Error('the channel is not in the new section') })
+    if (await desk.$('.slk-side .cl-section:has(h2:has-text("Starred")) .cl-thread[data-view="b:front-desk"]')) {
+      throw new Error('moving the channel into a section left it duplicated in Starred')
+    }
     // Kept on the server: a reload keeps it.
     await desk.reload({ waitUntil: 'load' })
     await desk.waitForSelector('.slk-side .cl-section:has(h2:has-text("Shop floor")) .cl-thread[data-view="b:front-desk"]', { timeout: 20000 })

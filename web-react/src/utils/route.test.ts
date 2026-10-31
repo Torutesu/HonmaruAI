@@ -7,6 +7,13 @@ it('source-app links enter chat in the named workspace, without accepting malfor
  expect(parseRoute(hashForApp('app_one','team:acme',{}))).toMatchObject({screen:'apps',appConversation:{}})
 })
 
+it('opens a versioned template share only for a well-shaped bearer token',()=>{
+ const token='tpl_'+'ab'.repeat(32)
+ expect(parseRoute(`#/template-share/${token}`)).toMatchObject({screen:'templateImport',sharedTemplateToken:token})
+ expect(parseRoute('#/template-share/not-a-token')).toMatchObject({screen:'templateImport',sharedTemplateToken:null})
+ expect(parseRoute(`#/template-share/${token}/extra`).sharedTemplateToken).toBeNull()
+})
+
 // The URL says where you are, and what a link you were sent opens.
 describe('parseRoute', () => {
   it('reads a card, a list, a screen and the root', () => {

@@ -1777,6 +1777,24 @@ CREATE TABLE IF NOT EXISTS hx_app_versions (
   PRIMARY KEY (app_id, version)
 );
 
+/* Public bearer links carry only a sanitized, version-pinned app blueprint.
+   The token itself is never stored; expiry and revocation are checked on
+   every read/import so a copied link can be disabled immediately. */
+CREATE TABLE IF NOT EXISTS hx_template_shares (
+  id            TEXT PRIMARY KEY,
+  token_hash    TEXT NOT NULL UNIQUE,
+  org_id        TEXT NOT NULL,
+  app_id        TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+  app_version   INTEGER NOT NULL,
+  snapshot      TEXT NOT NULL,
+  created_by    TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  expires_at    TEXT NOT NULL,
+  revoked_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_hx_template_shares_app
+  ON hx_template_shares(org_id, app_id, created_at);
+
 /* An app pinned to a room: it shows wherever it is linked. */
 CREATE TABLE IF NOT EXISTS hx_app_links (
   app_id        TEXT NOT NULL,
