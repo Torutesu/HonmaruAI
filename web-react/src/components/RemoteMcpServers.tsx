@@ -15,6 +15,10 @@ type RegistryServer = {
   headers: Array<{ name: string; required: boolean; description: string }>
 }
 
+function registryEndpointHost(endpoint: string) {
+  try { return new URL(endpoint).hostname } catch { return endpoint }
+}
+
 export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: string; orgId: string; sessionToken: string }) {
   const t = useT()
   const [mode, setMode] = useState<'loading' | 'simple' | 'harness'>('loading')
@@ -190,6 +194,7 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
                   <div className="remote-mcp-catalog-copy">
                     <strong>{server.title}</strong>
                     <small>{server.description || server.name}</small>
+                    <span>{registryEndpointHost(server.endpoint)}{server.version ? ` · v${server.version}` : ''}</span>
                     <span>{server.headers.some((header) => header.required) ? t('Listing marks required headers') : t('Authentication not specified in listing')}</span>
                   </div>
                   <button type="button" className="studio-btn" disabled={!canManage} onClick={() => useCatalogServer(server)}>{canManage ? t('Use server') : t('Admin only')}</button>
