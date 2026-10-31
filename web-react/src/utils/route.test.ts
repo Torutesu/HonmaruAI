@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appSectionHash, APP_SECTIONS, consumeAppDraftHash, parseRoute, hashForWorkflow, hashForApp, hashForAppSource, hashForJoin, hashForCard, hashForScreen, hashForView, hashForMessage, hashForThread, pathToHash } from './route'
+import { appSectionHash, APP_SECTIONS, consumeAppDraftHash, parseRoute, hashForWorkflow, hashForApp, hashForAppSource, hashForJoin, hashForCard, hashForScreen, hashForView, hashForMessage, hashForThread, hashForSkillImport, pathToHash } from './route'
 
 it('source-app links enter chat in the named workspace, without accepting malformed targets',()=>{
  expect(parseRoute(hashForAppSource('app_one','team:acme'))).toMatchObject({screen:null,mode:'classic',appSource:true,appId:'app_one',appOrg:'team:acme'})
@@ -36,6 +36,7 @@ describe('parseRoute', () => {
   it('opens a Skill link import only for a bounded bearer token', () => {
     const token = `skl_${'ab'.repeat(32)}`
     expect(parseRoute(`#/skill-share/${token}`)).toMatchObject({ screen: 'skillImport', mode: null, sharedSkillToken: token })
+    expect(parseRoute(hashForSkillImport(token))).toMatchObject({ screen: 'skillImport', sharedSkillToken: token })
     expect(parseRoute('#/skill-share/not-a-token')).toMatchObject({ screen: 'skillImport', sharedSkillToken: null })
     expect(parseRoute(`#/skill-share/${token}/extra`).sharedSkillToken).toBeNull()
   })

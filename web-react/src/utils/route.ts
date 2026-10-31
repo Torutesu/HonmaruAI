@@ -89,7 +89,8 @@ export function parseRoute(hash: string): Route {
   const [head, ...rest] = path.split('/').filter(Boolean)
   if (!head) return { screen: null, mode: null, cardId: null, join: null }
   if (head === 'skill-share') {
-    const token = rest.length === 1 && /^skl_[a-f0-9]{64}$/.test(rest[0]) ? rest[0] : null
+    const importing = rest.length === 2 && rest[1] === 'import'
+    const token = (rest.length === 1 || importing) && /^skl_[a-f0-9]{64}$/.test(rest[0] || '') ? rest[0] : null
     return { screen: 'skillImport', mode: null, cardId: null, join: null, sharedSkillToken: token }
   }
   if (head === 'feed') {
@@ -162,6 +163,7 @@ export function hashForApp(id: string, orgId: string, conversation?: {tableId?:s
 export function hashForAppSource(id:string,orgId:string,section?:'data',draft?:string):string { return `${hashForApp(id,orgId,undefined,section,draft)}${section||draft&&draft.length<=1000?'&':'?'}source=1` }
 
 export function hashForScreen(screen: Screen): string { return `#/${PATH_BY_SCREEN[screen]}` }
+export function hashForSkillImport(token: string): string { return `#/skill-share/${encodeURIComponent(token)}/import` }
 export function hashForCard(cardId: string, orgId?: string | null): string {
   return `#/feed/${encodeURIComponent(cardId)}${orgId ? `/${encodeURIComponent(orgId)}` : ''}`
 }

@@ -66,6 +66,9 @@ export async function revokeSkillShare(db, orgId, skillId, shareId) {
 
 async function activeShare(db, token) {
   if (!validToken(token)) return null;
+  // Public preview has no authenticated workspace context. The random,
+  // one-time bearer token is reduced to its unique SHA-256 hash before lookup;
+  // the row still stores its owning org_id for all member-only operations.
   const row = await db.prepare(`SELECT id, org_id AS orgId, snapshot, expires_at AS expiresAt, revoked_at AS revokedAt
     FROM hx_skill_shares WHERE token_hash=?1`).bind(await digest(token)).first();
   if (!row || row.revokedAt || row.expiresAt <= now()) return null;
@@ -119,4 +122,3 @@ export async function importSkillShare(db, token, { orgId, userId, name } = {}) 
   if (made.error) return made;
   return { skill: made.skill, source: { name: share.snapshot.name, expiresAt: share.expiresAt } };
 }
-
