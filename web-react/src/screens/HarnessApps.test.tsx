@@ -44,7 +44,7 @@ test('Remote MCP server settings are available from the Harness Apps library', a
 test('public MCP catalog results can be reviewed and selected for the connection form', async () => {
   const registryServer = {
     name: 'io.github.example/calendar', title: 'Calendar MCP', description: 'Manage calendar events', version: '1.2.0',
-    endpoint: 'https://calendar.example.com/mcp', repositoryUrl: null, headers: [],
+    endpoint: 'https://calendar.example.com/mcp', headers: [{ name: 'Authorization', required: true, description: 'Paste a token from the provider.' }],
   }
   const fetchStub = vi.fn(async (input: string) => ({
     ok: true,
@@ -66,7 +66,9 @@ test('public MCP catalog results can be reviewed and selected for the connection
   await act(async () => { tree!.root.findAllByType('button').find(node => node.children.includes('Use server'))!.props.onClick() })
   expect(tree!.root.findAllByType('input').map(node => node.props.value)).toContain('Calendar MCP')
   expect(tree!.root.findAllByType('input').map(node => node.props.value)).toContain('https://calendar.example.com/mcp')
-  expect(tree!.root.findByProps({ className: 'remote-mcp-message' }).children).toContain('The listing does not specify required headers. Review the provider’s authentication and pricing before saving.')
+  expect(tree!.root.findByProps({ className: 'remote-mcp-message' }).children).toContain('The listing marks these headers as required. Enter credentials yourself; registry examples are never copied.')
+  expect(tree!.root.findByProps({ 'aria-label': 'Header value' }).props.required).toBe(true)
+  expect(tree!.root.findByProps({ 'aria-label': 'Header value' }).props['aria-description']).toBe('Paste a token from the provider.')
   expect(tree!.root.findAllByType('select')[0].props.value).toBe('headers')
 })
 test('Remote MCP OAuth lets members connect their own account from the Harness Apps screen', async () => {

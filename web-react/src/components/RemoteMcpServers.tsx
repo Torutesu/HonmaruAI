@@ -9,7 +9,7 @@ type RemoteServer = {
   authMode?: 'headers' | 'oauth'; oauthRegistration?: 'auto' | 'manual'; oauthConnected?: boolean
   tools: RemoteTool[]; allowedTools: string[]; connectedAt: string | null; createdAt: string
 }
-type HeaderRow = { id: string; name: string; value: string }
+type HeaderRow = { id: string; name: string; value: string; required?: boolean; description?: string }
 type RegistryServer = {
   name: string; title: string; description: string; version: string; endpoint: string
   headers: Array<{ name: string; required: boolean; description: string }>
@@ -89,7 +89,7 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
     const required = server.headers.filter((header) => header.required)
     setAuthMode('headers')
     setOauthRegistration('auto'); setOauthClientId(''); setOauthClientSecret(''); setBearer('')
-    setHeaders(required.map((header) => ({ id: crypto.randomUUID(), name: header.name, value: '' })))
+    setHeaders(required.map((header) => ({ id: crypto.randomUUID(), name: header.name, value: '', required: header.required, description: header.description })))
     setNote(required.length ? t('The listing marks these headers as required. Enter credentials yourself; registry examples are never copied.') : t('The listing does not specify required headers. Review the provider’s authentication and pricing before saving.'))
     setError(null)
   }
@@ -261,7 +261,7 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
                 <div className="remote-mcp-header-label">{t('Additional headers')}</div>
                 {headers.map((header) => <div className="remote-mcp-header-row" key={header.id}>
                   <input value={header.name} onChange={(event) => setHeaders((rows) => rows.map((item) => item.id === header.id ? { ...item, name: event.target.value } : item))} placeholder={t('Header name')} aria-label={t('Header name')} />
-                  <input type="password" autoComplete="new-password" value={header.value} onChange={(event) => setHeaders((rows) => rows.map((item) => item.id === header.id ? { ...item, value: event.target.value } : item))} placeholder={t('Header value')} aria-label={t('Header value')} />
+                  <input type="password" autoComplete="new-password" value={header.value} required={header.required === true} aria-description={header.description || undefined} title={header.description || undefined} onChange={(event) => setHeaders((rows) => rows.map((item) => item.id === header.id ? { ...item, value: event.target.value } : item))} placeholder={t('Header value')} aria-label={t('Header value')} />
                   <button type="button" className="remote-mcp-remove" onClick={() => setHeaders((rows) => rows.filter((item) => item.id !== header.id))}>{t('Remove')}</button>
                 </div>)}
                 {headers.length < 10 && <button type="button" className="remote-mcp-add-header" onClick={() => setHeaders((rows) => [...rows, { id: crypto.randomUUID(), name: '', value: '' }])}>+ {t('Add header')}</button>}
