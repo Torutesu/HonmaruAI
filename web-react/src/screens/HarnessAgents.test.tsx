@@ -23,6 +23,7 @@ test('Skill-link import previews a public package, optionally installs it on a m
   await act(async()=>{tree=create(<HarnessSkillImport token={`skl_${'ab'.repeat(32)}`} httpBase="https://api.example" orgId="one" sessionToken="session" onClose={vi.fn()}/>)})
   expect(JSON.stringify(tree.toJSON())).toContain('Shared procedure')
   expect(JSON.stringify(tree.toJSON())).toContain('This link imports a new private Skill')
+  expect(tree.root.findAllByType('a').find(link=>link.children.includes('Download ZIP'))!.props.href).toBe(`https://api.example/skill-shares/${'skl_'+'ab'.repeat(32)}/download`)
   await act(async()=>tree.root.findByProps({'aria-label':'Name for your copy'}).props.onChange({target:{value:'Local copy'}}))
   await act(async()=>tree.root.findByProps({'aria-label':'Install on agent (optional)'}).props.onChange({target:{value:'agent_1'}}))
   const submit=tree.root.findAllByType('button').find(button=>button.children.includes('Import private copy'))!
@@ -31,6 +32,21 @@ test('Skill-link import previews a public package, optionally installs it on a m
   expect(JSON.parse(String(write.init?.body))).toMatchObject({orgId:'one',name:'Local copy',agentId:'agent_1'})
   expect(JSON.stringify(tree.toJSON())).toContain('Skill imported')
   expect(JSON.stringify(tree.toJSON())).toContain('{name} is now a private Skill in this workspace.')
+ }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
+})
+
+test('public Skill preview and ZIP remain available when the member-only Agent list is unavailable',async()=>{
+ let tree!:ReturnType<typeof create>
+ vi.stubGlobal('fetch',vi.fn(async(input:string)=>{
+  const path=new URL(input).pathname
+  if(path.endsWith('/import-agents'))return {ok:false,json:async()=>({message:'No member access'})}
+  return {ok:true,json:async()=>({share:{name:'Read-only Skill',description:'Public instructions',metadata:{},fileCount:1,totalBytes:80,expiresAt:'2026-11-07T00:00:00Z'}})}
+ }))
+ try{
+  await act(async()=>{tree=create(<HarnessSkillImport token={`skl_${'cd'.repeat(32)}`} httpBase="https://api.example" orgId="one" sessionToken="guest" onClose={vi.fn()}/>)})
+  expect(JSON.stringify(tree.toJSON())).toContain('Read-only Skill')
+  expect(tree.root.findAllByType('a').find(link=>link.children.includes('Download ZIP'))!.props.href).toBe(`https://api.example/skill-shares/${'skl_'+'cd'.repeat(32)}/download`)
+  expect(tree.root.findAllByProps({role:'alert'})).toHaveLength(0)
  }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
 })
 

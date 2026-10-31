@@ -416,9 +416,12 @@ const ScopedHarnessSkillImport: React.FC<HarnessProps & { token: string }> = (pr
   useEffect(() => {
     const controller = new AbortController()
     setShared(null); setAgents(null); setImported(null); setName(''); setAgentId(''); setPreviewError('')
-    void Promise.all([api.sharedSkill(props.token, controller.signal), api.skillShareImportAgents(props.token)])
-      .then(([result, choices]) => { if (!controller.signal.aborted) { setShared(result.share); setName(result.share.name); setAgents(choices.agents) } })
-      .catch(err => { if (!controller.signal.aborted) { setAgents([]); setPreviewError(err instanceof Error ? err.message : String(err)) } })
+    void api.sharedSkill(props.token, controller.signal)
+      .then(result => { if (!controller.signal.aborted) { setShared(result.share); setName(result.share.name) } })
+      .catch(err => { if (!controller.signal.aborted) setPreviewError(err instanceof Error ? err.message : String(err)) })
+    void api.skillShareImportAgents(props.token)
+      .then(choices => { if (!controller.signal.aborted) setAgents(choices.agents) })
+      .catch(() => { if (!controller.signal.aborted) setAgents([]) })
     return () => controller.abort()
   }, [api, props.token])
 
@@ -431,6 +434,7 @@ const ScopedHarnessSkillImport: React.FC<HarnessProps & { token: string }> = (pr
         <Icon name="book" size={20} />
         <div><h2>{shared.name}</h2><p>{shared.description}</p><p>{t('{n} files · {size} bytes', { n: shared.fileCount, size: shared.totalBytes })}</p></div>
       </div>
+      <div className="hx-actions"><a className="pill-btn quiet" href={`${api.httpBase}/skill-shares/${encodeURIComponent(props.token)}/download`}>{t('Download ZIP')}</a></div>
       <label className="hx-template-import-name">{t('Name for your copy')}<input className="hx-cell-input" aria-label={t('Name for your copy')} value={name} maxLength={120} onChange={event => setName(event.target.value)} /></label>
       {agents?.length ? <label className="hx-template-import-name">{t('Install on agent (optional)')}<select className="hx-cell-input" aria-label={t('Install on agent (optional)')} value={agentId} disabled={busy !== null} onChange={event => setAgentId(event.target.value)}><option value="">{t('Do not install yet')}</option>{agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label> : null}
       {agents?.length === 0 && <p className="row-sub">{t('You can install this private Skill on a managed Agent later.')}</p>}
