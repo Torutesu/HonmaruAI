@@ -137,7 +137,7 @@
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
 | KY-076 | 連携カタログとOAuth接続 | 一部 | P1 | 該当実装は未特定 | 掲載件数ではなく認証/検索/読取/書込/解除を連携ごとに検証 |
-| KY-077 | Remote MCP任意サーバー | 一部 | P1 | [worker/src/harness/remoteMcp.js](../../worker/src/harness/remoteMcp.js) | Harness限定。HTTPS接続、暗号化Bearer/custom header、tool一覧/schema、明示allowlist、execute scope、audit、redirect/size制限、disconnectを実装。OAuth DCRとDNS-pinned egressは未対応 |
+| KY-077 | Remote MCP任意サーバー | 一部 | P1 | [worker/src/harness/remoteMcp.js](../../worker/src/harness/remoteMcp.js) | Harness限定。HTTPS接続、暗号化Bearer/custom header、tool一覧/schema、明示allowlist、execute scope、audit、redirect/size制限、disconnectを実装。PR #562でJSON応答のCORSを修正、Worker deploy #258成功後に本番UIで「Failed to fetch」消失を確認。OAuth DCRとDNS-pinned egressは未対応 |
 | KY-078 | Custom API service | 一部 | P1 | [worker/src/harness/appCapabilities.js](../../worker/src/harness/appCapabilities.js) | 6種の公式API host・固定URL/操作・暗号化secret・応答上限・redirect禁止・write再送抑止を追加。任意hostは未対応 |
 | KY-079 | Agent単位のConnection grant | 一部 | P0 | [worker/src/agentTools.js](../../worker/src/agentTools.js) | 人の接続とagent/app/workflowの利用権を分離 |
 | KY-080 | Tools discovery/execute/native proxy/upload | 一部 | P1 | [worker/src/mcp.js](../../worker/src/mcp.js) | 同一principalとスコープでREST/CLI/MCPを提供 |
@@ -145,7 +145,7 @@
 | KY-082 | データプロバイダの組込み | 一部 | P2 | [worker/src/agentResearch.js](../../worker/src/agentResearch.js) | 検索以外の人/企業/SEO/地図/TikTok等を実契約APIで検証 |
 | KY-083 | 画像・動画・音声生成 | 未実装 | P2 | [worker/src/agentTools.js](../../worker/src/agentTools.js) | job進捗・失敗・成果物保持・事前費用見積もり |
 | KY-084 | モデル互換proxy | 一部 | P2 | [worker/src/orgAI.js](../../worker/src/orgAI.js) | 対応API・stream・使用量計上・providerエラーを検証 |
-| KY-085 | Workspace CLIの全操作 | 未実装 | P1 | [worker/src/mcp.js](../../worker/src/mcp.js) | JSON出力・scope・ユーザー/agent principal・終了コード・失敗閉鎖 |
+| KY-085 | Workspace CLIの全操作 | 一部 | P1 | [packages/cli](../../packages/cli) | Node 22の`honmaru workspace tools`/`call`を追加。HTTPS限定、env tokenを永続化せず、JSON結果と失敗終了コードを提供。token scope・membership・SSO/IP制限・Simple/Harness分岐は既存MCP APIが強制。Kylon相当の全コマンド群、OAuth、credential helper、workspace内の各リソースに対する高水準コマンドは未実装 |
 
 ## Commercial
 
