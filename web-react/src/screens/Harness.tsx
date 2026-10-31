@@ -15,6 +15,7 @@ import { HarnessAppIcon } from '../components/HarnessAppIcon'
 import { CompanyApp } from '../components/CompanyApp'
 import { CustomAppEditor, CustomAppFrame } from "../components/CustomApp"
 import { AppSharing } from '../components/AppSharing'
+import { TemplateSharing } from '../components/TemplateSharing'
 import { AppCalendar } from '../components/AppCalendar'
 import { RemoteMcpServers } from '../components/RemoteMcpServers'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
@@ -222,6 +223,53 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
       </>}
     </Shell>
   )
+}
+
+export function HarnessTemplateImport({ httpBase, orgId, sessionToken, onClose, token }: HarnessProps & { token: string }) {
+  const t = useT()
+  const api = useApi({ httpBase, orgId, sessionToken, onClose })
+  const [result, setResult] = useState<Awaited<ReturnType<HarnessApi['sharedTemplate']>> | null>(null)
+  const [importedApp, setImportedApp] = useState<App | null>(null)
+  const [name, setName] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    const controller = new AbortController()
+    setResult(null); setError('')
+    void api.sharedTemplate(token, controller.signal).then(setResult).catch(err => { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : String(err)) })
+    return () => controller.abort()
+  }, [api, token])
+  const snapshot = result?.snapshot
+  const importTemplate = async () => {
+    setBusy(true); setError('')
+    try {
+      const imported = await api.importSharedTemplate(token, name.trim() || undefined)
+      setImportedApp(imported.app)
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setBusy(false) }
+  }
+  return <Shell className="hx-resource-screen hx-template-import" title={t('Import template')} onClose={onClose}>
+    {error && <div className="form-error" role="alert">{error}</div>}
+    {!result && !error && <div className="empty">{t('Loading…')}</div>}
+    {snapshot && <>
+      <div className="hx-template-import-card">
+        <HarnessAppIcon icon={snapshot.app.icon} size={24} />
+        <div><h2>{snapshot.app.name}</h2><p>{snapshot.app.description || t('A reusable app structure.')}</p></div>
+      </div>
+      <p className="hx-hint">{t('Version {n} · expires {date}', { n: snapshot.version, date: new Date(result.expiresAt).toLocaleString() })}</p>
+      <div className="rows-title">{t('Included structure')}</div>
+      <div className="rows">
+        <div className="row static"><span className="row-main">{t('Primary table')}<span className="row-sub">{snapshot.tableName}</span></span></div>
+        <div className="row static"><span className="row-main">{t('Fields')}<span className="row-sub">{snapshot.columns.map(column => `${column.name} · ${column.type}`).join('  /  ')}</span></span></div>
+        <div className="row static"><span className="row-main">{t('Views')}<span className="row-sub">{snapshot.definition.views.map(view => view.name).join(' · ')}</span></span></div>
+      </div>
+      <p className="hx-hint">{t('Records, custom code, connections and secrets are not imported.')}</p>
+      {importedApp ? <div className="hx-template-import-success" role="status"><strong>{t('Template imported.')}</strong><div className="hx-actions"><button className="pill-btn" onClick={() => { location.hash = hashForApp(importedApp.id, orgId) }}>{t('Open in Apps')}</button><button className="pill-btn quiet" onClick={onClose}>{t('Done')}</button></div></div> : <>
+        <label className="hx-template-import-name">{t('Name this app')}<input className="hx-cell-input" value={name} placeholder={snapshot.app.name} maxLength={80} onChange={event => setName(event.target.value)} /></label>
+        <div className="hx-actions"><button className="pill-btn" disabled={busy} onClick={() => void importTemplate()}>{busy ? t('Importing…') : t('Import template')}</button><span className="hx-hint">{t('The app will be added to the selected workspace.')}</span></div>
+      </>}
+    </>}
+  </Shell>
 }
 
 type RelationEntity = AppEntity & { rows: Row[] }
@@ -474,6 +522,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       <h2>{t('Fields')}</h2><div className="rows">{table.columns.map(column => <div className="row static" key={column.id}><span className="row-main">{column.name}</span><span className="row-sub">{column.type}</span></div>)}</div>
       {data.canCustomize !== false && <form className="hx-actions" onSubmit={event => { event.preventDefault(); void act('column', async () => { await api.updateApp(app.id, { columns: [...table.columns, { name: newColumn.trim(), type: newColumnType }] }); setNewColumn(''); await load() }) }}><input className="hx-cell-input" aria-label={t('Field name')} placeholder={t('Field name')} value={newColumn} onChange={e => setNewColumn(e.target.value)} /><select aria-label={t('Field type')} value={newColumnType} onChange={e => setNewColumnType(e.target.value as Column['type'])}>{(['text', 'number', 'date', 'checkbox', 'person', 'email', 'url'] as const).map(type => <option key={type} value={type}>{type}</option>)}</select><button className="pill-btn" disabled={busy !== null || !newColumn.trim()}>{t('Add field')}</button></form>}
       <AppSharing key={`${httpBase}:${orgId}:${appId}:${sessionToken}`} httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} appId={appId} />
+      <TemplateSharing key={`${orgId}:${appId}:${app.version}`} api={api} appId={app.id} appVersion={app.version} />
 
       <div className="rows-title">{t('Rooms')}</div>
       <div className="rows">

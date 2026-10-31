@@ -32,7 +32,7 @@ import { isOrgId, parseAppLink, webHashFor } from '@honmaru/core/links'
 
 export type Screen = 'tools' | 'history' | 'notifications' | 'plans' | 'profile' | 'team' | 'insights' | 'automations' | 'playbook' | 'agents'
   // The harness (docs/kylon-gap-plan.md): shown only in a harness workspace.
-  | 'home' | 'harness' | 'apps' | 'workflows' | 'approvals' | 'skills' | 'hxagents' | 'gateways'
+  | 'home' | 'harness' | 'apps' | 'templateImport' | 'workflows' | 'approvals' | 'skills' | 'hxagents' | 'gateways'
 export type Mode = 'cards' | 'classic'
 
 export interface Route {
@@ -45,6 +45,7 @@ export interface Route {
   appSourceSection?: 'data'
   appSection?: AppSection
   appDraft?: string
+  sharedTemplateToken?: string | null
   appConversation?: {tableId?:string;rowId?:string}
   appId?: string | null
   appOrg?: string | null
@@ -73,13 +74,13 @@ const SCREEN_BY_PATH: Record<string, Screen> = {
   tools: 'tools', history: 'history', notifications: 'notifications',
   plans: 'plans', you: 'profile', team: 'team', insights: 'insights',
   automations: 'automations', playbook: 'playbook', agents: 'agents',
-  gateways: 'gateways', home: 'home', harness: 'harness', apps: 'apps', workflows: 'workflows', approvals: 'approvals', skills: 'skills', 'agent-team': 'hxagents',
+  gateways: 'gateways', home: 'home', harness: 'harness', apps: 'apps', 'template-share': 'templateImport', workflows: 'workflows', approvals: 'approvals', skills: 'skills', 'agent-team': 'hxagents',
 }
 const PATH_BY_SCREEN: Record<Screen, string> = {
   tools: 'tools', history: 'history', notifications: 'notifications',
   plans: 'plans', profile: 'you', team: 'team', insights: 'insights',
   automations: 'automations', playbook: 'playbook', agents: 'agents',
-  gateways: 'gateways', home: 'home', harness: 'harness', apps: 'apps', workflows: 'workflows', approvals: 'approvals', skills: 'skills', hxagents: 'agent-team',
+  gateways: 'gateways', home: 'home', harness: 'harness', apps: 'apps', templateImport: 'template-share', workflows: 'workflows', approvals: 'approvals', skills: 'skills', hxagents: 'agent-team',
 }
 
 export function parseRoute(hash: string): Route {
@@ -136,6 +137,10 @@ export function parseRoute(hash: string): Route {
     const conversation=params.get('chat')==='1'&&((!tableId&&!rowId)||(/^[\w-]{1,100}$/.test(tableId)&&/^[\w-]{1,100}$/.test(rowId)))?{appConversation:rowId?{tableId,rowId}:{}}:{}
     if(params.get('source')==='1' && /^[\w-]{1,80}$/.test(id) && isOrgId(org)) return {screen:null,mode:'classic',cardId:null,join:null,appId:id,appOrg:org,appSource:true,...draftProps,...(params.get('section')==='data'?{appSourceSection:'data' as const}:{})}
     return { screen: 'apps', mode: null, cardId: null, join: null, appId: /^[\w-]{1,80}$/.test(id) ? id : null, appOrg: isOrgId(org) ? org : null, ...conversation, ...draftProps, ...(APP_SECTIONS.includes(params.get('section') as AppSection)?{appSection:params.get('section') as AppSection}:{}) }
+  }
+  if (head === 'template-share') {
+    const token = rest.length === 1 && /^tpl_[a-f0-9]{64}$/.test(rest[0]) ? rest[0] : null
+    return { screen: 'templateImport', mode: null, cardId: null, join: null, sharedTemplateToken: token }
   }
   if (head === 'join') {
     const code = (rest[0] || '').trim()

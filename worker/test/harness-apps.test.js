@@ -142,6 +142,75 @@ test("an app from a template: its views, worked out on the server", async () => 
   expect(inRoom.apps[0].channels).toEqual(["b:sales"]);
 });
 
+test('shared app templates are pinned, sanitized, expiring and revocable bearer links', async () => {
+  const made = await send('POST', '/apps', mika, {
+    orgId: ORG, name: 'Partner pipeline', tableName: 'Deals', description: 'Sales overview', icon: '💼',
+    columns: [{ name: 'Company', type: 'text' }, { name: 'Stage', type: 'select', options: ['Lead', 'Won'] }],
+    definition: { views: [{ type: 'board', name: 'Pipeline', groupBy: 'Stage' }] },
+    sample: [{ Company: 'Acme customer', Stage: 'Lead' }],
+  });
+  const { app } = await made.json();
+  const historical = await env.DB.prepare('SELECT definition FROM hx_app_versions WHERE app_id=?1 AND org_id=?2 AND version=1').bind(app.id, ORG).first();
+  const historicalDefinition = JSON.parse(historical.definition);
+  historicalDefinition.description = 'private description text';
+  historicalDefinition.custom = { published: 'custom-secret-code' };
+  historicalDefinition.views[0].name = 'private view label';
+  historicalDefinition.views[0].filters = [{ column: 'company', op: 'eq', value: 'private filter value' }];
+  historicalDefinition.views[0].where = { company: ['private where value'] };
+  await env.DB.prepare('UPDATE hx_app_versions SET definition=?1 WHERE app_id=?2 AND org_id=?3 AND version=1').bind(JSON.stringify(historicalDefinition), app.id, ORG).run();
+  await send('PUT', `/apps/${app.id}`, mika, { orgId: ORG, name: 'Pipeline v2', note: 'new version' });
+
+  const created = await send('POST', `/apps/${app.id}/template-shares`, mika, { orgId: ORG, version: 1, expiresInDays: 7 });
+  expect(created.status).toBe(201);
+  const { share, token } = await created.json();
+  expect(token).toMatch(/^tpl_[a-f0-9]{64}$/);
+  expect(share).toMatchObject({ appVersion: 1, revokedAt: null });
+  const stored = await env.DB.prepare('SELECT token_hash,snapshot,expires_at FROM hx_template_shares WHERE id=?1').bind(share.id).first();
+  expect(stored.token_hash).not.toBe(token);
+  expect(stored.snapshot).not.toContain(token);
+  expect(stored.snapshot).not.toContain('Acme customer');
+  expect(stored.snapshot).not.toContain('private description text');
+  expect(stored.snapshot).not.toContain('custom-secret-code');
+  expect(stored.snapshot).not.toContain('private filter value');
+  expect(stored.snapshot).not.toContain('private where value');
+  expect(stored.snapshot).toContain('private view label');
+  expect(JSON.parse(stored.snapshot).app.name).toBe('Partner pipeline');
+  expect(JSON.parse(stored.snapshot).version).toBe(1);
+
+  const publicRead = await call(`/template-shares/${token}`, { method: 'GET' });
+  expect(publicRead.status).toBe(200);
+  expect(await publicRead.json()).toMatchObject({ snapshot: { app: { name: 'Partner pipeline' }, version: 1 } });
+  expect((await call(`/template-shares/${'tpl_' + '0'.repeat(64)}`, { method: 'GET' })).status).toBe(404);
+
+  const imported = await send('POST', `/template-shares/${token}/import`, outsider, { orgId: 'personal:elsewhere' });
+  expect(imported.status).toBe(201);
+  const { app: copy } = await imported.json();
+  expect(copy).toMatchObject({ orgId: 'personal:elsewhere', name: 'Partner pipeline', template: 'shared' });
+  const details = await (await get(`/apps/${copy.id}?orgId=personal:elsewhere`, outsider)).json();
+  expect(details.table.columns.map(column => column.name)).toEqual(['Company', 'Stage']);
+  expect(details.rows).toEqual([]);
+  expect(details.views.find(view => view.type === 'board').groupBy).toBe('stage');
+
+  const listed = await (await get(`/apps/${app.id}/template-shares?orgId=${ORG}`, mika)).json();
+  expect(listed.shares).toEqual([expect.objectContaining({ id: share.id, appVersion: 1, revokedAt: null })]);
+  expect(JSON.stringify(listed)).not.toContain(token);
+  const revoked = await send('POST', `/apps/${app.id}/template-shares/${share.id}/revoke`, mika, { orgId: ORG });
+  expect(revoked.status).toBe(200);
+  expect((await call(`/template-shares/${token}`, { method: 'GET' })).status).toBe(404);
+  expect((await send('POST', `/template-shares/${token}/import`, outsider, { orgId: 'personal:elsewhere' })).status).toBe(404);
+});
+
+test('template links require an app editor and bounded expiry choices', async () => {
+  const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, name: 'Private template', sample: false, columns: [{ name: 'Task', type: 'text' }] })).json();
+  expect((await send('POST', `/apps/${app.id}/template-shares`, guest, { orgId: ORG, version: 1 })).status).toBe(403);
+  expect((await send('POST', `/apps/${app.id}/template-shares`, mika, { orgId: ORG, version: 1, expiresInDays: 365 })).status).toBe(400);
+  const issued = await send('POST', `/apps/${app.id}/template-shares`, mika, { orgId: ORG, version: 1, expiresInDays: 1 });
+  expect(issued.status).toBe(201);
+  const { token, share } = await issued.json();
+  await env.DB.prepare("UPDATE hx_template_shares SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=?1").bind(share.id).run();
+  expect((await call(`/template-shares/${token}`, { method: 'GET' })).status).toBe(404);
+});
+
 test("an app title and its primary table label stay separate through version restore", async () => {
   const made = await send("POST", "/apps", mika, {
     orgId: ORG, name: "UI確認用タスク", tableName: "タスク", sample: false,

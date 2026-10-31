@@ -207,3 +207,19 @@
 .hx-program-gutter pre { margin: 0; padding: 14px 8px; text-align: right; font: inherit; white-space: pre; }
 .hx-program-code .hx-program-input { display: block; border: 0; border-radius: 0; white-space: pre; overflow-wrap: normal; font: inherit; }
 .hx-program-code .hx-program-input:focus-visible { outline: none; }
+
+.hx-template-sharing { margin-top: 20px; }
+.hx-template-sharing .row-main > label { display: grid; gap: 5px; max-width: 420px; margin: 0 0 10px; font-size: 12px; color: var(--hx-muted, var(--ash)); }
+.hx-template-sharing .row-main > .hx-template-review { display: flex; align-items: flex-start; gap: 8px; max-width: 640px; line-height: 1.45; }
+.hx-template-review input { flex: 0 0 auto; margin-top: 2px; }
+.hx-template-sharing .row-main > label select { width: 100%; min-height: 36px; border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-input); background: var(--hx-surface, var(--signal-white)); color: var(--hx-text, var(--ink-black)); padding: 6px 10px; }
+.hx-template-sharing .row-main > .pill-btn { margin-top: 2px; }
+.hx-template-link-row { display: flex; align-items: center; gap: 8px; }
+.hx-template-link-row .hx-cell-input { flex: 1; min-width: 0; border-color: var(--hx-border, var(--bone)); }
+.hx-template-sharing .rows-title { margin-top: 18px; }
+.hx-template-import-card { display: flex; align-items: center; gap: 12px; margin: 8px 0 16px; padding: 16px; border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-card); background: var(--hx-surface, var(--signal-white)); color: var(--hx-text, var(--ink-black)); }
+.hx-template-import-card h2 { margin: 0 0 4px; font-size: 18px; }
+.hx-template-import-card p { margin: 0; color: var(--hx-muted, var(--ash)); }
+.hx-template-import-name { display: grid; gap: 6px; max-width: 460px; margin: 16px 0; color: var(--hx-muted, var(--ash)); font-size: 13px; }
+.hx-template-import-name .hx-cell-input { border-color: var(--hx-border, var(--bone)); }
+@media (max-width: 560px) { .hx-template-link-row { align-items: stretch; flex-direction: column; } .hx-template-link-row .pill-btn { align-self: flex-start; } }

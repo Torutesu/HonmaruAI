@@ -47,6 +47,8 @@ export interface AppFork { id: string; revision: number; mergedAt?: string | nul
 export interface MergeReview { forkId: string; revision: number; checksum: string; changes: Array<{entity:string;tableId:string;tableName:string;id:string;operation:'create'|'update'|'remove';before:Record<string,unknown>|null;after:Record<string,unknown>|null}>; conflicts: Array<{entity:string;id:string;reason:string}> }
 export interface AppDatabase { version: number; entities: AppEntity[]; migrations: Array<{id:string;version:number;checksum:string;plan:unknown;createdAt:string}>; fork: AppFork | null }
 export interface Template { id: string; name: string; icon: string; description: string }
+export interface TemplateShare { id: string; appVersion: number; createdAt: string; expiresAt: string; revokedAt: string | null }
+export interface SharedTemplate { format: 1; app: { name: string; description: string; icon: string }; version: number; tableName: string; columns: Array<{ name: string; type: Column['type']; options?: string[] }>; definition: { views: View[] } }
 
 export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'row' | 'app_record_change'
 export interface Trigger {
@@ -158,6 +160,11 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     setDisplayPreference: (simpleOnly: boolean) => call<{ simpleOnly: boolean; revision: number }>('PUT', '/hx/display-preference', { simpleOnly }),
 
     templates: () => call<{ templates: Template[] }>('GET', '/apps/templates'),
+    templateShares: (id: string) => call<{ shares: TemplateShare[]; canManage: boolean }>('GET', `/apps/${id}/template-shares`),
+    createTemplateShare: (id: string, version: number, expiresInDays: number) => call<{ share: TemplateShare; token: string }>('POST', `/apps/${id}/template-shares`, { version, expiresInDays }),
+    revokeTemplateShare: (id: string, shareId: string) => call<{ revoked: boolean }>('POST', `/apps/${id}/template-shares/${encodeURIComponent(shareId)}/revoke`, {}),
+    sharedTemplate: (token: string, signal?: AbortSignal) => call<{ snapshot: SharedTemplate; expiresAt: string }>('GET', `/template-shares/${encodeURIComponent(token)}`, undefined, undefined, signal),
+    importSharedTemplate: (token: string, name?: string) => call<{ app: App; sourceVersion: number; expiresAt: string }>('POST', `/template-shares/${encodeURIComponent(token)}/import`, name ? { name } : {}),
     apps: (channel?: string) => call<{ apps: App[] }>('GET', '/apps', undefined, channel ? { channel } : {}),
     app: (id: string) => call<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize: boolean }>('GET', `/apps/${id}`),
     createFromTemplate: (template: string, channel?: string) => call<{ app: App }>('POST', '/apps', { template, channel }),

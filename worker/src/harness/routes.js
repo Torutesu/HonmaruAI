@@ -64,6 +64,7 @@ import {
   linkApp, unlinkApp, listVersions, restoreVersion, renderApp,
 } from "./apps.js";
 import { templateList } from "./templates.js";
+import { createTemplateShare, listTemplateShares, revokeTemplateShare, readTemplateShare, importTemplateShare } from './templateShares.js';
 import { getProfile, saveProfile, listAgentMemories, addAgentMemory, deleteAgentMemory, TIERS, ACCESS } from "./agents.js";
 import { listSkills, createSkill, updateSkill, deleteSkill, getSkill, giveSkill, takeSkill, skillsOf } from "./skills.js";
 import { skillMarkdown } from "./skillMarkdown.js";
@@ -94,7 +95,7 @@ export function json(body, status = 200) {
 const fail = (result) => json({ message: result.error, ...(result.fields ? { fields: result.fields } : {}) }, result.status || 400);
 
 /// The paths this module answers.
-const OURS = /^\/(orgs\/mode|tables|apps|skills|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
+const OURS = /^\/(orgs\/mode|tables|apps|template-shares|skills|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
 export async function member(env, request, orgId) {
@@ -161,6 +162,25 @@ export async function handleHarness(request, env, url, context = {}) {
   if (!read && !visualRoute && !input) return json({ message: "Invalid JSON body." }, 400);
   const orgId = read || visualRoute ? url.searchParams.get("orgId") : input.orgId;
   const parts = url.pathname.split("/").filter(Boolean);
+
+  // A share token is a narrowly scoped bearer credential: GET exposes only
+  // the sanitized template blueprint, while importing also requires a valid
+  // member session in the destination workspace.
+  if (parts[0] === 'template-shares') {
+    if (parts.length === 2 && request.method === 'GET') {
+      const result = await readTemplateShare(env.DB, parts[1]);
+      return result.error ? fail(result) : json(result);
+    }
+    if (parts.length === 3 && parts[2] === 'import' && request.method === 'POST') {
+      const who = await member(env, request, orgId);
+      if (who.denied) return who.denied;
+      const result = await importTemplateShare(env.DB, parts[1], { orgId, by: who.session.github_id, name: input.name });
+      if (result.error) return fail(result);
+      await audit(env, request, { orgId, action: 'app.template_imported', actor: person(who.user), entity: { type: 'app', id: result.app.id, name: result.app.name }, details: { sourceVersion: result.sourceVersion } });
+      return json(result, 201);
+    }
+    return json({ message: 'Unknown template link.' }, 404);
+  }
 
   // A Simple-only preference belongs to this signed-in member, not to the
   // workspace. It is delivered only to that person's open devices.
@@ -1003,6 +1023,22 @@ export async function handleHarness(request, env, url, context = {}) {
         return result.error ? fail(result) : json(result);
       }
       return json({ message: "Method not allowed." }, 405);
+    }
+    if (sub === 'template-shares') {
+      if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: 'Only its maker or an admin can share this app as a template.' }, 403);
+      if (request.method === 'GET' && parts.length === 3) return json({ ...(await listTemplateShares(env.DB, orgId, appId)), canManage: true });
+      if (request.method === 'POST' && parts.length === 3) {
+        const result = await createTemplateShare(env.DB, orgId, app, input, me);
+        if (result.error) return fail(result);
+        await audit(env, request, { orgId, action: 'app.template_shared', actor: person(who.user), entity: { type: 'app', id: appId, name: app.name }, details: { shareId: result.share.id, version: result.share.appVersion, expiresAt: result.share.expiresAt } });
+        return json(result, 201);
+      }
+      if (request.method === 'POST' && parts.length === 5 && parts[4] === 'revoke') {
+        const result = await revokeTemplateShare(env.DB, orgId, appId, parts[3]);
+        if (!result.error) await audit(env, request, { orgId, action: 'app.template_share_revoked', actor: person(who.user), entity: { type: 'app', id: appId, name: app.name }, details: { shareId: parts[3] } });
+        return result.error ? fail(result) : json(result);
+      }
+      return json({ message: 'Method not allowed.' }, 405);
     }
     if (!sub) {
       if (request.method === "GET") {

@@ -624,11 +624,11 @@
       "id": "KY-054",
       "category": "Apps",
       "requirement": "テンプレート共有とバージョン",
-      "status": "missing",
+      "status": "partial",
       "priority": "P2",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/templates.js",
-      "acceptance": "秘密情報・実データを除去して固定バージョンで共有"
+      "code": "worker/src/harness/templateShares.js",
+      "acceptance": "期限付き・失効可能なURLで固定版のスキーマ/ビューを共有し、実データと実行コードを含めず別workspaceへ取り込む。フィールド等の任意ラベルは共有前に確認させる"
     },
     {
       "id": "KY-055",
