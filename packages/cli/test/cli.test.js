@@ -125,6 +125,39 @@ test("execution run validates its idempotency key and JSON before making a reque
   assert.equal(requests, 0);
 });
 
+test("app action aliases list published actions, run a pinned version, and read its scoped result", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    calls.push(req.params);
+    const structuredContent = req.params.name === "list_app_actions"
+      ? { apps: [{ id: "app_1", name: "Invoices", actions: [{ name: "recalculate", publishedVersion: 4 }] }] }
+      : req.params.name === "run_app_action"
+        ? { job: { id: "job_2", status: "queued" } }
+        : { job: { id: "job_2", status: "succeeded", result: { total: 42 } } };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "app", "action", "list", "app_1"]), 0);
+  assert.equal(stdout.read(), "app_1\tInvoices\trecalculate\tv4\n");
+  stdout.clear();
+  assert.equal(await run(["workspace", "app", "action", "run", "app_1", "recalculate", "--version", "4", "--gateway-id", "gw_1", "--request-id", "app-run-1", "--input", "{\"invoiceId\":\"inv_9\"}"]), 0);
+  assert.match(stdout.read(), /App action job_2: queued/);
+  assert.match(stdout.read(), /app action read app_1 job_2/);
+  stdout.clear();
+  assert.equal(await run(["workspace", "app", "action", "read", "app_1", "job_2", "--json"]), 0);
+  assert.deepEqual(JSON.parse(stdout.read()), { job: { id: "job_2", status: "succeeded", result: { total: 42 } } });
+  assert.deepEqual(calls, [
+    { name: "list_app_actions", arguments: { appId: "app_1" } },
+    { name: "run_app_action", arguments: { appId: "app_1", name: "recalculate", version: 4, gatewayId: "gw_1", requestId: "app-run-1", input: { invoiceId: "inv_9" } } },
+    { name: "get_app_execution", arguments: { appId: "app_1", jobId: "job_2" } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
 test("resource aliases map to the scoped app and database tools", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {

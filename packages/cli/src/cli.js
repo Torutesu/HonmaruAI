@@ -8,6 +8,9 @@ Usage:
   honmaru workspace call <tool> [--args JSON] [--api-url URL]
   honmaru workspace app list
   honmaru workspace app read <app-id>
+  honmaru workspace app action list [<app-id>]
+  honmaru workspace app action run <app-id> <name> --version N --gateway-id NODE --request-id ID --input JSON
+  honmaru workspace app action read <app-id> <job-id>
   honmaru workspace table list
   honmaru workspace row list <table-id> [--query TEXT] [--where JSON] [--sort FIELD] [--limit N] [--offset N]
   honmaru workspace row create <table-id> --values JSON
@@ -60,7 +63,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "text", "room", "instruction", "minutes", "scope", "origin", "type", "created-by",
   "direction", "title", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version",
-  "gateway-id", "request-id", "code", "input",
+  "gateway-id", "request-id", "code", "input", "app-id",
 ]);
 const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted"]);
 
@@ -154,6 +157,28 @@ function resolveWorkspaceCommand(resource, operation, positional, options) {
     case "app show":
       onlyFlags(options, []); positionalCount(positional, 1, `honmaru workspace app ${operation} <app-id>`);
       return { tool: "read_app", args: { appId: positional[0] } };
+    case "app action": {
+      const [action, ...target] = positional;
+      if (action === "list") {
+        onlyFlags(options, ["appId"]);
+        if (target.length > 1 || (target.length && options.appId)) throw new Error("Usage: honmaru workspace app action list [<app-id>]");
+        const appId = target[0] ?? options.appId;
+        return { tool: "list_app_actions", args: appId ? { appId } : {} };
+      }
+      if (action === "run") {
+        onlyFlags(options, ["version", "gatewayId", "requestId", "input"]); positionalCount(target, 2, "honmaru workspace app action run <app-id> <name> --version N --gateway-id NODE --request-id ID --input JSON");
+        const version = integerOption(options, "version", { min: 1, required: true });
+        if (!options.gatewayId?.trim()) throw new Error("--gateway-id is required.");
+        if (!options.requestId || !/^[\w-]{1,80}$/.test(options.requestId)) throw new Error("--request-id must be 1 to 80 letters, numbers, underscores or hyphens; reuse it only when retrying the same request.");
+        if (options.input === undefined) throw new Error("--input is required and must be valid JSON (use null when there is no input).");
+        return { tool: "run_app_action", args: { appId: target[0], name: target[1], version, gatewayId: options.gatewayId, requestId: options.requestId, input: jsonValueOption(options, "input") } };
+      }
+      if (action === "read") {
+        onlyFlags(options, []); positionalCount(target, 2, "honmaru workspace app action read <app-id> <job-id>");
+        return { tool: "get_app_execution", args: { appId: target[0], jobId: target[1] } };
+      }
+      throw new Error("Usage: honmaru workspace app action list|run|read.");
+    }
     case "table list":
       onlyFlags(options, []); positionalCount(positional, 0, "honmaru workspace table list");
       return { tool: "list_tables", args: {} };
@@ -276,15 +301,21 @@ function resolveWorkspaceCommand(resource, operation, positional, options) {
   }
 }
 
-function formatWorkspaceResult(result, json) {
+function formatWorkspaceResult(result, json, command = null) {
   const value = result?.structuredContent ?? result;
   if (json || !value || typeof value !== "object") return JSON.stringify(value, null, 2);
+  if (command?.tool === "list_app_actions") {
+    const actions = (value.apps || []).flatMap((app) => (app.actions || []).map((action) => `${app.id}\t${app.name}\t${action.name}\tv${action.publishedVersion}`));
+    return actions.length ? actions.join("\n") : "No published app actions are available.";
+  }
+  if (Array.isArray(value.apps) && value.apps.some((app) => Array.isArray(app.actions))) return value.apps.length ? value.apps.flatMap((app) => app.actions.map((action) => `${app.id}\t${app.name}\t${action.name}\tv${action.publishedVersion}`)).join("\n") : "No published app actions are available.";
   if (Array.isArray(value.apps)) return value.apps.length ? value.apps.map((app) => `${app.id}\t${app.name}${app.tableId ? `\t${app.tableId}` : ""}`).join("\n") : "No apps are available.";
   if (Array.isArray(value.tables)) return value.tables.length ? value.tables.map((table) => `${table.id}\t${table.name}\t${(table.columns || []).map((column) => column.name).join(", ")}`).join("\n") : "No tables are available.";
   if (Array.isArray(value.rows)) return value.rows.length ? value.rows.map((row) => `${row.id}\t${JSON.stringify(row)}`).join("\n") : `No rows found (total ${value.total ?? 0}).`;
   if (Array.isArray(value.files)) return value.files.length ? value.files.map((file) => `${file.id}\t${file.path || file.name || "(unnamed)"}`).join("\n") : "No files found.";
   if (Array.isArray(value.members)) return value.members.length ? value.members.map((member) => `${member.name}${member.title ? `\t${member.title}` : ""}`).join("\n") : "No members found.";
   if (Array.isArray(value.gateways)) return value.gateways.length ? value.gateways.map((gateway) => `${gateway.id}\t${gateway.name}${gateway.lastSeenAt ? `\t${gateway.lastSeenAt}` : ""}`).join("\n") : "No execution nodes are registered.";
+  if (value.job?.id && command?.tool === "run_app_action") return `App action ${value.job.id}: ${value.job.status}. Read the result with honmaru workspace app action read ${command.args.appId} ${value.job.id}.`;
   if (value.job?.id) return `Execution ${value.job.id}: ${value.job.status}. Read the result with honmaru workspace execution read ${value.job.id}.`;
   if (Array.isArray(value.rules)) return value.rules.length ? value.rules.map((rule, index) => `${index + 1}. ${rule}`).join("\n") : "The playbook is empty.";
   if (Array.isArray(value.decisions)) return value.decisions.length ? value.decisions.map((decision) => `${decision.cardId}\t${decision.status}\t${decision.title}`).join("\n") : "No decisions found.";
@@ -375,7 +406,7 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
     const [resource, operation, ...commandArgs] = [action, positional[0], ...positional.slice(1)];
     const command = resolveWorkspaceCommand(resource, operation, commandArgs, options);
     const result = await client.callTool(command.tool, command.args);
-    writeOut(formatWorkspaceResult(result, options.json));
+    writeOut(formatWorkspaceResult(result, options.json, command));
     return 0;
   } catch (error) {
     writeError(error instanceof Error ? error.message : "The command failed.");
