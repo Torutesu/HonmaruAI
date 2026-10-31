@@ -195,3 +195,19 @@ test("decision aliases reject invalid or oversized input before making a request
   assert.match(stderr.read(), /--priority must be/);
   assert.equal(requests, 0);
 });
+
+test("gateway run delegates to the installed execution node runtime and exposes help", async () => {
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_GATEWAY_TOKEN: "hgw_node_secret" };
+  let received;
+  const gatewayRunner = async (options) => { received = options; return 130; };
+
+  assert.equal(await runCli(["gateway", "run"], { env, stdout: stdout.stream, stderr: stderr.stream, gatewayRunner }), 130);
+  assert.deepEqual(received, { env });
+  assert.equal(stderr.read(), "");
+  assert.equal(await runCli(["gateway", "run", "--force"], { env, stdout: stdout.stream, stderr: stderr.stream, gatewayRunner }), 2);
+  assert.match(stderr.read(), /Usage: honmaru gateway run/);
+  assert.equal(await runCli(["gateway", "run", "--help"], { env, stdout: stdout.stream, stderr: stderr.stream, gatewayRunner }), 0);
+  assert.match(stdout.read(), /HONMARU_GATEWAY_TOKEN/);
+});

@@ -1,4 +1,5 @@
 import { createMcpClient } from "./client.js";
+import { runGatewayForeground } from "./gateway.js";
 
 const HELP = `Honmaru workspace CLI
 
@@ -31,6 +32,20 @@ Environment:
 The API enforces the token's scopes, workspace membership, and Simple/Harness
 mode. The CLI does not save or print tokens. Mutating commands can change
 workspace data, so review the target and arguments before running them.
+`;
+
+const GATEWAY_HELP = `Honmaru local execution gateway
+
+Usage:
+  honmaru gateway run
+
+Environment:
+  HONMARU_API_URL          HTTPS API origin for your Honmaru workspace
+  HONMARU_GATEWAY_TOKEN    Node token created under Studio → Harness → Execution nodes
+
+The gateway polls for isolated jobs and connects outbound. It does not open an
+inbound port. Stop it with Ctrl+C. Do not pass the node token as a command-line
+argument.
 `;
 
 const ALIAS_VALUE_FLAGS = new Set([
@@ -251,13 +266,30 @@ function formatTools(tools) {
   }).join("\n");
 }
 
-export async function runCli(argv, { env = process.env, fetcher = fetch, stdout = process.stdout, stderr = process.stderr } = {}) {
+export async function runCli(argv, { env = process.env, fetcher = fetch, stdout = process.stdout, stderr = process.stderr, gatewayRunner = runGatewayForeground } = {}) {
   const writeOut = (value) => stdout.write(`${value}\n`);
   const writeError = (value) => stderr.write(`honmaru: ${value}\n`);
   const [root, action, ...rest] = argv;
   if (!root || root === "--help" || root === "-h" || root === "help") {
     writeOut(HELP.trimEnd());
     return 0;
+  }
+  if (root === "gateway") {
+    const [gatewayAction, ...gatewayArgs] = argv.slice(1);
+    if (!gatewayAction || gatewayAction === "help" || gatewayAction === "--help" || gatewayAction === "-h" || gatewayArgs.includes("--help") || gatewayArgs.includes("-h")) {
+      writeOut(GATEWAY_HELP.trimEnd());
+      return 0;
+    }
+    if (gatewayAction !== "run" || gatewayArgs.length) {
+      writeError("Usage: honmaru gateway run [--help].");
+      return 2;
+    }
+    try {
+      return await gatewayRunner({ env });
+    } catch (error) {
+      writeError(error instanceof Error ? error.message : "The local gateway could not start.");
+      return 1;
+    }
   }
   if (root !== "workspace") {
     writeError(`Unknown command: ${root}. Run honmaru --help.`);
