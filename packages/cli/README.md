@@ -20,6 +20,11 @@ npm install
 npm exec --workspace @honmaru/cli -- honmaru workspace tools
 npm exec --workspace @honmaru/cli -- honmaru workspace tools --json
 npm exec --workspace @honmaru/cli -- honmaru workspace call list_apps
+npm exec --workspace @honmaru/cli -- honmaru workspace member list
+npm exec --workspace @honmaru/cli -- honmaru workspace playbook read
+npm exec --workspace @honmaru/cli -- honmaru workspace decision pending --direction mine
+npm exec --workspace @honmaru/cli -- honmaru workspace decision search "release approval"
+npm exec --workspace @honmaru/cli -- honmaru workspace decision request --title "Approve deploy?" --to "Aiko" --priority high
 npm exec --workspace @honmaru/cli -- honmaru workspace call query_rows --args '{"tableId":"tbl_…","limit":25}'
 npm exec --workspace @honmaru/cli -- honmaru workspace app list
 npm exec --workspace @honmaru/cli -- honmaru workspace row list tbl_… --query "in progress" --limit 25
@@ -31,7 +36,7 @@ npm exec --workspace @honmaru/cli -- honmaru workspace file read file_… --vers
 
 Resource commands are concise aliases for the same scoped MCP tools: Apps, tables, rows, workflows, follow-ups, and accessible workspace files. Add `--json` for machine-readable output. `workspace call` remains available for other tools and prints the complete JSON result. The workspace server remains the authority for input validation and permissions; in particular, stale row edits are rejected by `--expected-updated-at` compare-and-set checks. Review mutating commands and their arguments before running them.
 
-The resource aliases need Harness tools enabled and a token with the matching scope. In Simple workspaces, the aliases remain unavailable and the existing Simple-mode tools continue to work through `workspace tools` and `workspace call`.
+Member, playbook, and decision aliases use the existing tools in both Simple and Harness workspaces. Harness-only aliases for Apps, tables, rows, workflows, follow-ups, files, and execution require Harness mode and the matching token scope. In Simple workspaces, those Harness-only aliases stay unavailable while the existing Simple tools continue to work through `workspace tools`, `workspace call`, and the member/playbook/decision aliases.
 
 Use `--api-url URL` to override the environment URL for one command. The CLI requires HTTPS; plain HTTP is accepted only for `localhost`, `127.0.0.1`, or `::1` development servers. Redirects are rejected.
 

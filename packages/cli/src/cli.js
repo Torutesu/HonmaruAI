@@ -17,6 +17,12 @@ Usage:
   honmaru workspace followup schedule --room ROOM --instruction TEXT --minutes N
   honmaru workspace file list --scope ROOM|all [--query TEXT] [--limit N]
   honmaru workspace file read <file-id> --version N
+  honmaru workspace member list
+  honmaru workspace playbook read
+  honmaru workspace decision pending [--direction mine|sent]
+  honmaru workspace decision read <card-id>
+  honmaru workspace decision search <query>
+  honmaru workspace decision request --title TEXT [--to PERSON] [--summary TEXT] [--context TEXT]
 
 Environment:
   HONMARU_API_URL       HTTPS API origin for your Honmaru workspace
@@ -30,6 +36,7 @@ workspace data, so review the target and arguments before running them.
 const ALIAS_VALUE_FLAGS = new Set([
   "query", "where", "sort", "limit", "offset", "values", "expected-updated-at",
   "text", "room", "instruction", "minutes", "scope", "origin", "type", "created-by",
+  "direction", "title", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version",
 ]);
 const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted"]);
@@ -183,6 +190,40 @@ function resolveWorkspaceCommand(resource, operation, positional, options) {
       const version = integerOption(options, "version", { min: 1, required: true });
       return { tool: "read_file_text", args: { fileId: positional[0], version } };
     }
+    case "member list":
+      onlyFlags(options, []); positionalCount(positional, 0, "honmaru workspace member list");
+      return { tool: "list_members", args: {} };
+    case "playbook read":
+      onlyFlags(options, []); positionalCount(positional, 0, "honmaru workspace playbook read");
+      return { tool: "get_playbook", args: {} };
+    case "decision pending": {
+      onlyFlags(options, ["direction"]); positionalCount(positional, 0, "honmaru workspace decision pending [--direction mine|sent]");
+      if (options.direction !== undefined && !["mine", "sent"].includes(options.direction)) throw new Error("--direction must be mine or sent.");
+      return { tool: "list_pending", args: options.direction === undefined ? {} : { direction: options.direction } };
+    }
+    case "decision read":
+      onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace decision read <card-id>");
+      return { tool: "get_decision", args: { cardId: positional[0] } };
+    case "decision search": {
+      onlyFlags(options, ["query"]);
+      if (positional.length > 1 || (positional.length === 1 && options.query !== undefined)) throw new Error("Usage: honmaru workspace decision search <query>");
+      const query = positional[0] ?? options.query;
+      if (!query?.trim()) throw new Error("A search query is required.");
+      return { tool: "search_decisions", args: { query } };
+    }
+    case "decision request": {
+      onlyFlags(options, ["title", "to", "summary", "context", "priority", "type"]);
+      positionalCount(positional, 0, "honmaru workspace decision request --title TEXT [options]");
+      if (!options.title?.trim()) throw new Error("--title is required.");
+      if (options.title.length > 120) throw new Error("--title must be 120 characters or fewer.");
+      if (options.summary !== undefined && options.summary.length > 600) throw new Error("--summary must be 600 characters or fewer.");
+      if (options.context !== undefined && options.context.length > 3000) throw new Error("--context must be 3000 characters or fewer.");
+      if (options.priority !== undefined && !["low", "medium", "high", "urgent"].includes(options.priority)) throw new Error("--priority must be low, medium, high, or urgent.");
+      if (options.type !== undefined && !["approval", "task", "delegation", "notification"].includes(options.type)) throw new Error("--type must be approval, task, delegation, or notification.");
+      const args = { title: options.title };
+      for (const key of ["to", "summary", "context", "priority", "type"]) if (options[key] !== undefined) args[key] = options[key];
+      return { tool: "request_decision", args };
+    }
     default:
       throw new Error(`Unknown workspace command: ${pair || "(missing)"}. Run honmaru workspace help.`);
   }
@@ -195,6 +236,9 @@ function formatWorkspaceResult(result, json) {
   if (Array.isArray(value.tables)) return value.tables.length ? value.tables.map((table) => `${table.id}\t${table.name}\t${(table.columns || []).map((column) => column.name).join(", ")}`).join("\n") : "No tables are available.";
   if (Array.isArray(value.rows)) return value.rows.length ? value.rows.map((row) => `${row.id}\t${JSON.stringify(row)}`).join("\n") : `No rows found (total ${value.total ?? 0}).`;
   if (Array.isArray(value.files)) return value.files.length ? value.files.map((file) => `${file.id}\t${file.path || file.name || "(unnamed)"}`).join("\n") : "No files found.";
+  if (Array.isArray(value.members)) return value.members.length ? value.members.map((member) => `${member.name}${member.title ? `\t${member.title}` : ""}`).join("\n") : "No members found.";
+  if (Array.isArray(value.rules)) return value.rules.length ? value.rules.map((rule, index) => `${index + 1}. ${rule}`).join("\n") : "The playbook is empty.";
+  if (Array.isArray(value.decisions)) return value.decisions.length ? value.decisions.map((decision) => `${decision.cardId}\t${decision.status}\t${decision.title}`).join("\n") : "No decisions found.";
   return JSON.stringify(value, null, 2);
 }
 

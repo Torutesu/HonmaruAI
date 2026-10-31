@@ -137,3 +137,61 @@ test("resource aliases reject malformed JSON and unsupported command flags befor
   assert.match(stderr.read(), /Unknown option/);
   assert.equal(requests, 0);
 });
+
+test("simple workspace aliases expose members, playbook, and scoped decision tools", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    calls.push(req.params);
+    const structuredContent = req.params.name === "list_members"
+      ? { members: [{ name: "Aiko", title: "Owner" }] }
+      : req.params.name === "get_playbook"
+        ? { rules: ["Ask before publishing."] }
+        : req.params.name === "list_pending"
+          ? { decisions: [{ cardId: "card_1", status: "pending", title: "Ship release?" }] }
+          : { cardId: "card_2", status: "pending", title: "Approve deploy?" };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+
+  assert.equal(await run(["workspace", "member", "list"]), 0);
+  assert.equal(stdout.read(), "Aiko\tOwner\n");
+  assert.equal(await run(["workspace", "playbook", "read"]), 0);
+  assert.match(stdout.read(), /Ask before publishing/);
+  assert.equal(await run(["workspace", "decision", "pending", "--direction", "sent"]), 0);
+  assert.match(stdout.read(), /card_1\tpending\tShip release\?/);
+  assert.equal(await run(["workspace", "decision", "read", "card_2"]), 0);
+  assert.equal(await run(["workspace", "decision", "search", "release launch"]), 0);
+  assert.equal(await run(["workspace", "decision", "request", "--title", "Approve deploy?", "--to", "Aiko", "--priority", "high", "--summary", "The checks passed."]), 0);
+  assert.deepEqual(calls, [
+    { name: "list_members", arguments: {} },
+    { name: "get_playbook", arguments: {} },
+    { name: "list_pending", arguments: { direction: "sent" } },
+    { name: "get_decision", arguments: { cardId: "card_2" } },
+    { name: "search_decisions", arguments: { query: "release launch" } },
+    { name: "request_decision", arguments: { title: "Approve deploy?", to: "Aiko", summary: "The checks passed.", priority: "high" } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("decision aliases reject invalid or oversized input before making a request", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+
+  assert.equal(await run(["workspace", "decision", "pending", "--direction", "other"]), 1);
+  assert.match(stderr.read(), /--direction must be mine or sent/);
+  assert.equal(await run(["workspace", "decision", "request", "--priority", "high"]), 1);
+  assert.match(stderr.read(), /--title is required/);
+  assert.equal(await run(["workspace", "decision", "request", "--title", "x".repeat(121)]), 1);
+  assert.match(stderr.read(), /120 characters or fewer/);
+  assert.equal(await run(["workspace", "decision", "request", "--title", "Ship?", "--priority", "whenever"]), 1);
+  assert.match(stderr.read(), /--priority must be/);
+  assert.equal(requests, 0);
+});
