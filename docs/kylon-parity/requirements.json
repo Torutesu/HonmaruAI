@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-10-30",
+  "asOf": "2026-10-31",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -1124,6 +1124,20 @@
         "verified": "Native reference /tmp/kylon-floating-app-reference.png; workspace-owned 480x640 panel with bounded pointer/keyboard movement, resize and scoped state. Web 168 files / 1,140 tests and build passed. E2E 120884850923 and 120885526052 passed real pointer drag/resize, search, navigation retention, viewport clamp, close, fullscreen restoration and dark icon contrast. Inspected light/dark screenshots in /tmp/honmaru-e2e-40098460056/. Main c4a23fad; Web rollout 40099242847 started. Native signed-in c1e81790 reload verified compact header, chat containment and covered table removal from accessibility tree; personal view and column widths preserved. Screenshot /tmp/honmaru-floating-focus-production.png. Full candidate CI 40102273418 passed required jobs.",
         "remaining": "Reference drag/resize/restart behavior remains unverified; floating entry is available on overview/data, not unsaved editor/settings/backend forms. State is in-memory, not cross-device persistence. Kylon app-chat button briefly navigated the background thread but reverted before loading; completed reference layout/navigation parity remains unproven.",
         "release": "Main c1e81790; Deploy Web 40103746484 succeeded; production independently verified index-F9It5Vxz.js."
+      }
+    },
+    {
+      "id": "KY-097",
+      "category": "Apps",
+      "requirement": "データ表のインライン編集とダークテーマの視認性",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://app.kylon.io",
+      "code": "web-react/src/components/HarnessWorkspace.css",
+      "acceptance": "Kylon実画面では未選択セルを通常テキストとして表示し、操作時に編集状態を示す。Honmaruもセルを通常時は平坦にし、hover/focusでは視認可能な枠を出す。ダークテーマの面・文字・境界を中立色に揃え、Simpleテーマは維持する。両テーマと本番画面で確認する。",
+      "evidence": {
+        "verified": "2026-10-31にログイン済みKylon/Honmaruのデータビューアーを実画面比較。Honmaruは非選択のセルも入力枠として表示し、ダーク面に強い緑かぶりがある差を確認。ローカルでCSSを修正しWeb buildとVitest全1328件が通過。",
+        "remaining": "候補CSSの本番反映、ログイン済み画面でセル通常/hover/focusとライト/ダークを最終確認。"
       }
     }
   ]
