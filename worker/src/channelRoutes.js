@@ -26,6 +26,7 @@ import { appActivity, readAppActivity } from './harness/appActivity.js';
 import { checkOutgoing } from "./dlp.js";
 import { prepareAgent, rememberRequest, addAgentMemory } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
+import { mayUseAgentSource } from "./harness/agentConnections.js";
 import { withRoomGuidelines } from "./harness/guidelines.js";
 import { followupRequest, scheduleFollowup } from "./harness/followups.js";
 import { attachedTexts } from "./dlpFiles.js";
@@ -474,6 +475,8 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   };
   const provider = await providerFor(env, orgId);
   const allowance = provider ? await allowanceFor(env, orgId, { githubId: String(session.github_id) }) : null;
+  const workspaceMode = await getMode(env.DB, orgId).catch(() => null);
+  const harness = workspaceMode === "harness";
   const [transcript, playbook] = provider && allowance?.allowed
     ? await Promise.all([contextFor(env.DB, orgId, resolved.key, row, { whole: resolved.kind === "agent" }), row.parent_id ? [] : playbookFor(env.DB, orgId, taskText)])
     : [[], []];
@@ -481,20 +484,39 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   // what this person's connected tools hold are theirs to read, and would
   // be somebody else's to read if the answer went into a shared channel.
   let research = "";
+  const nativeSourcesUsed = new Set();
+  const sourceGrantAgentId = resolved.kind === "agent" && !row.parent_id && agents.length === 1 ? agents[0].id : null;
+  const mayResearchSource = async (source, available) => {
+    if (!available) return false;
+    if (workspaceMode === "simple") return true;
+    return harness && sourceGrantAgentId !== null && await mayUseAgentSource(env, { orgId, agentId: sourceGrantAgentId, session, source });
+  };
   if (!row.parent_id && resolved.kind === "agent" && provider && allowance?.allowed) {
     try {
       const terms = searchTermsFor(taskText, null);
       const available = await connectedSources(env, session, orgId);
+      const [notionAllowed, githubAllowed] = await Promise.all([
+        mayResearchSource("notion", available.notion),
+        mayResearchSource("github", available.github),
+      ]);
       // The decisions this person may open, as their own search finds them:
       // a guest's are the ones they are on.
       const access = terms ? await accessFor(env.DB, orgId, user.login) : null;
       const [decisions, notion, github] = await Promise.all([
         terms ? searchDecisions(env.DB, orgId, terms, { viewer: user.login, access }).catch(() => []) : [],
-        available.notion && terms ? searchNotion(env, session.github_id, terms).catch(() => []) : [],
-        available.github && terms ? searchGithubIssues(session, orgId, terms, env).catch(() => []) : [],
+        notionAllowed && terms ? searchNotion(env, session.github_id, terms).catch(() => []) : [],
+        githubAllowed && terms ? searchGithubIssues(session, orgId, terms, env).catch(() => []) : [],
       ]);
+      const [notionStillAllowed, githubStillAllowed] = await Promise.all([
+        mayResearchSource("notion", notionAllowed),
+        mayResearchSource("github", githubAllowed),
+      ]);
+      const safeNotion = notionStillAllowed ? notion : [];
+      const safeGithub = githubStillAllowed ? github : [];
+      if (safeNotion.length) nativeSourcesUsed.add("notion");
+      if (safeGithub.length) nativeSourcesUsed.add("github");
       const lines = decisions.slice(0, 8).map((d) => `- ${d.decidedAt ? String(d.decidedAt).slice(0, 10) : "pending"}${d.recipient ? ` ${d.recipient}` : ""} ${d.status || ""}: ${String(d.title || "").slice(0, 140)}`);
-      const tools = [...notion, ...github].slice(0, 8);
+      const tools = [...safeNotion, ...safeGithub].slice(0, 8);
       if (lines.length) research += `Past decisions that match:\n${lines.join("\n")}\n`;
       if (tools.length) research += `From the person's connected tools:\n${formatSourcesForModel(tools)}\n`;
     } catch (err) {
@@ -518,7 +540,8 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   const tools = provider && allowance?.allowed
     ? await agentTools(env, {
       orgId, session, language: locale, personal: resolved.kind === "agent" && !row.parent_id, fileScope:resolved.key, fileThreadId:row.parent_id,
-      agentId: resolved.kind === "agent" && !row.parent_id && agents.length === 1 ? agents[0].id : null,
+      agentId: sourceGrantAgentId,
+      onNativeSourceUsed: source => nativeSourcesUsed.add(source),
       // An app that may write does so only for agents the person wrote
       // themselves: a teammate's agent's instructions never steer it.
       ownAgentsOnly: allOwnAgents(agents, user.login),
@@ -527,7 +550,6 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   let answered = 0;
   // A workspace in harness mode gives its agents a profile, memory and
   // skills (harness/agents.js); a simple one keeps them as they were.
-  const harness = (await getMode(env.DB, orgId).catch(() => "simple")) === "harness";
   // A metered day is one budget for the whole message. `remaining` was read
   // once above; spending it here stops five parallel answers from running
   // past the last call the person has left. Teammates bill their own
@@ -543,7 +565,15 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   // Every agent called works at once, each answering as soon as it is done:
   // five agents take as long as the slowest, not the sum of all five.
   const answerOne = async (agent, index, authorizeAgent = authorize, runtimeTools = {}, replyFence = null, signal = null) => {
-    const authorize = authorizeAgent ? () => authorizeAgent(agent.id) : null;
+    const authorize = authorizeAgent || (harness && sourceGrantAgentId === agent.id) ? async () => {
+      if (authorizeAgent && !await authorizeAgent(agent.id)) return false;
+      if (harness && sourceGrantAgentId === agent.id) {
+        for (const source of nativeSourcesUsed) {
+          if (!await mayUseAgentSource(env, { orgId, agentId: agent.id, session, source })) return false;
+        }
+      }
+      return true;
+    } : null;
     if (signal?.aborted) return {cancelled:true};
     if (authorize && !await authorize()) return;
     // An AI teammate works through its own service, not the workspace's

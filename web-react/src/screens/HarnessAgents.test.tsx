@@ -213,7 +213,7 @@ test('late review-log responses cannot cross a changed conversation scope',async
 })
 
 test('the agent Connections tab toggles only the current member’s own app grant',async()=>{
- let tree!:ReturnType<typeof create>, granted=false
+ let tree!:ReturnType<typeof create>, granted=false, nativeGranted=false
  const requests:Array<{url:URL;method:string;body:any}> = []
  vi.stubGlobal('fetch',vi.fn(async(input:string,init:any={})=>{
   const url=new URL(input), method=init.method||'GET', body=init.body?JSON.parse(init.body):null
@@ -221,9 +221,11 @@ test('the agent Connections tab toggles only the current member’s own app gran
   if(url.pathname==='/channels/agents') return {ok:true,json:async()=>({agents:[{id:'a',name:'Research agent',handle:'research',scope:'team'}]})}
   if(url.pathname==='/hx/agents/a/profile') return {ok:true,json:async()=>({profile:{specialty:'',tier:'standard',mentionOnly:false,access:'everyone',people:[]},canEdit:false})}
   if(url.pathname==='/hx/agents/a/apps') {
-   if(method==='POST') granted=true
-   if(method==='DELETE') granted=false
-   return {ok:true,json:async()=>({connections:[{server:'linear',name:'Linear',description:'Issues',iconUrl:null,verified:true,allowWrites:false,connectedAt:'2026-10-30T00:00:00Z',granted}]})}
+   if(method==='POST'&&body?.server) granted=true
+   if(method==='DELETE'&&url.searchParams.has('server')) granted=false
+   if(method==='POST'&&body?.source==='notion') nativeGranted=true
+   if(method==='DELETE'&&url.searchParams.get('source')==='notion') nativeGranted=false
+   return {ok:true,json:async()=>({connections:[{server:'linear',name:'Linear',description:'Issues',iconUrl:null,verified:true,allowWrites:false,connectedAt:'2026-10-30T00:00:00Z',granted}],nativeConnections:[{source:'notion',available:true,enabled:nativeGranted},{source:'github',available:false,enabled:false}]})}
   }
   if(url.pathname.endsWith('/memory/scopes')) return {ok:true,json:async()=>({scopes:[]})}
   if(url.pathname.endsWith('/memory')) return {ok:true,json:async()=>({memories:[],nextCursor:null,canEdit:false})}
@@ -242,5 +244,13 @@ test('the agent Connections tab toggles only the current member’s own app gran
   await act(async()=>checkbox().props.onChange({currentTarget:{checked:false}}))
   expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='DELETE'&&r.url.searchParams.get('server')==='linear')).toBe(true)
   expect(checkbox().props.checked).toBe(false)
+  const notion=()=>tree.root.findByProps({'data-agent-source':'notion'}).findByProps({'aria-label':'Allow {agent} to use the connected {source} source'})
+  expect(notion().props.checked).toBe(false)
+  await act(async()=>notion().props.onChange({currentTarget:{checked:true}}))
+  expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='POST'&&r.body.source==='notion')).toBe(true)
+  expect(notion().props.checked).toBe(true)
+  await act(async()=>notion().props.onChange({currentTarget:{checked:false}}))
+  expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='DELETE'&&r.url.searchParams.get('source')==='notion')).toBe(true)
+  expect(notion().props.checked).toBe(false)
  } finally {act(()=>tree?.unmount());vi.unstubAllGlobals()}
 })
