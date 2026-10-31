@@ -674,6 +674,23 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     const skill = await getSkill(env.DB, orgId, skillId, me);
     if (!skill) return json({ message: "No such skill." }, 404);
+    if (parts[2] === 'shares') {
+      if (skill.sourceScope) return json({ message: 'Only workspace custom Skills can be shared by link.' }, 409);
+      if (!skill.canShare) return json({ message: 'Only its owner can create or revoke Skill share links.' }, 403);
+      if (request.method === 'GET' && parts.length === 3) return json(await listSkillShares(env.DB, orgId, skillId));
+      if (request.method === 'POST' && parts.length === 3) {
+        const result = await createSkillShare(env.DB, orgId, skill, me, input);
+        if (result.error) return fail(result);
+        await audit(env, request, { orgId, action: 'skill.share_created', actor: person(who.user), entity: { type: 'skill', id: skillId, name: skill.name }, details: { shareId: result.share.id, expiresAt: result.share.expiresAt } });
+        return json(result, 201);
+      }
+      if (request.method === 'POST' && parts.length === 5 && parts[4] === 'revoke') {
+        const result = await revokeSkillShare(env.DB, orgId, skillId, parts[3]);
+        if (!result.error) await audit(env, request, { orgId, action: 'skill.share_revoked', actor: person(who.user), entity: { type: 'skill', id: skillId, name: skill.name }, details: { shareId: parts[3] } });
+        return result.error ? fail(result) : json(result);
+      }
+      return json({ message: 'Method not allowed.' }, 405);
+    }
     if (parts[2] === 'files' && parts.length === 3 && request.method === 'GET') {
       const path = url.searchParams.get('path');
       if (!path) return json({ files: await listSkillFiles(env.DB,orgId,skillId,me) });
