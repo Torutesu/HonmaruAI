@@ -32,7 +32,7 @@ import { isOrgId, parseAppLink, webHashFor } from '@honmaru/core/links'
 
 export type Screen = 'tools' | 'history' | 'notifications' | 'plans' | 'profile' | 'team' | 'insights' | 'automations' | 'playbook' | 'agents'
   // The harness (docs/kylon-gap-plan.md): shown only in a harness workspace.
-  | 'home' | 'harness' | 'apps' | 'templateImport' | 'workflows' | 'approvals' | 'skills' | 'hxagents' | 'gateways'
+  | 'home' | 'harness' | 'apps' | 'templateImport' | 'workflows' | 'approvals' | 'skills' | 'hxagents' | 'gateways' | 'skillImport'
 export type Mode = 'cards' | 'classic'
 
 export interface Route {
@@ -47,6 +47,7 @@ export interface Route {
   appDraft?: string
   sharedTemplateToken?: string | null
   appConversation?: {tableId?:string;rowId?:string}
+  sharedSkillToken?: string | null
   appId?: string | null
   appOrg?: string | null
   screen: Screen | null
@@ -80,13 +81,18 @@ const PATH_BY_SCREEN: Record<Screen, string> = {
   tools: 'tools', history: 'history', notifications: 'notifications',
   plans: 'plans', profile: 'you', team: 'team', insights: 'insights',
   automations: 'automations', playbook: 'playbook', agents: 'agents',
-  gateways: 'gateways', home: 'home', harness: 'harness', apps: 'apps', templateImport: 'template-share', workflows: 'workflows', approvals: 'approvals', skills: 'skills', hxagents: 'agent-team',
+  gateways: 'gateways', home: 'home', harness: 'harness', apps: 'apps', templateImport: 'template-share', workflows: 'workflows', approvals: 'approvals', skills: 'skills', hxagents: 'agent-team', skillImport: 'skill-share',
 }
 
 export function parseRoute(hash: string): Route {
   const path = (hash || '').replace(/^#\/?/, '')
   const [head, ...rest] = path.split('/').filter(Boolean)
   if (!head) return { screen: null, mode: null, cardId: null, join: null }
+  if (head === 'skill-share') {
+    const importing = rest.length === 2 && rest[1] === 'import'
+    const token = (rest.length === 1 || importing) && /^skl_[a-f0-9]{64}$/.test(rest[0] || '') ? rest[0] : null
+    return { screen: 'skillImport', mode: null, cardId: null, join: null, sharedSkillToken: token }
+  }
   if (head === 'feed') {
     let cardId: string | null = null
     if (rest[0]) { try { cardId = decodeURIComponent(rest[0]) } catch { cardId = rest[0] } }
@@ -157,6 +163,7 @@ export function hashForApp(id: string, orgId: string, conversation?: {tableId?:s
 export function hashForAppSource(id:string,orgId:string,section?:'data',draft?:string):string { return `${hashForApp(id,orgId,undefined,section,draft)}${section||draft&&draft.length<=1000?'&':'?'}source=1` }
 
 export function hashForScreen(screen: Screen): string { return `#/${PATH_BY_SCREEN[screen]}` }
+export function hashForSkillImport(token: string): string { return `#/skill-share/${encodeURIComponent(token)}/import` }
 export function hashForCard(cardId: string, orgId?: string | null): string {
   return `#/feed/${encodeURIComponent(cardId)}${orgId ? `/${encodeURIComponent(orgId)}` : ''}`
 }

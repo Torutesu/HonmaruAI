@@ -62,6 +62,7 @@ const HarnessTemplateImport = React.lazy(() => import('../screens/Harness').then
 const HarnessApprovals = React.lazy(() => import('../screens/Harness').then((m) => ({ default: m.HarnessApprovals })))
 const HarnessWorkflows = React.lazy(() => import('../screens/HarnessWorkflows').then((m) => ({ default: m.HarnessWorkflows })))
 const HarnessSkills = React.lazy(() => import('../screens/HarnessAgents').then((m) => ({ default: m.HarnessSkills })))
+const HarnessSkillImport = React.lazy(() => import('../screens/HarnessAgents').then((m) => ({ default: m.HarnessSkillImport })))
 const HarnessAgents = React.lazy(() => import('../screens/HarnessAgents').then((m) => ({ default: m.HarnessAgents })))
 
 
@@ -1438,6 +1439,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       {screen === 'workflows' && (!route.workflowOrg || route.workflowOrg === orgId) && <HarnessWorkflows requestedWorkflowId={route.workflowId} onNavigateWorkflow={id => navigate(id ? hashForWorkflow(id, orgId) : '#/workflows')} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'approvals' && <HarnessApprovals httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'skills' && <HarnessSkills httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
+      {screen === 'skillImport' && <HarnessSkillImport token={route.sharedSkillToken || ''} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'gateways' && <HarnessGateways key={`${orgId}:${sessionToken}`} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} />}
       {screen === 'hxagents' && <HarnessAgents key={`${orgId}:${roomAgentProfile||''}`} initialAgentId={roomAgentProfile||undefined} httpBase={relayHttpUrl} orgId={orgId} sessionToken={sessionToken} onClose={closeScreen} onMessage={id => navigate(hashForView(`ag:${id}`))} onManageAgents={() => setScreen('agents')} onManageTeam={() => setScreen('team')} />}
       {screen === 'plans' && (

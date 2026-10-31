@@ -223,3 +223,24 @@
 .hx-template-import-name { display: grid; gap: 6px; max-width: 460px; margin: 16px 0; color: var(--hx-muted, var(--ash)); font-size: 13px; }
 .hx-template-import-name .hx-cell-input { border-color: var(--hx-border, var(--bone)); }
 @media (max-width: 560px) { .hx-template-link-row { align-items: stretch; flex-direction: column; } .hx-template-link-row .pill-btn { align-self: flex-start; } }
+
+.hx-skill-share-panel { width: 100%; padding: 0 20px 16px; border-bottom: 1px solid var(--hx-border, var(--bone)); background: var(--hx-surface-muted, var(--signal-white)); }
+.hx-skill-sharing { margin-top: 14px; }
+.hx-skill-sharing .row-main { display: grid; gap: 12px; }
+.hx-skill-sharing .hx-skill-share-confirm { display: flex; align-items: flex-start; gap: 8px; max-width: 680px; font-size: 12px; line-height: 1.45; color: var(--hx-muted, var(--ash)); }
+.hx-skill-share-confirm input { flex: 0 0 auto; margin-top: 2px; }
+.hx-skill-sharing .hx-skill-share-expiry { display: grid; gap: 5px; max-width: 320px; font-size: 12px; color: var(--hx-muted, var(--ash)); }
+.hx-skill-sharing .hx-skill-share-expiry select { width: 100%; min-height: 36px; border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-input); background: var(--hx-surface, var(--signal-white)); color: var(--hx-text, var(--ink-black)); padding: 6px 10px; }
+.hx-skill-share-link-row { display: flex; align-items: center; gap: 8px; }
+.hx-skill-share-link-row .hx-cell-input { flex: 1; min-width: 0; border-color: var(--hx-border, var(--bone)); }
+.hx-skill-sharing .rows-title { margin-top: 18px; }
+.hx-skill-import-screen .hx-template-import-card { display: flex; align-items: flex-start; gap: 12px; margin: 8px 0 16px; padding: 16px; border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-card); background: var(--hx-surface, var(--signal-white)); color: var(--hx-text, var(--ink-black)); }
+.hx-skill-import-screen .hx-template-import-card h2 { margin: 0 0 4px; font-size: 18px; }
+.hx-skill-import-screen .hx-template-import-card p { margin: 4px 0 0; color: var(--hx-muted, var(--ash)); }
+.hx-skill-import-screen .hx-template-import-name { display: grid; gap: 6px; max-width: 460px; margin: 16px 0; color: var(--hx-muted, var(--ash)); font-size: 13px; }
+.hx-skill-import-screen .hx-template-import-name .hx-cell-input { border-color: var(--hx-border, var(--bone)); }
+.hx-skill-import-success { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 22px; padding: 16px; border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-card); background: var(--hx-surface, var(--signal-white)); color: var(--hx-text, var(--ink-black)); }
+.hx-skill-import-success h2 { margin: 0 0 4px; font-size: 16px; }
+.hx-skill-import-success p { margin: 0; color: var(--hx-muted, var(--ash)); }
+.hx-skill-import-success div { flex: 1; min-width: 180px; }
+@media (max-width: 560px) { .hx-skill-share-link-row { align-items: stretch; flex-direction: column; } .hx-skill-share-link-row .pill-btn { align-self: flex-start; } .hx-skill-import-success { align-items: flex-start; } }

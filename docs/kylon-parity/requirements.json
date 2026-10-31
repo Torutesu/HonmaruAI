@@ -406,11 +406,11 @@
       "id": "KY-037",
       "category": "Skills",
       "requirement": "共有URL・期限・失効・インポート",
-      "status": "missing",
+      "status": "partial",
       "priority": "P2",
       "source": "https://docs.kylon.io/cli/workspace/skill",
-      "code": "worker/src/harness/skills.js",
-      "acceptance": "複製は非公開・失効後ダウンロード不可・既存コピーとの区別"
+      "code": "worker/src/harness/skillShares.js",
+      "acceptance": "有効期限付き共有URL、即時失効、ZIP取得と認証済みワークスペースへの非公開複製・Agent追加。既存コピーは共有元の失効後も独立し、管理UI・実機・本番で確認"
     },
     {
       "id": "KY-038",

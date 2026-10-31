@@ -21,6 +21,7 @@ import { forgetOwnOutbox } from './utils/pendingSend'
 import './theme.css'
 import './App.css'
 import {SharedThread} from './screens/SharedThread'
+import {PublicSkillShare} from './screens/PublicSkillShare'
 
 // The web client talks to the backend over HTTP for auth and WebSocket for the
 // feed. We store one base host and derive both.
@@ -47,6 +48,8 @@ function App() {
   const [hash,setHash]=useState(()=>location.hash)
   useEffect(()=>{const change=()=>setHash(location.hash);window.addEventListener('hashchange',change);return()=>window.removeEventListener('hashchange',change)},[])
   if(hash.startsWith('#/shared/'))return <SharedThread key={hash} httpBase={httpBase(DEFAULT_HOST)} token={hash.slice('#/shared/'.length)}/>
+  const skillShare=hash.match(/^#\/skill-share\/(skl_[a-f0-9]{64})$/)
+  if(skillShare)return <PublicSkillShare key={hash} httpBase={httpBase(DEFAULT_HOST)} token={skillShare[1]}/>
   return <AccountApp/>
 }
 

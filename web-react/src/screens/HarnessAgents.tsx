@@ -10,6 +10,7 @@ import type { SkillDraft } from '../utils/harness'
 import { AgentMemoryList, MemoryKindSelect } from '../components/AgentMemoryList'
 import type { MemoryKind } from '../utils/harness'
 import { AgentSkillCatalog } from '../components/AgentSkillCatalog'
+import { SkillSharing } from '../components/SkillSharing'
 import { NewHarnessAgent } from '../components/NewHarnessAgent'
 import { EditAgentProfile } from '../components/EditAgentProfile'
 import { AgentPersona } from '../components/AgentPersona'
@@ -22,7 +23,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { Icon } from '../components/Icon'
-import type { AgentProfile, AgentMemory, AgentAppConnection, Skill } from '../utils/harness'
+import type { AgentProfile, AgentMemory, AgentAppConnection, Skill, SharedSkillInfo } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 
 // Agents as members, and the skills they work by (docs/kylon-gap-plan.md).
@@ -324,6 +325,7 @@ const ScopedHarnessSkills: React.FC<HarnessProps> = (props) => {
   const api = useApi(props)
   const [skills, setSkills] = useState<Skill[] | null>(null)
   const [draft, setDraft] = useState<(SkillDraft & { id?: string }) | null>(null)
+  const [shareSkillId, setShareSkillId] = useState<string | null>(null)
   const importFile = useRef<HTMLInputElement>(null), importFolder = useRef<HTMLInputElement>(null)
   const importEpoch = useRef(0)
   const { busy, error, act } = useAct()
@@ -386,11 +388,58 @@ const ScopedHarnessSkills: React.FC<HarnessProps> = (props) => {
             <span className="row-main">{s.name}<span className="row-sub">{s.description || s.body.slice(0, 100)}{s.agents?.length ? ` · ${t('{n} agents', { n: s.agents.length })}` : ''}</span></span>
             <button className="btn-text" disabled={busy !== null} onClick={() => exportSkill(s)}><Icon name="download" size={14} /> SKILL.md</button>
             <button className="btn-text" disabled={busy !== null} onClick={() => exportSkill(s, true)}><Icon name="download" size={14}/> ZIP</button>
+            <button className="btn-text" disabled={!s.canShare || busy !== null} onClick={() => setShareSkillId(current => current === s.id ? null : s.id)}>{t(shareSkillId === s.id ? 'Close link sharing' : 'Share link')}</button>
             <button className="btn-text" disabled={s.canEdit === false || busy !== null} onClick={() => setDraft({ id: s.id, name: s.name, description: s.description, body: s.body, metadata: s.metadata })}>{t('Edit')}</button>
             <button className="btn-text danger" disabled={s.canEdit === false} onClick={() => act(`del:${s.id}`, async () => { await api.deleteSkill(s.id); await load() })}>{t('Delete')}</button>
           </div>
         ))}
       </div>
+      {shareSkillId && <div className="hx-skill-share-panel"><SkillSharing key={shareSkillId} api={api} skillId={shareSkillId} /></div>}
     </Shell>
   )
+}
+
+export const HarnessSkillImport: React.FC<HarnessProps & { token: string }> = (props) => (
+  <ScopedHarnessSkillImport key={JSON.stringify([props.httpBase, props.orgId, props.sessionToken, props.token])} {...props} />
+)
+
+const ScopedHarnessSkillImport: React.FC<HarnessProps & { token: string }> = (props) => {
+  const t = useT()
+  const api = useApi(props)
+  const [shared, setShared] = useState<SharedSkillInfo | null>(null)
+  const [agents, setAgents] = useState<Array<{id:string;name:string}> | null>(null)
+  const [name, setName] = useState('')
+  const [agentId, setAgentId] = useState('')
+  const [imported, setImported] = useState<Skill | null>(null)
+  const [previewError, setPreviewError] = useState('')
+  const { busy, error, act } = useAct()
+  useEffect(() => {
+    const controller = new AbortController()
+    setShared(null); setAgents(null); setImported(null); setName(''); setAgentId(''); setPreviewError('')
+    void api.sharedSkill(props.token, controller.signal)
+      .then(result => { if (!controller.signal.aborted) { setShared(result.share); setName(result.share.name) } })
+      .catch(err => { if (!controller.signal.aborted) setPreviewError(err instanceof Error ? err.message : String(err)) })
+    void api.skillShareImportAgents(props.token)
+      .then(choices => { if (!controller.signal.aborted) setAgents(choices.agents) })
+      .catch(() => { if (!controller.signal.aborted) setAgents([]) })
+    return () => controller.abort()
+  }, [api, props.token])
+
+  return <Shell className="hx-skill-import-screen" title={t('Import Skill')} onClose={props.onClose}>
+    {(error || previewError) && <div className="form-error" role="alert">{t(error || previewError)}</div>}
+    {!shared && agents === null && !error && !previewError && <div className="empty" role="status">{t('Loading Skill package…')}</div>}
+    {shared && !imported && <>
+      <p className="lede">{t('This link imports a new private Skill into the selected workspace. The original Skill and its visibility are not changed.')}</p>
+      <div className="hx-template-import-card">
+        <Icon name="book" size={20} />
+        <div><h2>{shared.name}</h2><p>{shared.description}</p><p>{t('{n} files · {size} bytes', { n: shared.fileCount, size: shared.totalBytes })}</p></div>
+      </div>
+      <div className="hx-actions"><a className="pill-btn quiet" href={`${api.httpBase}/skill-shares/${encodeURIComponent(props.token)}/download`}>{t('Download ZIP')}</a></div>
+      <label className="hx-template-import-name">{t('Name for your copy')}<input className="hx-cell-input" aria-label={t('Name for your copy')} value={name} maxLength={120} onChange={event => setName(event.target.value)} /></label>
+      {agents?.length ? <label className="hx-template-import-name">{t('Install on agent (optional)')}<select className="hx-cell-input" aria-label={t('Install on agent (optional)')} value={agentId} disabled={busy !== null} onChange={event => setAgentId(event.target.value)}><option value="">{t('Do not install yet')}</option>{agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label> : null}
+      {agents?.length === 0 && <p className="row-sub">{t('You can install this private Skill on a managed Agent later.')}</p>}
+      <button className="pill-btn" disabled={busy !== null || !name.trim()} onClick={() => void act('import', async () => { const result = await api.importSkillShare(props.token, name, agentId || undefined); setImported(result.skill) })}>{busy === 'import' ? t('Importing…') : t('Import private copy')}</button>
+    </>}
+    {imported && <div className="hx-skill-import-success" role="status"><Icon name="check" size={20}/><div><h2>{t('Skill imported')}</h2><p>{t('{name} is now a private Skill in this workspace.', { name: imported.name })}</p></div><button className="pill-btn quiet" onClick={() => { window.location.hash = '#/skills' }}>{t('Open Skills')}</button><button className="pill-btn" onClick={props.onClose}>{t('Done')}</button></div>}
+  </Shell>
 }

@@ -18,6 +18,13 @@
 .shared-thread-message pre code { background:none; border-radius:0; padding:0; white-space:pre; }
 .shared-thread small { color:var(--slate); }
 .shared-thread footer { margin-top:32px; border-top:1px solid var(--bone); padding-top:16px; }
+.public-skill-share-card { max-width:760px; margin:28px auto; padding:24px; border:1px solid var(--bone); border-radius:var(--radius-card); background:var(--signal-white); }
+.public-skill-share-description { white-space:pre-wrap; line-height:1.7; overflow-wrap:anywhere; }
+.public-skill-share-card dl { display:flex; flex-wrap:wrap; gap:24px; margin:22px 0; }
+.public-skill-share-card dl > div { display:grid; gap:4px; }
+.public-skill-share-card dt { font-size:12px; color:var(--slate); }
+.public-skill-share-card dd { margin:0; font-weight:600; font-variant-numeric:tabular-nums; }
+.public-skill-share-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:20px; }
 @media (prefers-color-scheme:dark) {
   :root:not([data-theme="light"]) .shared-thread { --signal-white:#101113; --carbon:#eef0f3; --slate:#a2a6af; --bone:#30343b; --mist:#1c1f24; }
 }

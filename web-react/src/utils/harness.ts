@@ -97,6 +97,8 @@ export interface Followup { id: string; threadId?: string | null; channel: strin
 export interface Gateway { id: string; name: string; createdAt: number; lastSeenAt: number | null; revokedAt: number | null }
 export interface GatewayJob { id: string; gatewayId: string; status: string; createdAt: number; result: { stdout?: string; stderr?: string; error?: string; exitCode?: number | null } | null }
 export interface Skill { sourceScope?: { agentId: string; channel: string | null } | null; createdByName?: string; metadata?: Record<string, unknown>; visibility?: 'workspace' | 'private'; accessVersion?: number; canShare?: boolean; canEdit?: boolean; id: string; name: string; description: string; body: string; agents?: string[]; createdBy: string }
+export interface SkillShareLink { id: string; createdAt: string; expiresAt: string; revokedAt: string | null; fileCount: number; totalBytes: number }
+export interface SharedSkillInfo { name: string; description: string; metadata: Record<string, unknown>; fileCount: number; totalBytes: number; expiresAt: string }
 export interface AgentRoleState { version: number; scope: 'team' | 'personal'; canManage: boolean; canAddMembers?: boolean; members: Array<{ref: string; name: string; role: 'admin' | 'member'; owner: boolean; mine?: boolean}>; candidates: Array<{ref: string; name: string}> }
 export interface AgentProfile { specialty: string; tier: 'lite' | 'standard' | 'max'; mentionOnly: boolean; access: 'everyone' | 'people' | 'private'; people: string[] }
 export interface AgentAppConnection { server: string; name: string; description: string; iconUrl: string | null; verified: boolean; allowWrites: boolean; connectedAt: string; granted: boolean }
@@ -236,6 +238,12 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     exportSkill: (id: string) => call<{ filename: string; markdown: string }>('GET', `/skills/${id}/export`),
     setSkillAccess: (id: string, visibility: 'workspace' | 'private', version: number) => call('PUT', `/skills/${id}/access`, { visibility, version }),
     createSkill: (s: { files?: SkillFile[]; name: string; description?: string; body: string; metadata?: Record<string, unknown>; visibility?: 'workspace' | 'private' }) => call<{ skill: Skill }>('POST', '/skills', s),
+    skillShares: (id: string) => call<{ shares: SkillShareLink[] }>('GET', `/skills/${encodeURIComponent(id)}/shares`),
+    createSkillShare: (id: string, expiresInDays: number) => call<{ token: string; share: SkillShareLink }>('POST', `/skills/${encodeURIComponent(id)}/shares`, { expiresInDays, confirmAnyoneWithLink: true }),
+    revokeSkillShare: (id: string, shareId: string) => call<{ revoked: boolean }>('POST', `/skills/${encodeURIComponent(id)}/shares/${encodeURIComponent(shareId)}/revoke`),
+    sharedSkill: (token: string, signal?: AbortSignal) => call<{ share: SharedSkillInfo }>('GET', `/skill-shares/${encodeURIComponent(token)}`, undefined, undefined, signal),
+    skillShareImportAgents: (token: string) => call<{ agents: Array<{id:string;name:string}> }>('GET', `/skill-shares/${encodeURIComponent(token)}/import-agents`),
+    importSkillShare: (token: string, name?: string, agentId?: string) => call<{skill:Skill;installedOnAgent:boolean}>('POST', `/skill-shares/${encodeURIComponent(token)}/import`, { ...(name?.trim()?{name:name.trim()}:{}), ...(agentId?{agentId}:{}) }),
     updateSkill: (id: string, s: Partial<Skill>) => call<{ skill: Skill }>('PUT', `/skills/${id}`, s as Record<string, unknown>),
     deleteSkill: (id: string) => call<{ deleted: boolean }>('DELETE', `/skills/${id}`),
 

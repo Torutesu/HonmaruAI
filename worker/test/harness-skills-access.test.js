@@ -13,6 +13,10 @@ const request = (method, path, token, body) => worker.fetch(new Request(`https:/
   method, headers: { 'x-session-token': token, 'content-type': 'application/json' },
   ...(['GET', 'DELETE'].includes(method) ? {} : { body: JSON.stringify({ orgId, ...body }) }),
 }), env, { waitUntil() {} });
+const requestInOrg = (method, path, token, targetOrg, body) => worker.fetch(new Request(`https://example.com${path}${method === 'GET' || method === 'DELETE' ? `${path.includes('?') ? '&' : '?'}orgId=${targetOrg}` : ''}`, {
+  method, headers: { 'x-session-token': token, 'content-type': 'application/json' },
+  ...(['GET', 'DELETE'].includes(method) ? {} : { body: JSON.stringify({ orgId: targetOrg, ...body }) }),
+}), env, { waitUntil() {} });
 const create = async (visibility = 'private') => {
   const r = await request('POST', '/skills', owner, { name: 'Private method', body: 'Confidential instructions', visibility });
   expect(r.status).toBe(201);
@@ -86,6 +90,82 @@ test('sharing is owner-only, versioned, and revocation applies to linked agents 
   }
   await env.DB.prepare('DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = ?2').bind(orgId, '9401').run();
   expect(await executionSkills(env.DB, orgId, agentId, { userId: '9401', channel: `ag:${agentId}|owner` })).toEqual([]);
+});
+
+test('Skill share links expose a temporary package, import private copies, install on managed agents, and revoke immediately', async () => {
+  const body = 'Confidential procedure body';
+  const asset = new TextEncoder().encode('Keep this support file with the skill.');
+  const created = await request('POST', '/skills', owner, {
+    name: 'Partner handoff', description: 'How to hand off a partner.', body, visibility: 'private',
+    metadata: { icon: '🤝' }, files: [{ path: 'references/handoff.txt', base64: encodeSkillBytes(asset) }],
+  });
+  expect(created.status).toBe(201);
+  const { skill } = await created.json();
+  const issued = await request('POST', `/skills/${skill.id}/shares`, owner, { expiresInDays: 7, confirmAnyoneWithLink: true });
+  expect(issued.status).toBe(201);
+  const { token, share } = await issued.json();
+  expect(token).toMatch(/^skl_[a-f0-9]{64}$/);
+  const saved = await env.DB.prepare('SELECT token_hash,snapshot FROM hx_skill_shares WHERE id=?1').bind(share.id).first();
+  expect(saved.token_hash).not.toBe(token);
+  expect(saved.snapshot).not.toContain(body);
+
+  const publicGet = async (suffix = '') => worker.fetch(new Request(`https://example.com/skill-shares/${token}${suffix}`), env, { waitUntil() {} });
+  const metadata = await (await publicGet()).json();
+  expect(metadata.share).toMatchObject({ name: skill.name, description: skill.description, fileCount: 2 });
+  expect(JSON.stringify(metadata)).not.toContain(body);
+  const downloaded = await publicGet('/download');
+  expect(downloaded.status).toBe(200);
+  expect(downloaded.headers.get('content-type')).toBe('application/zip');
+  const zip = parseSkillZip(new Uint8Array(await downloaded.arrayBuffer()));
+  expect(zip.error).toBeUndefined();
+  expect(zip.draft).toMatchObject({ name: skill.name, body });
+  expect(zip.files.map(file => file.path)).toEqual(['references/handoff.txt']);
+  expect(new TextDecoder().decode(zip.files[0].bytes)).toBe('Keep this support file with the skill.');
+  expect((await (await request('GET', `/skill-shares/${token}/import-agents`, owner)).json()).agents).toEqual([expect.objectContaining({ id: agentId, name: 'Helper' })]);
+
+  const { upsertMembership } = await import('../src/db.js');
+  await upsertMembership(env.DB, 'skills-imported', '9401', 'member');
+  await upsertMembership(env.DB, 'skills-imported', '9402', 'member');
+  const imported = await request('POST', `/skill-shares/${token}/import`, member, { orgId: 'skills-imported' });
+  expect(imported.status).toBe(201);
+  const { skill: privateCopy } = await imported.json();
+  expect(privateCopy).toMatchObject({ name: skill.name, body, visibility: 'private', createdBy: '9402' });
+  expect(privateCopy.id).not.toBe(skill.id);
+  expect((await requestInOrg('GET', `/skills/${privateCopy.id}`, owner, 'skills-imported')).status).toBe(404);
+  expect((await env.DB.prepare('SELECT path FROM hx_skill_files WHERE org_id=?1 AND skill_id=?2 ORDER BY path').bind('skills-imported', privateCopy.id).all()).results.map(file => file.path)).toEqual(['references/handoff.txt']);
+
+  const installed = await request('POST', `/skill-shares/${token}/import`, owner, { orgId, agentId, name: 'Partner handoff copy' });
+  expect(installed.status).toBe(201);
+  const installedSkill = (await installed.json()).skill;
+  expect(installedSkill.name).toBe('Partner handoff copy');
+  expect((await (await request('GET', `/hx/agents/${agentId}/skills`, owner)).json()).skills.map(item => item.id)).toContain(installedSkill.id);
+  const listed = await request('GET', `/skills/${skill.id}/shares`, owner);
+  const listedBody = await listed.json();
+  expect(listedBody.shares).toEqual([expect.objectContaining({ id: share.id, revokedAt: null })]);
+  expect(JSON.stringify(listedBody)).not.toContain(token);
+  expect((await request('POST', `/skills/${skill.id}/shares`, member, { expiresInDays: 7 })).status).toBe(404);
+
+  expect((await request('POST', `/skills/${skill.id}/shares/${share.id}/revoke`, owner, {})).status).toBe(200);
+  expect((await publicGet()).status).toBe(404);
+  expect((await publicGet('/download')).status).toBe(404);
+  expect((await request('POST', `/skill-shares/${token}/import`, member, { orgId })).status).toBe(404);
+  expect((await requestInOrg('GET', `/skills/${privateCopy.id}`, member, 'skills-imported')).status).toBe(200);
+});
+
+test('Skill share expiry and supported durations are enforced on preview, download and import', async () => {
+  const skill = await create();
+  expect((await request('POST', `/skills/${skill.id}/shares`, owner, { expiresInDays: 1, confirmAnyoneWithLink: true })).status).toBe(400);
+  await request('PUT', `/skills/${skill.id}`, owner, { description: 'A reusable method.' });
+  expect((await request('POST', `/skills/${skill.id}/shares`, owner, { expiresInDays: 1 })).status).toBe(400);
+  expect((await request('POST', `/skills/${skill.id}/shares`, owner, { expiresInDays: 365, confirmAnyoneWithLink: true })).status).toBe(400);
+  const issued = await request('POST', `/skills/${skill.id}/shares`, owner, { expiresInDays: 1, confirmAnyoneWithLink: true });
+  expect(issued.status).toBe(201);
+  const { token, share } = await issued.json();
+  await env.DB.prepare("UPDATE hx_skill_shares SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=?1").bind(share.id).run();
+  const publicGet = async (suffix = '') => worker.fetch(new Request(`https://example.com/skill-shares/${token}${suffix}`), env, { waitUntil() {} });
+  expect((await publicGet()).status).toBe(404);
+  expect((await publicGet('/download')).status).toBe(404);
+  expect((await request('POST', `/skill-shares/${token}/import`, member, { orgId })).status).toBe(404);
 });
 
 test('legacy skills retain sharing and personal agent links are filtered', async () => {

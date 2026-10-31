@@ -69,7 +69,7 @@
 | KY-034 | 必要時にスキル本文を読む | 一部 | P1 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 会話research・ワークフロー・予約実行に索引と権限再確認付き読込みツールを接続。ワークフロー・予約実行のモデル往復と利用量記録を模擬プロバイダーで検証。非research会話の20000字フォールバック制限、実モデルでの本番検証は残る |
 | KY-035 | 組み込みスキル群 | 一部 | P1 | [worker/src/agentPresets.js](../../worker/src/agentPresets.js) | アプリ開発・資料・調査・ブラウザ・データ作業を個別検証 |
 | KY-036 | private/publicと人間の所有者 | 一部 | P0 | [worker/src/harness/skills.js](../../worker/src/harness/skills.js) | 本文・パッケージ資産のprivate/workspace、所有者のみの共有変更、一覧/実行/ファイル読込みの権限確認を実装。記憶から変換したスキルは元の会話/エージェントの制限を継承し、再共有と別エージェントへの導入を拒否。共有リンク・明示agent grantモデル・本番複数ユーザー検証は残る |
-| KY-037 | 共有URL・期限・失効・インポート | 未実装 | P2 | [worker/src/harness/skills.js](../../worker/src/harness/skills.js) | 複製は非公開・失効後ダウンロード不可・既存コピーとの区別 |
+| KY-037 | 共有URL・期限・失効・インポート | 一部（ローカル実装） | P2 | [worker/src/harness/skillShares.js](../../worker/src/harness/skillShares.js) | 1/7/30/90日リンク、即時失効、ZIP取得、別Workspaceへの非公開複製と管理Agentへの追加を実装。CI・本番反映・ログイン済み画面での受入待ち。Kylonの実画面比較、組み込みSkillや公開カタログの共有範囲は未確認 |
 
 ## Apps
 
