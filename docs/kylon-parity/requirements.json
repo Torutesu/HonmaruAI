@@ -1154,8 +1154,8 @@
       "code": "web-react/src/components/AppAnnotation.tsx, worker/src/harness/appAnnotations.js, worker/src/harness/routes.js",
       "acceptance": "対象範囲・親画面要素・公開sandboxカスタム画面のsemantic target・画面位置を特定し、アプリ会話に編集可能な下書きとして渡す。送信後はアプリ単位でマーカーを永続化し、権限確認後に一覧・画面上で再表示する。送信は利用者が選択。作成元スレッドを含む認証済み本番E2E比較は残る。",
       "evidence": {
-        "verified": "2026-10-31にログイン済みKylon実画面で注釈モード、範囲ドラッグ、固定ツールバー、注釈一覧パネル、空状態、選択範囲に沿うコメント入力UIを確認。Honmaruにドラッグ選択・対象ラベル・画面座標・アプリ会話へ編集可能な下書きとして追加するUIを実装。Workerは送信済みアプリ会話メッセージに冪等なマーカーを保存し、認可済み一覧を返す。UIは一覧/ピン表示し、既存会話の下書きと添付メタデータを復元。送信は利用者が選択。Focused Web/Worker tests and deploy-migration tests passed; production release is pending.",
-        "remaining": "認証済み本番環境でマーカー作成・再読込・一覧選択・権限拒否・作成元スレッドの同期をE2E確認し、Kylonとのライト/ダーク両画面を比較する。"
+        "verified": "2026-10-31にログイン済みKylon実画面で注釈モード、範囲ドラッグ、固定ツールバー、注釈一覧パネル、空状態、選択範囲に沿うコメント入力UIを確認。HonmaruはPR #576（merge c14a0f6）でD1永続化、認可付き一覧、ピン/カード表示、下書き添付メタデータ復元を本番公開。main CI、Worker/Web deploy成功。両本番URLはHTTP 200でindex-BirZ4z4B.jsを配信し、ログイン済みネイティブ画面で一覧とアンカー入力UIを確認。送信前にキャンセルし、会話/レコードは変更していない。画面QAで範囲ハイライトのpx/%変換不具合を見つけ、CSS変換修正・focused tests 8件・Web build成功。修正PRと本番再確認は継続中。",
+        "remaining": "認証済み本番でマーカー作成・再読込・一覧選択・権限拒否・作成元スレッド同期をE2E確認し、ハイライト修正を再デプロイしてライト/ダーク両テーマを比較する。"
       }
     }
   ]
