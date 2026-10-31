@@ -68,13 +68,14 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
     return data
   }
 
-  const searchCatalog = async (cursor?: string) => {
-    const query = catalogQuery.trim()
-    if (query.length < 2) { setCatalogError(t('Enter at least 2 characters to search.')); return }
+  const searchCatalog = async (cursor?: string, queryValue = catalogQuery) => {
+    const query = queryValue.trim()
+    if (query.length > 0 && query.length < 2) { setCatalogError(t('Enter at least 2 characters to search, or browse the catalog.')); return }
     setCatalogBusy(true); setCatalogError(null)
     try {
-      const params = new URLSearchParams({ q: query, ...(cursor ? { cursor } : {}) })
-      const result = await call(`/remote-mcp/registry?${params.toString()}`, 'GET') as { servers?: RegistryServer[]; nextCursor?: string | null }
+      const params = new URLSearchParams({ ...(query ? { q: query } : {}), ...(cursor ? { cursor } : {}) })
+      const search = params.toString()
+      const result = await call(`/remote-mcp/registry${search ? `?${search}` : ''}`, 'GET') as { servers?: RegistryServer[]; nextCursor?: string | null }
       setCatalog((previous) => ({
         servers: cursor ? [...(previous?.servers || []), ...(result.servers || [])] : (result.servers || []),
         nextCursor: result.nextCursor || null,
@@ -178,12 +179,13 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
         <p className="remote-mcp-security">{t('HTTPS Streamable HTTP only. Credentials are encrypted at rest. Redirects, local IP addresses and private hostnames are blocked. Agents need an API token with Execute access, and only checked tools are exposed.')}</p>
         <div className="remote-mcp-catalog" data-remote-mcp-catalog>
           <div className="remote-mcp-catalog-heading">
-            <div><h3>{t('Browse the public MCP catalog')}</h3><p>{t('Search public Streamable HTTP server listings in the MCP Registry and add one to this workspace.')}</p></div>
+            <div><h3>{t('Browse the public MCP catalog')}</h3><p>{t('Browse or search public Streamable HTTP server listings in the MCP Registry and add one to this workspace.')}</p></div>
             <span>{t('Community listings')}</span>
           </div>
           <form className="remote-mcp-catalog-search" onSubmit={(event) => { event.preventDefault(); void searchCatalog() }}>
             <input type="search" value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder={t('Search MCP servers, e.g. GitHub')} aria-label={t('Search MCP servers')} maxLength={100} />
             <button type="submit" className="studio-btn" disabled={catalogBusy || catalogQuery.trim().length < 2}>{catalogBusy ? t('Searching…') : t('Search catalog')}</button>
+            <button type="button" className="studio-btn" disabled={catalogBusy} onClick={() => { setCatalogQuery(''); void searchCatalog(undefined, '') }}>{catalogBusy ? t('Searching…') : t('Browse catalog')}</button>
           </form>
           <p className="remote-mcp-catalog-disclaimer">{t('Listings are community submitted and are not reviewed by Honmaru. Providers set their own data access, account requirements, pricing and uptime. Search does not connect or send data to a listed provider.')}</p>
           {catalogError && <div className="remote-mcp-message error" role="alert">{catalogError}</div>}

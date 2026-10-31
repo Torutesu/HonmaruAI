@@ -117,7 +117,26 @@ test("public MCP catalog requires a useful search query", async () => {
   await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
   const response = await call("/remote-mcp/registry?orgId=" + encodeURIComponent(ORG) + "&q=x", { headers: headers(session) });
   expect(response.status).toBe(400);
-  expect(await response.json()).toMatchObject({ message: "Search with 2 to 100 characters." });
+  expect(await response.json()).toMatchObject({ message: "Search with 2 to 100 characters, or leave it empty to browse." });
+});
+
+test("public MCP catalog can browse active listings without a search term", async () => {
+  await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
+  fetchMock.get("https://registry.modelcontextprotocol.io")
+    .intercept({ path: /^\/v0\.1\/servers\?/, method: "GET" })
+    .reply((opts) => {
+      const url = new URL(`https://registry.modelcontextprotocol.io${opts.path}`);
+      expect(url.searchParams.has("search")).toBe(false);
+      expect(url.searchParams.get("version")).toBe("latest");
+      return { statusCode: 200, data: { servers: [], metadata: { nextCursor: null } } };
+    });
+  fetchMock.activate();
+  try {
+    const response = await call(`/remote-mcp/registry?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ servers: [], nextCursor: null });
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
 });
 
 test("public MCP catalog search is rate limited per signed-in member", async () => {

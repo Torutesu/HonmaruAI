@@ -210,7 +210,7 @@ async function searchOfficialMcpRegistry(query, cursor = "") {
   const cached = mcpRegistryCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   const target = new URL(MCP_REGISTRY_API);
-  target.searchParams.set("search", query);
+  if (query) target.searchParams.set("search", query);
   target.searchParams.set("version", "latest");
   target.searchParams.set("limit", String(MCP_REGISTRY_RESULT_LIMIT));
   if (cursor) target.searchParams.set("cursor", cursor);
@@ -348,7 +348,7 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
   if (request.method === "GET" && id === "registry" && !operation) {
     const query = String(url.searchParams.get("q") || "").replace(/\s+/g, " ").trim();
     const cursor = String(url.searchParams.get("cursor") || "");
-    if (query.length < 2 || query.length > 100 || /[\u0000-\u001f\u007f]/.test(query)) return json({ message: "Search with 2 to 100 characters." }, 400);
+    if ((query.length > 0 && query.length < 2) || query.length > 100 || /[\u0000-\u001f\u007f]/.test(query)) return json({ message: "Search with 2 to 100 characters, or leave it empty to browse." }, 400);
     if (cursor.length > 2000 || /[\u0000-\u001f\u007f]/.test(cursor)) return json({ message: "The registry page cursor is invalid." }, 400);
     try {
       return json(await searchOfficialMcpRegistry(query, cursor));

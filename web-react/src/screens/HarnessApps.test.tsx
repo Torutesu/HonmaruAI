@@ -70,6 +70,11 @@ test('public MCP catalog results can be reviewed and selected for the connection
   expect(tree!.root.findByProps({ 'aria-label': 'Header value' }).props.required).toBe(true)
   expect(tree!.root.findByProps({ 'aria-label': 'Header value' }).props['aria-description']).toBe('Paste a token from the provider.')
   expect(tree!.root.findAllByType('select')[0].props.value).toBe('headers')
+  await act(async () => {
+    tree!.root.findAllByType('button').find(node => node.children.includes('Browse catalog'))!.props.onClick()
+    await new Promise(resolve => setTimeout(resolve, 0))
+  })
+  expect(fetchStub.mock.calls.map(([url]) => url)).toContain('https://api.example/remote-mcp/registry?orgId=team%3Aone')
 })
 test('Remote MCP OAuth lets members connect their own account from the Harness Apps screen', async () => {
   const oauthServer = {
