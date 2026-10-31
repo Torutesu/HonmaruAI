@@ -290,7 +290,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
             <span className="row-main">{connection.name}
               <span className="row-sub">{connection.available
                 ? t('Allow this Agent to read {count} workspace-approved tools in your private conversations.', { count: connection.readOnlyToolCount })
-                : t('This server has no workspace-approved tools marked read-only.')}</span>
+                : t('This server has no workspace-approved tools marked read-only. A workspace admin can refresh its tool list in Tools → Apps.')}</span>
             </span>
             <input type="checkbox" aria-label={t('Allow {agent} to use read-only tools from {server}', { agent: agent.name, server: connection.name })} checked={connection.enabled} disabled={!connection.available || busy !== null} onChange={e => {
               const granted = e.currentTarget.checked

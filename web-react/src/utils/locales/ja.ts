@@ -3186,7 +3186,7 @@ const table: Record<string, string> = {
   'Only workspace-approved tools marked read-only are available. Your grant applies to this Agent in your private conversations.': 'ワークスペースが許可し、読み取り専用とされたツールだけを利用できます。許可はこのAgentとの個別会話に適用されます。',
   'No Remote MCP servers are available. A workspace admin can connect one in Tools → Apps.': '利用可能なRemote MCPサーバーがありません。ワークスペース管理者が「ツール → アプリ」から接続できます。',
   'Allow this Agent to read {count} workspace-approved tools in your private conversations.': 'ご本人との個別会話で、このAgentにワークスペースが許可した読み取り専用ツール{count}件の利用を許可します。',
-  'This server has no workspace-approved tools marked read-only.': 'このサーバーには、ワークスペースが許可した読み取り専用ツールがありません。',
+  'This server has no workspace-approved tools marked read-only. A workspace admin can refresh its tool list in Tools → Apps.': 'このサーバーには、ワークスペースが許可した読み取り専用ツールがありません。管理者は「ツール → アプリ」でツール一覧を再取得できます。',
   'Allow {agent} to use read-only tools from {server}': '{agent}に{server}の読み取り専用ツールの利用を許可',
 }
 
