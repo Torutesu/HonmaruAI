@@ -765,10 +765,10 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/agents.js, worker/src/harness/workflows.js",
-      "acceptance": "Agentの現行grant・会話権限に加えてapp_record_change元App/Table権限を各モデル往復・ツール実行fenceで再検証。Connection grantを使う全経路と実行中provider requestのキャンセル・精算は継続監査",
+      "acceptance": "Agentの現行grant・会話権限に加えてapp_record_change元App/Table権限を各モデル往復・ツール実行fenceで再検証。Connection grantを使う将来のWorkflow actionも含め全副作用経路を監査",
       "evidence": {
-        "verified": "2026-10-31、WorkflowのAgent応答中に元Appをprivate化しても応答を公開しないfocused regression testが成功。PR #579はmerge commit 413f8f801b1102253996edc700d9846e26434873としてmainへ統合。main CI run 41204157599はsuccess、Worker deploy run 41204157502はD1 migration・column migration・deploy・verifyすべてsuccess。公開後 /health は ok=true、encryption.all=true。",
-        "remaining": "直接のConnection stepは現在のworkflow step型に含まれない。今後追加する接続stepを含む全副作用経路、provider requestの中断、途中usageの精算を通した監査は残る。"
+        "verified": "2026-10-31〜11-01、Workflow AgentのApp/Table権限を各モデル往復で再検証し、アクセス剥奪中に進行中のWorker側provider HTTP要求をabort、返答を投稿せず、unknown/unpriced usageと1回分のallowanceを記録。PR #579/#581をmainへ統合。PR #581のfocused model/usage 14 tests、workflow 69 testsが成功。main CI #41224384637とWorker deploy #41224384634成功（後続#584 release）。Worker /health は ok=true、encryption.all=true。",
+        "remaining": "現在のworkflow step型に直接Connection actionはないため、接続操作を使う経路の統合監査は未実施。HTTP abortでプロバイダー側処理・請求が停止する保証はない。"
       }
     },
     {
@@ -916,8 +916,8 @@
       "evidence": {
         "reviewedAt": "2026-11-01",
         "implementedScope": "Harness-only workspace Remote MCP connections support encrypted bearer/custom headers, Streamable HTTP initialization and tool discovery/calls, explicit tool allowlists, HTTPS/public-host checks, redirect and size limits, admin-only management, execute-scoped API access, audit events and disconnect. Private Agent conversations add per-caller grants, expose only workspace-approved tools marked read-only, recheck the caller grant and exact tool allowlist/annotation before and after calls and before publishing, and block results if access changes in flight; shared conversations and Simple mode do not receive this access.",
-        "remaining": "OAuth 2.1 discovery/client registration, DNS-pinned egress, a Kylon-scale connector catalog, write-capable per-Agent grants and app/workflow execution integration are not implemented; nonstandard ports and URL query parameters are rejected. New Agent-grant work is on a follow-up branch and awaits PR CI and production verification.",
-        "verification": "worker/test/remote-mcp.test.js (pending PR CI and production screen verification)"
+        "remaining": "OAuth 2.1 discovery/client registration, DNS-pinned egress, a Kylon-scale connector catalog, write-capable per-Agent grants and app/workflow execution integration are not implemented; nonstandard ports and URL query parameters are rejected. No production Remote MCP server or Agent grant was created.",
+        "verification": "PR #584 merged as 2f2acc9ef8532f20fa67e87fa4e7da118739ec01; exact-head CI #41222310212, main CI #41224384637, Worker deploy #41224384634, Web deploy #41224384626; worker/test/remote-mcp.test.js and signed-in production Connections/Apps screens verified. No configured server was available for a live tool call."
       }
     },
     {
