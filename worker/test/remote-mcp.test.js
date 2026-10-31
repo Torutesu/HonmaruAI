@@ -59,6 +59,17 @@ test("Remote MCP is Harness-only and does not save credentials without encryptio
   const simple = await call(`/remote-mcp?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) });
   expect(simple.status).toBe(404);
   await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
+  const origin = "https://app.honmaruai.com";
+  const preflight = await call("/remote-mcp", {
+    method: "OPTIONS",
+    headers: { origin, "access-control-request-method": "GET", "access-control-request-headers": "x-session-token" },
+  });
+  expect(preflight.headers.get("access-control-allow-origin")).toBe(origin);
+  expect(preflight.headers.get("access-control-allow-headers")).toContain("x-session-token");
+  const listed = await call(`/remote-mcp?orgId=${encodeURIComponent(ORG)}`, { headers: { ...headers(session), origin } });
+  expect(listed.status).toBe(200);
+  expect(listed.headers.get("access-control-allow-origin")).toBe(origin);
+  expect((await listed.json()).servers).toEqual([]);
   const rejected = await call("/remote-mcp", {
     method: "POST", headers: headers(session),
     body: JSON.stringify({ orgId: ORG, name: "Private MCP", endpoint: "https://mcp.example.com/mcp", headers: [{ name: "Authorization", value: "Bearer do-not-store" }] }),

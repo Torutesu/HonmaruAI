@@ -13,7 +13,13 @@ const RESERVED_HEADERS = new Set([
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status,
-  headers: { "cache-control": "no-store", "content-type": "application/json" },
+  headers: {
+    "cache-control": "no-store",
+    "content-type": "application/json",
+    "access-control-allow-origin": "*",
+    "access-control-allow-headers": "content-type, x-session-token, x-ai-key, authorization",
+    "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+  },
 });
 
 function parseJSON(value, fallback) {
