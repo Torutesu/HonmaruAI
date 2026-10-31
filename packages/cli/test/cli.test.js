@@ -54,6 +54,28 @@ test("the command fails closed on malformed args and unknown flags", async () =>
   assert.match(stderr.read(), /Unknown option/);
 });
 
+test("gateway status supports JSON without requiring workspace credentials", async () => {
+  const stdout = output();
+  const stderr = output();
+  const status = { supported: true, installed: true, loaded: true, state: "running", running: true, pid: 12, runs: 1 };
+  const code = await runCli(["gateway", "status", "--json"], {
+    stdout: stdout.stream,
+    stderr: stderr.stream,
+    gatewayStatusReader: async () => status,
+  });
+  assert.equal(code, 0);
+  assert.deepEqual(JSON.parse(stdout.read()), status);
+  assert.equal(stderr.read(), "");
+});
+
+test("gateway status rejects unsupported flags", async () => {
+  const stdout = output();
+  const stderr = output();
+  const code = await runCli(["gateway", "status", "--force"], { stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(code, 2);
+  assert.match(stderr.read(), /honmaru gateway status/);
+});
+
 test("resource aliases map to the scoped app and database tools", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {
