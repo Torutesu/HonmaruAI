@@ -78,14 +78,15 @@ export async function setAgentRemoteMcpConnection(env, { orgId, agentId, session
   return { connections: await agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId }) };
 }
 
-export async function mayUseAgentRemoteMcp(env, { orgId, agentId, session, serverId }) {
+export async function mayUseAgentRemoteMcp(env, { orgId, agentId, session, serverId, toolName = null }) {
   const githubId = String(session?.github_id || '');
   if (!githubId || !orgId || !agentId || !serverId) return false;
-  const [grants, counts] = await Promise.all([
+  const [grants, tools] = await Promise.all([
     currentGrants(env.DB, orgId, agentId, githubId).catch(() => new Set()),
-    readOnlyToolsByServer(env.DB, orgId),
+    remoteMcpTools(env.DB, orgId, { readOnlyOnly: true }).catch(() => []),
   ]);
-  return grants.has(serverId) && (counts.get(serverId) || 0) > 0;
+  return grants.has(serverId) && tools.some((tool) =>
+    tool?._remote?.serverId === serverId && (!toolName || tool?._remote?.toolName === toolName));
 }
 
 export async function agentRemoteMcpTools(env, { orgId, agentId, session }) {

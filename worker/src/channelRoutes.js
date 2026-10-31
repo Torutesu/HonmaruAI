@@ -486,7 +486,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   // be somebody else's to read if the answer went into a shared channel.
   let research = "";
   const nativeSourcesUsed = new Set();
-  const remoteMcpServersUsed = new Set();
+  const remoteMcpToolsUsed = new Map();
   const sourceGrantAgentId = resolved.kind === "agent" && !row.parent_id && agents.length === 1 ? agents[0].id : null;
   const mayResearchSource = async (source, available) => {
     if (!available) return false;
@@ -546,7 +546,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       agentName: agents.length === 1 ? agents[0].name : null,
       agentLogin: user.login,
       onNativeSourceUsed: source => nativeSourcesUsed.add(source),
-      onRemoteMcpUsed: serverId => remoteMcpServersUsed.add(serverId),
+      onRemoteMcpUsed: (serverId, toolName) => remoteMcpToolsUsed.set(JSON.stringify([serverId, toolName]), { serverId, toolName }),
       // An app that may write does so only for agents the person wrote
       // themselves: a teammate's agent's instructions never steer it.
       ownAgentsOnly: allOwnAgents(agents, user.login),
@@ -576,8 +576,8 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         for (const source of nativeSourcesUsed) {
           if (!await mayUseAgentSource(env, { orgId, agentId: agent.id, session, source })) return false;
         }
-        for (const serverId of remoteMcpServersUsed) {
-          if (!await mayUseAgentRemoteMcp(env, { orgId, agentId: agent.id, session, serverId })) return false;
+        for (const { serverId, toolName } of remoteMcpToolsUsed.values()) {
+          if (!await mayUseAgentRemoteMcp(env, { orgId, agentId: agent.id, session, serverId, toolName })) return false;
         }
       }
       return true;

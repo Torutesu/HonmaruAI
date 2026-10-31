@@ -171,7 +171,7 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
       return null;
     };
     const nativeSourcesUsed = new Set();
-    const remoteMcpServersUsed = new Set();
+    const remoteMcpToolsUsed = new Map();
     const nativeSourcesStillAllowed = async () => {
       if (!nativeSourcesUsed.size || !r.agent_id) return true;
       const mode = await getMode(env.DB, r.org_id).catch(() => null);
@@ -184,12 +184,12 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
       return true;
     };
     const remoteMcpStillAllowed = async () => {
-      if (!remoteMcpServersUsed.size || !r.agent_id) return true;
+      if (!remoteMcpToolsUsed.size || !r.agent_id) return true;
       const mode = await getMode(env.DB, r.org_id).catch(() => null);
       if (mode !== 'harness') return false;
       const session = { github_id: String(r.created_by) };
-      for (const serverId of remoteMcpServersUsed) {
-        if (!await mayUseAgentRemoteMcp(env, { orgId: r.org_id, agentId: r.agent_id, session, serverId })) return false;
+      for (const { serverId, toolName } of remoteMcpToolsUsed.values()) {
+        if (!await mayUseAgentRemoteMcp(env, { orgId: r.org_id, agentId: r.agent_id, session, serverId, toolName })) return false;
       }
       return true;
     };
@@ -217,7 +217,7 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
         const prepared = agentRow
           ? await prepareAgent(env, r.org_id, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: r.channel || "", userId: r.created_by })
           : { agent: { name: "AI", handle: "AI", instructions: "You are the team's AI." } };
-        const personalTools = await personalFollowupTools(env, r, source => nativeSourcesUsed.add(source), serverId => remoteMcpServersUsed.add(serverId));
+        const personalTools = await personalFollowupTools(env, r, source => nativeSourcesUsed.add(source), (serverId, toolName) => remoteMcpToolsUsed.set(JSON.stringify([serverId, toolName]), { serverId, toolName }));
         const tools = { ...prepared.skillTools, ...personalTools };
         const setupFailure=await accessFailure();
         if(setupFailure)throw new Error(setupFailure);
