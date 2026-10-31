@@ -7,6 +7,11 @@ import { disconnectRemoteMcpOAuth, remoteMcpOAuthAccessToken, remoteMcpOAuthStat
 const REMOTE_MCP_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const MAX_RESPONSE_BYTES = 1_000_000;
 const MAX_TOOL_SCHEMA_BYTES = 32_000;
+const MCP_REGISTRY_API = "https://registry.modelcontextprotocol.io/v0.1/servers";
+const MCP_REGISTRY_RESULT_LIMIT = 20;
+const MCP_REGISTRY_MAX_BYTES = 512_000;
+const MCP_REGISTRY_TTL_MS = 60_000;
+const mcpRegistryCache = new Map();
 const RESERVED_HEADERS = new Set([
   "accept", "connection", "content-length", "content-type", "host", "mcp-protocol-version",
   "mcp-session-id", "origin", "transfer-encoding", "upgrade",
@@ -139,6 +144,103 @@ async function readBounded(response) {
   return new TextDecoder().decode(bytes);
 }
 
+async function readRegistryJson(response) {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MCP_REGISTRY_MAX_BYTES) throw new Error("Registry response is too large.");
+  if (!response.body) return null;
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MCP_REGISTRY_MAX_BYTES) {
+      await reader.cancel().catch(() => {});
+      throw new Error("Registry response is too large.");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  try { return JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new Error("Registry returned invalid JSON."); }
+}
+
+function registryHeaderHints(remote) {
+  if (!Array.isArray(remote?.headers)) return [];
+  const reserved = new Set(["accept", "connection", "content-length", "content-type", "host", "mcp-protocol-version", "mcp-session-id", "origin", "transfer-encoding", "upgrade"]);
+  const seen = new Set();
+  return remote.headers.flatMap((header) => {
+    const name = typeof header?.name === "string" ? header.name.trim() : "";
+    const key = name.toLowerCase();
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/.test(name) || reserved.has(key) || seen.has(key)) return [];
+    seen.add(key);
+    return [{ name, required: header.isRequired === true, description: typeof header.description === "string" ? header.description.slice(0, 240) : "" }];
+  }).slice(0, 20);
+}
+
+function normalizeRegistryServers(payload) {
+  const official = "io.modelcontextprotocol.registry/official";
+  const seen = new Set();
+  const servers = [];
+  for (const record of Array.isArray(payload?.servers) ? payload.servers : []) {
+    const server = record?.server;
+    const metadata = record?._meta?.[official];
+    if (!server || typeof server.name !== "string" || !server.name.trim() || metadata?.status !== "active" || metadata?.isLatest !== true || seen.has(server.name)) continue;
+    const remote = Array.isArray(server.remotes) ? server.remotes.find((item) => item?.type === "streamable-http" && typeof item.url === "string" && !/[{}]/.test(item.url) && safeEndpoint(item.url)) : null;
+    if (!remote) continue;
+    const endpoint = safeEndpoint(remote.url);
+    if (!endpoint) continue;
+    seen.add(server.name);
+    servers.push({
+      name: server.name.slice(0, 180),
+      title: (typeof server.title === "string" && server.title.trim() ? server.title : server.name).slice(0, 120),
+      description: typeof server.description === "string" ? server.description.slice(0, 500) : "",
+      version: typeof server.version === "string" ? server.version.slice(0, 80) : "",
+      endpoint,
+      headers: registryHeaderHints(remote),
+    });
+  }
+  return servers.slice(0, MCP_REGISTRY_RESULT_LIMIT);
+}
+
+async function searchOfficialMcpRegistry(query, cursor = "") {
+  const key = `${query.toLowerCase()}\u0000${cursor}`;
+  const cached = mcpRegistryCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const target = new URL(MCP_REGISTRY_API);
+  target.searchParams.set("search", query);
+  target.searchParams.set("version", "latest");
+  target.searchParams.set("limit", String(MCP_REGISTRY_RESULT_LIMIT));
+  if (cursor) target.searchParams.set("cursor", cursor);
+  let response;
+  try {
+    response = await fetch(target.toString(), {
+      headers: { accept: "application/json" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(8_000),
+    });
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "Error";
+    const message = error instanceof Error ? error.message.replace(/https?:\/\/[^\s)]+/g, "[upstream]").slice(0, 160) : "unknown error";
+    console.warn("Public MCP Registry request failed", name, message);
+    throw new Error("Official MCP Registry search failed.");
+  }
+  if (response.status >= 300 && response.status < 400) throw new Error("Official MCP Registry redirects are blocked.");
+  if (!response.ok) throw new Error("Official MCP Registry search failed.");
+  const payload = await readRegistryJson(response);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Official MCP Registry returned an invalid response.");
+  const metadata = payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {};
+  const result = {
+    servers: normalizeRegistryServers(payload),
+    nextCursor: typeof metadata.nextCursor === "string" && metadata.nextCursor.length <= 2000 ? metadata.nextCursor : null,
+  };
+  if (mcpRegistryCache.size >= 100) mcpRegistryCache.delete(mcpRegistryCache.keys().next().value);
+  mcpRegistryCache.set(key, { value: result, expiresAt: Date.now() + MCP_REGISTRY_TTL_MS });
+  return result;
+}
+
 function parseRpcBody(body, contentType, expectedId) {
   if (/text\/event-stream/i.test(contentType)) {
     const data = body.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim());
@@ -242,6 +344,18 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
   const match = url.pathname.match(/^\/remote-mcp(?:\/([^/]+)(?:\/(discover|tools|oauth\/(?:start|disconnect)))?)?$/);
   if (!match) return null;
   const [, id, operation] = match;
+
+  if (request.method === "GET" && id === "registry" && !operation) {
+    const query = String(url.searchParams.get("q") || "").replace(/\s+/g, " ").trim();
+    const cursor = String(url.searchParams.get("cursor") || "");
+    if (query.length < 2 || query.length > 100 || /[\u0000-\u001f\u007f]/.test(query)) return json({ message: "Search with 2 to 100 characters." }, 400);
+    if (cursor.length > 2000 || /[\u0000-\u001f\u007f]/.test(cursor)) return json({ message: "The registry page cursor is invalid." }, 400);
+    try {
+      return json(await searchOfficialMcpRegistry(query, cursor));
+    } catch {
+      return json({ message: "The public MCP Registry is unavailable right now. Try again shortly." }, 502);
+    }
+  }
 
   if (request.method === "GET" && !id) {
     const { results = [] } = await env.DB.prepare("SELECT * FROM hx_remote_mcp_servers WHERE org_id = ?1 ORDER BY created_at DESC LIMIT 20").bind(orgId).all();

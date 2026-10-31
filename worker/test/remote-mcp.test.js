@@ -57,6 +57,88 @@ test("Remote MCP headers and tool schemas are bounded and reject reserved or dup
   expect(toolName("0f1e2d3c-4b5a", "find files")).toBe(toolName("0f1e2d3c-4b5a", "find files"));
 });
 
+test("public MCP catalog lists only active latest public HTTPS Streamable HTTP servers", async () => {
+  await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
+  const registry = fetchMock.get("https://registry.modelcontextprotocol.io");
+  registry.intercept({ path: /^\/v0\.1\/servers\?/, method: "GET" }).reply((opts) => {
+    const url = new URL(`https://registry.modelcontextprotocol.io${opts.path}`);
+    expect(url.searchParams.get("search")).toBe("mcp-catalog-filter-check");
+    expect(url.searchParams.get("version")).toBe("latest");
+    expect(url.searchParams.get("limit")).toBe("20");
+    return { statusCode: 200, data: {
+    servers: [
+      {
+        server: { name: "io.example/valid", title: "Valid server", description: "Read things.", version: "1.2.0", repository: { url: "https://github.com/example/valid" }, remotes: [{ type: "streamable-http", url: "https://mcp.example.org/mcp", headers: [{ name: "Authorization", value: "Bearer {api_key}", isRequired: true, description: "Your provider API key." }, { name: "Content-Type", value: "application/json", isRequired: true }] }] },
+        _meta: { "io.modelcontextprotocol.registry/official": { status: "active", isLatest: true } },
+      },
+      {
+        server: { name: "io.example/stdio", remotes: [{ type: "stdio", url: "https://mcp.example.org/local" }] },
+        _meta: { "io.modelcontextprotocol.registry/official": { status: "active", isLatest: true } },
+      },
+      {
+        server: { name: "io.example/old", remotes: [{ type: "streamable-http", url: "https://mcp.example.org/old" }] },
+        _meta: { "io.modelcontextprotocol.registry/official": { status: "active", isLatest: false } },
+      },
+      {
+        server: { name: "io.example/deprecated", remotes: [{ type: "streamable-http", url: "https://mcp.example.org/deprecated" }] },
+        _meta: { "io.modelcontextprotocol.registry/official": { status: "deprecated", isLatest: true } },
+      },
+      {
+        server: { name: "io.example/private", remotes: [{ type: "streamable-http", url: "http://127.0.0.1/mcp" }] },
+        _meta: { "io.modelcontextprotocol.registry/official": { status: "active", isLatest: true } },
+      },
+      {
+        server: { name: "io.example/query-secret", remotes: [{ type: "streamable-http", url: "https://mcp.example.org/mcp?token=secret" }] },
+        _meta: { "io.modelcontextprotocol.registry/official": { status: "active", isLatest: true } },
+      },
+    ],
+    metadata: { nextCursor: "next-page-token" },
+    } };
+  });
+  fetchMock.activate();
+  try {
+    const response = await call("/remote-mcp/registry?orgId=" + encodeURIComponent(ORG) + "&q=mcp-catalog-filter-check", { headers: headers(session) });
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.nextCursor).toBe("next-page-token");
+    expect(result.servers).toEqual([expect.objectContaining({
+      name: "io.example/valid",
+      title: "Valid server",
+      endpoint: "https://mcp.example.org/mcp",
+      headers: [{ name: "Authorization", required: true, description: "Your provider API key." }],
+    })]);
+    expect(JSON.stringify(result)).not.toContain("Bearer {api_key}");
+    expect(JSON.stringify(result)).not.toContain("token=secret");
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
+test("public MCP catalog requires a useful search query", async () => {
+  await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
+  const response = await call("/remote-mcp/registry?orgId=" + encodeURIComponent(ORG) + "&q=x", { headers: headers(session) });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ message: "Search with 2 to 100 characters." });
+});
+
+test("public MCP catalog search is rate limited per signed-in member", async () => {
+  await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
+  const query = "mcp-catalog-rate-limit-check";
+  fetchMock.get("https://registry.modelcontextprotocol.io")
+    .intercept({ path: /^\/v0\.1\/servers\?/, method: "GET" })
+    .reply(200, { servers: [], metadata: { nextCursor: null } });
+  fetchMock.activate();
+  try {
+    const responses = [];
+    for (let i = 0; i < 31; i += 1) {
+      responses.push(await call(`/remote-mcp/registry?orgId=${encodeURIComponent(ORG)}&q=${query}`, { headers: headers(session) }));
+    }
+    expect(responses.slice(0, 30).every((response) => response.status === 200)).toBe(true);
+    expect(responses[30].status).toBe(429);
+    expect(responses[30].headers.get("retry-after")).toBeTruthy();
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
 test("OAuth Remote MCP uses PKCE, validates issuer and redirect, and keeps each member's token private", async () => {
   const { upsertUser, upsertMembership } = await import("../src/db.js");
   const secureEnv = { ...env, DATA_KEY: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))) };
