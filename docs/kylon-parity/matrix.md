@@ -42,8 +42,8 @@
 | KY-019 | エージェント同士のループ抑止 | 一部 | P0 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 明示宛先以外の自動再起動を防ぎ最大handoff回数を記録 |
 | KY-020 | 実行停止・キャンセル伝播 | 一部 | P0 | [worker/src/agentRunner.js](../../worker/src/agentRunner.js), [worker/src/teammates.js](../../worker/src/teammates.js) | 世代単位停止をローカルモデル／ツールに伝播。個人DMのAgentが開始したMac mini JavaScript・公開アプリ処理も中断時にジョブを取消し、ゲートウェイのリースを失効。Claude Managed AgentsとCursor Cloud Agentsは公式停止APIへ正確なrun IDで要求し、結果を永続化してUIに表示・失敗時に再試行。Devin/Codex、signal非対応ツールの進行中副作用、費用精算、本番ライブ停止確認は残る |
 | KY-021 | ターンごとの実行プロセス | 一部 | P1 | [worker/src/agentRunner.js](../../worker/src/agentRunner.js), [web-react/src/components/AgentRunStatus.tsx](../../web-react/src/components/AgentRunStatus.tsx) | チャット依頼の実行状態・引き継ぎと開始から終了までの時間を保存・表示。個別のツール呼び出し/入出力 trace、外部providerの詳細な稼働時間、全traceのACL比較は残る |
-| KY-022 | クラウド隔離コンピューター | 未実装 | P0 | [worker/src/agentRunner.js](../../worker/src/agentRunner.js) | 任意コード・ファイル・ネットワークを実行単位で隔離 |
-| KY-023 | ローカルゲートウェイ・再接続 | 一部 | P1 | [worker/src/harness/gateways.js](../../worker/src/harness/gateways.js) | Mac mini隔離JS・常駐・ログイン時接続・プロセス/ランタイム復旧と本番個人DMの実ツール往復を検証。CLIからmacOS LaunchAgentの導入・稼働状態を秘密情報を表示せず照会可能。物理再起動・スリープ復帰の実機試験は残る |
+| KY-022 | クラウド隔離コンピューター | 一部・本番反映 | P0 | [gateway/runner.mjs](../../gateway/runner.mjs), [worker/src/agentRunner.js](../../worker/src/agentRunner.js) | クラウド提供VMはないが、ユーザー所有Mac miniのApple Container 1.5.0上で本番キューから任意JavaScriptを実行できる。2026-11-01、ログイン済み本番UIからMac miniを選択し、隔離ジョブ `return input * 2` に `21` を渡して `42` を取得。nodeはネットワークなし・DNSなし・read-only root・tmpfs・非root・capability全削除・CPU 1・512 MiB・最大60秒。追加課金なし。ユーザー所有端末の起動/スリープに依存しないクラウドVM、ファイル環境、永続workspaceは残る |
+| KY-023 | ローカルゲートウェイ・再接続 | 一部・本番反映 | P1 | [worker/src/harness/gateways.js](../../worker/src/harness/gateways.js), [gateway/runner.mjs](../../gateway/runner.mjs), [gateway/launchd.mjs](../../gateway/launchd.mjs) | Mac mini隔離JS・常駐・ログイン時接続・プロセス/ランタイム復旧と本番個人DMの実ツール往復を検証。CLIからmacOS LaunchAgentの導入・稼働状態を秘密情報を表示せず照会可能。2026-11-01、本番実行ノード画面のheartbeatが実行中に更新し、Mac mini経由のJS実行が `42` で成功。LaunchAgentの制御再起動後に再接続する既存記録あり。物理再起動・スリープ復帰の実機試験は残る |
 | KY-024 | Codex/Claude Code/Devinの実行選択 | 一部 | P1 | [worker/src/teammates.js](../../worker/src/teammates.js) | クラウドAPI接続とローカルCLIを区別して実機で検証 |
 | KY-025 | ACP接続契約 | 未実装 | P2 | [worker/src/teammates.js](../../worker/src/teammates.js) | initialize/session/prompt/cancelと認証・権限更新・切断を検証 |
 | KY-026 | 既存ChatGPT契約でクラウドCodex | 要検証 | P2 | [worker/src/teammates.js](../../worker/src/teammates.js) | 提供元条件と対応実行方式の確認後に隔離環境で検証 |
@@ -71,7 +71,7 @@
 | KY-034 | 必要時にスキル本文を読む | 一部 | P1 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 会話research・ワークフロー・予約実行に索引と権限再確認付き読込みツールを接続。ワークフロー・予約実行のモデル往復と利用量記録を模擬プロバイダーで検証。非research会話の20000字フォールバック制限、実モデルでの本番検証は残る |
 | KY-035 | 組み込みスキル群 | 一部 | P1 | [worker/src/agentPresets.js](../../worker/src/agentPresets.js) | アプリ開発・資料・調査・ブラウザ・データ作業を個別検証 |
 | KY-036 | private/publicと人間の所有者 | 一部 | P0 | [worker/src/harness/skills.js](../../worker/src/harness/skills.js) | 本文・パッケージ資産のprivate/workspace、所有者のみの共有変更、一覧/実行/ファイル読込みの権限確認を実装。記憶から変換したスキルは元の会話/エージェントの制限を継承し、再共有と別エージェントへの導入を拒否。共有リンク・明示agent grantモデル・本番複数ユーザー検証は残る |
-| KY-037 | 共有URL・期限・失効・インポート | 一部（ローカル実装） | P2 | [worker/src/harness/skillShares.js](../../worker/src/harness/skillShares.js) | 1/7/30/90日リンク、即時失効、ZIP取得、別Workspaceへの非公開複製と管理Agentへの追加を実装。CI・本番反映・ログイン済み画面での受入待ち。Kylonの実画面比較、組み込みSkillや公開カタログの共有範囲は未確認 |
+| KY-037 | 共有URL・期限・失効・インポート | 一部・本番反映 | P2 | [worker/src/harness/skillShares.js](../../worker/src/harness/skillShares.js), [web-react/src/components/SkillSharing.tsx](../../web-react/src/components/SkillSharing.tsx), [web-react/src/screens/PublicSkillShare.tsx](../../web-react/src/screens/PublicSkillShare.tsx) | 1/7/30/90日リンク、即時失効、ZIP取得、別Workspaceへのprivate複製と管理Agentへの追加を実装。PR #572のmain CI #41182556284、Worker deploy #41182556208、Web deploy #41182556254が成功。2026-11-01、存在しない合成tokenに対する本番公開APIが無効リンク用404を返すことを確認。実ユーザー間での有効リンク閲覧・取り込み・失効をログイン画面で受け入れる検証、Kylonとの共有導線比較、組み込みSkillや公開カタログの共有範囲は残る |
 
 ## Apps
 
