@@ -95,7 +95,7 @@
 | KY-051 | デプロイ履歴・ログ・ロールバック | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 現行定義のversionと実デプロイの復元を区別 |
 | KY-052 | App用Connection grant | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 個人/アプリ/固定URL/HTTP操作のgrant、暗号化資格情報、確認付きproxyを追加。組織共有grantとOAuth更新は残る |
 | KY-053 | Appに同梱する自動化と差分検出 | 一部実装 | P1 | [worker/src/harness/appAutomationRelease.js](../../worker/src/harness/appAutomationRelease.js) | declared/liveのdrift・下書き停止・公開時反映 |
-| KY-054 | テンプレート共有とバージョン | 一部 | P2 | [worker/src/harness/templateShares.js](../../worker/src/harness/templateShares.js) | アプリ版を固定したURL共有、1/7/30/90日期限、失効、別workspaceへの取り込みを追加。リンクはハッシュ保存で、レコード・説明・カスタムコード・接続情報を含めず、項目名等は共有前確認を要求。招待制/カタログとschema labelの自動機密検出、Kylon実画面比較は残る |
+| KY-054 | テンプレート共有とバージョン | 一部・本番反映 | P2 | [worker/src/harness/templateShares.js](../../worker/src/harness/templateShares.js), [web-react/src/components/TemplateSharing.tsx](../../web-react/src/components/TemplateSharing.tsx) | PR #571のmain CI #41180397064、Worker deploy #41180397003、Web deploy #41180396947が成功。2026-11-01、存在しない合成tokenに対する本番公開APIが無効リンク用404を返すことを確認。アプリ版を固定したURL共有、1/7/30/90日期限、失効、別workspaceへのprivate取り込みを実装。リンクはハッシュ保存で、レコード・説明・カスタムコード・接続情報を含めず、項目名等は共有前確認を要求。2つのログイン済みWorkspace間での有効リンク作成・取込・失効の受入、招待制/カタログ、schema labelの自動機密検出、Kylon実画面比較は残る |
 | KY-055 | App移動・削除とデータ保持 | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | ルーム移動時に会話ACLを再確認し削除時DB保持方針を明示 |
 
 ## Automations
