@@ -40,6 +40,39 @@ const signedWebhook = async (hookUrl, secret, body = '{}', eventId = `evt-${++we
   });
 };
 
+async function addWorkflowRemoteMcpServer(tools, allowedTools) {
+  const response = await send('POST', '/remote-mcp', toru, {
+    orgId: ORG, name: 'Workflow knowledge', endpoint: 'https://workflow-mcp.example.com/mcp', headers: [],
+  });
+  expect(response.status).toBe(201);
+  const { server } = await response.json();
+  await env.DB.prepare(`UPDATE hx_remote_mcp_servers SET tools_json=?1, allowed_tools=?2, connected_at=?3
+    WHERE org_id=?4 AND id=?5`)
+    .bind(JSON.stringify(tools), JSON.stringify(allowedTools), new Date().toISOString(), ORG, server.id).run();
+  return server;
+}
+
+function interceptWorkflowRemoteMcp(onCall = null) {
+  const endpoint = fetchMock.get('https://workflow-mcp.example.com');
+  const message = opts => JSON.parse(opts.body);
+  endpoint.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'initialize' })
+    .reply(opts => ({
+      statusCode: 200,
+      data: { jsonrpc: '2.0', id: message(opts).id, result: { protocolVersion: '2025-06-18' } },
+      responseOptions: { headers: { 'mcp-session-id': 'workflow-session' } },
+    }));
+  endpoint.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'notifications/initialized' })
+    .reply(202, null);
+  endpoint.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'tools/call' })
+    .reply(async opts => {
+      await onCall?.(message(opts));
+      return {
+        statusCode: 200,
+        data: { jsonrpc: '2.0', id: message(opts).id, result: { content: [{ type: 'text', text: 'Workspace policy: keep all keys private.' }] } },
+      };
+    });
+}
+
 let invoices, invoicesAppId;
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
@@ -883,6 +916,125 @@ test.each(['workflow', 'followup'])('%s reads an installed skill through its exe
     {purpose:kind==='workflow'?'workflow_agent':'followup',input_tokens:20,output_tokens:6,user_github_id:'9302'},
   ]);
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM ai_reservations').first()).n).toBe(0);
+});
+
+test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools and discards access revoked in flight', async () => {
+  const { agent } = await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'Policy reviewer', handle: 'policy-reviewer', instructions: 'Review workspace policy.', scope: 'team',
+  })).json();
+  const server = await addWorkflowRemoteMcpServer([
+    { name: 'search_policy', title: 'Search policy', inputSchema: { type: 'object', properties: { query: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+    { name: 'delete_record', title: 'Delete record', inputSchema: { type: 'object', properties: { id: { type: 'string' } } }, annotations: { destructiveHint: true } },
+    { name: 'read_unapproved', title: 'Read unapproved', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },
+  ], ['search_policy', 'delete_record']);
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Check policy source', trigger: { type: 'manual' },
+    steps: [{ type: 'agent', agentId: agent.id, channel: 'b:ops', prompt: 'Find the key policy and summarize it.' }],
+  }, '9302');
+  const requests = [];
+  const remote = fetchMock.get('https://workflow-mcp.example.com');
+  const message = opts => JSON.parse(opts.body);
+  let remoteToolName = null;
+  let requestAborted = false;
+  fetchMock.activate();
+  remote.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'initialize' })
+    .reply(opts => ({ statusCode: 200, data: { jsonrpc: '2.0', id: message(opts).id, result: { protocolVersion: '2025-06-18' } }, responseOptions: { headers: { 'mcp-session-id': 'workflow-session' } } }));
+  remote.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'notifications/initialized' }).reply(202, null);
+  remote.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'tools/call' })
+    .reply(opts => ({ statusCode: 200, data: { jsonrpc: '2.0', id: message(opts).id, result: { content: [{ type: 'text', text: 'Workspace policy: keep all keys private.' }] } } }));
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
+    const body = JSON.parse(opts.body);
+    requests.push(body);
+    if (requests.length === 1) {
+      const names = (body.tools || []).map(tool => tool.function.name);
+      remoteToolName = names.find(name => name.startsWith('mcp_'));
+      return {
+        choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'policy-search', type: 'function', function: { name: remoteToolName, arguments: JSON.stringify({ query: 'API keys' }) } }] } }],
+        usage: { prompt_tokens: 10, completion_tokens: 4 },
+      };
+    }
+    return { choices: [{ message: { content: 'The policy says never share keys.' } }], usage: { prompt_tokens: 20, completion_tokens: 6 } };
+  }).times(2);
+  try {
+    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+    expect(result.status).toBe('done');
+    expect(result.log[0].output).toBe('The policy says never share keys.');
+    const offered = requests[0].tools.map(tool => tool.function.name);
+    expect(offered).toEqual([remoteToolName]);
+    expect(requests[1].messages.find(message => message.role === 'tool').content).toContain('Workspace policy: keep all keys private.');
+    expect(requests[1].messages.find(message => message.role === 'tool').content).not.toContain('delete_record');
+    expect(requests[1].messages.find(message => message.role === 'tool').content).not.toContain('read_unapproved');
+    expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_agent_remote_mcp_grants WHERE org_id=?1').bind(ORG).first()).n).toBe(0);
+    expect((await messages(mika)).map(message => message.body)).toContain('The policy says never share keys.');
+    expect(result.usage).toMatchObject({ calls: 2, inputTokens: 30, outputTokens: 10, unknownCalls: 0 });
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+
+  // A changed workspace allowlist during the next provider round invalidates
+  // the private MCP context and aborts that request before it can be posted.
+  await env.DB.prepare('UPDATE hx_remote_mcp_servers SET allowed_tools=?1 WHERE org_id=?2 AND id=?3')
+    .bind(JSON.stringify(['search_policy', 'delete_record']), ORG, server.id).run();
+  const { workflow: secondWorkflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Check policy source again', trigger: { type: 'manual' },
+    steps: [{ type: 'agent', agentId: agent.id, channel: 'b:ops', prompt: 'Find the key policy and summarize it.' }],
+  }, '9302');
+  const priorMessages = await messages(mika);
+  let abortedFetch = false;
+  const secondRequests = [];
+  fetchMock.activate();
+  interceptWorkflowRemoteMcp();
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(async opts => {
+    const body = JSON.parse(opts.body);
+    secondRequests.push(body);
+    if (secondRequests.length === 1) {
+      const name = body.tools.find(tool => tool.function.name.startsWith('mcp_')).function.name;
+      return { statusCode: 200, data: { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'policy-search-again', type: 'function', function: { name, arguments: JSON.stringify({ query: 'API keys' }) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 4 } } };
+    }
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Workflow model request was not aborted after the Remote MCP allowlist changed.')), 10_000);
+      opts.signal.addEventListener('abort', () => { abortedFetch = true; clearTimeout(timeout); reject(new Error('Workflow model request aborted after the Remote MCP allowlist changed.')); }, { once: true });
+      setTimeout(() => env.DB.prepare('UPDATE hx_remote_mcp_servers SET allowed_tools=?1 WHERE org_id=?2 AND id=?3')
+        .bind('[]', ORG, server.id).run().catch(error => { clearTimeout(timeout); reject(error); }), 10);
+    });
+  }).times(2);
+  try {
+    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow: secondWorkflow, trigger: 'manual', startedBy: '9302' });
+    expect(result.status).toBe('failed');
+    expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
+    expect(abortedFetch).toBe(true);
+    expect(await messages(mika)).toHaveLength(priorMessages.length);
+    expect(result.usage).toMatchObject({ calls: 2, unknownCalls: 1, unpricedCalls: 1 });
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
+test('Workflow Agent steps do not receive Remote MCP tools in Simple mode', async () => {
+  const { agent } = await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'Simple reviewer', handle: 'simple-reviewer', instructions: 'Review the prompt.', scope: 'team',
+  })).json();
+  await addWorkflowRemoteMcpServer([
+    { name: 'search_policy', title: 'Search policy', inputSchema: { type: 'object', properties: { query: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+  ], ['search_policy']);
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Simple mode check', trigger: { type: 'manual' },
+    steps: [{ type: 'agent', agentId: agent.id, prompt: 'Review the release.' }],
+  }, '9302');
+  await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' });
+  let requestBody;
+  fetchMock.activate();
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
+    requestBody = JSON.parse(opts.body);
+    return { choices: [{ message: { content: 'Simple stays simple.' } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
+  });
+  try {
+    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+    expect(result.status).toBe('done');
+    expect(requestBody.tools || []).toEqual([]);
+    expect(result.log[0].output).toBe('Simple stays simple.');
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
 });
 
 test('an app record workflow stops its Agent after its maker loses app access during the model turn', async () => {
