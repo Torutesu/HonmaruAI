@@ -3755,3 +3755,10 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Rebased Skill link preview/import onto the merged app-template implementation. Both token routes and both share-management flows remain available; removed duplicate Japanese dictionary keys and restored the authenticated Skill share-create/list/revoke route.
 - After the integration fixes, focused Worker tests passed (32 tests), focused Web sharing and routing tests passed (35 tests), and the Web TypeScript production build passed. `git diff --check` and `node scripts/check-kylon-parity.mjs` passed; current inventory is 97 requirements (86 partial, 4 implemented, 6 missing, 1 unverified), not a completion percentage.
 - The Skill changes still need PR CI and production deployment. No paid service was added; Simple mode and its data path remain unchanged.
+
+
+### 2026-10-31 — Persistent app annotations (local implementation)
+
+- Matched Kylon's signed-in app annotation mode against Honmaru: range drag, floating toolbar, “show all” control, right-side annotation list, empty state, anchored selection editor and comment attachment. No Kylon or Honmaru app records were changed during comparison.
+- Added D1-backed app annotation markers linked to successfully sent app conversation messages, idempotent retries, authorized marker reads, restored draft metadata, pins, click-to-open cards and a list panel. Record-scope markers remain unsupported because record conversations do not expose screen-level marker UI. Simple mode and its data path are unchanged; no new paid service is used.
+- Focused Web tests passed (13 tests); Worker conversation and migration tests passed (32 tests). The TypeScript-backed production Web build passed (existing Vite chunk-size and ineffective dynamic-import warnings remain); `git diff --check` and the parity inventory check passed (98 requirements: 87 partial, 4 implemented, 6 missing, 1 unverified). PR CI, production deployment, and authenticated marker creation/reload/access-boundary verification remain pending. This is partial parity, not a 100% completion claim.

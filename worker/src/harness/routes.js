@@ -29,6 +29,7 @@ import { announceTo } from '../announce.js';
 import { custom as appActivityEvent } from '../agui/events.js';
 import { conversationSource, sourceFor, sourceHistory, notifyAppMentions, appNotifications, asksAppAI, replyToApp } from './appConversationFeatures.js';
 import { appConversation } from './appConversations.js';
+import { listAppAnnotations, normalizeAppAnnotation, saveAppAnnotation } from './appAnnotations.js';
 import { personalViews } from './personalViews.js';
 import { appPins, setAppPin } from './appPins.js';
 import { previewMerge, mergeFork } from './appMerge.js';
@@ -955,6 +956,9 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === 'conversation' && parts.length === 3) {
       if (!['GET','POST'].includes(request.method)) return json({message:'Method not allowed.'},405);
       const query=request.method==='GET'?Object.fromEntries(url.searchParams):input;
+      const annotation=request.method==='POST'?normalizeAppAnnotation(input.annotation):null;
+      if(annotation?.error)return fail(annotation);
+      if(annotation&&query.rowId)return json({message:'Annotations are only available in app conversations.'},400);
       // Validate both app and record before looking up any source thread.
       const access=await appConversation(env.DB,orgId,me,appId,query);
       if(access.error)return fail(access);
@@ -971,20 +975,25 @@ export async function handleHarness(request, env, url, context = {}) {
         if(!forwarded.ok)return forwarded;
         const sent=await forwarded.json();
         if(sent.message?.body!==input.body.replace(/\r\n/g,'\n').trim())return json({message:'Request ID was already used for a different message.'},409);
-        return json({threadId:source.threadId,source:true});
+        const marker=await saveAppAnnotation(env.DB,{orgId,appId,tableId:input.tableId||'',rowId:input.rowId||'',messageSource:'channel',messageId:sent.message.id,authorId:me,annotation});
+        if(marker.error)return fail(marker);
+        return json({threadId:source.threadId,source:true,...(marker.annotationId?{annotationId:marker.annotationId}:{})});
       }
       if(request.method==='GET'){
         const {results:aiReplies}=await env.DB.prepare(`SELECT r.message_id AS messageId,CASE WHEN r.status='running' AND r.started_at<unixepoch()-120 THEN 'failed' ELSE r.status END AS status,CASE WHEN r.status='running' AND r.started_at<unixepoch()-120 THEN 'AIの応答待ちが終了しました。再度質問してください。' ELSE r.error END AS error FROM hx_app_ai_replies r JOIN hx_app_messages m ON m.sequence=r.message_id WHERE m.org_id=? AND m.app_id=? AND m.table_id=? AND m.row_id=? ORDER BY m.sequence DESC LIMIT 10`).bind(orgId,appId,query.tableId||'',query.rowId||'').all();
-        return json({...access,source:source?await sourceHistory(env.DB,orgId,who.user,source):null,aiReplies});
+        const annotations=await listAppAnnotations(env.DB,orgId,appId,query);
+        return json({...access,source:source?await sourceHistory(env.DB,orgId,who.user,source):null,aiReplies,annotations});
       }
       const r=await appConversation(env.DB,orgId,me,appId,input,true);
       if(r.error)return fail(r);
+      const marker=await saveAppAnnotation(env.DB,{orgId,appId,tableId:input.tableId||'',rowId:input.rowId||'',messageSource:'app',messageId:r.messageId,authorId:me,annotation});
+      if(marker.error)return fail(marker);
       await notifyAppMentions(env.DB,orgId,who.user,appId,input,r.messageId,env);
       if(asksAppAI(input.body)){
         const work=()=>replyToApp(env,orgId,who.user,appId,input,r.messageId,env);
         if(context.after)context.after(work);else await work();
       }
-      return json(r);
+      return json({...r,...(marker.annotationId?{annotationId:marker.annotationId}:{})});
     }
     const app = await getApp(env.DB, orgId, appId);
     if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);

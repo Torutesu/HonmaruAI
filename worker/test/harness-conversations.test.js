@@ -26,7 +26,7 @@ beforeEach(async()=>{
  ({app}=await createApp(env.DB,{orgId:org,by:'9201',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]}));
  ({row}=await addRow(env.DB,org,app.tableId,{title:'First'},'9201'));
 });
-const post=(token,body,requestId='request_0000000001',scope={})=>request('POST',token,{body,requestId,...scope});
+const post=(token,body,requestId='request_0000000001',scope={},annotation)=>request('POST',token,{body,requestId,...scope,...(annotation?{annotation}:{})});
 const createRequest=(path,token,input)=>fetchWorker(new Request('https://test'+path,{method:'POST',headers:{'x-session-token':token,'content-type':'application/json'},body:JSON.stringify({orgId:org,...input})}));
 async function privateSource(){
  const {postMessage}=await import('../src/channels.js');
@@ -148,6 +148,24 @@ test('app and record conversations have stable identities, independent histories
  const record=await (await request('GET',owner,scope)).json();expect(record.threadId).not.toBe(empty.threadId);expect(record.messages.map(m=>m.body)).toEqual(['Record note']);
  expect((await (await request('GET',member)).json()).messages.map(m=>m.body)).toEqual(['Hello']);
 });
+test('sent app annotations persist with their message, scope and access checks',async()=>{
+ const marker={target:'列「Title」',x:28.5,y:64,section:'data'};
+ expect((await (await request('GET',owner)).json()).annotations).toEqual([]);
+ const body='注釈: Tasks · データビューアー · 列「Title」 · 画面位置 28.5% / 64%\nReview the title spacing';
+ expect((await post(owner,body,'annotation_request_001',{},marker)).status).toBe(200);
+ expect((await post(owner,body,'annotation_request_001',{},marker)).status).toBe(200);
+ const history=await (await request('GET',owner)).json();expect(history.annotations).toHaveLength(1);
+ expect(history.annotations[0]).toMatchObject({target:marker.target,x:marker.x,y:marker.y,section:marker.section,body,authorId:'9201',authorName:'User 9201',messageSource:'app'});
+ const secondSession=await createSession(env.DB,'9201','annotation-second');expect((await (await request('GET',secondSession)).json()).annotations[0].id).toBe(history.annotations[0].id);
+ expect((await (await request('GET',owner,{tableId:app.tableId,rowId:row.id})).json()).annotations).toEqual([]);
+ expect((await post(owner,'Invalid marker','annotation_request_002',{}, {...marker,x:101})).status).toBe(400);
+ expect((await post(owner,'Record marker','annotation_request_003',{tableId:app.tableId,rowId:row.id},marker)).status).toBe(400);
+ expect((await (await request('GET',owner,{tableId:app.tableId,rowId:row.id})).json()).messages).toEqual([]);
+ expect((await (await request('GET',owner)).json()).messages.map(message=>message.body)).toEqual([body]);
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(org,app.id).run();
+ expect((await request('GET',member)).status).toBe(404);
+ expect((await request('GET',owner)).status).toBe(200);
+});
 test('membership, current app visibility and record ownership gate reads and writes',async()=>{
  await post(owner,'Private later');
  for(const token of [guest,other]){expect((await request('GET',token)).status).toBe(403);expect((await post(token,'Blocked')).status).toBe(403);}
@@ -187,8 +205,13 @@ test('source inheritance reuses the original thread and preserves room access, r
  expect((await featureRequest('conversation-source','POST',owner,{messageId:root.row.id})).status).toBe(200);
  expect((await featureRequest('conversation-source','POST',owner,{messageId:root.row.id})).status).toBe(200);
  const history=await (await request('GET',owner)).json();expect(history.source.threadId).toBe(root.row.id);expect(history.source.messages[0].body).toBe('Original app request');
- expect((await post(owner,'Continue here','source_request_001')).status).toBe(200);
- expect((await post(owner,'Continue here','source_request_001')).status).toBe(200);
+ const sourceMarker={target:'申請ボタン',x:81,y:22,section:'overview'};
+ expect((await post(owner,'Continue here','source_request_001',{},sourceMarker)).status).toBe(200);
+ expect((await post(owner,'Continue here','source_request_001',{},sourceMarker)).status).toBe(200);
+ const sourcedHistory=await (await request('GET',owner)).json();expect(sourcedHistory.annotations).toHaveLength(1);expect(sourcedHistory.annotations[0]).toMatchObject({...sourceMarker,messageSource:'channel',body:'Continue here'});
+ const memberHistory=await (await request('GET',member)).json();expect(memberHistory.annotations).toHaveLength(1);
+ await env.DB.prepare('UPDATE businesses SET private=1 WHERE org_id=? AND slug=?').bind(org,'source').run();
+ expect((await request('GET',member)).status).toBe(403);
  const replies=await env.DB.prepare('SELECT body FROM channel_messages WHERE parent_id=?').bind(root.row.id).all();expect(replies.results.map(r=>r.body)).toEqual(['Continue here']);
  expect((await (await request('GET',owner,{tableId:app.tableId,rowId:row.id})).json()).source).toBeNull();
  await env.DB.prepare('DELETE FROM businesses WHERE org_id=? AND slug=?').bind(org,'source').run();

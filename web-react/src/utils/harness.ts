@@ -4,7 +4,9 @@ export interface SkillFile { path: string; base64: string; size?: number }
 export type SkillDraft = Pick<Skill, 'name' | 'description' | 'body' | 'metadata'> & { files?: SkillFile[] }
 export type SkillImportInput = string | { zipBase64: string } | { files: SkillFile[] }
 export interface AppMessage { id:number; authorId:string; authorName:string; body:string; createdAt:string }
-export interface AppConversation { threadId:string; messages:AppMessage[]; hasMore:boolean; source?:{channel:string;threadId:string;messages:Array<{id:string;body:string;authorName?:string;kind?:string;createdAt:string}>}|null; aiReplies?:Array<{messageId:number;status:string;error?:string}> }
+export interface AppAnnotationMeta { target:string; x:number; y:number; section:'overview'|'data' }
+export interface AppAnnotation extends AppAnnotationMeta { id:string; tableId:string; rowId:string; messageSource:'app'|'channel'; messageId:string; authorId:string; authorName:string; body:string; createdAt:string }
+export interface AppConversation { threadId:string; messages:AppMessage[]; hasMore:boolean; annotations?:AppAnnotation[]; source?:{channel:string;threadId:string;messages:Array<{id:string;body:string;authorName?:string;kind?:string;createdAt:string}>}|null; aiReplies?:Array<{messageId:number;status:string;error?:string}> }
 export interface PersonalViews { activeView?: string; revision: number; views: View[]; computed: View[]; layouts: Record<string, {order:string[];widths:Record<string,number>;hidden?:string[];wrapText?:boolean}> }
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -139,7 +141,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
   return {
     httpBase, orgId, drafts: appDrafts(httpBase,orgId,sessionToken), files: workspaceFileApi(httpBase,orgId,sessionToken),
     conversation: (id:string, scope:{tableId?:string;rowId?:string}={}, before?:number) => call<AppConversation>('GET',`/apps/${id}/conversation`,undefined,{...(scope.tableId?{tableId:scope.tableId}:{}),...(scope.rowId?{rowId:scope.rowId}:{}),...(before?{before:String(before)}:{})}),
-    postConversation: (id:string, scope:{tableId?:string;rowId?:string}, body:string, requestId:string) => call<{threadId:string;messageId:number}>('POST',`/apps/${id}/conversation`,{...scope,body,requestId}),
+    postConversation: (id:string, scope:{tableId?:string;rowId?:string}, body:string, requestId:string, annotation?:AppAnnotationMeta) => call<{threadId:string;messageId:number;annotationId?:string}>('POST',`/apps/${id}/conversation`,{...scope,body,requestId,...(annotation?{annotation}:{})}),
     markSourceRead: (channel:string,thread:string,at:string) => call('POST','/channels/read',{channel,thread,at}),
     conversationSources: (id:string) => call<{candidates:Array<{id:string;body:string;channel:string;createdAt:string}>}>('GET',`/apps/${id}/conversation-source`),
     inheritConversation: (id:string,messageId:string) => call('POST',`/apps/${id}/conversation-source`,{messageId}),

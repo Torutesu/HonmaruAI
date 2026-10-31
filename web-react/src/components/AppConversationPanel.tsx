@@ -4,7 +4,7 @@ import {renderRich} from './MessageParts'
 import React, {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react'
 import {useMentionMenu} from './MentionMenu'
 import type {Mentionable} from '../utils/mentions'
-import type {AppConversation} from '../utils/harness'
+import type {AppAnnotation, AppAnnotationMeta, AppConversation} from '../utils/harness'
 import {Icon} from './Icon'
 import type {AppMessage, HarnessApi} from '../utils/harness'
 import {enterKey} from '../utils/keys'
@@ -12,9 +12,11 @@ import {enterKey} from '../utils/keys'
 export function mergeMessages(previous:AppMessage[], incoming:AppMessage[]) {
  return [...new Map([...previous,...incoming].map(m=>[m.id,m])).values()].sort((a,b)=>a.id-b.id)
 }
-export function AppConversationPanel({api,appId,tableId,rowId,title,context,onClose,initialDraft,onInitialDraftConsumed,annotationDraft,onAnnotationDraftConsumed}:{api:HarnessApi;appId:string;tableId?:string;rowId?:string;title:string;context?:string;initialDraft?:string;onInitialDraftConsumed?:()=>void;annotationDraft?:{id:string;text:string}|null;onAnnotationDraftConsumed?:(id:string)=>void;onClose?:()=>void}) {
+export function AppConversationPanel({api,appId,tableId,rowId,title,context,onClose,initialDraft,onInitialDraftConsumed,annotationDraft,onAnnotationDraftConsumed,onAnnotationsChange}:{api:HarnessApi;appId:string;tableId?:string;rowId?:string;title:string;context?:string;initialDraft?:string;onInitialDraftConsumed?:()=>void;annotationDraft?:{id:string;text:string;marker:AppAnnotationMeta}|null;onAnnotationDraftConsumed?:(id:string)=>void;onAnnotationsChange?:(annotations:AppAnnotation[])=>void;onClose?:()=>void}) {
  const [messages,setMessages]=useState<AppMessage[]>([]),[draft,setDraft]=useState(''),[error,setError]=useState(''),[loading,setLoading]=useState(true),[sending,setSending]=useState(false),[hasMore,setHasMore]=useState(false),[older,setOlder]=useState(false)
+ const [annotationMeta,setAnnotationMeta]=useState<AppAnnotationMeta|null>(null)
  const saveDraft:React.Dispatch<React.SetStateAction<string>>=value=>setDraft(previous=>{const next=typeof value==='function'?value(previous):value;api.drafts?.write(next,appId,tableId,rowId);return next})
+ const annotationsChanged=useRef(onAnnotationsChange);annotationsChanged.current=onAnnotationsChange
  const consumedAnnotation=useRef<string|null>(null)
  const box=useRef<HTMLTextAreaElement>(null)
  const [members,setMembers]=useState<Mentionable[]>([]),[source,setSource]=useState<AppConversation['source']>(null),[aiReplies,setAIReplies]=useState<NonNullable<AppConversation['aiReplies']>>([])
@@ -30,16 +32,17 @@ export function AppConversationPanel({api,appId,tableId,rowId,title,context,onCl
  useLayoutEffect(()=>{const element=list.current;if(!element)return;if(scrollAnchor.current){element.scrollTop=scrollAnchor.current.top+element.scrollHeight-scrollAnchor.current.height;scrollAnchor.current=null}else if(stickToBottom.current)element.scrollTop=element.scrollHeight},[messages,source])
  const refresh=useCallback(async(generation:number)=>{
   const read=++readVersion.current;
-  try {const data=await api.conversation(appId,{tableId,rowId});if(generation!==epoch.current||read!==readVersion.current)return;setMessages(previous=>mergeMessages(previous,data.messages));setSource(data.source||null);setAIReplies(data.aiReplies||[]);if(!historyLoaded.current)setHasMore(data.hasMore);setError('')}
-  catch(e){if(generation===epoch.current&&read===readVersion.current){historyLoaded.current=false;setMessages([]);setSource(null);setSources(null);setAIReplies([]);setError(e instanceof Error?e.message:String(e))}}
+  try {const data=await api.conversation(appId,{tableId,rowId});if(generation!==epoch.current||read!==readVersion.current)return;setMessages(previous=>mergeMessages(previous,data.messages));setSource(data.source||null);setAIReplies(data.aiReplies||[]);annotationsChanged.current?.(data.annotations||[]);if(!historyLoaded.current)setHasMore(data.hasMore);setError('')}
+  catch(e){if(generation===epoch.current&&read===readVersion.current){historyLoaded.current=false;setMessages([]);setSource(null);setSources(null);setAIReplies([]);annotationsChanged.current?.([]);setError(e instanceof Error?e.message:String(e))}}
   finally {if(generation===epoch.current)setLoading(false)}
  },[api,appId,tableId,rowId])
- useEffect(()=>{const generation=++epoch.current;sourceRead.current='';setMessages([]);setSource(null);setSources(null);setLinking(false);setAIReplies([]);const restoredDraft=api.drafts?.read(appId,tableId,rowId)||initialDraft||'';setDraft(restoredDraft);if(restoredDraft)api.drafts?.write(restoredDraft,appId,tableId,rowId);if(initialDraft)onInitialDraftConsumed?.();setError('');setLoading(true);setHasMore(false);setSending(false);setOlder(false);pending.current=false;request.current=null;historyLoaded.current=false;stickToBottom.current=true;scrollAnchor.current=null;void refresh(generation);const interval=setInterval(()=>{if(document.visibilityState==='visible')void refresh(generation)},10000);return()=>{epoch.current++;clearInterval(interval)}},[refresh])
- useEffect(()=>{if(!annotationDraft||consumedAnnotation.current===annotationDraft.id)return;consumedAnnotation.current=annotationDraft.id;saveDraft(previous=>[previous.trim(),annotationDraft.text].filter(Boolean).join('\n\n'));onAnnotationDraftConsumed?.(annotationDraft.id)},[annotationDraft?.id])
+ useEffect(()=>{const generation=++epoch.current;sourceRead.current='';setMessages([]);setSource(null);setSources(null);setLinking(false);setAIReplies([]);const restoredDraft=api.drafts?.read(appId,tableId,rowId)||initialDraft||'';const restoredAnnotation=rowId||!restoredDraft?null:api.drafts?.readAnnotation?.(appId,tableId,rowId)||null;setDraft(restoredDraft);setAnnotationMeta(restoredAnnotation);if(restoredDraft)api.drafts?.write(restoredDraft,appId,tableId,rowId);if(initialDraft)onInitialDraftConsumed?.();setError('');setLoading(true);setHasMore(false);setSending(false);setOlder(false);pending.current=false;request.current=null;historyLoaded.current=false;stickToBottom.current=true;scrollAnchor.current=null;void refresh(generation);const interval=setInterval(()=>{if(document.visibilityState==='visible')void refresh(generation)},10000);return()=>{epoch.current++;clearInterval(interval)}},[refresh])
+ useEffect(()=>{if(!annotationDraft||consumedAnnotation.current===annotationDraft.id)return;consumedAnnotation.current=annotationDraft.id;saveDraft(previous=>[previous.trim(),annotationDraft.text].filter(Boolean).join('\n\n'));setAnnotationMeta(annotationDraft.marker);api.drafts?.writeAnnotation?.(annotationDraft.marker,appId,tableId,rowId);onAnnotationDraftConsumed?.(annotationDraft.id)},[annotationDraft?.id])
+ useEffect(()=>{if(!draft.trim()&&annotationMeta){setAnnotationMeta(null);api.drafts?.writeAnnotation?.(null,appId,tableId,rowId)}},[draft,annotationMeta,api,appId,tableId,rowId])
  const send=async(e:React.FormEvent)=>{
   e.preventDefault();const body=draft.trim();if(!body||pending.current)return;const generation=epoch.current;pending.current=true;setSending(true);setError('');
   if(request.current?.body!==body)request.current={body,id:crypto.randomUUID()};
-  try {await api.postConversation(appId,{tableId,rowId},body,request.current.id);if(generation!==epoch.current)return;saveDraft('');request.current=null;stickToBottom.current=true;await refresh(generation);list.current?.scrollTo({top:list.current.scrollHeight,behavior:'smooth'})}
+  try {await api.postConversation(appId,{tableId,rowId},body,request.current.id,rowId?undefined:annotationMeta||undefined);if(generation!==epoch.current)return;saveDraft('');setAnnotationMeta(null);api.drafts?.writeAnnotation?.(null,appId,tableId,rowId);request.current=null;stickToBottom.current=true;await refresh(generation);list.current?.scrollTo({top:list.current.scrollHeight,behavior:'smooth'})}
   catch(e){if(generation===epoch.current)setError(e instanceof Error?e.message:String(e))}
   finally{if(generation===epoch.current){pending.current=false;setSending(false)}}
  }

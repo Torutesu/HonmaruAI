@@ -206,7 +206,7 @@ Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing an
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-098 | アプリ画面への範囲注釈とAgentへの修正依頼 | 一部 | P1 | [AppAnnotation.tsx](../../web-react/src/components/AppAnnotation.tsx), [customRunner.js](../../worker/src/harness/customRunner.js) | 対象範囲・親画面要素・公開sandboxカスタム画面の要素名・位置を指定し、アプリ会話に編集可能な下書きとして渡す。送信は利用者が選択。注釈マーカー、アクセス権、作成元スレッドを含む認証済み本番E2E比較が残る |
+| KY-098 | アプリ画面への範囲注釈とAgentへの修正依頼 | 一部 | P1 | [AppAnnotation.tsx](../../web-react/src/components/AppAnnotation.tsx), [appAnnotations.js](../../worker/src/harness/appAnnotations.js) | 対象範囲・親画面要素・公開sandboxカスタム画面の要素名・位置を指定し、編集可能な下書きを利用者が送信。送信済みメッセージのマーカーを保存し一覧/ピンで再表示。Focused tests pass; PR CIとデプロイ後の作成・再読込・アクセス拒否・作成元スレッドを含む認証済み本番E2Eが残る |
 
 ### 2026-10-26 — Kylon usage controls
 
