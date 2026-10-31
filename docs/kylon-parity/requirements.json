@@ -764,8 +764,12 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/harness/agents.js",
-      "acceptance": "今回Agent grantの再確認を追加。部屋/DB/Connection/依頼者権限は継続監査"
+      "code": "worker/src/harness/agents.js, worker/src/harness/workflows.js",
+      "acceptance": "Agentの現行grant・会話権限に加えてapp_record_change元App/Table権限を各モデル往復・ツール実行fenceで再検証。Connection grantを使う全経路と実行中provider requestのキャンセル・精算は継続監査",
+      "evidence": {
+        "verified": "2026-10-31、WorkflowのAgent応答中に元Appをprivate化しても応答を公開しないfocused regression testが成功。実装・CI・Worker本番反映は次のPR待ち。",
+        "remaining": "直接のConnection stepは現在のworkflow step型に含まれない。今後追加する接続stepを含む全副作用経路、provider requestの中断、途中usageの精算を通した監査は残る。"
+      }
     },
     {
       "id": "KY-067",
@@ -1154,8 +1158,8 @@
       "code": "web-react/src/components/AppAnnotation.tsx, worker/src/harness/appAnnotations.js, worker/src/harness/routes.js",
       "acceptance": "対象範囲・親画面要素・公開sandboxカスタム画面のsemantic target・画面位置を特定し、アプリ会話に編集可能な下書きとして渡す。送信後はアプリ単位でマーカーを永続化し、権限確認後に一覧・画面上で再表示する。送信は利用者が選択。作成と再読込後のピン・本文復元を認証済み本番で確認。作成元スレッド、複数ユーザーの本番拒否、二台同期の受入は残る。",
       "evidence": {
-        "verified": "2026-10-31、PR #576（merge c14a0f6）でD1永続化、認可付き一覧、ピン/カード表示、下書き添付メタデータ復元を本番公開。PR #577（merge 233faf0）で範囲矩形のCSSパーセント描画を修正し、Web deploy #41198169985成功。app.honmaruai.comとhonmaru-web.pages.devはHTTP 200で同じindex-Dnv3eCoH.jsを配信し、Worker healthはok/encryption.all true。同一の空アプリをログイン済みKylonとHonmaruで表示し、範囲ドラッグ・注釈入力UIを比較。Kylonの点線枠/範囲左下の入力欄に近づけるUI改善はローカル実装・focused tests/build成功、次のPR反映待ち。Honmaru本番のQAアプリにAIを起動しない短い注釈メッセージを1件送信し、ピン生成、再読込後のピン復元、開いたカードの本文復元を確認。Kylonの編集はキャンセル。アプリの行データは0件のまま。",
-        "remaining": "Kylonに合わせた点線枠/入力欄配置修正のCI・本番反映、別ユーザーからの拒否を含む複数ユーザー本番検証、二台同期、作成元スレッド経由の本番比較が残る。"
+        "verified": "2026-10-31、PR #576（merge c14a0f6）でD1永続化、認可付き一覧、ピン/カード表示、下書き添付メタデータ復元を本番公開。PR #577（merge 233faf0）で範囲矩形のCSSパーセント描画を修正し、Web deploy #41198169985成功。PR #578（merge 25154abc）で淡い点線枠・範囲左下の入力欄をKylonに寄せ、Web deploy #41199862857成功。main CI #41199862881のWorker、Web、E2E、Desktop、Gateway、Core/Mobile各job成功。app.honmaruai.comとhonmaru-web.pages.devは同一assetを配信し、Worker healthはok/encryption.all true。ログイン済みKylon/Honmaruで同じ空アプリを表示し、範囲ドラッグ・注釈入力UIを比較。本番HonmaruのQAアプリへAIを起動しない短い注釈を1件送り、ピン生成、再読込後のピンと本文復元を確認。Kylonの編集はキャンセル。アプリの行データは0件のまま。",
+        "remaining": "別ユーザーからの拒否を含む複数ユーザー本番検証、同一ユーザー二台同期、作成元スレッド経由の画面比較が残る。"
       }
     }
   ]
