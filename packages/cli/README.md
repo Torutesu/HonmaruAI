@@ -27,16 +27,27 @@ npm exec --workspace @honmaru/cli -- honmaru workspace decision search "release 
 npm exec --workspace @honmaru/cli -- honmaru workspace decision request --title "Approve deploy?" --to "Aiko" --priority high
 npm exec --workspace @honmaru/cli -- honmaru workspace call query_rows --args '{"tableId":"tbl_…","limit":25}'
 npm exec --workspace @honmaru/cli -- honmaru workspace app list
+npm exec --workspace @honmaru/cli -- honmaru workspace app action list
+npm exec --workspace @honmaru/cli -- honmaru workspace app action run app_… recalculate --version 4 --gateway-id gw_… --request-id recalc-01 --input '{"invoiceId":"inv_9"}'
+npm exec --workspace @honmaru/cli -- honmaru workspace app action read app_… job_…
 npm exec --workspace @honmaru/cli -- honmaru workspace row list tbl_… --query "in progress" --limit 25
 npm exec --workspace @honmaru/cli -- honmaru workspace row create tbl_… --values '{"Status":"Open"}'
 npm exec --workspace @honmaru/cli -- honmaru workspace workflow run wf_… --text "Review this week's changes"
 npm exec --workspace @honmaru/cli -- honmaru workspace file list --scope b:ops --query "release notes"
 npm exec --workspace @honmaru/cli -- honmaru workspace file read file_… --version 2
+npm exec --workspace @honmaru/cli -- honmaru workspace execution node list
+npm exec --workspace @honmaru/cli -- honmaru workspace execution run --gateway-id gw_… --request-id release-check-01 --code "return {ok:true};" --input null
+npm exec --workspace @honmaru/cli -- honmaru workspace execution read job_…
+npm exec --workspace @honmaru/cli -- honmaru workspace execution cancel job_…
 ```
 
 Resource commands are concise aliases for the same scoped MCP tools: Apps, tables, rows, workflows, follow-ups, and accessible workspace files. Add `--json` for machine-readable output. `workspace call` remains available for other tools and prints the complete JSON result. The workspace server remains the authority for input validation and permissions; in particular, stale row edits are rejected by `--expected-updated-at` compare-and-set checks. Review mutating commands and their arguments before running them.
 
 Member, playbook, and decision aliases use the existing tools in both Simple and Harness workspaces. Harness-only aliases for Apps, tables, rows, workflows, follow-ups, files, and execution require Harness mode and the matching token scope. In Simple workspaces, those Harness-only aliases stay unavailable while the existing Simple tools continue to work through `workspace tools`, `workspace call`, and the member/playbook/decision aliases.
+
+Execution aliases list registered nodes, queue isolated JavaScript, read the caller's own result, or cancel their queued/running job. The run command requires a stable request ID and JSON input. Code and input are sent to the selected node operator, so do not include secrets or unrelated private data. The server enforces the execution scope, node registration, and isolation limits; queued or running is not a completed result.
+
+App action aliases list published actions, run an exact published version on a selected execution node, and read the caller's own scoped result. The request ID is stable across retries only when the app, action, version, node, and input stay the same. The node operator can read the input; do not include secrets or unrelated private data.
 
 Use `--api-url URL` to override the environment URL for one command. The CLI requires HTTPS; plain HTTP is accepted only for `localhost`, `127.0.0.1`, or `::1` development servers. Redirects are rejected.
 
