@@ -1,7 +1,7 @@
 import React from 'react'
 import {act,create} from 'react-test-renderer'
 import {expect,test,vi} from 'vitest'
-import {annotationTargetAt,AppAnnotationDialog} from './AppAnnotation'
+import {annotationTargetAt,AppAnnotationDialog,resolveCustomAppAnnotationTarget} from './AppAnnotation'
 import {AppConversationPanel} from './AppConversationPanel'
 
 test('annotation target lookup temporarily exposes the app beneath the drag layer',()=>{
@@ -10,6 +10,27 @@ test('annotation target lookup temporarily exposes the app beneath the drag laye
  const root={elementsFromPoint:()=>{expect(layer.style.pointerEvents).toBe('none');return [target]}}
  expect(annotationTargetAt(20,30,layer,root)).toBe('画面上の選択範囲')
  expect(layer.style.pointerEvents).toBe('auto')
+})
+
+test('annotation resolves an element inside a sandboxed custom app and rejects other frame messages',async()=>{
+ const postMessage=vi.fn(),callbacks=new Map<string,(event:any)=>void>()
+ const contentWindow={postMessage}
+ const frame={tagName:'IFRAME',contentWindow,getBoundingClientRect:()=>({left:10,top:20,width:100,height:50})} as unknown as HTMLIFrameElement
+ const root={elementsFromPoint:()=>[frame]} as unknown as Document
+ const host={addEventListener:(type:string,callback:(event:any)=>void)=>callbacks.set(type,callback),removeEventListener:(type:string)=>callbacks.delete(type)} as unknown as Window
+ const pending=resolveCustomAppAnnotationTarget(40,60,'画面上の選択範囲',root,host)
+ const request=postMessage.mock.calls[0][0]
+ expect(request).toMatchObject({type:'honmaru:annotation-target-request',x:30,y:40})
+ const receive=callbacks.get('message')!
+ receive({source:{},data:{type:'honmaru:annotation-target-result',id:request.id,target:'偽のフレーム'}})
+ receive({source:contentWindow,data:{type:'honmaru:annotation-target-result',id:request.id,target:'ボタン\n操作'}})
+ await expect(pending).resolves.toBe('カスタム画面のボタン 操作')
+ expect(callbacks.has('message')).toBe(false)
+})
+
+test('annotation falls back when the custom frame is unavailable',async()=>{
+ const frame={tagName:'IFRAME',contentWindow:null} as unknown as HTMLIFrameElement
+ await expect(resolveCustomAppAnnotationTarget(5,5,'画面上の選択範囲',{elementsFromPoint:()=>[frame]} as unknown as Document)).resolves.toBe('画面上の選択範囲')
 })
 
 test('annotation dialog requires a comment and submits trimmed text',async()=>{

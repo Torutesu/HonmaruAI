@@ -33,6 +33,58 @@ export function annotationTargetAt(x: number, y: number, layer: HTMLElement, roo
   return describeAnnotationTarget(target)
 }
 
+/**
+ * Published custom apps render inside an opaque sandbox frame. Ask the frame's
+ * small, host-controlled message bridge to identify the element under the
+ * selected point. The frame is accepted only when it is the actual iframe
+ * found at that point, and any late/malformed response falls back to the
+ * screen coordinates already captured by the caller.
+ */
+export function resolveCustomAppAnnotationTarget(
+  x: number,
+  y: number,
+  fallback: string,
+  root: Pick<Document, 'elementsFromPoint'> = document,
+  host?: Pick<Window, 'addEventListener' | 'removeEventListener'>,
+): Promise<string> {
+  const frame = root.elementsFromPoint(x, y).find(element => element.tagName === 'IFRAME') as HTMLIFrameElement | undefined
+  const frameWindow = frame?.contentWindow
+  if (!frame || !frameWindow) return Promise.resolve(fallback)
+  const eventHost = host ?? (typeof window === 'undefined' ? undefined : window)
+  if (!eventHost) return Promise.resolve(fallback)
+  const bounds = frame.getBoundingClientRect()
+  if (bounds.width <= 0 || bounds.height <= 0) return Promise.resolve(fallback)
+  const requestId = crypto.randomUUID()
+  return new Promise(resolve => {
+    let settled = false
+    let timeout: ReturnType<typeof setTimeout>
+    const finish = (target: string) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      eventHost.removeEventListener('message', onMessage)
+      resolve(target)
+    }
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== frameWindow || event.data?.type !== 'honmaru:annotation-target-result' || event.data.id !== requestId) return
+      const target = typeof event.data.target === 'string' ? event.data.target.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 100) : ''
+      finish(target ? `カスタム画面の${target}` : fallback)
+    }
+    eventHost.addEventListener('message', onMessage)
+    timeout = setTimeout(() => finish(fallback), 700)
+    try {
+      frameWindow.postMessage({
+        type: 'honmaru:annotation-target-request',
+        id: requestId,
+        x: Math.max(0, Math.min(bounds.width, x - bounds.left)),
+        y: Math.max(0, Math.min(bounds.height, y - bounds.top)),
+      }, '*')
+    } catch {
+      finish(fallback)
+    }
+  })
+}
+
 export function AppAnnotationLayer({ onSelect, onCancel }: { onSelect: (selection: AppAnnotationSelection) => void; onCancel: () => void }) {
   const layer = useRef<HTMLDivElement>(null)
   const start = useRef<{ x: number; y: number } | null>(null)
@@ -60,11 +112,13 @@ export function AppAnnotationLayer({ onSelect, onCancel }: { onSelect: (selectio
     const bounds = layer.current.getBoundingClientRect()
     const width = Math.abs(event.clientX - bounds.left - origin.x), height = Math.abs(event.clientY - bounds.top - origin.y)
     if (Math.max(width, height) >= 5 && bounds.width > 0 && bounds.height > 0) {
-      onSelect({
-        target: annotationTargetAt(event.clientX, event.clientY, layer.current),
-        x: Math.round(((origin.x + event.clientX - bounds.left) / 2 / bounds.width) * 1000) / 10,
-        y: Math.round(((origin.y + event.clientY - bounds.top) / 2 / bounds.height) * 1000) / 10,
-      })
+      const clientX = event.clientX, clientY = event.clientY
+      const selection = {
+        target: annotationTargetAt(clientX, clientY, layer.current),
+        x: Math.round(((origin.x + clientX - bounds.left) / 2 / bounds.width) * 1000) / 10,
+        y: Math.round(((origin.y + clientY - bounds.top) / 2 / bounds.height) * 1000) / 10,
+      }
+      void resolveCustomAppAnnotationTarget(clientX, clientY, selection.target).then(target => onSelect({ ...selection, target }))
     }
     setBox(null)
   }

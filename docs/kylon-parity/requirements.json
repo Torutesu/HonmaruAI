@@ -1151,8 +1151,8 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://kylon.io/help/build-an-app",
-      "code": "web-react/src/components/AppAnnotation.tsx",
-      "acceptance": "アプリ上の対象範囲をドラッグして要素・位置を特定し、注釈コメントをアプリまたは作成元会話に渡せる。送信前に編集でき、権限を超えて注釈が共有されない。対象箇所への注釈表示・再表示・複数注釈の管理と認証済み本番でのKylon比較も検証する。",
+      "code": "web-react/src/components/AppAnnotation.tsx, worker/src/harness/customRunner.js",
+      "acceptance": "対象範囲・親画面要素・公開sandboxカスタム画面のsemantic target・画面位置を特定し、アプリ会話に編集可能な下書きとして渡す。送信は利用者が選択。注釈マーカー・権限境界・作成元スレッドを含む認証済み本番E2E比較は残る。",
       "evidence": {
         "verified": "2026-10-31にログイン済みKylon実画面で注釈モード、範囲ドラッグの案内、Agentへのコメント作成導線を確認。Honmaruにドラッグ選択・対象ラベル・画面座標・アプリ会話へ編集可能な下書きとして追加するUIを実装。自動送信は行わず、既存会話の下書きを保つ。",
         "remaining": "対象の注釈マーク・永続化・一覧/再表示・複数注釈管理、権限境界と作成元スレッド連携を含む認証済み本番のE2E比較は未完了。"
