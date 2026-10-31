@@ -169,7 +169,7 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
           <span className="remote-mcp-icon"><Icon name="plug" size={17} /></span>
           <div><h2 id="remote-mcp-title">{t('Remote MCP servers')}</h2><p>{t('Connect an MCP server and allow selected tools for workspace agents.')}</p></div>
         </div>
-        <button type="button" className="studio-icon-btn" aria-expanded={expanded} aria-label={expanded ? t('Collapse') : t('Expand')} onClick={() => setExpanded((value) => !value)}>
+        <button type="button" className="studio-icon-btn" aria-expanded={expanded} aria-label={expanded ? t('Collapse Remote MCP section') : t('Expand Remote MCP section')} onClick={() => setExpanded((value) => !value)}>
           <Icon name="chevron-down" size={15} className={expanded ? 'remote-mcp-chevron open' : 'remote-mcp-chevron'} />
         </button>
       </div>
