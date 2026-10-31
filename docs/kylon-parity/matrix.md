@@ -145,7 +145,7 @@
 | KY-082 | データプロバイダの組込み | 一部 | P2 | [worker/src/agentResearch.js](../../worker/src/agentResearch.js) | 検索以外の人/企業/SEO/地図/TikTok等を実契約APIで検証 |
 | KY-083 | 画像・動画・音声生成 | 未実装 | P2 | [worker/src/agentTools.js](../../worker/src/agentTools.js) | job進捗・失敗・成果物保持・事前費用見積もり |
 | KY-084 | モデル互換proxy | 一部 | P2 | [worker/src/orgAI.js](../../worker/src/orgAI.js) | 対応API・stream・使用量計上・providerエラーを検証 |
-| KY-085 | Workspace CLIの全操作 | 一部 | P1 | [packages/cli](../../packages/cli) | Node 22の`honmaru workspace tools`/`call`、Harness用App・公開App action・table/row・workflow・follow-up・file・isolated execution node/jobの高水準コマンド、Simple/Harness共通のmember・playbook・decisionコマンド、既存Gateway workerを起動する`honmaru gateway run`とmacOS LaunchAgent状態表示を追加。HTTPS限定、env tokenを永続化せず、token scope・membership・SSO/IP制限・Simple/Harness分岐は既存MCP APIが強制。Gateway repair/upgrade、browser/device OAuth、credential helper、Room/message/Agent/connection/skillなど残りのコマンド群は未実装 |
+| KY-085 | Workspace CLIの全操作 | 一部 | P1 | [packages/cli](../../packages/cli) | main 2481adb0 / PR #569でHarness用のexecution node list/run/read/cancelと公開App action list/run/readを追加。JSON入力、安定request ID、公開version固定、結果の状態表示。HTTPS限定、env tokenを永続化せず、scope・membership・本人所有result・Simple/Harness分岐は既存MCP APIが強制。Gateway repair/upgrade、browser/device OAuth、credential helper、Room/message/Agent/connection/skillなど残りのコマンド群は未実装 |
 
 ## Commercial
 
@@ -198,7 +198,7 @@ Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing an
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-097 | データ表のインライン編集とダークテーマの視認性 | 一部 | P1 | [HarnessWorkspace.css](../../web-react/src/components/HarnessWorkspace.css) | ログイン済み画面でKylonは未選択セルを平坦に表示。Honmaruではセルが常時入力枠に見え、暗色面に緑かぶりがあった。セル通常時を平坦にし、hover/focusで操作状態を明示。中立なダーク配色とSimple維持を本番で確認する。 |
+| KY-097 | データ表のインライン編集とダークテーマの視認性 | 一部 | P1 | [HarnessWorkspace.css](../../web-react/src/components/HarnessWorkspace.css) | ログイン済み画面でKylonは未選択セルを平坦に表示。Honmaruではセルが常時入力枠に見え、暗色面に緑かぶりがあった。セル通常時を平坦にし、hover/focusで操作状態を明示。中立なダーク配色とSimple維持のCSSはmain 3b0775b9で本番反映・配信assetを確認。認証済み本番でのセル通常/hover/focusとライト/ダークは未確認。 |
 
 ### 2026-10-26 — Kylon usage controls
 
