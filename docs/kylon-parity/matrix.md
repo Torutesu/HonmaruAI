@@ -145,7 +145,7 @@
 | KY-082 | データプロバイダの組込み | 一部 | P2 | [worker/src/agentResearch.js](../../worker/src/agentResearch.js) | 検索以外の人/企業/SEO/地図/TikTok等を実契約APIで検証 |
 | KY-083 | 画像・動画・音声生成 | 未実装 | P2 | [worker/src/agentTools.js](../../worker/src/agentTools.js) | job進捗・失敗・成果物保持・事前費用見積もり |
 | KY-084 | モデル互換proxy | 一部 | P2 | [worker/src/orgAI.js](../../worker/src/orgAI.js) | 対応API・stream・使用量計上・providerエラーを検証 |
-| KY-085 | Workspace CLIの全操作 | 一部 | P1 | [packages/cli](../../packages/cli) | Node 22の`honmaru workspace tools`/`call`を追加。HTTPS限定、env tokenを永続化せず、JSON結果と失敗終了コードを提供。token scope・membership・SSO/IP制限・Simple/Harness分岐は既存MCP APIが強制。Kylon相当の全コマンド群、OAuth、credential helper、workspace内の各リソースに対する高水準コマンドは未実装 |
+| KY-085 | Workspace CLIの全操作 | 一部 | P1 | [packages/cli](../../packages/cli) | Node 22の`honmaru workspace tools`/`call`とHarness用App・table/row・workflow・follow-up・fileの高水準コマンドを追加。HTTPS限定、env tokenを永続化せず、token scope・membership・SSO/IP制限・Simple/Harness分岐は既存MCP APIが強制。Gateway lifecycle、browser/device OAuth、credential helper、Room/message/Agent/connection/skillなど残りのコマンド群は未実装 |
 
 ## Commercial
 

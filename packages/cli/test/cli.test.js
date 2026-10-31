@@ -53,3 +53,87 @@ test("the command fails closed on malformed args and unknown flags", async () =>
   assert.equal(await runCli(["workspace", "tools", "--force"], { env, stdout: stdout.stream, stderr: stderr.stream }), 1);
   assert.match(stderr.read(), /Unknown option/);
 });
+
+test("resource aliases map to the scoped app and database tools", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    calls.push(req.params);
+    let structuredContent;
+    if (req.params.name === "list_apps") structuredContent = { apps: [{ id: "app_1", name: "Pipeline", tableId: "table_1" }] };
+    else if (req.params.name === "list_tables") structuredContent = { tables: [{ id: "table_1", name: "Pipeline", columns: [{ name: "Status" }] }] };
+    else structuredContent = { rows: [{ id: "row_1", Status: "Open" }], total: 1 };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  assert.equal(await runCli(["workspace", "app", "list"], { env, fetcher, stdout: stdout.stream, stderr: stderr.stream }), 0);
+  assert.equal(stdout.read(), "app_1\tPipeline\ttable_1\n");
+  assert.equal(await runCli(["workspace", "table", "list"], { env, fetcher, stdout: stdout.stream, stderr: stderr.stream }), 0);
+  assert.equal(await runCli(["workspace", "row", "list", "table_1", "--where", "{\"Status\":\"Open\"}", "--limit", "25", "--offset", "50"], { env, fetcher, stdout: stdout.stream, stderr: stderr.stream }), 0);
+  assert.equal(await runCli(["workspace", "row", "create", "table_1", "--values", "{\"Status\":\"Open\"}"], { env, fetcher, stdout: stdout.stream, stderr: stderr.stream }), 0);
+  assert.deepEqual(calls, [
+    { name: "list_apps", arguments: {} },
+    { name: "list_tables", arguments: {} },
+    { name: "query_rows", arguments: { tableId: "table_1", where: { Status: "Open" }, limit: 25, offset: 50 } },
+    { name: "add_row", arguments: { tableId: "table_1", values: { Status: "Open" } } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("resource aliases preserve row compare-and-set inputs and file version scope", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    calls.push(req.params);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: { ok: true } } }), { status: 200 });
+  };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  assert.equal(await runCli(["workspace", "row", "update", "table_1", "row_1", "--values", "{\"Status\":\"Done\"}", "--expected-updated-at", "2026-10-31T00:00:00.000Z"], { env, fetcher, stdout: stdout.stream, stderr: stderr.stream }), 0);
+  assert.equal(await runCli(["workspace", "file", "read", "file_1", "--version", "3"], { env, fetcher, stdout: stdout.stream, stderr: stderr.stream }), 0);
+  assert.deepEqual(calls, [
+    { name: "update_row", arguments: { tableId: "table_1", rowId: "row_1", values: { Status: "Done" }, expectedUpdatedAt: "2026-10-31T00:00:00.000Z" } },
+    { name: "read_file_text", arguments: { fileId: "file_1", version: 3 } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("workflow, follow-up, and file aliases keep explicit scopes and typed values", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    calls.push(req.params);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: { ok: true } } }), { status: 200 });
+  };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "workflow", "run", "wf_1", "--text", "Check the release"]), 0);
+  assert.equal(await run(["workspace", "followup", "list", "--room", "b:ops"]), 0);
+  assert.equal(await run(["workspace", "followup", "schedule", "--room", "b:ops", "--instruction", "Check deployment", "--minutes", "1.5"]), 0);
+  assert.equal(await run(["workspace", "file", "list", "--scope", "all", "--query", "release notes", "--origin", "agent", "--limit", "10"]), 0);
+  assert.deepEqual(calls, [
+    { name: "run_workflow", arguments: { workflowId: "wf_1", text: "Check the release" } },
+    { name: "list_followups", arguments: { channel: "b:ops" } },
+    { name: "schedule_followup", arguments: { channel: "b:ops", instruction: "Check deployment", minutes: 1.5 } },
+    { name: "list_workspace_files", arguments: { scope: "all", query: "release notes", origin: "agent", limit: 10 } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("resource aliases reject malformed JSON and unsupported command flags before making a request", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  assert.equal(await runCli(["workspace", "row", "create", "table_1", "--values", "[]"], { env, fetcher, stdout: stdout.stream, stderr: stderr.stream }), 1);
+  assert.match(stderr.read(), /--values must be a JSON object/);
+  assert.equal(await runCli(["workspace", "app", "list", "--force"], { env, fetcher, stdout: stdout.stream, stderr: stderr.stream }), 1);
+  assert.match(stderr.read(), /Unknown option/);
+  assert.equal(requests, 0);
+});
