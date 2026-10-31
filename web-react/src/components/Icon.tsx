@@ -24,7 +24,7 @@ export type IconName =
   | 'calendar' | 'drive' | 'insights' | 'search' | 'mic'
   | 'repeat' | 'book' | 'terminal' | 'send'
   | 'pin' | 'bookmark' | 'chevron-left' | 'headphones' | 'chevron-down' | 'chevron-right' | 'more'
-  | 'smile' | 'message' | 'reply' | 'paperclip' | 'clock' | 'edit' | 'x' | 'check'
+  | 'smile' | 'message' | 'annotate' | 'reply' | 'paperclip' | 'clock' | 'edit' | 'x' | 'check'
   | 'bell-off' | 'zap' | 'settings' | 'external' | 'list' | 'list-ordered' | 'quote' | 'code' | 'sparkle' | 'refresh' | 'grid' | 'key' | 'link' | 'copy'
   | 'mic-off' | 'video' | 'video-off' | 'monitor' | 'phone-off' | 'maximize' | 'minimize'
   | 'upload' | 'file-archive' | 'trash' | 'image' | 'file' | 'lock' | 'users' | 'download' | 'camera' | 'at' | 'star' | 'folder' | 'shield' | 'devices' | 'log-out' | 'crown' | 'eye-off' | 'eye'
@@ -253,6 +253,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   message: <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />,
+  annotate: <><path d="M20.5 10.5a8.3 8.3 0 0 1-12.2 7.4L3 20l1.7-5.1a8.3 8.3 0 1 1 15.8-4.4z"/><path d="m13.8 13.4 4.8-4.8 2.1 2.1-4.8 4.8-2.8.7z"/></>,
   // An inline reply: Feather's corner-up-left, the arrow Discord answers with.
   reply: (
     <>

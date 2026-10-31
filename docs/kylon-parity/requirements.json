@@ -1143,6 +1143,20 @@
         "verified": "2026-10-31にログイン済みKylon/Honmaruのデータビューアーを実画面比較。Honmaruは非選択のセルも入力枠として表示し、ダーク面に強い緑かぶりがある差を確認。CSSを修正しWeb buildとVitest全1328件が通過。PR #568 / main 3b0775b9で本番反映。app.honmaruai.com と honmaru-web.pages.dev はHTTP 200で、両方が配信するindex-D7uHhdMs.cssにneutral dark surface/border tokensを確認。",
         "remaining": "今回のブラウザーはログアウト状態でHarnessデータビューへ到達できず、Mac画面取得はロックエラー。公開ログイン前画面とbundle反映まで確認。セル通常/hover/focus、ライト/ダーク両テーマの認証済み本番画面確認は未完了。"
       }
+    },
+    {
+      "id": "KY-098",
+      "category": "Apps",
+      "requirement": "アプリ画面への範囲注釈とAgentへの修正依頼",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/help/build-an-app",
+      "code": "web-react/src/components/AppAnnotation.tsx",
+      "acceptance": "アプリ上の対象範囲をドラッグして要素・位置を特定し、注釈コメントをアプリまたは作成元会話に渡せる。送信前に編集でき、権限を超えて注釈が共有されない。対象箇所への注釈表示・再表示・複数注釈の管理と認証済み本番でのKylon比較も検証する。",
+      "evidence": {
+        "verified": "2026-10-31にログイン済みKylon実画面で注釈モード、範囲ドラッグの案内、Agentへのコメント作成導線を確認。Honmaruにドラッグ選択・対象ラベル・画面座標・アプリ会話へ編集可能な下書きとして追加するUIを実装。自動送信は行わず、既存会話の下書きを保つ。",
+        "remaining": "対象の注釈マーク・永続化・一覧/再表示・複数注釈管理、権限境界と作成元スレッド連携を含む認証済み本番のE2E比較は未完了。"
+      }
     }
   ]
 }
