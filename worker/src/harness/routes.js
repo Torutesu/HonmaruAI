@@ -311,8 +311,8 @@ export async function handleHarness(request, env, url, context = {}) {
     const result = request.method === 'GET'
       ? await listRoomHooks(env.DB,orgId,room.key,me)
       : request.method === 'POST'
-        ? await createRoomHook(env.DB,orgId,room.key,me,input.name)
-        : input.action==='retry' ? await retryRoomHook(env,orgId,room.key,me,input) : await changeRoomHook(env.DB,orgId,room.key,me,input.id,input.version,input.action);
+        ? await createRoomHook(env.DB,orgId,room.key,me,input.name,{provider:input.provider,channelSecret:input.channelSecret})
+        : input.action==='retry' ? await retryRoomHook(env,orgId,room.key,me,input) : await changeRoomHook(env.DB,orgId,room.key,me,input.id,input.version,input.action,input.channelSecret);
     if (result.error) return fail(result);
     if (request.method === 'GET') result.events = await roomHookStatuses(env,orgId,result.events,me);
     if (request.method !== 'GET') await audit(env,request,{orgId,action:'room.webhook_changed',actor:person(who.user),entity:{type:'channel',id:room.key},details:{action:request.method==='POST'?'create':input.action}});
