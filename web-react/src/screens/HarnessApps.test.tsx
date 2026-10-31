@@ -31,6 +31,7 @@ beforeEach(() => {
     generate: vi.fn(() => new Promise(resolve => { finish = resolve })),
     app: vi.fn(() => new Promise(() => {})),
     personalViews: vi.fn(() => new Promise(() => {})),
+    conversation: vi.fn().mockResolvedValue({ messages: [], hasMore: false, annotations: [] }),
   }
 })
 afterEach(() => { if (tree) act(() => tree!.unmount()); tree = undefined; vi.unstubAllGlobals() })
