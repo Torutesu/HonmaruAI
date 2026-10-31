@@ -327,6 +327,9 @@ CREATE INDEX IF NOT EXISTS idx_hx_workflow_row_receipts_expiry ON hx_workflow_ro
 
 CREATE TABLE IF NOT EXISTS hx_workspace_file_origins (org_id TEXT NOT NULL, file_id TEXT NOT NULL, source TEXT NOT NULL CHECK(source IN ('human','agent')), PRIMARY KEY(org_id,file_id), FOREIGN KEY(org_id,file_id) REFERENCES hx_workspace_files(org_id,id) ON DELETE CASCADE);
 
+CREATE TABLE IF NOT EXISTS hx_app_annotations (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, table_id TEXT NOT NULL DEFAULT '', row_id TEXT NOT NULL DEFAULT '', message_source TEXT NOT NULL CHECK(message_source IN ('app','channel')), message_id TEXT NOT NULL, target TEXT NOT NULL, x REAL NOT NULL CHECK(x BETWEEN 0 AND 100), y REAL NOT NULL CHECK(y BETWEEN 0 AND 100), section TEXT NOT NULL CHECK(section IN ('overview','data')), author_id TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(org_id,app_id,message_source,message_id));
+CREATE INDEX IF NOT EXISTS idx_hx_app_annotations_screen ON hx_app_annotations(org_id,app_id,table_id,row_id,section,created_at);
+
 -- Durable, independent live and notification preparation for accepted sends.
 CREATE TABLE IF NOT EXISTS channel_message_delivery (org_id TEXT NOT NULL, message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE, kind TEXT NOT NULL CHECK(kind IN ('live','push')), business_created_at TEXT, allow_virtual INTEGER NOT NULL DEFAULT 0 CHECK(allow_virtual IN (0,1)), status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','done','failed')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(org_id,message_id,kind));
 CREATE INDEX IF NOT EXISTS idx_channel_message_delivery_due ON channel_message_delivery(kind,status,next_attempt,lease_until);

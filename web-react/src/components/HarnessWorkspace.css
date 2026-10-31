@@ -853,15 +853,38 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 
 .hx-annotation-layer { position:absolute; inset:0; z-index:85; touch-action:none; cursor:crosshair; background:color-mix(in srgb,var(--hx-accent) 5%,transparent); outline:1px solid color-mix(in srgb,var(--hx-accent) 35%,transparent); }
 .hx-annotation-layer:focus-visible { outline:2px solid var(--hx-accent); outline-offset:-2px; }
-.hx-annotation-instruction { position:sticky; top:10px; z-index:1; width:max-content; max-width:calc(100% - 24px); margin:10px 12px 0 auto; padding:8px 11px; border:1px solid var(--hx-border); border-radius:10px; background:var(--hx-surface); color:var(--hx-text); box-shadow:0 4px 14px #0002; font-size:12px; }
-.hx-annotation-instruction span { margin-left:10px; color:var(--hx-muted); }
+.hx-annotation-toolbar { position:absolute; z-index:2; bottom:12px; left:50%; display:flex; align-items:center; gap:6px; max-width:calc(100% - 24px); transform:translateX(-50%); padding:6px 8px; border:1px solid var(--hx-border); border-radius:999px; background:var(--hx-surface); color:var(--hx-text); box-shadow:0 4px 14px #0002; font-size:12px; white-space:nowrap; }
+.hx-annotation-toolbar span { padding:0 5px; }
+.hx-annotation-toolbar button { display:grid; place-items:center; width:26px; height:26px; padding:0; border:0; border-radius:50%; background:transparent; color:var(--hx-muted); cursor:pointer; }
+.hx-annotation-toolbar button[aria-pressed="true"] { background:var(--hx-hover); color:var(--hx-accent); }
+.hx-annotation-toolbar button:hover { background:var(--hx-hover); color:var(--hx-text); }
 .hx-annotation-selection { position:absolute; border:2px solid var(--hx-accent); background:color-mix(in srgb,var(--hx-accent) 13%,transparent); pointer-events:none; }
-.hx-annotation-scrim { position:fixed; inset:0; z-index:260; display:grid; place-items:center; padding:20px; background:#0007; }
-.hx-annotation-dialog { display:grid; gap:14px; width:min(440px,100%); padding:20px; border:1px solid var(--hx-border); border-radius:14px; background:var(--hx-surface); color:var(--hx-text); box-shadow:0 18px 54px #0005; }
-.hx-annotation-dialog h2 { margin:0; font-size:16px; }
-.hx-annotation-dialog p,.hx-annotation-dialog small { margin:0; color:var(--hx-muted); font-size:12px; line-height:1.5; }
-.hx-annotation-dialog label { display:grid; gap:7px; font-size:12px; }
-.hx-annotation-dialog textarea { box-sizing:border-box; width:100%; min-height:110px; resize:vertical; padding:10px; border:1px solid var(--hx-border); border-radius:9px; background:var(--hx-hover); color:var(--hx-text); font:inherit; font-size:13px; }
-.hx-annotation-dialog textarea:focus-visible { outline:2px solid var(--hx-accent); outline-offset:1px; }
+.hx-annotation-highlight { position:absolute; z-index:70; border:1px solid color-mix(in srgb,#d9a500 48%,var(--hx-border)); border-radius:3px; background:color-mix(in srgb,#ffdf78 27%,transparent); pointer-events:none; }
+.hx-annotation-popover { position:absolute; z-index:260; display:grid; gap:8px; width:min(320px,calc(100% - 24px)); padding:9px; border:1px solid var(--hx-border); border-radius:10px; background:var(--hx-surface); color:var(--hx-text); box-shadow:0 8px 24px #0003; }
+.hx-annotation-context { min-width:0; overflow:hidden; padding:2px 3px; color:var(--hx-muted); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.hx-annotation-popover form { display:grid; gap:7px; }
+.hx-annotation-popover textarea { box-sizing:border-box; width:100%; min-height:42px; max-height:120px; resize:vertical; padding:9px; border:1px solid var(--hx-border); border-radius:9px; background:var(--hx-hover); color:var(--hx-text); font:inherit; font-size:13px; }
+.hx-annotation-popover textarea:focus-visible { outline:2px solid var(--hx-accent); outline-offset:1px; }
 .hx-annotation-actions { display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
-.hx-annotation-actions .pill-btn { border-radius:9px; }
+.hx-annotation-actions .pill-btn { min-height:28px; border-radius:9px; }
+.hx-annotation-list { position:absolute; z-index:100; top:12px; right:12px; bottom:12px; display:grid; grid-template-rows:auto minmax(0,1fr); width:min(360px,calc(100% - 24px)); overflow:hidden; border:1px solid var(--hx-border); border-radius:14px; background:var(--hx-surface); color:var(--hx-text); box-shadow:0 8px 28px #0003; }
+.hx-annotation-list > header { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 14px; border-bottom:1px solid var(--hx-border); font-size:13px; }
+.hx-annotation-list-empty { align-self:start; margin:42px 18px 0; color:var(--hx-muted); text-align:center; font-size:12px; line-height:1.6; }
+.hx-annotation-list-items { display:grid; align-content:start; gap:8px; overflow:auto; padding:12px; }
+.hx-annotation-list-item { display:grid; gap:5px; width:100%; padding:10px; border:1px solid var(--hx-border); border-radius:9px; background:var(--hx-surface); color:var(--hx-text); text-align:left; cursor:pointer; }
+.hx-annotation-list-item:hover { background:var(--hx-hover); }
+.hx-annotation-list-item strong { font-size:12px; }
+.hx-annotation-list-item span { overflow:hidden; color:var(--hx-muted); font-size:12px; line-height:1.45; text-overflow:ellipsis; white-space:nowrap; }
+.hx-annotation-list-item small { color:var(--hx-muted); font-size:10px; }
+.hx-annotation-markers { position:absolute; inset:0; z-index:80; pointer-events:none; }
+.hx-annotation-marker { position:absolute; width:0; height:0; pointer-events:none; }
+.hx-annotation-pin { position:absolute; left:0; top:0; display:grid; place-items:center; width:25px; height:25px; padding:0; transform:translate(-50%,-50%); border:2px solid var(--hx-surface); border-radius:50%; background:var(--hx-accent); color:#fff; box-shadow:0 2px 8px #0005; font-family:inherit; font-size:11px; font-weight:700; line-height:1; cursor:pointer; pointer-events:auto; }
+.hx-annotation-pin:hover,.hx-annotation-pin:focus-visible { outline:2px solid var(--hx-accent); outline-offset:2px; }
+.hx-annotation-card { position:absolute; z-index:1; top:15px; left:-8px; display:grid; gap:8px; width:min(300px,calc(100vw - 64px)); max-height:min(300px,50vh); overflow:auto; padding:12px; border:1px solid var(--hx-border); border-radius:11px; background:var(--hx-surface); color:var(--hx-text); box-shadow:0 8px 28px #0003; pointer-events:auto; }
+.hx-annotation-marker-right .hx-annotation-card { left:auto; right:-8px; }
+.hx-annotation-marker-low .hx-annotation-card { top:auto; bottom:15px; }
+.hx-annotation-card header,.hx-annotation-card footer { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; }
+.hx-annotation-card header strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.hx-annotation-card header button { border:0; background:transparent; color:var(--hx-muted); font-size:18px; cursor:pointer; }
+.hx-annotation-card p { margin:0; overflow-wrap:anywhere; white-space:pre-wrap; font-size:12px; line-height:1.5; }
+.hx-annotation-card footer { color:var(--hx-muted); }

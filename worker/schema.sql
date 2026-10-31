@@ -2008,6 +2008,25 @@ CREATE TABLE IF NOT EXISTS hx_app_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_hx_app_messages_scope ON hx_app_messages(org_id,app_id,table_id,row_id,sequence);
 
+/* A sent app-conversation message can carry a durable marker on the app screen. */
+CREATE TABLE IF NOT EXISTS hx_app_annotations (
+ id TEXT PRIMARY KEY,
+ org_id TEXT NOT NULL,
+ app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+ table_id TEXT NOT NULL DEFAULT '',
+ row_id TEXT NOT NULL DEFAULT '',
+ message_source TEXT NOT NULL CHECK(message_source IN ('app','channel')),
+ message_id TEXT NOT NULL,
+ target TEXT NOT NULL,
+ x REAL NOT NULL CHECK(x BETWEEN 0 AND 100),
+ y REAL NOT NULL CHECK(y BETWEEN 0 AND 100),
+ section TEXT NOT NULL CHECK(section IN ('overview','data')),
+ author_id TEXT NOT NULL,
+ created_at TEXT NOT NULL,
+ UNIQUE(org_id,app_id,message_source,message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_hx_app_annotations_screen ON hx_app_annotations(org_id,app_id,table_id,row_id,section,created_at);
+
 CREATE TABLE IF NOT EXISTS hx_app_conversation_sources (
  org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
  channel TEXT NOT NULL, thread_id TEXT NOT NULL, created_by TEXT NOT NULL,
