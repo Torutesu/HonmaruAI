@@ -3177,6 +3177,11 @@ const table: Record<string, string> = {
   'No active Skill share link was found.': '有効なSkill共有リンクが見つかりません。',
   'Skill share link revoked.': 'Skill共有リンクを無効化しました。',
   'Only an agent\'s maker or admin can install Skills on it.': 'Agentの作成者または管理者だけがSkillを追加できます。',
+  'Connected workspace sources': '接続済みワークスペースソース',
+  'Your grant applies to this Agent and your account. The Agent can read a connected source only in your private conversation; other people do not inherit your grant.': '許可はこのAgentとご本人のアカウントに紐づきます。Agentが接続済みソースを読めるのはご本人との個別会話のみで、他の人に許可が引き継がれることはありません。',
+  'Use the connected {source} source in this Agent’s private conversations.': 'このAgentとの個別会話で、接続済みの{source}ソースを使います。',
+  'Connect {source} for this workspace in Tools before allowing it.': '許可する前に、ツール画面でこのワークスペースの{source}を接続してください。',
+  'Allow {agent} to use the connected {source} source': '{agent}に接続済みの{source}ソースの利用を許可',
 }
 
 export default table

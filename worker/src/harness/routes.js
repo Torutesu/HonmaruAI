@@ -47,6 +47,7 @@ import { announceCards } from '../announce.js';
 import { notifyCard, anyChannelConfigured } from '../notify.js';
 import { handleRemoteMcp } from './remoteMcp.js';
 import { agentAppConnections, setAgentAppGrant } from '../smitheryApps.js';
+import { agentSourceConnections, setAgentSourceConnection } from './agentConnections.js';
 // The harness routes (docs/kylon-gap-plan.md): the workspace's mode, Tables
 // and Apps. Every route asks for a member who is not a guest; building is a
 // member's, deleting someone else's is an admin's.
@@ -797,9 +798,28 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === 'apps') {
       if (await getMode(env.DB, orgId) !== 'harness') return json({ message: 'Agent app permissions are available in Harness mode.' }, 404);
       if (request.method === 'GET') {
-        return json({ connections: await agentAppConnections(env.DB, { orgId, agentId, githubId: me }) });
+        const [connections, nativeConnections] = await Promise.all([
+          agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
+          agentSourceConnections(env, { orgId, agentId, session: who.session }),
+        ]);
+        return json({ connections, nativeConnections: nativeConnections.connections });
       }
       if (request.method === 'POST' || request.method === 'DELETE') {
+        const source = String(input?.source || url.searchParams.get('source') || '');
+        if (source) {
+          const granted = request.method === 'POST';
+          const result = await setAgentSourceConnection(env, { orgId, agentId, session: who.session, source, enabled: granted });
+          if (result.error) return json({ message: result.error }, result.status || 400);
+          await announceAgentAccessChanged(env, orgId, agentId, [who.user.login]);
+          await audit(env, request, {
+            orgId,
+            action: granted ? 'agent.native_connection_granted' : 'agent.native_connection_revoked',
+            actor: person(who.user),
+            entity: { type: 'custom_agent', id: agentId },
+            details: { source },
+          });
+          return json({ connections: await agentAppConnections(env.DB, { orgId, agentId, githubId: me }), nativeConnections: result.connections });
+        }
         const server = String(input?.server || url.searchParams.get('server') || '');
         const granted = request.method === 'POST';
         const result = await setAgentAppGrant(env.DB, { orgId, agentId, githubId: me, server, granted });
@@ -811,7 +831,7 @@ export async function handleHarness(request, env, url, context = {}) {
           entity: { type: 'custom_agent', id: agentId },
           details: { app: server },
         });
-        return json({ connections: result.connections });
+        return json({ connections: result.connections, nativeConnections: (await agentSourceConnections(env, { orgId, agentId, session: who.session })).connections });
       }
       return json({ message: 'Method not allowed.' }, 405);
     }

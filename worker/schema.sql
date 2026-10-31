@@ -2153,6 +2153,20 @@ CREATE TABLE IF NOT EXISTS hx_agent_members (
   FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
 );
 
+/* A person may let one Agent use their own native connection in that Agent's
+   private conversation. The membership timestamp prevents a grant from
+   silently returning after that person leaves and rejoins the workspace. */
+CREATE TABLE IF NOT EXISTS hx_agent_source_grants (
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  user_github_id TEXT NOT NULL,
+  membership_since TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('notion','github')),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, agent_id, user_github_id, source),
+  FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
+);
+
 /* Atomic member departure receipts gate the associated ownership writes. */
 CREATE TABLE IF NOT EXISTS hx_member_departures (
   org_id TEXT NOT NULL, user_id TEXT NOT NULL, nonce TEXT NOT NULL,

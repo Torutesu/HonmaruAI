@@ -18,6 +18,7 @@ import { accessFor } from "./access.js";
 import { getUserByGithubId } from "./db.js";
 import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
 import { getMode } from "./harness/mode.js";
+import { mayUseAgentSource } from "./harness/agentConnections.js";
 
 export function agentInstructionsForTools(instructions, tools) {
   if (!["list_document_nodes", "create_document", "get_document_status"].every(name => typeof tools?.[name]?.run === "function")) return instructions;
@@ -72,19 +73,39 @@ export async function agentTools(env, { orgId, session, language = "en", persona
   };
   Object.assign(tools, await fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,fileScope,taint}));
   Object.assign(tools, await executionAgentTools(env, { orgId, session, personal, ownAgentsOnly }));
+  // A missing mode read must never turn on ungranted native sources. Simple
+  // retains its old private-DM behavior; Harness requires each caller's grant.
+  const workspaceMode = await getMode(env.DB, orgId).catch(() => null);
+  const sourceAllowed = async source => {
+    const currentMode = await getMode(env.DB, orgId).catch(() => null);
+    if (currentMode === "simple") return true;
+    return currentMode === "harness" && await mayUseAgentSource(env, { orgId, agentId, session, source });
+  };
   const connected = await connectedSources(env, session, orgId).catch(() => ({}));
-  if (connected.notion) {
+  if (connected.notion && await sourceAllowed("notion")) {
     tools.search_notion = {
       description: "Search the asker's connected Notion for pages: specs, notes, plans, meeting notes. Use it for anything the team may have written down.",
       parameters: query("Key words to search Notion for."),
-      run: async ({ query: q }) => formatSourcesForModel(await searchNotion(env, session.github_id, String(q || "")).catch(() => [])),
+      run: async ({ query: q }) => {
+        if (!await sourceAllowed("notion")) return "Not searched: this Agent no longer has permission to use your Notion connection.";
+        const found = await searchNotion(env, session.github_id, String(q || "")).catch(() => []);
+        if (!await sourceAllowed("notion")) return "Not searched: Notion access changed while the request was running; the result was discarded.";
+        if (found.length) taint.value = true;
+        return formatSourcesForModel(found);
+      },
     };
   }
-  if (connected.github) {
+  if (connected.github && await sourceAllowed("github")) {
     tools.search_github = {
       description: "Search the team's GitHub issues and pull requests. Use it for bugs, features, releases and who is working on what.",
       parameters: query("Key words to search issues and pull requests for."),
-      run: async ({ query: q }) => formatSourcesForModel(await searchGithubIssues(session, orgId, String(q || ""), env).catch(() => [])),
+      run: async ({ query: q }) => {
+        if (!await sourceAllowed("github")) return "Not searched: this Agent no longer has permission to use your GitHub connection.";
+        const found = await searchGithubIssues(session, orgId, String(q || ""), env).catch(() => []);
+        if (!await sourceAllowed("github")) return "Not searched: GitHub access changed while the request was running; the result was discarded.";
+        if (found.length) taint.value = true;
+        return formatSourcesForModel(found);
+      },
     };
   }
   // The apps this person connected through Smithery, theirs alone: only in
@@ -93,7 +114,6 @@ export async function agentTools(env, { orgId, session, language = "en", persona
   // A mode lookup failure must not downgrade Harness to Simple: that would
   // expose every connected app to an agent before its per-agent grant check.
   // Known Simple keeps its existing behavior; unknown mode gets no app tools.
-  const workspaceMode = await getMode(env.DB, orgId).catch(() => null);
   if (workspaceMode === "simple" || workspaceMode === "harness") {
     Object.assign(tools, await appTools(env, {
       orgId, session, taint, writes: ownAgentsOnly, agentId,

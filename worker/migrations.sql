@@ -325,6 +325,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_hx_held_webhook_event ON hx_workflow_held_
 CREATE TABLE IF NOT EXISTS hx_workflow_row_receipts (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL REFERENCES hx_workflows(id) ON DELETE CASCADE, event_hash TEXT NOT NULL, received_at TEXT NOT NULL, expires_at TEXT NOT NULL, run_id TEXT, PRIMARY KEY(org_id,workflow_id,event_hash));
 CREATE INDEX IF NOT EXISTS idx_hx_workflow_row_receipts_expiry ON hx_workflow_row_receipts(expires_at);
 
+CREATE TABLE IF NOT EXISTS hx_agent_source_grants (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, user_github_id TEXT NOT NULL, membership_since TEXT NOT NULL, source TEXT NOT NULL CHECK(source IN ('notion','github')), created_at TEXT NOT NULL, PRIMARY KEY(org_id,agent_id,user_github_id,source), FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE);
+
 CREATE TABLE IF NOT EXISTS hx_workspace_file_origins (org_id TEXT NOT NULL, file_id TEXT NOT NULL, source TEXT NOT NULL CHECK(source IN ('human','agent')), PRIMARY KEY(org_id,file_id), FOREIGN KEY(org_id,file_id) REFERENCES hx_workspace_files(org_id,id) ON DELETE CASCADE);
 
 CREATE TABLE IF NOT EXISTS hx_app_annotations (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, table_id TEXT NOT NULL DEFAULT '', row_id TEXT NOT NULL DEFAULT '', message_source TEXT NOT NULL CHECK(message_source IN ('app','channel')), message_id TEXT NOT NULL, target TEXT NOT NULL, x REAL NOT NULL CHECK(x BETWEEN 0 AND 100), y REAL NOT NULL CHECK(y BETWEEN 0 AND 100), section TEXT NOT NULL CHECK(section IN ('overview','data')), author_id TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(org_id,app_id,message_source,message_id));

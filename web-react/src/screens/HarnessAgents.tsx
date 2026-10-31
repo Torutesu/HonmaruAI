@@ -23,7 +23,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { Icon } from '../components/Icon'
-import type { AgentProfile, AgentMemory, AgentAppConnection, Skill, SharedSkillInfo } from '../utils/harness'
+import type { AgentProfile, AgentMemory, AgentAppConnection, AgentNativeConnection, Skill, SharedSkillInfo } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 
 // Agents as members, and the skills they work by (docs/kylon-gap-plan.md).
@@ -104,6 +104,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
   const [avatarPreview, setAvatarPreview] = useState(false)
   const [profile, setProfile] = useState<AgentProfile | null>(null)
   const [agentApps, setAgentApps] = useState<AgentAppConnection[] | null>(null)
+  const [nativeConnections, setNativeConnections] = useState<AgentNativeConnection[] | null>(null)
   const [canEdit, setCanEdit] = useState(false)
   const [memories, setMemories] = useState<AgentMemory[]>([])
   const [memoryCursor, setMemoryCursor] = useState<string | null>(null)
@@ -125,10 +126,10 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
 
   const load = useCallback(() => act('load', async () => {
     const version = ++memoryLoad.current
-    const [p, m, s, all, scopes, apps] = await Promise.all([api.profile(agent.id), api.memoryPage(agent.id, memoryChannel, undefined, memorySearch), api.agentSkills(agent.id), api.skills(), api.memoryScopes(agent.id), api.agentApps(agent.id).catch(() => ({ connections: [] }))])
+    const [p, m, s, all, scopes, apps] = await Promise.all([api.profile(agent.id), api.memoryPage(agent.id, memoryChannel, undefined, memorySearch), api.agentSkills(agent.id), api.skills(), api.memoryScopes(agent.id), api.agentApps(agent.id).catch(() => ({ connections: [], nativeConnections: [] }))])
     if (version !== memoryLoad.current) return
     setMemoryScopes(scopes.scopes)
-    setProfile(p.profile); setCanEdit(p.canEdit); setPeople(p.profile.people.map((x) => `@${x}`).join(' ')); setAgentApps(apps.connections || [])
+    setProfile(p.profile); setCanEdit(p.canEdit); setPeople(p.profile.people.map((x) => `@${x}`).join(' ')); setAgentApps(apps.connections || []); setNativeConnections(apps.nativeConnections || [])
     setMemories(m.memories); setMemoryCursor(m.nextCursor); setSkills(s.skills); setAllSkills(all.skills)
   }), [api, act, agent.id, memoryChannel, memorySearch])
   useEffect(() => { load(); return () => { ++memoryLoad.current } }, [load])
@@ -141,7 +142,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
         // server again. A revoked member must not keep seeing stale controls
         // or memory while that request is in flight.
         ++memoryLoad.current
-        setProfile(null); setCanEdit(false); setPeople(''); setAgentApps(null)
+        setProfile(null); setCanEdit(false); setPeople(''); setAgentApps(null); setNativeConnections(null)
         setMemories([]); setMemoryCursor(null); setSkills([]); setAllSkills([]); setMemoryScopes([])
         setHistoryMemory(null); setConvertingMemory(null); setReviewingMemory(null); setMemoryDraft(null); setRemember('')
         void load()
@@ -252,9 +253,31 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
               void act('connection', async () => {
                 const result = await api.setAgentApp(agent.id, app.server, granted)
                 setAgentApps(result.connections)
+                setNativeConnections(result.nativeConnections || [])
               })
             }} />
           </label>)}
+        </div>}
+        <div className="rows-title">{t('Connected workspace sources')}</div>
+        <p className="row-sub">{t('Your grant applies to this Agent and your account. The Agent can read a connected source only in your private conversation; other people do not inherit your grant.')}</p>
+        {nativeConnections === null ? <div className="empty">{t('Loading…')}</div> : <div className="rows">
+          {nativeConnections.map(connection => {
+            const sourceName = connection.source === 'notion' ? 'Notion' : 'GitHub'
+            return <label className="row static" key={connection.source} data-agent-source={connection.source}>
+              <span className="row-icon"><Icon name={connection.source} size={18} /></span>
+              <span className="row-main">{sourceName}
+                <span className="row-sub">{connection.available ? t('Use the connected {source} source in this Agent’s private conversations.', { source: sourceName }) : t('Connect {source} for this workspace in Tools before allowing it.', { source: sourceName })}</span>
+              </span>
+              <input type="checkbox" aria-label={t('Allow {agent} to use the connected {source} source', { agent: agent.name, source: sourceName })} checked={connection.enabled} disabled={!connection.available || busy !== null} onChange={e => {
+                const granted = e.currentTarget.checked
+                void act('connection', async () => {
+                  const result = await api.setAgentNativeSource(agent.id, connection.source, granted)
+                  setAgentApps(result.connections || [])
+                  setNativeConnections(result.nativeConnections || [])
+                })
+              }} />
+            </label>
+          })}
         </div>}
       </>}
       {section === 'skills' && <>

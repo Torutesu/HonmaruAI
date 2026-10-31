@@ -30,7 +30,7 @@ const call = async (path, token, { method = "GET", body } = {}) => {
   while (pending.length) await pending.shift();
   return res;
 };
-const apiEnv = () => ({ ...env, OPENAI_API_KEY: undefined, SMITHERY_API_KEY: KEY, SMITHERY_NAMESPACE: "honmaru-test" });
+const apiEnv = () => ({ ...env, OPENAI_API_KEY: undefined, COMPOSIO_API_KEY: KEY, SMITHERY_API_KEY: KEY, SMITHERY_NAMESPACE: "honmaru-test" });
 const q = `orgId=${encodeURIComponent(ORG)}`;
 
 function smithery() {
@@ -98,7 +98,7 @@ function smithery() {
 
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
-  await env.DB.exec("DELETE FROM rate_limits; DELETE FROM audit_events; DELETE FROM sessions; DELETE FROM memberships; DELETE FROM users; DELETE FROM org_apps; DELETE FROM app_connections; DELETE FROM hx_agent_app_grants; DELETE FROM app_connection_tombstones;");
+  await env.DB.exec("DELETE FROM rate_limits; DELETE FROM audit_events; DELETE FROM sessions; DELETE FROM memberships; DELETE FROM users; DELETE FROM org_apps; DELETE FROM app_connections; DELETE FROM hx_agent_app_grants; DELETE FROM hx_agent_source_grants; DELETE FROM app_connection_tombstones; DELETE FROM connector_sync_state; DELETE FROM connector_config; DELETE FROM org_settings;");
   forgetPolicies();
   fake = smithery();
   const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
@@ -350,6 +350,84 @@ test("Harness connections are granted per agent and caller, and revocation stops
     .bind(ORG, agentId, new Date().toISOString()).run();
   await call(`/apps/connect?${q}&server=linear`, mika, { method: "DELETE" });
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_agent_app_grants WHERE org_id = ?1 AND user_github_id = '9702'").bind(ORG).first()).toEqual({ n: 0 });
+});
+
+test("Harness native Notion access needs an agent grant and discards a result revoked in flight", async () => {
+  await call("/orgs/mode", owner, { method: "PUT", body: { orgId: ORG, mode: "harness" } });
+  const agentId = "agent-native-source";
+  const createdAt = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO custom_agents
+    (org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES (?1,?2,'native-reader','Native Reader','Read explicitly granted sources.','team','mika',?3,?3)`)
+    .bind(ORG, agentId, createdAt).run();
+  await env.DB.prepare("INSERT INTO connector_sync_state (user_github_id,synced_at,org_id) VALUES ('9702',?1,?2)")
+    .bind(createdAt, ORG).run();
+  await env.DB.prepare("INSERT INTO connector_config (user_github_id,connector,config,updated_at) VALUES ('9702','notion',?1,?2)")
+    .bind(JSON.stringify({ connected: true }), createdAt).run();
+
+  const path = `/hx/agents/${agentId}/apps`;
+  const initial = await (await call(`${path}?${q}`, mika)).json();
+  expect(initial.nativeConnections).toEqual([
+    { source: "notion", available: true, enabled: false },
+    { source: "github", available: false, enabled: false },
+  ]);
+  const session = await sessionOf(mika);
+  const denied = await agentTools(apiEnv(), { orgId: ORG, session, personal: true, agentId });
+  expect(denied.search_notion).toBeUndefined();
+
+  const granted = await call(path, mika, { method: "POST", body: { orgId: ORG, source: "notion" } });
+  const grantBody = await granted.json();
+  expect(granted.status, JSON.stringify(grantBody)).toBe(200);
+  expect(grantBody.nativeConnections[0]).toMatchObject({ source: "notion", available: true, enabled: true });
+  const tools = await agentTools(apiEnv(), { orgId: ORG, session, personal: true, agentId });
+  expect(tools.search_notion).toBeDefined();
+
+  const real = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.origin === "https://backend.composio.dev") return Response.json({ results: [{ response: { data: { results: [{
+      properties: { Title: { type: "title", title: [{ plain_text: "Private payroll" }] } },
+      url: "https://notion.so/private-payroll",
+    }] } } }] });
+    return real(input, init);
+  };
+  const privateResult = await tools.search_notion.run({ query: "payroll" });
+  expect(privateResult).toContain("Private payroll");
+  expect(await tools.read_url.run({ url: "https://example.com" })).toMatch(/^Not opened/);
+  globalThis.fetch = real;
+
+  let finishSearch;
+  let signalSearchStarted;
+  const searchStarted = new Promise(resolve => { signalSearchStarted = resolve; });
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.origin === "https://backend.composio.dev") {
+      signalSearchStarted();
+      return await new Promise(resolve => { finishSearch = () => resolve(Response.json({ results: [{ response: { data: { results: [{
+        properties: { Title: { type: "title", title: [{ plain_text: "Private payroll" }] }, Notes: { type: "rich_text", rich_text: [{ plain_text: "secret text" }] } },
+        url: "https://notion.so/private-payroll",
+      }] } } }] })); });
+    }
+    return real(input, init);
+  };
+  try {
+    const search = tools.search_notion.run({ query: "payroll" });
+    await searchStarted;
+    const revoked = await call(`${path}?${q}&source=notion`, mika, { method: "DELETE" });
+    expect(revoked.status).toBe(200);
+    finishSearch();
+    const output = await search;
+    expect(output).toContain("access changed while the request was running");
+    expect(output).not.toContain("Private payroll");
+    expect(output).not.toContain("secret text");
+    const harnessAfterRevoke = await agentTools(apiEnv(), { orgId: ORG, session, personal: true, agentId });
+    expect(harnessAfterRevoke.search_notion).toBeUndefined();
+    await call("/orgs/mode", owner, { method: "PUT", body: { orgId: ORG, mode: "simple" } });
+    const simple = await agentTools(apiEnv(), { orgId: ORG, session, personal: true });
+    expect(simple.search_notion).toBeDefined();
+  } finally {
+    globalThis.fetch = real;
+  }
 });
 
 test("an unavailable workspace mode never downgrades Harness app grants to Simple", async () => {
