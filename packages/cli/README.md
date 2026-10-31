@@ -40,4 +40,16 @@ Member, playbook, and decision aliases use the existing tools in both Simple and
 
 Use `--api-url URL` to override the environment URL for one command. The CLI requires HTTPS; plain HTTP is accepted only for `localhost`, `127.0.0.1`, or `::1` development servers. Redirects are rejected.
 
-The aliases are an incremental CLI surface, not full Kylon CLI parity. Local gateway lifecycle, browser/device sign-in, secure credential storage, resource commands for Rooms/messages/Agents/connections/Skills and the remaining Kylon command families are still open.
+## Local execution gateway
+
+Register a trusted node under **Studio → Harness → Execution nodes**, then keep its separate node token in the environment on that machine:
+
+```sh
+export HONMARU_API_URL="https://your-honmaru-api-origin"
+export HONMARU_GATEWAY_TOKEN="hgw_…"
+npm exec --workspace @honmaru/cli -- honmaru gateway run
+```
+
+`gateway run` starts the repository's existing outbound-only worker in the foreground; stop it with Ctrl+C. The node token is inherited through the environment and is never added to process arguments or printed. This does not install or manage the launch-at-login service.
+
+The aliases are an incremental CLI surface, not full Kylon CLI parity. Gateway status/repair, browser/device sign-in, secure credential storage, resource commands for Rooms/messages/Agents/connections/Skills and the remaining Kylon command families are still open.
