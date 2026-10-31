@@ -41,6 +41,26 @@ test('Remote MCP server settings are available from the Harness Apps library', a
   expect(tree!.root.findByProps({ id: 'remote-mcp-title' }).children).toContain('Remote MCP servers')
   expect(tree!.root.findAllByProps({ className: 'remote-mcp-empty' }).some(node => node.children.includes('No Remote MCP servers connected yet.'))).toBe(true)
 })
+test('Remote MCP OAuth lets members connect their own account from the Harness Apps screen', async () => {
+  const oauthServer = {
+    id: 'oauth-server', name: 'Private CRM', endpoint: 'https://mcp.crm.example.com/mcp', hasAuthentication: true,
+    authMode: 'oauth', oauthRegistration: 'auto', oauthConnected: false, tools: [], allowedTools: [], connectedAt: null,
+    createdAt: '2026-11-01T00:00:00Z',
+  }
+  const fetchStub = vi.fn(async (input: string) => ({
+    ok: true,
+    json: async () => input.includes('/orgs/mode') ? { mode: 'harness' } : { servers: [oauthServer], canManage: true },
+  }))
+  vi.stubGlobal('fetch', fetchStub)
+  await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
+  expect(fetchStub.mock.calls.map(([url]) => url)).toContain('https://api.example/remote-mcp?orgId=team%3Aone')
+  expect(JSON.stringify(tree!.toJSON())).toContain('Private CRM')
+  expect(tree!.root.findAllByType('button').some(node => node.children.includes('Connect my account'))).toBe(true)
+  const authSelect = tree!.root.findAllByType('select')[0]
+  expect(authSelect.findAllByType('option').map(node => node.props.value)).toContain('oauth')
+  act(() => authSelect.props.onChange({ target: { value: 'oauth' } }))
+  expect(JSON.stringify(tree!.toJSON())).toContain('Workflow runs use the workflow creator’s connected account.')
+})
 async function start(prompt='First request') {
   await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
   act(() => button('Build an app').props.onClick())
