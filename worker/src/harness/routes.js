@@ -1,4 +1,5 @@
 import {handleDocuments,isDocumentNodeRoute} from './documentRoutes.js';
+import { createSkillShare, listSkillShares, revokeSkillShare, readSkillShare, downloadSkillShare, importSkillShare } from './skillShares.js';
 import {workflowRevisions,restoreWorkflowRevision} from './workflowRevisions.js';
 import {workflowSource} from './workflowSource.js';
 import {workflowNotices} from './workflowNotices.js';
@@ -95,7 +96,7 @@ export function json(body, status = 200) {
 const fail = (result) => json({ message: result.error, ...(result.fields ? { fields: result.fields } : {}) }, result.status || 400);
 
 /// The paths this module answers.
-const OURS = /^\/(orgs\/mode|tables|apps|template-shares|skills|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
+const OURS = /^\/(orgs\/mode|tables|apps|template-shares|skills|skill-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
 export async function member(env, request, orgId) {
@@ -180,6 +181,57 @@ export async function handleHarness(request, env, url, context = {}) {
       return json(result, 201);
     }
     return json({ message: 'Unknown template link.' }, 404);
+  }
+
+  // A bearer link can inspect a Skill's shared metadata, download its
+  // temporary ZIP package, or import a private copy after member auth.
+  if (parts[0] === 'skill-shares') {
+    if (request.method === 'GET' && parts.length === 2) {
+      const result = await readSkillShare(env.DB, parts[1]);
+      return result.error ? fail(result) : json(result);
+    }
+    if (request.method === 'GET' && parts.length === 3 && parts[2] === 'import-agents') {
+      const who = await member(env, request, orgId);
+      if (who.denied) return who.denied;
+      const shared = await readSkillShare(env.DB, parts[1]);
+      if (shared.error) return fail(shared);
+      const visible = await listAgents(env.DB, orgId, who.user.login);
+      const agents = [];
+      for (const candidate of visible) {
+        const agent = await env.DB.prepare("SELECT id, owner_login, scope FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL").bind(orgId, candidate.id).first();
+        if (!agent || agent.scope === 'personal' && agent.owner_login !== who.user.login) continue;
+        const role = (await explicitAgentRoles(env.DB, orgId, [agent.id], who.user.login)).get(agent.id);
+        const managedProfile = !!await env.DB.prepare('SELECT 1 FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(orgId, agent.id).first();
+        const canManage = agent.owner_login === who.user.login || role === 'admin' || (!managedProfile && await allowed(env.DB, orgId, who.session.github_id, 'agent.manage_others'));
+        if (canManage) agents.push({ id: agent.id, name: candidate.name });
+      }
+      return json({ agents });
+    }
+    if (request.method === 'GET' && parts.length === 3 && parts[2] === 'download') {
+      const result = await downloadSkillShare(env.DB, parts[1]);
+      if (result.error) return fail(result);
+      return new Response(result.bytes, { headers: { ...CORS_HEADERS, 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="skill.zip"', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } });
+    }
+    if (request.method === 'POST' && parts.length === 3 && parts[2] === 'import') {
+      const who = await member(env, request, orgId);
+      if (who.denied) return who.denied;
+      const agentId = typeof input.agentId === 'string' && input.agentId ? input.agentId : null;
+      if (agentId) {
+        const agent = await env.DB.prepare("SELECT id, owner_login, scope FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, agentId).first();
+        if (!agent || agent.scope === 'personal' && agent.owner_login !== who.user.login
+          || !await mayAccessAgent(env.DB, orgId, { ...agent, ownerLogin: agent?.owner_login }, who.user.login)) return json({ message: 'No such agent.' }, 404);
+        const delegatedRole = (await explicitAgentRoles(env.DB, orgId, [agentId], who.user.login)).get(agentId);
+        const managedProfile = !!await env.DB.prepare('SELECT 1 FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(orgId, agentId).first();
+        const canEditAgent = agent.owner_login === who.user.login || delegatedRole === 'admin' || (!managedProfile && await allowed(env.DB, orgId, who.session.github_id, 'agent.manage_others'));
+        if (!canEditAgent) return json({ message: "Only an agent's maker or admin can install Skills on it." }, 403);
+      }
+      const result = await importSkillShare(env.DB, parts[1], { orgId, userId: who.session.github_id, name: input.name });
+      if (result.error) return fail(result);
+      if (agentId) await giveSkill(env.DB, orgId, agentId, result.skill.id, who.session.github_id);
+      await audit(env, request, { orgId, action: 'skill.share_imported', actor: person(who.user), entity: { type: 'skill', id: result.skill.id, name: result.skill.name }, details: { installedOnAgent: Boolean(agentId) } });
+      return json({ ...result, installedOnAgent: Boolean(agentId) }, 201);
+    }
+    return json({ message: 'This Skill share link is unavailable.' }, 404);
   }
 
   // A Simple-only preference belongs to this signed-in member, not to the

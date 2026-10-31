@@ -2070,6 +2070,29 @@ CREATE INDEX IF NOT EXISTS idx_channel_thread_mutes_message ON channel_thread_mu
 
 CREATE TABLE IF NOT EXISTS hx_skill_files (org_id TEXT NOT NULL, skill_id TEXT NOT NULL REFERENCES hx_skills(id) ON DELETE CASCADE, path TEXT NOT NULL, size INTEGER NOT NULL CHECK (size >= 0 AND size <= 1048576), content BLOB NOT NULL, PRIMARY KEY (org_id, skill_id, path));
 
+/* Temporary bearer links export one custom Skill package. The bearer itself
+   is never stored, and each package file remains independently size-bounded. */
+CREATE TABLE IF NOT EXISTS hx_skill_shares (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  skill_id TEXT NOT NULL REFERENCES hx_skills(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  snapshot TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_hx_skill_shares_skill
+  ON hx_skill_shares(org_id, skill_id, created_at);
+CREATE TABLE IF NOT EXISTS hx_skill_share_files (
+  share_id TEXT NOT NULL REFERENCES hx_skill_shares(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  size INTEGER NOT NULL CHECK (size >= 0 AND size <= 1048576),
+  content BLOB NOT NULL,
+  PRIMARY KEY (share_id, path)
+);
+
 /* Room-level explicit addressing policy, independent of presentation mode. */
 CREATE TABLE IF NOT EXISTS hx_room_responses (
   org_id TEXT NOT NULL, channel TEXT NOT NULL, mentioned_only INTEGER NOT NULL DEFAULT 0,

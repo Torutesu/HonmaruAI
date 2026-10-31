@@ -1,13 +1,38 @@
 import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { expect, test, vi } from 'vitest'
-import { HarnessAgents } from './HarnessAgents'
+import { HarnessAgents, HarnessSkillImport } from './HarnessAgents'
 vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text }))
 vi.mock('../utils/mentions', () => ({ useMembers: () => [] }))
 vi.mock('../components/AgentAvatar', () => ({ AgentAvatar: () => null }))
 vi.mock('../components/Icon', () => ({ Icon: () => null }))
 vi.mock('../components/AgentAccessDialog',()=>({AgentAccessDialog:({onClose}:any)=><button data-testid="close-access" onClick={()=>onClose('team')}>Close access</button>}))
 vi.mock('../components/AgentPersona',()=>({AgentPersona:()=>null}))
+
+test('Skill-link import previews a public package, optionally installs it on a managed Agent, and reports the private copy',async()=>{
+ let tree!:ReturnType<typeof create>
+ const requests:Array<{url:URL;init?:RequestInit}> = []
+ const fetch=vi.fn(async(input:string|URL|Request,init?:RequestInit)=>{
+  const url=new URL(String(input));requests.push({url,init})
+  if(url.pathname.endsWith('/import-agents'))return {ok:true,json:async()=>({agents:[{id:'agent_1',name:'Sales agent'}]})}
+  if(init?.method==='POST')return {ok:true,json:async()=>({skill:{id:'skill_copy',name:'Shared procedure',body:'steps',description:'procedure',createdBy:'9401'},installedOnAgent:true})}
+  return {ok:true,json:async()=>({share:{name:'Shared procedure',description:'procedure',metadata:{},fileCount:2,totalBytes:200,expiresAt:'2026-11-07T00:00:00Z'}})}
+ })
+ vi.stubGlobal('fetch',fetch)
+ try{
+  await act(async()=>{tree=create(<HarnessSkillImport token={`skl_${'ab'.repeat(32)}`} httpBase="https://api.example" orgId="one" sessionToken="session" onClose={vi.fn()}/>)})
+  expect(JSON.stringify(tree.toJSON())).toContain('Shared procedure')
+  expect(JSON.stringify(tree.toJSON())).toContain('This link imports a new private Skill')
+  await act(async()=>tree.root.findByProps({'aria-label':'Name for your copy'}).props.onChange({target:{value:'Local copy'}}))
+  await act(async()=>tree.root.findByProps({'aria-label':'Install on agent (optional)'}).props.onChange({target:{value:'agent_1'}}))
+  const submit=tree.root.findAllByType('button').find(button=>button.children.includes('Import private copy'))!
+  await act(async()=>submit.props.onClick())
+  const write=requests.find(item=>item.init?.method==='POST')!
+  expect(JSON.parse(String(write.init?.body))).toMatchObject({orgId:'one',name:'Local copy',agentId:'agent_1'})
+  expect(JSON.stringify(tree.toJSON())).toContain('Skill imported')
+  expect(JSON.stringify(tree.toJSON())).toContain('{name} is now a private Skill in this workspace.')
+ }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
+})
 
 test('closing access reloads the directory and dismisses an agent whose grant was removed',async()=>{
  let visible=true;let tree!:ReturnType<typeof create>

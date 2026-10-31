@@ -33,6 +33,13 @@ describe('parseRoute', () => {
     expect(parseRoute('#/join/<script>').join).toBeNull()
   })
 
+  it('opens a Skill link import only for a bounded bearer token', () => {
+    const token = `skl_${'ab'.repeat(32)}`
+    expect(parseRoute(`#/skill-share/${token}`)).toMatchObject({ screen: 'skillImport', mode: null, sharedSkillToken: token })
+    expect(parseRoute('#/skill-share/not-a-token')).toMatchObject({ screen: 'skillImport', sharedSkillToken: null })
+    expect(parseRoute(`#/skill-share/${token}/extra`).sharedSkillToken).toBeNull()
+  })
+
   it('reads the automations and the playbook, both ways', () => {
     expect(parseRoute('#/automations')).toEqual({ screen: 'automations', mode: null, cardId: null, join: null })
     expect(parseRoute('#/playbook')).toEqual({ screen: 'playbook', mode: null, cardId: null, join: null })
