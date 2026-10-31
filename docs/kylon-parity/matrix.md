@@ -202,11 +202,11 @@ Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing an
 
 ### 2026-10-31 — アプリ注釈
 
-[Kylon公式のアプリ作成ヘルプ](https://kylon.io/help/build-an-app) に記載された注釈機能をログイン済み画面で確認。アプリの範囲を指定しAgentへ修正コメントを渡す導線をKY-098として追加。Honmaruでは範囲選択・親画面の要素特定・公開sandboxカスタム画面内の安全な要素名照会・会話への下書き挿入に加えて、注釈マーカー永続化、一覧/ピン再表示、添付メタデータ復元を実装。PR #576をmain c14a0f6で公開し、ログイン済みネイティブ画面で注釈モード、一覧、アンカー入力を確認した（送信前にキャンセル、会話/レコード変更なし）。実機QAで範囲ハイライトのpx/%変換漏れを発見し、%指定への修正を追加。focused tests 8件とWeb buildは成功。修正PR/再デプロイと作成・再読込・アクセス拒否・作成元スレッドの認証済み本番E2Eが残るため、一部のまま追跡する。
+[Kylon公式のアプリ作成ヘルプ](https://kylon.io/help/build-an-app) に記載された注釈機能をログイン済み画面で確認。アプリの範囲を指定しAgentへ修正コメントを渡す導線をKY-098として追加。Honmaruでは範囲選択・親画面の要素特定・公開sandboxカスタム画面内の安全な要素名照会・会話への下書き挿入に加えて、注釈マーカー永続化、一覧/ピン再表示、添付メタデータ復元を実装。PR #576をmain c14a0f6で公開。実機QAで範囲ハイライトのpx/%変換漏れを修正し、PR #577をmerge commit 233faf0で公開、Webデプロイ #41198169985が成功。ログイン済みKylon/Honmaru双方で同じ空アプリの範囲選択と注釈入力欄を比較し、点線枠と選択範囲左下への入力欄配置をHonmaruへ反映中。Honmaru本番のQA用アプリへAIを起動しない注釈メッセージを1件送り、再読込後のピン・本文再表示まで確認。複数アカウントの本番拒否テストと二台同期は未実施。CIの同じコードSHA #41196471534は成功済み。これらの残差があるため一部のまま追跡する。
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-098 | アプリ画面への範囲注釈とAgentへの修正依頼 | 一部 | P1 | [AppAnnotation.tsx](../../web-react/src/components/AppAnnotation.tsx), [appAnnotations.js](../../worker/src/harness/appAnnotations.js) | 対象範囲・要素名・位置を指定して編集可能な下書きを利用者が送信。送信済みマーカーを保存し一覧/ピンで再表示。PR #576とmain CI・Worker/Web deployは成功。実機QA後のハイライト修正はfocused tests/build成功、修正PR/再デプロイと作成・再読込・アクセス拒否・作成元スレッドを含む認証済み本番E2Eが残る |
+| KY-098 | アプリ画面への範囲注釈とAgentへの修正依頼 | 一部 | P1 | [AppAnnotation.tsx](../../web-react/src/components/AppAnnotation.tsx), [appAnnotations.js](../../worker/src/harness/appAnnotations.js) | 対象範囲・要素名・位置を指定して編集可能な下書きを利用者が送信。送信済みマーカーを保存し一覧/ピンで再表示。PR #576/#577、main merge `233faf0`、Web deploy #41198169985成功。注釈作成・再読込後のピンと本文復元をログイン済み本番QAアプリで確認し、ドラッグ枠・左下アンカーの配置をKylon画面と直接比較。PR #577の同じコードSHA push CI #41196471534は成功、main CI #41198169971は実行中。別ユーザー拒否・二台同期の本番確認、元スレッド経由の画面比較が残るため一部 |
 
 ### 2026-10-26 — Kylon usage controls
 

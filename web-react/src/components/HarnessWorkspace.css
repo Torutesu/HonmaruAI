@@ -858,8 +858,8 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-annotation-toolbar button { display:grid; place-items:center; width:26px; height:26px; padding:0; border:0; border-radius:50%; background:transparent; color:var(--hx-muted); cursor:pointer; }
 .hx-annotation-toolbar button[aria-pressed="true"] { background:var(--hx-hover); color:var(--hx-accent); }
 .hx-annotation-toolbar button:hover { background:var(--hx-hover); color:var(--hx-text); }
-.hx-annotation-selection { position:absolute; border:2px solid var(--hx-accent); background:color-mix(in srgb,var(--hx-accent) 13%,transparent); pointer-events:none; }
-.hx-annotation-highlight { position:absolute; z-index:70; border:1px solid color-mix(in srgb,#d9a500 48%,var(--hx-border)); border-radius:3px; background:color-mix(in srgb,#ffdf78 27%,transparent); pointer-events:none; }
+.hx-annotation-selection { position:absolute; border:1px dashed color-mix(in srgb,#d9a500 58%,var(--hx-border)); border-radius:3px; background:color-mix(in srgb,#ffdf78 23%,transparent); pointer-events:none; }
+.hx-annotation-highlight { position:absolute; z-index:70; border:1px dashed color-mix(in srgb,#d9a500 58%,var(--hx-border)); border-radius:3px; background:color-mix(in srgb,#ffdf78 23%,transparent); pointer-events:none; }
 .hx-annotation-popover { position:absolute; z-index:260; display:grid; gap:8px; width:min(320px,calc(100% - 24px)); padding:9px; border:1px solid var(--hx-border); border-radius:10px; background:var(--hx-surface); color:var(--hx-text); box-shadow:0 8px 24px #0003; }
 .hx-annotation-context { min-width:0; overflow:hidden; padding:2px 3px; color:var(--hx-muted); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
 .hx-annotation-popover form { display:grid; gap:7px; }
