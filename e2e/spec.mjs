@@ -1918,8 +1918,33 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     await d.keyboard.press('Enter')
     await d.waitForSelector('.slk-thread-pane .slk-msg:has-text("Housekeeping")', { timeout: 10000 })
       .catch(() => { throw new Error('picking a thread reply in search did not open its thread') })
-    // The Activity inbox is there and opens.
-    await d.click('[data-activity="1"]')
+    // The selected result closes the global palette before Activity can be
+    // clicked. Waiting for both layers to unmount avoids racing React's
+    // batched state update on slower CI runners.
+    await d.waitForFunction(() => !document.querySelector('.palette') && !document.querySelector('.palette-scrim'), null, { timeout: 5000 })
+      .catch(() => { throw new Error('selecting a search result left the palette over the list') })
+    // The Activity inbox is there and opens. Keep enough state in the CI log
+    // to tell an overlay from a hidden, clipped, or disabled button if this
+    // ever regresses again.
+    try {
+      await d.click('[data-activity="1"]')
+    } catch (err) {
+      const state = await d.evaluate(() => {
+        const button = document.querySelector('[data-activity="1"]')
+        const rect = button?.getBoundingClientRect()
+        const overlays = [...document.querySelectorAll('.scrim, [role="dialog"], .slk-pane')]
+          .map((el) => ({ className: String(el.className), display: getComputedStyle(el).display, visibility: getComputedStyle(el).visibility, pointerEvents: getComputedStyle(el).pointerEvents, zIndex: getComputedStyle(el).zIndex, rect: el.getBoundingClientRect().toJSON() }))
+        return {
+          href: location.href,
+          active: document.activeElement?.tagName,
+          button: button && { text: button.textContent, disabled: button.disabled, display: getComputedStyle(button).display, visibility: getComputedStyle(button).visibility, pointerEvents: getComputedStyle(button).pointerEvents, rect: rect?.toJSON(), hitStack: rect ? document.elementsFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2).slice(0, 5).map((el) => `${el.tagName}.${String(el.className).slice(0, 60)}`) : [] },
+          overlays,
+        }
+      })
+      await d.screenshot({ path: `${SHOTS}/activity-click-failed.png` }).catch(() => {})
+      console.error('Activity click diagnostic:', JSON.stringify(state))
+      throw err
+    }
     await d.waitForSelector('.slk-inbox-tabs [role="tab"]', { timeout: 10000 })
       .catch(async () => { await d.screenshot({ path: `${SHOTS}/activity-did-not-open.png` }); throw new Error('Activity did not open') })
     // On a laptop it is an inbox: the list on the left, the one you pick on the right.
