@@ -496,7 +496,7 @@ async function handle(request, env, url, ctx) {
     // The harness: mode, Tables, Apps, agents as members, Workflows
     // (docs/kylon-gap-plan.md).
     // A workflow's webhook: called from outside, its secret is the key.
-    const roomHook = await handleRoomHook(request, env, url);
+    const roomHook = await handleRoomHook(request, env, url, ctx);
     if (roomHook) return roomHook;
     const workflowHook = await handleWorkflowHook(request, env, url);
     if (workflowHook) return workflowHook;

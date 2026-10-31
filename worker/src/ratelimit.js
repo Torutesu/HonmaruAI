@@ -68,6 +68,7 @@ export const LIMITS = {
   // costs a model call, so the ceiling is what stops a flood of forged posts
   // becoming a bill. Counted per IP, since a webhook carries no session.
   "webhooks/email": { max: 120, windowSeconds: 300 },
+  "webhooks/line": { max: 600, windowSeconds: 300 },
   // An agent speaking MCP, counted per access token. A request_decision is
   // a card in somebody's feed and a notification on their phone; an agent
   // in a loop must not be able to bury a person.

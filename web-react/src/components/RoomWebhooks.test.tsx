@@ -16,6 +16,23 @@ test('creation reveals the returned key only until dismissed',async()=>{
  expect(tree.root.findAllByType('input').some(i=>i.props.value==='Bearer secret')).toBe(false)
  act(()=>tree.unmount())
 })
+test('LINE connection submits its channel secret and displays the receive URL without a bearer key',async()=>{
+ const fetcher=vi.fn().mockResolvedValueOnce({ok:true,json:async()=>({hooks:[]})}).mockResolvedValueOnce({ok:true,json:async()=>({hook:{id:'line-hook',name:'LINE support',version:1,provider:'line'}})})
+ vi.stubGlobal('fetch',fetcher);let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<RoomWebhooks api={api} channel="b:room"/>)});
+ const inputs=tree.root.findAllByType('input')
+ act(()=>inputs[0].props.onChange({target:{value:'LINE support'}}))
+ act(()=>tree.root.findByType('select').props.onChange({target:{value:'line'}}))
+ const secretInput=tree.root.findAllByType('input').find(input=>input.props.type==='password')!
+ act(()=>secretInput.props.onChange({target:{value:'line-channel-secret-123456'}}))
+ await act(async()=>tree.root.findByType('form').props.onSubmit({preventDefault:vi.fn()}))
+ expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({provider:'line',channelSecret:'line-channel-secret-123456'})
+ const rendered=JSON.stringify(tree.toJSON())
+ expect(rendered).toContain('https://relay.test/hooks/line/line-hook')
+ expect(rendered).toContain('Copy webhook URL')
+ expect(rendered).not.toContain('Authorization header')
+ act(()=>tree.unmount())
+})
 test('unconfirmed writes prevent another creation until the list is read back',async()=>{
  vi.useFakeTimers();const fetcher=vi.fn().mockResolvedValueOnce({ok:true,json:async()=>({hooks:[]})}).mockImplementationOnce(()=>new Promise(()=>{}))
  vi.stubGlobal('fetch',fetcher);let tree!:ReturnType<typeof create>

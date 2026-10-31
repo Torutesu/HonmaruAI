@@ -22,7 +22,7 @@ test('creates, lists without secrets, rotates and revokes with version guards', 
   expect(await authenticateRoomHook(env.DB, created.hook.id, created.secret)).toMatchObject({ orgId: org, channel, version: 1 });
   const listed = await listRoomHooks(env.DB, org, channel, 'creator');
   expect(JSON.stringify(listed)).not.toContain(created.secret);
-  expect(Object.keys(listed.hooks[0]).sort()).toEqual(['createdAt','id','name','revokedAt','version']);
+  expect(Object.keys(listed.hooks[0]).sort()).toEqual(['createdAt','id','name','provider','revokedAt','version']);
   const rotated = await changeRoomHook(env.DB, org, channel, 'creator', created.hook.id, 1, 'rotate');
   expect(rotated.version).toBe(2);
   expect(await authenticateRoomHook(env.DB, created.hook.id, created.secret)).toBeNull();
@@ -131,6 +131,64 @@ test('webhook messages retain an explicit source name without impersonating a pe
   expect(message).toMatchObject({authorName:'Webhook · Deployments',authorRef:null,mine:false});
   expect(JSON.stringify(message)).not.toContain(created.secret);
   expect(await getMessage(env.DB,'other-org',receipt.messageId)).toBeNull();
+});
+
+test('LINE room hooks verify raw signatures, deduplicate inbound events and do not start AI jobs', async () => {
+  const session=await createSession(env.DB,'creator','line-hook-session');
+  const channelSecret='line-channel-secret-'.padEnd(32,'x');
+  const create=await worker.fetch(new Request(`https://example.test/hx/rooms/webhooks?orgId=${org}&channel=${encodeURIComponent(channel)}`,{
+    method:'POST',headers:{'content-type':'application/json','x-session-token':session},
+    body:JSON.stringify({orgId:org,channel,name:'LINE support',provider:'line',channelSecret}),
+  }),env,{waitUntil(){}});
+  expect(create.status).toBe(200);
+  const connection=await create.json();
+  expect(connection.secret).toBeUndefined();
+  expect(connection.hook).toMatchObject({provider:'line',name:'LINE support'});
+  const list=await worker.fetch(new Request(`https://example.test/hx/rooms/webhooks?orgId=${org}&channel=${encodeURIComponent(channel)}`,{headers:{'x-session-token':session}}),env,{waitUntil(){}});
+  expect((await list.json()).hooks[0].provider).toBe('line');
+
+  const payload=JSON.stringify({destination:'bot',events:[{
+    type:'message',webhookEventId:'01H810YECXQQZ37VAXPF6H9E6T',timestamp:1_692_251_666_727,
+    source:{type:'user',userId:'U-do-not-store-this-id'},message:{id:'123',type:'text',text:'Need a delivery update'},
+  }]});
+  const sign=async(secret,text)=>{
+    const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+    const bytes=new Uint8Array(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(text)));
+    return btoa(String.fromCharCode(...bytes));
+  };
+  const deliver=async(secret,text=payload,signedText=text)=>worker.fetch(new Request(`https://example.test/hooks/line/${connection.hook.id}`,{
+    method:'POST',headers:{'content-type':'application/json','x-line-signature':await sign(secret,signedText)},body:text,
+  }),env,{waitUntil(){}});
+  expect((await deliver(channelSecret,`${payload} `,payload)).status).toBe(401); // Signature covers the exact body bytes.
+  const first=await deliver(channelSecret);
+  expect(first.status).toBe(200);
+  expect(await first.json()).toEqual({received:1,duplicates:0,ignored:0});
+  const replay=await deliver(channelSecret);
+  expect(await replay.json()).toEqual({received:0,duplicates:1,ignored:0});
+  const rows=await env.DB.prepare('SELECT id,body,author_login FROM channel_messages WHERE org_id=?1 AND channel=?2').bind(org,channel).all();
+  expect(rows.results).toHaveLength(1);
+  expect(rows.results[0].body).toContain('Need a delivery update');
+  expect(rows.results[0].body).not.toContain('U-do-not-store-this-id');
+  expect(rows.results[0].author_login).toBe(`webhook:${connection.hook.id}`);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_room_hook_dispatch WHERE message_id=?1').bind(rows.results[0].id).first()).n).toBe(0);
+  const replaced=await worker.fetch(new Request(`https://example.test/hx/rooms/webhooks?orgId=${org}&channel=${encodeURIComponent(channel)}`,{
+    method:'PUT',headers:{'content-type':'application/json','x-session-token':session},
+    body:JSON.stringify({orgId:org,channel,id:connection.hook.id,version:1,action:'replace-line-secret',channelSecret:'replacement-secret-'.padEnd(32,'y')}),
+  }),env,{waitUntil(){}});
+  expect(replaced.status).toBe(200);
+  expect((await deliver(channelSecret)).status).toBe(401);
+  const stale=await worker.fetch(new Request(`https://example.test/hx/rooms/webhooks?orgId=${org}&channel=${encodeURIComponent(channel)}`,{
+    method:'PUT',headers:{'content-type':'application/json','x-session-token':session},
+    body:JSON.stringify({orgId:org,channel,id:connection.hook.id,version:1,action:'replace-line-secret',channelSecret:'stale-secret-'.padEnd(32,'z')}),
+  }),env,{waitUntil(){}});
+  expect(stale.status).toBe(409);
+  expect((await deliver('replacement-secret-'.padEnd(32,'y'))).status).toBe(200);
+  const revoke=await worker.fetch(new Request(`https://example.test/hx/rooms/webhooks?orgId=${org}&channel=${encodeURIComponent(channel)}`,{
+    method:'PUT',headers:{'content-type':'application/json','x-session-token':session},
+    body:JSON.stringify({orgId:org,channel,id:connection.hook.id,version:2,action:'revoke'}),
+  }),env,{waitUntil(){}});
+  expect(revoke.status).toBe(200);
+  expect((await deliver('replacement-secret-'.padEnd(32,'y'))).status).toBe(401);
 });
 
 test('live delivery targets current private-room readers and suppresses archived rooms', async () => {

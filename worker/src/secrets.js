@@ -125,6 +125,7 @@ export const aad = {
   githubWorkspace: (orgId) => `org_github.token:${orgId}`,
   sessionGithub: (token) => `sessions.github_access_token:${token}`,
   webhook: (id) => `org_webhooks.secret:${id}`,
+  lineRoomHook: (orgId, id) => `hx_line_room_hooks.channel_secret:${orgId}:${id}`,
   teammate: (orgId, provider, column) => `ai_teammates.${column}:${orgId}:${provider}`,
   appleRefresh: (subject) => `apple_identities.refresh_token:${subject}`,
   remoteMcpHeaders: (orgId, id) => `hx_remote_mcp_servers.auth_headers:${orgId}:${id}`,
