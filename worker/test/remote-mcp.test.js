@@ -79,7 +79,7 @@ test("OAuth Remote MCP uses PKCE, validates issuer and redirect, and keeps each 
   mcp.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "initialize" })
     .reply(401, "", { "www-authenticate": 'Bearer resource_metadata="https://mcp-oauth.example.com/.well-known/oauth-protected-resource/mcp", scope="files:read"' }).times(2);
   mcp.intercept({ path: "/.well-known/oauth-protected-resource/mcp", method: "GET" })
-    .reply(200, { resource: endpoint, authorization_servers: [authOrigin], scopes_supported: ["files:read"] }).times(2);
+    .reply(200, { resource: `${origin}/`, authorization_servers: [authOrigin], scopes_supported: ["files:read"] }).times(2);
   let metadataLookups = 0;
   auth.intercept({ path: "/.well-known/oauth-authorization-server", method: "GET" })
     .reply(() => {
@@ -105,7 +105,7 @@ test("OAuth Remote MCP uses PKCE, validates issuer and redirect, and keeps each 
   auth.intercept({ path: "/token", method: "POST", body: (body) => {
     const data = new URLSearchParams(body);
     return data.has("client_id") === false && data.has("client_secret") === false
-      && String(data.get("resource")) === endpoint
+      && data.get("resource") === `${origin}/`
       && ((data.get("grant_type") === "authorization_code" && Boolean(data.get("code_verifier")))
         || (data.get("grant_type") === "refresh_token" && data.get("refresh_token") === "private-refresh-token"));
   } }).reply((opts) => {
@@ -133,7 +133,7 @@ test("OAuth Remote MCP uses PKCE, validates issuer and redirect, and keeps each 
     expect(authorize.searchParams.get("tenant")).toBe("honmaru");
     expect(authorize.searchParams.get("response_type")).toBe("code");
     expect(authorize.searchParams.get("code_challenge_method")).toBe("S256");
-    expect(authorize.searchParams.get("resource")).toBe(endpoint);
+    expect(authorize.searchParams.get("resource")).toBe(`${origin}/`);
     expect(authorize.searchParams.get("scope")).toBe("files:read");
     const state = authorize.searchParams.get("state");
     const callback = await secureCall(`/remote-mcp/oauth/callback?state=${encodeURIComponent(state)}&code=approved-code&iss=${encodeURIComponent(authOrigin)}`, { method: "GET" });

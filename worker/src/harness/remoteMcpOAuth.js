@@ -130,7 +130,7 @@ async function discoverProtectedResource(endpoint) {
   }
   if (!metadata) throw new Error(lastError?.message || "The MCP server did not publish OAuth Protected Resource Metadata.");
   const resource = safeOAuthUrl(metadata.resource || endpoint);
-  if (!resource || resource.replace(/\/$/, "") !== endpoint.replace(/\/$/, "")) {
+  if (!resource || new URL(resource).origin !== new URL(endpoint).origin) {
     throw new Error("The OAuth resource metadata does not identify the configured MCP server.");
   }
   const issuers = Array.isArray(metadata.authorization_servers) ? metadata.authorization_servers : [];
@@ -147,7 +147,7 @@ async function discoverProtectedResource(endpoint) {
     scopes = metadata.scopes_supported.filter((scope) => typeof scope === "string" && scope.length <= 200 && !/[\u0000-\u001f]/.test(scope)).slice(0, 100).join(" ");
   }
   if (scopes.length > 2000 || /[\u0000-\u001f]/.test(scopes)) throw new Error("The MCP server published invalid OAuth scopes.");
-  return { metadata, issuer, resource: resource.replace(/\/$/, ""), scope: scopes || null };
+  return { metadata, issuer, resource, scope: scopes || null };
 }
 
 async function discoverAuthorizationServer(issuer) {
