@@ -24,6 +24,10 @@ Usage:
   honmaru workspace decision read <card-id>
   honmaru workspace decision search <query>
   honmaru workspace decision request --title TEXT [--to PERSON] [--summary TEXT] [--context TEXT]
+  honmaru workspace execution node list
+  honmaru workspace execution run --gateway-id NODE --request-id ID --code JS --input JSON
+  honmaru workspace execution read <job-id>
+  honmaru workspace execution cancel <job-id>
 
 Environment:
   HONMARU_API_URL       HTTPS API origin for your Honmaru workspace
@@ -56,6 +60,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "text", "room", "instruction", "minutes", "scope", "origin", "type", "created-by",
   "direction", "title", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version",
+  "gateway-id", "request-id", "code", "input",
 ]);
 const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted"]);
 
@@ -95,6 +100,12 @@ function objectOption(options, key, fallback = undefined) {
     throw new Error(`--${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)} must be a JSON object.`);
   }
   return value;
+}
+
+function jsonValueOption(options, key) {
+  if (options[key] === undefined) return undefined;
+  try { return JSON.parse(options[key]); }
+  catch { throw new Error(`--${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)} must be valid JSON.`); }
 }
 
 function integerOption(options, key, { min = 0, max = Number.MAX_SAFE_INTEGER, required = false } = {}) {
@@ -242,6 +253,24 @@ function resolveWorkspaceCommand(resource, operation, positional, options) {
       for (const key of ["to", "summary", "context", "priority", "type"]) if (options[key] !== undefined) args[key] = options[key];
       return { tool: "request_decision", args };
     }
+    case "execution node":
+      onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace execution node list");
+      if (positional[0] !== "list") throw new Error("Usage: honmaru workspace execution node list.");
+      return { tool: "list_execution_nodes", args: {} };
+    case "execution run": {
+      onlyFlags(options, ["gatewayId", "requestId", "code", "input"]); positionalCount(positional, 0, "honmaru workspace execution run --gateway-id NODE --request-id ID --code JS --input JSON");
+      if (!options.gatewayId?.trim()) throw new Error("--gateway-id is required.");
+      if (!options.requestId || !/^[\w-]{1,80}$/.test(options.requestId)) throw new Error("--request-id must be 1 to 80 letters, numbers, underscores or hyphens; reuse it only when retrying the same request.");
+      if (!options.code?.trim()) throw new Error("--code is required.");
+      if (options.input === undefined) throw new Error("--input is required and must be valid JSON (use null when there is no input).");
+      return { tool: "run_javascript", args: { gatewayId: options.gatewayId, requestId: options.requestId, code: options.code, input: jsonValueOption(options, "input") } };
+    }
+    case "execution read":
+      onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace execution read <job-id>");
+      return { tool: "get_execution", args: { jobId: positional[0] } };
+    case "execution cancel":
+      onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace execution cancel <job-id>");
+      return { tool: "cancel_execution", args: { jobId: positional[0] } };
     default:
       throw new Error(`Unknown workspace command: ${pair || "(missing)"}. Run honmaru workspace help.`);
   }
@@ -255,6 +284,8 @@ function formatWorkspaceResult(result, json) {
   if (Array.isArray(value.rows)) return value.rows.length ? value.rows.map((row) => `${row.id}\t${JSON.stringify(row)}`).join("\n") : `No rows found (total ${value.total ?? 0}).`;
   if (Array.isArray(value.files)) return value.files.length ? value.files.map((file) => `${file.id}\t${file.path || file.name || "(unnamed)"}`).join("\n") : "No files found.";
   if (Array.isArray(value.members)) return value.members.length ? value.members.map((member) => `${member.name}${member.title ? `\t${member.title}` : ""}`).join("\n") : "No members found.";
+  if (Array.isArray(value.gateways)) return value.gateways.length ? value.gateways.map((gateway) => `${gateway.id}\t${gateway.name}${gateway.lastSeenAt ? `\t${gateway.lastSeenAt}` : ""}`).join("\n") : "No execution nodes are registered.";
+  if (value.job?.id) return `Execution ${value.job.id}: ${value.job.status}. Read the result with honmaru workspace execution read ${value.job.id}.`;
   if (Array.isArray(value.rules)) return value.rules.length ? value.rules.map((rule, index) => `${index + 1}. ${rule}`).join("\n") : "The playbook is empty.";
   if (Array.isArray(value.decisions)) return value.decisions.length ? value.decisions.map((decision) => `${decision.cardId}\t${decision.status}\t${decision.title}`).join("\n") : "No decisions found.";
   return JSON.stringify(value, null, 2);

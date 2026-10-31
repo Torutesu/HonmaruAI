@@ -4,7 +4,7 @@ import { runCli } from "../src/cli.js";
 
 function output() {
   let text = "";
-  return { stream: { write: (value) => { text += value; } }, read: () => text };
+  return { stream: { write: (value) => { text += value; } }, read: () => text, clear: () => { text = ""; } };
 }
 
 const token = `hm_${"b".repeat(64)}`;
@@ -74,6 +74,55 @@ test("gateway status rejects unsupported flags", async () => {
   const code = await runCli(["gateway", "status", "--force"], { stdout: stdout.stream, stderr: stderr.stream });
   assert.equal(code, 2);
   assert.match(stderr.read(), /honmaru gateway status/);
+});
+
+test("execution aliases list nodes, queue isolated JavaScript, read results, and cancel jobs", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    calls.push(req.params);
+    const structuredContent = req.params.name === "list_execution_nodes"
+      ? { gateways: [{ id: "gw_1", name: "Mac mini", lastSeenAt: "2026-10-31T00:00:00.000Z" }] }
+      : { job: { id: "job_1", status: req.params.name === "cancel_execution" ? "cancelled" : "queued" } };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "execution", "node", "list"]), 0);
+  assert.match(stdout.read(), /^gw_1\tMac mini/);
+  stdout.clear();
+  assert.equal(await run(["workspace", "execution", "run", "--gateway-id", "gw_1", "--request-id", "run-1", "--code", "return input.value + 1;", "--input", "{\"value\":41}"]), 0);
+  assert.match(stdout.read(), /Execution job_1: queued/);
+  stdout.clear();
+  assert.equal(await run(["workspace", "execution", "read", "job_1", "--json"]), 0);
+  assert.deepEqual(JSON.parse(stdout.read()), { job: { id: "job_1", status: "queued" } });
+  stdout.clear();
+  assert.equal(await run(["workspace", "execution", "cancel", "job_1"]), 0);
+  assert.match(stdout.read(), /Execution job_1: cancelled/);
+  assert.deepEqual(calls, [
+    { name: "list_execution_nodes", arguments: {} },
+    { name: "run_javascript", arguments: { gatewayId: "gw_1", requestId: "run-1", code: "return input.value + 1;", input: { value: 41 } } },
+    { name: "get_execution", arguments: { jobId: "job_1" } },
+    { name: "cancel_execution", arguments: { jobId: "job_1" } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("execution run validates its idempotency key and JSON before making a request", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("must not call the server"); };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  const base = ["workspace", "execution", "run", "--gateway-id", "gw_1", "--request-id", "bad/id", "--code", "return 1;", "--input", "null"];
+  assert.equal(await run(base), 1);
+  assert.match(stderr.read(), /request-id/);
+  assert.equal(await run([...base.slice(0, 6), "valid-id", ...base.slice(7, 10), "not-json"]), 1);
+  assert.match(stderr.read(), /valid JSON/);
+  assert.equal(requests, 0);
 });
 
 test("resource aliases map to the scoped app and database tools", async () => {
