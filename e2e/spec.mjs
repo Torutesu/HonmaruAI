@@ -1918,6 +1918,13 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     await d.keyboard.press('Enter')
     await d.waitForSelector('.slk-thread-pane .slk-msg:has-text("Housekeeping")', { timeout: 10000 })
       .catch(() => { throw new Error('picking a thread reply in search did not open its thread') })
+    // The selected reply also shows its original-message preview. Close that
+    // modal explicitly before interacting with the inbox underneath it.
+    await d.waitForSelector('.dialog[aria-label="Original message"]', { timeout: 5000 })
+      .catch(() => { throw new Error('picking a thread reply in search did not show its original-message preview') })
+    await d.click('.dialog[aria-label="Original message"] .dialog-close')
+    await d.waitForSelector('.dialog[aria-label="Original message"]', { state: 'detached', timeout: 5000 })
+      .catch(() => { throw new Error('closing the original-message preview did not close it') })
     // The selected result closes the global palette before Activity can be
     // clicked. Waiting for both layers to unmount avoids racing React's
     // batched state update on slower CI runners.
