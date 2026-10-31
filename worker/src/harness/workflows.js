@@ -723,6 +723,7 @@ async function workflowAgentRemoteTools(env, { orgId, agentRow, owner, reservedN
         used.set(JSON.stringify([ref.serverId, ref.toolName]), offered);
         const result = await callRemoteMcpTool(env, {
           orgId,
+          githubId: String(owner),
           login: String(owner),
           name: String(owner),
           agentName: agentRow.handle || agentRow.name || 'Agent',

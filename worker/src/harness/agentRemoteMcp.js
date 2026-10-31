@@ -1,4 +1,5 @@
 import { remoteMcpTools } from './remoteMcp.js';
+import { remoteMcpOAuthStatus } from './remoteMcpOAuth.js';
 
 async function currentGrants(db, orgId, agentId, githubId) {
   const { results = [] } = await db.prepare(`SELECT g.server_id FROM hx_agent_remote_mcp_grants g
@@ -24,21 +25,23 @@ async function readOnlyToolsByServer(db, orgId) {
 export async function agentRemoteMcpConnections(db, { orgId, agentId, githubId }) {
   if (!orgId || !agentId || !githubId) return [];
   const [servers, grants, counts] = await Promise.all([
-    db.prepare('SELECT id, name FROM hx_remote_mcp_servers WHERE org_id=?1 ORDER BY created_at, id').bind(orgId).all().catch(() => ({ results: [] })),
+    db.prepare('SELECT id, name, auth_mode FROM hx_remote_mcp_servers WHERE org_id=?1 ORDER BY created_at, id').bind(orgId).all().catch(() => ({ results: [] })),
     currentGrants(db, orgId, agentId, githubId).catch(() => new Set()),
     readOnlyToolsByServer(db, orgId),
   ]);
-  return (servers.results || []).map((server) => {
+  return Promise.all((servers.results || []).map(async (server) => {
     const readOnlyToolCount = counts.get(server.id) || 0;
-    const available = readOnlyToolCount > 0;
+    const oauthConnected = server.auth_mode !== 'oauth' || await remoteMcpOAuthStatus(db, orgId, server.id, githubId);
+    const available = readOnlyToolCount > 0 && oauthConnected;
     return {
       serverId: server.id,
       name: server.name,
       available,
       enabled: available && grants.has(server.id),
       readOnlyToolCount,
+      needsOAuth: !oauthConnected,
     };
-  });
+  }));
 }
 
 export async function setAgentRemoteMcpConnection(env, { orgId, agentId, session, serverId, enabled }) {

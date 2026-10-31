@@ -274,6 +274,10 @@ export async function handleHarness(request, env, url, context = {}) {
   if (who.denied) return who.denied;
   const me = who.session.github_id;
   if (url.pathname === "/remote-mcp" || url.pathname.startsWith("/remote-mcp/")) {
+    if (request.method === "POST" && url.pathname.endsWith("/oauth/start")) {
+      const limited = await enforce(env, request, "remote-mcp/oauth");
+      if (limited) return limited;
+    }
     const canManage = await allowed(env.DB, orgId, me, "workspace.integrations");
     return handleRemoteMcp(request, env, url, input, { orgId, who, canManage });
   }

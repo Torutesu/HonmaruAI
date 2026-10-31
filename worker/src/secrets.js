@@ -128,6 +128,9 @@ export const aad = {
   teammate: (orgId, provider, column) => `ai_teammates.${column}:${orgId}:${provider}`,
   appleRefresh: (subject) => `apple_identities.refresh_token:${subject}`,
   remoteMcpHeaders: (orgId, id) => `hx_remote_mcp_servers.auth_headers:${orgId}:${id}`,
+  remoteMcpOAuthClient: (orgId, id) => `hx_remote_mcp_servers.oauth_client:${orgId}:${id}`,
+  remoteMcpOAuthVerifier: (orgId, stateHash) => `hx_remote_mcp_oauth_states.code_verifier:${orgId}:${stateHash}`,
+  remoteMcpOAuthCredential: (orgId, serverId, userId, membershipSince) => `hx_remote_mcp_oauth_credentials.credential:${orgId}:${serverId}:${userId}:${membershipSince}`,
 };
 
 // Values that mark a session without a GitHub token; not secrets.

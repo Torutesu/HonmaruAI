@@ -61,6 +61,7 @@ import { handleScim } from "./scim.js";
 import { handleDlp } from "./dlp.js";
 import { handleDomains, recheckDomains } from "./domains.js";
 import { handleSso, checkSsoGrants } from "./sso.js";
+import { finishRemoteMcpOAuth, remoteMcpOAuthClientMetadata } from "./harness/remoteMcpOAuth.js";
 import { handleApps, sweepAppConnections, forgetAppConnections } from "./smitheryApps.js";
 import { requestContext } from "./requestContext.js";
 import { settleCors } from "./cors.js";
@@ -394,6 +395,10 @@ async function handle(request, env, url, ctx) {
     if (requiresEncryption(env) && url.pathname !== "/health" && !encryptionReady(env).all) {
       return json({ message: "The service is not fully configured. Try again shortly.", code: "service-unavailable" }, 503);
     }
+    if (url.pathname === "/.well-known/oauth-client") {
+      if (request.method === "GET") return remoteMcpOAuthClientMetadata(url, env);
+      return new Response("Method not allowed", { status: 405, headers: { allow: "GET", "cache-control": "no-store" } });
+    }
     // Browsers send a preflight OPTIONS before a cross-origin POST with custom
     // headers. Answer it with the CORS headers and no body.
     if (request.method === "OPTIONS") {
@@ -411,6 +416,15 @@ async function handle(request, env, url, ctx) {
     if (url.pathname.startsWith("/.well-known/")) {
       const known = handleWellKnown(request, env, url);
       if (known) return known;
+    }
+
+    // Remote MCP OAuth returns to this one-time state-bound callback. The
+    // state itself binds the exchange to its initiating workspace member.
+    if (url.pathname === "/remote-mcp/oauth/callback") {
+      if (request.method !== "GET") return new Response("Method not allowed", { status: 405, headers: { allow: "GET", "cache-control": "no-store" } });
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      return finishRemoteMcpOAuth(env, url);
     }
 
     // Conversations from a workspace's own Durable Object (PoC, off unless

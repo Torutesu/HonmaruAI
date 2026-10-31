@@ -579,6 +579,10 @@ export async function retainMemberships(db, orgId, keep) {
     .prepare(`DELETE FROM memberships WHERE org_id = ?1 AND user_github_id NOT IN (${holes}) ${githubOnly}`)
     .bind(orgId, ...ids)
     .run();
+  await db.prepare(`DELETE FROM hx_remote_mcp_oauth_credentials WHERE org_id = ?1 AND user_github_id NOT IN (${holes}) ${githubOnly}`)
+    .bind(orgId, ...ids).run().catch((err) => { if (!/no such table/i.test(String(err?.message))) throw err; });
+  await db.prepare(`DELETE FROM hx_remote_mcp_oauth_states WHERE org_id = ?1 AND user_github_id NOT IN (${holes}) ${githubOnly}`)
+    .bind(orgId, ...ids).run().catch((err) => { if (!/no such table/i.test(String(err?.message))) throw err; });
   // Agents belong to the person, so they go the same way.
   await db
     .prepare(`DELETE FROM agents WHERE org_id = ?1 AND user_github_id NOT IN (${holes}) ${githubOnly}`)
