@@ -622,7 +622,18 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     await tryWorkflowNotice(env,orgId,workflow.id);
     return getRun(db, orgId, runId);
   }
-  const authorize=async()=>await managedAutomationMayRun(db,orgId,workflow.id,workflow.automationReleaseId)&&await workflowSourceMayRun(db,orgId,workflow.id,workflow.createdBy);
+  const authorize = async () => {
+    if (!await managedAutomationMayRun(db, orgId, workflow.id, workflow.automationReleaseId)
+      || !await workflowSourceMayRun(db, orgId, workflow.id, workflow.createdBy)) return false;
+    // App/record triggers carry the maker's access into the run. Recheck that
+    // live grant inside model/tool loops too, so an app made private while an
+    // Agent is answering cannot publish data read under the old grant.
+    if (sourceTable && !(await mayUseTable(db, orgId, sourceTable, workflow.createdBy))) return false;
+    if (workflow.trigger?.type === 'app_record_change'
+      && (!(await validAppRecordTrigger(db, orgId, workflow.trigger))
+        || !(await mayUseApp(db, orgId, workflow.trigger.appId, workflow.createdBy)))) return false;
+    return true;
+  };
   const log = run.log;
   const scope = { input: run.input || {}, steps: {}, workflow: { name: workflow.name } };
   if (run.input?.row) scope.row = run.input.row;

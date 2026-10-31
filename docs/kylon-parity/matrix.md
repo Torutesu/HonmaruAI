@@ -112,7 +112,7 @@
 | KY-063 | Webhook rotation/revoke/held/replay | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 再発行・失効、停止中イベントの7日/1000件保持、明示IDによる古い順の再実行、二重起動防止、保留イベント破棄UIを本番反映。中断した実行の復旧とWebhook詳細画面の実画面検証は残る。 |
 | KY-064 | 承認待ち・継続 | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 承認者・操作内容・revisionを固定し二重承認を排除 |
 | KY-065 | 停止・再開・アーカイブ | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | スケジュール停止と実行キャンセルを区別 |
-| KY-066 | 実行者の権限を再検証 | 一部 | P0 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js), [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | Workflow内Agentの各モデル往復・ツール呼び出し前後でmakerの現行Agent grantと会話アクセスを再検証し、回答公開直前にも確認（このブランチで実装、CI前）。App/table/Connection grantの全経路監査、実行中プロバイダー要求のキャンセル・精算は残る |
+| KY-066 | 実行者の権限を再検証 | 一部 | P0 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js), [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | Workflow内Agentの各モデル往復・ツール呼び出し前後でmakerの現行Agent grantと会話アクセスを再検証し、回答公開直前にも確認。今回、app_record_changeの元App/Table権限も同じ認可fenceで再評価し、モデル応答中にprivateへ変更されたAppの回答を公開しない回帰テストを追加（focused test成功、PR/本番反映待ち）。全workflow actionのConnection grant監査、実行中プロバイダー要求のキャンセル・精算は残る |
 | KY-067 | 実行予算と自動pause | 一部 | P0 | [worker/src/harness/workflowSafety.js](../../worker/src/harness/workflowSafety.js) | 回数上限に加え、直近24h/7d/30日の記録トークンからUSD参考価格を集計しwarnまたは実行後pauseするAutomation予算を実装。単価不明usageの可視化、作成元thread通知、CAS設定、原子的admissionを検証。Kylon credits・invoice換算、外部tool料金、事前予約・部分実行の精算は未対応 |
 | KY-068 | 一回限りのFollow-up | 一部 | P1 | [worker/src/harness/followups.js](../../worker/src/harness/followups.js) | 相対/絶対時刻・スレッド・通知先・停止・権限変更後を検証 |
 | KY-069 | Follow-upの実ツール実行 | 一部 | P1 | [worker/src/harness/followups.js](../../worker/src/harness/followups.js) | 個人Agent DMではread-only Notion/GitHub/Smithery連携を使い、ツール実行と出典/ID/URLを回答に含めるよう指示。共有チャンネルへ個人連携は渡さない。全Follow-upのコネクタ対応、書き込み操作、証跡画面、実接続の本番往復は残る |
@@ -206,7 +206,7 @@ Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing an
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-098 | アプリ画面への範囲注釈とAgentへの修正依頼 | 一部 | P1 | [AppAnnotation.tsx](../../web-react/src/components/AppAnnotation.tsx), [appAnnotations.js](../../worker/src/harness/appAnnotations.js) | 対象範囲・要素名・位置を指定して編集可能な下書きを利用者が送信。送信済みマーカーを保存し一覧/ピンで再表示。PR #576/#577、main merge `233faf0`、Web deploy #41198169985成功。注釈作成・再読込後のピンと本文復元をログイン済み本番QAアプリで確認し、ドラッグ枠・左下アンカーの配置をKylon画面と直接比較。PR #577の同じコードSHA push CI #41196471534は成功、main CI #41198169971は実行中。別ユーザー拒否・二台同期の本番確認、元スレッド経由の画面比較が残るため一部 |
+| KY-098 | アプリ画面への範囲注釈とAgentへの修正依頼 | 一部 | P1 | [AppAnnotation.tsx](../../web-react/src/components/AppAnnotation.tsx), [appAnnotations.js](../../worker/src/harness/appAnnotations.js) | 対象範囲・要素名・位置を指定して編集可能な下書きを利用者が送信。送信済みマーカーを保存し一覧/ピンで再表示。PR #576/#577/#578。最新Web deploy #41199862857成功し、本番HonmaruでKylon同様の淡い点線範囲枠・左寄せ入力欄を実画面確認。最新main merge `25154abc` の全適用CI #41199862881は成功。認証済み本番QAで注釈送信、ピン・本文の再読込復元を確認。別ユーザー拒否・同一ユーザー二台同期・作成元スレッド経由の本番比較は残るため一部 |
 
 ### 2026-10-26 — Kylon usage controls
 

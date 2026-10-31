@@ -885,6 +885,43 @@ test.each(['workflow', 'followup'])('%s reads an installed skill through its exe
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM ai_reservations').first()).n).toBe(0);
 });
 
+test('an app record workflow stops its Agent after its maker loses app access during the model turn', async () => {
+  const sourceApp = (await (await send('POST', '/apps', toru, {
+    orgId: ORG, template: 'invoices', sample: false,
+  })).json()).app;
+  const { agent } = await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'App reviewer', handle: 'app-reviewer', instructions: 'Review the record.', scope: 'team',
+  })).json();
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Review app record',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'agent', agentId: agent.id, channel: 'b:ops', prompt: 'Review the changed record.' }],
+  }, '9302');
+  let requestBody;
+  fetchMock.activate();
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, async opts => {
+    requestBody = JSON.parse(opts.body);
+    await env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)
+      ON CONFLICT(org_id,app_id) DO UPDATE SET visibility='private',version=version+1`).bind(ORG, sourceApp.id).run();
+    return { choices: [{ message: { content: 'This private app reply must not be published.' } }], usage: { prompt_tokens: 10, completion_tokens: 4 } };
+  });
+  try {
+    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, {
+      orgId: ORG,
+      workflow,
+      trigger: 'app_record_change',
+      input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'private-row', data: { status: 'review' } }] },
+      startedBy: '9302',
+    });
+    expect(result.status).toBe('failed');
+    expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
+    expect((await messages(mika)).map(message => message.body)).not.toContain('This private app reply must not be published.');
+    expect(requestBody.messages.some(message => message.content?.includes('Review the changed record.'))).toBe(true);
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
 test('a workflow Agent grant revoked during its model turn prevents publishing the reply', async () => {
   await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' });
   const { agent } = await (await send('POST', '/channels/agents', toru, {
