@@ -419,6 +419,7 @@
 .hx-column-setting button:disabled { opacity:.25; }
 .hx-personal-table { table-layout:fixed; }
 .hx-personal-table td,.hx-personal-table th { overflow:hidden; text-overflow:ellipsis; }
+.hx-personal-table .hx-table-spacer { padding:0; border-left:0; border-right:0; }
 .hx-personal-badge { font-size:10px; margin-left:5px; }
 
 .hx-view-popover-footer { display:flex; justify-content:flex-end; gap:8px; margin:14px 0; }
