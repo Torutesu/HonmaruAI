@@ -2,7 +2,7 @@ import { beforeEach, afterEach, expect, test, vi } from 'vitest';
 import { fetchMock } from './helpers/fetch-mock.js';
 import { completeWithTools } from '../src/harness/modelToolLoop.js';
 beforeEach(() => fetchMock.activate());
-afterEach(() => fetchMock.assertNoPendingInterceptors());
+afterEach(() => { vi.unstubAllGlobals(); fetchMock.assertNoPendingInterceptors(); });
 const options = () => ({provider:{endpoint:'https://model.example/chat',apiKey:'test',model:'test'},system:'Catalog',fallbackSystem:'Full procedure',user:'Do work',maxTokens:100,json:false,timeoutMs:30000,onUsage:vi.fn()});
 const read = run => ({read_installed_skill:{description:'Read skill',parameters:{type:'object'},run}});
 const call = id => ({id,type:'function',function:{name:'read_installed_skill',arguments:'{"skill_id":"one"}'}});
@@ -86,6 +86,25 @@ test('revocation during inference suppresses the returned tools',async()=>{
  });
  expect(await completeWithTools({...opts,tools:read(run),authorize:async()=>permitted})).toBeNull();
  expect(run).not.toHaveBeenCalled();
+});
+
+test('revocation while the provider is still responding aborts the request and records unknown usage',async()=>{
+ const opts=options();opts.provider.endpoint='https://abort-on-revoke.example/chat';
+ let permitted=true;
+ const recordUnknownUsage=vi.fn();
+ const onInterrupted=()=>recordUnknownUsage({model:'test',usage:{}},{model:'test',provider:'Test',byok:false});
+ const fetchRequest=vi.fn((_url,{signal})=>new Promise((resolve,reject)=>{
+  const abort=()=>reject(signal.reason||new Error('aborted'));
+  if(signal.aborted)abort();else signal.addEventListener('abort',abort,{once:true});
+ }));
+ vi.stubGlobal('fetch',fetchRequest);
+ const response=completeWithTools({...opts,authorize:async()=>permitted,authorizationPollMs:10,onInterrupted});
+ setTimeout(()=>{permitted=false;},0);
+ await expect(response).resolves.toBeNull();
+ expect(fetchRequest).toHaveBeenCalledOnce();
+ expect(recordUnknownUsage).toHaveBeenCalledTimes(1);
+ expect(recordUnknownUsage).toHaveBeenCalledWith({model:'test',usage:{}},{model:'test',provider:'Test',byok:false});
+ expect(opts.onUsage).not.toHaveBeenCalled();
 });
 
 test('revocation inside one tool suppresses sibling tools and subsequent inference',async()=>{

@@ -1,6 +1,51 @@
 // Bounded chat-completion tool loop for scheduled and workflow work.
 // All tools are supplied by the server; model arguments never select an identity.
-export async function completeWithTools({ provider, system, user, tools = {}, fallbackSystem = system, maxTokens, json, timeoutMs, onUsage, authorize = null, requireTool = false, requiredToolNames = [] }) {
+const AUTHORIZATION_POLL_MS = 1000;
+
+async function withAuthorizationFence(authorize, pollMs, timeoutMs, request) {
+  if (!authorize) return { value: await request(AbortSignal.timeout(timeoutMs)), revoked: false };
+  const controller = new AbortController();
+  const signal = AbortSignal.any([AbortSignal.timeout(timeoutMs), controller.signal]);
+  let stopped = false;
+  let revoked = false;
+  let timer = null;
+  let wake = null;
+  const waitForPoll = () => new Promise(resolve => {
+    wake = resolve;
+    timer = setTimeout(() => { timer = null; wake = null; resolve(); }, pollMs);
+  });
+  const monitor = (async () => {
+    while (!stopped) {
+      await waitForPoll();
+      if (stopped) return;
+      let permitted = false;
+      try { permitted = await authorize(); } catch { /* authorization failures close the request */ }
+      if (stopped) return;
+      if (!permitted) {
+        revoked = true;
+        controller.abort('authorization changed');
+        return;
+      }
+    }
+  })();
+  let value;
+  let error;
+  try { value = await request(signal); } catch (caught) { error = caught; }
+  finally {
+    stopped = true;
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+      wake?.();
+      wake = null;
+    }
+    await monitor;
+  }
+  if (error && !revoked) throw error;
+  return { value, revoked, failed: Boolean(error) };
+}
+
+export async function completeWithTools({ provider, system, user, tools = {}, fallbackSystem = system, maxTokens, json, timeoutMs, onUsage, onInterrupted = null, authorize = null, authorizationPollMs = AUTHORIZATION_POLL_MS, requireTool = false, requiredToolNames = [] }) {
   let enabled = Object.keys(tools).length > 0;
   const requiredNames = new Set(requiredToolNames);
   let requiredToolExecuted = false;
@@ -13,13 +58,28 @@ export async function completeWithTools({ provider, system, user, tools = {}, fa
     const remaining = deadline - Date.now();
     if (remaining <= 0) return null;
     const final = round >= 3 || calls >= 12;
-    const response = await fetch(provider.endpoint, {
-      method:'POST',signal:AbortSignal.timeout(remaining),
-      headers:{Authorization:`Bearer ${provider.apiKey}`,'Content-Type':'application/json'},
-      body:JSON.stringify({model:provider.model,temperature:0.2,max_tokens:maxTokens,
-        ...(json ? {response_format:{type:'json_object'}} : {}),
-        ...(enabled ? {tools:definitions,tool_choice:final?'none':requireTool&&round===0?'required':'auto'} : {}),messages}),
+    const pollMs = Number.isFinite(authorizationPollMs) ? Math.max(1, Math.min(10000, authorizationPollMs)) : AUTHORIZATION_POLL_MS;
+    // Only callers with a durable interrupted-usage sink can abort a
+    // dispatched request. Others still recheck authorization after response.
+    const outcome = await withAuthorizationFence(onInterrupted ? authorize : null, pollMs, remaining, async signal => {
+      const response = await fetch(provider.endpoint, {
+        method:'POST',signal,
+        headers:{Authorization:`Bearer ${provider.apiKey}`,'Content-Type':'application/json'},
+        body:JSON.stringify({model:provider.model,temperature:0.2,max_tokens:maxTokens,
+          ...(json ? {response_format:{type:'json_object'}} : {}),
+          ...(enabled ? {tools:definitions,tool_choice:final?'none':requireTool&&round===0?'required':'auto'} : {}),messages}),
+      });
+      return { response, data: response.ok ? await response.json() : null };
     });
+    if (outcome.revoked) {
+      // Keep actual provider usage when the response arrived, otherwise
+      // preserve an explicit unknown-usage record for the dispatched call.
+      if (outcome.value?.response?.ok) await onUsage(outcome.value.data);
+      else await onInterrupted?.();
+      return null;
+    }
+    if (outcome.failed || !outcome.value) return null;
+    const { response, data } = outcome.value;
     // Only the initial rejected tool request may retry without tools.
     if (!response.ok) {
       if (round === 0 && enabled && !requireTool && [400,422].includes(response.status)) {
@@ -29,9 +89,8 @@ export async function completeWithTools({ provider, system, user, tools = {}, fa
       }
       return null;
     }
-    const data = await response.json();
     await onUsage(data);
-    if (authorize && !await authorize())return null;
+    if (outcome.revoked || (authorize && !await authorize()))return null;
     const message = data?.choices?.[0]?.message;
     if (!message) return null;
     const pending = Array.isArray(message.tool_calls) ? message.tool_calls : [];

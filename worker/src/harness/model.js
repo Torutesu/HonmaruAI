@@ -22,6 +22,13 @@ export async function completer(env, orgId, githubId, purpose, { maxTokens = 900
           if (!consumed && allowance.metered) { await allowance.consume(); consumed = true; }
           if (recordUsage) await recordUsage(data, {model:provider.model,provider:provider.providerName || "OpenAI",byok:Boolean(provider.byok)});
         },
+        onInterrupted: recordUsage ? async () => {
+          // The provider may already have accepted the request. Count the
+          // attempt against the local allowance and preserve unknown usage
+          // for workflow budget safety instead of recording it as free.
+          if (!consumed && allowance.metered) { await allowance.consume(); consumed = true; }
+          if (recordUsage) await recordUsage({ model: provider.model, usage: {} }, {model:provider.model,provider:provider.providerName || "OpenAI",byok:Boolean(provider.byok)});
+        } : null,
       });
     } finally {
       // A call that failed gives its place in the day back (gate.js).
