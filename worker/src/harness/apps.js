@@ -316,15 +316,15 @@ export async function updateApp(db, orgId, id, { name, tableName, description, i
   if (!app) return { error: "No such app.", status: 404 };
   if (expectedVersion !== undefined && expectedVersion !== app.version) return { error: "This app changed. Reload before saving.", status: 409 };
   const existingViewIds=new Set((Array.isArray(app.definition.views)?app.definition.views:[]).map(view=>view.id));
-  const requestedPersonalIds=(Array.isArray(definition?.views)?definition.views:[]).map(view=>typeof view?.id==='string'?view.id.slice(0,32):'').filter(viewId=>viewId.startsWith('personal_')&&!existingViewIds.has(viewId));
+  const introducedIds=def=>def.views.map(view=>view.id).filter(viewId=>viewId.startsWith('personal_')&&!existingViewIds.has(viewId));
   let table = await getTable(db, orgId, app.tableId);
   // The table's new columns, written only in the same transaction as the
   // app's new version below: a save that loses to another leaves both alone.
   let schema = null;
   if (columns !== undefined || tableName !== undefined) {
-    schema = await planTableUpdate(db, orgId, app.tableId, { name: tableName, columns }, { sql: `EXISTS (SELECT 1 FROM hx_apps WHERE id = ?9 AND org_id = ?5 AND version = ?10)
+    schema = await planTableUpdate(db, orgId, app.tableId, { name: tableName, columns }, planned => ({ sql: `EXISTS (SELECT 1 FROM hx_apps WHERE id = ?9 AND org_id = ?5 AND version = ?10)
       AND (?11='[]' OR NOT EXISTS (SELECT 1 FROM hx_personal_views p, json_each(p.settings,'$.views') v, json_each(?11) incoming
-        WHERE p.org_id=?5 AND p.app_id=?9 AND json_extract(v.value,'$.id')=incoming.value))`, binds: [id, app.version, JSON.stringify(requestedPersonalIds)] });
+        WHERE p.org_id=?5 AND p.app_id=?9 AND json_extract(v.value,'$.id')=incoming.value))`, binds: [id, app.version, JSON.stringify(introducedIds(normalizeDefinition(definition ?? app.definition,planned.columns)))] }));
     if (schema.error) return schema;
     table = schema.table;
   }
@@ -333,7 +333,7 @@ export async function updateApp(db, orgId, id, { name, tableName, description, i
   // take the same ID, even if another user's settings are not visible here.
   // The SQL check below runs with the versioned write to fence concurrent
   // personal-view creation. Already-shared legacy IDs are preserved.
-  const introducedPersonalIds=def.views.map(view=>view.id).filter(viewId=>viewId.startsWith('personal_')&&!existingViewIds.has(viewId));
+  const introducedPersonalIds=introducedIds(def);
   if (app.definition.custom) def.custom = app.definition.custom;
   const next = {
     name: name !== undefined ? String(name).trim().slice(0, 80) || app.name : app.name,

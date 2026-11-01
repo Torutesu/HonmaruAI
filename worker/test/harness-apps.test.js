@@ -800,6 +800,40 @@ test('new personal and shared view ID collisions are rejected without changing a
  expect((await (await get(`${path}?orgId=${ORG}`,mika)).json()).views).toEqual([mine]);
 });
 
+test('discarded view definitions do not block an otherwise valid table edit',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Normalized',columns:[{name:'Name',type:'text'}]})).json();
+ const original=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ const shared=original.app.definition.views[0],mine={id:'personal_mine',type:'table',name:'Mine'};
+ expect((await send('PUT',`/hx/personal-views/${app.id}`,mika,{orgId:ORG,expectedRevision:0,views:[mine],layouts:{}})).status).toBe(200);
+ const cases=[
+  [shared,{...mine,type:'invalid'}],
+  [shared,{...mine,type:'board'}],
+  [shared,{...mine,type:'calendar'}],
+  [shared,...Array.from({length:11},(_,i)=>({id:`view_${i}`,type:'table',name:`View ${i}`})),mine],
+ ];
+ let version=app.version;
+ for(const [index,views] of cases.entries()){
+  const response=await send('PUT',`/apps/${app.id}`,toru,{orgId:ORG,expectedVersion:version,tableName:`Updated ${index}`,definition:{views}});
+  expect(response.status).toBe(200);
+  const body=await response.json();version=body.app.version;
+  expect(body.app.definition.views.some(view=>view.id===mine.id)).toBe(false);
+  expect((await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json()).table.name).toBe(`Updated ${index}`);
+ }
+});
+
+test('a view made valid by the planned schema still fences a personal ID collision',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Planned schema',columns:[{name:'Name',type:'text'}]})).json();
+ const before=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ const mine={id:'personal_mine',type:'table',name:'Mine'};
+ expect((await send('PUT',`/hx/personal-views/${app.id}`,mika,{orgId:ORG,expectedRevision:0,views:[mine],layouts:{}})).status).toBe(200);
+ const response=await send('PUT',`/apps/${app.id}`,toru,{orgId:ORG,expectedVersion:app.version,
+  columns:[...before.table.columns,{name:'Status',type:'select',options:['Open']}],
+  definition:{views:[...before.app.definition.views,{id:mine.id,type:'board',name:'Board',groupBy:'Status'}]}});
+ expect(response.status).toBe(409);
+ const after=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ expect(after.app).toEqual(before.app);expect(after.table).toEqual(before.table);
+});
+
 test('legacy collisions remain readable and removable without deleting a shared layout', async () => {
  const shared={id:'personal_legacy',type:'table',name:'Shared'};
  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Legacy shared',columns:[{name:'Name',type:'text'}],definition:{views:[shared]}})).json();
