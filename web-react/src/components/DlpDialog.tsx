@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Dialog } from './Dialog'
 import type { DlpWarning } from '../utils/authGuard'
@@ -9,20 +9,30 @@ import type { DlpWarning } from '../utils/authGuard'
 export const DlpDialog: React.FC = () => {
   const t = useT()
   const [ask, setAsk] = useState<DlpWarning | null>(null)
+  const pending = useRef<DlpWarning | null>(null)
   useEffect(() => {
     const on = (e: Event) => {
       const detail = (e as CustomEvent<DlpWarning>).detail
       e.preventDefault()
-      setAsk((current) => {
-        if (current) { detail.resolve(false); return current }
-        return detail
-      })
+      if (!detail.current() || pending.current) { detail.resolve(false); return }
+      pending.current=detail
+      setAsk(detail)
+    }
+    const onStorage = () => {
+      if (pending.current && !pending.current.current()) {
+        pending.current.resolve(false); pending.current=null; setAsk(null)
+      }
     }
     window.addEventListener('honmaru:dlp-warning', on)
-    return () => window.removeEventListener('honmaru:dlp-warning', on)
+    window.addEventListener('storage',onStorage)
+    return () => {
+      window.removeEventListener('honmaru:dlp-warning', on)
+      window.removeEventListener('storage',onStorage)
+      pending.current?.resolve(false); pending.current=null
+    }
   }, [])
   if (!ask) return null
-  const finish = (send: boolean) => { ask.resolve(send); setAsk(null) }
+  const finish = (send: boolean) => { pending.current=null; ask.resolve(send && ask.current()); setAsk(null) }
   return (
     <Dialog
       title={t('Send this?')}

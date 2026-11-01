@@ -1,5 +1,5 @@
 import {useJamSnapshot} from '../utils/useJamSnapshot'
-import { requestSessionIsCurrent } from '../utils/authGuard'
+import {sessionFence} from '../utils/sessionFence'
 import {WorkspaceModeLoading} from './WorkspaceModeLoading'
 import { FloatingAppWorkspace } from './FloatingAppWorkspace'
 import { HarnessRail } from './HarnessRail'
@@ -433,8 +433,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       addDebugLog(`Refused: ${code || 'no code'} — ${message}`)
       if (code === 'not-a-member' || code === 'sign-in-required') onLeft()
       // This workspace's login rules have ended the sign-in: out, with why.
-      if (code === 'session-policy' && requestSessionIsCurrent(relayUrl.replace(/^ws/, 'http'), sessionToken)) window.dispatchEvent(new CustomEvent('honmaru:session-policy', { detail: { orgId, base: relayUrl.replace(/^ws/, 'http') } }))
-      if (code === 'sso-required' || code === 'sso-reauth') window.dispatchEvent(new CustomEvent('honmaru:sso-required', { detail: { orgId, start: `/sso/start?orgId=${encodeURIComponent(orgId)}` } }))
+      if (code === 'session-policy' || code === 'sso-required' || code === 'sso-reauth') {
+        const base=relayUrl.replace(/^ws/, 'http')
+        const fence=sessionFence(base,sessionToken)
+        try {
+          if (fence.current() && code === 'session-policy') window.dispatchEvent(new CustomEvent('honmaru:session-policy', { detail: { orgId,base } }))
+          if (fence.current() && (code === 'sso-required' || code === 'sso-reauth')) window.dispatchEvent(new CustomEvent('honmaru:sso-required', { detail: { orgId,base,start: `/sso/start?orgId=${encodeURIComponent(orgId)}` } }))
+        } finally { fence.release() }
+      }
     }
     wsClient.onToolCallResult = (toolCallId) => { if (!ignore) addDebugLog(`Tool result: ${toolCallId}`) }
     // Back after a drop: what was said in the channels meanwhile did not

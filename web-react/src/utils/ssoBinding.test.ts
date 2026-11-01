@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { bindSsoStart, boundSsoStart, takeSsoVerifier } from './ssoBinding'
+import { bindSsoStart, boundSsoStart, discardSsoStart, takeSsoVerifier, takeSsoVerifierForCurrentSession } from './ssoBinding'
 
 // A single sign-on is finished only in the browser that started it.
 function fakeStorage(): Storage {
@@ -47,5 +47,38 @@ describe('a sign-in bound to this browser', () => {
   it('adds the binding to the start address, with or without a query already', async () => {
     expect(await boundSsoStart('https://api.example', '/sso/start?orgId=team%3Aa&client=web', storage)).toMatch(/^https:\/\/api\.example\/sso\/start\?orgId=team%3Aa&client=web&bind=[A-Za-z0-9_-]{43}$/)
     expect(await boundSsoStart('https://api.example', '/sso/start', storage)).toMatch(/\/sso\/start\?bind=/)
+  })
+
+  it('does not create an SSO verifier if the account changes during preparation', async () => {
+    storage.setItem('sessionToken','old');storage.setItem('userId','alice')
+    let current=true
+    const pending=boundSsoStart('https://api.example','/sso/start',storage,()=>current)
+    storage.setItem('sessionToken','new');storage.setItem('userId','bob');current=false
+    await expect(pending).rejects.toThrow('Session changed')
+    expect(storage.getItem('sso.pending')).toBeNull()
+  })
+
+  it('only accepts a returning verifier for the session that started it', async () => {
+    storage.setItem('sessionToken','old');storage.setItem('userId','alice')
+    const bind=await bindSsoStart(storage)
+    storage.setItem('sessionToken','new');storage.setItem('userId','bob')
+    expect(await takeSsoVerifierForCurrentSession(storage)).toBeNull()
+    storage.setItem('sessionToken','old');storage.setItem('userId','alice')
+    const verifier=await takeSsoVerifierForCurrentSession(storage)
+    expect(await hash(verifier!)).toBe(bind)
+    expect(await takeSsoVerifierForCurrentSession(storage)).toBeNull()
+  })
+
+  it('does not let a stale start discard a newer verifier',async()=>{
+    const first=await boundSsoStart('https://api.example','/sso/start',storage)
+    const second=await boundSsoStart('https://api.example','/sso/start',storage)
+    discardSsoStart(first,storage)
+    const verifier=await takeSsoVerifierForCurrentSession(storage)
+    expect(await hash(verifier!)).toBe(new URL(second).searchParams.get('bind'))
+  })
+
+  it('refuses legacy pending verifiers with no recorded starting session',async()=>{
+    storage.setItem('sso.pending',JSON.stringify({verifier:'old-verifier',at:Date.now()}))
+    expect(await takeSsoVerifierForCurrentSession(storage)).toBeNull()
   })
 })

@@ -21,7 +21,7 @@ describe('authGuard', () => {
     // No DOM in these tests: a window is an EventTarget with fetch on it.
     const w = Object.assign(new EventTarget(), { fetch: fake as unknown as typeof fetch, location: { href: 'https://app.test/', protocol: 'https:' } })
     ;(globalThis as unknown as { window: unknown }).window = w
-    vi.stubGlobal('localStorage',{getItem:(key:string)=>key==='sessionToken'?'tok':key==='host'?'api.test':null})
+    vi.stubGlobal('localStorage',{getItem:(key:string)=>key==='sessionToken'?'tok':key==='userId'?'reader':key==='host'?'api.test':null})
     const { installAuthGuard } = await import('./authGuard')
     installAuthGuard()
 

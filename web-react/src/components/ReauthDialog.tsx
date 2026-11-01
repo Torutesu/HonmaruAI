@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Dialog } from './Dialog'
 import type { ReauthRequest } from '../utils/authGuard'
@@ -11,6 +11,7 @@ type Method = 'email_code' | 'password' | 'sign_in_again'
 export const ReauthDialog: React.FC = () => {
   const t = useT()
   const [ask, setAsk] = useState<ReauthRequest | null>(null)
+  const pending = useRef<ReauthRequest | null>(null)
   const [method, setMethod] = useState<Method | null>(null)
   const [email, setEmail] = useState<string | null>(null)
   const [value, setValue] = useState('')
@@ -21,45 +22,61 @@ export const ReauthDialog: React.FC = () => {
     const on = (e: Event) => {
       const detail = (e as CustomEvent<ReauthRequest>).detail
       e.preventDefault()
-      setAsk((current) => {
-        // One at a time: a second request waiting joins the first's answer.
-        if (current) {
-          const first = current.resolve
-          current.resolve = (ok) => { first(ok); detail.resolve(ok) }
-          return current
-        }
-        return detail
-      })
+      if (!detail.current()) { detail.resolve(false); return }
+      const current=pending.current
+      if (current && current.current()) {
+        // Both fences match the currently stored session, so one confirmation
+        // can safely settle both requests.
+        const first=current.resolve
+        current.resolve=ok=>{first(ok);detail.resolve(ok)}
+        return
+      }
+      current?.resolve(false)
+      pending.current=detail
+      setAsk(detail)
+    }
+    const onStorage=()=>{
+      if(pending.current && !pending.current.current()){
+        pending.current.resolve(false);pending.current=null;setAsk(null)
+      }
     }
     window.addEventListener('honmaru:reauth', on)
-    return () => window.removeEventListener('honmaru:reauth', on)
+    window.addEventListener('storage',onStorage)
+    return () => {
+      window.removeEventListener('honmaru:reauth', on)
+      window.removeEventListener('storage',onStorage)
+      pending.current?.resolve(false);pending.current=null
+    }
   }, [])
 
   useEffect(() => {
     if (!ask) return
+    let active=true
     setMethod(null); setValue(''); setError(null)
-    fetch(`${ask.base}/auth/reauth/start`, { method: 'POST', headers: { 'x-session-token': ask.token, 'content-type': 'application/json' }, body: '{}' })
+    ask.start()
       .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
+        if(!active || !ask.current())return
         if (!ok) { setError(d.message || t('That did not work.')); setMethod('sign_in_again'); return }
         setMethod(d.method); setEmail(d.email || null)
       })
-      .catch(() => setError(t('That did not work.')))
+      .catch(() => {if(active && ask.current())setError(t('That did not work.'))})
+    return ()=>{active=false}
   }, [ask])
 
   if (!ask) return null
-  const finish = (ok: boolean) => { ask.resolve(ok); setAsk(null) }
+  const finish = (ok: boolean) => { pending.current=null; ask.resolve(ok && ask.current()); setAsk(null) }
   const confirm = async () => {
+    if(!ask.current()){finish(false);return}
     setBusy(true); setError(null)
     try {
-      const res = await fetch(`${ask.base}/auth/reauth`, {
-        method: 'POST', headers: { 'x-session-token': ask.token, 'content-type': 'application/json' },
-        body: JSON.stringify(method === 'password' ? { password: value } : { code: value.trim() }),
-      })
+      const res = await ask.confirm(method === 'password' ? { password: value } : { code: value.trim() })
       const data = await res.json().catch(() => ({}))
+      if(!ask.current()){finish(false);return}
       if (!res.ok) { setError(data.message || t('That did not work.')); return }
       finish(true)
-    } finally { setBusy(false) }
+    } catch { if(ask.current())setError(t('That did not work.')) }
+    finally { setBusy(false) }
   }
 
   return (

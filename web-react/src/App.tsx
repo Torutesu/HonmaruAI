@@ -16,7 +16,8 @@ import { onboardingKey, needsOnboarding, completeOnboarding } from './utils/onbo
 import { t, adoptAccountLocale } from './utils/i18n'
 import type { InvitePeek } from './screens/SignIn'
 import { disableWebPush, sessionIsCurrent } from './utils/push'
-import { boundSsoStart, takeSsoVerifier } from './utils/ssoBinding'
+import { boundSsoStart, discardSsoStart, takeSsoVerifierForCurrentSession } from './utils/ssoBinding'
+import { authStorageSnapshot, saveWorkspaceSwitch, sessionFence } from './utils/sessionFence'
 import { forgetOwnOutbox } from './utils/pendingSend'
 import { bindSidebarSession, hasPendingSidebarQueues, clearSidebarSessionQueues, clearSidebarWorkspaceQueues, clearSidebarIfTokenChanged } from './utils/sidebarSync'
 import { getLocale } from './utils/locale'
@@ -104,6 +105,12 @@ function AccountApp() {
         httpBase(storedHost || DEFAULT_HOST) === scope.server
     } catch { return false }
   }
+  // A confirmation belongs to the account and workspace that opened it.
+  // Remount the dialogs when that scope changes so their cleanup refuses and
+  // releases any unfinished request, even without a same-tab storage event.
+  const dialogScope=useRef({host,sessionToken,userId,orgId,version:0})
+  if(dialogScope.current.host!==host || dialogScope.current.sessionToken!==sessionToken || dialogScope.current.userId!==userId || dialogScope.current.orgId!==orgId)
+    dialogScope.current={host,sessionToken,userId,orgId,version:dialogScope.current.version+1}
   // Carried from the email screen to the code screen and nowhere else.
   const [pending, setPending] = useState({ email: '', name: '', inviteCode: '' })
   // GitHub sign-in on the web, where the deployment offers it; and the
@@ -130,7 +137,7 @@ function AccountApp() {
 
   // The way back from GitHub: ?code&state on the page. Traded for a session
   // before anything else is decided about where to land.
-  const finishAuthRef = useRef<(token: string, uid: string, org: string, firstTime: boolean) => Promise<void>>()
+  const finishAuthRef = useRef<(token: string, uid: string, org: string, firstTime: boolean, current?: () => boolean) => Promise<void>>()
   useEffect(() => {
     const cb = readCallback()
     if (!cb) return
@@ -278,37 +285,52 @@ function AccountApp() {
     if (!hash.startsWith('#/sso/done')) return
     const q = new URLSearchParams(hash.split('?')[1] || '')
     try { history.replaceState(null, '', location.pathname + location.search + '#/feed') } catch { /* cosmetic */ }
-    const verifier = takeSsoVerifier()
-    if (q.get('error')) { setGithubError(q.get('error')); setStage('welcome'); return }
     const code = q.get('code')
-    if (!code) return
-    if (!verifier) {
-      const text = t('That sign-in was not started in this browser. Start it again here.')
-      if (localStorage.getItem('sessionToken')) setNotice({ text, error: true })
-      else setGithubError(text)
-      return
-    }
-    const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
-    fetch(`${base}/sso/exchange`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, client: 'web', verifier }) })
-      .then(async (r) => {
+    const scope=authStorageSnapshot()
+    let active=true
+    const current=()=>active && scope.current()
+    void takeSsoVerifierForCurrentSession(localStorage,Date.now(),current)
+      .then(async verifier=>{
+        if(!current())return
+        if(!verifier){
+          const text=t('That sign-in was not started in this browser. Start it again here.')
+          if(localStorage.getItem('sessionToken'))setNotice({text,error:true});else setGithubError(text)
+          return
+        }
+        if(q.get('error')){setGithubError(q.get('error'));setStage('welcome');return}
+        if(!code)return
+        const base=httpBase(localStorage.getItem('host') || DEFAULT_HOST)
+        const r=await fetch(`${base}/sso/exchange`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, client: 'web', verifier }) })
         const data = await r.json().catch(() => ({}))
+        if(!current())return
         if (!r.ok || !data.token) { setGithubError(data.message || t('That sign-in did not finish. Try again.')); return }
-        await finishAuthRef.current?.(data.token, data.login || data.userId, data.orgId || '', false)
+        await finishAuthRef.current?.(data.token, data.login || data.userId, data.orgId || '', false,current)
       })
-      .catch(() => setGithubError(t('Could not reach the relay.')))
+      .catch(() => {if(current())setGithubError(t('Could not reach the relay.'))})
+      .finally(()=>scope.release())
+    return ()=>{active=false;scope.release()}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   // A workspace that requires its single sign-on, or an SSO sign-in past its
   // hours: straight to the provider, and back into the same workspace.
   useEffect(() => {
+    let active=true
     const on = (e: Event) => {
-      const { start } = (e as CustomEvent<{ start?: string }>).detail || {}
+      const { start, base: sourceBase } = (e as CustomEvent<{ start?: string; base?: string }>).detail || {}
       if (!start) return
-      const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
-      void boundSsoStart(base, `${start}&client=web`).then((href) => { window.location.href = href })
+      let base: string, token: string
+      try { base=httpBase(localStorage.getItem('host') || DEFAULT_HOST);token=localStorage.getItem('sessionToken') || '' } catch { return }
+      try { if(sourceBase && new URL(sourceBase).origin!==new URL(base).origin)return } catch { return }
+      const fence=sessionFence(base,token)
+      if(!fence.current()){fence.release();return}
+      const current=()=>active && fence.current()
+      void boundSsoStart(base, `${start}&client=web`,localStorage,current)
+        .then((href) => { if(current())window.location.href=href;else discardSsoStart(href) })
+        .catch(() => { /* account changed or storage is unavailable */ })
+        .finally(()=>fence.release())
     }
     window.addEventListener('honmaru:sso-required', on)
-    return () => window.removeEventListener('honmaru:sso-required', on)
+    return () => { active=false;window.removeEventListener('honmaru:sso-required', on) }
   }, [])
   // Off the company's network: said once, plainly, instead of every screen
   // failing on its own.
@@ -344,9 +366,10 @@ function AccountApp() {
     return orgId
   }
 
-  const finishAuth = async (token: string, uid: string, org: string, firstTime: boolean) => {
+  const finishAuth = async (token: string, uid: string, org: string, firstTime: boolean, current: () => boolean = () => true) => {
     finishAuthRef.current = finishAuth
     const workspace = await resolveOrg(token, org)
+    if(!current())return
     warnDiscardedSidebar(bindSidebarSession(httpBase(host), token, uid))
     setSessionToken(token)
     setUserId(uid)
@@ -367,7 +390,8 @@ function AccountApp() {
   /// team they were invited into. Stored, because it is where they work.
   const switchOrg = (next: string) => {
     setOrgId(next)
-    try { localStorage.setItem('orgId', next) } catch { /* private mode */ }
+    try { saveWorkspaceSwitch(next) } catch { /* private mode */ }
+    window.dispatchEvent(new Event('honmaru:workspace-changed'))
   }
 
   /// They are out of the workspace that was on screen — they left it, or
@@ -609,8 +633,8 @@ function AccountApp() {
 
   return (
     <div className="app">
-      <ReauthDialog />
-      <DlpDialog />
+      <ReauthDialog key={dialogScope.current.version} />
+      <DlpDialog key={dialogScope.current.version} />
       {notice && (
         <div className="toasts app-toasts">
           <div className={`toast${notice.error ? ' error' : ''}`} role={notice.error ? 'alert' : 'status'} onClick={() => setNotice(null)}>{notice.text}</div>

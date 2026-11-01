@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
-import { boundSsoStart } from '../utils/ssoBinding'
+import { boundSsoStart, discardSsoStart } from '../utils/ssoBinding'
+import { authStorageSnapshot } from '../utils/sessionFence'
 
 export interface InvitePeek { team: string | null; inviter: string | null; role: string }
 
@@ -26,6 +27,8 @@ interface Props {
 /// so this screen carries both, with the code path in front.
 export const SignIn: React.FC<Props> = ({ httpBase, mode, initialInviteCode, invite, onCodeSent, onSignedIn, onBack, onSwitchMode }) => {
   const t = useT()
+  const active=useRef(true)
+  useEffect(()=>{active.current=true;return()=>{active.current=false}},[])
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [inviteCode, setInviteCode] = useState(initialInviteCode || '')
@@ -104,7 +107,12 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, initialInviteCode, inv
   const continueWithSso = () => {
     if (!sso) return
     const q = new URLSearchParams({ orgId: sso.orgId, client: 'web', email: email.trim(), ...(sso.connectionId ? { connection: sso.connectionId } : {}) })
-    void boundSsoStart(httpBase, `/sso/start?${q.toString()}`).then((href) => { window.location.href = href })
+    const scope=authStorageSnapshot()
+    const current=()=>active.current && scope.current()
+    void boundSsoStart(httpBase, `/sso/start?${q.toString()}`,localStorage,current)
+      .then((href) => { if(current())window.location.href=href;else discardSsoStart(href) })
+      .catch(() => { /* the account changed or storage is unavailable */ })
+      .finally(()=>scope.release())
   }
 
   return (
