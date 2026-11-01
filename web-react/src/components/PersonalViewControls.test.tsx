@@ -85,6 +85,22 @@ test('a deletion conflict keeps the personal view and confirmation visible',asyn
  act(()=>tree!.unmount())
 })
 
+test('a delayed deletion does not steal focus from another control',async()=>{
+ const active={}
+ vi.stubGlobal('document',{activeElement:active,body:{},addEventListener:vi.fn(),removeEventListener:vi.fn()})
+ const view={id:'personal_one',name:'My view',type:'table' as const}
+ let finish!:()=>void
+ const save=vi.fn(()=>new Promise<void>(resolve=>{finish=resolve})),onRemoved=vi.fn();let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<PersonalViewControls personal control="view" view={view} columns={[{id:'name',name:'名前',type:'text'}]} state={{revision:1,activeView:view.id,views:[view],computed:[view],layouts:{}}} save={save} onSelect={vi.fn()} onRemoved={onRemoved} onSettings={vi.fn()}/>)})
+ const button=(text:string)=>tree!.root.findAllByType('button').find(b=>b.children.includes(text))!
+ act(()=>tree!.root.findByProps({'aria-label':'新しいビュー / 編集'}).props.onClick())
+ act(()=>button('個人ビューを削除').props.onClick())
+ act(()=>button('削除する').props.onClick())
+ await act(async()=>{finish();await Promise.resolve()})
+ expect(onRemoved).not.toHaveBeenCalled()
+ act(()=>tree!.unmount())
+})
+
 test('the personal-view limit explains how to make room without offering to delete a shared view',()=>{
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
  const shared={id:'all',name:'All',type:'table' as const}

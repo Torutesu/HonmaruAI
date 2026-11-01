@@ -11,7 +11,7 @@ export function PersonalViewControls({view,columns,state,save,onSelect,onSetting
  useEffect(()=>{const close=(e:PointerEvent)=>{if(!busy&&!root.current?.contains(e.target as Node))setOpen(null)};document.addEventListener('pointerdown',close);return()=>document.removeEventListener('pointerdown',close)},[busy])
  useEffect(()=>{if(open)root.current?.querySelector<HTMLElement>('[role="dialog"] input,[role="dialog"] button:not(:disabled)')?.focus()},[open])
  useEffect(()=>{if(open==='view'&&confirmDelete)cancelDelete.current?.focus()},[open,confirmDelete])
- const perform=async(next:PersonalViews,id?:string,onDone?:()=>void)=>{setBusy(true);setError('');try{await save(next);setOpen(null);if(id)onSelect(id);onDone?.()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}}
+ const perform=async(next:PersonalViews,id?:string,onDone?:()=>void)=>{setBusy(true);setError('');try{await save(next);setOpen(null);if(id)onSelect(id);const active=typeof document==='undefined'?null:document.activeElement;if(onDone&&(!active||active===document.body||root.current?.contains(active)))onDone()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}}
  const move=(id:string,delta:number)=>{const next=[...order],i=next.indexOf(id);[next[i],next[i+delta]]=[next[i+delta],next[i]];setOrder(next)}
  return <div className="hx-view-controls" ref={root} onKeyDown={e=>{if(e.key==='Escape'&&open){e.stopPropagation();if(!busy){setOpen(null);root.current?.querySelector<HTMLButtonElement>('button')?.focus()}}}}>
  {control!=='view'&&<button className="pill-btn quiet" aria-expanded={open==='fields'} onClick={()=>setOpen(open==='fields'?null:'fields')}><Icon name="sliders" size={14}/>フィールド</button>}

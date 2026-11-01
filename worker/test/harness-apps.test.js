@@ -861,6 +861,67 @@ test('a concurrent personal view fences a shared view and its table edit in the 
  expect((await (await get(`/hx/personal-views/${app.id}?orgId=${ORG}`,mika)).json()).views).toEqual([mine]);
 });
 
+test('personal view saves fail closed when app access is revoked before the write',async()=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ let revoked=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{
+   const statement=db.prepare(sql);
+   if(!sql.startsWith('INSERT OR IGNORE INTO hx_personal_views'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async run(){
+    if(!revoked){revoked=true;await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,app.id).run()}
+    return bound.run();
+   }}}};
+  };
+ }});
+ const result=await personalViews(racing,ORG,'9102',app.id,{expectedRevision:0,views:[{id:'personal_mine',type:'table',name:'Mine'}],layouts:{}});
+ expect(result.status).toBe(404);
+ expect(await env.DB.prepare('SELECT 1 FROM hx_personal_views WHERE org_id=? AND user_id=? AND app_id=?').bind(ORG,'9102',app.id).first()).toBeNull();
+});
+
+test('personal view saves fail closed when membership becomes a mixed-case guest before the write',async()=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ let demoted=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{
+   const statement=db.prepare(sql);
+   if(!sql.startsWith('INSERT OR IGNORE INTO hx_personal_views'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async run(){
+    if(!demoted){demoted=true;await env.DB.prepare("UPDATE memberships SET role='Guest' WHERE org_id=? AND user_github_id=?").bind(ORG,'9102').run()}
+    return bound.run();
+   }}}};
+  };
+ }});
+ const result=await personalViews(racing,ORG,'9102',app.id,{expectedRevision:0,views:[{id:'personal_mine',type:'table',name:'Mine'}],layouts:{}});
+ expect(result.status).toBe(404);
+ expect(await env.DB.prepare('SELECT 1 FROM hx_personal_views WHERE org_id=? AND user_id=? AND app_id=?').bind(ORG,'9102',app.id).first()).toBeNull();
+});
+
+test('personal view reads do not return computed rows after app access is revoked',async()=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ expect((await personalViews(env.DB,ORG,'9102',app.id,{expectedRevision:0,views:[{id:'personal_mine',type:'table',name:'Mine'}],layouts:{}})).error).toBeUndefined();
+ let revoked=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{
+   const statement=db.prepare(sql);
+   if(!sql.startsWith('SELECT 1 AS allowed WHERE EXISTS(SELECT 1 FROM hx_apps a'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async first(){
+    if(!revoked){revoked=true;await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,app.id).run()}
+    return bound.first();
+   }}}};
+  };
+ }});
+ const result=await personalViews(racing,ORG,'9102',app.id);
+ expect(result.status).toBe(404);
+ expect(result.computed).toBeUndefined();
+});
+
 test('metadata query columns normalize without becoming editable/group/calendar fields',()=>{
  const columns=[{id:'id',name:'ID',type:'text'}];
  const view=normalizeDefinition({views:[{id:'v',type:'table',groupBy:'$row.id',sort:'-$row.updatedAt',filters:[{column:'$row.id',op:'contains',value:'row_'},{column:'$row.createdAt',op:'gt',value:'2026-01-01T00:00:00Z'}]}]},columns).views[0];
