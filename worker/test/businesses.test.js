@@ -201,12 +201,140 @@ test("a channel can be renamed, and deleting one empties it for everyone", async
   expect((await getCard(env.DB, ORG, "c-cafe")).business).toBeUndefined();
   const unfiled = await message(messages, (m) => m.type === "STATE_DELTA" && JSON.stringify(m).includes("c-cafe") && !JSON.stringify(m).includes('"business":"cafe"'));
   expect(unfiled).toBeTruthy();
+  // A deleted public Simple channel can still be made again by name.
+  const recreated=await SELF.fetch("https://example.com/businesses",{
+    method:"POST",headers:headers(memberToken),body:JSON.stringify({orgId:ORG,name:"Cafe"}),
+  });
+  expect(recreated.status).toBe(200);
+  expect((await recreated.json()).business.slug).toBe('cafe');
   // An outsider can do none of it.
   res = await SELF.fetch("https://example.com/businesses", {
     method: "PUT", headers: headers(outsiderToken), body: JSON.stringify({ orgId: ORG, slug: "cafe", name: "Mine" }),
   });
   expect(res.status).toBe(403);
   void ws;
+});
+
+test('legacy deletion refuses a changed privacy or membership snapshot without changing data', async () => {
+  const {upsertBusiness,removeBusiness}=await import('../src/db.js');
+  await upsertBusiness(env.DB,ORG,{name:'Race room',createdBy:'6101'});
+  const room=await env.DB.prepare("SELECT created_at FROM businesses WHERE org_id=? AND slug='race-room'").bind(ORG).first();
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=? AND slug='race-room'").bind(ORG).run();
+  expect(await removeBusiness(env.DB,ORG,'race-room',{actorId:'6101',createdAt:room.created_at,wasPrivate:false})).toBe(false);
+  const privateSnapshot={actorId:'6101',createdAt:room.created_at,wasPrivate:true};
+  expect(await removeBusiness(env.DB,ORG,'race-room',privateSnapshot)).toBe(false);
+  const at=new Date().toISOString();
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?,'b:race-room','owner',?)").bind(ORG,at).run();
+  await env.DB.prepare("UPDATE memberships SET role='Guest' WHERE org_id=? AND user_github_id='6101'").bind(ORG).run();
+  expect(await removeBusiness(env.DB,ORG,'race-room',privateSnapshot)).toBe(false);
+  await env.DB.prepare("UPDATE memberships SET role='admin' WHERE org_id=? AND user_github_id='6101'").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at,purge_started_at) VALUES (?,?,?,?,?)").bind(ORG,at,'6101',at,at).run();
+  expect(await removeBusiness(env.DB,ORG,'race-room',privateSnapshot)).toBe(false);
+  await env.DB.prepare('DELETE FROM workspace_deletions WHERE org_id=?').bind(ORG).run();
+  await env.DB.prepare('INSERT INTO workspace_tombstones(org_id,deleted_at) VALUES (?,?)').bind(ORG,at).run();
+  expect(await removeBusiness(env.DB,ORG,'race-room',privateSnapshot)).toBe(false);
+  expect(await env.DB.prepare("SELECT private,archived_at FROM businesses WHERE org_id=? AND slug='race-room'").bind(ORG).first()).toEqual({private:1,archived_at:null});
+  expect(await env.DB.prepare("SELECT channel FROM hx_room_access WHERE org_id=? AND channel='b:race-room'").bind(ORG).first()).toBeNull();
+  expect(await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=? AND channel='b:race-room'").bind(ORG).first()).toEqual({login:'owner'});
+});
+
+test('public deletion unfiles only cards from its transaction, not a recreated room', async () => {
+  const {upsertBusiness,removeBusiness,saveCard,getCard}=await import('../src/db.js');
+  await upsertBusiness(env.DB,ORG,{name:'Public Race',createdBy:'6101'});
+  const room=await env.DB.prepare("SELECT created_at FROM businesses WHERE org_id=? AND slug='public-race'").bind(ORG).first();
+  const card=id=>({id,recipientUserID:'owner',senderUserID:'owner',status:'pending',title:id,priority:'medium',createdAt:new Date().toISOString(),business:'public-race'});
+  await saveCard(env.DB,ORG,card('before-recreation'));
+  const racing=new Proxy(env.DB,{get(db,key){
+    if(key==='batch')return async statements=>{
+      const result=await db.batch(statements);
+      await upsertBusiness(db,ORG,{name:'Public Race',createdBy:'6101'});
+      await saveCard(db,ORG,card('after-recreation'));
+      return result;
+    };
+    return typeof db[key]==='function'?db[key].bind(db):db[key];
+  }});
+  const removed=await removeBusiness(racing,ORG,'public-race',{actorId:'6101',createdAt:room.created_at,wasPrivate:false});
+  expect(removed.unfiled.map(item=>item.id)).toEqual(['before-recreation']);
+  expect((await getCard(env.DB,ORG,'before-recreation')).business).toBeUndefined();
+  expect((await getCard(env.DB,ORG,'after-recreation')).business).toBe('public-race');
+});
+
+test('a new private room cannot inherit orphaned messages of unknown origin', async () => {
+  const {postMessage}=await import('../src/channels.js');
+  const old=await postMessage(env.DB,{orgId:ORG,key:'b:old-board',authorLogin:'owner',body:'Earlier room fixture'});
+  expect(old.row).toBeTruthy();
+  const create=await SELF.fetch('https://example.com/businesses',{method:'POST',headers:headers(ownerToken),body:JSON.stringify({orgId:ORG,name:'Old Board',private:true})});
+  expect(create.status).toBe(409);
+  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id=? AND slug='old-board'").bind(ORG).first()).toBeNull();
+  expect(await env.DB.prepare('SELECT body FROM channel_messages WHERE id=?').bind(old.row.id).first('body')).toBe('Earlier room fixture');
+});
+
+test('private deletion returns members added just before the transaction for Jam eviction', async () => {
+  const {upsertBusiness,removeBusiness}=await import('../src/db.js');
+  const {addMembers}=await import('../src/access.js');
+  await upsertBusiness(env.DB,ORG,{name:'Late Join',createdBy:'6101'});
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=? AND slug='late-join'").bind(ORG).run();
+  await addMembers(env.DB,{orgId:ORG,key:'b:late-join',logins:['owner'],addedBy:'owner'});
+  const room=await env.DB.prepare("SELECT created_at FROM businesses WHERE org_id=? AND slug='late-join'").bind(ORG).first();
+  const racing=new Proxy(env.DB,{get(db,key){
+    if(key==='batch')return async statements=>{
+      await addMembers(db,{orgId:ORG,key:'b:late-join',logins:['member'],addedBy:'owner'});
+      return db.batch(statements);
+    };
+    return typeof db[key]==='function'?db[key].bind(db):db[key];
+  }});
+  const removed=await removeBusiness(racing,ORG,'late-join',{actorId:'6101',createdAt:room.created_at,wasPrivate:true});
+  expect(removed.formerMembers.sort()).toEqual(['member','owner']);
+  expect((await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=? AND channel='b:late-join'").bind(ORG).all()).results).toEqual([]);
+});
+
+test.each([false,true])('failed legacy deletion rolls back room, membership, cards and claim (private=%s)', async wasPrivate => {
+  const {upsertBusiness,removeBusiness,saveCard,getCard}=await import('../src/db.js');
+  await upsertBusiness(env.DB,ORG,{name:'Rollback Room',createdBy:'6101'});
+  await env.DB.prepare("UPDATE businesses SET private=? WHERE org_id=? AND slug='rollback-room'").bind(Number(wasPrivate),ORG).run();
+  const room=await env.DB.prepare("SELECT created_at FROM businesses WHERE org_id=? AND slug='rollback-room'").bind(ORG).first();
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?,'b:rollback-room','owner',?)").bind(ORG,new Date().toISOString()).run();
+  await saveCard(env.DB,ORG,{id:'rollback-card',recipientUserID:'owner',senderUserID:'owner',status:'pending',title:'Keep me',priority:'medium',createdAt:new Date().toISOString(),business:'rollback-room'});
+  const failing=new Proxy(env.DB,{get(db,key){
+    if(key==='batch')return statements=>db.batch([...statements,db.prepare("INSERT INTO hx_room_access(org_id,channel,version) VALUES (NULL,'forced-error',1)")]);
+    return typeof db[key]==='function'?db[key].bind(db):db[key];
+  }});
+  await expect(removeBusiness(failing,ORG,'rollback-room',{actorId:'6101',createdAt:room.created_at,wasPrivate})).rejects.toThrow();
+  expect(await env.DB.prepare("SELECT private,archived_at FROM businesses WHERE org_id=? AND slug='rollback-room'").bind(ORG).first()).toEqual({private:Number(wasPrivate),archived_at:null});
+  expect(await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=? AND channel='b:rollback-room'").bind(ORG).first()).toEqual({login:'owner'});
+  expect(await env.DB.prepare("SELECT channel FROM hx_room_access WHERE org_id=? AND channel='b:rollback-room'").bind(ORG).first()).toBeNull();
+  expect((await getCard(env.DB,ORG,'rollback-card')).business).toBe('rollback-room');
+});
+
+test("deleting an unmanaged private channel keeps its history and cards closed", async () => {
+  const now = new Date().toISOString();
+  const { saveCard, getCard, upsertBusiness } = await import('../src/db.js');
+  const { postMessage } = await import('../src/channels.js');
+  await upsertBusiness(env.DB, ORG, {name:'Private Board',createdBy:'6101'});
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=? AND slug='private-board'").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?,'b:private-board','owner',?)").bind(ORG,now).run();
+  await postMessage(env.DB,{orgId:ORG,key:'b:private-board',authorLogin:'owner',body:'Confidential planning note'});
+  await saveCard(env.DB,ORG,{id:'private-board-card',recipientUserID:'owner',senderUserID:'owner',status:'pending',title:'Confidential board decision',priority:'medium',createdAt:now,business:'private-board'});
+  const channelPath=`/channels/messages?${new URLSearchParams({orgId:ORG,channel:'b:private-board'})}`;
+  expect((await SELF.fetch(`https://example.com${channelPath}`,{headers:headers(memberToken)})).status).toBe(404);
+  const deleted=await SELF.fetch('https://example.com/businesses',{method:'DELETE',headers:headers(ownerToken),body:JSON.stringify({orgId:ORG,slug:'private-board'})});
+  expect(deleted.status).toBe(200);
+  expect((await SELF.fetch(`https://example.com${channelPath}`,{headers:headers(memberToken)})).status).toBe(404);
+  expect((await deleted.json()).unfiled).toBe(0);
+  expect((await getCard(env.DB,ORG,'private-board-card')).business).toBe('private-board');
+  const search=await (await SELF.fetch(`https://example.com/channels/search?${new URLSearchParams({orgId:ORG,q:'Confidential planning'})}`,{headers:headers(memberToken)})).json();
+  expect(search.messages).toEqual([]);
+  const {messages: outsiderMessages}=await joined(ORG,memberToken);
+  const snapshot=outsiderMessages.find(m=>m.type==='STATE_SNAPSHOT');
+  expect(JSON.stringify(snapshot)).not.toContain('Confidential board decision');
+  const {addMembers}=await import('../src/access.js');
+  expect(await addMembers(env.DB,{orgId:ORG,key:'b:private-board',logins:['member'],addedBy:'owner'})).toBe(0);
+  const archived=await (await SELF.fetch(`https://example.com/businesses/archived?${new URLSearchParams({orgId:ORG})}`,{headers:headers(ownerToken)})).json();
+  expect(archived.channels.some(channel=>channel.slug==='private-board')).toBe(false);
+  const restore=await SELF.fetch('https://example.com/businesses/unarchive',{method:'POST',headers:headers(ownerToken),body:JSON.stringify({orgId:ORG,slug:'private-board'})});
+  expect(restore.status).toBe(404);
+  const recreate=await SELF.fetch('https://example.com/businesses',{method:'POST',headers:headers(memberToken),body:JSON.stringify({orgId:ORG,name:'Private Board'})});
+  expect(recreate.status).toBe(409);
 });
 
 test("channels nobody talks in are offered for tidying, and archiving hides them with their cards kept", async () => {
@@ -235,4 +363,98 @@ test("channels nobody talks in are offered for tidying, and archiving hides them
   expect(back.status).toBe(200);
   expect((await back.json()).businesses.map((b) => b.slug)).toContain("food-truck");
   expect((await archivedList(memberToken)).channels).toEqual([]);
+});
+
+test('private Simple creation commits a private room and its selected members together', async () => {
+  const {listMembers}=await import('../src/team.js');
+  const members=await listMembers(env.DB,ORG,'6101');
+  const invited=members.find(member=>member.userId==='6102');
+  const res=await SELF.fetch('https://example.com/businesses',{method:'POST',headers:headers(ownerToken),body:JSON.stringify({orgId:ORG,name:'Private atomic',private:true,members:[invited.ref]})});
+  expect(res.status).toBe(200);
+  expect((await res.json()).business).toEqual({slug:'private-atomic',name:'Private atomic',private:true});
+  expect(await env.DB.prepare("SELECT private,created_by FROM businesses WHERE org_id=? AND slug='private-atomic'").bind(ORG).first()).toEqual({private:1,created_by:'6101'});
+  expect((await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=? AND channel='b:private-atomic' ORDER BY login").bind(ORG).all()).results).toEqual([{login:'member'},{login:'owner'}]);
+  const other=await SELF.fetch('https://example.com/businesses',{method:'POST',headers:headers(memberToken),body:JSON.stringify({orgId:ORG,name:'Private atomic',private:true})});
+  expect(other.status).toBe(409);
+});
+
+test('private room creation rolls back the room if its member insertion fails',async()=>{
+  const {createPrivateBusiness}=await import('../src/db.js');
+  const {listMembers}=await import('../src/team.js');
+  const members=await listMembers(env.DB,ORG,'6101');
+  await env.DB.exec("CREATE TRIGGER reject_private_create_member BEFORE INSERT ON conversation_members WHEN NEW.channel='b:failure-atomic' BEGIN SELECT RAISE(ABORT,'injected membership failure'); END;");
+  await expect(createPrivateBusiness(env.DB,ORG,{name:'Failure atomic',actorId:'6101',actorLogin:'owner',members})).rejects.toThrow();
+  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id=? AND slug='failure-atomic'").bind(ORG).first()).toBeNull();
+  expect((await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=? AND channel='b:failure-atomic'").bind(ORG).all()).results).toEqual([]);
+  await env.DB.exec('DROP TRIGGER reject_private_create_member');
+});
+
+test('a competing creation cannot attach private members to the existing public room',async()=>{
+  const {createPrivateBusiness,upsertBusiness}=await import('../src/db.js');
+  const {listMembers}=await import('../src/team.js');
+  const members=await listMembers(env.DB,ORG,'6101');
+  const racing=new Proxy(env.DB,{get(db,key){
+    if(key==='batch')return async statements=>{
+      await upsertBusiness(db,ORG,{name:'Race creation',createdBy:'6102'});
+      return db.batch(statements);
+    };
+    return typeof db[key]==='function'?db[key].bind(db):db[key];
+  }});
+  expect(await createPrivateBusiness(racing,ORG,{name:'Race creation',actorId:'6101',actorLogin:'owner',members})).toBeNull();
+  expect(await env.DB.prepare("SELECT private,created_by FROM businesses WHERE org_id=? AND slug='race-creation'").bind(ORG).first()).toEqual({private:0,created_by:'6102'});
+  expect((await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=? AND channel='b:race-creation'").bind(ORG).all()).results).toEqual([]);
+});
+
+test('private creation fences revoked creator membership and rejects stale invitations',async()=>{
+  const {createPrivateBusiness}=await import('../src/db.js');
+  const {listMembers}=await import('../src/team.js');
+  const members=await listMembers(env.DB,ORG,'6101');
+  const staleLogin=members.map(member=>member.userId==='6101'?{...member,login:'former-owner'}:member);
+  expect(await createPrivateBusiness(env.DB,ORG,{name:'Stale creator login',actorId:'6101',actorLogin:'owner',members:staleLogin})).toBeNull();
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(ORG,'6102').run();
+  const created=await createPrivateBusiness(env.DB,ORG,{name:'Stale invitations',actorId:'6101',actorLogin:'owner',members});
+  expect(created).toBeNull();
+  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id=? AND slug='stale-invitations'").bind(ORG).first()).toBeNull();
+  await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=? AND user_github_id=?").bind(ORG,'6101').run();
+  expect(await createPrivateBusiness(env.DB,ORG,{name:'Revoked creator',actorId:'6101',actorLogin:'owner',members})).toBeNull();
+  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id=? AND slug='revoked-creator'").bind(ORG).first()).toBeNull();
+});
+
+test.each(['removed','rejoined','login','role'])('private creation rejects a member whose %s changes immediately before commit',async mutation=>{
+  const {createPrivateBusiness}=await import('../src/db.js');
+  const {listMembers}=await import('../src/team.js');
+  const members=await listMembers(env.DB,ORG,'6101');
+  const racing=new Proxy(env.DB,{get(db,key){
+    if(key==='batch')return async statements=>{
+      if(mutation==='removed')await db.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(ORG,'6102').run();
+      if(mutation==='rejoined')await db.prepare("UPDATE memberships SET created_at='2099-01-01' WHERE org_id=? AND user_github_id=?").bind(ORG,'6102').run();
+      if(mutation==='login')await db.prepare("UPDATE users SET login='new-member' WHERE github_id='6102'").run();
+      if(mutation==='role')await db.prepare("UPDATE memberships SET role='guest' WHERE org_id=? AND user_github_id=?").bind(ORG,'6102').run();
+      return db.batch(statements);
+    };
+    return typeof db[key]==='function'?db[key].bind(db):db[key];
+  }});
+  expect(await createPrivateBusiness(racing,ORG,{name:'Snapshot race',actorId:'6101',actorLogin:'owner',members})).toBeNull();
+  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id=? AND slug='snapshot-race'").bind(ORG).first()).toBeNull();
+  expect((await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=? AND channel='b:snapshot-race'").bind(ORG).all()).results).toEqual([]);
+});
+
+test('private creation rejects a selected reference that disappeared before roster loading',async()=>{
+  const {listMembers}=await import('../src/team.js');
+  const members=await listMembers(env.DB,ORG,'6101');
+  const ref=members.find(member=>member.userId==='6102').ref;
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(ORG,'6102').run();
+  const response=await SELF.fetch('https://example.com/businesses',{method:'POST',headers:headers(ownerToken),body:JSON.stringify({orgId:ORG,name:'Missing selected member',private:true,members:[ref]})});
+  expect(response.status).toBe(409);
+  expect((await response.json()).message).toContain('Selected members changed');
+  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id=? AND slug='missing-selected-member'").bind(ORG).first()).toBeNull();
+});
+
+test('private creation refuses a name with orphaned members without deleting or granting them access',async()=>{
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?,'b:old-members','member','2026-01-01')").bind(ORG).run();
+  const res=await SELF.fetch('https://example.com/businesses',{method:'POST',headers:headers(ownerToken),body:JSON.stringify({orgId:ORG,name:'Old members',private:true})});
+  expect(res.status).toBe(409);
+  expect((await res.json()).message).toContain('Choose another name');
+  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id=? AND slug='old-members'").bind(ORG).first()).toBeNull();
+  expect((await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=? AND channel='b:old-members'").bind(ORG).all()).results).toEqual([{login:'member'}]);
 });

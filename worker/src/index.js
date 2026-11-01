@@ -20,13 +20,13 @@ import {
   getUserByGithubId, getUserByLogin, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard,
   saveCardLocalization, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
-  registerSubscription, removeSubscription, listBusinesses, hasPrivateBusinesses, upsertBusiness, removeBusiness, businessSlug, renameBusiness, unfileBusiness,
+  registerSubscription, removeSubscription, listBusinesses, hasPrivateBusinesses, upsertBusiness, createPrivateBusiness, removeBusiness, businessSlug, renameBusiness,
   rememberConnections, getCard, normalizeAliases, setUserAliases, parseAliases,
   setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs, primaryOrgId,
   loadContexts, saveContext, cleanName, checkHandle, setUserName, setUserHandle, MAX_NAME_CHARS,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
-import { announceCards, evictMember, announceEvents, announceTo } from "./announce.js";
+import { announceCards, evictMember, evictRoomJam, announceEvents, announceTo } from "./announce.js";
 import { custom as customEvent } from "./agui/events.js";
 import { contextEvents } from "./agui/adapter.js";
 import { verifyMailgunWebhook, parseMailgunWebhook, inboundTokenFromAddress, userForInboundAddress, inboundAddressFor } from "./connectors/email.js";
@@ -77,7 +77,7 @@ import { handleAgentInvites } from "./agentInvites.js";
 import { handleUserAvatar } from "./userAvatar.js";
 import { serveFile, freshFileUrls } from "./files.js";
 import { useMediaEnv, mediaOriginOn, signVideoUrl } from "./mediaToken.js";
-import { addMembers, membersOf, isPrivate, mayRead, mayReadCard, accessFor, isGuest, hasGuests } from "./access.js";
+import { membersOf, isPrivate, mayRead, mayReadCard, accessFor, isGuest, hasGuests } from "./access.js";
 import { runMinuteJobs } from "./later.js";
 import { recentBusinessTalk } from "./channels.js";
 import { relevantMemories } from "./memory.js";
@@ -1478,17 +1478,13 @@ async function handle(request, env, url, ctx) {
       if (body.private === true) {
         // A private channel is made, never found: a name already taken —
         // public or private, seen or not — is somebody else's channel.
-        const slug = businessSlug(body.name);
-        if (await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, slug).first()) {
-          return json({ message: "A channel by that name already exists." }, 409);
-        }
-        const business = await upsertBusiness(env.DB, body.orgId, { name: body.name, createdBy: String(session.github_id) });
-        if (!business) return json({message:"A channel by that name already exists."},409);
-        await env.DB.prepare("UPDATE businesses SET private = 1 WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, business.slug).run();
         const members = await listMembers(env.DB, body.orgId, session.github_id);
         const refs = Array.isArray(body.members) ? body.members.map(String) : [];
-        const logins = [me.login, ...members.filter((m) => refs.includes(m.ref)).map((m) => m.login)];
-        await addMembers(env.DB, { orgId: body.orgId, key: `b:${business.slug}`, logins, addedBy: me.login });
+        if(refs.some(ref=>!members.some(member=>member.ref===ref)))return json({message:"Selected members changed. Reload and choose the members again."},409);
+        const chosen=members.filter(m=>m.userId===String(session.github_id) || refs.includes(m.ref));
+        const created=await createPrivateBusiness(env.DB,body.orgId,{name:body.name,actorId:session.github_id,actorLogin:me?.login,members:chosen});
+        if (!created) return json({message:"That channel name is unavailable or workspace membership changed. Choose another name or reload and choose the members again."},409);
+        const {business,logins}=created;
         await tellMembers(env, body.orgId, logins);
         await tellRoom(body.orgId);
         await audit(env, request, { orgId: body.orgId, action: "channel.created", actor: person(me), entity: { type: "channel", id: business.slug, name: `#${business.name}` }, details: { private: true } });
@@ -1637,26 +1633,36 @@ async function handle(request, env, url, ctx) {
       const who = await viewerLogin();
       const managed = (await roomRoleState(env.DB, body.orgId, `b:${String(body.slug)}`, {includeArchived:true}))?.managed;
       if (!managed && !(await canTouchChannel(env.DB, body.orgId, String(body.slug), who))) return json({ businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }), unfiled: 0 });
-      const gone = await env.DB.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, String(body.slug)).first();
-      const wasPrivate = await isPrivate(env.DB, body.orgId, String(body.slug));
-      const insiders = wasPrivate ? await membersOf(env.DB, body.orgId, `b:${body.slug}`) : [];
-      // Legacy Simple channels retain their unfile behavior. Managed rooms
-      // retain a closed tombstone so a reused slug cannot expose old content.
+      const gone = await env.DB.prepare("SELECT name,private,created_at FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, String(body.slug)).first();
+      let wasPrivate = Boolean(gone?.private);
+      let insiders = wasPrivate ? await membersOf(env.DB, body.orgId, `b:${body.slug}`) : [];
+      // Public Simple channels retain their unfile behavior. A private room
+      // keeps a closed tombstone and its cards, including in Simple mode.
       const deletingSession = await getSession(env.DB, request.headers.get("x-session-token"));
       const deletion = await deleteManagedRoom(env.DB, body.orgId, `b:${String(body.slug)}`, {actorId:deletingSession.github_id,version:body.version});
       if (deletion.error) return json({message:deletion.error}, deletion.status);
+      if(deletion.managed){wasPrivate=deletion.wasPrivate;insiders=wasPrivate?deletion.formerMembers:[];}
+      let unfiled=[];
       if (!deletion.managed) {
-        if (!(await removeBusiness(env.DB, body.orgId, body.slug))) return json({message:"Room roles changed. Reload before deleting."},409);
-        await env.DB.prepare("DELETE FROM conversation_members WHERE org_id = ?1 AND channel = ?2").bind(body.orgId, `b:${body.slug}`).run();
+        const removed=await removeBusiness(env.DB, body.orgId, body.slug,{actorId:deletingSession.github_id,createdAt:gone?.created_at,wasPrivate});
+        if (!removed) return json({message:"Room roles changed. Reload before deleting."},409);
+        unfiled=removed.unfiled;
+        if(wasPrivate)insiders=removed.formerMembers;
       }
-      const unfiled = deletion.managed ? [] : await unfileBusiness(env.DB, body.orgId, String(body.slug));
+      // Deleted managed rooms and private legacy rooms retain tombstones.
+      // A managed public Jam can include people without membership rows, so
+      // evict everyone before later audit/list refreshes can fail. A legacy
+      // public slug can be recreated immediately and must not evict its Jam.
+      if(deletion.managed || wasPrivate)await evictRoomJam(env,body.orgId,`b:${body.slug}`);
       if (gone) {
         const session = await getSession(env.DB, request.headers.get("x-session-token"));
         const me = await getUserByGithubId(env.DB, session.github_id);
         await audit(env, request, { orgId: body.orgId, action: "channel.deleted", actor: person(me), entity: { type: "channel", id: String(body.slug), name: `#${gone.name}` }, details: { private: wasPrivate, unfiled: unfiled.length } });
       }
       await tellRoom(body.orgId);
-      if (wasPrivate) await tellMembers(env, body.orgId, insiders);
+      if (wasPrivate) {
+        await tellMembers(env, body.orgId, insiders);
+      }
       if (unfiled.length) await announceCards(env, body.orgId, unfiled, { isNew: false });
       return json({ businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }), unfiled: unfiled.length });
     }
