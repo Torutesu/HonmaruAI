@@ -32,6 +32,15 @@ test("the budget runs out and the caller is told when to come back", async () =>
   expect(Number(refused.headers.get("retry-after"))).toBeGreaterThan(0);
 });
 
+test("the next fixed window starts a fresh budget at the boundary", async () => {
+  vi.setSystemTime(new Date("2026-09-24T12:04:59Z"));
+  const req = requestFrom("203.0.113.31");
+  for (let i = 0; i < LIMITS["ai/route"].max; i += 1) expect(await enforce(env, req, "ai/route")).toBeNull();
+  expect((await enforce(env, req, "ai/route"))?.status).toBe(429);
+  vi.setSystemTime(new Date("2026-09-24T12:05:00Z"));
+  expect(await enforce(env, req, "ai/route")).toBeNull();
+});
+
 test("RATE_LIMIT_SCALE (the end-to-end run's) multiplies the allowance, at most a hundredfold", async () => {
   const req = requestFrom("203.0.113.9");
   const max = LIMITS["ai/route"].max;

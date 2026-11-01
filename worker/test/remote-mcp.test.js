@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { fetchMock } from "./helpers/fetch-mock.js";
 import worker from "../src/index.js";
 import { agentTools } from "../src/agentTools.js";
@@ -141,6 +141,12 @@ test("public MCP catalog can browse active listings without a search term", asyn
 
 test("public MCP catalog search is rate limited per signed-in member", async () => {
   await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
+  // The limiter uses wall-clock aligned five-minute windows. Freeze Date well
+  // inside the current window so a slow runner cannot cross the boundary
+  // between requests and accidentally receive a fresh allowance.
+  const now = Date.now();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(now - now % 300000 + 60000));
   const query = "mcp-catalog-rate-limit-check";
   fetchMock.get("https://registry.modelcontextprotocol.io")
     .intercept({ path: /^\/v0\.1\/servers\?/, method: "GET" })
@@ -155,7 +161,7 @@ test("public MCP catalog search is rate limited per signed-in member", async () 
     expect(responses[30].status).toBe(429);
     expect(responses[30].headers.get("retry-after")).toBeTruthy();
     fetchMock.assertNoPendingInterceptors();
-  } finally { fetchMock.deactivate(); }
+  } finally { fetchMock.deactivate(); vi.useRealTimers(); }
 });
 
 test("OAuth Remote MCP uses PKCE, validates issuer and redirect, and keeps each member's token private", async () => {
