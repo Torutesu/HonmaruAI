@@ -1,3 +1,5 @@
+import {skillSessionAuthority} from './skillSessionAuthority.js';
+import {skillPolicyFingerprint,skillSsoDeadline} from './skillPolicyProof.js';
 import {conversationWriteAuthority} from './conversationWriteAuthority.js';
 
 // Trusted parameter expressions, shared by the snapshot read and the reply
@@ -45,30 +47,54 @@ const snapshotColumns=`m.created_at AS membershipSince,a.created_at AS appCreate
   CASE WHEN substr(s.channel,1,2)='b:' THEN COALESCE(g.version,0) ELSE 0 END AS guidelineVersion,
   CASE WHEN substr(s.channel,1,2)='b:' THEN COALESCE(g.updated_at,'') ELSE '' END AS guidelineUpdatedAt`;
 const authority=replyAuthority('?1','?2','?3','?4','?5','?6','?7')+` AND EXISTS(SELECT 1 FROM hx_app_messages request WHERE request.org_id=?1 AND request.app_id=?2 AND request.table_id=?4 AND request.row_id=?5 AND request.sequence=?8 AND request.author_id=?3)`;
+const sessionFence=(key,created,membership,fingerprint,deadline)=>`AND (m.created_at IS ${membership} AND EXISTS(SELECT 1 FROM sessions sess WHERE sess.token=${key} AND sess.github_id=?3 AND sess.created_at IS ${created}) AND ${skillSessionAuthority('?1','?3',key)} AND (${skillPolicyFingerprint('?1','?3',key)})=${fingerprint} AND ${skillSsoDeadline(deadline)})`;
+const proofValues=proof=>[proof.key,proof.sessionCreatedAt,proof.membershipSince,proof.fingerprint,proof.ssoDeadline??null];
 
-export async function appReplySnapshot(db,orgId,appId,userId,scope,source,messageId) {
-  return db.prepare(`SELECT ${snapshotColumns} ${replyFrom} WHERE ${authority}`)
-    .bind(orgId,appId,String(userId),scope.tableId||'',scope.rowId||'',source?.channel||null,source?.threadId||null,messageId).first();
+export async function appReplySnapshot(db,orgId,appId,userId,scope,source,messageId,proof) {
+  return db.prepare(`SELECT ${snapshotColumns} ${replyFrom} WHERE ${authority} ${proof?sessionFence('?9','?10','?11','?12','?13'):''}`)
+    .bind(orgId,appId,String(userId),scope.tableId||'',scope.rowId||'',source?.channel||null,source?.threadId||null,messageId,...(proof?proofValues(proof):[])).first();
 }
 
-// The same authorization and guideline values must hold at the exact INSERT,
-// not merely during an earlier async check.
-export async function saveFencedAppReply(db,orgId,appId,userId,scope,source,snapshot,messageId,requestId,answer) {
+// The same authorization, context and guideline values are checked inside
+// every consequential write, including notification/status creation.
+const snapshotGuard=proof=>`${authority}
+  AND (m.created_at IS ?9 AND a.created_at IS ?10)
+  AND (a.name IS ?19 AND a.description IS ?20 AND a.updated_at IS ?21
+    AND (SELECT data FROM hx_rows WHERE org_id=?1 AND table_id=?4 AND id=?5) IS ?22
+    AND (SELECT updated_at FROM hx_rows WHERE org_id=?1 AND table_id=?4 AND id=?5) IS ?23
+    AND ${historyJson} IS ?24)
+  ${proof?sessionFence('?25','?26','?27','?28','?29'):''}
+  AND ((CASE WHEN substr(s.channel,1,2)='b:' THEN b.created_at ELSE NULL END) IS ?11
+    AND (CASE WHEN substr(s.channel,1,2)='b:' AND b.private=1 THEN cm.added_at ELSE NULL END) IS ?12
+    AND (CASE WHEN substr(s.channel,1,2)='b:' THEN COALESCE(g.body,'') ELSE '' END) IS ?13
+    AND (CASE WHEN substr(s.channel,1,2)='b:' THEN COALESCE(g.version,0) ELSE 0 END) IS ?14
+    AND (CASE WHEN substr(s.channel,1,2)='b:' THEN COALESCE(g.updated_at,'') ELSE '' END) IS ?15)`;
+const fenceValues=(orgId,appId,userId,scope,source,snapshot,messageId,requestId,answer,proof)=>[
+  orgId,appId,String(userId),scope.tableId||'',scope.rowId||'',source?.channel||null,source?.threadId||null,messageId,
+  snapshot.membershipSince,snapshot.appCreatedAt,snapshot.roomCreatedAt,snapshot.roomMemberSince,snapshot.guidelineBody,snapshot.guidelineVersion,snapshot.guidelineUpdatedAt,
+  requestId,answer.slice(0,12000),new Date().toISOString(),snapshot.appName,snapshot.appDescription,snapshot.appUpdatedAt,snapshot.recordData,snapshot.recordUpdatedAt,snapshot.historyJson,...(proof?proofValues(proof):[])
+];
+export async function saveFencedAppReply(db,orgId,appId,userId,scope,source,snapshot,messageId,requestId,answer,proof) {
+  const values=fenceValues(orgId,appId,userId,scope,source,snapshot,messageId,requestId,answer,proof);
   const result=await db.prepare(`INSERT OR IGNORE INTO hx_app_messages(org_id,app_id,table_id,row_id,author_id,request_id,body,created_at)
-    SELECT ?1,?2,?4,?5,'__app_ai',?16,?17,?18 WHERE EXISTS(SELECT 1 ${replyFrom} WHERE ${authority}
-      AND m.created_at IS ?9 AND a.created_at IS ?10
-      AND (a.name IS ?19 AND a.description IS ?20 AND a.updated_at IS ?21
-        AND (SELECT data FROM hx_rows WHERE org_id=?1 AND table_id=?4 AND id=?5) IS ?22
-        AND (SELECT updated_at FROM hx_rows WHERE org_id=?1 AND table_id=?4 AND id=?5) IS ?23
-        AND ${historyJson} IS ?24)
-      AND ((CASE WHEN substr(s.channel,1,2)='b:' THEN b.created_at ELSE NULL END) IS ?11
-      AND (CASE WHEN substr(s.channel,1,2)='b:' AND b.private=1 THEN cm.added_at ELSE NULL END) IS ?12
-      AND (CASE WHEN substr(s.channel,1,2)='b:' THEN COALESCE(g.body,'') ELSE '' END) IS ?13
-      AND (CASE WHEN substr(s.channel,1,2)='b:' THEN COALESCE(g.version,0) ELSE 0 END) IS ?14
-      AND (CASE WHEN substr(s.channel,1,2)='b:' THEN COALESCE(g.updated_at,'') ELSE '' END) IS ?15))`)
-    .bind(orgId,appId,String(userId),scope.tableId||'',scope.rowId||'',source?.channel||null,source?.threadId||null,messageId,
-      snapshot.membershipSince,snapshot.appCreatedAt,snapshot.roomCreatedAt,snapshot.roomMemberSince,snapshot.guidelineBody,snapshot.guidelineVersion,snapshot.guidelineUpdatedAt,
-      requestId,answer.slice(0,12000),new Date().toISOString(),snapshot.appName,snapshot.appDescription,snapshot.appUpdatedAt,snapshot.recordData,snapshot.recordUpdatedAt,snapshot.historyJson).run();
+    SELECT ?1,?2,?4,?5,'__app_ai',?16,?17,?18 WHERE EXISTS(SELECT 1 ${replyFrom} WHERE ${snapshotGuard(proof)})`).bind(...values).run();
   if(!result.meta?.changes)return null;
   return db.prepare('SELECT sequence FROM hx_app_messages WHERE org_id=? AND app_id=? AND author_id=? AND request_id=?').bind(orgId,appId,'__app_ai',requestId).first();
+}
+
+export async function completeFencedAppReply(db,orgId,appId,userId,scope,source,snapshot,messageId,requestId,answer,proof,replyId){
+  const values=fenceValues(orgId,appId,userId,scope,source,snapshot,messageId,requestId,answer,proof);
+  const params=[...values,...(proof?[]:[null,null,null,null,null]),replyId];
+  const exists=`EXISTS(SELECT 1 ${replyFrom} WHERE ${snapshotGuard(proof)})`;
+  const [notification,status]=await db.batch([
+    db.prepare(`INSERT OR IGNORE INTO hx_app_notifications(org_id,app_id,message_id,user_id,kind)
+      SELECT ?1,?2,?30,?3,'ai' WHERE ${exists} AND EXISTS(SELECT 1 FROM hx_app_ai_replies job WHERE job.org_id=?1 AND job.app_id=?2 AND job.message_id=?8 AND job.status='running')`).bind(...params),
+    db.prepare(`UPDATE hx_app_ai_replies SET status='succeeded' WHERE org_id=?1 AND app_id=?2 AND message_id=?8 AND status='running' AND ${exists}`).bind(...params.slice(0,proof?29:24)),
+  ]);
+  return Boolean(status.meta?.changes && (notification.meta?.changes || await db.prepare("SELECT 1 FROM hx_app_notifications WHERE org_id=? AND app_id=? AND message_id=? AND user_id=? AND kind='ai'").bind(orgId,appId,replyId,String(userId)).first()));
+}
+
+export async function mayAnnounceFencedAppReply(db,orgId,appId,userId,scope,source,snapshot,messageId,requestId,answer,proof){
+  const values=fenceValues(orgId,appId,userId,scope,source,snapshot,messageId,requestId,answer,proof);
+  return Boolean(await db.prepare(`SELECT 1 ${replyFrom} WHERE ${snapshotGuard(proof)}`).bind(...values).first());
 }

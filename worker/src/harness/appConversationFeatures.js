@@ -1,3 +1,6 @@
+import {currentSkillPolicy} from './skillPolicyProof.js';
+import {annotationProofRequiresIp} from './appReplyRequestProof.js';
+import {requestContext} from '../requestContext.js';
 import { announceTo } from '../announce.js';
 import { custom } from '../agui/events.js';
 import { appConversation } from './appConversations.js';
@@ -8,7 +11,7 @@ import { mentionTokens, resolveMentions } from '../threads.js';
 import { getMessage, listThread, viewOf } from '../channels.js';
 import { completer } from './model.js';
 import { withRoomGuidelinesRequest } from './guidelines.js';
-import { appReplySnapshot, saveFencedAppReply } from './appReplyFence.js';
+import { appReplySnapshot, saveFencedAppReply, completeFencedAppReply, mayAnnounceFencedAppReply } from './appReplyFence.js';
 
 const scopeOf = input => ({ tableId: input.tableId || '', rowId: input.rowId || '' });
 const error = (message, status=400) => ({error:message,status});
@@ -74,17 +77,24 @@ export async function appNotifications(db,orgId,userId,appId,input,write=false){
  return {items};
 }
 export const asksAppAI = text => mentionTokens(text).some(t=>t.toLowerCase()==='ai');
-export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompleter=completer,expectedSource=undefined}={}){
+export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompleter=completer,expectedSource=undefined,requestProof=undefined,requireRequestProof=false}={}){
  const db=env.DB,scope=scopeOf(input);
+ const deny=()=>db.prepare("INSERT OR IGNORE INTO hx_app_ai_replies(message_id,org_id,app_id,status,error) VALUES (?,?,?,'failed','会話へのアクセスが変更されたため AI は開始されませんでした。')").bind(messageId,orgId,appId).run();
+ if(requireRequestProof&&(!requestProof?.key?.startsWith('h1:')||!requestProof?.fingerprint||!requestProof?.membershipSince||!requestProof?.sessionCreatedAt)){await deny();return;}
+ const policyAllowed=async()=>{
+  if(!requestProof)return !requireRequestProof;
+  try{return await requestContext.run({ip:requestProof.ip},async()=>{const checked=await currentSkillPolicy(env,orgId,user.github_id,requestProof.key);return checked.allowed&&checked.fingerprint===requestProof.fingerprint&&(!requestProof.ip? !annotationProofRequiresIp(checked.fingerprint):true)});}catch{return false;}
+ };
+ if(!await policyAllowed()){await deny();return;}
  const inserted=await db.prepare("INSERT OR IGNORE INTO hx_app_ai_replies(message_id,org_id,app_id,status) VALUES (?,?,?,'running')").bind(messageId,orgId,appId).run();
  if(!inserted.meta?.changes)return;
- let complete;
+ let complete,replySaved=false;
  try{
   // Record conversations have their own scope and do not inherit app sources.
   const source=scope.rowId?null:await sourceFor(db,orgId,user,appId);
   if(source?.error)throw new Error('Access revoked.');
   if(expectedSource!==undefined&&((source?.channel||null)!==(expectedSource?.channel||null)||(source?.threadId||null)!==(expectedSource?.threadId||null)))throw new Error('Access revoked.');
-  const snapshot=await appReplySnapshot(db,orgId,appId,user.github_id,scope,source,messageId);
+  const snapshot=await appReplySnapshot(db,orgId,appId,user.github_id,scope,source,messageId,requestProof);
   if(!snapshot)throw new Error('Access revoked.');
   const app={name:snapshot.appName,description:snapshot.appDescription};
   const record=scope.rowId?{data:snapshot.recordData}:null;
@@ -94,7 +104,8 @@ export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompl
   if(!complete)throw new Error('AIが未設定、または既存の利用枠がありません。');
   const authorize=async()=>{
    try {
-    const current=await appReplySnapshot(db,orgId,appId,user.github_id,scope,source,messageId);
+    if(!await policyAllowed())return false;
+    const current=await appReplySnapshot(db,orgId,appId,user.github_id,scope,source,messageId,requestProof);
     return Boolean(current&&JSON.stringify(current)===JSON.stringify(snapshot));
    }catch{return false;}
   };
@@ -103,11 +114,12 @@ export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompl
   if(!await authorize())throw new Error('Access revoked.');
   if(!answer)throw new Error('AIから応答がありませんでした。');
   const requestId='ai_reply_'+String(messageId).padStart(16,'0');
-  const reply=await saveFencedAppReply(db,orgId,appId,user.github_id,scope,source,snapshot,messageId,requestId,answer);
+  const reply=await saveFencedAppReply(db,orgId,appId,user.github_id,scope,source,snapshot,messageId,requestId,answer,requestProof);
   if(!reply)throw new Error('Access revoked.');
-  await db.prepare("INSERT OR IGNORE INTO hx_app_notifications(org_id,app_id,message_id,user_id,kind) VALUES (?,?,?,?,'ai')").bind(orgId,appId,reply.sequence,String(user.github_id)).run();
-  await db.prepare("UPDATE hx_app_ai_replies SET status='succeeded' WHERE message_id=? AND org_id=? AND app_id=?").bind(messageId,orgId,appId).run();
+  replySaved=true;
+  if(!await completeFencedAppReply(db,orgId,appId,user.github_id,scope,source,snapshot,messageId,requestId,answer,requestProof,reply.sequence))throw new Error('Access revoked.');
+  if(!await mayAnnounceFencedAppReply(db,orgId,appId,user.github_id,scope,source,snapshot,messageId,requestId,answer,requestProof))return;
   await announceTo(env,orgId,[{to:user.login,event:custom('app_activity_changed',{appId})}]);
- }catch(e){await db.prepare("UPDATE hx_app_ai_replies SET status='failed',error=? WHERE message_id=? AND org_id=? AND app_id=?").bind(e.message==='Access revoked.'?'会話へのアクセスが変更されました。':'AIに接続できませんでした。既存のAI設定・利用枠を確認してください。',messageId,orgId,appId).run();}
+ }catch(e){await db.prepare("UPDATE hx_app_ai_replies SET status='failed',error=? WHERE message_id=? AND org_id=? AND app_id=?").bind(replySaved?'AIの回答は保存されましたが、通知を完了できませんでした。同じメッセージでは再実行されません。':e.message==='Access revoked.'?'会話へのアクセスが変更されました。':'AIに接続できませんでした。既存のAI設定・利用枠を確認してください。',messageId,orgId,appId).run();}
  finally { try { await complete?.dispose?.(); } catch { /* The answer outcome is already recorded. */ } }
 }

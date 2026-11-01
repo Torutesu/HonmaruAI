@@ -2,7 +2,9 @@ import {env} from 'cloudflare:test';
 import {beforeEach,expect,test,vi} from 'vitest';
 import schema from '../schema.sql?raw';
 import worker from '../src/index.js';
-import {createSession,upsertUser,upsertMembership} from '../src/db.js';
+import {createSession,upsertUser,upsertMembership,sessionKey} from '../src/db.js';
+import {requestContext} from '../src/requestContext.js';
+import {currentSkillPolicy} from '../src/harness/skillPolicyProof.js';
 import {createApp} from '../src/harness/apps.js';
 import {addRow} from '../src/harness/tables.js';
 const org='personal:conversation';let owner,member,guest,other,app,row;
@@ -602,7 +604,7 @@ test('long 30-message history and record context fit the guarded D1 reply INSERT
  const input={body:'@AI final',requestId:'long_context_req_01',tableId:app.tableId,rowId:row.id};
  const saved=await appConversation(env.DB,org,'9201',app.id,input,true);
  const model=vi.fn(async(_system,prompt)=>{const context=JSON.parse(prompt);expect(context.conversation).toHaveLength(30);expect(context.record.data).toContain(long);return 'Accepted';});
- await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{makeCompleter:async()=>model});
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{requireRequestProof:true,requestProof:await replyRequestProof(owner),expectedSource:null,makeCompleter:async()=>model});
  expect(model).toHaveBeenCalledOnce();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'succeeded'});
 });
 
@@ -626,6 +628,164 @@ test('record reply ignores newly attached app source when HTTP captured no sourc
  const model=vi.fn().mockResolvedValue('Independent reply');
  await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{expectedSource:null,makeCompleter:async()=>model});
  expect(model).toHaveBeenCalledOnce();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'succeeded'});
+});
+
+async function replyRequestProof(token,user='9201',ip='192.0.2.10'){
+ const key=await sessionKey(token),session=await env.DB.prepare('SELECT created_at FROM sessions WHERE token=?').bind(key).first();
+ const member=await env.DB.prepare('SELECT created_at FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,user).first();
+ const policy=await requestContext.run({ip},()=>currentSkillPolicy(env,org,user,key));
+ if(!policy.allowed)throw Error('test policy unexpectedly denied');
+ return {key,sessionCreatedAt:session.created_at,membershipSince:member.created_at,fingerprint:policy.fingerprint,ssoDeadline:policy.ssoDeadline,ip};
+}
+
+test('HTTP-style session proof permits a normal guarded model reply',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js'),{appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI examine',requestId:'proof_normal_req_01'},saved=await appConversation(env.DB,org,'9201',app.id,input,true),proof=await replyRequestProof(owner);
+ const model=vi.fn().mockResolvedValue('Guarded answer');
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{requireRequestProof:true,requestProof:proof,expectedSource:null,makeCompleter:async()=>model});
+ expect(model).toHaveBeenCalledOnce();expect(JSON.stringify(model.mock.calls)).not.toContain(proof.key);expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'succeeded'});
+});
+
+test('a missing required HTTP proof records a visible failure without running a model',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js'),{appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI examine',requestId:'proof_missing_req_01'},saved=await appConversation(env.DB,org,'9201',app.id,input,true),model=vi.fn();
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{requireRequestProof:true,expectedSource:null,makeCompleter:async()=>model});
+ expect(model).not.toHaveBeenCalled();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'failed'});
+});
+
+test('session deletion while preparing a deferred reply prevents the model call',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js'),{appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI examine',requestId:'proof_revoked_req_01'},saved=await appConversation(env.DB,org,'9201',app.id,input,true),proof=await replyRequestProof(owner);
+ const model=vi.fn();model.dispose=vi.fn().mockResolvedValue(undefined);
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{requireRequestProof:true,requestProof:proof,expectedSource:null,makeCompleter:async()=>{await env.DB.prepare('DELETE FROM sessions WHERE token=?').bind(proof.key).run();return model}});
+ expect(model).not.toHaveBeenCalled();expect(model.dispose).toHaveBeenCalledOnce();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'failed'});
+});
+
+test.each(['scim','sso'])('deferred model does not start after %s changes',async mode=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js'),{appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI examine',requestId:'proof_policy_req_01'},saved=await appConversation(env.DB,org,'9201',app.id,input,true),proof=await replyRequestProof(owner),model=vi.fn();
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{requireRequestProof:true,requestProof:proof,expectedSource:null,makeCompleter:async()=>{
+  if(mode==='scim')await env.DB.prepare("INSERT INTO scim_users(org_id,id,user_github_id,user_name,active,created_at,updated_at) VALUES (?,'scim-user','9201','user9201',0,'2026-01-01','2026-01-01')").bind(org).run();
+  else await env.DB.prepare("INSERT INTO org_sso_policy(org_id,enforce,updated_at) VALUES (?,1,'2090-01-01')").bind(org).run();
+  return model;
+ }});
+ expect(model).not.toHaveBeenCalled();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'failed'});
+});
+
+test('policy change just before reply INSERT prevents publishing',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js'),{appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI examine',requestId:'proof_insert_req_01'},saved=await appConversation(env.DB,org,'9201',app.id,input,true),proof=await replyRequestProof(owner);let injected=false;
+ const db={prepare(sql){const stmt=env.DB.prepare(sql);if(!sql.startsWith('INSERT OR IGNORE INTO hx_app_messages'))return stmt;
+  return {bind(...args){const bound=stmt.bind(...args);return {async run(){injected=true;await env.DB.prepare("INSERT INTO org_session_policy(org_id,web_max_hours,updated_by,updated_at) VALUES (?,1,'9201','2090-01-01')").bind(org).run();return bound.run()}}}}},batch:env.DB.batch.bind(env.DB)};
+ await replyToApp({...env,DB:db},org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{requireRequestProof:true,requestProof:proof,expectedSource:null,makeCompleter:async()=>async()=>'Must not publish'});
+ expect(injected).toBe(true);expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE author_id='__app_ai'").first()).n).toBe(0);
+ expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'failed'});
+});
+
+test('session revoked during model execution prevents the answer from being stored',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js'),{appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI examine',requestId:'proof_midcall_req_01'},saved=await appConversation(env.DB,org,'9201',app.id,input,true),proof=await replyRequestProof(owner);
+ const model=vi.fn(async()=>{await env.DB.prepare('DELETE FROM sessions WHERE token=?').bind(proof.key).run();return 'Must not publish';});
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{requireRequestProof:true,requestProof:proof,expectedSource:null,makeCompleter:async()=>model});
+ expect(model).toHaveBeenCalledOnce();expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE author_id='__app_ai'").first()).n).toBe(0);
+ expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'failed'});
+});
+
+test('loss of session before notification batch prevents notification and success status',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js'),{appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI examine',requestId:'before_notice_req_01'},saved=await appConversation(env.DB,org,'9201',app.id,input,true),proof=await replyRequestProof(owner);
+ const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{await env.DB.prepare('DELETE FROM sessions WHERE token=?').bind(proof.key).run();return env.DB.batch(statements)}};
+ const relay=vi.fn();const fakeEnv={...env,DB:db,ORG_RELAY:{idFromName:()=>1,get:()=>({fetch:relay})}};
+ await replyToApp(fakeEnv,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{requireRequestProof:true,requestProof:proof,expectedSource:null,makeCompleter:async()=>async()=>'Answer'});
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_notifications').first()).n).toBe(0);expect(relay).not.toHaveBeenCalled();
+ expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'failed'});
+});
+
+test('loss of session after notification commit stops relay announcement',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js'),{appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI examine',requestId:'before_announce_req_01'},saved=await appConversation(env.DB,org,'9201',app.id,input,true),proof=await replyRequestProof(owner);
+ const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{const result=await env.DB.batch(statements);await env.DB.prepare('DELETE FROM sessions WHERE token=?').bind(proof.key).run();return result}};
+ const relay=vi.fn();const fakeEnv={...env,DB:db,ORG_RELAY:{idFromName:()=>1,get:()=>({fetch:relay})}};
+ await replyToApp(fakeEnv,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{requireRequestProof:true,requestProof:proof,expectedSource:null,makeCompleter:async()=>async()=>'Answer'});
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_notifications').first()).n).toBe(1);expect(relay).not.toHaveBeenCalled();
+ expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'succeeded'});
+});
+
+test('saved answer with failed notification is explicit and the same request does not rerun the model',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js'),{appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI examine',requestId:'partial_reply_req_01'},saved=await appConversation(env.DB,org,'9201',app.id,input,true),proof=await replyRequestProof(owner);
+ const model=vi.fn().mockResolvedValue('Stored answer');
+ const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{await env.DB.prepare("INSERT INTO org_session_policy(org_id,web_max_hours,updated_by,updated_at) VALUES (?,1,'9201','2090-01-01')").bind(org).run();return env.DB.batch(statements)}};
+ const options={requireRequestProof:true,requestProof:proof,expectedSource:null,makeCompleter:async()=>model};
+ await replyToApp({...env,DB:db},org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,options);
+ const state=await env.DB.prepare('SELECT status,error FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first();
+ expect(state.status).toBe('failed');expect(state.error).toContain('回答は保存されました');expect(state.error).toContain('再実行されません');
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE author_id='__app_ai' AND body='Stored answer'").first()).n).toBe(1);
+ await env.DB.prepare('DELETE FROM org_session_policy WHERE org_id=?').bind(org).run();
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,options);
+ expect(model).toHaveBeenCalledTimes(1);expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE author_id='__app_ai'").first()).n).toBe(1);
+ const newer={...input,requestId:'partial_reply_req_02'},newSaved=await appConversation(env.DB,org,'9201',app.id,newer,true),newProof=await replyRequestProof(owner);
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,newer,newSaved.messageId,{...options,requestProof:newProof});
+ expect(model).toHaveBeenCalledTimes(2);expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE author_id='__app_ai'").first()).n).toBe(2);
+});
+
+test('HTTP deferred reply carries a hashed session and stops when session is revoked before the job',async()=>{
+ const {handleHarness}=await import('../src/harness/routes.js');let deferred;
+ const input={orgId:org,body:'@AI examine',requestId:'http_deferred_proof_01'};
+ const req=new Request(`https://test/apps/${app.id}/conversation`,{method:'POST',headers:{'x-session-token':owner,'content-type':'application/json'},body:JSON.stringify(input)});
+ const model=vi.fn().mockResolvedValue('Must not run');
+ const response=await requestContext.run({ip:'192.0.2.10'},()=>handleHarness(req,{...env,makeCompleter:async()=>model},new URL(req.url),{after:work=>{deferred=work}}));
+ expect(response.status).toBe(200);const sent=await response.json();expect(deferred).toBeTypeOf('function');
+ await env.DB.prepare('DELETE FROM sessions WHERE token=?').bind(await sessionKey(owner)).run();await deferred();
+ expect(model).not.toHaveBeenCalled();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(sent.messageId).first()).toEqual({status:'failed'});
+});
+
+test('network enforcement with missing trusted IP rejects AI before message creation but permits ordinary text',async()=>{
+ const {handleHarness}=await import('../src/harness/routes.js'),{forgetGovernance}=await import('../src/governance.js');
+ await env.DB.prepare("INSERT INTO org_governance(org_id,ip_enforce,ip_allowlist,updated_by,updated_at) VALUES (?,1,'[\"192.0.2.0/24\"]','9201','2026-01-01')").bind(org).run();forgetGovernance();
+ const send=body=>{const req=new Request(`https://test/apps/${app.id}/conversation`,{method:'POST',headers:{'x-session-token':owner,'content-type':'application/json'},body:JSON.stringify({orgId:org,body,requestId:body.startsWith('@AI')?'missing_ip_ai_req_01':'normal_text_req_001'})});return handleHarness(req,env,new URL(req.url),{});};
+ const denied=await send('@AI examine');expect(denied.status).toBe(403);expect((await denied.json()).message).toContain('message was not sent');
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_messages').first()).n).toBe(0);
+ const normal=await send('Normal text');expect(normal.status).toBe(200);expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_messages').first()).n).toBe(1);
+});
+
+test('deferred AI fails closed when the captured IP is no longer allowed',async()=>{
+ const {handleHarness}=await import('../src/harness/routes.js'),{forgetGovernance}=await import('../src/governance.js');let deferred;
+ await env.DB.prepare("INSERT INTO org_governance(org_id,ip_enforce,ip_allowlist,updated_by,updated_at) VALUES (?,1,'[\"192.0.2.0/24\"]','9201','2026-01-01')").bind(org).run();forgetGovernance();
+ const model=vi.fn().mockResolvedValue('Must not run'),req=new Request(`https://test/apps/${app.id}/conversation`,{method:'POST',headers:{'x-session-token':owner,'content-type':'application/json'},body:JSON.stringify({orgId:org,body:'@AI examine',requestId:'changed_ip_req_001'})});
+ const response=await requestContext.run({ip:'192.0.2.10'},()=>handleHarness(req,{...env,makeCompleter:async()=>model},new URL(req.url),{after:work=>{deferred=work}}));
+ expect(response.status).toBe(200);const sent=await response.json();
+ await env.DB.prepare("UPDATE org_governance SET ip_allowlist='[\"198.51.100.0/24\"]',updated_at='2090-01-01' WHERE org_id=?").bind(org).run();await deferred();
+ expect(model).not.toHaveBeenCalled();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(sent.messageId).first()).toEqual({status:'failed'});forgetGovernance();
+});
+
+test('deferred AI restores only the captured trusted IP after request context ends',async()=>{
+ const {handleHarness}=await import('../src/harness/routes.js'),{forgetGovernance}=await import('../src/governance.js');let deferred;
+ await env.DB.prepare("INSERT INTO org_governance(org_id,ip_enforce,ip_allowlist,updated_by,updated_at) VALUES (?,1,'[\"192.0.2.0/24\"]','9201','2026-01-01')").bind(org).run();forgetGovernance();
+ const model=vi.fn().mockResolvedValue('Mock answer'),req=new Request(`https://test/apps/${app.id}/conversation`,{method:'POST',headers:{'x-session-token':owner,'content-type':'application/json'},body:JSON.stringify({orgId:org,body:'@AI examine',requestId:'captured_ip_req_01'})});
+ const response=await requestContext.run({ip:'192.0.2.10'},()=>handleHarness(req,{...env,makeCompleter:async()=>model},new URL(req.url),{after:work=>{deferred=work}}));
+ expect(response.status).toBe(200);const sent=await response.json();await deferred();expect(model).toHaveBeenCalledOnce();
+ expect(JSON.stringify(model.mock.calls)).not.toContain('192.0.2.10');expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(sent.messageId).first()).toEqual({status:'succeeded'});forgetGovernance();
+});
+
+test('source conversation AI remains on its existing channel route',async()=>{
+ const {handleHarness}=await import('../src/harness/routes.js'),{linkApp}=await import('../src/harness/apps.js');
+ const root=await privateSource();await linkApp(env.DB,org,app.id,'b:confidential','9201');
+ expect((await featureRequest('conversation-source','POST',owner,{messageId:root.id})).status).toBe(200);
+ const input={orgId:org,body:'@AI existing source',requestId:'source_ai_forward_01'},req=new Request(`https://test/apps/${app.id}/conversation`,{method:'POST',headers:{'x-session-token':owner,'content-type':'application/json'},body:JSON.stringify(input)});let forwarded;
+ const response=await requestContext.run({ip:null},()=>handleHarness(req,env,new URL(req.url),{dispatch:async inner=>{forwarded=await inner.json();return new Response(JSON.stringify({message:{id:'forwarded',body:input.body}}),{status:200,headers:{'content-type':'application/json'}})}}));
+ expect(response.status).toBe(200);expect(forwarded.body).toBe(input.body);expect(forwarded.parentId).toBe(root.id);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_messages').first()).n).toBe(0);
+});
+
+test('legacy raw session is upgraded before background proof and malformed body stays rejected',async()=>{
+ const {handleHarness}=await import('../src/harness/routes.js');let deferred;
+ const legacy='legacy-plain-session-test';await env.DB.prepare("INSERT INTO sessions(token,github_id,github_access_token,created_at,expires_at) VALUES (?,'9201','email-auth','2026-01-01T00:00:00.000Z','2099-01-01T00:00:00.000Z')").bind(legacy).run();
+ const send=body=>{const req=new Request(`https://test/apps/${app.id}/conversation`,{method:'POST',headers:{'x-session-token':legacy,'content-type':'application/json'},body:JSON.stringify({orgId:org,body,requestId:'legacy_proof_req_01'})});return requestContext.run({ip:'192.0.2.10'},()=>handleHarness(req,{...env,makeCompleter:async()=>async()=> 'Mock answer'},new URL(req.url),{after:work=>{deferred=work}}));};
+ expect((await send({bad:'@AI'})).status).toBe(400);
+ const response=await send('@AI examine');expect(response.status).toBe(200);expect(deferred).toBeTypeOf('function');
+ expect(await env.DB.prepare('SELECT 1 FROM sessions WHERE token=?').bind(legacy).first()).toBeNull();expect(await env.DB.prepare('SELECT 1 FROM sessions WHERE token=?').bind(await sessionKey(legacy)).first()).toBeTruthy();
+ await deferred();const result=await response.json();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(result.messageId).first()).toEqual({status:'succeeded'});
 });
 
 test('long room guidelines do not replace the app request or determine its fallback template',async()=>{

@@ -1,3 +1,5 @@
+import {currentIp} from '../requestContext.js';
+import {annotationProofRequiresIp} from './appReplyRequestProof.js';
 import { prepareAppGuidelines } from './appGuidelinesFence.js';
 import { mayUseDatabase } from './databaseAccess.js';
 import { mayGenerateFromSchema, finishSchemaGeneration } from './generationAccess.js';
@@ -296,7 +298,8 @@ export async function handleHarness(request, env, url, context = {}) {
     return json({ orgId, mode: await getMode(env.DB, orgId), modes: MODES, canEdit, ...preference });
   }
 
-  const who = await member(env, request, orgId, { withMembership: parts[0] === 'skills' && parts[2] === 'shares' && parts.length === 3 && request.method === 'POST' });
+  const aiConversationRequest=parts[0]==='apps' && parts[2]==='conversation' && parts.length===3 && request.method==='POST' && typeof input?.body==='string' && asksAppAI(input.body);
+  const who = await member(env, request, orgId, { withMembership: aiConversationRequest || (parts[0] === 'skills' && parts[2] === 'shares' && parts.length === 3 && request.method === 'POST') });
   if (who.denied) return who.denied;
   const me = who.session.github_id;
   if (url.pathname === "/remote-mcp" || url.pathname.startsWith("/remote-mcp/")) {
@@ -1100,6 +1103,12 @@ export async function handleHarness(request, env, url, context = {}) {
         const annotations=await listAppAnnotations(env.DB,orgId,appId,query);
         return json({...access,source:source?await sourceHistory(env.DB,orgId,who.user,source):null,aiReplies,annotations});
       }
+      let requestProof;
+      if(aiConversationRequest){
+        const ip=currentIp(), policy=await currentSkillPolicy(env,orgId,me,who.session.token);
+        if(!policy.allowed||(!ip&&annotationProofRequiresIp(policy.fingerprint))||!who.membershipSince||!who.session.created_at||!who.session.token?.startsWith('h1:'))return json({message:'Workspace access could not be verified. The message was not sent.'},403);
+        requestProof={key:who.session.token,sessionCreatedAt:who.session.created_at,membershipSince:who.membershipSince,fingerprint:policy.fingerprint,ssoDeadline:policy.ssoDeadline,ip};
+      }
       const r=await appConversation(env.DB,orgId,me,appId,input,true);
       if(r.error)return fail(r);
       const marker=await saveAppAnnotation(env.DB,{orgId,appId,tableId:input.tableId||'',rowId:input.rowId||'',messageSource:'app',messageId:r.messageId,authorId:me,annotation});
@@ -1107,7 +1116,7 @@ export async function handleHarness(request, env, url, context = {}) {
       await notifyAppMentions(env.DB,orgId,who.user,appId,input,r.messageId,env);
       if(asksAppAI(input.body)){
         const expectedSource=source?{channel:source.channel,threadId:source.threadId}:null;
-        const work=()=>replyToApp(env,orgId,who.user,appId,input,r.messageId,{...env,expectedSource});
+        const work=()=>replyToApp(env,orgId,who.user,appId,input,r.messageId,{...env,expectedSource,requestProof,requireRequestProof:true});
         if(context.after)context.after(work);else await work();
       }
       return json({...r,...(marker.annotationId?{annotationId:marker.annotationId}:{})});
