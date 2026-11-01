@@ -248,7 +248,7 @@ export async function handleHarness(request, env, url, context = {}) {
       let deliverable;
       try {
         const currentPolicy = await currentSkillPolicy(env, orgId, who.session.github_id, who.session.token);
-        deliverable = currentPolicy.allowed && await mayDeliverImportedSkill(env.DB, orgId, result.skill, who.session.github_id, who.membershipSince, agentId, who.session.token, currentPolicy.fingerprint, currentPolicy.ssoDeadline);
+        deliverable = currentPolicy.allowed && currentPolicy.fingerprint === initialPolicy.fingerprint && await mayDeliverImportedSkill(env.DB, orgId, result.skill, who.session.github_id, who.membershipSince, agentId, who.session.token, currentPolicy.fingerprint, currentPolicy.ssoDeadline);
       }
       catch {
         await audit(env, request, { orgId, action: 'skill.import_delivery_denied', outcome: 'failure', actor: person(who.user), entity: { type: 'skill', id: result.skill.id }, details: { reason: 'verification_failed' } });
@@ -728,7 +728,7 @@ export async function handleHarness(request, env, url, context = {}) {
         let deliverable;
         try {
           const currentPolicy = await currentSkillPolicy(env, orgId, me, who.session.token);
-          deliverable = await finalizeSkillShare(env.DB, orgId, skillId, me, result, who.membershipSince, who.session.token, currentPolicy.allowed ? currentPolicy.fingerprint : 'policy-denied', currentPolicy.ssoDeadline);
+          deliverable = await finalizeSkillShare(env.DB, orgId, skillId, me, result, who.membershipSince, who.session.token, currentPolicy.allowed && currentPolicy.fingerprint === initialPolicy.fingerprint ? currentPolicy.fingerprint : 'policy-denied', currentPolicy.ssoDeadline);
         }
         catch (error) {
           try { await finalizeSkillShare(env.DB, orgId, skillId, me, result, who.membershipSince, who.session.token, 'policy-denied'); } catch { /* Token is never returned. */ }
