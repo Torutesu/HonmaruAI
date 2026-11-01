@@ -20,7 +20,7 @@ import {
   getUserByGithubId, getUserByLogin, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard,
   saveCardLocalization, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
-  registerSubscription, removeSubscription, listBusinesses, hasPrivateBusinesses, upsertBusiness, removeBusiness, businessSlug, renameBusiness, unfileBusiness,
+  registerSubscription, removeSubscription, listBusinesses, hasPrivateBusinesses, upsertBusiness, removeBusiness, businessSlug, renameBusiness,
   rememberConnections, getCard, normalizeAliases, setUserAliases, parseAliases,
   setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs, primaryOrgId,
   loadContexts, saveContext, cleanName, checkHandle, setUserName, setUserHandle, MAX_NAME_CHARS,
@@ -1637,19 +1637,20 @@ async function handle(request, env, url, ctx) {
       const who = await viewerLogin();
       const managed = (await roomRoleState(env.DB, body.orgId, `b:${String(body.slug)}`, {includeArchived:true}))?.managed;
       if (!managed && !(await canTouchChannel(env.DB, body.orgId, String(body.slug), who))) return json({ businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }), unfiled: 0 });
-      const gone = await env.DB.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, String(body.slug)).first();
-      const wasPrivate = await isPrivate(env.DB, body.orgId, String(body.slug));
+      const gone = await env.DB.prepare("SELECT name,private,created_at FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, String(body.slug)).first();
+      const wasPrivate = Boolean(gone?.private);
       const insiders = wasPrivate ? await membersOf(env.DB, body.orgId, `b:${body.slug}`) : [];
-      // Legacy Simple channels retain their unfile behavior. Managed rooms
-      // retain a closed tombstone so a reused slug cannot expose old content.
+      // Public Simple channels retain their unfile behavior. A private room
+      // keeps a closed tombstone and its cards, including in Simple mode.
       const deletingSession = await getSession(env.DB, request.headers.get("x-session-token"));
       const deletion = await deleteManagedRoom(env.DB, body.orgId, `b:${String(body.slug)}`, {actorId:deletingSession.github_id,version:body.version});
       if (deletion.error) return json({message:deletion.error}, deletion.status);
+      let unfiled=[];
       if (!deletion.managed) {
-        if (!(await removeBusiness(env.DB, body.orgId, body.slug))) return json({message:"Room roles changed. Reload before deleting."},409);
-        await env.DB.prepare("DELETE FROM conversation_members WHERE org_id = ?1 AND channel = ?2").bind(body.orgId, `b:${body.slug}`).run();
+        const removed=await removeBusiness(env.DB, body.orgId, body.slug,{actorId:deletingSession.github_id,createdAt:gone?.created_at,wasPrivate});
+        if (!removed) return json({message:"Room roles changed. Reload before deleting."},409);
+        unfiled=removed.unfiled;
       }
-      const unfiled = deletion.managed ? [] : await unfileBusiness(env.DB, body.orgId, String(body.slug));
       if (gone) {
         const session = await getSession(env.DB, request.headers.get("x-session-token"));
         const me = await getUserByGithubId(env.DB, session.github_id);

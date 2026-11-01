@@ -990,11 +990,42 @@ export async function upsertBusiness(db, orgId, { name, createdBy }) {
   return row ? { slug: row.slug, name: row.name } : null;
 }
 
-export async function removeBusiness(db, orgId, slug) {
-  // The managed policy can be initialized after the route's initial read.
-  // Never physically delete a room that acquired that policy in between.
-  const result = await db.prepare("DELETE FROM businesses WHERE org_id = ?1 AND slug = ?2 AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2)").bind(orgId, slug).run();
-  return Boolean(result.meta?.changes);
+export async function removeBusiness(db, orgId, slug, { actorId, createdAt, wasPrivate } = {}) {
+  // The legacy route may race with a privacy change, membership removal or
+  // managed-room initialization. Claim only the same room and current actor,
+  // then close private history and remove membership in one transaction.
+  if (!actorId || !createdAt || typeof wasPrivate !== 'boolean') return false;
+  const nonce=crypto.randomUUID(), at=new Date().toISOString();
+  const gate="EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2 AND mutation_id=?3)";
+  const claim=db.prepare(`INSERT OR IGNORE INTO hx_room_access(org_id,channel,version,mutation_id,deleted_at)
+    SELECT ?1,'b:'||?2,1,?3,CASE WHEN ?6=1 THEN ?7 ELSE NULL END
+    FROM businesses b JOIN memberships m ON m.org_id=b.org_id JOIN users u ON u.github_id=m.user_github_id
+    WHERE b.org_id=?1 AND b.slug=?2 AND b.created_at=?4 AND b.private=?6 AND m.user_github_id=?5
+      AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=b.org_id AND d.purge_started_at IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=b.org_id)
+      AND (b.private=0 OR EXISTS(SELECT 1 FROM conversation_members c WHERE c.org_id=b.org_id AND c.channel='b:'||b.slug AND c.login=u.login))`)
+    .bind(orgId,slug,nonce,createdAt,String(actorId),Number(wasPrivate),at);
+  const change=wasPrivate
+    ? db.prepare(`UPDATE businesses SET private=1,archived_at=?4 WHERE org_id=?1 AND slug=?2 AND ${gate}`).bind(orgId,slug,nonce,at)
+    : db.prepare(`DELETE FROM businesses WHERE org_id=?1 AND slug=?2 AND ${gate}`).bind(orgId,slug,nonce);
+  const statements=[claim];
+  // Unfile the public room's current cards while its deletion claim still
+  // holds. A newly created room with the same name cannot have its cards
+  // accidentally unfiled, and concurrent edits to other fields survive.
+  if(!wasPrivate) statements.push(db.prepare(`UPDATE cards SET data=json_remove(data,'$.business'),updated_at=?4
+    WHERE org_id=?1 AND (CASE WHEN json_valid(data) THEN json_extract(data,'$.business') END)=?2 AND ${gate}
+    RETURNING data`).bind(orgId,slug,nonce,at));
+  statements.push(change,
+    db.prepare(`DELETE FROM conversation_members WHERE org_id=?1 AND channel='b:'||?2 AND ${gate}`).bind(orgId,slug,nonce),
+    db.prepare(`DELETE FROM channel_agents WHERE org_id=?1 AND channel='b:'||?2 AND ${gate}`).bind(orgId,slug,nonce));
+  // Public legacy channels keep their existing ability to be recreated.
+  // Private ones retain a deleted policy and closed business row so old
+  // messages and cards cannot become visible through the same channel key.
+  if(!wasPrivate) statements.push(db.prepare(`DELETE FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2 AND mutation_id=?3`).bind(orgId,slug,nonce));
+  const result=await db.batch(statements);
+  if(!result[0]?.meta?.changes)return false;
+  return {unfiled:wasPrivate?[]:(result[1]?.results||[]).map(row=>JSON.parse(row.data))};
 }
 
 /// A channel's new name. The slug — what cards are filed under — stays.
