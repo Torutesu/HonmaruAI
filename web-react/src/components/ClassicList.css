@@ -1677,10 +1677,16 @@ body.slk-resizing iframe { pointer-events: none; }
 
 /* Keep mentions readable both in messages and while composing in dark mode. */
 @media (prefers-color-scheme: dark) {
-  :where(:root:not([data-theme="light"])) .classic.slk.slk .mention-hl.m-ai { color: #c4b5fd; }
+  :where(:root:not([data-theme="light"])) .classic.slk.slk :is(.mention-hl.m-ai, .slk-mention.ai) { color: #c4b5fd; }
+  :where(:root:not([data-theme="light"])) .classic.slk.slk :is(.mention-hl.m-agent, .slk-mention.agent) { color: #ffc083; }
+  :where(:root:not([data-theme="light"])) .classic.slk.slk .slk-mention.agent { background: rgba(180, 83, 9, 0.12); }
+  :where(:root:not([data-theme="light"])) .classic.slk.slk .mention-hl.m-agent { background: rgba(180, 83, 9, 0.14); box-shadow: 0 0 0 1px rgba(180, 83, 9, 0.14); }
   :where(:root:not([data-theme="light"])) .classic.slk.slk :is(.mention-hl.m-group, .slk-mention.group) { color: #7addc8; }
 }
-:where(:root[data-theme="dark"]) .classic.slk.slk .mention-hl.m-ai { color: #c4b5fd; }
+:where(:root[data-theme="dark"]) .classic.slk.slk :is(.mention-hl.m-ai, .slk-mention.ai) { color: #c4b5fd; }
+:where(:root[data-theme="dark"]) .classic.slk.slk :is(.mention-hl.m-agent, .slk-mention.agent) { color: #ffc083; }
+:where(:root[data-theme="dark"]) .classic.slk.slk .slk-mention.agent { background: rgba(180, 83, 9, 0.12); }
+:where(:root[data-theme="dark"]) .classic.slk.slk .mention-hl.m-agent { background: rgba(180, 83, 9, 0.14); box-shadow: 0 0 0 1px rgba(180, 83, 9, 0.14); }
 :where(:root[data-theme="dark"]) .classic.slk.slk :is(.mention-hl.m-group, .slk-mention.group) { color: #7addc8; }
 
 /* A message that calls you — your @name, a group you are in, @channel or
