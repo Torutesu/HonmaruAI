@@ -155,13 +155,15 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
     if (signal?.aborted) throw new Error('ACP run cancelled.');
     const initialized = await rpc.request('initialize', {
       protocolVersion: 1,
-      clientCapabilities: {},
+      // This gateway does not expose host filesystem or terminal operations
+      // to the ACP process. Keep the negotiated capabilities explicit.
+      clientCapabilities: { fs: false, terminal: false },
       clientInfo: { name: 'HonmaruAI', title: 'HonmaruAI local gateway', version: '1.0.0' },
     }, Math.min(15000, remaining()));
     if (initialized.protocolVersion !== 1) throw new Error('ACP protocol version is not supported.');
     const authMethods = Array.isArray(initialized.authMethods) ? initialized.authMethods : [];
-    const agentAuth = authMethods.find(method => method?.id && (method.type || 'agent') === 'agent');
-    if (agentAuth) await rpc.request('authenticate', { methodId: agentAuth.id }, Math.min(15000, remaining()));
+    // ACP agents own their sign-in and credentials. The host must not call
+    // `authenticate`; an operator signs into the provider on this Mac first.
     if (authMethods.some(method => method?.type === 'terminal')) throw new Error('This ACP agent requires an interactive login. Sign it in on the Mac first.');
     const sessionParams = { cwd: cfg.cwd, mcpServers: [] };
     if (payload.sessionId && initialized.agentCapabilities?.loadSession) {
@@ -185,8 +187,10 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
     const requestId = rpc.nextId;
     promptRequestId = requestId;
     const prior = !loadedSession && Array.isArray(payload.context) ? payload.context.map(line => String(line || '').slice(0, 4000)).filter(Boolean).slice(-30).join('\n') : '';
-    const promptText = prior ? `Earlier conversation:\n${prior}\n\nCurrent request:\n${prompt}` : prompt;
-    const result = await rpc.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: promptText }] }, remaining());
+    const promptBlocks = [];
+    if (prior) promptBlocks.push({ type: 'text', text: `Earlier conversation:\n${prior}` });
+    promptBlocks.push({ type: 'text', text: prompt });
+    const result = await rpc.request('session/prompt', { sessionId, prompt: promptBlocks }, remaining());
     if (signal?.aborted) throw new Error('ACP run cancelled.');
     const answer = text.join('').trim();
     return { status: result.stopReason === 'cancelled' ? 'failed' : 'succeeded', stdout: JSON.stringify({ text: answer, sessionId, stopReason: result.stopReason || null }), stderr: '', exitCode: 0 };

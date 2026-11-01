@@ -86,11 +86,14 @@ advertises only the configured keys in Harness â†’ Execution nodes. In Studio â†
 AI teammates, select that online node and key, then turn on the ACP teammate.
 Remove a key with `node gateway/acp-config.mjs remove codex-local`.
 
-The protocol client negotiates ACP v1, handles agent-managed authentication,
-creates or loads sessions, collects agent message chunks, and sends prompt
-cancellation when the job is cancelled. Headless terminal-login flows are not
-supported; authenticate the local agent on the Mac first. Agents that do not
-support session loading receive recent thread context in the next prompt.
+The protocol client negotiates ACP v1 with host filesystem and terminal
+capabilities disabled, creates or loads sessions, collects agent message
+chunks, and sends prompt cancellation when the job is cancelled. Authentication
+is owned by the local agent; Honmaru does not call ACP `authenticate`. Headless
+terminal-login flows are not supported, so sign in to the local agent on the Mac
+first. Workspace MCP tools and streamed tool/progress updates are not connected
+to the ACP teammate yet. Agents that do not support session loading receive
+recent thread context in a separate prompt block.
 
 Run `node --test gateway/test/*.test.mjs` for client/argument tests, and
 `node gateway/smoke.mjs` for the actual VM isolation checks. The latter requires the

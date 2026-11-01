@@ -256,7 +256,7 @@
       "id": "KY-022",
       "category": "Agents",
       "requirement": "クラウド隔離コンピューター",
-      "status": "missing",
+      "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/agents/overview",
       "code": "worker/src/agentRunner.js",
@@ -286,11 +286,11 @@
       "id": "KY-025",
       "category": "Agents",
       "requirement": "ACP接続契約",
-      "status": "missing",
+      "status": "partial",
       "priority": "P2",
-      "source": "https://docs.kylon.io/agents/overview",
-      "code": "worker/src/teammates.js",
-      "acceptance": "initialize/session/prompt/cancelと認証・権限更新・切断を検証"
+      "source": "https://docs.kylon.io/agents/acp-agent-contract",
+      "code": "gateway/acp.mjs",
+      "acceptance": "ACP v1 initialize/session/prompt/cancelとローカルagent認証、隔離されたcapability、Workspace MCP tools、progress/permission updates、切断後復帰を実機検証"
     },
     {
       "id": "KY-026",
@@ -967,7 +967,7 @@
       "id": "KY-081",
       "category": "Connections",
       "requirement": "LINE公式アカウント受信",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/proxy/tools-api",
       "code": null,
