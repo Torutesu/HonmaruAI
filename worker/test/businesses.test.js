@@ -259,6 +259,16 @@ test('public deletion unfiles only cards from its transaction, not a recreated r
   expect((await getCard(env.DB,ORG,'after-recreation')).business).toBe('public-race');
 });
 
+test('a new private room cannot inherit orphaned messages of unknown origin', async () => {
+  const {postMessage}=await import('../src/channels.js');
+  const old=await postMessage(env.DB,{orgId:ORG,key:'b:old-board',authorLogin:'owner',body:'Earlier room fixture'});
+  expect(old.row).toBeTruthy();
+  const create=await SELF.fetch('https://example.com/businesses',{method:'POST',headers:headers(ownerToken),body:JSON.stringify({orgId:ORG,name:'Old Board',private:true})});
+  expect(create.status).toBe(409);
+  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id=? AND slug='old-board'").bind(ORG).first()).toBeNull();
+  expect(await env.DB.prepare('SELECT body FROM channel_messages WHERE id=?').bind(old.row.id).first('body')).toBe('Earlier room fixture');
+});
+
 test('private deletion returns members added just before the transaction for Jam eviction', async () => {
   const {upsertBusiness,removeBusiness}=await import('../src/db.js');
   const {addMembers}=await import('../src/access.js');

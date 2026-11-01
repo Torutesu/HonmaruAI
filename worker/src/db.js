@@ -1006,6 +1006,9 @@ export async function createPrivateBusiness(db, orgId, { name, actorId, actorLog
         WHERE m.org_id=?1 AND m.user_github_id=?4 AND m.created_at=?6 AND LOWER(COALESCE(m.role,'guest'))!='guest' AND u.login=?7)
       AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2)
       AND NOT EXISTS(SELECT 1 FROM conversation_members WHERE org_id=?1 AND channel='b:'||?2)
+      -- An orphan's room generation is unknowable. Never attach its history
+      -- to newly selected members of a private room with the same name.
+      AND NOT EXISTS(SELECT 1 FROM channel_messages WHERE org_id=?1 AND channel='b:'||?2)
       AND NOT EXISTS(SELECT 1 FROM json_each(?8) selected
         LEFT JOIN memberships m ON m.org_id=?1 AND m.user_github_id=json_extract(selected.value,'$.userId')
         LEFT JOIN users u ON u.github_id=m.user_github_id

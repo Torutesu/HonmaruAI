@@ -1649,9 +1649,11 @@ async function handle(request, env, url, ctx) {
         unfiled=removed.unfiled;
         if(wasPrivate)insiders=removed.formerMembers;
       }
-      // A public room's Jam can include people without membership rows.
-      // Close every participant before later audit/list refreshes can fail.
-      await evictRoomJam(env,body.orgId,`b:${body.slug}`);
+      // Deleted managed rooms and private legacy rooms retain tombstones.
+      // A managed public Jam can include people without membership rows, so
+      // evict everyone before later audit/list refreshes can fail. A legacy
+      // public slug can be recreated immediately and must not evict its Jam.
+      if(deletion.managed || wasPrivate)await evictRoomJam(env,body.orgId,`b:${body.slug}`);
       if (gone) {
         const session = await getSession(env.DB, request.headers.get("x-session-token"));
         const me = await getUserByGithubId(env.DB, session.github_id);
