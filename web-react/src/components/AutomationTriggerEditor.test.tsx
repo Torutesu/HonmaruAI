@@ -57,3 +57,21 @@ test('app record trigger selects app entities and exposes typed event filters',(
  expect(onChange).toHaveBeenLastCalledWith({type:'app_record_change',appId:'app_1',entityId:'primary',events:['update'],when:{where:{enabled:true}}})
  act(()=>tree.unmount())
 })
+test('select conditions match complete scalar values and remain editable',()=>{
+ const onChange=vi.fn();let tree:any
+ const apps:TriggerAppOption[]=[{app:{id:'app_1',name:'Tasks'},entities:[{key:'primary',table:{id:'table_1',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A','AB']}]}}]}]
+ const trigger={type:'app_record_change' as const,appId:'app_1',entityId:'primary',events:['update' as const],when:{where:{status:'AB'}}}
+ act(()=>{tree=create(<AutomationTriggerEditor trigger={trigger} tables={[]} apps={apps} onChange={onChange}/>)})
+ const choices=tree.root.findAllByType('fieldset')[1].findAllByType('input')
+ expect(choices.map((input:any)=>input.props.checked)).toEqual([false,true])
+ act(()=>choices[0].props.onChange({target:{checked:true}}))
+ expect(onChange).toHaveBeenLastCalledWith({...trigger,when:{where:{status:['AB','A']}}})
+ act(()=>tree.update(<AutomationTriggerEditor trigger={{...trigger,when:{where:{status:['AB','A']}}}} tables={[]} apps={apps} onChange={onChange}/>))
+ const selected=tree.root.findAllByType('fieldset')[1].findAllByType('input')
+ expect(selected.map((input:any)=>input.props.checked)).toEqual([true,true])
+ act(()=>selected[0].props.onChange({target:{checked:false}}))
+ expect(onChange).toHaveBeenLastCalledWith({...trigger,when:{where:{status:['AB']}}})
+ act(()=>tree.update(<AutomationTriggerEditor trigger={{...trigger,when:{where:{status:42}}}} tables={[]} apps={apps} onChange={onChange}/>))
+ expect(tree.root.findAllByType('fieldset')[1].findAllByType('input').map((input:any)=>input.props.checked)).toEqual([false,false])
+ act(()=>tree.unmount())
+})
