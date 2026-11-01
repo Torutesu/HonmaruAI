@@ -1,5 +1,8 @@
 import { spawn } from 'node:child_process';
 import { isAbsolute } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { randomBytes } from 'node:crypto';
+import { createServer } from 'node:http';
 
 const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 const MAX_PROMPT_BYTES = 48 * 1024;
@@ -19,6 +22,13 @@ function safeEnvironment(overrides = {}) {
   const env = {};
   for (const key of ['PATH', 'HOME', 'USER', 'TMPDIR', 'LANG', 'LC_ALL']) if (process.env[key]) env[key] = process.env[key];
   return { ...env, ...(overrides || {}) };
+}
+
+function signalAgent(child, signal) {
+  if (process.platform !== 'win32' && child.pid) {
+    try { process.kill(-child.pid, signal); return; } catch {}
+  }
+  child.kill(signal);
 }
 
 class StdioJsonRpc {
@@ -110,11 +120,56 @@ function chunkText(content) {
   return '';
 }
 
+async function startWorkspaceMcp(mcpCall) {
+  if (typeof mcpCall !== 'function') throw new Error('Workspace MCP relay is unavailable.');
+  const token = randomBytes(32).toString('hex');
+  const server = createServer(async (request, response) => {
+    const chunks = [];
+    let size = 0;
+    try {
+      if (request.method !== 'POST' || request.url !== '/mcp') throw Object.assign(new Error('Not found.'), { status: 404 });
+      if (request.headers.authorization !== `Bearer ${token}`) throw Object.assign(new Error('Unauthorized.'), { status: 401 });
+      for await (const chunk of request) {
+        size += chunk.length;
+        if (size > 128 * 1024) throw Object.assign(new Error('Request too large.'), { status: 413 });
+        chunks.push(chunk);
+      }
+      const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (!input || !['tools/list', 'tools/call'].includes(input.method)) throw Object.assign(new Error('Unsupported MCP method.'), { status: 400 });
+      const result = await mcpCall(input.method, input.params || {});
+      const body = JSON.stringify(result);
+      if (Buffer.byteLength(body) > 210 * 1024) throw Object.assign(new Error('Result too large.'), { status: 413 });
+      response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+      response.end(body);
+    } catch (error) {
+      response.writeHead(error.status || 502, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      response.end(JSON.stringify({ error: error.status ? error.message : 'Workspace MCP request failed.' }));
+    }
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve(); });
+  });
+  const address = server.address();
+  return {
+    server,
+    config: {
+      name: 'honmaru-workspace',
+      command: process.execPath,
+      args: [fileURLToPath(new URL('./acp-mcp-bridge.mjs', import.meta.url))],
+      env: [
+        { name: 'HONMARU_ACP_MCP_URL', value: `http://127.0.0.1:${address.port}/mcp` },
+        { name: 'HONMARU_ACP_MCP_TOKEN', value: token },
+      ],
+    },
+  };
+}
+
 /** Run one ACP v1 prompt through a command explicitly configured on this node.
  * The job can select an allowlist key, but can never choose a command, args,
  * cwd, environment, MCP server, filesystem capability, or terminal.
  */
-export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 60000 } = {}) {
+export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 60000, mcpCall } = {}) {
   const cfg = agentConfig(acpAgents, payload?.agentKey);
   const prompt = String(payload?.prompt || '');
   if (!prompt.trim() || Buffer.byteLength(prompt) > MAX_PROMPT_BYTES) throw new Error('Invalid ACP prompt.');
@@ -122,6 +177,7 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
     cwd: cfg.cwd,
     env: safeEnvironment(cfg.env),
     shell: false,
+    detached: process.platform !== 'win32',
     stdio: ['pipe', 'pipe', 'ignore'],
     windowsHide: true,
   });
@@ -131,6 +187,7 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
   let sessionId = null;
   let loadedSession = false;
   let promptRequestId = null;
+  let workspaceMcp = null;
   let abort;
   const remaining = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
   const startedAt = Date.now();
@@ -147,8 +204,8 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
   abort = () => {
     if (sessionId) rpc.notify('session/cancel', { sessionId });
     if (promptRequestId !== null) rpc.notify('$/cancel_request', { id: promptRequestId });
-    child.kill('SIGTERM');
-    setTimeout(() => { if (child.exitCode === null) child.kill('SIGKILL'); }, 1500).unref?.();
+    signalAgent(child, 'SIGTERM');
+    setTimeout(() => signalAgent(child, 'SIGKILL'), 1500).unref?.();
   };
   signal?.addEventListener('abort', abort, { once: true });
   try {
@@ -165,7 +222,8 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
     // ACP agents own their sign-in and credentials. The host must not call
     // `authenticate`; an operator signs into the provider on this Mac first.
     if (authMethods.some(method => method?.type === 'terminal')) throw new Error('This ACP agent requires an interactive login. Sign it in on the Mac first.');
-    const sessionParams = { cwd: cfg.cwd, mcpServers: [] };
+    if (payload.workspaceTools === true) workspaceMcp = await startWorkspaceMcp(mcpCall);
+    const sessionParams = { cwd: cfg.cwd, mcpServers: workspaceMcp ? [workspaceMcp.config] : [] };
     if (payload.sessionId && initialized.agentCapabilities?.loadSession) {
       try {
         await rpc.request('session/load', { ...sessionParams, sessionId: payload.sessionId }, Math.min(15000, remaining()));
@@ -195,14 +253,14 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
     const answer = text.join('').trim();
     return { status: result.stopReason === 'cancelled' ? 'failed' : 'succeeded', stdout: JSON.stringify({ text: answer, sessionId, stopReason: result.stopReason || null }), stderr: '', exitCode: 0 };
   } finally {
+    if (workspaceMcp) {
+      workspaceMcp.server.closeAllConnections?.();
+      await new Promise(resolve => workspaceMcp.server.close(() => resolve()));
+    }
     signal?.removeEventListener('abort', abort);
     promptRequestId = null;
-    child.kill('SIGTERM');
-    await new Promise(resolve => {
-      if (child.exitCode !== null || child.signalCode !== null) return resolve();
-      const timer = setTimeout(() => { child.kill('SIGKILL'); resolve(); }, 300);
-      child.once('exit', () => { clearTimeout(timer); resolve(); });
-    });
+    signalAgent(child, 'SIGTERM');
+    await new Promise(resolve => setTimeout(() => { signalAgent(child, 'SIGKILL'); resolve(); }, 300));
   }
 }
 

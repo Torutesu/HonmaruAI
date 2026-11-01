@@ -91,9 +91,27 @@ capabilities disabled, creates or loads sessions, collects agent message
 chunks, and sends prompt cancellation when the job is cancelled. Authentication
 is owned by the local agent; Honmaru does not call ACP `authenticate`. Headless
 terminal-login flows are not supported, so sign in to the local agent on the Mac
-first. Workspace MCP tools and streamed tool/progress updates are not connected
-to the ACP teammate yet. Agents that do not support session loading receive
-recent thread context in a separate prompt block.
+first. ACP agents receive no Workspace MCP server by default. An administrator
+can explicitly enable the read-only Workspace tools for an ACP teammate in
+Studio while the workspace is in Harness mode. If the workspace switches back
+to Simple, that ACP teammate continues to work without Workspace tools. In
+Harness mode with the option enabled, the local gateway starts a short-lived loopback MCP relay
+for the run; the cloud job lease and node credential are never passed to the
+ACP child. The Worker rechecks Harness mode, the requester's current membership,
+the ACP agent grant and each resource's normal access rules. The server exposes
+only app/table/workflow/follow-up reads, clamps row queries and rejects writes
+and remote MCP tools. Workspace contents are still sent to the selected local
+ACP agent and may be sent to its existing provider; enabling this setting is an
+explicit data-sharing choice. Agents that do not support session loading
+receive recent thread context in a separate prompt block.
+
+The OpenCode ACP command configured on this Mac completed an end-to-end
+synthetic `list_apps` MCP call using the existing sign-in on 2026-11-01. The
+only returned row was a fixed test fixture; no Workspace records were sent.
+
+This read-only relay does not provide the full Kylon ACP contract: tool/progress
+updates are not streamed into the Honmaru UI, approval requests remain rejected,
+and runtime behavior with each third-party ACP implementation must be verified.
 
 Run `node --test gateway/test/*.test.mjs` for client/argument tests, and
 `node gateway/smoke.mjs` for the actual VM isolation checks. The latter requires the

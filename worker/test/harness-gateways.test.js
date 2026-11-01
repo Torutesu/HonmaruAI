@@ -2,6 +2,8 @@ import { env } from 'cloudflare:test';
 import { beforeEach, expect, test } from 'vitest';
 import worker from '../src/index.js';
 import { expireGatewayJobs } from '../src/harness/gateways.js';
+import { enqueueAcpExecution } from '../src/harness/executions.js';
+import { setMode } from '../src/harness/mode.js';
 const orgId = 'gateway-tests';
 let admin, member, other;
 async function api(method, path, session, body = {}, token) {
@@ -138,6 +140,58 @@ test('node polling has independent limits from team operations and from other no
   expect((await api('POST', '/claim', null, {}, second.token)).status).toBe(200);
   await env.DB.prepare("UPDATE rate_limits SET count = 600 WHERE bucket = 'gateway/edge'").run();
   expect((await api('POST', '/claim', null, {}, second.token)).status).toBe(429);
+});
+
+test('ACP Workspace MCP is opt-in, read-only, node-and-lease bound, and rechecks Harness access', async () => {
+  await setMode(env.DB, orgId, 'simple', '9501');
+  await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at,provider)
+    VALUES(?1,'acp-workspace','acp-workspace','Local ACP','Read Workspace safely.','team','user9502','now','now','acp')`).bind(orgId).run();
+  const { gateway, token } = await node();
+  const register = await api('POST', '/claim', null, { capabilities: ['acp-v1'], acpAgents: ['workspace-reader'] }, token);
+  expect(register.status).toBe(200);
+  const simple = await enqueueAcpExecution(env.DB, orgId, '9502', { gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Read this' });
+  expect(simple.statusCode).toBe(201);
+  let stored = await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(simple.job.id).first();
+  expect(JSON.parse(stored.payload)).not.toHaveProperty('workspaceTools');
+  expect((await api('POST', `/jobs/${simple.job.id}/cancel`, member)).status).toBe(200);
+  const simpleFallback = await enqueueAcpExecution(env.DB, orgId, '9502', {
+    gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Read this', agentId: 'acp-workspace', workspaceTools: true,
+  });
+  expect(simpleFallback.statusCode).toBe(201);
+  const fallbackPayload = await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(simpleFallback.job.id).first();
+  expect(JSON.parse(fallbackPayload.payload)).not.toHaveProperty('workspaceTools');
+  expect((await api('POST', `/jobs/${simpleFallback.job.id}/cancel`, member)).status).toBe(200);
+
+  await setMode(env.DB, orgId, 'harness', '9501');
+  const enabled = await enqueueAcpExecution(env.DB, orgId, '9502', {
+    gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Read this', agentId: 'acp-workspace', workspaceTools: true,
+  });
+  expect(enabled.statusCode).toBe(201);
+  stored = await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(enabled.job.id).first();
+  expect(JSON.parse(stored.payload)).toMatchObject({ acp: true, workspaceTools: true, agentId: 'acp-workspace' });
+
+  const claimed = await api('POST', '/claim', null, { capabilities: ['acp-v1'], acpAgents: ['workspace-reader'] }, token);
+  const running = (await claimed.json()).job;
+  expect(running.id).toBe(enabled.job.id);
+  const mcp = (method, params = {}, lease = running.lease, auth = token) => api('POST', `/jobs/${running.id}/mcp`, null, { lease, method, params }, auth);
+  expect((await mcp('tools/list', {}, 'wrong-lease')).status).toBe(409);
+  const listed = await mcp('tools/list');
+  expect(listed.status).toBe(200);
+  const tools = (await listed.json()).result.tools.map(tool => tool.name);
+  expect(tools).toEqual(['list_apps', 'read_app', 'list_tables', 'query_rows', 'list_workflows', 'list_followups']);
+  expect((await mcp('tools/call', { name: 'add_row', arguments: {} })).status).toBe(403);
+  expect((await mcp('resources/list')).status).toBe(400);
+  expect((await api('POST', `/jobs/${running.id}/mcp`, null, { lease: running.lease, method: 'tools/list' }, 'hgw_invalid')).status).toBe(401);
+  const otherNode = await node();
+  expect((await api('POST', `/jobs/${running.id}/mcp`, null, { lease: running.lease, method: 'tools/list' }, otherNode.token)).status).toBe(409);
+
+  await setMode(env.DB, orgId, 'simple', '9501');
+  expect((await mcp('tools/list')).status).toBe(403);
+  await setMode(env.DB, orgId, 'harness', '9501');
+  await env.DB.prepare('UPDATE custom_agents SET deleted_at=?3 WHERE org_id=?1 AND id=?2').bind(orgId,'acp-workspace','now').run();
+  expect((await mcp('tools/list')).status).toBe(403);
+  expect((await api('POST', `/jobs/${running.id}/cancel`, member)).status).toBe(200);
+  expect((await mcp('tools/list')).status).toBe(409);
 });
 
 test('TypeScript module language survives queueing and participates in request identity',async()=>{

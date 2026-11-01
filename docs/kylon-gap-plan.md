@@ -37,3 +37,10 @@
 - PATCHの `expectedUpdatedAt`、DELETEの同名クエリに直前の行の `updatedAt` を渡すと古い画面の操作を409で拒否する。Webは編集・削除時に必ず送信し、再読込ボタンを提供する。MCP update_rowでも指定できる。
 - サーバー内部でも読取時の時刻を条件に更新/削除し、同時更新による上書きを防ぐ。更新時刻は同一ミリ秒でも単調に進む。未指定の古いクライアントでは、読取から送信までの古さは検出できない。
 - Simple版と既存データは保持。スキーマ競合、参照列、ページング、アプリ独自APIの登録、契約固定、公開ランタイムは未対応。100%同等ではない。
+
+### ACP agentからWorkspaceを読む（2026-11-01）
+
+- Harness modeでACP teammateの設定を明示的に有効化した場合だけ、Mac上の短命loopback MCP relayを起動する。既定は無効。Simple modeへ戻した場合もACPの通常実行は継続し、Workspace toolsだけを送らない。Workspaceの内容はHarness modeでツールが呼ばれた時に限り、ローカルACP agentと、そのagentが既に認証済みのproviderへ送られる。
+- relayはノードtokenと実行leaseをWorkerへ提示する。Worker側でHarness mode、依頼者のmembershipと `harness.build`、ACP agent grant、各app/tableの通常ACLを呼出ごとに確認し、6種の読み取りだけを許可。query row数・offsetと応答サイズを制限し、書込・Workflow起動・外部MCPは渡さない。
+- 2026-11-01、既存OpenCode認証を使い、ACPの実CLIが合成 `list_apps` MCPを呼び出して固定fixture名を返す往復まで確認。実Workspaceのレコードは送っていない。クラウド反映と本番設定画面QAは未完了。Simple modeと既存画面を置換せず、新規サービスや契約も追加しない。
+- Kylon同等までの残り: MCP tool/progressのUI表示、ACP permission承認UI（今は拒否）、ACP実装ごとの互換性、キャンセル/再接続/二台同期の本番確認。読み取り設定は利用者が有効にするまでオフ。

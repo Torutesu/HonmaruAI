@@ -92,6 +92,20 @@ test('client advertises only the ACP keys configured on the local node',async()=
  await processOne(async(path,body)=>{calls.push({path,body});return path==='claim'?{job:{id:'acp-job',lease:'lease',payload:{acp:true,agentKey:'codex',prompt:'Review'}}}:{ok:true};},{acpAgents:local,runAcpAgent:async(payload,{acpAgents})=>{assert.equal(payload.acp,true);assert.equal(acpAgents,local);return {status:'succeeded',stdout:'{}',stderr:'',exitCode:0};}});
  assert.deepEqual(calls[0].body,{capabilities:['workflow-program-v1','acp-v1'],acpAgents:['codex']});
 });
+test('Workspace MCP requests are forwarded with this ACP job lease only when its opt-in is present',async()=>{
+ const calls=[];
+ await processOne(async(path,body,options)=>{
+  calls.push({path,body,options});
+  if(path==='claim')return {job:{id:'acp-workspace',lease:'private-lease',payload:{acp:true,workspaceTools:true,agentKey:'codex',prompt:'Read app'}}};
+  if(path.endsWith('/mcp'))return {result:{tools:[{name:'list_apps'}]}};
+  return {ok:true};
+ },{runAcpAgent:async(_payload,{mcpCall})=>{
+  assert.deepEqual(await mcpCall('tools/list',{}),{tools:[{name:'list_apps'}]});
+  return {status:'succeeded',stdout:'{}',stderr:'',exitCode:0};
+ }});
+ assert.deepEqual(calls.find(item=>item.path.endsWith('/mcp'))?.body,{lease:'private-lease',method:'tools/list',params:{}});
+ assert.equal(calls.at(-1).path,'jobs/acp-workspace/finish');
+});
 test('API request cancellation propagates into the host fetch',async()=>{
  const abort=new AbortController();let signal;
  const call=gatewayClient('https://example.com',token,async(_url,options)=>{signal=options.signal;return Response.json({ok:true});});

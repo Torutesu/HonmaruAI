@@ -51,7 +51,11 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
       const timeoutCap=job.payload?.acp===true?110000:60000;
       const options={timeoutMs:Math.min(job.timeoutMs||timeoutCap,timeoutCap),signal:cancel.signal};
       result=job.payload?.acp===true
-        ? await runAcpAgent(job.payload,{...options,acpAgents})
+        ? await runAcpAgent(job.payload,{...options,acpAgents,
+          mcpCall: job.payload?.workspaceTools === true
+            ? async (method,params) => (await call(`jobs/${job.id}/mcp`,{lease:job.lease,method,params},{signal:cancel.signal})).result
+            : undefined,
+        })
         : job.workflow===true
           ? await runWorkflow(job.payload,{...options,stateOperation:(operation,params,{signal})=>call(`jobs/${job.id}/state`,{lease:job.lease,operation,params},{signal})})
           : await run(job.payload,options);

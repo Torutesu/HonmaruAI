@@ -113,6 +113,7 @@ export function toClientTeammate(t, provider, spentCents = 0) {
     enabled: Boolean(t?.enabled), hasApiKey: Boolean(t?.apiKey), hasGithubToken: Boolean(t?.githubToken),
     account: t?.remote?.account || "",
     gatewayId: t?.remote?.gatewayId || "", agentKey: t?.remote?.agentKey || "",
+    workspaceTools: Boolean(t?.remote?.workspaceTools),
     repos: t?.repos || [], model: t?.model || p.defaultModel || "", instructions: t?.instructions || "",
     channels: t?.channels ?? null,
     autoBuild: t ? t.autoBuild !== false : true,
@@ -131,10 +132,12 @@ function cleanInput(input, current, provider) {
   if (p.localGateway) {
     const gatewayId = String(input.gatewayId ?? current?.remote?.gatewayId ?? "").trim();
     const agentKey = String(input.agentKey ?? current?.remote?.agentKey ?? "").trim();
+    if (input.workspaceTools !== undefined && typeof input.workspaceTools !== "boolean") return { error: "Workspace MCP access must be enabled or disabled." };
     if (gatewayId && !/^[A-Za-z0-9_-]{8,80}$/.test(gatewayId)) return { error: "Choose a registered execution node." };
     if (agentKey && !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(agentKey)) return { error: "Write the local ACP agent key configured on the node." };
     out.gatewayId = gatewayId || null;
     out.agentKey = agentKey || null;
+    out.workspaceTools = input.workspaceTools === undefined ? Boolean(current?.remote?.workspaceTools) : input.workspaceTools;
   }
   if (!p.keyless && typeof input.apiKey === "string") out.apiKey = input.apiKey.trim() || null;
   if (p.githubToken && typeof input.githubToken === "string") out.githubToken = input.githubToken.trim() || null;
@@ -574,6 +577,7 @@ const codex = {
 async function queueAcpPrompt(env, t, { orgId, requesterId, task, sessionId = null, context = [] }) {
   const queued = await enqueueAcpExecution(env.DB, orgId, requesterId, {
     gatewayId: t.remote?.gatewayId, agentKey: t.remote?.agentKey, prompt: task, sessionId, context,
+    agentId: t.agentId, workspaceTools: t.remote?.workspaceTools === true,
   });
   if (queued.error) throw Object.assign(new Error(queued.error), { status: queued.status || 400 });
   return queued.job;
@@ -653,10 +657,10 @@ export async function saveTeammate(env, orgId, provider, input, { login, workspa
     channels: current ? current.channels : null, monthlyLimitCents: current ? current.monthlyLimitCents : p.defaultLimit,
     tools: current?.tools || [], remote: current?.remote || {}, agentId: current?.agentId || null,
     autoBuild: current ? current.autoBuild !== false : true,
-    ...Object.fromEntries(Object.entries(out).filter(([k]) => !["tools", "account", "gatewayId", "agentKey"].includes(k))),
+    ...Object.fromEntries(Object.entries(out).filter(([k]) => !["tools", "account", "gatewayId", "agentKey", "workspaceTools"].includes(k))),
   };
   if (out.account !== undefined) next.remote = { ...next.remote, account: out.account };
-  if (p.localGateway) next.remote = { ...next.remote, gatewayId: out.gatewayId, agentKey: out.agentKey };
+  if (p.localGateway) next.remote = { ...next.remote, gatewayId: out.gatewayId, agentKey: out.agentKey, workspaceTools: out.workspaceTools === true };
   if (p.githubToken && !p.keyless && next.repos.length && !next.githubToken) return { error: `Add a GitHub token so ${p.name} can reach the repositories.` };
   let toolChanges = { kept: next.tools, written: [], removed: [] };
   if (out.tools) {
