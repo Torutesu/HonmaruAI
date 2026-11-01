@@ -543,20 +543,22 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       <AppSharing key={`${httpBase}:${orgId}:${appId}:${sessionToken}`} httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} appId={appId} />
       <TemplateSharing key={`${orgId}:${appId}:${app.version}`} api={api} appId={app.id} appVersion={app.version} />
 
-      <div className="rows-title">{t('Rooms')}</div>
-      <div className="rows">
-        <div className="row static">
-          <span className="row-main">
-            {(app.channels || []).length ? (app.channels || []).map((c) => (
-              <span key={c} className="hx-chip">{c.startsWith('ag:') || c.startsWith('dm:') ? t('Private chat') : c.replace(/^b:/, '#')}<button className="btn-text" onClick={() => act('unlink', async () => { await api.unlink(app.id, c); await load() })} aria-label={t('Remove')}>×</button></span>
-            )) : <span className="row-sub">{t('Link it to a room and it shows there, next to the conversation.')}</span>}
-            <span className="playbook-add-foot">
-              <input className="hx-cell-input" value={room} onChange={(e) => setRoom(e.target.value)} placeholder="#ops" aria-label={t('Room')} />
-              <button className="pill-btn" disabled={!room.trim()} onClick={() => act('link', async () => { await api.link(app.id, `b:${room.replace(/^#/, '').trim()}`); setRoom(''); await load() })}>{t('Link')}</button>
+      {data.canCustomize !== false && <>
+        <div className="rows-title">{t('Rooms')}</div>
+        <div className="rows">
+          <div className="row static">
+            <span className="row-main">
+              {(app.channels || []).length ? (app.channels || []).map((c) => (
+                <span key={c} className="hx-chip">{c.startsWith('ag:') || c.startsWith('dm:') ? t('Private chat') : c.replace(/^b:/, '#')}<button className="btn-text" onClick={() => act('unlink', async () => { await api.unlink(app.id, c); await load() })} aria-label={t('Remove')}>×</button></span>
+              )) : <span className="row-sub">{t('Link it to a room and it shows there, next to the conversation.')}</span>}
+              <span className="playbook-add-foot">
+                <input className="hx-cell-input" value={room} onChange={(e) => setRoom(e.target.value)} placeholder="#ops" aria-label={t('Room')} />
+                <button className="pill-btn" disabled={!room.trim()} onClick={() => act('link', async () => { await api.link(app.id, `b:${room.replace(/^#/, '').trim()}`); setRoom(''); await load() })}>{t('Link')}</button>
+              </span>
             </span>
-          </span>
+          </div>
         </div>
-      </div>
+      </>}
 
       <div className="rows-title">{t('Versions')}</div>
       <div className="rows">

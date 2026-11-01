@@ -1,7 +1,7 @@
 import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { HarnessApps, HarnessTemplateImport, newAppRecordLabel } from './Harness'
+import { AppView, HarnessApps, HarnessTemplateImport, newAppRecordLabel } from './Harness'
 
 const state = vi.hoisted(() => ({ api: null as any }))
 vi.mock('./HarnessShared', async importOriginal => ({
@@ -124,6 +124,27 @@ test('opening an app from the library starts in its data viewer', async () => {
   await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
   await act(async () => { tree!.root.findByProps({ 'aria-label': 'Trackerを開く' }).props.onClick() })
   expect(location.hash).toBe('#/apps/existing/team%3Aone?section=data')
+})
+test('read-only app viewers do not get room-link controls in settings', async () => {
+  state.api = {
+    app: vi.fn().mockResolvedValue({
+      app: { id: 'readonly', name: 'Read only', description: '', icon: '📋', tableId: 'tasks', template: null, version: 1, createdBy: 'owner', channels: [], definition: { views: [] } },
+      table: { id: 'tasks', orgId: 'team:one', name: 'Tasks', columns: [{ id: 'title', name: 'Title', type: 'text' }] },
+      rows: [], views: [{ id: 'all', type: 'table', name: 'All', rows: [] }], canCustomize: false,
+    }),
+    personalViews: vi.fn().mockResolvedValue({ revision: 0, views: [], computed: [], layouts: {} }),
+    conversation: vi.fn().mockResolvedValue({ messages: [], hasMore: false, annotations: [] }),
+    conversationNotifications: vi.fn().mockResolvedValue({ items: [] }),
+    templateShares: vi.fn().mockResolvedValue({ shares: [], canManage: false }),
+    versions: vi.fn().mockResolvedValue({ versions: [] }),
+  }
+  await act(async () => {
+    tree = create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} api={state.api} appId="readonly" onBack={() => {}} initialSection="settings" />)
+    await new Promise(resolve => setTimeout(resolve, 0))
+  })
+  expect(tree!.root.findAllByProps({ 'aria-label': 'Room' })).toHaveLength(0)
+  expect(tree!.root.findAllByType('button').some(node => node.children.includes('Link'))).toBe(false)
+  expect(JSON.stringify(tree!.toJSON())).not.toContain('Link it to a room')
 })
 test('late completion retains another destination and a revised prompt', async () => {
   const { completion } = await start()

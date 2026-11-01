@@ -76,7 +76,7 @@
       "priority": "P0",
       "source": "https://kylon.io/product/workspace",
       "code": "worker/src/harness/apps.js",
-      "acceptance": "所有ルームと参照リンクを区別し非公開データが他ルームへ漏れない"
+      "acceptance": "参照リンクは閲覧権限を付与しない。アプリ作成者/Adminだけが編集でき、参照先ルームへの現在のアクセスを検証する。一覧・詳細・Home・MCPから閲覧できないルーム名を除去する。非公開ルーム・DM由来の直接作成とテンプレート作成は初期非公開。実装後のPR CI・本番反映と本番隔離検証を確認する"
     },
     {
       "id": "KY-007",

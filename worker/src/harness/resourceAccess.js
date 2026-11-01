@@ -1,3 +1,5 @@
+import { readableConversation } from './conversationAccess.js';
+
 // Explicit app visibility. Absence means the legacy workspace-wide policy.
 // Room links are navigation only; they never grant access to a private app.
 export async function appAccess(db, orgId, appId) {
@@ -42,5 +44,24 @@ export async function setAppAccess(db, orgId, appId, userId, input) {
 export async function visibleResources(items, mayUse) {
   const visible = [];
   for (const item of items) if (await mayUse(item)) visible.push(item);
+  return visible;
+}
+
+// App responses contain channel keys; do not expose a private room name to a
+// member who cannot open that room.
+export async function visibleAppLinks(db, orgId, apps, viewer) {
+  const githubId = viewer?.github_id ?? viewer?.githubId;
+  if (!githubId || !viewer?.login) return (apps || []).map(app => ({ ...app, channels: [] }));
+  const visible = [];
+  const roomAccess = new Map();
+  for (const app of apps || []) {
+    const channels = [];
+    for (const channel of app.channels || []) {
+      if (!roomAccess.has(channel)) roomAccess.set(channel, readableConversation(db, orgId, githubId, channel));
+      const room = await roomAccess.get(channel);
+      if (room?.key === channel) channels.push(channel);
+    }
+    visible.push({ ...app, channels });
+  }
   return visible;
 }
