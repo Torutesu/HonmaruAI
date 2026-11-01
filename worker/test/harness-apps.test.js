@@ -784,6 +784,83 @@ test('deleting a personal view falls back to the shared view and synchronizes wi
  expect((await (await get(`${path}?orgId=${ORG}`,toru)).json()).views).toEqual([]);
 });
 
+test('new personal and shared view ID collisions are rejected without changing app or table', async () => {
+ const shared={id:'personal_legacy',type:'table',name:'Shared'};
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Legacy shared',columns:[{name:'Name',type:'text'}],definition:{views:[shared]}})).json();
+ const path=`/hx/personal-views/${app.id}`;
+ expect((await send('PUT',path,mika,{orgId:ORG,expectedRevision:0,views:[{...shared,name:'Mine'}],layouts:{}})).status).toBe(409);
+ const mine={id:'personal_new',type:'table',name:'Mine'};
+ expect((await send('PUT',path,mika,{orgId:ORG,expectedRevision:0,views:[mine],layouts:{}})).status).toBe(200);
+ const before=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ const result=await send('PUT',`/apps/${app.id}`,toru,{orgId:ORG,expectedVersion:app.version,tableName:'Must not be saved',definition:{views:[shared,{...mine,name:'Shared collision'}]}});
+ expect(result.status).toBe(409);
+ const after=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ expect(after.app).toEqual(before.app);
+ expect(after.table).toEqual(before.table);
+ expect((await (await get(`${path}?orgId=${ORG}`,mika)).json()).views).toEqual([mine]);
+});
+
+test('legacy collisions remain readable and removable without deleting a shared layout', async () => {
+ const shared={id:'personal_legacy',type:'table',name:'Shared'};
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Legacy shared',columns:[{name:'Name',type:'text'}],definition:{views:[shared]}})).json();
+ const original=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ const id=original.table.columns[0].id,path=`/hx/personal-views/${app.id}`;
+ const old={views:[{...shared,name:'Mine'}],activeView:shared.id,layouts:{[shared.id]:{order:[id],widths:{[id]:220}}}};
+ await env.DB.prepare('INSERT INTO hx_personal_views(org_id,user_id,app_id,revision,settings) VALUES (?,?,?,?,?)').bind(ORG,'9102',app.id,1,JSON.stringify(old)).run();
+ const before=await (await get(`${path}?orgId=${ORG}`,mika)).json();expect(before.views).toHaveLength(1);
+ const removed=await send('PUT',path,mika,{orgId:ORG,expectedRevision:1,activeView:shared.id,views:[],layouts:before.layouts});
+ expect(removed.status).toBe(200);
+ const settings=await removed.json();
+ expect(settings.views).toEqual([]);expect(settings.activeView).toBe(shared.id);
+ expect(settings.layouts[shared.id].widths[id]).toBe(220);
+ expect((await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json()).app.definition).toEqual(original.app.definition);
+});
+
+test('concurrent personal and shared view creation cannot introduce a collision',async()=>{
+ const {updateApp}=await import('../src/harness/apps.js');
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Race',columns:[{name:'Name',type:'text'}]})).json();
+ const before=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ const mine={id:'personal_race',type:'table',name:'Mine'};
+ const draft={expectedRevision:0,views:[mine],activeView:mine.id,layouts:{}};
+ let injected=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{
+   const statement=db.prepare(sql);
+   if(!sql.startsWith('INSERT OR IGNORE INTO hx_personal_views'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async run(){
+    if(!injected){injected=true;const result=await updateApp(env.DB,ORG,app.id,{definition:{views:[...before.app.definition.views,{...mine,name:'Shared'}]}},'9101');expect(result.error).toBeUndefined()}
+    return bound.run();
+   }}}};
+  };
+ }});
+ const result=await personalViews(racing,ORG,'9102',app.id,draft);
+ expect(result.status).toBe(409);
+ expect((await (await get(`/hx/personal-views/${app.id}?orgId=${ORG}`,mika)).json()).views).toEqual([]);
+});
+
+test('a concurrent personal view fences a shared view and its table edit in the same batch',async()=>{
+ const {updateApp}=await import('../src/harness/apps.js');
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Race',columns:[{name:'Name',type:'text'}]})).json();
+ const before=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ const mine={id:'personal_race',type:'table',name:'Mine'};
+ let injected=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key==='batch')return async statements=>{
+   if(!injected){injected=true;const result=await personalViews(env.DB,ORG,'9102',app.id,{expectedRevision:0,views:[mine],activeView:mine.id,layouts:{}});expect(result.error).toBeUndefined()}
+   return db.batch(statements);
+  };
+  return typeof db[key]==='function'?db[key].bind(db):db[key];
+ }});
+ const result=await updateApp(racing,ORG,app.id,{tableName:'Must not be saved',definition:{views:[...before.app.definition.views,{...mine,name:'Shared'}]}},'9101');
+ expect(result.status).toBe(409);
+ const after=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ expect(after.app).toEqual(before.app);expect(after.table).toEqual(before.table);
+ expect((await (await get(`/hx/personal-views/${app.id}?orgId=${ORG}`,mika)).json()).views).toEqual([mine]);
+});
+
 test('metadata query columns normalize without becoming editable/group/calendar fields',()=>{
  const columns=[{id:'id',name:'ID',type:'text'}];
  const view=normalizeDefinition({views:[{id:'v',type:'table',groupBy:'$row.id',sort:'-$row.updatedAt',filters:[{column:'$row.id',op:'contains',value:'row_'},{column:'$row.createdAt',op:'gt',value:'2026-01-01T00:00:00Z'}]}]},columns).views[0];

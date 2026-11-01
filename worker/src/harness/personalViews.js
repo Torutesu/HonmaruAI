@@ -25,10 +25,13 @@ export async function personalViews(db, orgId, userId, appId, input) {
   if (input) {
     if (input.expectedRevision !== revision) return { error: '別の端末で更新されています。再読み込みしてください。', status: 409 };
     if (!Array.isArray(input.views) || input.views.length > 12 || input.views.some(v => !v || !/^personal_[a-zA-Z0-9_-]{1,23}$/.test(v.id) || !['table','board','calendar','metrics'].includes(v.type) || typeof v.name !== 'string' || !v.name.trim()) || new Set(input.views.map(v=>v.id)).size !== input.views.length || !input.layouts || typeof input.layouts !== 'object' || Array.isArray(input.layouts) || JSON.stringify(input).length > 50000) return {error:'Invalid personal views.',status:400};
+    const existing=new Set((settings.views||[]).map(v=>v.id));
+    const shared=new Set(rendered.app.definition.views.map(v=>v.id));
+    if(input.views.some(v=>shared.has(v.id)&&!existing.has(v.id)))return {error:'ビューが変更されました。再読み込みしてください。',status:409};
     settings = normalize(input);
     const result = revision === 0
-      ? await db.prepare('INSERT OR IGNORE INTO hx_personal_views (org_id,user_id,app_id,revision,settings) VALUES (?,?,?,1,?)').bind(orgId,String(userId),appId,JSON.stringify(settings)).run()
-      : await db.prepare('UPDATE hx_personal_views SET settings=?,revision=revision+1 WHERE org_id=? AND user_id=? AND app_id=? AND revision=?').bind(JSON.stringify(settings),orgId,String(userId),appId,revision).run();
+      ? await db.prepare('INSERT OR IGNORE INTO hx_personal_views (org_id,user_id,app_id,revision,settings) SELECT ?1,?2,?3,1,?4 WHERE EXISTS(SELECT 1 FROM hx_apps WHERE org_id=?1 AND id=?3 AND version=?5)').bind(orgId,String(userId),appId,JSON.stringify(settings),rendered.app.version).run()
+      : await db.prepare('UPDATE hx_personal_views SET settings=?1,revision=revision+1 WHERE org_id=?2 AND user_id=?3 AND app_id=?4 AND revision=?5 AND EXISTS(SELECT 1 FROM hx_apps WHERE org_id=?2 AND id=?4 AND version=?6)').bind(JSON.stringify(settings),orgId,String(userId),appId,revision,rendered.app.version).run();
     if (!result.meta.changes) return {error:'別の端末で更新されています。再読み込みしてください。',status:409};
   }
   settings = normalize(settings);

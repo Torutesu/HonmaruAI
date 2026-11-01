@@ -201,6 +201,56 @@ test('the app data viewer keeps one record-create action in the table toolbar', 
   expect(tree!.root.findAllByType('h2').some(node => node.children.includes('タスク'))).toBe(true)
   expect(tree!.root.findAllByType('button').some(node => node.children.includes('Add a row'))).toBe(false)
 })
+test('a shared personal-looking ID and a legacy collision never expose personal deletion',async()=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const shared={id:'personal_collision',type:'table',name:'Shared',rows:[]}
+  const personal={...shared,name:'Old personal'}
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:false}),
+    personalViews:vi.fn().mockResolvedValue({revision:1,activeView:shared.id,views:[personal],computed:[personal],layouts:{}}),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:false}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  const tabs=tree!.root.findAllByProps({role:'tab'})
+  expect(tabs).toHaveLength(2)
+  expect(tabs[0].props['aria-selected']).toBe(true)
+  expect(tabs[0].findAllByProps({className:'hx-personal-badge'})).toHaveLength(0)
+  expect(tabs[1].props.disabled).toBe(true)
+  expect(tabs[1].props.title).toContain('IDが重複')
+  act(()=>tree!.root.findByProps({'aria-label':'新しいビュー'}).props.onClick())
+  expect(tree!.root.findAllByType('button').some(node=>node.children.includes('個人ビューを削除'))).toBe(false)
+})
+test('a late personal-view read cannot restore a deleted view and focus returns to the shared tab',async()=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const shared={id:'all',type:'table',name:'Shared',rows:[]},mine={id:'personal_mine',type:'table',name:'Mine',rows:[]}
+  const initial={revision:1,activeView:mine.id,views:[mine],computed:[mine],layouts:{[mine.id]:{order:['title'],widths:{}}}}
+  const deleted={revision:2,activeView:shared.id,views:[],computed:[],layouts:{}}
+  let resolveOld!:(value:typeof initial)=>void
+  const delayed=new Promise<typeof initial>(resolve=>{resolveOld=resolve})
+  const focus=vi.fn()
+  const appData={app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:true}
+  const refreshedRow={id:'row_new',values:{title:'Refreshed row'},updatedAt:'2026-11-02T00:00:00Z'}
+  state.api={
+    app:vi.fn().mockResolvedValueOnce(appData).mockResolvedValueOnce({...appData,rows:[refreshedRow],views:[{...shared,rows:[refreshedRow]}]}),
+    personalViews:vi.fn().mockResolvedValueOnce(initial).mockReturnValueOnce(delayed),savePersonalViews:vi.fn().mockResolvedValue(deleted),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>,{createNodeMock:element=>element.props.role==='tab'?{focus}:null});await new Promise(resolve=>setTimeout(resolve,0))})
+  act(()=>tree!.root.findByProps({'aria-label':'データを更新'}).props.onClick())
+  act(()=>tree!.root.findByProps({'aria-label':'新しいビュー / 編集'}).props.onClick())
+  const findButton=(label:string)=>tree!.root.findAllByType('button').find(node=>node.children.includes(label))!
+  act(()=>findButton('個人ビューを削除').props.onClick())
+  await act(async()=>{findButton('削除する').props.onClick();await Promise.resolve()})
+  expect(state.api.savePersonalViews).toHaveBeenCalledOnce()
+  expect(tree!.root.findAllByProps({role:'tab'})).toHaveLength(1)
+  expect(focus).toHaveBeenCalled()
+  await act(async()=>{resolveOld(initial);await delayed})
+  expect(tree!.root.findAllByProps({role:'tab'})).toHaveLength(1)
+  expect(tree!.root.findAllByProps({role:'tab'})[0].props['aria-selected']).toBe(true)
+  expect(tree!.root.findAllByType('input').some(node=>node.props.value==='Refreshed row')).toBe(true)
+})
 test('read-only app viewers do not get room-link controls in settings', async () => {
   state.api = {
     app: vi.fn().mockResolvedValue({
