@@ -3463,6 +3463,50 @@ await step('a workspace adds its own emoji, and uses them in a message and a rea
     await desk.waitForSelector('.slk-reaction img[alt=":shogun_lgtm:"]', { timeout: 15000 })
     await desk.screenshot({ path: `${SHOTS}/55-emoji-message.png` })
     await kenji.screenshot({ path: `${SHOTS}/56-emoji-phone.png` })
+
+    // Replaced under the same name while Kenji's laptop has the list open:
+    // its list still has the old picture's address, which no longer serves.
+    // A laptop that never fetched that picture (a browser cache of its own)
+    // gets a reaction with it live, and must show the new picture, not a
+    // broken one.
+    const channel = await kenji.getAttribute('.slk-side .cl-thread[data-view^="g:"]', 'data-view')
+    const messageId = (await last.getAttribute('id')).replace(/^msg-/, '')
+    const laptop = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 820 }, storageState: await mate.storageState() })
+    try {
+      const k = await laptop.newPage()
+      await k.goto(`${WEB}#/list`, { waitUntil: 'load' })
+      await k.waitForSelector(`.slk-side .cl-thread[data-view="${channel}"]`, { timeout: 20000 })
+      await k.click(`.slk-side .cl-thread[data-view="${channel}"] .cl-open`)
+      // Its list is in: the pictures it has drawn so far loaded.
+      await k.waitForFunction(() => { const i = document.querySelector('.slk-reaction img[alt=":shogun_lgtm:"]'); return i && i.complete && i.naturalWidth > 0 }, null, { timeout: 15000 })
+      if (await k.$('img[alt=":shogun_thanks:"]')) throw new Error('this laptop already drew :shogun_thanks:, so it cannot show the stale address')
+      const thanks = readFileSync(fileURLToPath(new URL('../assets/emoji/shogunai/shogun_thanks.svg', import.meta.url)), 'utf8')
+      const replaced = await desk.evaluate(async ({ host, channel, messageId, svg }) => {
+        const org = localStorage.getItem('orgId'), token = localStorage.getItem('sessionToken')
+        const at = (path) => `${host}${path}${path.includes('?') ? '&' : '?'}orgId=${encodeURIComponent(org)}`
+        const gone = await fetch(at('/emoji?name=shogun_thanks'), { method: 'DELETE', headers: { 'x-session-token': token } })
+        const back = await fetch(at('/emoji?name=shogun_thanks'), { method: 'POST', headers: { 'x-session-token': token, 'content-type': 'image/svg+xml' }, body: svg })
+        const react = await fetch(`${host}/channels/reactions`, { method: 'POST', headers: { 'x-session-token': token, 'content-type': 'application/json' }, body: JSON.stringify({ orgId: org, channel, messageId, emoji: ':shogun_thanks:' }) })
+        return [gone.status, back.status, react.status]
+      }, { host: API, channel, messageId, svg: thanks })
+      if (replaced.join() !== '200,201,200') throw new Error(`replacing :shogun_thanks: and reacting with it answered ${replaced}`)
+      await k.waitForSelector('.slk-reaction[data-reaction=":shogun_thanks:"]', { timeout: 15000 })
+        .catch(() => { throw new Error('the reaction with the replaced emoji never arrived') })
+      await k.waitForFunction(() => {
+        const i = document.querySelector('.slk-reaction[data-reaction=":shogun_thanks:"] img')
+        return i && i.complete && i.naturalWidth > 0
+      }, null, { timeout: 15000 }).catch(async () => {
+        await k.screenshot({ path: `${SHOTS}/fail-${Date.now()}-stale-emoji.png` }).catch(() => {})
+        const shown = await k.$eval('.slk-reaction[data-reaction=":shogun_thanks:"]', (el) => el.innerHTML).catch(() => '(none)')
+        throw new Error(`a replaced emoji was drawn as a broken picture: ${shown.slice(0, 240)}`)
+      })
+      if (await k.evaluate(() => [...document.querySelectorAll('img.slk-custom-emoji')].some((i) => i.complete && i.naturalWidth === 0))) {
+        throw new Error('a workspace emoji is drawn as a broken picture')
+      }
+      await k.screenshot({ path: `${SHOTS}/56b-emoji-replaced.png` })
+    } finally {
+      await laptop.close()
+    }
     await kenji.click('.slk-back').catch(() => {})
   } catch (err) {
     await desk.screenshot({ path: `${SHOTS}/fail-${Date.now()}-desk.png` }).catch(() => {})
