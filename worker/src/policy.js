@@ -44,12 +44,13 @@ function json(body, status = 200) {
 
 /// A workspace's rules, or null when it has none. Cached for half a minute:
 /// this is read on every request that enters a workspace.
-export async function sessionPolicy(db, orgId) {
+export async function sessionPolicy(db, orgId, { fresh = false } = {}) {
   const hit = cache.get(orgId);
-  if (hit && Date.now() - hit.at < 30_000) return hit.policy;
-  const row = await db.prepare("SELECT * FROM org_session_policy WHERE org_id = ?1").bind(orgId).first().catch(() => null);
+  if (!fresh && hit && Date.now() - hit.at < 30_000) return hit.policy;
+  const query = db.prepare("SELECT * FROM org_session_policy WHERE org_id = ?1").bind(orgId).first();
+  const row = fresh ? await query : await query.catch(() => null);
   const policy = row && Object.keys(POLICY_FIELDS).some((f) => row[f]) ? row : null;
-  cache.set(orgId, { policy, at: Date.now() });
+  if (!fresh) cache.set(orgId, { policy, at: Date.now() });
   return policy;
 }
 
@@ -90,36 +91,36 @@ export function sessionDeadline(policy, session) {
 }
 
 /// The refusal for a session this workspace's rules have outgrown, or null.
-export async function policyDenial(env, session, orgId) {
+export async function policyDenial(env, session, orgId, { fresh = false } = {}) {
   if (!session || !orgId) return null;
   // A workspace being deleted is closed to all but its owners, who may take
   // the request back (workspaceDeletion.js).
   const { deletionDue } = await import("./workspaceDeletion.js");
-  const due = await deletionDue(env.DB, orgId);
+  const due = await deletionDue(env.DB, orgId, { fresh });
   if (due && !(await allowed(env.DB, orgId, session.github_id, "workspace.delete"))) {
     return { status: 410, body: { message: "This workspace is being deleted.", code: "workspace-deleting", orgId, dueAt: due } };
   }
   // The workspace's single sign-on first: required of this person, or
   // an SSO sign-in past its hours.
   const { ssoDenial } = await import("./sso.js");
-  const sso = await ssoDenial(env, session, orgId);
+  const sso = await ssoDenial(env, session, orgId, { fresh });
   if (sso) return sso;
   // The networks the workspace may be used from.
   const { currentIp } = await import("./requestContext.js");
   const { ipDenial } = await import("./governance.js");
-  const offNetwork = await ipDenial(env, orgId, currentIp());
+  const offNetwork = await ipDenial(env, orgId, currentIp(), { fresh });
   if (offNetwork) return offNetwork;
   // Turned off by the company's directory, however they came back in.
   const { deactivatedHere, DEACTIVATED_MESSAGE } = await import("./scim.js");
-  if (await deactivatedHere(env.DB, orgId, session.github_id)) {
+  if (await deactivatedHere(env.DB, orgId, session.github_id, { fresh })) {
     return { status: 403, body: { message: DEACTIVATED_MESSAGE, code: "deactivated", orgId } };
   }
   // Signed out of this workspace (by its admin, or its rules), whatever
   // the session may still open elsewhere.
-  if (await endedHere(env.DB, session.token, orgId)) {
+  if (await endedHere(env.DB, session.token, orgId, { fresh })) {
     return { status: 401, body: { message: "This workspace asks you to sign in again.", code: "session-policy", orgId, rule: "ended" } };
   }
-  const policy = await sessionPolicy(env.DB, orgId);
+  const policy = await sessionPolicy(env.DB, orgId, { fresh });
   const rule = brokenRule(policy, session);
   if (!rule) return null;
   return {

@@ -6,6 +6,7 @@ import worker from '../src/index.js';
 import { installedSkillTools } from '../src/harness/skillReader.js';
 import { prepareAgent } from '../src/harness/agents.js';
 import { createSkill, executionSkills, getSkill } from '../src/harness/skills.js';
+import { downloadSkillShare, importSkillShare } from '../src/harness/skillShares.js';
 
 const orgId = 'skills-access';
 let owner, member, admin, agentId;
@@ -166,6 +167,53 @@ test('Skill share expiry and supported durations are enforced on preview, downlo
   expect((await publicGet()).status).toBe(404);
   expect((await publicGet('/download')).status).toBe(404);
   expect((await request('POST', `/skill-shares/${token}/import`, member, { orgId })).status).toBe(404);
+});
+
+test.each(['revoked', 'expired'])('a Skill share %s while files are read cannot be downloaded', async status => {
+  const created = await request('POST', '/skills', owner, { name: 'Shared skill', description: 'A reusable method', body: 'Private instructions', visibility: 'private' });
+  const { skill } = await created.json();
+  const { token, share } = await (await request('POST', `/skills/${skill.id}/shares`, owner, { expiresInDays: 7, confirmAnyoneWithLink: true })).json();
+  let injected = false;
+  const db = {
+    prepare(sql) {
+      const stmt = env.DB.prepare(sql);
+      if (!sql.startsWith('SELECT content FROM hx_skill_share_files')) return stmt;
+      return { bind(...args) {
+        const bound = stmt.bind(...args);
+        return { async first() {
+          if (!injected) {
+            injected = true;
+            await env.DB.prepare(status === 'revoked' ? 'UPDATE hx_skill_shares SET revoked_at=?1 WHERE id=?2' : 'UPDATE hx_skill_shares SET expires_at=?1 WHERE id=?2').bind('2000-01-01T00:00:00.000Z', share.id).run();
+          }
+          return bound.first();
+        } };
+      } };
+    },
+  };
+  expect(await downloadSkillShare(db, token)).toMatchObject({ status: 404 });
+  expect(injected).toBe(true);
+});
+
+test.each(['revoked', 'expired', 'membership removed'])('a Skill share import refuses a %s race before its write transaction', async status => {
+  const asset = new TextEncoder().encode('Auxiliary data');
+  const created = await request('POST', '/skills', owner, { name: 'Shared skill', description: 'A reusable method', body: 'Private instructions', visibility: 'private', files: [{ path: 'extra.txt', base64: encodeSkillBytes(asset) }] });
+  const { skill } = await created.json();
+  const { token, share } = await (await request('POST', `/skills/${skill.id}/shares`, owner, { expiresInDays: 7, confirmAnyoneWithLink: true })).json();
+  const counts = async () => Promise.all(['hx_skills', 'hx_skill_access', 'hx_skill_files'].map(async table => (await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first()).n));
+  const before = await counts();
+  let injected = false;
+  const db = {
+    prepare: sql => env.DB.prepare(sql),
+    async batch(statements) {
+      injected = true;
+      if (status === 'membership removed') await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(orgId, '9402').run();
+      else await env.DB.prepare(status === 'revoked' ? 'UPDATE hx_skill_shares SET revoked_at=?1 WHERE id=?2' : 'UPDATE hx_skill_shares SET expires_at=?1 WHERE id=?2').bind('2000-01-01T00:00:00.000Z', share.id).run();
+      return env.DB.batch(statements);
+    },
+  };
+  expect(await importSkillShare(db, token, { orgId, userId: '9402' })).toMatchObject({ status: 404 });
+  expect(injected).toBe(true);
+  expect(await counts()).toEqual(before);
 });
 
 test('legacy skills retain sharing and personal agent links are filtered', async () => {

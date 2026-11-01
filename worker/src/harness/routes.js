@@ -2,7 +2,8 @@ import { prepareAppGuidelines } from './appGuidelinesFence.js';
 import { mayUseDatabase } from './databaseAccess.js';
 import { mayGenerateFromSchema, finishSchemaGeneration } from './generationAccess.js';
 import {handleDocuments,isDocumentNodeRoute} from './documentRoutes.js';
-import { createSkillShare, listSkillShares, revokeSkillShare, readSkillShare, downloadSkillShare, importSkillShare } from './skillShares.js';
+import { createSkillShare, finalizeSkillShare, listSkillShares, revokeSkillShare, readSkillShare, downloadSkillShare, importSkillShare, mayDeliverImportedSkill } from './skillShares.js';
+import { currentSkillPolicy } from './skillPolicyProof.js';
 import {workflowRevisions,restoreWorkflowRevision} from './workflowRevisions.js';
 import {workflowSource} from './workflowSource.js';
 import {workflowNotices} from './workflowNotices.js';
@@ -100,13 +101,14 @@ export function json(body, status = 200) {
 }
 
 const fail = (result) => json({ message: result.error, ...(result.fields ? { fields: result.fields } : {}) }, result.status || 400);
+const importMayBeSaved = 'A copy may have been created. After access is restored, check the Skill list before retrying.';
 
 /// The paths this module answers.
 const OURS = /^\/(orgs\/mode|tables|apps|app-generation-v2|template-shares|skills|skill-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
-export async function member(env, request, orgId) {
-  const who = await caller(env, request, orgId);
+export async function member(env, request, orgId, options) {
+  const who = await caller(env, request, orgId, options);
   if (who.denied) return who;
   const { isGuest } = await import("../access.js");
   if (await isGuest(env.DB, orgId, who.session.github_id)) return { denied: json({ message: "A guest cannot use this." }, 403) };
@@ -219,7 +221,7 @@ export async function handleHarness(request, env, url, context = {}) {
       return new Response(result.bytes, { headers: { ...CORS_HEADERS, 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="skill.zip"', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } });
     }
     if (request.method === 'POST' && parts.length === 3 && parts[2] === 'import') {
-      const who = await member(env, request, orgId);
+      const who = await member(env, request, orgId, { withMembership: true });
       if (who.denied) return who.denied;
       const agentId = typeof input.agentId === 'string' && input.agentId ? input.agentId : null;
       if (agentId) {
@@ -231,10 +233,31 @@ export async function handleHarness(request, env, url, context = {}) {
         const canEditAgent = agent.owner_login === who.user.login || delegatedRole === 'admin' || (!managedProfile && await allowed(env.DB, orgId, who.session.github_id, 'agent.manage_others'));
         if (!canEditAgent) return json({ message: "Only an agent's maker or admin can install Skills on it." }, 403);
       }
-      const result = await importSkillShare(env.DB, parts[1], { orgId, userId: who.session.github_id, name: input.name });
-      if (result.error) return fail(result);
-      if (agentId) await giveSkill(env.DB, orgId, agentId, result.skill.id, who.session.github_id);
+      const initialPolicy = await currentSkillPolicy(env, orgId, who.session.github_id, who.session.token);
+      if (!initialPolicy.allowed) return json({ message: 'Workspace access changed. Sign in again or contact an administrator.' }, 403);
+      const result = await importSkillShare(env.DB, parts[1], { orgId, userId: who.session.github_id, name: input.name, agentId, memberSince: who.membershipSince, sessionToken: who.session.token, policyFingerprint: initialPolicy.fingerprint, ssoDeadline: initialPolicy.ssoDeadline });
+      if (result.error) {
+        if (result.committedSkillId) {
+          await audit(env, request, { orgId, action: 'skill.share_imported', actor: person(who.user), entity: { type: 'skill', id: result.committedSkillId }, details: { installedOnAgent: Boolean(agentId) } });
+          await audit(env, request, { orgId, action: 'skill.import_delivery_denied', outcome: 'failure', actor: person(who.user), entity: { type: 'skill', id: result.committedSkillId }, details: { reason: 'access_or_verification_changed' } });
+          return json({ message: importMayBeSaved, code: 'import-may-be-saved' }, result.status || 503);
+        }
+        return fail(result);
+      }
       await audit(env, request, { orgId, action: 'skill.share_imported', actor: person(who.user), entity: { type: 'skill', id: result.skill.id, name: result.skill.name }, details: { installedOnAgent: Boolean(agentId) } });
+      let deliverable;
+      try {
+        const currentPolicy = await currentSkillPolicy(env, orgId, who.session.github_id, who.session.token);
+        deliverable = currentPolicy.allowed && currentPolicy.fingerprint === initialPolicy.fingerprint && await mayDeliverImportedSkill(env.DB, orgId, result.skill, who.session.github_id, who.membershipSince, agentId, who.session.token, currentPolicy.fingerprint, currentPolicy.ssoDeadline);
+      }
+      catch {
+        await audit(env, request, { orgId, action: 'skill.import_delivery_denied', outcome: 'failure', actor: person(who.user), entity: { type: 'skill', id: result.skill.id }, details: { reason: 'verification_failed' } });
+        return json({ message: importMayBeSaved, code: 'import-may-be-saved' }, 503);
+      }
+      if (!deliverable) {
+        await audit(env, request, { orgId, action: 'skill.import_delivery_denied', outcome: 'failure', actor: person(who.user), entity: { type: 'skill', id: result.skill.id }, details: { reason: 'authorization_changed' } });
+        return json({ message: importMayBeSaved, code: 'import-may-be-saved' }, 409);
+      }
       return json({ ...result, installedOnAgent: Boolean(agentId) }, 201);
     }
     return json({ message: 'This Skill share link is unavailable.' }, 404);
@@ -273,7 +296,7 @@ export async function handleHarness(request, env, url, context = {}) {
     return json({ orgId, mode: await getMode(env.DB, orgId), modes: MODES, canEdit, ...preference });
   }
 
-  const who = await member(env, request, orgId);
+  const who = await member(env, request, orgId, { withMembership: parts[0] === 'skills' && parts[2] === 'shares' && parts.length === 3 && request.method === 'POST' });
   if (who.denied) return who.denied;
   const me = who.session.github_id;
   if (url.pathname === "/remote-mcp" || url.pathname.startsWith("/remote-mcp/")) {
@@ -697,9 +720,25 @@ export async function handleHarness(request, env, url, context = {}) {
       if (!skill.canShare) return json({ message: 'Only its owner can create or revoke Skill share links.' }, 403);
       if (request.method === 'GET' && parts.length === 3) return json(await listSkillShares(env.DB, orgId, skillId));
       if (request.method === 'POST' && parts.length === 3) {
-        const result = await createSkillShare(env.DB, orgId, skill, me, input);
+        const initialPolicy = await currentSkillPolicy(env, orgId, me, who.session.token);
+        if (!initialPolicy.allowed) return json({ message: 'Workspace access changed. Sign in again or contact an administrator.' }, 403);
+        const result = await createSkillShare(env.DB, orgId, skill, me, { ...input, memberSince: who.membershipSince, sessionToken: who.session.token, policyFingerprint: initialPolicy.fingerprint, ssoDeadline: initialPolicy.ssoDeadline });
         if (result.error) return fail(result);
         await audit(env, request, { orgId, action: 'skill.share_created', actor: person(who.user), entity: { type: 'skill', id: skillId, name: skill.name }, details: { shareId: result.share.id, expiresAt: result.share.expiresAt } });
+        let deliverable;
+        try {
+          const currentPolicy = await currentSkillPolicy(env, orgId, me, who.session.token);
+          deliverable = await finalizeSkillShare(env.DB, orgId, skillId, me, result, who.membershipSince, who.session.token, currentPolicy.allowed && currentPolicy.fingerprint === initialPolicy.fingerprint ? currentPolicy.fingerprint : 'policy-denied', currentPolicy.ssoDeadline);
+        }
+        catch (error) {
+          try { await finalizeSkillShare(env.DB, orgId, skillId, me, result, who.membershipSince, who.session.token, 'policy-denied'); } catch { /* Token is never returned. */ }
+          await audit(env, request, { orgId, action: 'skill.share_delivery_denied', outcome: 'failure', actor: person(who.user), entity: { type: 'skill', id: skillId, name: skill.name }, details: { shareId: result.share.id, reason: 'verification_failed' } });
+          throw error;
+        }
+        if (!deliverable) {
+          await audit(env, request, { orgId, action: 'skill.share_delivery_denied', outcome: 'failure', actor: person(who.user), entity: { type: 'skill', id: skillId, name: skill.name }, details: { shareId: result.share.id, reason: 'authorization_changed' } });
+          return json({ message: 'Skill or sharing permissions changed. Reload before sharing.' }, 409);
+        }
         return json(result, 201);
       }
       if (request.method === 'POST' && parts.length === 5 && parts[4] === 'revoke') {
