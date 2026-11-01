@@ -4,7 +4,14 @@ import {StepEditor, type AgentFace} from './WorkflowStepEditor'
 import {AutomationTriggerEditor,type TriggerAppOption} from './AutomationTriggerEditor'
 import {AutomationRuns} from './AutomationRuns'
 import {AutomationSummary} from './AutomationSummary'
-import type {App, AppAutomationState, AutomationBundle, HarnessApi, Workflow, Table} from '../utils/harness'
+import type {App, AppAutomationState, AutomationBundle, HarnessApi, Workflow, Table, Trigger} from '../utils/harness'
+
+const removedTriggerConditions=(before:Trigger,after:Trigger)=>{
+  const prior=before.type==='row'?before.where:before.type==='app_record_change'?before.when?.where:undefined
+  const next=after.type==='row'?after.where:after.type==='app_record_change'?after.when?.where:undefined
+  return Boolean((before.type==='row'&&before.column&&(after.type!=='row'||!after.column))||
+    (prior&&Object.keys(prior).some(key=>!Object.hasOwn(next||{},key))))
+}
 
 const statusLabels = {added:'追加',changed:'変更',unchanged:'変更なし',removed:'公開停止',retired:'停止済み',drifted:'別の画面で変更あり',missing:'処理が削除されています'}
 export function AppAutomations({app,api,reload}:{app:App;api:HarnessApi;reload:()=>unknown}) {
@@ -37,6 +44,16 @@ export function AppAutomations({app,api,reload}:{app:App;api:HarnessApi;reload:(
     setNotice('実行順序を変更しました。ステップ番号を参照する入力がある場合は、参照先も確認してください。')
   }
   const dirty=state && JSON.stringify(draft)!==JSON.stringify(state.draft)
+  const removedConditions=state?.draft.items.some(previous=>{
+    const current=draft.items.find(item=>item.key===previous.key)
+    if(!current)return false
+    return removedTriggerConditions(previous.trigger,current.trigger)
+  })
+  const removedPublishedConditions=state?.plan?.some(item=>{
+    const baseline=item.live||item.published
+    const current=draft.items.find(candidate=>candidate.key===item.key)
+    return baseline&&current&&removedTriggerConditions(baseline.trigger,current.trigger)
+  })
   const conflicts=state?.plan?.filter(item=>item.status==='drifted'||item.status==='missing')||[]
   const canPublish=state && state.version===app.version && state.revision>0 && state.plan && !dirty && conflicts.every(item=>checked.includes(item.key) && item.workflowId && (item.status!=='missing'||item.declared))
   const run=async(fn:()=>Promise<void>)=>{if(busy)return;setBusy(true);setError('');setNotice('');try{await fn()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}}
@@ -59,8 +76,9 @@ export function AppAutomations({app,api,reload}:{app:App;api:HarnessApi;reload:(
       <button className="pill-btn quiet" disabled={busy||draft.items.length>=12} onClick={()=>setDraft({...draft,items:[...draft.items,{key:`auto_${crypto.randomUUID().replaceAll('-','').slice(0,16)}`,name:'新しい自動化',enabled:false,trigger:{type:'manual'},steps:[{type:'post'}]}]})}><Icon name="plus" size={14}/> 自動化を作成</button>
       {draft.items.length===0&&<p>自動化はまだありません。新しく作成するか、既存ワークフローから処理をコピーできます。</p>}
       {draft.items.map(item=><div className="hx-step" key={item.key}><label>名前<input value={item.name} maxLength={80} disabled={busy} onChange={e=>setDraft({...draft,items:draft.items.map(v=>v.key===item.key?{...v,name:e.target.value}:v)})}/></label><label><input type="checkbox" checked={item.enabled} disabled={busy} onChange={e=>setDraft({...draft,items:draft.items.map(v=>v.key===item.key?{...v,enabled:e.target.checked}:v)})}/>公開後に有効化</label><p>{item.trigger.type==='schedule'?'スケジュール':item.trigger.type==='row'?'データ変更':item.trigger.type==='app_record_change'?'アプリのレコード変更':item.trigger.type==='webhook'?'Webhook':'手動実行'} · {item.steps.length}ステップ</p><details><summary>実行条件・ステップを編集</summary><fieldset disabled={busy}><AutomationTriggerEditor key={`${item.key}:${draftGeneration}`} trigger={item.trigger} tables={tables} apps={triggerApps} onChange={trigger=>setDraft({...draft,items:draft.items.map(v=>v.key===item.key?{...v,trigger}:v)})}/>{item.steps.map((step,index)=><div key={index}><div className="hx-actions"><button type="button" className="pill-btn quiet" disabled={busy||index===0} aria-label={`${index+1}番目のステップを上へ`} onClick={()=>moveStep(item.key,index,-1)}><Icon name="arrow-up" size={14}/></button><button type="button" className="pill-btn quiet" disabled={busy||index===item.steps.length-1} aria-label={`${index+1}番目のステップを下へ`} onClick={()=>moveStep(item.key,index,1)}><Icon name="arrow-down" size={14}/></button></div><StepEditor api={api} step={step} tables={tables} agents={agents} triggerTable={tables.find(t=>t.id===item.trigger.tableId)||triggerApps.find(option=>option.app.id===item.trigger.appId)?.entities.find(entity=>entity.key===item.trigger.entityId)?.table} onChange={step=>setDraft({...draft,items:draft.items.map(v=>v.key===item.key?{...v,steps:v.steps.map((s,i)=>i===index?step:s)}:v)})} onRemove={()=>setDraft({...draft,items:draft.items.map(v=>v.key===item.key?{...v,steps:v.steps.filter((_,i)=>i!==index)}:v)})}/></div>) }{!item.steps.some(step=>step.type==='code')&&<button className="pill-btn quiet" onClick={()=>setDraft({...draft,items:draft.items.map(v=>v.key===item.key?{...v,steps:[...v.steps,{type:'post'}]}:v)})}>ステップを追加</button>}</fieldset></details><button className="pill-btn quiet" disabled={busy} onClick={()=>setDraft({...draft,items:draft.items.filter(v=>v.key!==item.key)})}>下書きから外す</button></div>)}
+      {removedConditions&&<p role="alert">下書きで条件が解除されています。公開後に実行対象が広がる可能性があります。保存・公開前に確認してください。</p>}
       <button className="pill-btn" disabled={busy||!dirty||state.version!==app.version} onClick={()=>void run(async()=>{setDraftGeneration(value=>value+1);await api.saveAppAutomations(app.id,state.version,state.revision,draft);await refresh();setNotice('下書きを保存しました。公開中の処理は変わりません。')})}>下書きを保存</button>
-      <h4>公開する変更</h4>{dirty?<p>下書きを保存すると、公開中の処理との差分を確認できます。</p>:state.plan?.map(item=><details key={item.key}><summary>{item.declared?.name||item.published?.name||item.key} · {statusLabels[item.status]}</summary><div className="hx-automation-diff"><div><strong>現在</strong><AutomationSummary definition={item.live} tables={tables} agents={agents} apps={triggerApps}/></div><div><strong>公開後</strong><AutomationSummary definition={item.declared} tables={tables} agents={agents} apps={triggerApps}/></div></div>{item.workflowId&&item.status!=='missing'&&<AutomationRuns key={item.workflowId} workflowId={item.workflowId} api={api}/>} {conflicts.includes(item)&&<label><input type="checkbox" disabled={busy} checked={checked.includes(item.key)} onChange={e=>setChecked(e.target.checked?[...checked,item.key]:checked.filter(k=>k!==item.key))}/>{item.status==='missing'?'この処理を復旧する':'現在の変更を確認し、アプリの定義で置き換える'}</label>}</details>)}
+      <h4>公開する変更</h4>{removedPublishedConditions&&<p role="alert">公開中の処理から条件または監視列が解除されています。公開すると実行対象が広がる可能性があります。</p>}{dirty?<p>下書きを保存すると、公開中の処理との差分を確認できます。</p>:state.plan?.map(item=><details key={item.key}><summary>{item.declared?.name||item.published?.name||item.key} · {statusLabels[item.status]}</summary><div className="hx-automation-diff"><div><strong>現在</strong><AutomationSummary definition={item.live} tables={tables} agents={agents} apps={triggerApps}/></div><div><strong>公開後</strong><AutomationSummary definition={item.declared} tables={tables} agents={agents} apps={triggerApps}/></div></div>{item.workflowId&&item.status!=='missing'&&<AutomationRuns key={item.workflowId} workflowId={item.workflowId} api={api}/>} {conflicts.includes(item)&&<label><input type="checkbox" disabled={busy} checked={checked.includes(item.key)} onChange={e=>setChecked(e.target.checked?[...checked,item.key]:checked.filter(k=>k!==item.key))}/>{item.status==='missing'?'この処理を復旧する':'現在の変更を確認し、アプリの定義で置き換える'}</label>}</details>)}
       {app.definition.custom&&<label><input type="checkbox" checked={includeSource} disabled={busy} onChange={e=>setIncludeSource(e.target.checked)}/>保存済みのアプリ画面も同時に公開する</label>}
       <div className="hx-actions"><button className="pill-btn" disabled={busy||!canPublish} onClick={()=>void run(()=>release('publish'))}>確認した内容を公開</button>{state.published&&<button className="pill-btn quiet" disabled={busy} onClick={()=>void run(()=>release('unpublish'))}>自動化を停止</button>}</div>
     </>}

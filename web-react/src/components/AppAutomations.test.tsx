@@ -105,6 +105,7 @@ test('saving a delete trigger does not restore filters from the previous editing
  const {tree,button}=await setup({appAutomations,saveAppAutomations,tables})
  const editor=()=>tree.root.findByType(AutomationTriggerEditor)
  await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'deleted'}}))
+ expect(JSON.stringify(tree.toJSON())).toContain('下書きで条件が解除されています')
  await act(async()=>button('下書きを保存').props.onClick())
  expect(saveAppAutomations).toHaveBeenCalled()
  expect(editor().props.trigger.on).toBe('deleted')
@@ -131,9 +132,30 @@ test.each(['save','refresh'] as const)('a failed %s does not revive filters afte
  await act(async()=>button('下書きを保存').props.onClick())
  expect(saveAppAutomations).toHaveBeenCalled()
  expect(editor().props.trigger.on).toBe('deleted')
+ expect(JSON.stringify(tree.toJSON())).toContain('下書きで条件が解除されています')
  await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'changed'}}))
  expect(editor().props.trigger.where).toBeUndefined()
  expect(editor().props.trigger.column).toBeUndefined()
  expect(JSON.stringify(tree.toJSON())).toContain('以前の条件は復元されていません')
+ act(()=>tree.unmount())
+})
+test.each(['where','column'] as const)('warns before publishing after a saved %s condition was removed',async removed=>{
+ const {AutomationTriggerEditor}=await import('./AutomationTriggerEditor')
+ const row={type:'row',tableId:'table',on:'changed',column:'status',where:{status:['Open']}}
+ const changed=removed==='where'?{...row,where:undefined}:{...row,column:undefined}
+ const live={...definition,trigger:row}
+ const declared={...definition,trigger:changed}
+ const initial={...state,draft:{version:1,items:[{key:'review',...live}]},plan:[{key:'review',workflowId:'wf',status:'unchanged',declared:live,published:live,live}]}
+ const saved={...initial,revision:3,draft:{version:1,items:[{key:'review',...declared}]},plan:[{key:'review',workflowId:'wf',status:'changed',declared,published:live,live}]}
+ const appAutomations=vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(saved)
+ const saveAppAutomations=vi.fn().mockResolvedValue({saved:true})
+ const tables=vi.fn().mockResolvedValue({tables:[{id:'table',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['Open']}]}]})
+ const {tree,button}=await setup({appAutomations,saveAppAutomations,tables})
+ const editor=()=>tree.root.findByType(AutomationTriggerEditor)
+ if(removed==='where')await act(async()=>editor().findAllByType('fieldset')[0].findByType('input').props.onChange({target:{checked:false}}))
+ else await act(async()=>editor().findAllByType('select')[3].props.onChange({target:{value:''}}))
+ expect(JSON.stringify(tree.toJSON())).toContain('下書きで条件が解除されています')
+ await act(async()=>button('下書きを保存').props.onClick())
+ expect(JSON.stringify(tree.toJSON())).toContain('公開中の処理から条件または監視列が解除されています')
  act(()=>tree.unmount())
 })
