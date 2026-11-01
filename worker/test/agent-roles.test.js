@@ -3,7 +3,7 @@ import {beforeEach,test,expect} from 'vitest';
 import {agentRoleState,explicitAgentRoles,setAgentRole,transferAgentOwnership} from '../src/harness/agentRoles.js';
 import {upsertUser,upsertMembership} from '../src/db.js';
 import {saveAgent,listAgents,toClientAgent} from '../src/customAgents.js';
-import {mayAccessAgent} from '../src/harness/agents.js';
+import {mayAccessAgent,mayRunAgent} from '../src/harness/agents.js';
 const ORG='personal:roles',AGENT='roles-agent';
 beforeEach(async()=>{
  for(const [id,login,role] of [['a','maker','member'],['b','delegate','member'],['c','reader','member'],['g','guest','guest']]) {
@@ -132,6 +132,17 @@ test('leaving and rejoining does not revive a previous delegated role',async()=>
  expect((await change('b','c','admin',1)).status).toBe(403);
  expect(await change('a','b','member',1)).toEqual({version:2});
  expect((await explicitAgentRoles(env.DB,ORG,[AGENT],'delegate')).get(AGENT)).toBe('member');
+});
+
+test('mixed-case Guest membership revokes explicit Agent roles immediately',async()=>{
+ await change('a','b','admin',0);
+ await env.DB.prepare("UPDATE memberships SET role='Guest' WHERE org_id=?1 AND user_github_id=?2").bind(ORG,'b').run();
+ expect((await explicitAgentRoles(env.DB,ORG,[AGENT],'delegate')).size).toBe(0);
+ expect((await agentRoleState(env.DB,ORG,AGENT)).members.some(m=>m.userId==='b')).toBe(false);
+ expect(await mayAccessAgent(env.DB,ORG,{id:AGENT,scope:'team',ownerLogin:'maker'},'delegate')).toBe(false);
+ await env.DB.prepare("UPDATE hx_agent_profiles SET access='everyone' WHERE org_id=?1 AND agent_id=?2").bind(ORG,AGENT).run();
+ expect(await mayRunAgent(env.DB,ORG,{id:AGENT,scope:'team',owner_login:'delegate'},'b')).toBe(false);
+ expect((await change('a','b','member',1)).status).toBe(404);
 });
 
 test('returning to personal clears grants and sharing again does not revive them',async()=>{

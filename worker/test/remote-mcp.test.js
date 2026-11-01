@@ -4,7 +4,7 @@ import { fetchMock } from "./helpers/fetch-mock.js";
 import worker from "../src/index.js";
 import { agentTools } from "../src/agentTools.js";
 import { cleanHeaders, cleanTools, safeEndpoint, toolName } from "../src/harness/remoteMcp.js";
-import { remoteMcpOAuthStatus } from "../src/harness/remoteMcpOAuth.js";
+import { remoteMcpOAuthAccessToken, remoteMcpOAuthStatus } from "../src/harness/remoteMcpOAuth.js";
 
 const ORG = "personal:remote-mcp";
 let session;
@@ -272,6 +272,13 @@ test("OAuth Remote MCP uses PKCE, validates issuer and redirect, and keeps each 
     const otherMember = await callRemoteMcpTool(secureEnv, { ...agent, githubId: "9552" }, tool, {});
     expect(otherMember.isError).toBe(true);
     expect(otherMember.content[0].text).toContain("own OAuth account");
+    await env.DB.prepare("UPDATE memberships SET role='Guest' WHERE org_id=?1 AND user_github_id='9551'").bind(ORG).run();
+    expect(await remoteMcpOAuthStatus(env.DB, ORG, server.id, "9551")).toBe(false);
+    expect(await remoteMcpOAuthAccessToken(secureEnv, { orgId: ORG, serverId: server.id, userId: "9551" }))
+      .toMatchObject({ token: null });
+    const guest = await callRemoteMcpTool(secureEnv, agent, tool, {});
+    expect(guest.isError).toBe(true);
+    expect(guest.content[0].text).toContain("own OAuth account");
     fetchMock.assertNoPendingInterceptors();
 
   } finally {
@@ -481,4 +488,37 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
     fetchMock.assertNoPendingInterceptors();
     fetchMock.deactivate();
   }
+});
+
+test("a mixed-case Guest cannot keep or reacquire a Remote MCP Agent grant", async () => {
+  await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
+  const createdAt = new Date().toISOString();
+  const agentId = "remote-mcp-guest-case";
+  const serverId = "remote-mcp-guest-server";
+  await env.DB.prepare(`INSERT INTO custom_agents
+    (org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES (?1,?2,'remote-guest-case','Remote Guest Case','Read only with permission.','team','remote-admin',?3,?3)`)
+    .bind(ORG, agentId, createdAt).run();
+  await env.DB.prepare(`INSERT INTO hx_remote_mcp_servers
+    (id,org_id,name,endpoint,tools_json,allowed_tools,created_by,created_at,updated_at)
+    VALUES (?1,?2,'Read only','https://mcp.example.com/mcp',?3,'["read"]','9551',?4,?4)`)
+    .bind(serverId, ORG, JSON.stringify([{ name: "read", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]), createdAt).run();
+
+  const { agentRemoteMcpConnections, mayUseAgentRemoteMcp, setAgentRemoteMcpConnection } = await import("../src/harness/agentRemoteMcp.js");
+  const agentSession = { github_id: "9551" };
+  const granted = await setAgentRemoteMcpConnection(env, { orgId: ORG, agentId, session: agentSession, serverId, enabled: true });
+  expect(granted.error, JSON.stringify(granted)).toBeUndefined();
+  expect(granted.connections[0]).toMatchObject({ serverId, available: true, enabled: true, readOnlyToolCount: 1 });
+  expect(await mayUseAgentRemoteMcp(env, { orgId: ORG, agentId, session: agentSession, serverId })).toBe(true);
+
+  await env.DB.prepare("UPDATE memberships SET role='Guest' WHERE org_id=?1 AND user_github_id='9551'").bind(ORG).run();
+  expect(await mayUseAgentRemoteMcp(env, { orgId: ORG, agentId, session: agentSession, serverId })).toBe(false);
+  expect(await agentRemoteMcpConnections(env.DB, { orgId: ORG, agentId, githubId: agentSession.github_id }))
+    .toMatchObject([{ serverId, available: true, enabled: false, readOnlyToolCount: 1 }]);
+
+  await env.DB.prepare("DELETE FROM hx_agent_remote_mcp_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9551'").bind(ORG, agentId).run();
+  const denied = await setAgentRemoteMcpConnection(env, { orgId: ORG, agentId, session: agentSession, serverId, enabled: true });
+  expect(denied.error).toMatch(/workspace, Agent, or Remote MCP server changed/i);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_agent_remote_mcp_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9551'")
+    .bind(ORG, agentId).first()).toEqual({ n: 0 });
 });

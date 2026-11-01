@@ -110,7 +110,8 @@ export async function mayAccessAgent(db, orgId, agent, login) {
 // executes, including after an approval or a delay.
 export async function mayRunAgent(db, orgId, row, userId) {
   const user = await db.prepare(`SELECT u.login FROM users u JOIN memberships m
-    ON m.user_github_id = u.github_id WHERE m.org_id = ?1 AND u.github_id = ?2 AND m.role != 'guest'`)
+    ON m.user_github_id = u.github_id WHERE m.org_id = ?1 AND u.github_id = ?2
+      AND LOWER(COALESCE(m.role,'guest')) != 'guest'`)
     .bind(orgId, String(userId)).first();
   return Boolean(user && await mayAccessAgent(db, orgId,
     { id: row.id, scope: row.scope, ownerLogin: row.owner_login }, user.login));

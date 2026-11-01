@@ -4,7 +4,7 @@ import { remoteMcpOAuthStatus } from './remoteMcpOAuth.js';
 async function currentGrants(db, orgId, agentId, githubId) {
   const { results = [] } = await db.prepare(`SELECT g.server_id FROM hx_agent_remote_mcp_grants g
     JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.user_github_id
-      AND m.created_at=g.membership_since AND m.role!='guest'
+      AND m.created_at=g.membership_since AND LOWER(COALESCE(m.role,'guest'))!='guest'
     JOIN hx_remote_mcp_servers s ON s.org_id=g.org_id AND s.id=g.server_id
     JOIN custom_agents a ON a.org_id=g.org_id AND a.id=g.agent_id AND a.deleted_at IS NULL
     WHERE g.org_id=?1 AND g.agent_id=?2 AND g.user_github_id=?3`)
@@ -61,7 +61,7 @@ export async function setAgentRemoteMcpConnection(env, { orgId, agentId, session
       SELECT ?1,?2,?3,m.created_at,?4,?5 FROM memberships m
       JOIN custom_agents a ON a.org_id=m.org_id AND a.id=?2 AND a.deleted_at IS NULL
       JOIN hx_remote_mcp_servers s ON s.org_id=m.org_id AND s.id=?4
-      WHERE m.org_id=?1 AND m.user_github_id=?3 AND m.role!='guest'
+      WHERE m.org_id=?1 AND m.user_github_id=?3 AND LOWER(COALESCE(m.role,'guest'))!='guest'
       ON CONFLICT(org_id,agent_id,user_github_id,server_id) DO UPDATE SET
         membership_since=excluded.membership_since,created_at=excluded.created_at`)
       .bind(orgId, agentId, githubId, id, new Date().toISOString()).run();

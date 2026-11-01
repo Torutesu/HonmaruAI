@@ -290,7 +290,7 @@ async function registerClient(env, row, metadata, redirectUri) {
 }
 
 async function membership(env, orgId, userId) {
-  return env.DB.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND role!='guest'")
+  return env.DB.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(COALESCE(role,'guest'))!='guest'")
     .bind(orgId, String(userId)).first();
 }
 
@@ -472,7 +472,7 @@ export async function finishRemoteMcpOAuth(env, url) {
 
 export async function remoteMcpOAuthStatus(db, orgId, serverId, userId) {
   const row = await db.prepare(`SELECT 1 AS connected FROM hx_remote_mcp_oauth_credentials c
-    JOIN memberships m ON m.org_id=c.org_id AND m.user_github_id=c.user_github_id AND m.created_at=c.membership_since AND m.role!='guest'
+    JOIN memberships m ON m.org_id=c.org_id AND m.user_github_id=c.user_github_id AND m.created_at=c.membership_since AND LOWER(COALESCE(m.role,'guest'))!='guest'
     WHERE c.org_id=?1 AND c.server_id=?2 AND c.user_github_id=?3`).bind(orgId, serverId, String(userId)).first().catch(() => null);
   return Boolean(row?.connected);
 }
@@ -480,7 +480,7 @@ export async function remoteMcpOAuthStatus(db, orgId, serverId, userId) {
 export async function disconnectRemoteMcpOAuth(db, orgId, serverId, userId) {
   const result = await db.prepare(`DELETE FROM hx_remote_mcp_oauth_credentials
     WHERE org_id=?1 AND server_id=?2 AND user_github_id=?3
-      AND membership_since=(SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?3 AND role!='guest')`)
+      AND membership_since=(SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?3 AND LOWER(COALESCE(role,'guest'))!='guest')`)
     .bind(orgId, serverId, String(userId)).run();
   return Boolean(result.meta?.changes);
 }
@@ -525,7 +525,7 @@ async function latestUsableCredential(env, row) {
 
 export async function remoteMcpOAuthAccessToken(env, { orgId, serverId, userId }) {
   const row = await env.DB.prepare(`SELECT c.* FROM hx_remote_mcp_oauth_credentials c
-    JOIN memberships m ON m.org_id=c.org_id AND m.user_github_id=c.user_github_id AND m.created_at=c.membership_since AND m.role!='guest'
+    JOIN memberships m ON m.org_id=c.org_id AND m.user_github_id=c.user_github_id AND m.created_at=c.membership_since AND LOWER(COALESCE(m.role,'guest'))!='guest'
     JOIN hx_remote_mcp_servers s ON s.org_id=c.org_id AND s.id=c.server_id AND s.auth_mode='oauth'
     WHERE c.org_id=?1 AND c.server_id=?2 AND c.user_github_id=?3`)
     .bind(orgId, serverId, String(userId)).first();

@@ -24,7 +24,7 @@ import { searchThread } from "./threadSearch.js";
 import { previewThreadShare, threadSharePolicy, setThreadSharePolicy, storeThreadShare, readThreadShare, revokeOwnThreadShare } from "./threadShares.js";
 import { appActivity, readAppActivity } from './harness/appActivity.js';
 import { checkOutgoing } from "./dlp.js";
-import { prepareAgent, rememberRequest, addAgentMemory } from "./harness/agents.js";
+import { prepareAgent, rememberRequest, addAgentMemory, filterResponders } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
 import { mayUseAgentSource } from "./harness/agentConnections.js";
 import { mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
@@ -401,12 +401,22 @@ export async function answerAsAI(env, { orgId, session, user, resolved, row, mem
 async function callableAgents(db, orgId, login, members) {
   const face = (a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, avatarUrl: a.avatarUrl || null, description: a.description, scope: a.scope });
   const own = await listAgents(db, orgId, login);
+  const ownIds = new Set(own.map((agent) => agent.id));
   const placed = await agentChannels(db, orgId);
   const access = placed.length ? await accessFor(db, orgId, login) : null;
   const channelsOf = new Map();
   for (const { agent, keys } of placed) {
-    const views = keys.map((k) => viewOf(k, login, members, access)).filter(Boolean);
-    if (views.length) channelsOf.set(agent.id, { agent, views });
+    const visible = keys.flatMap((key) => {
+      const view = viewOf(key, login, members, access);
+      return view ? [{ key, view }] : [];
+    });
+    if (!visible.length) continue;
+    // A room placement is a legacy call grant only for unprofiled agents.
+    // Managed Agents still require the viewer's current Agent grant; otherwise
+    // an unrelated readable room would reveal the restricted Agent in /channels.
+    const callable = ownIds.has(agent.id)
+      || (await filterResponders(db, orgId, login, [agent], { channel: visible[0].key })).length > 0;
+    if (callable) channelsOf.set(agent.id, { agent, views: visible.map(({ view }) => view) });
   }
   const out = own.map((a) => ({ ...face(a), channels: channelsOf.get(a.id)?.views || [] }));
   const handles = new Set(own.map((a) => a.handle));

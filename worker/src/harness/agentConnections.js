@@ -5,7 +5,7 @@ export const AGENT_CONNECTION_SOURCES = ['notion', 'github'];
 async function grantsFor(db, orgId, agentId, githubId) {
   const { results = [] } = await db.prepare(`SELECT g.source FROM hx_agent_source_grants g
     JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.user_github_id
-      AND m.created_at=g.membership_since AND m.role!='guest'
+      AND m.created_at=g.membership_since AND LOWER(COALESCE(m.role,'guest'))!='guest'
     WHERE g.org_id=?1 AND g.agent_id=?2 AND g.user_github_id=?3`)
     .bind(orgId, agentId, String(githubId)).all();
   return new Set(results.map(row => row.source));
@@ -39,7 +39,7 @@ export async function setAgentSourceConnection(env, { orgId, agentId, session, s
         (org_id,agent_id,user_github_id,membership_since,source,created_at)
       SELECT ?1,?2,?3,m.created_at,?4,?5 FROM memberships m
       JOIN custom_agents a ON a.org_id=m.org_id AND a.id=?2 AND a.deleted_at IS NULL
-      WHERE m.org_id=?1 AND m.user_github_id=?3 AND m.role!='guest'
+      WHERE m.org_id=?1 AND m.user_github_id=?3 AND LOWER(COALESCE(m.role,'guest'))!='guest'
       ON CONFLICT(org_id,agent_id,user_github_id,source) DO UPDATE SET
         membership_since=excluded.membership_since,created_at=excluded.created_at`)
       .bind(orgId, agentId, githubId, source, new Date().toISOString()).run();
