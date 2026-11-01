@@ -39,7 +39,7 @@ import { generateCustomSource, saveCustomRelease } from "./customApps.js";
 import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
 import { tableContract } from "./tableContract.js";
-import { appAccess, mayUseApp, mayUseTable, setAppAccess, visibleResources, visibleAppLinks } from './resourceAccess.js';
+import { appAccess, mayUseApp, mayUseTable, mayReadAppRows, setAppAccess, visibleResources, visibleAppLinks } from './resourceAccess.js';
 import { mayUseConversation, readableConversation } from './conversationAccess.js';
 import { listMembers as memoryMembers } from '../team.js';
 import { createAgentAccessRequest, requestableAgentOptions, roomAgentAccessPlans } from './agentAccessRequests.js';
@@ -1199,7 +1199,9 @@ export async function handleHarness(request, env, url, context = {}) {
         const r = await renderApp(env.DB, orgId, appId);
         if (r.error) return fail(r);
         const [visibleApp] = await visibleAppLinks(env.DB, orgId, [r.app], who.user);
-        return json({ ...r, app: visibleApp, canCustomize: await mayChange(env, orgId, who, app.createdBy) });
+        const canCustomize = await mayChange(env, orgId, who, app.createdBy);
+        if (!(await mayReadAppRows(env.DB, orgId, appId, r.app.tableId, me))) return json({ message: 'No such app.' }, 404);
+        return json({ ...r, app: visibleApp, canCustomize });
       }
       if (request.method === "PUT") {
         // The shared definition is its maker's or an admin's to change, as
@@ -1305,11 +1307,12 @@ async function homeFor(env, orgId, who, me) {
     listFollowups(db, orgId, { viewerId: me }),
   ]);
   // An app's headline: the first number its summary view works out.
-  const apps = await Promise.all(appRows.slice(0, 12).map(async (a) => {
+  const appSummaries = await Promise.all(appRows.slice(0, 12).map(async (a) => {
     const r = await renderApp(db, orgId, a.id).catch(() => null);
+    if (!r?.app) return null;
     const metrics = r?.views.find((v) => v.type === "metrics");
     const first = metrics?.values?.[0] || null;
-    return { id: a.id, name: a.name, icon: a.icon, description: a.description, channels: a.channels || [], rows: r?.rows.length ?? 0, headline: first ? { label: first.label, value: first.value } : null };
+    return { tableId:r.app.tableId, summary:{ id: a.id, name: a.name, icon: a.icon, description: a.description, channels: a.channels || [], rows: r.rows.length, headline: first ? { label: first.label, value: first.value } : null } };
   }));
   const profiles = await profilesFor(db, orgId, agents.map((a) => a.id));
   // Newest first: the first seen for a workflow is how it last ran.
@@ -1318,6 +1321,7 @@ async function homeFor(env, orgId, who, me) {
     : { results: [] };
   const lastOf = new Map();
   for (const r of runs || []) if (!lastOf.has(r.workflow_id)) lastOf.set(r.workflow_id, { status: r.status, startedAt: r.started_at });
+  const apps = (await Promise.all(appSummaries.map(async item => item && await mayReadAppRows(db, orgId, item.summary.id, item.tableId, me) ? item.summary : null))).filter(Boolean);
   return {
     mode,
     approvals,

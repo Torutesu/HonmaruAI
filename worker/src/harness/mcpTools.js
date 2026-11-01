@@ -1,7 +1,7 @@
 import {FILE_WRITE_TOOLS,callFileWriteTool} from './fileWriteTools.js';
 import {FILE_READ_TOOLS,callFileReadTool} from './fileTools.js';
 import { EXECUTION_TOOLS, callExecutionTool } from './executionTools.js';
-import { mayUseApp, mayUseTable, visibleResources, visibleAppLinks } from './resourceAccess.js';
+import { mayUseApp, mayUseTable, mayReadAppRows, visibleResources, visibleAppLinks } from './resourceAccess.js';
 // The harness over MCP (docs/kylon-gap-plan.md): what Kylon's Tools API and
 // workspace CLI give an outside agent — the workspace's apps, tables,
 // workflows and follow-ups — offered only by a workspace in harness mode.
@@ -127,6 +127,7 @@ export async function callHarnessTool(env, agent, name, args) {
       if (!(await mayUseApp(db, orgId, String(args.appId || ""), by))) return err("No such app.");
       const r = await renderApp(db, orgId, String(args.appId || ""));
       if (r.error) return err(r.error);
+      if (!(await mayReadAppRows(db, orgId, r.app.id, r.app.tableId, by))) return err("No such app.");
       return pageResult({ app: { id: r.app.id, name: r.app.name, tableId: r.app.tableId }, columns: r.table.columns, views: r.views.map((v) => (v.type === "metrics" ? { name: v.name, metrics: v.values.map((m) => ({ label: m.label, value: m.value })) } : v.type === "board" ? { name: v.name, lanes: v.lanes.map((l) => ({ lane: l.key, count: l.rows.length })) } : v.type === "calendar" ? { name: v.name, days: v.days.map(d => ({ date: d.date, count: d.rows.length })), undated: v.undated.length } : { name: v.name, rows: v.rows.length })) }, r.rows.slice(0, 200), 0, r.rows.length);
     }
     case "list_tables":

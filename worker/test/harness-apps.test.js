@@ -1522,3 +1522,63 @@ test('personal view denies a newly orphaned table entity reference before writin
  expect(result.status).toBe(404);
  expect(await env.DB.prepare('SELECT 1 FROM hx_personal_views WHERE org_id=? AND user_id=? AND app_id=?').bind(ORG,'9102',app.id).first()).toBeNull();
 });
+
+test.each(['primary', 'entity'])('app row reads and home summaries enforce private shared %s table access', async relation => {
+  const { app } = await (await send('POST', '/apps', toru, { orgId: ORG, template: 'crm' })).json();
+  const { app: linked } = await (await send('POST', '/apps', mika, { orgId: ORG, template: 'crm' })).json();
+  const added = await send('POST', `/tables/${app.tableId}/rows`, toru, { orgId: ORG, values: { Company: 'Secret row' } });
+  expect(added.status).toBe(201);
+  if (relation === 'primary') await env.DB.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(app.tableId, ORG, linked.id).run();
+  else await env.DB.prepare("INSERT INTO hx_app_entities (org_id,app_id,entity_key,table_id) VALUES (?,?,'shared',?)").bind(ORG, linked.id, app.tableId).run();
+  expect((await send('PUT', `/apps/${linked.id}/access`, mika, { orgId: ORG, visibility: 'private', version: 0 })).status).toBe(200);
+  const { callHarnessTool } = await import('../src/harness/mcpTools.js');
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, toru)).status).toBe(404);
+  expect((await callHarnessTool(env, {orgId:ORG, githubId:'9101'}, 'read_app', {appId:app.id})).isError).toBe(true);
+  expect((await (await get(`/harness/home?orgId=${ORG}`, toru)).json()).apps.some(a=>a.id===app.id)).toBe(false);
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, mika)).status).toBe(200);
+  expect((await callHarnessTool(env, {orgId:ORG, githubId:'9102'}, 'read_app', {appId:app.id})).isError).not.toBe(true);
+});
+
+test.each(['http', 'mcp', 'home'])('app row read checks linked visibility again at response boundary for %s', async mode => {
+  const { app } = await (await send('POST', '/apps', toru, { orgId: ORG, template: 'crm' })).json();
+  const { app: linked } = await (await send('POST', '/apps', mika, { orgId: ORG, template: 'crm' })).json();
+  await env.DB.prepare("INSERT INTO hx_app_entities (org_id,app_id,entity_key,table_id) VALUES (?,?,'shared',?)").bind(ORG, linked.id, app.tableId).run();
+  let changed = false;
+  const racing = new Proxy(env.DB, {get(db,key) {
+    if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+    return sql => { const statement=db.prepare(sql); if(!sql.startsWith('SELECT 1 AS allowed FROM hx_apps target'))return statement;
+      return {bind(...args) {const bound=statement.bind(...args);return {async first() {
+        if(!changed && args[1]===app.id) {changed=true;await db.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,linked.id).run();}
+        return bound.first();
+      }}}};
+    };
+  }});
+  if(mode==='mcp') {
+    const {callHarnessTool}=await import('../src/harness/mcpTools.js');
+    expect((await callHarnessTool({...env,DB:racing},{orgId:ORG,githubId:'9101'},'read_app',{appId:app.id})).isError).toBe(true);
+  } else {
+    const path = mode==='home'?'/harness/home':`/apps/${app.id}`;
+    const response=await worker.fetch(new Request(`https://example.com${path}?orgId=${ORG}`,{headers:headers(toru)}),{...env,DB:racing});
+    if(mode==='home')expect((await response.json()).apps.some(a=>a.id===app.id)).toBe(false);
+    else expect(response.status).toBe(404);
+  }
+  expect(changed).toBe(true);
+});
+
+test('a changed primary table cannot authorize rows read from the previous table',async()=>{
+  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+  const {app:replacement}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+  let changed=false;
+  const racing=new Proxy(env.DB,{get(db,key){
+    if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+    return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT 1 AS allowed FROM hx_apps target'))return statement;
+      return {bind(...args){const bound=statement.bind(...args);return {async first(){
+        if(!changed){changed=true;await db.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(replacement.tableId,ORG,app.id).run()}
+        return bound.first();
+      }}}};
+    };
+  }});
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}?orgId=${ORG}`,{headers:headers(toru)}),{...env,DB:racing});
+  expect(changed).toBe(true);
+  expect(response.status).toBe(404);
+});
