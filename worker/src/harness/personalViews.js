@@ -1,5 +1,5 @@
-import { renderApp, normalizeDefinition, computeView } from './apps.js';
-import { mayUseApp } from './resourceAccess.js';
+import { getApp, renderApp, normalizeDefinition, computeView } from './apps.js';
+import { mayUseApp, mayUseTable } from './resourceAccess.js';
 
 import { SYSTEM_COLUMN_IDS } from './systemColumns.js';
 
@@ -10,6 +10,11 @@ const personalAuthority=(org,user,app,version='NULL',columns='NULL',updatedAt='N
   LEFT JOIN hx_app_access access ON access.org_id=a.org_id AND access.app_id=a.id
   WHERE a.org_id=${org} AND a.id=${app} AND (${version} IS NULL OR a.version=${version})
     AND (${columns} IS NULL OR EXISTS(SELECT 1 FROM hx_tables t WHERE t.org_id=a.org_id AND t.id=a.table_id AND json(t.columns)=json(${columns}) AND t.updated_at=${updatedAt}))
+    AND NOT EXISTS(SELECT 1 FROM hx_apps linked
+      LEFT JOIN hx_app_access linked_access ON linked_access.org_id=linked.org_id AND linked_access.app_id=linked.id
+      WHERE linked.org_id=a.org_id
+        AND (linked.table_id=a.table_id OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=linked.org_id AND e.app_id=linked.id AND e.table_id=a.table_id))
+        AND COALESCE(linked_access.visibility,'workspace')!='workspace' AND COALESCE(linked.created_by,'')!=${user})
     AND LOWER(COALESCE(m.role,'guest'))!='guest'
     AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL)
     AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=a.org_id)
@@ -24,6 +29,8 @@ export function normalizeLayout(raw, columns) {
 }
 export async function personalViews(db, orgId, userId, appId, input) {
   if (!(await mayUseApp(db, orgId, appId, userId))) return { error: 'No such app.', status: 404 };
+  const app = await getApp(db, orgId, appId);
+  if (!app || !(await mayUseTable(db, orgId, app.tableId, userId))) return { error: 'No such app.', status: 404 };
   const rendered = await renderApp(db, orgId, appId);
   if (rendered.error) return rendered;
   const record = await db.prepare('SELECT revision, settings FROM hx_personal_views WHERE org_id=? AND user_id=? AND app_id=?').bind(orgId, String(userId), appId).first();

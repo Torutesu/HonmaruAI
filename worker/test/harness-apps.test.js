@@ -1449,3 +1449,47 @@ test('personal views return rows and computed views from one captured row set ev
  expect(latest.snapshot.rows[0].values[key]).toBe('After');
  expect(latest.computed[0].rows[0].values[key]).toBe('After');
 });
+
+test.each(['primary','entity'])('personal view snapshot denies a table shared with an inaccessible private app through %s',async relation=>{
+ const {app:publicApp}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Public',columns:[{name:'Name',type:'text'}]})).json();
+ const {app:privateApp}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Private',columns:[{name:'Name',type:'text'}]})).json();
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,privateApp.id).run();
+ if(relation==='primary')await env.DB.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(publicApp.tableId,ORG,privateApp.id).run();
+ else {
+  await env.DB.prepare('DELETE FROM hx_app_entities WHERE org_id=? AND table_id=?').bind(ORG,publicApp.tableId).run();
+  await env.DB.prepare("INSERT INTO hx_app_entities(org_id,app_id,table_id,entity_key) VALUES (?,?,?,'linked')").bind(ORG,privateApp.id,publicApp.tableId).run();
+ }
+ const path=`/hx/personal-views/${publicApp.id}`;
+ expect((await get(`${path}?orgId=${ORG}`,mika)).status).toBe(404);
+ expect((await send('PUT',path,mika,{orgId:ORG,expectedRevision:0,views:[],layouts:{}})).status).toBe(404);
+ expect((await get(`${path}?orgId=${ORG}`,toru)).status).toBe(200);
+});
+
+test('personal view saves fail when another table-sharing app becomes private before the write',async()=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app:publicApp}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Public',columns:[{name:'Name',type:'text'}]})).json();
+ const {app:otherApp}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Other',columns:[{name:'Name',type:'text'}]})).json();
+ await env.DB.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(publicApp.tableId,ORG,otherApp.id).run();
+ let revoked=false;
+ const racing=new Proxy(env.DB,{get(db,key){if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];return sql=>{
+  const statement=db.prepare(sql);if(!sql.startsWith('INSERT OR IGNORE INTO hx_personal_views'))return statement;
+  return {bind(...args){const bound=statement.bind(...args);return {async run(){if(!revoked){revoked=true;await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,otherApp.id).run()}return bound.run()}}}};
+ }}});
+ const result=await personalViews(racing,ORG,'9102',publicApp.id,{expectedRevision:0,views:[],layouts:{}});
+ expect(result.status).toBe(404);
+ expect(await env.DB.prepare('SELECT 1 FROM hx_personal_views WHERE org_id=? AND user_id=? AND app_id=?').bind(ORG,'9102',publicApp.id).first()).toBeNull();
+});
+
+test('personal view reads do not return rows if another table-sharing app becomes private before response',async()=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app:publicApp}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Public',columns:[{name:'Name',type:'text'}]})).json();
+ const {app:otherApp}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Other',columns:[{name:'Name',type:'text'}]})).json();
+ await env.DB.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(publicApp.tableId,ORG,otherApp.id).run();
+ let revoked=false;
+ const racing=new Proxy(env.DB,{get(db,key){if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];return sql=>{
+  const statement=db.prepare(sql);if(!sql.startsWith('SELECT 1 AS allowed WHERE EXISTS(SELECT 1 FROM hx_apps a'))return statement;
+  return {bind(...args){const bound=statement.bind(...args);return {async first(){if(!revoked){revoked=true;await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,otherApp.id).run()}return bound.first()}}}};
+ }}});
+ const result=await personalViews(racing,ORG,'9102',publicApp.id);
+ expect(result.status).toBe(404);expect(result.snapshot).toBeUndefined();expect(result.computed).toBeUndefined();
+});
