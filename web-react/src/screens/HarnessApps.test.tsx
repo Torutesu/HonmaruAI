@@ -1,7 +1,7 @@
 import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { AppView, HarnessApps, HarnessTemplateImport, newAppRecordLabel } from './Harness'
+import { AppView, HarnessApps, HarnessTemplateImport, appTableDisplayName, newAppRecordLabel } from './Harness'
 
 const state = vi.hoisted(() => ({ api: null as any }))
 vi.mock('./HarnessShared', async importOriginal => ({
@@ -19,7 +19,13 @@ test('new record labels use the primary table when its title differs from the ap
   expect(newAppRecordLabel('UI確認用タスク','タスク')).toBe('新規タスク')
   expect(newAppRecordLabel('UI確認用タスク','UI確認用タスク','タスク名')).toBe('新規タスク')
   expect(newAppRecordLabel('Contacts','Contacts','名前')).toBe('新規レコード')
+  expect(newAppRecordLabel('Issues','Issues','件名')).toBe('新規レコード')
   expect(newAppRecordLabel('Sales CRM','Sales CRM')).toBe('新規レコード')
+})
+test('table headings show the record type when the app and table share a name',()=>{
+  expect(appTableDisplayName('UI確認用タスク','UI確認用タスク','タスク名')).toBe('タスク')
+  expect(appTableDisplayName('Sales CRM','Contacts','Name')).toBe('Contacts')
+  expect(appTableDisplayName('Contacts','Contacts','名前')).toBe('Contacts')
 })
 beforeEach(() => {
   vi.stubGlobal('location', { hash: '#/apps' })
@@ -148,6 +154,7 @@ test('the app data viewer keeps one record-create action in the table toolbar', 
   const createActions = tree!.root.findAllByProps({ className: 'pill-btn hx-create-record' })
   expect(createActions).toHaveLength(1)
   expect(createActions[0].children).toContain('新規タスク')
+  expect(tree!.root.findAllByType('h2').some(node => node.children.includes('タスク'))).toBe(true)
   expect(tree!.root.findAllByType('button').some(node => node.children.includes('Add a row'))).toBe(false)
 })
 test('read-only app viewers do not get room-link controls in settings', async () => {

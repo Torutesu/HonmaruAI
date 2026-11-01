@@ -35,12 +35,14 @@ test('local runtime failures do not leak host error details', async () => {
   assert.ok(!result.stderr.includes('/Users'));
 });
 test('a transient heartbeat failure does not abort an ACP job when a retry renews the lease', async () => {
-  let heartbeats = 0, finished = false;
+  let heartbeats = 0, finished = false, recover;
+  const recovered = new Promise(resolve => { recover = resolve; });
   const call = async path => {
     if (path === 'claim') return { job: { id: 'acp-job', lease: 'lease', payload: { acp: true, agentKey: 'opencode', prompt: 'hello' } } };
     if (path === 'jobs/acp-job/heartbeat') {
       heartbeats += 1;
       if (heartbeats === 1) throw new TypeError('temporary network failure');
+      recover();
       return { ok: true };
     }
     if (path === 'jobs/acp-job/finish') finished = true;
@@ -51,7 +53,11 @@ test('a transient heartbeat failure does not abort an ACP job when a retry renew
     heartbeatGraceMs: 40,
     retryMs: [0],
     runAcpAgent: async (_payload, { signal }) => {
-      await new Promise(resolve => setTimeout(resolve, 18));
+      await new Promise(resolve => {
+        const complete = () => { signal.removeEventListener('abort', complete); resolve(); };
+        signal.addEventListener('abort', complete, { once: true });
+        recovered.then(complete);
+      });
       assert.equal(signal.aborted, false);
       return { status: 'succeeded', stdout: 'ok', stderr: '', exitCode: 0 };
     },
