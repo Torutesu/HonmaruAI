@@ -47,6 +47,7 @@ export interface AppConnection { name: string; version: number; endpoint: string
 export interface AppEntity { key: string; table: Table; rows?: Row[] }
 export interface AppFork { id: string; revision: number; mergedAt?: string | null; entities: Array<AppEntity & { rows: Row[] }> }
 export interface MergeReview { forkId: string; revision: number; checksum: string; changes: Array<{entity:string;tableId:string;tableName:string;id:string;operation:'create'|'update'|'remove';before:Record<string,unknown>|null;after:Record<string,unknown>|null}>; conflicts: Array<{entity:string;id:string;reason:string}> }
+export interface MigrationPreview { previewChecksum: string; canApply: boolean; changes: Array<{entity:string;tableName:string;operations:string[];schemaChanges:Array<Record<string,unknown>>;rowsScanned:number;rowsChanged:number;examples:Array<{id:string;before:Record<string,unknown>;after:Record<string,unknown>}>;blockers:unknown[]}>; blockers:Array<{entity:string;id:string;column?:string;reason:string}>; blockerCount:number }
 export interface AppDatabase { version: number; entities: AppEntity[]; migrations: Array<{id:string;version:number;checksum:string;plan:unknown;createdAt:string}>; fork: AppFork | null }
 export interface Template { id: string; name: string; icon: string; description: string }
 export interface TemplateShare { id: string; appVersion: number; createdAt: string; expiresAt: string; revokedAt: string | null }
@@ -184,6 +185,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     saveAppAutomations: (id: string, version: number, revision: number, automations: AutomationBundle) => call<{saved:boolean;revision:number}>('PUT', `/apps/${id}/automations`, {version,revision,automations}),
     releaseAppAutomations: (id: string, body: Record<string,unknown>) => call<{saved:boolean;revision:number;version:number;replay?:boolean}>('POST', `/apps/${id}/automations`, body),
     appDatabase: (id: string) => call<AppDatabase>('GET', `/apps/${id}/database`),
+    previewDatabaseMigration: (id: string, body: Record<string, unknown>) => call<MigrationPreview>('POST', `/apps/${id}/database`, body),
     mergePreview: (id: string, fork: AppFork) => call<MergeReview>('POST', `/apps/${id}/database`, { action:'merge_preview',forkId:fork.id,revision:fork.revision }),
     databaseChange: (id: string, body: Record<string, unknown>) => call<{operations?: unknown[]; fork?: AppFork; revision?: number; result?: unknown; review?: MergeReview}>('POST', `/apps/${id}/database`, body),
     appActions: (id: string) => call<{actions: AppAction[]}>('GET', `/apps/${id}/actions`),

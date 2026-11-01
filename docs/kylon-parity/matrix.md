@@ -89,7 +89,7 @@
 | KY-045 | Custom Appのソースコードと実行環境 | 一部 | P1 | [worker/src/harness/customRunner.js](../../worker/src/harness/customRunner.js) | HTML/CSS/JS生成・隔離UI・確認付きCRUD、公開済みサーバーJSのMac実行、固定API接続を追加。CLIから公開済みアクションの一覧・バージョン固定実行・実行結果を確認可能。クラウド任意サーバー配布は残る |
 | KY-046 | 下書き・プレビュー・DB fork | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 個人用DB fork、複数entityのプレビューSDK、差分レビュー付きの一括本番反映を追加。競合は反映を拒否。1回50行まで・反映後は再forkが必要。自動競合解消・選択的マージは残る |
 | KY-047 | 承認されたcommitの公開 | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 保存済みversionをCASで公開し公開者を記録。Git commit単位の配布・別承認者の承認は残る |
-| KY-048 | DB migration journal | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 追加専用migrationの原子適用・checksum・ID再試行・version競合を実装。破壊的変更・データ変換migrationは残る |
+| KY-048 | DB migration journal | 一部 | P0 | [worker/src/harness/appDatabase.js](../../worker/src/harness/appDatabase.js) | 追加専用migrationを維持したまま、列名変更・厳格な型変換・空列削除を追加。データ変更は適用前プレビュー、変換不能行の拒否、checksum再確認とD1 transaction内のschema/row snapshot CASで保護。`false`/`0`は空扱いしない。変換対象はscalar型に限定し、relation/person変換と500KB超のmigration snapshotは未対応。実画面でのKylon比較と本番CI/deploy確認は継続 |
 | KY-049 | 公開範囲private/workspace/public | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | Database Appにprivate/workspaceの明示ポリシーを追加。Table・MCP・Home・Workflowにも適用。Custom Appの公開ホスト・匿名public・room grantsは未実装 |
 | KY-050 | 独自ドメイン・DNS・環境変数 | 未実装 | P2 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | ホスト競合・証明書・秘密値非表示・再デプロイ |
 | KY-051 | デプロイ履歴・ログ・ロールバック | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 現行定義のversionと実デプロイの復元を区別 |
