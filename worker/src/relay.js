@@ -164,26 +164,30 @@ export class OrgRelay {
         invalidateJamJoins(this,orgId,channel);
         // The room has been deleted. Public rooms may have Jam participants
         // without conversation_members entries, so inspect every socket.
+        const leaves=[];
         for (const ws of this.state.getWebSockets()) {
           const att=ws.deserializeAttachment();
           if(att?.orgId!==orgId || att.jam?.key!==channel)continue;
-          if(att.jam.pending)ws.serializeAttachment({...att,jam:null});
-          else try { await leaveJam(this,ws,att); } catch(err) { console.error('room jam leave failed',err?.message||err); }
           OrgRelay.deliver(ws,JSON.stringify(customEvent('jam_error',{channel:null,message:'You are no longer in this channel.'})));
+          if(att.jam.pending)ws.serializeAttachment({...att,jam:null});
+          else leaves.push(leaveJam(this,ws,att).catch(err=>console.error('room jam leave failed',err?.message||err)));
           evicted+=1;
         }
+        await Promise.all(leaves);
       } else if (login && typeof channel === "string") {
         invalidateJamJoins(this,orgId,channel);
         // Out of one private channel only: out of its Jam, so the others
         // hang up on them, and told so; the rest of the room is still theirs.
+        const leaves=[];
         for (const ws of this.state.getWebSockets()) {
           const att = ws.deserializeAttachment();
           if (att?.orgId !== orgId || att?.userId !== login || att.jam?.key !== channel) continue;
-          if(att.jam.pending)ws.serializeAttachment({...att,jam:null});
-          else await leaveJam(this, ws, att);
           OrgRelay.deliver(ws, JSON.stringify(customEvent("jam_error", { channel: null, message: "You are no longer in this channel." })));
+          if(att.jam.pending)ws.serializeAttachment({...att,jam:null});
+          else leaves.push(leaveJam(this, ws, att));
           evicted += 1;
         }
+        await Promise.all(leaves);
       } else if (login) {
         for (const ws of this.state.getWebSockets()) {
           const att = ws.deserializeAttachment();

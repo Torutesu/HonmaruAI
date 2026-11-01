@@ -2,7 +2,8 @@ import {env} from 'cloudflare:test';
 import {beforeEach,afterEach,expect,test,vi} from 'vitest';
 import schemaSql from '../schema.sql?raw';
 import {upsertMembership,upsertUser,removeBusiness} from '../src/db.js';
-import {handleJamMessage,jamPeers,invalidateJamJoins} from '../src/jam.js';
+import {handleJamMessage,jamPeers,invalidateJamJoins,leaveJam} from '../src/jam.js';
+import {OrgRelay} from '../src/relay.js';
 
 const org='jam-join-fence',channel='b:board';
 let createdAt;
@@ -105,6 +106,83 @@ test('pending joins are not peers and cannot send a late success after eviction'
   expect(f.ws.deserializeAttachment().jam).toBeNull();
   expect(f.events.some(event=>event.name==='jam_joined')).toBe(false);
   expect(f.entries.size).toBe(0);
+});
+
+test.each(['leave','closed'])('last peer %s cannot delete metadata while a join is pending',async action=>{
+  let signalStarted,finishFetch;
+  const started=new Promise(resolve=>{signalStarted=resolve;});
+  vi.stubGlobal('fetch',()=>{signalStarted();return new Promise(resolve=>{finishFetch=resolve;});});
+  const f=fixture({turn:true});
+  let otherAttachment={orgId:org,userId:'alice',githubId:'4101',jam:{key:channel,peerId:'existing-peer',since:'2026-01-01T00:00:00Z',mode:'notes'}};
+  const other={deserializeAttachment:()=>structuredClone(otherAttachment),serializeAttachment:value=>{otherAttachment=structuredClone(value);}};
+  let closed=false;
+  f.relay.state.getWebSockets=()=>closed?[f.ws]:[f.ws,other];
+  const key=`jam:${org}:${channel}`;
+  f.entries.set(key,{startedAt:'2026-01-01T00:00:00Z',startedBy:'alice',mode:'notes',people:['alice'],messageId:'existing-message'});
+  const run=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+  await started;
+  if(action==='closed')closed=true;
+  let leaveFinished=false;
+  const leave=leaveJam(f.relay,other,other.deserializeAttachment(),{closing:action==='closed'}).then(()=>{leaveFinished=true;});
+  await Promise.resolve();
+  expect(leaveFinished).toBe(false);
+  if(action==='leave')expect(other.deserializeAttachment().jam).toBeNull();
+  finishFetch(new Response(JSON.stringify({iceServers:[]}),{status:200,headers:{'content-type':'application/json'}}));
+  await run;await leave;
+  const joined=f.events.find(event=>event.name==='jam_joined');
+  expect(joined.value.peers).toEqual([]);
+  expect(f.ws.deserializeAttachment().jam.pending).toBe(false);
+  expect(f.entries.get(key)).toMatchObject({messageId:'existing-message',people:['alice']});
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=?').bind(org).first('n')).toBe(0);
+});
+
+test('a cancelled pending join lets the last peer end the existing Jam exactly once',async()=>{
+  let signalStarted,finishFetch;
+  const started=new Promise(resolve=>{signalStarted=resolve;});
+  vi.stubGlobal('fetch',()=>{signalStarted();return new Promise(resolve=>{finishFetch=resolve;});});
+  const f=fixture({turn:true});
+  let otherAttachment={orgId:org,userId:'alice',githubId:'4101',jam:{key:channel,peerId:'existing-peer',since:'2026-01-01T00:00:00Z',mode:'notes'}};
+  const other={deserializeAttachment:()=>structuredClone(otherAttachment),serializeAttachment:value=>{otherAttachment=structuredClone(value);}};
+  f.relay.state.getWebSockets=()=>[f.ws,other];
+  const key=`jam:${org}:${channel}`;
+  f.entries.set(key,{startedAt:'2026-01-01T00:00:00Z',startedBy:'alice',mode:'notes',people:['alice']});
+  const run=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+  await started;
+  const original=other.deserializeAttachment();
+  const leave=leaveJam(f.relay,other,original);
+  const duplicate=leaveJam(f.relay,other,original);
+  await handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_leave',{});
+  finishFetch(new Response(JSON.stringify({iceServers:[]}),{status:200,headers:{'content-type':'application/json'}}));
+  await Promise.all([run,leave,duplicate]);
+  expect(f.entries.has(key)).toBe(false);
+  expect(f.events.some(event=>event.name==='jam_joined')).toBe(false);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND body LIKE 'Jam ended%'").bind(org).first('n')).toBe(1);
+});
+
+test('room eviction detaches and notifies every peer before waiting for a pending join',async()=>{
+  let signalStarted,finishFetch,allNotified;
+  const started=new Promise(resolve=>{signalStarted=resolve;});
+  const notified=new Promise(resolve=>{allNotified=resolve;});
+  vi.stubGlobal('fetch',()=>{signalStarted();return new Promise(resolve=>{finishFetch=resolve;});});
+  const f=fixture({turn:true});
+  let delivered=0;
+  const peer=id=>{
+    let attachment={orgId:org,userId:'alice',githubId:'4101',jam:{key:channel,peerId:id,since:'2026-01-01T00:00:00Z',mode:'notes'}};
+    return {send:()=>{if(++delivered===2)allNotified();},deserializeAttachment:()=>structuredClone(attachment),serializeAttachment:value=>{attachment=structuredClone(value);}};
+  };
+  const one=peer('one'),two=peer('two');
+  f.relay.state.getWebSockets=()=>[f.ws,one,two];
+  f.entries.set(`jam:${org}:${channel}`,{startedAt:'2026-01-01T00:00:00Z',startedBy:'alice',mode:'notes',people:['alice']});
+  const run=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+  await started;
+  const request=new Request(`https://relay.internal/internal/evict?orgId=${org}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({channel,allInChannel:true})});
+  const eviction=OrgRelay.prototype.fetch.call(f.relay,request);
+  await notified;
+  expect(one.deserializeAttachment().jam).toBeNull();
+  expect(two.deserializeAttachment().jam).toBeNull();
+  finishFetch(new Response(JSON.stringify({iceServers:[]}),{status:200,headers:{'content-type':'application/json'}}));
+  await Promise.all([run,eviction]);
+  expect(f.events.some(event=>event.name==='jam_joined')).toBe(false);
 });
 
 test.each(['leave','closed'])('a %s during a pending join does not resume it or leave a phantom Jam',async action=>{

@@ -109,6 +109,7 @@ export function jamPeers(sockets, orgId, key, exclude) {
   const out = [];
   for (const ws of sockets) {
     if (ws === exclude) continue;
+    if(typeof ws.readyState==='number' && ws.readyState!==1)continue;
     const att = ws.deserializeAttachment?.();
     if (att?.orgId === orgId && att.jam?.key === key && !att.jam.pending) out.push({ ws, att });
   }
@@ -215,13 +216,27 @@ function reply(ws, event) {
 }
 
 /// Out of the Jam this socket is in, if any; the Jam ends with its last.
+const leavingPeers = new WeakMap();
 export async function leaveJam(relay, ws, att, { closing = false } = {}) {
   const jam = att?.jam;
   if (!jam) return;
   const orgId = att.orgId;
+  let current=null;
+  try { current=ws.deserializeAttachment?.(); } catch { /* the socket may already be closed */ }
+  if(current && current.jam?.peerId!==jam.peerId)return;
+  let leaving=leavingPeers.get(ws);
+  if(!leaving){leaving=new Set();leavingPeers.set(ws,leaving);}
+  if(leaving.has(jam.peerId))return;
+  leaving.add(jam.peerId);
+  // Detach immediately, even if another join is awaiting TURN credentials.
+  // A revoked peer must not continue to receive signals while queued.
   if (!closing) {
-    try { ws.serializeAttachment({ ...att, jam: null }); } catch { /* closing anyway */ }
+    try { ws.serializeAttachment({ ...(current||att), jam: null }); } catch { /* closing anyway */ }
   }
+  // A join must finish its authorization and attachment before a last leave
+  // can decide whether to end the Jam or delete its metadata.
+  const unlock=await lockJoin(relay,joinKey(orgId,jam.key));
+  try {
   const members = await listMembers(relay.db, orgId, att.githubId);
   const state = await announceState(relay, orgId, jam.key, members, ws);
   if (state.active) return;
@@ -240,6 +255,7 @@ export async function leaveJam(relay, ws, att, { closing = false } = {}) {
     startedAt: meta.startedAt, endedAt: new Date().toISOString(), minutes,
     participants: (meta.people || []).map((l) => ({ name: members.find((m) => m.login === l)?.name || null })),
   }));
+  } finally { unlock();leaving.delete(jam.peerId); }
 }
 
 /// The Jams a socket that just joined can see, so its channel headers show
@@ -366,6 +382,16 @@ async function handleJamMessageInner(relay, ws, att, type, payload, joining) {
     const resolved = await resolveChannel(relay.db, orgId, { login: att.userId, github_id: att.githubId }, payload.channel, members);
     const refuse = (message) => reply(ws, customEvent("jam_error", { channel: payload.channel ?? null, message }));
     if (!resolved) return refuse("No such channel.");
+    // Leave the previous channel before locking the next one. Holding the next
+    // lock while waiting for the previous one would deadlock cross-room swaps.
+    att=ws.deserializeAttachment()||att;
+    if(joining.cancelled || (typeof ws.readyState==='number' && ws.readyState!==1))return;
+    if(att.jam?.key===resolved.key)return;
+    if(att.jam) {
+      await leaveJam(relay,ws,att);
+      att=ws.deserializeAttachment()||att;
+    }
+    if(joining.cancelled)return;
     const key=joinKey(orgId,resolved.key);
     const locked=lockJoin(relay,key);
     const epoch=joinEpoch(relay,key);
@@ -374,11 +400,7 @@ async function handleJamMessageInner(relay, ws, att, type, payload, joining) {
     // A prior join on this same socket can have finished while we waited.
     att=ws.deserializeAttachment()||att;
     if(joining.cancelled || (typeof ws.readyState==='number' && ws.readyState!==1))return;
-    if (att.jam?.key === resolved.key) return; // already here
-    if (att.jam) {
-      await leaveJam(relay, ws, att);
-      att = ws.deserializeAttachment() || att;
-    }
+    if (att.jam) return; // another event changed this socket while waiting
     if(joining.cancelled)return;
     const peers = jamPeers(relay.state.getWebSockets(), orgId, resolved.key, ws);
     if (peers.length >= MAX_JAM_PEERS) return refuse(`A Jam holds ${MAX_JAM_PEERS} people.`);
@@ -424,10 +446,11 @@ async function handleJamMessageInner(relay, ws, att, type, payload, joining) {
       return;
     }
     ws.serializeAttachment({...current,jam:{...current.jam,pending:false}});
+    const currentPeers=jamPeers(relay.state.getWebSockets(),orgId,resolved.key,ws);
     reply(ws, customEvent("jam_joined", {
       channel: payload.channel,
       peerId,
-      peers: peers.map((p) => p.att.jam.peerId),
+      peers: currentPeers.map((p) => p.att.jam.peerId),
       iceServers: servers,
       mode: meta.mode,
       startedAt: meta.startedAt,
