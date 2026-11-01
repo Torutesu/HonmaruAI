@@ -34,6 +34,50 @@ test('local runtime failures do not leak host error details', async () => {
   assert.equal(result.status, 'failed');
   assert.ok(!result.stderr.includes('/Users'));
 });
+test('a transient heartbeat failure does not abort an ACP job when a retry renews the lease', async () => {
+  let heartbeats = 0, finished = false;
+  const call = async path => {
+    if (path === 'claim') return { job: { id: 'acp-job', lease: 'lease', payload: { acp: true, agentKey: 'opencode', prompt: 'hello' } } };
+    if (path === 'jobs/acp-job/heartbeat') {
+      heartbeats += 1;
+      if (heartbeats === 1) throw new TypeError('temporary network failure');
+      return { ok: true };
+    }
+    if (path === 'jobs/acp-job/finish') finished = true;
+    return { ok: true };
+  };
+  await processOne(call, {
+    heartbeatIntervalMs: 5,
+    heartbeatGraceMs: 40,
+    retryMs: [0],
+    runAcpAgent: async (_payload, { signal }) => {
+      await new Promise(resolve => setTimeout(resolve, 18));
+      assert.equal(signal.aborted, false);
+      return { status: 'succeeded', stdout: 'ok', stderr: '', exitCode: 0 };
+    },
+  });
+  assert.ok(heartbeats >= 2);
+  assert.equal(finished, true);
+});
+test('repeated transient heartbeat failures stop work before the lease becomes unsafe', async () => {
+  let heartbeats = 0, finished = false, aborted = false;
+  const call = async path => {
+    if (path === 'claim') return { job: { id: 'acp-job', lease: 'lease', payload: { acp: true, agentKey: 'opencode', prompt: 'hello' } } };
+    if (path === 'jobs/acp-job/heartbeat') { heartbeats += 1; throw new TypeError('network unavailable'); }
+    if (path === 'jobs/acp-job/finish') finished = true;
+    return { ok: true };
+  };
+  await processOne(call, {
+    heartbeatIntervalMs: 5,
+    heartbeatGraceMs: 20,
+    runAcpAgent: async (_payload, { signal }) => new Promise(resolve => {
+      signal.addEventListener('abort', () => { aborted = true; resolve({ status: 'failed', stdout: '', stderr: '', exitCode: null }); }, { once: true });
+    }),
+  });
+  assert.ok(heartbeats >= 2);
+  assert.equal(aborted, true);
+  assert.equal(finished, false);
+});
 test('a result whose upload fails is handed in again, without running the code again', async () => {
   const job = { id: 'job', lease: 'lease', payload: { code: 'return input * 2', input: 21 } };
   const result = { status: 'succeeded', stdout: '42', stderr: '', exitCode: 0 };
