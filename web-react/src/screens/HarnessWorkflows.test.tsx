@@ -342,6 +342,258 @@ test('editing preserves conditions and submits the observed revision; conflicts 
  expect(tree.root.findAllByProps({'aria-label':'Workflow name'})).toHaveLength(0);
 });
 
+test('editing a row filter preserves other saved conditions and resolves column names',async()=>{
+ const trigger={type:'row',tableId:'tasks',on:'changed',where:{Status:'AB',priority:[1,2],enabled:false,missing:null}}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ state.api.tables.mockResolvedValue({tables:[{id:'tasks',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A','AB','Done']},{id:'priority',name:'Priority',type:'number'},{id:'enabled',name:'Enabled',type:'checkbox'}]}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ expect(tree.root.findByProps({'aria-label':'Status'}).props.value).toBe('AB')
+ const text=JSON.stringify(tree.toJSON());for(const value of ['priority','1 / 2','enabled','false','missing','null'])expect(text.toLowerCase()).toContain(value.toLowerCase())
+ expect(JSON.stringify(tree.toJSON())).toContain('Some saved condition fields are unavailable. Repair them before saving.')
+ await act(async()=>{tree.root.findByProps({'aria-label':'Status'}).props.onChange({target:{value:'Done'}})})
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ expect(state.api.updateWorkflow.mock.calls[0][1].trigger.where).toEqual({Status:['Done'],priority:[1,2],enabled:false,missing:null})
+})
+
+test('a complex row predicate is displayed and preserved rather than silently simplified',async()=>{
+ const trigger={type:'row',tableId:'tasks',on:'changed',where:{status:['A','AB']}}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ state.api.tables.mockResolvedValue({tables:[{id:'tasks',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A','AB']}]}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ expect(tree.root.findByProps({'aria-label':'Status'}).props.disabled).toBe(true)
+ expect(JSON.stringify(tree.toJSON())).toContain('A / AB')
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ expect(state.api.updateWorkflow.mock.calls[0][1].trigger.where).toEqual(trigger.where)
+})
+
+test('an empty candidate list remains a match-nothing condition and is explained',async()=>{
+ const trigger={type:'row',tableId:'tasks',on:'changed',where:{status:[]}}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ state.api.tables.mockResolvedValue({tables:[{id:'tasks',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A']}]}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ expect(tree.root.findByProps({'aria-label':'Status'}).props.disabled).toBe(true)
+ expect(JSON.stringify(tree.toJSON())).toContain('An empty candidate list matches no records.')
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ expect(state.api.updateWorkflow.mock.calls[0][1].trigger.where).toEqual(trigger.where)
+})
+
+test('workflow app-record filters compare scalar values exactly and preserve column-name keys',async()=>{
+ const trigger={type:'app_record_change',appId:'app',entityId:'primary',events:['update'],when:{where:{Status:'AB',priority:2}}}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ const table={id:'tasks',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A','AB']},{id:'priority',name:'Priority',type:'number'}]}
+ state.api.apps=vi.fn().mockResolvedValue({apps:[{id:'app',name:'Tasks'}]});state.api.appDatabase=vi.fn().mockResolvedValue({entities:[{key:'primary',table}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ const status=tree.root.findAllByType('fieldset').find(field=>field.findAllByType('legend').some(legend=>legend.children.includes('Status')))!
+ const option=(value:string)=>status.findAllByType('label').find(label=>label.children.includes(value))!.findByType('input')
+ expect(option('A').props.checked).toBe(false);expect(option('AB').props.checked).toBe(true)
+ await act(async()=>{option('A').props.onChange({target:{checked:true}})})
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ expect(state.api.updateWorkflow.mock.calls[0][1].trigger.when.where).toEqual({Status:['AB','A'],priority:2})
+})
+
+test('unsupported and ambiguous app-record predicates remain visible and unchanged',async()=>{
+ const trigger={type:'app_record_change',appId:'app',entityId:'primary',events:['update'],when:{where:{status:'A',Status:'AB',priority:[0,1],enabled:null}}}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ const table={id:'tasks',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A','AB']},{id:'priority',name:'Priority',type:'number'},{id:'enabled',name:'Enabled',type:'checkbox'}]}
+ state.api.apps=vi.fn().mockResolvedValue({apps:[{id:'app',name:'Tasks'}]});state.api.appDatabase=vi.fn().mockResolvedValue({entities:[{key:'primary',table}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ const fields=tree.root.findAllByType('fieldset')
+ for(const name of ['Status','Priority','Enabled']){
+  const field=fields.find(item=>item.findAllByType('legend').some(legend=>legend.children.includes(name)))!
+  expect(field.findAllByType('input').concat(field.findAllByType('select')).every(input=>input.props.disabled)).toBe(true)
+ }
+ const text=JSON.stringify(tree.toJSON());for(const value of ['A','AB','0 / 1','null'])expect(text).toContain(value)
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ expect(state.api.updateWorkflow.mock.calls[0][1].trigger.when.where).toEqual(trigger.when.where)
+})
+
+test('an unavailable app condition can be explicitly removed without changing other conditions',async()=>{
+ const trigger={type:'app_record_change',appId:'app',entityId:'primary',events:['update'],when:{where:{Status:'AB',removed:'old'}}}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ const table={id:'tasks',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A','AB']}]}
+ state.api.apps=vi.fn().mockResolvedValue({apps:[{id:'app',name:'Tasks'}]});state.api.appDatabase=vi.fn().mockResolvedValue({entities:[{key:'primary',table}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ expect(JSON.stringify(tree.toJSON())).toContain('Some saved condition fields are unavailable. Repair them before saving.')
+ const remove=()=>tree.root.findByProps({'aria-label':'Remove condition: removed'})
+ await act(async()=>{remove().props.onClick()})
+ expect(JSON.stringify(tree.toJSON())).toContain('Removing this condition may cause the workflow to run for more records.')
+ expect(state.api.updateWorkflow).not.toHaveBeenCalled()
+ const confirmation=tree.root.findAllByType('button').find(node=>node.children.includes('Remove condition')&&!node.props['aria-label'])!
+ const parent=confirmation.parent!
+ await act(async()=>{parent.findAllByType('button').find(node=>node.children.includes('Cancel'))!.props.onClick()})
+ expect(remove()).toBeDefined();expect(state.api.updateWorkflow).not.toHaveBeenCalled()
+ await act(async()=>{remove().props.onClick()})
+ await act(async()=>{tree.root.findAllByType('button').find(node=>node.children.includes('Remove condition')&&!node.props['aria-label'])!.props.onClick()})
+ expect(tree.root.findAllByProps({'aria-label':'Remove condition: removed'})).toHaveLength(0)
+ expect(state.api.updateWorkflow).not.toHaveBeenCalled()
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ expect(state.api.updateWorkflow.mock.calls[0][1].trigger.when.where).toEqual({Status:'AB'})
+})
+
+test('removing one ambiguous row alias unlocks that field and retains the other alias',async()=>{
+ const trigger={type:'row',tableId:'tasks',on:'changed',where:{status:'A',Status:'AB'}}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ state.api.tables.mockResolvedValue({tables:[{id:'tasks',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A','AB']}]}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ expect(tree.root.findByProps({'aria-label':'Status'}).props.disabled).toBe(true)
+ await act(async()=>{tree.root.findByProps({'aria-label':'Remove condition: Status'}).props.onClick()})
+ await act(async()=>{tree.root.findAllByType('button').find(node=>node.children.includes('Remove condition')&&!node.props['aria-label'])!.props.onClick()})
+ expect(tree.root.findByProps({'aria-label':'Status'}).props.disabled).toBe(false)
+ expect(tree.root.findByProps({'aria-label':'Status'}).props.value).toBe('A')
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ expect(state.api.updateWorkflow.mock.calls[0][1].trigger.where).toEqual({status:'A'})
+})
+
+test.each(['row','app_record_change'] as const)('clearing the last %s condition keeps an expansion warning until a new filter is set',async type=>{
+ const trigger=type==='row'?{type,tableId:'tasks',on:'changed',where:{status:'A'}}:{type,appId:'app',entityId:'primary',events:['update'],when:{where:{status:'A'}}}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ const table={id:'tasks',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A']}]}
+ state.api.tables.mockResolvedValue({tables:[table]});state.api.apps=vi.fn().mockResolvedValue({apps:[{id:'app',name:'Tasks'}]});state.api.appDatabase=vi.fn().mockResolvedValue({entities:[{key:'primary',table}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ await act(async()=>{tree.root.findByProps({'aria-label':'Remove condition: status'}).props.onClick()})
+ await act(async()=>{tree.root.findAllByType('button').find(node=>node.children.includes('Remove condition')&&!node.props['aria-label'])!.props.onClick()})
+ expect(JSON.stringify(tree.toJSON())).toContain('All field conditions were removed. More records may trigger this workflow.')
+ expect(state.api.updateWorkflow).not.toHaveBeenCalled()
+ if(type==='row') {
+  await act(async()=>{tree.root.findByProps({'aria-label':'Status'}).props.onChange({target:{value:'A'}})})
+  expect(JSON.stringify(tree.toJSON())).not.toContain('All field conditions were removed. More records may trigger this workflow.')
+  await act(async()=>{tree.root.findByProps({'aria-label':'Status'}).props.onChange({target:{value:''}})})
+ } else {
+  const option=()=>tree.root.findAllByType('fieldset').find(item=>item.findAllByType('legend').some(legend=>legend.children.includes('Status')))!.findByType('input')
+  await act(async()=>{option().props.onChange({target:{checked:true}})})
+  expect(JSON.stringify(tree.toJSON())).not.toContain('All field conditions were removed. More records may trigger this workflow.')
+  await act(async()=>{option().props.onChange({target:{checked:false}})})
+ }
+ expect(JSON.stringify(tree.toJSON())).toContain('All field conditions were removed. More records may trigger this workflow.')
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ const saved=state.api.updateWorkflow.mock.calls[0][1].trigger
+ expect(type==='row'?saved.where:saved.when).toBeUndefined()
+})
+
+test('clearing one app field warns until the saved field is restored, while retaining other conditions',async()=>{
+ const trigger={type:'app_record_change',appId:'app',entityId:'primary',events:['update'],when:{where:{status:'A',priority:2}}}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ const table={id:'tasks',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A']},{id:'priority',name:'Priority',type:'number'}]}
+ state.api.apps=vi.fn().mockResolvedValue({apps:[{id:'app',name:'Tasks'}]});state.api.appDatabase=vi.fn().mockResolvedValue({entities:[{key:'primary',table}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ const input=()=>tree.root.findAllByType('fieldset').find(field=>field.findAllByType('legend').some(legend=>legend.children.includes('Priority')))!.findByType('input')
+ const warning='A saved condition or watched column was removed. More records may trigger this workflow when saved.'
+ await act(async()=>{input().props.onChange({target:{value:''}})})
+ expect(JSON.stringify(tree.toJSON())).toContain(warning)
+ await act(async()=>{input().props.onChange({target:{value:'2'}})})
+ expect(JSON.stringify(tree.toJSON())).not.toContain(warning)
+ await act(async()=>{input().props.onChange({target:{value:''}})})
+ expect(JSON.stringify(tree.toJSON())).toContain(warning)
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ expect(state.api.updateWorkflow.mock.calls[0][1].trigger.when.where).toEqual({status:'A'})
+})
+
+test('clearing a row select warns even when another condition remains and restoration clears it',async()=>{
+ const trigger={type:'row',tableId:'tasks',on:'changed',where:{status:['A'],priority:2}}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ state.api.tables.mockResolvedValue({tables:[{id:'tasks',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A']},{id:'priority',name:'Priority',type:'number'}]}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ const select=()=>tree.root.findByProps({'aria-label':'Status'})
+ const warning='A saved condition or watched column was removed. More records may trigger this workflow when saved.'
+ await act(async()=>{select().props.onChange({target:{value:''}})})
+ expect(JSON.stringify(tree.toJSON())).toContain(warning)
+ await act(async()=>{select().props.onChange({target:{value:'A'}})})
+ expect(JSON.stringify(tree.toJSON())).not.toContain(warning)
+ await act(async()=>{select().props.onChange({target:{value:''}})})
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ expect(state.api.updateWorkflow.mock.calls[0][1].trigger.where).toEqual({priority:2})
+})
+
+test('restoring a saved row alias through its column ID clears the warning',async()=>{
+ const trigger={type:'row',tableId:'tasks',on:'changed',where:{Status:'A',priority:2}}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ state.api.tables.mockResolvedValue({tables:[{id:'tasks',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A']},{id:'priority',name:'Priority',type:'number'}]}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ const select=()=>tree.root.findByProps({'aria-label':'Status'})
+ const warning='A saved condition or watched column was removed. More records may trigger this workflow when saved.'
+ await act(async()=>{select().props.onChange({target:{value:''}})})
+ expect(JSON.stringify(tree.toJSON())).toContain(warning)
+ await act(async()=>{select().props.onChange({target:{value:'A'}})})
+ expect(JSON.stringify(tree.toJSON())).not.toContain(warning)
+})
+
+test('clearing a watched column by changing to delete events warns before direct save',async()=>{
+ const trigger={type:'row',tableId:'tasks',on:'changed',column:'priority'}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ state.api.tables.mockResolvedValue({tables:[{id:'tasks',name:'Tasks',columns:[{id:'priority',name:'Priority',type:'number'}]}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ await act(async()=>{tree.root.findByProps({'aria-label':'When'}).props.onChange({target:{value:'deleted'}})})
+ expect(JSON.stringify(tree.toJSON())).toContain('A saved condition or watched column was removed. More records may trigger this workflow when saved.')
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ expect(state.api.updateWorkflow.mock.calls[0][1].trigger.column).toBeUndefined()
+})
+
+test('removing a __proto__ condition does not change the remaining own conditions',async()=>{
+ const where=JSON.parse('{"__proto__":"A","priority":2}')
+ const trigger={type:'app_record_change',appId:'app',entityId:'primary',events:['update'],when:{where}}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ const table={id:'tasks',name:'Tasks',columns:[{id:'first',name:'status',type:'text'},{id:'status',name:'__proto__',type:'select',options:['A']},{id:'priority',name:'Priority',type:'number'}]}
+ state.api.apps=vi.fn().mockResolvedValue({apps:[{id:'app',name:'Tasks'}]});state.api.appDatabase=vi.fn().mockResolvedValue({entities:[{key:'primary',table}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ await act(async()=>{tree.root.findByProps({'aria-label':'Remove condition: __proto__'}).props.onClick()})
+ await act(async()=>{tree.root.findAllByType('button').find(node=>node.children.includes('Remove condition')&&!node.props['aria-label'])!.props.onClick()})
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ expect(state.api.updateWorkflow.mock.calls[0][1].trigger.when.where).toEqual({priority:2})
+})
+
+test.each(['constructor','__proto__'])('a shadowed field ID uses its safe %s name as an own condition key',async alias=>{
+ const trigger={type:'app_record_change',appId:'app',entityId:'primary',events:['update']}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ const table={id:'tasks',name:'Tasks',columns:[{id:'first',name:'status',type:'text'},{id:'status',name:alias,type:'select',options:['A']}]}
+ state.api.apps=vi.fn().mockResolvedValue({apps:[{id:'app',name:'Tasks'}]});state.api.appDatabase=vi.fn().mockResolvedValue({entities:[{key:'primary',table}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ const field=tree.root.findAllByType('fieldset').find(item=>item.findAllByType('legend').some(legend=>legend.children.includes(alias)))!
+ const input=field.findByType('input');expect(input.props.disabled).toBe(false)
+ await act(async()=>{input.props.onChange({target:{checked:true}})})
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ const saved=state.api.updateWorkflow.mock.calls[0][1].trigger.when.where
+ expect(Object.hasOwn(saved,alias)).toBe(true);expect(saved[alias]).toEqual(['A']);expect(Object.keys(saved)).toEqual([alias])
+ expect(JSON.parse(JSON.stringify(saved))[alias]).toEqual(['A'])
+})
+
+test.each(['constructor','__proto__'])('a row filter writes a safe own %s name when its ID is shadowed',async alias=>{
+ const trigger={type:'row',tableId:'tasks',on:'changed'}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ state.api.tables.mockResolvedValue({tables:[{id:'tasks',name:'Tasks',columns:[{id:'first',name:'status',type:'text'},{id:'status',name:alias,type:'select',options:['A']}]}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ await act(async()=>{tree.root.findByProps({'aria-label':alias}).props.onChange({target:{value:'A'}})})
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ const saved=state.api.updateWorkflow.mock.calls[0][1].trigger.where
+ expect(Object.hasOwn(saved,alias)).toBe(true);expect(saved[alias]).toEqual(['A']);expect(Object.keys(saved)).toEqual([alias])
+})
+
+test('a field with no unambiguous key is not editable',async()=>{
+ const trigger={type:'app_record_change',appId:'app',entityId:'primary',events:['update']}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ const table={id:'tasks',name:'Tasks',columns:[{id:'first',name:'status',type:'text'},{id:'status',name:'status',type:'select',options:['A']}]}
+ state.api.apps=vi.fn().mockResolvedValue({apps:[{id:'app',name:'Tasks'}]});state.api.appDatabase=vi.fn().mockResolvedValue({entities:[{key:'primary',table}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ const field=tree.root.findAllByType('fieldset').find(item=>item.findAllByType('legend').some(legend=>legend.children.includes('status'))&&item.findAllByType('input').some(input=>input.props.type==='checkbox'))!
+ expect(field.findByType('input').props.disabled).toBe(true)
+ expect(field.findAllByType('small').some(item=>item.children.includes('This condition cannot be edited here.'))).toBe(true)
+})
+
 test('weekly and monthly editors retain and save explicit calendar choices',async()=>{
  const editable={...workflow,updatedAt:'2026-10-25T00:00:00Z',trigger:{type:'schedule',cadence:'weekly',weekday:5,hour:9,minute:30,timezone:'Asia/Tokyo'},steps:[{type:'post',channel:'b:ops',text:'Report'}]};
  state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});
