@@ -118,6 +118,29 @@ test("Devin: out of its allowance, it says so", async () => {
   ]);
 });
 
+test("stopping a Devin assignment terminates only its exact provider session", async () => {
+  devin().intercept({ path: "/v3/organizations/org-abc/sessions?first=1", method: "GET" }).reply(200, { items: [] });
+  await send("PUT", "/teammates", toru, { orgId: ORG, provider: "devin", enabled: true, apiKey: "cog_cancel_test", account: "org-abc" });
+  await env.DB.prepare(`INSERT INTO ai_teammate_runs(id,org_id,provider,channel,thread_id,remote_id,status,created_at,updated_at,assignment_id,assignment_generation)
+    VALUES ('devin-current',?1,'devin','b:cafe','thread','devin-current','running','2026-10-26','2026-10-26','assignment-stop',7),
+           ('devin-stale',?1,'devin','b:cafe','thread','devin-stale','running','2026-10-25','2026-10-25','assignment-stop',6)`)
+    .bind(ORG).run();
+
+  let deleted;
+  devin().intercept({ path: "/v3/organizations/org-abc/sessions/devin-current", method: "DELETE", headers: { authorization: "Bearer cog_cancel_test" } })
+    .reply(200, (opts) => { deleted = { path: opts.path, method: opts.method }; return { session_id: "devin-current", status: "suspended" }; });
+  const { cancelAssignedTeammateRuns } = await import("../src/teammates.js");
+  const result = await cancelAssignedTeammateRuns(env, { orgId: ORG, assignmentId: "assignment-stop", generation: 7 });
+  expect(result).toEqual({ status: "requested" });
+  expect(deleted).toEqual({ path: "/v3/organizations/org-abc/sessions/devin-current", method: "DELETE" });
+
+  await env.DB.prepare(`INSERT INTO ai_teammate_runs(id,org_id,provider,channel,thread_id,remote_id,status,created_at,updated_at,assignment_id,assignment_generation)
+    VALUES ('devin-gone',?1,'devin','b:cafe','thread','devin-gone','running','2026-10-26','2026-10-26','assignment-gone',1)`).bind(ORG).run();
+  devin().intercept({ path: "/v3/organizations/org-abc/sessions/devin-gone", method: "DELETE" }).reply(410, { detail: "Session is no longer active." });
+  const gone = await cancelAssignedTeammateRuns(env, { orgId: ORG, assignmentId: "assignment-gone", generation: 1 });
+  expect(gone).toEqual({ status: "already_finished" });
+});
+
 test("Cursor: needs a repository, @cursor starts an agent that opens a PR, and each hand-off is a task", async () => {
   expect((await send("PUT", "/teammates", toru, { orgId: ORG, provider: "cursor", enabled: true, apiKey: "crsr_test" })).status).toBe(400);
   cursor().intercept({ path: "/v1/me", method: "GET", headers: { authorization: "Bearer crsr_test" } }).reply(200, { apiKeyName: "honmaru" });
