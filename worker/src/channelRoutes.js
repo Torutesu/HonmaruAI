@@ -22,7 +22,7 @@ import { threadNotificationPreference } from "./threadNotifications.js";
 import { threadReferences } from "./threadReferences.js";
 import { searchThread } from "./threadSearch.js";
 import { previewThreadShare, threadSharePolicy, setThreadSharePolicy, storeThreadShare, readThreadShare, revokeOwnThreadShare } from "./threadShares.js";
-import { appActivity, readAppActivity } from './harness/appActivity.js';
+import { appActivity, readAppActivity, appActivityProof } from './harness/appActivity.js';
 import { checkOutgoing } from "./dlp.js";
 import { prepareAgent, rememberRequest, addAgentMemory, filterResponders } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
@@ -900,11 +900,12 @@ export async function handleChannels(request, env, url, { route, after }) {
       return json({ lastReadAt, readVersion });
     }
     if (body.channel === "activity") {
-      const who = await caller(env, request, body.orgId);
+      const who = await caller(env, request, body.orgId, {withMembership:true});
       if (who.denied) return who.denied;
+      const appProof = await appActivityProof(env, body.orgId, who);
       // The ones looked at: gone from every device's Activity.
       if (Array.isArray(body.items)) {
-        const items = [...await markActivitySeen(env.DB, body.orgId, who.user.login, body.items), ...await readAppActivity(env.DB, body.orgId, who.user.github_id, body.items)];
+        const items = [...await markActivitySeen(env.DB, body.orgId, who.user.login, body.items), ...(appProof ? await readAppActivity(env.DB, body.orgId, who.user.github_id, body.items, appProof) : [])];
         // A reply among them is read in its thread too: Threads agrees.
         const threads = items.length ? await readThreadsSeenInActivity(env.DB, body.orgId, who.user.login, items) : [];
         if (items.length) after(() => readEverywhere(env, body.orgId, who.user.login, { items, threads }));
@@ -915,7 +916,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       const members = await listMembers(env.DB, body.orgId, who.session.github_id);
       const { items: all } = await activityFeed(env.DB, body.orgId, who.user.login, members);
       const newKeys = all.filter((i) => i.unread).map((i) => i.key).filter((k) => /^(m|r):/.test(k || ""));
-      const items = [...await markActivitySeen(env.DB, body.orgId, who.user.login, newKeys), ...await readAppActivity(env.DB, body.orgId, who.user.github_id)];
+      const items = [...await markActivitySeen(env.DB, body.orgId, who.user.login, newKeys), ...(appProof ? await readAppActivity(env.DB, body.orgId, who.user.github_id, null, appProof) : [])];
       const threads = items.length ? await readThreadsSeenInActivity(env.DB, body.orgId, who.user.login, items) : [];
       const {lastReadAt,readVersion} = await markRead(env.DB, body.orgId, who.user.login, "activity", body.at, true);
       if (items.length) after(() => readEverywhere(env, body.orgId, who.user.login, { items, threads }));
@@ -1142,11 +1143,12 @@ export async function handleChannels(request, env, url, { route, after }) {
   // Activity: what named you, and replies in your threads.
   if (path === "/channels/activity" && request.method === "GET") {
     const orgId = url.searchParams.get("orgId");
-    const who = await caller(env, request, orgId);
+    const who = await caller(env, request, orgId, {withMembership:true});
     if (who.denied) return who.denied;
     const members = await listMembers(env.DB, orgId, who.session.github_id);
     const feed=await activityFeed(env.DB, orgId, who.user.login, members);
-    const apps=await appActivity(env.DB,orgId,who.user.github_id);
+    const proof=await appActivityProof(env,orgId,who);
+    const apps=proof?await appActivity(env.DB,orgId,who.user.github_id,proof):[];
     return json({...feed,items:[...feed.items,...apps].sort((a,b)=>String(b.at).localeCompare(String(a.at))).slice(0,100)});
   }
 
