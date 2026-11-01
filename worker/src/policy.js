@@ -93,15 +93,12 @@ export function sessionDeadline(policy, session) {
 /// The refusal for a session this workspace's rules have outgrown, or null.
 export async function policyDenial(env, session, orgId, { fresh = false, deferWorkspaceDeletionToFence = false } = {}) {
   if (!session || !orgId) return null;
-  // A workspace being deleted is closed to all but its owners, who may take
-  // the request back (workspaceDeletion.js).
-  // Only callers with an equivalent final SQL deletion fence may defer this.
+  // The notification path defers deletion to an equivalent final SQL fence.
+  // Other callers read fresh state; promotion happens only after policy checks.
+  let due = null;
   if (!deferWorkspaceDeletionToFence) {
     const { deletionDue } = await import("./workspaceDeletion.js");
-    const due = await deletionDue(env.DB, orgId, { fresh });
-    if (due && !(await allowed(env.DB, orgId, session.github_id, "workspace.delete"))) {
-      return { status: 410, body: { message: "This workspace is being deleted.", code: "workspace-deleting", orgId, dueAt: due } };
-    }
+    due = await deletionDue(env.DB, orgId, { fresh: true });
   }
   // The workspace's single sign-on first: required of this person, or
   // an SSO sign-in past its hours.
@@ -125,11 +122,13 @@ export async function policyDenial(env, session, orgId, { fresh = false, deferWo
   }
   const policy = await sessionPolicy(env.DB, orgId, { fresh });
   const rule = brokenRule(policy, session);
-  if (!rule) return null;
-  return {
+  if (rule) return {
     status: 401,
     body: { message: "This workspace asks you to sign in again.", code: "session-policy", orgId, rule },
   };
+  if (!due) return null;
+  const { deletionOwnerGate } = await import('./workspaceOwnerGate.js');
+  return deletionOwnerGate(env, session, orgId, due);
 }
 
 /// Membership and the workspace's rules together, as a Response to return,

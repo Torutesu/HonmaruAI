@@ -27,7 +27,7 @@ const unpack = value => typeof value === 'string' ? JSON.parse(value) : value;
 // reads which could observe an intermediate policy during an ABA change.
 // Reuse the product's domain and CIDR matching rules, then compare this same
 // fingerprint in the write or delivery SQL.
-function evaluateSnapshot(fingerprint, orgId) {
+export function evaluateSnapshot(fingerprint, orgId) {
   const state = JSON.parse(fingerprint);
   const legacy = unpack(state.legacy);
   const network = unpack(state.network);
