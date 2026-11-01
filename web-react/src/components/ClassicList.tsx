@@ -1,3 +1,4 @@
+import {appActivityReadFailed} from '../utils/appActivityStatus'
 import {workspaceFileForThread} from '../utils/workspaceFileThread'
 import {workspaceFileViewKey} from '../utils/workspaceFileView'
 import {RoomFilesPanel} from './WorkspaceFilesPanel'
@@ -1013,6 +1014,7 @@ export const ClassicList: React.FC<Props> = ({
   const [unreadShown, setUnreadShown] = useState<Set<string>>(() => new Set())
   const [activityTab, setActivityTab] = useState<'all' | 'unread' | 'mentions'>('all')
   const [activityPick, setActivityPick] = useState<string | null>(null)
+  const [appActivityUnavailable, setAppActivityUnavailable] = useState(false)
   const loadActivity = useCallback(() => {
     const ticket = readGuard.ask('activity')
     const readReferences = referenceRead()
@@ -1020,6 +1022,7 @@ export const ClassicList: React.FC<Props> = ({
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!data || !readGuard.fresh('activity', ticket)) return
+        setAppActivityUnavailable(data.appActivityUnavailable === true)
         const list = readGuard.activity<ActivityItem>(data.items || [], activityKey)
         readReferences(list.map(x => x.message))
         views.set('activity', list); setActivityItems(list)
@@ -1032,8 +1035,8 @@ export const ClassicList: React.FC<Props> = ({
   // Looked at is read: here at once, and on the server for every other
   // device, which hears it and takes it down too.
   const markActivitySeen = useCallback((keys: string[]) => {
-    const fresh = new Set(keys)
-    if (!fresh.size) return
+    const fresh = new Set(keys.filter(key => !key.startsWith('a:')))
+    if (!keys.length) return
     readGuard.readItems(fresh)
     setActivityItems((prev) => prev && prev.map((i) => (i.unread && fresh.has(activityKey(i)) ? { ...i, unread: false } : i)))
     const serverKeys = keys.filter((k) => /^(m|r|a):/.test(k))
@@ -1044,8 +1047,14 @@ export const ClassicList: React.FC<Props> = ({
       body: JSON.stringify({ orgId: api.orgId, channel: 'activity', items: serverKeys }),
     }).then((r) => (r.ok ? r.json() : null))
       // A reply looked at here is read in its thread too: Threads agrees.
-      .then((d) => { if (Array.isArray(d?.threads)) threadsReadTo(d.threads) })
-      .catch(() => { /* seen here; the next load asks again */ })
+      .then((d) => {
+        if (Array.isArray(d?.threads)) threadsReadTo(d.threads)
+        const acknowledged = new Set<string>((d?.items || []).filter((key: string) => key.startsWith('a:')))
+        readGuard.readItems(acknowledged)
+        setActivityItems((prev) => prev && prev.map((i) => acknowledged.has(activityKey(i)) ? { ...i, unread: false } : i))
+        if (appActivityReadFailed(keys, d)) setAppActivityUnavailable(true)
+      })
+      .catch(() => { if (appActivityReadFailed(keys, null)) setAppActivityUnavailable(true) })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api.httpBase, api.orgId, authHeaders])
   const activityUnread = (activityItems || []).filter(stillNew).length
@@ -1054,15 +1063,22 @@ export const ClassicList: React.FC<Props> = ({
   const markAllActivityRead = () => {
     const keys = (activityItems || []).filter((i) => i.unread).map(activityKey)
     if (!keys.length) return
-    readGuard.readItems(keys)
-    setActivityItems((prev) => prev && prev.map((i) => (i.unread ? { ...i, unread: false } : i)))
+    const ordinary = keys.filter(key => !key.startsWith('a:'))
+    readGuard.readItems(ordinary)
+    setActivityItems((prev) => prev && prev.map((i) => (i.unread && !activityKey(i).startsWith('a:') ? { ...i, unread: false } : i)))
     closeMessageNotifications(messageIdsOf(keys))
     void fetch(`${api.httpBase}/channels/read`, {
       method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
       body: JSON.stringify({ orgId: api.orgId, channel: 'activity' }),
     }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (Array.isArray(d?.threads)) threadsReadTo(d.threads) })
-      .catch(() => { void loadActivity() })
+      .then((d) => {
+        if (Array.isArray(d?.threads)) threadsReadTo(d.threads)
+        const acknowledged = new Set<string>((d?.items || []).filter((key: string) => key.startsWith('a:')))
+        readGuard.readItems(acknowledged)
+        setActivityItems((prev) => prev && prev.map((i) => acknowledged.has(activityKey(i)) ? { ...i, unread: false } : i))
+        if (appActivityReadFailed(keys, d)) setAppActivityUnavailable(true)
+      })
+      .catch(() => { if (appActivityReadFailed(keys, null)) setAppActivityUnavailable(true); void loadActivity() })
   }
   /// Threads' "Mark all as read": each thread read up to its newest reply,
   /// and those replies read in Activity too.
@@ -4998,8 +5014,9 @@ export const ClassicList: React.FC<Props> = ({
               : activityUnread > 0 && <button type="button" className="cl-nudge slk-mark-all" onClick={markAllActivityRead} data-mark-all="activity">{t('Mark all as read')}</button>}
           </header>
           <div className="slk-inbox-rows slk-activity" ref={activityRows}>
+            {appActivityUnavailable && <p role="status" className="slk-empty">{t('Some app notifications could not be loaded. Try again.')} <button type="button" onClick={() => void loadActivity()}>{t('Try again')}</button></p>}
             {activityItems === null && <p className="slk-empty">{t('Loading…')}</p>}
-            {activityItems && items.length === 0 && (
+            {activityItems && items.length === 0 && !appActivityUnavailable && (
               <div className="slk-start">
                 <span className="cl-lead cl-app sz-head" aria-hidden="true"><Icon name="bell" size={18} /></span>
                 <h2>{activityTab === 'unread' ? t('All caught up') : activityTab === 'mentions' ? t('No mentions') : t('Nothing for you yet')}</h2>

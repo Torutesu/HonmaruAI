@@ -2,6 +2,7 @@ import {conversationWriteAuthority} from './conversationWriteAuthority.js';
 import {skillSessionAuthority} from './skillSessionAuthority.js';
 import {currentSkillPolicy,skillPolicyFingerprint,skillSsoDeadline} from './skillPolicyProof.js';
 import {currentIp} from '../requestContext.js';
+import {roleIn} from '../permissions.js';
 
 // The notification values and every ACL used to release them are selected in
 // one SQLite snapshot. Record conversations never inherit an app source.
@@ -42,6 +43,11 @@ export function activityProofRequiresIp(fingerprint){
 
 export async function appActivityProof(env,orgId,who){
  try{
+  const first=await currentSkillPolicy(env,orgId,who.session.github_id,who.session.token);
+  if(!first.allowed)return null;
+  // Apply the canonical legacy-workspace owner migration before the final
+  // snapshot, then check the policy once again after that migration.
+  await roleIn(env.DB,orgId,who.session.github_id);
   const checked=await currentSkillPolicy(env,orgId,who.session.github_id,who.session.token);
   if(checked.allowed&&who.membershipSince&&who.session.created_at&&who.session.token?.startsWith('h1:')&&(currentIp()||!activityProofRequiresIp(checked.fingerprint)))
    return {memberSince:who.membershipSince,key:who.session.token,sessionCreatedAt:who.session.created_at,fingerprint:checked.fingerprint,ssoDeadline:checked.ssoDeadline};
@@ -49,11 +55,19 @@ export async function appActivityProof(env,orgId,who){
  return null;
 }
 
-export async function visibleAppNotifications(db,orgId,userId,proof,appId=null,messageId=null){
+export async function visibleAppNotifications(db,orgId,userId,proof,appId=null,messageId=null,keys=null){
  if(proof!==undefined&&!proofValid(proof))return [];
+ const args=argsFor(orgId,userId,proof);const filters=[];
+ if(appId!==null){args.push(appId);filters.push(`n.app_id=?${args.length}`)}
+ if(messageId!==null){args.push(messageId);filters.push(`n.message_id=?${args.length}`)}
+ if(keys!==null){
+  const ids=keys.filter(key=>/^a:[1-9][0-9]*$/.test(key)).slice(0,100).map(key=>key.slice(2));
+  if(!ids.length)return [];
+  args.push(JSON.stringify(ids));filters.push(`CAST(n.message_id AS TEXT) IN (SELECT value FROM json_each(?${args.length}))`);
+ }
  const sql=`SELECT n.message_id,n.kind,n.read_at,m.body,m.table_id,m.row_id,m.created_at,m.app_id,a.name AS app_name,u.name AS author_name,u.login AS author_login
-  ${activityFrom} WHERE ${activityAuthority} ${proof?proofFence('?3','?4','?5','?6','?7'):''} ${appId!==null?`AND n.app_id=${proof?'?8':'?3'}`:''} ${messageId!==null?`AND n.message_id=${proof?'?9':'?4'}`:''} ORDER BY m.sequence DESC LIMIT 100`;
- const {results}=await db.prepare(sql).bind(...argsFor(orgId,userId,proof),...(appId!==null?[appId]:[]),...(messageId!==null?[messageId]:[])).all();
+  ${activityFrom} WHERE ${activityAuthority} ${proof?proofFence('?3','?4','?5','?6','?7'):''} ${filters.map(filter=>`AND ${filter}`).join(' ')} ORDER BY m.sequence DESC LIMIT 100`;
+ const {results}=await db.prepare(sql).bind(...args).all();
  return results||[];
 }
 export async function appActivity(db,orgId,userId,proof){
@@ -65,11 +79,22 @@ export async function appActivity(db,orgId,userId,proof){
 }
 export async function readAppActivity(db,orgId,userId,keys=null,proof,appId=null){
  const wanted=keys===null?null:new Set(keys.filter(k=>/^a:[1-9][0-9]*$/.test(k)).slice(0,100));
- const directId=appId!==null&&wanted?.size===1?Number([...wanted][0].slice(2)):null;
- const rows=(await visibleAppNotifications(db,orgId,userId,proof,appId,directId)).filter(r=>!wanted||wanted.has(`a:${r.message_id}`));
+ const rows=await visibleAppNotifications(db,orgId,userId,proof,appId,null,wanted===null?null:[...wanted]);
  if(!rows.length)return [];
  const results=await db.batch(rows.map(row=>db.prepare(`UPDATE hx_app_notifications SET read_at=COALESCE(read_at,?4)
    WHERE org_id=?1 AND user_id=?2 AND message_id=?3 AND EXISTS(SELECT 1 ${activityFrom} WHERE ${activityAuthority} ${proof?proofFence('?5','?6','?7','?8','?9'):''} AND n.message_id=?3)`)
    .bind(orgId,String(userId),row.message_id,new Date().toISOString(),...argsFor(orgId,userId,proof).slice(2))));
  return rows.filter((_row,index)=>results[index]?.meta?.changes).map(row=>`a:${row.message_id}`);
+}
+
+// Channel activity can contain ordinary channel keys too. Revalidate only
+// app IDs so the existing channel/guest synchronization remains unchanged.
+export async function appActivityDeliveryKeys(db,orgId,userId,keys,proof){
+ const ordinary=keys.filter(key=>!key.startsWith('a:'));
+ if(!proof||!keys.some(key=>key.startsWith('a:')))return ordinary;
+ try{
+  const rows=await visibleAppNotifications(db,orgId,userId,proof,null,null,keys);
+  const allowed=new Set(rows.map(row=>`a:${row.message_id}`));
+  return keys.filter(key=>!key.startsWith('a:')||allowed.has(key));
+ }catch{return ordinary}
 }

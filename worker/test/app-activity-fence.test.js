@@ -5,7 +5,8 @@ import {upsertUser,upsertMembership,createSession,sessionKey} from '../src/db.js
 import {createApp} from '../src/harness/apps.js';
 import {addRow} from '../src/harness/tables.js';
 import {appConversation} from '../src/harness/appConversations.js';
-import {appActivity,readAppActivity,activityProofRequiresIp} from '../src/harness/appActivity.js';
+import {appActivity,readAppActivity,activityProofRequiresIp,appActivityProof} from '../src/harness/appActivity.js';
+import {caller,handleChannels} from '../src/channelRoutes.js';
 import {appNotifications} from '../src/harness/appConversationFeatures.js';
 import {currentSkillPolicy} from '../src/harness/skillPolicyProof.js';
 import {postMessage} from '../src/channels.js';
@@ -140,6 +141,8 @@ test('app bell filters by app before applying its 100 item limit',async()=>{
  const p=await proof();const myItems=await appNotifications(env.DB,org,member,app.id,null,false,p);
  expect(myItems.items.map(r=>r.messageId)).toEqual([my]);
  const otherItems=await appNotifications(env.DB,org,member,other.id,null,false,p);expect(otherItems.items).toHaveLength(100);
+ const req=new Request('https://test/channels/read',{method:'POST',headers:{'x-session-token':token,'content-type':'application/json'},body:JSON.stringify({orgId:org,channel:'activity',items:[`a:${oldest}`]})});
+ const response=await handleChannels(req,env,new URL(req.url),{after:()=>{}});expect((await response.json()).items).toEqual([`a:${oldest}`]);
  const marked=await appNotifications(env.DB,org,member,other.id,{messageId:oldest},true,p);expect(marked.marked).toBe(true);
  expect((await env.DB.prepare('SELECT read_at FROM hx_app_notifications WHERE message_id=?').bind(oldest).first()).read_at).toBeTruthy();
 });
@@ -181,4 +184,99 @@ test('workspace owner retains notification access during a cancellable deletion'
  await add({},'Owner note');const p=await proof();
  const injected=beforeRead(()=>env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,member).run());
  expect((await appActivity(injected.db,org,member,p)).map(x=>x.message.body)).toEqual(['Owner note']);
+});
+
+
+async function prepareLegacyAdmin(){
+ await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=? AND user_github_id=?").bind(org,owner).run();
+ await env.DB.prepare("UPDATE memberships SET role='admin' WHERE org_id=? AND user_github_id=?").bind(org,member).run();
+ await add({},'Legacy owner note');
+ const request=new Request('https://test/channels/activity',{headers:{'x-session-token':token}});
+ return caller(env,request,org,{withMembership:true});
+}
+
+test('the canonical legacy owner promotion runs before a concurrent deletion reservation',async()=>{
+ const who=await prepareLegacyAdmin();const p=await appActivityProof(env,org,who);expect(p).toBeTruthy();
+ expect((await env.DB.prepare('SELECT role FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).first()).role).toBe('owner');
+ const injected=beforeRead(()=>env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,member).run());
+ expect((await appActivity(injected.db,org,member,p)).map(x=>x.message.body)).toEqual(['Legacy owner note']);
+});
+
+test('owner promotion respects another owner added concurrently',async()=>{
+ const who=await prepareLegacyAdmin();let injected=false;
+ const db={prepare(sql){
+  const stmt=env.DB.prepare(sql);if(!sql.startsWith("SELECT 1 FROM memberships WHERE org_id = ?1 AND role = 'owner'"))return stmt;
+  return {bind(...args){const bound=stmt.bind(...args);return {async first(){
+   injected=true;await env.DB.prepare("UPDATE memberships SET role='owner' WHERE org_id=? AND user_github_id=?").bind(org,owner).run();return bound.first();
+  }}}};
+ },batch:env.DB.batch.bind(env.DB)};
+ const p=await appActivityProof({...env,DB:db},org,who);expect(p).toBeTruthy();expect(injected).toBe(true);
+ expect((await env.DB.prepare('SELECT role FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).first()).role).toBe('admin');
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM memberships WHERE org_id=? AND role='owner'").bind(org).first()).n).toBe(1);
+});
+
+test('membership removed during legacy owner promotion is never revived or delivered',async()=>{
+ const who=await prepareLegacyAdmin();let injected=false;
+ const db={prepare(sql){
+  const stmt=env.DB.prepare(sql);if(!sql.startsWith("UPDATE memberships SET role = 'owner'"))return stmt;
+  return {bind(...args){const bound=stmt.bind(...args);return {async run(){
+   injected=true;await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).run();return bound.run();
+  }}}};
+ },batch:env.DB.batch.bind(env.DB)};
+ const p=await appActivityProof({...env,DB:db},org,who);expect(injected).toBe(true);
+ expect(await env.DB.prepare('SELECT role FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).first()).toBeNull();
+ expect(p?await appActivity(env.DB,org,member,p):[]).toEqual([]);
+});
+
+
+test('activity read rechecks app keys in the delayed relay and preserves channel keys',async()=>{
+ const id=await add();const pending=[];let deliveries=[];
+ const fakeEnv={...env,ORG_RELAY:{idFromName:()=>'',get:()=>({fetch:async(_url,options)=>{deliveries=JSON.parse(options.body).deliveries;return new Response('{}')}})}};
+ const req=new Request('https://test/channels/read',{method:'POST',headers:{'x-session-token':token,'content-type':'application/json'},body:JSON.stringify({orgId:org,channel:'activity',items:['m:ordinary',`a:${id}`]})});
+ const response=await handleChannels(req,fakeEnv,new URL(req.url),{after:fn=>pending.push(fn)});
+ expect((await response.json()).items).toEqual(['m:ordinary',`a:${id}`]);
+ await env.DB.prepare('DELETE FROM sessions WHERE token=?').bind(await sessionKey(token)).run();
+ await Promise.all(pending.map(fn=>fn()));
+ expect(JSON.stringify(deliveries)).toContain('m:ordinary');expect(JSON.stringify(deliveries)).not.toContain(`a:${id}`);
+});
+
+test('activity read removes a revoked app key from the HTTP response while preserving channel keys',async()=>{
+ const id=await add();let count=0;
+ const db={prepare(sql){const stmt=env.DB.prepare(sql);if(!sql.startsWith('SELECT n.message_id,'))return stmt;
+  return {bind(...args){const bound=stmt.bind(...args);return {async all(){
+   if(++count===2)await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).run();
+   return bound.all();
+  }}}};
+ },batch:env.DB.batch.bind(env.DB)};
+ const req=new Request('https://test/channels/read',{method:'POST',headers:{'x-session-token':token,'content-type':'application/json'},body:JSON.stringify({orgId:org,channel:'activity',items:['m:ordinary',`a:${id}`]})});
+ const response=await handleChannels(req,{...env,DB:db},new URL(req.url),{after:()=>{}});
+ const body=await response.json();expect(body.items).toEqual(['m:ordinary']);expect(body.appActivityUnavailable).toBe(true);
+});
+
+
+test('activity returns an explicit partial status when app policy verification fails',async()=>{
+ await add();let injected=false;
+ const db={prepare(sql){
+  if(sql.startsWith('SELECT json_object(')){injected=true;throw new Error('policy read unavailable')}
+  return env.DB.prepare(sql);
+ },batch:env.DB.batch.bind(env.DB)};
+ const req=new Request(`https://test/channels/activity?orgId=${encodeURIComponent(org)}`,{headers:{'x-session-token':token}});
+ const response=await handleChannels(req,{...env,DB:db},new URL(req.url),{after:()=>{}});
+ const body=await response.json();expect(response.status).toBe(200);expect(injected).toBe(true);expect(body.appActivityUnavailable).toBe(true);expect(body.items.filter(x=>x.app)).toEqual([]);
+});
+
+
+test('concurrent loss of the previous owner fails closed until the next canonical promotion',async()=>{
+ const who=await prepareLegacyAdmin();
+ await env.DB.prepare("UPDATE memberships SET role='owner' WHERE org_id=? AND user_github_id=?").bind(org,owner).run();
+ const p=await appActivityProof(env,org,who);
+ const injected=beforeRead(async()=>{
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,owner).run();
+  await env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,member).run();
+ });
+ expect(await appActivity(injected.db,org,member,p)).toEqual([]);
+ const request=new Request('https://test/channels/activity',{headers:{'x-session-token':token}});
+ const again=await caller(env,request,org,{withMembership:true});expect(again.denied).toBeUndefined();
+ const refreshed=await appActivityProof(env,org,again);
+ expect((await appActivity(env.DB,org,member,refreshed)).map(x=>x.message.body)).toEqual(['Legacy owner note']);
 });

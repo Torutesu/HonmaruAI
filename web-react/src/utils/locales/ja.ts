@@ -1,6 +1,7 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Some app notifications could not be loaded. Try again.': '一部のアプリ通知を読み込めませんでした。もう一度お試しください。',
   'Previous month': '前の月',
   'Next month': '次の月',
   'Month': '月',
