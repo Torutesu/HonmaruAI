@@ -1675,6 +1675,14 @@ body.slk-resizing iframe { pointer-events: none; }
 .classic.slk.slk .slk-mention.group { color: #0f7b6c; background: rgba(15, 123, 108, 0.12); }
 .classic.slk.slk .mention-hl.m-group { color: #0f7b6c; background: rgba(15, 123, 108, 0.14); box-shadow: 0 0 0 1px rgba(15, 123, 108, 0.14); }
 
+/* Keep mentions readable both in messages and while composing in dark mode. */
+@media (prefers-color-scheme: dark) {
+  :where(:root:not([data-theme="light"])) .classic.slk.slk .mention-hl.m-ai { color: #c4b5fd; }
+  :where(:root:not([data-theme="light"])) .classic.slk.slk :is(.mention-hl.m-group, .slk-mention.group) { color: #7addc8; }
+}
+:where(:root[data-theme="dark"]) .classic.slk.slk .mention-hl.m-ai { color: #c4b5fd; }
+:where(:root[data-theme="dark"]) .classic.slk.slk :is(.mention-hl.m-group, .slk-mention.group) { color: #7addc8; }
+
 /* A message that calls you — your @name, a group you are in, @channel or
    @here — gets a bar down its left edge and a warm glow fading out from
    it, the way Discord marks one, so it is found in a busy channel. Warm to
