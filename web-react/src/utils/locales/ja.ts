@@ -2976,6 +2976,7 @@ const table: Record<string, string> = {
   "Some conditions cannot be edited here and will be preserved.": "ここでは編集できない条件があります。これらは変更せずに保持されます。",
   "Some saved condition fields are unavailable. Repair them before saving.": "保存済み条件の項目が見つかりません。保存する前に条件を修復してください。",
   "An empty candidate list matches no records.": "候補が空の条件には、どのレコードも一致しません。",
+  "A saved condition or watched column was removed. More records may trigger this workflow when saved.": "保存済みの条件または監視列が解除されています。保存すると実行対象が増える可能性があります。",
   "Removing this condition may cause the workflow to run for more records.": "この条件を解除すると、より多くのレコードでワークフローが実行される可能性があります。",
   "All field conditions were removed. More records may trigger this workflow.": "すべてのフィールド条件が解除されました。より多くのレコードでワークフローが実行される可能性があります。",
   "Remove condition": "条件を解除",

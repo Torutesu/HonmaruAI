@@ -116,6 +116,13 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
     try { new Intl.DateTimeFormat('en',{timeZone:trigger.timezone}); } catch { return false }
     return Boolean(trigger.timezone?.trim()) && Number.isInteger(trigger.hour) && trigger.hour!>=0 && trigger.hour!<=23 && Number.isInteger(trigger.minute) && trigger.minute!>=0 && trigger.minute!<=59
   })()
+  // This editor updates a live workflow directly. Compare with the loaded
+  // definition so a removed predicate stays visible until it is restored.
+  const originalTrigger = initial?.trigger
+  const originalWhere = originalTrigger?.type==='row' ? originalTrigger.where : originalTrigger?.type==='app_record_change' ? originalTrigger.when?.where : undefined
+  const currentWhere = trigger.type==='row' ? trigger.where : trigger.type==='app_record_change' ? trigger.when?.where : undefined
+  const removedSavedFilter = Boolean(originalWhere && originalTrigger?.type===trigger.type && Object.keys(originalWhere).some(key=>!currentWhere || !Object.hasOwn(currentWhere,key)))
+  const removedWatchedColumn = Boolean(originalTrigger?.type==='row' && trigger.type==='row' && originalTrigger.column && !trigger.column)
   const table = tables.find((x) => x.id === trigger.tableId)
   const whereCol = table?.columns.find((c) => c.type === 'select')
   // Older/API-created workflows can hold scalar, multi-value and multi-field
@@ -200,6 +207,7 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
             {whereCol&&!rowEditable&&<span className="row-sub">{t('This condition cannot be edited here.')}</span>}
           </span>
         )}
+        {(removedSavedFilter||removedWatchedColumn)&&<p role="alert">{t('A saved condition or watched column was removed. More records may trigger this workflow when saved.')}</p>}
         {trigger.type==='row'&&rowWhere&&<SavedFilters where={rowWhere} table={table} onRemove={removeRowFilter} disabled={busy}/>}
         {trigger.type==='row'&&clearedFilters==='row'&&!rowWhere&&<p role="alert">{t('All field conditions were removed. More records may trigger this workflow.')}</p>}
         {trigger.type==='row'&&rowWhere&&table&&Object.keys(rowWhere).some(key=>!rowKeys.includes(key))&&<p className="row-sub">{t('Some conditions cannot be edited here and will be preserved.')}</p>}

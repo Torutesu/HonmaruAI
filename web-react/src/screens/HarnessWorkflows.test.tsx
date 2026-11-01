@@ -478,6 +478,54 @@ test.each(['row','app_record_change'] as const)('clearing the last %s condition 
  expect(type==='row'?saved.where:saved.when).toBeUndefined()
 })
 
+test('clearing one app field warns until the saved field is restored, while retaining other conditions',async()=>{
+ const trigger={type:'app_record_change',appId:'app',entityId:'primary',events:['update'],when:{where:{status:'A',priority:2}}}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ const table={id:'tasks',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A']},{id:'priority',name:'Priority',type:'number'}]}
+ state.api.apps=vi.fn().mockResolvedValue({apps:[{id:'app',name:'Tasks'}]});state.api.appDatabase=vi.fn().mockResolvedValue({entities:[{key:'primary',table}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ const input=()=>tree.root.findAllByType('fieldset').find(field=>field.findAllByType('legend').some(legend=>legend.children.includes('Priority')))!.findByType('input')
+ const warning='A saved condition or watched column was removed. More records may trigger this workflow when saved.'
+ await act(async()=>{input().props.onChange({target:{value:''}})})
+ expect(JSON.stringify(tree.toJSON())).toContain(warning)
+ await act(async()=>{input().props.onChange({target:{value:'2'}})})
+ expect(JSON.stringify(tree.toJSON())).not.toContain(warning)
+ await act(async()=>{input().props.onChange({target:{value:''}})})
+ expect(JSON.stringify(tree.toJSON())).toContain(warning)
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ expect(state.api.updateWorkflow.mock.calls[0][1].trigger.when.where).toEqual({status:'A'})
+})
+
+test('clearing a row select warns even when another condition remains and restoration clears it',async()=>{
+ const trigger={type:'row',tableId:'tasks',on:'changed',where:{status:['A'],priority:2}}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ state.api.tables.mockResolvedValue({tables:[{id:'tasks',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A']},{id:'priority',name:'Priority',type:'number'}]}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ const select=()=>tree.root.findByProps({'aria-label':'Status'})
+ const warning='A saved condition or watched column was removed. More records may trigger this workflow when saved.'
+ await act(async()=>{select().props.onChange({target:{value:''}})})
+ expect(JSON.stringify(tree.toJSON())).toContain(warning)
+ await act(async()=>{select().props.onChange({target:{value:'A'}})})
+ expect(JSON.stringify(tree.toJSON())).not.toContain(warning)
+ await act(async()=>{select().props.onChange({target:{value:''}})})
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ expect(state.api.updateWorkflow.mock.calls[0][1].trigger.where).toEqual({priority:2})
+})
+
+test('clearing a watched column by changing to delete events warns before direct save',async()=>{
+ const trigger={type:'row',tableId:'tasks',on:'changed',column:'priority'}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ state.api.tables.mockResolvedValue({tables:[{id:'tasks',name:'Tasks',columns:[{id:'priority',name:'Priority',type:'number'}]}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true});state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ await act(async()=>{tree.root.findByProps({'aria-label':'When'}).props.onChange({target:{value:'deleted'}})})
+ expect(JSON.stringify(tree.toJSON())).toContain('A saved condition or watched column was removed. More records may trigger this workflow when saved.')
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ expect(state.api.updateWorkflow.mock.calls[0][1].trigger.column).toBeUndefined()
+})
+
 test('removing a __proto__ condition does not change the remaining own conditions',async()=>{
  const where=JSON.parse('{"__proto__":"A","priority":2}')
  const trigger={type:'app_record_change',appId:'app',entityId:'primary',events:['update'],when:{where}}
