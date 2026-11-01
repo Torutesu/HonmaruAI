@@ -259,6 +259,25 @@ test('public deletion unfiles only cards from its transaction, not a recreated r
   expect((await getCard(env.DB,ORG,'after-recreation')).business).toBe('public-race');
 });
 
+test('private deletion returns members added just before the transaction for Jam eviction', async () => {
+  const {upsertBusiness,removeBusiness}=await import('../src/db.js');
+  const {addMembers}=await import('../src/access.js');
+  await upsertBusiness(env.DB,ORG,{name:'Late Join',createdBy:'6101'});
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=? AND slug='late-join'").bind(ORG).run();
+  await addMembers(env.DB,{orgId:ORG,key:'b:late-join',logins:['owner'],addedBy:'owner'});
+  const room=await env.DB.prepare("SELECT created_at FROM businesses WHERE org_id=? AND slug='late-join'").bind(ORG).first();
+  const racing=new Proxy(env.DB,{get(db,key){
+    if(key==='batch')return async statements=>{
+      await addMembers(db,{orgId:ORG,key:'b:late-join',logins:['member'],addedBy:'owner'});
+      return db.batch(statements);
+    };
+    return typeof db[key]==='function'?db[key].bind(db):db[key];
+  }});
+  const removed=await removeBusiness(racing,ORG,'late-join',{actorId:'6101',createdAt:room.created_at,wasPrivate:true});
+  expect(removed.formerMembers.sort()).toEqual(['member','owner']);
+  expect((await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=? AND channel='b:late-join'").bind(ORG).all()).results).toEqual([]);
+});
+
 test.each([false,true])('failed legacy deletion rolls back room, membership, cards and claim (private=%s)', async wasPrivate => {
   const {upsertBusiness,removeBusiness,saveCard,getCard}=await import('../src/db.js');
   await upsertBusiness(env.DB,ORG,{name:'Rollback Room',createdBy:'6101'});

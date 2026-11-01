@@ -1017,7 +1017,7 @@ export async function removeBusiness(db, orgId, slug, { actorId, createdAt, wasP
     WHERE org_id=?1 AND (CASE WHEN json_valid(data) THEN json_extract(data,'$.business') END)=?2 AND ${gate}
     RETURNING data`).bind(orgId,slug,nonce,at));
   statements.push(change,
-    db.prepare(`DELETE FROM conversation_members WHERE org_id=?1 AND channel='b:'||?2 AND ${gate}`).bind(orgId,slug,nonce),
+    db.prepare(`DELETE FROM conversation_members WHERE org_id=?1 AND channel='b:'||?2 AND ${gate} RETURNING login`).bind(orgId,slug,nonce),
     db.prepare(`DELETE FROM channel_agents WHERE org_id=?1 AND channel='b:'||?2 AND ${gate}`).bind(orgId,slug,nonce));
   // Public legacy channels keep their existing ability to be recreated.
   // Private ones retain a deleted policy and closed business row so old
@@ -1025,7 +1025,8 @@ export async function removeBusiness(db, orgId, slug, { actorId, createdAt, wasP
   if(!wasPrivate) statements.push(db.prepare(`DELETE FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2 AND mutation_id=?3`).bind(orgId,slug,nonce));
   const result=await db.batch(statements);
   if(!result[0]?.meta?.changes)return false;
-  return {unfiled:wasPrivate?[]:(result[1]?.results||[]).map(row=>JSON.parse(row.data))};
+  return {unfiled:wasPrivate?[]:(result[1]?.results||[]).map(row=>JSON.parse(row.data)),
+    formerMembers:(result[wasPrivate?2:3]?.results||[]).map(row=>row.login)};
 }
 
 /// A channel's new name. The slug — what cards are filed under — stays.

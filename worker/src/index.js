@@ -26,7 +26,7 @@ import {
   loadContexts, saveContext, cleanName, checkHandle, setUserName, setUserHandle, MAX_NAME_CHARS,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
-import { announceCards, evictMember, announceEvents, announceTo } from "./announce.js";
+import { announceCards, evictMember, evictFromJam, announceEvents, announceTo } from "./announce.js";
 import { custom as customEvent } from "./agui/events.js";
 import { contextEvents } from "./agui/adapter.js";
 import { verifyMailgunWebhook, parseMailgunWebhook, inboundTokenFromAddress, userForInboundAddress, inboundAddressFor } from "./connectors/email.js";
@@ -1639,7 +1639,7 @@ async function handle(request, env, url, ctx) {
       if (!managed && !(await canTouchChannel(env.DB, body.orgId, String(body.slug), who))) return json({ businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }), unfiled: 0 });
       const gone = await env.DB.prepare("SELECT name,private,created_at FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, String(body.slug)).first();
       const wasPrivate = Boolean(gone?.private);
-      const insiders = wasPrivate ? await membersOf(env.DB, body.orgId, `b:${body.slug}`) : [];
+      let insiders = wasPrivate ? await membersOf(env.DB, body.orgId, `b:${body.slug}`) : [];
       // Public Simple channels retain their unfile behavior. A private room
       // keeps a closed tombstone and its cards, including in Simple mode.
       const deletingSession = await getSession(env.DB, request.headers.get("x-session-token"));
@@ -1650,6 +1650,12 @@ async function handle(request, env, url, ctx) {
         const removed=await removeBusiness(env.DB, body.orgId, body.slug,{actorId:deletingSession.github_id,createdAt:gone?.created_at,wasPrivate});
         if (!removed) return json({message:"Room roles changed. Reload before deleting."},409);
         unfiled=removed.unfiled;
+        if(wasPrivate)insiders=removed.formerMembers;
+      }
+      if (wasPrivate) {
+        // Close active Jams before any later audit or list refresh can fail.
+        // The helper is best effort; the room is already closed in D1.
+        for(let i=0;i<insiders.length;i+=20)await Promise.all(insiders.slice(i,i+20).map(login=>evictFromJam(env,body.orgId,login,`b:${body.slug}`)));
       }
       if (gone) {
         const session = await getSession(env.DB, request.headers.get("x-session-token"));
@@ -1657,7 +1663,9 @@ async function handle(request, env, url, ctx) {
         await audit(env, request, { orgId: body.orgId, action: "channel.deleted", actor: person(me), entity: { type: "channel", id: String(body.slug), name: `#${gone.name}` }, details: { private: wasPrivate, unfiled: unfiled.length } });
       }
       await tellRoom(body.orgId);
-      if (wasPrivate) await tellMembers(env, body.orgId, insiders);
+      if (wasPrivate) {
+        await tellMembers(env, body.orgId, insiders);
+      }
       if (unfiled.length) await announceCards(env, body.orgId, unfiled, { isNew: false });
       return json({ businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }), unfiled: unfiled.length });
     }
