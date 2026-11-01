@@ -18,5 +18,13 @@ test('app generation sends the retry identity and source capture alongside its r
  const fetch=vi.fn().mockResolvedValue({ok:true,json:async()=>({app:{id:'app'}})});vi.stubGlobal('fetch',fetch)
  const api=harnessApi('https://example.test','team:one','session')
  await api.generate('Track work','b:ops',{requestId:'generation_request_001',captureSource:true})
+ expect(fetch.mock.calls[0][0]).toBe('https://example.test/app-generation-v2')
  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({orgId:'team:one',prompt:'Track work',channel:'b:ops',requestId:'generation_request_001',captureSource:true})
+})
+test('app generation does not fall back to the older API when the service lacks the new route',async()=>{
+ const fetch=vi.fn().mockResolvedValue({ok:false,status:404,json:async()=>({})});vi.stubGlobal('fetch',fetch)
+ const api=harnessApi('https://example.test','team:one','session')
+ await expect(api.generate('Track work',undefined,{requestId:'generation_request_001',sampleCount:0})).rejects.toThrow('App generation requires a newer service')
+ expect(fetch).toHaveBeenCalledTimes(1)
+ expect(fetch.mock.calls[0][0]).toBe('https://example.test/app-generation-v2')
 })

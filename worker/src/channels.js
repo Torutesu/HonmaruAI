@@ -1,4 +1,5 @@
 import {messageDeliveryStatements} from './messageDelivery.js';
+import {conversationWriteAuthority} from './harness/conversationWriteAuthority.js';
 import {workflowNoticeGuard} from './harness/workflowNoticeGuard.js';
 import {agentRequestStatement} from './agentRequestDispatch.js';
 import { roomHookReplyGuard } from './harness/roomHookExecutionGrant.js';
@@ -616,7 +617,22 @@ export const clientIdOk = (id) => typeof id === "string" && CLIENT_ID.test(id);
 
 const THREAD_GONE = "That thread is not here any more.";
 
-async function messageByClientId(db, orgId, authorLogin, clientId) {
+async function messageByClientId(db, orgId, authorLogin, clientId, creation = null) {
+  if (creation) {
+    const isBusiness = creation.key.startsWith('b:');
+    const sameRoom = isBusiness ? ` AND EXISTS(SELECT 1 FROM businesses b WHERE b.org_id=?1 AND 'b:'||b.slug=?4 AND b.created_at=?6 AND b.private=?7)` : '';
+    // Return the row from the same SELECT that proves the current grant;
+    // a separate getMessage after checking access would reopen the race.
+    return db.prepare(`SELECT m.*, td.title AS thread_title, td.version AS thread_version,
+      COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id=m.org_id AND 'agent:'||ca.id=m.author_login),
+        (SELECT 'Webhook · '||h.name FROM hx_room_hooks h WHERE h.org_id=m.org_id AND h.channel=m.channel AND 'webhook:'||h.id=m.author_login)) AS author_name
+      FROM channel_messages m LEFT JOIN users u ON u.login=m.author_login
+      LEFT JOIN channel_thread_details td ON td.org_id=m.org_id AND td.message_id=m.id
+      WHERE m.org_id=?1 AND m.author_login=?2 AND m.client_id=?3 AND m.channel=?4
+        AND ${conversationWriteAuthority('?1','?4','?5')}
+        AND EXISTS(SELECT 1 FROM users actor WHERE actor.github_id=?5 AND actor.login=?2)${sameRoom}`)
+      .bind(orgId, authorLogin, clientId, creation.key, creation.actorId, ...(isBusiness ? [creation.room.createdAt, Number(creation.room.private)] : [])).first();
+  }
   const hit = await db
     .prepare("SELECT id FROM channel_messages WHERE org_id = ?1 AND author_login = ?2 AND client_id = ?3")
     .bind(orgId, authorLogin, clientId)
@@ -629,7 +645,12 @@ async function messageByClientId(db, orgId, authorLogin, clientId) {
 /// than sent without it.
 const FILES_GONE = "A file in this message is no longer there. Attach it again.";
 
-export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, deliveryTasks = false, deliveryBoundary = null, assignmentFence = null, workflowNotice = null }) {
+export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, deliveryTasks = false, deliveryBoundary = null, assignmentFence = null, workflowNotice = null, creationActorId = null, creationRoomSnapshot = null }) {
+  const creation = creationActorId !== null;
+  if (creation && (typeof creationActorId !== 'string' || !creationActorId || typeof key !== 'string' || kind !== 'message' || parentId || replyTo || cardId || files || withFiles || assignmentFence || workflowNotice || agentRequest || roomHookSource || deliveryTasks || alsoChannel || onBehalfOf || !clientIdOk(clientId) ||
+    (key.startsWith('b:') && (!creationRoomSnapshot || typeof creationRoomSnapshot.createdAt !== 'string' || !creationRoomSnapshot.createdAt || typeof creationRoomSnapshot.private !== 'boolean')))) return {error:'Invalid app source message.',status:403};
+  if (!creation && creationRoomSnapshot) return {error:'Invalid app source message.',status:403};
+  const creationFence = creation ? { key, actorId: creationActorId, room: creationRoomSnapshot } : null;
   if(workflowNotice && (kind!=='ai'||authorLogin!=='__workflow'||!parentId||files||withFiles||assignmentFence||agentRequest||roomHookSource||typeof workflowNotice.workflowId!=='string'||typeof workflowNotice.generation!=='string'||typeof workflowNotice.recipientId!=='string'))return {error:'Invalid workflow notice.',status:403};
   if (roomHookSource && (!parentId || kind !== 'agent' || !authorLogin?.startsWith('agent:'))) return {error:'Invalid webhook reply.',status:403};
   if(assignmentFence && (kind!=='agent' || !parentId || files?.ids?.length || withFiles || typeof assignmentFence.assignmentId!=='string' || !Number.isSafeInteger(assignmentFence.generation) || typeof assignmentFence.sourceId!=='string' || typeof assignmentFence.sourceBody!=='string' || typeof assignmentFence.sourceAuthor!=='string'))return {error:'Invalid execution reply.',status:403};
@@ -649,7 +670,7 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
   // A retry of a send that already landed gets that message back, before
   // anything about it is checked again: it was fine when it was written.
   if (remembered && authorLogin) {
-    const prior = await messageByClientId(db, orgId, authorLogin, remembered);
+    const prior = await messageByClientId(db, orgId, authorLogin, remembered, creationFence);
     if (prior) return { row: prior, replay: true };
   }
   if (files?.gone) return { error: FILES_GONE, code: "files_gone", status: 409 };
@@ -685,6 +706,9 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
     const noticeLive=workflowNotice?` AND ${workflowNoticeGuard}`:'';
     const noticeValues=workflowNotice?[workflowNotice.workflowId,workflowNotice.generation||'',workflowNotice.recipientId,workflowNotice.budgetNoticeId||'']:[];
     const fenceValues=assignmentFence?[assignmentFence.assignmentId,assignmentFence.generation,assignmentFence.sourceId,assignmentFence.sourceBody,assignmentFence.sourceAuthor,assignmentFence.sourceParent || '']:[];
+    const sameCreationRoom=creation && key.startsWith('b:') ? ` AND EXISTS(SELECT 1 FROM businesses b WHERE b.org_id=?2 AND 'b:'||b.slug=?3 AND b.created_at=?15 AND b.private=?16)` : '';
+    const creationLive=creation?` AND ${conversationWriteAuthority('?2','?3','?14')} AND EXISTS(SELECT 1 FROM users WHERE github_id=?14 AND login=?4)${sameCreationRoom}`:'';
+    const creationValues=creation?[creationActorId,...(key.startsWith('b:')?[creationRoomSnapshot.createdAt,Number(creationRoomSnapshot.private)]:[])]:[];
 
     if (files?.ids?.length) {
       // The message and its files in one step, all or none: its uploads are
@@ -710,20 +734,30 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
         return { error: FILES_GONE, code: "files_gone", status: 409 };
       }
     } else {
-      const insert = db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}${executionLive}${noticeLive}`).bind(...values,...fenceValues,...noticeValues);
+      const insert = db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}${executionLive}${noticeLive}${creationLive}`).bind(...values,...fenceValues,...noticeValues,...creationValues);
       const put = dispatch || deliveries.length ? (await db.batch([insert,...(dispatch ? [dispatch] : []),...deliveries]))[0] : await insert.run();
+      if(creation && !put.meta?.changes)return {error:'No such room.',status:403};
       if(workflowNotice && !put.meta?.changes)return {error:'Workflow notice access changed.',code:'notice_changed',status:409};
       if (assignmentFence && !put.meta?.changes)return {error:'Execution access changed.',code:'execution_changed',status:409};
       if (parentId && !put.meta?.changes) return roomHookSource ? {error:"Webhook access changed.",code:"webhook_revoked",status:403} : { error: THREAD_GONE, code: "thread_gone" };
     }
   } catch (err) {
     if (remembered && authorLogin) {
-      const prior = await messageByClientId(db, orgId, authorLogin, remembered);
+      const prior = await messageByClientId(db, orgId, authorLogin, remembered, creationFence);
       if (prior) return { row: prior, replay: true };
+      if (creation) {
+        // A duplicate request belonging to another room must not expose it.
+        const duplicate = await db.prepare('SELECT 1 FROM channel_messages WHERE org_id=? AND author_login=? AND client_id=?').bind(orgId,authorLogin,remembered).first();
+        if (duplicate) return { error: 'The source conversation changed. Start a new generation request.', status: 409 };
+      }
     }
     throw err;
   }
   await mirrorIds(db, orgId, [id]);
+  if (creation) {
+    const row = await messageByClientId(db, orgId, authorLogin, remembered, creationFence);
+    return row ? { row } : { error: 'No such room.', status: 403 };
+  }
   return { row: await getMessage(db, orgId, id) };
 }
 

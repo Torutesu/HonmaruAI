@@ -310,6 +310,11 @@
 :root .shell.harness-workspace .hx-app-library .screen-head { width: min(100%, 1216px); box-sizing:border-box; margin:0 auto; padding:30px 32px 20px; border:0; min-height:78px; }
 :root .shell.harness-workspace .hx-app-library .head-title { font-size:22px; letter-spacing:-.5px; }
 :root .shell.harness-workspace .hx-app-library .screen-body { max-width:1216px; padding:0 32px 40px; }
+.hx-app-sample-options { margin-top: 10px; color: var(--hx-muted, var(--slate, #62695c)); font-size: 12px; }
+.hx-app-sample-options summary { cursor: pointer; width: fit-content; }
+.hx-app-sample-options label { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; }
+.hx-app-sample-options select { padding: 4px 8px; border: 1px solid var(--hx-border, var(--cloud, #dddfd7)); border-radius: 6px; background: var(--hx-surface, var(--plaster, #fff)); color: var(--hx-text, var(--ink-black, #242722)); font: inherit; }
+.hx-app-sample-options .row-sub { display: block; }
 .hx-library-search { display:flex; align-items:center; gap:8px; width:min(100%,448px); height:36px; box-sizing:border-box; padding:0 12px; border:1px solid var(--hx-border); border-radius:12px; color:var(--hx-muted); margin-bottom:24px; box-shadow:0 1px 2px #00000004; }
 :root .shell.harness-workspace .hx-library-search input { border:0; background:transparent; outline:0; padding:0; width:100%; min-width:0; font:inherit; font-size:13px; }
 .hx-library-search:focus-within { outline:2px solid var(--hx-accent); outline-offset:2px; }

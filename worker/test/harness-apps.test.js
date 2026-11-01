@@ -314,6 +314,13 @@ test("a sentence becomes an app without a model, through the closest template", 
   expect(body.app.template).toBe("invoices");
   const rendered = await (await get(`/apps/${body.app.id}?orgId=${ORG}`, mika)).json();
   expect(rendered.table.name).toBe("Invoices");
+  expect(rendered.rows).toEqual([]);
+
+  const withExamples = await send("POST", "/apps/generate", mika, { orgId: ORG, prompt: "請求書を管理する", sampleCount: 2, useModel: false });
+  const exampleApp = (await withExamples.json()).app;
+  const examples = await (await get(`/apps/${exampleApp.id}?orgId=${ORG}`, mika)).json();
+  expect(examples.rows).toHaveLength(2);
+  expect(examples.views[0].rows).toHaveLength(2);
 
   expect((await specFromPrompt("a hiring pipeline for designers")).spec.template).toBe("hiring");
   expect((await specFromPrompt("track our office plants")).spec.template).toBe("tracker");
@@ -330,35 +337,79 @@ test("a model's design is used when it holds up, and ignored when it does not", 
   expect(bad.source).toBe("template");
 });
 
-test("generated apps start with one all-records table unless extra views were requested", async () => {
-  const design = JSON.stringify({ name: "Tasks", tableName: "Tasks", columns: [
-    { name: "Task name", type: "text" }, { name: "Status", type: "select", options: ["Open", "Done"] }, { name: "Due", type: "date" },
-  ], views: [
-    { type: "board", name: "By status", groupBy: "Status" },
-    { type: "table", name: "Open tasks", where: { Status: "Open" } },
-    { type: "calendar", name: "Due date", dateColumn: "Due" },
-    { type: "metrics", name: "Summary", metrics: [{ label: "Tasks", op: "count" }] },
-  ] });
-  const standard = await specFromPrompt("担当者と期限を管理するタスクアプリ", { complete: async () => design });
-  expect(standard.spec.definition.views).toEqual([{ type: "table", name: "すべて" }]);
+test("app generation rejects invalid sample limits before creating an app", async () => {
+  for (const sampleCount of [-1, 21, 1.5, "1"]) {
+    const response = await send("POST", "/apps/generate", mika, {orgId:ORG,prompt:"Invoice tracker",sampleCount,useModel:false});
+    expect(response.status).toBe(400);
+  }
+  expect((await send("POST", "/apps/generate", mika, {orgId:ORG,prompt:"請求書とサンプルデータを追加",useModel:false})).status).toBe(400);
+  expect((await send("POST", "/apps/generate", mika, {orgId:ORG,prompt:"請求書とサンプルデータを追加",sampleCount:0,useModel:false})).status).toBe(400);
+  expect((await send("POST", "/apps/generate", mika, {orgId:ORG,prompt:"請求書を管理。サンプルデータは不要",sampleCount:2,useModel:false})).status).toBe(400);
+  for (const instruction of ["サンプルデータは作る前に相談して", "サンプルデータは追加前に確認", "サンプルデータは承認後に作成", "サンプルデータの追加は相談してから決める", "Create sample data only after approval"]) {
+    expect((await send("POST", "/apps/generate", mika, {orgId:ORG,prompt:`請求書を管理。${instruction}`,sampleCount:5,useModel:false})).status).toBe(400);
+  }
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=?").bind(ORG).first()).n).toBe(0);
+});
 
-  const requested = await specFromPrompt("カンバンとカレンダーで見るタスクアプリ", { complete: async () => design });
-  expect(requested.spec.definition.views.map(view => view.type)).toEqual(["table", "board", "calendar"]);
-  expect(requested.spec.definition.views[0]).toEqual({ type: "table", name: "すべて" });
-  const missingRequestedViews = await specFromPrompt("カンバンとカレンダーで見るタスクアプリ", { complete: async () => JSON.stringify({
-    name: "Tasks", columns: [{ name: "Status", type: "select", options: ["Open"] }, { name: "Due", type: "date" }], views: [],
-  }) });
-  expect(missingRequestedViews.spec.definition.views.map(view => view.type)).toEqual(["table", "board", "calendar"]);
-  const filtered = await specFromPrompt("未割当のタスクだけを表示する管理アプリ", { complete: async () => JSON.stringify({
-    name: "Tasks", columns: [{ name: "Task", type: "text" }, { name: "Assignee", type: "select", options: ["未割当", "担当あり"] }],
-    views: [{ type: "table", name: "未割当", where: { Assignee: "未割当" } }, { type: "board", name: "Board", groupBy: "Assignee" }],
-  }) });
-  expect(filtered.spec.definition.views).toEqual([{ type: "table", name: "未割当", where: { Assignee: "未割当" } }]);
-
+test("generated app views retain explicit board, ordering, and multiple-view requests", async () => {
+  const columns = [{ name: "Status", type: "select", options: ["Open", "Done"] }, { name: "Due", type: "date" }];
+  const views = [{ type: "table", name: "期限順", sort: "Due" }, { type: "board", name: "状態別", groupBy: "Status" }, { type: "board", name: "担当別", groupBy: "Status" }];
+  const standard = await specFromPrompt("担当者と期限を管理するタスクアプリ", {
+    complete: async () => JSON.stringify({ name: "Tasks", columns, viewPolicy: "default", views }),
+  });
+  expect(standard.spec.definition.views).toEqual([{type:"table",name:"すべて"}]);
+  const made = await specFromPrompt("期限順の一覧と状態別・担当別のボードビューを2つ作り、カレンダーは不要", {
+    complete: async () => JSON.stringify({ name: "Tasks", columns, viewPolicy: "requested", views }),
+  });
+  expect(made.spec.definition.views).toEqual(views);
+  const mistakenPolicy = await specFromPrompt("期限順とボードで表示", {complete: async () => JSON.stringify({name:"Tasks",columns,viewPolicy:"default",views})});
+  expect(mistakenPolicy.spec.definition.views).toEqual(views);
+  const calendarViews=[{type:"table",name:"All"},{type:"calendar",name:"Calendar",dateColumn:"Due"}];
+  const noCalendarModel=await specFromPrompt("タスク管理。カレンダーは不要",{complete:async()=>JSON.stringify({name:"Tasks",columns,viewPolicy:"default",views:calendarViews})});
+  expect(noCalendarModel.spec.definition.views.map(view=>view.type)).toEqual(["table"]);
+  const corrected=await specFromPrompt("カレンダーは不要、やはりカレンダーを作って",{complete:async()=>JSON.stringify({name:"Tasks",columns,views:calendarViews})});
+  expect(corrected.spec.definition.views.map(view=>view.type)).toEqual(["table","calendar"]);
+  const calendarWithNoSamples=await specFromPrompt("カレンダーを表示してサンプルデータは追加しない",{complete:async()=>JSON.stringify({name:"Tasks",columns,views:calendarViews})});
+  expect(calendarWithNoSamples.spec.definition.views.map(view=>view.type)).toEqual(["table","calendar"]);
+  const boardWithNoRows=await specFromPrompt("ボードを作って新規行を追加しない",{complete:async()=>JSON.stringify({name:"Tasks",columns,views:[{type:"board",name:"Board",groupBy:"Status"}]})});
+  expect(boardWithNoRows.spec.definition.views.map(view=>view.type)).toEqual(["board"]);
+  const board = await specFromPrompt("タスクをボードで表示", { complete: async () => JSON.stringify({ name: "Tasks", columns, views: [{type:"board", name:"Board", groupBy:"Status"}] }) });
+  expect(board.spec.definition.views.map(view => view.type)).toEqual(["board"]);
+  const ids = await specFromPrompt("2つのビュー", {complete: async () => JSON.stringify({name:"Tasks",columns,views:[{id:"personal_same",type:"table",name:"A"},{id:"personal_same",type:"table",name:"B"}]})});
+  const normalized = normalizeDefinition(ids.spec.definition, normalizeColumns(columns).columns).views;
+  expect(new Set(normalized.map(view=>view.id)).size).toBe(2);
+  expect(normalized.every(view=>!view.id.startsWith('personal_'))).toBe(true);
+  const noViews = await specFromPrompt("タスク管理", { complete: async () => JSON.stringify({ name: "Tasks", columns }) });
+  expect(noViews.spec.definition.views).toEqual([{type:"table",name:"すべて"}]);
+  const invalidBoard = await specFromPrompt("タスクをボードで表示", {complete:async()=>JSON.stringify({name:"Tasks",columns:[{name:"Task",type:"text"}],views:[{type:"board",name:"Board"}]})});
+  expect(invalidBoard.error).toContain("選択肢フィールド");
+  const invalidCalendar = await specFromPrompt("カレンダーで表示", {complete:async()=>JSON.stringify({name:"Tasks",columns:[{name:"Task",type:"text"}],views:[{type:"calendar",name:"Calendar",dateColumn:"Task"}]})});
+  expect(invalidCalendar.error).toContain("日付フィールド");
   const fallback = await specFromPrompt("a team work tracker", { complete: null });
   expect(fallback.spec.definition.views).toEqual([{ type: "table", name: "All" }]);
   const boardFallback = await specFromPrompt("a kanban task board", { complete: null });
   expect(boardFallback.spec.definition.views.map(view => view.type)).toEqual(["table", "board"]);
+  const noCalendar = await specFromPrompt("タスクをボードで表示。カレンダーは不要", { complete: null });
+  expect(noCalendar.spec.definition.views.map(view => view.type)).toEqual(["table", "board"]);
+  const noCalendarEnglish = await specFromPrompt("a tracker; do not add a calendar", { complete: null });
+  expect(noCalendarEnglish.spec.definition.views.map(view => view.type)).toEqual(["table"]);
+  for (const prompt of ["カレンダーのないタスク管理", "カレンダーを省いたタスク管理", "カレンダーを外してボードで表示"]) {
+    const result = await specFromPrompt(prompt, {complete:null});
+    expect(result.spec.definition.views.some(view=>view.type==='calendar')).toBe(false);
+  }
+  const dueOrder = await specFromPrompt("タスクを期限順に表示", { complete: null });
+  expect(dueOrder.spec.definition.views[0]).toEqual({type:"table",name:"すべて",sort:"Due"});
+});
+
+test("generated samples require an explicit count and never invent people references", async () => {
+  const spec = {name:"Tasks",columns:[{name:"Task",type:"text"},{name:"Assignee",type:"person"}],sample:[{Assignee:"made-up-user"},{Task:"Example",Assignee:"made-up-user",assignee:"another-made-up-user"},{Task:"Second"},{Task:"Third"}]};
+  const complete = async () => JSON.stringify(spec);
+  for(const prompt of ["タスク管理。サンプルデータは不要", "サンプルデータを追加しない", "サンプルデータを追加せず開始", "サンプルデータの追加は禁止", "サンプルデータは作成禁止", "サンプルデータを入れるのをやめて", "サンプルデータは後日追加", "サンプルデータを後で追加", "サンプルデータは零件で追加", "サンプルデータを追加するか相談", "サンプルデータを追加。ただし0件", "サンプルデータを追加してください。ただし、まだ追加しないで", "Task tracker; don't include sample data", "include sample data but no rows", "include sample data with zero rows", "Add sample data, but do not insert any rows yet", "タスク管理のサンプルアプリを作成", "create a sample app", "サンプルデータを追加、1件だけ"]) {
+    expect((await specFromPrompt(prompt,{complete})).spec.sample, prompt).toEqual([]);
+  }
+  expect((await specFromPrompt("タスク管理",{complete,sampleCount:3})).spec.sample).toEqual([{Task:"Example"},{Task:"Second"},{Task:"Third"}]);
+  expect((await specFromPrompt("タスク管理",{complete,sampleCount:1})).spec.sample).toEqual([{Task:"Example"}]);
+  expect((await specFromPrompt("請求書を管理し初期データは0件",{complete:null})).spec.sample).toEqual([]);
 });
 
 test("natural-language assignee fields become workspace-member references", async () => {
@@ -374,6 +425,18 @@ test("natural-language assignee fields become workspace-member references", asyn
   expect(freeForm.spec.columns.find(column => column.name === "担当者").type).toBe("text");
   const separateFreeForm = await specFromPrompt("担当者はワークスペースのメンバーから選択し、メモ欄は自由記述で管理", { complete: async () => raw });
   expect(separateFreeForm.spec.columns.find(column => column.name === "担当者").type).toBe("person");
+  const guidedFreeForm = await specFromPrompt("担当者を記録するタスクアプリ", { complete: async () => raw, guidelines: "担当者は自由記述で入力する" });
+  expect(guidedFreeForm.spec.columns.find(column => column.name === "担当者").type).toBe("text");
+  const explicitMember = await specFromPrompt("担当者はワークスペースのメンバーから選択", { complete: async () => raw, guidelines: "担当者は自由記述で入力する" });
+  expect(explicitMember.spec.columns.find(column => column.name === "担当者").type).toBe("person");
+  const negatedFreeForm = await specFromPrompt("担当者を記録する", { complete: async () => raw, guidelines: "担当者は自由記述ではなくワークスペースのメンバーを選択" });
+  expect(negatedFreeForm.spec.columns.find(column => column.name === "担当者").type).toBe("person");
+  const noFreeForm = await specFromPrompt("担当者の自由記述は不要", {complete:async()=>raw});
+  expect(noFreeForm.spec.columns.find(column=>column.name==='担当者').type).toBe('person');
+  for(const prompt of ["担当者はワークスペースのメンバーから選ばない", "担当者はメンバーから選ばず、自由記述にする"]) {
+    const result = await specFromPrompt(prompt,{complete:async()=>raw,guidelines:"担当者は自由記述"});
+    expect(result.spec.columns.find(column=>column.name==='担当者').type,prompt).toBe('text');
+  }
   const english = await specFromPrompt("a task tracker with an assignee", { complete: async () => JSON.stringify({ name: "Tasks", columns: [{ name: "Assignee", type: "text" }] }) });
   expect(english.spec.columns[0].type).toBe("person");
 });
