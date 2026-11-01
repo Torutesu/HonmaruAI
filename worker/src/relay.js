@@ -33,7 +33,7 @@ import { settleAgentAccessRequest } from "./harness/agentAccessRequests.js";
 import { agentRoleState } from "./harness/agentRoles.js";
 import { settleProposal } from "./proposals.js";
 import { settleProxyAction } from "./proxy.js";
-import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor } from "./jam.js";
+import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor, invalidateJamJoins } from "./jam.js";
 import { TYPING_TYPES, TYPING_BUDGET, handleTyping } from "./typing.js";
 import { useSecretKey } from "./secrets.js";
 import { useMirrorEnv } from "./store/mirror.js";
@@ -161,22 +161,26 @@ export class OrgRelay {
         }
       }
       if (allInChannel === true && typeof channel === 'string' && channel.startsWith('b:')) {
+        invalidateJamJoins(this,orgId,channel);
         // The room has been deleted. Public rooms may have Jam participants
         // without conversation_members entries, so inspect every socket.
         for (const ws of this.state.getWebSockets()) {
           const att=ws.deserializeAttachment();
           if(att?.orgId!==orgId || att.jam?.key!==channel)continue;
-          try { await leaveJam(this,ws,att); } catch(err) { console.error('room jam leave failed',err?.message||err); }
+          if(att.jam.pending)ws.serializeAttachment({...att,jam:null});
+          else try { await leaveJam(this,ws,att); } catch(err) { console.error('room jam leave failed',err?.message||err); }
           OrgRelay.deliver(ws,JSON.stringify(customEvent('jam_error',{channel:null,message:'You are no longer in this channel.'})));
           evicted+=1;
         }
       } else if (login && typeof channel === "string") {
+        invalidateJamJoins(this,orgId,channel);
         // Out of one private channel only: out of its Jam, so the others
         // hang up on them, and told so; the rest of the room is still theirs.
         for (const ws of this.state.getWebSockets()) {
           const att = ws.deserializeAttachment();
           if (att?.orgId !== orgId || att?.userId !== login || att.jam?.key !== channel) continue;
-          await leaveJam(this, ws, att);
+          if(att.jam.pending)ws.serializeAttachment({...att,jam:null});
+          else await leaveJam(this, ws, att);
           OrgRelay.deliver(ws, JSON.stringify(customEvent("jam_error", { channel: null, message: "You are no longer in this channel." })));
           evicted += 1;
         }
@@ -1231,7 +1235,7 @@ export class OrgRelay {
     const att = ws.deserializeAttachment() || {};
     this.announceLeft(ws, att);
     // A closed tab has left its Jam.
-    if (att.jam) {
+    if (att.jam && !att.jam.pending) {
       try { await leaveJam(this, ws, att, { closing: true }); } catch (err) { console.error("jam leave failed", err?.message || err); }
     }
   }

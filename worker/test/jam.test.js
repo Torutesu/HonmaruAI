@@ -74,6 +74,18 @@ test("two people in a Jam are introduced, pass signals, and the channel hears it
   expect(said.body).toMatch(/^Jam ended · \d+ min · Toru, Mika$/);
 });
 
+test('concurrent authorized Jam joins are serialized and both participants are introduced',async()=>{
+  const toru=await joined(ORG,globalThis.__jamT),mika=await joined(ORG,globalThis.__jamM);
+  toru.ws.send(JSON.stringify({type:'jam_join',payload:{channel:'b:general'}}));
+  mika.ws.send(JSON.stringify({type:'jam_join',payload:{channel:'b:general'}}));
+  const [a,b]=await Promise.all([message(toru.messages,custom('jam_joined')),message(mika.messages,custom('jam_joined'))]);
+  expect([a.value.peers.length,b.value.peers.length].sort()).toEqual([0,1]);
+  const first=a.value.peers.length?b:a,second=a.value.peers.length?a:b;
+  expect(second.value.peers).toEqual([first.value.peerId]);
+  toru.ws.send(JSON.stringify({type:'jam_leave',payload:{}}));
+  mika.ws.send(JSON.stringify({type:'jam_leave',payload:{}}));
+});
+
 test("a direct conversation's Jam is only the two people's", async () => {
   const toru = await joined(ORG, globalThis.__jamT);
   const kenji = await joined(ORG, globalThis.__jamK);
