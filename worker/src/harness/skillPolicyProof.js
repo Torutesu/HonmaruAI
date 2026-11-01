@@ -9,11 +9,12 @@ import { currentIp } from '../requestContext.js';
 // changes to ordering invalidate a previously checked policy. No secrets or
 // bearer tokens are included. The three SQL arguments are trusted placeholders.
 export const skillPolicyFingerprint = (org, user, token) => `json_object(
-  'network', (SELECT json_object('enforce',g.ip_enforce,'allowlist',g.ip_allowlist) FROM org_governance g WHERE g.org_id=${org}),
-  'ssoPolicy', (SELECT json_object('enforce',p.enforce) FROM org_sso_policy p WHERE p.org_id=${org}),
+  'network', (SELECT json_object('enforce',g.ip_enforce,'allowlist',g.ip_allowlist,'updated',g.updated_at) FROM org_governance g WHERE g.org_id=${org}),
+  'ssoPolicy', (SELECT json_object('enforce',p.enforce,'updated',p.updated_at) FROM org_sso_policy p WHERE p.org_id=${org}),
+  'sessionPolicy', (SELECT json_object('web',p.web_max_hours,'mobile',p.mobile_max_hours,'idle',p.idle_hours,'updated',p.updated_at) FROM org_session_policy p WHERE p.org_id=${org}),
   'legacy', (SELECT json_object('enforce',l.enforce,'status',l.status,'domains',l.allowed_domains,'hours',l.session_hours,'updated',l.updated_at) FROM org_sso l WHERE l.org_id=${org}),
-  'connections', (SELECT json_group_array(json_object('id',x.id,'status',x.status,'domains',x.allowed_domains,'hours',x.session_hours,'created',x.created_at))
-    FROM (SELECT id,status,allowed_domains,session_hours,created_at FROM sso_connections WHERE org_id=${org} ORDER BY created_at,id) x),
+  'connections', (SELECT json_group_array(json_object('id',x.id,'status',x.status,'domains',x.allowed_domains,'hours',x.session_hours,'created',x.created_at,'updated',x.updated_at))
+    FROM (SELECT id,status,allowed_domains,session_hours,created_at,updated_at FROM sso_connections WHERE org_id=${org} ORDER BY created_at,id) x),
   'domains', (SELECT json_group_array(json_object('domain',x.domain,'verified',x.verified_at))
     FROM (SELECT domain,verified_at FROM org_domains WHERE org_id=${org} ORDER BY domain) x),
   'email', (SELECT email FROM users WHERE github_id=${user}),
