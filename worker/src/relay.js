@@ -176,8 +176,7 @@ export class OrgRelay {
         }
         await Promise.all(leaves);
       } else if (login && typeof channel === "string") {
-        invalidateJamUserJoins(this,orgId,login);
-        invalidateJamJoins(this,orgId,channel);
+        invalidateJamUserJoins(this,orgId,login,channel);
         // Out of one private channel only: out of its Jam, so the others
         // hang up on them, and told so; the rest of the room is still theirs.
         const leaves=[];
