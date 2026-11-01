@@ -39,6 +39,40 @@ export const JAM_SIGNAL_BUDGET = 1500;
 
 const STORE = (orgId, key) => `jam:${orgId}:${key}`;
 
+// Keep concurrent joins to the same channel ordered while one of them is
+// rechecking access. Other Jam messages and unrelated channels remain free.
+const pendingJoins = new WeakMap();
+const joinInvalidations = new WeakMap();
+const joinKey = (orgId, channel) => JSON.stringify([orgId, channel]);
+const joinEpoch = (relay, key) => joinInvalidations.get(relay)?.get(key) || 0;
+
+// Record evictions even when the joining socket has not attached yet. An
+// authorization read already in flight may otherwise complete with stale data.
+export function invalidateJamJoins(relay, orgId, channel) {
+  const key=joinKey(orgId,channel);
+  if(!pendingJoins.get(relay)?.has(key))return;
+  let epochs=joinInvalidations.get(relay);
+  if(!epochs){epochs=new Map();joinInvalidations.set(relay,epochs);}
+  epochs.set(key,joinEpoch(relay,key)+1);
+}
+async function lockJoin(relay, key) {
+  let locks=pendingJoins.get(relay);
+  if(!locks){locks=new Map();pendingJoins.set(relay,locks);}
+  const before=locks.get(key)||Promise.resolve();
+  let unlock;
+  const current=new Promise(resolve=>{unlock=resolve;});
+  locks.set(key,current);
+  await before;
+  return ()=>{if(locks.get(key)===current){locks.delete(key);joinInvalidations.get(relay)?.delete(key);}unlock();};
+}
+
+function sameResolvedRoom(before,after) {
+  if(!after || before.key!==after.key || Boolean(before.private)!==Boolean(after.private))return false;
+  const a=before.deliveryBoundary,b=after.deliveryBoundary;
+  if(!a && !b)return true;
+  return Boolean(a && b && a.businessCreatedAt===b.businessCreatedAt && a.allowVirtual===b.allowVirtual);
+}
+
 /// The servers a browser needs to find a way through to the others: STUN
 /// always, and TURN — relayed audio, for networks that allow nothing else —
 /// when the deployment has it, from Cloudflare's service or a fixed one.
@@ -76,7 +110,7 @@ export function jamPeers(sockets, orgId, key, exclude) {
   for (const ws of sockets) {
     if (ws === exclude) continue;
     const att = ws.deserializeAttachment?.();
-    if (att?.orgId === orgId && att.jam?.key === key) out.push({ ws, att });
+    if (att?.orgId === orgId && att.jam?.key === key && !att.jam.pending) out.push({ ws, att });
   }
   return out.sort((a, b) => String(a.att.jam.since).localeCompare(String(b.att.jam.since)));
 }
@@ -233,6 +267,12 @@ export async function jamStatesFor(relay, orgId, login, githubId) {
 /// signed in.
 export async function handleJamMessage(relay, ws, att, type, payload) {
   const orgId = att.orgId;
+  // A joining socket is not a peer until its current access is rechecked.
+  if(att.jam?.pending && type!=='jam_join') {
+    // A user may cancel while access or TURN credentials are still loading.
+    if(type==='jam_leave')try { ws.serializeAttachment({...att,jam:null}); } catch { /* socket already closed */ }
+    return;
+  }
 
   if (type === "jam_signal") {
     const to = typeof payload.to === "string" ? payload.to : "";
@@ -308,6 +348,14 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
     const resolved = await resolveChannel(relay.db, orgId, { login: att.userId, github_id: att.githubId }, payload.channel, members);
     const refuse = (message) => reply(ws, customEvent("jam_error", { channel: payload.channel ?? null, message }));
     if (!resolved) return refuse("No such channel.");
+    const key=joinKey(orgId,resolved.key);
+    const locked=lockJoin(relay,key);
+    const epoch=joinEpoch(relay,key);
+    const unlock=await locked;
+    try {
+    // A prior join on this same socket can have finished while we waited.
+    att=ws.deserializeAttachment()||att;
+    if(typeof ws.readyState==='number' && ws.readyState!==1)return;
     if (att.jam?.key === resolved.key) return; // already here
     if (att.jam) {
       await leaveJam(relay, ws, att);
@@ -322,15 +370,45 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
     if (!meta) {
       meta = { startedAt: now, startedBy: att.userId, mode: JAM_MODES.includes(payload.mode) ? payload.mode : "notes", people: [] };
     }
-    if (!meta.people.includes(att.userId)) meta.people.push(att.userId);
-    await relay.state.storage.put(storeKey, meta);
+    const hadPerson=meta.people.includes(att.userId);
+    if (!hadPerson) meta.people.push(att.userId);
     const peerId = crypto.randomUUID();
-    ws.serializeAttachment({ ...att, jam: { key: resolved.key, peerId, muted: Boolean(payload.muted), since: now, mode: meta.mode } });
+    if(starting)meta.pendingJoin=peerId;
+    await relay.state.storage.put(storeKey, meta);
+    const cleanup=async()=>relay.state.storage.transaction(async tx=>{
+      const saved=await tx.get(storeKey);
+      if(!saved)return;
+      if(starting && saved.pendingJoin===peerId && !jamPeers(relay.state.getWebSockets(),orgId,resolved.key).length)await tx.delete(storeKey);
+      else if(!hadPerson && Array.isArray(saved.people)) {
+        saved.people=saved.people.filter(login=>login!==att.userId);
+        await tx.put(storeKey,saved);
+      }
+    });
+    try { ws.serializeAttachment({ ...att, jam: { key: resolved.key, peerId, muted: Boolean(payload.muted), since: now, mode: meta.mode, pending:true } }); }
+    catch { await cleanup(); return; }
+    const servers=await iceServers(relay.env);
+    let verified=null;
+    try {
+      const currentMembers=await listMembers(relay.db,orgId,att.githubId);
+      if(currentMembers.some(member=>String(member.userId)===String(att.githubId)))
+        verified=await resolveChannel(relay.db,orgId,{login:att.userId,github_id:att.githubId},payload.channel,currentMembers);
+    } catch { /* A failed authorization read must not authorize a join. */ }
+    const current=ws.deserializeAttachment();
+    const connected=typeof ws.readyState!=='number'||ws.readyState===1;
+    if(!connected || !current?.jam || current.jam.peerId!==peerId || joinEpoch(relay,key)!==epoch || !sameResolvedRoom(resolved,verified)) {
+      if(current?.jam?.peerId===peerId)try { ws.serializeAttachment({...current,jam:null}); } catch { /* closed */ }
+      // No channel join can pass this lock during cleanup. Do not emit a
+      // fictitious "Jam ended" message or overwrite other live transcripts.
+      await cleanup();
+      if(connected && current?.jam?.peerId===peerId)refuse('Your access to this channel changed.');
+      return;
+    }
+    ws.serializeAttachment({...current,jam:{...current.jam,pending:false}});
     reply(ws, customEvent("jam_joined", {
       channel: payload.channel,
       peerId,
       peers: peers.map((p) => p.att.jam.peerId),
-      iceServers: await iceServers(relay.env),
+      iceServers: servers,
       mode: meta.mode,
       startedAt: meta.startedAt,
       messageId: meta.messageId || null,
@@ -349,6 +427,7 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
       }
       relay.state.waitUntil(emitCall(relay.env, orgId, resolved.key, "call.started", { startedAt: meta.startedAt, startedBy: { name } }));
     }
+    } finally { unlock(); }
   }
 }
 
