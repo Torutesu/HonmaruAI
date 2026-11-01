@@ -125,6 +125,30 @@ test("a private channel: only its members see it at all, and they bring others i
   expect((await call("/channels/members", toru, { method: "POST", body: { orgId: ORG, channel: "b:cafe", refs: [refs.Ann] } })).status).toBe(400);
 });
 
+test("guest isolation treats legacy mixed-case roles consistently across room listing and resolution", async () => {
+  const { getUserByGithubId } = await import("../src/db.js");
+  const { hasGuests, publicAudience } = await import("../src/access.js");
+  const { resolveChannel } = await import("../src/channels.js");
+  await env.DB.prepare("UPDATE memberships SET role = 'Guest' WHERE org_id = ?1 AND user_github_id = '9904'").bind(ORG).run();
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id = ?1 AND channel = 'b:cafe' AND login = 'ann'").bind(ORG).run();
+  const guest = await getUserByGithubId(env.DB, "9904");
+
+  expect(await hasGuests(env.DB, ORG)).toBe(true);
+  expect(await publicAudience(env.DB, ORG, "b:cafe")).not.toContain("ann");
+  expect(await resolveChannel(env.DB, ORG, guest, "b:cafe")).toBeNull();
+  expect(await businesses(ann)).toEqual([]);
+});
+
+test("a workspace admin without explicit private-room membership cannot read or find it", async () => {
+  await call("/businesses", toru, { method: "POST", body: { orgId: ORG, name: "Admin Audit", private: true, members: [refs.Mika] } });
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id = ?1 AND channel = 'b:admin-audit' AND login = 'toru'").bind(ORG).run();
+  await say(mika, "b:admin-audit", "Admin-only boundary secret");
+
+  expect(await businesses(toru)).toEqual(["cafe"]);
+  expect((await list(toru, "b:admin-audit")).status).toBe(404);
+  expect(await search(toru, "boundary secret")).toEqual([]);
+});
+
 test("an invitation into a private channel takes the newcomer in, only if the inviter is there", async () => {
   await call("/businesses", toru, { method: "POST", body: { orgId: ORG, name: "Board", private: true } });
   const { channelsOf } = await import("../src/auth.js");

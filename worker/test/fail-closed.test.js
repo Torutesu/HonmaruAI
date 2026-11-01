@@ -46,5 +46,5 @@ test("a failed 'is it private?' lookup lets nobody in", async () => {
 
 test("a failed 'any guests?' read is taken as yes", async () => {
   expect(await hasGuests(env.DB, ORG)).toBe(false);
-  expect(await hasGuests(failing(/role = 'guest'/), ORG)).toBe(true);
+  expect(await hasGuests(failing(/LOWER\(COALESCE\(role, ''\)\) = 'guest'/), ORG)).toBe(true);
 });

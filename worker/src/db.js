@@ -451,6 +451,7 @@ export function parseAliases(raw) {
 }
 
 export async function upsertMembership(db, orgId, githubId, role, via = null) {
+  const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : role;
   // `via` is how they came (invite | domain | sso | created); it is kept
   // from their first arrival and never overwritten.
   await db
@@ -459,7 +460,7 @@ export async function upsertMembership(db, orgId, githubId, role, via = null) {
        VALUES (?1, ?2, ?3, ?4, ?5)
        ON CONFLICT(org_id, user_github_id) DO UPDATE SET role = excluded.role`
     )
-    .bind(orgId, String(githubId), role, new Date().toISOString(), via)
+    .bind(orgId, String(githubId), normalizedRole, new Date().toISOString(), via)
     .run();
   await settleJoinRequest(db, orgId, githubId);
 }
@@ -467,13 +468,14 @@ export async function upsertMembership(db, orgId, githubId, role, via = null) {
 /// Add someone who is not in the workspace yet. Whoever already is keeps the
 /// role they have: returns whether they were added.
 export async function addMembership(db, orgId, githubId, role, via = null) {
+  const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : role;
   const out = await db
     .prepare(
       `INSERT INTO memberships (org_id, user_github_id, role, created_at, joined_via)
        VALUES (?1, ?2, ?3, ?4, ?5)
        ON CONFLICT(org_id, user_github_id) DO NOTHING`
     )
-    .bind(orgId, String(githubId), role, new Date().toISOString(), via)
+    .bind(orgId, String(githubId), normalizedRole, new Date().toISOString(), via)
     .run();
   await settleJoinRequest(db, orgId, githubId);
   return out?.meta?.changes > 0;
@@ -938,7 +940,7 @@ export async function listBusinesses(db, orgId, { viewer = null } = {}) {
          FROM businesses b LEFT JOIN hx_room_access p ON p.org_id=b.org_id AND p.channel='b:'||b.slug AND p.deleted_at IS NULL
         WHERE b.org_id = ?1 AND b.archived_at IS NULL AND ((b.private = 0 AND (?2 IS NULL OR NOT EXISTS (
           SELECT 1 FROM memberships gm JOIN users gu ON gu.github_id = gm.user_github_id
-           WHERE gm.org_id = ?1 AND gu.login = ?2 AND gm.role = 'guest'))) OR (?2 IS NOT NULL AND EXISTS (
+           WHERE gm.org_id = ?1 AND gu.login = ?2 AND LOWER(COALESCE(gm.role, '')) = 'guest'))) OR (?2 IS NOT NULL AND EXISTS (
           SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = 'b:' || b.slug AND c.login = ?2)))
         ORDER BY b.created_at`
     )
