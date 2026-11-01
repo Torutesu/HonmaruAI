@@ -802,6 +802,14 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
     }
     case "update_row": {
       const tableId = step.tableId || scope.input?.tableId || (workflow.trigger?.type==='app_record_change'?await appEntityTable(db,orgId,workflow.trigger.appId,workflow.trigger.entityId):null);
+      // row.id can be a user field, even in definitions saved before the
+      // canonical event ID was added. Never silently target a different row.
+      if (step.rowId && ['row', 'app_record_change'].includes(runTrigger)) {
+        const references = String(step.rowId).match(/\{\{\s*row\.id\s*\}\}/gi) || [];
+        if (references.some(reference => !implicitRowId || render(reference, scope) !== implicitRowId)) {
+          return { status: 'failed', error: 'The row.id update target is ambiguous. Use the event record ID or explicitly reference the user column value.' };
+        }
+      }
       const rowId = step.rowId ? render(step.rowId, scope) : implicitRowId;
       if (tableId && !(await mayUseTable(db, orgId, tableId, owner))) return { status: "failed", error: "Table access required." };
       if (!step.rowId && runTrigger === 'row' && !rowId) return { status: "failed", error: "The source record ID was not preserved for this older run. Start a new run to update the intended record safely." };

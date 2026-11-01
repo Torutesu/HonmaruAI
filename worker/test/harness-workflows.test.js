@@ -163,22 +163,48 @@ test.each(['row', 'app_record_change'])('a %s event updates its actual record wh
   expect(rows.find(row => row.id === other.id).values.status).toBe('Ready');
 });
 
-test('explicit row ID templates keep using the user column value', async () => {
+test.each(['row', 'app_record_change'])('a %s event rejects an ambiguous row.id update while permitting an explicit field target', async triggerType => {
   const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, name: 'Explicit target', columns: [
     { name: 'Name', type: 'text' }, { name: 'ID', type: 'text' }, { name: 'Status', type: 'text' },
   ] })).json();
   const path = `/tables/${app.tableId}/rows`;
   const other = (await (await send('POST', path, mika, { orgId: ORG, values: { Name: 'Other', Status: 'Ready' } })).json()).row;
   const source = (await (await send('POST', path, mika, { orgId: ORG, values: { Name: 'Source', ID: other.id, Status: 'Ready' } })).json()).row;
-  const { workflow } = await (await send('POST', '/workflows', mika, { orgId: ORG, name: 'Chosen target', trigger: { type: 'row', tableId: app.tableId, on: 'changed' }, steps: [
+  const trigger = triggerType === 'row' ? { type: 'row', tableId: app.tableId, on: 'changed' }
+    : { type: 'app_record_change', appId: app.id, entityId: 'primary', events: ['update'] };
+  const field = triggerType === 'row' ? '{{input.row.id}}' : '{{input.records.0.data.id}}';
+  const create = async (name, rowId) => (await (await send('POST', '/workflows', mika, { orgId: ORG, name, trigger, steps: [
+    { type: 'post', channel: 'b:ops', text: 'User ID {{row.id}}' },
+    { type: 'update_row', rowId, values: { Status: 'Done' } },
+  ] })).json()).workflow;
+  const ambiguous = await create('Ambiguous', '{{ row.ID }}');
+  const explicit = await create('Field target', field);
+  await send('PATCH', `${path}/${source.id}`, mika, { orgId: ORG, values: { Status: 'Triggered' } });
+  const getRun = async workflow => (await (await get(`/workflows/${workflow.id}?${q({ orgId: ORG })}`, mika)).json()).runs.find(run => (run.input.recordId || run.input.records?.[0]?.recordId) === source.id);
+  const failed = await getRun(ambiguous);
+  expect(failed.status).toBe('failed');
+  expect(failed.log[1].error).toContain('row.id update target is ambiguous');
+  expect((await getRun(explicit))).toMatchObject({ status: 'done', log: [{ status: 'ok' }, { rowId: other.id }] });
+  expect((await messages(mika)).map(message => message.body)).toContain(`User ID ${other.id}`);
+  const rows = (await (await get(`/tables/${app.tableId}?${q({ orgId: ORG })}`, mika)).json()).rows;
+  expect(rows.find(row => row.id === source.id).values.status).toBe('Triggered');
+  expect(rows.find(row => row.id === other.id).values.status).toBe('Done');
+});
+
+test.each(['row', 'app_record_change'])('an unambiguous %s row.id update keeps working', async triggerType => {
+  const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, name: 'No collision', columns: [
+    { name: 'Name', type: 'text' }, { name: 'Status', type: 'text' },
+  ] })).json();
+  const path = `/tables/${app.tableId}/rows`;
+  const source = (await (await send('POST', path, mika, { orgId: ORG, values: { Name: 'Source', Status: 'Ready' } })).json()).row;
+  const trigger = triggerType === 'row' ? { type: 'row', tableId: app.tableId, on: 'changed' }
+    : { type: 'app_record_change', appId: app.id, entityId: 'primary', events: ['update'] };
+  const { workflow } = await (await send('POST', '/workflows', mika, { orgId: ORG, name: 'Unambiguous', trigger, steps: [
     { type: 'update_row', rowId: '{{row.id}}', values: { Status: 'Done' } },
   ] })).json();
   await send('PATCH', `${path}/${source.id}`, mika, { orgId: ORG, values: { Status: 'Triggered' } });
   const run = (await (await get(`/workflows/${workflow.id}?${q({ orgId: ORG })}`, mika)).json()).runs[0];
-  expect(run).toMatchObject({ status: 'done', log: [{ rowId: other.id }] });
-  const rows = (await (await get(`/tables/${app.tableId}?${q({ orgId: ORG })}`, mika)).json()).rows;
-  expect(rows.find(row => row.id === source.id).values.status).toBe('Triggered');
-  expect(rows.find(row => row.id === other.id).values.status).toBe('Done');
+  expect(run).toMatchObject({ status: 'done', log: [{ rowId: source.id }] });
 });
 
 test('manual runs retain their supplied row context', async () => {
@@ -196,7 +222,7 @@ test('manual runs retain their supplied row context', async () => {
   expect(rows.find(item => item.id === row.id).values.status).toBe('Done');
 });
 
-test.each([false, true])('approval resume uses the saved record ID and rejects a legacy missing ID (legacy: %s)', async legacy => {
+test.each([[false, undefined], [true, undefined], [true, '{{row.id}}']])('approval resume safely handles old records (legacy: %s, rowId: %s)', async (legacy, explicitRowId) => {
   const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, name: 'Legacy identity', columns: [
     { name: 'Name', type: 'text' }, { name: 'ID', type: 'text' }, { name: 'Status', type: 'text' },
   ] })).json();
@@ -204,7 +230,7 @@ test.each([false, true])('approval resume uses the saved record ID and rejects a
   const other = (await (await send('POST', path, mika, { orgId: ORG, values: { Name: 'Other', Status: 'Ready' } })).json()).row;
   const source = (await (await send('POST', path, mika, { orgId: ORG, values: { Name: 'Source', ID: other.id, Status: 'Ready' } })).json()).row;
   const { workflow } = await (await send('POST', '/workflows', mika, { orgId: ORG, name: 'Legacy approval', trigger: { type: 'row', tableId: app.tableId, on: 'changed' }, steps: [
-    { type: 'approval', to: 'toru', title: 'Update the record?' }, { type: 'update_row', values: { Status: 'Done' } },
+    { type: 'approval', to: 'toru', title: 'Update the record?' }, { type: 'update_row', ...(explicitRowId ? { rowId: explicitRowId } : {}), values: { Status: 'Done' } },
   ] })).json();
   await send('PATCH', `${path}/${source.id}`, mika, { orgId: ORG, values: { Status: 'Triggered' } });
   const waiting = (await (await get(`/workflows/${workflow.id}?${q({ orgId: ORG })}`, mika)).json()).runs[0];
@@ -218,7 +244,7 @@ test.each([false, true])('approval resume uses the saved record ID and rejects a
     const run = (await (await get(`/workflows/${workflow.id}/runs/${waiting.id}?${q({ orgId: ORG })}`, mika)).json()).run;
     return run.status === (legacy ? 'failed' : 'done') ? run : null;
   });
-  if (legacy) expect(finished.log[1].error).toContain('source record ID was not preserved');
+  if (legacy) expect(finished.log[1].error).toContain(explicitRowId ? 'row.id update target is ambiguous' : 'source record ID was not preserved');
   else expect(finished.log[1].rowId).toBe(source.id);
   const rows = (await (await get(`/tables/${app.tableId}?${q({ orgId: ORG })}`, mika)).json()).rows;
   expect(rows.find(row => row.id === source.id).values.status).toBe(legacy ? 'Triggered' : 'Done');

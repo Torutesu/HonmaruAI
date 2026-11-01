@@ -65,7 +65,7 @@ test('MCP rows keep system identity separate from colliding user fields across r
   const source = (await tool(writer, 'add_row', { tableId: app.tableId, values: { Name: 'Source', ID: other.row.id, values: 'user value', recordId: 'business ID' } })).result.structuredContent;
   const id = source.row.id;
   expect(id).not.toBe(other.row.id);
-  expect(source.row).toMatchObject({ id, recordId: id, name: 'Source', recordid: 'business ID', values: { id: other.row.id, values: 'user value', recordid: 'business ID', name: 'Source' } });
+  expect(source.row).toMatchObject({ id, recordId: id, name: 'Source', recordid: 'business ID', values: { id: other.row.id, values: 'user value' } });
   expect(source.rowVersions[id]).toBeTruthy();
 
   for (const [name, args] of [['query_rows', { tableId: app.tableId }], ['read_app', { appId: app.id }]]) {

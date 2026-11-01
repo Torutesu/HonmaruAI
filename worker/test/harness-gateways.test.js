@@ -180,6 +180,50 @@ test('ACP Workspace MCP is opt-in, read-only, node-and-lease bound, and rechecks
   const tools = (await listed.json()).result.tools.map(tool => tool.name);
   expect(tools).toEqual(['list_apps', 'read_app', 'list_tables', 'query_rows', 'list_workflows', 'list_followups']);
   expect((await mcp('tools/call', { name: 'add_row', arguments: {} })).status).toBe(403);
+  // Exercise the actual ACP transport limit and continuation past offset 1000.
+  const { createApp } = await import('../src/harness/apps.js');
+  const made = await createApp(env.DB, { orgId, by: '9502', name: 'Large rows', columns: [{ name: 'ID', type: 'text' }, { name: 'Body', type: 'text' }] });
+  const app = made.app;
+  const rows = Array.from({ length: 1105 }, (_, i) => env.DB.prepare(`INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,'9502','now','now')`)
+    .bind(`acp-row-${i}`, app.tableId, orgId, JSON.stringify({ id: `business-${i}`, body: '界'.repeat(600) }), i));
+  for (let i = 0; i < rows.length; i += 100) await env.DB.batch(rows.slice(i, i + 100));
+  const read = await mcp('tools/call', { name: 'read_app', arguments: { appId: app.id } });
+  expect(read.status).toBe(200);
+  const readPage = (await read.json()).result.structuredContent;
+  expect(readPage.app.tableId).toBe(app.tableId);
+  expect(readPage.nextOffset).toBe(readPage.rows.length);
+  expect(readPage.rows[0]).toMatchObject({ id: 'acp-row-0', recordId: 'acp-row-0', values: { id: 'business-0' } });
+  let offset = 0, found = [];
+  while (offset !== null) {
+    const response = await mcp('tools/call', { name: 'query_rows', arguments: { tableId: app.tableId, limit: 100, offset } });
+    expect(response.status).toBe(200);
+    const result = (await response.json()).result;
+    expect(new TextEncoder().encode(JSON.stringify(result)).length).toBeLessThan(200000);
+    const page = result.structuredContent;
+    expect(page.rows.length).toBeGreaterThan(0);
+    found.push(...page.rows.map(row => row.id));
+    expect(page.nextOffset === null || page.nextOffset > offset).toBe(true);
+    offset = page.nextOffset;
+  }
+  expect(found).toHaveLength(1105);
+  expect(new Set(found).size).toBe(1105);
+  expect(found[1104]).toBe('acp-row-1104');
+  const columns = Array.from({ length: 30 }, (_, i) => ({ name: `Field ${i}`, type: 'text' }));
+  const large = (await createApp(env.DB, { orgId, by: '9502', name: 'Oversized row', columns })).app;
+  const bigValues = Object.fromEntries(columns.map((_, i) => [`field_${i}`, 'x'.repeat(5000)]));
+  await env.DB.prepare(`INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,created_at,updated_at) VALUES('acp-huge',?1,?2,?3,0,'9502','now','now')`).bind(large.tableId, orgId, JSON.stringify(bigValues)).run();
+  const hugeResponse = await mcp('tools/call', { name: 'query_rows', arguments: { tableId: large.tableId } });
+  expect(hugeResponse.status).toBe(200);
+  const huge = (await hugeResponse.json()).result;
+  expect(huge.isError).toBe(true);
+  expect(huge.content[0].text).toContain('fewer selected fields');
+  const projectedResponse = await mcp('tools/call', { name: 'query_rows', arguments: { tableId: large.tableId, fields: ['field_0'] } });
+  expect(projectedResponse.status).toBe(200);
+  const projected = (await projectedResponse.json()).result.structuredContent;
+  expect(projected.rows[0]).toMatchObject({ id: 'acp-huge', field_0: 'x'.repeat(5000) });
+  expect(projected.rows[0]).not.toHaveProperty('field_1');
+  expect(projected.nextOffset).toBeNull();
+
   expect((await mcp('resources/list')).status).toBe(400);
   expect((await api('POST', `/jobs/${running.id}/mcp`, null, { lease: running.lease, method: 'tools/list' }, 'hgw_invalid')).status).toBe(401);
   const otherNode = await node();
