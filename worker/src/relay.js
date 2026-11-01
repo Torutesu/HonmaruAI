@@ -513,9 +513,19 @@ export class OrgRelay {
 
       const userId = access.login;
       const guest = await isGuest(this.db, orgId, session.github_id);
+      // A room eviction, socket refusal, or newer join may have occurred
+      // during the checks above. Preserve the latest attachment rather than
+      // restoring a stale Jam, and let the newest authentication attempt win.
+      const current = ws.deserializeAttachment() || {};
+      if ((typeof ws.readyState === 'number' && ws.readyState !== 1) ||
+          current.orgId !== orgId || current.joins !== joins || (att.authed && !current.authed)) return;
+      // A different user must open a fresh socket: carrying an old user's
+      // Jam through reauthentication would transfer access to their call.
+      if (current.authed && current.githubId !== String(session.github_id))
+        return this.refuse(ws, current.agui, "Reconnect to switch accounts.", "sign-in-required");
       // The session's row (its hash, never the token) names this device, so
       // signing that one session out closes this socket and no other.
-      ws.serializeAttachment({ ...att, joins, userId, githubId: String(session.github_id), agui, authed: true, guest, deadline: deadline || null, session: session.token, checkedAt });
+      ws.serializeAttachment({ ...current, joins, userId, githubId: String(session.github_id), agui, authed: true, guest, deadline: deadline || null, session: session.token, checkedAt });
       const store = await loadStore(this.db, orgId);
       // A guest's feed is the decisions they are on, nobody else's; nobody's
       // feed carries another person's personal cards, or a private channel's
@@ -1224,9 +1234,26 @@ export class OrgRelay {
       if (!att.authed || !att.session) continue;
       if ((att.checkedAt || 0) + RECHECK_EVERY_MS <= now) {
         const still = await this.stillSignedIn(att.orgId, att);
-        if (!still.ok) { this.refuse(ws, att.agui, ...OrgRelay.signedOut(still.here)); continue; }
-        ws.serializeAttachment({ ...att, checkedAt: now });
-        soonest(now + RECHECK_EVERY_MS);
+        // Another event may evict this socket's Jam or reauthenticate it
+        // while the session lookup is pending. Preserve its latest state and
+        // do not apply the old session's result to a new identity.
+        const current = ws.deserializeAttachment() || {};
+        if ((typeof ws.readyState === 'number' && ws.readyState !== 1) || !current.authed) continue;
+        if (current.orgId !== att.orgId || current.session !== att.session ||
+            current.userId !== att.userId || current.githubId !== att.githubId) {
+          if (current.deadline) soonest(current.deadline);
+          if (current.session) soonest(Math.max(Date.now() + 1, (current.checkedAt || 0) + RECHECK_EVERY_MS));
+          continue;
+        }
+        if (!still.ok) { this.refuse(ws, current.agui, ...OrgRelay.signedOut(still.here)); continue; }
+        const checkedAt = Date.now();
+        if (current.deadline && current.deadline <= checkedAt) {
+          this.refuse(ws, current.agui, "This workspace asks you to sign in again.", "session-policy");
+          continue;
+        }
+        ws.serializeAttachment({ ...current, checkedAt: Math.max(current.checkedAt || 0, checkedAt) });
+        if (current.deadline) soonest(current.deadline);
+        soonest(checkedAt + RECHECK_EVERY_MS);
       } else soonest(att.checkedAt + RECHECK_EVERY_MS);
     }
     if (next) await this.state.storage.setAlarm(next).catch(() => {});
