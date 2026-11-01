@@ -268,3 +268,60 @@ test.each(['workspace','canonical-channel','session'])('%s eviction cancels a re
   expect(f.ws.deserializeAttachment().jam).toBeFalsy();
   expect(f.entries.size).toBe(0);
 });
+
+test('an unexpected storage error after a provisional write cleans up without a phantom Jam',async()=>{
+ let failed=false;
+ const f=fixture({onPut:async()=>{if(!failed){failed=true;throw new Error('write failed after storage');}}});
+ await expect(handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel})).rejects.toThrow('write failed after storage');
+ expect(f.entries.size).toBe(0);
+ expect(f.ws.deserializeAttachment().jam).toBeFalsy();
+ expect(f.events.some(event=>event.name==='jam_joined')).toBe(false);
+});
+
+test('a socket can rejoin after a restarted object leaves its provisional attachment',async()=>{
+ const f=fixture(),peerId='abandoned_peer',key=`jam:${org}:${channel}`;
+ f.entries.set(key,{startedAt:createdAt,startedBy:'alice',mode:'notes',people:['alice'],startedAnnounced:false,pendingJoin:{peerId,login:'alice',added:true,starting:true}});
+ f.ws.serializeAttachment({...f.ws.deserializeAttachment(),jam:{key:channel,peerId,pending:true,since:createdAt,mode:'notes'}});
+ await handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+ expect(f.events.filter(event=>event.name==='jam_joined')).toHaveLength(1);
+ expect(f.ws.deserializeAttachment().jam.pending).toBe(false);
+ expect(f.ws.deserializeAttachment().jam.peerId).not.toBe(peerId);
+ expect(f.entries.get(key).pendingJoin).toBeUndefined();
+});
+
+test('recovering an abandoned join preserves another live Jam and its transcript',async()=>{
+ const f=fixture(),key=`jam:${org}:${channel}`,peerId='abandoned_peer';
+ let otherAtt={orgId:org,userId:'bob',githubId:'4102',jam:{key:channel,peerId:'active_peer',pending:false,since:createdAt,mode:'notes'}};
+ const other={deserializeAttachment:()=>structuredClone(otherAtt),serializeAttachment:value=>{otherAtt=structuredClone(value)}};
+ f.relay.state.getWebSockets=()=>[f.ws,other];
+ f.entries.set(key,{startedAt:createdAt,startedBy:'bob',mode:'notes',people:['bob','alice'],messageId:'msg_existing',transcript:[{text:'Keep me'}],pendingJoin:{peerId,login:'alice',added:true,starting:false}});
+ f.ws.serializeAttachment({...f.ws.deserializeAttachment(),jam:{key:channel,peerId,pending:true,since:createdAt,mode:'notes'}});
+ await handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+ expect(f.events.filter(event=>event.name==='jam_joined')).toHaveLength(1);
+ expect(f.entries.get(key).messageId).toBe('msg_existing');
+ expect(f.entries.get(key).transcript).toEqual([{text:'Keep me'}]);
+ expect(f.entries.get(key).people).toEqual(['bob','alice']);
+ expect(f.entries.get(key).pendingJoin).toBeUndefined();
+});
+
+test('a committed Jam whose start was never announced does not announce an end',async()=>{
+ const f=fixture(),key=`jam:${org}:${channel}`;
+ f.entries.set(key,{startedAt:createdAt,startedBy:'alice',mode:'notes',people:['alice'],startedAnnounced:false});
+ f.ws.serializeAttachment({...f.ws.deserializeAttachment(),jam:{key:channel,peerId:'committed',pending:false,since:createdAt,mode:'notes'}});
+ await leaveJam(f.relay,f.ws,f.ws.deserializeAttachment());
+ expect(f.entries.size).toBe(0);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=?').bind(org).first('n')).toBe(0);
+});
+
+test('a new socket removes a different abandoned provisional participant while preserving live data',async()=>{
+ const f=fixture(),key=`jam:${org}:${channel}`;
+ let otherAtt={orgId:org,userId:'bob',githubId:'4102',jam:{key:channel,peerId:'active_peer',pending:false,since:createdAt,mode:'notes'}};
+ const other={deserializeAttachment:()=>structuredClone(otherAtt),serializeAttachment:value=>{otherAtt=structuredClone(value)}};
+ f.relay.state.getWebSockets=()=>[f.ws,other];
+ f.entries.set(key,{startedAt:createdAt,startedBy:'bob',mode:'notes',people:['bob','carol'],messageId:'msg_existing',transcript:[{text:'Keep me'}],pendingJoin:{peerId:'lost_peer',login:'carol',added:true,starting:false}});
+ await handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+ expect(f.events.filter(event=>event.name==='jam_joined')).toHaveLength(1);
+ expect(f.entries.get(key).people).toEqual(['bob','alice']);
+ expect(f.entries.get(key).transcript).toEqual([{text:'Keep me'}]);
+ expect(f.entries.get(key).pendingJoin).toBeUndefined();
+});
