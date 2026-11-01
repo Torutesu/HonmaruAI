@@ -1,6 +1,19 @@
 // The interface in es: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Previous month': 'Mes anterior',
+  'Next month': 'Mes siguiente',
+  'Month': 'Mes',
+  'Date': 'Fecha',
+  'No date': 'Sin fecha',
+  'No value': 'Sin valor',
+  'Sun': 'Dom',
+  'Mon': 'Lun',
+  'Tue': 'Mar',
+  'Wed': 'Mié',
+  'Thu': 'Jue',
+  'Fri': 'Vie',
+  'Sat': 'Sáb',
   'Teammates': 'Compañeros',
   "You joined the team.": "Te uniste al equipo.",
   "Could not reach the relay.": "No se pudo contactar con el servidor.",
