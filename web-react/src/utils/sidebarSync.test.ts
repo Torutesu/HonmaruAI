@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { SidebarSync, SidebarEditQueue, reorderExisting, reorderIncludingNew } from './sidebarSync'
+import { SidebarSync, SidebarEditQueue, retainSidebarQueue, takeSidebarQueue, reorderExisting, reorderIncludingNew } from './sidebarSync'
 
 type L = { starred: string[] }
 const star = (v: string) => (base: L): L => ({ starred: [...base.starred.filter((x) => x !== v), v] })
@@ -152,5 +152,61 @@ describe('versioned sidebar changes', () => {
     await new Promise(resolve=>setTimeout(resolve,0))
     expect(data.starred).toEqual(['b:front'])
     expect(draws).toBe(before)
+  })
+
+  it('restores a pending edit when returning to the same account and workspace after an offline read', async () => {
+    let rejectRead!: (error: Error) => void
+    let writes=0, warnings=0, reads=0
+    const pendingRead=new Promise<{sidebar:L;version:string|null}>((_,reject)=>{rejectRead=reject})
+    const q=new SidebarEditQueue<L>({starred:[]},()=>reads++ ? Promise.resolve({sidebar:{starred:['b:kitchen']},version:'v1'}) : pendingRead,
+      async sidebar=>{writes++;expect(sidebar.starred).toEqual(['b:kitchen','b:front']);return {conflict:false,snapshot:{sidebar,version:'saved'}}},()=>{},()=>{warnings++})
+    void q.retry()
+    q.change(star('b:front'))
+    retainSidebarQueue('server/session/user/workspace-a',q)
+    rejectRead(new Error('offline'))
+    await new Promise(resolve=>setTimeout(resolve,0))
+    expect(writes).toBe(0)
+    expect(warnings).toBe(0)
+    // A different account or workspace cannot receive these operations.
+    expect(takeSidebarQueue('server/session/user/workspace-b')).toBeNull()
+    expect(takeSidebarQueue('server/other/user/workspace-a')).toBeNull()
+    const restored=takeSidebarQueue<L>('server/session/user/workspace-a')!
+    expect(restored).toBe(q)
+    restored.attach(()=>{},()=>{warnings++})
+    await restored.retry()
+    expect(writes).toBe(1)
+    expect(restored.hasPending()).toBe(false)
+  })
+
+  it('preserves an uncertain write across a workspace switch without automatically replaying it', async () => {
+    let writes=0, alerted=false
+    const q=new SidebarEditQueue<L>({starred:[]},async()=>({sidebar:{starred:[]},version:'v1'}),
+      async()=>{writes++;throw new Error('response lost')},()=>{},()=>{})
+    await q.retry()
+    q.change(star('b:front'))
+    retainSidebarQueue('server/session/user/uncertain',q)
+    await new Promise(resolve=>setTimeout(resolve,0))
+    const restored=takeSidebarQueue<L>('server/session/user/uncertain')!
+    restored.attach(()=>{},uncertain=>{alerted=uncertain})
+    await restored.retry()
+    expect(alerted).toBe(true)
+    expect(writes).toBe(1)
+    expect(restored.hasPending()).toBe(true)
+  })
+
+  it('releases a detached queue after its pending write completes', async () => {
+    let release!:()=>void
+    const waiting=new Promise<void>(resolve=>{release=resolve})
+    const statuses:boolean[]=[]
+    const q=new SidebarEditQueue<L>({starred:[]},async()=>({sidebar:{starred:[]},version:'v1'}),
+      async sidebar=>{await waiting;return {conflict:false,snapshot:{sidebar,version:'v2'}}},
+      (_layout,_ready,pending)=>statuses.push(pending),()=>{})
+    await q.retry()
+    q.change(star('b:front'))
+    expect(statuses.at(-1)).toBe(true)
+    retainSidebarQueue('server/session/user/drained',q)
+    release()
+    await new Promise(resolve=>setTimeout(resolve,0))
+    expect(takeSidebarQueue('server/session/user/drained')).toBeNull()
   })
 })

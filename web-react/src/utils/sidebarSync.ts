@@ -81,18 +81,19 @@ export class SidebarEditQueue<L> {
   private detached = false
   private uncertain = false
   private shown: L
+  private settled: (() => void) | null = null
 
   constructor(initial: L, private readonly read: () => Promise<SidebarSnapshot<L>>,
     private readonly write: (sidebar: L, version: string | null | undefined) => Promise<SidebarWrite<L>>,
-    private readonly show: (layout: L, ready: boolean) => void,
-    private readonly failed: (uncertain: boolean) => void) { this.shown = initial }
+    private show: (layout: L, ready: boolean, pending: boolean) => void,
+    private failed: (uncertain: boolean) => void) { this.shown = initial }
 
   change(change: LayoutChange<L>): { before: L; next: L } {
     const before = this.shown
     if (this.uncertain) { if (!this.detached) this.failed(true); return {before, next:before} }
     this.pending.push(change)
     this.shown = change(before)
-    if (!this.detached) this.show(this.shown, this.base !== null)
+    if (!this.detached) this.show(this.shown, this.base !== null, true)
     void this.retry()
     return { before, next: this.shown }
   }
@@ -105,7 +106,7 @@ export class SidebarEditQueue<L> {
         const fetched = await this.read()
         this.base = fetched
         this.shown = this.pending.reduce((layout, change) => change(layout), fetched.sidebar)
-        if (!this.detached) this.show(this.shown, true)
+        if (!this.detached) this.show(this.shown, true, this.hasPending())
       }
       let conflicts = 0
       while (this.pending.length) {
@@ -124,11 +125,14 @@ export class SidebarEditQueue<L> {
         if (!result.conflict) { this.pending.splice(0, batch.length); conflicts = 0 }
         else if (++conflicts >= 8) throw new Error('Sidebar changed repeatedly.')
         this.shown = this.pending.reduce((layout, change) => change(layout), this.base.sidebar)
-        if (!this.detached) this.show(this.shown, true)
+        if (!this.detached) this.show(this.shown, true, this.hasPending())
       }
     } catch {
       if (!this.detached) this.failed(false)
-    } finally { this.running = false }
+    } finally {
+      this.running = false
+      if (this.detached && !this.hasPending()) this.settled?.()
+    }
   }
 
   // Only an explicit user decision may discard the uncertain operations.
@@ -138,11 +142,39 @@ export class SidebarEditQueue<L> {
     this.base = snapshot
     this.shown = snapshot.sidebar
     this.uncertain = false
-    this.show(this.shown, true)
+    this.show(this.shown, true, false)
     return true
   }
 
   // A workspace switch stops drawing into this component, but a user's
   // already-requested write may finish using its original account context.
   dispose(): void { this.detached = true }
+
+  hasPending(): boolean { return this.pending.length > 0 }
+
+  attach(show: (layout: L, ready: boolean, pending: boolean) => void, failed: (uncertain: boolean) => void): void {
+    this.show = show
+    this.failed = failed
+    this.detached = false
+    this.show(this.shown, this.base !== null, this.hasPending())
+    if (this.uncertain) this.failed(true)
+  }
+
+  whenDetachedSettled(callback: () => void): void { this.settled = callback }
+}
+
+// These queues contain only the current browser tab's unfinished operations.
+// The key is scoped to the server, session, user, and workspace by the caller.
+// A page close still ends in-memory recovery; nothing is written to disk.
+const retainedQueues = new Map<string, SidebarEditQueue<any>>()
+export function retainSidebarQueue<L>(key: string, queue: SidebarEditQueue<L>): void {
+  queue.dispose()
+  if (!queue.hasPending()) return
+  retainedQueues.set(key, queue)
+  queue.whenDetachedSettled(() => { if (retainedQueues.get(key) === queue) retainedQueues.delete(key) })
+}
+export function takeSidebarQueue<L>(key: string): SidebarEditQueue<L> | null {
+  const queue = retainedQueues.get(key) as SidebarEditQueue<L> | undefined
+  retainedQueues.delete(key)
+  return queue?.hasPending() ? queue : null
 }

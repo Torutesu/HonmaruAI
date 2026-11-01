@@ -91,7 +91,7 @@ import { playSound, setOpenView, rememberLevels, rememberLevel, startRing, stopR
 import { closeMessageNotifications, closeThreadNotifications } from '../utils/notifications'
 import { hasOlder, olderThan } from '../utils/historyPage'
 import { foldedRows, sectionBadge, visibleRows, stepRow, readFolds, writeFolds, withSectionFolds, withFold, unplacedAgents } from '../utils/sidebarSections'
-import { SidebarEditQueue, reorderExisting, reorderIncludingNew, type LayoutChange } from '../utils/sidebarSync'
+import { SidebarEditQueue, retainSidebarQueue, takeSidebarQueue, reorderExisting, reorderIncludingNew, type LayoutChange } from '../utils/sidebarSync'
 import { SidebarSavedState } from './SidebarSavedState'
 import { placesFrom } from '../utils/places'
 import type { Place as Conversation } from '../utils/places'
@@ -456,6 +456,7 @@ export const ClassicList: React.FC<Props> = ({
   // Preserve the user's operations until an atomic versioned save succeeds.
   const sidebarSync = useRef<SidebarEditQueue<SidebarLayout> | null>(null)
   const [sidebarReady, setSidebarReady] = useState(false)
+  const [sidebarPending, setSidebarPending] = useState(false)
   const [sidebarUncertain, setSidebarUncertain] = useState(false)
   const [sidebarRemote, setSidebarRemote] = useState<SidebarLayout | null>(null)
   const [sidebarChecking, setSidebarChecking] = useState(false)
@@ -468,7 +469,23 @@ export const ClassicList: React.FC<Props> = ({
   useEffect(() => { writeFolds(api.orgId, folded) }, [api.orgId, folded])
   useEffect(() => {
     const initial: SidebarLayout = { starred: [], sections: [] }
-    const sync = sidebarSync.current = new SidebarEditQueue<SidebarLayout>(initial,
+    const queueKey = JSON.stringify([api.httpBase, api.sessionToken, userId, api.orgId])
+    const show = (next: SidebarLayout, ready: boolean, pending: boolean) => {
+      if (sidebarSync.current !== sync) return
+      layoutNow.current = next
+      setLayout(next)
+      if (ready) setFolded((prev) => withSectionFolds(prev, next.sections || []))
+      setSidebarReady(ready)
+      setSidebarPending(pending)
+    }
+    const failed = (uncertain: boolean) => { if (sidebarSync.current === sync) {
+      if (uncertain) {
+        setSidebarUncertain(true)
+        setProblem(locale === 'ja' ? 'サイドバーの保存結果を確認できません。会話一覧の「保存状態を確認」を開いてください。' : 'The sidebar save could not be confirmed. Open “Check saved sidebar” in the conversation list.')
+      } else setProblem(t('That did not save.'))
+    } }
+    const retained = takeSidebarQueue<SidebarLayout>(queueKey)
+    const sync = sidebarSync.current = retained || new SidebarEditQueue<SidebarLayout>(initial,
       async () => {
         const response = await fetch(`${api.httpBase}/channels/sidebar?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
         if (!response.ok) throw new Error('Sidebar could not be read.')
@@ -485,33 +502,23 @@ export const ClassicList: React.FC<Props> = ({
         if ((!response.ok && response.status !== 409) || !data?.sidebar) throw new Error('Sidebar could not be saved.')
         return {conflict: response.status === 409, snapshot: data}
       },
-      (next, ready) => {
-        if (sidebarSync.current !== sync) return
-        layoutNow.current = next
-        setLayout(next)
-        setFolded((prev) => withSectionFolds(prev, next.sections || []))
-        setSidebarReady(ready)
-      },
-      (uncertain) => { if (sidebarSync.current === sync) {
-        if (uncertain) {
-          setSidebarUncertain(true)
-          setProblem(locale === 'ja' ? 'サイドバーの保存結果を確認できません。会話一覧の「保存状態を確認」を開いてください。' : 'The sidebar save could not be confirmed. Open “Check saved sidebar” in the conversation list.')
-        } else setProblem(t('That did not save.'))
-      } })
+      show, failed)
     setSidebarReady(false)
+    setSidebarPending(false)
     setSidebarUncertain(false)
     setSidebarRemote(null)
     setSidebarCheckError(false)
     layoutNow.current = initial
     setLayout(initial)
+    if (retained) sync.attach(show, failed)
     void sync.retry()
     const retry = () => { if (document.visibilityState === 'visible') void sync.retry() }
     window.addEventListener('focus', retry)
     window.addEventListener('online', retry)
     document.addEventListener('visibilitychange', retry)
-    return () => { sync.dispose(); window.removeEventListener('focus', retry); window.removeEventListener('online', retry); document.removeEventListener('visibilitychange', retry) }
+    return () => { retainSidebarQueue(queueKey, sync); window.removeEventListener('focus', retry); window.removeEventListener('online', retry); document.removeEventListener('visibilitychange', retry) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api.httpBase, api.orgId, authHeaders])
+  }, [api.httpBase, api.orgId, userId, authHeaders])
   /// A change to your sidebar, as what it does to it: shown at once, and
   /// saved on top of the saved layout even when made before that arrived.
   const saveLayout = (change: LayoutChange<SidebarLayout>) => {
@@ -5979,6 +5986,7 @@ export const ClassicList: React.FC<Props> = ({
   return (
     <div ref={interactionRoot} className={`classic slk${current || special ? ' in-thread' : ''}${phoneRoot ? ' phone-root' : ''}${detail || thread || profile ? ' with-pane' : ''}${sourceThreadApp ? ' hx-thread-app' : ''}${harness && thread && !detail && !profile && !activityOpen ? ' hx-focused-thread' : ''}${sideHidden ? ' side-hidden' : ''}${density === 'compact' ? ' compact' : ''}`} onClick={onMentionClick} onKeyDown={onMentionKey}>
       <aside className="slk-side" aria-label={t('Conversations')} data-sidebar-ready={sidebarReady ? '1' : undefined}>
+        {sidebarPending && !sidebarUncertain && <p className="cl-problem" role="status">{locale === 'ja' ? 'サイドバーの変更を保存中です。同じタブでこのワークスペースに戻ると未完了の保存を再試行します。' : 'Saving sidebar changes. Pending changes retry when you return to this workspace in the same tab.'}</p>}
         {sidebarUncertain && <div className="cl-problem" role="alert">
           <p>{locale === 'ja' ? '保存結果が不明です。変更はこの画面に保留され、追加の変更は停止しています。画面を閉じるか再読み込みすると保留中の変更が失われる可能性があります。' : 'The save result is unknown. Changes remain pending on this screen and further edits are stopped. Closing or reloading this screen may discard pending changes.'}</p>
           <button type="button" disabled={sidebarChecking} onClick={() => void checkSavedSidebar()}>{locale === 'ja' ? '保存状態を確認' : 'Check saved sidebar'}</button>
