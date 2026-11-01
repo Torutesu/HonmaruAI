@@ -1,6 +1,17 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Previous month': '前の月',
+  'Next month': '次の月',
+  'Month': '月',
+  'Date': '日付',
+  'Sun': '日',
+  'Mon': '月',
+  'Tue': '火',
+  'Wed': '水',
+  'Thu': '木',
+  'Fri': '金',
+  'Sat': '土',
   'Full screen': '全画面表示',
   'Could not enter fullscreen. Try the video controls.': '全画面表示にできませんでした。動画の操作メニューからお試しください。',
   'Recent document conversions': '最近の文書作成',
