@@ -330,6 +330,37 @@ test("a model's design is used when it holds up, and ignored when it does not", 
   expect(bad.source).toBe("template");
 });
 
+test("generated apps start with one all-records table unless extra views were requested", async () => {
+  const design = JSON.stringify({ name: "Tasks", tableName: "Tasks", columns: [
+    { name: "Task name", type: "text" }, { name: "Status", type: "select", options: ["Open", "Done"] }, { name: "Due", type: "date" },
+  ], views: [
+    { type: "board", name: "By status", groupBy: "Status" },
+    { type: "table", name: "Open tasks", where: { Status: "Open" } },
+    { type: "calendar", name: "Due date", dateColumn: "Due" },
+    { type: "metrics", name: "Summary", metrics: [{ label: "Tasks", op: "count" }] },
+  ] });
+  const standard = await specFromPrompt("担当者と期限を管理するタスクアプリ", { complete: async () => design });
+  expect(standard.spec.definition.views).toEqual([{ type: "table", name: "すべて" }]);
+
+  const requested = await specFromPrompt("カンバンとカレンダーで見るタスクアプリ", { complete: async () => design });
+  expect(requested.spec.definition.views.map(view => view.type)).toEqual(["table", "board", "calendar"]);
+  expect(requested.spec.definition.views[0]).toEqual({ type: "table", name: "すべて" });
+  const missingRequestedViews = await specFromPrompt("カンバンとカレンダーで見るタスクアプリ", { complete: async () => JSON.stringify({
+    name: "Tasks", columns: [{ name: "Status", type: "select", options: ["Open"] }, { name: "Due", type: "date" }], views: [],
+  }) });
+  expect(missingRequestedViews.spec.definition.views.map(view => view.type)).toEqual(["table", "board", "calendar"]);
+  const filtered = await specFromPrompt("未割当のタスクだけを表示する管理アプリ", { complete: async () => JSON.stringify({
+    name: "Tasks", columns: [{ name: "Task", type: "text" }, { name: "Assignee", type: "select", options: ["未割当", "担当あり"] }],
+    views: [{ type: "table", name: "未割当", where: { Assignee: "未割当" } }, { type: "board", name: "Board", groupBy: "Assignee" }],
+  }) });
+  expect(filtered.spec.definition.views).toEqual([{ type: "table", name: "未割当", where: { Assignee: "未割当" } }]);
+
+  const fallback = await specFromPrompt("a team work tracker", { complete: null });
+  expect(fallback.spec.definition.views).toEqual([{ type: "table", name: "All" }]);
+  const boardFallback = await specFromPrompt("a kanban task board", { complete: null });
+  expect(boardFallback.spec.definition.views.map(view => view.type)).toEqual(["table", "board"]);
+});
+
 test("natural-language assignee fields become workspace-member references", async () => {
   const raw = JSON.stringify({ name: "Task board", icon: "📋", columns: [
     { name: "タスク名", type: "text" }, { name: "担当者", type: "text" },
