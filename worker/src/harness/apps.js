@@ -271,13 +271,13 @@ export async function createApp(db, { orgId, by, name, tableName, description, i
   return { app: await getApp(db, orgId, id), ...(announcementId ? {announcementId} : {}) };
 }
 
-export async function createFromTemplate(db, { orgId, by, template, name, tableName, channel, sourceThreadId, withSample = true }) {
+export async function createFromTemplate(db, { orgId, by, template, name, tableName, channel, sourceThreadId, withSample = true, privateByDefault = false }) {
   const t = TEMPLATES[template];
   if (!t) return { error: "No such template." };
   return createApp(db, {
     orgId, by, template, channel, sourceThreadId,
     name: name || t.name, tableName: tableName || t.tableName || t.name, description: t.description, icon: t.icon,
-    columns: t.columns, definition: { views: t.views }, sample: withSample ? t.sample : [],
+    columns: t.columns, definition: { views: t.views }, sample: withSample ? t.sample : [], privateByDefault,
   });
 }
 

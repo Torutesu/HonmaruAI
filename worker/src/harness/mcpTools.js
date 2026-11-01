@@ -1,7 +1,7 @@
 import {FILE_WRITE_TOOLS,callFileWriteTool} from './fileWriteTools.js';
 import {FILE_READ_TOOLS,callFileReadTool} from './fileTools.js';
 import { EXECUTION_TOOLS, callExecutionTool } from './executionTools.js';
-import { mayUseApp, mayUseTable, visibleResources } from './resourceAccess.js';
+import { mayUseApp, mayUseTable, visibleResources, visibleAppLinks } from './resourceAccess.js';
 // The harness over MCP (docs/kylon-gap-plan.md): what Kylon's Tools API and
 // workspace CLI give an outside agent — the workspace's apps, tables,
 // workflows and follow-ups — offered only by a workspace in harness mode.
@@ -102,7 +102,7 @@ export async function callHarnessTool(env, agent, name, args) {
   const by = agent.githubId;
   switch (name) {
     case "list_apps":
-      return out({ apps: (await visibleResources(await listApps(db, orgId), a => mayUseApp(db, orgId, a.id, by))).map((a) => ({ id: a.id, name: a.name, description: a.description, tableId: a.tableId, rooms: a.channels })) });
+      return out({ apps: (await visibleAppLinks(db, orgId, await visibleResources(await listApps(db, orgId), a => mayUseApp(db, orgId, a.id, by)), agent)).map((a) => ({ id: a.id, name: a.name, description: a.description, tableId: a.tableId, rooms: a.channels })) });
     case "read_app": {
       if (!(await mayUseApp(db, orgId, String(args.appId || ""), by))) return err("No such app.");
       const r = await renderApp(db, orgId, String(args.appId || ""));

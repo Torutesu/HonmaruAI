@@ -766,6 +766,17 @@ test('an app generated in an agent DM resolves the room and remains private', as
   expect(listed.apps.map(a => a.id)).toContain(app.id);
   expect(listed.apps.find(a => a.id === app.id).channels).toEqual([`${room}|mika`]);
   expect((await get(`/apps/${app.id}?${q({ orgId: ORG })}`, toru)).status).toBe(404);
+
+  const direct = await send('POST', '/apps', mika, { orgId: ORG, name: 'Direct agent app', channel: room, columns: [{ name: 'Title', type: 'text' }] });
+  expect(direct.status).toBe(201);
+  const { app: directApp } = await direct.json();
+  expect(await env.DB.prepare('SELECT channel FROM hx_app_links WHERE org_id=?1 AND app_id=?2').bind(ORG, directApp.id).first()).toEqual({ channel: `${room}|mika` });
+  expect(await env.DB.prepare('SELECT visibility FROM hx_app_access WHERE org_id=?1 AND app_id=?2').bind(ORG, directApp.id).first()).toEqual({ visibility: 'private' });
+
+  const unlinked = await send('POST', '/apps', mika, { orgId: ORG, name: 'Agent chat link', columns: [{ name: 'Title', type: 'text' }] });
+  const { app: unlinkedApp } = await unlinked.json();
+  expect((await send('POST', `/apps/${unlinkedApp.id}/links`, mika, { orgId: ORG, channel: room })).status).toBe(200);
+  expect(await env.DB.prepare('SELECT channel FROM hx_app_links WHERE org_id=?1 AND app_id=?2').bind(ORG, unlinkedApp.id).first()).toEqual({ channel: `${room}|mika` });
 });
 
 test("an approval goes only to someone in this workspace, checked when saved and again when it runs", async () => {

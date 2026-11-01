@@ -120,6 +120,8 @@ test("a table keeps its values in the column's type", async () => {
 });
 
 test("an app from a template: its views, worked out on the server", async () => {
+  const at = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,'sales','Sales',0,'9101',?2)").bind(ORG, at).run();
   const made = await send("POST", "/apps", mika, { orgId: ORG, template: "crm", channel: "b:sales" });
   expect(made.status).toBe(201);
   const { app } = await made.json();
@@ -140,6 +142,61 @@ test("an app from a template: its views, worked out on the server", async () => 
   const inRoom = await (await get(`/apps?orgId=${ORG}&channel=b:sales`, mika)).json();
   expect(inRoom.apps.map((a) => a.id)).toEqual([app.id]);
   expect(inRoom.apps[0].channels).toEqual(["b:sales"]);
+});
+
+test("room links require app authority and room access, and hidden room names are filtered from app listings", async () => {
+  const at = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,'confidential','Confidential',1,'9101',?2)").bind(ORG, at).run();
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES (?1,'b:confidential','toru','toru',?2)").bind(ORG, at).run();
+
+  const created = await send("POST", "/apps", toru, { orgId: ORG, name: "Private room link", columns: [{ name: "Title", type: "text" }] });
+  expect(created.status).toBe(201);
+  const { app } = await created.json();
+  await env.DB.prepare("INSERT INTO hx_app_links(app_id,org_id,channel,created_by,created_at) VALUES (?1,?2,'b:confidential','9101',?3)").bind(app.id, ORG, at).run();
+
+  const privateDirect = await send("POST", "/apps", toru, { orgId: ORG, name: "Private direct app", channel: "b:confidential", columns: [{ name: "Title", type: "text" }] });
+  expect(privateDirect.status).toBe(201);
+  const { app: directApp } = await privateDirect.json();
+  expect(await env.DB.prepare("SELECT visibility FROM hx_app_access WHERE org_id=?1 AND app_id=?2").bind(ORG, directApp.id).first()).toEqual({ visibility: "private" });
+  expect(await (await get(`/apps/${directApp.id}?orgId=${ORG}`, mika)).status).toBe(404);
+
+  const privateTemplate = await send("POST", "/apps", toru, { orgId: ORG, template: "tracker", channel: "b:confidential", sample: false });
+  expect(privateTemplate.status).toBe(201);
+  const { app: templateApp } = await privateTemplate.json();
+  expect(await env.DB.prepare("SELECT visibility FROM hx_app_access WHERE org_id=?1 AND app_id=?2").bind(ORG, templateApp.id).first()).toEqual({ visibility: "private" });
+
+  const hidden = await (await get(`/apps/${app.id}?orgId=${ORG}`, mika)).json();
+  expect(hidden.app.channels).toEqual([]);
+  expect(hidden.canCustomize).toBe(false);
+  const library = await (await get(`/apps?orgId=${ORG}`, mika)).json();
+  expect(library.apps.find(item => item.id === app.id).channels).toEqual([]);
+  const home = await (await get(`/harness/home?orgId=${ORG}`, mika)).json();
+  expect(home.apps.find(item => item.id === app.id).channels).toEqual([]);
+  const { callHarnessTool } = await import("../src/harness/mcpTools.js");
+  const mcp = await callHarnessTool(env, { orgId: ORG, githubId: "9102", login: "mika" }, "list_apps", {});
+  expect(mcp.structuredContent.apps.find(item => item.id === app.id).rooms).toEqual([]);
+  expect((await (await get(`/apps/${app.id}?orgId=${ORG}`, toru)).json()).app.channels).toEqual(["b:confidential"]);
+
+  const deniedAdd = await send("POST", `/apps/${app.id}/links`, mika, { orgId: ORG, channel: "b:public" });
+  expect(deniedAdd.status).toBe(403);
+  const deniedRemove = await send("DELETE", `/apps/${app.id}/links?orgId=${encodeURIComponent(ORG)}&channel=b%3Aconfidential`, mika, { orgId: ORG });
+  expect(deniedRemove.status, JSON.stringify(await deniedRemove.json())).toBe(403);
+
+  const memberOwned = await send("POST", "/apps", mika, { orgId: ORG, name: "Member-owned app", columns: [{ name: "Title", type: "text" }] });
+  expect(memberOwned.status).toBe(201);
+  const { app: memberApp } = await memberOwned.json();
+  const deniedPrivateLink = await send("POST", `/apps/${memberApp.id}/links`, mika, { orgId: ORG, channel: "b:confidential" });
+  expect(deniedPrivateLink.status).toBe(404);
+  const before = await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=?1").bind(ORG).first();
+  const deniedPrivateCreate = await send("POST", "/apps", mika, { orgId: ORG, name: "Wrong room", channel: "b:confidential", columns: [{ name: "Title", type: "text" }] });
+  expect(deniedPrivateCreate.status).toBe(404);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=?1").bind(ORG).first()).toEqual(before);
+
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,'shared','Shared',0,'9101',?2)").bind(ORG, at).run();
+  const linked = await send("POST", `/apps/${memberApp.id}/links`, mika, { orgId: ORG, channel: "b:shared" });
+  expect(linked.status).toBe(200);
+  expect((await (await get(`/apps/${memberApp.id}?orgId=${ORG}`, mika)).json()).app.channels).toEqual(["b:shared"]);
+  expect((await send("DELETE", `/apps/${memberApp.id}/links?orgId=${encodeURIComponent(ORG)}&channel=b%3Ashared`, mika, { orgId: ORG })).status).toBe(200);
 });
 
 test('shared app templates are pinned, sanitized, expiring and revocable bearer links', async () => {

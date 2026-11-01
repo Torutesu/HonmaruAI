@@ -39,8 +39,8 @@ import { generateCustomSource, saveCustomRelease } from "./customApps.js";
 import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
 import { tableContract } from "./tableContract.js";
-import { appAccess, mayUseApp, mayUseTable, setAppAccess, visibleResources } from './resourceAccess.js';
-import { mayUseConversation } from './conversationAccess.js';
+import { appAccess, mayUseApp, mayUseTable, setAppAccess, visibleResources, visibleAppLinks } from './resourceAccess.js';
+import { mayUseConversation, readableConversation } from './conversationAccess.js';
 import { listMembers as memoryMembers } from '../team.js';
 import { createAgentAccessRequest, requestableAgentOptions, roomAgentAccessPlans } from './agentAccessRequests.js';
 import { announceCards } from '../announce.js';
@@ -987,14 +987,23 @@ export async function handleHarness(request, env, url, context = {}) {
     if (!appId) {
       if (request.method === "GET") {
         const requested = url.searchParams.get('channel');
-        const room = requested ? await resolveChannel(env.DB, orgId, who.user, requested) : null;
-        if (requested && !room) return json({ message: 'No such room.' }, 403);
-        return json({ apps: await visibleResources(await listApps(env.DB, orgId, { channel: room?.key }), a => mayUseApp(env.DB, orgId, a.id, me)) });
+        const room = requested ? await readableConversation(env.DB, orgId, me, requested) : null;
+        if (requested && !room) return json({ message: 'No such room.' }, 404);
+        const apps = await visibleResources(await listApps(env.DB, orgId, { channel: room?.key }), a => mayUseApp(env.DB, orgId, a.id, me));
+        return json({ apps: await visibleAppLinks(env.DB, orgId, apps, who.user) });
       }
       if (request.method === "POST") {
+        let privateByDefault = Boolean(input.privateByDefault);
+        let channel = input.channel;
+        if (channel && !input.sourceThreadId) {
+          const room = await readableConversation(env.DB, orgId, me, channel);
+          if (!room) return json({ message: 'No such room.' }, 404);
+          channel = room.key;
+          privateByDefault ||= room.kind !== 'business' || Boolean(room.private);
+        }
         const r = input.template
-          ? await createFromTemplate(env.DB, { orgId, by: me, template: input.template, name: input.name, tableName: input.tableName, channel: input.channel, sourceThreadId:input.sourceThreadId, withSample: input.sample !== false })
-          : await createApp(env.DB, { ...input, orgId, by: me, channel: input.channel });
+          ? await createFromTemplate(env.DB, { orgId, by: me, template: input.template, name: input.name, tableName: input.tableName, channel, sourceThreadId:input.sourceThreadId, withSample: input.sample !== false, privateByDefault })
+          : await createApp(env.DB, { ...input, orgId, by: me, channel, privateByDefault });
         if (r.error) return fail(r);
         await audit(env, request, { orgId, action: "app.created", actor: person(who.user), entity: { type: "app", id: r.app.id, name: r.app.name } });
         return json(r, 201);
@@ -1180,7 +1189,9 @@ export async function handleHarness(request, env, url, context = {}) {
     if (!sub) {
       if (request.method === "GET") {
         const r = await renderApp(env.DB, orgId, appId);
-        return r.error ? fail(r) : json({ ...r, canCustomize: await mayChange(env, orgId, who, app.createdBy) });
+        if (r.error) return fail(r);
+        const [visibleApp] = await visibleAppLinks(env.DB, orgId, [r.app], who.user);
+        return json({ ...r, app: visibleApp, canCustomize: await mayChange(env, orgId, who, app.createdBy) });
       }
       if (request.method === "PUT") {
         // The shared definition is its maker's or an admin's to change, as
@@ -1209,8 +1220,23 @@ export async function handleHarness(request, env, url, context = {}) {
       }
     }
     if (sub === "links") {
-      if (request.method === "POST") return json(await linkApp(env.DB, orgId, appId, input.channel, me));
-      if (request.method === "DELETE") return json(await unlinkApp(env.DB, orgId, appId, url.searchParams.get("channel")));
+      if (!await mayChange(env, orgId, who, app.createdBy)) return json({ message: "Only its maker or an admin can change app links." }, 403);
+      if (request.method === "POST") {
+        const room = await readableConversation(env.DB, orgId, me, input.channel);
+        if (!room) return json({ message: 'No such room.' }, 404);
+        const result = await linkApp(env.DB, orgId, appId, room.key, me);
+        if (result.error) return fail(result);
+        await audit(env, request, { orgId, action: 'app.room_linked', actor: person(who.user), entity: { type: 'app', id: appId, name: app.name }, details: {} });
+        return json(result);
+      }
+      if (request.method === "DELETE") {
+        const channel = url.searchParams.get("channel");
+        if (!channel) return json({ message: 'channel is required' }, 400);
+        const result = await unlinkApp(env.DB, orgId, appId, channel);
+        if (result.error) return fail(result);
+        await audit(env, request, { orgId, action: 'app.room_unlinked', actor: person(who.user), entity: { type: 'app', id: appId, name: app.name }, details: {} });
+        return json(result);
+      }
     }
     return null;
   }
@@ -1263,7 +1289,9 @@ async function homeFor(env, orgId, who, me) {
   const [mode, approvals, appRows, agents, workflows, followups] = await Promise.all([
     getMode(db, orgId),
     approvalsFor(env, orgId, who.user.login, me),
-    listApps(db, orgId).then(items => visibleResources(items, a => mayUseApp(db, orgId, a.id, me))),
+    listApps(db, orgId)
+      .then(items => visibleResources(items, a => mayUseApp(db, orgId, a.id, me)))
+      .then(items => visibleAppLinks(db, orgId, items, who.user)),
     listAgents(db, orgId, who.user.login).catch(() => []),
     listWorkflows(db, orgId, { viewerId: me }),
     listFollowups(db, orgId, { viewerId: me }),
