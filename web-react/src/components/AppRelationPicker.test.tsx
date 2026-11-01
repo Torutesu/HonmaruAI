@@ -43,7 +43,7 @@ test('a missing single relation can be cleared with the keyboard',()=>{
  act(()=>input.props.onKeyDown(key('Enter')));expect(onChange).toHaveBeenCalledWith(null);act(()=>tree!.unmount())
 })
 
-test('a removed option is not selected when the list changes while open',()=>{
+test('a removed option requires explicit reselection instead of selecting another row',()=>{
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
  vi.stubGlobal('window',{innerWidth:1280,innerHeight:800,addEventListener:vi.fn(),removeEventListener:vi.fn()})
  const onChange=vi.fn();let tree:ReturnType<typeof create>
@@ -52,7 +52,37 @@ test('a removed option is not selected when the list changes while open',()=>{
  act(()=>tree!.root.findByProps({'aria-label':'Relatedを検索'}).props.onKeyDown(key('End')))
  act(()=>tree!.update(render(rows.slice(0,1))))
  const input=tree!.root.findByProps({'aria-label':'Relatedを検索'})
+ expect(input.props['aria-activedescendant']).toBeUndefined()
+ act(()=>input.props.onKeyDown(key('Enter')));expect(onChange).not.toHaveBeenCalled()
+ act(()=>tree!.update(render(rows)));expect(input.props['aria-activedescendant']).toBeUndefined()
+ act(()=>input.props.onKeyDown(key('End')));act(()=>input.props.onKeyDown(key('Enter')))
+ expect(onChange).toHaveBeenCalledWith('row-99');act(()=>tree!.unmount())
+})
+
+test('reordering options keeps the active record by identity',()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
+ vi.stubGlobal('window',{innerWidth:1280,innerHeight:800,addEventListener:vi.fn(),removeEventListener:vi.fn()})
+ const onChange=vi.fn();let tree:ReturnType<typeof create>
+ const render=(current:typeof rows)=><AppRelationPicker column={column} value={null} rows={current} targetColumn={targetColumn} onChange={onChange}/>
+ act(()=>{tree=create(render(rows))});act(()=>tree!.root.findByProps({'aria-label':'Related'}).props.onClick())
+ act(()=>tree!.root.findByProps({'aria-label':'Relatedを検索'}).props.onKeyDown(key('End')))
+ act(()=>tree!.update(render([{...rows[99],values:{name:'Renamed record'}},...rows.slice(0,99)])))
+ const input=tree!.root.findByProps({'aria-label':'Relatedを検索'})
  const active=tree!.root.findAllByProps({role:'option'}).find(option=>option.props.id===input.props['aria-activedescendant'])
- expect(active?.findByType('span').children).toContain('Record 0')
- act(()=>input.props.onKeyDown(key('Enter')));expect(onChange).toHaveBeenCalledWith('row-0');act(()=>tree!.unmount())
+ expect(active?.findByType('span').children).toContain('Renamed record')
+ act(()=>input.props.onKeyDown(key('Enter')));expect(onChange).toHaveBeenCalledWith('row-99');act(()=>tree!.unmount())
+})
+
+test('existing selected values are not cleared or replaced by opening and pressing Enter',()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
+ vi.stubGlobal('window',{innerWidth:1280,innerHeight:800,addEventListener:vi.fn(),removeEventListener:vi.fn()})
+ const onChange=vi.fn();let tree:ReturnType<typeof create>
+ const extra={id:'row-100',values:{name:'Record 100'},updatedAt:'2026-01-01T00:00:00Z'}
+ const render=(value:string)=><AppRelationPicker column={column} value={value} rows={[...rows,extra]} targetColumn={targetColumn} onChange={onChange}/>
+ act(()=>{tree=create(render('row-100'))});act(()=>tree!.root.findByProps({'aria-label':'Related'}).props.onClick())
+ let input=tree!.root.findByProps({'aria-label':'Relatedを検索'})
+ expect(input.props['aria-activedescendant']).toBeUndefined();act(()=>input.props.onKeyDown(key('Enter')));expect(onChange).not.toHaveBeenCalled()
+ act(()=>tree!.update(render('row-0')));act(()=>tree!.root.findByProps({'aria-label':'Related'}).props.onClick());act(()=>tree!.root.findByProps({'aria-label':'Related'}).props.onClick())
+ input=tree!.root.findByProps({'aria-label':'Relatedを検索'});act(()=>input.props.onKeyDown(key('Enter')))
+ expect(onChange).not.toHaveBeenCalled();act(()=>tree!.unmount())
 })
