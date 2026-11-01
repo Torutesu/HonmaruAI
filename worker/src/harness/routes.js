@@ -1135,13 +1135,16 @@ export async function handleHarness(request, env, url, context = {}) {
         const appRecords=[{id:appId,name:app.name,entities:appSchema.entities.map(entity=>({id:entity.key,name:entity.table?.name,columns:entity.table?.columns||[]}))}];
         const authorize=async()=>{
           if(!await mayGenerateFromSchema(env.DB,orgId,appId,me,appSchema.entities,tables))return false;
-          if(!visibleAgents.length)return true;
-          const current=await listAgents(env.DB,orgId,who.user.login);
-          for(const visible of visibleAgents){
-            const agent=current.find(candidate=>candidate.id===visible.id && candidate.name===visible.name);
-            if(!agent || !await mayAccessAgent(env.DB,orgId,agent,who.user.login))return false;
+          if(visibleAgents.length){
+            const current=await listAgents(env.DB,orgId,who.user.login);
+            for(const visible of visibleAgents){
+              const agent=current.find(candidate=>candidate.id===visible.id && candidate.name===visible.name);
+              if(!agent || !await mayAccessAgent(env.DB,orgId,agent,who.user.login))return false;
+            }
           }
-          return true;
+          // Agent lookups above await other queries, so recheck table schemas
+          // and access immediately after them, before allowing model dispatch.
+          return mayGenerateFromSchema(env.DB,orgId,appId,me,appSchema.entities,tables);
         };
         if(!await authorize())return json({message:'No such app.'},404);
         const complete=input.useModel===false?null:await completer(env,orgId,me,'app_automation_generate',{maxTokens:2400});

@@ -1205,7 +1205,7 @@ test.each(['automations','custom'])('app %s generation checks the table ACL agai
   if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
   return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT 1 AS allowed FROM memberships m'))return statement;
    return {bind(...args){const bound=statement.bind(...args);return {async first(){
-    if(++checks===2){revoked=true;await db.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,linked.id).run()}
+    if(++checks===(kind==='automations'?3:2)){revoked=true;await db.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,linked.id).run()}
     return bound.first();
    }}}};
   };
@@ -1290,7 +1290,7 @@ test.each(['automations','custom'])('app %s generation refuses a schema changed 
   if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
   return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT 1 AS allowed FROM memberships m'))return statement;
    return {bind(...args){const bound=statement.bind(...args);return {async first(){
-    if(++checks===2){changed=true;const id=kind==='automations'?candidate.tableId:app.tableId;await db.prepare("UPDATE hx_tables SET columns='[{\"id\":\"name\",\"name\":\"Changed\",\"type\":\"text\"}]',updated_at='2030-01-01T00:00:00.000Z' WHERE org_id=? AND id=?").bind(ORG,id).run()}
+    if(++checks===(kind==='automations'?3:2)){changed=true;const id=kind==='automations'?candidate.tableId:app.tableId;await db.prepare("UPDATE hx_tables SET columns='[{\"id\":\"name\",\"name\":\"Changed\",\"type\":\"text\"}]',updated_at='2030-01-01T00:00:00.000Z' WHERE org_id=? AND id=?").bind(ORG,id).run()}
     return bound.first();
    }}}};
   };
@@ -1299,5 +1299,31 @@ test.each(['automations','custom'])('app %s generation refuses a schema changed 
  try {
   const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/${kind}`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Make a tracker'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'});
   expect(changed).toBe(true);expect(response.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('automation generation rechecks table access after awaiting agent lookups',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const {app:linked}=await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+ await env.DB.prepare("INSERT INTO hx_app_entities (org_id,app_id,entity_key,table_id) VALUES (?,?,'shared',?)").bind(ORG,linked.id,app.tableId).run();
+ const made=await send('POST','/channels/agents',toru,{orgId:ORG,name:'Helper',handle:'helper',instructions:'Help',scope:'team'});
+ expect(made.status).toBe(201);
+ const agent=(await made.json()).agent;
+ expect((await send('PUT','/channels/agents',toru,{orgId:ORG,id:agent.id,scope:'team'})).status).toBe(200);
+ let lists=0,revoked=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const statement=db.prepare(sql);if(!sql.includes('SELECT * FROM custom_agents WHERE org_id'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async all(){
+    const value=await bound.all();
+    if(++lists===2){revoked=true;await db.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,linked.id).run()}
+    return value;
+   }}}};
+  };
+ }});
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/automations`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Make a tracker'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'});
+  expect(revoked).toBe(true);expect(response.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
  } finally {vi.unstubAllGlobals()}
 });
