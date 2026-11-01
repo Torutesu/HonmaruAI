@@ -168,6 +168,13 @@ test("room links require app authority and room access, and hidden room names ar
   const hidden = await (await get(`/apps/${app.id}?orgId=${ORG}`, mika)).json();
   expect(hidden.app.channels).toEqual([]);
   expect(hidden.canCustomize).toBe(false);
+  const snapshotHidden=await (await get(`/hx/personal-views/${app.id}?orgId=${ORG}`,mika)).json();
+  expect(snapshotHidden.snapshot.app.channels).toEqual([]);
+  expect(snapshotHidden.snapshot.canCustomize).toBe(false);
+  const snapshotOwner=await (await get(`/hx/personal-views/${app.id}?orgId=${ORG}`,toru)).json();
+  expect(snapshotOwner.snapshot.app.channels).toEqual(['b:confidential']);
+  const snapshotSaved=await (await send('PUT',`/hx/personal-views/${app.id}`,mika,{orgId:ORG,expectedRevision:0,views:[],layouts:{}})).json();
+  expect(snapshotSaved.snapshot.app.channels).toEqual([]);
   const library = await (await get(`/apps?orgId=${ORG}`, mika)).json();
   expect(library.apps.find(item => item.id === app.id).channels).toEqual([]);
   const home = await (await get(`/harness/home?orgId=${ORG}`, mika)).json();
@@ -1416,4 +1423,29 @@ test('personal view saves reject a direct table schema change before the write',
  const result=await personalViews(racing,ORG,'9102',app.id,{expectedRevision:0,views:[{id:'personal_mine',type:'table',name:'Mine'}],layouts:{}});
  expect(result.status).toBe(409);
  expect(await env.DB.prepare('SELECT 1 FROM hx_personal_views WHERE org_id=? AND user_id=? AND app_id=?').bind(ORG,'9102',app.id).first()).toBeNull();
+});
+
+test('personal views return rows and computed views from one captured row set even when rows change during save',async()=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Row snapshot',columns:[{name:'Name',type:'text'}]})).json();
+ const created=await (await send('POST',`/tables/${app.tableId}/rows`,toru,{orgId:ORG,values:{Name:'Before'}})).json();
+ const before=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ let changed=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('INSERT OR IGNORE INTO hx_personal_views'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async run(){
+    if(!changed){changed=true;const response=await send('PATCH',`/tables/${app.tableId}/rows/${created.row.id}`,toru,{orgId:ORG,values:{Name:'After'},expectedUpdatedAt:created.row.updatedAt});expect(response.status).toBe(200)}
+    return bound.run();
+   }}}};
+  };
+ }});
+ const result=await personalViews(racing,ORG,'9102',app.id,{expectedRevision:0,views:[{id:'personal_mine',type:'table',name:'Mine'}],layouts:{}});
+ expect(result.error).toBeUndefined();
+ const key=before.table.columns[0].id;
+ expect(result.snapshot.rows[0].values[key]).toBe('Before');
+ expect(result.computed[0].rows[0].values[key]).toBe('Before');
+ const latest=await personalViews(env.DB,ORG,'9102',app.id);
+ expect(latest.snapshot.rows[0].values[key]).toBe('After');
+ expect(latest.computed[0].rows[0].values[key]).toBe('After');
 });

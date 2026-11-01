@@ -520,3 +520,20 @@ test('revoked app access clears the previously visible data while a temporary er
   expect(JSON.stringify(tree!.toJSON())).not.toContain('Private data')
   expect(JSON.stringify(tree!.toJSON())).toContain('No such app.')
 })
+
+test('personal computed rows use the same snapshot and save reloads before showing newer rows',async()=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const oldRow={id:'r',values:{title:'Before save'},updatedAt:'2026-11-02T01:00:00Z'},newRow={...oldRow,values:{title:'After save'},updatedAt:'2026-11-02T02:00:00Z'}
+  const shared={id:'all',type:'table',name:'Shared',rows:[oldRow]},mine={id:'personal_mine',type:'table',name:'Mine',rows:[oldRow]}
+  const data=(row:typeof oldRow)=>({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[row],views:[{...shared,rows:[row]}],canCustomize:true})
+  const initial={revision:1,appVersion:1,activeView:mine.id,views:[mine],computed:[mine],layouts:{},snapshot:data(oldRow)}
+  const saved={...initial,revision:2},refreshed={...saved,computed:[{...mine,rows:[newRow]}],snapshot:data(newRow)}
+  state.api={app:vi.fn().mockResolvedValue(data(newRow)),personalViews:vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(refreshed),savePersonalViews:vi.fn().mockResolvedValue(saved),conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]})}
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(JSON.stringify(tree!.toJSON())).toContain('Before save')
+  expect(JSON.stringify(tree!.toJSON())).not.toContain('After save')
+  act(()=>tree!.root.findAllByType('button').find(node=>node.children.includes('フィールド'))!.props.onClick())
+  await act(async()=>{tree!.root.findAllByType('button').find(node=>node.children.includes('保存'))!.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(JSON.stringify(tree!.toJSON())).toContain('After save')
+  expect(JSON.stringify(tree!.toJSON())).not.toContain('Before save')
+})

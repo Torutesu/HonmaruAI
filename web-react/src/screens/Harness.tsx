@@ -446,6 +446,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       }
     }
     let [next,preferences]=await readPair()
+    if(preferences.snapshot)next=preferences.snapshot
     // If a save won while this read was in flight, its settings are newer but
     // its computed rows may be older than this refresh. Re-read the server's
     // computed views; never splice an old computed snapshot into fresh data.
@@ -456,6 +457,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       const versionMismatch=preferences.appVersion!==undefined&&preferences.appVersion!==next.app.version
       if(!stale&&!versionMismatch)break
       ;[next,preferences]=await readPair()
+      if(preferences.snapshot)next=preferences.snapshot
     }
     const latest=personalSnapshot.current
     if(latest?.api===api&&latest.appId===appId&&latest.value.revision>preferences.revision)throw new Error('個人ビューが更新中です。再読み込みしてください。')
@@ -510,7 +512,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const selectedIndex=proposedIndex>=data.views.length && sharedIds.has(allViews[proposedIndex].id)?0:proposedIndex
   const view = allViews[selectedIndex]
   const isPersonalView=selectedIndex>=data.views.length
-  const savePersonal = async (next:PersonalViews) => {pendingPersonalSaves.current++;try{const saved=await api.savePersonalViews(appId,next);if(currentApi.current!==api||currentAppId.current!==appId)return;const latest=personalSnapshot.current;if(latest?.api===api&&latest.appId===appId&&latest.value.revision>=saved.revision)return;personalSnapshot.current={api,appId,value:saved};setPersonal(saved);if(saved.appVersion!==undefined&&saved.appVersion!==data.app.version){await load();return}setViewIndex(Math.max(0,[...data.views,...saved.computed].findIndex(v=>v.id===saved.activeView)))}finally{pendingPersonalSaves.current--;retryRefresh.current()}}
+  const savePersonal = async (next:PersonalViews) => {pendingPersonalSaves.current++;try{const saved=await api.savePersonalViews(appId,next);if(currentApi.current!==api||currentAppId.current!==appId)return;const latest=personalSnapshot.current;if(latest?.api===api&&latest.appId===appId&&latest.value.revision>=saved.revision)return;personalSnapshot.current={api,appId,value:saved};if(saved.snapshot){setData(null);await load();return}setPersonal(saved);if(saved.appVersion!==undefined&&saved.appVersion!==data.app.version){await load();return}setViewIndex(Math.max(0,[...data.views,...saved.computed].findIndex(v=>v.id===saved.activeView)))}finally{pendingPersonalSaves.current--;retryRefresh.current()}}
   const canEditView=isPersonalView || data.canCustomize !== false
   const saveView = async (patch:Partial<View>) => { if(isPersonalView) { await savePersonal({...personal,views:personal.views.map(v=>v.id===view.id?{...v,...patch}:v)}); return } await api.updateApp(app.id, { expectedVersion: app.version, definition: { ...app.definition, views: app.definition.views.map(v => v.id === view.id ? {...v,...patch} : v) }, note: 'ビューのフィルター・並べ替え・グループを更新' }); await load() }
   const layout = displayLayout(table.columns,personal.layouts[view.id])
