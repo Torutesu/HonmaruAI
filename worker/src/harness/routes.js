@@ -1134,7 +1134,7 @@ export async function handleHarness(request, env, url, context = {}) {
         const appSchema=await databaseView(env.DB,orgId,app);
         const appRecords=[{id:appId,name:app.name,entities:appSchema.entities.map(entity=>({id:entity.key,name:entity.table?.name,columns:entity.table?.columns||[]}))}];
         const authorize=async()=>{
-          if(!await mayGenerateFromSchema(env.DB,orgId,appId,me,appSchema.entities,tables.map(table=>table.id)))return false;
+          if(!await mayGenerateFromSchema(env.DB,orgId,appId,me,appSchema.entities,tables))return false;
           if(!visibleAgents.length)return true;
           const current=await listAgents(env.DB,orgId,who.user.login);
           for(const visible of visibleAgents){
@@ -1173,8 +1173,8 @@ export async function handleHarness(request, env, url, context = {}) {
       if (input.action === 'generate') {
         const table = await getTable(env.DB, orgId, app.tableId);
         const capabilities = { entities: (await databaseView(env.DB,orgId,app)).entities, actions: (await actions(env.DB,orgId,appId)).actions.filter(a=>a.published).map(a=>({name:a.name,code:a.published})), connections:(await connections(env.DB,orgId,appId,me)).connections.map(c=>({name:c.name,endpoint:c.endpoint,method:c.method,enabled:c.enabled})), gateways:(await env.DB.prepare('SELECT id,name FROM hx_gateways WHERE org_id=?1 AND revoked_at IS NULL').bind(orgId).all()).results };
-        const authorize=()=>mayGenerateFromSchema(env.DB,orgId,appId,me,capabilities.entities);
-        if(!table || !await authorize())return json({message:'No such app.'},404);
+        const authorize=()=>mayGenerateFromSchema(env.DB,orgId,appId,me,capabilities.entities,[table]);
+        if(!table || capabilities.entities.find(entity=>entity.key==='primary')?.table?.id!==table.id || !await authorize())return json({message:'No such app.'},404);
         const complete = await completer(env, orgId, me, 'custom_app_generate', { maxTokens: 8000 });
         const guardedComplete=complete?async(system,user,options={})=>complete(system,user,{...options,authorize}):null;
         try {

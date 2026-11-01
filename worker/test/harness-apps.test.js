@@ -1248,7 +1248,8 @@ test('model schema authorization rejects table replacement, invalid linked apps 
  const {mayGenerateFromSchema}=await import('../src/harness/generationAccess.js');
  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
  const {app:replacement}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
- const entities=[{key:'primary',table:{id:app.tableId}}];
+ const {getTable}=await import('../src/harness/tables.js');
+ const entities=[{key:'primary',table:await getTable(env.DB,ORG,app.tableId)}];
  expect(await mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities)).toBe(true);
  await env.DB.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(replacement.tableId,ORG,app.id).run();
  expect(await mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities)).toBe(false);
@@ -1259,4 +1260,44 @@ test('model schema authorization rejects table replacement, invalid linked apps 
  await env.DB.prepare('DELETE FROM hx_app_entities WHERE org_id=? AND app_id=?').bind(ORG,foreign.id).run();
  await env.DB.prepare('INSERT INTO workspace_tombstones(org_id,deleted_at) VALUES (?,?)').bind(ORG,'now').run();
  expect(await mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities)).toBe(false);
+});
+
+test('custom generation rejects replacement of its primary table after reading the old schema',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const {app:replacement}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ let replaced=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT version FROM hx_app_database_state'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async first(){
+    if(!replaced){replaced=true;await db.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(replacement.tableId,ORG,app.id).run()}
+    return bound.first();
+   }}}};
+  };
+ }});
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/custom`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Make a tracker'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'});
+  expect(replaced).toBe(true);expect(response.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
+ } finally {vi.unstubAllGlobals()}
+});
+
+test.each(['automations','custom'])('app %s generation refuses a schema changed before dispatch',async kind=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const {app:candidate}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ let checks=0,changed=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT 1 AS allowed FROM memberships m'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async first(){
+    if(++checks===2){changed=true;const id=kind==='automations'?candidate.tableId:app.tableId;await db.prepare("UPDATE hx_tables SET columns='[{\"id\":\"name\",\"name\":\"Changed\",\"type\":\"text\"}]',updated_at='2030-01-01T00:00:00.000Z' WHERE org_id=? AND id=?").bind(ORG,id).run()}
+    return bound.first();
+   }}}};
+  };
+ }});
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/${kind}`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Make a tracker'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'});
+  expect(changed).toBe(true);expect(response.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
+ } finally {vi.unstubAllGlobals()}
 });
