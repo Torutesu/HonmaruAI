@@ -518,3 +518,77 @@ test('canonical DM eviction cancels and notifies a join still resolving its disp
  release();await join;
  expect(f.events.some(event=>event.name==='jam_joined')).toBe(false);
 });
+
+test('eviction after commit but before joined response sends one error and no stale success',async()=>{
+ const f=fixture();
+ let release,started,blocked=false;
+ const waiting=new Promise(resolve=>{started=resolve;});
+ const transaction=f.relay.state.storage.transaction;
+ f.relay.state.storage.transaction=async fn=>{
+   if(!blocked){blocked=true;started();await new Promise(resolve=>{release=resolve;});}
+   return transaction(fn);
+ };
+ const join=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+ await waiting;
+ expect(f.ws.deserializeAttachment().jam.pending).toBe(false);
+ let sawError;
+ const errorSent=new Promise(resolve=>{sawError=resolve;});
+ const send=f.ws.send;
+ f.ws.send=value=>{send(value);if(JSON.parse(value).name==='jam_error')sawError();};
+ const request=new Request(`https://relay.internal/internal/evict?orgId=${org}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({login:'alice',channel})});
+ const eviction=OrgRelay.prototype.fetch.call(f.relay,request);
+ await errorSent;
+ expect(f.events.filter(event=>event.name==='jam_error')).toHaveLength(1);
+ release();await Promise.all([join,eviction]);
+ expect(f.events.filter(event=>event.name==='jam_error')).toHaveLength(1);
+ expect(f.events.some(event=>event.name==='jam_joined')).toBe(false);
+ expect(f.ws.deserializeAttachment().jam).toBeNull();
+});
+
+test.each(['room','member'])('%s eviction sends one error to a provisionally attached join',async kind=>{
+ let signalStarted,finishFetch;
+ const waiting=new Promise(resolve=>{signalStarted=resolve;});
+ vi.stubGlobal('fetch',()=>{signalStarted();return new Promise(resolve=>{finishFetch=resolve;});});
+ const f=fixture({turn:true});
+ const join=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+ await waiting;
+ expect(f.ws.deserializeAttachment().jam.pending).toBe(true);
+ const body=kind==='room'?{allInChannel:true,channel}:{login:'alice',channel};
+ const request=new Request(`https://relay.internal/internal/evict?orgId=${org}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+ expect((await OrgRelay.prototype.fetch.call(f.relay,request)).status).toBe(200);
+ expect(f.events.filter(event=>event.name==='jam_error')).toHaveLength(1);
+ finishFetch(new Response(JSON.stringify({iceServers:[]}),{status:200,headers:{'content-type':'application/json'}}));
+ await join;
+ expect(f.events.filter(event=>event.name==='jam_error')).toHaveLength(1);
+ expect(f.events.some(event=>event.name==='jam_joined')).toBe(false);
+});
+
+test('a revoked newly joined peer is not announced after a slow audience lookup',async()=>{
+ await upsertUser(env.DB,{githubId:'4102',login:'bob',name:'Bob'});
+ await upsertMembership(env.DB,org,'4102','member');
+ await env.DB.prepare('INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?,?,?,?)').bind(org,channel,'bob',createdAt).run();
+ const f=fixture(),sent=[];
+ f.relay.sendTo=(...args)=>sent.push(args);
+ let release,started,count=0;
+ const waiting=new Promise(resolve=>{started=resolve;});
+ f.relay.db=new Proxy(env.DB,{get(db,key){
+   if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+   return sql=>{const statement=db.prepare(sql);if(!sql.includes('ORDER BY added_at, login'))return statement;
+     return {bind(...args){const bound=statement.bind(...args);return {async all(){
+       const rows=await bound.all();if(++count===3){started();await new Promise(resolve=>{release=resolve;});}return rows;
+     }}}};
+   };
+ }});
+ const join=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+ await waiting;
+ expect(f.events.some(event=>event.name==='jam_joined')).toBe(true);
+ let notified;
+ const errorSent=new Promise(resolve=>{notified=resolve;});
+ const send=f.ws.send;f.ws.send=value=>{send(value);if(JSON.parse(value).name==='jam_error')notified();};
+ const request=new Request(`https://relay.internal/internal/evict?orgId=${org}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({login:'alice',channel})});
+ const eviction=OrgRelay.prototype.fetch.call(f.relay,request);
+ await errorSent;
+ release();await Promise.all([join,eviction]);
+ expect(sent.some(([,recipient,event])=>recipient==='bob'&&event.name==='jam_state'&&event.value.active)).toBe(false);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=?').bind(org).first('n')).toBe(0);
+});

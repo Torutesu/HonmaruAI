@@ -54,9 +54,12 @@ function cancelJoining(joining, notify = false) {
   // A join can be cancelled before it has a Jam attachment, so the regular
   // eviction path cannot notify it. Tell the client immediately so it can
   // leave its connecting state and release the microphone.
-  if (notify) reply(joining.ws, customEvent('jam_error', {
-    channel: joining.channel ?? null, message: 'You are no longer in this channel.',
-  }));
+  if (notify) {
+    joining.notified = true;
+    reply(joining.ws, customEvent('jam_error', {
+      channel: joining.channel ?? null, message: 'You are no longer in this channel.',
+    }));
+  }
 }
 
 // Record evictions even when the joining socket has not attached yet. An
@@ -194,10 +197,11 @@ export function jamState(peers, members, meta) {
 /// DM's two, a group's people, a private channel's members.
 const audienceOf = (relay, orgId, key) => closedAudience(relay.db, orgId, key);
 
-async function announceState(relay, orgId, key, members, exclude) {
+async function announceState(relay, orgId, key, members, exclude, permitted = () => true) {
   const meta = await relay.state.storage.get(STORE(orgId, key));
   const state = jamState(jamPeers(relay.state.getWebSockets(), orgId, key, exclude), members, meta);
   const logins = await audienceOf(relay, orgId, key);
+  if (!permitted()) return state;
   if (!logins) {
     relay.broadcast(orgId, customEvent("jam_state", { channel: key, ...state }), exclude);
     return state;
@@ -210,12 +214,15 @@ async function announceState(relay, orgId, key, members, exclude) {
 }
 
 /// Say something in the channel as the AI, and tell whoever can see it.
-async function sayInChannel(relay, orgId, key, members, body, parentId = null) {
+async function sayInChannel(relay, orgId, key, members, body, parentId = null, permitted = () => true) {
+  if (!permitted()) return null;
   const out = await postMessage(relay.db, { orgId, key, authorLogin: null, body, kind: "ai", parentId });
-  if (!out.row) return null;
+  if (!out.row || !permitted()) return null;
   const logins = await audienceOf(relay, orgId, key);
+  if (!permitted()) return null;
   if (!logins) {
     const [message] = await present(relay.db, orgId, [out.row], null, key, members);
+    if (!permitted()) return null;
     relay.broadcast(orgId, customEvent("channel_message", { message }));
     return out.row;
   }
@@ -223,6 +230,7 @@ async function sayInChannel(relay, orgId, key, members, body, parentId = null) {
     const view = viewOf(key, login, members);
     if (!view) continue;
     const [message] = await present(relay.db, orgId, [out.row], login, view, members);
+    if (!permitted()) return null;
     relay.sendTo(orgId, login, customEvent("channel_message", { message }));
   }
   return out.row;
@@ -335,6 +343,7 @@ export async function jamStatesFor(relay, orgId, login, githubId) {
 /// signed in.
 const joiningSockets = new WeakMap();
 export function cancelJamSocketJoin(ws) { const joining=joiningSockets.get(ws);if(joining)cancelJoining(joining,true); }
+export function jamJoinWasNotified(ws) { return Boolean(joiningSockets.get(ws)?.notified); }
 function currentJamPeer(ws, att) {
   if (typeof ws.readyState === 'number' && ws.readyState !== 1) return false;
   try {
@@ -526,7 +535,7 @@ async function handleJamMessageInner(relay, ws, att, type, payload, joining) {
       if(joining.cancelled || !connected || !current?.jam || current.jam.peerId!==peerId || joinEpoch(relay,key)!==epoch || !sameResolvedRoom(resolved,verified)) {
         if(current?.jam?.peerId===peerId)try { ws.serializeAttachment({...current,jam:null}); } catch { /* closed */ }
         await discardPendingJoin(relay,orgId,{key:resolved.key,peerId});
-        if(connected && current?.jam?.peerId===peerId)refuse('Your access to this channel changed.');
+        if(connected && current?.jam?.peerId===peerId && !joining.notified)refuse('Your access to this channel changed.');
         return;
       }
       ws.serializeAttachment({...current,jam:{...current.jam,pending:false}});
@@ -540,6 +549,9 @@ async function handleJamMessageInner(relay, ws, att, type, payload, joining) {
       }
       throw error;
     }
+    const accepted={...att,jam:{key:resolved.key,peerId}};
+    const stillJoined=()=>!joining.cancelled && currentJamPeer(ws,accepted);
+    if(!stillJoined())return;
     const currentPeers=jamPeers(relay.state.getWebSockets(),orgId,resolved.key,ws);
     reply(ws, customEvent("jam_joined", {
       channel: payload.channel,
@@ -552,17 +564,20 @@ async function handleJamMessageInner(relay, ws, att, type, payload, joining) {
       // Joined late: what has been said so far.
       transcript: (meta.transcript || []).slice(-200),
     }));
-    await announceState(relay, orgId, resolved.key, members);
+    await announceState(relay, orgId, resolved.key, members, undefined, stillJoined);
+    if(!stillJoined())return;
     if (starting) {
       const name = members.find((m) => m.login === att.userId)?.name || att.userId;
       const locale = await localeOf(relay.db, att.githubId);
-      const row = await sayInChannel(relay, orgId, resolved.key, members, serverText(locale, "jam.started", { name }));
+      if(!stillJoined())return;
+      const row = await sayInChannel(relay, orgId, resolved.key, members, serverText(locale, "jam.started", { name }), null, stillJoined);
+      if(!stillJoined())return;
       if (row) {
         const kept = await relay.state.storage.get(storeKey);
         if (kept) { kept.messageId = row.id; kept.startedAnnounced=true; await relay.state.storage.put(storeKey, kept); }
-        await announceState(relay, orgId, resolved.key, members);
+        await announceState(relay, orgId, resolved.key, members, undefined, stillJoined);
       }
-      if(row)relay.state.waitUntil(emitCall(relay.env, orgId, resolved.key, "call.started", { startedAt: meta.startedAt, startedBy: { name } }));
+      if(row && stillJoined())relay.state.waitUntil(emitCall(relay.env, orgId, resolved.key, "call.started", { startedAt: meta.startedAt, startedBy: { name } }));
     }
     } finally { unlock(); }
   }
