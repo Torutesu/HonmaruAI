@@ -172,6 +172,15 @@ test("restricted agent data stays private through direct APIs, listings and Simp
   }
 });
 
+test("the channel overview does not advertise a restricted agent placed in a readable room", async () => {
+  await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, access: "private" });
+  const placed = await send("POST", "/channels/channel-agents", mika, { orgId: ORG, channel: "b:ops", agentId });
+  expect(placed.status).toBe(200);
+
+  const overview = await (await get(`/channels?${q({ orgId: ORG })}`, kenji)).json();
+  expect(overview.agents.some((agent) => agent.id === agentId || agent.handle === "billy")).toBe(false);
+});
+
 test("profile lookup failures do not silently grant access", async () => {
   const { getProfile, profilesFor } = await import("../src/harness/agents.js");
   const db = { prepare: () => ({ bind: () => ({ first: async () => { throw new Error("DB unavailable"); }, all: async () => { throw new Error("DB unavailable"); } }) }) };

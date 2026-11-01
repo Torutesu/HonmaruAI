@@ -3863,3 +3863,14 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Kylon's inspected app menu did not expose a room-link editor. This Honmaru feature is tracked as an extension; Kylon UI parity remains unverified.
 - In the independent worktree, room links are treated as navigation only. Link changes require app-maker/Admin authority and a current readable target room. App room keys are filtered for each viewer in library, detail, Home, and MCP responses; unreadable requested rooms return a generic 404. Apps created directly or from templates in a private room, DM, group, or agent chat default to private access.
 - Nine related Worker test files passed (234 tests), followed by a focused 137-test rerun covering the latest agent-room alias change; the full Web suite passed (1,353 tests), the Web production build completed, and the focused `HarnessApps` check passed. The full Worker suite was not completed locally. Main CI and Worker deployment for PR #602's merge are still running. No production data, settings, or app links were modified. PR #603 is open and its CI is running; production release and post-deploy multi-user ACL verification remain pending.
+
+### 2026-11-01 — KY-006 room-resource links (production release)
+
+- PR [#603](https://github.com/Torutesu/HonmaruAI/pull/603) merged as `b238bb5c1fa71639320d8330cae6df8ca2fe1f2f`. Main CI [#41303806986](https://github.com/Torutesu/HonmaruAI/actions/runs/41303806986), Worker deployment [#41303806967](https://github.com/Torutesu/HonmaruAI/actions/runs/41303806967), and Web deployment [#41303806966](https://github.com/Torutesu/HonmaruAI/actions/runs/41303806966) succeeded. Production Worker `/health` returned `ok: true` with `encryption.all: true`; `app.honmaruai.com` returned HTTP 200.
+- With the Mac unlocked, compared the existing empty `UI確認用タスク` app in the signed-in Kylon and Honmaru desktop apps. Both showed an empty table and adjacent conversation. The read-only check did not change app data or the existing QA draft. This confirms the inspected layout only; multi-user production authorization isolation remains unverified.
+- No new paid service was added. Honmaru Simple remains available.
+
+### 2026-11-01 — KY-015 channel overview Agent disclosure (local verification)
+
+- Found that `/channels` could advertise a managed Agent's name, handle, and scope when the Agent was placed in a room readable by the caller, even though the caller lacked the Agent-specific grant and direct execution was denied. The channel overview now checks current Agent callability before returning room-placement entries. Added a regression test for a private Agent placed in readable `b:ops`.
+- Focused regression passed (1 test); combined `harness-agents.test.js` and `agents.test.js` passed (81 tests). No production request or data was changed. The fix is not yet released; KY-015 remains partial pending review of all direct API and external execution paths.
