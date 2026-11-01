@@ -58,7 +58,7 @@ test("upsertMembership and upsertAgent are idempotent", async () => {
     "SELECT role FROM memberships WHERE org_id=?1 AND user_github_id=?2"
   ).bind("acme/web", "7").all();
   expect(mem).toHaveLength(1);
-  expect(mem[0].role).toBe("Engineer");
+  expect(mem[0].role).toBe("engineer");
   const { results: ag } = await env.DB.prepare(
     "SELECT id FROM agents WHERE org_id=?1 AND user_github_id=?2"
   ).bind("acme/web", "7").all();
