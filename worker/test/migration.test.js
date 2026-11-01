@@ -43,9 +43,9 @@ test("a deploy leaves both user indexes in place", async () => {
   expect(names).toContain("idx_users_login");
 });
 
-test("a deploy and membership writes canonicalize role casing", async () => {
+test("a deploy and membership writes canonicalize role casing and whitespace", async () => {
   await applyDeploy(env.DB);
-  await env.DB.prepare("INSERT OR REPLACE INTO memberships(org_id,user_github_id,role,created_at) VALUES('legacy-role-org','legacy-guest','Guest','2026-01-01')").run();
+  await env.DB.prepare("INSERT OR REPLACE INTO memberships(org_id,user_github_id,role,created_at) VALUES('legacy-role-org','legacy-guest',' Guest ','2026-01-01')").run();
   await applyDeploy(env.DB);
   expect(await env.DB.prepare("SELECT role FROM memberships WHERE org_id='legacy-role-org' AND user_github_id='legacy-guest'").first())
     .toEqual({ role: "guest" });

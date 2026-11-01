@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS memberships (
 
 /* Membership roles are lowercase enums in application code. Canonicalize
    legacy rows so every authorization query agrees on role. */
-UPDATE memberships SET role = lower(role) WHERE role != lower(role);
+UPDATE memberships SET role = lower(trim(role)) WHERE role != lower(trim(role));
 
 /* Team invite codes. A member creates a code for their org; anyone who
    redeems it joins that org. Kept simple: a code is reusable until deleted.
