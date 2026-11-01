@@ -60,6 +60,34 @@ test('an eviction before attachment invalidates an in-flight join even if access
   expect(f.entries.size).toBe(0);
 });
 
+test('one socket cannot start another room while its first join is in flight',async()=>{
+  let started,finish,blocked=false;
+  const entered=new Promise(resolve=>{started=resolve;});
+  const f=fixture({onPut:async()=>{if(!blocked){blocked=true;started();await new Promise(resolve=>{finish=resolve;});}}});
+  const first=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+  await entered;
+  await handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel:'b:general'});
+  expect(f.events.filter(event=>event.name==='jam_error')).toHaveLength(1);
+  expect(f.events.some(event=>event.name==='jam_joined')).toBe(false);
+  finish();await first;
+  expect(f.events.filter(event=>event.name==='jam_joined')).toHaveLength(1);
+  expect(f.ws.deserializeAttachment().jam.key).toBe(channel);
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND channel=?').bind(org,'b:general').first('n')).toBe(0);
+});
+
+test('leave before attachment cancels an in-flight join',async()=>{
+  let started,finish;
+  const entered=new Promise(resolve=>{started=resolve;});
+  const f=fixture({onPut:async()=>{started();await new Promise(resolve=>{finish=resolve;});}});
+  const run=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+  await entered;
+  await handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_leave',{});
+  finish();await run;
+  expect(f.events.some(event=>event.name==='jam_joined')).toBe(false);
+  expect(f.entries.size).toBe(0);
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=?').bind(org).first('n')).toBe(0);
+});
+
 test('pending joins are not peers and cannot send a late success after eviction',async()=>{
   let signalStarted,finishFetch;
   const started=new Promise(resolve=>{signalStarted=resolve;});
