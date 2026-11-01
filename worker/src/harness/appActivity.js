@@ -2,7 +2,7 @@ import {conversationWriteAuthority} from './conversationWriteAuthority.js';
 import {skillSessionAuthority} from './skillSessionAuthority.js';
 import {currentSkillPolicy,skillPolicyFingerprint,skillSsoDeadline} from './skillPolicyProof.js';
 import {currentIp} from '../requestContext.js';
-import {roleIn} from '../permissions.js';
+import {legacyDeletionOwnerPromotion} from '../permissions.js';
 
 // The notification values and every ACL used to release them are selected in
 // one SQLite snapshot. Record conversations never inherit an app source.
@@ -14,10 +14,11 @@ const activityFrom=`FROM hx_app_notifications n
   LEFT JOIN users u ON u.github_id=m.author_id
   LEFT JOIN hx_app_conversation_sources source ON source.org_id=a.org_id AND source.app_id=a.id AND m.row_id=''
   LEFT JOIN channel_messages root ON root.org_id=source.org_id AND root.id=source.thread_id AND root.channel=source.channel`;
+const workspaceAuthority=`NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND (d.purge_started_at IS NOT NULL OR (COALESCE(d.due_at,'')!='' AND NOT (LOWER(member.role)='owner' OR (instr(?1,'/')>0 AND LOWER(member.role)='admin')))))
+  AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=?1)`;
 const activityAuthority=`n.org_id=?1 AND n.user_id=?2 AND LOWER(COALESCE(member.role,'guest'))!='guest'
   AND (COALESCE(policy.visibility,'workspace')='workspace' OR a.created_by=?2)
-  AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND (d.purge_started_at IS NOT NULL OR (COALESCE(d.due_at,'')!='' AND NOT (LOWER(member.role)='owner' OR (instr(?1,'/')>0 AND LOWER(member.role)='admin')))))
-  AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=?1)
+  AND ${workspaceAuthority}
   AND length(m.table_id)<=100 AND length(m.row_id)<=100
   AND ((m.table_id='' AND m.row_id='') OR (m.table_id!='' AND m.row_id!='' AND
     EXISTS(SELECT 1 FROM hx_tables t JOIN hx_rows r ON r.org_id=t.org_id AND r.table_id=t.id
@@ -43,12 +44,10 @@ export function activityProofRequiresIp(fingerprint){
 
 export async function appActivityProof(env,orgId,who){
  try{
-  const first=await currentSkillPolicy(env,orgId,who.session.github_id,who.session.token);
-  if(!first.allowed)return null;
-  // Apply the canonical legacy-workspace owner migration before the final
-  // snapshot, then check the policy once again after that migration.
-  await roleIn(env.DB,orgId,who.session.github_id);
-  const checked=await currentSkillPolicy(env,orgId,who.session.github_id,who.session.token);
+  // Deletion and legacy owner promotion are checked in the final D1 batch.
+  // This prevents preliminary policy checks from changing an owner before
+  // the current session, policy, and trusted IP have all been validated.
+  const checked=await currentSkillPolicy(env,orgId,who.session.github_id,who.session.token,{deferWorkspaceDeletionToFence:true});
   if(checked.allowed&&who.membershipSince&&who.session.created_at&&who.session.token?.startsWith('h1:')&&(currentIp()||!activityProofRequiresIp(checked.fingerprint)))
    return {memberSince:who.membershipSince,key:who.session.token,sessionCreatedAt:who.session.created_at,fingerprint:checked.fingerprint,ssoDeadline:checked.ssoDeadline};
  }catch{/* Fail closed for app content. */}
@@ -67,8 +66,13 @@ export async function visibleAppNotifications(db,orgId,userId,proof,appId=null,m
  }
  const sql=`SELECT n.message_id,n.kind,n.read_at,m.body,m.table_id,m.row_id,m.created_at,m.app_id,a.name AS app_name,u.name AS author_name,u.login AS author_login
   ${activityFrom} WHERE ${activityAuthority} ${proof?proofFence('?3','?4','?5','?6','?7'):''} ${filters.map(filter=>`AND ${filter}`).join(' ')} ORDER BY m.sequence DESC LIMIT 100`;
- const {results}=await db.prepare(sql).bind(...args).all();
- return results||[];
+ const query=db.prepare(sql).bind(...args);
+ if(!proof)return (await query.all()).results||[];
+ const promote=legacyDeletionOwnerPromotion(db,orgId,userId,proofFence('?3','?4','?5','?6','?7'),argsFor(orgId,userId,proof).slice(2));
+ const gate=db.prepare(`SELECT 1 AS allowed FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?2 AND ${workspaceAuthority} ${proofFence('?3','?4','?5','?6','?7')}`).bind(...argsFor(orgId,userId,proof));
+ const result=await db.batch(promote?[promote,gate,query]:[gate,query]);
+ if(!(result[promote?1:0]?.results||[]).length)throw new Error('App notification authorization changed.');
+ return result[promote?2:1]?.results||[];
 }
 export async function appActivity(db,orgId,userId,proof){
  return (await visibleAppNotifications(db,orgId,userId,proof)).map(row=>({
@@ -81,10 +85,12 @@ export async function readAppActivity(db,orgId,userId,keys=null,proof,appId=null
  const wanted=keys===null?null:new Set(keys.filter(k=>/^a:[1-9][0-9]*$/.test(k)).slice(0,100));
  const rows=await visibleAppNotifications(db,orgId,userId,proof,appId,null,wanted===null?null:[...wanted]);
  if(!rows.length)return [];
- const results=await db.batch(rows.map(row=>db.prepare(`UPDATE hx_app_notifications SET read_at=COALESCE(read_at,?4)
+ const promote=proof?legacyDeletionOwnerPromotion(db,orgId,userId,proofFence('?3','?4','?5','?6','?7'),argsFor(orgId,userId,proof).slice(2)):null;
+ const updates=rows.map(row=>db.prepare(`UPDATE hx_app_notifications SET read_at=COALESCE(read_at,?4)
    WHERE org_id=?1 AND user_id=?2 AND message_id=?3 AND EXISTS(SELECT 1 ${activityFrom} WHERE ${activityAuthority} ${proof?proofFence('?5','?6','?7','?8','?9'):''} AND n.message_id=?3)`)
-   .bind(orgId,String(userId),row.message_id,new Date().toISOString(),...argsFor(orgId,userId,proof).slice(2))));
- return rows.filter((_row,index)=>results[index]?.meta?.changes).map(row=>`a:${row.message_id}`);
+   .bind(orgId,String(userId),row.message_id,new Date().toISOString(),...argsFor(orgId,userId,proof).slice(2)));
+ const results=await db.batch(promote?[promote,...updates]:updates);
+ return rows.filter((_row,index)=>results[index+(promote?1:0)]?.meta?.changes).map(row=>`a:${row.message_id}`);
 }
 
 // Channel activity can contain ordinary channel keys too. Revalidate only

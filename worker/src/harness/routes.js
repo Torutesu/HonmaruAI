@@ -1068,19 +1068,22 @@ export async function handleHarness(request, env, url, context = {}) {
       if(!['GET','POST'].includes(request.method))return json({message:'Method not allowed.'},405);
       const activityProof=sub==='conversation-notifications'?await appActivityProof(env,orgId,who):null;
       if(sub==='conversation-notifications'&&!activityProof)return json({message:'Unable to verify notification access.'},503);
-      const r=sub==='conversation-source'
+      let r;
+      try{r=sub==='conversation-source'
         ? await conversationSource(env.DB,orgId,who.user,appId,input,request.method==='POST')
-        : await appNotifications(env.DB,orgId,me,appId,input,request.method==='POST',activityProof);
+        : await appNotifications(env.DB,orgId,me,appId,input,request.method==='POST',activityProof);}
+      catch(err){if(sub==='conversation-notifications')return json({message:'Unable to verify notification access.'},503);throw err}
       if(!r.error&&sub==='conversation-source'&&request.method==='POST')await audit(env,request,{orgId,action:'app.conversation_inherited',actor:person(who.user),entity:{type:'app',id:appId},details:{threadId:input.messageId}});
       if(!r.error&&sub==='conversation-notifications'&&request.method==='POST'&&r.marked){
         // Recheck immediately before sending the message identifier to the relay.
-        const visible=await visibleAppNotifications(env.DB,orgId,me,activityProof,appId,input.messageId);
+        let visible=[];try{visible=await visibleAppNotifications(env.DB,orgId,me,activityProof,appId,input.messageId)}catch{/* Access changed: suppress the event. */}
         if(visible.length)await announceTo(env,orgId,[{to:who.user.login,event:appActivityEvent('reads_changed',{items:[`a:${input.messageId}`],threads:[]})}]);
       }
       if(sub==='conversation-notifications'&&!r.error){
         // The relay is asynchronous: reselect after it returns so revocation
         // during delivery cannot release a stale notification body.
-        const latest=request.method==='POST'&&r.marked?await appNotifications(env.DB,orgId,me,appId,null,false,activityProof):r;
+        let latest=r;
+        if(request.method==='POST'&&r.marked)try{latest=await appNotifications(env.DB,orgId,me,appId,null,false,activityProof)}catch{return json({message:'Unable to verify notification access.'},503)}
         if(latest.error)return fail(latest);
         const {marked,...result}=latest;return json(result);
       }

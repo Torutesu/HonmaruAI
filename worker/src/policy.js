@@ -91,14 +91,17 @@ export function sessionDeadline(policy, session) {
 }
 
 /// The refusal for a session this workspace's rules have outgrown, or null.
-export async function policyDenial(env, session, orgId, { fresh = false } = {}) {
+export async function policyDenial(env, session, orgId, { fresh = false, deferWorkspaceDeletionToFence = false } = {}) {
   if (!session || !orgId) return null;
   // A workspace being deleted is closed to all but its owners, who may take
   // the request back (workspaceDeletion.js).
-  const { deletionDue } = await import("./workspaceDeletion.js");
-  const due = await deletionDue(env.DB, orgId, { fresh });
-  if (due && !(await allowed(env.DB, orgId, session.github_id, "workspace.delete"))) {
-    return { status: 410, body: { message: "This workspace is being deleted.", code: "workspace-deleting", orgId, dueAt: due } };
+  // Only callers with an equivalent final SQL deletion fence may defer this.
+  if (!deferWorkspaceDeletionToFence) {
+    const { deletionDue } = await import("./workspaceDeletion.js");
+    const due = await deletionDue(env.DB, orgId, { fresh });
+    if (due && !(await allowed(env.DB, orgId, session.github_id, "workspace.delete"))) {
+      return { status: 410, body: { message: "This workspace is being deleted.", code: "workspace-deleting", orgId, dueAt: due } };
+    }
   }
   // The workspace's single sign-on first: required of this person, or
   // an SSO sign-in past its hours.

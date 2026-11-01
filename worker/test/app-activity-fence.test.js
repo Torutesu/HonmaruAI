@@ -31,7 +31,10 @@ async function proof(){
  const m=await env.DB.prepare('SELECT created_at FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).first();
  const p=await currentSkillPolicy(env,org,member,key);return {memberSince:m.created_at,key,sessionCreatedAt:session.created_at,fingerprint:p.fingerprint,ssoDeadline:p.ssoDeadline};
 }
-function beforeRead(change){let injected=false;return {get injected(){return injected},db:{prepare(sql){const stmt=env.DB.prepare(sql);if(!sql.startsWith('SELECT n.message_id,'))return stmt;return {bind(...args){const bound=stmt.bind(...args);return {async all(){injected=true;await change();return bound.all()}}}}},batch:env.DB.batch.bind(env.DB)}}}
+function beforeRead(change,nth=1){let injected=false,count=0;const tagged=new WeakSet();return {get injected(){return injected},db:{
+ prepare(sql){const stmt=env.DB.prepare(sql);if(!sql.startsWith('SELECT n.message_id,'))return stmt;return {bind(...args){const bound=stmt.bind(...args);tagged.add(bound);return bound}}},
+ async batch(statements){if(statements.some(statement=>tagged.has(statement))&&++count===nth){injected=true;await change()}return env.DB.batch(statements)}
+}}}
 
 test.each(['membership','session','app','row','table-sharing','sso','network','session-policy','workspace-deletion'])('the final Activity read withholds app content if %s changes',async change=>{
  await add({tableId:app.tableId,rowId:row.id});const p=await proof();
@@ -46,7 +49,10 @@ test.each(['membership','session','app','row','table-sharing','sso','network','s
   'session-policy':()=>env.DB.prepare("INSERT INTO org_session_policy(org_id,web_max_hours,updated_by,updated_at) VALUES (?,1,?,'2090-01-01')").bind(org,owner).run(),
   'workspace-deletion':()=>env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,owner).run(),
  };
- const injected=beforeRead(changes[change]);expect(await appActivity(injected.db,org,member,p)).toEqual([]);expect(injected.injected).toBe(true);
+ const injected=beforeRead(changes[change]);
+ if(['membership','session','sso','network','session-policy','workspace-deletion'].includes(change))await expect(appActivity(injected.db,org,member,p)).rejects.toThrow('authorization changed');
+ else expect(await appActivity(injected.db,org,member,p)).toEqual([]);
+ expect(injected.injected).toBe(true);
 });
 
 test('source room denial hides app-level activity but not an independent record conversation',async()=>{
@@ -68,9 +74,9 @@ test('malformed record scope cannot disclose app notifications',async()=>{
 
 test('guest and mismatched or missing request proof cannot receive app activity',async()=>{
  await add();const p=await proof();
- expect(await appActivity(env.DB,org,'8103',p)).toEqual([]);
+ await expect(appActivity(env.DB,org,'8103',p)).rejects.toThrow('authorization changed');
  expect(await appActivity(env.DB,org,member,null)).toEqual([]);
- expect(await appActivity(env.DB,org,member,{...p,memberSince:'other'})).toEqual([]);
+ await expect(appActivity(env.DB,org,member,{...p,memberSince:'other'})).rejects.toThrow('authorization changed');
  expect(activityProofRequiresIp('{"network":{"enforce":1}}')).toBe(true);
  expect(activityProofRequiresIp('not-json')).toBe(true);
 });
@@ -85,7 +91,8 @@ test('revocation between list and marking read prevents the update and response 
 
 test.each(['session','policy','deletion'])('proof is checked again inside the read update after %s revocation',async change=>{
  const id=await add();const p=await proof();let injected=false;
- const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{
+ let batches=0;const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{
+  if(++batches===1)return env.DB.batch(statements);
   injected=true;
   if(change==='session')await env.DB.prepare('DELETE FROM sessions WHERE token=?').bind(p.key).run();
   else if(change==='policy')await env.DB.prepare("INSERT INTO org_session_policy(org_id,web_max_hours,updated_by,updated_at) VALUES (?,1,?,'2090-01-01')").bind(org,owner).run();
@@ -124,7 +131,7 @@ test('app bell does not return notification content when ACL changes before the 
 
 test('app bell cannot mark a now-inaccessible row as read and does not expose it',async()=>{
  const id=await add({tableId:app.tableId,rowId:row.id});const p=await proof();let injected=false;
- const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{injected=true;await env.DB.prepare('DELETE FROM hx_rows WHERE org_id=? AND table_id=? AND id=?').bind(org,app.tableId,row.id).run();return env.DB.batch(statements)}};
+ let batches=0;const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{if(++batches===1)return env.DB.batch(statements);injected=true;await env.DB.prepare('DELETE FROM hx_rows WHERE org_id=? AND table_id=? AND id=?').bind(org,app.tableId,row.id).run();return env.DB.batch(statements)}};
  expect(await appNotifications(db,org,member,app.id,{messageId:id},true,p)).toEqual({items:[],marked:false});expect(injected).toBe(true);
  expect((await env.DB.prepare('SELECT read_at FROM hx_app_notifications WHERE message_id=?').bind(id).first()).read_at).toBeNull();
 });
@@ -164,20 +171,13 @@ test.each(['session','app','row'])('bell POST rechecks %s after the relay await 
 
 
 test('bell suppresses relay if access is revoked between read update and announcement',async()=>{
- const id=await add({tableId:app.tableId,rowId:row.id});let count=0,delivered=false;
- const db={prepare(sql){
-  const stmt=env.DB.prepare(sql);if(!sql.startsWith('SELECT n.message_id,'))return stmt;
-  return {bind(...args){const bound=stmt.bind(...args);return {async all(){
-   if(++count===3)await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).run();
-   return bound.all();
-  }}}};
- },batch:env.DB.batch.bind(env.DB)};
- const fakeEnv={...env,DB:db,ORG_RELAY:{idFromName:()=>'',get:()=>({fetch:async()=>{delivered=true;return new Response('{}')}})}};
+ const id=await add({tableId:app.tableId,rowId:row.id});let delivered=false;
+ const injected=beforeRead(()=>env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).run(),3);
+ const fakeEnv={...env,DB:injected.db,ORG_RELAY:{idFromName:()=>'',get:()=>({fetch:async()=>{delivered=true;return new Response('{}')}})}};
  const req=new Request(`https://test/apps/${app.id}/conversation-notifications`,{method:'POST',headers:{'x-session-token':token,'content-type':'application/json'},body:JSON.stringify({orgId:org,messageId:id})});
  const response=await handleHarness(req,fakeEnv,new URL(req.url));
- expect(count).toBeGreaterThanOrEqual(3);expect(delivered).toBe(false);expect(await response.text()).not.toContain('Secret activity');
+ expect(injected.injected).toBe(true);expect(delivered).toBe(false);expect(await response.text()).not.toContain('Secret activity');
 });
-
 
 test('workspace owner retains notification access during a cancellable deletion',async()=>{
  await env.DB.prepare("UPDATE memberships SET role='owner' WHERE org_id=? AND user_github_id=?").bind(org,member).run();
@@ -197,37 +197,26 @@ async function prepareLegacyAdmin(){
 
 test('the canonical legacy owner promotion runs before a concurrent deletion reservation',async()=>{
  const who=await prepareLegacyAdmin();const p=await appActivityProof(env,org,who);expect(p).toBeTruthy();
- expect((await env.DB.prepare('SELECT role FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).first()).role).toBe('owner');
+ expect((await env.DB.prepare('SELECT role FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).first()).role).toBe('admin');
  const injected=beforeRead(()=>env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,member).run());
  expect((await appActivity(injected.db,org,member,p)).map(x=>x.message.body)).toEqual(['Legacy owner note']);
 });
 
-test('owner promotion respects another owner added concurrently',async()=>{
- const who=await prepareLegacyAdmin();let injected=false;
- const db={prepare(sql){
-  const stmt=env.DB.prepare(sql);if(!sql.startsWith("SELECT 1 FROM memberships WHERE org_id = ?1 AND role = 'owner'"))return stmt;
-  return {bind(...args){const bound=stmt.bind(...args);return {async first(){
-   injected=true;await env.DB.prepare("UPDATE memberships SET role='owner' WHERE org_id=? AND user_github_id=?").bind(org,owner).run();return bound.first();
-  }}}};
- },batch:env.DB.batch.bind(env.DB)};
- const p=await appActivityProof({...env,DB:db},org,who);expect(p).toBeTruthy();expect(injected).toBe(true);
+test('preliminary policy proof does not promote without a trusted IP',async()=>{
+ const who=await prepareLegacyAdmin();
+ await env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,member).run();
+ await env.DB.prepare("INSERT INTO org_governance(org_id,ip_enforce,ip_allowlist,updated_by,updated_at) VALUES (?,1,'[\"192.0.2.0/24\"]',?,'2090-01-01')").bind(org,owner).run();
+ expect(await appActivityProof(env,org,who)).toBeNull();
  expect((await env.DB.prepare('SELECT role FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).first()).role).toBe('admin');
- expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM memberships WHERE org_id=? AND role='owner'").bind(org).first()).n).toBe(1);
 });
 
-test('membership removed during legacy owner promotion is never revived or delivered',async()=>{
- const who=await prepareLegacyAdmin();let injected=false;
- const db={prepare(sql){
-  const stmt=env.DB.prepare(sql);if(!sql.startsWith("UPDATE memberships SET role = 'owner'"))return stmt;
-  return {bind(...args){const bound=stmt.bind(...args);return {async run(){
-   injected=true;await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).run();return bound.run();
-  }}}};
- },batch:env.DB.batch.bind(env.DB)};
- const p=await appActivityProof({...env,DB:db},org,who);expect(injected).toBe(true);
+test('membership removed before proof is never revived or delivered',async()=>{
+ const who=await prepareLegacyAdmin();
+ await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).run();
+ const p=await appActivityProof(env,org,who);
+ if(p)await expect(appActivity(env.DB,org,member,p)).rejects.toThrow('authorization changed');
  expect(await env.DB.prepare('SELECT role FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).first()).toBeNull();
- expect(p?await appActivity(env.DB,org,member,p):[]).toEqual([]);
 });
-
 
 test('activity read rechecks app keys in the delayed relay and preserves channel keys',async()=>{
  const id=await add();const pending=[];let deliveries=[];
@@ -241,18 +230,12 @@ test('activity read rechecks app keys in the delayed relay and preserves channel
 });
 
 test('activity read removes a revoked app key from the HTTP response while preserving channel keys',async()=>{
- const id=await add();let count=0;
- const db={prepare(sql){const stmt=env.DB.prepare(sql);if(!sql.startsWith('SELECT n.message_id,'))return stmt;
-  return {bind(...args){const bound=stmt.bind(...args);return {async all(){
-   if(++count===2)await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).run();
-   return bound.all();
-  }}}};
- },batch:env.DB.batch.bind(env.DB)};
+ const id=await add();
+ const injected=beforeRead(()=>env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).run(),2);
  const req=new Request('https://test/channels/read',{method:'POST',headers:{'x-session-token':token,'content-type':'application/json'},body:JSON.stringify({orgId:org,channel:'activity',items:['m:ordinary',`a:${id}`]})});
- const response=await handleChannels(req,{...env,DB:db},new URL(req.url),{after:()=>{}});
- const body=await response.json();expect(body.items).toEqual(['m:ordinary']);expect(body.appActivityUnavailable).toBe(true);
+ const response=await handleChannels(req,{...env,DB:injected.db},new URL(req.url),{after:()=>{}});
+ const body=await response.json();expect(injected.injected).toBe(true);expect(body.items).toEqual(['m:ordinary']);expect(body.appActivityUnavailable).toBe(true);
 });
-
 
 test('activity returns an explicit partial status when app policy verification fails',async()=>{
  await add();let injected=false;
@@ -266,7 +249,7 @@ test('activity returns an explicit partial status when app policy verification f
 });
 
 
-test('concurrent loss of the previous owner fails closed until the next canonical promotion',async()=>{
+test('concurrent loss of the previous owner is followed by atomic canonical promotion',async()=>{
  const who=await prepareLegacyAdmin();
  await env.DB.prepare("UPDATE memberships SET role='owner' WHERE org_id=? AND user_github_id=?").bind(org,owner).run();
  const p=await appActivityProof(env,org,who);
@@ -274,9 +257,83 @@ test('concurrent loss of the previous owner fails closed until the next canonica
   await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,owner).run();
   await env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,member).run();
  });
- expect(await appActivity(injected.db,org,member,p)).toEqual([]);
+ expect((await appActivity(injected.db,org,member,p)).map(x=>x.message.body)).toEqual(['Legacy owner note']);
  const request=new Request('https://test/channels/activity',{headers:{'x-session-token':token}});
  const again=await caller(env,request,org,{withMembership:true});expect(again.denied).toBeUndefined();
  const refreshed=await appActivityProof(env,org,again);
  expect((await appActivity(env.DB,org,member,refreshed)).map(x=>x.message.body)).toEqual(['Legacy owner note']);
+});
+
+
+test('atomic promotion selects the earliest admin, never the requesting later admin',async()=>{
+ const who=await prepareLegacyAdmin();
+ await upsertUser(env.DB,{githubId:'8104',login:'earlier',name:'earlier'});await upsertMembership(env.DB,org,'8104','admin');
+ await env.DB.prepare("UPDATE memberships SET created_at='2000-01-01' WHERE org_id=? AND user_github_id='8104'").bind(org).run();
+ await env.DB.prepare("UPDATE memberships SET role='owner' WHERE org_id=? AND user_github_id=?").bind(org,owner).run();
+ const p=await appActivityProof(env,org,who);
+ const injected=beforeRead(async()=>{
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,owner).run();
+  await env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,member).run();
+ });
+ await expect(appActivity(injected.db,org,member,p)).rejects.toThrow('authorization changed');
+ const owners=await env.DB.prepare("SELECT user_github_id FROM memberships WHERE org_id=? AND role='owner'").bind(org).all();
+ expect(owners.results).toEqual([{user_github_id:'8104'}]);
+ expect((await env.DB.prepare('SELECT role FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).first()).role).toBe('admin');
+});
+
+test('session expiry before the promotion batch leaves the legacy admin unchanged',async()=>{
+ const who=await prepareLegacyAdmin();
+ await env.DB.prepare("UPDATE memberships SET role='owner' WHERE org_id=? AND user_github_id=?").bind(org,owner).run();
+ const p=await appActivityProof(env,org,who);
+ const injected=beforeRead(async()=>{
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,owner).run();
+  await env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,member).run();
+  await env.DB.prepare('DELETE FROM sessions WHERE token=?').bind(p.key).run();
+ });
+ await expect(appActivity(injected.db,org,member,p)).rejects.toThrow('authorization changed');
+ expect((await env.DB.prepare('SELECT role FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).first()).role).toBe('admin');
+});
+
+test('activity reports partial failure if session is revoked before the final batch',async()=>{
+ await add();const injected=beforeRead(async()=>{await env.DB.prepare('DELETE FROM sessions WHERE token=?').bind(await sessionKey(token)).run()});
+ const req=new Request(`https://test/channels/activity?orgId=${encodeURIComponent(org)}`,{headers:{'x-session-token':token}});
+ const response=await handleChannels(req,{...env,DB:injected.db},new URL(req.url),{after:()=>{}});
+ const body=await response.json();expect(injected.injected).toBe(true);expect(body.appActivityUnavailable).toBe(true);expect(body.items.filter(x=>x.app)).toEqual([]);
+});
+
+
+test('read update atomically promotes the rightful legacy admin if owner and reservation change after selection',async()=>{
+ const who=await prepareLegacyAdmin();
+ await env.DB.prepare("UPDATE memberships SET role='owner' WHERE org_id=? AND user_github_id=?").bind(org,owner).run();
+ const p=await appActivityProof(env,org,who);
+ const saved=await env.DB.prepare('SELECT message_id FROM hx_app_notifications WHERE org_id=? AND user_id=?').bind(org,member).first();
+ let batches=0;const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{
+  if(++batches===2){
+   await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,owner).run();
+   await env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,member).run();
+  }
+  return env.DB.batch(statements);
+ }};
+ expect(await readAppActivity(db,org,member,[`a:${saved.message_id}`],p)).toEqual([`a:${saved.message_id}`]);
+ expect((await env.DB.prepare('SELECT role FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).first()).role).toBe('owner');
+ expect((await env.DB.prepare('SELECT read_at FROM hx_app_notifications WHERE message_id=?').bind(saved.message_id).first()).read_at).toBeTruthy();
+});
+
+test('ordinary member cannot trigger legacy owner promotion at the final gate',async()=>{
+ await add();const p=await proof();
+ const injected=beforeRead(async()=>{
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,owner).run();
+  await upsertUser(env.DB,{githubId:'8104',login:'admin2',name:'admin2'});await upsertMembership(env.DB,org,'8104','admin');
+  await env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,member).run();
+ });
+ await expect(appActivity(injected.db,org,member,p)).rejects.toThrow('authorization changed');
+ expect((await env.DB.prepare("SELECT role FROM memberships WHERE org_id=? AND user_github_id='8104'").bind(org).first()).role).toBe('admin');
+});
+
+test('policy callers that do not opt into the final fence retain canonical owner promotion',async()=>{
+ await prepareLegacyAdmin();
+ await env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,member).run();
+ const result=await currentSkillPolicy(env,org,member,await sessionKey(token));
+ expect(result.allowed).toBe(true);
+ expect((await env.DB.prepare('SELECT role FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).first()).role).toBe('owner');
 });
