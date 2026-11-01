@@ -2,6 +2,7 @@ import {processDocumentOne} from './document-client.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { runIsolated } from './runner.mjs';
 import {runWorkflowIsolated} from './workflow-runner.mjs';
+import {runAcp,configuredAcpAgentIds} from './acp.mjs';
 
 export function gatewayClient(baseUrl, token, fetcher = fetch) {
   const base = new URL(baseUrl);
@@ -23,8 +24,11 @@ export const FINISH_RETRY_MS = [1000, 2000, 4000, 8000, 15000, 15000, 15000];
 // server saying it could not take it just now.
 const transient = (error) => !error.status || error.status === 408 || error.status === 429 || error.status >= 500;
 
-export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, retryMs = FINISH_RETRY_MS } = {}) {
-  const { job } = await call('claim',{capabilities:['workflow-program-v1']});
+export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, runAcpAgent = runAcp, acpAgents = {}, retryMs = FINISH_RETRY_MS } = {}) {
+  const capabilities=['workflow-program-v1'];
+  const localAcpAgents=configuredAcpAgentIds(acpAgents);
+  if(localAcpAgents.length)capabilities.push('acp-v1');
+  const { job } = await call('claim',{capabilities,acpAgents:localAcpAgents});
   if (!job) return false;
   const cancel = new AbortController();
   const abort = () => cancel.abort();
@@ -41,8 +45,16 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
   try {
     let result;
     try {
-      const options={timeoutMs:Math.min(job.timeoutMs||60000,60000),signal:cancel.signal};
-      result=job.workflow===true?await runWorkflow(job.payload,{...options,stateOperation:(operation,params,{signal})=>call(`jobs/${job.id}/state`,{lease:job.lease,operation,params},{signal})}):await run(job.payload,options);
+      // ACP coding agents may need longer than a short isolated script. The
+      // Worker still caps their lease at 120 seconds, so leave 10 seconds for
+      // reporting the result before that deadline.
+      const timeoutCap=job.payload?.acp===true?110000:60000;
+      const options={timeoutMs:Math.min(job.timeoutMs||timeoutCap,timeoutCap),signal:cancel.signal};
+      result=job.payload?.acp===true
+        ? await runAcpAgent(job.payload,{...options,acpAgents})
+        : job.workflow===true
+          ? await runWorkflow(job.payload,{...options,stateOperation:(operation,params,{signal})=>call(`jobs/${job.id}/state`,{lease:job.lease,operation,params},{signal})})
+          : await run(job.payload,options);
     }
     catch { result = { status: 'failed', stdout: '', stderr: 'The local runtime could not start this execution.', exitCode: null }; }
     if (leaseLost) return true;
@@ -62,7 +74,7 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
   } finally { clearInterval(heartbeat); signal?.removeEventListener('abort', abort); }
 }
 
-export async function serve(call, { signal, once = false, onError = () => {}, beforeClaim = async () => {}, document = null, documentRun = processDocumentOne } = {}) {
+export async function serve(call, { signal, once = false, onError = () => {}, beforeClaim = async () => {}, document = null, documentRun = processDocumentOne, acpAgents = {} } = {}) {
   let preferDocument=false;
   while (!signal?.aborted) {
     try {
@@ -73,8 +85,8 @@ export async function serve(call, { signal, once = false, onError = () => {}, be
           try{return await documentRun(document.call,{image:document.image,signal});}
           catch(error){if([401,403].includes(error.status))throw error;onError(error.status||'document-runtime');return false;}
         };
-        if(preferDocument){if(!await documentAttempt()&&!signal?.aborted)await processOne(call,{signal});}
-        else if(!await processOne(call,{signal})&&!signal?.aborted)await documentAttempt();
+        if(preferDocument){if(!await documentAttempt()&&!signal?.aborted)await processOne(call,{signal,acpAgents});}
+        else if(!await processOne(call,{signal,acpAgents})&&!signal?.aborted)await documentAttempt();
         preferDocument=!preferDocument;
       }
     }

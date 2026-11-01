@@ -66,3 +66,31 @@ export async function enqueueExecution(db, orgId, me, input, appAction = null) {
     if (!r.meta?.changes) return error('Queue is full or the request was already submitted. Reload before retrying.', 409);
     return success({ job: jobView(await db.prepare('SELECT * FROM hx_gateway_jobs WHERE id = ?1').bind(jobIdNew).first()) }, 201);
 }
+
+/** Queue one ACP v1 prompt for a node that has opted into the ACP capability.
+ * The payload carries an allowlist key only; executable, cwd, args, env, MCP
+ * servers and client capabilities are resolved and fixed on the local node.
+ */
+export async function enqueueAcpExecution(db, orgId, me, input) {
+  me = String(me);
+  if (!(await allowed(db, orgId, me, 'harness.build'))) return error('Execution is not allowed.', 403);
+  const gatewayId = String(input?.gatewayId || '');
+  const agentKey = String(input?.agentKey || '');
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(agentKey)) return error('Invalid local ACP agent key.');
+  const gateway = await db.prepare(`SELECT g.id FROM hx_gateways g JOIN hx_gateway_acp_agents a ON a.org_id=g.org_id AND a.gateway_id=g.id AND a.agent_key=?3
+    WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL AND g.last_seen_at>?4`).bind(orgId, gatewayId, agentKey, now()-90000).first();
+  if (!gateway) return error('The execution node is offline or does not advertise this ACP agent.', 409);
+  if (typeof input?.prompt !== 'string' || !input.prompt.trim()) return error('ACP prompt is required.');
+  const context = Array.isArray(input.context) ? input.context.slice(-30).map(line => String(line || '').slice(0, 4000)) : [];
+  const payload = JSON.stringify({ acp: true, agentKey, prompt: input.prompt.slice(0, 48000), ...(typeof input.sessionId === 'string' && input.sessionId.length <= 200 ? { sessionId: input.sessionId } : {}), ...(context.length ? { context } : {}) });
+  if (new TextEncoder().encode(payload).length > 65536) return error('ACP prompt is too large.', 413);
+  const jobId = id();
+  const requestId = id();
+  const result = await db.prepare(`INSERT OR IGNORE INTO hx_gateway_jobs (id, org_id, gateway_id, created_by, request_id, payload, status, created_at)
+    SELECT ?1, ?2, ?3, ?4, ?5, ?6, 'queued', ?7 WHERE (SELECT COUNT(*) FROM hx_gateway_jobs WHERE org_id = ?2 AND status IN ('queued', 'running')) < 100
+      AND EXISTS (SELECT 1 FROM hx_gateways WHERE id = ?3 AND org_id = ?2 AND revoked_at IS NULL)`)
+    .bind(jobId, orgId, gateway.id, me, requestId, payload, now()).run();
+  if (!result.meta?.changes) return error('Queue is full or the node was disconnected.', 409);
+  const row = await db.prepare('SELECT * FROM hx_gateway_jobs WHERE id = ?1').bind(jobId).first();
+  return success({ job: jobView(row) }, 201);
+}

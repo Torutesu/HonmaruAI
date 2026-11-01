@@ -53,20 +53,35 @@ export async function handleGateways(request, env, url, input) {
     if (!(await allowed(db, g.org_id, g.created_by, 'workspace.mode'))) return failure('Node owner access was revoked.', 403);
     const at = now();
     await db.prepare('UPDATE hx_gateways SET last_seen_at = ?2 WHERE id = ?1').bind(g.id, at).run();
+    await db.prepare('UPDATE hx_gateway_acp_agents SET last_seen_at=?2 WHERE gateway_id=?1').bind(g.id,at).run();
     if (parts[1] === 'claim') {
+      if (input?.acpAgents !== undefined) {
+        if (!Array.isArray(input.acpAgents) || input.acpAgents.length > 20 || input.acpAgents.some(key => typeof key !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(key))) return failure('Invalid local ACP agent registration.');
+        const agentKeys=[...new Set(input.acpAgents)].sort();
+        const registered=await db.prepare('SELECT agent_key FROM hx_gateway_acp_agents WHERE gateway_id=?1 ORDER BY agent_key').bind(g.id).all();
+        const before=(registered.results||[]).map(row=>row.agent_key);
+        if(JSON.stringify(before)!==JSON.stringify(agentKeys)) {
+          const statements=[db.prepare('DELETE FROM hx_gateway_acp_agents WHERE gateway_id=?1').bind(g.id),...agentKeys.map(key=>db.prepare('INSERT INTO hx_gateway_acp_agents(org_id,gateway_id,agent_key,last_seen_at) VALUES(?1,?2,?3,?4)').bind(g.org_id,g.id,key,at))];
+          await db.batch(statements);
+        }
+      }
       await expireGatewayJobs(db, at);
       const lease = secret();
       const programCapable=Array.isArray(input?.capabilities)&&input.capabilities.includes('workflow-program-v1');
+      const acpCapable=Array.isArray(input?.capabilities)&&input.capabilities.includes('acp-v1');
       const row = await db.prepare(`${workflowProgramAccessCTE('?2')} UPDATE hx_gateway_jobs SET status = 'running', lease_hash = ?3, lease_until = ?2 + 90000, deadline = ?2 + 120000, started_at = ?2
         WHERE id = (SELECT id FROM hx_gateway_jobs WHERE gateway_id = ?1 AND status = 'queued'
           AND (?4=1 OR (COALESCE(json_extract(payload,'$.workflowProgram'),0)!=1 AND NOT EXISTS(SELECT 1 FROM hx_workflow_activations a WHERE a.job_id=hx_gateway_jobs.id)))
+          AND (?5=1 OR COALESCE(json_extract(payload,'$.acp'),0)!=1)
+          AND (COALESCE(json_extract(payload,'$.acp'),0)!=1 OR EXISTS(SELECT 1 FROM hx_gateway_acp_agents c WHERE c.org_id=hx_gateway_jobs.org_id AND c.gateway_id=hx_gateway_jobs.gateway_id AND c.agent_key=json_extract(hx_gateway_jobs.payload,'$.agentKey')))
           ORDER BY created_at, id LIMIT 1)
         AND status = 'queued' AND ${activeMember} AND ${workflowProgramJobAccess}
         AND NOT EXISTS (SELECT 1 FROM hx_gateway_jobs busy WHERE busy.gateway_id = ?1 AND busy.status = 'running')
         AND NOT EXISTS (SELECT 1 FROM hx_document_jobs busy WHERE busy.gateway_id = ?1 AND busy.status = 'running') RETURNING *`)
-        .bind(g.id, at, await digest(lease),programCapable?1:0).first();
+        .bind(g.id, at, await digest(lease),programCapable?1:0,acpCapable?1:0).first();
       const workflow=row&&await db.prepare('SELECT 1 FROM hx_workflow_activations WHERE org_id=?1 AND job_id=?2').bind(row.org_id,row.id).first();
-      return json({ job: row ? { ...jobView(row), workflow:Boolean(workflow), payload: JSON.parse(row.payload), lease, timeoutMs: 60000 } : null });
+      const payload=row?JSON.parse(row.payload):null;
+      return json({ job: row ? { ...jobView(row), workflow:Boolean(workflow), payload, lease, timeoutMs: payload?.acp===true?110000:60000 } : null });
     }
     if (typeof input?.lease !== 'string' || input.lease.length > 150) return failure('Execution lease required.', 409);
     const leaseHash = await digest(input.lease);
@@ -109,7 +124,12 @@ export async function handleGateways(request, env, url, input) {
   if (parts.length === 1) {
     if (request.method === 'GET') {
       const { results } = await db.prepare('SELECT id, name, created_at AS createdAt, last_seen_at AS lastSeenAt, revoked_at AS revokedAt FROM hx_gateways WHERE org_id = ?1 ORDER BY created_at DESC').bind(orgId).all();
-      return json({ gateways: results || [], canManage: admin });
+      const gateways=[];
+      for(const row of results||[]) {
+        const agents=await db.prepare('SELECT agent_key FROM hx_gateway_acp_agents WHERE org_id=?1 AND gateway_id=?2 ORDER BY agent_key').bind(orgId,row.id).all();
+        gateways.push({...row,acpAgents:(agents.results||[]).map(agent=>agent.agent_key)});
+      }
+      return json({ gateways, canManage: admin });
     }
     if (request.method !== 'POST') return failure('Method not allowed.', 405);
     if (!admin) return failure('Only an administrator can register an execution node.', 403);
