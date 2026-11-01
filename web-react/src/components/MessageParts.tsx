@@ -6,7 +6,7 @@ import { getLocale } from '../utils/locale'
 import { useT } from '../utils/i18n'
 import type { ChannelMessage, ReplyQuote } from '../types/card'
 import { Icon } from './Icon'
-import { customEmojiUrl, useCustomEmoji, CUSTOM_EMOJI } from '../utils/customEmoji'
+import { customEmojiUrl, customEmojiFailed, useCustomEmoji, CUSTOM_EMOJI } from '../utils/customEmoji'
 import { typingLine, announce, ANNOUNCE_GAP_MS } from '../utils/typing'
 import type { Announced } from '../utils/typing'
 import { excerptParts } from '../utils/replies'
@@ -198,7 +198,7 @@ export const EmojiGlyph: React.FC<{ emoji: string; size?: number }> = ({ emoji, 
   useCustomEmoji()
   const url = CUSTOM_EMOJI.test(emoji) ? customEmojiUrl(emoji) : null
   if (!url) return <>{emoji}</>
-  return <img className="slk-custom-emoji" src={url} alt={emoji} title={emoji} draggable={false} style={size ? { width: size, height: size } : undefined} />
+  return <img className="slk-custom-emoji" src={url} alt={emoji} title={emoji} draggable={false} style={size ? { width: size, height: size } : undefined} onError={() => void customEmojiFailed(url)} />
 }
 
 /// Who reacted, as a sentence: "Aya, Ken, and you", with the rest counted
