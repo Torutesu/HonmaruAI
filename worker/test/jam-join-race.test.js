@@ -211,3 +211,34 @@ test('a socket closing while Jam metadata is saved does not leave a phantom Jam'
   expect(f.events.some(event=>event.name==='jam_joined')).toBe(false);
   expect(f.entries.size).toBe(0);
 });
+
+test.each(['reinvited','recreated'])('eviction during the initial room lookup cancels a join even if access is %s',async change=>{
+  const f=fixture();
+  let release,started,blocked=false;
+  const waiting=new Promise(resolve=>{started=resolve;});
+  f.relay.db=new Proxy(env.DB,{get(db,key){
+    if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+    return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT private, created_at FROM businesses'))return statement;
+      return {bind(...args){const bound=statement.bind(...args);return {async first(){
+        const row=await bound.first();
+        if(!blocked){blocked=true;started();await new Promise(resolve=>{release=resolve;});}
+        return row;
+      }}}};
+    };
+  }});
+  const run=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+  await waiting;
+  if(change==='reinvited'){
+    await env.DB.prepare('DELETE FROM conversation_members WHERE org_id=? AND channel=? AND login=?').bind(org,channel,'alice').run();
+    invalidateJamJoins(f.relay,org,channel);
+    await env.DB.prepare('INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?,?,?,?)').bind(org,channel,'alice',createdAt).run();
+  }else{
+    await env.DB.prepare("DELETE FROM businesses WHERE org_id=? AND slug='board'").bind(org).run();
+    invalidateJamJoins(f.relay,org,channel);
+    await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,created_by,created_at,private) VALUES (?,'board','Board','4101',?,1)").bind(org,createdAt).run();
+  }
+  release();await run;
+  expect(f.events.some(event=>event.name==='jam_joined')).toBe(false);
+  expect(f.ws.deserializeAttachment().jam).toBeFalsy();
+  expect(f.entries.size).toBe(0);
+});
