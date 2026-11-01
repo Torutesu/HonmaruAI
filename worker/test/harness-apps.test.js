@@ -1748,3 +1748,22 @@ test('schema generation rechecks authorization after the model reservation is re
  expect(disposed).toBe(1);expect(result).toEqual({error:'No such app.',status:404});
  expect(JSON.stringify(result)).not.toContain('private generated result');
 });
+
+test('database generation refuses captured columns changed before model dispatch',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ let checks=0,changed=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT 1 AS allowed FROM memberships m'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async first(){
+    if(++checks===2){changed=true;await db.prepare("UPDATE hx_tables SET columns='[{\"id\":\"name\",\"name\":\"Changed\",\"type\":\"text\"}]',updated_at='2030-01-01T00:00:00.000Z' WHERE org_id=? AND id=?").bind(ORG,app.tableId).run()}
+    return bound.first();
+   }}}};
+  };
+ }});
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/database`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Add a new column'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'});
+  expect(changed).toBe(true);expect(response.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
+ } finally {vi.unstubAllGlobals()}
+});
