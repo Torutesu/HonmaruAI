@@ -13,7 +13,9 @@ export async function completer(env, orgId, githubId, purpose, { maxTokens = 900
   if (!provider) return null;
   const allowance = await allowanceFor(env, orgId, { githubId: String(githubId) });
   if (!allowance.allowed) return null;
-  return async (system, user, { tools = {}, fallbackSystem = system, authorize = null, recordUsage = null, requireTool = false, requiredToolNames = [] } = {}) => {
+  let released = false;
+  const release = async () => { if (!released) { released = true; await allowance.release().catch(() => {}); } };
+  const complete = async (system, user, { tools = {}, fallbackSystem = system, authorize = null, recordUsage = null, requireTool = false, requiredToolNames = [] } = {}) => {
     let consumed = false;
     try {
       return await completeWithTools({provider, system, user, tools, fallbackSystem, maxTokens, json, timeoutMs, authorize, requireTool, requiredToolNames,
@@ -32,8 +34,10 @@ export async function completer(env, orgId, githubId, purpose, { maxTokens = 900
       });
     } finally {
       // A call that failed gives its place in the day back (gate.js).
-      await allowance.release().catch(() => {});
+      await release();
       await settleUsage(env.DB, provider, { orgId, githubId: String(githubId) });
     }
   };
+  complete.dispose = release;
+  return complete;
 }

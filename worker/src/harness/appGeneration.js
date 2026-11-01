@@ -6,13 +6,34 @@ import { resolveChannel, postMessage, getMessage } from '../channels.js';
 import { broadcastStored } from '../channelRoutes.js';
 import { checkOutgoing } from '../dlp.js';
 import { completer } from './model.js';
-import { formatRoomGuidelinesRequest, getGuidelines } from './guidelines.js';
+import { formatRoomGuidelinesRequest } from './guidelines.js';
+import { conversationWriteAuthority } from './conversationWriteAuthority.js';
 
 const conflict = () => ({error:'This app is still being created. Try again shortly.',status:409});
 const obsoleteProposal = () => ({error:'以前の生成案は現在の安全な形式ではありません。もう一度作成してください。',status:409,code:'APP_GENERATION_OBSOLETE_UNPUBLISHED'});
 const abandonedLease = 'obsolete:';
 const leaseMs = 120000;
 const digest = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(n=>n.toString(16).padStart(2,'0')).join('');
+async function generationContext(db,orgId,by,channel,sourceThreadId,room,requestId,token,sourceBody) {
+  const liveJob=`(?7 IS NULL OR EXISTS(SELECT 1 FROM hx_app_generation_jobs j WHERE j.org_id=?1 AND j.user_id=?2 AND j.request_id=?7 AND j.lease_token=?8 AND j.status='running' AND j.lease_until>?9))`;
+  const binds=[orgId,by,channel,sourceThreadId,room?.createdAt||null,room?Number(room.private):null,requestId||null,token,Date.now(),sourceBody];
+  if(!channel) {
+    const member=await db.prepare(`SELECT 1 AS allowed FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?2 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=m.org_id AND d.purge_started_at IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=m.org_id) AND ${liveJob} AND (?10 IS NULL OR ?10 IS NOT NULL)`).bind(...binds).first();
+    return member?{body:'',version:0}:null;
+  }
+  const sourceLive=`(?4 IS NULL OR EXISTS(SELECT 1 FROM channel_messages s WHERE s.org_id=?1 AND s.id=?4 AND s.channel=?3 AND s.parent_id IS NULL AND s.deleted_at IS NULL AND (?10 IS NULL OR s.body=?10)))`;
+  if(channel.startsWith('b:')) {
+    if(!room?.createdAt)return null;
+    return db.prepare(`SELECT COALESCE(g.body,'') AS body,COALESCE(g.version,0) AS version FROM businesses b
+      LEFT JOIN hx_room_guidelines g ON g.org_id=b.org_id AND g.channel=?3
+      WHERE b.org_id=?1 AND 'b:'||b.slug=?3 AND b.created_at=?5 AND b.private=?6 AND ${sourceLive} AND ${liveJob} AND ${conversationWriteAuthority('?1','?3','?2')}`)
+      .bind(...binds).first();
+  }
+  const allowed=await db.prepare(`SELECT 1 AS allowed WHERE ${sourceLive} AND ${liveJob} AND ${conversationWriteAuthority('?1','?3','?2')}`).bind(...binds).first();
+  return allowed?{body:'',version:0}:null;
+}
 const sampleIntent = prompt => {
   const text=prompt.normalize('NFKC');
   const positive=/(?:サンプル|見本|ダミー)(?:データ|レコード|行)|\b(?:sample|example|dummy)\s+(?:data|rows?|records?|entries)\b/iu.test(text);
@@ -49,30 +70,43 @@ export async function generateApp(env, request, orgId, who, input, {makeComplete
   const requestId=input.requestId;
   if(requestId!==undefined && (typeof requestId!=='string'||!/^[\w-]{16,100}$/.test(requestId))) return {error:'Invalid generation request ID.',status:400};
   if(input.captureSource && !requestId) return {error:'A request ID is required to keep the source conversation.',status:400};
-  let channel=null, privateByDefault=false;
+  let channel=null, privateByDefault=false, creationRoomSnapshot=null, roomIdentity=null;
+  const sourceBody=input.captureSource && !input.sourceThreadId ? prompt.replace(/\r\n/g,'\n').trim() : null;
   let sourceThreadId=input.sourceThreadId||null;
   if(sourceThreadId){
     const origin=await appCreationSource(env.DB,orgId,by,sourceThreadId);
     if(origin.error)return origin;
-    channel=origin.source.channel; privateByDefault=origin.private;
+    channel=origin.source.channel; privateByDefault=origin.private; roomIdentity=origin.roomCreatedAt;
+    if(roomIdentity)creationRoomSnapshot={createdAt:roomIdentity,private:origin.private};
   } else if(input.channel){
     const room=await resolveChannel(env.DB,orgId,who.user,input.channel);
     if(!room || !await mayUseConversation(env.DB,orgId,by,room.key))return {error:'No such room.',status:403};
     channel=room.key; privateByDefault=room.kind!=='business'||Boolean(room.private);
+    if(room.kind==='business'){
+      creationRoomSnapshot={createdAt:room.deliveryBoundary?.businessCreatedAt||null,private:Boolean(room.private)};
+      roomIdentity=creationRoomSnapshot.createdAt;
+    }
   }
   if(input.captureSource && !channel)return {error:'Choose a room for the source conversation.',status:400};
   const denied=await checkOutgoing(env,request,{orgId,login,text:prompt,ack:input.dlpAck===true,where:'app generation'});
   if(denied)return {response:denied};
   const name=typeof input.name==='string'?input.name.trim().slice(0,80):'';
-  const fingerprint=await digest(JSON.stringify({prompt,name,channel,sourceThreadId,captureSource:Boolean(input.captureSource),useModel:input.useModel!==false,...(sampleCount?{sampleCount}:{})}));
+  const fingerprintInput={prompt,name,channel,sourceThreadId,captureSource:Boolean(input.captureSource),useModel:input.useModel!==false,...(sampleCount?{sampleCount}:{})};
+  const legacyFingerprint=await digest(JSON.stringify(fingerprintInput));
+  const fingerprint=roomIdentity?await digest(JSON.stringify({...fingerprintInput,roomIdentity})):legacyFingerprint;
   const token=crypto.randomUUID();
-  let job=null;
+  let job=null, legacyPending=false;
   const jobOf=()=>env.DB.prepare('SELECT * FROM hx_app_generation_jobs WHERE org_id=? AND user_id=? AND request_id=?').bind(orgId,by,requestId).first();
   if(requestId){
     await env.DB.prepare(`INSERT OR IGNORE INTO hx_app_generation_jobs(org_id,user_id,request_id,fingerprint,lease_token,lease_until,status)
       VALUES (?,?,?,?,?,?,'running')`).bind(orgId,by,requestId,fingerprint,token,Date.now()+leaseMs).run();
     job=await jobOf();
-    if(job.fingerprint!==fingerprint)return {error:'This request ID was already used for a different app request.',status:409};
+    if(job.fingerprint!==fingerprint){
+      if(job.fingerprint!==legacyFingerprint || fingerprint===legacyFingerprint)return {error:'This request ID was already used for a different app request.',status:409};
+      // Completed legacy requests remain replayable. An unfinished request
+      // lacks a room identity and must be fenced before using a new ID.
+      legacyPending=job.status!=='complete';
+    }
     if(job.status==='running' && job.lease_token.startsWith(abandonedLease) && !job.app_id)return obsoleteProposal();
     if(job.status==='complete'){
       if(!await mayUseApp(env.DB,orgId,job.app_id,by))return {error:'The generated app is no longer available.',status:404};
@@ -82,7 +116,7 @@ export async function generateApp(env, request, orgId, who, input, {makeComplete
     if(job.lease_token!==token){
       const claimed=await env.DB.prepare(`UPDATE hx_app_generation_jobs SET lease_token=?,lease_until=?,status='running'
         WHERE org_id=? AND user_id=? AND request_id=? AND fingerprint=? AND (status='failed' OR (status='running' AND lease_until<?))`)
-        .bind(token,Date.now()+leaseMs,orgId,by,requestId,fingerprint,Date.now()).run();
+        .bind(token,Date.now()+leaseMs,orgId,by,requestId,job.fingerprint,Date.now()).run();
       if(!claimed.meta?.changes)return conflict();
       job=await jobOf();
     }
@@ -97,7 +131,7 @@ export async function generateApp(env, request, orgId, who, input, {makeComplete
     if(sampleCount>0 && sampleHint.negative){await release();return {error:japanese?'サンプル行の件数と依頼文が矛盾しています。初期データの設定を確認してください。':'The sample row count conflicts with the request. Check the initial data setting.',status:400};}
     if(sampleCount===0 && sampleHint.positive && !sampleHint.negative){await release();return {error:japanese?'サンプル行を追加する場合は、アプリ作成画面の「初期データ」で件数を選択してください。':'To add sample rows, choose a count under Initial data on the app creation screen.',status:400};}
     let made=job?.generated?JSON.parse(job.generated):null;
-    if(made && made.generationFormat!==2){
+    if(legacyPending || (made && made.generationFormat!==2)){
       // Fence before looking up the old source: it may have been edited or
       // deleted, but this unpublished proposal can still be safely retired.
       const stopped=await env.DB.prepare(`UPDATE hx_app_generation_jobs SET lease_token=?,lease_until=?
@@ -109,21 +143,36 @@ export async function generateApp(env, request, orgId, who, input, {makeComplete
       // Client IDs are author-scoped. Include workspace and request in the
       // digest, so another generation cannot take over this source message.
       const clientId='tmp-app-'+(await digest(JSON.stringify([orgId,by,requestId])));
-      const root=await postMessage(env.DB,{orgId,key:channel,authorLogin:login,body:prompt,clientId});
+      const root=await postMessage(env.DB,{orgId,key:channel,authorLogin:login,body:prompt,clientId,creationActorId:by,creationRoomSnapshot});
       if(root.error){await release();return root;}
-      if(root.row.deleted_at || root.row.channel!==channel || root.row.body!==prompt){await release();return {error:'The source conversation changed. Start a new generation request.',status:409};}
+      if(root.row.deleted_at || root.row.channel!==channel || root.row.body!==sourceBody){await release();return {error:'The source conversation changed. Start a new generation request.',status:409};}
       sourceThreadId=root.row.id;
       if(!root.replay)await broadcastStored(env,orgId,channel,root.row).catch(()=>{});
       // Do not invoke the channel's AI responder: this prompt is already
       // handled by app generation and must not start a second model call.
     }
     if(!made){
+      const guidelines=await generationContext(env.DB,orgId,by,channel,sourceThreadId,creationRoomSnapshot,requestId,token,sourceBody);
+      if(!guidelines){await release();return {error:'The source conversation or its access changed. Try again.',status:403};}
       const complete=input.useModel===false?null:await makeCompleter(env,orgId,by,'app_generate',{maxTokens:2400});
-      const guidelines=channel?.startsWith('b:')?await getGuidelines(env.DB,orgId,channel):null;
       const guidedPrompt=formatRoomGuidelinesRequest(guidelines,prompt);
+      let authorizationChanged=false;
+      const authorize=async()=>{
+        try {
+          const current=await generationContext(env.DB,orgId,by,channel,sourceThreadId,creationRoomSnapshot,requestId,token,sourceBody);
+          if(current && current.body===guidelines.body && current.version===guidelines.version)return true;
+        } catch { /* Fail closed if the current authorization cannot be read. */ }
+        authorizationChanged=true;return false;
+      };
+      const authorizedComplete=complete?async(system,user,options={})=>{
+        if(!await authorize())throw new Error('Generation access changed.');
+        return complete(system,user,{...options,authorize});
+      }:null;
       // Room rules are model context; classification and the 4,000-character
       // request limit apply to the user's original request alone.
-      made=await specFromPrompt(prompt,{complete,modelRequest:guidedPrompt,guidelines:guidelines?.body||'',sampleCount:effectiveSampleCount});
+      try {made=await specFromPrompt(prompt,{complete:authorizedComplete,modelRequest:guidedPrompt,guidelines:guidelines.body,sampleCount:effectiveSampleCount});}
+      finally {await complete?.dispose?.();}
+      if(authorizationChanged){await release();return {error:'The source conversation or its access changed. Try again.',status:403};}
       if(made.error){await release();return made;}
       made={...made,generationFormat:2};
       if(requestId){
@@ -138,7 +187,7 @@ export async function generateApp(env, request, orgId, who, input, {makeComplete
     if(!member){await release();return {error:'Workspace membership is required.',status:403};}
     const spec=made.spec;
     const result=await createApp(env.DB,{orgId,by,name:name||spec.name,tableName:spec.tableName||spec.name,description:spec.description,icon:spec.icon,
-      columns:spec.columns,definition:spec.definition,template:spec.template||null,sample:requestedSampleRows(spec.sample,spec.columns,effectiveSampleCount),channel,sourceThreadId,privateByDefault},
+      columns:spec.columns,definition:spec.definition,template:spec.template||null,sample:requestedSampleRows(spec.sample,spec.columns,effectiveSampleCount),channel,sourceThreadId,sourceBodyExpected:sourceBody,privateByDefault,channelCreatedAt:roomIdentity,channelPrivateAt:creationRoomSnapshot?.private??null},
       {announceInSource:true,...(requestId?{commitGuard:appId=>env.DB.prepare(`UPDATE hx_app_generation_jobs
         SET app_id=CASE WHEN lease_token=? AND lease_until>? AND status='running' THEN ? ELSE NULL END,status='complete'
         WHERE org_id=? AND user_id=? AND request_id=?`).bind(token,Date.now(),appId,orgId,by,requestId)}:{})});

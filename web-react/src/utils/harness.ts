@@ -180,7 +180,11 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     apps: (channel?: string) => call<{ apps: App[] }>('GET', '/apps', undefined, channel ? { channel } : {}),
     app: (id: string) => call<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize: boolean }>('GET', `/apps/${id}`),
     createFromTemplate: (template: string, channel?: string) => call<{ app: App }>('POST', '/apps', { template, channel }),
-    generate: (prompt: string, channel?: string, generation?: {requestId:string;captureSource?:boolean;sourceThreadId?:string;sampleCount?:number}) => call<{ app: App; source: 'model' | 'template'; room: string | null }>('POST', '/apps/generate', { prompt, channel, ...generation }),
+    // Never fall back to the older route: an older Worker ignores sampleCount.
+    generate: (prompt: string, channel?: string, generation?: {requestId:string;captureSource?:boolean;sourceThreadId?:string;sampleCount?:number}) => call<{ app: App; source: 'model' | 'template'; room: string | null }>('POST', '/app-generation-v2', { prompt, channel, ...generation }).catch(error => {
+      if (error instanceof HarnessApiError && error.status === 404 && error.message === '404') throw new HarnessApiError('App generation requires a newer service. Please try again after the service is updated.', 404)
+      throw error
+    }),
     updateApp: (id: string, patch: Record<string, unknown>) => call<{ app: App }>('PUT', `/apps/${id}`, patch),
     generateCustom: (id: string, prompt: string) => call<{ html: string }>('POST', `/apps/${id}/custom`, { action: 'generate', prompt }),
     saveCustom: (id: string, action: 'draft' | 'publish' | 'unpublish' | 'restore', version: number, html?: string, restoreVersion?: number) => call('POST', `/apps/${id}/custom`, { action, version, html, restoreVersion }),

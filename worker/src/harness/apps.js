@@ -1,4 +1,5 @@
 import { mayUseConversation } from './conversationAccess.js';
+import { conversationWriteAuthority } from './conversationWriteAuthority.js';
 import { getMessage } from '../channels.js';
 import { SYSTEM_COLUMN_IDS, isSystemTimestamp, queryValue } from './systemColumns.js';
 // Apps: internal tools built on a Table (docs/kylon-gap-plan.md).
@@ -213,18 +214,25 @@ export async function appCreationSource(db, orgId, by, sourceThreadId) {
     return { error: 'No such source thread.', status: 404 };
   }
   const room = source.channel.startsWith('b:')
-    ? await db.prepare('SELECT private FROM businesses WHERE org_id = ? AND slug = ?').bind(orgId, source.channel.slice(2)).first()
+    ? await db.prepare('SELECT private,created_at FROM businesses WHERE org_id = ? AND slug = ?').bind(orgId, source.channel.slice(2)).first()
     : null;
-  return { source, private: !room || Boolean(room.private) };
+  if(source.channel.startsWith('b:') && (!room || !room.created_at))return {error:'No such source thread.',status:404};
+  return { source, private: !room || Boolean(room.private), roomCreatedAt:room?.created_at || null };
 }
 
-export async function createApp(db, { orgId, by, name, tableName, description, icon, columns, definition, template, sample = [], channel, sourceThreadId, privateByDefault = false }, { commitGuard, announceInSource = false } = {}) {
+export async function createApp(db, { orgId, by, name, tableName, description, icon, columns, definition, template, sample = [], channel, sourceThreadId, sourceBodyExpected = null, privateByDefault = false, channelCreatedAt = null, channelPrivateAt = null }, { commitGuard, announceInSource = false } = {}) {
   let source=null, sourcePrivate=false;
   if(sourceThreadId){
     const origin = await appCreationSource(db, orgId, by, sourceThreadId);
     if (origin.error) return origin;
-    source = origin.source; sourcePrivate = origin.private;
+    if((channelCreatedAt && origin.roomCreatedAt!==channelCreatedAt) || (channelPrivateAt!==null && origin.private!==channelPrivateAt))return {error:'The source conversation changed. Try again.',status:409};
+    source = origin.source; sourcePrivate = origin.private; channelCreatedAt=channelCreatedAt||origin.roomCreatedAt;
     channel=source.channel;
+    if(channel.startsWith('b:'))channelPrivateAt=channelPrivateAt??origin.private;
+  }
+  if(channel && String(channel).startsWith('b:') && (channelCreatedAt===null || channelPrivateAt===null)) {
+    const room=await db.prepare('SELECT private,created_at FROM businesses WHERE org_id=? AND slug=?').bind(orgId,String(channel).slice(2)).first();
+    if(room){channelCreatedAt=channelCreatedAt||room.created_at;channelPrivateAt=channelPrivateAt??Boolean(room.private);}
   }
   const count = await db.prepare("SELECT COUNT(*) AS n FROM hx_apps WHERE org_id = ?1").bind(orgId).first();
   if (Number(count?.n || 0) >= MAX_APPS_PER_ORG) return { error: "This workspace has as many apps as it can hold." };
@@ -240,7 +248,10 @@ export async function createApp(db, { orgId, by, name, tableName, description, i
   const insertApp = db
     .prepare(
       `INSERT INTO hx_apps (id, org_id, name, description, icon, table_id, template, version, definition, created_by, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?9, ?10, ?10)`,
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8,
+         CASE WHEN EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?2 AND member.user_github_id=?9 AND LOWER(COALESCE(member.role,'guest'))!='guest'
+           AND NOT EXISTS(SELECT 1 FROM workspace_deletions deletion WHERE deletion.org_id=member.org_id AND deletion.purge_started_at IS NOT NULL)
+           AND NOT EXISTS(SELECT 1 FROM workspace_tombstones deleted WHERE deleted.org_id=member.org_id)) THEN ?9 ELSE NULL END, ?10, ?10)`,
     )
     .bind(id, orgId, clean, String(description || "").slice(0, 300), String(icon || "📋").slice(0, 8), table.id, template || null, JSON.stringify(def), String(by), at);
   // Publish the app and its inherited policy together: no workspace-visible
@@ -254,7 +265,13 @@ export async function createApp(db, { orgId, by, name, tableName, description, i
   for (const [position,values] of (Array.isArray(sample) ? sample : []).slice(0,20).entries()) statements.push(db.prepare(
     'INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
   ).bind(newId('row'),table.id,orgId,JSON.stringify(cleanValues(table.columns,values)),position+1,String(by),String(by),at,at));
-  if(channel) statements.push(db.prepare('INSERT INTO hx_app_links(app_id,org_id,channel,created_by,created_at) VALUES (?,?,?,?,?)').bind(id,orgId,String(channel).trim().slice(0,200),String(by),at));
+  if(channel) statements.push(db.prepare(`INSERT INTO hx_app_links(app_id,org_id,channel,created_by,created_at)
+    VALUES (?1,?2,CASE WHEN ${conversationWriteAuthority('?2','?3','?4')}
+      AND (?6 IS NULL OR EXISTS(SELECT 1 FROM channel_messages root WHERE root.org_id=?2 AND root.id=?6 AND root.channel=?3 AND root.deleted_at IS NULL AND root.parent_id IS NULL AND (?10 IS NULL OR root.body=?10)))
+      AND (substr(?3,1,2)!='b:' OR EXISTS(SELECT 1 FROM businesses room WHERE room.org_id=?2 AND 'b:'||room.slug=?3
+        AND (?8 IS NULL OR room.created_at=?8) AND (?9 IS NULL OR room.private=?9) AND (?7=1 OR room.private=0)))
+      AND (?7=1 OR substr(?3,1,2)='b:') THEN ?3 ELSE NULL END,?4,?5)`)
+    .bind(id,orgId,String(channel).trim().slice(0,200),String(by),at,source?.id||null,sourcePrivate||privateByDefault?1:0,channelCreatedAt,channelPrivateAt===null?null:Number(channelPrivateAt),sourceBodyExpected));
   if(source) statements.push(db.prepare(`INSERT INTO hx_app_conversation_sources(org_id,app_id,channel,thread_id,created_by)
     VALUES (?,?,?,(SELECT id FROM channel_messages WHERE org_id=? AND id=? AND channel=? AND deleted_at IS NULL AND parent_id IS NULL),?)`)
     .bind(orgId,id,source.channel,orgId,source.id,source.channel,String(by)));
@@ -267,15 +284,26 @@ export async function createApp(db, { orgId, by, name, tableName, description, i
     statements.push(db.prepare(`INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at,parent_id)
       VALUES (?,?,?,NULL,'ai',?,?,?)`).bind(announcementId,orgId,source.channel,body,at,source.id));
   }
-  await db.batch(statements);
+  try { await db.batch(statements); }
+  catch(error) {
+    if(/NOT NULL constraint failed: hx_apps\.created_by/i.test(String(error?.message || error))) {
+      return {error:'Workspace membership is required.',status:403};
+    }
+    // The guarded link's NOT NULL constraint rolls back the whole batch,
+    // including a generation job's commit guard, when access changed.
+    if(channel && /NOT NULL constraint failed: hx_app_links\.channel/i.test(String(error?.message || error))) {
+      return {error:'The source conversation or its access changed. Try again.',status:409};
+    }
+    throw error;
+  }
   return { app: await getApp(db, orgId, id), ...(announcementId ? {announcementId} : {}) };
 }
 
-export async function createFromTemplate(db, { orgId, by, template, name, tableName, channel, sourceThreadId, withSample = true, privateByDefault = false }) {
+export async function createFromTemplate(db, { orgId, by, template, name, tableName, channel, sourceThreadId, withSample = true, privateByDefault = false, channelCreatedAt = null, channelPrivateAt = null }) {
   const t = TEMPLATES[template];
   if (!t) return { error: "No such template." };
   return createApp(db, {
-    orgId, by, template, channel, sourceThreadId,
+    orgId, by, template, channel, sourceThreadId, channelCreatedAt, channelPrivateAt,
     name: name || t.name, tableName: tableName || t.tableName || t.name, description: t.description, icon: t.icon,
     columns: t.columns, definition: { views: t.views }, sample: withSample ? t.sample : [], privateByDefault,
   });

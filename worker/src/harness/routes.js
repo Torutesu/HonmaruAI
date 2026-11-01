@@ -99,7 +99,7 @@ export function json(body, status = 200) {
 const fail = (result) => json({ message: result.error, ...(result.fields ? { fields: result.fields } : {}) }, result.status || 400);
 
 /// The paths this module answers.
-const OURS = /^\/(orgs\/mode|tables|apps|template-shares|skills|skill-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
+const OURS = /^\/(orgs\/mode|tables|apps|app-generation-v2|template-shares|skills|skill-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
 export async function member(env, request, orgId) {
@@ -974,16 +974,17 @@ export async function handleHarness(request, env, url, context = {}) {
   }
 
   // ── Apps ──────────────────────────────────────────────────────────────
-  if (parts[0] === "apps") {
+  if (parts[0] === "apps" || url.pathname === "/app-generation-v2") {
     const [, appId, sub] = parts;
     if (appId === "templates" && request.method === "GET") return json({ templates: templateList() });
-    if (appId === "generate" && request.method === "POST") {
+    if ((appId === "generate" || url.pathname === "/app-generation-v2") && request.method === "POST") {
       const r = await generateApp(env, request, orgId, who, input);
       if (r.response) return r.response;
       if (r.error) return r.code ? json({message:r.error,code:r.code},r.status || 400) : fail(r);
       if (!r.replay) await audit(env, request, { orgId, action: "app.created", actor: person(who.user), entity: { type: "app", id: r.app.id, name: r.app.name }, details: { source: r.source } });
       return json(r, r.replay ? 200 : 201);
     }
+    if (url.pathname === "/app-generation-v2") return json({message:'Method not allowed.'},405);
     if (!appId) {
       if (request.method === "GET") {
         const requested = url.searchParams.get('channel');
@@ -995,15 +996,18 @@ export async function handleHarness(request, env, url, context = {}) {
       if (request.method === "POST") {
         let privateByDefault = Boolean(input.privateByDefault);
         let channel = input.channel;
+        let channelCreatedAt = null;
+        let channelPrivateAt = null;
         if (channel && !input.sourceThreadId) {
           const room = await readableConversation(env.DB, orgId, me, channel);
           if (!room) return json({ message: 'No such room.' }, 404);
           channel = room.key;
           privateByDefault ||= room.kind !== 'business' || Boolean(room.private);
+          if(room.kind==='business') {channelCreatedAt=room.deliveryBoundary?.businessCreatedAt||null;channelPrivateAt=Boolean(room.private);}
         }
         const r = input.template
-          ? await createFromTemplate(env.DB, { orgId, by: me, template: input.template, name: input.name, tableName: input.tableName, channel, sourceThreadId:input.sourceThreadId, withSample: input.sample !== false, privateByDefault })
-          : await createApp(env.DB, { ...input, orgId, by: me, channel, privateByDefault });
+          ? await createFromTemplate(env.DB, { orgId, by: me, template: input.template, name: input.name, tableName: input.tableName, channel, sourceThreadId:input.sourceThreadId, withSample: input.sample !== false, privateByDefault, channelCreatedAt, channelPrivateAt })
+          : await createApp(env.DB, { ...input, orgId, by: me, channel, privateByDefault, channelCreatedAt, channelPrivateAt });
         if (r.error) return fail(r);
         await audit(env, request, { orgId, action: "app.created", actor: person(who.user), entity: { type: "app", id: r.app.id, name: r.app.name } });
         return json(r, 201);

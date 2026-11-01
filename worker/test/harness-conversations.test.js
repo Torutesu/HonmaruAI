@@ -28,6 +28,16 @@ beforeEach(async()=>{
 });
 const post=(token,body,requestId='request_0000000001',scope={},annotation)=>request('POST',token,{body,requestId,...scope,...(annotation?{annotation}:{})});
 const createRequest=(path,token,input)=>fetchWorker(new Request('https://test'+path,{method:'POST',headers:{'x-session-token':token,'content-type':'application/json'},body:JSON.stringify({orgId:org,...input})}));
+test.each(['/apps/generate','/app-generation-v2'])('generation route %s enforces the sample limit and retry identity',async path=>{
+ const input={prompt:'A project tracker',requestId:'versioned_generation_001',sampleCount:0,useModel:false};
+ const first=await createRequest(path,owner,input);expect(first.status).toBe(201);
+ const created=(await first.json()).app;
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE org_id=? AND table_id=?').bind(org,created.tableId).first()).n).toBe(0);
+ const alternate=path==='/apps/generate'?'/app-generation-v2':'/apps/generate';
+ const replay=await createRequest(alternate,owner,input);expect(replay.status).toBe(200);
+ expect((await replay.json()).app.id).toBe(created.id);
+ expect((await createRequest(path,guest,{...input,requestId:'versioned_guest_request_01'})).status).toBe(403);
+});
 async function privateSource(){
  const {postMessage}=await import('../src/channels.js');
  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?,'confidential','Confidential',1,'9201',?)").bind(org,new Date().toISOString()).run();
@@ -160,6 +170,65 @@ test('a current proposal still rejects an edited source message',async()=>{
  const job=await env.DB.prepare('SELECT status,app_id FROM hx_app_generation_jobs WHERE org_id=? AND user_id=? AND request_id=?').bind(org,'9201',input.requestId).first();
  expect(job).toMatchObject({status:'failed',app_id:null});
 });
+const oldRoomFingerprint=async input=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify({prompt:input.prompt,name:'',channel:input.channel,sourceThreadId:null,captureSource:true,useModel:false}))))].map(value=>value.toString(16).padStart(2,'0')).join('');
+test('a legacy pending room generation is fenced even without a saved proposal',async()=>{
+ await privateSource();
+ const input={prompt:'Legacy pending project',channel:'b:confidential',captureSource:true,requestId:'legacy_identity_pending_001',useModel:false};
+ await env.DB.exec("CREATE TRIGGER fail_legacy_identity BEFORE INSERT ON hx_app_versions BEGIN SELECT RAISE(ABORT, 'storage unavailable'); END;");
+ try {expect((await createRequest('/apps/generate',owner,input)).status).toBe(500);}
+ finally {await env.DB.exec('DROP TRIGGER fail_legacy_identity');}
+ await env.DB.prepare("UPDATE hx_app_generation_jobs SET fingerprint=?,generated=NULL,status='running',lease_token='old-worker',lease_until=? WHERE org_id=? AND user_id=? AND request_id=?").bind(await oldRoomFingerprint(input),Date.now()+60000,org,'9201',input.requestId).run();
+ const inFlight=await createRequest('/apps/generate',owner,input);expect(inFlight.status).toBe(409);
+ expect(await inFlight.json()).not.toHaveProperty('code','APP_GENERATION_OBSOLETE_UNPUBLISHED');
+ await env.DB.prepare("UPDATE hx_app_generation_jobs SET status='failed',lease_until=0 WHERE org_id=? AND user_id=? AND request_id=?").bind(org,'9201',input.requestId).run();
+ const stopped=await createRequest('/apps/generate',owner,input);expect(stopped.status).toBe(409);
+ expect(await stopped.json()).toMatchObject({code:'APP_GENERATION_OBSOLETE_UNPUBLISHED'});
+ expect((await env.DB.prepare('SELECT lease_token FROM hx_app_generation_jobs WHERE org_id=? AND user_id=? AND request_id=?').bind(org,'9201',input.requestId).first()).lease_token).toMatch(/^obsolete:/);
+ expect((await createRequest('/app-generation-v2',owner,{...input,requestId:'legacy_identity_pending_002'})).status).toBe(201);
+});
+test('a completed legacy room generation replays the original app',async()=>{
+ await privateSource();
+ const input={prompt:'Legacy completed project',channel:'b:confidential',captureSource:true,requestId:'legacy_identity_complete_01',useModel:false};
+ const first=await createRequest('/apps/generate',owner,input);expect(first.status).toBe(201);
+ const appId=(await first.json()).app.id;
+ await env.DB.prepare('UPDATE hx_app_generation_jobs SET fingerprint=? WHERE org_id=? AND user_id=? AND request_id=?').bind(await oldRoomFingerprint(input),org,'9201',input.requestId).run();
+ const replay=await createRequest('/apps/generate',owner,input);expect(replay.status).toBe(200);
+ expect(await replay.json()).toMatchObject({app:{id:appId},replay:true});
+});
+test('recreating a room cannot replay a pending generation against its old source',async()=>{
+ await privateSource();
+ const input={prompt:'Room identity tracker',channel:'b:confidential',captureSource:true,requestId:'recreated_room_request_001',useModel:false};
+ await env.DB.exec("CREATE TRIGGER fail_room_identity BEFORE INSERT ON hx_app_versions BEGIN SELECT RAISE(ABORT, 'storage unavailable'); END;");
+ try {expect((await createRequest('/app-generation-v2',owner,input)).status).toBe(500);}
+ finally {await env.DB.exec('DROP TRIGGER fail_room_identity');}
+ await env.DB.batch([
+  env.DB.prepare("DELETE FROM businesses WHERE org_id=? AND slug='confidential'").bind(org),
+  env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?,'confidential','Recreated',1,'9201','2000-01-01')").bind(org),
+ ]);
+ const retry=await createRequest('/app-generation-v2',owner,input);expect(retry.status).toBe(409);
+ expect(await retry.json()).not.toHaveProperty('code','APP_GENERATION_OBSOLETE_UNPUBLISHED');
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND body=?').bind(org,input.prompt).first()).n).toBe(1);
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND id LIKE 'app-created-%'").bind(org).first()).n).toBe(0);
+});
+test.each(['existing','capture'])('a %s source cannot cross into a recreated room while the model runs',async kind=>{
+ const root=await privateSource();
+ const {generateApp}=await import('../src/harness/appGeneration.js');
+ const who={session:{github_id:'9201'},user:{github_id:'9201',login:'user9201'}};
+ const input={prompt:'Track projects',requestId:'model_room_identity_request_01',...(kind==='existing'?{sourceThreadId:root.id}:{channel:'b:confidential',captureSource:true})};
+ const before=(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=?').bind(org).first()).n;
+ const result=await generateApp(env,new Request('https://test/app-generation-v2'),org,who,input,{
+  makeCompleter:async()=>async()=>{
+   await env.DB.batch([
+    env.DB.prepare("DELETE FROM businesses WHERE org_id=? AND slug='confidential'").bind(org),
+    env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?,'confidential','Recreated',1,'9201','2000-01-01')").bind(org),
+   ]);
+   return JSON.stringify({name:'Projects',columns:[{name:'Title',type:'text'}],views:[{type:'table',name:'All'}]});
+  },
+ });
+ expect(result).toMatchObject({status:409});
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=?').bind(org).first()).n).toBe(before);
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND id LIKE 'app-created-%'").bind(org).first()).n).toBe(0);
+});
 test('the selected sample count is part of generation retry identity',async()=>{
  const input={prompt:'請求書を管理。サンプルデータを追加、1件だけ',requestId:'sample_count_request_001',sampleCount:3,useModel:false};
  const first=await createRequest('/apps/generate',owner,input);expect(first.status).toBe(201);
@@ -210,6 +279,93 @@ test('model output survives a storage retry without a second model call, and rev
  const revoke=async()=>async()=>{await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential'").bind(org).run();return JSON.stringify({name:'Cannot publish',columns:[{name:'Title',type:'text'}]});};
  expect((await generateApp(env,req,org,who,{...input,requestId:'generate_model_002'},{makeCompleter:revoke})).status).toBe(403);
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=? AND name=?').bind(org,'Cannot publish').first()).n).toBe(0);
+});
+test.each(['membership','room','privacy','source'])('generation sends nothing to the model if %s changes while its provider is initialized',async change=>{
+ const root=await privateSource();
+ await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)').bind(org,'b:confidential','Private rule','9201',new Date().toISOString()).run();
+ const {generateApp}=await import('../src/harness/appGeneration.js');
+ const who={session:{github_id:'9201'},user:{github_id:'9201',login:'user9201'}};let calls=0;
+ const made=await generateApp(env,new Request('https://test/app-generation-v2'),org,who,{prompt:'Track work',sourceThreadId:root.id,requestId:'provider_revocation_test_01'}, {
+  makeCompleter:async()=>{
+   if(change==='membership')await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();
+   if(change==='room')await env.DB.batch([env.DB.prepare("DELETE FROM businesses WHERE org_id=? AND slug='confidential'").bind(org),env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?,'confidential','New',1,'9201','2000-01-01')").bind(org)]);
+   if(change==='privacy')await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=? AND slug='confidential'").bind(org).run();
+   if(change==='source')await env.DB.prepare('UPDATE channel_messages SET deleted_at=? WHERE id=?').bind(new Date().toISOString(),root.id).run();
+   return async()=>{calls++;return JSON.stringify({name:'Not allowed',columns:[{name:'Title',type:'text'}]});};
+  },
+ });
+ expect(made.status).toBe(403);expect(calls).toBe(0);
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=? AND name='Not allowed'").bind(org).first()).n).toBe(0);
+});
+test('generation rechecks room access after reading guidelines and before model dispatch',async()=>{
+ const root=await privateSource();
+ await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)').bind(org,'b:confidential','Private rule','9201',new Date().toISOString()).run();
+ let checked=false,calls=0;
+ const db=new Proxy(env.DB,{get(target,prop){
+  if(prop==='prepare')return sql=>{
+   const statement=target.prepare(sql);
+   if(!sql.includes("SELECT COALESCE(g.body,'') AS body"))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async first(){const row=await bound.first();if(!checked){checked=true;await target.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();}return row;}};}};
+  };
+  const value=target[prop];return typeof value==='function'?value.bind(target):value;
+ }});
+ const {generateApp}=await import('../src/harness/appGeneration.js');
+ const result=await generateApp({...env,DB:db},new Request('https://test/app-generation-v2'),org,{session:{github_id:'9201'},user:{github_id:'9201',login:'user9201'}},
+  {prompt:'Track work',sourceThreadId:root.id,requestId:'before_dispatch_revoked_01'},
+  {makeCompleter:async()=>async()=>{calls++;return JSON.stringify({name:'Not allowed',columns:[{name:'Title',type:'text'}]});}});
+ expect(checked).toBe(true);expect(result.status).toBe(403);expect(calls).toBe(0);
+});
+test('generation gives the provider a live authorization callback for its own pre-network checks',async()=>{
+ const root=await privateSource();let networkCalls=0,checked=false;
+ const {generateApp}=await import('../src/harness/appGeneration.js');
+ const result=await generateApp(env,new Request('https://test/app-generation-v2'),org,{session:{github_id:'9201'},user:{github_id:'9201',login:'user9201'}},
+  {prompt:'Track work',sourceThreadId:root.id,requestId:'provider_live_auth_test_01'},
+  {makeCompleter:async()=>async(_system,_user,options)=>{
+   await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();
+   checked=typeof options.authorize==='function';
+   if(await options.authorize())networkCalls++;
+   return JSON.stringify({name:'Not allowed',columns:[{name:'Title',type:'text'}]});
+  }});
+ expect(checked).toBe(true);expect(result.status).toBe(403);expect(networkCalls).toBe(0);
+});
+test.each(['expired','reassigned'])('an %s generation lease cannot dispatch a model call and releases its reservation',async change=>{
+ const {generateApp}=await import('../src/harness/appGeneration.js');let calls=0,disposed=0;
+ const input={prompt:'Track work',requestId:'lease_model_dispatch_001'};
+ const result=await generateApp(env,new Request('https://test/app-generation-v2'),org,{session:{github_id:'9201'},user:{github_id:'9201',login:'user9201'}},input,{
+  makeCompleter:async()=>{
+   if(change==='expired')await env.DB.prepare('UPDATE hx_app_generation_jobs SET lease_until=0 WHERE org_id=? AND request_id=?').bind(org,input.requestId).run();
+   else await env.DB.prepare("UPDATE hx_app_generation_jobs SET lease_token='another-worker' WHERE org_id=? AND request_id=?").bind(org,input.requestId).run();
+   const complete=async()=>{calls++;return '{}';};complete.dispose=async()=>{disposed++;};return complete;
+  },
+ });
+ expect(result.status).toBe(403);expect(calls).toBe(0);expect(disposed).toBe(1);
+});
+test('editing a captured source during model execution prevents publication',async()=>{
+ await privateSource();
+ const {generateApp}=await import('../src/harness/appGeneration.js');
+ const prompt='Generate this app';
+ const result=await generateApp(env,new Request('https://test/app-generation-v2'),org,{session:{github_id:'9201'},user:{github_id:'9201',login:'user9201'}},
+  {prompt,channel:'b:confidential',captureSource:true,requestId:'source_body_changed_001'},
+  {makeCompleter:async()=>async()=>{
+   await env.DB.prepare('UPDATE channel_messages SET body=? WHERE org_id=? AND channel=? AND body=?').bind('Edited request',org,'b:confidential',prompt).run();
+   return JSON.stringify({name:'Stale source',columns:[{name:'Title',type:'text'}]});
+  }});
+ expect(result.status).toBe(409);
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=? AND name='Stale source'").bind(org).first()).n).toBe(0);
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND id LIKE 'app-created-%'").bind(org).first()).n).toBe(0);
+});
+test('a business source is rejected if its room disappears after access is checked',async()=>{
+ const root=await privateSource();let removed=false;
+ const db=new Proxy(env.DB,{get(target,prop){
+  if(prop==='prepare')return sql=>{
+   const statement=target.prepare(sql);
+   if(!sql.includes('SELECT private,created_at FROM businesses'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async first(){if(!removed){removed=true;await target.prepare("DELETE FROM businesses WHERE org_id=? AND slug='confidential'").bind(org).run();}return bound.first();}};}};
+  };
+  const value=target[prop];return typeof value==='function'?value.bind(target):value;
+ }});
+ const {appCreationSource}=await import('../src/harness/apps.js');
+ expect(await appCreationSource(db,org,'9201',root.id)).toMatchObject({status:404});expect(removed).toBe(true);
 });
 test('room guidelines accompany app generation and app replies only while the source room is accessible',async()=>{
  const root=await privateSource();
@@ -417,8 +573,79 @@ test('a missing source at commit rolls back app, table and completion announceme
  const before=await env.DB.prepare('SELECT (SELECT COUNT(*) FROM hx_apps) AS apps,(SELECT COUNT(*) FROM hx_tables) AS tables').first();
  await env.DB.exec(`CREATE TRIGGER remove_source_during_creation BEFORE INSERT ON hx_apps BEGIN UPDATE channel_messages SET deleted_at='gone' WHERE id='${root.id}'; END;`);
  try {
-  await expect(createApp(env.DB,{orgId:org,by:'9201',name:'Must roll back',columns:[{name:'Task',type:'text'}],sourceThreadId:root.id},{announceInSource:true})).rejects.toThrow();
+  expect(await createApp(env.DB,{orgId:org,by:'9201',name:'Must roll back',columns:[{name:'Task',type:'text'}],sourceThreadId:root.id},{announceInSource:true})).toMatchObject({status:409});
   expect(await env.DB.prepare('SELECT (SELECT COUNT(*) FROM hx_apps) AS apps,(SELECT COUNT(*) FROM hx_tables) AS tables').first()).toEqual(before);
   expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE id LIKE 'app-created-%'").first()).n).toBe(0);
  }finally{await env.DB.exec('DROP TRIGGER remove_source_during_creation');}
+});
+
+test.each([['source','revoked'],['source','private'],['source','public'],['channel','revoked'],['channel','private'],['channel','public']])('app publication rolls back if %s room access becomes %s immediately before commit',async(kind,change)=>{
+ const root=await privateSource();
+ await env.DB.prepare("UPDATE businesses SET private=? WHERE org_id=? AND slug='confidential'").bind(change==='public'?1:0,org).run();
+ const room=await env.DB.prepare("SELECT created_at FROM businesses WHERE org_id=? AND slug='confidential'").bind(org).first();
+ await env.DB.prepare("INSERT INTO hx_app_generation_jobs(org_id,user_id,request_id,fingerprint,lease_token,lease_until,status,generated) VALUES (?,'9201','race_request_0001','f','lease',9999999999999,'running','{}')").bind(org).run();
+ const before=await env.DB.prepare(`SELECT (SELECT COUNT(*) FROM hx_apps) apps,(SELECT COUNT(*) FROM hx_tables) tables,
+  (SELECT COUNT(*) FROM hx_rows) rows,(SELECT COUNT(*) FROM hx_app_versions) versions,
+  (SELECT COUNT(*) FROM hx_app_links) links,(SELECT COUNT(*) FROM channel_messages) messages`).first();
+ let injected=false;
+ const db=new Proxy(env.DB,{get(target,prop){
+  if(prop==='batch')return async statements=>{
+   if(!injected){injected=true;await target.prepare("UPDATE businesses SET private=? WHERE org_id=? AND slug='confidential'").bind(change==='public'?0:1,org).run();
+    if(change==='revoked')await target.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();}
+   return target.batch(statements);
+  };
+  const value=target[prop];return typeof value==='function'?value.bind(target):value;
+ }});
+ const made=await createApp(db,{orgId:org,by:'9201',name:'Must not publish',columns:[{name:'Title',type:'text'}],sample:[{Title:'Sample'}],
+  ...(kind==='source'?{sourceThreadId:root.id}:{channel:'b:confidential',channelCreatedAt:room.created_at,privateByDefault:change==='public'})},
+  {announceInSource:true,commitGuard:id=>db.prepare("UPDATE hx_app_generation_jobs SET status='complete',app_id=? WHERE org_id=? AND request_id='race_request_0001'").bind(id,org)});
+ expect(injected).toBe(true);expect(made).toMatchObject({status:409});
+ expect(await env.DB.prepare(`SELECT (SELECT COUNT(*) FROM hx_apps) apps,(SELECT COUNT(*) FROM hx_tables) tables,
+  (SELECT COUNT(*) FROM hx_rows) rows,(SELECT COUNT(*) FROM hx_app_versions) versions,
+  (SELECT COUNT(*) FROM hx_app_links) links,(SELECT COUNT(*) FROM channel_messages) messages`).first()).toEqual(before);
+ expect(await env.DB.prepare("SELECT status,app_id FROM hx_app_generation_jobs WHERE org_id=? AND request_id='race_request_0001'").bind(org).first()).toEqual({status:'running',app_id:null});
+});
+test.each([['plain','removed'],['source','removed'],['plain','Guest'],['source','Guest'],['plain','purging'],['source','purging']])('workspace %s app commit rolls back when membership is %s',async(kind,change)=>{
+ const root=kind==='source'?await privateSource():null;
+ expect(await env.DB.prepare('SELECT 1 FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,'9201').first()).toBeTruthy();
+ await env.DB.prepare("INSERT INTO hx_app_generation_jobs(org_id,user_id,request_id,fingerprint,lease_token,lease_until,status,generated) VALUES (?,'9201','membership_race_001','f','lease',9999999999999,'running','{}')").bind(org).run();
+ const counts=()=>env.DB.prepare(`SELECT (SELECT COUNT(*) FROM hx_apps) apps,(SELECT COUNT(*) FROM hx_tables) tables,(SELECT COUNT(*) FROM hx_rows) rows,
+  (SELECT COUNT(*) FROM hx_app_versions) versions,(SELECT COUNT(*) FROM hx_app_links) links,(SELECT COUNT(*) FROM channel_messages) messages`).first();
+ const before=await counts();
+ let injected=false;
+ const db=new Proxy(env.DB,{get(target,prop){
+  if(prop==='batch')return async statements=>{
+   if(!injected){injected=true;
+    if(change==='removed')await target.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,'9201').run();
+    else if(change==='Guest')await target.prepare("UPDATE memberships SET role='Guest' WHERE org_id=? AND user_github_id=?").bind(org,'9201').run();
+    else await target.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at,purge_started_at) VALUES(?,'now','9201','now','now')").bind(org).run();
+   }
+   return target.batch(statements);
+  };
+  const value=target[prop];return typeof value==='function'?value.bind(target):value;
+ }});
+ const result=await createApp(db,{orgId:org,by:'9201',name:'Removed member',columns:[{name:'Title',type:'text'}],sample:[{Title:'Sample'}],...(root?{sourceThreadId:root.id}:{})},
+  {announceInSource:true,commitGuard:id=>db.prepare("UPDATE hx_app_generation_jobs SET status='complete',app_id=? WHERE org_id=? AND request_id='membership_race_001'").bind(id,org)});
+ expect(injected).toBe(true);expect(result).toMatchObject({status:403});expect(await counts()).toEqual(before);
+ expect(await env.DB.prepare("SELECT status,app_id FROM hx_app_generation_jobs WHERE org_id=? AND request_id='membership_race_001'").bind(org).first()).toEqual({status:'running',app_id:null});
+});
+
+test('publication preserves direct and private creation and supports DM, group and agent source threads',async()=>{
+ const {postMessage}=await import('../src/channels.js');
+ const plain=await createApp(env.DB,{orgId:org,by:'9201',name:'Plain',columns:[{name:'Title',type:'text'}]});
+ expect(plain.app).toBeTruthy();
+ expect(await env.DB.prepare('SELECT visibility FROM hx_app_access WHERE org_id=? AND app_id=?').bind(org,plain.app.id).first()).toBeNull();
+ const restricted=await createApp(env.DB,{orgId:org,by:'9201',name:'Private',columns:[{name:'Title',type:'text'}],privateByDefault:true});
+ expect((await env.DB.prepare('SELECT visibility FROM hx_app_access WHERE org_id=? AND app_id=?').bind(org,restricted.app.id).first()).visibility).toBe('private');
+ const group='g:0123456789abcdef';
+ await env.DB.prepare('INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES(?,?,?,?)').bind(org,group,'user9201',new Date().toISOString()).run();
+ const at=new Date().toISOString();
+ await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES(?,'agent1','agent1','Agent','','team','user9202',?,?)").bind(org,at,at).run();
+ await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,updated_at) VALUES(?,'agent1','everyone',?)").bind(org,at).run();
+ for(const channel of ['dm:user9201|user9202',group,'ag:agent1|user9201']){
+  const root=await postMessage(env.DB,{orgId:org,key:channel,authorLogin:'user9201',body:'Create app'});
+  const made=await createApp(env.DB,{orgId:org,by:'9201',name:`From ${channel}`,columns:[{name:'Title',type:'text'}],sourceThreadId:root.row.id});
+  expect(made.app).toBeTruthy();
+  expect((await env.DB.prepare('SELECT visibility FROM hx_app_access WHERE org_id=? AND app_id=?').bind(org,made.app.id).first()).visibility).toBe('private');
+ }
 });
