@@ -367,6 +367,8 @@
   :where(:root:not([data-theme="light"])) .btn-ghost:hover:not([disabled]) { background: #222222; }
   :where(:root:not([data-theme="light"])) .row .row-icon { background: #2a2a2a; }
   :where(:root:not([data-theme="light"])) .form-note { background: #1a1a1a; border-color: #2a2a2a; color: #a3a3a3; }
+  :where(:root:not([data-theme="light"])) .screen .field label { color: #a3a3a3; }
+  :where(:root:not([data-theme="light"])) .screen .form-error { color: #ff9bbd; }
 }
 :where(:root[data-theme="dark"]) .screen { background: #0f0f0f; color: #f2f2f2; }
 :where(:root[data-theme="dark"]) .screen-foot { background: #0f0f0f; border-top-color: #2a2a2a; }
@@ -391,6 +393,8 @@
 :where(:root[data-theme="dark"]) .btn-ghost:hover:not([disabled]) { background: #222222; }
 :where(:root[data-theme="dark"]) .row .row-icon { background: #2a2a2a; }
 :where(:root[data-theme="dark"]) .form-note { background: #1a1a1a; border-color: #2a2a2a; color: #a3a3a3; }
+:where(:root[data-theme="dark"]) .screen .field label { color: #a3a3a3; }
+:where(:root[data-theme="dark"]) .screen .form-error { color: #ff9bbd; }
 
 /* ── Wider than a phone ───────────────────────────────────────────────────
    This is a phone app: one decision per screen, a bar of tabs under the
