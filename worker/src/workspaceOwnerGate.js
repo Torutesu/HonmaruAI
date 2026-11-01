@@ -34,7 +34,7 @@ export async function deletionOwnerGate(env, session, orgId, initialDue) {
   const exists=`EXISTS(SELECT 1 FROM memberships member JOIN sessions sess ON sess.token=?3 AND sess.github_id=?2
     JOIN workspace_deletions d ON d.org_id=member.org_id WHERE member.org_id=?1 AND member.user_github_id=?2 AND d.purge_started_at IS NULL AND ${proof})`;
   const promote=db.prepare(`UPDATE memberships SET role='owner' WHERE org_id=?1 AND role='admin'
-    AND ?11=1 AND instr(?1,'/')=0 AND user_github_id=(SELECT user_github_id FROM memberships WHERE org_id=?1 AND role='admin' ORDER BY created_at ASC,user_github_id ASC LIMIT 1)
+    AND ?11=1 AND instr(?1,'/')=0 AND user_github_id=?2 AND user_github_id=(SELECT user_github_id FROM memberships WHERE org_id=?1 AND role='admin' ORDER BY created_at ASC,user_github_id ASC LIMIT 1)
     AND NOT EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND role='owner')
     AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(COALESCE(role,'member'))='admin')
     AND ${exists}`).bind(...args);

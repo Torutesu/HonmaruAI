@@ -71,7 +71,7 @@ test.each(['session','policy','membership','purge','tombstone','cancel'])('revoc
  if(change==='cancel'){const retry=new Request(`https://test/channels/activity?orgId=${encodeURIComponent(org)}`,{headers:{'x-session-token':token}});expect((await handleChannels(retry,env,new URL(retry.url),{after:()=>{}})).status).toBe(200)}
 });
 
-test('the earliest admin alone is promoted when a later admin requests recovery',async()=>{
+test('a later admin cannot trigger the earliest admin promotion',async()=>{
  await env.DB.exec(schema.replace(/\n/g,' '));
  const org='personal:owner-first',first='8271',later='8272';
  for(const [id,login] of [[first,'earlier'],[later,'later']]){await upsertUser(env.DB,{githubId:id,login,name:login});await upsertMembership(env.DB,org,id,'admin')}
@@ -80,7 +80,7 @@ test('the earliest admin alone is promoted when a later admin requests recovery'
  await env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,first).run();
  const req=new Request(`https://test/channels/activity?orgId=${encodeURIComponent(org)}`,{headers:{'x-session-token':token}});
  expect((await handleChannels(req,env,new URL(req.url),{after:()=>{}})).status).toBe(410);
- expect((await env.DB.prepare("SELECT user_github_id FROM memberships WHERE org_id=? AND role='owner'").bind(org).all()).results).toEqual([{user_github_id:first}]);
+ expect((await env.DB.prepare("SELECT user_github_id FROM memberships WHERE org_id=? AND role='owner'").bind(org).all()).results).toEqual([]);
 });
 
 test('an existing owner retains no-IP internal compatibility while no promotion occurs',async()=>{
@@ -181,4 +181,30 @@ test('background caller using a stored key can recover an authorized owner',asyn
  const {sessionByKey}=await import('../src/db.js'),{policyDenial}=await import('../src/policy.js');
  const session=await sessionByKey(env.DB,await sessionKey(token));expect(await policyDenial(env,session,org)).toBeNull();
  expect((await env.DB.prepare('SELECT role FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,user).first()).role).toBe('owner');
+});
+
+
+test('earliest and later admins requesting recovery concurrently cannot promote the later admin',async()=>{
+ await env.DB.exec(schema.replace(/\n/g,' '));const org='personal:owner-concurrent',first='8282',later='8283';
+ for(const [id,login] of [[first,'concurrentfirst'],[later,'concurrentlater']]){await upsertUser(env.DB,{githubId:id,login,name:login});await upsertMembership(env.DB,org,id,'admin')}
+ await env.DB.prepare("UPDATE memberships SET created_at='2000-01-01' WHERE org_id=? AND user_github_id=?").bind(org,first).run();
+ await env.DB.prepare("UPDATE memberships SET created_at='2001-01-01' WHERE org_id=? AND user_github_id=?").bind(org,later).run();
+ const [tokenFirst,tokenLater]=await Promise.all([createSession(env.DB,first,'fixture'),createSession(env.DB,later,'fixture')]);
+ await env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,first).run();
+ const call=token=>{const req=new Request(`https://test/channels/activity?orgId=${encodeURIComponent(org)}`,{headers:{'x-session-token':token}});return handleChannels(req,env,new URL(req.url),{after:()=>{}})};
+ const [a,b]=await Promise.all([call(tokenFirst),call(tokenLater)]);
+ expect(a.status).toBe(200);expect(b.status).toBe(410);
+ expect((await env.DB.prepare("SELECT user_github_id FROM memberships WHERE org_id=? AND role='owner'").bind(org).all()).results).toEqual([{user_github_id:first}]);
+});
+
+
+test('a fresh deletion status read failure is a fail-closed 503 with no promotion',async()=>{
+ await env.DB.exec(schema.replace(/\n/g,' '));const org='personal:owner-db-failure',user='8284';
+ await upsertUser(env.DB,{githubId:user,login:'statusfailure',name:'Failure'});await upsertMembership(env.DB,org,user,'admin');const token=await createSession(env.DB,user,'fixture');
+ await env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,user).run();
+ const db={prepare(sql){if(sql.startsWith('SELECT due_at FROM workspace_deletions'))throw new Error('read failed');return env.DB.prepare(sql)},batch:env.DB.batch.bind(env.DB)};
+ const req=new Request(`https://test/channels/activity?orgId=${encodeURIComponent(org)}`,{headers:{'x-session-token':token}});
+ const response=await handleChannels(req,{...env,DB:db},new URL(req.url),{after:()=>{}});
+ expect(response.status).toBe(503);expect((await response.json()).code).toBe('workspace-status-unavailable');
+ expect((await env.DB.prepare('SELECT role FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,user).first()).role).toBe('admin');
 });

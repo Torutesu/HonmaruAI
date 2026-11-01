@@ -93,12 +93,13 @@ export function sessionDeadline(policy, session) {
 /// The refusal for a session this workspace's rules have outgrown, or null.
 export async function policyDenial(env, session, orgId, { fresh = false, deferWorkspaceDeletionToFence = false } = {}) {
   if (!session || !orgId) return null;
-  // The notification path defers deletion to an equivalent final SQL fence.
-  // Other callers read fresh state; promotion happens only after policy checks.
+  // Only notification requests with an equivalent final SQL fence may defer deletion.
+  const unavailable = { status: 503, body: { message: "Unable to verify workspace status. Try again.", code: "workspace-status-unavailable", orgId } };
   let due = null;
   if (!deferWorkspaceDeletionToFence) {
     const { deletionDue } = await import("./workspaceDeletion.js");
-    due = await deletionDue(env.DB, orgId, { fresh: true });
+    try { due = await deletionDue(env.DB, orgId, { fresh: true }); }
+    catch { return unavailable; }
   }
   // The workspace's single sign-on first: required of this person, or
   // an SSO sign-in past its hours.
@@ -128,7 +129,8 @@ export async function policyDenial(env, session, orgId, { fresh = false, deferWo
   };
   if (!due) return null;
   const { deletionOwnerGate } = await import('./workspaceOwnerGate.js');
-  return deletionOwnerGate(env, session, orgId, due);
+  try { return await deletionOwnerGate(env, session, orgId, due); }
+  catch { return unavailable; }
 }
 
 /// Membership and the workspace's rules together, as a Response to return,
