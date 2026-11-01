@@ -354,3 +354,66 @@ test("channels nobody talks in are offered for tidying, and archiving hides them
   expect((await back.json()).businesses.map((b) => b.slug)).toContain("food-truck");
   expect((await archivedList(memberToken)).channels).toEqual([]);
 });
+
+test('private Simple creation commits a private room and its selected members together', async () => {
+  const {listMembers}=await import('../src/team.js');
+  const members=await listMembers(env.DB,ORG,'6101');
+  const invited=members.find(member=>member.userId==='6102');
+  const res=await SELF.fetch('https://example.com/businesses',{method:'POST',headers:headers(ownerToken),body:JSON.stringify({orgId:ORG,name:'Private atomic',private:true,members:[invited.ref]})});
+  expect(res.status).toBe(200);
+  expect((await res.json()).business).toEqual({slug:'private-atomic',name:'Private atomic',private:true});
+  expect(await env.DB.prepare("SELECT private,created_by FROM businesses WHERE org_id=? AND slug='private-atomic'").bind(ORG).first()).toEqual({private:1,created_by:'6101'});
+  expect((await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=? AND channel='b:private-atomic' ORDER BY login").bind(ORG).all()).results).toEqual([{login:'member'},{login:'owner'}]);
+  const other=await SELF.fetch('https://example.com/businesses',{method:'POST',headers:headers(memberToken),body:JSON.stringify({orgId:ORG,name:'Private atomic',private:true})});
+  expect(other.status).toBe(409);
+});
+
+test('private room creation rolls back the room if its member insertion fails',async()=>{
+  const {createPrivateBusiness}=await import('../src/db.js');
+  const {listMembers}=await import('../src/team.js');
+  const members=await listMembers(env.DB,ORG,'6101');
+  await env.DB.exec("CREATE TRIGGER reject_private_create_member BEFORE INSERT ON conversation_members WHEN NEW.channel='b:failure-atomic' BEGIN SELECT RAISE(ABORT,'injected membership failure'); END;");
+  await expect(createPrivateBusiness(env.DB,ORG,{name:'Failure atomic',actorId:'6101',actorLogin:'owner',members})).rejects.toThrow();
+  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id=? AND slug='failure-atomic'").bind(ORG).first()).toBeNull();
+  expect((await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=? AND channel='b:failure-atomic'").bind(ORG).all()).results).toEqual([]);
+  await env.DB.exec('DROP TRIGGER reject_private_create_member');
+});
+
+test('a competing creation cannot attach private members to the existing public room',async()=>{
+  const {createPrivateBusiness,upsertBusiness}=await import('../src/db.js');
+  const {listMembers}=await import('../src/team.js');
+  const members=await listMembers(env.DB,ORG,'6101');
+  const racing=new Proxy(env.DB,{get(db,key){
+    if(key==='batch')return async statements=>{
+      await upsertBusiness(db,ORG,{name:'Race creation',createdBy:'6102'});
+      return db.batch(statements);
+    };
+    return typeof db[key]==='function'?db[key].bind(db):db[key];
+  }});
+  expect(await createPrivateBusiness(racing,ORG,{name:'Race creation',actorId:'6101',actorLogin:'owner',members})).toBeNull();
+  expect(await env.DB.prepare("SELECT private,created_by FROM businesses WHERE org_id=? AND slug='race-creation'").bind(ORG).first()).toEqual({private:0,created_by:'6102'});
+  expect((await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=? AND channel='b:race-creation'").bind(ORG).all()).results).toEqual([]);
+});
+
+test('private creation fences revoked creator membership and skips stale invitations',async()=>{
+  const {createPrivateBusiness}=await import('../src/db.js');
+  const {listMembers}=await import('../src/team.js');
+  const members=await listMembers(env.DB,ORG,'6101');
+  const staleLogin=members.map(member=>member.userId==='6101'?{...member,login:'former-owner'}:member);
+  expect(await createPrivateBusiness(env.DB,ORG,{name:'Stale creator login',actorId:'6101',actorLogin:'owner',members:staleLogin})).toBeNull();
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(ORG,'6102').run();
+  const created=await createPrivateBusiness(env.DB,ORG,{name:'Stale invitations',actorId:'6101',actorLogin:'owner',members});
+  expect(created.logins).toEqual(['owner']);
+  await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=? AND user_github_id=?").bind(ORG,'6101').run();
+  expect(await createPrivateBusiness(env.DB,ORG,{name:'Revoked creator',actorId:'6101',actorLogin:'owner',members})).toBeNull();
+  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id=? AND slug='revoked-creator'").bind(ORG).first()).toBeNull();
+});
+
+test('private creation refuses a name with orphaned members without deleting or granting them access',async()=>{
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?,'b:old-members','member','2026-01-01')").bind(ORG).run();
+  const res=await SELF.fetch('https://example.com/businesses',{method:'POST',headers:headers(ownerToken),body:JSON.stringify({orgId:ORG,name:'Old members',private:true})});
+  expect(res.status).toBe(409);
+  expect((await res.json()).message).toContain('Choose another name');
+  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id=? AND slug='old-members'").bind(ORG).first()).toBeNull();
+  expect((await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=? AND channel='b:old-members'").bind(ORG).all()).results).toEqual([{login:'member'}]);
+});

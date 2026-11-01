@@ -20,7 +20,7 @@ import {
   getUserByGithubId, getUserByLogin, registerDevice, removeDevice, retainMemberships, cardsCreatedSince,
   isIngested, markIngested, saveCard,
   saveCardLocalization, setUserLocale, setUserNotifyEmail, setUserEmail, normalizeLocale,
-  registerSubscription, removeSubscription, listBusinesses, hasPrivateBusinesses, upsertBusiness, removeBusiness, businessSlug, renameBusiness,
+  registerSubscription, removeSubscription, listBusinesses, hasPrivateBusinesses, upsertBusiness, createPrivateBusiness, removeBusiness, businessSlug, renameBusiness,
   rememberConnections, getCard, normalizeAliases, setUserAliases, parseAliases,
   setOwnTitle, ownTitle, SELF_ASSIGNABLE_ROLES, listUserOrgs, primaryOrgId,
   loadContexts, saveContext, cleanName, checkHandle, setUserName, setUserHandle, MAX_NAME_CHARS,
@@ -77,7 +77,7 @@ import { handleAgentInvites } from "./agentInvites.js";
 import { handleUserAvatar } from "./userAvatar.js";
 import { serveFile, freshFileUrls } from "./files.js";
 import { useMediaEnv, mediaOriginOn, signVideoUrl } from "./mediaToken.js";
-import { addMembers, membersOf, isPrivate, mayRead, mayReadCard, accessFor, isGuest, hasGuests } from "./access.js";
+import { membersOf, isPrivate, mayRead, mayReadCard, accessFor, isGuest, hasGuests } from "./access.js";
 import { runMinuteJobs } from "./later.js";
 import { recentBusinessTalk } from "./channels.js";
 import { relevantMemories } from "./memory.js";
@@ -1478,17 +1478,12 @@ async function handle(request, env, url, ctx) {
       if (body.private === true) {
         // A private channel is made, never found: a name already taken —
         // public or private, seen or not — is somebody else's channel.
-        const slug = businessSlug(body.name);
-        if (await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, slug).first()) {
-          return json({ message: "A channel by that name already exists." }, 409);
-        }
-        const business = await upsertBusiness(env.DB, body.orgId, { name: body.name, createdBy: String(session.github_id) });
-        if (!business) return json({message:"A channel by that name already exists."},409);
-        await env.DB.prepare("UPDATE businesses SET private = 1 WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, business.slug).run();
         const members = await listMembers(env.DB, body.orgId, session.github_id);
         const refs = Array.isArray(body.members) ? body.members.map(String) : [];
-        const logins = [me.login, ...members.filter((m) => refs.includes(m.ref)).map((m) => m.login)];
-        await addMembers(env.DB, { orgId: body.orgId, key: `b:${business.slug}`, logins, addedBy: me.login });
+        const chosen=members.filter(m=>m.userId===String(session.github_id) || refs.includes(m.ref));
+        const created=await createPrivateBusiness(env.DB,body.orgId,{name:body.name,actorId:session.github_id,actorLogin:me?.login,members:chosen});
+        if (!created) return json({message:"That channel name is unavailable. Choose another name, or reload if your workspace access changed."},409);
+        const {business,logins}=created;
         await tellMembers(env, body.orgId, logins);
         await tellRoom(body.orgId);
         await audit(env, request, { orgId: body.orgId, action: "channel.created", actor: person(me), entity: { type: "channel", id: business.slug, name: `#${business.name}` }, details: { private: true } });
