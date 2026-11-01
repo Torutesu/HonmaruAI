@@ -139,6 +139,16 @@ test("guest isolation treats legacy mixed-case roles consistently across room li
   expect(await businesses(ann)).toEqual([]);
 });
 
+test("a workspace admin without explicit private-room membership cannot read or find it", async () => {
+  await call("/businesses", toru, { method: "POST", body: { orgId: ORG, name: "Admin Audit", private: true, members: [refs.Mika] } });
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id = ?1 AND channel = 'b:admin-audit' AND login = 'toru'").bind(ORG).run();
+  await say(mika, "b:admin-audit", "Admin-only boundary secret");
+
+  expect(await businesses(toru)).toEqual(["cafe"]);
+  expect((await list(toru, "b:admin-audit")).status).toBe(404);
+  expect(await search(toru, "boundary secret")).toEqual([]);
+});
+
 test("an invitation into a private channel takes the newcomer in, only if the inviter is there", async () => {
   await call("/businesses", toru, { method: "POST", body: { orgId: ORG, name: "Board", private: true } });
   const { channelsOf } = await import("../src/auth.js");
