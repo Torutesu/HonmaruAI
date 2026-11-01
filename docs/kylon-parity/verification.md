@@ -3937,7 +3937,7 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 ### 2026-11-02 — Combined generation authorization fences (local verification)
 
 - App database, action, automation and custom generation snapshot the authorized source-room guidelines and recheck them around model use and after model reservation cleanup. Database generation also rechecks the captured schema and linked-table access. Focused tests exercise revoked source access, changed schema, and changes during cleanup using local synthetic data.
-- The final database check combines captured source, schema and applicable agent access in one statement; independent tests reproduced and then fenced changes between the earlier separate checks. That database statement and dispatch to a model provider are not atomic: a request already dispatched may reach the provider before revocation is observed. Room and membership timestamps are not unique generation IDs, so same-timestamp replacements remain ambiguous. CI and production verification are pending.
+- The final database check combines captured source, schema, applicable agent access and custom-generation action, connection and gateway snapshots in one statement; independent tests reproduced and then fenced changes between the earlier separate checks. That database statement and dispatch to a model provider are not atomic: a request already dispatched may reach the provider before revocation is observed. Room and membership timestamps are not unique generation IDs, so same-timestamp replacements remain ambiguous. CI and production verification are pending.
 
 ### 2026-11-02 — Room lifecycle and personal views (production deployment)
 
