@@ -136,6 +136,7 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
     return storedOpenApp
   })
   const [prompt, setPrompt] = useState('')
+  const [sampleCount, setSampleCount] = useState(0)
   const [creating, setCreating] = useState(false)
   const [query, setQuery] = useState('')
   const [note, setNote] = useState<string | null>(null)
@@ -159,11 +160,12 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
     const startingHash = location.hash
     const submittedPrompt = prompt
     const room = prompt.match(/#([\p{L}\p{N}_-]+)/u)?.[1]
-    const key = JSON.stringify([props.orgId,prompt,room])
+    const key = JSON.stringify([props.orgId,prompt,room,sampleCount])
     if (generationRequest.current?.key !== key) generationRequest.current = {key,id:crypto.randomUUID()}
-    const made = await api.generate(prompt, room ? `b:${room}` : undefined, {requestId:generationRequest.current.id,captureSource:Boolean(room)})
+    const made = await api.generate(prompt, room ? `b:${room}` : undefined, {requestId:generationRequest.current.id,captureSource:Boolean(room),sampleCount})
     if (liveApi.current !== api) return
     generationRequest.current = null
+    setSampleCount(0)
     setPrompt(current => current === submittedPrompt ? '' : current)
     // Publication can finish after leaving this screen or opening another
     // app. Keep that navigation; the finished app remains in the library.
@@ -182,7 +184,7 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
       {creating && <>
       <div className="rows">
         <div className="row static">
-          <span className="row-main">
+          <div className="row-main">
             {t('Describe an app')}
             <textarea
               className="context-input"
@@ -192,11 +194,21 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
               placeholder={t('e.g. An invoice tracker for #ops, from the billing inbox')}
               aria-label={t('Describe an app')}
             />
+            <details className="hx-app-sample-options">
+              <summary>{t('Initial data')} · {sampleCount === 0 ? t('Empty') : t('Up to {n} sample rows',{n:sampleCount})}</summary>
+              <label>{t('Maximum sample rows')}
+                <select aria-label={t('Maximum sample rows')} value={sampleCount} disabled={busy === 'generate'} onChange={e => setSampleCount(Number(e.target.value))}>
+                  {Array.from({length:21},(_,count)=><option key={count} value={count}>{count}</option>)}
+                </select>
+              </label>
+              <span className="row-sub">{t('Set this separately from your description. Zero starts with an empty table; sample rows are real records.')}</span>
+            </details>
+            {sampleCount === 0 && /(?:サンプル|見本|ダミー)(?:データ|レコード|行)|\b(?:sample|example|dummy)\s+(?:data|rows?|records?|entries)\b/iu.test(prompt) && <span className="row-sub" role="status">{t('To include sample rows, choose a limit under Initial data.')}</span>}
             <span className="playbook-add-foot">
               <span className="row-sub">{t('Your AI designs the table and its views.')}</span>
               <button className="pill-btn" onClick={generate} disabled={busy === 'generate' || !prompt.trim()}>{busy === 'generate' ? t('Building…') : t('Build')}</button>
             </span>
-          </span>
+          </div>
         </div>
       </div>
       </>}

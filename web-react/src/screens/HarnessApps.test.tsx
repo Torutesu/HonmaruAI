@@ -123,6 +123,21 @@ test('room generation opens the saved source route rather than a detached app pa
  expect(state.api.generate).toHaveBeenCalledWith('Build a tracker for #general','b:general',expect.objectContaining({captureSource:true}))
  expect(location.hash).toBe('#/apps/created/team%3Aone?source=1')
 })
+test('sample rows are empty by default and the selected limit is submitted',async()=>{
+ await act(async()=>{tree=create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}}/>)})
+ act(()=>button('Build an app').props.onClick())
+ act(()=>tree!.root.findByType('textarea').props.onChange({target:{value:'Invoice tracker with sample data'}}))
+ const limit=tree!.root.findByProps({'aria-label':'Maximum sample rows'})
+ expect(limit.props.value).toBe(0)
+ expect(tree!.root.findByProps({role:'status'}).children).toContain('To include sample rows, choose a limit under Initial data.')
+ act(()=>limit.props.onChange({target:{value:'1'}}))
+ let completion!:Promise<void>
+ act(()=>{completion=button('Build').props.onClick()})
+ expect(state.api.generate).toHaveBeenCalledWith('Invoice tracker with sample data',undefined,expect.objectContaining({sampleCount:1}))
+ await act(async()=>{finish({app:{id:'created'},source:'template'});await completion})
+ await act(async()=>{tree!.root.findByType(AppView).props.onBack()})
+ expect(tree!.root.findByProps({'aria-label':'Maximum sample rows'}).props.value).toBe(0)
+})
 test('opening an app from the library starts in its data viewer', async () => {
   state.api.apps.mockResolvedValue({ apps: [{
     id: 'existing', name: 'Tracker', description: 'A task tracker', icon: 'grid', tableId: 'tasks',

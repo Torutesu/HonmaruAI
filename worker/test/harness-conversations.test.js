@@ -80,18 +80,54 @@ test('room generation captures one source and replays the same app across sessio
  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential'").bind(org).run();
  expect((await createRequest('/apps/generate',owner,input)).status).toBe(403);
 });
-test('failed app commit keeps the generated definition and source for a safe retry',async()=>{
+test('failed app commit keeps the generated definition and rechecks legacy sample rows on retry',async()=>{
  await privateSource();
- const input={prompt:'A project tracker',channel:'b:confidential',captureSource:true,requestId:'generate_request_002',useModel:false};
+ const input={prompt:'A project tracker, no sample data',channel:'b:confidential',captureSource:true,requestId:'generate_request_002',useModel:false};
  await env.DB.exec("CREATE TRIGGER fail_generated_version BEFORE INSERT ON hx_app_versions BEGIN SELECT RAISE(ABORT, 'storage unavailable'); END;");
  try {expect((await createRequest('/apps/generate',owner,input)).status).toBe(500);}
  finally {await env.DB.exec('DROP TRIGGER fail_generated_version');}
  const failed=await env.DB.prepare('SELECT status,generated,app_id FROM hx_app_generation_jobs WHERE org_id=? AND user_id=? AND request_id=?').bind(org,'9201',input.requestId).first();
  expect(failed.status).toBe('failed');expect(failed.generated).toBeTruthy();expect(failed.app_id).toBeNull();
+ // A proposal saved by an older version may contain samples the prompt forbids.
+ const oldProposal=JSON.parse(failed.generated);oldProposal.spec.sample=[{Name:'Unexpected sample'}];
+ await env.DB.prepare('UPDATE hx_app_generation_jobs SET generated=? WHERE org_id=? AND user_id=? AND request_id=?').bind(JSON.stringify(oldProposal),org,'9201',input.requestId).run();
  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND id LIKE 'app-created-%'").bind(org).first()).n).toBe(0);
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_tables WHERE org_id=?').bind(org).first()).n).toBe(1);
- expect((await createRequest('/apps/generate',owner,input)).status).toBe(201);
+ const retried=await createRequest('/apps/generate',owner,input);expect(retried.status).toBe(201);
+ const retriedApp=(await retried.json()).app;
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE org_id=? AND table_id=?').bind(org,retriedApp.tableId).first()).n).toBe(0);
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=? AND body=?').bind(org,input.prompt).first()).n).toBe(1);
+});
+test('an incomplete old-format proposal cannot publish on retry',async()=>{
+ const input={prompt:'A project tracker',requestId:'legacy_app_generation_001',useModel:false};
+ await env.DB.exec("CREATE TRIGGER fail_old_proposal BEFORE INSERT ON hx_app_versions BEGIN SELECT RAISE(ABORT, 'storage unavailable'); END;");
+ try {expect((await createRequest('/apps/generate',owner,input)).status).toBe(500);}
+ finally {await env.DB.exec('DROP TRIGGER fail_old_proposal');}
+ const saved=await env.DB.prepare('SELECT generated FROM hx_app_generation_jobs WHERE org_id=? AND user_id=? AND request_id=?').bind(org,'9201',input.requestId).first();
+ const old=JSON.parse(saved.generated);delete old.generationFormat;old.spec.name='Wrong legacy proposal';
+ await env.DB.prepare('UPDATE hx_app_generation_jobs SET generated=? WHERE org_id=? AND user_id=? AND request_id=?').bind(JSON.stringify(old),org,'9201',input.requestId).run();
+ const retry=await createRequest('/apps/generate',owner,input);
+ expect(retry.status).toBe(409);
+ expect((await retry.json()).message).toContain('新しい依頼');
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=? AND name=?').bind(org,'Wrong legacy proposal').first()).n).toBe(0);
+});
+test('the selected sample count is part of generation retry identity',async()=>{
+ const input={prompt:'請求書を管理。サンプルデータを追加、1件だけ',requestId:'sample_count_request_001',sampleCount:3,useModel:false};
+ const first=await createRequest('/apps/generate',owner,input);expect(first.status).toBe(201);
+ const made=(await first.json()).app;
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE org_id=? AND table_id=?').bind(org,made.tableId).first()).n).toBe(1);
+ expect((await createRequest('/apps/generate',owner,input)).status).toBe(200);
+ expect((await createRequest('/apps/generate',owner,{...input,sampleCount:2})).status).toBe(409);
+});
+test('an invalid generated board fails before publishing an app',async()=>{
+ const {generateApp}=await import('../src/harness/appGeneration.js');
+ const who={session:{github_id:'9201'},user:{github_id:'9201',login:'user9201'}};
+ const before=(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=?').bind(org).first()).n;
+ const result=await generateApp(env,new Request('https://test/apps/generate'),org,who,{prompt:'タスクをボードで表示',requestId:'invalid_board_generation_01'}, {
+  makeCompleter:async()=>async()=>JSON.stringify({name:'Tasks',columns:[{name:'Task',type:'text'}],views:[{type:'board',name:'Board'}]}),
+ });
+ expect(result.error).toContain('選択肢フィールド');
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=?').bind(org).first()).n).toBe(before);
 });
 test('DLP blocks generation before saving a source, job or app',async()=>{
  await privateSource();
@@ -161,6 +197,30 @@ test('room guidelines accompany app generation and app replies only while the so
   return 'This must not be stored.';
  }});
  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE org_id=? AND app_id=? AND author_id='__app_ai' AND body='This must not be stored.'").bind(org,made.app.id).first()).n).toBe(0);
+});
+test('long room guidelines do not replace the app request or determine its fallback template',async()=>{
+ const root=await privateSource();
+ const rule=('営業・請求書・カレンダー。担当者は自由記述。'+'規'.repeat(4096)).slice(0,4096);
+ await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)')
+  .bind(org,'b:confidential',rule,'9201',new Date().toISOString()).run();
+ const {generateApp}=await import('../src/harness/appGeneration.js');
+ const {getTable}=await import('../src/harness/tables.js');
+ const who={session:{github_id:'9201'},user:{github_id:'9201',login:'user9201'}};
+ const prompt='タスク管理。担当者をワークスペースのメンバーから選ぶ。'+'あ'.repeat(3800)+'末尾の要件';
+ let received='';
+ const generated=await generateApp(env,new Request('https://test/apps/generate'),org,who,{prompt,sourceThreadId:root.id,requestId:'long_guidelines_app_001'}, {
+  makeCompleter:async()=>async(_system,request)=>{received=request;return JSON.stringify({name:'Tasks',columns:[{name:'担当者',type:'text'}]});},
+ });
+ expect(received).toContain(rule);
+ expect(received.endsWith(prompt)).toBe(true);
+ expect((await getTable(env.DB,org,generated.app.tableId)).columns[0].type).toBe('person');
+ const governed=await generateApp(env,new Request('https://test/apps/generate'),org,who,{prompt:'担当者を記録するタスクアプリ',sourceThreadId:root.id,requestId:'long_guidelines_app_003'}, {
+  makeCompleter:async()=>async()=>JSON.stringify({name:'Tasks',columns:[{name:'担当者',type:'text'}]}),
+ });
+ expect((await getTable(env.DB,org,governed.app.tableId)).columns[0].type).toBe('text');
+ const fallback=await generateApp(env,new Request('https://test/apps/generate'),org,who,{prompt:'タスクを管理する',sourceThreadId:root.id,requestId:'long_guidelines_app_002',useModel:false});
+ expect(fallback.app.template).toBe('tracker');
+ expect(fallback.app.definition.views.map(view=>view.type)).toEqual(['table']);
 });
 test('an expired generation cannot publish after another request takes its lease',async()=>{
  const {generateApp}=await import('../src/harness/appGeneration.js');

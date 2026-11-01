@@ -10,7 +10,7 @@ import { SYSTEM_COLUMN_IDS, isSystemTimestamp, queryValue } from './systemColumn
 // without one it still lands on the closest template.
 
 import { TEMPLATES, matchTemplate } from "./templates.js";
-import { prepareTable, getTable, listRows, cleanValues, planTableUpdate, MAX_ROWS } from "./tables.js";
+import { prepareTable, getTable, listRows, cleanValues, normalizeColumns, planTableUpdate, MAX_ROWS } from "./tables.js";
 import { normalizeMemberFields } from "./memberFields.js";
 
 export const VIEW_TYPES = ["table", "board", "metrics", "calendar"];
@@ -380,20 +380,36 @@ export async function renderApp(db, orgId, id) {
   return { app, table, rows, views: app.definition.views.map((v) => computeView(v, table, rows)) };
 }
 
-/// A generated app starts with the same one-view table Kylon shows; secondary
-/// layouts are opt-in, while explicit filters and sorts remain part of the request.
+const VIEW_TERMS = {
+  board: '\\b(?:board|kanban|pipeline)\\b|ボード|カンバン|パイプライン',
+  metrics: '\\b(?:dashboard|analytics|metrics|reports?|charts?|kpis?)\\b|ダッシュボード|分析|集計|レポート|グラフ|KPI',
+  calendar: '\\bcalendar\\b|カレンダー',
+};
+
+function viewIntent(prompt, pattern) {
+  const positive = new RegExp(pattern, 'iu');
+  const clause = String(prompt).split(/[、。,，.!！?？;；\n]+/u).filter(part => positive.test(part)).at(-1);
+  if (!clause) return {mentioned:false, excluded:false};
+  const negative = new RegExp(`(?:\\b(?:no|without|exclude|avoid|omit|remove)\\s+(?:a\\s+|the\\s+)?(?:${pattern})|\\b(?:do not|don't|never)\\s+(?:add|use|create|show|include)\\s+(?:a\\s+|the\\s+)?(?:${pattern})|(?:${pattern})\\s*(?:は|を|が|の)?\\s*(?:不要|いらな|要らな|なし|無し|なく|ない|無い|省い|省く|外し|外す|除い|除く|非表示|作らな|作成しな|追加しな|使わな|使わず|含めな|表示しな|必要ない|必要ありません|(?:is\\s+)?not\\s+(?:needed|required)|omitted|excluded|removed))`, 'iu');
+  return {mentioned:true, excluded:negative.test(clause)};
+}
+
+/// The model-free tracker can recognize a few common view requests. A model's
+/// structured result is handled separately so richer requests are not discarded.
 function requestedAppViews(prompt, candidates, columns = []) {
   const japanese = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(prompt);
   const tableName = japanese ? "すべて" : "All";
-  const wantsBoard = /\bkanban\b|\b(?:task|project|sales|hiring) board\b|\bboard view\b|\bview as (?:a )?board\b|カンバン|タスクボード|プロジェクトボード|採用ボード|ボードビュー|ボード形式/iu.test(prompt);
-  const wantsMetrics = /\bdashboard\b|\banalytics\b|\bmetrics\b|\breport(?:ing)?\b|\bcharts?\b|\bkpis?\b|ダッシュボード|分析|集計|レポート|グラフ|KPI/iu.test(prompt);
-  const wantsCalendar = /\bcalendar(?: view)?\b|カレンダー(?:ビュー|表示)?/iu.test(prompt);
-  const asksForMultipleTableViews = /\b(?:saved|custom|filtered|multiple|separate) views?\b|\bviews? (?:for|by|named|called)\b|複数(?:の)?ビュー|ビューを(?:作成|追加)|ビューごと/iu.test(prompt);
-  const asksForTableConfiguration = /\b(?:filter(?:ed|ing)?|only|excluding|exclude|overdue|past due|unpaid|unassigned|open tasks|completed tasks|sort(?:ed|ing)?|order(?:ed|ing) by)\b|だけ|のみ|以外|絞り込(?:み)?|未割当|未完了|未対応|期限切れ|未払い|並べ替え|ソート|昇順|降順/iu.test(prompt);
+  const requested = type => {const intent = viewIntent(prompt, VIEW_TERMS[type]); return intent.mentioned && !intent.excluded;};
+  const wantsBoard = requested('board');
+  const wantsMetrics = requested('metrics');
+  const wantsCalendar = requested('calendar');
   const source = Array.isArray(candidates) ? candidates : [];
-  const tableViews = source.filter(view => view?.type === "table");
-  const tables = asksForMultipleTableViews ? tableViews.slice(0, 12) : asksForTableConfiguration && tableViews.length ? [tableViews[0]] : [];
-  if (!tables.length) tables.push({ type: "table", name: tableName });
+  // A template's first table can have its own filters (for example, open
+  // invoices). Do not silently apply those filters to a different request.
+  const table = { type: "table", name: tableName };
+  const asksForDateOrder = /(?:期限|期日|due(?: date)?|deadline)[^、。,，.!！?？;；\n]{0,20}(?:順|並べ替|ソート|sort|order)|(?:sort|order)[^、。,，.!！?？;；\n]{0,20}(?:due|deadline)/iu.test(prompt);
+  const dateColumn = columns.find(column => column.type === 'date' && /due|deadline|期限|期日/iu.test(column.name)) || columns.find(column => column.type === 'date');
+  if (asksForDateOrder && dateColumn) table.sort = `${/降順|新しい順|descending|newest first|latest first/iu.test(prompt) ? '-' : ''}${dateColumn.name}`;
   const extras = [];
   if (wantsBoard) {
     const board = source.find(view => view?.type === "board");
@@ -410,14 +426,29 @@ function requestedAppViews(prompt, candidates, columns = []) {
     const dateColumn = columns.find(column => column.type === "date");
     if (dateColumn) extras.push({ type: "calendar", name: japanese ? "カレンダー" : "Calendar", dateColumn: dateColumn.name });
   }
-  return [...tables, ...extras];
+  return [table, ...extras];
+}
+
+// Example rows are real workspace data. Only the explicit count in the
+// creation form or API can opt in; language-model guesses cannot create rows.
+export function requestedSampleRows(sample, columns, sampleCount = 0) {
+  if (!Number.isSafeInteger(sampleCount) || sampleCount <= 0 || !Array.isArray(sample)) return [];
+  const limit = Math.min(20, sampleCount);
+  const normalized = normalizeColumns(columns).columns || [];
+  const safe = normalized.filter(column => column.type !== 'person');
+  const names = new Set(safe.map(column => column.name.toLowerCase()));
+  const ids = new Set(safe.map(column => column.id));
+  const people = new Set(normalized.filter(column => column.type === 'person').flatMap(column => [column.name.toLowerCase(), column.id.toLowerCase()]));
+  return sample.filter(row => row && typeof row === 'object' && !Array.isArray(row)).slice(0, 20)
+    .map(row => Object.fromEntries(Object.entries(row).filter(([key]) => !people.has(key.toLowerCase()) && (ids.has(key) || names.has(key.toLowerCase())))))
+    .filter(row => Object.keys(row).length > 0).slice(0, limit);
 }
 
 /// A spec from a sentence. A model, when there is one, may design any table;
 /// it answers in JSON and the answer is validated like any other input.
 /// Without a model, or when its answer does not hold up, the closest
 /// template is used — "an invoice tracker for #ops" always gets an app.
-export async function specFromPrompt(prompt, { complete } = {}) {
+export async function specFromPrompt(prompt, { complete, modelRequest, guidelines = '', sampleCount = 0 } = {}) {
   const text = String(prompt || "").trim().slice(0, 4000);
   if (!text) return { error: "Say what the app is for." };
   if (complete) {
@@ -426,18 +457,39 @@ export async function specFromPrompt(prompt, { complete } = {}) {
         [
           "Design a small internal business app as JSON, nothing else.",
           'Shape: {"name": app title string, "tableName": primary table label string, "icon": one emoji, "description": string, "columns": [{"name": string, "type": "text"|"number"|"date"|"select"|"checkbox"|"url"|"person"|"email", "options"?: string[]}],',
-          '"views": [{"type": "table"|"board"|"metrics"|"calendar", "dateColumn"?: column name, "name": string, "groupBy"?: column name, "sort"?: column name or "-name", "metrics"?: [{"label": string, "op": "count"|"sum"|"avg", "column"?: column name}]}]}',
-          "Start with one table view named すべて (Japanese) or All (English). Preserve filters or sorting only when the request asks for them. Add board, metrics, or calendar views only when the request explicitly asks for that view. Do not invent extra views.",
+          '"viewPolicy": "default"|"requested", "views": [{"type": "table"|"board"|"metrics"|"calendar", "dateColumn"?: column name, "name": string, "groupBy"?: column name, "sort"?: column name or "-name", "metrics"?: [{"label": string, "op": "count"|"sum"|"avg", "column"?: column name}]}], "sample"?: [object keyed by column name]}',
+          "Set viewPolicy to default when the request does not specify views, filters, grouping or ordering; use one unfiltered table view named すべて (Japanese) or All (English). Otherwise set it to requested and honor the requested view types, number, names, filters, ordering and exclusions.",
+          `The user selected a maximum of ${sampleCount} example rows. Return at most that many in sample; return none when the maximum is zero. Do not invent workspace members.`,
           "At most 10 columns. A board needs a select column to group by. Name things in the language of the request. Keep the app title and primary table label distinct when the request implies they have different names; the table label should be concise and natural for the records users add. Use type person for internal owners, assignees, reviewers, interviewers and approvers so users select workspace members; do not model those as free text unless the request explicitly asks for that field to be free text.",
         ].join("\n"),
-        text,
+        typeof modelRequest === 'string' ? modelRequest : text,
       );
       const spec = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, "").trim());
       if (spec && Array.isArray(spec.columns) && spec.columns.length && spec.name) {
         // Give internal assignees a real workspace-member picker even when
         // the model falls back to a generic text column.
-        const columns = normalizeMemberFields(text, spec.columns.slice(0, 10));
-        return { spec: { name: spec.name, tableName: typeof spec.tableName === "string" && spec.tableName.trim() ? spec.tableName.trim().slice(0, 80) : spec.name, icon: spec.icon, description: spec.description, columns, definition: { views: requestedAppViews(text, spec.views, columns) } }, source: "model" };
+        const columns = normalizeMemberFields(text, spec.columns.slice(0, 10), {guidelines});
+        const explicitViewHint = /ボード|カンバン|カレンダー|ダッシュボード|ビュー|カード表示|並べ替|ソート|絞り込|フィルタ|グループ|(?:期限|期日|日付|状態|担当|進捗|優先度)[^、。,，.!！?？;；\n]{0,8}(?:順|別|毎|ごと)|\b(?:board|kanban|calendar|dashboard|view|views|filter|sort|group|order)\b/iu.test(text);
+        const candidates = spec.viewPolicy === 'default' && !explicitViewHint ? [] : (Array.isArray(spec.views) ? spec.views : [])
+          .filter(view => VIEW_TYPES.includes(view?.type) && !(VIEW_TERMS[view.type] && viewIntent(text, VIEW_TERMS[view.type]).excluded));
+        if (candidates.length > 12) return {error: /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(text) ? 'アプリのビューは最大12件です。数を減らして再試行してください。' : 'An app can have at most 12 views. Reduce the number and try again.'};
+        const views = candidates.map(({id, ...view}) => view);
+        if (!views.length) views.push({type: 'table', name: /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(text) ? 'すべて' : 'All'});
+        const normalized = normalizeColumns(columns);
+        if (normalized.error) return {error: normalized.error};
+        for (const view of views) {
+          if (!['board','calendar'].includes(view.type)) continue;
+          const type = view.type === 'board' ? 'select' : 'date';
+          const ref = view.type === 'board' ? view.groupBy : view.dateColumn;
+          const column = ref ? normalized.columns.find(item => item.id === ref || item.name.toLowerCase() === String(ref).toLowerCase()) : normalized.columns.find(item => item.type === type);
+          if (!column || column.type !== type) {
+            const japanese = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(text);
+            return {error: view.type === 'board'
+              ? japanese ? '生成されたボードには、グループ化できる選択肢フィールドが必要です。依頼に項目を追加して再試行してください。' : 'The generated board needs a select field for grouping. Add one to the request and try again.'
+              : japanese ? '生成されたカレンダーには日付フィールドが必要です。依頼に日付項目を追加して再試行してください。' : 'The generated calendar needs a date field. Add one to the request and try again.'};
+          }
+        }
+        return { spec: { name: spec.name, tableName: typeof spec.tableName === "string" && spec.tableName.trim() ? spec.tableName.trim().slice(0, 80) : spec.name, icon: spec.icon, description: spec.description, columns, definition: { views }, sample: requestedSampleRows(spec.sample, columns, sampleCount) }, source: "model" };
       }
     } catch { /* fall through to a template */ }
   }
@@ -445,7 +497,7 @@ export async function specFromPrompt(prompt, { complete } = {}) {
   const t = TEMPLATES[id];
   const room = text.match(/#([\p{L}\p{N}_-]+)/u)?.[1];
   return {
-    spec: { name: t.name, tableName: t.tableName || t.name, icon: t.icon, description: t.description, columns: t.columns, definition: { views: id === "tracker" ? requestedAppViews(text, t.views, t.columns) : t.views }, template: id, sample: t.sample },
+    spec: { name: t.name, tableName: t.tableName || t.name, icon: t.icon, description: t.description, columns: t.columns, definition: { views: requestedAppViews(text, t.views, t.columns) }, template: id, sample: requestedSampleRows(t.sample, t.columns, sampleCount) },
     source: "template",
     room: room || null,
   };
