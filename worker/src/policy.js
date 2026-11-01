@@ -93,14 +93,7 @@ export function sessionDeadline(policy, session) {
 /// The refusal for a session this workspace's rules have outgrown, or null.
 export async function policyDenial(env, session, orgId, { fresh = false, deferWorkspaceDeletionToFence = false } = {}) {
   if (!session || !orgId) return null;
-  // Only notification requests with an equivalent final SQL fence may defer deletion.
   const unavailable = { status: 503, body: { message: "Unable to verify workspace status. Try again.", code: "workspace-status-unavailable", orgId } };
-  let due = null;
-  if (!deferWorkspaceDeletionToFence) {
-    const { deletionDue } = await import("./workspaceDeletion.js");
-    try { due = await deletionDue(env.DB, orgId, { fresh: true }); }
-    catch { return unavailable; }
-  }
   // The workspace's single sign-on first: required of this person, or
   // an SSO sign-in past its hours.
   const { ssoDenial } = await import("./sso.js");
@@ -118,7 +111,10 @@ export async function policyDenial(env, session, orgId, { fresh = false, deferWo
   }
   // Signed out of this workspace (by its admin, or its rules), whatever
   // the session may still open elsewhere.
-  if (await endedHere(env.DB, session.token, orgId, { fresh })) {
+  let state;
+  try { state = await endedHere(env.DB, session.token, orgId, { fresh, includeDeletion: true }); }
+  catch { return unavailable; }
+  if (state.ended) {
     return { status: 401, body: { message: "This workspace asks you to sign in again.", code: "session-policy", orgId, rule: "ended" } };
   }
   const policy = await sessionPolicy(env.DB, orgId, { fresh });
@@ -127,9 +123,10 @@ export async function policyDenial(env, session, orgId, { fresh = false, deferWo
     status: 401,
     body: { message: "This workspace asks you to sign in again.", code: "session-policy", orgId, rule },
   };
-  if (!due) return null;
+  // Notification delivery checks deletion and performs any promotion atomically.
+  if (deferWorkspaceDeletionToFence || !state.due) return null;
   const { deletionOwnerGate } = await import('./workspaceOwnerGate.js');
-  try { return await deletionOwnerGate(env, session, orgId, due); }
+  try { return await deletionOwnerGate(env, session, orgId, state.due); }
   catch { return unavailable; }
 }
 

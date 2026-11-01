@@ -104,19 +104,31 @@ export async function signedIn(env, request, token, githubId, method) {
 const SEEN_EVERY_MS = 5 * 60 * 1000;
 
 /// Signed out of this workspace, by its admin or its rules.
-export async function endedHere(db, token, orgId, { fresh = false } = {}) {
-  if (!token || !orgId) return false;
-  const query = db.prepare("SELECT last_seen_at, ended_at FROM session_workspaces WHERE token = ?1 AND org_id = ?2").bind(token, orgId).first();
-  const row = fresh ? await query : await query.catch(() => null);
-  if (row?.ended_at) return true;
+export async function endedHere(db, token, orgId, { fresh = false, includeDeletion = false } = {}) {
+  if (!orgId || (!token && !includeDeletion)) return includeDeletion ? { ended: false, due: null } : false;
+  // Policy callers already need this read. Including the deletion lookup in
+  // the same indexed query avoids another D1 round trip without using cache.
+  const sql = includeDeletion
+    ? `SELECT sw.last_seen_at,sw.ended_at,(sw.token IS NOT NULL) AS present,
+         (SELECT due_at FROM workspace_deletions WHERE org_id=?2) AS deletion_due
+       FROM (SELECT 1) seed LEFT JOIN session_workspaces sw ON sw.token=?1 AND sw.org_id=?2`
+    : 'SELECT last_seen_at, ended_at FROM session_workspaces WHERE token = ?1 AND org_id = ?2';
+  const query = db.prepare(sql).bind(token || null, orgId).first();
+  // The combined query is an authorization read; a failure must not be
+  // mistaken for a workspace without a deletion request.
+  const row = fresh || includeDeletion ? await query : await query.catch(() => null);
+  if (includeDeletion && !row) throw new Error('Workspace status unavailable.');
+  const result = ended => includeDeletion ? { ended, due: row?.deletion_due || null } : ended;
+  if (row?.ended_at) return result(true);
+  const present = includeDeletion ? Boolean(row.present) : Boolean(row);
   // Used here: noted, at most every few minutes.
-  if (!row || Date.now() - Date.parse(row.last_seen_at) > SEEN_EVERY_MS) {
+  if (token && (!present || Date.now() - Date.parse(row.last_seen_at) > SEEN_EVERY_MS)) {
     await db.prepare(
       `INSERT INTO session_workspaces (token, org_id, last_seen_at) VALUES (?1, ?2, ?3)
        ON CONFLICT(token, org_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`
     ).bind(token, orgId, new Date().toISOString()).run().catch(() => {});
   }
-  return false;
+  return result(false);
 }
 
 /// Sign these sessions out of one workspace only, and close the sockets

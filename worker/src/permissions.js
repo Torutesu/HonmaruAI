@@ -139,7 +139,9 @@ export async function ensureOwner(db, orgId) {
   const done = await db
     .prepare(
       `UPDATE memberships SET role = 'owner' WHERE org_id = ?1 AND user_github_id = ?2 AND role = 'admin'
-         AND NOT EXISTS (SELECT 1 FROM memberships WHERE org_id = ?1 AND role = 'owner')`
+         AND NOT EXISTS (SELECT 1 FROM memberships WHERE org_id = ?1 AND role = 'owner')
+         AND NOT EXISTS (SELECT 1 FROM workspace_deletions WHERE org_id = ?1 AND COALESCE(due_at,'') != '')
+         AND NOT EXISTS (SELECT 1 FROM workspace_tombstones WHERE org_id = ?1)`
     )
     .bind(orgId, String(first.userId))
     .run();

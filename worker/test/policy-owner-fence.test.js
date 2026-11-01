@@ -202,7 +202,7 @@ test('a fresh deletion status read failure is a fail-closed 503 with no promotio
  await env.DB.exec(schema.replace(/\n/g,' '));const org='personal:owner-db-failure',user='8284';
  await upsertUser(env.DB,{githubId:user,login:'statusfailure',name:'Failure'});await upsertMembership(env.DB,org,user,'admin');const token=await createSession(env.DB,user,'fixture');
  await env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,user).run();
- const db={prepare(sql){if(sql.startsWith('SELECT due_at FROM workspace_deletions'))throw new Error('read failed');return env.DB.prepare(sql)},batch:env.DB.batch.bind(env.DB)};
+ const db={prepare(sql){if(sql.includes('AS deletion_due'))throw new Error('read failed');return env.DB.prepare(sql)},batch:env.DB.batch.bind(env.DB)};
  const req=new Request(`https://test/channels/activity?orgId=${encodeURIComponent(org)}`,{headers:{'x-session-token':token}});
  const response=await handleChannels(req,{...env,DB:db},new URL(req.url),{after:()=>{}});
  expect(response.status).toBe(503);expect((await response.json()).code).toBe('workspace-status-unavailable');
