@@ -72,15 +72,23 @@ interface AppTriggerChoice extends WorkflowAppOption { app: App }
 
 const blankStep = (type: StepType): Step => ({ type, ...(type === 'followup' ? { minutes: 1440 } : {}) })
 
-function SavedFilters({where,table}:{where:FilterMap;table?:Table}) {
+function SavedFilters({where,table,onRemove,disabled}:{where:FilterMap;table?:Table;onRemove:(key:string)=>void;disabled:boolean}) {
   const t=useT()
+  const [confirmKey,setConfirmKey]=useState<string|null>(null)
   if (!Object.keys(where).length) return null
   return <div className="row-sub">
     <strong>{t('Execution condition')}</strong>
-    <dl>{Object.entries(where).map(([key,value])=><React.Fragment key={key}>
-      <dt>{table?.columns.find(c=>c.id===key||c.name.toLowerCase()===key.toLowerCase())?.name||key}</dt>
-      <dd>{filterValueText(value)}</dd>
-    </React.Fragment>)}</dl>
+    <dl>{Object.entries(where).map(([key,value])=>{
+      const name=table?.columns.find(c=>c.id===key||c.name.toLowerCase()===key.toLowerCase())?.name||key
+      return <React.Fragment key={key}>
+        <dt>{name}{name!==key&&<small> ({key})</small>}</dt>
+        <dd><span>{filterValueText(value)}</span>{confirmKey===key?<div>
+          <p role="alert">{t('Removing this condition may cause the workflow to run for more records.')}</p>
+          <button type="button" disabled={disabled} onClick={()=>setConfirmKey(null)}>{t('Cancel')}</button>
+          <button type="button" disabled={disabled} onClick={()=>{onRemove(key);setConfirmKey(null)}}>{t('Remove condition')}</button>
+        </div>:<button type="button" disabled={disabled} aria-label={`${t('Remove condition')}: ${key}`} onClick={()=>setConfirmKey(key)}>{t('Remove condition')}</button>}</dd>
+      </React.Fragment>
+    })}</dl>
     {Object.values(where).some(value=>Array.isArray(value)&&!value.length)&&<p role="alert">{t('An empty candidate list matches no records.')}</p>}
     {table&&unresolvedFilterKeys(where,table.columns).length>0&&<p role="alert">{t('Some saved condition fields are unavailable. Repair them before saving.')}</p>}
   </div>
@@ -91,6 +99,7 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
   const t = useT()
   const [name, setName] = useState(initial?.name || '')
   const [trigger, setTrigger] = useState<Trigger>(initial ? structuredClone(initial.trigger) : { type: 'manual' })
+  const [clearedFilters,setClearedFilters]=useState<'row'|'app_record_change'|null>(null)
   const [format,setFormat]=useState(initial?.steps[0]?.type==='code'?'code':'form')
   const [formSteps,setSteps]=useState<Step[]>(initial?.steps[0]?.type!=='code'&&initial?structuredClone(initial.steps):[blankStep('post')])
   const [program,setProgram]=useState<Step>(initial?.steps[0]?.type==='code'?structuredClone(initial.steps[0]):{type:'code',code:'console.log("Hello from your workflow");'})
@@ -121,6 +130,8 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
     if (!rowKey || !rowEditable) return
     const where = {...rowWhere}
     if (value) Object.defineProperty(where,rowKey,{value:[value],enumerable:true,configurable:true,writable:true}); else delete where[rowKey]
+    if(value)setClearedFilters(null)
+    else if(rowKeys.length && !Object.keys(where).length)setClearedFilters('row')
     // The public Trigger type predates scalar filters; unchanged predicates
     // still go back to the server in their original representation.
     setTrigger({...trigger,where:Object.keys(where).length ? where as Trigger['where'] : undefined})
@@ -129,8 +140,22 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
   const triggerEntity = triggerApp?.entities.find(entity => entity.key === trigger.entityId)
   const setAppWhere = (key:string,value:ConditionScalar|ConditionScalar[]|undefined) => {
     const where={...trigger.when?.where}
+    const hadKey=Object.hasOwn(where,key)
     if(value===undefined || (Array.isArray(value)&&!value.length)) delete where[key]; else Object.defineProperty(where,key,{value,enumerable:true,configurable:true,writable:true})
+    if(value!==undefined && (!Array.isArray(value)||value.length))setClearedFilters(null)
+    else if(hadKey&&!Object.keys(where).length)setClearedFilters('app_record_change')
     setTrigger({...trigger,when:Object.keys(where).length?{where}:undefined})
+  }
+  const removeRowFilter = (key:string) => {
+    if (!rowWhere || !Object.hasOwn(rowWhere,key)) return
+    const where={...rowWhere}; delete where[key]
+    if (!Object.keys(where).length) setClearedFilters('row')
+    setTrigger({...trigger,where:Object.keys(where).length ? where as Trigger['where'] : undefined})
+  }
+  const removeAppFilter = (key:string) => {
+    if (!trigger.when?.where || !Object.hasOwn(trigger.when.where,key)) return
+    if (Object.keys(trigger.when.where).length===1) setClearedFilters('app_record_change')
+    setAppWhere(key,undefined)
   }
   const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone } catch { return 'UTC' } })()
   return (
@@ -140,6 +165,7 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
       <div className="hx-step">
         <select value={trigger.type} onChange={(e) => {
           const type = e.target.value as TriggerType
+          setClearedFilters(null)
           setTrigger(type === 'schedule' ? { type, cadence: 'weekdays', hour: 9, minute: 0, timezone: tz } : type === 'row' ? { type, on: 'changed', tableId: tables[0]?.id } : type === 'app_record_change' ? {type,appId:triggerApps[0]?.app.id,entityId:triggerApps[0]?.entities[0]?.key,events:['insert','update']} : { type })
         }} aria-label={t('Trigger')}>
           <option value="manual">{t('By hand')}</option>
@@ -155,7 +181,7 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
         )}
         {trigger.type === 'row' && (
           <span className="hx-inline">
-            <select value={trigger.tableId || ''} onChange={(e) => setTrigger({ ...trigger, tableId: e.target.value, where: undefined })} aria-label={t('Table')}>
+            <select value={trigger.tableId || ''} onChange={(e) => {setClearedFilters(null);setTrigger({ ...trigger, tableId: e.target.value, where: undefined })}} aria-label={t('Table')}>
               {tables.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select>
             <select value={trigger.on} onChange={(e) => setTrigger({ ...trigger, on: e.target.value as Trigger['on'], ...(e.target.value==='deleted'?{where:undefined,column:undefined}:{}) })} aria-label={t('When')}>
@@ -174,18 +200,20 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
             {whereCol&&!rowEditable&&<span className="row-sub">{t('This condition cannot be edited here.')}</span>}
           </span>
         )}
-        {trigger.type==='row'&&rowWhere&&<SavedFilters where={rowWhere} table={table}/>}
+        {trigger.type==='row'&&rowWhere&&<SavedFilters where={rowWhere} table={table} onRemove={removeRowFilter} disabled={busy}/>}
+        {trigger.type==='row'&&clearedFilters==='row'&&!rowWhere&&<p role="alert">{t('All field conditions were removed. More records may trigger this workflow.')}</p>}
         {trigger.type==='row'&&rowWhere&&table&&Object.keys(rowWhere).some(key=>!rowKeys.includes(key))&&<p className="row-sub">{t('Some conditions cannot be edited here and will be preserved.')}</p>}
         {trigger.type === 'row' && tables.length === 0 && <div className="row-sub">{t('Build an app first: its table is what a row trigger watches.')}</div>}
         {trigger.type === 'app_record_change' && <div className="hx-inline">
-          <select aria-label={t('App')} value={trigger.appId||''} onChange={e=>{const option=triggerApps.find(x=>x.app.id===e.target.value);setTrigger({type:'app_record_change',appId:e.target.value,entityId:option?.entities[0]?.key,events:trigger.events?.length?trigger.events:['insert','update']})}}>
+          <select aria-label={t('App')} value={trigger.appId||''} onChange={e=>{setClearedFilters(null);const option=triggerApps.find(x=>x.app.id===e.target.value);setTrigger({type:'app_record_change',appId:e.target.value,entityId:option?.entities[0]?.key,events:trigger.events?.length?trigger.events:['insert','update']})}}>
             <option value="">{t('Choose an app')}</option>{triggerApps.map(option=><option key={option.app.id} value={option.app.id}>{option.app.name}</option>)}
           </select>
-          <select aria-label={t('Entity')} value={trigger.entityId||''} onChange={e=>setTrigger({...trigger,entityId:e.target.value,when:undefined})}>
+          <select aria-label={t('Entity')} value={trigger.entityId||''} onChange={e=>{setClearedFilters(null);setTrigger({...trigger,entityId:e.target.value,when:undefined})}}>
             <option value="">{t('Choose an entity')}</option>{triggerApp?.entities.map(entity=><option key={entity.key} value={entity.key}>{entity.table.name}</option>)}
           </select>
           {(['insert','update','delete'] as const).map(event=><label className="hx-inline" key={event}><input type="checkbox" checked={trigger.events?.includes(event)||false} onChange={e=>{const events=new Set(trigger.events||[]);e.target.checked?events.add(event):events.delete(event);setTrigger({...trigger,events:[...events] as Trigger['events']})}}/>{t(event==='insert'?'is added':event==='update'?'is updated':'is deleted')}</label>)}
-          {trigger.when?.where&&<SavedFilters where={trigger.when.where} table={triggerEntity?.table}/>}
+          {trigger.when?.where&&<SavedFilters where={trigger.when.where} table={triggerEntity?.table} onRemove={removeAppFilter} disabled={busy}/>}
+          {clearedFilters==='app_record_change'&&!trigger.when?.where&&<p role="alert">{t('All field conditions were removed. More records may trigger this workflow.')}</p>}
           {triggerEntity?.table.columns.map(column=>{
             const keys=filterKeysForColumn(trigger.when?.where,triggerEntity.table.columns,column), key=keys[0]||newFilterKey(triggerEntity.table.columns,column)
             const old=keys.length===1?trigger.when?.where[keys[0]]:undefined
