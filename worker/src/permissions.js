@@ -108,6 +108,7 @@ export function legacyDeletionOwnerPromotion(db, orgId, userId, authoritySql, au
     AND NOT EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND role='owner')
     AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(COALESCE(role,'member'))='admin')
     AND EXISTS(SELECT 1 FROM workspace_deletions WHERE org_id=?1 AND COALESCE(due_at,'')!='' AND purge_started_at IS NULL)
+    AND NOT EXISTS(SELECT 1 FROM workspace_tombstones WHERE org_id=?1)
     AND EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?2 ${authoritySql})`)
     .bind(orgId,String(userId),...authorityArgs);
 }

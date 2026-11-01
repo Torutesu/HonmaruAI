@@ -202,6 +202,16 @@ test('the canonical legacy owner promotion runs before a concurrent deletion res
  expect((await appActivity(injected.db,org,member,p)).map(x=>x.message.body)).toEqual(['Legacy owner note']);
 });
 
+test('a tombstoned workspace cannot promote an admin during notification access',async()=>{
+ const who=await prepareLegacyAdmin();const p=await appActivityProof(env,org,who);expect(p).toBeTruthy();
+ const injected=beforeRead(async()=>{
+  await env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,member).run();
+  await env.DB.prepare("INSERT INTO workspace_tombstones(org_id,deleted_at) VALUES (?,'2026-01-01')").bind(org).run();
+ });
+ await expect(appActivity(injected.db,org,member,p)).rejects.toThrow('authorization changed');
+ expect((await env.DB.prepare('SELECT role FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).first()).role).toBe('admin');
+});
+
 test('preliminary policy proof does not promote without a trusted IP',async()=>{
  const who=await prepareLegacyAdmin();
  await env.DB.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at) VALUES (?,'2090-01-01',?,'2026-01-01')").bind(org,member).run();
