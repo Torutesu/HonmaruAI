@@ -1919,3 +1919,58 @@ test('database generation refuses captured columns changed before model dispatch
   expect(changed).toBe(true);expect(response.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
  } finally {vi.unstubAllGlobals()}
 });
+
+test('custom generation sends only published capability fields owned by the caller',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const at='2026-01-01T00:00:00Z';
+ await env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,published_version,updated_at) VALUES(?,?,'calculate',2,'DRAFT_SYNTHETIC_SECRET','return 123;',1,?)").bind(ORG,app.id,at).run();
+ await env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,updated_at) VALUES(?,?,'draft_only',1,'DRAFT_ONLY_SYNTHETIC_SECRET',NULL,?)").bind(ORG,app.id,at).run();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','mine',1,'https://api.github.com/repos/allowed/project/issues','GET','OWN_SYNTHETIC_TOKEN',0)").bind(ORG,app.id).run();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9102','other',1,'https://api.github.com/repos/other/PRIVATE_ENDPOINT/issues','GET','OTHER_SYNTHETIC_TOKEN',1)").bind(ORG,app.id).run();
+ await env.DB.prepare("INSERT INTO hx_gateways(id,org_id,name,token_hash,created_by,created_at) VALUES('test_gateway',?,'Test node','GATEWAY_SYNTHETIC_HASH','9101',1)").bind(ORG).run();
+ let prompt='';const mocked=vi.fn(async(_url,init)=>{prompt=init.body;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({html:'<p>Tracker</p>'})}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}})});
+ vi.stubGlobal('fetch',mocked);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/custom`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Create a tracker'})}),{...env,OPENAI_API_KEY:'sk-test'});
+  expect(response.status).toBe(200);expect(mocked).toHaveBeenCalledTimes(1);
+  expect(prompt).toContain('return 123;');expect(prompt).toContain('repos/allowed/project/issues');expect(prompt).toContain('Test node');
+  for(const secret of ['DRAFT_SYNTHETIC_SECRET','DRAFT_ONLY_SYNTHETIC_SECRET','OWN_SYNTHETIC_TOKEN','OTHER_SYNTHETIC_TOKEN','PRIVATE_ENDPOINT','GATEWAY_SYNTHETIC_HASH'])expect(prompt).not.toContain(secret);
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('a non-admin app owner can generate custom code with their own capabilities',async()=>{
+ const {app}=await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9102','mine',1,'https://api.github.com/repos/mika/allowed/issues','GET','MIKA_SECRET',1)").bind(ORG,app.id).run();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','other',1,'https://api.github.com/repos/toru/PRIVATE_OWNER/issues','GET','TORU_SECRET',1)").bind(ORG,app.id).run();
+ let prompt='';const mocked=vi.fn(async(_url,init)=>{prompt=init.body;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({html:'<p>Tracker</p>'})}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}})});
+ vi.stubGlobal('fetch',mocked);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/custom`,{method:'POST',headers:headers(mika),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Create a tracker'})}),{...env,OPENAI_API_KEY:'sk-test'});
+  expect(response.status).toBe(200);expect(mocked).toHaveBeenCalledTimes(1);
+  expect(prompt).toContain('repos/mika/allowed/issues');
+  for(const secret of ['MIKA_SECRET','TORU_SECRET','PRIVATE_OWNER'])expect(prompt).not.toContain(secret);
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('capability fence distinguishes changed gateway creation but cannot distinguish identical recreated values',async()=>{
+ const {mayGenerateFromSchema}=await import('../src/harness/generationAccess.js');
+ const {getTable}=await import('../src/harness/tables.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const at='2026-01-01T00:00:00Z';
+ const insertAction=()=>env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,published_version,updated_at) VALUES(?,?,'calc',1,'return 1;','return 1;',1,?)").bind(ORG,app.id,at).run();
+ const insertConnection=token=>env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','api',1,'https://api.github.com/repos/a/b/issues','GET',?,1)").bind(ORG,app.id,token).run();
+ const insertGateway=at=>env.DB.prepare("INSERT INTO hx_gateways(id,org_id,name,token_hash,created_by,created_at) VALUES('g1',?,'Node',?,'9101',?)").bind(ORG,`hash-${at}`,at).run();
+ await insertAction();await insertConnection('secret-one');await insertGateway(1);
+ const table=await getTable(env.DB,ORG,app.tableId),entities=[{key:'primary',table}];
+ const capabilities={actions:[{name:'calc',code:'return 1;',version:1,publishedVersion:1}],connections:[{name:'api',endpoint:'https://api.github.com/repos/a/b/issues',method:'GET',enabled:1,version:1}],gateways:[{id:'g1',name:'Node',createdAt:1}]};
+ const check=()=>mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities,[table],null,[],capabilities);
+ expect(await check()).toBe(true);
+ await env.DB.prepare("DELETE FROM hx_app_actions WHERE org_id=? AND app_id=? AND name='calc'").bind(ORG,app.id).run();await insertAction();
+ expect(await check()).toBe(true);
+ await env.DB.prepare("DELETE FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='api'").bind(ORG,app.id).run();await insertConnection('secret-two');
+ expect(await check()).toBe(true);
+ await env.DB.prepare("DELETE FROM hx_gateways WHERE id='g1' AND org_id=?").bind(ORG).run();await insertGateway(2);
+ expect(await check()).toBe(false);
+ await env.DB.prepare("DELETE FROM hx_gateways WHERE id='g1' AND org_id=?").bind(ORG).run();await insertGateway(1);
+ expect(await check()).toBe(true);
+});
