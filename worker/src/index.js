@@ -1480,9 +1480,10 @@ async function handle(request, env, url, ctx) {
         // public or private, seen or not — is somebody else's channel.
         const members = await listMembers(env.DB, body.orgId, session.github_id);
         const refs = Array.isArray(body.members) ? body.members.map(String) : [];
+        if(refs.some(ref=>!members.some(member=>member.ref===ref)))return json({message:"Selected members changed. Reload and choose the members again."},409);
         const chosen=members.filter(m=>m.userId===String(session.github_id) || refs.includes(m.ref));
         const created=await createPrivateBusiness(env.DB,body.orgId,{name:body.name,actorId:session.github_id,actorLogin:me?.login,members:chosen});
-        if (!created) return json({message:"That channel name is unavailable. Choose another name, or reload if your workspace access changed."},409);
+        if (!created) return json({message:"That channel name is unavailable or workspace membership changed. Choose another name or reload and choose the members again."},409);
         const {business,logins}=created;
         await tellMembers(env, body.orgId, logins);
         await tellRoom(body.orgId);

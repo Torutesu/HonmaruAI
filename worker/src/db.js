@@ -998,17 +998,24 @@ export async function createPrivateBusiness(db, orgId, { name, actorId, actorLog
   if(!slug || !actor || !actorLogin || actor.login!==actorLogin) return null;
   const at=new Date().toISOString(), channel=`b:${slug}`;
   const chosen=[...new Map((members||[]).map(member=>[member.userId,member])).values()];
-  const requested=JSON.stringify(chosen.map(({userId,login,joinedAt})=>({userId,login,joinedAt})));
+  if(new Set(chosen.map(member=>member.login)).size!==chosen.length)return null;
+  const requested=JSON.stringify(chosen.map(({userId,login,joinedAt,role})=>({userId,login,joinedAt,role})));
   const result=await db.batch([
     db.prepare(`INSERT OR IGNORE INTO businesses(org_id,slug,name,created_by,created_at,private)
       SELECT ?1,?2,?3,?4,?5,1 WHERE EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id
         WHERE m.org_id=?1 AND m.user_github_id=?4 AND m.created_at=?6 AND LOWER(COALESCE(m.role,'guest'))!='guest' AND u.login=?7)
       AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2)
       AND NOT EXISTS(SELECT 1 FROM conversation_members WHERE org_id=?1 AND channel='b:'||?2)
+      AND NOT EXISTS(SELECT 1 FROM json_each(?8) selected
+        LEFT JOIN memberships m ON m.org_id=?1 AND m.user_github_id=json_extract(selected.value,'$.userId')
+        LEFT JOIN users u ON u.github_id=m.user_github_id
+        WHERE m.user_github_id IS NULL OR m.created_at IS NOT json_extract(selected.value,'$.joinedAt')
+          OR LOWER(m.role) IS NOT json_extract(selected.value,'$.role')
+          OR COALESCE(u.login,m.user_github_id) IS NOT json_extract(selected.value,'$.login'))
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions WHERE org_id=?1 AND purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones WHERE org_id=?1)`)
-      .bind(orgId,slug,String(name).trim().slice(0,120),String(actorId),at,actor.joinedAt,actorLogin),
-    db.prepare(`INSERT OR IGNORE INTO conversation_members(org_id,channel,login,added_by,added_at)
+      .bind(orgId,slug,String(name).trim().slice(0,120),String(actorId),at,actor.joinedAt,actorLogin,requested),
+    db.prepare(`INSERT INTO conversation_members(org_id,channel,login,added_by,added_at)
       SELECT ?1,?2,COALESCE(u.login,m.user_github_id),?3,?4 FROM json_each(?5) requested
       JOIN memberships m ON m.org_id=?1 AND m.user_github_id=json_extract(requested.value,'$.userId')
         AND m.created_at=json_extract(requested.value,'$.joinedAt')

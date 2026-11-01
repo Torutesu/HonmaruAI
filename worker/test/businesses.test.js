@@ -395,7 +395,7 @@ test('a competing creation cannot attach private members to the existing public 
   expect((await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=? AND channel='b:race-creation'").bind(ORG).all()).results).toEqual([]);
 });
 
-test('private creation fences revoked creator membership and skips stale invitations',async()=>{
+test('private creation fences revoked creator membership and rejects stale invitations',async()=>{
   const {createPrivateBusiness}=await import('../src/db.js');
   const {listMembers}=await import('../src/team.js');
   const members=await listMembers(env.DB,ORG,'6101');
@@ -403,10 +403,41 @@ test('private creation fences revoked creator membership and skips stale invitat
   expect(await createPrivateBusiness(env.DB,ORG,{name:'Stale creator login',actorId:'6101',actorLogin:'owner',members:staleLogin})).toBeNull();
   await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(ORG,'6102').run();
   const created=await createPrivateBusiness(env.DB,ORG,{name:'Stale invitations',actorId:'6101',actorLogin:'owner',members});
-  expect(created.logins).toEqual(['owner']);
+  expect(created).toBeNull();
+  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id=? AND slug='stale-invitations'").bind(ORG).first()).toBeNull();
   await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=? AND user_github_id=?").bind(ORG,'6101').run();
   expect(await createPrivateBusiness(env.DB,ORG,{name:'Revoked creator',actorId:'6101',actorLogin:'owner',members})).toBeNull();
   expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id=? AND slug='revoked-creator'").bind(ORG).first()).toBeNull();
+});
+
+test.each(['removed','rejoined','login','role'])('private creation rejects a member whose %s changes immediately before commit',async mutation=>{
+  const {createPrivateBusiness}=await import('../src/db.js');
+  const {listMembers}=await import('../src/team.js');
+  const members=await listMembers(env.DB,ORG,'6101');
+  const racing=new Proxy(env.DB,{get(db,key){
+    if(key==='batch')return async statements=>{
+      if(mutation==='removed')await db.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(ORG,'6102').run();
+      if(mutation==='rejoined')await db.prepare("UPDATE memberships SET created_at='2099-01-01' WHERE org_id=? AND user_github_id=?").bind(ORG,'6102').run();
+      if(mutation==='login')await db.prepare("UPDATE users SET login='new-member' WHERE github_id='6102'").run();
+      if(mutation==='role')await db.prepare("UPDATE memberships SET role='guest' WHERE org_id=? AND user_github_id=?").bind(ORG,'6102').run();
+      return db.batch(statements);
+    };
+    return typeof db[key]==='function'?db[key].bind(db):db[key];
+  }});
+  expect(await createPrivateBusiness(racing,ORG,{name:'Snapshot race',actorId:'6101',actorLogin:'owner',members})).toBeNull();
+  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id=? AND slug='snapshot-race'").bind(ORG).first()).toBeNull();
+  expect((await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=? AND channel='b:snapshot-race'").bind(ORG).all()).results).toEqual([]);
+});
+
+test('private creation rejects a selected reference that disappeared before roster loading',async()=>{
+  const {listMembers}=await import('../src/team.js');
+  const members=await listMembers(env.DB,ORG,'6101');
+  const ref=members.find(member=>member.userId==='6102').ref;
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(ORG,'6102').run();
+  const response=await SELF.fetch('https://example.com/businesses',{method:'POST',headers:headers(ownerToken),body:JSON.stringify({orgId:ORG,name:'Missing selected member',private:true,members:[ref]})});
+  expect(response.status).toBe(409);
+  expect((await response.json()).message).toContain('Selected members changed');
+  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id=? AND slug='missing-selected-member'").bind(ORG).first()).toBeNull();
 });
 
 test('private creation refuses a name with orphaned members without deleting or granting them access',async()=>{
