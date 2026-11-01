@@ -201,6 +201,255 @@ test('the app data viewer keeps one record-create action in the table toolbar', 
   expect(tree!.root.findAllByType('h2').some(node => node.children.includes('タスク'))).toBe(true)
   expect(tree!.root.findAllByType('button').some(node => node.children.includes('Add a row'))).toBe(false)
 })
+test('a shared personal-looking ID and a legacy collision offer safe personal-only recovery',async()=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const shared={id:'personal_collision',type:'table',name:'Shared',rows:[]}
+  const personal={...shared,name:'Old personal'}
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:false}),
+    personalViews:vi.fn().mockResolvedValue({revision:1,activeView:shared.id,views:[personal],computed:[personal],layouts:{}}),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:false}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  const tabs=tree!.root.findAllByProps({role:'tab'})
+  expect(tabs).toHaveLength(2)
+  expect(tabs[0].props['aria-selected']).toBe(true)
+  expect(tabs[0].findAllByProps({className:'hx-personal-badge'})).toHaveLength(0)
+  expect(tabs[1].props.disabled).toBe(true)
+  expect(tabs[1].props.title).toContain('IDが重複')
+  act(()=>tree!.root.findByProps({'aria-label':'新しいビュー'}).props.onClick())
+  expect(tree!.root.findAllByType('button').some(node=>node.children.includes('個人ビューを削除'))).toBe(false)
+  act(()=>tree!.root.findAllByType('button').find(node=>node.children.includes('重複を解消'))!.props.onClick())
+  expect(JSON.stringify(tree!.toJSON())).toContain('共有ビューとレコードは残ります')
+  const saved={revision:2,activeView:shared.id,views:[],computed:[],layouts:{}}
+  state.api.savePersonalViews=vi.fn().mockResolvedValue(saved)
+  await act(async()=>{tree!.root.findAllByType('button').find(node=>node.children.includes('個人ビューのみ削除する'))!.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(state.api.savePersonalViews).toHaveBeenCalledOnce()
+  expect(state.api.savePersonalViews.mock.calls[0][1].views).toEqual([])
+  expect(state.api.savePersonalViews.mock.calls[0][1].activeView).toBe(shared.id)
+  expect(tree!.root.findAllByProps({role:'tab'})).toHaveLength(1)
+})
+test('a late personal-view read cannot restore a deleted view and focus returns to the shared tab',async()=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const shared={id:'all',type:'table',name:'Shared',rows:[]},mine={id:'personal_mine',type:'table',name:'Mine',rows:[]}
+  const initial={revision:1,activeView:mine.id,views:[mine],computed:[mine],layouts:{[mine.id]:{order:['title'],widths:{}}}}
+  const deleted={revision:2,activeView:shared.id,views:[],computed:[],layouts:{}}
+  let resolveOld!:(value:typeof initial)=>void
+  const delayed=new Promise<typeof initial>(resolve=>{resolveOld=resolve})
+  const focus=vi.fn()
+  const appData={app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:true}
+  const refreshedRow={id:'row_new',values:{title:'Refreshed row'},updatedAt:'2026-11-02T00:00:00Z'}
+  state.api={
+    app:vi.fn().mockResolvedValueOnce(appData).mockResolvedValue({...appData,rows:[refreshedRow],views:[{...shared,rows:[refreshedRow]}]}),
+    personalViews:vi.fn().mockResolvedValueOnce(initial).mockReturnValueOnce(delayed).mockResolvedValueOnce(deleted),savePersonalViews:vi.fn().mockResolvedValue(deleted),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>,{createNodeMock:element=>element.props.role==='tab'?{focus}:null});await new Promise(resolve=>setTimeout(resolve,0))})
+  act(()=>tree!.root.findByProps({'aria-label':'データを更新'}).props.onClick())
+  act(()=>tree!.root.findByProps({'aria-label':'新しいビュー / 編集'}).props.onClick())
+  const findButton=(label:string)=>tree!.root.findAllByType('button').find(node=>node.children.includes(label))!
+  act(()=>findButton('個人ビューを削除').props.onClick())
+  await act(async()=>{findButton('削除する').props.onClick();await Promise.resolve()})
+  expect(state.api.savePersonalViews).toHaveBeenCalledOnce()
+  expect(tree!.root.findAllByProps({role:'tab'})).toHaveLength(1)
+  expect(focus).toHaveBeenCalled()
+  await act(async()=>{resolveOld(initial);await delayed;await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(tree!.root.findAllByProps({role:'tab'})).toHaveLength(1)
+  expect(tree!.root.findAllByProps({role:'tab'})[0].props['aria-selected']).toBe(true)
+  expect(tree!.root.findAllByType('input').some(node=>node.props.value==='Refreshed row')).toBe(true)
+})
+test('a stale preferences read is recomputed before showing refreshed rows in a personal view',async()=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const oldRow={id:'row_1',values:{title:'Old value'},updatedAt:'2026-11-01T00:00:00Z'}
+  const newRow={id:'row_1',values:{title:'Updated value'},updatedAt:'2026-11-02T00:00:00Z'}
+  const shared={id:'all',type:'table',name:'Shared',rows:[oldRow]},mine={id:'personal_mine',type:'table',name:'Mine',rows:[oldRow]}
+  const initial={revision:1,appVersion:1,activeView:mine.id,views:[mine],computed:[mine],layouts:{}}
+  const saved={...initial,revision:2}
+  const recomputed={...saved,appVersion:2,computed:[{...mine,rows:[newRow]}]}
+  let resolveOld!:(value:typeof initial)=>void
+  const delayed=new Promise<typeof initial>(resolve=>{resolveOld=resolve})
+  const appData={app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[oldRow],views:[shared],canCustomize:true}
+  state.api={
+    app:vi.fn().mockResolvedValueOnce(appData).mockResolvedValueOnce({...appData,rows:[newRow],views:[{...shared,rows:[newRow]}]}).mockResolvedValue({...appData,app:{...appData.app,version:2},rows:[newRow],views:[{...shared,rows:[newRow]}]}),
+    personalViews:vi.fn().mockResolvedValueOnce(initial).mockReturnValueOnce(delayed).mockResolvedValueOnce(recomputed),savePersonalViews:vi.fn().mockResolvedValue(saved),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  act(()=>tree!.root.findByProps({'aria-label':'データを更新'}).props.onClick())
+  act(()=>tree!.root.findAllByType('button').find(node=>node.children.includes('フィールド'))!.props.onClick())
+  await act(async()=>{tree!.root.findAllByType('button').find(node=>node.children.includes('保存'))!.props.onClick();await Promise.resolve()})
+  await act(async()=>{resolveOld(initial);await delayed;await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(state.api.personalViews).toHaveBeenCalledTimes(3)
+  expect(tree!.root.findAllByProps({role:'tab'}).find(node=>node.props['aria-selected'])?.children).toContain('Mine')
+  expect(tree!.root.findAllByType('input').some(node=>node.props.value==='Updated value')).toBe(true)
+  expect(tree!.root.findAllByType('input').some(node=>node.props.value==='Old value')).toBe(false)
+})
+test('a delayed deletion response cannot overwrite a newer cross-device revision or steal focus',async()=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const shared={id:'all',type:'table',name:'Shared',rows:[]},mine={id:'personal_mine',type:'table',name:'Mine',rows:[]}
+  const initial={revision:1,activeView:mine.id,views:[mine],computed:[mine],layouts:{}}
+  const newerView={...mine,name:'Other device'}
+  const newer={revision:3,activeView:mine.id,views:[newerView],computed:[newerView],layouts:{}}
+  let resolveDelete!:(value:unknown)=>void
+  const delayed=new Promise(resolve=>{resolveDelete=resolve})
+  const focus=vi.fn()
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:true}),
+    personalViews:vi.fn().mockResolvedValueOnce(initial).mockResolvedValueOnce(newer),savePersonalViews:vi.fn().mockReturnValue(delayed),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>,{createNodeMock:element=>element.props.role==='tab'?{focus}:null});await new Promise(resolve=>setTimeout(resolve,0))})
+  act(()=>tree!.root.findByProps({'aria-label':'新しいビュー / 編集'}).props.onClick())
+  const findButton=(label:string)=>tree!.root.findAllByType('button').find(node=>node.children.includes(label))!
+  act(()=>findButton('個人ビューを削除').props.onClick())
+  act(()=>findButton('削除する').props.onClick())
+  await act(async()=>{tree!.root.findByProps({'aria-label':'データを更新'}).props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+  await act(async()=>{resolveDelete({revision:2,activeView:'all',views:[],computed:[],layouts:{}});await delayed})
+  expect(tree!.root.findAllByProps({role:'tab'}).some(node=>node.children.includes('Other device'))).toBe(true)
+  expect(tree!.root.findAllByProps({role:'tab'}).find(node=>node.props['aria-selected'])?.children).toContain('Other device')
+  expect(focus).not.toHaveBeenCalled()
+})
+test('personal computed views are paired with the matching app version',async()=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const shared={id:'all',type:'table',name:'Shared',rows:[]}
+  const appData={app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:true}
+  const preferences={revision:1,appVersion:2,activeView:'all',views:[],computed:[],layouts:{}}
+  state.api={
+    app:vi.fn().mockResolvedValueOnce(appData).mockResolvedValueOnce({...appData,app:{...appData.app,version:2}}),
+    personalViews:vi.fn().mockResolvedValue(preferences),conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(state.api.app).toHaveBeenCalledTimes(2)
+  expect(state.api.personalViews).toHaveBeenCalledTimes(2)
+  expect(tree!.root.findAllByProps({role:'tab'})).toHaveLength(1)
+})
+test('a saved view is not rendered against an older app when the matching reload fails',async()=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const shared={id:'all',type:'table',name:'Shared',rows:[]}
+  const initial={revision:0,appVersion:1,activeView:'all',views:[],computed:[],layouts:{}}
+  const mine={id:'personal_new',type:'table',name:'New personal',rows:[]}
+  state.api={
+    app:vi.fn().mockResolvedValueOnce({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:true}).mockRejectedValueOnce(new Error('Reload failed')),
+    personalViews:vi.fn().mockResolvedValue(initial),savePersonalViews:vi.fn().mockResolvedValue({revision:1,appVersion:2,activeView:mine.id,views:[mine],computed:[mine],layouts:{}}),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  act(()=>tree!.root.findAllByType('button').find(node=>node.children.includes('フィールド'))!.props.onClick())
+  await act(async()=>{tree!.root.findAllByType('button').find(node=>node.children.includes('保存'))!.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(JSON.stringify(tree!.toJSON())).toContain('Reload failed')
+  expect(tree!.root.findAllByProps({role:'tab'})).toHaveLength(0)
+  expect(tree!.root.findAllByType('button').some(node=>node.children.includes('Retry'))).toBe(true)
+})
+test('returning to a visible app reloads another device’s personal view changes',async()=>{
+  const windowHandlers=new Map<string,()=>void>(),documentHandlers=new Map<string,()=>void>()
+  vi.stubGlobal('window',{addEventListener:(name:string,fn:()=>void)=>windowHandlers.set(name,fn),removeEventListener:(name:string)=>windowHandlers.delete(name)})
+  const documentStub={visibilityState:'visible',activeElement:null,querySelector:()=>null,addEventListener:(name:string,fn:()=>void)=>documentHandlers.set(name,fn),removeEventListener:(name:string)=>documentHandlers.delete(name)}
+  vi.stubGlobal('document',documentStub)
+  const shared={id:'all',type:'table',name:'Shared',rows:[]},mine={id:'personal_new',type:'table',name:'From another device',rows:[]}
+  const initial={revision:0,activeView:'all',views:[],computed:[],layouts:{}},newer={revision:1,activeView:mine.id,views:[mine],computed:[mine],layouts:{}}
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:true}),
+    personalViews:vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(newer),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  await act(async()=>{windowHandlers.get('focus')!();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(state.api.personalViews).toHaveBeenCalledTimes(2)
+  expect(tree!.root.findAllByProps({role:'tab'}).find(node=>node.props['aria-selected'])?.children).toContain('From another device')
+  documentStub.visibilityState='hidden'
+  await act(async()=>{documentHandlers.get('visibilitychange')!();await Promise.resolve()})
+  expect(state.api.personalViews).toHaveBeenCalledTimes(2)
+  documentStub.visibilityState='visible'
+  await act(async()=>{documentHandlers.get('visibilitychange')!();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(state.api.personalViews).toHaveBeenCalledTimes(3)
+})
+test('an automatic refresh waits if editing begins while its read is in flight',async()=>{
+  const windowHandlers=new Map<string,()=>void>(),documentHandlers=new Map<string,()=>void>()
+  vi.stubGlobal('window',{addEventListener:(name:string,fn:()=>void)=>windowHandlers.set(name,fn),removeEventListener:(name:string)=>windowHandlers.delete(name)})
+  vi.stubGlobal('document',{visibilityState:'visible',activeElement:null,querySelector:()=>null,addEventListener:(name:string,fn:()=>void)=>documentHandlers.set(name,fn),removeEventListener:(name:string)=>documentHandlers.delete(name)})
+  let editing=false
+  const main={toggleAttribute:vi.fn(),querySelector:()=>editing?{}:null,contains:()=>false}
+  const shared={id:'all',type:'table',name:'Shared',rows:[]},mine={id:'personal_new',type:'table',name:'Other device',rows:[]}
+  const initial={revision:0,activeView:'all',views:[],computed:[],layouts:{}},newer={revision:1,activeView:'all',views:[mine],computed:[mine],layouts:{}}
+  let resolveRead!:(value:typeof newer)=>void
+  const delayed=new Promise<typeof newer>(resolve=>{resolveRead=resolve})
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:true}),
+    personalViews:vi.fn().mockResolvedValueOnce(initial).mockReturnValueOnce(delayed).mockResolvedValueOnce(newer),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>,{createNodeMock:element=>element.props.className==='hx-app-main'?main:null});await new Promise(resolve=>setTimeout(resolve,0))})
+  act(()=>windowHandlers.get('focus')!())
+  editing=true
+  act(()=>tree!.root.findAllByType('button').find(node=>node.children.includes('フィールド'))!.props.onClick())
+  act(()=>tree!.root.findByProps({'aria-label':'Titleの列幅'}).props.onChange({target:{value:'320'}}))
+  await act(async()=>{resolveRead(newer);await delayed;await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(tree!.root.findByProps({'aria-label':'Titleの列幅'}).props.value).toBe(320)
+  expect(tree!.root.findAllByProps({role:'tab'})).toHaveLength(1)
+  act(()=>tree!.root.findAllByType('button').find(node=>node.children.includes('フィールド'))!.props.onClick())
+  editing=false
+  await act(async()=>{documentHandlers.get('click')!();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(state.api.personalViews).toHaveBeenCalledTimes(3)
+  expect(tree!.root.findAllByProps({role:'tab'})).toHaveLength(2)
+})
+test('an automatic refresh does not overwrite an inline edit while its save is pending',async()=>{
+  const windowHandlers=new Map<string,()=>void>(),documentHandlers=new Map<string,()=>void>()
+  vi.stubGlobal('window',{addEventListener:(name:string,fn:()=>void)=>windowHandlers.set(name,fn),removeEventListener:(name:string)=>windowHandlers.delete(name)})
+  vi.stubGlobal('document',{visibilityState:'visible',activeElement:null,querySelector:()=>null,addEventListener:(name:string,fn:()=>void)=>documentHandlers.set(name,fn),removeEventListener:(name:string)=>documentHandlers.delete(name)})
+  const main={toggleAttribute:vi.fn(),querySelector:()=>null,contains:()=>false}
+  const oldRow={id:'row_1',values:{title:'Old'},updatedAt:'2026-11-01T00:00:00Z'}
+  const remoteRow={...oldRow,values:{title:'Remote'}},savedRow={...oldRow,values:{title:'User edit'}}
+  const shared={id:'all',type:'table',name:'Shared',rows:[oldRow]},initial={revision:0,activeView:'all',views:[],computed:[],layouts:{}}
+  let resolveRead!:(value:typeof initial)=>void,resolveWrite!:()=>void
+  const delayedRead=new Promise<typeof initial>(resolve=>{resolveRead=resolve}),delayedWrite=new Promise<void>(resolve=>{resolveWrite=resolve})
+  const data=(row:typeof oldRow)=>({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[row],views:[{...shared,rows:[row]}],canCustomize:true})
+  state.api={
+    app:vi.fn().mockResolvedValueOnce(data(oldRow)).mockResolvedValueOnce(data(remoteRow)).mockResolvedValue(data(savedRow)),
+    personalViews:vi.fn().mockResolvedValueOnce(initial).mockReturnValueOnce(delayedRead).mockResolvedValue(initial),updateRow:vi.fn().mockReturnValue(delayedWrite),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>,{createNodeMock:element=>element.props.className==='hx-app-main'?main:null});await new Promise(resolve=>setTimeout(resolve,0))})
+  act(()=>windowHandlers.get('focus')!())
+  const input=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Title')!
+  act(()=>input().props.onChange({target:{value:'User edit'}}))
+  act(()=>input().props.onBlur())
+  await act(async()=>{resolveRead(initial);await delayedRead;await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(input().props.value).toBe('User edit')
+  await act(async()=>{resolveWrite();await delayedWrite;await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(input().props.value).toBe('User edit')
+})
+test('an automatic refresh does not undo a tab selection while its save is pending',async()=>{
+  const windowHandlers=new Map<string,()=>void>(),documentHandlers=new Map<string,()=>void>()
+  vi.stubGlobal('window',{addEventListener:(name:string,fn:()=>void)=>windowHandlers.set(name,fn),removeEventListener:(name:string)=>windowHandlers.delete(name)})
+  vi.stubGlobal('document',{visibilityState:'visible',activeElement:null,querySelector:()=>null,addEventListener:(name:string,fn:()=>void)=>documentHandlers.set(name,fn),removeEventListener:(name:string)=>documentHandlers.delete(name)})
+  const main={toggleAttribute:vi.fn(),querySelector:()=>null,contains:()=>false}
+  const shared={id:'all',type:'table',name:'Shared',rows:[]},mine={id:'personal_mine',type:'table',name:'Mine',rows:[]}
+  const initial={revision:1,activeView:'all',views:[mine],computed:[mine],layouts:{}},saved={...initial,revision:2,activeView:mine.id}
+  let resolveRead!:(value:typeof initial)=>void,resolveSave!:(value:typeof saved)=>void
+  const delayedRead=new Promise<typeof initial>(resolve=>{resolveRead=resolve}),delayedSave=new Promise<typeof saved>(resolve=>{resolveSave=resolve})
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:true}),
+    personalViews:vi.fn().mockResolvedValueOnce(initial).mockReturnValueOnce(delayedRead).mockResolvedValue(saved),savePersonalViews:vi.fn().mockReturnValue(delayedSave),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>,{createNodeMock:element=>element.props.className==='hx-app-main'?main:null});await new Promise(resolve=>setTimeout(resolve,0))})
+  act(()=>windowHandlers.get('focus')!())
+  act(()=>tree!.root.findAllByProps({role:'tab'})[1].props.onClick())
+  await act(async()=>{resolveRead(initial);await delayedRead;await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(tree!.root.findAllByProps({role:'tab'}).find(node=>node.props['aria-selected'])?.children).toContain('Mine')
+  await act(async()=>{resolveSave(saved);await delayedSave;await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(tree!.root.findAllByProps({role:'tab'}).find(node=>node.props['aria-selected'])?.children).toContain('Mine')
+})
 test('read-only app viewers do not get room-link controls in settings', async () => {
   state.api = {
     app: vi.fn().mockResolvedValue({
@@ -254,4 +503,37 @@ test('a shared template can be inspected and imported from its link', async () =
   expect(tree!.root.findAllByType('strong').some(node => node.children.includes('Template imported.'))).toBe(true)
   await act(async () => { tree!.root.findAllByType('button').find(node => node.children.includes('Open in Apps'))!.props.onClick() })
   expect(location.hash).toBe('#/apps/imported/team%3Aone')
+})
+
+test('revoked app access clears the previously visible data while a temporary error retains it',async()=>{
+  const handlers=new Map<string,()=>void>()
+  vi.stubGlobal('window',{addEventListener:(name:string,fn:()=>void)=>handlers.set(name,fn),removeEventListener:(name:string)=>handlers.delete(name)})
+  vi.stubGlobal('document',{visibilityState:'visible',activeElement:null,querySelector:()=>null,addEventListener:vi.fn(),removeEventListener:vi.fn()})
+  const row={id:'r',values:{title:'Private data'},updatedAt:'2026-11-02'},shared={id:'all',type:'table',name:'Shared',rows:[row]}
+  const data={app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[row],views:[shared],canCustomize:true}
+  state.api={app:vi.fn().mockResolvedValueOnce(data).mockRejectedValueOnce(new Error('Network failure')).mockRejectedValueOnce(new HarnessApiError('No such app.',404)),personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'all',views:[],computed:[],layouts:{}}),conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]})}
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(JSON.stringify(tree!.toJSON())).toContain('Private data')
+  await act(async()=>{handlers.get('focus')!();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(JSON.stringify(tree!.toJSON())).toContain('Private data')
+  await act(async()=>{handlers.get('focus')!();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(JSON.stringify(tree!.toJSON())).not.toContain('Private data')
+  expect(JSON.stringify(tree!.toJSON())).toContain('No such app.')
+})
+
+test('personal computed rows use the same snapshot and save reloads before showing newer rows',async()=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const oldRow={id:'r',values:{title:'Before save'},updatedAt:'2026-11-02T01:00:00Z'},newRow={...oldRow,values:{title:'After save'},updatedAt:'2026-11-02T02:00:00Z'}
+  const shared={id:'all',type:'table',name:'Shared',rows:[oldRow]},mine={id:'personal_mine',type:'table',name:'Mine',rows:[oldRow]}
+  const data=(row:typeof oldRow)=>({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[row],views:[{...shared,rows:[row]}],canCustomize:true})
+  const initial={revision:1,appVersion:1,activeView:mine.id,views:[mine],computed:[mine],layouts:{},snapshot:data(oldRow)}
+  const saved={...initial,revision:2},refreshed={...saved,computed:[{...mine,rows:[newRow]}],snapshot:data(newRow)}
+  state.api={app:vi.fn().mockResolvedValue(data(newRow)),personalViews:vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(refreshed),savePersonalViews:vi.fn().mockResolvedValue(saved),conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]})}
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(JSON.stringify(tree!.toJSON())).toContain('Before save')
+  expect(JSON.stringify(tree!.toJSON())).not.toContain('After save')
+  act(()=>tree!.root.findAllByType('button').find(node=>node.children.includes('フィールド'))!.props.onClick())
+  await act(async()=>{tree!.root.findAllByType('button').find(node=>node.children.includes('保存'))!.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(JSON.stringify(tree!.toJSON())).toContain('After save')
+  expect(JSON.stringify(tree!.toJSON())).not.toContain('Before save')
 })

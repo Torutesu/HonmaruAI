@@ -315,16 +315,25 @@ export async function updateApp(db, orgId, id, { name, tableName, description, i
   const app = await getApp(db, orgId, id);
   if (!app) return { error: "No such app.", status: 404 };
   if (expectedVersion !== undefined && expectedVersion !== app.version) return { error: "This app changed. Reload before saving.", status: 409 };
+  const existingViewIds=new Set((Array.isArray(app.definition.views)?app.definition.views:[]).map(view=>view.id));
+  const introducedIds=def=>def.views.map(view=>view.id).filter(viewId=>viewId.startsWith('personal_')&&!existingViewIds.has(viewId));
   let table = await getTable(db, orgId, app.tableId);
   // The table's new columns, written only in the same transaction as the
   // app's new version below: a save that loses to another leaves both alone.
   let schema = null;
   if (columns !== undefined || tableName !== undefined) {
-    schema = await planTableUpdate(db, orgId, app.tableId, { name: tableName, columns }, { sql: "EXISTS (SELECT 1 FROM hx_apps WHERE id = ?9 AND org_id = ?5 AND version = ?10)", binds: [id, app.version] });
+    schema = await planTableUpdate(db, orgId, app.tableId, { name: tableName, columns }, planned => ({ sql: `EXISTS (SELECT 1 FROM hx_apps WHERE id = ?9 AND org_id = ?5 AND version = ?10)
+      AND (?11='[]' OR NOT EXISTS (SELECT 1 FROM hx_personal_views p, json_each(p.settings,'$.views') v, json_each(?11) incoming
+        WHERE p.org_id=?5 AND p.app_id=?9 AND json_extract(v.value,'$.id')=incoming.value))`, binds: [id, app.version, JSON.stringify(introducedIds(normalizeDefinition(definition ?? app.definition,planned.columns)))] }));
     if (schema.error) return schema;
     table = schema.table;
   }
   const def = normalizeDefinition(definition ?? app.definition, table.columns);
+  // A personal ID belongs to its owner's settings. A new shared view may not
+  // take the same ID, even if another user's settings are not visible here.
+  // The SQL check below runs with the versioned write to fence concurrent
+  // personal-view creation. Already-shared legacy IDs are preserved.
+  const introducedPersonalIds=introducedIds(def);
   if (app.definition.custom) def.custom = app.definition.custom;
   const next = {
     name: name !== undefined ? String(name).trim().slice(0, 80) || app.name : app.name,
@@ -338,8 +347,10 @@ export async function updateApp(db, orgId, id, { name, tableName, description, i
   // be), then the version's snapshot (only when the app was).
   const results = await db.batch([
     ...(schema ? [schema.statement] : []),
-    db.prepare(`UPDATE hx_apps SET name = ?1, description = ?2, icon = ?3, definition = ?4, version = ?5, updated_at = ?6 WHERE id = ?7 AND org_id = ?8 AND version = ?9${schema ? " AND changes() = 1" : ""}`)
-      .bind(next.name, next.description, next.icon, JSON.stringify(def), version, at, id, orgId, app.version),
+    db.prepare(`UPDATE hx_apps SET name = ?1, description = ?2, icon = ?3, definition = ?4, version = ?5, updated_at = ?6 WHERE id = ?7 AND org_id = ?8 AND version = ?9${schema ? " AND changes() = 1" : ""}
+      AND (?10='[]' OR NOT EXISTS (SELECT 1 FROM hx_personal_views p, json_each(p.settings,'$.views') v, json_each(?10) incoming
+        WHERE p.org_id=?8 AND p.app_id=?7 AND json_extract(v.value,'$.id')=incoming.value))`)
+      .bind(next.name, next.description, next.icon, JSON.stringify(def), version, at, id, orgId, app.version, JSON.stringify(introducedPersonalIds)),
     db.prepare("INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) SELECT ?1, ?7, ?2, ?3, ?4, ?5, ?6 WHERE changes() = 1")
       .bind(id, version, JSON.stringify({ name: next.name, tableName: table.name, columns: table.columns, ...def }), note ? String(note).slice(0, 200) : null, String(by), at, orgId),
   ]);

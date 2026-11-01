@@ -358,6 +358,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const floatApp=useFloatingApp()
   const t = useT()
   const [data, setData] = useState<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize?: boolean } | null>(null)
+  const [snapshotPending,setSnapshotPending]=useState(false)
   const [relationEntities,setRelationEntities]=useState<RelationEntity[]>([])
   const [tableAvailableWidth,setTableAvailableWidth]=useState(0)
   const tableResizeCleanup=useRef<(()=>void)|null>(null)
@@ -375,10 +376,15 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   useEffect(()=>()=>tableResizeCleanup.current?.(),[])
   const loadSequence=useRef(0)
   const currentApi=useRef(api);currentApi.current=api
+  const currentAppId=useRef(appId);currentAppId.current=appId
   const [loadedApi,setLoadedApi]=useState<HarnessApi|null>(null)
   const [personal,setPersonal] = useState<PersonalViews>({revision:0,views:[],computed:[],layouts:{}})
+  const personalSnapshot=useRef<{api:HarnessApi;appId:string;value:PersonalViews}|null>(null)
   const initializedSection = useRef(false)
   const [viewIndex, setViewIndex] = useState(0)
+  const [focusSelectedView,setFocusSelectedView] = useState(false)
+  const selectedViewTab=useRef<HTMLButtonElement|null>(null)
+  useEffect(()=>{if(focusSelectedView){selectedViewTab.current?.focus();setFocusSelectedView(false)}},[focusSelectedView,viewIndex,personal.revision])
   const [section, setSection] = useState<AppSection>(initialSection || 'overview')
   useEffect(() => {
     setSection(initialSection || (data ? (data.app.definition.custom?.published ? 'overview' : 'data') : 'overview'))
@@ -395,7 +401,8 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const [annotationDraft,setAnnotationDraft]=useState<{id:string;text:string;marker:AppAnnotationMeta}|null>(null)
   const [annotations,setAnnotations]=useState<AppAnnotation[]>([])
   const coveredMain=floating&&chatOpen&&((floatingCompact&&!fullscreen)||(typeof innerWidth==='number'&&innerWidth<720))
-  const mainInteraction=useCallback((node:HTMLDivElement|null)=>{node?.toggleAttribute('inert',coveredMain)},[coveredMain])
+  const mainRoot=useRef<HTMLDivElement|null>(null)
+  const mainInteraction=useCallback((node:HTMLDivElement|null)=>{mainRoot.current=node;node?.toggleAttribute('inert',coveredMain)},[coveredMain])
   const consumedDraft=useRef<string|undefined>(undefined)
   const consumeDraft=()=>{
     if(!initialDraft)return
@@ -423,10 +430,39 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const [room, setRoom] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { busy, error, act } = useAct()
+  const pendingCellWrites=useRef(0)
+  const pendingPersonalSaves=useRef(0)
+  const deferAutomaticCommit=useRef<()=>boolean>(()=>false)
+  const markAutomaticPending=useRef<()=>void>(()=>{})
 
-  const load = useCallback(() => act('load', async () => {
+  const load = useCallback((automatic=false) => act('load', async () => {
     const sequence=++loadSequence.current
-    const [next,preferences]=await Promise.all([api.app(appId),api.personalViews(appId)])
+    const readPair=async()=>{
+      try{return await Promise.all([api.app(appId),api.personalViews(appId)])}
+      catch(e){
+        if(e instanceof HarnessApiError&&e.status===404&&sequence===loadSequence.current){
+          setData(null);setRelationEntities([]);setPersonal({revision:0,views:[],computed:[],layouts:{}});personalSnapshot.current=null
+        }
+        throw e
+      }
+    }
+    let [next,preferences]=await readPair()
+    if(preferences.snapshot)next=preferences.snapshot
+    // If a save won while this read was in flight, its settings are newer but
+    // its computed rows may be older than this refresh. Re-read the server's
+    // computed views; never splice an old computed snapshot into fresh data.
+    for(let attempt=0;attempt<3;attempt++){
+      if(sequence!==loadSequence.current)return
+      const snapshot=personalSnapshot.current
+      const stale=Boolean(snapshot && snapshot.api===api && snapshot.appId===appId && snapshot.value.revision>preferences.revision)
+      const versionMismatch=preferences.appVersion!==undefined&&preferences.appVersion!==next.app.version
+      if(!stale&&!versionMismatch)break
+      ;[next,preferences]=await readPair()
+      if(preferences.snapshot)next=preferences.snapshot
+    }
+    const latest=personalSnapshot.current
+    if(latest?.api===api&&latest.appId===appId&&latest.value.revision>preferences.revision)throw new Error('個人ビューが更新中です。再読み込みしてください。')
+    if(preferences.appVersion!==undefined&&preferences.appVersion!==next.app.version)throw new Error('アプリが更新中です。再読み込みしてください。')
     const targetKeys=new Set(next.table.columns.filter(column=>column.type==='relation'&&column.targetEntity).map(column=>column.targetEntity!))
     const database=targetKeys.size?await api.appDatabase(appId).catch(()=>null):null
     const targets=await Promise.all((database?.entities||[]).filter(entity=>targetKeys.has(entity.key)).map(async entity=>{
@@ -434,18 +470,52 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       try{return {...entity,rows:(await api.entityRows(entity.table.id)).rows}}catch{return {...entity,rows:[]}}
     }))
     if(sequence!==loadSequence.current)return
-    setLoadedApi(api);setData(next);setRelationEntities(targets);setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(initialSection || (next.app.definition.custom?.published ? 'overview' : 'data')) }
+    // The refresh above may have taken time for relation data as well.
+    const snapshot=personalSnapshot.current
+    if(snapshot?.api===api&&snapshot.appId===appId&&snapshot.value.revision>preferences.revision)throw new Error('個人ビューが更新中です。再読み込みしてください。')
+    if(automatic&&deferAutomaticCommit.current()){markAutomaticPending.current();return}
+    personalSnapshot.current={api,appId,value:preferences}
+    setLoadedApi(api);setData(next);setSnapshotPending(false);setRelationEntities(targets);setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(initialSection || (next.app.definition.custom?.published ? 'overview' : 'data')) }
   }), [api, appId, act, initialSection])
   useEffect(() => { setEditingRecord(null);setCreating(false);setChatScope(initialConversation||{});setChatOpen(Boolean(initialConversation)||Boolean(openConversation));load();return()=>{loadSequence.current++;initializedSection.current=false} }, [load,initialConversation,openConversation])
+  const interaction=useRef({busy,creating,editingRecord,annotationSelection})
+  const retryRefresh=useRef<()=>void>(()=>{})
+  interaction.current={busy,creating,editingRecord,annotationSelection}
+  useEffect(()=>{
+    if(typeof window==='undefined'||typeof document==='undefined')return
+    let pending=false,running=false,live=true
+    const deferred=(ignoreOwnLoad=false)=>{
+      const state=interaction.current,root=mainRoot.current,active=document.activeElement
+      return Boolean(pendingCellWrites.current || pendingPersonalSaves.current || (state.busy && !(ignoreOwnLoad&&state.busy==='load')) || state.creating || state.editingRecord || state.annotationSelection || root?.querySelector('[role="dialog"]') || document.querySelector?.('[role="dialog"][aria-modal="true"], dialog[open]') ||
+        (active && root?.contains(active) && (active.matches?.('input,textarea,select,[contenteditable="true"]') || (active as HTMLElement).isContentEditable)))
+    }
+    const refresh=()=>{
+      if(!live||document.visibilityState==='hidden'||running)return
+      if(deferred()){pending=true;return}
+      pending=false;running=true
+      void load(true).finally(()=>{running=false;if(live&&pending&&!deferred())refresh()})
+    }
+    const retry=()=>{if(pending)queueMicrotask(refresh)}
+    retryRefresh.current=retry
+    deferAutomaticCommit.current=()=>deferred(true);markAutomaticPending.current=()=>{pending=true}
+    window.addEventListener('focus',refresh);window.addEventListener('online',refresh)
+    document.addEventListener('visibilitychange',refresh);document.addEventListener('focusout',retry);document.addEventListener('click',retry)
+    return()=>{live=false;retryRefresh.current=()=>{};deferAutomaticCommit.current=()=>false;markAutomaticPending.current=()=>{};window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);document.removeEventListener('visibilitychange',refresh);document.removeEventListener('focusout',retry);document.removeEventListener('click',retry)}
+  },[load])
+  useEffect(()=>{retryRefresh.current()},[busy,creating,editingRecord,annotationSelection])
 
   const selectSection=(next:AppSection)=>{setSection(next);onSectionChange?.(next);const hash=appSectionHash(location.hash,appId,orgId,next);if(!floating&&hash&&hash!==location.hash)location.hash=hash}
-  if (!data || loadedApi!==api) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
+  if (!data || snapshotPending || loadedApi!==api || (personal.appVersion!==undefined&&personal.appVersion!==data.app.version)) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}<button className="pill-btn quiet" onClick={()=>void load()}>{t('Retry')}</button></div> : <div className="empty">{t('Loading…')}</div>}</Shell>
   const { app, table } = data
   const allViews = [...data.views,...personal.computed]
-  const view = allViews[Math.min(viewIndex, allViews.length - 1)]
-  const savePersonal = async (next:PersonalViews) => {const saved=await api.savePersonalViews(appId,next);if(currentApi.current!==api)return;setPersonal(saved);setViewIndex(Math.max(0,[...data.views,...saved.computed].findIndex(v=>v.id===saved.activeView)))}
-  const canEditView=view.id.startsWith('personal_') || data.canCustomize !== false
-  const saveView = async (patch:Partial<View>) => { if(view.id.startsWith('personal_')) { await savePersonal({...personal,views:personal.views.map(v=>v.id===view.id?{...v,...patch}:v)}); return } await api.updateApp(app.id, { expectedVersion: app.version, definition: { ...app.definition, views: app.definition.views.map(v => v.id === view.id ? {...v,...patch} : v) }, note: 'ビューのフィルター・並べ替え・グループを更新' }); await load() }
+  const sharedIds=new Set(data.views.map(v=>v.id))
+  const proposedIndex=Math.max(0,Math.min(viewIndex,allViews.length-1))
+  const selectedIndex=proposedIndex>=data.views.length && sharedIds.has(allViews[proposedIndex].id)?0:proposedIndex
+  const view = allViews[selectedIndex]
+  const isPersonalView=selectedIndex>=data.views.length
+  const savePersonal = async (next:PersonalViews) => {pendingPersonalSaves.current++;try{const saved=await api.savePersonalViews(appId,next);if(currentApi.current!==api||currentAppId.current!==appId)return;const latest=personalSnapshot.current;if(latest?.api===api&&latest.appId===appId&&latest.value.revision>=saved.revision)return;personalSnapshot.current={api,appId,value:saved};if(saved.snapshot){setSnapshotPending(true);await load();return}setPersonal(saved);if(saved.appVersion!==undefined&&saved.appVersion!==data.app.version){await load();return}setViewIndex(Math.max(0,[...data.views,...saved.computed].findIndex(v=>v.id===saved.activeView)))}finally{pendingPersonalSaves.current--;retryRefresh.current()}}
+  const canEditView=isPersonalView || data.canCustomize !== false
+  const saveView = async (patch:Partial<View>) => { if(isPersonalView) { await savePersonal({...personal,views:personal.views.map(v=>v.id===view.id?{...v,...patch}:v)}); return } await api.updateApp(app.id, { expectedVersion: app.version, definition: { ...app.definition, views: app.definition.views.map(v => v.id === view.id ? {...v,...patch} : v) }, note: 'ビューのフィルター・並べ替え・グループを更新' }); await load() }
   const layout = displayLayout(table.columns,personal.layouts[view.id])
   const orderedColumns = [...(layout?.order || []),...layout.columns.map(c=>c.id)].filter((id,i,ids)=>ids.indexOf(id)===i).map(id=>layout.columns.find(c=>c.id===id)).filter((c):c is Column=>!!c)
   const displayColumns = orderedColumns.filter(c=>c.id===table.columns[0]?.id || !layout?.hidden?.includes(c.id))
@@ -458,10 +528,13 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   }
   const shownRows = (view.rows || []).filter(row => !search || table.columns.some(c => displayCellText(c, row.values[c.id]).toLowerCase().includes(search.toLowerCase())))
 
-  const save = (row: Row, column: Column, value: unknown) => act(`cell:${row.id}`, async () => {
-    await api.updateRow(table.id, row.id, { [column.id]: value }, row.updatedAt)
-    await load()
-  })
+  const save = async (row: Row, column: Column, value: unknown) => {
+    pendingCellWrites.current++
+    try { await act(`cell:${row.id}`, async () => {
+      await api.updateRow(table.id, row.id, { [column.id]: value }, row.updatedAt)
+      await load()
+    }) } finally { pendingCellWrites.current--;retryRefresh.current() }
+  }
   const addRow = () => setCreating(true)
   const removeRow = (row: Row) => act(`del:${row.id}`, async () => { await api.deleteRow(table.id, row.id, row.updatedAt); await load() })
 
@@ -489,14 +562,14 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       {section === 'overview' && !app.definition.custom?.published && <div className="hx-app-overview"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('Database app')}</h2><p>{app.description || t('Browse and manage this app’s data in the data viewer.')}</p><div className="hx-actions"><button className="pill-btn" onClick={() => selectSection('data')}>{t('Browse data')}</button><button className="pill-btn quiet" onClick={() => selectSection('custom')}>{t('Customize app')}</button></div><small>{t('{n} records', { n: data.rows.length })} · {table.columns.length} {t('Fields')}</small></div>}
       {section === 'data' && <>
       <div className="hx-data-toolbar"><div className="hx-data-heading"><h2>{appTableDisplayName(app.name,table.name,table.columns[0]?.name)}</h2><button className="pill-btn hx-create-record" onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{newAppRecordLabel(app.name,table.name,table.columns[0]?.name)}</button></div>
-      <div className={`hx-data-tools${searchExpanded?' hx-search-expanded':''}`}><button className="hx-floating-search pill-btn quiet" aria-label={search?`レコードを検索（検索中: ${search}）`:t('Search records')} aria-expanded={searchExpanded} onClick={()=>setSearchExpanded(value=>!value)}><Icon name="search" size={14}/></button><input ref={searchInput} className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /><PersonalViewControls control="fields" key={`${view.id}:${personal.revision}`} view={view} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>selectSection('settings')} /><AppViewControls key={`${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} relationEntities={relationEntities} personal={view.id.startsWith('personal_')} onAdjust={view.id.startsWith('personal_')?undefined:kind=>{location.hash=hashForAppSource(app.id,orgId,'data',`「${app.name}」（${table.name}）のデータビューアーのビュー「${view.name}」の${kind==='filter'?'フィルター':'グループ化'}を調整：`.slice(0,1000))}} canEdit={view.id.startsWith('personal_') || data.canCustomize !== false} save={saveView} />{view.type==='table'&&<AppDataMenu wrapText={layout.wrapText===true} save={wrapText=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:layout.order,widths:layout.widths,hidden:layout.hidden,wrapText}}})}/>}<span>{t('{n} records', { n: view.type==='table'?shownRows.length:data.rows.length })}</span></div>
+      <div className={`hx-data-tools${searchExpanded?' hx-search-expanded':''}`}><button className="hx-floating-search pill-btn quiet" aria-label={search?`レコードを検索（検索中: ${search}）`:t('Search records')} aria-expanded={searchExpanded} onClick={()=>setSearchExpanded(value=>!value)}><Icon name="search" size={14}/></button><input ref={searchInput} className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /><PersonalViewControls control="fields" key={`${selectedIndex}:${view.id}:${personal.revision}`} view={view} personal={isPersonalView} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>selectSection('settings')} /><AppViewControls key={`${selectedIndex}:${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} relationEntities={relationEntities} personal={isPersonalView} onAdjust={isPersonalView?undefined:kind=>{location.hash=hashForAppSource(app.id,orgId,'data',`「${app.name}」（${table.name}）のデータビューアーのビュー「${view.name}」の${kind==='filter'?'フィルター':'グループ化'}を調整：`.slice(0,1000))}} canEdit={canEditView} save={saveView} />{view.type==='table'&&<AppDataMenu wrapText={layout.wrapText===true} save={wrapText=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:layout.order,widths:layout.widths,hidden:layout.hidden,wrapText}}})}/>}<span>{t('{n} records', { n: view.type==='table'?shownRows.length:data.rows.length })}</span></div>
       <div className="hx-tabs" role="tablist">
         {allViews.map((v, i) => (
-          <button key={v.id} role="tab" aria-selected={i === viewIndex} className={i === viewIndex ? 'on' : ''} onClick={() => {setViewIndex(i);void act('view',()=>savePersonal({...personal,activeView:v.id}))}}>
-            <Icon name={v.type === 'board' ? 'grid' : v.type === 'metrics' ? 'insights' : v.type === 'calendar' ? 'calendar' : 'list'} size={14} /> {v.name}{v.id.startsWith('personal_') && <small className="hx-personal-badge">個人</small>}
+          <button key={`${i}:${v.id}`} ref={i===selectedIndex?selectedViewTab:undefined} role="tab" aria-selected={i === selectedIndex} className={i === selectedIndex ? 'on' : ''} disabled={i>=data.views.length&&sharedIds.has(v.id)} title={i>=data.views.length&&sharedIds.has(v.id)?'共有ビューとIDが重複しているため利用できません。':undefined} onClick={() => {setViewIndex(i);void act('view',()=>savePersonal({...personal,activeView:v.id}))}}>
+            <Icon name={v.type === 'board' ? 'grid' : v.type === 'metrics' ? 'insights' : v.type === 'calendar' ? 'calendar' : 'list'} size={14} /> {v.name}{i>=data.views.length && <small className="hx-personal-badge">個人</small>}
           </button>
         ))}
-        <PersonalViewControls control="view" key={`new:${view.id}:${personal.revision}`} view={view} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>selectSection('settings')} />
+        <PersonalViewControls sharedIds={[...sharedIds]} control="view" key={`new:${selectedIndex}:${view.id}:${personal.revision}`} view={view} personal={isPersonalView} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onRemoved={()=>{if(!personalSnapshot.current?.value.views.some(v=>v.id===view.id))setFocusSelectedView(true)}} onSettings={()=>selectSection('settings')} />
       </div>
       </div>
       {error && <div className="form-error">{error}</div>}
