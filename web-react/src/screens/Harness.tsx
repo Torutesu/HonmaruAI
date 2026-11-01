@@ -526,7 +526,16 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
     const label=(id:string)=>{const row=entity?.rows.find(item=>item.id===id);return row&&entity?relationOptionLabel(entity,row):id}
     return (Array.isArray(value)?value:value==null?[]:[value]).map(id=>label(String(id))).join(', ')
   }
-  const shownRows = (view.rows || []).filter(row => !search || table.columns.some(c => displayCellText(c, row.values[c.id]).toLowerCase().includes(search.toLowerCase())))
+  // A view's server-side filters are already reflected in its rows/lanes/days.
+  // Search those results in every record-based presentation, using the same
+  // displayed labels (including relation labels) as the table view.
+  const matchesSearch = (row: Row) => !search || table.columns.some(c => displayCellText(c, row.values[c.id]).toLowerCase().includes(search.toLowerCase()))
+  const shownRows = (view.rows || []).filter(matchesSearch)
+  const shownLanes = (view.lanes || []).map(lane => ({...lane, rows: lane.rows.filter(matchesSearch)}))
+  const shownDays = (view.days || []).map(day => ({...day, rows: day.rows.filter(matchesSearch)}))
+  const shownUndated = (view.undated || []).filter(matchesSearch)
+  const shownCount = view.type === 'table' ? shownRows.length : view.type === 'board' ? shownLanes.reduce((n,lane)=>n+lane.rows.length,0)
+    : view.type === 'calendar' ? shownDays.reduce((n,day)=>n+day.rows.length,shownUndated.length) : data.rows.length
 
   const save = async (row: Row, column: Column, value: unknown) => {
     pendingCellWrites.current++
@@ -562,7 +571,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       {section === 'overview' && !app.definition.custom?.published && <div className="hx-app-overview"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('Database app')}</h2><p>{app.description || t('Browse and manage this app’s data in the data viewer.')}</p><div className="hx-actions"><button className="pill-btn" onClick={() => selectSection('data')}>{t('Browse data')}</button><button className="pill-btn quiet" onClick={() => selectSection('custom')}>{t('Customize app')}</button></div><small>{t('{n} records', { n: data.rows.length })} · {table.columns.length} {t('Fields')}</small></div>}
       {section === 'data' && <>
       <div className="hx-data-toolbar"><div className="hx-data-heading"><h2>{appTableDisplayName(app.name,table.name,table.columns[0]?.name)}</h2><button className="pill-btn hx-create-record" onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{newAppRecordLabel(app.name,table.name,table.columns[0]?.name)}</button></div>
-      <div className={`hx-data-tools${searchExpanded?' hx-search-expanded':''}`}><button className="hx-floating-search pill-btn quiet" aria-label={search?`レコードを検索（検索中: ${search}）`:t('Search records')} aria-expanded={searchExpanded} onClick={()=>setSearchExpanded(value=>!value)}><Icon name="search" size={14}/></button><input ref={searchInput} className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /><PersonalViewControls control="fields" key={`${selectedIndex}:${view.id}:${personal.revision}`} view={view} personal={isPersonalView} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>selectSection('settings')} /><AppViewControls key={`${selectedIndex}:${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} relationEntities={relationEntities} personal={isPersonalView} onAdjust={isPersonalView?undefined:kind=>{location.hash=hashForAppSource(app.id,orgId,'data',`「${app.name}」（${table.name}）のデータビューアーのビュー「${view.name}」の${kind==='filter'?'フィルター':'グループ化'}を調整：`.slice(0,1000))}} canEdit={canEditView} save={saveView} />{view.type==='table'&&<AppDataMenu wrapText={layout.wrapText===true} save={wrapText=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:layout.order,widths:layout.widths,hidden:layout.hidden,wrapText}}})}/>}<span>{t('{n} records', { n: view.type==='table'?shownRows.length:data.rows.length })}</span></div>
+      <div className={`hx-data-tools${searchExpanded&&view.type!=='metrics'?' hx-search-expanded':''}`}>{view.type!=='metrics'&&<><button className="hx-floating-search pill-btn quiet" aria-label={search?`レコードを検索（検索中: ${search}）`:t('Search records')} aria-expanded={searchExpanded} onClick={()=>setSearchExpanded(value=>!value)}><Icon name="search" size={14}/></button><input ref={searchInput} className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /></>}<PersonalViewControls control="fields" key={`${selectedIndex}:${view.id}:${personal.revision}`} view={view} personal={isPersonalView} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>selectSection('settings')} /><AppViewControls key={`${selectedIndex}:${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} relationEntities={relationEntities} personal={isPersonalView} onAdjust={isPersonalView?undefined:kind=>{location.hash=hashForAppSource(app.id,orgId,'data',`「${app.name}」（${table.name}）のデータビューアーのビュー「${view.name}」の${kind==='filter'?'フィルター':'グループ化'}を調整：`.slice(0,1000))}} canEdit={canEditView} save={saveView} />{view.type==='table'&&<AppDataMenu wrapText={layout.wrapText===true} save={wrapText=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:layout.order,widths:layout.widths,hidden:layout.hidden,wrapText}}})}/>}<span>{t('{n} records', { n: shownCount })}</span></div>
       <div className="hx-tabs" role="tablist">
         {allViews.map((v, i) => (
           <button key={`${i}:${v.id}`} ref={i===selectedIndex?selectedViewTab:undefined} role="tab" aria-selected={i === selectedIndex} className={i === selectedIndex ? 'on' : ''} disabled={i>=data.views.length&&sharedIds.has(v.id)} title={i>=data.views.length&&sharedIds.has(v.id)?'共有ビューとIDが重複しているため利用できません。':undefined} onClick={() => {setViewIndex(i);void act('view',()=>savePersonal({...personal,activeView:v.id}))}}>
@@ -578,7 +587,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
         await load()
       })}>{t('Add calendar view')}</button>}
 
-      {view.type === 'calendar' && <AppCalendar key={view.id} view={view} table={table} onOpen={setEditingRecord} onMove={(row, date) => { const column = table.columns.find(c => c.id === view.dateColumn); if (column) void save(row, column, date) }} />}
+      {view.type === 'calendar' && <AppCalendar key={view.id} view={{...view,days:shownDays,undated:shownUndated}} table={table} displayCellText={displayCellText} onOpen={setEditingRecord} onMove={(row, date) => { const column = table.columns.find(c => c.id === view.dateColumn); if (column) void save(row, column, date) }} />}
 
       {view.type === 'metrics' && (
         <div className="hx-metrics">
@@ -593,7 +602,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
 
       {view.type === 'board' && (
         <div className="hx-board">
-          {(view.lanes || []).map((lane) => (
+          {shownLanes.map((lane) => (
             <div className="hx-lane" key={lane.key ?? '—'}>
               <div className="hx-lane-head">{lane.key ?? t('No value')} <span className="hx-count">{lane.rows.length}</span></div>
               {lane.rows.map((row) => {
@@ -613,6 +622,8 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
           ))}
         </div>
       )}
+
+      {search && shownCount === 0 && (view.type === 'board' || view.type === 'calendar') && <div className="hx-table-empty" role="status"><strong>レコードがありません</strong><span>この表示に一致するレコードはありません。</span></div>}
 
       {view.type === 'table' && (
         <div className="hx-table-wrap" ref={tableWrapRef}>
