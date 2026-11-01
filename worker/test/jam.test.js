@@ -86,6 +86,18 @@ test('concurrent authorized Jam joins are serialized and both participants are i
   mika.ws.send(JSON.stringify({type:'jam_leave',payload:{}}));
 });
 
+test('two people can switch rooms in opposite directions without deadlocking',async()=>{
+  const toru=await joined(ORG,globalThis.__jamT),mika=await joined(ORG,globalThis.__jamM);
+  toru.ws.send(JSON.stringify({type:'jam_join',payload:{channel:'b:general'}}));
+  mika.ws.send(JSON.stringify({type:'jam_join',payload:{channel:'b:ops'}}));
+  await Promise.all([message(toru.messages,custom('jam_joined',v=>v.channel==='b:general')),message(mika.messages,custom('jam_joined',v=>v.channel==='b:ops'))]);
+  toru.ws.send(JSON.stringify({type:'jam_join',payload:{channel:'b:ops'}}));
+  mika.ws.send(JSON.stringify({type:'jam_join',payload:{channel:'b:general'}}));
+  await Promise.all([message(toru.messages,custom('jam_joined',v=>v.channel==='b:ops')),message(mika.messages,custom('jam_joined',v=>v.channel==='b:general'))]);
+  toru.ws.send(JSON.stringify({type:'jam_leave',payload:{}}));
+  mika.ws.send(JSON.stringify({type:'jam_leave',payload:{}}));
+});
+
 test("a direct conversation's Jam is only the two people's", async () => {
   const toru = await joined(ORG, globalThis.__jamT);
   const kenji = await joined(ORG, globalThis.__jamK);
