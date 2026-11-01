@@ -592,3 +592,105 @@ test('a revoked newly joined peer is not announced after a slow audience lookup'
  expect(sent.some(([,recipient,event])=>recipient==='bob'&&event.name==='jam_state'&&event.value.active)).toBe(false);
  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=?').bind(org).first('n')).toBe(0);
 });
+
+test('a delayed alarm session recheck cannot restore a Jam after eviction',async()=>{
+ const f=fixture();
+ f.ws.serializeAttachment({...f.ws.deserializeAttachment(),session:'session',checkedAt:0,authed:true,agui:true,jam:{key:channel,peerId:'peer',pending:false,since:createdAt,mode:'notes'}});
+ f.relay.state.storage.setAlarm=async()=>{};
+ let release,started;
+ const waiting=new Promise(resolve=>{started=resolve;});
+ f.relay.stillSignedIn=async()=>{started();await new Promise(resolve=>{release=resolve;});return {ok:true};};
+ const alarm=OrgRelay.prototype.alarm.call(f.relay);
+ await waiting;
+ const request=new Request(`https://relay.internal/internal/evict?orgId=${org}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({login:'alice',channel})});
+ expect((await OrgRelay.prototype.fetch.call(f.relay,request)).status).toBe(200);
+ expect(f.ws.deserializeAttachment().jam).toBeNull();
+ release();await alarm;
+ expect(f.ws.deserializeAttachment().jam).toBeNull();
+});
+
+test.each([true,false])('an old alarm lookup cannot modify a reauthenticated socket (old result %s)',async ok=>{
+ const f=fixture();
+ f.ws.serializeAttachment({...f.ws.deserializeAttachment(),session:'old-session',checkedAt:0,authed:true,agui:true,jam:{key:channel,peerId:'old-peer'}});
+ let release,started,refused=false;
+ const waiting=new Promise(resolve=>{started=resolve;});
+ const alarms=[];f.relay.state.storage.setAlarm=async at=>{alarms.push(at);};
+ f.relay.stillSignedIn=async()=>{started();await new Promise(resolve=>{release=resolve;});return {ok,here:true};};
+ f.relay.refuse=()=>{refused=true;};
+ const alarm=OrgRelay.prototype.alarm.call(f.relay);
+ await waiting;
+ const next={...f.ws.deserializeAttachment(),session:'new-session',userId:'bob',githubId:'4102',checkedAt:100,jam:{key:'b:other',peerId:'new-peer'}};
+ f.ws.serializeAttachment(next);
+ release();await alarm;
+ expect(f.ws.deserializeAttachment()).toEqual(next);
+ expect(refused).toBe(false);
+ expect(alarms.length).toBe(1);
+});
+
+test('reauthentication in flight cannot restore a Jam removed during session lookup',async()=>{
+ const {createSession}=await import('../src/db.js');
+ const token=await createSession(env.DB,'4101','existing-provider-token');
+ const f=fixture();
+ f.ws.serializeAttachment({...f.ws.deserializeAttachment(),session:'old-session',checkedAt:Date.now(),authed:true,agui:true,joins:0,jam:{key:channel,peerId:'peer',pending:false,since:createdAt,mode:'notes'}});
+ let release,started,blocked=false;
+ const waiting=new Promise(resolve=>{started=resolve;});
+ f.relay.db=new Proxy(env.DB,{get(db,key){
+   if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+   return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT token, github_id, github_access_token, created_at, expires_at, last_seen_at, client, reauth_at'))return statement;
+     return {bind(...args){const bound=statement.bind(...args);return {async first(){
+       const row=await bound.first();if(!blocked){blocked=true;started();await new Promise(resolve=>{release=resolve;});}return row;
+     }}}};
+   };
+ }});
+ f.relay.wakeBy=async()=>{};
+ f.relay.overBudget=()=>false;
+ const join=OrgRelay.prototype.webSocketMessage.call(f.relay,f.ws,JSON.stringify({type:'join',payload:{sessionToken:token,protocol:'agui/1'}}));
+ await waiting;
+ const request=new Request(`https://relay.internal/internal/evict?orgId=${org}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({login:'alice',channel})});
+ expect((await OrgRelay.prototype.fetch.call(f.relay,request)).status).toBe(200);
+ expect(f.ws.deserializeAttachment().jam).toBeNull();
+ release();await join;
+ expect(f.ws.deserializeAttachment().jam).toBeNull();
+});
+
+test('a reauthentication cannot transfer an active Jam to another user',async()=>{
+ await upsertUser(env.DB,{githubId:'4102',login:'bob',name:'Bob'});
+ await upsertMembership(env.DB,org,'4102','member');
+ const {createSession}=await import('../src/db.js');
+ const token=await createSession(env.DB,'4102','provider-bob');
+ const f=fixture();
+ f.ws.readyState=1;f.ws.close=()=>{f.ws.readyState=3;};
+ f.ws.serializeAttachment({...f.ws.deserializeAttachment(),session:'old-session',checkedAt:Date.now(),authed:true,agui:true,joins:0,jam:{key:channel,peerId:'peer',pending:false,since:createdAt,mode:'notes'}});
+ f.relay.wakeBy=async()=>{};f.relay.overBudget=()=>false;f.relay.refuse=OrgRelay.prototype.refuse.bind(f.relay);
+ await OrgRelay.prototype.webSocketMessage.call(f.relay,f.ws,JSON.stringify({type:'join',payload:{sessionToken:token,protocol:'agui/1'}}));
+ expect(f.ws.readyState).toBe(3);
+ expect(f.ws.deserializeAttachment().authed).toBe(false);
+ expect(f.ws.deserializeAttachment().userId).toBe('alice');
+});
+
+test('the most recent concurrent WebSocket reauthentication wins',async()=>{
+ const {createSession}=await import('../src/db.js');
+ const first=await createSession(env.DB,'4101','provider-first');
+ const second=await createSession(env.DB,'4101','provider-second');
+ const f=fixture();
+ f.ws.serializeAttachment({...f.ws.deserializeAttachment(),session:'old-session',checkedAt:Date.now(),authed:true,agui:true,joins:0,jam:null});
+ let release,started,blocked=false;
+ const waiting=new Promise(resolve=>{started=resolve;});
+ f.relay.db=new Proxy(env.DB,{get(db,key){
+   if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+   return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT token, github_id, github_access_token, created_at, expires_at, last_seen_at, client, reauth_at'))return statement;
+     return {bind(...args){const bound=statement.bind(...args);return {async first(){
+       const row=await bound.first();if(!blocked){blocked=true;started();await new Promise(resolve=>{release=resolve;});}return row;
+     }}}};
+   };
+ }});
+ f.relay.wakeBy=async()=>{};f.relay.overBudget=()=>false;
+ const a=OrgRelay.prototype.webSocketMessage.call(f.relay,f.ws,JSON.stringify({type:'join',payload:{sessionToken:first,protocol:'agui/1'}}));
+ await waiting;
+ await OrgRelay.prototype.webSocketMessage.call(f.relay,f.ws,JSON.stringify({type:'join',payload:{sessionToken:second,protocol:'agui/1'}}));
+ const afterNew=f.ws.deserializeAttachment();
+ expect(afterNew.joins).toBe(2);
+ expect(afterNew.session).not.toBe('old-session');
+ release();await a;
+ expect(f.ws.deserializeAttachment()).toEqual(afterNew);
+});
