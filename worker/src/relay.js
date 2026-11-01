@@ -33,7 +33,7 @@ import { settleAgentAccessRequest } from "./harness/agentAccessRequests.js";
 import { agentRoleState } from "./harness/agentRoles.js";
 import { settleProposal } from "./proposals.js";
 import { settleProxyAction } from "./proxy.js";
-import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor, invalidateJamJoins, invalidateJamUserJoins, cancelJamSocketJoin } from "./jam.js";
+import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor, invalidateJamJoins, invalidateJamUserJoins, cancelJamSocketJoin, jamJoinWasNotified } from "./jam.js";
 import { TYPING_TYPES, TYPING_BUDGET, handleTyping } from "./typing.js";
 import { useSecretKey } from "./secrets.js";
 import { useMirrorEnv } from "./store/mirror.js";
@@ -169,7 +169,7 @@ export class OrgRelay {
         for (const ws of this.state.getWebSockets()) {
           const att=ws.deserializeAttachment();
           if(att?.orgId!==orgId || att.jam?.key!==channel)continue;
-          OrgRelay.deliver(ws,JSON.stringify(customEvent('jam_error',{channel:null,message:'You are no longer in this channel.'})));
+          if(!jamJoinWasNotified(ws))OrgRelay.deliver(ws,JSON.stringify(customEvent('jam_error',{channel:null,message:'You are no longer in this channel.'})));
           if(att.jam.pending)ws.serializeAttachment({...att,jam:null});
           else leaves.push(leaveJam(this,ws,att).catch(err=>console.error('room jam leave failed',err?.message||err)));
           evicted+=1;
@@ -183,7 +183,7 @@ export class OrgRelay {
         for (const ws of this.state.getWebSockets()) {
           const att = ws.deserializeAttachment();
           if (att?.orgId !== orgId || att?.userId !== login || att.jam?.key !== channel) continue;
-          OrgRelay.deliver(ws, JSON.stringify(customEvent("jam_error", { channel: null, message: "You are no longer in this channel." })));
+          if(!jamJoinWasNotified(ws))OrgRelay.deliver(ws, JSON.stringify(customEvent("jam_error", { channel: null, message: "You are no longer in this channel." })));
           if(att.jam.pending)ws.serializeAttachment({...att,jam:null});
           else leaves.push(leaveJam(this, ws, att));
           evicted += 1;
