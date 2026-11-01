@@ -430,6 +430,37 @@ test("Harness native Notion access needs an agent grant and discards a result re
   }
 });
 
+test("a mixed-case Guest cannot keep or reacquire native Agent source access", async () => {
+  await call("/orgs/mode", owner, { method: "PUT", body: { orgId: ORG, mode: "harness" } });
+  const agentId = "agent-native-guest-case";
+  const createdAt = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO custom_agents
+    (org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES (?1,?2,'native-guest-case','Native Guest Case','Read only with permission.','team','gina',?3,?3)`)
+    .bind(ORG, agentId, createdAt).run();
+  await env.DB.prepare("INSERT INTO connector_sync_state (user_github_id,synced_at,org_id) VALUES ('9703',?1,?2)")
+    .bind(createdAt, ORG).run();
+  await env.DB.prepare("INSERT INTO connector_config (user_github_id,connector,config,updated_at) VALUES ('9703','notion',?1,?2)")
+    .bind(JSON.stringify({ connected: true }), createdAt).run();
+  await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9703'").bind(ORG).run();
+
+  const { agentSourceConnections, mayUseAgentSource, setAgentSourceConnection } = await import("../src/harness/agentConnections.js");
+  const agentSession = await sessionOf(guest);
+  const granted = await setAgentSourceConnection(apiEnv(), { orgId: ORG, agentId, session: agentSession, source: "notion", enabled: true });
+  expect(granted.connections[0]).toMatchObject({ source: "notion", available: true, enabled: true });
+
+  await env.DB.prepare("UPDATE memberships SET role='Guest' WHERE org_id=?1 AND user_github_id='9703'").bind(ORG).run();
+  expect(await mayUseAgentSource(apiEnv(), { orgId: ORG, agentId, session: agentSession, source: "notion" })).toBe(false);
+  expect((await agentSourceConnections(apiEnv(), { orgId: ORG, agentId, session: agentSession })).connections[0])
+    .toMatchObject({ source: "notion", available: true, enabled: false });
+
+  await env.DB.prepare("DELETE FROM hx_agent_source_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9703'").bind(ORG, agentId).run();
+  const denied = await setAgentSourceConnection(apiEnv(), { orgId: ORG, agentId, session: agentSession, source: "notion", enabled: true });
+  expect(denied.error).toMatch(/workspace or Agent access changed/i);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_agent_source_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9703'")
+    .bind(ORG, agentId).first()).toEqual({ n: 0 });
+});
+
 test("an unavailable workspace mode never downgrades Harness app grants to Simple", async () => {
   await allow();
   await connect(mika, "MIKA-ONLY-DATA");

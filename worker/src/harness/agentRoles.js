@@ -6,7 +6,7 @@ export async function explicitAgentRoles(db, orgId, agentIds, login) {
     JOIN custom_agents a ON a.org_id=r.org_id AND a.id=r.agent_id AND a.scope='team' AND a.deleted_at IS NULL AND a.provider IS NULL
     JOIN hx_agent_profiles p ON p.org_id=r.org_id AND p.agent_id=r.agent_id
     JOIN users u ON u.github_id=r.user_id
-    JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.user_id AND m.role!='guest' AND m.created_at=r.member_since
+    JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.user_id AND LOWER(COALESCE(m.role,'guest'))!='guest' AND m.created_at=r.member_since
     WHERE r.org_id=?1 AND u.login=?2 AND r.agent_id IN (${agentIds.map((_,i)=>`?${i+3}`).join(',')})`)
     .bind(orgId,login,...agentIds).all();
   return new Map(results.map(row=>[row.agent_id,row.role]));
@@ -20,7 +20,7 @@ export async function agentRoleState(db, orgId, agentId) {
   const {results} = await db.prepare(`SELECT u.github_id AS userId,u.login,u.name,
     CASE WHEN u.login=?3 THEN 'admin' ELSE r.role END AS role,
     CASE WHEN u.login=?3 THEN 1 ELSE 0 END AS owner
-    FROM users u JOIN memberships m ON m.user_github_id=u.github_id AND m.org_id=?1 AND m.role!='guest'
+    FROM users u JOIN memberships m ON m.user_github_id=u.github_id AND m.org_id=?1 AND LOWER(COALESCE(m.role,'guest'))!='guest'
     LEFT JOIN hx_agent_members r ON r.org_id=m.org_id AND r.agent_id=?2 AND r.user_id=u.github_id AND r.member_since=m.created_at
     WHERE u.login=?3 OR r.user_id IS NOT NULL ORDER BY owner DESC,u.name,u.github_id`)
     .bind(orgId,agentId,agent.owner_login).all();
@@ -41,7 +41,7 @@ export async function setAgentRole(db, orgId, agentId, { actorId, targetId, role
   if (state.scope==='personal' && role==='none') return {error:'Assign a role to share this personal agent.',status:409};
   const profile=await db.prepare('SELECT 1 FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(orgId,agentId).first();
   if (!profile) return {error:'Set up the agent profile before assigning members.',status:409};
-  const target=await db.prepare(`SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND role!='guest'`).bind(orgId,targetId).first();
+  const target=await db.prepare(`SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(COALESCE(role,'guest'))!='guest'`).bind(orgId,targetId).first();
   if (!target) return {error:'That person is not an active workspace member.',status:404};
   if (state.members.some(m=>m.userId===targetId&&m.owner)) return {error:'Transfer ownership before changing the owner’s role.',status:409};
   if (state.version!==expectedVersion) return {error:'Agent access changed. Reload before saving.',status:409};
@@ -53,16 +53,16 @@ export async function setAgentRole(db, orgId, agentId, { actorId, targetId, role
     db.prepare(`UPDATE hx_agent_access SET version=version+1,mutation_id=?5
       WHERE org_id=?1 AND agent_id=?2 AND version=?6
       AND EXISTS (SELECT 1 FROM custom_agents a JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
-        JOIN users u ON u.github_id=?3 JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=u.github_id AND m.role!='guest'
+        JOIN users u ON u.github_id=?3 JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=u.github_id AND LOWER(COALESCE(m.role,'guest'))!='guest'
         WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL AND a.provider IS NULL AND (a.scope='team' OR (a.scope='personal' AND a.owner_login=u.login AND ?7!='none'))
         AND (a.owner_login=u.login OR EXISTS(SELECT 1 FROM hx_agent_members r WHERE r.org_id=?1 AND r.agent_id=?2 AND r.user_id=?3 AND r.member_since=m.created_at
           AND (r.role='admin' OR (r.role='member' AND (
             (?7='member' AND NOT EXISTS(SELECT 1 FROM hx_agent_members t WHERE t.org_id=?1 AND t.agent_id=?2 AND t.user_id=?4 AND t.member_since=?8))
             OR (?7='none' AND EXISTS(SELECT 1 FROM hx_agent_members t WHERE t.org_id=?1 AND t.agent_id=?2 AND t.user_id=?4 AND t.member_since=?8 AND t.role='member'))
           ))))))
-      AND EXISTS(SELECT 1 FROM users u JOIN memberships m ON m.user_github_id=u.github_id AND m.org_id=?1 AND m.role!='guest'
+      AND EXISTS(SELECT 1 FROM users u JOIN memberships m ON m.user_github_id=u.github_id AND m.org_id=?1 AND LOWER(COALESCE(m.role,'guest'))!='guest'
         JOIN custom_agents a ON a.org_id=?1 AND a.id=?2 WHERE u.github_id=?4 AND u.login!=a.owner_login AND m.created_at=?8)
-      AND (?7='admin' OR EXISTS(SELECT 1 FROM users u JOIN memberships m ON m.user_github_id=u.github_id AND m.org_id=?1 AND m.role!='guest'
+      AND (?7='admin' OR EXISTS(SELECT 1 FROM users u JOIN memberships m ON m.user_github_id=u.github_id AND m.org_id=?1 AND LOWER(COALESCE(m.role,'guest'))!='guest'
         JOIN custom_agents a ON a.org_id=?1 AND a.id=?2 WHERE u.github_id!=?4 AND (u.login=a.owner_login OR EXISTS
         (SELECT 1 FROM hx_agent_members r WHERE r.org_id=?1 AND r.agent_id=?2 AND r.user_id=u.github_id AND r.role='admin' AND r.member_since=m.created_at))))
       RETURNING version`).bind(orgId,agentId,actorId,targetId,mutation,expectedVersion,role,target.created_at),
@@ -101,9 +101,9 @@ export async function transferAgentOwnership(db, orgId, agentId, {actorId,target
       AND EXISTS(SELECT 1 FROM custom_agents a
         JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
         JOIN users u ON u.login=a.owner_login AND u.github_id=?3
-        JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=u.github_id AND m.role!='guest'
+        JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=u.github_id AND LOWER(COALESCE(m.role,'guest'))!='guest'
         JOIN hx_agent_members r ON r.org_id=a.org_id AND r.agent_id=a.id AND r.user_id=?4 AND r.role='admin'
-        JOIN memberships t ON t.org_id=r.org_id AND t.user_github_id=r.user_id AND t.role!='guest' AND t.created_at=r.member_since
+        JOIN memberships t ON t.org_id=r.org_id AND t.user_github_id=r.user_id AND LOWER(COALESCE(t.role,'guest'))!='guest' AND t.created_at=r.member_since
         JOIN users recipient ON recipient.github_id=t.user_github_id
         WHERE a.org_id=?1 AND a.id=?2 AND a.scope='team' AND a.provider IS NULL AND a.deleted_at IS NULL AND ?3!=?4)
       RETURNING version`).bind(orgId,agentId,actorId,targetId,mutation,expectedVersion),

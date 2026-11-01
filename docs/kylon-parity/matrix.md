@@ -35,7 +35,7 @@
 | KY-012 | 名前・専門・ペルソナ・アバター | 一部 | P1 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 作成・編集・表示と日英入力を全対象クライアントで検証 |
 | KY-013 | Fast/Pro/Maxの品質とコスト | 一部 | P1 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 現行lite/standard/maxとの差を定義し全実行経路で同じモデル選択と計測 |
 | KY-014 | 独立したAgent Admin/Member | 一部実装 | P0 | [worker/src/harness/agentRoles.js](../../worker/src/harness/agentRoles.js) | 個別役割・制限付き共有・Memberによる通常メンバー追加削除・自己退出・作成者履歴を保持する所有者移譲・競合検出・最後の人間Admin保護を実装。Agent同士の役割・全実行経路のE2E・本番移譲検証は未完了 |
-| KY-015 | 制限したエージェントへの直接APIアクセス | 一部 | P0 | [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js), [worker/src/harness/routes.js](../../worker/src/harness/routes.js) | メモリ等・一覧・DM・編集の直接APIに加え、読めるルームへ配置された制限Agentが `/channels` 一覧に漏れる経路を修正し、回帰テスト済み。全API/外部実行の経路監査が残る |
+| KY-015 | 制限したエージェントへの直接APIアクセス | 一部 | P0 | [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js), [worker/src/harness/routes.js](../../worker/src/harness/routes.js) | メモリ等・一覧・DM・編集の直接API、ルーム一覧への表示、Agent個別ロール、予約実行、Native接続・Remote MCP許可とOAuth資格情報を監査。現在のAgent権限がない利用者と大小文字違いのGuestを拒否する回帰テストを追加。残りのAPI/外部実行経路と複数利用者での本番隔離検証は継続 |
 | KY-016 | Simpleへの切替で権限を緩めない | 実装あり | P0 | [worker/test/harness-agents.test.js](../../worker/test/harness-agents.test.js) | 両モードで非許可ユーザーとworkspace adminの直接アクセスを拒否 |
 | KY-017 | メンション時のみ応答 | 一部 | P1 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 継続スレッド・直接DM・自動化の優先順位を統一 |
 | KY-018 | スレッドの単一リーダーと引継ぎ | 一部 | P0 | [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js) | 重複起動防止・明示handoff・失敗時のリーダー交代 |

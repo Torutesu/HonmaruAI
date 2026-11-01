@@ -12,7 +12,7 @@ export async function requestableAgentOptions(db, orgId, login) {
   if(!member)return [];
   const { results = [] } = await db.prepare(`SELECT a.id,a.name,a.emoji,a.avatar_url,a.owner_login,a.scope,a.provider
     FROM custom_agents a
-    JOIN memberships owner_m ON owner_m.org_id=a.org_id AND owner_m.role!='guest'
+    JOIN memberships owner_m ON owner_m.org_id=a.org_id AND LOWER(COALESCE(owner_m.role,'guest'))!='guest'
     JOIN users owner_u ON owner_u.github_id=owner_m.user_github_id AND owner_u.login=a.owner_login
     WHERE a.org_id=?1 AND a.scope='team' AND a.provider IS NULL AND a.deleted_at IS NULL
       AND a.owner_login!=?2
