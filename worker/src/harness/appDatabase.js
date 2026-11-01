@@ -47,12 +47,34 @@ function dateValue(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
 }
 
-function convertColumnValue(value, target, source) {
+function convertColumnValue(value, target, source, operation, relationResolver) {
   if (value === undefined) return { ok: true, value };
   if (value === null || value === '') return { ok: true, value: null };
   if (target.type === 'relation') {
     let ids;
-    if (source.type === 'relation' && source.multiple) {
+    if (operation.matchBy) {
+      if (source.type !== 'text' || typeof value !== 'string' || !relationResolver) return { ok: false };
+      let labels;
+      if (target.multiple) {
+        try {
+          const parsed = JSON.parse(value);
+          labels = Array.isArray(parsed) ? parsed : [value];
+        } catch { labels = [value]; }
+      } else labels = [value];
+      if (labels.length > 100 || labels.some(label => typeof label !== 'string' || label.length > 5000)) return { ok: false };
+      ids = [];
+      const relationMatches = [];
+      for (const label of labels) {
+        const matches = relationResolver.get(JSON.stringify(label)) || [];
+        if (matches.length !== 1) return { ok: false };
+        ids.push(matches[0]);
+        relationMatches.push({ label, recordId: matches[0], matchBy: operation.matchBy });
+      }
+      if (target.multiple) return { ok: true, value: ids, relationMatches };
+      if (ids.length === 0) return { ok: true, value: null, relationMatches };
+      if (ids.length !== 1) return { ok: false };
+      return { ok: true, value: ids[0], relationMatches };
+    } else if (source.type === 'relation' && source.multiple) {
       if (!Array.isArray(value)) return { ok: false };
       ids = value;
     } else if (source.type === 'relation') {
@@ -172,9 +194,15 @@ export function planMigration(current, operations) {
           const targetEntity = op.targetEntity ?? existing.targetEntity;
           const multiple = op.multiple ?? existing.multiple;
           if (!keyOK(targetEntity) || typeof multiple !== 'boolean') return err('A relation conversion needs a target entity and single/multiple setting.');
+          if (op.matchBy !== undefined && op.matchBy !== null) {
+            const targetColumns = entities.get(targetEntity)?.columns || [];
+            const matchColumn = targetColumns.find(column => column.id === op.matchBy);
+            if (existing.type !== 'text' || typeof op.matchBy !== 'string' || !matchColumn || !['text', 'select', 'date', 'url', 'email'].includes(matchColumn.type)) return err('Exact relation matching needs a text source and a stable text-like target column ID.');
+          }
           candidate.targetEntity = targetEntity;
           candidate.multiple = multiple;
         } else {
+          if (op.matchBy !== undefined && op.matchBy !== null) return err('matchBy is only available when converting to a relation.');
           delete candidate.targetEntity;
           delete candidate.multiple;
         }
@@ -209,8 +237,31 @@ async function buildMigrationPreview(db, orgId, app, input) {
   const plannedEntities = new Map(current.entities.map(entity => [entity.key, entity.table]));
   for (const change of planned.changes) plannedEntities.set(change.key, change.table);
   const relationUses = new Map();
+  const relationMatchExamples = new Map();
+  const relationResolvers = new Map(), relationLookupSnapshots = new Map();
+  for (const operation of input.operations.filter(item => item?.op === 'convert_column' && item.type === 'relation' && item.matchBy)) {
+    const target = plannedEntities.get(operation.entity)?.columns.find(column => column.id === operation.column);
+    const targetTable = plannedEntities.get(target?.targetEntity);
+    const cacheKey = `${target.targetEntity}:${operation.matchBy}`;
+    if (relationResolvers.has(cacheKey)) continue;
+    const size = await db.prepare('SELECT COUNT(*) AS rows FROM hx_rows WHERE org_id=?1 AND table_id=?2').bind(orgId, targetTable.id).first();
+    if (Number(size?.rows || 0) > MAX_ROWS) return err('This relation lookup has too many rows for a safe preview.', 413);
+    const { results = [] } = await db.prepare('SELECT id,data,updated_at FROM hx_rows WHERE org_id=?1 AND table_id=?2 ORDER BY id LIMIT ?3').bind(orgId, targetTable.id, MAX_ROWS).all();
+    const matches = new Map();
+    const rows = results.map(row => ({ id: row.id, data: row.data, updatedAt: row.updated_at }));
+    for (const row of rows) {
+      try {
+        const values = JSON.parse(row.data || '{}'), matchValue = values?.[operation.matchBy];
+        if (typeof matchValue !== 'string') continue;
+        const key = JSON.stringify(matchValue), found = matches.get(key) || [];
+        found.push(row.id); matches.set(key, found);
+      } catch { /* malformed target rows cannot match; their snapshot is still guarded */ }
+    }
+    relationResolvers.set(cacheKey, matches);
+    const currentTarget = current.entities.find(entity => entity.key === target.targetEntity);
+    relationLookupSnapshots.set(targetTable.id, { key: target.targetEntity, tableId: targetTable.id, columns: JSON.stringify(currentTarget?.table.columns || targetTable.columns), rows });
+  }
   let bytes = new TextEncoder().encode(serialized).length;
-  let storedBytes = 0;
   for (const change of planned.changes) {
     const ops = input.operations.filter(operation => operation.entity === change.key);
     const rowOps = ops.filter(operation => ['convert_column', 'drop_empty_column'].includes(operation.op));
@@ -221,7 +272,7 @@ async function buildMigrationPreview(db, orgId, app, input) {
       if (operation.op === 'create_entity') return { op: operation.op, entity: change.key, tableName: change.table.name, columns: change.table.columns };
       if (operation.op === 'add_columns') return { op: operation.op, columns: operation.columns };
       if (operation.op === 'rename_column') return { op: operation.op, column: operation.column, from: before?.name, to: after?.name };
-      if (operation.op === 'convert_column') return { op: operation.op, column: operation.column, name: before?.name, from: before?.type, to: after?.type, options: after?.options, ...(after?.type === 'relation' ? { targetEntity: after.targetEntity, multiple: after.multiple } : {}) };
+      if (operation.op === 'convert_column') return { op: operation.op, column: operation.column, name: before?.name, from: before?.type, to: after?.type, options: after?.options, ...(after?.type === 'relation' ? { targetEntity: after.targetEntity, multiple: after.multiple, ...(operation.matchBy ? { matchBy: operation.matchBy } : {}) } : {}) };
       if (operation.op === 'drop_empty_column') return { op: operation.op, column: operation.column, name: before?.name, type: before?.type };
       return { op: operation.op };
     });
@@ -231,8 +282,6 @@ async function buildMigrationPreview(db, orgId, app, input) {
     }
     const size = await db.prepare('SELECT COUNT(*) AS rows,COALESCE(SUM(length(CAST(data AS BLOB))),0) AS bytes FROM hx_rows WHERE org_id=?1 AND table_id=?2').bind(orgId, change.table.id).first();
     if (Number(size?.rows || 0) > MAX_ROWS) return err('This table has too many rows for a safe schema migration.', 413);
-    storedBytes += Number(size?.bytes || 0);
-    if (storedBytes > 500_000) return err('This migration preview exceeds the 500 KB safe snapshot limit. Split it into smaller migrations.', 413);
     const { results = [] } = await db.prepare('SELECT id,data,updated_at FROM hx_rows WHERE org_id=?1 AND table_id=?2 ORDER BY id LIMIT ?3').bind(orgId, change.table.id, MAX_ROWS).all();
     const rows = results.map(row => ({ id: row.id, data: row.data, updatedAt: row.updated_at }));
     const snapshot = { key: change.key, tableId: change.table.id, columns: JSON.stringify(current.entities.find(entity => entity.key === change.key).table.columns), rows };
@@ -246,12 +295,13 @@ async function buildMigrationPreview(db, orgId, app, input) {
       const before = { ...values };
       let blocked = false;
       const rowRelations = [];
+      const rowRelationMatches = [];
       for (const operation of rowOps) {
         const source = values[operation.column];
         if (operation.op === 'convert_column') {
           const target = change.table.columns.find(column => column.id === operation.column);
           const sourceColumn = oldColumns.find(column => column.id === operation.column);
-          const converted = convertColumnValue(source, target, sourceColumn);
+          const converted = convertColumnValue(source, target, sourceColumn, operation, operation.matchBy ? relationResolvers.get(`${target.targetEntity}:${operation.matchBy}`) : null);
           if (!converted.ok) {
             blockers.push({ entity: change.key, id: row.id, column: columnNames.get(operation.column) || operation.column, reason: 'Value cannot be converted without data loss.' });
             blocked = true; break;
@@ -261,6 +311,7 @@ async function buildMigrationPreview(db, orgId, app, input) {
           if (target.type === 'relation' && converted.value != null) {
             const refs = Array.isArray(converted.value) ? converted.value : [converted.value];
             for (const id of refs) rowRelations.push({ targetEntity: target.targetEntity, id, entity: change.key, rowId: row.id, column: columnNames.get(operation.column) || operation.column });
+            if (converted.relationMatches?.length) rowRelationMatches.push({ column: operation.column, targetEntity: target.targetEntity, matches: converted.relationMatches });
           }
         } else if (!isEmptyMigrationValue(source, oldColumns.find(column => column.id === operation.column))) {
           blockers.push({ entity: change.key, id: row.id, column: columnNames.get(operation.column) || operation.column, reason: 'Column contains data; only null, empty-string, or empty multiple-relation values can be dropped.' });
@@ -268,6 +319,7 @@ async function buildMigrationPreview(db, orgId, app, input) {
         } else delete values[operation.column];
       }
       if (blocked) continue;
+      if (rowRelationMatches.length) relationMatchExamples.set(`${change.key}:${row.id}`, rowRelationMatches);
       for (const reference of rowRelations) {
         let uses = relationUses.get(reference.targetEntity);
         if (!uses) { uses = new Map(); relationUses.set(reference.targetEntity, uses); }
@@ -282,9 +334,12 @@ async function buildMigrationPreview(db, orgId, app, input) {
     updates.push(update);
     summaries.push({
       entity: change.key, tableName: change.table.name, operations: ops.map(operation => operation.op), schemaChanges, rowsScanned: rows.length,
-      rowsChanged: updatedRows.length, examples: updatedRows.slice(0, 3).map(row => ({ id: row.id, before: JSON.parse(rows.find(source => source.id === row.id).data || '{}'), after: JSON.parse(row.data) })), blockers: [],
+      rowsChanged: updatedRows.length, examples: updatedRows.slice(0, 3).map(row => ({ id: row.id, before: JSON.parse(rows.find(source => source.id === row.id).data || '{}'), after: JSON.parse(row.data), ...(relationMatchExamples.has(`${change.key}:${row.id}`) ? { relationMatches: relationMatchExamples.get(`${change.key}:${row.id}`) } : {}) })), blockers: [],
     });
   }
+  for (const snapshot of relationLookupSnapshots.values()) if (!snapshots.some(existing => existing.tableId === snapshot.tableId)) snapshots.push(snapshot);
+  const storedBytes = snapshots.reduce((sum, snapshot) => sum + snapshot.rows.reduce((total, row) => total + new TextEncoder().encode(row.data || '').length, 0), 0);
+  if (storedBytes > 500_000) return err('This migration preview exceeds the 500 KB safe snapshot limit. Split it into smaller migrations.', 413);
   const relationTargets = [];
   let relationTargetCount = 0;
   for (const [entityKey, uses] of relationUses) {
@@ -370,7 +425,7 @@ export async function generateMigration(prompt, current, complete) {
   if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 4000) return err('Describe the database change in 1–4000 characters.');
   if (!complete) return err('AI generation is unavailable within the current allowance.', 503);
   try {
-    const raw = await complete('Return JSON {"operations":[...]}. Supported database migration operations: {op:"create_entity",entity:"lowercase_key",name:"Name",columns:[{name,type,options?}]}, {op:"add_columns",entity:"existing_key",columns:[{name,type,options?}]}, {op:"rename_column",entity:"existing_key",column:"stable_column_id",name:"New name"}, {op:"convert_column",entity:"existing_key",column:"stable_column_id",type:"text|number|date|select|checkbox|url|email|person|relation",options?:[...],targetEntity?:"existing_entity_key",multiple?:boolean} and {op:"drop_empty_column",entity:"existing_key",column:"stable_column_id"}. Conversion is strict: person conversion accepts only strings up to 64 characters; relation conversion must reference existing stable record IDs (a multiple relation may use a JSON array in a text column), and targets are checked again when applying. Dropping is allowed only when every value is null, an empty string, or an empty multiple-relation list. Never create a column ID. Prefer additive changes; only rename, convert or drop a column when explicitly requested. Current schema: '+JSON.stringify(current.entities), prompt);
+    const raw = await complete('Return JSON {"operations":[...]}. Supported database migration operations: {op:"create_entity",entity:"lowercase_key",name:"Name",columns:[{name,type,options?}]}, {op:"add_columns",entity:"existing_key",columns:[{name,type,options?}]}, {op:"rename_column",entity:"existing_key",column:"stable_column_id",name:"New name"}, {op:"convert_column",entity:"existing_key",column:"stable_column_id",type:"text|number|date|select|checkbox|url|email|person|relation",options?:[...],targetEntity?:"existing_entity_key",multiple?:boolean,matchBy?:"stable_target_column_id"} and {op:"drop_empty_column",entity:"existing_key",column:"stable_column_id"}. Conversion is strict: person conversion accepts only strings up to 64 characters; relation conversion may use stable record IDs or exact-match text against the target entity’s stable text/select/date/url/email column ID in matchBy. Every match must resolve to exactly one existing record; missing or duplicate matches are blockers, and target rows are checked again when applying. Multiple relations may use a JSON array of IDs or exact-match labels. Dropping is allowed only when every value is null, an empty string, or an empty multiple-relation list. Never create a column ID. Prefer additive changes; only rename, convert or drop a column when explicitly requested. Current schema: '+JSON.stringify(current.entities), prompt);
     const plan = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
     const operations = Array.isArray(plan.operations) ? plan.operations.map(operation => operation && Array.isArray(operation.columns)
       ? { ...operation, columns: normalizeMemberFields(prompt, operation.columns) } : operation) : plan.operations;

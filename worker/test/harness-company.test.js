@@ -96,7 +96,7 @@ test('data migrations preview strict conversions, reject stale rows, and only dr
  expect((await run('database',{action:'migrate',...dropUnused,previewChecksum:emptyPreview.previewChecksum})).status).toBe(200);
  expect((await (await call(`/tables/${app.tableId}`,owner)).json()).table.columns.some(column=>column.id==='unused')).toBe(false);
 });
-test('data migrations convert person and relation references, with target rows guarded at commit',async()=>{
+test('data migrations convert person and exact-match relation references, guarding target rows at commit',async()=>{
  const created=await run('database',{action:'migrate',id:'people_entity_v1',version:0,operations:[{op:'create_entity',entity:'people',name:'People',columns:[{name:'Name',type:'text'}]}]});
  expect(created.status).toBe(200);
  const peopleTable=(await (await run('database')).json()).entities.find(entity=>entity.key==='people').table;
@@ -104,16 +104,21 @@ test('data migrations convert person and relation references, with target rows g
  const targetOne=await addPerson('One'),targetTwo=await addPerson('Two');
  expect(targetOne.row).toBeTruthy();expect(targetTwo.row).toBeTruthy();
  await run('database',{action:'migrate',id:'reference_sources_v2',version:1,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Assignee text',type:'text'},{name:'Related text',type:'text'},{name:'Related many text',type:'text'}]}]});
- const source=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'reference source','assignee_text':'@user1','related_text':'missing-record','related_many_text':JSON.stringify([targetOne.row.id,targetTwo.row.id])}})).json()).row;
+ const source=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'reference source','assignee_text':'@user1','related_text':'Missing','related_many_text':JSON.stringify(['One','Two'])}})).json()).row;
  const request={id:'convert_references_v3',version:2,operations:[
   {op:'convert_column',entity:'primary',column:'assignee_text',type:'person'},
-  {op:'convert_column',entity:'primary',column:'related_text',type:'relation',targetEntity:'people',multiple:false},
-  {op:'convert_column',entity:'primary',column:'related_many_text',type:'relation',targetEntity:'people',multiple:true},
+  {op:'convert_column',entity:'primary',column:'related_text',type:'relation',targetEntity:'people',multiple:false,matchBy:'name'},
+  {op:'convert_column',entity:'primary',column:'related_many_text',type:'relation',targetEntity:'people',multiple:true,matchBy:'name'},
  ]};
  const blocked=await (await run('database',{action:'preview',...request})).json();
  expect(blocked).toMatchObject({canApply:false,blockerCount:1});
  expect(blocked.blockers[0]).toMatchObject({entity:'primary',id:source.id,column:'Related text'});
- await env.DB.prepare("UPDATE hx_rows SET data=json_set(data,'$.related_text',?1),updated_at=?2 WHERE org_id=?3 AND id=?4").bind(targetOne.row.id,new Date().toISOString(),orgId,source.id).run();
+ await env.DB.prepare("UPDATE hx_rows SET data=json_set(data,'$.related_text',?1),updated_at=?2 WHERE org_id=?3 AND id=?4").bind('One',new Date().toISOString(),orgId,source.id).run();
+ const duplicate=await addPerson('One');
+ const ambiguous=await (await run('database',{action:'preview',...request})).json();
+ expect(ambiguous).toMatchObject({canApply:false,blockerCount:1});
+ expect(ambiguous.blockers[0]).toMatchObject({id:source.id,column:'Related text'});
+ await env.DB.prepare('DELETE FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3').bind(orgId,peopleTable.id,duplicate.row.id).run();
  const preview=await (await run('database',{action:'preview',...request})).json();
  expect(preview).toMatchObject({canApply:true,blockerCount:0});
  const racingDb={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
@@ -122,9 +127,13 @@ test('data migrations convert person and relation references, with target rows g
  }};
  expect(await applyMigration(racingDb,orgId,app,{...request,previewChecksum:preview.previewChecksum},'1')).toMatchObject({status:409});
  const replacement=await addPerson('Replacement');
- await env.DB.prepare("UPDATE hx_rows SET data=json_set(data,'$.related_many_text',?1),updated_at=?2 WHERE org_id=?3 AND id=?4").bind(JSON.stringify([targetOne.row.id,replacement.row.id]),new Date().toISOString(),orgId,source.id).run();
+ await env.DB.prepare("UPDATE hx_rows SET data=json_set(data,'$.related_many_text',?1),updated_at=?2 WHERE org_id=?3 AND id=?4").bind(JSON.stringify(['One','Replacement']),new Date().toISOString(),orgId,source.id).run();
  const fresh=await (await run('database',{action:'preview',...request})).json();
  expect(fresh).toMatchObject({canApply:true,blockerCount:0});
+ expect(fresh.changes[0].examples[0].relationMatches).toEqual(expect.arrayContaining([
+  {column:'related_text',targetEntity:'people',matches:[{label:'One',recordId:targetOne.row.id,matchBy:'name'}]},
+  {column:'related_many_text',targetEntity:'people',matches:[{label:'One',recordId:targetOne.row.id,matchBy:'name'},{label:'Replacement',recordId:replacement.row.id,matchBy:'name'}]},
+ ]));
  expect(await (await run('database',{action:'migrate',...request,previewChecksum:fresh.previewChecksum})).json()).toMatchObject({applied:true,version:3});
  const migrated=await (await call(`/tables/${app.tableId}`,owner)).json();
  expect(migrated.table.columns.find(column=>column.id==='assignee_text').type).toBe('person');
