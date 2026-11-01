@@ -505,7 +505,7 @@ export const ClassicList: React.FC<Props> = ({
         return {conflict: response.status === 409, snapshot: data}
       },
       show, failed, () => controller.abort(), controller.signal)
-    trackSidebarQueue(sync)
+    trackSidebarQueue(sync, queueKey)
     setSidebarReady(false)
     setSidebarPending(false)
     setSidebarUncertain(false)

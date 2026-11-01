@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect } from 'vitest'
-import { SidebarSync, SidebarEditQueue, bindSidebarSession, trackSidebarQueue, hasPendingSidebarQueues, clearSidebarSessionQueues, retainSidebarQueue, takeSidebarQueue, reorderExisting, reorderIncludingNew } from './sidebarSync'
+import { SidebarSync, SidebarEditQueue, bindSidebarSession, trackSidebarQueue, hasPendingSidebarQueues, clearSidebarSessionQueues, clearSidebarWorkspaceQueues, retainSidebarQueue, takeSidebarQueue, reorderExisting, reorderIncludingNew } from './sidebarSync'
 
 type L = { starred: string[] }
 afterEach(() => { clearSidebarSessionQueues() })
@@ -274,5 +274,23 @@ describe('versioned sidebar changes', () => {
     expect(bindSidebarSession('https://one.invalid','new-token','reader')).toBe(true)
     expect(aborted).toBe(1)
     expect(takeSidebarQueue('old')).toBeNull()
+  })
+
+  it('access loss cancels only the affected workspace queue', () => {
+    const aborted: string[] = []
+    const make = (key: string) => {
+      const q = new SidebarEditQueue<L>({starred:[]},()=>new Promise(()=>{}),async sidebar=>({conflict:false,snapshot:{sidebar,version:'saved'}}),()=>{},()=>{},()=>{aborted.push(key)})
+      trackSidebarQueue(q,key)
+      q.change(star(`b:${key}`))
+      return q
+    }
+    const current=make('workspace-a'), other=make('workspace-b')
+    retainSidebarQueue('workspace-b',other)
+    expect(clearSidebarWorkspaceQueues('workspace-a')).toBe(true)
+    expect(aborted).toEqual(['workspace-a'])
+    expect(current.hasPending()).toBe(false)
+    expect(other.hasPending()).toBe(true)
+    expect(takeSidebarQueue('workspace-b')).toBe(other)
+    expect(hasPendingSidebarQueues()).toBe(true)
   })
 })

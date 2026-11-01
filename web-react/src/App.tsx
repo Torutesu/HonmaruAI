@@ -18,7 +18,7 @@ import type { InvitePeek } from './screens/SignIn'
 import { disableWebPush, sessionIsCurrent } from './utils/push'
 import { boundSsoStart, takeSsoVerifier } from './utils/ssoBinding'
 import { forgetOwnOutbox } from './utils/pendingSend'
-import { bindSidebarSession, hasPendingSidebarQueues, clearSidebarSessionQueues, clearSidebarIfTokenChanged } from './utils/sidebarSync'
+import { bindSidebarSession, hasPendingSidebarQueues, clearSidebarSessionQueues, clearSidebarWorkspaceQueues, clearSidebarIfTokenChanged } from './utils/sidebarSync'
 import { getLocale } from './utils/locale'
 import './theme.css'
 import './App.css'
@@ -363,9 +363,9 @@ function AccountApp() {
   /// There is nothing there to show them now, so ask where they still belong
   /// — the same question a sign-in asks — and go there.
   const leftOrg = async () => {
-    // Pending writes must not continue after workspace access is revoked.
-    warnDiscardedSidebar(clearSidebarSessionQueues())
-    if (sessionToken && userId) bindSidebarSession(httpBase(host), sessionToken, userId)
+    // Only the workspace whose access was revoked must lose pending writes.
+    // Work queued for a different workspace remains available there.
+    warnDiscardedSidebar(clearSidebarWorkspaceQueues(JSON.stringify([httpBase(host), sessionToken, userId, orgId])))
     // Whatever happens next, the cards of the workspace they are out of
     // are not theirs to keep on this machine.
     clearCardCache()

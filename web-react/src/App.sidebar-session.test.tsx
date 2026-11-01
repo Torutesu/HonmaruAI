@@ -20,16 +20,16 @@ vi.mock('./utils/locale', () => ({getLocale:()=> 'en'}))
 import App from './App'
 
 type L={starred:string[]}
-function pendingQueue() {
+function pendingQueue(workspace='org') {
   let aborted=false
   const q=new SidebarEditQueue<L>({starred:[]},()=>new Promise(()=>{}),async sidebar=>({conflict:false,snapshot:{sidebar,version:'v'}}),()=>{},()=>{},()=>{aborted=true})
-  trackSidebarQueue(q)
+  trackSidebarQueue(q,JSON.stringify(['http://synthetic.invalid','old-token','reader',workspace]))
   q.change(base=>({starred:[...base.starred,'b:front']}))
   return {q,get aborted(){return aborted}}
 }
 
-async function setup() {
-  const values=new Map([['sessionToken','old-token'],['userId','reader'],['orgId','org']])
+async function setup(orgs=[{id:'org'}]) {
+  const values=new Map([['sessionToken','old-token'],['userId','reader'],['orgId','org'],['host','synthetic.invalid']])
   const localStorage={getItem:(key:string)=>values.get(key)||null,setItem:(key:string,value:string)=>values.set(key,value),removeItem:(key:string)=>values.delete(key)}
   const listeners=new Map<string,Set<(e:any)=>void>>()
   const add=(type:string,fn:(e:any)=>void)=>{if(!listeners.has(type))listeners.set(type,new Set());listeners.get(type)!.add(fn)}
@@ -42,7 +42,7 @@ async function setup() {
   vi.stubGlobal('navigator',{onLine:true})
   vi.stubGlobal('window',{addEventListener:add,removeEventListener:remove,confirm,location:{href:''}})
   vi.stubGlobal('document',{addEventListener:add,removeEventListener:remove,visibilityState:'visible'})
-  vi.stubGlobal('fetch',vi.fn(async (url:string)=>({ok:true,status:200,json:async()=>url.endsWith('/me')?{login:'reader',orgs:[{id:'org'}]}:{}})))
+  vi.stubGlobal('fetch',vi.fn(async (url:string)=>({ok:true,status:200,json:async()=>url.endsWith('/me')?{login:'reader',orgs}:{}})))
   let tree!:ReturnType<typeof create>
   await act(async()=>{tree=create(<App/>);await Promise.resolve();await Promise.resolve();await Promise.resolve()})
   return {tree,values,confirm,location,fire:(type:string,event:any)=>{for(const fn of listeners.get(type)||[])fn(event)}}
@@ -101,6 +101,16 @@ test('workspace access loss stops queued writes before leaving',async()=>{
   expect(ui.confirm).not.toHaveBeenCalled()
   expect(pending.aborted).toBe(true)
   expect(JSON.stringify(ui.tree.toJSON())).toContain('Pending sidebar changes were discarded')
+  act(()=>ui.tree.unmount())
+})
+
+test('workspace access loss preserves pending edits for another accessible workspace',async()=>{
+  const ui=await setup([{id:'org'},{id:'org2'}]), current=pendingQueue(), other=pendingQueue('org2')
+  await act(async()=>{ui.tree.root.findByProps({'data-left':true}).props.onClick();await Promise.resolve();await Promise.resolve()})
+  expect(current.aborted).toBe(true)
+  expect(other.aborted).toBe(false)
+  expect(other.q.hasPending()).toBe(true)
+  expect(ui.values.get('orgId')).toBe('org2')
   act(()=>ui.tree.unmount())
 })
 

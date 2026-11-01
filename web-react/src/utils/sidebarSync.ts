@@ -194,16 +194,30 @@ export class SidebarEditQueue<L> {
 // The key is scoped to the server, session, user, and workspace by the caller.
 // A page close still ends in-memory recovery; nothing is written to disk.
 const retainedQueues = new Map<string, SidebarEditQueue<any>>()
-const activeQueues = new Set<SidebarEditQueue<any>>()
+const activeQueues = new Map<SidebarEditQueue<any>, string>()
 let sessionIdentity: string | null = null
-export function trackSidebarQueue<L>(queue: SidebarEditQueue<L>): void { activeQueues.add(queue) }
-export function hasPendingSidebarQueues(): boolean { return [...activeQueues].some(queue => queue.hasPending()) }
+export function trackSidebarQueue<L>(queue: SidebarEditQueue<L>, key = ''): void { activeQueues.set(queue, key) }
+export function hasPendingSidebarQueues(): boolean { return [...activeQueues.keys()].some(queue => queue.hasPending()) }
 export function clearSidebarSessionQueues(): boolean {
   const pending = hasPendingSidebarQueues()
-  for (const queue of activeQueues) queue.cancel()
+  for (const queue of activeQueues.keys()) queue.cancel()
   activeQueues.clear()
   retainedQueues.clear()
   sessionIdentity = null
+  return pending
+}
+// Losing access to one workspace must not discard pending edits to other
+// workspaces in the same session. The key is the same exact scoped key used
+// to retain and restore an individual queue.
+export function clearSidebarWorkspaceQueues(key: string): boolean {
+  let pending = false
+  for (const [queue, scopedKey] of activeQueues) {
+    if (scopedKey !== key) continue
+    pending ||= queue.hasPending()
+    queue.cancel()
+    activeQueues.delete(queue)
+    if (retainedQueues.get(key) === queue) retainedQueues.delete(key)
+  }
   return pending
 }
 // Bind before rendering an authenticated workspace. This also covers a
@@ -223,7 +237,7 @@ export function clearSidebarIfTokenChanged(token: string): boolean {
 export function retainSidebarQueue<L>(key: string, queue: SidebarEditQueue<L>): void {
   queue.dispose()
   if (queue.isCancelled() || !queue.hasPending()) { queue.cancel(); activeQueues.delete(queue); return }
-  activeQueues.add(queue)
+  activeQueues.set(queue, key)
   retainedQueues.set(key, queue)
   queue.whenDetachedSettled(() => {
     if (retainedQueues.get(key) === queue) { retainedQueues.delete(key); activeQueues.delete(queue); queue.cancel() }
