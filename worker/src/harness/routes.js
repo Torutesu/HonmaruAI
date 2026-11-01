@@ -1075,9 +1075,9 @@ export async function handleHarness(request, env, url, context = {}) {
     const withAppRoomGuidelines=prompt=>withAppRoomGuidelinesRequest(env.DB,orgId,who.user,appId,prompt);
     if (['database','actions','connections'].includes(sub)) {
       const canManage = await mayChange(env, orgId, who, app.createdBy);
-      const respond = async (result, action) => {
-        if (sub === 'database' && !result.error && !await mayUseDatabase(env.DB, orgId, appId, me, [...(result.fork?.entities || []), ...(result.entities || [])].map(entity=>entity.table?.id).filter(Boolean), request.method !== 'GET')) return json({message:'No such app.'},404);
+      const respond = async (result, action, extraTableIds = []) => {
         if (!result.error && action) await audit(env, request, { orgId, action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version ?? null, name: typeof input?.name === 'string' ? input.name : null, ...(result.merged?{forkId:result.forkId,checksum:result.checksum,changed:result.changed??null,replay:Boolean(result.replay)}:{}) } });
+        if (sub === 'database' && !result.error && !await mayUseDatabase(env.DB, orgId, appId, me, [...extraTableIds,...[...(result.fork?.entities || []), ...(result.entities || [])].map(entity=>entity.table?.id).filter(Boolean)], request.method !== 'GET')) return json({message:'No such app.'},404);
         return result.error ? fail(result) : json(result);
       };
       if (sub === 'database') {
@@ -1090,12 +1090,15 @@ export async function handleHarness(request, env, url, context = {}) {
           if (!await mayUseDatabase(env.DB,orgId,appId,me,ids,true)) return json({message:'No such app.'},404);
           const result=await generateMigration(await withAppRoomGuidelines(input.prompt),schema,await completer(env,orgId,me,'app_database_generate',{maxTokens:4000}));
           if (!await mayUseDatabase(env.DB,orgId,appId,me,ids,true)) return json({message:'No such app.'},404);
-          return respond(result);
+          return respond(result,undefined,ids);
         }
-        if (input.action === 'preview') return respond(await previewMigration(env.DB, orgId, app, input, me));
+        if (input.action === 'preview') {
+          const {tableIds=[],...result}=await previewMigration(env.DB,orgId,app,input,me);
+          return respond(result,undefined,tableIds);
+        }
         if (input.action === 'migrate') return respond(await applyMigration(env.DB, orgId, app, input, me), 'app.database_migrated');
         if (input.action === 'fork') return respond(await forkDatabase(env.DB, orgId, app, me), 'app.database_forked');
-        if (input.action === 'merge_preview') { const result=await previewMerge(env.DB,orgId,app,me,input); const {snapshots,...review}=result; return respond(review); }
+        if (input.action === 'merge_preview') { const result=await previewMerge(env.DB,orgId,app,me,input); const {snapshots,...review}=result; return respond(review,undefined,(snapshots||[]).map(snapshot=>snapshot.tableId)); }
         if (input.action === 'merge_apply') {
           const result=await mergeFork(env.DB,orgId,app,me,input);
           if(result.error)return respond(result);
@@ -1109,7 +1112,10 @@ export async function handleHarness(request, env, url, context = {}) {
           }
           return respond(publicResult,'app.preview_merged');
         }
-        if (input.action === 'fork_write') return respond(await mutateFork(env.DB, orgId, appId, me, input), 'app.preview_changed');
+        if (input.action === 'fork_write') {
+          const {tableIds=[],...result}=await mutateFork(env.DB,orgId,appId,me,input);
+          return respond(result,'app.preview_changed',tableIds);
+        }
       }
       if (sub === 'actions') {
         if (request.method === 'GET') {
