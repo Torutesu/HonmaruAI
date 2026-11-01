@@ -11,11 +11,12 @@ const personalAuthority=(org,user,app,version='NULL',columns='NULL',updatedAt='N
   WHERE a.org_id=${org} AND a.id=${app} AND (${version} IS NULL OR a.version=${version})
     AND (${tableId} IS NULL OR a.table_id=${tableId})
     AND (${columns} IS NULL OR EXISTS(SELECT 1 FROM hx_tables t WHERE t.org_id=a.org_id AND t.id=a.table_id AND json(t.columns)=json(${columns}) AND t.updated_at=${updatedAt}))
-    AND NOT EXISTS(SELECT 1 FROM hx_apps linked
+    AND NOT EXISTS(SELECT 1 FROM (
+      SELECT linked.id FROM hx_apps linked WHERE linked.org_id=a.org_id AND linked.table_id=a.table_id
+      UNION SELECT e.app_id AS id FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.table_id=a.table_id
+    ) reference LEFT JOIN hx_apps linked ON linked.org_id=a.org_id AND linked.id=reference.id
       LEFT JOIN hx_app_access linked_access ON linked_access.org_id=linked.org_id AND linked_access.app_id=linked.id
-      WHERE linked.org_id=a.org_id
-        AND (linked.table_id=a.table_id OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=linked.org_id AND e.app_id=linked.id AND e.table_id=a.table_id))
-        AND COALESCE(linked_access.visibility,'workspace')!='workspace' AND COALESCE(linked.created_by,'')!=${user})
+      WHERE linked.id IS NULL OR (COALESCE(linked_access.visibility,'workspace')!='workspace' AND COALESCE(linked.created_by,'')!=${user}))
     AND LOWER(COALESCE(m.role,'guest'))!='guest'
     AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL)
     AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=a.org_id)

@@ -1508,3 +1508,17 @@ test.each(['read','write'])('personal view %s rejects a table replacement with t
  expect(result.status).toBe(409);expect(result.snapshot).toBeUndefined();expect(result.computed).toBeUndefined();
  if(operation==='write')expect(await env.DB.prepare('SELECT 1 FROM hx_personal_views WHERE org_id=? AND user_id=? AND app_id=?').bind(ORG,'9102',app.id).first()).toBeNull();
 });
+
+test('personal view denies a newly orphaned table entity reference before writing',async()=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Orphan reference',columns:[{name:'Name',type:'text'}]})).json();
+ await env.DB.prepare("INSERT INTO hx_apps(id,org_id,name,description,icon,table_id,template,version,definition,created_by,created_at,updated_at) SELECT 'other_org_app','other-org',name,description,icon,table_id,template,version,definition,created_by,created_at,updated_at FROM hx_apps WHERE org_id=? AND id=?").bind(ORG,app.id).run();
+ let inserted=false;
+ const racing=new Proxy(env.DB,{get(db,key){if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];return sql=>{
+  const statement=db.prepare(sql);if(!sql.startsWith('INSERT OR IGNORE INTO hx_personal_views'))return statement;
+  return {bind(...args){const bound=statement.bind(...args);return {async run(){if(!inserted){inserted=true;await env.DB.prepare("INSERT INTO hx_app_entities(org_id,app_id,entity_key,table_id) VALUES (?,'other_org_app','orphan',?)").bind(ORG,app.tableId).run()}return bound.run()}}}};
+ }}});
+ const result=await personalViews(racing,ORG,'9102',app.id,{expectedRevision:0,views:[],layouts:{}});
+ expect(result.status).toBe(404);
+ expect(await env.DB.prepare('SELECT 1 FROM hx_personal_views WHERE org_id=? AND user_id=? AND app_id=?').bind(ORG,'9102',app.id).first()).toBeNull();
+});
