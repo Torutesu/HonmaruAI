@@ -1,4 +1,5 @@
 import { mayUseDatabase } from './databaseAccess.js';
+import { mayGenerateFromSchema } from './generationAccess.js';
 import {handleDocuments,isDocumentNodeRoute} from './documentRoutes.js';
 import { createSkillShare, listSkillShares, revokeSkillShare, readSkillShare, downloadSkillShare, importSkillShare } from './skillShares.js';
 import {workflowRevisions,restoreWorkflowRevision} from './workflowRevisions.js';
@@ -1151,9 +1152,24 @@ export async function handleHarness(request, env, url, context = {}) {
         for(const agent of agents)if(await mayAccessAgent(env.DB,orgId,agent,who.user.login))visibleAgents.push({id:agent.id,name:agent.name});
         const appSchema=await databaseView(env.DB,orgId,app);
         const appRecords=[{id:appId,name:app.name,entities:appSchema.entities.map(entity=>({id:entity.key,name:entity.table?.name,columns:entity.table?.columns||[]}))}];
+        const authorize=async()=>{
+          if(!await mayGenerateFromSchema(env.DB,orgId,appId,me,appSchema.entities,tables.map(table=>table.id)))return false;
+          if(!visibleAgents.length)return true;
+          const current=await listAgents(env.DB,orgId,who.user.login);
+          for(const visible of visibleAgents){
+            const agent=current.find(candidate=>candidate.id===visible.id && candidate.name===visible.name);
+            if(!agent || !await mayAccessAgent(env.DB,orgId,agent,who.user.login))return false;
+          }
+          return true;
+        };
+        if(!await authorize())return json({message:'No such app.'},404);
         const complete=input.useModel===false?null:await completer(env,orgId,me,'app_automation_generate',{maxTokens:2400});
-        const result=await appAutomationFromPrompt(env.DB,orgId,me,{prompt:await withAppRoomGuidelines(input.prompt),timezone:input.timezone,complete,tables,agents:visibleAgents,appRecords});
-        return result.error?fail(result):json(result);
+        const guardedComplete=complete?async(system,user,options={})=>complete(system,user,{...options,authorize}):null;
+        try {
+          const result=await appAutomationFromPrompt(env.DB,orgId,me,{prompt:await withAppRoomGuidelines(input.prompt),timezone:input.timezone,complete:guardedComplete,tables,agents:visibleAgents,appRecords});
+          if(!await authorize())return json({message:'No such app.'},404);
+          return result.error?fail(result):json(result);
+        } finally { await complete?.dispose?.(); }
       }
       if (request.method === 'GET') {
         const result=new URL(request.url).searchParams.get('stateOnly')==='1'
@@ -1175,10 +1191,16 @@ export async function handleHarness(request, env, url, context = {}) {
       if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
       if (input.action === 'generate') {
         const table = await getTable(env.DB, orgId, app.tableId);
-        const complete = await completer(env, orgId, me, 'custom_app_generate', { maxTokens: 8000 });
         const capabilities = { entities: (await databaseView(env.DB,orgId,app)).entities, actions: (await actions(env.DB,orgId,appId)).actions.filter(a=>a.published).map(a=>({name:a.name,code:a.published})), connections:(await connections(env.DB,orgId,appId,me)).connections.map(c=>({name:c.name,endpoint:c.endpoint,method:c.method,enabled:c.enabled})), gateways:(await env.DB.prepare('SELECT id,name FROM hx_gateways WHERE org_id=?1 AND revoked_at IS NULL').bind(orgId).all()).results };
-        const result = await generateCustomSource(await withAppRoomGuidelines(input.prompt), table, complete, capabilities);
-        return result.error ? fail(result) : json(result);
+        const authorize=()=>mayGenerateFromSchema(env.DB,orgId,appId,me,capabilities.entities);
+        if(!table || !await authorize())return json({message:'No such app.'},404);
+        const complete = await completer(env, orgId, me, 'custom_app_generate', { maxTokens: 8000 });
+        const guardedComplete=complete?async(system,user,options={})=>complete(system,user,{...options,authorize}):null;
+        try {
+          const result = await generateCustomSource(await withAppRoomGuidelines(input.prompt), table, guardedComplete, capabilities);
+          if(!await authorize())return json({message:'No such app.'},404);
+          return result.error ? fail(result) : json(result);
+        } finally { await complete?.dispose?.(); }
       }
       const result = await saveCustomRelease(env.DB, orgId, app, input, me);
       if (!result.error) await audit(env, request, { orgId, action: 'app.custom_' + input.action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version } });
