@@ -34,9 +34,15 @@ import { enterKey } from '../utils/keys'
 export const newAppRecordLabel = (appName: string, tableName: string, titleColumnName = '') => {
   if (tableName && tableName !== appName) return `新規${tableName}`
   const title = titleColumnName.trim()
-  if (/^(?:名前|氏名|タイトル|title|name)$/iu.test(title)) return '新規レコード'
+  if (/^(?:名前|氏名|名称|件名|タイトル|タイトル名|title|name)$/iu.test(title)) return '新規レコード'
   const titleNoun = title.replace(/(?:タイトル|名)$/u, '').trim()
   return titleNoun ? `新規${titleNoun}` : '新規レコード'
+}
+
+export const appTableDisplayName = (appName: string, tableName: string, titleColumnName = '') => {
+  if (tableName && tableName !== appName) return tableName
+  const createLabel = newAppRecordLabel(appName, tableName, titleColumnName)
+  return createLabel === '新規レコード' ? tableName || appName : createLabel.slice('新規'.length)
 }
 
 // The harness screens (docs/kylon-gap-plan.md): Apps, Workflows, Approvals,
@@ -463,7 +469,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       {section === 'overview' && app.definition.custom?.published && <CustomAppFrame appId={app.id} api={api} reload={load} httpBase={httpBase} html={app.definition.custom.published} table={table} rows={data.rows} />}
       {section === 'overview' && !app.definition.custom?.published && <div className="hx-app-overview"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('Database app')}</h2><p>{app.description || t('Browse and manage this app’s data in the data viewer.')}</p><div className="hx-actions"><button className="pill-btn" onClick={() => selectSection('data')}>{t('Browse data')}</button><button className="pill-btn quiet" onClick={() => selectSection('custom')}>{t('Customize app')}</button></div><small>{t('{n} records', { n: data.rows.length })} · {table.columns.length} {t('Fields')}</small></div>}
       {section === 'data' && <>
-      <div className="hx-data-toolbar"><div className="hx-data-heading"><h2>{table.name}</h2><button className="pill-btn hx-create-record" onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{newAppRecordLabel(app.name,table.name,table.columns[0]?.name)}</button></div>
+      <div className="hx-data-toolbar"><div className="hx-data-heading"><h2>{appTableDisplayName(app.name,table.name,table.columns[0]?.name)}</h2><button className="pill-btn hx-create-record" onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{newAppRecordLabel(app.name,table.name,table.columns[0]?.name)}</button></div>
       <div className={`hx-data-tools${searchExpanded?' hx-search-expanded':''}`}><button className="hx-floating-search pill-btn quiet" aria-label={search?`レコードを検索（検索中: ${search}）`:t('Search records')} aria-expanded={searchExpanded} onClick={()=>setSearchExpanded(value=>!value)}><Icon name="search" size={14}/></button><input ref={searchInput} className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /><PersonalViewControls control="fields" key={`${view.id}:${personal.revision}`} view={view} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>selectSection('settings')} /><AppViewControls key={`${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} relationEntities={relationEntities} personal={view.id.startsWith('personal_')} onAdjust={view.id.startsWith('personal_')?undefined:kind=>{location.hash=hashForAppSource(app.id,orgId,'data',`「${app.name}」（${table.name}）のデータビューアーのビュー「${view.name}」の${kind==='filter'?'フィルター':'グループ化'}を調整：`.slice(0,1000))}} canEdit={view.id.startsWith('personal_') || data.canCustomize !== false} save={saveView} />{view.type==='table'&&<AppDataMenu wrapText={layout.wrapText===true} save={wrapText=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:layout.order,widths:layout.widths,hidden:layout.hidden,wrapText}}})}/>}<span>{t('{n} records', { n: view.type==='table'?shownRows.length:data.rows.length })}</span></div>
       <div className="hx-tabs" role="tablist">
         {allViews.map((v, i) => (

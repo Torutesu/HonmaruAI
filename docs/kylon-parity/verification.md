@@ -3870,12 +3870,19 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - With the Mac unlocked, compared the existing empty `UI確認用タスク` app in the signed-in Kylon and Honmaru desktop apps. Both showed an empty table and adjacent conversation. The read-only check did not change app data or the existing QA draft. This confirms the inspected layout only; multi-user production authorization isolation remains unverified.
 - No new paid service was added. Honmaru Simple remains available.
 
-### 2026-11-01 — Data viewer record creation action (local verification)
+### 2026-11-01 — Data viewer record creation action (production verification)
 
 - With the Mac unlocked, compared the same empty `UI確認用タスク` app in signed-in Kylon and Honmaru. Kylon exposes one `新規タスク` action in the data-viewer header. Honmaru exposed that header action plus a second `行を追加` button below the table.
 - Removed the duplicate lower action and retained the existing header action and `addRow` flow. When the app and table share a name, the create label now derives its record noun from the title column (`タスク名` → `新規タスク`); distinct table names continue to supply the noun. Added a regression test that the viewer renders exactly one record-create action with the expected Japanese label. Existing Simple mode and data APIs are unchanged.
-- After the label refinement, `HarnessApps.test.tsx` passed all 12 tests, the Web production build passed, and `git diff --check` passed. No live record, app setting, or QA draft was changed. The UI change remains local pending exact-head PR CI and production release; visual comparison was made from the signed-in screen's accessibility tree and screenshot, with different window sizes/themes, not a pixel-aligned overlay.
+- After the label refinement, `HarnessApps.test.tsx` passed all 12 tests, the Web production build passed, and `git diff --check` passed. PR [#607](https://github.com/Torutesu/HonmaruAI/pull/607) merged as `54223d580234fcc8ed9f153f6b96926874a183c6`; exact-head PR CI [#41312452856](https://github.com/Torutesu/HonmaruAI/actions/runs/41312452856) passed all nine jobs, and Web deployment [#41314362673](https://github.com/Torutesu/HonmaruAI/actions/runs/41314362673) succeeded.
+- After deployment, Worker `/health` returned `ok: true` with `encryption.all: true` and `app.honmaruai.com` returned HTTP 200. The authenticated native production screen now shows exactly one `新規タスク` action in the table toolbar and no lower `行を追加` button. The QA composer draft reappeared after the native app reloaded; the table remained empty, and no app data or settings changed. The signed-in Kylon and Honmaru screenshots show the same empty task view and its controls, but the comparison is not pixel aligned because the themes and window sizes differ.
 - This closes one concrete data-viewer interaction mismatch only. Other table, workflow, app detail, ACP, external connection, mobile/native, and provider-dependent Kylon gaps remain tracked in the parity matrix.
+
+### 2026-11-01 — Data viewer table heading (local follow-up)
+
+- The production comparison showed Kylon's table header uses the record type (`タスク`) while Honmaru repeated the app name (`UI確認用タスク`) even though the primary title field is `タスク名`. The app name remains in the breadcrumb; this is a display-only distinction.
+- The data viewer now derives that header as `タスク` when app and table share a name and the title field supplies a specific noun. Generic fields such as `名前`, `氏名`, `件名`, `タイトル`, and `Name` keep the existing table name. No existing table, record, or app setting is migrated.
+- `HarnessApps.test.tsx` passed all 13 tests, the Web production build passed, and `git diff --check` passed. This follow-up is local; exact-head CI and production verification are pending. Main CI for PR #607 passed its exact-head PR run; its post-merge main run is still finishing the Worker job.
 
 ### 2026-11-01 — KY-015 channel overview Agent disclosure (local verification)
 
