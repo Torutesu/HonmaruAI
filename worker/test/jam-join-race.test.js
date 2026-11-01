@@ -374,3 +374,73 @@ test('a delayed session check preserves current unrelated socket state',async()=
   release();await pending;
   expect(f.ws.deserializeAttachment()).toMatchObject({activityAt:1234,guest:true,jam:{key:'b:other',peerId:'new-peer'}});
 });
+
+test('a reaction still loading members is not broadcast after its sender is evicted',async()=>{
+ await upsertUser(env.DB,{githubId:'4102',login:'bob',name:'Bob'});
+ await upsertMembership(env.DB,org,'4102','member');
+ await env.DB.prepare('INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?,?,?,?)').bind(org,channel,'bob',createdAt).run();
+ const f=fixture();
+ f.ws.serializeAttachment({...f.ws.deserializeAttachment(),jam:{key:channel,peerId:'peer-alice',pending:false,since:createdAt,mode:'notes'}});
+ let release,started,blocked=false;
+ const waiting=new Promise(resolve=>{started=resolve;});
+ f.relay.db=new Proxy(env.DB,{get(db,key){
+   if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+   return sql=>{const statement=db.prepare(sql);if(!sql.includes('SELECT m.user_github_id'))return statement;
+     return {bind(...args){const bound=statement.bind(...args);return {async all(){
+       const rows=await bound.all();
+       if(!blocked){blocked=true;started();await new Promise(resolve=>{release=resolve;});}
+       return rows;
+     }}}};
+   };
+ }});
+ const sent=[];f.relay.sendTo=(...args)=>sent.push(args);
+ const pending=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_react',{emoji:'👍'});
+ await waiting;
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel=? AND login='alice'").bind(org,channel).run();
+ f.ws.serializeAttachment({...f.ws.deserializeAttachment(),jam:null});
+ release();await pending;
+ expect(sent.some(([,recipient,event])=>recipient==='bob'&&event.name==='jam_reaction')).toBe(false);
+});
+
+test.each(['jam_react','jam_transcript'])('%s is not broadcast after eviction during audience lookup',async type=>{
+ await upsertUser(env.DB,{githubId:'4102',login:'bob',name:'Bob'});
+ await upsertMembership(env.DB,org,'4102','member');
+ await env.DB.prepare('INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?,?,?,?)').bind(org,channel,'bob',createdAt).run();
+ const f=fixture();
+ f.ws.serializeAttachment({...f.ws.deserializeAttachment(),jam:{key:channel,peerId:'peer-alice',pending:false,since:createdAt,mode:'notes'}});
+ let release,started,blocked=false;
+ const waiting=new Promise(resolve=>{started=resolve;});
+ f.relay.db=new Proxy(env.DB,{get(db,key){
+   if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+   return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT login FROM conversation_members WHERE'))return statement;
+     return {bind(...args){const bound=statement.bind(...args);return {async all(){
+       const rows=await bound.all();
+       if(!blocked){blocked=true;started();await new Promise(resolve=>{release=resolve;});}
+       return rows;
+     }}}};
+   };
+ }});
+ const sent=[];f.relay.sendTo=(...args)=>sent.push(args);
+ const payload=type==='jam_react'?{emoji:'👍'}:{text:'hello',final:false};
+ const pending=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),type,payload);
+ await waiting;
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel=? AND login='alice'").bind(org,channel).run();
+ f.ws.serializeAttachment({...f.ws.deserializeAttachment(),jam:null});
+ release();await pending;
+ expect(sent.some(([,recipient,event])=>recipient==='bob'&&(event.name==='jam_reaction'||event.name==='jam_transcript'))).toBe(false);
+});
+
+test('a final transcript is not stored after eviction during storage lookup',async()=>{
+ const f=fixture(),key=`jam:${org}:${channel}`;
+ f.entries.set(key,{startedAt:createdAt,startedBy:'alice',mode:'notes',people:['alice'],transcript:[]});
+ f.ws.serializeAttachment({...f.ws.deserializeAttachment(),jam:{key:channel,peerId:'peer-alice',pending:false,since:createdAt,mode:'notes'}});
+ let release,started;
+ const waiting=new Promise(resolve=>{started=resolve;});
+ const get=f.relay.state.storage.get;
+ f.relay.state.storage.get=async k=>{const value=await get(k);started();await new Promise(resolve=>{release=resolve;});return value;};
+ const pending=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_transcript',{text:'after eviction',final:true});
+ await waiting;
+ f.ws.serializeAttachment({...f.ws.deserializeAttachment(),jam:null});
+ release();await pending;
+ expect(f.entries.get(key).transcript).toEqual([]);
+});
