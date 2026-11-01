@@ -1210,7 +1210,7 @@ export async function handleHarness(request, env, url, context = {}) {
       if (input.action === 'generate') {
         const table = await getTable(env.DB, orgId, app.tableId);
         const entities=(await databaseView(env.DB,orgId,app)).entities;
-        const actionSnapshot=(await actions(env.DB,orgId,appId)).actions.filter(a=>a.published).map(a=>({name:a.name,code:a.published,version:a.version,publishedVersion:a.publishedVersion}));
+        const actionSnapshot=(await actions(env.DB,orgId,appId)).actions.filter(a=>a.published).map(a=>({name:a.name,code:a.published,version:a.version,publishedVersion:a.publishedVersion,updatedAt:a.updatedAt}));
         const connectionSnapshot=(await connections(env.DB,orgId,appId,me)).connections.map(c=>({name:c.name,endpoint:c.endpoint,method:c.method,enabled:c.enabled,version:c.version}));
         const gatewaySnapshot=(await env.DB.prepare('SELECT id,name,created_at AS createdAt FROM hx_gateways WHERE org_id=?1 AND revoked_at IS NULL').bind(orgId).all()).results;
         const captured={actions:actionSnapshot,connections:connectionSnapshot,gateways:gatewaySnapshot};

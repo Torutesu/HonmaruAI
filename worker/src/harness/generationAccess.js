@@ -69,7 +69,8 @@ export async function mayGenerateFromSchema(db, orgId, appId, userId, entities, 
         AND NOT EXISTS(SELECT 1 FROM json_each(?8,'$.actions') captured WHERE NOT EXISTS(
           SELECT 1 FROM hx_app_actions a WHERE a.org_id=?1 AND a.app_id=?2 AND a.name=json_extract(captured.value,'$.name')
             AND a.published IS json_extract(captured.value,'$.code') AND a.version IS json_extract(captured.value,'$.version')
-            AND a.published_version IS json_extract(captured.value,'$.publishedVersion') AND a.published IS NOT NULL AND a.published!=''))
+            AND a.published_version IS json_extract(captured.value,'$.publishedVersion')
+            AND a.updated_at IS json_extract(captured.value,'$.updatedAt') AND a.published IS NOT NULL AND a.published!=''))
         AND (SELECT COUNT(*) FROM hx_app_connections c WHERE c.org_id=?1 AND c.app_id=?2 AND c.created_by=?3)=json_array_length(?8,'$.connections')
         AND NOT EXISTS(SELECT 1 FROM json_each(?8,'$.connections') captured WHERE NOT EXISTS(
           SELECT 1 FROM hx_app_connections c WHERE c.org_id=?1 AND c.app_id=?2 AND c.created_by=?3

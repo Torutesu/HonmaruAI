@@ -1790,7 +1790,7 @@ test('custom capability snapshot checks exact visible values and ignores unrelat
  await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','api',1,'https://api.github.com/repos/a/b/issues','GET','do-not-send',1)").bind(ORG,app.id).run();
  await env.DB.prepare("INSERT INTO hx_gateways(id,org_id,name,token_hash,created_by,created_at) VALUES('g1',?,'Node','hash-g1','9101',1)").bind(ORG).run();
  const table=await getTable(env.DB,ORG,app.tableId),entities=[{key:'primary',table}];
- const capabilities={actions:[{name:'calc',code:'return 1;',version:1,publishedVersion:1}],connections:[{name:'api',endpoint:'https://api.github.com/repos/a/b/issues',method:'GET',enabled:1,version:1}],gateways:[{id:'g1',name:'Node',createdAt:1}]};
+ const capabilities={actions:[{name:'calc',code:'return 1;',version:1,publishedVersion:1,updatedAt:at}],connections:[{name:'api',endpoint:'https://api.github.com/repos/a/b/issues',method:'GET',enabled:1,version:1}],gateways:[{id:'g1',name:'Node',createdAt:1}]};
  const check=()=>mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities,[table],null,[],capabilities);
  expect(await check()).toBe(true);
  await env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,updated_at) VALUES(?,?,'draft_only',1,'return 2;',NULL,?)").bind(ORG,app.id,at).run();
@@ -1952,19 +1952,21 @@ test('a non-admin app owner can generate custom code with their own capabilities
  } finally {vi.unstubAllGlobals()}
 });
 
-test('capability fence distinguishes changed gateway creation but cannot distinguish identical recreated values',async()=>{
+test('capability fence detects changed action and gateway timestamps but not identical recreated values',async()=>{
  const {mayGenerateFromSchema}=await import('../src/harness/generationAccess.js');
  const {getTable}=await import('../src/harness/tables.js');
  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
  const at='2026-01-01T00:00:00Z';
- const insertAction=()=>env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,published_version,updated_at) VALUES(?,?,'calc',1,'return 1;','return 1;',1,?)").bind(ORG,app.id,at).run();
+ const insertAction=(updatedAt=at)=>env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,published_version,updated_at) VALUES(?,?,'calc',1,'return 1;','return 1;',1,?)").bind(ORG,app.id,updatedAt).run();
  const insertConnection=token=>env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','api',1,'https://api.github.com/repos/a/b/issues','GET',?,1)").bind(ORG,app.id,token).run();
  const insertGateway=at=>env.DB.prepare("INSERT INTO hx_gateways(id,org_id,name,token_hash,created_by,created_at) VALUES('g1',?,'Node',?,'9101',?)").bind(ORG,`hash-${at}`,at).run();
  await insertAction();await insertConnection('secret-one');await insertGateway(1);
  const table=await getTable(env.DB,ORG,app.tableId),entities=[{key:'primary',table}];
- const capabilities={actions:[{name:'calc',code:'return 1;',version:1,publishedVersion:1}],connections:[{name:'api',endpoint:'https://api.github.com/repos/a/b/issues',method:'GET',enabled:1,version:1}],gateways:[{id:'g1',name:'Node',createdAt:1}]};
+ const capabilities={actions:[{name:'calc',code:'return 1;',version:1,publishedVersion:1,updatedAt:at}],connections:[{name:'api',endpoint:'https://api.github.com/repos/a/b/issues',method:'GET',enabled:1,version:1}],gateways:[{id:'g1',name:'Node',createdAt:1}]};
  const check=()=>mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities,[table],null,[],capabilities);
  expect(await check()).toBe(true);
+ await env.DB.prepare("DELETE FROM hx_app_actions WHERE org_id=? AND app_id=? AND name='calc'").bind(ORG,app.id).run();await insertAction('2026-02-01T00:00:00Z');
+ expect(await check()).toBe(false);
  await env.DB.prepare("DELETE FROM hx_app_actions WHERE org_id=? AND app_id=? AND name='calc'").bind(ORG,app.id).run();await insertAction();
  expect(await check()).toBe(true);
  await env.DB.prepare("DELETE FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='api'").bind(ORG,app.id).run();await insertConnection('secret-two');
