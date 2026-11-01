@@ -417,8 +417,10 @@ test('room guidelines accompany app generation and app replies only while the so
  expect(await withAppRoomGuidelinesRequest(env.DB,org,who.user,made.app.id,'Do not reveal room rules')).toBe('Do not reveal room rules');
  const inaccessible={body:'@AI answer without private room rules',requestId:'guided_app_chat_request_02'};
  const next=await appConversation(env.DB,org,'9201',made.app.id,inaccessible,true);
- await replyToApp(env,org,who.user,made.app.id,inaccessible,next.messageId,{makeCompleter:async()=>async(system)=>{answerSystem=system;return 'A focused answer.';}});
- expect(answerSystem).not.toContain(rule);
+ const deniedModel=vi.fn().mockResolvedValue('Must not run');
+ await replyToApp(env,org,who.user,made.app.id,inaccessible,next.messageId,{makeCompleter:async()=>deniedModel});
+ expect(deniedModel).not.toHaveBeenCalled();
+ expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(next.messageId).first()).toEqual({status:'failed'});
 
  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?,'b:confidential','user9201',?)").bind(org,new Date().toISOString()).run();
  const revokedDuringGeneration={body:'@AI answer only while access is valid',requestId:'guided_app_chat_request_03'};
@@ -429,6 +431,56 @@ test('room guidelines accompany app generation and app replies only while the so
  }});
  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE org_id=? AND app_id=? AND author_id='__app_ai' AND body='This must not be stored.'").bind(org,made.app.id).first()).n).toBe(0);
 });
+test('source access lost while preparing the model cancels the call and releases its reservation',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {appConversation}=await import('../src/harness/appConversations.js');
+ const root=await privateSource();
+ await env.DB.prepare("INSERT INTO hx_app_conversation_sources(org_id,app_id,channel,thread_id,created_by) VALUES (?,?,'b:confidential',?,'9201')").bind(org,app.id,root.id).run();
+ const input={body:'@AI summarize',requestId:'source_prepare_race_01'}, saved=await appConversation(env.DB,org,'9201',app.id,input,true);
+ const model=vi.fn().mockResolvedValue('Must not run'),dispose=vi.fn().mockResolvedValue(undefined);model.dispose=dispose;
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{makeCompleter:async()=>{
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();return model;
+ }});
+ expect(model).not.toHaveBeenCalled();expect(dispose).toHaveBeenCalledOnce();
+ expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'failed'});
+});
+
+test('a source added while preparing an independent conversation cancels the model call',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {appConversation}=await import('../src/harness/appConversations.js');
+ const root=await privateSource();
+ const input={body:'@AI summarize',requestId:'source_added_race_001'},saved=await appConversation(env.DB,org,'9201',app.id,input,true);
+ const model=vi.fn().mockResolvedValue('Must not run'),dispose=vi.fn().mockResolvedValue(undefined);model.dispose=dispose;
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{makeCompleter:async()=>{
+  await env.DB.prepare("INSERT INTO hx_app_conversation_sources(org_id,app_id,channel,thread_id,created_by) VALUES (?,?,'b:confidential',?,'9201')").bind(org,app.id,root.id).run();return model;
+ }});
+ expect(model).not.toHaveBeenCalled();expect(dispose).toHaveBeenCalledOnce();
+});
+
+test('record conversation AI remains independent when the app source is inaccessible',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {appConversation}=await import('../src/harness/appConversations.js');
+ const root=await privateSource();
+ await env.DB.prepare("INSERT INTO hx_app_conversation_sources(org_id,app_id,channel,thread_id,created_by) VALUES (?,?,'b:confidential',?,'9201')").bind(org,app.id,root.id).run();
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();
+ const input={body:'@AI summarize',requestId:'record_independent_01',tableId:app.tableId,rowId:row.id};
+ const saved=await appConversation(env.DB,org,'9201',app.id,input,true),model=vi.fn().mockResolvedValue('Record answer');
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{makeCompleter:async()=>model});
+ expect(model).toHaveBeenCalledOnce();expect(model.mock.calls[0][2]).toEqual(expect.objectContaining({authorize:expect.any(Function)}));
+ expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'succeeded'});
+});
+
+test('source added during model generation discards the answer',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {appConversation}=await import('../src/harness/appConversations.js');
+ const root=await privateSource();
+ const input={body:'@AI summarize',requestId:'source_during_run_01'},saved=await appConversation(env.DB,org,'9201',app.id,input,true);
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{makeCompleter:async()=>async()=>{
+  await env.DB.prepare("INSERT INTO hx_app_conversation_sources(org_id,app_id,channel,thread_id,created_by) VALUES (?,?,'b:confidential',?,'9201')").bind(org,app.id,root.id).run();return 'Must not be published';
+ }});
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE author_id='__app_ai' AND body='Must not be published'").first()).n).toBe(0);
+});
+
 test('long room guidelines do not replace the app request or determine its fallback template',async()=>{
  const root=await privateSource();
  const rule=('営業・請求書・カレンダー。担当者は自由記述。'+'規'.repeat(4096)).slice(0,4096);
