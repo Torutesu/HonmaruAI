@@ -1396,3 +1396,24 @@ test('managed follow-ups retain their published origin and cannot run after stop
  expect(await runDueFollowups({...env,OPENAI_API_KEY:undefined},{now:new Date(Date.now()+120000)})).toBe(0);
  expect(await env.DB.prepare('SELECT status FROM hx_followups WHERE id=?1').bind(followup.id).first()).toEqual({status:'failed'});
 });
+
+test('personal view saves reject a direct table schema change before the write',async()=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {updateTable}=await import('../src/harness/tables.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Schema race',columns:[{name:'Name',type:'text'}]})).json();
+ let changed=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{
+   const statement=db.prepare(sql);
+   if(!sql.startsWith('INSERT OR IGNORE INTO hx_personal_views'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async run(){
+    if(!changed){changed=true;const result=await updateTable(env.DB,ORG,app.tableId,{columns:[{name:'Changed',type:'text'}]});expect(result.error).toBeUndefined()}
+    return bound.run();
+   }}}};
+  };
+ }});
+ const result=await personalViews(racing,ORG,'9102',app.id,{expectedRevision:0,views:[{id:'personal_mine',type:'table',name:'Mine'}],layouts:{}});
+ expect(result.status).toBe(409);
+ expect(await env.DB.prepare('SELECT 1 FROM hx_personal_views WHERE org_id=? AND user_id=? AND app_id=?').bind(ORG,'9102',app.id).first()).toBeNull();
+});
