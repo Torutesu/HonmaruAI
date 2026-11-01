@@ -275,7 +275,7 @@ test('concurrent loss of the previous owner is followed by atomic canonical prom
 });
 
 
-test('atomic promotion selects the earliest admin, never the requesting later admin',async()=>{
+test('a later admin cannot trigger promotion with a rejected notification request',async()=>{
  const who=await prepareLegacyAdmin();
  await upsertUser(env.DB,{githubId:'8104',login:'earlier',name:'earlier'});await upsertMembership(env.DB,org,'8104','admin');
  await env.DB.prepare("UPDATE memberships SET created_at='2000-01-01' WHERE org_id=? AND user_github_id='8104'").bind(org).run();
@@ -287,7 +287,7 @@ test('atomic promotion selects the earliest admin, never the requesting later ad
  });
  await expect(appActivity(injected.db,org,member,p)).rejects.toThrow('authorization changed');
  const owners=await env.DB.prepare("SELECT user_github_id FROM memberships WHERE org_id=? AND role='owner'").bind(org).all();
- expect(owners.results).toEqual([{user_github_id:'8104'}]);
+ expect(owners.results).toEqual([]);
  expect((await env.DB.prepare('SELECT role FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,member).first()).role).toBe('admin');
 });
 

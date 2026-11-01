@@ -105,6 +105,7 @@ export function legacyDeletionOwnerPromotion(db, orgId, userId, authoritySql, au
   if (!orgId || !ours(orgId)) return null;
   return db.prepare(`UPDATE memberships SET role='owner' WHERE org_id=?1 AND role='admin'
     AND user_github_id=(SELECT user_github_id FROM memberships WHERE org_id=?1 AND role='admin' ORDER BY created_at ASC,user_github_id ASC LIMIT 1)
+    AND user_github_id=?2
     AND NOT EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND role='owner')
     AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(COALESCE(role,'member'))='admin')
     AND EXISTS(SELECT 1 FROM workspace_deletions WHERE org_id=?1 AND COALESCE(due_at,'')!='' AND purge_started_at IS NULL)
