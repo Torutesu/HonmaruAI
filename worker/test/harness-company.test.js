@@ -96,6 +96,48 @@ test('data migrations preview strict conversions, reject stale rows, and only dr
  expect((await run('database',{action:'migrate',...dropUnused,previewChecksum:emptyPreview.previewChecksum})).status).toBe(200);
  expect((await (await call(`/tables/${app.tableId}`,owner)).json()).table.columns.some(column=>column.id==='unused')).toBe(false);
 });
+test('data migrations convert person and relation references, with target rows guarded at commit',async()=>{
+ const created=await run('database',{action:'migrate',id:'people_entity_v1',version:0,operations:[{op:'create_entity',entity:'people',name:'People',columns:[{name:'Name',type:'text'}]}]});
+ expect(created.status).toBe(200);
+ const peopleTable=(await (await run('database')).json()).entities.find(entity=>entity.key==='people').table;
+ const addPerson=async name=>(await call(`/tables/${peopleTable.id}/rows`,owner,{values:{name}})).json();
+ const targetOne=await addPerson('One'),targetTwo=await addPerson('Two');
+ expect(targetOne.row).toBeTruthy();expect(targetTwo.row).toBeTruthy();
+ await run('database',{action:'migrate',id:'reference_sources_v2',version:1,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Assignee text',type:'text'},{name:'Related text',type:'text'},{name:'Related many text',type:'text'}]}]});
+ const source=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'reference source','assignee_text':'@user1','related_text':'missing-record','related_many_text':JSON.stringify([targetOne.row.id,targetTwo.row.id])}})).json()).row;
+ const request={id:'convert_references_v3',version:2,operations:[
+  {op:'convert_column',entity:'primary',column:'assignee_text',type:'person'},
+  {op:'convert_column',entity:'primary',column:'related_text',type:'relation',targetEntity:'people',multiple:false},
+  {op:'convert_column',entity:'primary',column:'related_many_text',type:'relation',targetEntity:'people',multiple:true},
+ ]};
+ const blocked=await (await run('database',{action:'preview',...request})).json();
+ expect(blocked).toMatchObject({canApply:false,blockerCount:1});
+ expect(blocked.blockers[0]).toMatchObject({entity:'primary',id:source.id,column:'Related text'});
+ await env.DB.prepare("UPDATE hx_rows SET data=json_set(data,'$.related_text',?1),updated_at=?2 WHERE org_id=?3 AND id=?4").bind(targetOne.row.id,new Date().toISOString(),orgId,source.id).run();
+ const preview=await (await run('database',{action:'preview',...request})).json();
+ expect(preview).toMatchObject({canApply:true,blockerCount:0});
+ const racingDb={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+   await env.DB.prepare('DELETE FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3').bind(orgId,peopleTable.id,targetTwo.row.id).run();
+   return env.DB.batch(statements);
+ }};
+ expect(await applyMigration(racingDb,orgId,app,{...request,previewChecksum:preview.previewChecksum},'1')).toMatchObject({status:409});
+ const replacement=await addPerson('Replacement');
+ await env.DB.prepare("UPDATE hx_rows SET data=json_set(data,'$.related_many_text',?1),updated_at=?2 WHERE org_id=?3 AND id=?4").bind(JSON.stringify([targetOne.row.id,replacement.row.id]),new Date().toISOString(),orgId,source.id).run();
+ const fresh=await (await run('database',{action:'preview',...request})).json();
+ expect(fresh).toMatchObject({canApply:true,blockerCount:0});
+ expect(await (await run('database',{action:'migrate',...request,previewChecksum:fresh.previewChecksum})).json()).toMatchObject({applied:true,version:3});
+ const migrated=await (await call(`/tables/${app.tableId}`,owner)).json();
+ expect(migrated.table.columns.find(column=>column.id==='assignee_text').type).toBe('person');
+ expect(migrated.table.columns.find(column=>column.id==='related_text')).toMatchObject({type:'relation',targetEntity:'people',multiple:false});
+ expect(migrated.table.columns.find(column=>column.id==='related_many_text')).toMatchObject({type:'relation',targetEntity:'people',multiple:true});
+ expect(migrated.rows.find(row=>row.id===source.id).values).toMatchObject({assignee_text:'user1',related_text:targetOne.row.id,related_many_text:[targetOne.row.id,replacement.row.id]});
+ await run('database',{action:'migrate',id:'empty_relation_v4',version:3,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Unused links',type:'relation',targetEntity:'people',multiple:true}]}]});
+ const emptyRelation={id:'drop_empty_relation_v5',version:4,operations:[{op:'drop_empty_column',entity:'primary',column:'unused_links'}]};
+ const emptyRelationPreview=await (await run('database',{action:'preview',...emptyRelation})).json();
+ expect(emptyRelationPreview).toMatchObject({canApply:true,blockerCount:0});
+ expect(await (await run('database',{action:'migrate',...emptyRelation,previewChecksum:emptyRelationPreview.previewChecksum})).json()).toMatchObject({applied:true,version:5});
+ expect((await (await call(`/tables/${app.tableId}`,owner)).json()).table.columns.some(column=>column.id==='unused_links')).toBe(false);
+});
 test('private preview writes never affect production and reject stale or invalid data',async()=>{
  const {fork}=await (await run('database',{action:'fork'})).json();
  const req={action:'fork_write',forkId:fork.id,revision:fork.revision,entity:'primary',operation:'create',values:{task:'preview only'}};
