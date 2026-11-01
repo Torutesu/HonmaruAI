@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type {AppAnnotation} from '../utils/harness'
 import {Icon} from './Icon'
 
@@ -77,7 +77,9 @@ export function resolveCustomAppAnnotationTarget(
   fallback: string,
   root: Pick<Document, 'elementsFromPoint'> = document,
   host?: Pick<Window, 'addEventListener' | 'removeEventListener'>,
+  signal?: AbortSignal,
 ): Promise<string> {
+  if (signal?.aborted) return Promise.resolve(fallback)
   const frame = root.elementsFromPoint(x, y).find(element => element.tagName === 'IFRAME') as HTMLIFrameElement | undefined
   const frameWindow = frame?.contentWindow
   if (!frame || !frameWindow) return Promise.resolve(fallback)
@@ -94,6 +96,7 @@ export function resolveCustomAppAnnotationTarget(
       settled = true
       clearTimeout(timeout)
       eventHost.removeEventListener('message', onMessage)
+      signal?.removeEventListener('abort', onAbort)
       resolve(target)
     }
     const onMessage = (event: MessageEvent) => {
@@ -101,7 +104,9 @@ export function resolveCustomAppAnnotationTarget(
       const target = typeof event.data.target === 'string' ? event.data.target.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 100) : ''
       finish(target ? `カスタム画面の${target}` : fallback)
     }
+    const onAbort = () => finish(fallback)
     eventHost.addEventListener('message', onMessage)
+    signal?.addEventListener('abort', onAbort, {once:true})
     timeout = setTimeout(() => finish(fallback), 700)
     try {
       frameWindow.postMessage({
@@ -118,26 +123,29 @@ export function resolveCustomAppAnnotationTarget(
 
 export function AppAnnotationLayer({ onSelect, onCancel, onShowAnnotations, showAnnotations }: { onSelect: (selection: AppAnnotationSelection) => void; onCancel: () => void; onShowAnnotations:()=>void; showAnnotations:boolean }) {
   const layer = useRef<HTMLDivElement>(null)
-  const start = useRef<{ x: number; y: number } | null>(null)
+  const start = useRef<{ x: number; y: number; pointerId: number } | null>(null)
+  const pending = useRef<AbortController | null>(null)
+  const cancelPending = () => { pending.current?.abort(); pending.current = null }
   const [box, setBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
-  useEffect(() => { layer.current?.focus() }, [])
+  useLayoutEffect(() => { layer.current?.focus(); return () => cancelPending() }, [])
   const pointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || !layer.current) return
+    if (event.button !== 0 || !layer.current || start.current) return
+    cancelPending()
     event.preventDefault()
     const bounds = layer.current.getBoundingClientRect()
-    const point = { x: event.clientX - bounds.left, y: event.clientY - bounds.top }
+    const point = { x: event.clientX - bounds.left, y: event.clientY - bounds.top, pointerId: event.pointerId }
     start.current = point
     layer.current.setPointerCapture(event.pointerId)
     setBox({ left: point.x, top: point.y, width: 0, height: 0 })
   }
   const pointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!start.current || !layer.current) return
+    if (!start.current || event.pointerId !== start.current.pointerId || !layer.current) return
     const bounds = layer.current.getBoundingClientRect()
     const x = event.clientX - bounds.left, y = event.clientY - bounds.top
     setBox({ left: Math.min(start.current.x, x), top: Math.min(start.current.y, y), width: Math.abs(x - start.current.x), height: Math.abs(y - start.current.y) })
   }
   const pointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!start.current || !layer.current) return
+    if (!start.current || event.pointerId !== start.current.pointerId || !layer.current) return
     const origin = start.current
     start.current = null
     const bounds = layer.current.getBoundingClientRect()
@@ -152,17 +160,25 @@ export function AppAnnotationLayer({ onSelect, onCancel, onShowAnnotations, show
         y: Math.round(((origin.y + clientY - bounds.top) / 2 / bounds.height) * 1000) / 10,
         rect:{left:percent(Math.min(origin.x,endX),bounds.width),top:percent(Math.min(origin.y,endY),bounds.height),width:percent(width,bounds.width),height:percent(height,bounds.height)},
       }
-      void resolveCustomAppAnnotationTarget(clientX, clientY, selection.target).then(target => onSelect({ ...selection, target }))
+      const controller = new AbortController()
+      pending.current = controller
+      void resolveCustomAppAnnotationTarget(clientX, clientY, selection.target, document, undefined, controller.signal).then(target => {
+        if (!controller.signal.aborted && pending.current === controller) {
+          pending.current = null
+          onSelect({ ...selection, target })
+        }
+      })
     }
     setBox(null)
   }
   return <div ref={layer} className="hx-annotation-layer" role="application" aria-label="注釈モード。セルをドラッグして注釈。Escapeで終了" tabIndex={0}
-    onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={() => { start.current = null; setBox(null) }}
-    onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); onCancel() } }}>
+    onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={event => { if (start.current?.pointerId === event.pointerId) { start.current = null; setBox(null) } }}
+    onLostPointerCapture={event => { if (start.current?.pointerId === event.pointerId) { start.current = null; setBox(null) } }}
+    onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); cancelPending(); onCancel() } }}>
     <div className="hx-annotation-toolbar" role="toolbar" aria-label="注釈操作">
       <span>セルをドラッグして注釈</span>
       <button type="button" aria-label="すべての注釈を表示" aria-pressed={showAnnotations} onPointerDown={event=>event.stopPropagation()} onClick={onShowAnnotations}><Icon name="message" size={14}/></button>
-      <button type="button" aria-label="注釈モードを終了" onPointerDown={event=>event.stopPropagation()} onClick={onCancel}><Icon name="x" size={15}/></button>
+      <button type="button" aria-label="注釈モードを終了" onPointerDown={event=>event.stopPropagation()} onClick={()=>{cancelPending();onCancel()}}><Icon name="x" size={15}/></button>
     </div>
     {box && <span className="hx-annotation-selection" style={box} aria-hidden="true" />}
   </div>

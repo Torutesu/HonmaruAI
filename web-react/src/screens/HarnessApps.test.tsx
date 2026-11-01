@@ -626,3 +626,21 @@ test('personal computed rows use the same snapshot and save reloads before showi
   expect(JSON.stringify(tree!.toJSON())).toContain('After save')
   expect(JSON.stringify(tree!.toJSON())).not.toContain('Before save')
 })
+
+test('a stale annotation result cannot replace the chat draft after changing sections',async()=>{
+  const {AppAnnotationLayer}=await import('../components/AppAnnotation')
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const view={id:'all',type:'table',name:'All',rows:[]}
+  const data={app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[view],canCustomize:true}
+  const existing='Existing chat draft'
+  state.api={app:vi.fn().mockResolvedValue(data),personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'all',views:[],computed:[],layouts:{}}),conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),drafts:{read:()=>existing,write:vi.fn(),writeAnnotation:vi.fn()}}
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  act(()=>tree!.root.findByProps({'aria-label':'注釈'}).props.onClick())
+  const staleSelect=tree!.root.findByType(AppAnnotationLayer).props.onSelect
+  act(()=>tree!.root.findAllByType('button').find(node=>node.children.includes('Customize app'))!.props.onClick())
+  await act(async()=>staleSelect({target:'Old field',x:10,y:20}))
+  expect(tree!.root.findAllByProps({'aria-label':'どのように修正しますか？'})).toHaveLength(0)
+  expect(state.api.drafts.writeAnnotation).not.toHaveBeenCalled()
+  act(()=>tree!.root.findByProps({'aria-label':'アプリチャットを開く'}).props.onClick())
+  expect(tree!.root.findAllByType('textarea').some(node=>node.props.value===existing)).toBe(true)
+})

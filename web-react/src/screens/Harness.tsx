@@ -386,6 +386,8 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const selectedViewTab=useRef<HTMLButtonElement|null>(null)
   useEffect(()=>{if(focusSelectedView){selectedViewTab.current?.focus();setFocusSelectedView(false)}},[focusSelectedView,viewIndex,personal.revision])
   const [section, setSection] = useState<AppSection>(initialSection || 'overview')
+  const annotationSection = useRef(section)
+  annotationSection.current = section
   useEffect(() => {
     setSection(initialSection || (data ? (data.app.definition.custom?.published ? 'overview' : 'data') : 'overview'))
   }, [initialSection, data?.app.definition.custom?.published])
@@ -504,7 +506,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   },[load])
   useEffect(()=>{retryRefresh.current()},[busy,creating,editingRecord,annotationSelection])
 
-  const selectSection=(next:AppSection)=>{setSection(next);onSectionChange?.(next);const hash=appSectionHash(location.hash,appId,orgId,next);if(!floating&&hash&&hash!==location.hash)location.hash=hash}
+  const selectSection=(next:AppSection)=>{annotationSection.current=next;setSection(next);onSectionChange?.(next);const hash=appSectionHash(location.hash,appId,orgId,next);if(!floating&&hash&&hash!==location.hash)location.hash=hash}
   if (!data || snapshotPending || loadedApi!==api || (personal.appVersion!==undefined&&personal.appVersion!==data.app.version)) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}<button className="pill-btn quiet" onClick={()=>void load()}>{t('Retry')}</button></div> : <div className="empty">{t('Loading…')}</div>}</Shell>
   const { app, table } = data
   const allViews = [...data.views,...personal.computed]
@@ -557,7 +559,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
     >
       {chatOpen&&<AppConversationPanel key={`${orgId}:${app.id}:${chatScope.rowId||"app"}`} api={api} appId={app.id} {...chatScope} title={chatScope.rowId?"レコードチャット":app.name} initialDraft={chatScope.rowId||consumedDraft.current===initialDraft?undefined:initialDraft} onInitialDraftConsumed={consumeDraft} annotationDraft={chatScope.rowId?null:annotationDraft} onAnnotationDraftConsumed={id=>setAnnotationDraft(current=>current?.id===id?null:current)} onAnnotationsChange={syncAnnotations} context={chatScope.rowId?(displayCellText(table.columns[0],data.rows.find(r=>r.id===chatScope.rowId)?.values[table.columns[0].id])||'選択したレコード'):section==='data'?`現在のデータ表示: ${view.name}`:undefined} onClose={()=>setChatOpen(false)}/>}
       <div ref={mainInteraction} className="hx-app-main">
-      {annotationActive&&<AppAnnotationLayer showAnnotations={annotationListOpen} onShowAnnotations={()=>setAnnotationListOpen(value=>!value)} onCancel={()=>{setAnnotationActive(false);setAnnotationListOpen(false)}} onSelect={selection=>{setAnnotationSelection(selection);setAnnotationActive(false)}}/>}
+      {annotationActive&&<AppAnnotationLayer key={`${appId}:${section}`} showAnnotations={annotationListOpen} onShowAnnotations={()=>setAnnotationListOpen(value=>!value)} onCancel={()=>{setAnnotationActive(false);setAnnotationListOpen(false)}} onSelect={selection=>{if(annotationSection.current!==section||currentAppId.current!==appId||currentApi.current!==api)return;setAnnotationSelection(selection);setAnnotationActive(false)}}/>}
       {(section==='overview'||section==='data')&&<AppAnnotationMarkers annotations={annotations} section={section} openId={openAnnotationId} onOpenChange={setOpenAnnotationId}/>}
       {annotationListOpen&&(section==='overview'||section==='data')&&<AppAnnotationList annotations={annotations} onClose={()=>setAnnotationListOpen(false)} onSelect={annotation=>{setAnnotationListOpen(false);setOpenAnnotationId(annotation.id);if(annotation.section!==section)selectSection(annotation.section)}}/>}
       {annotationSelection&&<AppAnnotationDialog selection={annotationSelection} appName={app.name} section={section==='data'?'データビューアー':'アプリ画面'} context={section==='data'?`${table.name} · ${view.name}`:app.name} onCancel={()=>setAnnotationSelection(null)} onSubmit={comment=>{const marker:AppAnnotationMeta={target:annotationSelection.target,x:annotationSelection.x,y:annotationSelection.y,section:section==='data'?'data':'overview'};const annotation={id:crypto.randomUUID(),marker,text:`注釈: ${app.name} · ${section==='data'?'データビューアー':'アプリ画面'} · ${annotationSelection.target} · 画面位置 ${annotationSelection.x}% / ${annotationSelection.y}%\n${comment}`};setAnnotationDraft(annotation);setChatScope({});setChatOpen(true);setAnnotationSelection(null)}}/>}
