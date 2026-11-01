@@ -40,7 +40,7 @@ async function setup(orgs=[{id:'org'}]) {
   vi.stubGlobal('location',location)
   vi.stubGlobal('history',{replaceState:vi.fn()})
   vi.stubGlobal('navigator',{onLine:true})
-  vi.stubGlobal('window',{addEventListener:add,removeEventListener:remove,confirm,location:{href:''}})
+  vi.stubGlobal('window',{addEventListener:add,removeEventListener:remove,dispatchEvent:(event:Event)=>{for(const fn of listeners.get(event.type)||[])fn(event);return !event.defaultPrevented},confirm,location:{href:''}})
   vi.stubGlobal('document',{addEventListener:add,removeEventListener:remove,visibilityState:'visible'})
   vi.stubGlobal('fetch',vi.fn(async (url:string)=>({ok:true,status:200,json:async()=>url.endsWith('/me')?{login:'reader',orgs}:{}})))
   let tree!:ReturnType<typeof create>
