@@ -74,7 +74,7 @@ export async function appNotifications(db,orgId,userId,appId,input,write=false){
  return {items};
 }
 export const asksAppAI = text => mentionTokens(text).some(t=>t.toLowerCase()==='ai');
-export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompleter=completer}={}){
+export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompleter=completer,expectedSource=undefined}={}){
  const db=env.DB,scope=scopeOf(input);
  const inserted=await db.prepare("INSERT OR IGNORE INTO hx_app_ai_replies(message_id,org_id,app_id,status) VALUES (?,?,?,'running')").bind(messageId,orgId,appId).run();
  if(!inserted.meta?.changes)return;
@@ -83,6 +83,7 @@ export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompl
   // Record conversations have their own scope and do not inherit app sources.
   const source=scope.rowId?null:await sourceFor(db,orgId,user,appId);
   if(source?.error)throw new Error('Access revoked.');
+  if(expectedSource!==undefined&&((source?.channel||null)!==(expectedSource?.channel||null)||(source?.threadId||null)!==(expectedSource?.threadId||null)))throw new Error('Access revoked.');
   const snapshot=await appReplySnapshot(db,orgId,appId,user.github_id,scope,source,messageId);
   if(!snapshot)throw new Error('Access revoked.');
   const app={name:snapshot.appName,description:snapshot.appDescription};

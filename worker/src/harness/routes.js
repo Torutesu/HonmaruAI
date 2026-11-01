@@ -1106,7 +1106,8 @@ export async function handleHarness(request, env, url, context = {}) {
       if(marker.error)return fail(marker);
       await notifyAppMentions(env.DB,orgId,who.user,appId,input,r.messageId,env);
       if(asksAppAI(input.body)){
-        const work=()=>replyToApp(env,orgId,who.user,appId,input,r.messageId,env);
+        const expectedSource=source?{channel:source.channel,threadId:source.threadId}:null;
+        const work=()=>replyToApp(env,orgId,who.user,appId,input,r.messageId,{...env,expectedSource});
         if(context.after)context.after(work);else await work();
       }
       return json({...r,...(marker.annotationId?{annotationId:marker.annotationId}:{})});

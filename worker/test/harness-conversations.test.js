@@ -606,6 +606,28 @@ test('long 30-message history and record context fit the guarded D1 reply INSERT
  expect(model).toHaveBeenCalledOnce();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'succeeded'});
 });
 
+test('a source added before the deferred job starts is not adopted by an independent app message',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI summarize',requestId:'source_after_accept_01'},saved=await appConversation(env.DB,org,'9201',app.id,input,true);
+ const root=await privateSource();
+ await env.DB.prepare("INSERT INTO hx_app_conversation_sources(org_id,app_id,channel,thread_id,created_by) VALUES (?,?,'b:confidential',?,'9201')").bind(org,app.id,root.id).run();
+ const model=vi.fn().mockResolvedValue('Must not run');
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{expectedSource:null,makeCompleter:async()=>model});
+ expect(model).not.toHaveBeenCalled();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'failed'});
+});
+
+test('record reply ignores newly attached app source when HTTP captured no source',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI summarize',requestId:'record_source_capture_01',tableId:app.tableId,rowId:row.id},saved=await appConversation(env.DB,org,'9201',app.id,input,true);
+ const root=await privateSource();
+ await env.DB.prepare("INSERT INTO hx_app_conversation_sources(org_id,app_id,channel,thread_id,created_by) VALUES (?,?,'b:confidential',?,'9201')").bind(org,app.id,root.id).run();
+ const model=vi.fn().mockResolvedValue('Independent reply');
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{expectedSource:null,makeCompleter:async()=>model});
+ expect(model).toHaveBeenCalledOnce();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'succeeded'});
+});
+
 test('long room guidelines do not replace the app request or determine its fallback template',async()=>{
  const root=await privateSource();
  const rule=('営業・請求書・カレンダー。担当者は自由記述。'+'規'.repeat(4096)).slice(0,4096);
