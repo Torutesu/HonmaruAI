@@ -2123,13 +2123,67 @@ await step('a channel opens at its newest message, and stays there while what is
   }
 })
 
+await step('a star made while the saved sidebar is still on its way is kept, and nothing else is lost', async () => {
+  const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 }, storageState: await phone.storageState() })
+  const d = await ctx.newPage()
+  d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
+  const sidebar = (method, body) => d.evaluate(async ({ host, method, body }) => {
+    const org = localStorage.getItem('orgId'), token = localStorage.getItem('sessionToken')
+    const r = await fetch(`${host}/channels/sidebar${method === 'GET' ? `?orgId=${encodeURIComponent(org)}` : ''}`, {
+      method, headers: { 'content-type': 'application/json', 'x-session-token': token },
+      body: method === 'GET' ? undefined : JSON.stringify({ orgId: org, sidebar: body }),
+    })
+    return (await r.json()).sidebar
+  }, { host: API, method, body })
+  let before = null
+  try {
+    await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
+    await d.waitForSelector('.slk-side[data-sidebar-ready]', { timeout: 20000 })
+    before = await sidebar('GET')
+    // Kitchen starred elsewhere; Front desk not.
+    await sidebar('PUT', { ...before, starred: ['b:kitchen'], sections: before.sections || [] })
+    // The saved layout takes its time coming back, as on a slow line.
+    await d.route('**/channels/sidebar?*', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue()
+      await new Promise((r) => setTimeout(r, 3000))
+      await route.continue()
+    })
+    await d.reload({ waitUntil: 'load' })
+    const row = '.slk-side .cl-thread:has(.cl-title:text-is("Front desk"))'
+    await d.waitForSelector(row, { timeout: 20000 })
+    if (await d.$('.slk-side[data-sidebar-ready]')) throw new Error('the saved sidebar was not slow enough to test this')
+    await d.locator(`${row} .cl-open`).click({ button: 'right' })
+    await d.click('.row-menu [data-row-menu="star"]')
+    await d.waitForSelector('.slk-side[data-sidebar-ready]', { timeout: 20000 })
+    // Saved on top of what was there: both starred, on screen and on the server.
+    await d.waitForFunction(() => document.querySelectorAll('.slk-side .cl-thread[data-view="b:front-desk"], .slk-side .cl-thread[data-view="b:kitchen"]').length >= 2, null, { timeout: 10000 })
+    let saved = null
+    for (let i = 0; i < 20; i++) {
+      saved = await sidebar('GET')
+      if (saved.starred.includes('b:front-desk') && saved.starred.includes('b:kitchen')) break
+      await d.waitForTimeout(250)
+    }
+    if (!saved.starred.includes('b:kitchen')) throw new Error(`starring before the sidebar loaded wiped what was saved: ${JSON.stringify(saved.starred)}`)
+    if (!saved.starred.includes('b:front-desk')) throw new Error(`a star made before the sidebar loaded was not saved: ${JSON.stringify(saved.starred)}`)
+    await d.locator(`${row} .cl-open`).first().click({ button: 'right' })
+    const label = await d.innerText('.row-menu [data-row-menu="star"]')
+    if (!/Unstar/.test(label)) throw new Error(`the late sidebar undid the star on screen: the menu says ${label}`)
+    await d.keyboard.press('Escape')
+  } finally {
+    if (before) await d.unroute('**/channels/sidebar?*').then(() => sidebar('PUT', before)).catch(() => {})
+    await ctx.close()
+  }
+})
+
 await step('right-clicking a channel in the sidebar offers what a desktop chat app does: star, notify, rename, archive', async () => {
   const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 }, storageState: await phone.storageState(), permissions: ['clipboard-read', 'clipboard-write'] })
   const d = await ctx.newPage()
   d.on('pageerror', (e) => thrown.push(String(e).slice(0, 200)))
   try {
     await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
-    await d.waitForSelector('.slk-side', { timeout: 20000 })
+    // Your saved stars and sections arrive after the rows: a channel starred
+    // elsewhere moves into Starred then, and a menu open on it moves with it.
+    await d.waitForSelector('.slk-side[data-sidebar-ready]', { timeout: 20000 })
     const rowOf = (name) => `.slk-side .cl-thread:has(.cl-title:text-is("${name}"))`
     const menu = async (name) => {
       await d.locator(`${rowOf(name)} .cl-open`).click({ button: 'right' })
