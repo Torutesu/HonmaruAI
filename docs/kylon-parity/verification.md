@@ -3870,6 +3870,13 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - With the Mac unlocked, compared the existing empty `UI確認用タスク` app in the signed-in Kylon and Honmaru desktop apps. Both showed an empty table and adjacent conversation. The read-only check did not change app data or the existing QA draft. This confirms the inspected layout only; multi-user production authorization isolation remains unverified.
 - No new paid service was added. Honmaru Simple remains available.
 
+### 2026-11-01 — Data viewer record creation action (local verification)
+
+- With the Mac unlocked, compared the same empty `UI確認用タスク` app in signed-in Kylon and Honmaru. Kylon exposes one `新規タスク` action in the data-viewer header. Honmaru exposed that header action plus a second `行を追加` button below the table.
+- Removed the duplicate lower action and retained the existing header action and `addRow` flow. Added a regression test that the viewer renders exactly one record-create action with the app-specific Japanese label. Existing Simple mode and data APIs are unchanged.
+- `HarnessApps.test.tsx` passed all 12 tests and the Web production build passed; `git diff --check` passed before this documentation entry. No live record, app setting, or QA draft was changed. The UI change is local and awaits PR CI and production release; visual comparison was made from the signed-in screen's accessibility tree, not a pixel-level screenshot.
+- This closes one concrete data-viewer interaction mismatch only. Other table, workflow, app detail, ACP, external connection, mobile/native, and provider-dependent Kylon gaps remain tracked in the parity matrix.
+
 ### 2026-11-01 — KY-015 channel overview Agent disclosure (local verification)
 
 - Found that `/channels` could advertise a managed Agent's name, handle, and scope when the Agent was placed in a room readable by the caller, even though the caller lacked the Agent-specific grant and direct execution was denied. The channel overview now checks current Agent callability before returning room-placement entries. Added a regression test for a private Agent placed in readable `b:ops`.
