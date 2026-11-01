@@ -1,4 +1,4 @@
-import { mayGenerateFromSchema } from './generationAccess.js';
+import { mayGenerateFromSchema, finishSchemaGeneration } from './generationAccess.js';
 import {handleDocuments,isDocumentNodeRoute} from './documentRoutes.js';
 import { createSkillShare, listSkillShares, revokeSkillShare, readSkillShare, downloadSkillShare, importSkillShare } from './skillShares.js';
 import {workflowRevisions,restoreWorkflowRevision} from './workflowRevisions.js';
@@ -1149,11 +1149,8 @@ export async function handleHarness(request, env, url, context = {}) {
         if(!await authorize())return json({message:'No such app.'},404);
         const complete=input.useModel===false?null:await completer(env,orgId,me,'app_automation_generate',{maxTokens:2400});
         const guardedComplete=complete?async(system,user,options={})=>complete(system,user,{...options,authorize}):null;
-        try {
-          const result=await appAutomationFromPrompt(env.DB,orgId,me,{prompt:await withAppRoomGuidelines(input.prompt),timezone:input.timezone,complete:guardedComplete,tables,agents:visibleAgents,appRecords});
-          if(!await authorize())return json({message:'No such app.'},404);
-          return result.error?fail(result):json(result);
-        } finally { await complete?.dispose?.(); }
+        const result=await finishSchemaGeneration(complete,authorize,async()=>appAutomationFromPrompt(env.DB,orgId,me,{prompt:await withAppRoomGuidelines(input.prompt),timezone:input.timezone,complete:guardedComplete,tables,agents:visibleAgents,appRecords}));
+        return result.error?fail(result):json(result);
       }
       if (request.method === 'GET') {
         const result=new URL(request.url).searchParams.get('stateOnly')==='1'
@@ -1180,11 +1177,8 @@ export async function handleHarness(request, env, url, context = {}) {
         if(!table || capabilities.entities.find(entity=>entity.key==='primary')?.table?.id!==table.id || !await authorize())return json({message:'No such app.'},404);
         const complete = await completer(env, orgId, me, 'custom_app_generate', { maxTokens: 8000 });
         const guardedComplete=complete?async(system,user,options={})=>complete(system,user,{...options,authorize}):null;
-        try {
-          const result = await generateCustomSource(await withAppRoomGuidelines(input.prompt), table, guardedComplete, capabilities);
-          if(!await authorize())return json({message:'No such app.'},404);
-          return result.error ? fail(result) : json(result);
-        } finally { await complete?.dispose?.(); }
+        const result=await finishSchemaGeneration(complete,authorize,async()=>generateCustomSource(await withAppRoomGuidelines(input.prompt),table,guardedComplete,capabilities));
+        return result.error?fail(result):json(result);
       }
       const result = await saveCustomRelease(env.DB, orgId, app, input, me);
       if (!result.error) await audit(env, request, { orgId, action: 'app.custom_' + input.action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version } });

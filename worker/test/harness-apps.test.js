@@ -1327,3 +1327,12 @@ test('automation generation rechecks table access after awaiting agent lookups',
   expect(revoked).toBe(true);expect(response.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
  } finally {vi.unstubAllGlobals()}
 });
+
+test('schema generation rechecks authorization after the model reservation is released',async()=>{
+ const {finishSchemaGeneration}=await import('../src/harness/generationAccess.js');
+ let allowed=true,disposed=0;
+ const complete=async()=>{};complete.dispose=async()=>{disposed++;allowed=false};
+ const result=await finishSchemaGeneration(complete,async()=>allowed,async()=>({html:'private generated result'}));
+ expect(disposed).toBe(1);expect(result).toEqual({error:'No such app.',status:404});
+ expect(JSON.stringify(result)).not.toContain('private generated result');
+});
