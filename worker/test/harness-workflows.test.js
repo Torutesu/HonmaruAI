@@ -740,6 +740,22 @@ test('generation validates malformed output, invalid schedules and foreign rooms
   expect((await send('POST', '/apps/generate', mika, { orgId: ORG, prompt: 'Tracker', channel: 'b:foreign', useModel: false })).status).toBe(403);
 });
 
+test('natural-language workflow generation receives the current room guidelines', async () => {
+  const { workflowFromPrompt } = await import('../src/harness/workflowGeneration.js');
+  const rule = 'Send only the agreed operations summary.';
+  await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)')
+    .bind(ORG, 'b:ops', rule, '9301', new Date().toISOString()).run();
+  let requestText = '';
+  const spec = { name: 'Guided reminder', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Daily summary' }] };
+  const result = await workflowFromPrompt(env.DB, ORG, '9302', {
+    prompt: 'Post the daily summary', channel: 'b:ops',
+    complete: async (_system, request) => { requestText = request; return JSON.stringify(spec); },
+  });
+  expect(result.workflow.name).toBe('Guided reminder');
+  expect(requestText).toContain('Current room guidelines (revision 1)');
+  expect(requestText).toContain(rule);
+});
+
 test('an app generated in an agent DM resolves the room and remains private', async () => {
   const { agent } = await (await send('POST', '/channels/agents', mika, { orgId: ORG, name: 'Builder', handle: 'builder', instructions: 'Build apps.', scope: 'personal' })).json();
   const room = `ag:${agent.id}`;

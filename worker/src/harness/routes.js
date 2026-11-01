@@ -27,7 +27,7 @@ import { listSkillFiles, readSkillFile } from './skillFiles.js';
 import { generateApp } from './appGeneration.js';
 import { announceTo } from '../announce.js';
 import { custom as appActivityEvent } from '../agui/events.js';
-import { conversationSource, sourceFor, sourceHistory, notifyAppMentions, appNotifications, asksAppAI, replyToApp } from './appConversationFeatures.js';
+import { conversationSource, sourceFor, sourceHistory, withAppRoomGuidelinesRequest, notifyAppMentions, appNotifications, asksAppAI, replyToApp } from './appConversationFeatures.js';
 import { appConversation } from './appConversations.js';
 import { listAppAnnotations, normalizeAppAnnotation, saveAppAnnotation } from './appAnnotations.js';
 import { personalViews } from './personalViews.js';
@@ -1054,6 +1054,7 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     const app = await getApp(env.DB, orgId, appId);
     if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);
+    const withAppRoomGuidelines=prompt=>withAppRoomGuidelinesRequest(env.DB,orgId,who.user,appId,prompt);
     if (['database','actions','connections'].includes(sub)) {
       const canManage = await mayChange(env, orgId, who, app.createdBy);
       const respond = async (result, action) => {
@@ -1064,7 +1065,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if (request.method === 'GET') return json({ ...(await databaseView(env.DB, orgId, app)), ...(await readFork(env.DB, orgId, appId, me)) });
         if (request.method !== 'POST') return json({ message: 'Method not allowed.' },405);
         if (!canManage) return json({ message: 'Only its maker or an admin can develop this app.' },403);
-        if (input.action === 'generate') return respond(await generateMigration(input.prompt, await databaseView(env.DB, orgId, app), await completer(env, orgId, me, 'app_database_generate', { maxTokens: 4000 })));
+        if (input.action === 'generate') return respond(await generateMigration(await withAppRoomGuidelines(input.prompt), await databaseView(env.DB, orgId, app), await completer(env, orgId, me, 'app_database_generate', { maxTokens: 4000 })));
         if (input.action === 'preview') return respond(await previewMigration(env.DB, orgId, app, input));
         if (input.action === 'migrate') return respond(await applyMigration(env.DB, orgId, app, input, me), 'app.database_migrated');
         if (input.action === 'fork') return respond(await forkDatabase(env.DB, orgId, app, me), 'app.database_forked');
@@ -1099,7 +1100,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if (request.method !== 'POST') return json({message:'Method not allowed.'},405);
         if(input.action==='run')return respond(await runAction(env.DB,orgId,appId,input,me),'app.action_requested');
         if(!canManage)return json({message:'Only its maker or an admin can publish server actions.'},403);
-        if(input.action==='generate')return respond(await generateAction(input.prompt,await completer(env,orgId,me,'app_action_generate',{maxTokens:6000})));
+        if(input.action==='generate')return respond(await generateAction(await withAppRoomGuidelines(input.prompt),await completer(env,orgId,me,'app_action_generate',{maxTokens:6000})));
         return respond(await saveAction(env.DB,orgId,appId,input,me),'app.action_'+input.action);
       }
       if (sub === 'connections') {
@@ -1119,7 +1120,7 @@ export async function handleHarness(request, env, url, context = {}) {
         const appSchema=await databaseView(env.DB,orgId,app);
         const appRecords=[{id:appId,name:app.name,entities:appSchema.entities.map(entity=>({id:entity.key,name:entity.table?.name,columns:entity.table?.columns||[]}))}];
         const complete=input.useModel===false?null:await completer(env,orgId,me,'app_automation_generate',{maxTokens:2400});
-        const result=await appAutomationFromPrompt(env.DB,orgId,me,{prompt:input.prompt,timezone:input.timezone,complete,tables,agents:visibleAgents,appRecords});
+        const result=await appAutomationFromPrompt(env.DB,orgId,me,{prompt:await withAppRoomGuidelines(input.prompt),timezone:input.timezone,complete,tables,agents:visibleAgents,appRecords});
         return result.error?fail(result):json(result);
       }
       if (request.method === 'GET') {
@@ -1144,7 +1145,7 @@ export async function handleHarness(request, env, url, context = {}) {
         const table = await getTable(env.DB, orgId, app.tableId);
         const complete = await completer(env, orgId, me, 'custom_app_generate', { maxTokens: 8000 });
         const capabilities = { entities: (await databaseView(env.DB,orgId,app)).entities, actions: (await actions(env.DB,orgId,appId)).actions.filter(a=>a.published).map(a=>({name:a.name,code:a.published})), connections:(await connections(env.DB,orgId,appId,me)).connections.map(c=>({name:c.name,endpoint:c.endpoint,method:c.method,enabled:c.enabled})), gateways:(await env.DB.prepare('SELECT id,name FROM hx_gateways WHERE org_id=?1 AND revoked_at IS NULL').bind(orgId).all()).results };
-        const result = await generateCustomSource(input.prompt, table, complete, capabilities);
+        const result = await generateCustomSource(await withAppRoomGuidelines(input.prompt), table, complete, capabilities);
         return result.error ? fail(result) : json(result);
       }
       const result = await saveCustomRelease(env.DB, orgId, app, input, me);
