@@ -1741,6 +1741,91 @@ test('combined schema check enforces database management and every linked app AC
  expect(await mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities)).toBe(false);
 });
 
+test.each([
+ ['action','before dispatch'],['connection','before dispatch'],['gateway','before dispatch'],
+ ['action','during model'],['connection','during model'],['gateway','during model'],
+ ['action','during cleanup'],['connection','during cleanup'],['gateway','during cleanup'],
+])('custom generation rejects a %s changed %s',async(kind,phase)=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const at='2026-01-01T00:00:00Z';
+ await env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,published_version,updated_at) VALUES(?,?,'calculate',1,'return 1;','return 1;',1,?)").bind(ORG,app.id,at).run();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,enabled) VALUES(?,?,'9101','lookup',1,'https://api.github.com/repos/org/secret/issues','GET',1)").bind(ORG,app.id).run();
+ await env.DB.prepare("INSERT INTO hx_gateways(id,org_id,name,token_hash,created_by,created_at) VALUES('gateway-1',?,'Sensitive node','hash-1','9101',1)").bind(ORG).run();
+ let changed=false;
+ const change=async db=>{
+  if(kind==='action')await db.prepare("UPDATE hx_app_actions SET published=NULL WHERE org_id=? AND app_id=? AND name='calculate'").bind(ORG,app.id).run();
+  if(kind==='connection')await db.prepare("DELETE FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='lookup'").bind(ORG,app.id).run();
+  if(kind==='gateway')await db.prepare("UPDATE hx_gateways SET revoked_at=10 WHERE org_id=? AND id='gateway-1'").bind(ORG).run();
+  changed=true;
+ };
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const stmt=db.prepare(sql);
+   if(phase==='during cleanup' && sql==='DELETE FROM ai_reservations WHERE id = ?1')return {bind(...args){const bound=stmt.bind(...args);return {async run(){const result=await bound.run();if(!changed)await change(db);return result}}}};
+   if(!sql.startsWith('SELECT 1 AS allowed FROM memberships m'))return stmt;
+   return {bind(...args){const bound=stmt.bind(...args);return {async first(){if(phase==='before dispatch'&&!changed)await change(db);return bound.first()}}}};
+  };
+ }});
+ const fetch=vi.fn(async()=>{
+  if(phase==='during model')await change(env.DB);
+  return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({html:'<p>Sensitive generated result</p>'})}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}});
+ });
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/custom`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Create a tracker'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'});
+  expect(changed).toBe(true);
+  if(phase==='before dispatch')expect(fetch).not.toHaveBeenCalled();
+  else expect(fetch).toHaveBeenCalledTimes(1);
+  expect(response.status).toBe(404);
+  expect(JSON.stringify(await response.json())).not.toContain('Sensitive generated result');
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('custom capability snapshot checks exact visible values and ignores unrelated records',async()=>{
+ const {mayGenerateFromSchema}=await import('../src/harness/generationAccess.js');
+ const {getTable}=await import('../src/harness/tables.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const at='2026-01-01T00:00:00Z';
+ await env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,published_version,updated_at) VALUES(?,?,'calc',1,'return 1;','return 1;',1,?)").bind(ORG,app.id,at).run();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','api',1,'https://api.github.com/repos/a/b/issues','GET','do-not-send',1)").bind(ORG,app.id).run();
+ await env.DB.prepare("INSERT INTO hx_gateways(id,org_id,name,token_hash,created_by,created_at) VALUES('g1',?,'Node','hash-g1','9101',1)").bind(ORG).run();
+ const table=await getTable(env.DB,ORG,app.tableId),entities=[{key:'primary',table}];
+ const capabilities={actions:[{name:'calc',code:'return 1;',version:1,publishedVersion:1}],connections:[{name:'api',endpoint:'https://api.github.com/repos/a/b/issues',method:'GET',enabled:1,version:1}],gateways:[{id:'g1',name:'Node',createdAt:1}]};
+ const check=()=>mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities,[table],null,[],capabilities);
+ expect(await check()).toBe(true);
+ await env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,updated_at) VALUES(?,?,'draft_only',1,'return 2;',NULL,?)").bind(ORG,app.id,at).run();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,enabled) VALUES(?,?,'9102','other',1,'https://api.github.com/repos/a/b/issues','GET',1)").bind(ORG,app.id).run();
+ await env.DB.prepare("INSERT INTO hx_gateways(id,org_id,name,token_hash,created_by,created_at,revoked_at) VALUES('g2',?,'Old node','hash-g2','9101',1,2)").bind(ORG).run();
+ expect(await check()).toBe(true);
+ const changes=[
+  ["UPDATE hx_app_actions SET published='return 3;' WHERE org_id=? AND app_id=? AND name='calc'","UPDATE hx_app_actions SET published='return 1;' WHERE org_id=? AND app_id=? AND name='calc'"],
+  ["UPDATE hx_app_connections SET endpoint='https://api.github.com/repos/a/changed/issues' WHERE org_id=? AND app_id=? AND name='api'","UPDATE hx_app_connections SET endpoint='https://api.github.com/repos/a/b/issues' WHERE org_id=? AND app_id=? AND name='api'"],
+  ["UPDATE hx_app_connections SET method='POST' WHERE org_id=? AND app_id=? AND name='api'","UPDATE hx_app_connections SET method='GET' WHERE org_id=? AND app_id=? AND name='api'"],
+  ["UPDATE hx_app_connections SET enabled=0 WHERE org_id=? AND app_id=? AND name='api'","UPDATE hx_app_connections SET enabled=1 WHERE org_id=? AND app_id=? AND name='api'"],
+  ["UPDATE hx_app_actions SET version=3,published_version=3 WHERE org_id=? AND app_id=? AND name='calc'","UPDATE hx_app_actions SET version=1,published_version=1 WHERE org_id=? AND app_id=? AND name='calc'"],
+  ["UPDATE hx_app_connections SET version=3 WHERE org_id=? AND app_id=? AND name='api'","UPDATE hx_app_connections SET version=1 WHERE org_id=? AND app_id=? AND name='api'"],
+  ["UPDATE hx_gateways SET name='Changed' WHERE org_id=? AND id=?","UPDATE hx_gateways SET name='Node' WHERE org_id=? AND id=?"],
+ ];
+ for(let i=0;i<changes.length;i++){
+  const id=i===changes.length-1?'g1':app.id;
+  await env.DB.prepare(changes[i][0]).bind(ORG,id).run();expect(await check()).toBe(false);
+  await env.DB.prepare(changes[i][1]).bind(ORG,id).run();expect(await check()).toBe(true);
+ }
+ await env.DB.prepare("UPDATE hx_app_actions SET published='return 2;' WHERE org_id=? AND app_id=? AND name='draft_only'").bind(ORG,app.id).run();
+ expect(await check()).toBe(false);
+});
+
+test('custom generation with authorized capabilities does not send connection tokens to the model',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','api',1,'https://api.github.com/repos/a/b/issues','GET','do-not-send-this-token',1)").bind(ORG,app.id).run();
+ let sent='';const fetch=vi.fn(async(_url,init)=>{sent=init.body;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({html:'<p>Tracker</p>'})}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}})});
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/custom`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Create a tracker'})}),{...env,OPENAI_API_KEY:'sk-test'});
+  expect(response.status).toBe(200);expect(fetch).toHaveBeenCalledTimes(1);expect(sent).toContain('https://api.github.com/repos/a/b/issues');expect(sent).not.toContain('do-not-send-this-token');
+ } finally {vi.unstubAllGlobals()}
+});
+
 test('custom generation rejects replacement of its primary table after reading the old schema',async()=>{
  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
  const {app:replacement}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();

@@ -1209,8 +1209,13 @@ export async function handleHarness(request, env, url, context = {}) {
       if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
       if (input.action === 'generate') {
         const table = await getTable(env.DB, orgId, app.tableId);
-        const capabilities = { entities: (await databaseView(env.DB,orgId,app)).entities, actions: (await actions(env.DB,orgId,appId)).actions.filter(a=>a.published).map(a=>({name:a.name,code:a.published})), connections:(await connections(env.DB,orgId,appId,me)).connections.map(c=>({name:c.name,endpoint:c.endpoint,method:c.method,enabled:c.enabled})), gateways:(await env.DB.prepare('SELECT id,name FROM hx_gateways WHERE org_id=?1 AND revoked_at IS NULL').bind(orgId).all()).results };
-        const authorize=guard=>mayGenerateFromSchema(env.DB,orgId,appId,me,capabilities.entities,[table],guard);
+        const entities=(await databaseView(env.DB,orgId,app)).entities;
+        const actionSnapshot=(await actions(env.DB,orgId,appId)).actions.filter(a=>a.published).map(a=>({name:a.name,code:a.published,version:a.version,publishedVersion:a.publishedVersion}));
+        const connectionSnapshot=(await connections(env.DB,orgId,appId,me)).connections.map(c=>({name:c.name,endpoint:c.endpoint,method:c.method,enabled:c.enabled,version:c.version}));
+        const gatewaySnapshot=(await env.DB.prepare('SELECT id,name,created_at AS createdAt FROM hx_gateways WHERE org_id=?1 AND revoked_at IS NULL').bind(orgId).all()).results;
+        const captured={actions:actionSnapshot,connections:connectionSnapshot,gateways:gatewaySnapshot};
+        const capabilities={entities,actions:actionSnapshot.map(({name,code})=>({name,code})),connections:connectionSnapshot.map(({name,endpoint,method,enabled})=>({name,endpoint,method,enabled})),gateways:gatewaySnapshot.map(({id,name})=>({id,name}))};
+        const authorize=guard=>mayGenerateFromSchema(env.DB,orgId,appId,me,entities,[table],guard,[],captured);
         if(!table || capabilities.entities.find(entity=>entity.key==='primary')?.table?.id!==table.id || !await authorize())return json({message:'No such app.'},404);
         const result=await withGuidedGeneration(input.prompt,()=>completer(env,orgId,me,'custom_app_generate',{maxTokens:8000}),
           async(prompt,complete)=>{

@@ -3,8 +3,9 @@
 // extra workspace tables are also checked because automation prompts list them.
 import { conversationWriteAuthority } from './conversationWriteAuthority.js';
 
-export async function mayGenerateFromSchema(db, orgId, appId, userId, entities, extraTables = [], guard = null, agents = []) {
+export async function mayGenerateFromSchema(db, orgId, appId, userId, entities, extraTables = [], guard = null, agents = [], capabilities = null) {
   if (!userId || !Array.isArray(entities) || !entities.length || entities.some(e => !e?.key || !e.table?.id)) return false;
+  if (capabilities && (!Array.isArray(capabilities.actions) || !Array.isArray(capabilities.connections) || !Array.isArray(capabilities.gateways))) return false;
   const references = entities.map(e => ({key:e.key, id:e.table.id}));
   const tables = [...entities.map(e=>e.table), ...extraTables];
   if (tables.some(t => !t || typeof t.id !== 'string' || !t.id || typeof t.name !== 'string' || typeof t.updatedAt !== 'string' || !Array.isArray(t.columns))) return false;
@@ -62,8 +63,25 @@ export async function mayGenerateFromSchema(db, orgId, appId, userId, entities, 
             SELECT 1 FROM hx_agent_members r WHERE r.org_id=?1 AND r.agent_id=a.id AND r.user_id=?3 AND r.member_since=m.created_at))
             OR (a.scope!='personal' OR a.owner_login=u.login) AND (
               p.agent_id IS NULL OR p.access NOT IN ('private','people') OR a.owner_login=u.login OR
-              (p.access='people' AND EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(p.people) THEN p.people ELSE '[]' END) x WHERE x.value=u.login))))))`)
-    .bind(orgId,appId,String(userId),JSON.stringify(references),JSON.stringify(snapshots),guard?JSON.stringify(guard):null,JSON.stringify(agents)).first();
+              (p.access='people' AND EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(p.people) THEN p.people ELSE '[]' END) x WHERE x.value=u.login))))))
+      AND (?8 IS NULL OR (
+        (SELECT COUNT(*) FROM hx_app_actions a WHERE a.org_id=?1 AND a.app_id=?2 AND a.published IS NOT NULL AND a.published!='')=json_array_length(?8,'$.actions')
+        AND NOT EXISTS(SELECT 1 FROM json_each(?8,'$.actions') captured WHERE NOT EXISTS(
+          SELECT 1 FROM hx_app_actions a WHERE a.org_id=?1 AND a.app_id=?2 AND a.name=json_extract(captured.value,'$.name')
+            AND a.published IS json_extract(captured.value,'$.code') AND a.version IS json_extract(captured.value,'$.version')
+            AND a.published_version IS json_extract(captured.value,'$.publishedVersion') AND a.published IS NOT NULL AND a.published!=''))
+        AND (SELECT COUNT(*) FROM hx_app_connections c WHERE c.org_id=?1 AND c.app_id=?2 AND c.created_by=?3)=json_array_length(?8,'$.connections')
+        AND NOT EXISTS(SELECT 1 FROM json_each(?8,'$.connections') captured WHERE NOT EXISTS(
+          SELECT 1 FROM hx_app_connections c WHERE c.org_id=?1 AND c.app_id=?2 AND c.created_by=?3
+            AND c.name=json_extract(captured.value,'$.name') AND c.endpoint IS json_extract(captured.value,'$.endpoint')
+            AND c.method IS json_extract(captured.value,'$.method') AND c.enabled IS json_extract(captured.value,'$.enabled')
+            AND c.version IS json_extract(captured.value,'$.version')))
+        AND (SELECT COUNT(*) FROM hx_gateways g WHERE g.org_id=?1 AND g.revoked_at IS NULL)=json_array_length(?8,'$.gateways')
+        AND NOT EXISTS(SELECT 1 FROM json_each(?8,'$.gateways') captured WHERE NOT EXISTS(
+          SELECT 1 FROM hx_gateways g WHERE g.org_id=?1 AND g.revoked_at IS NULL
+            AND g.id=json_extract(captured.value,'$.id') AND g.name IS json_extract(captured.value,'$.name')
+            AND g.created_at IS json_extract(captured.value,'$.createdAt')))))`)
+    .bind(orgId,appId,String(userId),JSON.stringify(references),JSON.stringify(snapshots),guard?JSON.stringify(guard):null,JSON.stringify(agents),capabilities?JSON.stringify({actions:capabilities.actions,connections:capabilities.connections,gateways:capabilities.gateways}):null).first();
   return Boolean(row);
 }
 
