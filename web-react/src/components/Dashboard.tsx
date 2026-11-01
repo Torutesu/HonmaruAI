@@ -72,6 +72,7 @@ interface Props {
   relayUrl: string
   sessionToken: string
   onLogout: () => void
+  onAccountDeleted?: () => void
   onSwitchOrg: (orgId: string) => void
   /// This account is no longer in the workspace on screen. The shell finds
   /// them another one.
@@ -99,7 +100,7 @@ const DECIDED_WORD: Record<string, string> = {
 /// is a sheet over it that closes back to the feed.
 const HARNESS_SCREENS = new Set<Screen>(['home', 'harness', 'apps', 'workflows', 'approvals', 'skills', 'hxagents', 'gateways'])
 
-export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout, onSwitchOrg, onLeft }) => {
+export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout, onAccountDeleted, onSwitchOrg, onLeft }) => {
   const t = useT()
   // The last snapshot this browser saw, until the relay sends a new one —
   // and instead of nothing when it cannot.
@@ -1462,6 +1463,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onTranslationChange={savedTranslationPreference}
           onSwitchOrg={switchWorkspaceByHand}
           onLogout={onLogout}
+          onAccountDeleted={onAccountDeleted}
           onClose={closeScreen}
         />
       )}

@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest'
-import { SidebarSync, SidebarEditQueue, retainSidebarQueue, takeSidebarQueue, reorderExisting, reorderIncludingNew } from './sidebarSync'
+import { afterEach, describe, it, expect } from 'vitest'
+import { SidebarSync, SidebarEditQueue, bindSidebarSession, trackSidebarQueue, hasPendingSidebarQueues, clearSidebarSessionQueues, retainSidebarQueue, takeSidebarQueue, reorderExisting, reorderIncludingNew } from './sidebarSync'
 
 type L = { starred: string[] }
+afterEach(() => { clearSidebarSessionQueues() })
 const star = (v: string) => (base: L): L => ({ starred: [...base.starred.filter((x) => x !== v), v] })
 const unstar = (v: string) => (base: L): L => ({ starred: base.starred.filter((x) => x !== v) })
 
@@ -208,5 +209,70 @@ describe('versioned sidebar changes', () => {
     release()
     await new Promise(resolve=>setTimeout(resolve,0))
     expect(takeSidebarQueue('server/session/user/drained')).toBeNull()
+  })
+
+  it('aborts a detached initial read when no user edits need recovery', async () => {
+    let aborted=false
+    const q=new SidebarEditQueue<L>({starred:[]},()=>new Promise(()=>{}),async sidebar=>({conflict:false,snapshot:{sidebar,version:'v'}}),()=>{},()=>{},()=>{aborted=true})
+    trackSidebarQueue(q)
+    void q.retry()
+    retainSidebarQueue('server/secret/user/empty',q)
+    expect(aborted).toBe(true)
+    expect(q.isCancelled()).toBe(true)
+    expect(takeSidebarQueue('server/secret/user/empty')).toBeNull()
+  })
+
+  it('cancels retained and active session queues without reusing a late read', async () => {
+    let release!: (snapshot:{sidebar:L;version:string})=>void
+    let writes=0,abort=0,shown=0
+    const waiting=new Promise<{sidebar:L;version:string}>(resolve=>{release=resolve})
+    const q=new SidebarEditQueue<L>({starred:[]},()=>waiting,
+      async sidebar=>{writes++;return {conflict:false,snapshot:{sidebar,version:'saved'}}},()=>{shown++},()=>{},()=>{abort++})
+    trackSidebarQueue(q)
+    void q.retry()
+    q.change(star('b:front'))
+    retainSidebarQueue('server/secret/user/workspace',q)
+    expect(hasPendingSidebarQueues()).toBe(true)
+    expect(clearSidebarSessionQueues()).toBe(true)
+    expect(abort).toBe(1)
+    expect(q.hasPending()).toBe(false)
+    expect(takeSidebarQueue('server/secret/user/workspace')).toBeNull()
+    const before=shown
+    release({sidebar:{starred:['b:kitchen']},version:'v1'})
+    await new Promise(resolve=>setTimeout(resolve,0))
+    expect(writes).toBe(0)
+    expect(shown).toBe(before)
+    retainSidebarQueue('server/secret/user/workspace',q)
+    expect(takeSidebarQueue('server/secret/user/workspace')).toBeNull()
+  })
+
+  it('aborts an in-flight write and ignores its late success after session clearing', async () => {
+    let resolveWrite!: (value:{conflict:false;snapshot:{sidebar:L;version:string}})=>void
+    let aborted=false,shown=0
+    const waiting=new Promise<{conflict:false;snapshot:{sidebar:L;version:string}}>(resolve=>{resolveWrite=resolve})
+    const q=new SidebarEditQueue<L>({starred:[]},async()=>({sidebar:{starred:[]},version:'v1'}),
+      ()=>waiting,()=>{shown++},()=>{},()=>{aborted=true})
+    trackSidebarQueue(q)
+    await q.retry()
+    q.change(star('b:front'))
+    expect(clearSidebarSessionQueues()).toBe(true)
+    const before=shown
+    resolveWrite({conflict:false,snapshot:{sidebar:{starred:['b:front']},version:'v2'}})
+    await new Promise(resolve=>setTimeout(resolve,0))
+    expect(aborted).toBe(true)
+    expect(shown).toBe(before)
+    expect(q.hasPending()).toBe(false)
+  })
+
+  it('binds queues to the server, user and exact session even across a component remount', () => {
+    let aborted=0
+    expect(bindSidebarSession('https://one.invalid','old-token','reader')).toBe(false)
+    const q=new SidebarEditQueue<L>({starred:[]},()=>new Promise(()=>{}),async sidebar=>({conflict:false,snapshot:{sidebar,version:'saved'}}),()=>{},()=>{},()=>{aborted++})
+    trackSidebarQueue(q);q.change(star('b:front'));retainSidebarQueue('old',q)
+    expect(bindSidebarSession('https://one.invalid','old-token','reader')).toBe(false)
+    expect(q.hasPending()).toBe(true)
+    expect(bindSidebarSession('https://one.invalid','new-token','reader')).toBe(true)
+    expect(aborted).toBe(1)
+    expect(takeSidebarQueue('old')).toBeNull()
   })
 })

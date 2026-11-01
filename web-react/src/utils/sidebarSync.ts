@@ -80,16 +80,19 @@ export class SidebarEditQueue<L> {
   private running = false
   private detached = false
   private uncertain = false
+  private cancelled = false
   private shown: L
   private settled: (() => void) | null = null
 
-  constructor(initial: L, private readonly read: () => Promise<SidebarSnapshot<L>>,
-    private readonly write: (sidebar: L, version: string | null | undefined) => Promise<SidebarWrite<L>>,
+  constructor(private readonly initial: L, private read: () => Promise<SidebarSnapshot<L>>,
+    private write: (sidebar: L, version: string | null | undefined) => Promise<SidebarWrite<L>>,
     private show: (layout: L, ready: boolean, pending: boolean) => void,
-    private failed: (uncertain: boolean) => void) { this.shown = initial }
+    private failed: (uncertain: boolean) => void,
+    private abort: () => void = () => {}, private signal: AbortSignal | undefined = undefined) { this.shown = initial }
 
   change(change: LayoutChange<L>): { before: L; next: L } {
     const before = this.shown
+    if (this.cancelled) return {before, next:before}
     if (this.uncertain) { if (!this.detached) this.failed(true); return {before, next:before} }
     this.pending.push(change)
     this.shown = change(before)
@@ -99,17 +102,18 @@ export class SidebarEditQueue<L> {
   }
 
   async retry(): Promise<void> {
-    if (this.running || this.uncertain) return
+    if (this.running || this.uncertain || this.cancelled) return
     this.running = true
     try {
       if (!this.base) {
         const fetched = await this.read()
+        if (this.cancelled) return
         this.base = fetched
         this.shown = this.pending.reduce((layout, change) => change(layout), fetched.sidebar)
         if (!this.detached) this.show(this.shown, true, this.hasPending())
       }
       let conflicts = 0
-      while (this.pending.length) {
+      while (this.pending.length && !this.cancelled) {
         const batch = this.pending.slice()
         const next = batch.reduce((layout, change) => change(layout), this.base.sidebar)
         let result: SidebarWrite<L>
@@ -117,10 +121,12 @@ export class SidebarEditQueue<L> {
         catch {
           // A dropped response may follow a committed write. Do not replay an
           // operation over a newer change without an idempotency receipt.
+          if (this.cancelled) return
           this.uncertain = true
           if (!this.detached) this.failed(true)
           return
         }
+        if (this.cancelled) return
         this.base = result.snapshot
         if (!result.conflict) { this.pending.splice(0, batch.length); conflicts = 0 }
         else if (++conflicts >= 8) throw new Error('Sidebar changed repeatedly.')
@@ -128,7 +134,7 @@ export class SidebarEditQueue<L> {
         if (!this.detached) this.show(this.shown, true, this.hasPending())
       }
     } catch {
-      if (!this.detached) this.failed(false)
+      if (!this.detached && !this.cancelled) this.failed(false)
     } finally {
       this.running = false
       if (this.detached && !this.hasPending()) this.settled?.()
@@ -137,7 +143,7 @@ export class SidebarEditQueue<L> {
 
   // Only an explicit user decision may discard the uncertain operations.
   adopt(snapshot: SidebarSnapshot<L>): boolean {
-    if (!this.uncertain || this.running || this.detached) return false
+    if (!this.uncertain || this.running || this.detached || this.cancelled) return false
     this.pending = []
     this.base = snapshot
     this.shown = snapshot.sidebar
@@ -151,8 +157,11 @@ export class SidebarEditQueue<L> {
   dispose(): void { this.detached = true }
 
   hasPending(): boolean { return this.pending.length > 0 }
+  isCancelled(): boolean { return this.cancelled }
+  requestSignal(): AbortSignal | undefined { return this.signal }
 
   attach(show: (layout: L, ready: boolean, pending: boolean) => void, failed: (uncertain: boolean) => void): void {
+    if (this.cancelled) return
     this.show = show
     this.failed = failed
     this.detached = false
@@ -161,17 +170,64 @@ export class SidebarEditQueue<L> {
   }
 
   whenDetachedSettled(callback: () => void): void { this.settled = callback }
+
+  // Authentication ended: abort in-flight requests and remove references to
+  // credentials, layouts and callbacks. An already received request may
+  // still have committed, so the caller must tell the person about it.
+  cancel(): void {
+    this.cancelled = true
+    this.abort()
+    this.abort = () => {}
+    this.signal = undefined
+    this.pending = []
+    this.base = null
+    this.shown = this.initial
+    this.show = () => {}
+    this.failed = () => {}
+    this.read = async () => { throw new Error('Sidebar session ended.') }
+    this.write = async () => { throw new Error('Sidebar session ended.') }
+    this.settled = null
+  }
 }
 
 // These queues contain only the current browser tab's unfinished operations.
 // The key is scoped to the server, session, user, and workspace by the caller.
 // A page close still ends in-memory recovery; nothing is written to disk.
 const retainedQueues = new Map<string, SidebarEditQueue<any>>()
+const activeQueues = new Set<SidebarEditQueue<any>>()
+let sessionIdentity: string | null = null
+export function trackSidebarQueue<L>(queue: SidebarEditQueue<L>): void { activeQueues.add(queue) }
+export function hasPendingSidebarQueues(): boolean { return [...activeQueues].some(queue => queue.hasPending()) }
+export function clearSidebarSessionQueues(): boolean {
+  const pending = hasPendingSidebarQueues()
+  for (const queue of activeQueues) queue.cancel()
+  activeQueues.clear()
+  retainedQueues.clear()
+  sessionIdentity = null
+  return pending
+}
+// Bind before rendering an authenticated workspace. This also covers a
+// remount after navigating through a public page, where component state no
+// longer knows which session left retained queues behind.
+export function bindSidebarSession(server: string, token: string, user: string): boolean {
+  const next = JSON.stringify([server, token, user])
+  const discarded = sessionIdentity !== null && sessionIdentity !== next ? clearSidebarSessionQueues() : false
+  sessionIdentity = next
+  return discarded
+}
+export function clearSidebarIfTokenChanged(token: string): boolean {
+  if (sessionIdentity === null) return false
+  const [, boundToken] = JSON.parse(sessionIdentity) as string[]
+  return token === boundToken ? false : clearSidebarSessionQueues()
+}
 export function retainSidebarQueue<L>(key: string, queue: SidebarEditQueue<L>): void {
   queue.dispose()
-  if (!queue.hasPending()) return
+  if (queue.isCancelled() || !queue.hasPending()) { queue.cancel(); activeQueues.delete(queue); return }
+  activeQueues.add(queue)
   retainedQueues.set(key, queue)
-  queue.whenDetachedSettled(() => { if (retainedQueues.get(key) === queue) retainedQueues.delete(key) })
+  queue.whenDetachedSettled(() => {
+    if (retainedQueues.get(key) === queue) { retainedQueues.delete(key); activeQueues.delete(queue); queue.cancel() }
+  })
 }
 export function takeSidebarQueue<L>(key: string): SidebarEditQueue<L> | null {
   const queue = retainedQueues.get(key) as SidebarEditQueue<L> | undefined

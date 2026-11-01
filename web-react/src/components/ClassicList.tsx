@@ -91,7 +91,7 @@ import { playSound, setOpenView, rememberLevels, rememberLevel, startRing, stopR
 import { closeMessageNotifications, closeThreadNotifications } from '../utils/notifications'
 import { hasOlder, olderThan } from '../utils/historyPage'
 import { foldedRows, sectionBadge, visibleRows, stepRow, readFolds, writeFolds, withSectionFolds, withFold, unplacedAgents } from '../utils/sidebarSections'
-import { SidebarEditQueue, retainSidebarQueue, takeSidebarQueue, reorderExisting, reorderIncludingNew, type LayoutChange } from '../utils/sidebarSync'
+import { SidebarEditQueue, trackSidebarQueue, retainSidebarQueue, takeSidebarQueue, reorderExisting, reorderIncludingNew, type LayoutChange } from '../utils/sidebarSync'
 import { SidebarSavedState } from './SidebarSavedState'
 import { placesFrom } from '../utils/places'
 import type { Place as Conversation } from '../utils/places'
@@ -470,6 +470,7 @@ export const ClassicList: React.FC<Props> = ({
   useEffect(() => {
     const initial: SidebarLayout = { starred: [], sections: [] }
     const queueKey = JSON.stringify([api.httpBase, api.sessionToken, userId, api.orgId])
+    const controller = new AbortController()
     const show = (next: SidebarLayout, ready: boolean, pending: boolean) => {
       if (sidebarSync.current !== sync) return
       layoutNow.current = next
@@ -487,7 +488,7 @@ export const ClassicList: React.FC<Props> = ({
     const retained = takeSidebarQueue<SidebarLayout>(queueKey)
     const sync = sidebarSync.current = retained || new SidebarEditQueue<SidebarLayout>(initial,
       async () => {
-        const response = await fetch(`${api.httpBase}/channels/sidebar?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
+        const response = await fetch(`${api.httpBase}/channels/sidebar?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders, signal: controller.signal })
         if (!response.ok) throw new Error('Sidebar could not be read.')
         const data = await response.json()
         if (!data?.sidebar) throw new Error('Sidebar response is incomplete.')
@@ -496,13 +497,15 @@ export const ClassicList: React.FC<Props> = ({
       async (sidebar, version) => {
         const response = await fetch(`${api.httpBase}/channels/sidebar`, {
           method: 'PUT', headers: { ...authHeaders, 'content-type': 'application/json' },
+          signal: controller.signal,
           body: JSON.stringify({ orgId: api.orgId, sidebar, ...(version !== undefined ? {version} : {}) }),
         })
         const data = await response.json()
         if ((!response.ok && response.status !== 409) || !data?.sidebar) throw new Error('Sidebar could not be saved.')
         return {conflict: response.status === 409, snapshot: data}
       },
-      show, failed)
+      show, failed, () => controller.abort(), controller.signal)
+    trackSidebarQueue(sync)
     setSidebarReady(false)
     setSidebarPending(false)
     setSidebarUncertain(false)
@@ -534,15 +537,16 @@ export const ClassicList: React.FC<Props> = ({
   const isStarred = (view: string) => layout.starred.includes(view)
   const checkSavedSidebar = async () => {
     const sync = sidebarSync.current
+    if (!sync || sync.isCancelled()) return
     setSidebarChecking(true); setSidebarCheckError(false)
     try {
-      const response = await fetch(`${api.httpBase}/channels/sidebar?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
+      const response = await fetch(`${api.httpBase}/channels/sidebar?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders, signal: sync.requestSignal() })
       if (!response.ok) throw new Error('Sidebar could not be read.')
       const data = await response.json()
       if (!data?.sidebar) throw new Error('Sidebar response is incomplete.')
-      if (sidebarSync.current === sync) setSidebarRemote(data.sidebar)
-    } catch { if (sidebarSync.current === sync) setSidebarCheckError(true) }
-    finally { if (sidebarSync.current === sync) setSidebarChecking(false) }
+      if (sidebarSync.current === sync && !sync.isCancelled()) setSidebarRemote(data.sidebar)
+    } catch { if (sidebarSync.current === sync && !sync.isCancelled()) setSidebarCheckError(true) }
+    finally { if (sidebarSync.current === sync && !sync.isCancelled()) setSidebarChecking(false) }
   }
   const adoptSavedSidebar = async () => {
     const prompt = locale === 'ja'
@@ -550,17 +554,17 @@ export const ClassicList: React.FC<Props> = ({
       : 'Discard the pending sidebar changes and use the state currently saved on the server?'
     if (!window.confirm(prompt)) return
     const sync = sidebarSync.current
-    if (!sync) return
+    if (!sync || sync.isCancelled()) return
     setSidebarChecking(true); setSidebarCheckError(false)
     try {
-      const response = await fetch(`${api.httpBase}/channels/sidebar?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
+      const response = await fetch(`${api.httpBase}/channels/sidebar?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders, signal: sync.requestSignal() })
       if (!response.ok) throw new Error('Sidebar could not be read.')
       const data = await response.json()
       if (!data?.sidebar || sidebarSync.current !== sync || !sync.adopt(data)) throw new Error('Sidebar changed.')
       setSidebarUncertain(false); setSidebarRemote(null)
       setProblem((before) => before === (locale === 'ja' ? 'サイドバーの保存結果を確認できません。会話一覧の「保存状態を確認」を開いてください。' : 'The sidebar save could not be confirmed. Open “Check saved sidebar” in the conversation list.') ? null : before)
-    } catch { if (sidebarSync.current === sync) setSidebarCheckError(true) }
-    finally { if (sidebarSync.current === sync) setSidebarChecking(false) }
+    } catch { if (sidebarSync.current === sync && !sync.isCancelled()) setSidebarCheckError(true) }
+    finally { if (sidebarSync.current === sync && !sync.isCancelled()) setSidebarChecking(false) }
   }
   /// Your channels in the order you dragged them into; any you have not
   /// placed follow, in the team's order.
