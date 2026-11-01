@@ -17,6 +17,7 @@ let finish: (value: any) => void
 let tree: ReturnType<typeof create> | undefined
 test('new record labels use the primary table when its title differs from the app',()=>{
   expect(newAppRecordLabel('UI確認用タスク','タスク')).toBe('新規タスク')
+  expect(newAppRecordLabel('UI確認用タスク','UI確認用タスク','タスク名')).toBe('新規タスク')
   expect(newAppRecordLabel('Sales CRM','Sales CRM')).toBe('新規レコード')
 })
 beforeEach(() => {
@@ -130,7 +131,7 @@ test('the app data viewer keeps one record-create action in the table toolbar', 
   state.api = {
     app: vi.fn().mockResolvedValue({
       app: { id: 'tasks', name: 'UI確認用タスク', description: '', icon: 'grid', tableId: 'tasks', template: null, version: 1, createdBy: 'owner', channels: [], definition: { views: [] } },
-      table: { id: 'tasks', orgId: 'team:one', name: 'タスク', columns: [{ id: 'title', name: 'タスク名', type: 'text' }] },
+      table: { id: 'tasks', orgId: 'team:one', name: 'UI確認用タスク', columns: [{ id: 'title', name: 'タスク名', type: 'text' }] },
       rows: [], views: [{ id: 'all', type: 'table', name: 'All tasks', rows: [] }], canCustomize: true,
     }),
     personalViews: vi.fn().mockResolvedValue({ revision: 0, views: [], computed: [], layouts: {} }),
