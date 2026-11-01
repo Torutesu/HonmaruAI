@@ -436,7 +436,16 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
 
   const load = useCallback((automatic=false) => act('load', async () => {
     const sequence=++loadSequence.current
-    let [next,preferences]=await Promise.all([api.app(appId),api.personalViews(appId)])
+    const readPair=async()=>{
+      try{return await Promise.all([api.app(appId),api.personalViews(appId)])}
+      catch(e){
+        if(e instanceof HarnessApiError&&e.status===404&&sequence===loadSequence.current){
+          setData(null);setRelationEntities([]);setPersonal({revision:0,views:[],computed:[],layouts:{}});personalSnapshot.current=null
+        }
+        throw e
+      }
+    }
+    let [next,preferences]=await readPair()
     // If a save won while this read was in flight, its settings are newer but
     // its computed rows may be older than this refresh. Re-read the server's
     // computed views; never splice an old computed snapshot into fresh data.
@@ -446,7 +455,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       const stale=Boolean(snapshot && snapshot.api===api && snapshot.appId===appId && snapshot.value.revision>preferences.revision)
       const versionMismatch=preferences.appVersion!==undefined&&preferences.appVersion!==next.app.version
       if(!stale&&!versionMismatch)break
-      ;[next,preferences]=await Promise.all([api.app(appId),api.personalViews(appId)])
+      ;[next,preferences]=await readPair()
     }
     const latest=personalSnapshot.current
     if(latest?.api===api&&latest.appId===appId&&latest.value.revision>preferences.revision)throw new Error('個人ビューが更新中です。再読み込みしてください。')

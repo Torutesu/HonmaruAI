@@ -495,3 +495,19 @@ test('a shared template can be inspected and imported from its link', async () =
   await act(async () => { tree!.root.findAllByType('button').find(node => node.children.includes('Open in Apps'))!.props.onClick() })
   expect(location.hash).toBe('#/apps/imported/team%3Aone')
 })
+
+test('revoked app access clears the previously visible data while a temporary error retains it',async()=>{
+  const handlers=new Map<string,()=>void>()
+  vi.stubGlobal('window',{addEventListener:(name:string,fn:()=>void)=>handlers.set(name,fn),removeEventListener:(name:string)=>handlers.delete(name)})
+  vi.stubGlobal('document',{visibilityState:'visible',activeElement:null,querySelector:()=>null,addEventListener:vi.fn(),removeEventListener:vi.fn()})
+  const row={id:'r',values:{title:'Private data'},updatedAt:'2026-11-02'},shared={id:'all',type:'table',name:'Shared',rows:[row]}
+  const data={app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[row],views:[shared],canCustomize:true}
+  state.api={app:vi.fn().mockResolvedValueOnce(data).mockRejectedValueOnce(new Error('Network failure')).mockRejectedValueOnce(new HarnessApiError('No such app.',404)),personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'all',views:[],computed:[],layouts:{}}),conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]})}
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(JSON.stringify(tree!.toJSON())).toContain('Private data')
+  await act(async()=>{handlers.get('focus')!();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(JSON.stringify(tree!.toJSON())).toContain('Private data')
+  await act(async()=>{handlers.get('focus')!();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(JSON.stringify(tree!.toJSON())).not.toContain('Private data')
+  expect(JSON.stringify(tree!.toJSON())).toContain('No such app.')
+})
