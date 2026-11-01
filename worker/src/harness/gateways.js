@@ -2,6 +2,9 @@ import {workflowActivationState} from './workflowActivationState.js';
 import {settleWorkflowProgram,workflowProgramJobAccess,workflowProgramAccessCTE} from './workflowCodeJobs.js';
 import {WorkflowStateInputError} from './workflowState.js';
 import { enqueueExecution, jobView, readExecution } from './executions.js';
+import { HARNESS_TOOLS, callHarnessTool } from './mcpTools.js';
+import { mayRunAgent } from './agents.js';
+import { getMode } from './mode.js';
 // Outbound-only execution nodes. A node token grants access to one workspace's
 // assigned jobs, never to workspace files, agent memories or integration keys.
 import { member, json } from './routes.js';
@@ -15,7 +18,20 @@ const failure = (message, status = 400) => json({ message }, status);
 const activeMember = `(EXISTS (SELECT 1 FROM memberships m WHERE m.org_id = hx_gateway_jobs.org_id AND m.user_github_id = hx_gateway_jobs.created_by AND m.role != 'guest') AND NOT EXISTS (SELECT 1 FROM hx_app_action_jobs j WHERE j.job_id=hx_gateway_jobs.id AND NOT EXISTS (SELECT 1 FROM hx_apps a LEFT JOIN hx_app_access p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=j.org_id AND a.id=j.app_id AND (COALESCE(p.visibility,'workspace')='workspace' OR a.created_by=hx_gateway_jobs.created_by))))`;
 
 
-export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish|state))\/?$/.test(pathname);
+export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish|state|mcp))\/?$/.test(pathname);
+
+const ACP_READ_ONLY_TOOLS = new Set(['list_apps','read_app','list_tables','query_rows','list_workflows','list_followups']);
+const acpReadTools = () => HARNESS_TOOLS.filter(tool => ACP_READ_ONLY_TOOLS.has(tool.name))
+  .map(({name,title,description,inputSchema}) => ({name,title,description,inputSchema}));
+
+async function acpWorkspacePrincipal(db, row, payload) {
+  if (await getMode(db, row.org_id) !== 'harness' || !(await allowed(db,row.org_id,row.created_by,'harness.build'))) return null;
+  const agent = await db.prepare(`SELECT id,scope,owner_login FROM custom_agents
+    WHERE org_id=?1 AND id=?2 AND provider='acp' AND deleted_at IS NULL`).bind(row.org_id,payload.agentId).first();
+  if (!agent || !(await mayRunAgent(db,row.org_id,agent,row.created_by))) return null;
+  const person = await db.prepare('SELECT login FROM users WHERE github_id=?1').bind(String(row.created_by)).first();
+  return person?.login ? {orgId:row.org_id,githubId:String(row.created_by),login:person.login} : null;
+}
 
 export async function expireGatewayJobs(db, at = now()) {
   const result=await db.prepare(`${workflowProgramAccessCTE('?1')} UPDATE hx_gateway_jobs SET status = 'failed', finished_at = ?1, lease_hash = NULL,
@@ -86,6 +102,38 @@ export async function handleGateways(request, env, url, input) {
     if (typeof input?.lease !== 'string' || input.lease.length > 150) return failure('Execution lease required.', 409);
     const leaseHash = await digest(input.lease);
     const guard = `id = ?1 AND gateway_id = ?2 AND status = 'running' AND lease_hash = ?3 AND lease_until > ?4 AND deadline > ?4 AND ${activeMember} AND ${workflowProgramJobAccess}`;
+    if (parts[3] === 'mcp') {
+      const readJob = () => db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload,org_id,created_by FROM hx_gateway_jobs WHERE ${guard}`)
+        .bind(parts[2],g.id,leaseHash,now()).first();
+      const job = await readJob();
+      if (!job) return failure('Execution is no longer authorized.',409);
+      let payload;
+      try { payload=JSON.parse(job.payload); } catch { return failure('Workspace MCP request is invalid.',400); }
+      if (payload.acp !== true || payload.workspaceTools !== true || !payload.agentId) return failure('Workspace MCP tools were not enabled for this ACP task.',403);
+      const principal=await acpWorkspacePrincipal(db,job,payload);
+      if (!principal) return failure('Workspace or Agent access changed.',403);
+      let result;
+      if (input.method === 'tools/list') result={tools:acpReadTools()};
+      else if (input.method === 'tools/call') {
+        const name=typeof input.params?.name==='string'?input.params.name:'';
+        if (!ACP_READ_ONLY_TOOLS.has(name)) return failure('This ACP Workspace tool is unavailable.',403);
+        const args=input.params?.arguments&&typeof input.params.arguments==='object'&&!Array.isArray(input.params.arguments)?{...input.params.arguments}:{};
+        if(name==='query_rows') {
+          const limit=Number(args.limit),offset=Number(args.offset);
+          args.limit=Number.isInteger(limit)&&limit>0?Math.min(limit,100):100;
+          args.offset=Number.isInteger(offset)&&offset>=0?Math.min(offset,1000):0;
+        }
+        result=await callHarnessTool(env,principal,name,args);
+        if (!result) return failure('This ACP Workspace tool is unavailable.',404);
+        const fresh=await readJob();
+        if (!fresh) return failure('Execution is no longer authorized.',409);
+        let freshPayload;
+        try { freshPayload=JSON.parse(fresh.payload); } catch { return failure('Workspace MCP request is invalid.',400); }
+        if (freshPayload.agentId!==payload.agentId || freshPayload.workspaceTools!==true || !(await acpWorkspacePrincipal(db,fresh,freshPayload))) return failure('Workspace or Agent access changed.',403);
+      } else return failure('Unsupported Workspace MCP method.',400);
+      if (new TextEncoder().encode(JSON.stringify(result)).length>200000) return failure('Workspace MCP result is too large.',413);
+      return json({result});
+    }
     if (parts[3] === 'state') {
       if(new TextEncoder().encode(JSON.stringify(input)).length>165000)return failure('State request is too large.',413);
       try {

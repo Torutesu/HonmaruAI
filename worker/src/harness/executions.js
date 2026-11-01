@@ -3,6 +3,8 @@ import { allowed } from '../permissions.js';
 import { mayViewWorkflow } from './workflows.js';
 import { mayUseConversation } from './conversationAccess.js';
 import {settleWorkflowProgram} from './workflowCodeJobs.js';
+import { mayRunAgent } from './agents.js';
+import { getMode } from './mode.js';
 export const jobView = row => row && ({ id: row.id, gatewayId: row.gateway_id, status: row.status, createdAt: row.created_at, startedAt: row.started_at, finishedAt: row.finished_at, result: row.result ? JSON.parse(row.result) : null });
 const id = () => crypto.randomUUID();
 const now = () => Date.now();
@@ -81,8 +83,18 @@ export async function enqueueAcpExecution(db, orgId, me, input) {
     WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL AND g.last_seen_at>?4`).bind(orgId, gatewayId, agentKey, now()-90000).first();
   if (!gateway) return error('The execution node is offline or does not advertise this ACP agent.', 409);
   if (typeof input?.prompt !== 'string' || !input.prompt.trim()) return error('ACP prompt is required.');
+  // Keep the Simple experience usable even if an administrator enabled this
+  // teammate's Harness-only tools earlier. No Workspace data is offered here.
+  const workspaceTools = input.workspaceTools === true && await getMode(db, orgId) === 'harness';
+  let acpAgentId = '';
+  if (workspaceTools) {
+    acpAgentId = String(input.agentId || '');
+    const acpAgent = await db.prepare(`SELECT id,scope,owner_login FROM custom_agents
+      WHERE org_id=?1 AND id=?2 AND provider='acp' AND deleted_at IS NULL`).bind(orgId, acpAgentId).first();
+    if (!acpAgent || !(await mayRunAgent(db, orgId, acpAgent, me))) return error('This person may not use Workspace MCP tools through this ACP agent.', 403);
+  }
   const context = Array.isArray(input.context) ? input.context.slice(-30).map(line => String(line || '').slice(0, 4000)) : [];
-  const payload = JSON.stringify({ acp: true, agentKey, prompt: input.prompt.slice(0, 48000), ...(typeof input.sessionId === 'string' && input.sessionId.length <= 200 ? { sessionId: input.sessionId } : {}), ...(context.length ? { context } : {}) });
+  const payload = JSON.stringify({ acp: true, agentKey, prompt: input.prompt.slice(0, 48000), ...(typeof input.sessionId === 'string' && input.sessionId.length <= 200 ? { sessionId: input.sessionId } : {}), ...(context.length ? { context } : {}), ...(workspaceTools ? { workspaceTools: true, agentId: acpAgentId } : {}) });
   if (new TextEncoder().encode(payload).length > 65536) return error('ACP prompt is too large.', 413);
   const jobId = id();
   const requestId = id();

@@ -18,6 +18,7 @@ interface Teammate {
   enabled: boolean; hasKey: boolean; hasApiKey: boolean; hasGithubToken: boolean; account: string
   repos: string[]; model: string; instructions: string; channels: string[] | null
   monthlyLimit: number | null; spentThisMonth: number; tools: Tool[]; ready: boolean
+  workspaceTools: boolean
   /// Claude: an issue link or a bug report posted in a channel starts it.
   autoBuild?: boolean
   gatewayId: string; agentKey: string
@@ -28,7 +29,7 @@ interface Gateway { id: string; name: string; lastSeenAt?: number | null; acpAge
 interface Draft {
   apiKey: string; githubToken: string; account: string; model: string; instructions: string; repos: string
   everywhere: boolean; channels: Set<string>; limit: string; tools: Tool[]; autoBuild: boolean
-  gatewayId: string; agentKey: string
+  gatewayId: string; agentKey: string; workspaceTools: boolean
 }
 
 const draftOf = (tm: Teammate): Draft => ({
@@ -37,6 +38,7 @@ const draftOf = (tm: Teammate): Draft => ({
   limit: tm.monthlyLimit === null ? '' : String(tm.monthlyLimit), tools: tm.tools.map((x) => ({ ...x, secretValue: '' })),
   autoBuild: tm.autoBuild !== false,
   gatewayId: tm.gatewayId || '', agentKey: tm.agentKey || '',
+  workspaceTools: tm.workspaceTools === true,
 })
 
 export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionToken: string }> = ({ httpBase, orgId, sessionToken }) => {
@@ -47,6 +49,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
   const [draft, setDraft] = useState<Draft | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [gateways, setGateways] = useState<Gateway[]>([])
+  const [harnessMode, setHarnessMode] = useState(false)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -77,6 +80,14 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
   }, [httpBase, orgId, sessionToken])
   useEffect(() => {
     let ignore = false
+    fetch(`${httpBase}/orgs/mode?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+      .then((r) => (r.ok ? r.json() : { mode: 'simple' }))
+      .then((data) => { if (!ignore) setHarnessMode(data.mode === 'harness') })
+      .catch(() => { if (!ignore) setHarnessMode(false) })
+    return () => { ignore = true }
+  }, [httpBase, orgId, sessionToken])
+  useEffect(() => {
+    let ignore = false
     fetch(`${httpBase}/gateways?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
       .then((r) => (r.ok ? r.json() : { gateways: [] }))
       .then((data) => { if (!ignore) setGateways(data.gateways || []) })
@@ -99,6 +110,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
     if (tm.models.length || tm.freeModel) body.model = draft.model
     if (tm.needs.account) body.account = draft.account
     if (tm.needs.gateway) { body.gatewayId = draft.gatewayId; body.agentKey = draft.agentKey }
+    if (tm.provider === 'acp') body.workspaceTools = draft.workspaceTools
     if (tm.needs.tools) body.tools = draft.tools.map((x) => ({ name: x.name, secretName: x.secretName, host: x.host, ...(x.secretValue?.trim() ? { secretValue: x.secretValue.trim() } : {}) }))
     if (draft.apiKey.trim()) body.apiKey = draft.apiKey.trim()
     if (tm.needs.githubToken && draft.githubToken.trim()) body.githubToken = draft.githubToken.trim()
@@ -187,6 +199,11 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
                 {(selectedGateway?.acpAgents || []).map(key => <option key={key} value={key}>{key}</option>)}
               </select>
               {selectedGateway && !selectedGateway.acpAgents?.length && <small>{t('No ACP agent is configured on this node yet. Add one on the Mac, then reload.')}</small>}
+            </label>
+            <label className="teammate-field">
+              <span><input type="checkbox" disabled={off || !harnessMode} checked={draft.workspaceTools} onChange={(e) => set({ workspaceTools: e.target.checked })} data-teammate-workspace-tools /> {t('Allow this ACP agent to read Workspace data')}</span>
+              {!harnessMode && <small>{t('Workspace MCP tools are available in Harness mode only.')}</small>}
+              <small>{t('When enabled, it can read apps, tables, and workflows the person who asked may access. Their contents are sent to the local ACP agent and its existing provider. Read-only; writes and external MCP connections stay disabled.')}</small>
             </label>
             <p className="form-note">{t('ACP agents execute with the Mac user’s permissions and may access local files, credentials, and network resources. Only connect agents and working directories you trust. Permission requests default to rejected.')}</p>
           </>

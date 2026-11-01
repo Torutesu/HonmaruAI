@@ -90,7 +90,7 @@ test('a workspace ACP teammate queues prompts for a node without sending host la
  const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local'});
  expect(configured.status).toBe(200);
  const teammate=(await configured.json()).teammate;
- expect(teammate).toMatchObject({provider:'acp',enabled:true,ready:true,hasKey:true,gatewayId:gateway.id,agentKey:'codex-local',unit:'task'});
+ expect(teammate).toMatchObject({provider:'acp',enabled:true,ready:true,hasKey:true,gatewayId:gateway.id,agentKey:'codex-local',unit:'task',workspaceTools:false});
  expect(JSON.stringify(teammate)).not.toContain(token);
  const message=(await (await send('POST','/channels/messages',toru,{orgId:ORG,channel:'b:cafe',body:`@${teammate.handle} review this repository`},{TEAMMATE_WATCH_MS:'0'})).json()).message;
  const run=await env.DB.prepare("SELECT * FROM ai_teammate_runs WHERE org_id=?1 AND provider='acp'").bind(ORG).first();
@@ -109,6 +109,14 @@ test('a workspace ACP teammate queues prompts for a node without sending host la
  expect((await thread(toru,message.id)).map(reply=>reply.body).slice(-1)).toEqual(['Reviewed the local repository.']);
  expect(await env.DB.prepare('SELECT status,remote_turn FROM ai_teammate_runs WHERE id=?').bind(run.id).first()).toEqual({status:'idle',remote_turn:'acp-session-1'});
  expect(message.body).toContain(teammate.handle);
+
+ // Workspace access stays off until an administrator deliberately enables it.
+ await send('PUT','/orgs/mode',toru,{orgId:ORG,mode:'harness'});
+ const enabled=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local',workspaceTools:true});
+ expect(enabled.status).toBe(200);
+ expect((await enabled.json()).teammate.workspaceTools).toBe(true);
+ const saved=await env.DB.prepare("SELECT remote FROM ai_teammates WHERE org_id=?1 AND provider='acp'").bind(ORG).first();
+ expect(JSON.parse(saved.remote).workspaceTools).toBe(true);
 });
 
 test("@claude in a thread starts a session with the repo, vault and budget, and its answer comes back into the thread", async () => {
