@@ -20,6 +20,41 @@ beforeEach(async()=>{
  await env.DB.prepare("INSERT INTO hx_workflow_run_definitions(run_id,org_id,definition,created_at) VALUES('program-run','program-org',?1,'now')").bind(JSON.stringify(definition)).run();
 });
 const enqueue=(extra={})=>enqueueWorkflowProgram(env.DB,{orgId:'program-org',runId:'program-run',at:2000,...extra});
+test.each(['designer','engineer','triager','maintainer'])('a %s workflow maker can enqueue on an admin-owned node, but loses access after guest downgrade',async role=>{
+ await upsertUser(env.DB,{githubId:'node-admin',login:'node-admin',name:'Node Admin'});
+ await upsertMembership(env.DB,'program-org','node-admin','admin');
+ await env.DB.prepare("UPDATE hx_gateways SET created_by='node-admin' WHERE id='program-node'").run();
+ await env.DB.prepare("UPDATE memberships SET role=?1 WHERE org_id='program-org' AND user_github_id='program-owner'").bind(role).run();
+ const result=await enqueue();
+ expect(result).toMatchObject({status:'pending',jobId:expect.any(String)});
+ const access=()=>env.DB.prepare(`${workflowProgramAccessCTE('?1')} SELECT (${workflowProgramJobAccess}) AS allowed FROM hx_gateway_jobs WHERE id=?2`).bind(3000,result.jobId).first();
+ expect((await access()).allowed).toBe(1);
+ await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id='program-org' AND user_github_id='program-owner'").run();
+ expect((await access()).allowed).toBe(0);
+});
+
+test('an otherwise permitted maker cannot use a node whose owner is not a workspace admin',async()=>{
+ await upsertUser(env.DB,{githubId:'node-member',login:'node-member',name:'Node Member'});
+ await upsertMembership(env.DB,'program-org','node-member','member');
+ await env.DB.prepare("UPDATE hx_gateways SET created_by='node-member' WHERE id='program-node'").run();
+ await env.DB.prepare("UPDATE memberships SET role='designer' WHERE org_id='program-org' AND user_github_id='program-owner'").run();
+ expect(await enqueue()).toMatchObject({status:'failed',error:'Execution node is unavailable.'});
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_gateway_jobs WHERE org_id='program-org'").first()).n).toBe(0);
+});
+
+test('a permitted engineer workflow accepts an authorized program result',async()=>{
+ await upsertUser(env.DB,{githubId:'node-admin',login:'node-admin',name:'Node Admin'});
+ await upsertMembership(env.DB,'program-org','node-admin','admin');
+ await env.DB.prepare("UPDATE hx_gateways SET created_by='node-admin' WHERE id='program-node'").run();
+ await env.DB.prepare("UPDATE memberships SET role='engineer' WHERE org_id='program-org' AND user_github_id='program-owner'").run();
+ const {jobId}=await enqueue();
+ expect(jobId).toBeTruthy();
+ await finishJob(jobId);
+ expect(await settleWorkflowProgram(env.DB,jobId)).toEqual({settled:true});
+ const run=await env.DB.prepare("SELECT status,log FROM hx_workflow_runs WHERE id='program-run'").first();
+ expect(run.status).toBe('done');
+ expect(JSON.parse(run.log)[0].output).toBe('Program result');
+});
 test('normal workflow create, edit and start preserve a whole TypeScript program',async()=>{
  const created=await createWorkflow(env.DB,'program-org',{name:'Saved code',trigger:{type:'manual'},steps:definition.steps},'program-owner');
  expect(created.error).toBeUndefined();

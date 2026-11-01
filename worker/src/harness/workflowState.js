@@ -1,10 +1,17 @@
 export class WorkflowStateInputError extends Error {}
 import {managedAutomationGuard} from './appAutomationGuard.js';
 import {workflowActivationFence,activationScope} from './workflowActivationGuard.js';
+import {ROLE_RANK} from '../auth.js';
+import {can} from '../permissions.js';
 // Internal durable-state store. The executor must authorize source/resource
 // access before obtaining its checkpoint lease. Never expose these helpers as
 // a user-supplied run-ID API: the live lease is an additional write fence only.
 const MAX_BYTES=128000;
+// Keep the SQL execution fence aligned with the same registered roles used
+// for Harness admission. Unknown values fail closed instead of acquiring the
+// rankOf() fallback for an unrecognised role.
+const workflowBuilderRoles=[...ROLE_RANK.keys()].filter(role=>can(role,'harness.build'))
+ .map(role=>`'${role.replaceAll("'","''")}'`).join(',');
 const sourceTable="COALESCE(json_extract(d.definition,'$.trigger.tableId'),json_extract(r.input,'$.tableId'))";
 const sourceTableAuthority=`(${sourceTable} IS NULL OR (EXISTS(SELECT 1 FROM hx_tables t WHERE t.org_id=r.org_id AND t.id=${sourceTable})
  AND NOT EXISTS(SELECT 1 FROM hx_apps app LEFT JOIN hx_app_access access ON access.org_id=app.org_id AND access.app_id=app.id
@@ -15,7 +22,7 @@ const sourceTableAuthority=`(${sourceTable} IS NULL OR (EXISTS(SELECT 1 FROM hx_
 export const workflowStateAuthority=`${sourceTableAuthority} AND ${managedAutomationGuard('r.org_id','r.workflow_id',"json_extract(d.definition,'$.automationReleaseId')")} AND (json_type(d.definition,'$.safetyGeneration') IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_safety safety WHERE safety.org_id=r.org_id AND safety.workflow_id=r.workflow_id AND safety.generation=json_extract(d.definition,'$.safetyGeneration') AND safety.paused_at IS NULL)) AND EXISTS(SELECT 1 FROM hx_workflows w
  JOIN memberships m ON m.org_id=w.org_id AND m.user_github_id=w.created_by
  JOIN users u ON u.github_id=w.created_by
- WHERE w.org_id=r.org_id AND w.id=r.workflow_id AND json_extract(d.definition,'$.id')=w.id AND json_extract(d.definition,'$.createdBy')=w.created_by AND lower(m.role) IN ('owner','admin','member')
+ WHERE w.org_id=r.org_id AND w.id=r.workflow_id AND json_extract(d.definition,'$.id')=w.id AND json_extract(d.definition,'$.createdBy')=w.created_by AND lower(m.role) IN (${workflowBuilderRoles})
  AND (NOT EXISTS(SELECT 1 FROM hx_workflow_sources source WHERE source.org_id=r.org_id AND source.workflow_id=w.id)
  OR EXISTS(SELECT 1 FROM hx_workflow_sources source WHERE source.org_id=r.org_id AND source.workflow_id=w.id
  AND source.created_by=w.created_by AND (

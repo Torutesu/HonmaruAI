@@ -5,6 +5,7 @@ import {upsertUser,upsertMembership} from '../src/db.js';
 import {beforeEach,test,expect} from 'vitest';
 import {claimWorkflowNode} from '../src/harness/workflowCheckpoints.js';
 import {normalizeWorkflowState,saveWorkflowState,readWorkflowState} from '../src/harness/workflowState.js';
+import {can} from '../src/permissions.js';
 let lease;
 const identity={orgId:'state-org',runId:'state-run',nodeId:'state-writer'};
 const freeze=(runId)=>env.DB.prepare("INSERT INTO hx_workflow_run_definitions(run_id,org_id,definition,created_at) VALUES(?1,'state-org',?2,'now')").bind(runId,JSON.stringify({id:'state-workflow',createdBy:'owner',definitionRevision:1})).run();
@@ -83,6 +84,32 @@ test('membership revocation and guest downgrade fence reads and writes after a l
  expect(await read({includeCurrentRun:true})).toEqual({available:false,found:false});
  await upsertMembership(env.DB,'state-org','owner','member');
  expect(await read({includeCurrentRun:true})).toMatchObject({found:true,state:{private:true}});
+});
+
+test.each(['owner','admin','member','designer','engineer','triager','maintainer'])('workflow state accepts the supported Harness builder role %s',async role=>{
+ expect(can(role,'harness.build')).toBe(true);
+ await env.DB.prepare("UPDATE memberships SET role=?1 WHERE org_id='state-org' AND user_github_id='owner'").bind(role).run();
+ expect(await save({validationStatus:'passed',state:{cursor:role}})).toMatchObject({saved:true});
+ expect(await read({includeCurrentRun:true})).toMatchObject({found:true,state:{cursor:role}});
+});
+
+test.each(['guest','unexpected-role'])('workflow state keeps %s denied even after a lease is issued',async role=>{
+ await save({validationStatus:'passed',state:{private:true}});
+ await env.DB.prepare("UPDATE memberships SET role=?1 WHERE org_id='state-org' AND user_github_id='owner'").bind(role).run();
+ expect(await save({expectedRevision:1})).toEqual({saved:false});
+ expect(await read({includeCurrentRun:true})).toEqual({available:false,found:false});
+});
+
+test('designer state access still follows the source app visibility',async()=>{
+ await env.DB.prepare("UPDATE memberships SET role='designer' WHERE org_id='state-org' AND user_github_id='owner'").run();
+ await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('source-table','state-org','Source','[]','someone-else','now','now')").run();
+ await env.DB.prepare("INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at) VALUES('source-app','state-org','Source','source-table','{}','someone-else','now','now')").run();
+ await env.DB.prepare("UPDATE hx_workflow_run_definitions SET definition=json_set(definition,'$.trigger.tableId','source-table') WHERE run_id='state-run'").run();
+ expect(await save({validationStatus:'passed',state:{sensitive:true}})).toMatchObject({saved:true});
+ expect(await read({includeCurrentRun:true})).toMatchObject({found:true,state:{sensitive:true}});
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES('state-org','source-app','private',1)").run();
+ expect(await read({includeCurrentRun:true})).toEqual({available:false,found:false});
+ expect(await save({expectedRevision:1})).toEqual({saved:false});
 });
 
 
