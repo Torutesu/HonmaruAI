@@ -32,3 +32,13 @@ test('calendar displays dated and undated records and sends date edits to the ca
   expect(onOpen).toHaveBeenLastCalledWith(undated)
   act(() => tree!.unmount())
 })
+
+test('calendar formats titles without an open action and keeps preferring text columns', () => {
+  const row = {id:'r',values:{customer:'id-1',name:'Invoice'},updatedAt:''}
+  const format = vi.fn((_column, value) => String(value).toUpperCase())
+  let tree: ReturnType<typeof create>
+  act(()=>{tree=create(<AppCalendar view={{id:'v',type:'calendar',name:'Calendar',dateColumn:'due',undated:[row]}} table={{id:'t',name:'Tasks',columns:[{id:'customer',name:'Customer',type:'relation',targetEntity:'customers'},{id:'name',name:'Name',type:'text'},{id:'due',name:'Due',type:'date'}]}} onMove={vi.fn()} displayCellText={format}/>)})
+  expect(tree!.root.findByProps({className:'hx-card-title'}).children).toEqual(['INVOICE'])
+  expect(format).toHaveBeenCalledWith(expect.objectContaining({id:'name'}),'Invoice')
+  act(()=>tree!.unmount())
+})

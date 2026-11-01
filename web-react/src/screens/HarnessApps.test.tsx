@@ -84,6 +84,35 @@ test.each(['table','board','calendar'] as const)('record search filters the %s v
   expect(state.api.updateRow).toBeUndefined()
 })
 
+test('calendar titles and search use relation labels with an ID fallback, and date edits still save', async () => {
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const now = new Date()
+  const date = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+  const known = {id:'known',values:{customer:'customer_a',due:date},updatedAt:'2026-01-01T00:00:00Z'}
+  const missing = {id:'missing',values:{customer:'customer_missing'},updatedAt:'2026-01-01T00:00:00Z'}
+  const view = {id:'main',type:'calendar',name:'Calendar',dateColumn:'due',days:[{date,rows:[known]}],undated:[missing]}
+  state.api = {
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'customer',name:'Customer',type:'relation',targetEntity:'customers'},{id:'due',name:'Due',type:'date'}]},rows:[known,missing],views:[view],canCustomize:true}),
+    appDatabase:vi.fn().mockResolvedValue({entities:[{key:'customers',table:{id:'customers',name:'Customers',columns:[{id:'name',name:'Name',type:'text'}]}}]}),
+    entityRows:vi.fn().mockResolvedValue({rows:[{id:'customer_a',values:{name:'Acme'},updatedAt:''}]}),
+    personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'main',views:[],computed:[],layouts:{}}),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    updateRow:vi.fn().mockResolvedValue({}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  const visible=(label:string)=>tree!.root.findAllByProps({'aria-label':`${label}の詳細を開く`}).length
+  const search=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Search records')!
+  expect(visible('Acme')).toBe(1);expect(visible('customer_missing')).toBe(1)
+  act(()=>search().props.onChange({target:{value:'acme'}}))
+  expect(visible('Acme')).toBe(1);expect(visible('customer_missing')).toBe(0)
+  expect(JSON.stringify(tree!.toJSON())).toContain('1 records')
+  act(()=>search().props.onChange({target:{value:'customer_missing'}}))
+  expect(visible('Acme')).toBe(0);expect(visible('customer_missing')).toBe(1)
+  act(()=>search().props.onChange({target:{value:''}}))
+  await act(async()=>{tree!.root.findAllByProps({type:'date'})[0].props.onChange({target:{value:'2028-03-01'}});await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(state.api.updateRow).toHaveBeenCalledWith('tasks','known',{due:'2028-03-01'},known.updatedAt)
+})
+
 test('the metrics view does not offer a search that cannot filter its aggregates', async () => {
   vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
   const row={id:'a',values:{title:'Alpha'},updatedAt:''}

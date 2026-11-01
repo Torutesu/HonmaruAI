@@ -587,7 +587,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
         await load()
       })}>{t('Add calendar view')}</button>}
 
-      {view.type === 'calendar' && <AppCalendar key={view.id} view={{...view,days:shownDays,undated:shownUndated}} table={table} onOpen={setEditingRecord} onMove={(row, date) => { const column = table.columns.find(c => c.id === view.dateColumn); if (column) void save(row, column, date) }} />}
+      {view.type === 'calendar' && <AppCalendar key={view.id} view={{...view,days:shownDays,undated:shownUndated}} table={table} displayCellText={displayCellText} onOpen={setEditingRecord} onMove={(row, date) => { const column = table.columns.find(c => c.id === view.dateColumn); if (column) void save(row, column, date) }} />}
 
       {view.type === 'metrics' && (
         <div className="hx-metrics">
