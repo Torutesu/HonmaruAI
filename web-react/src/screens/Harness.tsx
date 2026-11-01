@@ -33,7 +33,9 @@ import { enterKey } from '../utils/keys'
 
 export const newAppRecordLabel = (appName: string, tableName: string, titleColumnName = '') => {
   if (tableName && tableName !== appName) return `新規${tableName}`
-  const titleNoun = titleColumnName.trim().replace(/(?:タイトル|名)$/u, '').trim()
+  const title = titleColumnName.trim()
+  if (/^(?:名前|氏名|タイトル|title|name)$/iu.test(title)) return '新規レコード'
+  const titleNoun = title.replace(/(?:タイトル|名)$/u, '').trim()
   return titleNoun ? `新規${titleNoun}` : '新規レコード'
 }
 

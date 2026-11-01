@@ -18,6 +18,7 @@ let tree: ReturnType<typeof create> | undefined
 test('new record labels use the primary table when its title differs from the app',()=>{
   expect(newAppRecordLabel('UI確認用タスク','タスク')).toBe('新規タスク')
   expect(newAppRecordLabel('UI確認用タスク','UI確認用タスク','タスク名')).toBe('新規タスク')
+  expect(newAppRecordLabel('Contacts','Contacts','名前')).toBe('新規レコード')
   expect(newAppRecordLabel('Sales CRM','Sales CRM')).toBe('新規レコード')
 })
 beforeEach(() => {
