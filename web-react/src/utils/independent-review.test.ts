@@ -58,6 +58,14 @@ test('SSO verifier cannot be used after selecting a different workspace',async()
  e.values.set('orgId','org-B')
  expect(await takeSsoVerifierForCurrentSession(localStorage)).toBeNull()
 })
+test('SSO verifier does not revive after another tab switches away and back while this page is gone',async()=>{
+ setup(async()=>new Response('ok'))
+ const {bindSsoStart,takeSsoVerifierForCurrentSession}=await import('./ssoBinding')
+ const {saveWorkspaceSwitch}=await import('./sessionFence')
+ await bindSsoStart(localStorage)
+ saveWorkspaceSwitch('org-B');saveWorkspaceSwitch('org-A')
+ expect(await takeSsoVerifierForCurrentSession(localStorage)).toBeNull()
+})
 test('request with a body can be replayed after reauthentication',async()=>{
  let count=0
  const e=setup(async(input)=>{

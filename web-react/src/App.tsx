@@ -17,7 +17,7 @@ import { t, adoptAccountLocale } from './utils/i18n'
 import type { InvitePeek } from './screens/SignIn'
 import { disableWebPush, sessionIsCurrent } from './utils/push'
 import { boundSsoStart, discardSsoStart, takeSsoVerifierForCurrentSession } from './utils/ssoBinding'
-import { authStorageSnapshot, sessionFence } from './utils/sessionFence'
+import { authStorageSnapshot, saveWorkspaceSwitch, sessionFence } from './utils/sessionFence'
 import { forgetOwnOutbox } from './utils/pendingSend'
 import { bindSidebarSession, hasPendingSidebarQueues, clearSidebarSessionQueues, clearSidebarWorkspaceQueues, clearSidebarIfTokenChanged } from './utils/sidebarSync'
 import { getLocale } from './utils/locale'
@@ -390,7 +390,7 @@ function AccountApp() {
   /// team they were invited into. Stored, because it is where they work.
   const switchOrg = (next: string) => {
     setOrgId(next)
-    try { localStorage.setItem('orgId', next) } catch { /* private mode */ }
+    try { saveWorkspaceSwitch(next) } catch { /* private mode */ }
     window.dispatchEvent(new Event('honmaru:workspace-changed'))
   }
 

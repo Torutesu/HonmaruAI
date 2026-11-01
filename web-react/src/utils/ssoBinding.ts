@@ -13,7 +13,7 @@ const LIFETIME_MS = 10 * 60_000
 interface Pending { verifier: string; at: number; bind?: string; owner?: string }
 
 const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-const identity = (storage: Storage) => JSON.stringify([storage.getItem('sessionToken'),storage.getItem('userId'),storage.getItem('host'),storage.getItem('orgId')])
+const identity = (storage: Storage) => JSON.stringify([storage.getItem('sessionToken'),storage.getItem('userId'),storage.getItem('host'),storage.getItem('orgId'),storage.getItem('auth.workspaceEpoch')])
 const hash = async (value: string) => b64url(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))))
 
 /// A new secret for a sign-in about to start, kept in this browser; what to
