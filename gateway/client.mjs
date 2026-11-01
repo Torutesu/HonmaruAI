@@ -24,7 +24,7 @@ export const FINISH_RETRY_MS = [1000, 2000, 4000, 8000, 15000, 15000, 15000];
 // server saying it could not take it just now.
 const transient = (error) => !error.status || error.status === 408 || error.status === 429 || error.status >= 500;
 
-export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, runAcpAgent = runAcp, acpAgents = {}, retryMs = FINISH_RETRY_MS } = {}) {
+export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, runAcpAgent = runAcp, acpAgents = {}, retryMs = FINISH_RETRY_MS, heartbeatIntervalMs = 10000, heartbeatGraceMs = 60000 } = {}) {
   const capabilities=['workflow-program-v1'];
   const localAcpAgents=configuredAcpAgentIds(acpAgents);
   if(localAcpAgents.length)capabilities.push('acp-v1');
@@ -34,14 +34,26 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
   const abort = () => cancel.abort();
   signal?.addEventListener('abort', abort, { once: true });
   if (signal?.aborted) abort();
-  let checking = false, leaseLost = false, refused = false;
+  let checking = false, leaseLost = false, refused = false, lastHeartbeatAt = Date.now();
   const heartbeat = setInterval(async () => {
     if (checking) return;
     checking = true;
-    try { await call(`jobs/${job.id}/heartbeat`, { lease: job.lease }); }
-    catch (error) { leaseLost = true; refused ||= !transient(error); cancel.abort(); }
+    try {
+      await call(`jobs/${job.id}/heartbeat`, { lease: job.lease });
+      lastHeartbeatAt = Date.now();
+    } catch (error) {
+      refused ||= !transient(error);
+      // Network failures and 5xx responses do not prove that the lease was
+      // rejected: the Worker may have renewed it before the response was lost.
+      // Keep the ACP job alive through brief outages, but stop before the
+      // original 90-second lease can expire if no heartbeat is confirmed.
+      if (!transient(error) || Date.now() - lastHeartbeatAt >= heartbeatGraceMs) {
+        leaseLost = true;
+        cancel.abort();
+      }
+    }
     finally { checking = false; }
-  }, 10000);
+  }, heartbeatIntervalMs);
   try {
     let result;
     try {
