@@ -514,6 +514,20 @@ test('clearing a row select warns even when another condition remains and restor
  expect(state.api.updateWorkflow.mock.calls[0][1].trigger.where).toEqual({priority:2})
 })
 
+test('restoring a saved row alias through its column ID clears the warning',async()=>{
+ const trigger={type:'row',tableId:'tasks',on:'changed',where:{Status:'A',priority:2}}
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}
+ state.api.tables.mockResolvedValue({tables:[{id:'tasks',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A']},{id:'priority',name:'Priority',type:'number'}]}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ const select=()=>tree.root.findByProps({'aria-label':'Status'})
+ const warning='A saved condition or watched column was removed. More records may trigger this workflow when saved.'
+ await act(async()=>{select().props.onChange({target:{value:''}})})
+ expect(JSON.stringify(tree.toJSON())).toContain(warning)
+ await act(async()=>{select().props.onChange({target:{value:'A'}})})
+ expect(JSON.stringify(tree.toJSON())).not.toContain(warning)
+})
+
 test('clearing a watched column by changing to delete events warns before direct save',async()=>{
  const trigger={type:'row',tableId:'tasks',on:'changed',column:'priority'}
  const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger,steps:[{type:'post',channel:'b:ops',text:'Ready'}]}

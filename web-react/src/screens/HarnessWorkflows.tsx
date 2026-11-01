@@ -5,7 +5,7 @@ import {getLocale} from '../utils/locale'
 import {runDuration} from '../utils/runDuration'
 import {groupRunsByStartDay,runDayLabel,runTimestampLabel} from '../utils/runHistory'
 import {stepLabel,triggerLabel,type WorkflowAppOption} from '../utils/workflowLabels'
-import {filterKeysForColumn,filterValueText,newFilterKey,unresolvedFilterKeys,type FilterMap} from '../utils/workflowFilters'
+import {filterKeysForColumn,filterValueText,hasRemovedFilter,newFilterKey,unresolvedFilterKeys,type FilterMap} from '../utils/workflowFilters'
 import {WorkflowRunUsage} from '../components/WorkflowRunUsage'
 import {WorkflowSource} from '../components/WorkflowSource'
 import {WorkflowNotices} from '../components/WorkflowNotices'
@@ -121,7 +121,6 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
   const originalTrigger = initial?.trigger
   const originalWhere = originalTrigger?.type==='row' ? originalTrigger.where : originalTrigger?.type==='app_record_change' ? originalTrigger.when?.where : undefined
   const currentWhere = trigger.type==='row' ? trigger.where : trigger.type==='app_record_change' ? trigger.when?.where : undefined
-  const removedSavedFilter = Boolean(originalWhere && originalTrigger?.type===trigger.type && Object.keys(originalWhere).some(key=>!currentWhere || !Object.hasOwn(currentWhere,key)))
   const removedWatchedColumn = Boolean(originalTrigger?.type==='row' && trigger.type==='row' && originalTrigger.column && !trigger.column)
   const table = tables.find((x) => x.id === trigger.tableId)
   const whereCol = table?.columns.find((c) => c.type === 'select')
@@ -145,6 +144,9 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
   }
   const triggerApp = triggerApps.find(option => option.app.id === trigger.appId)
   const triggerEntity = triggerApp?.entities.find(entity => entity.key === trigger.entityId)
+  const sameSource = originalTrigger?.type==='row' && trigger.type==='row' ? originalTrigger.tableId===trigger.tableId : originalTrigger?.type==='app_record_change' && trigger.type==='app_record_change' ? originalTrigger.appId===trigger.appId && originalTrigger.entityId===trigger.entityId : false
+  const conditionColumns = sameSource ? (trigger.type==='row' ? table?.columns : triggerEntity?.table.columns) : undefined
+  const removedSavedFilter = Boolean(originalWhere && originalTrigger?.type===trigger.type && hasRemovedFilter(originalWhere as FilterMap,currentWhere as FilterMap | undefined,conditionColumns))
   const setAppWhere = (key:string,value:ConditionScalar|ConditionScalar[]|undefined) => {
     const where={...trigger.when?.where}
     const hadKey=Object.hasOwn(where,key)
