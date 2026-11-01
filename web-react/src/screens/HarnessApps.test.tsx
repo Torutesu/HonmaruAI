@@ -17,6 +17,8 @@ let finish: (value: any) => void
 let tree: ReturnType<typeof create> | undefined
 test('new record labels use the primary table when its title differs from the app',()=>{
   expect(newAppRecordLabel('UI確認用タスク','タスク')).toBe('新規タスク')
+  expect(newAppRecordLabel('UI確認用タスク','UI確認用タスク','タスク名')).toBe('新規タスク')
+  expect(newAppRecordLabel('Contacts','Contacts','名前')).toBe('新規レコード')
   expect(newAppRecordLabel('Sales CRM','Sales CRM')).toBe('新規レコード')
 })
 beforeEach(() => {
@@ -124,6 +126,29 @@ test('opening an app from the library starts in its data viewer', async () => {
   await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
   await act(async () => { tree!.root.findByProps({ 'aria-label': 'Trackerを開く' }).props.onClick() })
   expect(location.hash).toBe('#/apps/existing/team%3Aone?section=data')
+})
+test('the app data viewer keeps one record-create action in the table toolbar', async () => {
+  vi.stubGlobal('document', { addEventListener: vi.fn(), removeEventListener: vi.fn(), visibilityState: 'visible' })
+  state.api = {
+    app: vi.fn().mockResolvedValue({
+      app: { id: 'tasks', name: 'UI確認用タスク', description: '', icon: 'grid', tableId: 'tasks', template: null, version: 1, createdBy: 'owner', channels: [], definition: { views: [] } },
+      table: { id: 'tasks', orgId: 'team:one', name: 'UI確認用タスク', columns: [{ id: 'title', name: 'タスク名', type: 'text' }] },
+      rows: [], views: [{ id: 'all', type: 'table', name: 'All tasks', rows: [] }], canCustomize: true,
+    }),
+    personalViews: vi.fn().mockResolvedValue({ revision: 0, views: [], computed: [], layouts: {} }),
+    conversation: vi.fn().mockResolvedValue({ messages: [], hasMore: false, annotations: [] }),
+    conversationNotifications: vi.fn().mockResolvedValue({ items: [] }),
+    templateShares: vi.fn().mockResolvedValue({ shares: [], canManage: true }),
+    versions: vi.fn().mockResolvedValue({ versions: [] }),
+  }
+  await act(async () => {
+    tree = create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} api={state.api} appId="tasks" onBack={() => {}} initialSection="data" />)
+    await new Promise(resolve => setTimeout(resolve, 0))
+  })
+  const createActions = tree!.root.findAllByProps({ className: 'pill-btn hx-create-record' })
+  expect(createActions).toHaveLength(1)
+  expect(createActions[0].children).toContain('新規タスク')
+  expect(tree!.root.findAllByType('button').some(node => node.children.includes('Add a row'))).toBe(false)
 })
 test('read-only app viewers do not get room-link controls in settings', async () => {
   state.api = {

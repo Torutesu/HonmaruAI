@@ -49,8 +49,6 @@
 .hx-step .hx-cell-input, .hx-builder .hx-cell-input, .hx-step select, .hx-builder select, .row .hx-cell-input { border-color: var(--bone); background: var(--signal-white); }
 .hx-num { width: 72px; min-width: 0; }
 .hx-title-input { font-size: 16px !important; font-weight: 600; }
-.hx-add { margin-top: 10px; display: inline-flex; gap: 6px; align-items: center; }
-
 .hx-board { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
 .hx-lane { flex: 1 0 150px; min-width: 150px; background: var(--mist); border-radius: var(--radius-card); padding: 8px; display: flex; flex-direction: column; gap: 8px; }
 .hx-lane-head { font-weight: 600; font-size: 13px; display: flex; justify-content: space-between; padding: 2px 4px; }
