@@ -158,11 +158,12 @@ export async function deleteManagedRoom(db,orgId,channel,{actorId,version}) {
         OR EXISTS(SELECT 1 FROM (${allSubjects}) WHERE kind='person' AND id=?3 AND role='admin' AND eligible=1 AND membership=?7))`)
       .bind(orgId,channel,actorId,nonce,state.version,membership.created_at,actor?.membership||''),
     db.prepare(`UPDATE businesses SET private=1,archived_at=?4 WHERE org_id=?1 AND 'b:'||slug=?2 AND ${gate}`).bind(orgId,channel,nonce,new Date().toISOString()),
-    ...['conversation_members','channel_agents','hx_room_roles','hx_room_guidelines','hx_room_responses'].map(table=>
+    db.prepare(`DELETE FROM conversation_members WHERE org_id=?1 AND channel=?2 AND ${gate} RETURNING login`).bind(orgId,channel,nonce),
+    ...['channel_agents','hx_room_roles','hx_room_guidelines','hx_room_responses'].map(table=>
       db.prepare(`DELETE FROM ${table} WHERE org_id=?1 AND channel=?2 AND ${gate}`).bind(orgId,channel,nonce)),
     db.prepare('UPDATE hx_room_access SET deleted_at=?4 WHERE org_id=?1 AND channel=?2 AND mutation_id=?3').bind(orgId,channel,nonce,new Date().toISOString()),
   ]);
-  return result[0].meta?.changes?{managed:true,deleted:true}:{error:'Room roles changed. Reload before deleting.',status:409};
+  return result[0].meta?.changes?{managed:true,deleted:true,wasPrivate:state.private,formerMembers:(result[2]?.results||[]).map(row=>row.login)}:{error:'Room roles changed. Reload before deleting.',status:409};
 }
 
 // Admin API member edits must be all-or-nothing, including additions: an

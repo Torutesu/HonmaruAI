@@ -164,7 +164,9 @@ test('room deletion requires administration and atomically clears membership and
   await initializeRoomRoles(env.DB,org,channel,'creator');
   expect((await deleteManagedRoom(env.DB,org,channel,{actorId:'reader'})).status).toBe(403);
   expect((await deleteManagedRoom(env.DB,org,channel,{actorId:'guest'})).status).toBe(403);
-  expect(await deleteManagedRoom(env.DB,org,channel,{actorId:'creator',version:1})).toMatchObject({deleted:true});
+  const removed=await deleteManagedRoom(env.DB,org,channel,{actorId:'creator',version:1});
+  expect(removed).toMatchObject({deleted:true,wasPrivate:true});
+  expect(removed.formerMembers.sort()).toEqual(['creator','guest','reader']);
   expect(await roomRoleState(env.DB,org,channel,{includeArchived:true})).toBeNull();
   for(const table of ['conversation_members','channel_agents','hx_room_roles']) {
     expect(await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE org_id=?1 AND channel=?2`).bind(org,channel).first('n')).toBe(0);

@@ -1638,13 +1638,14 @@ async function handle(request, env, url, ctx) {
       const managed = (await roomRoleState(env.DB, body.orgId, `b:${String(body.slug)}`, {includeArchived:true}))?.managed;
       if (!managed && !(await canTouchChannel(env.DB, body.orgId, String(body.slug), who))) return json({ businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }), unfiled: 0 });
       const gone = await env.DB.prepare("SELECT name,private,created_at FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, String(body.slug)).first();
-      const wasPrivate = Boolean(gone?.private);
+      let wasPrivate = Boolean(gone?.private);
       let insiders = wasPrivate ? await membersOf(env.DB, body.orgId, `b:${body.slug}`) : [];
       // Public Simple channels retain their unfile behavior. A private room
       // keeps a closed tombstone and its cards, including in Simple mode.
       const deletingSession = await getSession(env.DB, request.headers.get("x-session-token"));
       const deletion = await deleteManagedRoom(env.DB, body.orgId, `b:${String(body.slug)}`, {actorId:deletingSession.github_id,version:body.version});
       if (deletion.error) return json({message:deletion.error}, deletion.status);
+      if(deletion.managed){wasPrivate=deletion.wasPrivate;insiders=wasPrivate?deletion.formerMembers:[];}
       let unfiled=[];
       if (!deletion.managed) {
         const removed=await removeBusiness(env.DB, body.orgId, body.slug,{actorId:deletingSession.github_id,createdAt:gone?.created_at,wasPrivate});

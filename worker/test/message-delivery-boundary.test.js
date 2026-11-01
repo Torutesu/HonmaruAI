@@ -39,6 +39,17 @@ test.each(['removed','recreated'])('Accepted private legacy room deletion (%s) c
   expect((await env.DB.prepare('SELECT status FROM channel_message_delivery WHERE message_id=?1').bind(message.id).all()).results).toEqual([{status:'done'},{status:'done'}]);
 });
 
+test('managed private room deletion requests Jam eviction for the removed members',async()=>{
+  const token=await people();const capture=relay();
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,created_by,created_at,private) VALUES (?1,'private','Private','alice','2026-01-01',1)").bind(org).run();
+  for(const login of ['alice','bob'])await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?1,'b:private',?2,'2026-01-01')").bind(org,login).run();
+  const {initializeRoomRoles}=await import('../src/harness/roomRoles.js');
+  expect(await initializeRoomRoles(env.DB,org,'b:private','alice')).toEqual({version:1});
+  const removed=await call('/businesses',token,{orgId:org,slug:'private',version:1},'DELETE',capture);
+  expect(removed.status).toBe(200);
+  expect(capture.events).toEqual(expect.arrayContaining([{login:'alice',channel:'b:private'},{login:'bob',channel:'b:private'}]));
+});
+
 test.each(['b:general','b:implicit-room'])('Supported implicit public channel %s still delivers without a business row',async channel=>{
   const token=await people();const capture=relay();capture.status=200;
   const sent=await call('/channels/messages',token,{orgId:org,channel,body:'@Bob public fixture'},'POST',capture);
