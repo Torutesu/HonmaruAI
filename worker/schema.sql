@@ -119,6 +119,10 @@ CREATE TABLE IF NOT EXISTS memberships (
   PRIMARY KEY (org_id, user_github_id)
 );
 
+/* Membership roles are lowercase enums in application code. Canonicalize
+   legacy rows so every authorization query agrees on role. */
+UPDATE memberships SET role = lower(role) WHERE role != lower(role);
+
 /* Team invite codes. A member creates a code for their org; anyone who
    redeems it joins that org. Kept simple: a code is reusable until deleted.
    Block comment (not --) so the test loader that flattens newlines is happy. */

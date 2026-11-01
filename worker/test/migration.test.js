@@ -43,6 +43,22 @@ test("a deploy leaves both user indexes in place", async () => {
   expect(names).toContain("idx_users_login");
 });
 
+test("a deploy and membership writes canonicalize role casing", async () => {
+  await applyDeploy(env.DB);
+  await env.DB.prepare("INSERT OR REPLACE INTO memberships(org_id,user_github_id,role,created_at) VALUES('legacy-role-org','legacy-guest','Guest','2026-01-01')").run();
+  await applyDeploy(env.DB);
+  expect(await env.DB.prepare("SELECT role FROM memberships WHERE org_id='legacy-role-org' AND user_github_id='legacy-guest'").first())
+    .toEqual({ role: "guest" });
+
+  const { upsertMembership, addMembership } = await import("../src/db.js");
+  await upsertMembership(env.DB, "legacy-role-org", "updated-member", " ADMIN ");
+  expect(await env.DB.prepare("SELECT role FROM memberships WHERE org_id='legacy-role-org' AND user_github_id='updated-member'").first())
+    .toEqual({ role: "admin" });
+  expect(await addMembership(env.DB, "legacy-role-org", "new-guest", "Guest")).toBe(true);
+  expect(await env.DB.prepare("SELECT role FROM memberships WHERE org_id='legacy-role-org' AND user_github_id='new-guest'").first())
+    .toEqual({ role: "guest" });
+});
+
 test("a deploy creates row-trigger idempotency receipts", async () => {
   await applyDeploy(env.DB);
   const table = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='hx_workflow_row_receipts'").first();

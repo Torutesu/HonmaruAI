@@ -451,6 +451,7 @@ export function parseAliases(raw) {
 }
 
 export async function upsertMembership(db, orgId, githubId, role, via = null) {
+  const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : role;
   // `via` is how they came (invite | domain | sso | created); it is kept
   // from their first arrival and never overwritten.
   await db
@@ -459,7 +460,7 @@ export async function upsertMembership(db, orgId, githubId, role, via = null) {
        VALUES (?1, ?2, ?3, ?4, ?5)
        ON CONFLICT(org_id, user_github_id) DO UPDATE SET role = excluded.role`
     )
-    .bind(orgId, String(githubId), role, new Date().toISOString(), via)
+    .bind(orgId, String(githubId), normalizedRole, new Date().toISOString(), via)
     .run();
   await settleJoinRequest(db, orgId, githubId);
 }
@@ -467,13 +468,14 @@ export async function upsertMembership(db, orgId, githubId, role, via = null) {
 /// Add someone who is not in the workspace yet. Whoever already is keeps the
 /// role they have: returns whether they were added.
 export async function addMembership(db, orgId, githubId, role, via = null) {
+  const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : role;
   const out = await db
     .prepare(
       `INSERT INTO memberships (org_id, user_github_id, role, created_at, joined_via)
        VALUES (?1, ?2, ?3, ?4, ?5)
        ON CONFLICT(org_id, user_github_id) DO NOTHING`
     )
-    .bind(orgId, String(githubId), role, new Date().toISOString(), via)
+    .bind(orgId, String(githubId), normalizedRole, new Date().toISOString(), via)
     .run();
   await settleJoinRequest(db, orgId, githubId);
   return out?.meta?.changes > 0;

@@ -56,7 +56,7 @@
       "priority": "P0",
       "source": "https://kylon.io/product/workspace",
       "code": "worker/src/harness/guidelines.js",
-      "acceptance": "4096字・競合検知・毎ターン反映。BYOを含む全AI入口への適用はPR #601で実装済み。mainのWorkerデプロイと本番検証待ち"
+      "acceptance": "4096字・競合検知・BYOを含む全AI入口で毎ターン反映。PR #601 merged、main CIとWorkerのテスト・D1移行・デプロイ・Verifyが成功し、本番healthと暗号化状態を確認。実AIリクエストを使う本番往復確認は未実施"
     },
     {
       "id": "KY-005",

@@ -17,7 +17,7 @@
 | KY-001 | 公開・非公開ルーム | 一部 | P0 | [worker/src/access.js](../../worker/src/access.js) | 管理対象ルームの公開閲覧と明示参加を分離し、原子的作成API・3段階UI・検索・参加UIを公開済み。Kylonのgeneral設定では作成後の公開範囲変更を確認できず、名前も固定。残りは既定ルームの同定と、非メンバー・管理者・ゲストに対するHTTP/WS/検索の複数利用者本番隔離検証 |
 | KY-002 | DM・グループ・エージェントDM | 一部 | P1 | [worker/src/channels.js](../../worker/src/channels.js) | 各参加者の可視性と退出後のアクセスを実機で確認 |
 | KY-003 | ホーム・最近・未読・メンション | 一部 | P1 | [web-react/src/components/ClassicList.tsx](../../web-react/src/components/ClassicList.tsx) | PR #443で左一覧のメンション絞り込みを公開。本番Macの空状態とローカル非空一覧・会話・下書き・アプリ維持を確認。一覧と通知既読位置の全端末一致は残る |
-| KY-004 | ルームガイドライン | 一部 | P0 | [worker/src/harness/guidelines.js](../../worker/src/harness/guidelines.js) | 4096字・競合検知・毎ターン反映。BYOを含む全AI入口への適用はPR #601で実装。mainのWorkerデプロイと本番検証は実行中 |
+| KY-004 | ルームガイドライン | 一部 | P0 | [worker/src/harness/guidelines.js](../../worker/src/harness/guidelines.js) | 4096字・競合検知・BYOを含む全AI入口で毎ターン反映。PR #601 merged、main CIとWorkerのテスト・D1移行・デプロイ・Verifyが成功し、本番healthと暗号化状態を確認。実AIリクエストを使う本番往復確認は未実施 |
 | KY-005 | オブジェクト固定スレッド | 一部 | P1 | [worker/src/harness/appConversations.js](../../worker/src/harness/appConversations.js) | 作成元スレッドの履歴・返信・既読を共用。独立アプリ／レコード会話に明示的AI返信・メンション・アプリ内通知・既読同期を追加。全体Activityの表示・既読・対象会話への移動を統合。独立会話のOSプッシュと実機比較未確認部分は残る |
 | KY-006 | ルームへのリソース紐付け | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 所有ルームと参照リンクを区別し非公開データが他ルームへ漏れない |
 | KY-007 | ルームメンバーとエージェント権限の分離 | 一部 | P0 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 明示的な人間・Agent所属と役割UI、共通追加ダイアログ、アクセス申請/Owner・Admin承認、ルーム作成時の選択的な利用権付与を本番公開。承認は申請者のAgent権限だけを付与しルームには追加しない。所有者移譲はバージョン競合検知付き。権限・共有先変更、申請承認、ルーム作成/Agent追加の付与後は関係者だけへバージョン通知し、開いた一覧・メンバー・Agent詳細を再読込。最終SHA `decdf511` のCI #2086/#2087 とWorker #236/Web #307は成功。複数利用者による本番隔離検証と合成Agentを使ったKylon実画面比較は残る |
