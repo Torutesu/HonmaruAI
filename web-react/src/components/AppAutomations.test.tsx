@@ -93,3 +93,95 @@ test('an external app version update preserves an unsaved automation draft',asyn
  expect(JSON.stringify(tree.toJSON())).toContain('未保存の下書きは保持しています')
  act(()=>tree.unmount())
 })
+
+test('saving a delete trigger does not restore filters from the previous editing session',async()=>{
+ const {AutomationTriggerEditor}=await import('./AutomationTriggerEditor')
+ const row={type:'row',tableId:'table',on:'changed',column:'status',where:{status:['Open']}}
+ const initial={...state,draft:{version:1,items:[{key:'review',...definition,trigger:row}]}}
+ const saved={...initial,revision:3,draft:{version:1,items:[{...initial.draft.items[0],trigger:{type:'row',tableId:'table',on:'deleted'}}]}}
+ const appAutomations=vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(saved)
+ const saveAppAutomations=vi.fn().mockResolvedValue({saved:true})
+ const tables=vi.fn().mockResolvedValue({tables:[{id:'table',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['Open']}]}]})
+ const {tree,button}=await setup({appAutomations,saveAppAutomations,tables})
+ const editor=()=>tree.root.findByType(AutomationTriggerEditor)
+ await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'deleted'}}))
+ expect(JSON.stringify(tree.toJSON())).toContain('下書きで条件が解除されています')
+ await act(async()=>button('下書きを保存').props.onClick())
+ expect(saveAppAutomations).toHaveBeenCalled()
+ expect(editor().props.trigger.on).toBe('deleted')
+ await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'changed'}}))
+ expect(editor().props.trigger.where).toBeUndefined()
+ expect(editor().props.trigger.column).toBeUndefined()
+ expect(JSON.stringify(tree.toJSON())).toContain('以前の条件は復元されていません')
+ await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'added'}}))
+ await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'deleted'}}))
+ await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'changed'}}))
+ expect(JSON.stringify(tree.toJSON())).toContain('以前の条件は復元されていません')
+ act(()=>tree.unmount())
+})
+test.each(['save','refresh'] as const)('a failed %s does not revive filters after submitting a delete trigger',async failure=>{
+ const {AutomationTriggerEditor}=await import('./AutomationTriggerEditor')
+ const row={type:'row',tableId:'table',on:'changed',column:'status',where:{status:['Open']}}
+ const initial={...state,draft:{version:1,items:[{key:'review',...definition,trigger:row}]}}
+ const appAutomations=vi.fn().mockResolvedValueOnce(initial).mockRejectedValue(new Error('offline'))
+ const saveAppAutomations=failure==='save'?vi.fn().mockRejectedValue(new Error('offline')):vi.fn().mockResolvedValue({saved:true})
+ const tables=vi.fn().mockResolvedValue({tables:[{id:'table',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['Open']}]}]})
+ const {tree,button}=await setup({appAutomations,saveAppAutomations,tables})
+ const editor=()=>tree.root.findByType(AutomationTriggerEditor)
+ await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'deleted'}}))
+ await act(async()=>button('下書きを保存').props.onClick())
+ expect(saveAppAutomations).toHaveBeenCalled()
+ expect(editor().props.trigger.on).toBe('deleted')
+ expect(JSON.stringify(tree.toJSON())).toContain('下書きで条件が解除されています')
+ await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'changed'}}))
+ expect(editor().props.trigger.where).toBeUndefined()
+ expect(editor().props.trigger.column).toBeUndefined()
+ expect(JSON.stringify(tree.toJSON())).toContain('以前の条件は復元されていません')
+ act(()=>tree.unmount())
+})
+test.each(['where','column'] as const)('warns before publishing after a saved %s condition was removed',async removed=>{
+ const {AutomationTriggerEditor}=await import('./AutomationTriggerEditor')
+ const row={type:'row',tableId:'table',on:'changed',column:'status',where:{status:['Open']}}
+ const changed=removed==='where'?{...row,where:undefined}:{...row,column:undefined}
+ const live={...definition,trigger:row}
+ const declared={...definition,trigger:changed}
+ const initial={...state,draft:{version:1,items:[{key:'review',...live}]},plan:[{key:'review',workflowId:'wf',status:'unchanged',declared:live,published:live,live}]}
+ const saved={...initial,revision:3,draft:{version:1,items:[{key:'review',...declared}]},plan:[{key:'review',workflowId:'wf',status:'changed',declared,published:live,live}]}
+ const appAutomations=vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(saved)
+ const saveAppAutomations=vi.fn().mockResolvedValue({saved:true})
+ const tables=vi.fn().mockResolvedValue({tables:[{id:'table',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['Open']}]}]})
+ const {tree,button}=await setup({appAutomations,saveAppAutomations,tables})
+ const editor=()=>tree.root.findByType(AutomationTriggerEditor)
+ if(removed==='where')await act(async()=>editor().findAllByType('fieldset')[0].findByType('input').props.onChange({target:{checked:false}}))
+ else await act(async()=>editor().findAllByType('select')[3].props.onChange({target:{value:''}}))
+ expect(JSON.stringify(tree.toJSON())).toContain('下書きで条件が解除されています')
+ await act(async()=>button('下書きを保存').props.onClick())
+ expect(JSON.stringify(tree.toJSON())).toContain('公開中の処理から条件または監視列が解除されています')
+ act(()=>tree.unmount())
+})
+test('rewriting an equivalent name alias does not falsely warn about a removed condition',async()=>{
+ const {AutomationTriggerEditor}=await import('./AutomationTriggerEditor')
+ const row={type:'row',tableId:'table',on:'changed',where:{Status:'Open'}}
+ const source={...state,draft:{version:1,items:[{key:'review',...definition,trigger:row}]},plan:[]}
+ const tables=vi.fn().mockResolvedValue({tables:[{id:'table',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['Open']}]}]})
+ const {tree}=await setup({appAutomations:vi.fn().mockResolvedValue(source),tables})
+ const editor=()=>tree.root.findByType(AutomationTriggerEditor)
+ const choice=()=>editor().findAllByType('fieldset')[0].findByType('input')
+ await act(async()=>choice().props.onChange({target:{checked:false}}))
+ expect(JSON.stringify(tree.toJSON())).toContain('下書きで条件が解除されています')
+ await act(async()=>choice().props.onChange({target:{checked:true}}))
+ expect(editor().props.trigger.where).toEqual({status:['Open']})
+ expect(JSON.stringify(tree.toJSON())).not.toContain('下書きで条件が解除されています')
+ act(()=>tree.unmount())
+})
+test('removing one of two aliases on the same field still warns',async()=>{
+ const {AutomationTriggerEditor}=await import('./AutomationTriggerEditor')
+ const row={type:'row',tableId:'table',on:'changed',where:{Status:'Open',status:['Open']}}
+ const source={...state,draft:{version:1,items:[{key:'review',...definition,trigger:row}]},plan:[]}
+ const tables=vi.fn().mockResolvedValue({tables:[{id:'table',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['Open']}]}]})
+ const {tree}=await setup({appAutomations:vi.fn().mockResolvedValue(source),tables})
+ const editor=tree.root.findByType(AutomationTriggerEditor)
+ await act(async()=>editor.findByProps({'aria-label':'Statusの条件を削除'}).props.onClick())
+ expect(JSON.stringify(tree.toJSON())).toContain('下書きで条件が解除されています')
+ act(()=>tree.unmount())
+})
