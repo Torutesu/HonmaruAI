@@ -33,3 +33,12 @@ export async function mayGenerateFromSchema(db, orgId, appId, userId, entities, 
     .bind(orgId,appId,String(userId),JSON.stringify(references),JSON.stringify(snapshots)).first();
   return Boolean(row);
 }
+
+// Cleanup may await reservation storage; access must be checked afterwards,
+// immediately before the response is returned.
+export async function finishSchemaGeneration(complete, authorize, generate) {
+  let result;
+  try { result=await generate(); }
+  finally { await complete?.dispose?.(); }
+  return await authorize()?result:{error:'No such app.',status:404};
+}
