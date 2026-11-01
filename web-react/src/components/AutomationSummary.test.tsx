@@ -11,6 +11,10 @@ test('row conditions and disabled state remain visible in the review',()=>{
  const html=renderToStaticMarkup(<AutomationSummary definition={{name:'Rows',enabled:false,trigger:{type:'row',on:'changed',tableId:'tasks',column:'status',where:{status:['Done','Closed']}},steps:[{type:'update_row',values:{status:'Archived'}}]}}/> )
  for(const text of ['停止','更新','対象テーブル: tasks','対象列: status','Done / Closed','Archived'])expect(html).toContain(text)
 })
+test('review displays scalar and mixed typed row predicates without crashing',()=>{
+ const html=renderToStaticMarkup(<AutomationSummary definition={{name:'Rows',enabled:true,trigger:{type:'row',on:'changed',tableId:'tasks',where:{Status:'AB',amount:0,enabled:false,missing:null}} as any,steps:[]}}/> )
+ for(const text of ['Status','AB','amount','0','enabled','false','missing','null'])expect(html).toContain(text)
+})
 
 test('review resolves authorized resource names while retaining unknown identifiers',()=>{
  const html=renderToStaticMarkup(<AutomationSummary tables={[{id:'table-id',name:'案件',columns:[{id:'status-id',name:'進捗',type:'select'}]}]} agents={[{id:'agent-id',name:'営業担当'}]} definition={{name:'確認',enabled:true,trigger:{type:'row',tableId:'table-id',column:'status-id',on:'changed',where:{'status-id':['完了']}},steps:[{type:'agent',agentId:'agent-id',prompt:'確認する'},{type:'update_row',values:{'status-id':'確認済み'}},{type:'agent',agentId:'unavailable-agent',prompt:'保留'}]}}/> )

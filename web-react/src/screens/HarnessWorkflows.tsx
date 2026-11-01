@@ -5,6 +5,7 @@ import {getLocale} from '../utils/locale'
 import {runDuration} from '../utils/runDuration'
 import {groupRunsByStartDay,runDayLabel,runTimestampLabel} from '../utils/runHistory'
 import {stepLabel,triggerLabel,type WorkflowAppOption} from '../utils/workflowLabels'
+import {filterKeysForColumn,filterValueText,newFilterKey,unresolvedFilterKeys,type FilterMap} from '../utils/workflowFilters'
 import {WorkflowRunUsage} from '../components/WorkflowRunUsage'
 import {WorkflowSource} from '../components/WorkflowSource'
 import {WorkflowNotices} from '../components/WorkflowNotices'
@@ -71,6 +72,20 @@ interface AppTriggerChoice extends WorkflowAppOption { app: App }
 
 const blankStep = (type: StepType): Step => ({ type, ...(type === 'followup' ? { minutes: 1440 } : {}) })
 
+function SavedFilters({where,table}:{where:FilterMap;table?:Table}) {
+  const t=useT()
+  if (!Object.keys(where).length) return null
+  return <div className="row-sub">
+    <strong>{t('Execution condition')}</strong>
+    <dl>{Object.entries(where).map(([key,value])=><React.Fragment key={key}>
+      <dt>{table?.columns.find(c=>c.id===key||c.name.toLowerCase()===key.toLowerCase())?.name||key}</dt>
+      <dd>{filterValueText(value)}</dd>
+    </React.Fragment>)}</dl>
+    {Object.values(where).some(value=>Array.isArray(value)&&!value.length)&&<p role="alert">{t('An empty candidate list matches no records.')}</p>}
+    {table&&unresolvedFilterKeys(where,table.columns).length>0&&<p role="alert">{t('Some saved condition fields are unavailable. Repair them before saving.')}</p>}
+  </div>
+}
+
 
 function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, initial }: { api:HarnessApi; initial?: Workflow; tables: Table[]; agents: AgentFace[]; triggerApps:AppTriggerChoice[]; onSave: (w: { name: string; trigger: Trigger; steps: Step[] }) => void; onCancel: () => void; busy: boolean }) {
   const t = useT()
@@ -94,11 +109,27 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
   })()
   const table = tables.find((x) => x.id === trigger.tableId)
   const whereCol = table?.columns.find((c) => c.type === 'select')
+  // Older/API-created workflows can hold scalar, multi-value and multi-field
+  // predicates. Keep their original keys and values unless the user edits one.
+  const rowWhere = trigger.where as FilterMap | undefined
+  const rowKeys = whereCol && table ? filterKeysForColumn(rowWhere,table.columns,whereCol) : []
+  const rowKey = rowKeys[0] || (whereCol && table ? newFilterKey(table.columns,whereCol) : undefined)
+  const rowValue = rowKeys.length===1 ? rowWhere?.[rowKeys[0]] : undefined
+  const rowValues = rowValue===undefined ? [] : Array.isArray(rowValue) ? rowValue : [rowValue]
+  const rowEditable = Boolean(rowKey) && (rowKeys.length===0 || rowKeys.length===1 && rowValues.length===1 && typeof rowValues[0]==='string' && Boolean(whereCol?.options?.includes(rowValues[0])))
+  const saveRowCondition = (value:string) => {
+    if (!rowKey || !rowEditable) return
+    const where = {...rowWhere}
+    if (value) Object.defineProperty(where,rowKey,{value:[value],enumerable:true,configurable:true,writable:true}); else delete where[rowKey]
+    // The public Trigger type predates scalar filters; unchanged predicates
+    // still go back to the server in their original representation.
+    setTrigger({...trigger,where:Object.keys(where).length ? where as Trigger['where'] : undefined})
+  }
   const triggerApp = triggerApps.find(option => option.app.id === trigger.appId)
   const triggerEntity = triggerApp?.entities.find(entity => entity.key === trigger.entityId)
   const setAppWhere = (key:string,value:ConditionScalar|ConditionScalar[]|undefined) => {
     const where={...trigger.when?.where}
-    if(value===undefined || (Array.isArray(value)&&!value.length)) delete where[key]; else where[key]=value
+    if(value===undefined || (Array.isArray(value)&&!value.length)) delete where[key]; else Object.defineProperty(where,key,{value,enumerable:true,configurable:true,writable:true})
     setTrigger({...trigger,when:Object.keys(where).length?{where}:undefined})
   }
   const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone } catch { return 'UTC' } })()
@@ -134,16 +165,19 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
               <option value="any">{t('is added or changed')}</option>
             </select>
             {whereCol && trigger.on!=='deleted' && (
-              <select value={trigger.where?.[whereCol.id]?.[0] || ''} onChange={(e) => setTrigger({ ...trigger, where: e.target.value ? { [whereCol.id]: [e.target.value] } : undefined })} aria-label={whereCol.name}>
+              <select disabled={!rowEditable} value={rowEditable ? String(rowValues[0] ?? '') : ''} onChange={(e) => saveRowCondition(e.target.value)} aria-label={whereCol.name}>
                 <option value="">{t('any {column}', { column: whereCol.name })}</option>
                 {(whereCol.options || []).map((o) => <option key={o} value={o}>{whereCol.name} = {o}</option>)}
               </select>
             )}
             {trigger.on==='deleted'&&<span className="row-sub">{t('Delete events do not include record fields.')}</span>}
+            {whereCol&&!rowEditable&&<span className="row-sub">{t('This condition cannot be edited here.')}</span>}
           </span>
         )}
+        {trigger.type==='row'&&rowWhere&&<SavedFilters where={rowWhere} table={table}/>}
+        {trigger.type==='row'&&rowWhere&&table&&Object.keys(rowWhere).some(key=>!rowKeys.includes(key))&&<p className="row-sub">{t('Some conditions cannot be edited here and will be preserved.')}</p>}
         {trigger.type === 'row' && tables.length === 0 && <div className="row-sub">{t('Build an app first: its table is what a row trigger watches.')}</div>}
-        {trigger.type === 'app_record_change' && <span className="hx-inline">
+        {trigger.type === 'app_record_change' && <div className="hx-inline">
           <select aria-label={t('App')} value={trigger.appId||''} onChange={e=>{const option=triggerApps.find(x=>x.app.id===e.target.value);setTrigger({type:'app_record_change',appId:e.target.value,entityId:option?.entities[0]?.key,events:trigger.events?.length?trigger.events:['insert','update']})}}>
             <option value="">{t('Choose an app')}</option>{triggerApps.map(option=><option key={option.app.id} value={option.app.id}>{option.app.name}</option>)}
           </select>
@@ -151,10 +185,34 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
             <option value="">{t('Choose an entity')}</option>{triggerApp?.entities.map(entity=><option key={entity.key} value={entity.key}>{entity.table.name}</option>)}
           </select>
           {(['insert','update','delete'] as const).map(event=><label className="hx-inline" key={event}><input type="checkbox" checked={trigger.events?.includes(event)||false} onChange={e=>{const events=new Set(trigger.events||[]);e.target.checked?events.add(event):events.delete(event);setTrigger({...trigger,events:[...events] as Trigger['events']})}}/>{t(event==='insert'?'is added':event==='update'?'is updated':'is deleted')}</label>)}
-          {triggerEntity?.table.columns.map(column=><fieldset key={column.id}><legend>{column.name}</legend>{column.type==='select'?<>{(column.options||[]).map(value=><label className="hx-inline" key={value}><input type="checkbox" checked={(trigger.when?.where[column.id] as ConditionScalar[]|undefined)?.includes(value)||false} onChange={e=>{const old=trigger.when?.where[column.id];const values=Array.isArray(old)?old:old===undefined?[]:[old];setAppWhere(column.id,e.target.checked?[...values,value]:values.filter(v=>v!==value))}}/>{value}</label>)}<small>{t('Choose no values to match every value.')}</small></>:column.type==='checkbox'?<label className="hx-inline">{t('Equals')}<select value={trigger.when?.where[column.id]===true?'true':trigger.when?.where[column.id]===false?'false':''} onChange={e=>setAppWhere(column.id,e.target.value===''?undefined:e.target.value==='true')}><option value="">{t('Any value')}</option><option value="true">{t('Checked')}</option><option value="false">{t('Unchecked')}</option></select></label>:<label className="hx-inline">{t('Equals')}<input type={column.type==='number'?'number':column.type==='date'?'date':'text'} value={String(trigger.when?.where[column.id]??'')} onChange={e=>setAppWhere(column.id,e.target.value===''?undefined:column.type==='number'?Number(e.target.value):e.target.value)}/></label>}</fieldset>)}
+          {trigger.when?.where&&<SavedFilters where={trigger.when.where} table={triggerEntity?.table}/>}
+          {triggerEntity?.table.columns.map(column=>{
+            const keys=filterKeysForColumn(trigger.when?.where,triggerEntity.table.columns,column), key=keys[0]||newFilterKey(triggerEntity.table.columns,column)
+            const old=keys.length===1?trigger.when?.where[keys[0]]:undefined
+            const values=old===undefined?[]:Array.isArray(old)?old:[old]
+            const editable=Boolean(key)&&keys.length<=1&&(old===undefined||(column.type==='select'?values.length>0&&values.every(value=>typeof value==='string'&&column.options?.includes(value)):column.type==='checkbox'?typeof old==='boolean':column.type==='number'?typeof old==='number':typeof old==='string'))
+            return <fieldset key={column.id}>
+              <legend>{column.name}</legend>
+              {column.type==='select'?<>
+                {(column.options||[]).map(value=><label className="hx-inline" key={value}>
+                  <input type="checkbox" disabled={!editable} checked={values.some(candidate=>candidate===value)}
+                    onChange={e=>{if(key&&editable)setAppWhere(key,e.target.checked?[...values,value]:values.filter(v=>v!==value))}}/>{value}
+                </label>)}
+                <small>{t('Choose no values to match every value.')}</small>
+              </>:column.type==='checkbox'?<label className="hx-inline">{t('Equals')}
+                <select disabled={!editable} value={old===true?'true':old===false?'false':''} onChange={e=>{if(key&&editable)setAppWhere(key,e.target.value===''?undefined:e.target.value==='true')}}>
+                  <option value="">{t('Any value')}</option><option value="true">{t('Checked')}</option><option value="false">{t('Unchecked')}</option>
+                </select>
+              </label>:<label className="hx-inline">{t('Equals')}
+                <input disabled={!editable} type={column.type==='number'?'number':column.type==='date'?'date':'text'} value={editable?String(old??''):''}
+                  onChange={e=>{if(key&&editable)setAppWhere(key,e.target.value===''?undefined:column.type==='number'?Number(e.target.value):e.target.value)}}/>
+              </label>}
+              {!editable&&<small>{t('This condition cannot be edited here.')}</small>}
+            </fieldset>
+          })}
           {trigger.events?.includes('delete')&&trigger.when?.where&&<span className="row-sub">{t('Delete events have no field data and do not match this condition.')}</span>}
           {!triggerApps.length&&<div className="row-sub">{t('No accessible apps are available for a record trigger.')}</div>}
-        </span>}
+        </div>}
       </div>
       <label className="hx-inline">{t('Workflow format')} <select aria-label={t('Workflow format')} value={format} onChange={event=>setFormat(event.target.value)}>
         <option value="form">{t('Form steps')}</option><option value="code">{t('TypeScript program')}</option>

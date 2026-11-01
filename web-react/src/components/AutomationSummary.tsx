@@ -1,6 +1,7 @@
 import React from 'react'
 import type {AutomationDefinition,Step,Trigger,Table} from '../utils/harness'
 import type {TriggerAppOption} from './AutomationTriggerEditor'
+import {filterValueText, type FilterMap} from '../utils/workflowFilters'
 
 function triggerText(trigger:Trigger) {
  if(trigger.type==='manual')return '手動で実行したとき'
@@ -39,8 +40,8 @@ export function AutomationSummary({definition,tables=[],agents=[],apps=[]}:{defi
   {definition.trigger.type==='app_record_change'&&<p>対象アプリ: {app?.app.name||definition.trigger.appId||'—'} · 対象エンティティ: {entity?.table.name||definition.trigger.entityId||'—'}</p>}
   {definition.trigger.tableId&&<p>対象テーブル: {table?.name||definition.trigger.tableId}</p>}
   {definition.trigger.column&&<p>対象列: {table?.columns.find(c=>c.id===definition.trigger.column)?.name||definition.trigger.column}</p>}
-  {definition.trigger.where&&<dl>{Object.entries(definition.trigger.where).map(([key,values])=><React.Fragment key={key}><dt>{table?.columns.find(c=>c.id===key)?.name||key}</dt><dd>{values.join(' / ')}</dd></React.Fragment>)}</dl>}
-  {definition.trigger.type==='app_record_change'&&definition.trigger.when?.where&&<dl>{Object.entries(definition.trigger.when.where).map(([key,value])=><React.Fragment key={key}><dt>{table?.columns.find(c=>c.id===key||c.name.toLowerCase()===key.toLowerCase())?.name||key}</dt><dd>{Array.isArray(value)?value.map(String).join(' / '):String(value)}</dd></React.Fragment>)}</dl>}
+  {definition.trigger.where&&<dl>{Object.entries(definition.trigger.where as FilterMap).map(([key,value])=><React.Fragment key={key}><dt>{table?.columns.find(c=>c.id===key||c.name.toLowerCase()===key.toLowerCase())?.name||key}</dt><dd>{filterValueText(value)}</dd></React.Fragment>)}</dl>}
+  {definition.trigger.type==='app_record_change'&&definition.trigger.when?.where&&<dl>{Object.entries(definition.trigger.when.where).map(([key,value])=><React.Fragment key={key}><dt>{table?.columns.find(c=>c.id===key||c.name.toLowerCase()===key.toLowerCase())?.name||key}</dt><dd>{filterValueText(value)}</dd></React.Fragment>)}</dl>}
   <ol>{definition.steps.map((step,index)=><StepSummary key={index} step={step} tables={tables} agents={agents} triggerTable={table}/>)}</ol>
   <details><summary>詳細データ</summary><pre>{JSON.stringify(definition,null,2)}</pre></details>
  </div>
