@@ -33,7 +33,7 @@ import { listAppAnnotations, normalizeAppAnnotation, saveAppAnnotation } from '.
 import { personalViews } from './personalViews.js';
 import { appPins, setAppPin } from './appPins.js';
 import { previewMerge, mergeFork } from './appMerge.js';
-import { databaseView, applyMigration, generateMigration, forkDatabase, readFork, mutateFork } from './appDatabase.js';
+import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, readFork, mutateFork } from './appDatabase.js';
 import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection, invokeConnection } from './appCapabilities.js';
 import { generateCustomSource, saveCustomRelease } from "./customApps.js";
 import { handleGateways, isGatewayNodeRoute } from './gateways.js';
@@ -1065,6 +1065,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if (request.method !== 'POST') return json({ message: 'Method not allowed.' },405);
         if (!canManage) return json({ message: 'Only its maker or an admin can develop this app.' },403);
         if (input.action === 'generate') return respond(await generateMigration(input.prompt, await databaseView(env.DB, orgId, app), await completer(env, orgId, me, 'app_database_generate', { maxTokens: 4000 })));
+        if (input.action === 'preview') return respond(await previewMigration(env.DB, orgId, app, input));
         if (input.action === 'migrate') return respond(await applyMigration(env.DB, orgId, app, input, me), 'app.database_migrated');
         if (input.action === 'fork') return respond(await forkDatabase(env.DB, orgId, app, me), 'app.database_forked');
         if (input.action === 'merge_preview') { const result=await previewMerge(env.DB,orgId,app,me,input); const {snapshots,...review}=result; return respond(review); }

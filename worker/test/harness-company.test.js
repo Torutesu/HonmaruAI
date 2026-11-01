@@ -4,6 +4,7 @@ import { beforeEach,afterEach,test,expect } from 'vitest';
 import worker from '../src/index.js';
 import { createSession,upsertUser,upsertMembership } from '../src/db.js';
 import { generateAction,connectionEndpoint } from '../src/harness/appCapabilities.js';
+import { applyMigration } from '../src/harness/appDatabase.js';
 const orgId='personal:company';let owner,member,app;
 const call=(path,token,body)=>worker.fetch(new Request('https://example.com'+path+(body?'':`${path.includes('?')?'&':'?'}orgId=${orgId}`),{method:body?'POST':'GET',headers:{'content-type':'application/json','x-session-token':token},...(body?{body:JSON.stringify({orgId,...body})}:{})}),{...env});
 const run=(sub,body,token=owner)=>call(`/apps/${app.id}/${sub}`,token,body);
@@ -29,6 +30,71 @@ test('migration replay, conflict, partial failure and private entity ACL',async(
  expect((await run('database',undefined,member)).status).toBe(404);
  expect((await run('database',{action:'migrate',id:'bad',version:1,operations:[{op:'create_entity',entity:'new_entity',name:'New',columns:[{name:'Name'}]},{op:'drop_entity',entity:'primary'}]})).status).toBe(400);
  expect((await (await run('database')).json()).entities).toHaveLength(2);
+});
+test('renaming a database column preserves its stable ID and existing row values',async()=>{
+ const inserted=await worker.fetch(new Request(`https://example.com/tables/${app.tableId}/rows`,{method:'POST',headers:{'content-type':'application/json','x-session-token':owner},body:JSON.stringify({orgId,values:{task:'Keep this value'}})}),{...env});
+ const row=(await inserted.json()).row;
+ const request={id:'rename_task_v1',version:0,operations:[{op:'rename_column',entity:'primary',column:'task',name:'Title'}]};
+ const preview=await (await run('database',{action:'preview',...request})).json();
+ expect(preview).toMatchObject({canApply:true,changes:[{operations:['rename_column'],rowsScanned:0}]});
+ expect(await (await run('database',{action:'migrate',...request,previewChecksum:preview.previewChecksum})).json()).toMatchObject({applied:true,version:1});
+ const data=await (await call(`/tables/${app.tableId}`,owner)).json();
+ expect(data.table.columns).toEqual([{id:'task',name:'Title',type:'text'}]);
+ expect(data.rows[0]).toMatchObject({id:row.id,values:{task:'Keep this value'}});
+});
+test('data migrations preview strict conversions, reject stale rows, and only drop empty columns',async()=>{
+ const add={action:'migrate',id:'amount_text_v1',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Amount',type:'text'},{name:'Flag',type:'checkbox'},{name:'Score',type:'number'},{name:'Unused',type:'text'}]}]};
+ expect((await run('database',add)).status).toBe(200);
+ const addRow=async values=>worker.fetch(new Request(`https://example.com/tables/${app.tableId}/rows`,{method:'POST',headers:{'content-type':'application/json','x-session-token':owner},body:JSON.stringify({orgId,values})}),{...env});
+ const first=await (await addRow({task:'first',amount:'12.5',flag:false,score:0,unused:null})).json();
+ const second=await (await addRow({task:'second',amount:'invalid',flag:null,score:null,unused:null})).json();
+ await env.DB.prepare("UPDATE hx_rows SET data=json_set(data,'$.unused','') WHERE org_id=?1 AND id=?2").bind(orgId,second.row.id).run();
+ const convert={id:'convert_amount_v2',version:1,operations:[{op:'convert_column',entity:'primary',column:'amount',type:'number'}]};
+ const blocked=await (await run('database',{action:'preview',...convert})).json();
+ expect(blocked).toMatchObject({canApply:false,blockerCount:1});
+ expect(blocked.blockers[0]).toMatchObject({id:second.row.id,column:'Amount'});
+ expect((await run('database',{action:'migrate',...convert,previewChecksum:blocked.previewChecksum})).status).toBe(409);
+
+ const repair=await worker.fetch(new Request(`https://example.com/tables/${app.tableId}/rows/${second.row.id}`,{method:'PATCH',headers:{'content-type':'application/json','x-session-token':owner},body:JSON.stringify({orgId,values:{amount:'0'},expectedUpdatedAt:second.row.updatedAt})}),{...env});
+ expect(repair.status).toBe(200);
+ const preview=await (await run('database',{action:'preview',...convert})).json();
+ expect(preview).toMatchObject({canApply:true,blockerCount:0});
+ expect(preview.changes[0].rowsChanged).toBe(2);
+ expect(preview.changes[0].examples.find(example=>example.after.amount===12.5)).toBeTruthy();
+
+ const staleRow=(await (await call(`/tables/${app.tableId}`,owner)).json()).rows.find(row=>row.id===first.row.id);
+ const mutateAfterPreview=await worker.fetch(new Request(`https://example.com/tables/${app.tableId}/rows/${first.row.id}`,{method:'PATCH',headers:{'content-type':'application/json','x-session-token':owner},body:JSON.stringify({orgId,values:{amount:'6'},expectedUpdatedAt:staleRow.updatedAt})}),{...env});
+ expect(mutateAfterPreview.status).toBe(200);
+ expect((await run('database',{action:'migrate',...convert,previewChecksum:preview.previewChecksum})).status).toBe(409);
+ expect((await (await call(`/tables/${app.tableId}`,owner)).json()).table.columns.find(column=>column.id==='amount').type).toBe('text');
+
+ const fresh=await (await run('database',{action:'preview',...convert})).json();
+ const raceDb={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+   const newer=new Date(Date.now()+1000).toISOString();
+   await env.DB.prepare("UPDATE hx_rows SET data=json_set(data,'$.amount','8'),updated_at=?1 WHERE org_id=?2 AND id=?3").bind(newer,orgId,first.row.id).run();
+   return env.DB.batch(statements);
+ }};
+ expect(await applyMigration(raceDb,orgId,app,{...convert,previewChecksum:fresh.previewChecksum},'1')).toMatchObject({status:409});
+ expect((await (await run('database')).json()).version).toBe(1);
+ const afterRace=await (await run('database',{action:'preview',...convert})).json();
+ expect(await (await run('database',{action:'migrate',...convert,previewChecksum:afterRace.previewChecksum})).json()).toMatchObject({applied:true,version:2});
+ expect(await (await run('database',{action:'migrate',...convert,previewChecksum:afterRace.previewChecksum})).json()).toMatchObject({replay:true,version:2});
+ const migrated=await (await call(`/tables/${app.tableId}`,owner)).json();
+ expect(migrated.table.columns.find(column=>column.id==='amount').type).toBe('number');
+ expect(migrated.rows.find(row=>row.id===first.row.id).values.amount).toBe(8);
+ expect(migrated.rows.find(row=>row.id===second.row.id).values.amount).toBe(0);
+
+ const dropFlag={id:'drop_flag_v3',version:2,operations:[{op:'drop_empty_column',entity:'primary',column:'flag'}]};
+ const flagPreview=await (await run('database',{action:'preview',...dropFlag})).json();
+ expect(flagPreview).toMatchObject({canApply:false,blockerCount:1});
+ expect(flagPreview.blockers[0]).toMatchObject({column:'Flag',id:first.row.id});
+ const dropScore={id:'drop_score_v3',version:2,operations:[{op:'drop_empty_column',entity:'primary',column:'score'}]};
+ expect((await (await run('database',{action:'preview',...dropScore})).json())).toMatchObject({canApply:false,blockerCount:1});
+ const dropUnused={id:'drop_unused_v3',version:2,operations:[{op:'drop_empty_column',entity:'primary',column:'unused'}]};
+ const emptyPreview=await (await run('database',{action:'preview',...dropUnused})).json();
+ expect(emptyPreview).toMatchObject({canApply:true,blockerCount:0});
+ expect((await run('database',{action:'migrate',...dropUnused,previewChecksum:emptyPreview.previewChecksum})).status).toBe(200);
+ expect((await (await call(`/tables/${app.tableId}`,owner)).json()).table.columns.some(column=>column.id==='unused')).toBe(false);
 });
 test('private preview writes never affect production and reject stale or invalid data',async()=>{
  const {fork}=await (await run('database',{action:'fork'})).json();
