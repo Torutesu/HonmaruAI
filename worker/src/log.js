@@ -27,10 +27,13 @@ export function logJSON(fields) {
 /// are the same route, and a per-org route name makes that impossible to see.
 export function routeLabel(method, pathname) {
   const collapsed = pathname
-    .replace(/^(\/(?:template|skill)-shares\/)(?:tpl_|skl_)[a-f0-9]{64}(?=\/|$)/, "$1:token")
+    // Never log the share-token path segment, even when a malformed URL has
+    // an extra suffix or an encoded character and therefore fails validation.
+    .replace(/^(\/(?:template|skill)-shares\/)[^/]+/i, "$1:token")
     .replace(/^\/orgs\/[^/]+\/[^/]+/, "/orgs/:owner/:repo")
     .replace(/\/cards\/[^/]+/, "/cards/:id")
     .replace(/^\/media\/[^/]+$/, "/media/:id")
-    .replace(/^\/connectors\/[^/]+\//, "/connectors/:id/");
+    .replace(/^\/connectors\/[^/]+\//, "/connectors/:id/")
+    .replace(REDACT, "[redacted]");
   return `${method} ${collapsed}`;
 }

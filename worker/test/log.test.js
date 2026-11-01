@@ -19,6 +19,12 @@ test("routes collapse ids so lines group", () => {
   expect(routeLabel("POST", "/ai/route")).toBe("POST /ai/route");
   expect(routeLabel("GET", `/template-shares/tpl_${"ab".repeat(32)}/download`)).toBe("GET /template-shares/:token/download");
   expect(routeLabel("GET", `/skill-shares/skl_${"cd".repeat(32)}`)).toBe("GET /skill-shares/:token");
+  const fake = `skl_${"ef".repeat(32)}`;
+  expect(routeLabel("GET", `/skill-shares/${fake}extra/download`)).toBe("GET /skill-shares/:token/download");
+  expect(routeLabel("GET", `/skill-shares/${fake}%2Fextra`)).toBe("GET /skill-shares/:token");
+  expect(routeLabel("GET", `/skill-shares/%73kl_${"ef".repeat(32)}`)).toBe("GET /skill-shares/:token");
+  expect(routeLabel("GET", `/template-shares/tpl_${"ab".repeat(32)}extra`)).toBe("GET /template-shares/:token");
+  expect(routeLabel("GET", `/other/${fake}extra`)).toBe("GET /other/[redacted]extra");
 });
 
 test("credentials never reach a log line", () => {
