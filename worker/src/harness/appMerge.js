@@ -3,6 +3,25 @@ import { validateValues } from './tableContract.js';
 const err=(error,status=409)=>({error,status});
 const canonical=value=>JSON.stringify(value, Object.keys(value).sort());
 
+// Match the app-management and table access checks at the point where a
+// preview is returned and where the reviewed merge is committed. A table can
+// also be linked from another app, whose private policy must be respected.
+const mergeAuthority=ids=>`EXISTS(SELECT 1 FROM memberships m JOIN hx_apps target ON target.org_id=m.org_id AND target.id=?2
+  LEFT JOIN hx_app_access target_policy ON target_policy.org_id=target.org_id AND target_policy.app_id=target.id
+  WHERE m.org_id=?1 AND m.user_github_id=?3 AND lower(coalesce(m.role,'member'))!='guest'
+    AND (target.created_by=?3 OR lower(coalesce(m.role,'member')) IN ('admin','owner'))
+    AND (coalesce(target_policy.visibility,'workspace')='workspace' OR target.created_by=?3)
+    AND NOT EXISTS(SELECT 1 FROM json_each(${ids}) selected WHERE
+      NOT EXISTS(SELECT 1 FROM hx_tables t WHERE t.org_id=?1 AND t.id=selected.value)
+      OR EXISTS(SELECT 1 FROM (
+        SELECT a.id FROM hx_apps a WHERE a.org_id=?1 AND a.table_id=selected.value
+        UNION SELECT e.app_id AS id FROM hx_app_entities e WHERE e.org_id=?1 AND e.table_id=selected.value
+      ) linked LEFT JOIN hx_apps a ON a.org_id=?1 AND a.id=linked.id
+        LEFT JOIN hx_app_access p ON p.org_id=a.org_id AND p.app_id=a.id
+        WHERE a.id IS NULL OR (coalesce(p.visibility,'workspace')!='workspace' AND a.created_by IS NOT ?3))))`;
+const mayMerge=async(db,orgId,appId,by,tableIds)=>Boolean(await db.prepare(`SELECT 1 AS ok WHERE ${mergeAuthority('?4')}`)
+  .bind(orgId,appId,String(by),JSON.stringify(tableIds)).first());
+
 // Compute a bounded three-way diff. Existing forks without a base cannot merge.
 export async function previewMerge(db,orgId,app,by,input) {
   const {fork}=await readFork(db,orgId,app.id,by);
@@ -10,7 +29,9 @@ export async function previewMerge(db,orgId,app,by,input) {
   if(fork.mergedAt)return err('This preview was already merged. Create a fresh preview before editing.');
   const base=await db.prepare('SELECT data FROM hx_app_fork_bases WHERE fork_id=?1 AND org_id=?2 AND app_id=?3 AND created_by=?4').bind(fork.id,orgId,app.id,String(by)).first();
   if(!base)return err('This older preview has no merge baseline. Create a new preview from production.');
-  const original=JSON.parse(base.data),schema=await databaseView(db,orgId,app),changes=[],conflicts=[],snapshots=[];
+  const original=JSON.parse(base.data),tableIds=original.map(entity=>entity.table.id);
+  if(!await mayMerge(db,orgId,app.id,by,tableIds))return err('No such app.',404);
+  const schema=await databaseView(db,orgId,app),changes=[],conflicts=[],snapshots=[];
   if(schema.entities.length!==original.length)return err('The production schema changed. Create a fresh preview.');
   for(const entity of original) {
     const current=schema.entities.find(e=>e.key===entity.key),edited=fork.entities.find(e=>e.key===entity.key);
@@ -36,12 +57,17 @@ export async function previewMerge(db,orgId,app,by,input) {
   if(changes.length>50)return err('Merge at most 50 changed records at once. Use a smaller preview.',400);
   const review={forkId:fork.id,revision:fork.revision,changes,conflicts};
   const checksum=await digest(JSON.stringify({review,snapshots}));
+  if(!await mayMerge(db,orgId,app.id,by,tableIds))return err('No such app.',404);
   return {...review,checksum,snapshots};
 }
 
 export async function mergeFork(db,orgId,app,by,input) {
   const previous=await db.prepare('SELECT checksum,created_at AS mergedAt FROM hx_app_fork_merges WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND fork_id=?4').bind(orgId,app.id,String(by),String(input.forkId||'')).first();
-  if(previous)return previous.checksum===input.checksum?{merged:true,replay:true,mergedAt:previous.mergedAt,forkId:input.forkId,checksum:input.checksum}:err('This preview was already merged.');
+  if(previous){
+    const {results}=await db.prepare('SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2 UNION SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2').bind(orgId,app.id).all();
+    if(!await mayMerge(db,orgId,app.id,by,(results||[]).map(row=>row.table_id)))return err('No such app.',404);
+    return previous.checksum===input.checksum?{merged:true,replay:true,mergedAt:previous.mergedAt,forkId:input.forkId,checksum:input.checksum}:err('This preview was already merged.');
+  }
   const plan=await previewMerge(db,orgId,app,by,input);
   if(plan.error)return plan;
   if(!plan.changes.length)return err('There are no changes to merge.',400);
@@ -53,6 +79,7 @@ export async function mergeFork(db,orgId,app,by,input) {
   const receipt=db.prepare(`INSERT OR IGNORE INTO hx_app_fork_merges (org_id,app_id,created_by,fork_id,revision,checksum,nonce,plan,created_at)
     SELECT ?1,?2,?3,?4,?5,?7,?8,?9,?10 WHERE
     EXISTS (SELECT 1 FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND id=?4 AND revision=?5)
+    AND ${mergeAuthority('?11')}
     AND (SELECT COUNT(*)+1 FROM hx_app_entities WHERE org_id=?1 AND app_id=?2)=json_array_length(?6)
     AND NOT EXISTS (SELECT 1 FROM json_each(?6) e WHERE
       NOT EXISTS (SELECT 1 FROM hx_tables t WHERE t.org_id=?1 AND t.id=json_extract(e.value,'$.tableId') AND t.columns=json_extract(e.value,'$.columns'))
@@ -60,7 +87,7 @@ export async function mergeFork(db,orgId,app,by,input) {
       OR (SELECT COUNT(*) FROM hx_rows r WHERE r.org_id=?1 AND r.table_id=json_extract(e.value,'$.tableId'))!=json_array_length(e.value,'$.rows')
       OR EXISTS (SELECT 1 FROM json_each(e.value,'$.rows') expected WHERE NOT EXISTS
         (SELECT 1 FROM hx_rows r WHERE r.org_id=?1 AND r.table_id=json_extract(e.value,'$.tableId') AND r.id=json_extract(expected.value,'$.id') AND r.data=json_extract(expected.value,'$.data') AND r.updated_at=json_extract(expected.value,'$.updatedAt')))
-    )`).bind(orgId,app.id,String(by),plan.forkId,plan.revision,JSON.stringify(plan.snapshots),plan.checksum,nonce,JSON.stringify(plan.changes),at);
+    )`).bind(orgId,app.id,String(by),plan.forkId,plan.revision,JSON.stringify(plan.snapshots),plan.checksum,nonce,JSON.stringify(plan.changes),at,JSON.stringify(plan.snapshots.map(snapshot=>snapshot.tableId)));
   const guard='EXISTS (SELECT 1 FROM hx_app_fork_merges WHERE org_id=?1 AND app_id=?2 AND nonce=?3)';
   const statements=[receipt];
   for(const c of plan.changes) {

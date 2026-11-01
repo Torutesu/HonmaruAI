@@ -79,3 +79,70 @@ test('a preview can add linked records together and merge rejects an orphaned fi
   expect(rejected.status).toBe(409);
   expect((await rejected.json()).message).toMatch(/linked|relation/i);
 });
+
+async function previewPending(){
+  const {fork}=await (await dbCall({action:'fork'})).json();
+  const changed=await (await dbCall({action:'fork_write',forkId:fork.id,revision:fork.revision,entity:'primary',operation:'create',values:{task:'Pending'}})).json();
+  const req={forkId:fork.id,revision:changed.revision};
+  const review=await (await dbCall({action:'merge_preview',...req})).json();
+  return {...req,checksum:review.checksum,rowId:changed.result.id};
+}
+test('merge preview and apply refuse tables linked to an inaccessible private app',async()=>{
+  const pending=await previewPending();
+  await upsertUser(env.DB,{githubId:'8102',login:'private-owner',name:'Private Owner'});
+  await upsertMembership(env.DB,orgId,'8102','member');
+  const other=await createSession(env.DB,'8102','gho_private_owner');
+  const hidden=(await (await call('/apps',other,{name:'Private app',columns:[{name:'Name',type:'text'}],privateByDefault:true})).json()).app;
+  await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(app.tableId,orgId,hidden.id).run();
+  expect((await call(`/tables/${app.tableId}`,owner)).status).toBe(404);
+  expect((await dbCall({action:'merge_preview',forkId:pending.forkId,revision:pending.revision})).status).toBe(404);
+  expect((await dbCall({action:'merge_apply',...pending})).status).toBe(404);
+  expect(await env.DB.prepare('SELECT id FROM hx_rows WHERE id=?').bind(pending.rowId).first()).toBeNull();
+});
+test('merge is fenced when membership is revoked before its transaction',async()=>{
+  const pending=await previewPending();
+  const {mergeFork}=await import('../src/harness/appMerge.js');
+  let injected=false;
+  const racingDb=new Proxy(env.DB,{get(target,prop){
+    if(prop==='batch')return async statements=>{
+      if(!injected){injected=true;await target.prepare("UPDATE memberships SET role='guest' WHERE org_id=?1 AND user_github_id='8101'").bind(orgId).run();}
+      return target.batch(statements);
+    };
+    const value=target[prop];return typeof value==='function'?value.bind(target):value;
+  }});
+  expect((await mergeFork(racingDb,orgId,app,'8101',pending)).status).toBe(409);
+  expect(injected).toBe(true);
+  expect(await env.DB.prepare('SELECT id FROM hx_rows WHERE id=?').bind(pending.rowId).first()).toBeNull();
+  expect(await env.DB.prepare('SELECT nonce FROM hx_app_fork_merges WHERE fork_id=?').bind(pending.forkId).first()).toBeNull();
+});
+test('merge is fenced when another private app is linked before its transaction',async()=>{
+  const pending=await previewPending();
+  await upsertUser(env.DB,{githubId:'8102',login:'private-owner',name:'Private Owner'});
+  await upsertMembership(env.DB,orgId,'8102','member');
+  const other=await createSession(env.DB,'8102','gho_private_owner');
+  const hidden=(await (await call('/apps',other,{name:'Private app',columns:[{name:'Name',type:'text'}],privateByDefault:true})).json()).app;
+  const {mergeFork}=await import('../src/harness/appMerge.js');
+  let injected=false;
+  const racingDb=new Proxy(env.DB,{get(target,prop){
+    if(prop==='batch')return async statements=>{
+      if(!injected){injected=true;await target.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(app.tableId,orgId,hidden.id).run();}
+      return target.batch(statements);
+    };
+    const value=target[prop];return typeof value==='function'?value.bind(target):value;
+  }});
+  expect((await mergeFork(racingDb,orgId,app,'8101',pending)).status).toBe(409);
+  expect(injected).toBe(true);
+  expect(await env.DB.prepare('SELECT id FROM hx_rows WHERE id=?').bind(pending.rowId).first()).toBeNull();
+  expect(await env.DB.prepare('SELECT nonce FROM hx_app_fork_merges WHERE fork_id=?').bind(pending.forkId).first()).toBeNull();
+});
+test('merge preview checks access to secondary entities, including unchanged ones',async()=>{
+  const entity=await installRelations();
+  const pending=await previewPending();
+  await upsertUser(env.DB,{githubId:'8102',login:'private-owner',name:'Private Owner'});
+  await upsertMembership(env.DB,orgId,'8102','member');
+  const other=await createSession(env.DB,'8102','gho_private_owner');
+  const hidden=(await (await call('/apps',other,{name:'Private app',columns:[{name:'Name',type:'text'}],privateByDefault:true})).json()).app;
+  await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(entity.table.id,orgId,hidden.id).run();
+  expect((await dbCall({action:'merge_preview',forkId:pending.forkId,revision:pending.revision})).status).toBe(404);
+  expect((await dbCall({action:'merge_apply',...pending})).status).toBe(404);
+});
