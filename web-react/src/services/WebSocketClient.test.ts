@@ -293,6 +293,18 @@ describe('WebSocketClient', () => {
     expect(refresh).toHaveBeenCalledTimes(1)
   })
 
+  it('emits an activity refresh for a generic event without an app identifier', async () => {
+    const { socket } = await connectedClient()
+    const target = new EventTarget()
+    const refresh = vi.fn()
+    const details: unknown[] = []
+    target.addEventListener('honmaru:app-activity-changed', event => { refresh(); details.push((event as CustomEvent).detail) })
+    vi.stubGlobal('window', target)
+    socket.emit({ type: 'CUSTOM', name: 'app_activity_changed', value: {} })
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(details).toEqual([{}])
+  })
+
   it('forwards the targeted personal display preference to the active workspace hook', async () => {
     const { socket } = await connectedClient()
     const target = new EventTarget()
