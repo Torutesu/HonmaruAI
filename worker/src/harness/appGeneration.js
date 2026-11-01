@@ -9,6 +9,8 @@ import { completer } from './model.js';
 import { formatRoomGuidelinesRequest, getGuidelines } from './guidelines.js';
 
 const conflict = () => ({error:'This app is still being created. Try again shortly.',status:409});
+const obsoleteProposal = () => ({error:'以前の生成案は現在の安全な形式ではありません。もう一度作成してください。',status:409,code:'APP_GENERATION_OBSOLETE_UNPUBLISHED'});
+const abandonedLease = 'obsolete:';
 const leaseMs = 120000;
 const digest = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(n=>n.toString(16).padStart(2,'0')).join('');
 const sampleIntent = prompt => {
@@ -71,6 +73,7 @@ export async function generateApp(env, request, orgId, who, input, {makeComplete
       VALUES (?,?,?,?,?,?,'running')`).bind(orgId,by,requestId,fingerprint,token,Date.now()+leaseMs).run();
     job=await jobOf();
     if(job.fingerprint!==fingerprint)return {error:'This request ID was already used for a different app request.',status:409};
+    if(job.status==='running' && job.lease_token.startsWith(abandonedLease) && !job.app_id)return obsoleteProposal();
     if(job.status==='complete'){
       if(!await mayUseApp(env.DB,orgId,job.app_id,by))return {error:'The generated app is no longer available.',status:404};
       const made=JSON.parse(job.generated);
@@ -93,6 +96,15 @@ export async function generateApp(env, request, orgId, who, input, {makeComplete
     const japanese=/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(prompt);
     if(sampleCount>0 && sampleHint.negative){await release();return {error:japanese?'サンプル行の件数と依頼文が矛盾しています。初期データの設定を確認してください。':'The sample row count conflicts with the request. Check the initial data setting.',status:400};}
     if(sampleCount===0 && sampleHint.positive && !sampleHint.negative){await release();return {error:japanese?'サンプル行を追加する場合は、アプリ作成画面の「初期データ」で件数を選択してください。':'To add sample rows, choose a count under Initial data on the app creation screen.',status:400};}
+    let made=job?.generated?JSON.parse(job.generated):null;
+    if(made && made.generationFormat!==2){
+      // Fence before looking up the old source: it may have been edited or
+      // deleted, but this unpublished proposal can still be safely retired.
+      const stopped=await env.DB.prepare(`UPDATE hx_app_generation_jobs SET lease_token=?,lease_until=?
+        WHERE org_id=? AND user_id=? AND request_id=? AND lease_token=? AND status='running' AND app_id IS NULL AND lease_until>?`)
+        .bind(abandonedLease+token,Number.MAX_SAFE_INTEGER,orgId,by,requestId,token,Date.now()).run();
+      return stopped.meta?.changes ? obsoleteProposal() : conflict();
+    }
     if(input.captureSource && !sourceThreadId){
       // Client IDs are author-scoped. Include workspace and request in the
       // digest, so another generation cannot take over this source message.
@@ -105,8 +117,6 @@ export async function generateApp(env, request, orgId, who, input, {makeComplete
       // Do not invoke the channel's AI responder: this prompt is already
       // handled by app generation and must not start a second model call.
     }
-    let made=job?.generated?JSON.parse(job.generated):null;
-    if(made && made.generationFormat!==2){await release();return {error:'以前の生成案は現在の安全な形式ではありません。新しい依頼として作り直してください。',status:409};}
     if(!made){
       const complete=input.useModel===false?null:await makeCompleter(env,orgId,by,'app_generate',{maxTokens:2400});
       const guidelines=channel?.startsWith('b:')?await getGuidelines(env.DB,orgId,channel):null;

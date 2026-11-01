@@ -24,7 +24,7 @@ import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import { hashForApp, hashForAppSource, hashForCard, consumeAppDraftHash, appSectionHash, type AppSection } from '../utils/route'
 import {
-  useWorkspaceMode, cellText, metricText, WANT_MODE_KEY, SET_MODE_EVENT, isMode, type WorkspaceMode,
+  useWorkspaceMode, cellText, metricText, WANT_MODE_KEY, SET_MODE_EVENT, isMode, HarnessApiError, type WorkspaceMode,
   type App, type AppAnnotation, type AppAnnotationMeta, type Template, type Table, type Row, type View, type Column, type HarnessApi, type AppEntity,
 } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps, type HarnessScreen } from './HarnessShared'
@@ -162,7 +162,14 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
     const room = prompt.match(/#([\p{L}\p{N}_-]+)/u)?.[1]
     const key = JSON.stringify([props.orgId,prompt,room,sampleCount])
     if (generationRequest.current?.key !== key) generationRequest.current = {key,id:crypto.randomUUID()}
-    const made = await api.generate(prompt, room ? `b:${room}` : undefined, {requestId:generationRequest.current.id,captureSource:Boolean(room),sampleCount})
+    const requestId = generationRequest.current.id
+    let made: Awaited<ReturnType<typeof api.generate>>
+    try {
+      made = await api.generate(prompt, room ? `b:${room}` : undefined, {requestId,captureSource:Boolean(room),sampleCount})
+    } catch (error) {
+      if (error instanceof HarnessApiError && error.status === 409 && error.code === 'APP_GENERATION_OBSOLETE_UNPUBLISHED' && generationRequest.current?.id === requestId) generationRequest.current = null
+      throw error
+    }
     if (liveApi.current !== api) return
     generationRequest.current = null
     setSampleCount(0)

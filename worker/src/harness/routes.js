@@ -980,7 +980,7 @@ export async function handleHarness(request, env, url, context = {}) {
     if (appId === "generate" && request.method === "POST") {
       const r = await generateApp(env, request, orgId, who, input);
       if (r.response) return r.response;
-      if (r.error) return fail(r);
+      if (r.error) return r.code ? json({message:r.error,code:r.code},r.status || 400) : fail(r);
       if (!r.replay) await audit(env, request, { orgId, action: "app.created", actor: person(who.user), entity: { type: "app", id: r.app.id, name: r.app.name }, details: { source: r.source } });
       return json(r, r.replay ? 200 : 201);
     }

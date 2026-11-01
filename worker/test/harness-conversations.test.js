@@ -100,6 +100,7 @@ test('failed app commit keeps the generated definition and rechecks legacy sampl
 });
 test('an incomplete old-format proposal cannot publish on retry',async()=>{
  const input={prompt:'A project tracker',requestId:'legacy_app_generation_001',useModel:false};
+ const initialCount=(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=?').bind(org).first()).n;
  await env.DB.exec("CREATE TRIGGER fail_old_proposal BEFORE INSERT ON hx_app_versions BEGIN SELECT RAISE(ABORT, 'storage unavailable'); END;");
  try {expect((await createRequest('/apps/generate',owner,input)).status).toBe(500);}
  finally {await env.DB.exec('DROP TRIGGER fail_old_proposal');}
@@ -108,8 +109,56 @@ test('an incomplete old-format proposal cannot publish on retry',async()=>{
  await env.DB.prepare('UPDATE hx_app_generation_jobs SET generated=? WHERE org_id=? AND user_id=? AND request_id=?').bind(JSON.stringify(old),org,'9201',input.requestId).run();
  const retry=await createRequest('/apps/generate',owner,input);
  expect(retry.status).toBe(409);
- expect((await retry.json()).message).toContain('新しい依頼');
+ expect(await retry.json()).toMatchObject({code:'APP_GENERATION_OBSOLETE_UNPUBLISHED'});
+ // The old request stays fenced, including when the 409 response was lost.
+ const repeated=await createRequest('/apps/generate',owner,input);
+ expect(repeated.status).toBe(409);
+ expect(await repeated.json()).toMatchObject({code:'APP_GENERATION_OBSOLETE_UNPUBLISHED'});
+ const stopped=await env.DB.prepare('SELECT lease_token,lease_until FROM hx_app_generation_jobs WHERE org_id=? AND user_id=? AND request_id=?').bind(org,'9201',input.requestId).first();
+ expect(stopped.lease_token).toMatch(/^obsolete:/);
+ await expect(env.DB.prepare(`UPDATE hx_app_generation_jobs SET app_id=CASE WHEN lease_token=? AND lease_until>? AND status='running' THEN ? ELSE NULL END,status='complete' WHERE org_id=? AND user_id=? AND request_id=?`).bind('old-worker',Date.now(),'stale-app',org,'9201',input.requestId).run()).rejects.toThrow();
+ const fresh=await createRequest('/apps/generate',owner,{...input,requestId:'legacy_app_generation_002'});
+ expect(fresh.status).toBe(201);
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=? AND name=?').bind(org,'Wrong legacy proposal').first()).n).toBe(0);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=?').bind(org).first()).n).toBe(initialCount+1);
+});
+test.each(['edited','deleted'])('an old proposal can be fenced when its source message was %s',async change=>{
+ await privateSource();
+ const input={prompt:'A project tracker in this room',channel:'b:confidential',captureSource:true,requestId:'legacy_room_generation_001',useModel:false};
+ await env.DB.exec("CREATE TRIGGER fail_room_proposal BEFORE INSERT ON hx_app_versions BEGIN SELECT RAISE(ABORT, 'storage unavailable'); END;");
+ try {expect((await createRequest('/apps/generate',owner,input)).status).toBe(500);}
+ finally {await env.DB.exec('DROP TRIGGER fail_room_proposal');}
+ const oldRoot=await env.DB.prepare('SELECT id FROM channel_messages WHERE org_id=? AND channel=? AND body=?').bind(org,input.channel,input.prompt).first();
+ const job=await env.DB.prepare('SELECT generated FROM hx_app_generation_jobs WHERE org_id=? AND user_id=? AND request_id=?').bind(org,'9201',input.requestId).first();
+ const old=JSON.parse(job.generated);delete old.generationFormat;
+ await env.DB.prepare('UPDATE hx_app_generation_jobs SET generated=? WHERE org_id=? AND user_id=? AND request_id=?').bind(JSON.stringify(old),org,'9201',input.requestId).run();
+ if(change==='edited') await env.DB.prepare('UPDATE channel_messages SET body=? WHERE org_id=? AND id=?').bind('Edited request',org,oldRoot.id).run();
+ else await env.DB.prepare('UPDATE channel_messages SET deleted_at=? WHERE org_id=? AND id=?').bind(new Date().toISOString(),org,oldRoot.id).run();
+ const retry=await createRequest('/apps/generate',owner,input);
+ expect(retry.status).toBe(409);
+ expect(await retry.json()).toMatchObject({code:'APP_GENERATION_OBSOLETE_UNPUBLISHED'});
+ expect((await env.DB.prepare('SELECT lease_token,app_id FROM hx_app_generation_jobs WHERE org_id=? AND user_id=? AND request_id=?').bind(org,'9201',input.requestId).first())).toMatchObject({lease_token:expect.stringMatching(/^obsolete:/),app_id:null});
+ const fresh=await createRequest('/apps/generate',owner,{...input,requestId:'legacy_room_generation_002'});
+ expect(fresh.status).toBe(201);
+ const made=(await fresh.json()).app;
+ const source=await env.DB.prepare('SELECT thread_id FROM hx_app_conversation_sources WHERE org_id=? AND app_id=?').bind(org,made.id).first();
+ expect(source.thread_id).not.toBe(oldRoot.id);
+ expect((await env.DB.prepare('SELECT body FROM channel_messages WHERE org_id=? AND id=?').bind(org,source.thread_id).first()).body).toBe(input.prompt);
+ expect((await env.DB.prepare('SELECT parent_id FROM channel_messages WHERE org_id=? AND id=?').bind(org,`app-created-${made.id}`).first()).parent_id).toBe(source.thread_id);
+ expect((await env.DB.prepare('SELECT visibility FROM hx_app_access WHERE org_id=? AND app_id=?').bind(org,made.id).first()).visibility).toBe('private');
+});
+test('a current proposal still rejects an edited source message',async()=>{
+ await privateSource();
+ const input={prompt:'Current project tracker',channel:'b:confidential',captureSource:true,requestId:'current_room_generation_001',useModel:false};
+ await env.DB.exec("CREATE TRIGGER fail_current_proposal BEFORE INSERT ON hx_app_versions BEGIN SELECT RAISE(ABORT, 'storage unavailable'); END;");
+ try {expect((await createRequest('/apps/generate',owner,input)).status).toBe(500);}
+ finally {await env.DB.exec('DROP TRIGGER fail_current_proposal');}
+ await env.DB.prepare('UPDATE channel_messages SET body=? WHERE org_id=? AND channel=? AND body=?').bind('Edited request',org,input.channel,input.prompt).run();
+ const retry=await createRequest('/apps/generate',owner,input);
+ expect(retry.status).toBe(409);
+ expect(await retry.json()).toMatchObject({message:'The source conversation changed. Start a new generation request.'});
+ const job=await env.DB.prepare('SELECT status,app_id FROM hx_app_generation_jobs WHERE org_id=? AND user_id=? AND request_id=?').bind(org,'9201',input.requestId).first();
+ expect(job).toMatchObject({status:'failed',app_id:null});
 });
 test('the selected sample count is part of generation retry identity',async()=>{
  const input={prompt:'請求書を管理。サンプルデータを追加、1件だけ',requestId:'sample_count_request_001',sampleCount:3,useModel:false};

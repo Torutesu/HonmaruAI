@@ -2,6 +2,7 @@ import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { AppView, HarnessApps, HarnessTemplateImport, appTableDisplayName, newAppRecordLabel } from './Harness'
+import { HarnessApiError, harnessApi } from '../utils/harness'
 
 const state = vi.hoisted(() => ({ api: null as any }))
 vi.mock('./HarnessShared', async importOriginal => ({
@@ -116,6 +117,34 @@ test('generation still opens its app when the same screen is active', async () =
   const { completion } = await start()
   await act(async () => { finish({ app: { id: 'created' }, source: 'template' }); await completion })
   expect(location.hash).toBe('#/apps/created/team%3Aone')
+})
+test('only a fenced obsolete generation starts a new request on retry', async () => {
+  state.api.generate.mockRejectedValueOnce(new Error('Network failed'))
+    .mockRejectedValueOnce(new HarnessApiError('Old proposal stopped',409,'APP_GENERATION_OBSOLETE_UNPUBLISHED'))
+    .mockResolvedValueOnce({app:{id:'created'},source:'template'})
+  const { completion } = await start('A tracker')
+  await act(async () => { await completion })
+  const firstId=state.api.generate.mock.calls[0][2].requestId
+  await act(async () => { await button('Build').props.onClick() })
+  expect(state.api.generate.mock.calls[1][2].requestId).toBe(firstId)
+  expect(JSON.stringify(tree!.toJSON())).toContain('Old proposal stopped')
+  await act(async () => { await button('Build').props.onClick() })
+  expect(state.api.generate.mock.calls[2][2].requestId).not.toBe(firstId)
+  expect(location.hash).toBe('#/apps/created/team%3Aone')
+})
+test('the API retains the status and code of an obsolete generation response', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ok:false,status:409,json:async()=>({message:'Old proposal stopped',code:'APP_GENERATION_OBSOLETE_UNPUBLISHED'})}))
+  await expect(harnessApi('https://api.example','team:one','one').generate('A tracker',undefined,{requestId:'test_request_id_001'}))
+    .rejects.toMatchObject({message:'Old proposal stopped',status:409,code:'APP_GENERATION_OBSOLETE_UNPUBLISHED'})
+})
+test('other 409 responses preserve the generation request ID', async () => {
+  state.api.generate.mockRejectedValueOnce(new HarnessApiError('Still creating',409))
+    .mockResolvedValueOnce({app:{id:'created'},source:'template'})
+  const {completion}=await start('A tracker')
+  await act(async()=>{await completion})
+  const firstId=state.api.generate.mock.calls[0][2].requestId
+  await act(async()=>{await button('Build').props.onClick()})
+  expect(state.api.generate.mock.calls[1][2].requestId).toBe(firstId)
 })
 test('room generation opens the saved source route rather than a detached app panel',async()=>{
  const {completion}=await start('Build a tracker for #general')

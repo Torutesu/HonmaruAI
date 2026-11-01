@@ -17,6 +17,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 export type WorkspaceMode = 'simple' | 'harness'
 
+export class HarnessApiError extends Error {
+  constructor(message: string, readonly status: number, readonly code?: string) { super(message) }
+}
+
 export type ColumnType = 'text' | 'number' | 'date' | 'select' | 'checkbox' | 'url' | 'person' | 'email' | 'relation'
 export interface Column { id: string; name: string; type: ColumnType; options?: string[]; targetEntity?: string; multiple?: boolean }
 export interface Table { id: string; name: string; columns: Column[] }
@@ -139,7 +143,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
       method, headers, signal, body: read ? undefined : JSON.stringify({ orgId, ...(body || {}) }),
     })
     const data = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(data.message || `${res.status}`)
+    if (!res.ok) throw new HarnessApiError(data.message || `${res.status}`, res.status, typeof data.code === 'string' ? data.code : undefined)
     return data as T
   }
   return {
