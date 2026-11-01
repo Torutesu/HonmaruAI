@@ -42,6 +42,8 @@ const STORE = (orgId, key) => `jam:${orgId}:${key}`;
 // Keep concurrent joins to the same channel ordered while one of them is
 // rechecking access. Other Jam messages and unrelated channels remain free.
 const pendingJoins = new WeakMap();
+// Includes authorization reads before a channel lock has been acquired.
+const resolvingJoins = new WeakMap();
 const joinInvalidations = new WeakMap();
 const joinKey = (orgId, channel) => JSON.stringify([orgId, channel]);
 const joinEpoch = (relay, key) => joinInvalidations.get(relay)?.get(key) || 0;
@@ -50,6 +52,7 @@ const joinEpoch = (relay, key) => joinInvalidations.get(relay)?.get(key) || 0;
 // authorization read already in flight may otherwise complete with stale data.
 export function invalidateJamJoins(relay, orgId, channel) {
   const key=joinKey(orgId,channel);
+  for(const joining of resolvingJoins.get(relay)?.get(key)||[])if(!joining.locked)joining.cancelled=true;
   if(!pendingJoins.get(relay)?.has(key))return;
   let epochs=joinInvalidations.get(relay);
   if(!epochs){epochs=new Map();joinInvalidations.set(relay,epochs);}
@@ -290,8 +293,16 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
     }
     const joining={cancelled:false};
     joiningSockets.set(ws,joining);
+    // Register before the first membership/channel lookup. Eviction must also
+    // cancel a lookup which later returns after the person was re-invited.
+    const key=typeof payload.channel==='string'?joinKey(att.orgId,payload.channel):null;
+    let registry=resolvingJoins.get(relay),entries;
+    if(key){if(!registry){registry=new Map();resolvingJoins.set(relay,registry);}entries=registry.get(key);if(!entries){entries=new Set();registry.set(key,entries);}entries.add(joining);}
     try { return await handleJamMessageInner(relay,ws,att,type,payload,joining); }
-    finally { if(joiningSockets.get(ws)===joining)joiningSockets.delete(ws); }
+    finally {
+      if(joiningSockets.get(ws)===joining)joiningSockets.delete(ws);
+      if(entries){entries.delete(joining);if(!entries.size)registry.delete(key);}
+    }
   }
   if(type==='jam_leave') {
     const joining=joiningSockets.get(ws);
@@ -393,6 +404,7 @@ async function handleJamMessageInner(relay, ws, att, type, payload, joining) {
     }
     if(joining.cancelled)return;
     const key=joinKey(orgId,resolved.key);
+    joining.locked=true;
     const locked=lockJoin(relay,key);
     const epoch=joinEpoch(relay,key);
     const unlock=await locked;
