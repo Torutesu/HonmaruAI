@@ -391,6 +391,20 @@ const devin = {
     await call(`${DEVIN}/${encodeURIComponent(t.remote.account)}/sessions/${encodeURIComponent(run.remote_id)}/messages`, { key: t.apiKey, method: "POST", body: { message: text } });
     return {};
   },
+  async cancel(t, run) {
+    if (!run.remote_id) return {status: "unavailable"};
+    // Devin's organization API terminates this exact session with DELETE;
+    // archive defaults to false, so a stop does not archive the work history.
+    try {
+      await call(`${DEVIN}/${encodeURIComponent(t.remote.account)}/sessions/${encodeURIComponent(run.remote_id)}`, {
+        key: t.apiKey, method: "DELETE", signal: AbortSignal.timeout(8000),
+      });
+      return {status: "requested"};
+    } catch (error) {
+      if (error?.status === 410) return {status: "already_finished"};
+      throw error;
+    }
+  },
   async read(t, run, {signal=null}={}) {
     const base = `${DEVIN}/${encodeURIComponent(t.remote.account)}/sessions/${encodeURIComponent(run.remote_id)}`;
     const texts = [];
