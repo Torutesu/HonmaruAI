@@ -93,3 +93,47 @@ test('an external app version update preserves an unsaved automation draft',asyn
  expect(JSON.stringify(tree.toJSON())).toContain('未保存の下書きは保持しています')
  act(()=>tree.unmount())
 })
+
+test('saving a delete trigger does not restore filters from the previous editing session',async()=>{
+ const {AutomationTriggerEditor}=await import('./AutomationTriggerEditor')
+ const row={type:'row',tableId:'table',on:'changed',column:'status',where:{status:['Open']}}
+ const initial={...state,draft:{version:1,items:[{key:'review',...definition,trigger:row}]}}
+ const saved={...initial,revision:3,draft:{version:1,items:[{...initial.draft.items[0],trigger:{type:'row',tableId:'table',on:'deleted'}}]}}
+ const appAutomations=vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(saved)
+ const saveAppAutomations=vi.fn().mockResolvedValue({saved:true})
+ const tables=vi.fn().mockResolvedValue({tables:[{id:'table',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['Open']}]}]})
+ const {tree,button}=await setup({appAutomations,saveAppAutomations,tables})
+ const editor=()=>tree.root.findByType(AutomationTriggerEditor)
+ await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'deleted'}}))
+ await act(async()=>button('下書きを保存').props.onClick())
+ expect(saveAppAutomations).toHaveBeenCalled()
+ expect(editor().props.trigger.on).toBe('deleted')
+ await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'changed'}}))
+ expect(editor().props.trigger.where).toBeUndefined()
+ expect(editor().props.trigger.column).toBeUndefined()
+ expect(JSON.stringify(tree.toJSON())).toContain('以前の条件は復元されていません')
+ await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'added'}}))
+ await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'deleted'}}))
+ await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'changed'}}))
+ expect(JSON.stringify(tree.toJSON())).toContain('以前の条件は復元されていません')
+ act(()=>tree.unmount())
+})
+test.each(['save','refresh'] as const)('a failed %s does not revive filters after submitting a delete trigger',async failure=>{
+ const {AutomationTriggerEditor}=await import('./AutomationTriggerEditor')
+ const row={type:'row',tableId:'table',on:'changed',column:'status',where:{status:['Open']}}
+ const initial={...state,draft:{version:1,items:[{key:'review',...definition,trigger:row}]}}
+ const appAutomations=vi.fn().mockResolvedValueOnce(initial).mockRejectedValue(new Error('offline'))
+ const saveAppAutomations=failure==='save'?vi.fn().mockRejectedValue(new Error('offline')):vi.fn().mockResolvedValue({saved:true})
+ const tables=vi.fn().mockResolvedValue({tables:[{id:'table',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['Open']}]}]})
+ const {tree,button}=await setup({appAutomations,saveAppAutomations,tables})
+ const editor=()=>tree.root.findByType(AutomationTriggerEditor)
+ await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'deleted'}}))
+ await act(async()=>button('下書きを保存').props.onClick())
+ expect(saveAppAutomations).toHaveBeenCalled()
+ expect(editor().props.trigger.on).toBe('deleted')
+ await act(async()=>editor().findAllByType('select')[2].props.onChange({target:{value:'changed'}}))
+ expect(editor().props.trigger.where).toBeUndefined()
+ expect(editor().props.trigger.column).toBeUndefined()
+ expect(JSON.stringify(tree.toJSON())).toContain('以前の条件は復元されていません')
+ act(()=>tree.unmount())
+})
