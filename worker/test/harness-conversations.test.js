@@ -340,6 +340,29 @@ test.each(['expired','reassigned'])('an %s generation lease cannot dispatch a mo
  });
  expect(result.status).toBe(403);expect(calls).toBe(0);expect(disposed).toBe(1);
 });
+test('a lease expiring while its authorization query is waiting cannot dispatch the model',async()=>{
+ const {generateApp}=await import('../src/harness/appGeneration.js');
+ let clock=Date.now(),reads=0,calls=0,disposed=0;
+ const dateNow=vi.spyOn(Date,'now').mockImplementation(()=>clock);
+ const db=new Proxy(env.DB,{get(target,prop){
+  if(prop==='prepare')return sql=>{
+   const statement=target.prepare(sql);
+   if(!sql.includes('SELECT 1 AS allowed,') || !sql.includes('hx_app_generation_jobs j'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async first(){const row=await bound.first();if(++reads===2)clock+=2000;return row;}};}};
+  }
+  const value=target[prop];return typeof value==='function'?value.bind(target):value;
+ }});
+ try {
+  const input={prompt:'Track work',requestId:'lease_wait_dispatch_test_001'};
+  const result=await generateApp({...env,DB:db},new Request('https://test/app-generation-v2'),org,{session:{github_id:'9201'},user:{github_id:'9201',login:'user9201'}},input,{
+   makeCompleter:async()=>{
+    await env.DB.prepare('UPDATE hx_app_generation_jobs SET lease_until=? WHERE org_id=? AND request_id=?').bind(clock+1000,org,input.requestId).run();
+    const complete=async()=>{calls++;return '{}';};complete.dispose=async()=>{disposed++;};return complete;
+   },
+  });
+  expect(reads).toBe(2);expect(result.status).toBe(403);expect(calls).toBe(0);expect(disposed).toBe(1);
+ } finally {dateNow.mockRestore();}
+});
 test('editing a captured source during model execution prevents publication',async()=>{
  await privateSource();
  const {generateApp}=await import('../src/harness/appGeneration.js');

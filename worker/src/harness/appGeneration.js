@@ -16,23 +16,28 @@ const leaseMs = 120000;
 const digest = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(n=>n.toString(16).padStart(2,'0')).join('');
 async function generationContext(db,orgId,by,channel,sourceThreadId,room,requestId,token,sourceBody) {
   const liveJob=`(?7 IS NULL OR EXISTS(SELECT 1 FROM hx_app_generation_jobs j WHERE j.org_id=?1 AND j.user_id=?2 AND j.request_id=?7 AND j.lease_token=?8 AND j.status='running' AND j.lease_until>?9))`;
+  const leaseUntil=`(SELECT j.lease_until FROM hx_app_generation_jobs j WHERE j.org_id=?1 AND j.user_id=?2 AND j.request_id=?7 AND j.lease_token=?8 AND j.status='running') AS leaseUntil`;
+  // A query can finish after the timestamp bound to it. Check the returned
+  // lease again against the current time before authorizing model dispatch.
+  const current=row=>row && (!requestId || (Number.isFinite(Number(row.leaseUntil)) && Number(row.leaseUntil)>Date.now())) ? row : null;
   const binds=[orgId,by,channel,sourceThreadId,room?.createdAt||null,room?Number(room.private):null,requestId||null,token,Date.now(),sourceBody];
   if(!channel) {
-    const member=await db.prepare(`SELECT 1 AS allowed FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?2 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    const member=await db.prepare(`SELECT 1 AS allowed,${leaseUntil} FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?2 AND LOWER(COALESCE(m.role,'guest'))!='guest'
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=m.org_id AND d.purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=m.org_id) AND ${liveJob} AND (?10 IS NULL OR ?10 IS NOT NULL)`).bind(...binds).first();
-    return member?{body:'',version:0}:null;
+    return current(member)?{body:'',version:0}:null;
   }
   const sourceLive=`(?4 IS NULL OR EXISTS(SELECT 1 FROM channel_messages s WHERE s.org_id=?1 AND s.id=?4 AND s.channel=?3 AND s.parent_id IS NULL AND s.deleted_at IS NULL AND (?10 IS NULL OR s.body=?10)))`;
   if(channel.startsWith('b:')) {
     if(!room?.createdAt)return null;
-    return db.prepare(`SELECT COALESCE(g.body,'') AS body,COALESCE(g.version,0) AS version FROM businesses b
+    const result=await db.prepare(`SELECT COALESCE(g.body,'') AS body,COALESCE(g.version,0) AS version,${leaseUntil} FROM businesses b
       LEFT JOIN hx_room_guidelines g ON g.org_id=b.org_id AND g.channel=?3
       WHERE b.org_id=?1 AND 'b:'||b.slug=?3 AND b.created_at=?5 AND b.private=?6 AND ${sourceLive} AND ${liveJob} AND ${conversationWriteAuthority('?1','?3','?2')}`)
       .bind(...binds).first();
+    return current(result);
   }
-  const allowed=await db.prepare(`SELECT 1 AS allowed WHERE ${sourceLive} AND ${liveJob} AND ${conversationWriteAuthority('?1','?3','?2')}`).bind(...binds).first();
-  return allowed?{body:'',version:0}:null;
+  const allowed=await db.prepare(`SELECT 1 AS allowed,${leaseUntil} WHERE ${sourceLive} AND ${liveJob} AND ${conversationWriteAuthority('?1','?3','?2')}`).bind(...binds).first();
+  return current(allowed)?{body:'',version:0}:null;
 }
 const sampleIntent = prompt => {
   const text=prompt.normalize('NFKC');
