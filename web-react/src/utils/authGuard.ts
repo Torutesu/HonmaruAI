@@ -20,6 +20,20 @@ export interface ReauthRequest {
 
 let installed = false
 
+// A response for an earlier account must not trigger UI actions in a newer
+// session. Check synchronously before emitting the event; do not publish the
+// session token in event detail.
+export function requestSessionIsCurrent(base: string, token: string): boolean {
+  try {
+    const host=localStorage.getItem('host') || import.meta.env.VITE_API_HOST || 'localhost:8787'
+    const scheme=window.location.protocol === 'https:' ? 'https' : 'http'
+    const expected=new URL(`${scheme}://${host}`).href.replace(/\/+$/, '')
+    const actual=new URL(base,window.location.href).href
+    return Boolean(token) && localStorage.getItem('sessionToken') === token &&
+      (actual === expected || actual.startsWith(`${expected}/`) || actual.startsWith(`${expected}?`))
+  } catch { return false }
+}
+
 const headerOf = (init: RequestInit | undefined, name: string): string | null => {
   const h = init?.headers
   if (!h) return null
@@ -94,7 +108,8 @@ export function installAuthGuard() {
     if (said?.code === 'session-policy') {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
       const base = new URL(url, window.location.href).origin
-      window.dispatchEvent(new CustomEvent('honmaru:session-policy', { detail: { orgId: said.orgId || null, token, base } }))
+      if (requestSessionIsCurrent(url,token))
+        window.dispatchEvent(new CustomEvent('honmaru:session-policy', { detail: { orgId: said.orgId || null, base } }))
       return res
     }
     if (said?.code === 'reauth-required') {

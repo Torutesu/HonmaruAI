@@ -177,25 +177,12 @@ test('old deletion completion cannot clear a newer stored session before its sto
   act(()=>ui.tree.unmount())
 })
 
-test('a late policy refusal from an old session cannot log out the new account',async()=>{
-  const ui=await setup()
-  vi.mocked(fetch).mockImplementation(async (_url,init)=>({ok:true,status:200,json:async()=>({login:(init?.headers as Record<string,string>)?.['x-session-token']==='new-token'?'bob':'reader',orgs:[{id:'org'}]})}) as Response)
-  ui.values.set('sessionToken','new-token')
-  await act(async()=>{ui.fire('storage',{key:'sessionToken'});await Promise.resolve();await Promise.resolve();await Promise.resolve()})
-  const current=pendingQueue('org','new-token','bob')
-  await act(async()=>ui.fire('honmaru:session-policy',{detail:{orgId:'org',token:'old-token',base:'http://synthetic.invalid'}}))
-  expect(current.aborted).toBe(false)
-  expect(ui.values.get('sessionToken')).toBe('new-token')
-  expect(JSON.stringify(ui.tree.toJSON())).not.toContain('welcome')
-  act(()=>ui.tree.unmount())
-})
-
 test('a policy refusal from a different server is ignored but the current session is ended',async()=>{
   const ui=await setup(), current=pendingQueue()
-  await act(async()=>ui.fire('honmaru:session-policy',{detail:{orgId:'org',token:'old-token',base:'http://other.invalid'}}))
+  await act(async()=>ui.fire('honmaru:session-policy',{detail:{orgId:'org',base:'http://other.invalid'}}))
   expect(current.aborted).toBe(false)
   expect(ui.values.get('sessionToken')).toBe('old-token')
-  await act(async()=>ui.fire('honmaru:session-policy',{detail:{orgId:'org',token:'old-token',base:'http://synthetic.invalid'}}))
+  await act(async()=>ui.fire('honmaru:session-policy',{detail:{orgId:'org',base:'http://synthetic.invalid'}}))
   expect(current.aborted).toBe(true)
   expect(ui.values.has('sessionToken')).toBe(false)
   act(()=>ui.tree.unmount())

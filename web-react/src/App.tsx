@@ -514,8 +514,7 @@ function AccountApp() {
   // with the reason, to sign in again.
   useEffect(() => {
     const on = (event: Event) => {
-      const detail = (event as CustomEvent<{ token?: string; base?: string }>).detail
-      if (detail?.token && detail.token !== sessionToken) return
+      const detail = (event as CustomEvent<{ base?: string }>).detail
       if (detail?.base) {
         try { if (new URL(detail.base).origin !== new URL(httpBase(host)).origin) return } catch { return }
       }
