@@ -453,20 +453,29 @@ export async function getRun(db, orgId, runId, { viewerId, revisions } = {}) {
 
 /// "{{row.Company}} owes {{row.Amount}}" against what the run knows. A
 /// name that is not there reads as nothing, never as the braces.
-export function render(template, scope) {
-  return String(template ?? "").replace(/\{\{\s*([\p{L}\p{N}_.# -]+?)\s*\}\}/gu, (_, path) => {
-    const parts = path.split(".");
-    let v = scope;
-    for (const p of parts) {
-      if (v == null) break;
-      if (typeof v === "object" && p in v) { v = v[p]; continue; }
-      // A row is keyed by column id; let people write the column's name.
-      const key = typeof v === "object" ? Object.keys(v).find((k) => k.toLowerCase() === p.toLowerCase() || k === p.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "_")) : null;
-      v = key ? v[key] : undefined;
-    }
-    return v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
-  });
+const templatePattern = () => /\{\{\s*([\p{L}\p{N}_.# -]+?)\s*\}\}/gu;
+function resolveTemplatePath(scope, path) {
+  let value = scope;
+  const keys = [];
+  for (const p of path.split('.')) {
+    if (value == null) break;
+    const key = typeof value !== 'object' ? null : p in value ? p
+      : Object.keys(value).find(k => k.toLowerCase() === p.toLowerCase() || k === p.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '_'));
+    if (key == null) { value = undefined; break; }
+    keys.push(key);
+    value = value[key];
+  }
+  return { value, keys };
 }
+const templateValue = value => value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+export function render(template, scope) {
+  return String(template ?? '').replace(templatePattern(), (_, path) => templateValue(resolveTemplatePath(scope, path).value));
+}
+
+// Snapshot both IDs and names that can alias the row's system ID. A column
+// named "ID#", for example, has the column ID "id" after normalization.
+const rowIdentityAliases = table => [...new Set(['id', ...(table?.columns || []).filter(c => c.id === 'id' || c.name.toLowerCase() === 'id').flatMap(c => [c.id, c.name])])];
+const rowIdentityFields = (table, values = {}) => Object.fromEntries((table?.columns || []).filter(c => (c.id === 'id' || c.name.toLowerCase() === 'id') && Object.hasOwn(values, c.id)).map(c => [c.id, values[c.id]]));
 
 const renderValues = (values, scope) => Object.fromEntries(Object.entries(values || {}).map(([k, v]) => [k, typeof v === "string" ? render(v, scope) : v]));
 
@@ -651,6 +660,12 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     ? (typeof run.input?.recordId === 'string' && run.input.recordId ? run.input.recordId
       : run.input?.event === 'deleted' ? run.input?.row?.id : null)
     : run.trigger === 'app_record_change' ? run.input?.records?.[0]?.recordId : scope.row?.id;
+  // App record scopes are reconstructed at resume using the current table
+  // schema, so include aliases introduced since the event as well.
+  const savedAliases = Array.isArray(run.input?.rowIdentityAliases) ? run.input.rowIdentityAliases : null;
+  const identityAliases = savedAliases && run.trigger === 'app_record_change'
+    ? [...new Set([...savedAliases, ...rowIdentityAliases(await getTable(db, orgId, sourceTable))])]
+    : savedAliases;
   log.forEach((entry, i) => { scope.steps[i + 1] = entry; });
   let status = "done";
   let cardId = null;
@@ -668,7 +683,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
         }
         if (!entry) entry = step.when && !await authorize() ? {status:'failed',error:'The automation was stopped, its release changed, or its source access was removed.'}
           : step.type==='code' ? await enqueueWorkflowProgram(db,{orgId,runId})
-          : await runStep(env, { orgId, workflow, step, number: index + 1, scope, implicitRowId, runTrigger: run.trigger, runId, depth, owner: workflow.createdBy, authorize });
+          : await runStep(env, { orgId, workflow, step, number: index + 1, scope, implicitRowId, identityAliases, runTrigger: run.trigger, runId, depth, owner: workflow.createdBy, authorize });
       }
     } catch (e) {
       entry = { status: "failed", error: String(e?.message || e).slice(0, 300) };
@@ -751,7 +766,7 @@ async function workflowAgentRemoteTools(env, { orgId, agentRow, owner, reservedN
   return tools;
 }
 
-async function runStep(env, { orgId, workflow, step, number, scope, implicitRowId, runTrigger, runId, depth, owner, authorize }) {
+async function runStep(env, { orgId, workflow, step, number, scope, implicitRowId, identityAliases, runTrigger, runId, depth, owner, authorize }) {
   const db = env.DB;
   if (step.channel && !(await mayUseConversation(db, orgId, owner, step.channel))) {
     return { status: "failed", error: "Conversation access required." };
@@ -805,9 +820,18 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       // Both aliases expose the same legacy flattened event input, where a
       // user field can replace the system ID. Never silently target another row.
       if (step.rowId && ['row', 'app_record_change'].includes(runTrigger)) {
-        const references = String(step.rowId).match(/\{\{\s*(?:input\.)?row\.id\s*\}\}/gi) || [];
-        if (references.some(reference => !implicitRowId || render(reference, scope) !== implicitRowId)) {
-          return { status: 'failed', error: 'The row.id update target is ambiguous. Use the event record ID or an explicit user column value from input.rowFields or input.records.0.data.' };
+        let ambiguous = false;
+        String(step.rowId).replace(templatePattern(), (_, path) => {
+          const { value, keys } = resolveTemplatePath(scope, path);
+          const rowKey = ['row', 'before'].includes(keys[0]) ? keys[1]
+            : keys[0] === 'input' && ['row', 'before'].includes(keys[1]) ? keys[2] : null;
+          // Older saved runs lack alias provenance. Treat any flattened row
+          // reference as ambiguous if it does not resolve to the source ID.
+          if (rowKey && (!identityAliases || identityAliases.includes(rowKey)) && (!implicitRowId || templateValue(value) !== implicitRowId)) ambiguous = true;
+          return _;
+        });
+        if (ambiguous) {
+          return { status: 'failed', error: 'The row.id update target is ambiguous. Use the event record ID or an explicit user column value from input.rowFields, input.beforeFields or input.records.0.data.' };
         }
       }
       const rowId = step.rowId ? render(step.rowId, scope) : implicitRowId;
@@ -960,7 +984,7 @@ async function startAppRecordRuns(env, { orgId, table, before, row, by, depth })
     const rowEventHash = await rowEventFingerprint(table, before, row);
     const result = await startRun(env, {
       orgId, workflow, trigger: 'app_record_change', startedBy: by, depth,
-      input: { tableId: table.id, records: [appRecord], totalCount: 1, truncated: false }, rowEventHash,
+      input: { tableId: table.id, rowIdentityAliases: isDelete ? ['id'] : rowIdentityAliases(table), records: [appRecord], totalCount: 1, truncated: false }, rowEventHash,
     });
     if (result?.id) started += 1;
   }
@@ -1003,10 +1027,10 @@ export async function onRowChange(env, { orgId, table, before, row, by, depth = 
     const rowEventHash = await rowEventFingerprint(table, before, row);
     // Preserve only column values that can shadow row.id, including a column
     // renamed to ID. Other event inputs do not grow by a copy of their fields.
-    const rowFields = Object.fromEntries(table.columns.filter(c => (c.id === 'id' || c.name.toLowerCase() === 'id') && Object.hasOwn(row.values, c.id)).map(c => [c.id, row.values[c.id]]));
+    const rowFields = rowIdentityFields(table, row.values), beforeFields = rowIdentityFields(table, before?.values);
     const run = await startRun(env, {
       orgId, workflow: wf, trigger: "row", startedBy: by, depth,
-      input: { tableId: table.id, recordId: row.id, ...(Object.keys(rowFields).length ? { rowFields } : {}), row: await rowScope(env.DB, orgId, table.id, row), before: before ? await rowScope(env.DB, orgId, table.id, before) : null },
+      input: { tableId: table.id, recordId: row.id, rowIdentityAliases: rowIdentityAliases(table), ...(Object.keys(rowFields).length ? { rowFields } : {}), ...(Object.keys(beforeFields).length ? { beforeFields } : {}), row: await rowScope(env.DB, orgId, table.id, row), before: before ? await rowScope(env.DB, orgId, table.id, before) : null },
       rowEventHash,
     });
     if (run?.id) started += 1;
@@ -1037,7 +1061,7 @@ export async function onRowDelete(env, { orgId, table, row, by, depth = 0 }) {
     const rowEventHash = await rowEventFingerprint(table, row, null);
     const run = await startRun(env, {
       orgId, workflow: wf, trigger: "row", startedBy: by, depth,
-      input: { tableId: table.id, event: "deleted", recordId: row.id, row: { id: row.id } },
+      input: { tableId: table.id, event: "deleted", recordId: row.id, rowIdentityAliases: ['id'], row: { id: row.id } },
       rowEventHash,
     });
     if (run?.id) started += 1;
