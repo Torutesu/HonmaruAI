@@ -325,3 +325,52 @@ test('a new socket removes a different abandoned provisional participant while p
  expect(f.entries.get(key).transcript).toEqual([{text:'Keep me'}]);
  expect(f.entries.get(key).pendingJoin).toBeUndefined();
 });
+
+test('a delayed session recheck cannot restore a Jam attachment after channel eviction',async()=>{
+  const f=fixture(),peerId='active-peer';
+  f.ws.serializeAttachment({...f.ws.deserializeAttachment(),session:'existing-session',checkedAt:0,authed:true,agui:true,jam:{key:channel,peerId,pending:false,since:createdAt,mode:'notes'}});
+  let started, release;
+  const waiting=new Promise(resolve=>{started=resolve;});
+  f.relay.stillSignedIn=async()=>{started();await new Promise(resolve=>{release=resolve;});return {ok:true};};
+  f.relay.overBudget=()=>false;
+  const message=OrgRelay.prototype.webSocketMessage.call(f.relay,f.ws,JSON.stringify({type:'jam_signal',payload:{to:'none',data:{type:'candidate'}}}));
+  await waiting;
+  const request=new Request(`https://relay.internal/internal/evict?orgId=${org}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({login:'alice',channel})});
+  expect((await OrgRelay.prototype.fetch.call(f.relay,request)).status).toBe(200);
+  expect(f.ws.deserializeAttachment().jam).toBeNull();
+  release();await message;
+  expect(f.ws.deserializeAttachment().jam).toBeNull();
+});
+
+test.each([true,false])('a delayed old session check cannot change or close a reauthenticated socket (old check %s)',async ok=>{
+  const f=fixture();
+  f.ws.serializeAttachment({...f.ws.deserializeAttachment(),session:'old-session',checkedAt:0,authed:true,agui:true,jam:{key:channel,peerId:'old-peer'}});
+  let started,release,processed=false,refused=false;
+  const waiting=new Promise(resolve=>{started=resolve;});
+  f.relay.stillSignedIn=async()=>{started();await new Promise(resolve=>{release=resolve;});return {ok,here:true};};
+  f.relay.overBudget=()=>{processed=true;return false;};
+  f.relay.refuse=()=>{refused=true;};
+  const pending=OrgRelay.prototype.webSocketMessage.call(f.relay,f.ws,JSON.stringify({type:'jam_signal',payload:{to:'nobody',data:{type:'candidate'}}}));
+  await waiting;
+  const replacement={...f.ws.deserializeAttachment(),session:'new-session',userId:'bob',githubId:'4102',checkedAt:100,jam:{key:'b:other',peerId:'new-peer'}};
+  f.ws.serializeAttachment(replacement);
+  release();await pending;
+  expect(f.ws.deserializeAttachment()).toEqual(replacement);
+  expect(processed).toBe(false);
+  expect(refused).toBe(false);
+});
+
+test('a delayed session check preserves current unrelated socket state',async()=>{
+  const f=fixture();
+  f.ws.serializeAttachment({...f.ws.deserializeAttachment(),session:'old-session',checkedAt:0,authed:true,agui:true,jam:null});
+  let started,release;
+  const waiting=new Promise(resolve=>{started=resolve;});
+  f.relay.stillSignedIn=async()=>{started();await new Promise(resolve=>{release=resolve;});return {ok:true};};
+  f.relay.overBudget=()=>false;
+  const pending=OrgRelay.prototype.webSocketMessage.call(f.relay,f.ws,JSON.stringify({type:'jam_signal',payload:{to:'nobody',data:{type:'candidate'}}}));
+  await waiting;
+  const other={...f.ws.deserializeAttachment(),activityAt:1234,guest:true,jam:{key:'b:other',peerId:'new-peer'}};
+  f.ws.serializeAttachment(other);
+  release();await pending;
+  expect(f.ws.deserializeAttachment()).toMatchObject({activityAt:1234,guest:true,jam:{key:'b:other',peerId:'new-peer'}});
+});

@@ -408,7 +408,7 @@ export class OrgRelay {
   }
 
   async webSocketMessage(ws, raw) {
-    const att = ws.deserializeAttachment() || {};
+    let att = ws.deserializeAttachment() || {};
     const orgId = att.orgId;
     if (!orgId) { ws.close(1008, "no workspace"); return; }
     // Past what the workspace's login rules allow: nothing more on this socket.
@@ -437,8 +437,17 @@ export class OrgRelay {
     // every little while rather than on every message.
     if (type !== "join" && att.session && Date.now() - (att.checkedAt || 0) >= RECHECK_EVERY_MS) {
       const still = await this.stillSignedIn(orgId, att);
+      // The socket may have been evicted, re-authenticated or moved out of a
+      // Jam while the session check was in flight. Never write the stale
+      // attachment back over newer state, and never act on an old identity.
+      const current = ws.deserializeAttachment() || {};
+      if ((typeof ws.readyState === 'number' && ws.readyState !== 1) ||
+          !current.authed || current.orgId !== orgId || current.session !== att.session ||
+          current.userId !== att.userId || current.githubId !== att.githubId) return;
       if (!still.ok) return this.refuse(ws, att.agui, ...OrgRelay.signedOut(still.here));
-      att.checkedAt = Date.now();
+      if (current.deadline && Date.now() >= current.deadline)
+        return this.refuse(ws, current.agui, "This workspace asks you to sign in again.", "session-policy");
+      att = { ...current, checkedAt: Math.max(current.checkedAt || 0, Date.now()) };
       ws.serializeAttachment(att);
     }
     const kind = JAM_TYPES.has(type) ? "jam" : TYPING_TYPES.has(type) ? "typing" : "chat";
