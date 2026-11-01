@@ -5,10 +5,11 @@ import { SYSTEM_COLUMN_IDS } from './systemColumns.js';
 
 // These placeholders are internal constants, not user-supplied SQL. The same
 // predicate protects both the write and the final read boundary.
-const personalAuthority=(org,user,app,version='NULL',columns='NULL',updatedAt='NULL')=>`EXISTS(SELECT 1 FROM hx_apps a
+const personalAuthority=(org,user,app,version='NULL',columns='NULL',updatedAt='NULL',tableId='NULL')=>`EXISTS(SELECT 1 FROM hx_apps a
   JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=${user}
   LEFT JOIN hx_app_access access ON access.org_id=a.org_id AND access.app_id=a.id
   WHERE a.org_id=${org} AND a.id=${app} AND (${version} IS NULL OR a.version=${version})
+    AND (${tableId} IS NULL OR a.table_id=${tableId})
     AND (${columns} IS NULL OR EXISTS(SELECT 1 FROM hx_tables t WHERE t.org_id=a.org_id AND t.id=a.table_id AND json(t.columns)=json(${columns}) AND t.updated_at=${updatedAt}))
     AND NOT EXISTS(SELECT 1 FROM hx_apps linked
       LEFT JOIN hx_app_access linked_access ON linked_access.org_id=linked.org_id AND linked_access.app_id=linked.id
@@ -49,8 +50,8 @@ export async function personalViews(db, orgId, userId, appId, input) {
     if(input.views.some(v=>shared.has(v.id)&&!existing.has(v.id)))return {error:'ビューが変更されました。再読み込みしてください。',status:409};
     settings = normalize(input);
     const result = revision === 0
-      ? await db.prepare(`INSERT OR IGNORE INTO hx_personal_views (org_id,user_id,app_id,revision,settings) SELECT ?1,?2,?3,1,?4 WHERE ${personalAuthority('?1','?2','?3','?5','?6','?7')}`).bind(orgId,String(userId),appId,JSON.stringify(settings),rendered.app.version,JSON.stringify(rendered.table.columns),rendered.table.updatedAt).run()
-      : await db.prepare(`UPDATE hx_personal_views SET settings=?1,revision=revision+1 WHERE org_id=?2 AND user_id=?3 AND app_id=?4 AND revision=?5 AND ${personalAuthority('?2','?3','?4','?6','?7','?8')}`).bind(JSON.stringify(settings),orgId,String(userId),appId,revision,rendered.app.version,JSON.stringify(rendered.table.columns),rendered.table.updatedAt).run();
+      ? await db.prepare(`INSERT OR IGNORE INTO hx_personal_views (org_id,user_id,app_id,revision,settings) SELECT ?1,?2,?3,1,?4 WHERE ${personalAuthority('?1','?2','?3','?5','?6','?7','?8')}`).bind(orgId,String(userId),appId,JSON.stringify(settings),rendered.app.version,JSON.stringify(rendered.table.columns),rendered.table.updatedAt,rendered.table.id).run()
+      : await db.prepare(`UPDATE hx_personal_views SET settings=?1,revision=revision+1 WHERE org_id=?2 AND user_id=?3 AND app_id=?4 AND revision=?5 AND ${personalAuthority('?2','?3','?4','?6','?7','?8','?9')}`).bind(JSON.stringify(settings),orgId,String(userId),appId,revision,rendered.app.version,JSON.stringify(rendered.table.columns),rendered.table.updatedAt,rendered.table.id).run();
     if (!result.meta.changes) {
       const stillAllowed=await db.prepare(`SELECT 1 AS allowed WHERE ${personalAuthority('?1','?2','?3')}`).bind(orgId,String(userId),appId).first();
       return stillAllowed?{error:'別の端末で更新されています。再読み込みしてください。',status:409}:{error:'No such app.',status:404};
@@ -59,7 +60,7 @@ export async function personalViews(db, orgId, userId, appId, input) {
   settings = normalize(settings);
   // renderApp reads several tables; recheck both current access and the app
   // version before returning computed rows to the caller.
-  const stillAllowed=await db.prepare(`SELECT 1 AS allowed WHERE ${personalAuthority('?1','?2','?3','?4','?5','?6')}`).bind(orgId,String(userId),appId,rendered.app.version,JSON.stringify(rendered.table.columns),rendered.table.updatedAt).first();
+  const stillAllowed=await db.prepare(`SELECT 1 AS allowed WHERE ${personalAuthority('?1','?2','?3','?4','?5','?6','?7')}`).bind(orgId,String(userId),appId,rendered.app.version,JSON.stringify(rendered.table.columns),rendered.table.updatedAt,rendered.table.id).first();
   if(!stillAllowed){
     const current=await db.prepare(`SELECT 1 AS allowed WHERE ${personalAuthority('?1','?2','?3')}`).bind(orgId,String(userId),appId).first();
     return current?{error:'アプリが変更されました。再読み込みしてください。',status:409}:{error:'No such app.',status:404};

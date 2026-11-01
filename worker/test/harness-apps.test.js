@@ -1493,3 +1493,18 @@ test('personal view reads do not return rows if another table-sharing app become
  const result=await personalViews(racing,ORG,'9102',publicApp.id);
  expect(result.status).toBe(404);expect(result.snapshot).toBeUndefined();expect(result.computed).toBeUndefined();
 });
+
+test.each(['read','write'])('personal view %s rejects a table replacement with the same schema and timestamp',async operation=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Original',columns:[{name:'Name',type:'text'}]})).json();
+ const {app:replacement}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Replacement',columns:[{name:'Name',type:'text'}]})).json();
+ await env.DB.prepare('UPDATE hx_tables SET columns=(SELECT columns FROM hx_tables WHERE org_id=? AND id=?),updated_at=(SELECT updated_at FROM hx_tables WHERE org_id=? AND id=?) WHERE org_id=? AND id=?').bind(ORG,app.tableId,ORG,app.tableId,ORG,replacement.tableId).run();
+ let swapped=false;
+ const racing=new Proxy(env.DB,{get(db,key){if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];return sql=>{
+  const statement=db.prepare(sql);const target=operation==='write'?sql.startsWith('INSERT OR IGNORE INTO hx_personal_views'):sql.startsWith('SELECT 1 AS allowed WHERE EXISTS(SELECT 1 FROM hx_apps a');if(!target)return statement;
+  return {bind(...args){const bound=statement.bind(...args);const swap=async()=>{if(!swapped){swapped=true;await env.DB.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(replacement.tableId,ORG,app.id).run()}};return operation==='write'?{async run(){await swap();return bound.run()}}:{async first(){await swap();return bound.first()}}}};
+ }}});
+ const result=await personalViews(racing,ORG,'9102',app.id,operation==='write'?{expectedRevision:0,views:[],layouts:{}}:undefined);
+ expect(result.status).toBe(409);expect(result.snapshot).toBeUndefined();expect(result.computed).toBeUndefined();
+ if(operation==='write')expect(await env.DB.prepare('SELECT 1 FROM hx_personal_views WHERE org_id=? AND user_id=? AND app_id=?').bind(ORG,'9102',app.id).first()).toBeNull();
+});
