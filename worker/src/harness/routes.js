@@ -1,3 +1,4 @@
+import { mayUseDatabase } from './databaseAccess.js';
 import {handleDocuments,isDocumentNodeRoute} from './documentRoutes.js';
 import { createSkillShare, listSkillShares, revokeSkillShare, readSkillShare, downloadSkillShare, importSkillShare } from './skillShares.js';
 import {workflowRevisions,restoreWorkflowRevision} from './workflowRevisions.js';
@@ -1075,15 +1076,23 @@ export async function handleHarness(request, env, url, context = {}) {
     if (['database','actions','connections'].includes(sub)) {
       const canManage = await mayChange(env, orgId, who, app.createdBy);
       const respond = async (result, action) => {
+        if (sub === 'database' && !result.error && !await mayUseDatabase(env.DB, orgId, appId, me, [...(result.fork?.entities || []), ...(result.entities || [])].map(entity=>entity.table?.id).filter(Boolean), request.method !== 'GET')) return json({message:'No such app.'},404);
         if (!result.error && action) await audit(env, request, { orgId, action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version ?? null, name: typeof input?.name === 'string' ? input.name : null, ...(result.merged?{forkId:result.forkId,checksum:result.checksum,changed:result.changed??null,replay:Boolean(result.replay)}:{}) } });
         return result.error ? fail(result) : json(result);
       };
       if (sub === 'database') {
-        if (request.method === 'GET') return json({ ...(await databaseView(env.DB, orgId, app)), ...(await readFork(env.DB, orgId, appId, me)) });
+        if (!await mayUseDatabase(env.DB, orgId, appId, me)) return json({message:'No such app.'},404);
+        if (request.method === 'GET') return respond({ ...(await databaseView(env.DB, orgId, app)), ...(await readFork(env.DB, orgId, appId, me)) });
         if (request.method !== 'POST') return json({ message: 'Method not allowed.' },405);
         if (!canManage) return json({ message: 'Only its maker or an admin can develop this app.' },403);
-        if (input.action === 'generate') return respond(await generateMigration(await withAppRoomGuidelines(input.prompt), await databaseView(env.DB, orgId, app), await completer(env, orgId, me, 'app_database_generate', { maxTokens: 4000 })));
-        if (input.action === 'preview') return respond(await previewMigration(env.DB, orgId, app, input));
+        if (input.action === 'generate') {
+          const schema=await databaseView(env.DB,orgId,app), ids=schema.entities.map(entity=>entity.table?.id).filter(Boolean);
+          if (!await mayUseDatabase(env.DB,orgId,appId,me,ids,true)) return json({message:'No such app.'},404);
+          const result=await generateMigration(await withAppRoomGuidelines(input.prompt),schema,await completer(env,orgId,me,'app_database_generate',{maxTokens:4000}));
+          if (!await mayUseDatabase(env.DB,orgId,appId,me,ids,true)) return json({message:'No such app.'},404);
+          return respond(result);
+        }
+        if (input.action === 'preview') return respond(await previewMigration(env.DB, orgId, app, input, me));
         if (input.action === 'migrate') return respond(await applyMigration(env.DB, orgId, app, input, me), 'app.database_migrated');
         if (input.action === 'fork') return respond(await forkDatabase(env.DB, orgId, app, me), 'app.database_forked');
         if (input.action === 'merge_preview') { const result=await previewMerge(env.DB,orgId,app,me,input); const {snapshots,...review}=result; return respond(review); }
