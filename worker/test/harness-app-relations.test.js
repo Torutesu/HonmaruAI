@@ -206,3 +206,15 @@ test('fork edit response rechecks its original table after app table changes dur
   expect(response.status).toBe(404);
   expect(JSON.stringify(await response.json())).not.toContain('old table secret');
 });
+
+test('fork creation safely rejects a primary table changed before snapshot read',async()=>{
+  const {forkDatabase}=await import('../src/harness/appDatabase.js');
+  const replacement=(await (await call('/apps',owner,{name:'Replacement',columns:[{name:'Name',type:'text'}]})).json()).app;
+  let injected=false;
+  const racing={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+    if(!injected){injected=true;await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(replacement.tableId,orgId,app.id).run()}
+    return env.DB.batch(statements);
+  }};
+  expect(await forkDatabase(racing,orgId,app,'8101')).toMatchObject({status:409});
+  expect(await env.DB.prepare('SELECT id FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(orgId,app.id,'8101').first()).toBeNull();
+});
