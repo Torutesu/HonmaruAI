@@ -118,6 +118,9 @@ test('the selected sample count is part of generation retry identity',async()=>{
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE org_id=? AND table_id=?').bind(org,made.tableId).first()).n).toBe(1);
  expect((await createRequest('/apps/generate',owner,input)).status).toBe(200);
  expect((await createRequest('/apps/generate',owner,{...input,sampleCount:2})).status).toBe(409);
+ const capped=await createRequest('/apps/generate',owner,{prompt:'請求書を管理。サンプルデータを追加、1件まで',requestId:'sample_count_cap_request_001',sampleCount:5,useModel:false});
+ expect(capped.status).toBe(201);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE org_id=? AND table_id=?').bind(org,(await capped.json()).app.tableId).first()).n).toBe(1);
 });
 test('an invalid generated board fails before publishing an app',async()=>{
  const {generateApp}=await import('../src/harness/appGeneration.js');

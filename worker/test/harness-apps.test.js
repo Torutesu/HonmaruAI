@@ -345,7 +345,7 @@ test("app generation rejects invalid sample limits before creating an app", asyn
   expect((await send("POST", "/apps/generate", mika, {orgId:ORG,prompt:"請求書とサンプルデータを追加",useModel:false})).status).toBe(400);
   expect((await send("POST", "/apps/generate", mika, {orgId:ORG,prompt:"請求書とサンプルデータを追加",sampleCount:0,useModel:false})).status).toBe(400);
   expect((await send("POST", "/apps/generate", mika, {orgId:ORG,prompt:"請求書を管理。サンプルデータは不要",sampleCount:2,useModel:false})).status).toBe(400);
-  for (const instruction of ["サンプルデータは作る前に相談して", "サンプルデータは追加前に確認", "サンプルデータは承認後に作成"]) {
+  for (const instruction of ["サンプルデータは作る前に相談して", "サンプルデータは追加前に確認", "サンプルデータは承認後に作成", "サンプルデータの追加は相談してから決める", "Create sample data only after approval"]) {
     expect((await send("POST", "/apps/generate", mika, {orgId:ORG,prompt:`請求書を管理。${instruction}`,sampleCount:5,useModel:false})).status).toBe(400);
   }
   expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=?").bind(ORG).first()).n).toBe(0);

@@ -14,7 +14,7 @@ const digest = async value => [...new Uint8Array(await crypto.subtle.digest('SHA
 const sampleIntent = prompt => {
   const text=prompt.normalize('NFKC');
   const positive=/(?:サンプル|見本|ダミー)(?:データ|レコード|行)|\b(?:sample|example|dummy)\s+(?:data|rows?|records?|entries)\b/iu.test(text);
-  const negative=/(?:サンプル|見本|ダミー|初期データ)[^、。,，.!！?？;；\n]{0,30}(?:不要|なし|ない|ません|せず|禁止|やめ|後日|後で|0件|零件|ゼロ|空)|(?:サンプル|見本|ダミー|初期データ)[^。.!！?？;；\n]{0,45}(?:前に(?:相談|確認|承認)|承認後|確認後)|(?:ただし|しかし|まだ|今は)[^。.!！?？;；\n]{0,35}(?:ない|ません|せず|禁止|後日|後で)|\b(?:no|without|never|don't|not)\b[^。.!！?？;；\n]{0,35}\b(?:sample|example|dummy|rows?|records?)\b|\b(?:sample|example|dummy)\b[^。.!！?？;；\n]{0,30}\b(?:not needed|not required|omitted|excluded|removed|later|future)\b|\b(?:no|zero|0)\s+(?:rows?|records?|entries|data)\b/iu.test(text);
+  const negative=/(?:サンプル|見本|ダミー|初期データ)[^、。,，.!！?？;；\n]{0,30}(?:不要|なし|ない|ません|せず|禁止|やめ|後日|後で|0件|零件|ゼロ|空)|(?:サンプル|見本|ダミー|初期データ)[^。.!！?？;；\n]{0,45}(?:前に(?:相談|確認|承認)|承認後|確認後|(?:相談|確認|承認)してから)|(?:ただし|しかし|まだ|今は)[^。.!！?？;；\n]{0,35}(?:ない|ません|せず|禁止|後日|後で)|\b(?:no|without|never|don't|not)\b[^。.!！?？;；\n]{0,35}\b(?:sample|example|dummy|rows?|records?)\b|\b(?:sample|example|dummy)\b[^。.!！?？;；\n]{0,45}\b(?:not needed|not required|omitted|excluded|removed|later|future|after (?:approval|confirmation)|confirm first|ask first)\b|\b(?:no|zero|0)\s+(?:rows?|records?|entries|data)\b/iu.test(text);
   return {positive,negative};
 };
 // A stated upper bound can only reduce the explicitly selected UI/API limit.
@@ -23,7 +23,7 @@ const sampleLimitInPrompt = prompt => {
   const patterns=[
     /(?:サンプル|見本|ダミー)(?:データ|レコード|行)[^、。,，.!！?？;；\n]{0,24}?([0-9]+|[一二三四五六七八九十]+|ひと)\s*(?:件|行|レコード|つ|個|例)/gu,
     /([0-9]+|[一二三四五六七八九十]+|ひと)\s*(?:件|行|レコード|つ|個|例)[^、。,，.!！?？;；\n]{0,12}?(?:サンプル|見本|ダミー)(?:データ|レコード|行)/gu,
-    /(?:^|[、。,，.!！?？;；\n])\s*(?:ただし\s*)?([0-9]+|[一二三四五六七八九十]+|ひと)\s*(?:件|行|レコード|つ|個|例)\s*(?:だけ|のみ)/gu,
+    /(?:^|[、。,，.!！?？;；\n])\s*(?:ただし\s*)?([0-9]+|[一二三四五六七八九十]+|ひと)\s*(?:件|行|レコード|つ|個|例)\s*(?:だけ|のみ|まで)/gu,
     /\b([0-9]+|a single|a|an|one|two|three)\s+(?:sample|example|dummy)\s+(?:rows?|records?|entries|items?)\b/giu,
     /\b(?:sample|example|dummy)\s+(?:data|rows?|records?|entries|items?)[^、。,，.!！?？;；\n]{0,20}?\b(?:a\s+)?([0-9]+|single|one|two|three)\s+(?:rows?|records?|entries|items?)\b/giu,
     /\bonly\s+([0-9]+|one|two|three)\s+(?:rows?|records?|entries|items?)\b/giu,
