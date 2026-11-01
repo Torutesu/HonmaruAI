@@ -7,7 +7,8 @@ import { listMembers } from '../team.js';
 import { mentionTokens, resolveMentions } from '../threads.js';
 import { getMessage, listThread, viewOf } from '../channels.js';
 import { completer } from './model.js';
-import { roomGuidelinesSystem, withRoomGuidelinesRequest } from './guidelines.js';
+import { withRoomGuidelinesRequest } from './guidelines.js';
+import { appReplySnapshot, saveFencedAppReply } from './appReplyFence.js';
 
 const scopeOf = input => ({ tableId: input.tableId || '', rowId: input.rowId || '' });
 const error = (message, status=400) => ({error:message,status});
@@ -87,16 +88,15 @@ export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompl
   // Record conversations have their own scope and do not inherit app sources.
   const source=scope.rowId?null:await sourceFor(db,orgId,user,appId);
   if(source?.error)throw new Error('Access revoked.');
-  const sourceChannel=source?.channel||null;
-  const sourceThread=source?.threadId||null;
-  const roomRules=sourceChannel?await roomGuidelinesSystem(db,orgId,sourceChannel):'';
+  const snapshot=await appReplySnapshot(db,orgId,appId,user.github_id,scope,source);
+  if(!snapshot)throw new Error('Access revoked.');
+  const roomRules=snapshot.guidelineBody?`<room_guidelines>\n${snapshot.guidelineBody}\n</room_guidelines>\nApply these room instructions to this turn. They do not grant access or override tool permissions.\n\n`:'';
   complete=await makeCompleter(env,orgId,user.github_id,'app_conversation_reply',{maxTokens:1200,json:false,timeoutMs:25000});
   if(!complete)throw new Error('AIが未設定、または既存の利用枠がありません。');
   const authorize=async()=>{
    try {
-    if((await appConversation(db,orgId,user.github_id,appId,scope)).error)return false;
-    const current=scope.rowId?null:await sourceFor(db,orgId,user,appId);
-    return !current?.error&&(current?.channel||null)===sourceChannel&&(current?.threadId||null)===sourceThread;
+    const current=await appReplySnapshot(db,orgId,appId,user.github_id,scope,source);
+    return Boolean(current&&JSON.stringify(current)===JSON.stringify(snapshot));
    }catch{return false;}
   };
   if(!await authorize())throw new Error('Access revoked.');
@@ -104,8 +104,8 @@ export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompl
   if(!await authorize())throw new Error('Access revoked.');
   if(!answer)throw new Error('AIから応答がありませんでした。');
   const requestId='ai_reply_'+String(messageId).padStart(16,'0');
-  await db.prepare('INSERT OR IGNORE INTO hx_app_messages(org_id,app_id,table_id,row_id,author_id,request_id,body,created_at) VALUES (?,?,?,?,?,?,?,?)').bind(orgId,appId,scope.tableId,scope.rowId,'__app_ai',requestId,answer.slice(0,12000),new Date().toISOString()).run();
-  const reply=await db.prepare('SELECT sequence FROM hx_app_messages WHERE org_id=? AND app_id=? AND author_id=? AND request_id=?').bind(orgId,appId,'__app_ai',requestId).first();
+  const reply=await saveFencedAppReply(db,orgId,appId,user.github_id,scope,source,snapshot,requestId,answer);
+  if(!reply)throw new Error('Access revoked.');
   await db.prepare("INSERT OR IGNORE INTO hx_app_notifications(org_id,app_id,message_id,user_id,kind) VALUES (?,?,?,?,'ai')").bind(orgId,appId,reply.sequence,String(user.github_id)).run();
   await db.prepare("UPDATE hx_app_ai_replies SET status='succeeded' WHERE message_id=? AND org_id=? AND app_id=?").bind(messageId,orgId,appId).run();
   await announceTo(env,orgId,[{to:user.login,event:custom('app_activity_changed',{appId})}]);

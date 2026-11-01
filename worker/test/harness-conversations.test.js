@@ -481,6 +481,81 @@ test('source added during model generation discards the answer',async()=>{
  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE author_id='__app_ai' AND body='Must not be published'").first()).n).toBe(0);
 });
 
+async function guidelineReplyFixture(actor='9201',body='Use approved wording'){
+ const {appConversation}=await import('../src/harness/appConversations.js');
+ const root=await privateSource();
+ if(actor==='9202')await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?,'b:confidential','user9202',?)").bind(org,new Date().toISOString()).run();
+ await env.DB.prepare("INSERT INTO hx_app_conversation_sources(org_id,app_id,channel,thread_id,created_by) VALUES (?,?,'b:confidential',?,'9201')").bind(org,app.id,root.id).run();
+ await env.DB.prepare("INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES (?,'b:confidential',?,1,'9201','2026-01-01T00:00:00.000Z')").bind(org,body).run();
+ const input={body:'@AI help',requestId:'guide_fence_request_01'},saved=await appConversation(env.DB,org,actor,app.id,input,true);
+ return {input,saved,user:{github_id:actor,login:'user'+actor}};
+}
+
+test('ordinary room members receive replies using the authorized guideline snapshot',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {input,saved,user}=await guidelineReplyFixture('9202');
+ const model=vi.fn().mockResolvedValue('Approved');
+ await replyToApp(env,org,user,app.id,input,saved.messageId,{makeCompleter:async()=>model});
+ expect(model).toHaveBeenCalledOnce();expect(model.mock.calls[0][0]).toContain('Use approved wording');
+ expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'succeeded'});
+});
+
+test('an empty guideline is a valid authorized snapshot',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {input,saved,user}=await guidelineReplyFixture('9201','');const model=vi.fn().mockResolvedValue('Approved');
+ await env.DB.prepare("DELETE FROM hx_room_guidelines WHERE org_id=? AND channel='b:confidential'").bind(org).run();
+ await replyToApp(env,org,user,app.id,input,saved.messageId,{makeCompleter:async()=>model});
+ expect(model).toHaveBeenCalledOnce();expect(model.mock.calls[0][0]).not.toContain('<room_guidelines>');
+ expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'succeeded'});
+});
+
+test('guideline changes while preparing the model stop the call and release its reservation',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {input,saved,user}=await guidelineReplyFixture();
+ const model=vi.fn().mockResolvedValue('Must not run'),dispose=vi.fn().mockResolvedValue(undefined);model.dispose=dispose;
+ await replyToApp(env,org,user,app.id,input,saved.messageId,{makeCompleter:async()=>{
+  await env.DB.prepare("UPDATE hx_room_guidelines SET body='New rules',version=version+1 WHERE org_id=? AND channel='b:confidential'").bind(org).run();return model;
+ }});
+ expect(model).not.toHaveBeenCalled();expect(dispose).toHaveBeenCalledOnce();
+ expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'failed'});
+});
+
+test('a version-only guideline change prevents starting the model',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {input,saved,user}=await guidelineReplyFixture();const model=vi.fn().mockResolvedValue('Must not run');
+ await replyToApp(env,org,user,app.id,input,saved.messageId,{makeCompleter:async()=>{
+  await env.DB.prepare("UPDATE hx_room_guidelines SET version=version+1 WHERE org_id=? AND channel='b:confidential'").bind(org).run();return model;
+ }});
+ expect(model).not.toHaveBeenCalled();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'failed'});
+});
+
+test('clearing guidelines during generation discards the reply',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {input,saved,user}=await guidelineReplyFixture();
+ await replyToApp(env,org,user,app.id,input,saved.messageId,{makeCompleter:async()=>async()=>{
+  await env.DB.prepare("UPDATE hx_room_guidelines SET body='',version=version+1 WHERE org_id=? AND channel='b:confidential'").bind(org).run();return 'Must not be published';
+ }});
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE author_id='__app_ai'").first()).n).toBe(0);
+ expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'failed'});
+});
+
+test('guideline changes at reply INSERT reject the result in the same SQL snapshot',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {input,saved,user}=await guidelineReplyFixture();let injected=false;
+ const db={prepare(sql){const stmt=env.DB.prepare(sql);if(!sql.startsWith('INSERT OR IGNORE INTO hx_app_messages'))return stmt;
+  return {bind(...args){const bound=stmt.bind(...args);return {async run(){injected=true;await env.DB.prepare("UPDATE hx_room_guidelines SET body='Changed',version=version+1 WHERE org_id=? AND channel='b:confidential'").bind(org).run();return bound.run()}}}}},batch:env.DB.batch.bind(env.DB)};
+ await replyToApp({...env,DB:db},org,user,app.id,input,saved.messageId,{makeCompleter:async()=>async()=>'Must not be published'});
+ expect(injected).toBe(true);expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE author_id='__app_ai'").first()).n).toBe(0);
+ expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'failed'});
+});
+
+test('duplicate AI reply jobs invoke the model and save the reply only once',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {input,saved,user}=await guidelineReplyFixture(),model=vi.fn().mockResolvedValue('One answer');
+ await Promise.all([replyToApp(env,org,user,app.id,input,saved.messageId,{makeCompleter:async()=>model}),replyToApp(env,org,user,app.id,input,saved.messageId,{makeCompleter:async()=>model})]);
+ expect(model).toHaveBeenCalledOnce();expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE author_id='__app_ai'").first()).n).toBe(1);
+});
+
 test('long room guidelines do not replace the app request or determine its fallback template',async()=>{
  const root=await privateSource();
  const rule=('営業・請求書・カレンダー。担当者は自由記述。'+'規'.repeat(4096)).slice(0,4096);
