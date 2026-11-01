@@ -10,7 +10,7 @@ vi.mock('./HarnessShared', async importOriginal => ({
   useApi: () => state.api,
 }))
 vi.mock('../utils/i18n', () => {
-  const identity = (text: string) => text
+  const identity = (text: string, values?: Record<string, unknown>) => text.replace(/\{(\w+)\}/g, (match, key) => values?.[key] == null ? match : String(values[key]))
   return { useT: () => identity }
 })
 vi.mock('../utils/appPins', () => ({ useAppPins: () => ({ pins: [], toggle: vi.fn() }) }))
@@ -44,6 +44,66 @@ beforeEach(() => {
   }
 })
 afterEach(() => { if (tree) act(() => tree!.unmount()); tree = undefined; vi.unstubAllGlobals() })
+
+test.each(['table','board','calendar'] as const)('record search filters the %s view and updates its count', async type => {
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const today = new Date()
+  const date = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
+  const alpha = {id:'a',values:{title:'Alpha',stage:'Open',due:date,customer:'customer_a'},updatedAt:'2026-01-01T00:00:00Z'}
+  const beta = {id:'b',values:{title:'Beta',stage:'Done',customer:'customer_b'},updatedAt:'2026-01-01T00:00:00Z'}
+  const gamma = {id:'c',values:{title:'Gamma'},updatedAt:'2026-01-01T00:00:00Z'}
+  const excluded = {id:'d',values:{title:'Excluded'},updatedAt:'2026-01-01T00:00:00Z'}
+  // The server has already applied a saved filter; Excluded is in the table,
+  // but never in this view. Gamma is both unclassified and undated.
+  const view = {id:'main',type,name:'Main',groupBy:'stage',dateColumn:'due',rows:[alpha,beta,gamma],lanes:[{key:'Open',rows:[alpha]},{key:'Done',rows:[beta]},{key:null,rows:[gamma]}],days:[{date,rows:[alpha]}],undated:[beta,gamma]}
+  state.api = {
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'},{id:'stage',name:'Stage',type:'select',options:['Open','Done']},{id:'due',name:'Due',type:'date'},{id:'customer',name:'Customer',type:'relation',targetEntity:'customers'}]},rows:[alpha,beta,gamma,excluded],views:[view],canCustomize:true}),
+    appDatabase:vi.fn().mockResolvedValue({entities:[{key:'customers',table:{id:'customers',name:'Customers',columns:[{id:'name',name:'Name',type:'text'}]}}]}),
+    entityRows:vi.fn().mockResolvedValue({rows:[{id:'customer_a',values:{name:'Acme'},updatedAt:''},{id:'customer_b',values:{name:'Globex'},updatedAt:''}]}),
+    personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'main',views:[],computed:[],layouts:{}}),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  const input=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Search records')!
+  const visible=(id:string)=>type==='table'?tree!.root.findAllByProps({'data-row':id}).length:tree!.root.findAllByProps({'aria-label':`${({a:'Alpha',b:'Beta',c:'Gamma',d:'Excluded'} as Record<string,string>)[id]}の詳細を開く`}).length
+  expect(visible('a')).toBe(1);expect(visible('b')).toBe(1);expect(visible('c')).toBe(1);expect(visible('d')).toBe(0)
+  act(()=>input().props.onChange({target:{value:'bEtA'}}))
+  expect(visible('a')).toBe(0);expect(visible('b')).toBe(1)
+  expect(JSON.stringify(tree!.toJSON())).toContain('1 records')
+  act(()=>input().props.onChange({target:{value:'globex'}}))
+  expect(visible('a')).toBe(0);expect(visible('b')).toBe(1)
+  act(()=>input().props.onChange({target:{value:'gamma'}}))
+  expect(visible('a')).toBe(0);expect(visible('b')).toBe(0);expect(visible('c')).toBe(1)
+  expect(JSON.stringify(tree!.toJSON())).toContain('1 records')
+  act(()=>input().props.onChange({target:{value:'Excluded'}}))
+  expect(visible('a')).toBe(0);expect(visible('b')).toBe(0);expect(visible('c')).toBe(0);expect(visible('d')).toBe(0)
+  expect(JSON.stringify(tree!.toJSON())).toContain('0 records')
+  act(()=>input().props.onChange({target:{value:''}}))
+  expect(visible('a')).toBe(1);expect(visible('b')).toBe(1);expect(visible('c')).toBe(1);expect(visible('d')).toBe(0)
+  expect(JSON.stringify(tree!.toJSON())).toContain('3 records')
+  expect(state.api.updateRow).toBeUndefined()
+})
+
+test('the metrics view does not offer a search that cannot filter its aggregates', async () => {
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const row={id:'a',values:{title:'Alpha'},updatedAt:''}
+  const tableView={id:'all',type:'table',name:'All',rows:[row]}
+  const metrics={id:'metrics',type:'metrics',name:'Metrics',values:[{label:'Total',op:'count',value:1}]}
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[tableView,metrics]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[row],views:[tableView,metrics],canCustomize:true}),
+    personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'all',views:[],computed:[],layouts:{}}),
+    savePersonalViews:vi.fn(async (_id, value)=>({...value,revision:value.revision+1})),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  const search=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Search records')
+  act(()=>search()!.props.onChange({target:{value:'Alpha'}}))
+  await act(async()=>{tree!.root.findAllByProps({role:'tab'})[1].props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(search()).toBeUndefined()
+  expect(JSON.stringify(tree!.toJSON())).toContain('Total')
+  await act(async()=>{tree!.root.findAllByProps({role:'tab'})[0].props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(search()!.props.value).toBe('Alpha')
+})
 const button = (label: string) => tree!.root.findAllByType('button').find(node => node.props.children === label)!
 test('Remote MCP server settings are available from the Harness Apps library', async () => {
   await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
