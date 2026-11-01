@@ -55,7 +55,7 @@ test('an eviction before attachment invalidates an in-flight join even if access
   f=fixture({onPut:async()=>{if(!invalidated){invalidated=true;invalidateJamJoins(f.relay,org,channel);}}});
   await handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
   expect(invalidated).toBe(true);
-  expect(f.ws.deserializeAttachment().jam).toBeNull();
+  expect(f.ws.deserializeAttachment().jam).toBeFalsy();
   expect(f.events.some(event=>event.name==='jam_joined')).toBe(false);
   expect(f.events.some(event=>event.name==='jam_error')).toBe(true);
   expect(f.entries.size).toBe(0);
@@ -260,7 +260,7 @@ test.each(['workspace','canonical-channel','session'])('%s eviction cancels a re
   const run=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
   await waiting;
   if(kind==='workspace')await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,'4101').run();
-  const body=kind==='workspace'?{login:'alice'}:kind==='session'?{sessions:['revoked-session']}:{login:'alice',channel:'dm:alice|bob'};
+  const body=kind==='workspace'?{login:'alice'}:kind==='session'?{sessions:['revoked-session']}:{login:'alice',channel};
   await OrgRelay.prototype.fetch.call(f.relay,new Request(`https://relay.internal/internal/evict?orgId=${org}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}));
   if(kind==='workspace')await upsertMembership(env.DB,org,'4101','member');
   release();await run;
@@ -443,4 +443,78 @@ test('a final transcript is not stored after eviction during storage lookup',asy
  f.ws.serializeAttachment({...f.ws.deserializeAttachment(),jam:null});
  release();await pending;
  expect(f.entries.get(key).transcript).toEqual([]);
+});
+
+test.each(['room','membership','session'])('%s eviction notifies a still-resolving Jam before its lookup returns',async kind=>{
+  const f=fixture();
+  f.ws.serializeAttachment({...f.ws.deserializeAttachment(),session:'active-session'});
+  let release,started,blocked=false;
+  const waiting=new Promise(resolve=>{started=resolve;});
+  f.relay.db=new Proxy(env.DB,{get(db,key){
+    if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+    return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT private, created_at FROM businesses'))return statement;
+      return {bind(...args){const bound=statement.bind(...args);return {async first(){
+        const row=await bound.first();if(!blocked){blocked=true;started();await new Promise(resolve=>{release=resolve;});}return row;
+      }}}};
+    };
+  }});
+  f.relay.refuse=()=>{};
+  const run=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+  await waiting;
+  const body=kind==='room'?{allInChannel:true,channel}:kind==='membership'?{login:'alice',channel}:{sessions:['active-session']};
+  await OrgRelay.prototype.fetch.call(f.relay,new Request(`https://relay.internal/internal/evict?orgId=${org}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}));
+  expect(f.events.some(event=>event.name==='jam_error'&&event.value.channel===channel)).toBe(true);
+  release();await run;
+  expect(f.events.some(event=>event.name==='jam_joined')).toBe(false);
+});
+
+test('evicting one member does not cancel a different member joining the same Jam',async()=>{
+ let started,finish,blocked=false;
+ const waiting=new Promise(resolve=>{started=resolve;});
+ const f=fixture({onPut:async()=>{if(!blocked){blocked=true;started();await new Promise(resolve=>{finish=resolve;});}}});
+ const join=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+ await waiting;
+ const request=new Request(`https://relay.internal/internal/evict?orgId=${org}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({login:'bob',channel})});
+ expect((await OrgRelay.prototype.fetch.call(f.relay,request)).status).toBe(200);
+ expect(f.events.some(event=>event.name==='jam_error')).toBe(false);
+ finish();await join;
+ expect(f.events.some(event=>event.name==='jam_joined')).toBe(true);
+});
+
+test('evicting the same member from a different room does not cancel their current join',async()=>{
+ let started,finish,blocked=false;
+ const waiting=new Promise(resolve=>{started=resolve;});
+ const f=fixture({onPut:async()=>{if(!blocked){blocked=true;started();await new Promise(resolve=>{finish=resolve;});}}});
+ const join=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+ await waiting;
+ const request=new Request(`https://relay.internal/internal/evict?orgId=${org}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({login:'alice',channel:'b:other'})});
+ expect((await OrgRelay.prototype.fetch.call(f.relay,request)).status).toBe(200);
+ expect(f.events.some(event=>event.name==='jam_error')).toBe(false);
+ finish();await join;
+ expect(f.events.some(event=>event.name==='jam_joined')).toBe(true);
+});
+
+test('canonical DM eviction cancels and notifies a join still resolving its display alias',async()=>{
+ await upsertUser(env.DB,{githubId:'4102',login:'bob',name:'Bob'});
+ await upsertMembership(env.DB,org,'4102','member');
+ const {memberRef}=await import('../src/team.js');
+ const view=`dm:${await memberRef(org,'4102')}`;
+ const f=fixture();
+ let release,started,blocked=false;
+ const waiting=new Promise(resolve=>{started=resolve;});
+ f.relay.db=new Proxy(env.DB,{get(db,key){
+   if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+   return sql=>{const statement=db.prepare(sql);if(!sql.includes('SELECT m.user_github_id'))return statement;
+     return {bind(...args){const bound=statement.bind(...args);return {async all(){
+       const rows=await bound.all();if(!blocked){blocked=true;started();await new Promise(resolve=>{release=resolve;});}return rows;
+     }}}};
+   };
+ }});
+ const join=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel:view});
+ await waiting;
+ const request=new Request(`https://relay.internal/internal/evict?orgId=${org}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({login:'alice',channel:'dm:alice|bob'})});
+ expect((await OrgRelay.prototype.fetch.call(f.relay,request)).status).toBe(200);
+ expect(f.events.some(event=>event.name==='jam_error'&&event.value.channel===view)).toBe(true);
+ release();await join;
+ expect(f.events.some(event=>event.name==='jam_joined')).toBe(false);
 });

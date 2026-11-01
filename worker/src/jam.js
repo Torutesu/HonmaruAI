@@ -48,11 +48,22 @@ const joinInvalidations = new WeakMap();
 const joinKey = (orgId, channel) => JSON.stringify([orgId, channel]);
 const joinEpoch = (relay, key) => joinInvalidations.get(relay)?.get(key) || 0;
 
+function cancelJoining(joining, notify = false) {
+  if (joining.cancelled) return;
+  joining.cancelled = true;
+  // A join can be cancelled before it has a Jam attachment, so the regular
+  // eviction path cannot notify it. Tell the client immediately so it can
+  // leave its connecting state and release the microphone.
+  if (notify) reply(joining.ws, customEvent('jam_error', {
+    channel: joining.channel ?? null, message: 'You are no longer in this channel.',
+  }));
+}
+
 // Record evictions even when the joining socket has not attached yet. An
 // authorization read already in flight may otherwise complete with stale data.
 export function invalidateJamJoins(relay, orgId, channel) {
   const key=joinKey(orgId,channel);
-  for(const joining of resolvingJoins.get(relay)?.get(key)||[])if(!joining.locked)joining.cancelled=true;
+  for(const joining of resolvingJoins.get(relay)?.get(key)||[])cancelJoining(joining,true);
   if(!pendingJoins.get(relay)?.has(key))return;
   let epochs=joinInvalidations.get(relay);
   if(!epochs){epochs=new Map();joinInvalidations.set(relay,epochs);}
@@ -60,9 +71,21 @@ export function invalidateJamJoins(relay, orgId, channel) {
 }
 // User-scoped evictions also cover channel aliases (DM/agent display names
 // differ from stored keys) and joins still resolving their canonical channel.
-export function invalidateJamUserJoins(relay, orgId, login) {
+export function invalidateJamUserJoins(relay, orgId, login, channel = null) {
   for(const entries of resolvingJoins.get(relay)?.values()||[])
-    for(const joining of entries)if(joining.orgId===orgId && joining.userId===login)joining.cancelled=true;
+    for(const joining of entries) {
+      if(joining.orgId!==orgId || joining.userId!==login)continue;
+      // A named room/group has the same client and stored key. DM and agent
+      // names differ until lookup resolves, so conservatively cancel a join
+      // of the same kind when its canonical key is still unknown.
+      const raw=joining.channel;
+      if(channel && joining.resolvedKey && joining.resolvedKey!==channel)continue;
+      if(channel && !joining.resolvedKey && typeof raw==='string') {
+        const kind=raw.split(':',1)[0], target=channel.split(':',1)[0];
+        if(kind!==target || ((kind==='b'||kind==='g') && raw!==channel))continue;
+      }
+      cancelJoining(joining,true);
+    }
 }
 async function lockJoin(relay, key) {
   let locks=pendingJoins.get(relay);
@@ -311,7 +334,7 @@ export async function jamStatesFor(relay, orgId, login, githubId) {
 /// One Jam message from a browser. `att` is the socket's attachment, already
 /// signed in.
 const joiningSockets = new WeakMap();
-export function cancelJamSocketJoin(ws) { const joining=joiningSockets.get(ws);if(joining)joining.cancelled=true; }
+export function cancelJamSocketJoin(ws) { const joining=joiningSockets.get(ws);if(joining)cancelJoining(joining,true); }
 function currentJamPeer(ws, att) {
   if (typeof ws.readyState === 'number' && ws.readyState !== 1) return false;
   try {
@@ -326,7 +349,7 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
       reply(ws,customEvent('jam_error',{channel:payload.channel??null,message:'A Jam join is already in progress.'}));
       return;
     }
-    const joining={cancelled:false,orgId:att.orgId,userId:att.userId};
+    const joining={cancelled:false,orgId:att.orgId,userId:att.userId,ws,channel:payload.channel};
     joiningSockets.set(ws,joining);
     // Register before the first membership/channel lookup. Eviction must also
     // cancel a lookup which later returns after the person was re-invited.
@@ -341,7 +364,7 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
   }
   if(type==='jam_leave') {
     const joining=joiningSockets.get(ws);
-    if(joining)joining.cancelled=true;
+    if(joining)cancelJoining(joining);
   }
   return handleJamMessageInner(relay,ws,att,type,payload,null);
 }
@@ -431,6 +454,7 @@ async function handleJamMessageInner(relay, ws, att, type, payload, joining) {
     const resolved = await resolveChannel(relay.db, orgId, { login: att.userId, github_id: att.githubId }, payload.channel, members);
     const refuse = (message) => reply(ws, customEvent("jam_error", { channel: payload.channel ?? null, message }));
     if (!resolved) return refuse("No such channel.");
+    joining.resolvedKey=resolved.key;
     // Leave the previous channel before locking the next one. Holding the next
     // lock while waiting for the previous one would deadlock cross-room swaps.
     att=ws.deserializeAttachment()||att;
@@ -455,7 +479,6 @@ async function handleJamMessageInner(relay, ws, att, type, payload, joining) {
     }
     if(joining.cancelled)return;
     const key=joinKey(orgId,resolved.key);
-    joining.locked=true;
     const locked=lockJoin(relay,key);
     const epoch=joinEpoch(relay,key);
     const unlock=await locked;
