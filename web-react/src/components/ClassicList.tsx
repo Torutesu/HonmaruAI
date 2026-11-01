@@ -91,6 +91,7 @@ import { playSound, setOpenView, rememberLevels, rememberLevel, startRing, stopR
 import { closeMessageNotifications, closeThreadNotifications } from '../utils/notifications'
 import { hasOlder, olderThan } from '../utils/historyPage'
 import { foldedRows, sectionBadge, visibleRows, stepRow, readFolds, writeFolds, withSectionFolds, withFold, unplacedAgents } from '../utils/sidebarSections'
+import { SidebarSync, type LayoutChange } from '../utils/sidebarSync'
 import { placesFrom } from '../utils/places'
 import type { Place as Conversation } from '../utils/places'
 import { useAppearance } from '../utils/appearance'
@@ -451,30 +452,56 @@ export const ClassicList: React.FC<Props> = ({
   // Your own sidebar: what you starred and the sections you made, kept on
   // the server so the laptop and the phone arrange things alike.
   const [layout, setLayout] = useState<SidebarLayout>({ starred: [], sections: [] })
+  // Changes made before the saved layout is in wait for it, and only the
+  // latest save's answer is drawn (utils/sidebarSync).
+  const sidebarSync = useRef(new SidebarSync<SidebarLayout>())
+  const [sidebarReady, setSidebarReady] = useState(false)
+  const layoutNow = useRef(layout)
+  layoutNow.current = layout
   // Which sections are folded: remembered by this browser for the
   // workspace, and your own sections' on the server with the rest of it.
   const [folded, setFolded] = useState<Record<string, boolean>>(() => readFolds(api.orgId))
   useEffect(() => { writeFolds(api.orgId, folded) }, [api.orgId, folded])
+  const putLayout = (sync: SidebarSync<SidebarLayout>, next: SidebarLayout) => {
+    const save = sync.begin()
+    void fetch(`${api.httpBase}/channels/sidebar`, {
+      method: 'PUT', headers: { ...authHeaders, 'content-type': 'application/json' }, body: JSON.stringify({ orgId: api.orgId, sidebar: next }),
+    }).then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.sidebar && sidebarSync.current === sync && sync.latest(save)) setLayout(d.sidebar) }).catch(() => {})
+  }
   useEffect(() => {
     let ignore = false
+    const sync = sidebarSync.current = new SidebarSync<SidebarLayout>()
+    setSidebarReady(false)
     fetch(`${api.httpBase}/channels/sidebar?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : null)).then((d) => {
-        if (ignore || !d?.sidebar) return
-        setLayout(d.sidebar)
-        setFolded((prev) => withSectionFolds(prev, d.sidebar.sections || []))
-      }).catch(() => {})
+        if (ignore) return
+        if (!d?.sidebar) { const save = sync.unavailable(layoutNow.current); if (save) putLayout(sync, save); setSidebarReady(true); return }
+        const { next, save } = sync.arrived(d.sidebar)
+        setLayout(next)
+        setFolded((prev) => withSectionFolds(prev, next.sections || []))
+        setSidebarReady(true)
+        if (save) putLayout(sync, save)
+      }).catch(() => {
+        if (ignore) return
+        const save = sync.unavailable(layoutNow.current)
+        if (save) putLayout(sync, save)
+        setSidebarReady(true)
+      })
     return () => { ignore = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api.httpBase, api.orgId, authHeaders])
-  const saveLayout = (next: SidebarLayout) => {
+  /// A change to your sidebar, as what it does to it: shown at once, and
+  /// saved on top of the saved layout even when made before that arrived.
+  const saveLayout = (change: LayoutChange<SidebarLayout>) => {
+    const sync = sidebarSync.current
+    const { next, save } = sync.change(layout, change)
     // An agent nothing has been said to yet is listed only for being
     // starred or in a section. Unstarred, or put back where it was, it
     // stays listed among the agents: open, it must not vanish from under you.
     const freed = unplacedAgents(layout, next)
     if (freed.length) setStartedAgents((prev) => [...prev, ...freed.filter((id) => !prev.includes(id))])
     setLayout(next)
-    void fetch(`${api.httpBase}/channels/sidebar`, {
-      method: 'PUT', headers: { ...authHeaders, 'content-type': 'application/json' }, body: JSON.stringify({ orgId: api.orgId, sidebar: next }),
-    }).then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.sidebar) setLayout(d.sidebar) }).catch(() => {})
+    if (save) putLayout(sync, save)
   }
   const isStarred = (view: string) => layout.starred.includes(view)
   /// Your channels in the order you dragged them into; any you have not
@@ -500,25 +527,28 @@ export const ClassicList: React.FC<Props> = ({
   }
   /// Not starred and in none of your sections: where it always was.
   const unplaced = (th: { view?: string }) => !th.view || (!layout.starred.includes(th.view) && !layout.sections.some((x) => x.views.includes(th.view!)))
-  const toggleStar = (view: string) => saveLayout({ ...layout, starred: isStarred(view) ? layout.starred.filter((v) => v !== view) : [...layout.starred, view] })
+  // Star or unstar as the person sees it now, whatever the saved layout says.
+  const toggleStar = (view: string) => {
+    const starring = !isStarred(view)
+    saveLayout((base) => ({ ...base, starred: starring ? [...base.starred.filter((v) => v !== view), view] : base.starred.filter((v) => v !== view) }))
+  }
   const sectionOf = (view: string) => layout.sections.find((x) => x.views.includes(view)) || null
   /// Into one of your sections (or back where it came from, with null).
-  const moveTo = (view: string, sectionId: string | null) => saveLayout({
+  const moveTo = (view: string, sectionId: string | null) => saveLayout((layout) => ({
     ...layout,
     // A conversation has one place in the sidebar. Moving a starred item
     // into a personal section must unstar it too; otherwise the section
     // renderer hides it as a duplicate and leaves the destination empty.
     starred: layout.starred.filter((v) => v !== view),
     sections: layout.sections.map((x) => ({ ...x, views: x.id === sectionId ? [...x.views.filter((v) => v !== view), view] : x.views.filter((v) => v !== view) })),
-  })
+  }))
   const newSection = (name: string, view?: string) => {
     const id = Math.random().toString(36).slice(2, 10)
-    const sections = layout.sections.map((x) => ({ ...x, views: view ? x.views.filter((v) => v !== view) : x.views }))
-    saveLayout({
+    saveLayout((layout) => ({
       ...layout,
       starred: view ? layout.starred.filter((v) => v !== view) : layout.starred,
-      sections: [...sections, { id, name, views: view ? [view] : [] }],
-    })
+      sections: [...layout.sections.map((x) => ({ ...x, views: view ? x.views.filter((v) => v !== view) : x.views })), { id, name, views: view ? [view] : [] }],
+    }))
   }
   /// Fold a section, or open it again. One of your own is saved folded on
   /// the server too, so the phone and the laptop agree — that flag and
@@ -1547,18 +1577,18 @@ export const ClassicList: React.FC<Props> = ({
   const starredThreads = layout.starred.map(byView).filter((x): x is Thread => Boolean(x))
   const sidebarGroups: SidebarSection[] = [
     // Starred first, then your sections; what they hold leaves the defaults.
-    ...(starredThreads.length > 0 ? [{ id: 'starred', label: t('Starred'), items: starredThreads, empty: '', reorder: (views: string[]) => saveLayout({ ...layout, starred: views }) }] : []),
+    ...(starredThreads.length > 0 ? [{ id: 'starred', label: t('Starred'), items: starredThreads, empty: '', reorder: (views: string[]) => saveLayout((layout) => ({ ...layout, starred: views })) }] : []),
     ...layout.sections.map((x) => ({
       id: `sec:${x.id}`,
       label: x.name,
       items: x.views.map(byView).filter((th): th is Thread => Boolean(th) && !isStarred(th!.view!)),
       empty: t('Move a conversation here from its header.'),
       action: (
-        <button type="button" className="cl-add cl-section-remove" onClick={() => { if (window.confirm(t('Remove the section “{name}”? Its conversations go back where they were.', { name: x.name }))) saveLayout({ ...layout, sections: layout.sections.filter((y) => y.id !== x.id) }) }} aria-label={t('Remove section')} title={t('Remove section')}>
+        <button type="button" className="cl-add cl-section-remove" onClick={() => { if (window.confirm(t('Remove the section “{name}”? Its conversations go back where they were.', { name: x.name }))) saveLayout((layout) => ({ ...layout, sections: layout.sections.filter((y) => y.id !== x.id) })) }} aria-label={t('Remove section')} title={t('Remove section')}>
           <Icon name="x" size={12} />
         </button>
       ),
-      reorder: (views: string[]) => saveLayout({ ...layout, sections: layout.sections.map((y) => (y.id === x.id ? { ...y, views: [...views, ...y.views.filter((v) => !views.includes(v))] } : y)) }),
+      reorder: (views: string[]) => saveLayout((layout) => ({ ...layout, sections: layout.sections.map((y) => (y.id === x.id ? { ...y, views: [...views, ...y.views.filter((v) => !views.includes(v))] } : y)) })),
     })),
     {
       id: 'channels', label: t('Channels'), items: inYourOrder(channels.filter(unplaced)),
@@ -1566,7 +1596,7 @@ export const ClassicList: React.FC<Props> = ({
       action: addChannel, below: addChannelForm,
       // Drag to reorder: the channels shown here in their new order,
       // then any placed elsewhere, as they were.
-      reorder: (views: string[]) => saveLayout({ ...layout, order: [...views, ...inYourOrder(channels).map((th) => th.view!).filter((v) => v && !views.includes(v))] }),
+      reorder: (views: string[]) => saveLayout((layout) => ({ ...layout, order: [...views, ...inYourOrder(channels).map((th) => th.view!).filter((v) => v && !views.includes(v))] })),
     },
     { id: 'people', label: t('Direct messages'), items: people.filter(unplaced), empty: t('Nobody has sent you a decision yet.') },
     ...(agents.length > 0 ? [{ id: 'agents', label: t('Agents'), items: agentConvos.filter(unplaced), empty: t('Talk to one of your team’s agents: it answers you here.'), action: addAgent, below: agentPicker }] : []),
@@ -5899,7 +5929,7 @@ export const ClassicList: React.FC<Props> = ({
 
   return (
     <div ref={interactionRoot} className={`classic slk${current || special ? ' in-thread' : ''}${phoneRoot ? ' phone-root' : ''}${detail || thread || profile ? ' with-pane' : ''}${sourceThreadApp ? ' hx-thread-app' : ''}${harness && thread && !detail && !profile && !activityOpen ? ' hx-focused-thread' : ''}${sideHidden ? ' side-hidden' : ''}${density === 'compact' ? ' compact' : ''}`} onClick={onMentionClick} onKeyDown={onMentionKey}>
-      <aside className="slk-side" aria-label={t('Conversations')}>
+      <aside className="slk-side" aria-label={t('Conversations')} data-sidebar-ready={sidebarReady ? '1' : undefined}>
         {!wide && phoneTab === 'dms' ? dmsView() : <>
         {harness ? <>
           <header className="hx-chat-top"><h1>{t('Chat')}</h1><button onClick={() => setStarting('menu')} aria-label={t('New message')}><Icon name="plus" size={17} /></button></header>
