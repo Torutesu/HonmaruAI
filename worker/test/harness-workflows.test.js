@@ -134,6 +134,97 @@ test("a row turning overdue runs the workflow: it posts, waits on a person's app
   expect((await messages(mika)).map((m) => m.body)).toContain("Reminder to Acme approved: Approved by Toru");
 });
 
+test.each(['row', 'app_record_change'])('a %s event updates its actual record when a user ID column points to another row', async triggerType => {
+  const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, name: 'Identity collision', columns: [
+    { name: 'Name', type: 'text' }, { name: 'ID', type: 'text' }, { name: 'Status', type: 'select', options: ['Ready', 'Triggered', 'Done'] },
+  ] })).json();
+  const path = `/tables/${app.tableId}/rows`;
+  const other = (await (await send('POST', path, mika, { orgId: ORG, values: { Name: 'Other', Status: 'Ready' } })).json()).row;
+  const source = (await (await send('POST', path, mika, { orgId: ORG, values: { Name: 'Source', ID: other.id, Status: 'Ready' } })).json()).row;
+  const trigger = triggerType === 'row' ? { type: 'row', tableId: app.tableId, on: 'changed' }
+    : { type: 'app_record_change', appId: app.id, entityId: 'primary', events: ['update'] };
+  const identity = triggerType === 'row' ? '{{input.recordId}}' : '{{input.records.0.recordId}}';
+  const made = await send('POST', '/workflows', mika, { orgId: ORG, name: `Collision ${triggerType}`, trigger, steps: [
+    { type: 'post', channel: 'b:ops', text: `Field {{row.id}}, record ${identity}` },
+    { type: 'update_row', values: { Status: 'Done' } },
+  ] });
+  expect(made.status).toBe(201);
+  const { workflow } = await made.json();
+  expect((await send('PATCH', `${path}/${source.id}`, mika, { orgId: ORG, values: { Status: 'Triggered' } })).status).toBe(200);
+  const runs = (await (await get(`/workflows/${workflow.id}?${q({ orgId: ORG })}`, mika)).json()).runs;
+  expect(runs).toHaveLength(1);
+  expect(runs[0].status).toBe('done');
+  expect(runs[0].log[1].rowId).toBe(source.id);
+  if (triggerType === 'row') expect(runs[0].input).toMatchObject({ recordId: source.id, row: { id: other.id } });
+  else expect(runs[0].input.records[0].recordId).toBe(source.id);
+  expect((await messages(mika)).map(message => message.body)).toContain(`Field ${other.id}, record ${source.id}`);
+  const rows = (await (await get(`/tables/${app.tableId}?${q({ orgId: ORG })}`, mika)).json()).rows;
+  expect(rows.find(row => row.id === source.id).values.status).toBe('Done');
+  expect(rows.find(row => row.id === other.id).values.status).toBe('Ready');
+});
+
+test('explicit row ID templates keep using the user column value', async () => {
+  const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, name: 'Explicit target', columns: [
+    { name: 'Name', type: 'text' }, { name: 'ID', type: 'text' }, { name: 'Status', type: 'text' },
+  ] })).json();
+  const path = `/tables/${app.tableId}/rows`;
+  const other = (await (await send('POST', path, mika, { orgId: ORG, values: { Name: 'Other', Status: 'Ready' } })).json()).row;
+  const source = (await (await send('POST', path, mika, { orgId: ORG, values: { Name: 'Source', ID: other.id, Status: 'Ready' } })).json()).row;
+  const { workflow } = await (await send('POST', '/workflows', mika, { orgId: ORG, name: 'Chosen target', trigger: { type: 'row', tableId: app.tableId, on: 'changed' }, steps: [
+    { type: 'update_row', rowId: '{{row.id}}', values: { Status: 'Done' } },
+  ] })).json();
+  await send('PATCH', `${path}/${source.id}`, mika, { orgId: ORG, values: { Status: 'Triggered' } });
+  const run = (await (await get(`/workflows/${workflow.id}?${q({ orgId: ORG })}`, mika)).json()).runs[0];
+  expect(run).toMatchObject({ status: 'done', log: [{ rowId: other.id }] });
+  const rows = (await (await get(`/tables/${app.tableId}?${q({ orgId: ORG })}`, mika)).json()).rows;
+  expect(rows.find(row => row.id === source.id).values.status).toBe('Triggered');
+  expect(rows.find(row => row.id === other.id).values.status).toBe('Done');
+});
+
+test('manual runs retain their supplied row context', async () => {
+  const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, name: 'Manual row', columns: [
+    { name: 'Name', type: 'text' }, { name: 'Status', type: 'text' },
+  ] })).json();
+  const path = `/tables/${app.tableId}/rows`;
+  const row = (await (await send('POST', path, mika, { orgId: ORG, values: { Name: 'Target', Status: 'Ready' } })).json()).row;
+  const { workflow } = await (await send('POST', '/workflows', mika, { orgId: ORG, name: 'Manual target', trigger: { type: 'manual' }, steps: [
+    { type: 'update_row', values: { Status: 'Done' } },
+  ] })).json();
+  const response = await send('POST', `/workflows/${workflow.id}/run`, mika, { orgId: ORG, input: { tableId: app.tableId, row: { id: row.id } } });
+  expect((await response.json()).run).toMatchObject({ status: 'done', log: [{ rowId: row.id }] });
+  const rows = (await (await get(`/tables/${app.tableId}?${q({ orgId: ORG })}`, mika)).json()).rows;
+  expect(rows.find(item => item.id === row.id).values.status).toBe('Done');
+});
+
+test.each([false, true])('approval resume uses the saved record ID and rejects a legacy missing ID (legacy: %s)', async legacy => {
+  const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, name: 'Legacy identity', columns: [
+    { name: 'Name', type: 'text' }, { name: 'ID', type: 'text' }, { name: 'Status', type: 'text' },
+  ] })).json();
+  const path = `/tables/${app.tableId}/rows`;
+  const other = (await (await send('POST', path, mika, { orgId: ORG, values: { Name: 'Other', Status: 'Ready' } })).json()).row;
+  const source = (await (await send('POST', path, mika, { orgId: ORG, values: { Name: 'Source', ID: other.id, Status: 'Ready' } })).json()).row;
+  const { workflow } = await (await send('POST', '/workflows', mika, { orgId: ORG, name: 'Legacy approval', trigger: { type: 'row', tableId: app.tableId, on: 'changed' }, steps: [
+    { type: 'approval', to: 'toru', title: 'Update the record?' }, { type: 'update_row', values: { Status: 'Done' } },
+  ] })).json();
+  await send('PATCH', `${path}/${source.id}`, mika, { orgId: ORG, values: { Status: 'Triggered' } });
+  const waiting = (await (await get(`/workflows/${workflow.id}?${q({ orgId: ORG })}`, mika)).json()).runs[0];
+  expect(waiting.status).toBe('waiting');
+  expect(waiting.input.recordId).toBe(source.id);
+  // Old runs stored only the flattened row scope, where a field could replace id.
+  if (legacy) await env.DB.prepare("UPDATE hx_workflow_runs SET input=json_remove(input,'$.recordId') WHERE id=? AND org_id=?").bind(waiting.id, ORG).run();
+  const { ws } = await joined(ORG, toru);
+  ws.send(JSON.stringify({ type: 'tool_result', payload: { toolCallId: 'legacy-identity', content: { cardId: waiting.cardId, action: 'approve', decidedAt: new Date().toISOString() } } }));
+  const finished = await until(async () => {
+    const run = (await (await get(`/workflows/${workflow.id}/runs/${waiting.id}?${q({ orgId: ORG })}`, mika)).json()).run;
+    return run.status === (legacy ? 'failed' : 'done') ? run : null;
+  });
+  if (legacy) expect(finished.log[1].error).toContain('source record ID was not preserved');
+  else expect(finished.log[1].rowId).toBe(source.id);
+  const rows = (await (await get(`/tables/${app.tableId}?${q({ orgId: ORG })}`, mika)).json()).rows;
+  expect(rows.find(row => row.id === source.id).values.status).toBe(legacy ? 'Triggered' : 'Done');
+  expect(rows.find(row => row.id === other.id).values.status).toBe('Ready');
+});
+
 test("a row delete trigger runs once and carries only the deleted row id", async () => {
   const { workflow } = await (await send("POST", "/workflows", mika, {
     orgId: ORG, name: "Record removed",

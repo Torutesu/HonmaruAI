@@ -644,6 +644,13 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     scope.row=await rowScope(db,orgId,sourceTable,{id:record.recordId,values:record.data||{}});
   }
   if (run.input?.before) scope.before = run.input.before;
+  // The row scope exposes column IDs and names, including a user column named
+  // "id". Keep that legacy template behavior, but never use it as the
+  // implicit update target for an automatic event.
+  const implicitRowId = run.trigger === 'row'
+    ? (typeof run.input?.recordId === 'string' && run.input.recordId ? run.input.recordId
+      : run.input?.event === 'deleted' ? run.input?.row?.id : null)
+    : run.trigger === 'app_record_change' ? run.input?.records?.[0]?.recordId : scope.row?.id;
   log.forEach((entry, i) => { scope.steps[i + 1] = entry; });
   let status = "done";
   let cardId = null;
@@ -661,7 +668,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
         }
         if (!entry) entry = step.when && !await authorize() ? {status:'failed',error:'The automation was stopped, its release changed, or its source access was removed.'}
           : step.type==='code' ? await enqueueWorkflowProgram(db,{orgId,runId})
-          : await runStep(env, { orgId, workflow, step, number: index + 1, scope, runId, depth, owner: workflow.createdBy, authorize });
+          : await runStep(env, { orgId, workflow, step, number: index + 1, scope, implicitRowId, runTrigger: run.trigger, runId, depth, owner: workflow.createdBy, authorize });
       }
     } catch (e) {
       entry = { status: "failed", error: String(e?.message || e).slice(0, 300) };
@@ -744,7 +751,7 @@ async function workflowAgentRemoteTools(env, { orgId, agentRow, owner, reservedN
   return tools;
 }
 
-async function runStep(env, { orgId, workflow, step, number, scope, runId, depth, owner, authorize }) {
+async function runStep(env, { orgId, workflow, step, number, scope, implicitRowId, runTrigger, runId, depth, owner, authorize }) {
   const db = env.DB;
   if (step.channel && !(await mayUseConversation(db, orgId, owner, step.channel))) {
     return { status: "failed", error: "Conversation access required." };
@@ -795,8 +802,9 @@ async function runStep(env, { orgId, workflow, step, number, scope, runId, depth
     }
     case "update_row": {
       const tableId = step.tableId || scope.input?.tableId || (workflow.trigger?.type==='app_record_change'?await appEntityTable(db,orgId,workflow.trigger.appId,workflow.trigger.entityId):null);
-      const rowId = step.rowId ? render(step.rowId, scope) : scope.row?.id;
+      const rowId = step.rowId ? render(step.rowId, scope) : implicitRowId;
       if (tableId && !(await mayUseTable(db, orgId, tableId, owner))) return { status: "failed", error: "Table access required." };
+      if (!step.rowId && runTrigger === 'row' && !rowId) return { status: "failed", error: "The source record ID was not preserved for this older run. Start a new run to update the intended record safely." };
       if (!tableId || !rowId) return { status: "failed", error: "No row to change." };
       const r = await updateRow(db, orgId, tableId, rowId, renderValues(step.values, scope), `workflow:${workflow.id}`);
       if (r.error) return { status: "failed", error: r.error };
@@ -987,7 +995,7 @@ export async function onRowChange(env, { orgId, table, before, row, by, depth = 
     const rowEventHash = await rowEventFingerprint(table, before, row);
     const run = await startRun(env, {
       orgId, workflow: wf, trigger: "row", startedBy: by, depth,
-      input: { tableId: table.id, row: await rowScope(env.DB, orgId, table.id, row), before: before ? await rowScope(env.DB, orgId, table.id, before) : null },
+      input: { tableId: table.id, recordId: row.id, row: await rowScope(env.DB, orgId, table.id, row), before: before ? await rowScope(env.DB, orgId, table.id, before) : null },
       rowEventHash,
     });
     if (run?.id) started += 1;
@@ -1018,7 +1026,7 @@ export async function onRowDelete(env, { orgId, table, row, by, depth = 0 }) {
     const rowEventHash = await rowEventFingerprint(table, row, null);
     const run = await startRun(env, {
       orgId, workflow: wf, trigger: "row", startedBy: by, depth,
-      input: { tableId: table.id, event: "deleted", row: { id: row.id } },
+      input: { tableId: table.id, event: "deleted", recordId: row.id, row: { id: row.id } },
       rowEventHash,
     });
     if (run?.id) started += 1;

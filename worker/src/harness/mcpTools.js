@@ -29,7 +29,7 @@ export const HARNESS_TOOLS = [
   {
     name: "read_app",
     title: "Read an app",
-    description: "An app with its rows and every view worked out: board lanes, metric values (open pipeline, overdue count…). Use it to answer questions about the app's data.",
+    description: "An app with its rows and every view worked out: board lanes, metric values (open pipeline, overdue count…). Each row has a system id and recordId, with every column value under values keyed by column ID. Non-reserved column IDs also remain available as flat aliases.",
     inputSchema: { type: "object", properties: { appId: { type: "string" } }, required: ["appId"] },
   },
   {
@@ -41,7 +41,7 @@ export const HARNESS_TOOLS = [
   {
     name: "query_rows",
     title: "Find rows",
-    description: "Rows of a table, narrowed by text (q), by exact column values (where: {column: value}), and sorted (sort: column, or -column for descending).",
+    description: "Rows of a table, narrowed by text (q), by exact column values (where: {column: value}), and sorted (sort: column, or -column for descending). Each row has a system id and recordId; all column values are under values keyed by column ID, with non-reserved IDs also exposed as flat aliases.",
     inputSchema: {
       type: "object",
       properties: { tableId: { type: "string" }, q: { type: "string" }, where: { type: "object" }, sort: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 500 }, offset: { type: "integer", minimum: 0, maximum: 5000 } },
@@ -51,13 +51,13 @@ export const HARNESS_TOOLS = [
   {
     name: "add_row",
     title: "Add a row",
-    description: "Add a row to a table. values is {column name or id: value}; values are converted to the column's type. Workflows watching the table run.",
+    description: "Add a row to a table. values is {column name or id: value}; values are converted to the column's type. The result includes the system id, recordId and values. Workflows watching the table run.",
     inputSchema: { type: "object", properties: { tableId: { type: "string" }, values: { type: "object" } }, required: ["tableId", "values"] },
   },
   {
     name: "update_row",
     title: "Change a row",
-    description: "Change some values of a row; the rest stay. Workflows watching the table run.",
+    description: "Change some values of a row; the rest stay. rowId is the system id or recordId returned by a row tool, not a user column value. Workflows watching the table run.",
     inputSchema: { type: "object", properties: { tableId: { type: "string" }, rowId: { type: "string" }, expectedUpdatedAt: { type: "string", description: "Token from rowVersions[rowId] in query_rows or read_app; rejects stale edits." }, values: { type: "object" } }, required: ["tableId", "rowId", "values"] },
   },
   {
@@ -88,6 +88,9 @@ export const HARNESS_TOOLS = [
 
 const out = (value) => ({ content: [{ type: "text", text: JSON.stringify(value, null, 2) }], structuredContent: value });
 const err = (message) => ({ content: [{ type: "text", text: message }], isError: true });
+// Keep legacy flat aliases without allowing a column to replace the system
+// identifier; the nested map always retains every original column value.
+const presentRow = row => ({ ...row.values, id: row.id, recordId: row.id, values: row.values });
 
 export async function callHarnessTool(env, agent, name, args) {
   if (name.startsWith("mcp_")) {
@@ -107,28 +110,28 @@ export async function callHarnessTool(env, agent, name, args) {
       if (!(await mayUseApp(db, orgId, String(args.appId || ""), by))) return err("No such app.");
       const r = await renderApp(db, orgId, String(args.appId || ""));
       if (r.error) return err(r.error);
-      return out({ app: { id: r.app.id, name: r.app.name }, columns: r.table.columns, rowVersions: Object.fromEntries(r.rows.slice(0, 200).map(x => [x.id, x.updatedAt])), rows: r.rows.slice(0, 200).map((x) => ({ id: x.id, ...x.values })), views: r.views.map((v) => (v.type === "metrics" ? { name: v.name, metrics: v.values.map((m) => ({ label: m.label, value: m.value })) } : v.type === "board" ? { name: v.name, lanes: v.lanes.map((l) => ({ lane: l.key, count: l.rows.length })) } : v.type === "calendar" ? { name: v.name, days: v.days.map(d => ({ date: d.date, count: d.rows.length })), undated: v.undated.length } : { name: v.name, rows: v.rows.length })) });
+      return out({ app: { id: r.app.id, name: r.app.name }, columns: r.table.columns, rowVersions: Object.fromEntries(r.rows.slice(0, 200).map(x => [x.id, x.updatedAt])), rows: r.rows.slice(0, 200).map(presentRow), views: r.views.map((v) => (v.type === "metrics" ? { name: v.name, metrics: v.values.map((m) => ({ label: m.label, value: m.value })) } : v.type === "board" ? { name: v.name, lanes: v.lanes.map((l) => ({ lane: l.key, count: l.rows.length })) } : v.type === "calendar" ? { name: v.name, days: v.days.map(d => ({ date: d.date, count: d.rows.length })), undated: v.undated.length } : { name: v.name, rows: v.rows.length })) });
     }
     case "list_tables":
       return out({ tables: await visibleResources(await listTables(db, orgId), t => mayUseTable(db, orgId, t.id, by)) });
     case "query_rows": {
       if (!(await mayUseTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
       const r = await listRows(db, orgId, String(args.tableId || ""), { q: args.q, where: args.where, sort: args.sort, limit: Math.min(Number(args.limit ?? 100), 500), offset: args.offset });
-      return r.error ? err(r.error) : out({ total: r.total, nextOffset: r.nextOffset, rowVersions: Object.fromEntries(r.rows.map(x => [x.id, x.updatedAt])), rows: r.rows.map((x) => ({ id: x.id, ...x.values })) });
+      return r.error ? err(r.error) : out({ total: r.total, nextOffset: r.nextOffset, rowVersions: Object.fromEntries(r.rows.map(x => [x.id, x.updatedAt])), rows: r.rows.map(presentRow) });
     }
     case "add_row": {
       if (!(await mayUseTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
       const r = await addRow(db, orgId, String(args.tableId || ""), args.values, by);
       if (r.error) return err(r.error);
       await onRowChange(env, { orgId, table: r.table, before: null, row: r.row, by });
-      return out({ row: { id: r.row.id, ...r.row.values }, rowVersions: { [r.row.id]: r.row.updatedAt } });
+      return out({ row: presentRow(r.row), rowVersions: { [r.row.id]: r.row.updatedAt } });
     }
     case "update_row": {
       if (!(await mayUseTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
       const r = await updateRow(db, orgId, String(args.tableId || ""), String(args.rowId || ""), args.values, by, args.expectedUpdatedAt);
       if (r.error) return err(r.error);
       await onRowChange(env, { orgId, table: r.table, before: r.before, row: r.row, by });
-      return out({ row: { id: r.row.id, ...r.row.values }, rowVersions: { [r.row.id]: r.row.updatedAt } });
+      return out({ row: presentRow(r.row), rowVersions: { [r.row.id]: r.row.updatedAt } });
     }
     case "list_workflows":
       return out({ workflows: (await listWorkflows(db, orgId, { viewerId: by })).map((w) => ({ id: w.id, name: w.name, enabled: w.enabled, trigger: w.trigger, steps: w.steps.map((s) => s.type) })) });
