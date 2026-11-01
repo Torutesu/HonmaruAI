@@ -201,7 +201,7 @@ test('the app data viewer keeps one record-create action in the table toolbar', 
   expect(tree!.root.findAllByType('h2').some(node => node.children.includes('タスク'))).toBe(true)
   expect(tree!.root.findAllByType('button').some(node => node.children.includes('Add a row'))).toBe(false)
 })
-test('a shared personal-looking ID and a legacy collision never expose personal deletion',async()=>{
+test('a shared personal-looking ID and a legacy collision offer safe personal-only recovery',async()=>{
   vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
   const shared={id:'personal_collision',type:'table',name:'Shared',rows:[]}
   const personal={...shared,name:'Old personal'}
@@ -220,6 +220,15 @@ test('a shared personal-looking ID and a legacy collision never expose personal 
   expect(tabs[1].props.title).toContain('IDが重複')
   act(()=>tree!.root.findByProps({'aria-label':'新しいビュー'}).props.onClick())
   expect(tree!.root.findAllByType('button').some(node=>node.children.includes('個人ビューを削除'))).toBe(false)
+  act(()=>tree!.root.findAllByType('button').find(node=>node.children.includes('重複を解消'))!.props.onClick())
+  expect(JSON.stringify(tree!.toJSON())).toContain('共有ビューとレコードは残ります')
+  const saved={revision:2,activeView:shared.id,views:[],computed:[],layouts:{}}
+  state.api.savePersonalViews=vi.fn().mockResolvedValue(saved)
+  await act(async()=>{tree!.root.findAllByType('button').find(node=>node.children.includes('個人ビューのみ削除する'))!.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(state.api.savePersonalViews).toHaveBeenCalledOnce()
+  expect(state.api.savePersonalViews.mock.calls[0][1].views).toEqual([])
+  expect(state.api.savePersonalViews.mock.calls[0][1].activeView).toBe(shared.id)
+  expect(tree!.root.findAllByProps({role:'tab'})).toHaveLength(1)
 })
 test('a late personal-view read cannot restore a deleted view and focus returns to the shared tab',async()=>{
   vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})

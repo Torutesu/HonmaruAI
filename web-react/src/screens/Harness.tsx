@@ -566,7 +566,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
             <Icon name={v.type === 'board' ? 'grid' : v.type === 'metrics' ? 'insights' : v.type === 'calendar' ? 'calendar' : 'list'} size={14} /> {v.name}{i>=data.views.length && <small className="hx-personal-badge">個人</small>}
           </button>
         ))}
-        <PersonalViewControls control="view" key={`new:${selectedIndex}:${view.id}:${personal.revision}`} view={view} personal={isPersonalView} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onRemoved={()=>{if(!personalSnapshot.current?.value.views.some(v=>v.id===view.id))setFocusSelectedView(true)}} onSettings={()=>selectSection('settings')} />
+        <PersonalViewControls sharedIds={[...sharedIds]} control="view" key={`new:${selectedIndex}:${view.id}:${personal.revision}`} view={view} personal={isPersonalView} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onRemoved={()=>{if(!personalSnapshot.current?.value.views.some(v=>v.id===view.id))setFocusSelectedView(true)}} onSettings={()=>selectSection('settings')} />
       </div>
       </div>
       {error && <div className="form-error">{error}</div>}
