@@ -27,6 +27,26 @@ beforeEach(async () => {
 
 const asAlice = () => joined(ORG, globalThis.__alice);
 
+test('a workspace admin outside a private room gets no live channel event over an existing socket', async () => {
+  const { upsertBusiness } = await import('../src/db.js');
+  const { announceTo } = await import('../src/announce.js');
+  await upsertBusiness(env.DB, ORG, { name: 'Admin boundary', createdBy: '2001' });
+  const channel = 'b:admin-boundary';
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='admin-boundary'").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,?2,'bob','bob',?)").bind(ORG,channel,new Date().toISOString()).run();
+
+  const admin = await asAlice();
+  const member = await joined(ORG, globalThis.__bob);
+  const secret = { type:'CUSTOM', name:'channel_message', value:{message:{id:'admin-boundary-secret',channel,body:'Private room words'}} };
+  await announceTo(env, ORG, [{to:'alice',event:secret},{to:'bob',event:secret}]);
+  await announceTo(env, ORG, [{to:'alice',event:{type:'CUSTOM',name:'private_boundary_barrier',value:{done:true}}}]);
+  await announceTo(env, ORG, [{to:'bob',event:{type:'CUSTOM',name:'private_boundary_barrier',value:{done:true}}}]);
+
+  expect(await message(member.messages, m=>m.value?.message?.body==='Private room words')).toBeTruthy();
+  expect(await message(admin.messages, m=>m.name==='private_boundary_barrier')).toBeTruthy();
+  expect(admin.messages.some(m=>m.value?.message?.body==='Private room words')).toBe(false);
+});
+
 test('a queued private-room delivery is rejected after membership removal at the socket boundary', async () => {
   const { upsertBusiness } = await import('../src/db.js');
   const { announceTo } = await import('../src/announce.js');
