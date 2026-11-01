@@ -3,7 +3,7 @@ import {act, create} from 'react-test-renderer'
 import {afterEach, expect, test, vi} from 'vitest'
 import {SidebarEditQueue, trackSidebarQueue, clearSidebarSessionQueues, hasPendingSidebarQueues} from './utils/sidebarSync'
 
-vi.mock('./components/Dashboard', () => ({Dashboard: ({onLogout,onAccountDeleted,onLeft}: {onLogout:()=>void;onAccountDeleted:()=>void;onLeft:()=>void}) => <div><button data-logout onClick={onLogout}>logout</button><button data-deleted onClick={onAccountDeleted}>deleted</button><button data-left onClick={onLeft}>left</button></div>}))
+vi.mock('./components/Dashboard', () => ({Dashboard: ({onLogout,onAccountDeleted,onLeft,onSwitchOrg}: {onLogout:()=>void;onAccountDeleted:()=>void;onLeft:()=>void;onSwitchOrg:(org:string)=>void}) => <div><button data-logout onClick={onLogout}>logout</button><button data-deleted onClick={onAccountDeleted}>deleted</button><button data-left onClick={onLeft}>left</button><button data-switch onClick={()=>onSwitchOrg('org2')}>switch</button></div>}))
 vi.mock('./components/ReauthDialog',()=>({ReauthDialog:()=>null}))
 vi.mock('./components/DlpDialog',()=>({DlpDialog:()=>null}))
 vi.mock('./screens/SharedThread',()=>({SharedThread:()=> <div>public thread</div>}))
@@ -20,10 +20,10 @@ vi.mock('./utils/locale', () => ({getLocale:()=> 'en'}))
 import App from './App'
 
 type L={starred:string[]}
-function pendingQueue(workspace='org') {
+function pendingQueue(workspace='org',token='old-token',user='reader') {
   let aborted=false
   const q=new SidebarEditQueue<L>({starred:[]},()=>new Promise(()=>{}),async sidebar=>({conflict:false,snapshot:{sidebar,version:'v'}}),()=>{},()=>{},()=>{aborted=true})
-  trackSidebarQueue(q,JSON.stringify(['http://synthetic.invalid','old-token','reader',workspace]))
+  trackSidebarQueue(q,JSON.stringify(['http://synthetic.invalid',token,user,workspace]))
   q.change(base=>({starred:[...base.starred,'b:front']}))
   return {q,get aborted(){return aborted}}
 }
@@ -111,6 +111,69 @@ test('workspace access loss preserves pending edits for another accessible works
   expect(other.aborted).toBe(false)
   expect(other.q.hasPending()).toBe(true)
   expect(ui.values.get('orgId')).toBe('org2')
+  act(()=>ui.tree.unmount())
+})
+
+test('a late old workspace departure cannot clear or leave a newer account session',async()=>{
+  const ui=await setup([{id:'org'},{id:'org2'}])
+  const oldLeft=ui.tree.root.findByProps({'data-left':true}).props.onClick
+  vi.mocked(fetch).mockImplementation(async (_url,init)=>({ok:true,status:200,json:async()=>({login:(init?.headers as Record<string,string>)?.['x-session-token']==='new-token'?'bob':'reader',orgs:[{id:'org'},{id:'org2'}]})}) as Response)
+  ui.values.set('sessionToken','new-token')
+  await act(async()=>{ui.fire('storage',{key:'sessionToken'});await Promise.resolve();await Promise.resolve();await Promise.resolve()})
+  expect(ui.values.get('userId')).toBe('bob')
+  const newQueue=pendingQueue('org','new-token','bob')
+  await act(async()=>{oldLeft();await Promise.resolve();await Promise.resolve()})
+  expect(newQueue.aborted).toBe(false)
+  expect(ui.values.get('sessionToken')).toBe('new-token')
+  expect(ui.values.get('orgId')).toBe('org')
+  act(()=>ui.tree.unmount())
+})
+
+test('late account deletion from an old session does not log out the new account',async()=>{
+  const ui=await setup([{id:'org'},{id:'org2'}])
+  const oldDeleted=ui.tree.root.findByProps({'data-deleted':true}).props.onClick
+  vi.mocked(fetch).mockImplementation(async (_url,init)=>({ok:true,status:200,json:async()=>({login:(init?.headers as Record<string,string>)?.['x-session-token']==='new-token'?'bob':'reader',orgs:[{id:'org'},{id:'org2'}]})}) as Response)
+  ui.values.set('sessionToken','new-token')
+  await act(async()=>{ui.fire('storage',{key:'sessionToken'});await Promise.resolve();await Promise.resolve();await Promise.resolve()})
+  expect(ui.values.get('userId')).toBe('bob')
+  const newQueue=pendingQueue('org','new-token','bob')
+  await act(async()=>{oldDeleted();await Promise.resolve()})
+  expect(newQueue.aborted).toBe(false)
+  expect(ui.values.get('sessionToken')).toBe('new-token')
+  expect(JSON.stringify(ui.tree.toJSON())).not.toContain('welcome')
+  act(()=>ui.tree.unmount())
+})
+
+test('a late workspace departure only cancels its own workspace after a switch',async()=>{
+  const ui=await setup([{id:'org'},{id:'org2'}])
+  const oldLeft=ui.tree.root.findByProps({'data-left':true}).props.onClick
+  const oldQueue=pendingQueue(), newQueue=pendingQueue('org2')
+  await act(async()=>ui.tree.root.findByProps({'data-switch':true}).props.onClick())
+  await act(async()=>{oldLeft();await Promise.resolve()})
+  expect(oldQueue.aborted).toBe(true)
+  expect(newQueue.aborted).toBe(false)
+  expect(ui.values.get('orgId')).toBe('org2')
+  act(()=>ui.tree.unmount())
+})
+
+test('a delayed workspace lookup cannot navigate after another workspace is chosen',async()=>{
+  const ui=await setup([{id:'org'},{id:'org2'}])
+  let finish!: (value:Response)=>void
+  vi.mocked(fetch).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve}))
+  await act(async()=>{ui.tree.root.findByProps({'data-left':true}).props.onClick();await Promise.resolve()})
+  await act(async()=>ui.tree.root.findByProps({'data-switch':true}).props.onClick())
+  await act(async()=>{finish({ok:true,json:async()=>({orgs:[{id:'org'},{id:'org3'}]})} as Response);await Promise.resolve();await Promise.resolve()})
+  expect(ui.values.get('orgId')).toBe('org2')
+  act(()=>ui.tree.unmount())
+})
+
+test('old deletion completion cannot clear a newer stored session before its storage event',async()=>{
+  const ui=await setup(), oldDeleted=ui.tree.root.findByProps({'data-deleted':true}).props.onClick
+  const oldQueue=pendingQueue()
+  ui.values.set('sessionToken','new-token')
+  await act(async()=>oldDeleted())
+  expect(ui.values.get('sessionToken')).toBe('new-token')
+  expect(oldQueue.aborted).toBe(false)
   act(()=>ui.tree.unmount())
 })
 

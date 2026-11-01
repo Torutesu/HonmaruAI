@@ -45,6 +45,7 @@ function wsBase(host: string) {
 // Where someone is in getting into the product. `app` is the only stage with a
 // session behind it; everything before it is the way in.
 type Stage = 'welcome' | 'auth' | 'otp' | 'onboarding' | 'repo' | 'app'
+type AccountScope = { server: string; token: string; user: string | null; org: string }
 
 function App() {
   const [hash,setHash]=useState(()=>location.hash)
@@ -92,6 +93,16 @@ function AccountApp() {
   const [orgId, setOrgId] = useState<string>('')
   const [sessionToken, setSessionToken] = useState<string>('')
   const [host, setHost] = useState<string>(DEFAULT_HOST)
+  const scopeRef = useRef<AccountScope>({ server: httpBase(host), token: sessionToken, user: userId, org: orgId })
+  scopeRef.current = { server: httpBase(host), token: sessionToken, user: userId, org: orgId }
+  const sameSession = (scope: AccountScope) => {
+    const current = scopeRef.current
+    if (current.server !== scope.server || current.token !== scope.token || current.user !== scope.user) return false
+    try {
+      const token = localStorage.getItem('sessionToken'), user = localStorage.getItem('userId'), storedHost = localStorage.getItem('host')
+      return (!token || token === scope.token) && (!user || user === scope.user) && (!storedHost || httpBase(storedHost) === scope.server)
+    } catch { return false }
+  }
   // Carried from the email screen to the code screen and nowhere else.
   const [pending, setPending] = useState({ email: '', name: '', inviteCode: '' })
   // GitHub sign-in on the web, where the deployment offers it; and the
@@ -362,22 +373,25 @@ function AccountApp() {
   /// somebody removed them, or the session behind it stopped being valid.
   /// There is nothing there to show them now, so ask where they still belong
   /// — the same question a sign-in asks — and go there.
-  const leftOrg = async () => {
+  const leftOrg = async (origin: AccountScope) => {
+    if (!sameSession(origin)) return
     // Only the workspace whose access was revoked must lose pending writes.
     // Work queued for a different workspace remains available there.
-    warnDiscardedSidebar(clearSidebarWorkspaceQueues(JSON.stringify([httpBase(host), sessionToken, userId, orgId])))
+    warnDiscardedSidebar(clearSidebarWorkspaceQueues(JSON.stringify([origin.server, origin.token, origin.user, origin.org])))
+    if (scopeRef.current.org !== origin.org) return
     // Whatever happens next, the cards of the workspace they are out of
     // are not theirs to keep on this machine.
     clearCardCache()
     try {
-      const res = await fetch(`${httpBase(host)}/me`, { headers: { 'x-session-token': sessionToken } })
+      const res = await fetch(`${origin.server}/me`, { headers: { 'x-session-token': origin.token } })
       if (res.ok) {
         const me = await res.json()
-        const next = me.orgs?.find((o: { id: string }) => o.id !== orgId)?.id
+        if (!sameSession(origin) || scopeRef.current.org !== origin.org) return
+        const next = me.orgs?.find((o: { id: string }) => o.id !== origin.org)?.id
         if (next) { switchOrg(next); return }
       }
     } catch { /* nothing to fall back to but the way out */ }
-    logout(true)
+    if (sameSession(origin) && scopeRef.current.org === origin.org) logout(true)
   }
 
   // The Dashboard holds this in the effect that owns the socket, so it has to
@@ -387,7 +401,9 @@ function AccountApp() {
   // body it calls stays current.
   const leftOrgRef = useRef(leftOrg)
   leftOrgRef.current = leftOrg
-  const onLeft = useCallback(() => { void leftOrgRef.current() }, [])
+  const onLeft = useCallback(() => {
+    void leftOrgRef.current({ server: httpBase(host), token: sessionToken, user: userId, org: orgId })
+  }, [host, sessionToken, userId, orgId])
 
   // One language for the account, whichever device chose it last: read
   // when the app opens and whenever it comes back to the front.
@@ -425,6 +441,9 @@ function AccountApp() {
     setNotice({text, error:true})
   }
   const logout = (forced: boolean) => {
+    // An account deletion or workspace departure started by an older
+    // Dashboard must not sign out a newer account after its response arrives.
+    if (!sameSession({ server: httpBase(host), token: sessionToken, user: userId, org: orgId })) return
     if (!forced && hasPendingSidebarQueues()) {
       const prompt = getLocale() === 'ja'
         ? '未完了のサイドバー変更があります。サインアウトすると保留を破棄します。進行中の保存は反映される可能性があります。続けますか？'
