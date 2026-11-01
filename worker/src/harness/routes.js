@@ -1078,11 +1078,13 @@ export async function handleHarness(request, env, url, context = {}) {
       const guidelines=await prepareAppGuidelines(env.DB,orgId,who.user,appId,prompt);
       if(!guidelines)return {error:'The source or your access changed. Reload and try again.',status:403};
       const complete=await makeComplete();
-      const result=await finishSchemaGeneration(complete,finalCheck || (async()=>true),async()=>{
+      const combined=()=>finalCheck?finalCheck(guidelines.generationGuard):guidelines.authorize();
+      const result=await finishSchemaGeneration(complete,combined,async()=>{
         if(!await guidelines.authorize())return {error:'The source or your access changed. Reload and try again.',status:403};
-        return generate(guidelines.request,guidelines.wrap(complete));
+        return generate(guidelines.request,guidelines.wrap(complete,combined));
       });
-      return await guidelines.authorize()?result:{error:'The source or your access changed. Reload and try again.',status:403};
+      if(!await guidelines.authorize())return {error:'The source or your access changed. Reload and try again.',status:403};
+      return await combined()?result:{error:'No such app.',status:404};
     };
     if (['database','actions','connections'].includes(sub)) {
       const canManage = await mayChange(env, orgId, who, app.createdBy);
@@ -1098,7 +1100,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if (!canManage) return json({ message: 'Only its maker or an admin can develop this app.' },403);
         if (input.action === 'generate') {
           const schema=await databaseView(env.DB,orgId,app), ids=schema.entities.map(entity=>entity.table?.id).filter(Boolean);
-          const authorize=async()=>await mayUseDatabase(env.DB,orgId,appId,me,ids,true) && await mayGenerateFromSchema(env.DB,orgId,appId,me,schema.entities);
+          const authorize=async guard=>await mayUseDatabase(env.DB,orgId,appId,me,ids,true) && await mayGenerateFromSchema(env.DB,orgId,appId,me,schema.entities,[],guard);
           if (!await authorize()) return json({message:'No such app.'},404);
           const result=await withGuidedGeneration(input.prompt,()=>completer(env,orgId,me,'app_database_generate',{maxTokens:4000}),
             async(prompt,complete)=>{
@@ -1166,7 +1168,7 @@ export async function handleHarness(request, env, url, context = {}) {
         for(const agent of agents)if(await mayAccessAgent(env.DB,orgId,agent,who.user.login))visibleAgents.push({id:agent.id,name:agent.name});
         const appSchema=await databaseView(env.DB,orgId,app);
         const appRecords=[{id:appId,name:app.name,entities:appSchema.entities.map(entity=>({id:entity.key,name:entity.table?.name,columns:entity.table?.columns||[]}))}];
-        const authorize=async()=>{
+        const authorize=async guard=>{
           if(!await mayGenerateFromSchema(env.DB,orgId,appId,me,appSchema.entities,tables))return false;
           if(visibleAgents.length){
             const current=await listAgents(env.DB,orgId,who.user.login);
@@ -1177,7 +1179,7 @@ export async function handleHarness(request, env, url, context = {}) {
           }
           // Agent lookups above await other queries, so recheck table schemas
           // and access immediately after them, before allowing model dispatch.
-          return mayGenerateFromSchema(env.DB,orgId,appId,me,appSchema.entities,tables);
+          return mayGenerateFromSchema(env.DB,orgId,appId,me,appSchema.entities,tables,guard,visibleAgents);
         };
         if(!await authorize())return json({message:'No such app.'},404);
         const result=await withGuidedGeneration(input.prompt,()=>input.useModel===false?null:completer(env,orgId,me,'app_automation_generate',{maxTokens:2400}),
@@ -1208,7 +1210,7 @@ export async function handleHarness(request, env, url, context = {}) {
       if (input.action === 'generate') {
         const table = await getTable(env.DB, orgId, app.tableId);
         const capabilities = { entities: (await databaseView(env.DB,orgId,app)).entities, actions: (await actions(env.DB,orgId,appId)).actions.filter(a=>a.published).map(a=>({name:a.name,code:a.published})), connections:(await connections(env.DB,orgId,appId,me)).connections.map(c=>({name:c.name,endpoint:c.endpoint,method:c.method,enabled:c.enabled})), gateways:(await env.DB.prepare('SELECT id,name FROM hx_gateways WHERE org_id=?1 AND revoked_at IS NULL').bind(orgId).all()).results };
-        const authorize=()=>mayGenerateFromSchema(env.DB,orgId,appId,me,capabilities.entities,[table]);
+        const authorize=guard=>mayGenerateFromSchema(env.DB,orgId,appId,me,capabilities.entities,[table],guard);
         if(!table || capabilities.entities.find(entity=>entity.key==='primary')?.table?.id!==table.id || !await authorize())return json({message:'No such app.'},404);
         const result=await withGuidedGeneration(input.prompt,()=>completer(env,orgId,me,'custom_app_generate',{maxTokens:8000}),
           async(prompt,complete)=>{

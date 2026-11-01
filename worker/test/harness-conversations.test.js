@@ -815,3 +815,34 @@ test.each(['schema','room'])('database generation rechecks %s access after reser
   expect(await env.DB.prepare('SELECT COUNT(*) AS count FROM ai_reservations WHERE user_github_id=?').bind('9201').first()).toEqual({count:0});
  } finally {vi.unstubAllGlobals()}
 });
+
+test.each(['before dispatch','before response'])('combined generation rejects schema access revoked during the last room check %s',async phase=>{
+ const root=await privateSource();
+ await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)').bind(org,'b:confidential','Current rule','9201',new Date().toISOString()).run();
+ const made=await createApp(env.DB,{orgId:org,by:'9201',name:'Guided',columns:[{name:'Secret Schema',type:'text'}],sourceThreadId:root.id});
+ const otherApp=await createApp(env.DB,{orgId:org,by:'9202',name:'Private owner app',columns:[{name:'Title',type:'text'}]});
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?,?,'private',1) ON CONFLICT(org_id,app_id) DO UPDATE SET visibility='private'").bind(org,otherApp.app.id).run();
+ let sent=false,checks=0,revoked=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const stmt=db.prepare(sql);
+   if(sql.startsWith('SELECT 1 AS allowed FROM memberships m'))return {bind(...args){const bound=stmt.bind(...args);return {async first(){const result=await bound.first();checks++;return result;}}}};
+   if(!sql.startsWith('SELECT m.created_at AS memberSince'))return stmt;
+   return {bind(...args){const bound=stmt.bind(...args);return {async first(){
+    if(!revoked && ((phase==='before dispatch' && !sent && checks>=2) || (phase==='before response' && sent && checks>=4))){
+     revoked=true;await db.prepare("INSERT INTO hx_app_entities(org_id,app_id,entity_key,table_id) VALUES(?,?,'linked',?)").bind(org,otherApp.app.id,made.app.tableId).run();
+    }
+    return bound.first();
+   }}}};
+  };
+ }});
+ const fetch=vi.fn(async()=>{sent=true;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({html:'<p>Secret result</p>'})}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}})});
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://test/apps/${made.app.id}/custom`,{method:'POST',headers:{'x-session-token':owner,'content-type':'application/json'},body:JSON.stringify({orgId:org,action:'generate',prompt:'Create a tracker'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'},testContext);
+  expect(revoked).toBe(true);
+  if(phase==='before dispatch')expect(fetch).not.toHaveBeenCalled();
+  expect(response.status).toBe(404);
+  expect(JSON.stringify(await response.json())).not.toContain('Secret result');
+ } finally {vi.unstubAllGlobals()}
+});

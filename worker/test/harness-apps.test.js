@@ -1674,6 +1674,47 @@ test('model schema authorization rejects table replacement, invalid linked apps 
  expect(await mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities)).toBe(false);
 });
 
+test('combined generation snapshot matches current agent visibility and fails closed on revocation',async()=>{
+ const {mayGenerateFromSchema}=await import('../src/harness/generationAccess.js');
+ const {prepareAppGuidelines}=await import('../src/harness/appGuidelinesFence.js');
+ const {getTable}=await import('../src/harness/tables.js');
+ const {mayAccessAgent}=await import('../src/harness/agents.js');
+ const {listAgents}=await import('../src/customAgents.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const entities=[{key:'primary',table:await getTable(env.DB,ORG,app.tableId)}];
+ const guided=await prepareAppGuidelines(env.DB,ORG,{github_id:'9101',login:'toru'},app.id,'Do work');
+ expect(guided.generationGuard.source).toBeNull();
+ const at='2026-01-01T00:00:00Z';
+ await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES(?,'agent1','agent1','Agent One','','team','mika',?,?)").bind(ORG,at,at).run();
+ const captured=[{id:'agent1',name:'Agent One'}];
+ const check=()=>mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities,[],guided.generationGuard,captured);
+ const compare=async(expected)=>{
+  const visible=await listAgents(env.DB,ORG,'toru');
+  const found=visible.find(a=>a.id==='agent1'&&a.name==='Agent One');
+  expect(Boolean(found && await mayAccessAgent(env.DB,ORG,found,'toru'))).toBe(expected);
+  expect(await check()).toBe(expected);
+ };
+ await compare(true); // team default
+ await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES(?,'agent1','private','[]',?)").bind(ORG,at).run();
+ await compare(false);
+ await env.DB.prepare("UPDATE hx_agent_profiles SET access='people',people='[\"toru\"]' WHERE org_id=? AND agent_id='agent1'").bind(ORG).run();
+ await compare(true);
+ await env.DB.prepare("UPDATE hx_agent_profiles SET access='private' WHERE org_id=? AND agent_id='agent1'").bind(ORG).run();
+ await env.DB.prepare("INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,member_since,updated_by,updated_at) SELECT ?,'agent1','9101','member',created_at,'9102',? FROM memberships WHERE org_id=? AND user_github_id='9101'").bind(ORG,at,ORG).run();
+ await compare(true); // explicit team role
+ await env.DB.prepare("UPDATE custom_agents SET scope='personal' WHERE org_id=? AND id='agent1'").bind(ORG).run();
+ await compare(false); // team roles cannot expose another person's personal agent
+ await env.DB.prepare("UPDATE custom_agents SET owner_login='toru' WHERE org_id=? AND id='agent1'").bind(ORG).run();
+ await compare(true); // personal owner
+ await env.DB.prepare("UPDATE custom_agents SET name='Renamed' WHERE org_id=? AND id='agent1'").bind(ORG).run();
+ await compare(false);
+ await env.DB.prepare("UPDATE custom_agents SET name='Agent One',deleted_at=? WHERE org_id=? AND id='agent1'").bind(at,ORG).run();
+ await compare(false);
+ await env.DB.prepare("UPDATE custom_agents SET deleted_at=NULL WHERE org_id=? AND id='agent1'").bind(ORG).run();
+ await env.DB.prepare('INSERT INTO workspace_tombstones(org_id,deleted_at) VALUES (?,?)').bind(ORG,at).run();
+ expect(await check()).toBe(false);
+});
+
 test('custom generation rejects replacement of its primary table after reading the old schema',async()=>{
  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
  const {app:replacement}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();

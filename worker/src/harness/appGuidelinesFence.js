@@ -43,14 +43,14 @@ export async function prepareAppGuidelines(db,orgId,user,appId,request) {
     const current=await snapshot(db,orgId,appId,user.github_id,source);
     return Boolean(current && JSON.stringify(current)===JSON.stringify(original));
   };
-  const wrap=complete=>{
+  const wrap=(complete,combined=null)=>{
     if(!complete)return null;
     const guarded=async(system,prompt,options={})=>{
       const other=options.authorize;
-      return complete(system,prompt,{...options,authorize:async()=>await authorize() && (!other||await other()) && await authorize()});
+      return complete(system,prompt,{...options,authorize:async()=>await authorize() && (!other||await other()) && await authorize() && (!combined||await combined())});
     };
     guarded.dispose=()=>complete.dispose?.();
     return guarded;
   };
-  return {request:source?formatRoomGuidelinesRequest(original,request):request,authorize,wrap};
+  return {request:source?formatRoomGuidelinesRequest(original,request):request,authorize,wrap,generationGuard:{source,original}};
 }
