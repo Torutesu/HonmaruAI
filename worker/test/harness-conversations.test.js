@@ -788,6 +788,27 @@ test('legacy raw session is upgraded before background proof and malformed body 
  await deferred();const result=await response.json();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(result.messageId).first()).toEqual({status:'succeeded'});
 });
 
+test('AI completion emits a generic activity signal and activity reload rechecks access',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js'),{appConversation}=await import('../src/harness/appConversations.js'),{appActivity}=await import('../src/harness/appActivity.js');
+ const input={body:'@AI help',requestId:'generic_ai_event_001'},saved=await appConversation(env.DB,org,'9201',app.id,input,true);
+ const relay=vi.fn().mockResolvedValue({ok:true});const fakeEnv={...env,ORG_RELAY:{idFromName:()=>1,get:()=>({fetch:relay})}};
+ await replyToApp(fakeEnv,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{makeCompleter:async()=>async()=>'Mock reply'});
+ expect(relay).toHaveBeenCalledOnce();const sent=JSON.parse(relay.mock.calls[0][1].body);
+ expect(sent.deliveries).toHaveLength(1);expect(sent.deliveries[0].event).toMatchObject({type:'CUSTOM',name:'app_activity_changed',value:{}});
+ expect(sent.deliveries[0].event.value).not.toHaveProperty('appId');
+ expect((await appActivity(env.DB,org,'9201')).map(item=>item.message.body)).toContain('Mock reply');
+ await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,'9201').run();
+ expect(await appActivity(env.DB,org,'9201')).toEqual([]);
+});
+
+test('ordinary mention activity retains its existing event payload',async()=>{
+ const {notifyAppMentions}=await import('../src/harness/appConversationFeatures.js'),{appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@user9202 review',requestId:'generic_mention_event_1'},saved=await appConversation(env.DB,org,'9201',app.id,input,true);
+ const relay=vi.fn().mockResolvedValue({ok:true});const fakeEnv={...env,ORG_RELAY:{idFromName:()=>1,get:()=>({fetch:relay})}};
+ await notifyAppMentions(env.DB,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,fakeEnv);
+ expect(relay).toHaveBeenCalledOnce();expect(JSON.parse(relay.mock.calls[0][1].body).deliveries[0].event.value).toEqual({appId:app.id});
+});
+
 test('long room guidelines do not replace the app request or determine its fallback template',async()=>{
  const root=await privateSource();
  const rule=('営業・請求書・カレンダー。担当者は自由記述。'+'規'.repeat(4096)).slice(0,4096);

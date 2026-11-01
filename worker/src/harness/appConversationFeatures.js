@@ -119,7 +119,9 @@ export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompl
   replySaved=true;
   if(!await completeFencedAppReply(db,orgId,appId,user.github_id,scope,source,snapshot,messageId,requestId,answer,requestProof,reply.sequence))throw new Error('Access revoked.');
   if(!await mayAnnounceFencedAppReply(db,orgId,appId,user.github_id,scope,source,snapshot,messageId,requestId,answer,requestProof))return;
-  await announceTo(env,orgId,[{to:user.login,event:custom('app_activity_changed',{appId})}]);
+  // This signal only asks the client to reload its authorized activity.
+  // Keep app identity out of the relay if access changes during delivery.
+  await announceTo(env,orgId,[{to:user.login,event:custom('app_activity_changed',{})}]);
  }catch(e){await db.prepare("UPDATE hx_app_ai_replies SET status='failed',error=? WHERE message_id=? AND org_id=? AND app_id=?").bind(replySaved?'AIの回答は保存されましたが、通知を完了できませんでした。同じメッセージでは再実行されません。':e.message==='Access revoked.'?'会話へのアクセスが変更されました。':'AIに接続できませんでした。既存のAI設定・利用枠を確認してください。',messageId,orgId,appId).run();}
  finally { try { await complete?.dispose?.(); } catch { /* The answer outcome is already recorded. */ } }
 }
