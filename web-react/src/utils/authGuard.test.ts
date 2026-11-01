@@ -19,8 +19,9 @@ describe('authGuard', () => {
     const bodies: Array<string | undefined> = []
     const fake = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => { calls.push(String(input)); bodies.push(init?.body as string | undefined); return answers.shift()! })
     // No DOM in these tests: a window is an EventTarget with fetch on it.
-    const w = Object.assign(new EventTarget(), { fetch: fake as unknown as typeof fetch, location: { href: 'https://app.test/' } })
+    const w = Object.assign(new EventTarget(), { fetch: fake as unknown as typeof fetch, location: { href: 'https://app.test/', protocol: 'https:' } })
     ;(globalThis as unknown as { window: unknown }).window = w
+    vi.stubGlobal('localStorage',{getItem:(key:string)=>key==='sessionToken'?'tok':key==='host'?'api.test':null})
     const { installAuthGuard } = await import('./authGuard')
     installAuthGuard()
 
@@ -31,8 +32,8 @@ describe('authGuard', () => {
       asked.push(d.base)
       d.resolve(true)
     })
-    const policy: Array<string | null> = []
-    window.addEventListener('honmaru:session-policy', (e) => policy.push((e as CustomEvent<{ orgId: string | null }>).detail.orgId))
+    const policy: Array<{orgId:string|null;base:string}> = []
+    window.addEventListener('honmaru:session-policy', (e) => policy.push((e as CustomEvent<{orgId:string|null;base:string}>).detail))
 
     const headers = { 'x-session-token': 'tok' }
     const first = await window.fetch('https://api.test/members/role', { method: 'PUT', headers, body: '{}' })
@@ -42,7 +43,7 @@ describe('authGuard', () => {
 
     const second = await window.fetch('https://api.test/members?orgId=team:x', { headers })
     expect(second.status).toBe(401)
-    expect(policy).toEqual(['team:x'])
+    expect(policy).toEqual([{orgId:'team:x',base:'https://api.test'}])
 
     const third = await window.fetch('https://api.test/other', { headers })
     expect(third.status).toBe(401)
@@ -66,6 +67,27 @@ describe('authGuard', () => {
     const kept = await window.fetch('https://api.test/channels/messages', post)
     expect(kept.status).toBe(409)
     expect(warned).toEqual([['Card number'], ['Card number']])
+    vi.unstubAllGlobals()
+  })
+
+  it('does not dispatch an old session policy response after another account signs in', async () => {
+    vi.resetModules()
+    let finish!: (response:Response)=>void
+    const original=vi.fn(()=>new Promise<Response>(resolve=>{finish=resolve}))
+    const w=Object.assign(new EventTarget(),{fetch:original as unknown as typeof fetch,location:{href:'https://app.test/',protocol:'https:'}})
+    vi.stubGlobal('window',w)
+    let token='old-token'
+    vi.stubGlobal('localStorage',{getItem:(key:string)=>key==='sessionToken'?token:key==='host'?'api.test':null})
+    const {installAuthGuard}=await import('./authGuard')
+    installAuthGuard()
+    const events:unknown[]=[]
+    window.addEventListener('honmaru:session-policy',e=>events.push((e as CustomEvent).detail))
+    const pending=window.fetch('https://api.test/members',{headers:{'x-session-token':'old-token'}})
+    token='new-token'
+    finish(new Response(JSON.stringify({code:'session-policy',orgId:'team:x'}),{status:401}))
+    expect((await pending).status).toBe(401)
+    expect(events).toEqual([])
+    vi.unstubAllGlobals()
   })
 })
 

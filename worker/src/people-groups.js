@@ -135,6 +135,28 @@ export async function getSidebar(db, orgId, login) {
   try { return cleanSidebar(row ? JSON.parse(row.data) : {}); } catch { return cleanSidebar({}); }
 }
 
+// The exact stored value is an opaque compare-and-swap token. Keeping the
+// data and token in one read lets concurrent clients replay their edits on
+// the latest value without silently overwriting the other device.
+export async function sidebarSnapshot(db, orgId, login) {
+  const row = await db.prepare('SELECT data FROM sidebar_prefs WHERE org_id=?1 AND login=?2').bind(orgId, login).first();
+  const version = row?.data ?? null;
+  // An unreadable stored layout must not be replaced by a fabricated empty
+  // snapshot when a user makes another edit.
+  const sidebar = cleanSidebar(version === null ? {} : JSON.parse(version));
+  return { sidebar, version };
+}
+
+export async function saveSidebarIfVersion(db, orgId, login, input, version) {
+  const sidebar = cleanSidebar(input);
+  const data = JSON.stringify(sidebar);
+  const stmt = version === null
+    ? db.prepare('INSERT INTO sidebar_prefs (org_id,login,data,updated_at) VALUES (?1,?2,?3,?4) ON CONFLICT(org_id,login) DO NOTHING').bind(orgId, login, data, new Date().toISOString())
+    : db.prepare('UPDATE sidebar_prefs SET data=?3,updated_at=?4 WHERE org_id=?1 AND login=?2 AND data=?5').bind(orgId, login, data, new Date().toISOString(), version);
+  const result = await stmt.run();
+  return result.meta?.changes ? { sidebar, version: data } : null;
+}
+
 export async function saveSidebar(db, orgId, login, input) {
   // A client that does not know about the order (an older app) keeps the
   // one another device set; one that does not know about folding (the iOS

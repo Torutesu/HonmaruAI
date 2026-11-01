@@ -16,6 +16,38 @@ const call = async (path, token, { method = "GET", body } = {}) => worker.fetch(
 }), env, ctx);
 const q = (o) => new URLSearchParams(o).toString();
 
+test('concurrent sidebar changes reject stale versions without erasing other devices', async () => {
+  const read = () => call(`/channels/sidebar?${q({orgId: ORG})}`,toru).then(r=>r.json());
+  const write = (sidebar,version) => call('/channels/sidebar',toru,{method:'PUT',body:{orgId:ORG,sidebar,version}});
+  const first = await read();
+  expect(first.version).toBeNull();
+  const a = await write({...first.sidebar,starred:['b:cafe']},first.version);
+  expect(a.status).toBe(200);
+  const second = await a.json();
+  const stale = await write({...first.sidebar,starred:['b:kitchen']},first.version);
+  expect(stale.status).toBe(409);
+  const conflict=await stale.json();
+  expect(conflict.sidebar.starred).toEqual(['b:cafe']);
+  const b=await write({...conflict.sidebar,starred:[...conflict.sidebar.starred,'b:kitchen']},conflict.version);
+  expect(b.status).toBe(200);
+  expect((await read()).sidebar.starred).toEqual(['b:cafe','b:kitchen']);
+  expect((await write(second.sidebar,second.version)).status).toBe(409);
+  expect((await read()).sidebar.starred).toEqual(['b:cafe','b:kitchen']);
+  const current=await read();
+  const simultaneous=await Promise.all([
+    write({...current.sidebar,starred:[...current.sidebar.starred,'b:a']},current.version),
+    write({...current.sidebar,starred:[...current.sidebar.starred,'b:b']},current.version),
+  ]);
+  expect(simultaneous.map(result=>result.status).sort()).toEqual([200,409]);
+});
+
+test('a damaged sidebar is not silently replaced by an empty layout', async () => {
+  await env.DB.prepare('INSERT INTO sidebar_prefs(org_id,login,data,updated_at) VALUES(?1,?2,?3,?4)').bind(ORG,'toru','{broken','2026-01-01').run();
+  const response=await call(`/channels/sidebar?${q({orgId:ORG})}`,toru);
+  expect(response.status).toBe(500);
+  expect((await env.DB.prepare('SELECT data FROM sidebar_prefs WHERE org_id=?1 AND login=?2').bind(ORG,'toru').first()).data).toBe('{broken');
+});
+
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership, upsertBusiness } = await import("../src/db.js");

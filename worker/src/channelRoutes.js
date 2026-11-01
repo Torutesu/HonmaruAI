@@ -37,7 +37,7 @@ import { translateMessages, sourceHash } from "./translate.js";
 import { getSession, isMember, getUserByGithubId, getUserByLogin, saveCard, getCard, listBusinesses } from "./db.js";
 import { claimDraft, releaseDraft, postedCard, refineDailyReport, saveDraftText, discardDraft, dailyChannelFor } from "./dailyReport.js";
 import { providerFor, readerEnvFor } from "./orgAI.js";
-import { groupsIn, toClientGroup, saveGroup, deleteGroup, getSidebar, saveSidebar, foldSection } from "./people-groups.js";
+import { groupsIn, toClientGroup, saveGroup, deleteGroup, saveSidebar, sidebarSnapshot, saveSidebarIfVersion, foldSection } from "./people-groups.js";
 import { allowanceFor } from "./gate.js";
 import { enforce } from "./ratelimit.js";
 import { listMembers } from "./team.js";
@@ -1093,7 +1093,13 @@ export async function handleChannels(request, env, url, { route, after }) {
     const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
-    if (request.method === "GET") return json({ sidebar: await getSidebar(env.DB, orgId, who.user.login) });
+    if (request.method === "GET") return json(await sidebarSnapshot(env.DB, orgId, who.user.login));
+    if (Object.prototype.hasOwnProperty.call(body, 'version')) {
+      if (body.version !== null && (typeof body.version !== 'string' || body.version.length > 3000000)) return json({message:'Invalid sidebar version.'},400);
+      const saved = await saveSidebarIfVersion(env.DB, orgId, who.user.login, body.sidebar || body, body.version);
+      if (!saved) return json({message:'Sidebar changed.', ...(await sidebarSnapshot(env.DB, orgId, who.user.login))},409);
+      return json(saved);
+    }
     return json({ sidebar: await saveSidebar(env.DB, orgId, who.user.login, body.sidebar || body) });
   }
 

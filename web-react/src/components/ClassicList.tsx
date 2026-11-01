@@ -91,7 +91,8 @@ import { playSound, setOpenView, rememberLevels, rememberLevel, startRing, stopR
 import { closeMessageNotifications, closeThreadNotifications } from '../utils/notifications'
 import { hasOlder, olderThan } from '../utils/historyPage'
 import { foldedRows, sectionBadge, visibleRows, stepRow, readFolds, writeFolds, withSectionFolds, withFold, unplacedAgents } from '../utils/sidebarSections'
-import { SidebarSync, type LayoutChange } from '../utils/sidebarSync'
+import { SidebarEditQueue, trackSidebarQueue, retainSidebarQueue, takeSidebarQueue, currentSidebarSession, reorderExisting, reorderIncludingNew, type LayoutChange } from '../utils/sidebarSync'
+import { SidebarSavedState } from './SidebarSavedState'
 import { placesFrom } from '../utils/places'
 import type { Place as Conversation } from '../utils/places'
 import { useAppearance } from '../utils/appearance'
@@ -452,58 +453,123 @@ export const ClassicList: React.FC<Props> = ({
   // Your own sidebar: what you starred and the sections you made, kept on
   // the server so the laptop and the phone arrange things alike.
   const [layout, setLayout] = useState<SidebarLayout>({ starred: [], sections: [] })
-  // Changes made before the saved layout is in wait for it, and only the
-  // latest save's answer is drawn (utils/sidebarSync).
-  const sidebarSync = useRef(new SidebarSync<SidebarLayout>())
+  // Preserve the user's operations until an atomic versioned save succeeds.
+  const sidebarSync = useRef<SidebarEditQueue<SidebarLayout> | null>(null)
   const [sidebarReady, setSidebarReady] = useState(false)
+  const [sidebarPending, setSidebarPending] = useState(false)
+  const [sidebarUncertain, setSidebarUncertain] = useState(false)
+  const [sidebarRemote, setSidebarRemote] = useState<SidebarLayout | null>(null)
+  const [sidebarChecking, setSidebarChecking] = useState(false)
+  const sidebarSessionIsCurrent = () => {
+    try { return currentSidebarSession(localStorage, api.httpBase, api.sessionToken, userId) } catch { return false }
+  }
+  const [sidebarCheckError, setSidebarCheckError] = useState(false)
   const layoutNow = useRef(layout)
   layoutNow.current = layout
   // Which sections are folded: remembered by this browser for the
   // workspace, and your own sections' on the server with the rest of it.
   const [folded, setFolded] = useState<Record<string, boolean>>(() => readFolds(api.orgId))
   useEffect(() => { writeFolds(api.orgId, folded) }, [api.orgId, folded])
-  const putLayout = (sync: SidebarSync<SidebarLayout>, next: SidebarLayout) => {
-    const save = sync.begin()
-    void fetch(`${api.httpBase}/channels/sidebar`, {
-      method: 'PUT', headers: { ...authHeaders, 'content-type': 'application/json' }, body: JSON.stringify({ orgId: api.orgId, sidebar: next }),
-    }).then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.sidebar && sidebarSync.current === sync && sync.latest(save)) setLayout(d.sidebar) }).catch(() => {})
-  }
   useEffect(() => {
-    let ignore = false
-    const sync = sidebarSync.current = new SidebarSync<SidebarLayout>()
+    const initial: SidebarLayout = { starred: [], sections: [] }
+    const queueKey = JSON.stringify([api.httpBase, api.sessionToken, userId, api.orgId])
+    const controller = new AbortController()
+    const show = (next: SidebarLayout, ready: boolean, pending: boolean) => {
+      if (sidebarSync.current !== sync) return
+      layoutNow.current = next
+      setLayout(next)
+      if (ready) setFolded((prev) => withSectionFolds(prev, next.sections || []))
+      setSidebarReady(ready)
+      setSidebarPending(pending)
+    }
+    const failed = (uncertain: boolean) => { if (sidebarSync.current === sync) {
+      if (uncertain) {
+        setSidebarUncertain(true)
+        setProblem(locale === 'ja' ? 'サイドバーの保存結果を確認できません。会話一覧の「保存状態を確認」を開いてください。' : 'The sidebar save could not be confirmed. Open “Check saved sidebar” in the conversation list.')
+      } else setProblem(t('That did not save.'))
+    } }
+    const retained = takeSidebarQueue<SidebarLayout>(queueKey)
+    const sync = sidebarSync.current = retained || new SidebarEditQueue<SidebarLayout>(initial,
+      async () => {
+        const response = await fetch(`${api.httpBase}/channels/sidebar?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders, signal: controller.signal })
+        if (!response.ok) throw new Error('Sidebar could not be read.')
+        const data = await response.json()
+        if (!data?.sidebar) throw new Error('Sidebar response is incomplete.')
+        return data
+      },
+      async (sidebar, version) => {
+        const response = await fetch(`${api.httpBase}/channels/sidebar`, {
+          method: 'PUT', headers: { ...authHeaders, 'content-type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({ orgId: api.orgId, sidebar, ...(version !== undefined ? {version} : {}) }),
+        })
+        const data = await response.json()
+        if ((!response.ok && response.status !== 409) || !data?.sidebar) throw new Error('Sidebar could not be saved.')
+        return {conflict: response.status === 409, snapshot: data}
+      },
+      show, failed, () => controller.abort(), controller.signal,
+      sidebarSessionIsCurrent)
+    trackSidebarQueue(sync, queueKey)
     setSidebarReady(false)
-    fetch(`${api.httpBase}/channels/sidebar?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders })
-      .then((r) => (r.ok ? r.json() : null)).then((d) => {
-        if (ignore) return
-        if (!d?.sidebar) { const save = sync.unavailable(layoutNow.current); if (save) putLayout(sync, save); setSidebarReady(true); return }
-        const { next, save } = sync.arrived(d.sidebar)
-        setLayout(next)
-        setFolded((prev) => withSectionFolds(prev, next.sections || []))
-        setSidebarReady(true)
-        if (save) putLayout(sync, save)
-      }).catch(() => {
-        if (ignore) return
-        const save = sync.unavailable(layoutNow.current)
-        if (save) putLayout(sync, save)
-        setSidebarReady(true)
-      })
-    return () => { ignore = true }
+    setSidebarPending(false)
+    setSidebarUncertain(false)
+    setSidebarRemote(null)
+    setSidebarCheckError(false)
+    layoutNow.current = initial
+    setLayout(initial)
+    if (retained) sync.attach(show, failed)
+    void sync.retry()
+    const retry = () => { if (document.visibilityState === 'visible') void sync.retry() }
+    window.addEventListener('focus', retry)
+    window.addEventListener('online', retry)
+    document.addEventListener('visibilitychange', retry)
+    return () => { retainSidebarQueue(queueKey, sync); window.removeEventListener('focus', retry); window.removeEventListener('online', retry); document.removeEventListener('visibilitychange', retry) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api.httpBase, api.orgId, authHeaders])
+  }, [api.httpBase, api.orgId, userId, authHeaders])
   /// A change to your sidebar, as what it does to it: shown at once, and
   /// saved on top of the saved layout even when made before that arrived.
   const saveLayout = (change: LayoutChange<SidebarLayout>) => {
     const sync = sidebarSync.current
-    const { next, save } = sync.change(layout, change)
+    if (!sync) return
+    const { before, next } = sync.change(change)
     // An agent nothing has been said to yet is listed only for being
     // starred or in a section. Unstarred, or put back where it was, it
     // stays listed among the agents: open, it must not vanish from under you.
-    const freed = unplacedAgents(layout, next)
+    const freed = unplacedAgents(before, next)
     if (freed.length) setStartedAgents((prev) => [...prev, ...freed.filter((id) => !prev.includes(id))])
-    setLayout(next)
-    if (save) putLayout(sync, save)
   }
   const isStarred = (view: string) => layout.starred.includes(view)
+  const checkSavedSidebar = async () => {
+    const sync = sidebarSync.current
+    if (!sync || sync.isCancelled() || !sidebarSessionIsCurrent()) return
+    setSidebarChecking(true); setSidebarCheckError(false)
+    try {
+      const response = await fetch(`${api.httpBase}/channels/sidebar?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders, signal: sync.requestSignal() })
+      if (!response.ok) throw new Error('Sidebar could not be read.')
+      const data = await response.json()
+      if (!data?.sidebar) throw new Error('Sidebar response is incomplete.')
+      if (sidebarSync.current === sync && !sync.isCancelled() && sidebarSessionIsCurrent()) setSidebarRemote(data.sidebar)
+    } catch { if (sidebarSync.current === sync && !sync.isCancelled()) setSidebarCheckError(true) }
+    finally { if (sidebarSync.current === sync && !sync.isCancelled()) setSidebarChecking(false) }
+  }
+  const adoptSavedSidebar = async () => {
+    const prompt = locale === 'ja'
+      ? '保留中のサイドバー変更を破棄し、現在サーバーに保存されている状態を使います。よろしいですか？'
+      : 'Discard the pending sidebar changes and use the state currently saved on the server?'
+    if (!window.confirm(prompt)) return
+    const sync = sidebarSync.current
+    if (!sync || sync.isCancelled() || !sidebarSessionIsCurrent()) return
+    setSidebarChecking(true); setSidebarCheckError(false)
+    try {
+      const response = await fetch(`${api.httpBase}/channels/sidebar?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders, signal: sync.requestSignal() })
+      if (!response.ok) throw new Error('Sidebar could not be read.')
+      const data = await response.json()
+      if (!data?.sidebar || sidebarSync.current !== sync || !sync.adopt(data)) throw new Error('Sidebar changed.')
+      setSidebarUncertain(false); setSidebarRemote(null)
+      setProblem((before) => before === (locale === 'ja' ? 'サイドバーの保存結果を確認できません。会話一覧の「保存状態を確認」を開いてください。' : 'The sidebar save could not be confirmed. Open “Check saved sidebar” in the conversation list.') ? null : before)
+    } catch { if (sidebarSync.current === sync && !sync.isCancelled()) setSidebarCheckError(true) }
+    finally { if (sidebarSync.current === sync && !sync.isCancelled()) setSidebarChecking(false) }
+  }
   /// Your channels in the order you dragged them into; any you have not
   /// placed follow, in the team's order.
   const inYourOrder = (list: Thread[]) => {
@@ -539,12 +605,14 @@ export const ClassicList: React.FC<Props> = ({
     // A conversation has one place in the sidebar. Moving a starred item
     // into a personal section must unstar it too; otherwise the section
     // renderer hides it as a duplicate and leaves the destination empty.
-    starred: layout.starred.filter((v) => v !== view),
-    sections: layout.sections.map((x) => ({ ...x, views: x.id === sectionId ? [...x.views.filter((v) => v !== view), view] : x.views.filter((v) => v !== view) })),
+    ...(sectionId && !layout.sections.some((section) => section.id === sectionId) ? {} : {
+      starred: layout.starred.filter((v) => v !== view),
+      sections: layout.sections.map((x) => ({ ...x, views: x.id === sectionId ? [...x.views.filter((v) => v !== view), view] : x.views.filter((v) => v !== view) })),
+    }),
   }))
   const newSection = (name: string, view?: string) => {
     const id = Math.random().toString(36).slice(2, 10)
-    saveLayout((layout) => ({
+    saveLayout((layout) => layout.sections.some((section) => section.id === id) ? layout : ({
       ...layout,
       starred: view ? layout.starred.filter((v) => v !== view) : layout.starred,
       sections: [...layout.sections.map((x) => ({ ...x, views: view ? x.views.filter((v) => v !== view) : x.views })), { id, name, views: view ? [view] : [] }],
@@ -557,14 +625,10 @@ export const ClassicList: React.FC<Props> = ({
   /// remembers them over what another window or the phone did since.
   const toggleFold = (id: string) => {
     const shut = !folded[id]
-    setFolded((p) => ({ ...p, [id]: shut }))
     const own = layout.sections.find((x) => `sec:${x.id}` === id)
-    if (!own) return
+    if (!own) { setFolded((p) => ({ ...p, [id]: shut })); return }
     // Here too, so the next star or move says the fold as it now is.
-    setLayout((now) => ({ ...now, sections: withFold(now.sections, own.id, shut) }))
-    void fetch(`${api.httpBase}/channels/sidebar/fold`, {
-      method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' }, body: JSON.stringify({ orgId: api.orgId, id: own.id, collapsed: shut }),
-    }).catch(() => {})
+    saveLayout((now) => ({ ...now, sections: withFold(now.sections, own.id, shut) }))
   }
   const [addingSection, setAddingSection] = useState<null | { view?: string }>(null)
   const [sectionName, setSectionName] = useState('')
@@ -1577,7 +1641,7 @@ export const ClassicList: React.FC<Props> = ({
   const starredThreads = layout.starred.map(byView).filter((x): x is Thread => Boolean(x))
   const sidebarGroups: SidebarSection[] = [
     // Starred first, then your sections; what they hold leaves the defaults.
-    ...(starredThreads.length > 0 ? [{ id: 'starred', label: t('Starred'), items: starredThreads, empty: '', reorder: (views: string[]) => saveLayout((layout) => ({ ...layout, starred: views })) }] : []),
+    ...(starredThreads.length > 0 ? [{ id: 'starred', label: t('Starred'), items: starredThreads, empty: '', reorder: (views: string[]) => saveLayout((layout) => ({ ...layout, starred: reorderExisting(layout.starred, views) })) }] : []),
     ...layout.sections.map((x) => ({
       id: `sec:${x.id}`,
       label: x.name,
@@ -1588,7 +1652,7 @@ export const ClassicList: React.FC<Props> = ({
           <Icon name="x" size={12} />
         </button>
       ),
-      reorder: (views: string[]) => saveLayout((layout) => ({ ...layout, sections: layout.sections.map((y) => (y.id === x.id ? { ...y, views: [...views, ...y.views.filter((v) => !views.includes(v))] } : y)) })),
+      reorder: (views: string[]) => saveLayout((layout) => ({ ...layout, sections: layout.sections.map((y) => (y.id === x.id ? { ...y, views: reorderExisting(y.views, views) } : y)) })),
     })),
     {
       id: 'channels', label: t('Channels'), items: inYourOrder(channels.filter(unplaced)),
@@ -1596,7 +1660,7 @@ export const ClassicList: React.FC<Props> = ({
       action: addChannel, below: addChannelForm,
       // Drag to reorder: the channels shown here in their new order,
       // then any placed elsewhere, as they were.
-      reorder: (views: string[]) => saveLayout((layout) => ({ ...layout, order: [...views, ...inYourOrder(channels).map((th) => th.view!).filter((v) => v && !views.includes(v))] })),
+      reorder: (views: string[]) => saveLayout((layout) => ({ ...layout, order: reorderIncludingNew(layout.order || [], views) })),
     },
     { id: 'people', label: t('Direct messages'), items: people.filter(unplaced), empty: t('Nobody has sent you a decision yet.') },
     ...(agents.length > 0 ? [{ id: 'agents', label: t('Agents'), items: agentConvos.filter(unplaced), empty: t('Talk to one of your team’s agents: it answers you here.'), action: addAgent, below: agentPicker }] : []),
@@ -5930,6 +5994,16 @@ export const ClassicList: React.FC<Props> = ({
   return (
     <div ref={interactionRoot} className={`classic slk${current || special ? ' in-thread' : ''}${phoneRoot ? ' phone-root' : ''}${detail || thread || profile ? ' with-pane' : ''}${sourceThreadApp ? ' hx-thread-app' : ''}${harness && thread && !detail && !profile && !activityOpen ? ' hx-focused-thread' : ''}${sideHidden ? ' side-hidden' : ''}${density === 'compact' ? ' compact' : ''}`} onClick={onMentionClick} onKeyDown={onMentionKey}>
       <aside className="slk-side" aria-label={t('Conversations')} data-sidebar-ready={sidebarReady ? '1' : undefined}>
+        {sidebarPending && !sidebarUncertain && <p className="cl-problem" role="status">{locale === 'ja' ? 'サイドバーの変更を保存中です。同じタブでこのワークスペースに戻ると未完了の保存を再試行します。' : 'Saving sidebar changes. Pending changes retry when you return to this workspace in the same tab.'}</p>}
+        {sidebarUncertain && <div className="cl-problem" role="alert">
+          <p>{locale === 'ja' ? '保存結果が不明です。変更はこの画面に保留され、追加の変更は停止しています。画面を閉じるか再読み込みすると保留中の変更が失われる可能性があります。' : 'The save result is unknown. Changes remain pending on this screen and further edits are stopped. Closing or reloading this screen may discard pending changes.'}</p>
+          <button type="button" disabled={sidebarChecking} onClick={() => void checkSavedSidebar()}>{locale === 'ja' ? '保存状態を確認' : 'Check saved sidebar'}</button>
+          {sidebarCheckError && <p>{locale === 'ja' ? '保存状態を読み込めませんでした。' : 'The saved sidebar could not be read.'}</p>}
+          {sidebarRemote && <div>
+            <SidebarSavedState sidebar={sidebarRemote} japanese={locale === 'ja'} nameOf={view => everything.find(item => item.view === view)?.name || view} />
+            <button type="button" disabled={sidebarChecking} onClick={() => void adoptSavedSidebar()}>{locale === 'ja' ? '保留を破棄して保存状態を使う' : 'Discard pending and use saved state'}</button>
+          </div>}
+        </div>}
         {!wide && phoneTab === 'dms' ? dmsView() : <>
         {harness ? <>
           <header className="hx-chat-top"><h1>{t('Chat')}</h1><button onClick={() => setStarting('menu')} aria-label={t('New message')}><Icon name="plus" size={17} /></button></header>

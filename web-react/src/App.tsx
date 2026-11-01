@@ -18,6 +18,8 @@ import type { InvitePeek } from './screens/SignIn'
 import { disableWebPush, sessionIsCurrent } from './utils/push'
 import { boundSsoStart, takeSsoVerifier } from './utils/ssoBinding'
 import { forgetOwnOutbox } from './utils/pendingSend'
+import { bindSidebarSession, hasPendingSidebarQueues, clearSidebarSessionQueues, clearSidebarWorkspaceQueues, clearSidebarIfTokenChanged } from './utils/sidebarSync'
+import { getLocale } from './utils/locale'
 import './theme.css'
 import './App.css'
 import {SharedThread} from './screens/SharedThread'
@@ -43,14 +45,36 @@ function wsBase(host: string) {
 // Where someone is in getting into the product. `app` is the only stage with a
 // session behind it; everything before it is the way in.
 type Stage = 'welcome' | 'auth' | 'otp' | 'onboarding' | 'repo' | 'app'
+type AccountScope = { server: string; token: string; user: string | null; org: string }
 
 function App() {
   const [hash,setHash]=useState(()=>location.hash)
+  const [sidebarSessionWarning,setSidebarSessionWarning]=useState(false)
   useEffect(()=>{const change=()=>setHash(location.hash);window.addEventListener('hashchange',change);return()=>window.removeEventListener('hashchange',change)},[])
-  if(hash.startsWith('#/shared/'))return <SharedThread key={hash} httpBase={httpBase(DEFAULT_HOST)} token={hash.slice('#/shared/'.length)}/>
+  // Public pages can temporarily unmount AccountApp. Keep the session
+  // boundary active there too so another tab's logout drops retained queues.
+  useEffect(()=>{
+    const onStorage=(event:StorageEvent)=>{
+      if(event.key!=='sessionToken'&&event.key!==null)return
+      let token='';try{token=localStorage.getItem('sessionToken')||''}catch{/* no session */}
+      if(clearSidebarIfTokenChanged(token))setSidebarSessionWarning(true)
+    }
+    window.addEventListener('storage',onStorage)
+    return()=>window.removeEventListener('storage',onStorage)
+  },[])
+  useEffect(()=>{
+    const beforeUnload=(event:BeforeUnloadEvent)=>{
+      if(!hasPendingSidebarQueues())return
+      event.preventDefault();event.returnValue=''
+    }
+    window.addEventListener('beforeunload',beforeUnload)
+    return()=>window.removeEventListener('beforeunload',beforeUnload)
+  },[])
+  const warning=sidebarSessionWarning&&<div className="toasts"><div className="toast error" role="alert" onClick={()=>setSidebarSessionWarning(false)}>{getLocale()==='ja'?'セッションが変わったため未完了のサイドバー変更を破棄しました。進行中の保存は既に反映された可能性があります。':'The session changed and pending sidebar edits were discarded. A request already in progress may have saved.'}</div></div>
+  if(hash.startsWith('#/shared/'))return <>{warning}<SharedThread key={hash} httpBase={httpBase(DEFAULT_HOST)} token={hash.slice('#/shared/'.length)}/></>
   const skillShare=hash.match(/^#\/skill-share\/(skl_[a-f0-9]{64})$/)
-  if(skillShare)return <PublicSkillShare key={hash} httpBase={httpBase(DEFAULT_HOST)} token={skillShare[1]}/>
-  return <AccountApp/>
+  if(skillShare)return <>{warning}<PublicSkillShare key={hash} httpBase={httpBase(DEFAULT_HOST)} token={skillShare[1]}/></>
+  return <>{warning}<AccountApp/></>
 }
 
 function AccountApp() {
@@ -69,6 +93,17 @@ function AccountApp() {
   const [orgId, setOrgId] = useState<string>('')
   const [sessionToken, setSessionToken] = useState<string>('')
   const [host, setHost] = useState<string>(DEFAULT_HOST)
+  const scopeRef = useRef<AccountScope>({ server: httpBase(host), token: sessionToken, user: userId, org: orgId })
+  scopeRef.current = { server: httpBase(host), token: sessionToken, user: userId, org: orgId }
+  const sameSession = (scope: AccountScope) => {
+    const current = scopeRef.current
+    if (current.server !== scope.server || current.token !== scope.token || current.user !== scope.user) return false
+    try {
+      const token = localStorage.getItem('sessionToken'), user = localStorage.getItem('userId'), storedHost = localStorage.getItem('host')
+      return Boolean(scope.token && scope.user) && token === scope.token && user === scope.user &&
+        httpBase(storedHost || DEFAULT_HOST) === scope.server
+    } catch { return false }
+  }
   // Carried from the email screen to the code screen and nowhere else.
   const [pending, setPending] = useState({ email: '', name: '', inviteCode: '' })
   // GitHub sign-in on the web, where the deployment offers it; and the
@@ -114,6 +149,7 @@ function AccountApp() {
     finishGitHubSignIn(base, cb)
       .then(({ sessionToken: token, login, orgs }) => {
         if (orgs.length) { void finishAuthRef.current?.(token, login, orgs[0], false); return }
+        warnDiscardedSidebar(bindSidebarSession(base, token, login))
         setSessionToken(token)
         setUserId(login)
         setPendingGithub({ token, login })
@@ -131,7 +167,7 @@ function AccountApp() {
     const savedHost = localStorage.getItem('host') || DEFAULT_HOST
     setHost(savedHost)
     setRestoreError(false)
-    if (!savedToken || !savedUser) { setRestoring(false); return () => controller.abort() }
+    if (!savedToken || !savedUser) { warnDiscardedSidebar(clearSidebarSessionQueues()); setRestoring(false); return () => controller.abort() }
     setRestoring(true)
     let answered = false
     fetch(`${httpBase(savedHost)}/me`, { headers: { 'x-session-token': savedToken }, signal: controller.signal })
@@ -139,6 +175,7 @@ function AccountApp() {
         if (controller.signal.aborted) return
         answered = true
         if (response.status === 401 || response.status === 409) {
+          warnDiscardedSidebar(clearSidebarSessionQueues())
           // The session is over: this browser stops taking its pushes too.
           // The Worker refuses the dead token, but the endpoint, unsubscribed
           // here, fails its next push and is pruned.
@@ -157,6 +194,7 @@ function AccountApp() {
         if (controller.signal.aborted) return
         if (typeof me.login !== 'string' || !Array.isArray(me.orgs)) throw new Error('Invalid session response')
         const workspace = me.orgs.some((org: { id: string }) => org.id === savedOrg) ? savedOrg! : me.orgs[0]?.id || ''
+        warnDiscardedSidebar(bindSidebarSession(httpBase(savedHost), savedToken, me.login))
         setSessionToken(savedToken); setUserId(me.login); setOrgId(workspace)
         adoptAccountData(accountOwner(httpBase(savedHost), me.login))
         localStorage.setItem('userId', me.login); localStorage.setItem('orgId', workspace)
@@ -168,6 +206,7 @@ function AccountApp() {
         if (navigator.onLine === false) {
           // Preserve this browser's existing offline workspace. Server calls
           // remain authenticated; reconnect revalidates before fetching data.
+          warnDiscardedSidebar(bindSidebarSession(httpBase(savedHost), savedToken, savedUser))
           setSessionToken(savedToken); setUserId(savedUser); setOrgId(savedOrg || '')
           setStage(needsOnboarding(localStorage, httpBase(savedHost), savedUser) ? 'onboarding' : 'app')
           setRestoring(false)
@@ -308,6 +347,7 @@ function AccountApp() {
   const finishAuth = async (token: string, uid: string, org: string, firstTime: boolean) => {
     finishAuthRef.current = finishAuth
     const workspace = await resolveOrg(token, org)
+    warnDiscardedSidebar(bindSidebarSession(httpBase(host), token, uid))
     setSessionToken(token)
     setUserId(uid)
     setOrgId(workspace)
@@ -334,19 +374,25 @@ function AccountApp() {
   /// somebody removed them, or the session behind it stopped being valid.
   /// There is nothing there to show them now, so ask where they still belong
   /// — the same question a sign-in asks — and go there.
-  const leftOrg = async () => {
+  const leftOrg = async (origin: AccountScope) => {
+    if (!sameSession(origin)) return
+    // Only the workspace whose access was revoked must lose pending writes.
+    // Work queued for a different workspace remains available there.
+    warnDiscardedSidebar(clearSidebarWorkspaceQueues(JSON.stringify([origin.server, origin.token, origin.user, origin.org])))
+    if (scopeRef.current.org !== origin.org) return
     // Whatever happens next, the cards of the workspace they are out of
     // are not theirs to keep on this machine.
     clearCardCache()
     try {
-      const res = await fetch(`${httpBase(host)}/me`, { headers: { 'x-session-token': sessionToken } })
+      const res = await fetch(`${origin.server}/me`, { headers: { 'x-session-token': origin.token } })
       if (res.ok) {
         const me = await res.json()
-        const next = me.orgs?.find((o: { id: string }) => o.id !== orgId)?.id
+        if (!sameSession(origin) || scopeRef.current.org !== origin.org) return
+        const next = me.orgs?.find((o: { id: string }) => o.id !== origin.org)?.id
         if (next) { switchOrg(next); return }
       }
     } catch { /* nothing to fall back to but the way out */ }
-    handleLogout()
+    if (sameSession(origin) && scopeRef.current.org === origin.org) logout(true)
   }
 
   // The Dashboard holds this in the effect that owns the socket, so it has to
@@ -356,7 +402,9 @@ function AccountApp() {
   // body it calls stays current.
   const leftOrgRef = useRef(leftOrg)
   leftOrgRef.current = leftOrg
-  const onLeft = useCallback(() => { void leftOrgRef.current() }, [])
+  const onLeft = useCallback(() => {
+    void leftOrgRef.current({ server: httpBase(host), token: sessionToken, user: userId, org: orgId })
+  }, [host, sessionToken, userId, orgId])
 
   // One language for the account, whichever device chose it last: read
   // when the app opens and whenever it comes back to the front.
@@ -384,7 +432,26 @@ function AccountApp() {
 
   // Signed out by a workspace's login rules: said on the way out.
   const [signedOutWhy, setSignedOutWhy] = useState<string | null>(null)
-  const handleLogout = () => {
+  const sidebarDiscardWarning = () => getLocale() === 'ja'
+    ? '未完了のサイドバー変更を破棄しました。進行中だった保存は既に反映された可能性があるため、保存状態を後で確認してください。'
+    : 'Pending sidebar changes were discarded. A request already in progress may have saved; check the saved state later.'
+  const warnDiscardedSidebar = (discarded: boolean) => {
+    if (!discarded) return
+    const text = sidebarDiscardWarning()
+    setSignedOutWhy(previous => previous ? `${previous} ${text}` : text)
+    setNotice({text, error:true})
+  }
+  const logout = (forced: boolean) => {
+    // An account deletion or workspace departure started by an older
+    // Dashboard must not sign out a newer account after its response arrives.
+    if (!sameSession({ server: httpBase(host), token: sessionToken, user: userId, org: orgId })) return
+    if (!forced && hasPendingSidebarQueues()) {
+      const prompt = getLocale() === 'ja'
+        ? '未完了のサイドバー変更があります。サインアウトすると保留を破棄します。進行中の保存は反映される可能性があります。続けますか？'
+        : 'There are pending sidebar changes. Signing out discards them; a save already in progress may still apply. Continue?'
+      if (!window.confirm(prompt)) return
+    }
+    warnDiscardedSidebar(clearSidebarSessionQueues())
     const base = httpBase(host)
     const token = sessionToken
     // Who this browser belongs to now, by session rather than by name. A tab
@@ -416,6 +483,7 @@ function AccountApp() {
       forgetOwnOutbox(localStorage, userId)
     }
   }
+  const handleLogout = () => logout(false)
 
   // Another tab signed in or out. This tab's session, held in memory, is
   // then no longer the browser's, and an old account's view must not go on
@@ -432,6 +500,7 @@ function AccountApp() {
       try { saved = localStorage.getItem('sessionToken') || '' } catch { return }
       const mine = sessionRef.current
       if (saved === mine.token) return
+      warnDiscardedSidebar(clearSidebarSessionQueues())
       if (saved) { setRestoreAttempt((value) => value + 1); return }
       if (mine.stage === 'app' || mine.stage === 'onboarding') {
         setUserId(null); setSessionToken(''); setStage('welcome')
@@ -444,9 +513,14 @@ function AccountApp() {
   // A workspace's login rules ended this sign-in (utils/authGuard): out,
   // with the reason, to sign in again.
   useEffect(() => {
-    const on = () => {
+    const on = (event: Event) => {
+      const detail = (event as CustomEvent<{ base?: string }>).detail
+      if (detail?.base) {
+        try { if (new URL(detail.base).origin !== new URL(httpBase(host)).origin) return } catch { return }
+      }
+      if (!sameSession({ server: httpBase(host), token: sessionToken, user: userId, org: orgId })) return
       setSignedOutWhy(t("This workspace's login rules ask you to sign in again."))
-      handleLogout()
+      logout(true)
     }
     window.addEventListener('honmaru:session-policy', on)
     return () => window.removeEventListener('honmaru:session-policy', on)
@@ -556,6 +630,7 @@ function AccountApp() {
         relayUrl={wsBase(host)}
         sessionToken={sessionToken}
         onLogout={handleLogout}
+        onAccountDeleted={() => logout(true)}
         onSwitchOrg={switchOrg}
         onLeft={onLeft}
       />

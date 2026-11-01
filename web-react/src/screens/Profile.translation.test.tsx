@@ -49,3 +49,18 @@ test.each(['http', 'network'])('failed %s save stays visibly enabled and does no
   expect(JSON.stringify(tree.toJSON())).toContain('That did not save.')
   act(() => tree.unmount())
 })
+
+test('successful account deletion invokes forced teardown, not cancellable sign out', async () => {
+  vi.stubGlobal('window',new EventTarget())
+  vi.stubGlobal('fetch',vi.fn((_url:string,init?:RequestInit)=>Promise.resolve(init?.method==='DELETE'?{ok:true}:{ok:true,json:async()=>profile})))
+  const signOut=vi.fn(),deleted=vi.fn()
+  let tree!:ReturnType<typeof create>
+  await act(async()=>{tree=create(<Profile httpBase="https://synthetic.invalid" orgId="org" userId="reader" sessionToken="synthetic" businesses={[]} pendingCount={0} decidedCount={0} onOpen={vi.fn()} onLocaleChange={vi.fn()} onTranslationChange={vi.fn()} onSwitchOrg={vi.fn()} onLogout={signOut} onAccountDeleted={deleted} onClose={vi.fn()} />)})
+  const trigger=tree.root.findAllByType('button').find(button=>button.findAllByType('span').some(span=>span.children.includes('Delete account')))!
+  act(()=>trigger.props.onClick())
+  const confirm=tree.root.findAllByType('button').find(button=>button.children.includes('Delete'))!
+  await act(async()=>{await confirm.props.onClick()})
+  expect(deleted).toHaveBeenCalledOnce()
+  expect(signOut).not.toHaveBeenCalled()
+  act(()=>tree.unmount())
+})

@@ -28,6 +28,7 @@ interface Props {
   onTranslationChange?: (enabled: boolean) => void
   onSwitchOrg: (orgId: string) => void
   onLogout: () => void
+  onAccountDeleted?: () => void
   onClose: () => void
 }
 
@@ -70,7 +71,7 @@ const DENSITY_LABEL: Record<Density, string> = { cozy: 'Cozy', compact: 'Compact
 /// You: who your AI thinks you are, what it has done for you, and the way out.
 export const Profile: React.FC<Props> = ({
   httpBase, orgId, userId, sessionToken, businesses, pendingCount, decidedCount,
-  onOpen, onLocaleChange, onTranslationChange, onSwitchOrg, onLogout, onClose,
+  onOpen, onLocaleChange, onTranslationChange, onSwitchOrg, onLogout, onAccountDeleted, onClose,
 }) => {
   const t = useT()
   // Kept in this browser, and drawn the moment it changes.
@@ -277,7 +278,7 @@ export const Profile: React.FC<Props> = ({
       method: 'DELETE',
       headers: { 'x-session-token': sessionToken },
     })
-    if (res.ok) { onLogout(); return }
+    if (res.ok) { (onAccountDeleted || onLogout)(); return }
     // The only owner of a workspace others are in has to hand it on first.
     const data = await res.json().catch(() => ({}))
     if (data.code === 'last-owner') {

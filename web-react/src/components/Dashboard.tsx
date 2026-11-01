@@ -1,4 +1,5 @@
 import {useJamSnapshot} from '../utils/useJamSnapshot'
+import { requestSessionIsCurrent } from '../utils/authGuard'
 import {WorkspaceModeLoading} from './WorkspaceModeLoading'
 import { FloatingAppWorkspace } from './FloatingAppWorkspace'
 import { HarnessRail } from './HarnessRail'
@@ -72,6 +73,7 @@ interface Props {
   relayUrl: string
   sessionToken: string
   onLogout: () => void
+  onAccountDeleted?: () => void
   onSwitchOrg: (orgId: string) => void
   /// This account is no longer in the workspace on screen. The shell finds
   /// them another one.
@@ -99,7 +101,7 @@ const DECIDED_WORD: Record<string, string> = {
 /// is a sheet over it that closes back to the feed.
 const HARNESS_SCREENS = new Set<Screen>(['home', 'harness', 'apps', 'workflows', 'approvals', 'skills', 'hxagents', 'gateways'])
 
-export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout, onSwitchOrg, onLeft }) => {
+export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionToken, onLogout, onAccountDeleted, onSwitchOrg, onLeft }) => {
   const t = useT()
   // The last snapshot this browser saw, until the relay sends a new one —
   // and instead of nothing when it cannot.
@@ -431,7 +433,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       addDebugLog(`Refused: ${code || 'no code'} — ${message}`)
       if (code === 'not-a-member' || code === 'sign-in-required') onLeft()
       // This workspace's login rules have ended the sign-in: out, with why.
-      if (code === 'session-policy') window.dispatchEvent(new CustomEvent('honmaru:session-policy', { detail: { orgId } }))
+      if (code === 'session-policy' && requestSessionIsCurrent(relayUrl.replace(/^ws/, 'http'), sessionToken)) window.dispatchEvent(new CustomEvent('honmaru:session-policy', { detail: { orgId, base: relayUrl.replace(/^ws/, 'http') } }))
       if (code === 'sso-required' || code === 'sso-reauth') window.dispatchEvent(new CustomEvent('honmaru:sso-required', { detail: { orgId, start: `/sso/start?orgId=${encodeURIComponent(orgId)}` } }))
     }
     wsClient.onToolCallResult = (toolCallId) => { if (!ignore) addDebugLog(`Tool result: ${toolCallId}`) }
@@ -1462,6 +1464,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onTranslationChange={savedTranslationPreference}
           onSwitchOrg={switchWorkspaceByHand}
           onLogout={onLogout}
+          onAccountDeleted={onAccountDeleted}
           onClose={closeScreen}
         />
       )}

@@ -2168,8 +2168,40 @@ await step('a star made while the saved sidebar is still on its way is kept, and
     const label = await d.innerText('.row-menu [data-row-menu="star"]')
     if (!/Unstar/.test(label)) throw new Error(`the late sidebar undid the star on screen: the menu says ${label}`)
     await d.keyboard.press('Escape')
+    // Let a write reach the Worker, but lose its response. The client must
+    // hold it rather than replay it over a later edit from another device.
+    let dropped = 0
+    await d.route('**/channels/sidebar', async (route) => {
+      if (route.request().method() !== 'PUT') return route.continue()
+      dropped++
+      await route.fetch()
+      await route.abort('failed')
+    })
+    await d.locator(`${row} .cl-open`).first().click({ button: 'right' })
+    await d.click('.row-menu [data-row-menu="star"]')
+    await d.waitForSelector('text=The save result is unknown.', { timeout: 10000 })
+    await d.click('text=Check saved sidebar')
+    await d.waitForSelector('[aria-label="Saved sidebar"]', { timeout: 12000 })
+    if (dropped !== 1) throw new Error(`the uncertain sidebar change was sent ${dropped} times`)
+    d.once('dialog', (dialog) => dialog.accept())
+    await d.click('text=Discard pending and use saved state')
+    await d.waitForSelector('text=The save result is unknown.', { state: 'detached', timeout: 12000 })
+    await d.unroute('**/channels/sidebar')
+    // Another device adds a star after this tab last read the layout. Its
+    // addition must survive when this tab next saves its own change.
+    const remote = await sidebar('GET')
+    await sidebar('PUT', { ...remote, starred: [...remote.starred, 'b:garage'] })
+    await d.locator(`${row} .cl-open`).first().click({ button: 'right' })
+    await d.click('.row-menu [data-row-menu="star"]')
+    let combined
+    for (let attempt = 0; attempt < 8; attempt++) {
+      combined = await sidebar('GET')
+      if (combined.starred.includes('b:garage') && combined.starred.includes('b:front-desk')) break
+      await d.waitForTimeout(250)
+    }
+    if (!combined.starred.includes('b:garage') || !combined.starred.includes('b:front-desk')) throw new Error(`cross-device stars lost: ${JSON.stringify(combined.starred)}`)
   } finally {
-    if (before) await d.unroute('**/channels/sidebar?*').then(() => sidebar('PUT', before)).catch(() => {})
+    if (before) await d.unroute('**/channels/sidebar').then(() => d.unroute('**/channels/sidebar?*')).then(() => sidebar('PUT', before)).catch(() => {})
     await ctx.close()
   }
 })
