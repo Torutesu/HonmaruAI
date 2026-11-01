@@ -556,6 +556,56 @@ test('duplicate AI reply jobs invoke the model and save the reply only once',asy
  expect(model).toHaveBeenCalledOnce();expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE author_id='__app_ai'").first()).n).toBe(1);
 });
 
+test.each(['app','record','history','author'])('changed %s context before model dispatch stops the reply',async change=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI examine',requestId:'context_change_req_01',tableId:app.tableId,rowId:row.id};
+ const saved=await appConversation(env.DB,org,'9201',app.id,input,true);
+ const model=vi.fn().mockResolvedValue('Should not run');
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{makeCompleter:async()=>{
+  if(change==='app')await env.DB.prepare("UPDATE hx_apps SET name='Changed app' WHERE org_id=? AND id=?").bind(org,app.id).run();
+  else if(change==='record')await env.DB.prepare("UPDATE hx_rows SET data='{\"title\":\"Changed\"}' WHERE org_id=? AND id=?").bind(org,row.id).run();
+  else if(change==='history')await env.DB.prepare("UPDATE hx_app_messages SET body='Changed message' WHERE sequence=?").bind(saved.messageId).run();
+  else await env.DB.prepare("UPDATE users SET name='Changed author' WHERE github_id='9201'").run();
+  return model;
+ }});
+ expect(model).not.toHaveBeenCalled();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'failed'});
+});
+
+test('context changed after model before reply INSERT is not published',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI examine',requestId:'late_context_req_01',tableId:app.tableId,rowId:row.id};
+ const saved=await appConversation(env.DB,org,'9201',app.id,input,true);let injected=false;
+ const db={prepare(sql){const stmt=env.DB.prepare(sql);if(!sql.startsWith('INSERT OR IGNORE INTO hx_app_messages'))return stmt;
+  return {bind(...args){const bound=stmt.bind(...args);return {async run(){injected=true;await env.DB.prepare("UPDATE hx_rows SET data='{\"title\":\"Later\"}' WHERE id=?").bind(row.id).run();return bound.run()}}}}},batch:env.DB.batch.bind(env.DB)};
+ await replyToApp({...env,DB:db},org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{makeCompleter:async()=>async()=>'Must not publish'});
+ expect(injected).toBe(true);expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE author_id='__app_ai'").first()).n).toBe(0);
+ expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'failed'});
+});
+
+test('a later unrelated message does not invalidate the triggering snapshot',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI examine',requestId:'later_message_req_01'},saved=await appConversation(env.DB,org,'9201',app.id,input,true);
+ const model=vi.fn(async()=>{await appConversation(env.DB,org,'9202',app.id,{body:'New message',requestId:'later_message_req_02'},true);return 'Answer to the earlier message'});
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{makeCompleter:async()=>model});
+ expect(model).toHaveBeenCalledOnce();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'succeeded'});
+});
+
+test('long 30-message history and record context fit the guarded D1 reply INSERT',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {appConversation}=await import('../src/harness/appConversations.js');
+ const long='あ'.repeat(4000);
+ await env.DB.prepare('UPDATE hx_rows SET data=? WHERE org_id=? AND id=?').bind(JSON.stringify({title:long}),org,row.id).run();
+ for(let n=0;n<32;n++)await appConversation(env.DB,org,'9201',app.id,{body:long,requestId:'long_history_'+String(n).padStart(10,'0'),tableId:app.tableId,rowId:row.id},true);
+ const input={body:'@AI final',requestId:'long_context_req_01',tableId:app.tableId,rowId:row.id};
+ const saved=await appConversation(env.DB,org,'9201',app.id,input,true);
+ const model=vi.fn(async(_system,prompt)=>{const context=JSON.parse(prompt);expect(context.conversation).toHaveLength(30);expect(context.record.data).toContain(long);return 'Accepted';});
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{makeCompleter:async()=>model});
+ expect(model).toHaveBeenCalledOnce();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'succeeded'});
+});
+
 test('long room guidelines do not replace the app request or determine its fallback template',async()=>{
  const root=await privateSource();
  const rule=('営業・請求書・カレンダー。担当者は自由記述。'+'規'.repeat(4096)).slice(0,4096);
