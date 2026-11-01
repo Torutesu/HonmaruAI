@@ -4,13 +4,21 @@ import {StepEditor, type AgentFace} from './WorkflowStepEditor'
 import {AutomationTriggerEditor,type TriggerAppOption} from './AutomationTriggerEditor'
 import {AutomationRuns} from './AutomationRuns'
 import {AutomationSummary} from './AutomationSummary'
-import type {App, AppAutomationState, AutomationBundle, HarnessApi, Workflow, Table, Trigger} from '../utils/harness'
+import type {App, AppAutomationState, AutomationBundle, HarnessApi, Workflow, Table, Trigger, Column} from '../utils/harness'
 
-const removedTriggerConditions=(before:Trigger,after:Trigger)=>{
+const removedTriggerConditions=(before:Trigger,after:Trigger,columns:Column[]|undefined)=>{
   const prior=before.type==='row'?before.where:before.type==='app_record_change'?before.when?.where:undefined
   const next=after.type==='row'?after.where:after.type==='app_record_change'?after.when?.where:undefined
-  return Boolean((before.type==='row'&&before.column&&(after.type!=='row'||!after.column))||
-    (prior&&Object.keys(prior).some(key=>!Object.hasOwn(next||{},key))))
+  if(before.type==='row'&&before.column&&(after.type!=='row'||!after.column))return true
+  const sameSource=before.type===after.type&&(before.type==='row'?before.tableId===after.tableId:
+    before.type==='app_record_change'?before.appId===after.appId&&before.entityId===after.entityId:true)
+  if(!sameSource)return Boolean(prior&&Object.keys(prior).length)
+  // Count aliases per resolved column: two predicates on one column are ANDed
+  // by the Worker, but rewriting one name as its ID does not remove a filter.
+  const identity=(key:string)=>{const column=columns?.find(column=>column.id===key||column.name.toLowerCase()===key.toLowerCase());return column?`column:${column.id}`:`unresolved:${key}`}
+  const remaining=new Map<string,number>()
+  for(const key of Object.keys(next||{})){const id=identity(key);remaining.set(id,(remaining.get(id)||0)+1)}
+  return Object.keys(prior||{}).some(key=>{const id=identity(key),count=remaining.get(id)||0;if(!count)return true;remaining.set(id,count-1);return false})
 }
 
 const statusLabels = {added:'追加',changed:'変更',unchanged:'変更なし',removed:'公開停止',retired:'停止済み',drifted:'別の画面で変更あり',missing:'処理が削除されています'}
@@ -44,15 +52,17 @@ export function AppAutomations({app,api,reload}:{app:App;api:HarnessApi;reload:(
     setNotice('実行順序を変更しました。ステップ番号を参照する入力がある場合は、参照先も確認してください。')
   }
   const dirty=state && JSON.stringify(draft)!==JSON.stringify(state.draft)
+  const triggerColumns=(trigger:Trigger)=>trigger.type==='row'?tables.find(table=>table.id===trigger.tableId)?.columns:
+    trigger.type==='app_record_change'?triggerApps.find(option=>option.app.id===trigger.appId)?.entities.find(entity=>entity.key===trigger.entityId)?.table.columns:undefined
   const removedConditions=state?.draft.items.some(previous=>{
     const current=draft.items.find(item=>item.key===previous.key)
     if(!current)return false
-    return removedTriggerConditions(previous.trigger,current.trigger)
+    return removedTriggerConditions(previous.trigger,current.trigger,triggerColumns(previous.trigger))
   })
   const removedPublishedConditions=state?.plan?.some(item=>{
     const baseline=item.live||item.published
     const current=draft.items.find(candidate=>candidate.key===item.key)
-    return baseline&&current&&removedTriggerConditions(baseline.trigger,current.trigger)
+    return baseline&&current&&removedTriggerConditions(baseline.trigger,current.trigger,triggerColumns(baseline.trigger))
   })
   const conflicts=state?.plan?.filter(item=>item.status==='drifted'||item.status==='missing')||[]
   const canPublish=state && state.version===app.version && state.revision>0 && state.plan && !dirty && conflicts.every(item=>checked.includes(item.key) && item.workflowId && (item.status!=='missing'||item.declared))

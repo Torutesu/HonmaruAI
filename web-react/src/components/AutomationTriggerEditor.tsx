@@ -14,8 +14,7 @@ export interface TriggerAppOption {app:Pick<App,'id'|'name'>;entities:AppEntity[
 export function AutomationTriggerEditor({trigger,tables,apps=[],onChange}:{trigger:Trigger;tables:Table[];apps?:TriggerAppOption[];onChange:(trigger:Trigger)=>void}) {
  const rowFiltersBeforeDelete=React.useRef<{tableId:string|undefined;where:Trigger['where'];column:Trigger['column']}|null>(null)
  const [rowRestoreWarning,setRowRestoreWarning]=React.useState(false)
- const [conditionRemovedWarning,setConditionRemovedWarning]=React.useState(false)
- React.useEffect(()=>{rowFiltersBeforeDelete.current=null;setRowRestoreWarning(false);setConditionRemovedWarning(false)},[trigger.type,trigger.tableId])
+ React.useEffect(()=>{rowFiltersBeforeDelete.current=null;setRowRestoreWarning(false)},[trigger.type,trigger.tableId])
  const table=tables.find(t=>t.id===trigger.tableId)
  const app=apps.find(value=>value.app.id===trigger.appId)
  const entity=app?.entities.find(value=>value.key===trigger.entityId)
@@ -33,12 +32,12 @@ export function AutomationTriggerEditor({trigger,tables,apps=[],onChange}:{trigg
  const change=(patch:Partial<Trigger>)=>onChange({...trigger,...patch})
  const setWhere=(key:string,value:ConditionScalar|ConditionScalar[]|undefined)=>{
   const where={...trigger.when?.where}
-  if(value===undefined||(Array.isArray(value)&&!value.length)){if(Object.hasOwn(where,key))setConditionRemovedWarning(true);delete where[key]}else Object.defineProperty(where,key,{value,enumerable:true,configurable:true,writable:true})
+  if(value===undefined||(Array.isArray(value)&&!value.length)){delete where[key]}else Object.defineProperty(where,key,{value,enumerable:true,configurable:true,writable:true})
   change({when:Object.keys(where).length?{where}:undefined})
  }
  const setRowWhere=(key:string,value:ConditionScalar|ConditionScalar[]|undefined)=>{
   const where={...rowWhere}
-  if(value===undefined||(Array.isArray(value)&&!value.length)){if(Object.hasOwn(where,key))setConditionRemovedWarning(true);delete where[key]}else Object.defineProperty(where,key,{value,enumerable:true,configurable:true,writable:true})
+  if(value===undefined||(Array.isArray(value)&&!value.length)){delete where[key]}else Object.defineProperty(where,key,{value,enumerable:true,configurable:true,writable:true})
   change({where:Object.keys(where).length?where as unknown as Record<string,string[]>:undefined})
  }
  return <div className="hx-step"><label>実行条件<select value={trigger.type} onChange={e=>{
@@ -53,7 +52,7 @@ export function AutomationTriggerEditor({trigger,tables,apps=[],onChange}:{trigg
   {trigger.on==='deleted'&&<small>削除イベントにはフィールド条件と監視列を適用できません。{rowFiltersBeforeDelete.current?'編集中に別の種類へ戻すと、元の条件を復元します。':'保存・再読み込み後は以前の条件を自動復元できません。'}</small>}
   {rowRestoreWarning&&<p role="alert">以前の条件は復元されていません。実行対象が広がる可能性があります。保存・公開前に条件と監視列を設定してください。</p>}
   {trigger.on!=='deleted'&&<>
-   <label>更新を監視する列<select value={table?.columns.find(c=>trigger.column&&rowResolvesTo(c,trigger.column))?.id||trigger.column||''} onChange={e=>{const column=table?.columns.find(c=>c.id===e.target.value);if(trigger.column&&!e.target.value)setConditionRemovedWarning(true);change({column:column?[column.id,column.name].find(key=>rowResolvesTo(column,key)):e.target.value||undefined})}}><option value="">すべての列</option>{trigger.column&&!table?.columns.some(c=>rowResolvesTo(c,trigger.column!))&&<option value={trigger.column}>不明な列: {trigger.column}</option>}{table?.columns.map(c=><option key={c.id} value={c.id} disabled={![c.id,c.name].some(key=>rowResolvesTo(c,key))}>{c.name}</option>)}</select></label>
+   <label>更新を監視する列<select value={table?.columns.find(c=>trigger.column&&rowResolvesTo(c,trigger.column))?.id||trigger.column||''} onChange={e=>{const column=table?.columns.find(c=>c.id===e.target.value);change({column:column?[column.id,column.name].find(key=>rowResolvesTo(column,key)):e.target.value||undefined})}}><option value="">すべての列</option>{trigger.column&&!table?.columns.some(c=>rowResolvesTo(c,trigger.column!))&&<option value={trigger.column}>不明な列: {trigger.column}</option>}{table?.columns.map(c=><option key={c.id} value={c.id} disabled={![c.id,c.name].some(key=>rowResolvesTo(c,key))}>{c.name}</option>)}</select></label>
    {table?.columns.filter(c=>c.type==='select').map(column=>{
     const keys=rowConditionKeys(column),safeKey=[column.id,column.name].find(candidate=>rowResolvesTo(column,candidate))
     const key=keys[0]||safeKey||column.id,condition=rowWhere&&Object.hasOwn(rowWhere,key)?rowWhere[key]:undefined
@@ -88,7 +87,6 @@ export function AutomationTriggerEditor({trigger,tables,apps=[],onChange}:{trigg
   {!apps.length&&<p className="row-sub">利用できるアプリがありません。</p>}
  </>}
  {trigger.type==='row'&&tables.length===0&&<div className="row-sub">先にアプリを作成してください。</div>}
- {conditionRemovedWarning&&<p role="alert">条件を解除しました。実行対象が広がる可能性があります。保存・公開前に条件を確認してください。</p>}
  {trigger.type==='webhook'&&<p>公開すると、この自動化専用のWebhookが作成されます。</p>}
  </div>
 }

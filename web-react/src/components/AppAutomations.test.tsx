@@ -159,3 +159,29 @@ test.each(['where','column'] as const)('warns before publishing after a saved %s
  expect(JSON.stringify(tree.toJSON())).toContain('公開中の処理から条件または監視列が解除されています')
  act(()=>tree.unmount())
 })
+test('rewriting an equivalent name alias does not falsely warn about a removed condition',async()=>{
+ const {AutomationTriggerEditor}=await import('./AutomationTriggerEditor')
+ const row={type:'row',tableId:'table',on:'changed',where:{Status:'Open'}}
+ const source={...state,draft:{version:1,items:[{key:'review',...definition,trigger:row}]},plan:[]}
+ const tables=vi.fn().mockResolvedValue({tables:[{id:'table',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['Open']}]}]})
+ const {tree}=await setup({appAutomations:vi.fn().mockResolvedValue(source),tables})
+ const editor=()=>tree.root.findByType(AutomationTriggerEditor)
+ const choice=()=>editor().findAllByType('fieldset')[0].findByType('input')
+ await act(async()=>choice().props.onChange({target:{checked:false}}))
+ expect(JSON.stringify(tree.toJSON())).toContain('下書きで条件が解除されています')
+ await act(async()=>choice().props.onChange({target:{checked:true}}))
+ expect(editor().props.trigger.where).toEqual({status:['Open']})
+ expect(JSON.stringify(tree.toJSON())).not.toContain('下書きで条件が解除されています')
+ act(()=>tree.unmount())
+})
+test('removing one of two aliases on the same field still warns',async()=>{
+ const {AutomationTriggerEditor}=await import('./AutomationTriggerEditor')
+ const row={type:'row',tableId:'table',on:'changed',where:{Status:'Open',status:['Open']}}
+ const source={...state,draft:{version:1,items:[{key:'review',...definition,trigger:row}]},plan:[]}
+ const tables=vi.fn().mockResolvedValue({tables:[{id:'table',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['Open']}]}]})
+ const {tree}=await setup({appAutomations:vi.fn().mockResolvedValue(source),tables})
+ const editor=tree.root.findByType(AutomationTriggerEditor)
+ await act(async()=>editor.findByProps({'aria-label':'Statusの条件を削除'}).props.onClick())
+ expect(JSON.stringify(tree.toJSON())).toContain('下書きで条件が解除されています')
+ act(()=>tree.unmount())
+})

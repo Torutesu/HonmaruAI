@@ -137,14 +137,13 @@ test('unknown condition keys are reported and preserved when another condition c
  expect(onChange).toHaveBeenLastCalledWith({...trigger,when:undefined})
  act(()=>tree.unmount())
 })
-test('removing one normal condition warns even when other conditions remain',()=>{
+test('removing one normal condition preserves other conditions',()=>{
  const onChange=vi.fn();let tree:any
  const apps:TriggerAppOption[]=[{app:{id:'app_1',name:'Tasks'},entities:[{key:'primary',table:{id:'table_1',name:'Tasks',columns:[{id:'status',name:'Status',type:'select',options:['A']},{id:'amount',name:'Amount',type:'number'}]}}]}]
  const trigger={type:'app_record_change' as const,appId:'app_1',entityId:'primary',events:['update' as const],when:{where:{status:'A',amount:2}}}
  act(()=>{tree=create(<AutomationTriggerEditor trigger={trigger} tables={[]} apps={apps} onChange={onChange}/>)})
  act(()=>tree.root.findAllByType('fieldset')[2].findByType('input').props.onChange({target:{value:''}}))
  expect(onChange).toHaveBeenLastCalledWith({...trigger,when:{where:{status:'A'}}})
- expect(JSON.stringify(tree.toJSON())).toContain('条件を解除しました')
  act(()=>tree.unmount())
 })
 test('row trigger conditions support scalar aliases without dropping other conditions',()=>{
