@@ -92,6 +92,7 @@ import { closeMessageNotifications, closeThreadNotifications } from '../utils/no
 import { hasOlder, olderThan } from '../utils/historyPage'
 import { foldedRows, sectionBadge, visibleRows, stepRow, readFolds, writeFolds, withSectionFolds, withFold, unplacedAgents } from '../utils/sidebarSections'
 import { SidebarEditQueue, reorderExisting, reorderIncludingNew, type LayoutChange } from '../utils/sidebarSync'
+import { SidebarSavedState } from './SidebarSavedState'
 import { placesFrom } from '../utils/places'
 import type { Place as Conversation } from '../utils/places'
 import { useAppearance } from '../utils/appearance'
@@ -5982,9 +5983,8 @@ export const ClassicList: React.FC<Props> = ({
           <p>{locale === 'ja' ? '保存結果が不明です。変更はこの画面に保留され、追加の変更は停止しています。画面を閉じるか再読み込みすると保留中の変更が失われる可能性があります。' : 'The save result is unknown. Changes remain pending on this screen and further edits are stopped. Closing or reloading this screen may discard pending changes.'}</p>
           <button type="button" disabled={sidebarChecking} onClick={() => void checkSavedSidebar()}>{locale === 'ja' ? '保存状態を確認' : 'Check saved sidebar'}</button>
           {sidebarCheckError && <p>{locale === 'ja' ? '保存状態を読み込めませんでした。' : 'The saved sidebar could not be read.'}</p>}
-          {sidebarRemote && <div aria-label={locale === 'ja' ? '保存されているサイドバー' : 'Saved sidebar'}>
-            <p>{locale === 'ja' ? 'サーバー上の固定:' : 'Saved stars:'} {sidebarRemote.starred.map(view => everything.find(item => item.view === view)?.name || view).join(', ') || '—'}</p>
-            {sidebarRemote.sections.map(section => <p key={section.id}>{section.name}: {section.views.map(view => everything.find(item => item.view === view)?.name || view).join(', ') || '—'}</p>)}
+          {sidebarRemote && <div>
+            <SidebarSavedState sidebar={sidebarRemote} japanese={locale === 'ja'} nameOf={view => everything.find(item => item.view === view)?.name || view} />
             <button type="button" disabled={sidebarChecking} onClick={() => void adoptSavedSidebar()}>{locale === 'ja' ? '保留を破棄して保存状態を使う' : 'Discard pending and use saved state'}</button>
           </div>}
         </div>}
