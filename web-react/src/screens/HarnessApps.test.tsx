@@ -134,6 +134,33 @@ test('the metrics view does not offer a search that cannot filter its aggregates
   expect(search()!.props.value).toBe('Alpha')
 })
 const button = (label: string) => tree!.root.findAllByType('button').find(node => node.props.children === label)!
+test.each(['board','calendar'] as const)('search and annotation cancellation coexist in the %s view', async type => {
+  const listeners = new Set<(event:any)=>void>()
+  const frameWindow = {postMessage:vi.fn()}
+  const frame = {tagName:'IFRAME',closest:()=>null,contentWindow:frameWindow,getBoundingClientRect:()=>({left:0,top:0,width:100,height:100})}
+  vi.stubGlobal('document',{elementsFromPoint:()=>[frame],addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  vi.stubGlobal('window',{addEventListener:(type:string,fn:(event:any)=>void)=>{if(type==='message')listeners.add(fn)},removeEventListener:(type:string,fn:(event:any)=>void)=>{if(type==='message')listeners.delete(fn)}})
+  const date = new Date(); const day = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`
+  const alpha={id:'a',values:{title:'Alpha',stage:'Open',due:day},updatedAt:''}, beta={id:'b',values:{title:'Beta',stage:'Open',due:day},updatedAt:''}
+  const view={id:'main',type,name:'Main',groupBy:'stage',dateColumn:'due',rows:[alpha,beta],lanes:[{key:'Open',rows:[alpha,beta]}],days:[{date:day,rows:[alpha,beta]}],undated:[]}
+  state.api={app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'},{id:'stage',name:'Stage',type:'select',options:['Open']},{id:'due',name:'Due',type:'date'}]},rows:[alpha,beta],views:[view],canCustomize:true}),personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'main',views:[],computed:[],layouts:{}}),conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]})}
+  const layer={style:{pointerEvents:'auto'},contains:()=>false,focus:vi.fn(),setPointerCapture:vi.fn(),getBoundingClientRect:()=>({left:0,top:0,width:100,height:100})}
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>,{createNodeMock:element=>element.props.className==='hx-annotation-layer'?layer:null});await new Promise(resolve=>setTimeout(resolve,0))})
+  const input=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Search records')!
+  const visible=(label:string)=>tree!.root.findAllByProps({'aria-label':`${label}の詳細を開く`}).length
+  act(()=>input().props.onChange({target:{value:'Beta'}}))
+  expect(visible('Alpha')).toBe(0);expect(visible('Beta')).toBe(1)
+  act(()=>tree!.root.findByProps({'aria-label':'注釈'}).props.onClick())
+  const overlay=tree!.root.findByProps({role:'application'})
+  act(()=>{overlay.props.onPointerDown({button:0,clientX:10,clientY:10,pointerId:1,preventDefault:vi.fn()});overlay.props.onPointerUp({clientX:20,clientY:20,pointerId:1})})
+  const request=frameWindow.postMessage.mock.calls[0][0]
+  act(()=>overlay.props.onKeyDown({key:'Escape',preventDefault:vi.fn()}))
+  await act(async()=>{for(const fn of [...listeners])fn({source:frameWindow,data:{type:'honmaru:annotation-target-result',id:request.id,target:'stale'}})})
+  expect(listeners.size).toBe(0);expect(tree!.root.findAllByProps({'aria-label':'どのように修正しますか？'})).toHaveLength(0)
+  act(()=>input().props.onChange({target:{value:''}}))
+  expect(visible('Alpha')).toBe(1);expect(visible('Beta')).toBe(1)
+  expect(JSON.stringify(tree!.toJSON())).toContain('2 records')
+})
 test('Remote MCP server settings are available from the Harness Apps library', async () => {
   await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
   expect(tree!.root.findByProps({ id: 'remote-mcp-title' }).children).toContain('Remote MCP servers')
