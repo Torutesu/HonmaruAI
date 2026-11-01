@@ -763,6 +763,27 @@ test('personal view access follows app visibility and current columns', async ()
  expect((await send('PUT',path,mika,{orgId:ORG,expectedRevision:1,views:[],layouts:{}})).status).toBe(404);
 });
 
+test('deleting a personal view falls back to the shared view and synchronizes without changing records', async () => {
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const original=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ const path=`/hx/personal-views/${app.id}`;
+ const view={id:'personal_mine',type:'table',name:'Mine'};
+ const input={orgId:ORG,expectedRevision:0,activeView:view.id,views:[view],layouts:{[view.id]:{order:original.table.columns.map(c=>c.id),widths:{}}}};
+ expect((await send('PUT',path,mika,input)).status).toBe(200);
+ const {createSession}=await import('../src/db.js');const otherDevice=await createSession(env.DB,'9102','delete-view-device');
+ const removed=await send('PUT',path,otherDevice,{orgId:ORG,expectedRevision:1,views:[],layouts:{}});
+ expect(removed.status).toBe(200);
+ const settings=await removed.json();
+ expect(settings.activeView).toBe(original.app.definition.views[0].id);
+ expect(settings.views).toEqual([]);expect(settings.layouts).toEqual({});
+ expect(await (await get(`${path}?orgId=${ORG}`,mika)).json()).toEqual(settings);
+ expect((await send('PUT',path,mika,{...input,expectedRevision:1})).status).toBe(409);
+ const after=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ expect(after.app.definition).toEqual(original.app.definition);
+ expect(after.rows).toEqual(original.rows);
+ expect((await (await get(`${path}?orgId=${ORG}`,toru)).json()).views).toEqual([]);
+});
+
 test('metadata query columns normalize without becoming editable/group/calendar fields',()=>{
  const columns=[{id:'id',name:'ID',type:'text'}];
  const view=normalizeDefinition({views:[{id:'v',type:'table',groupBy:'$row.id',sort:'-$row.updatedAt',filters:[{column:'$row.id',op:'contains',value:'row_'},{column:'$row.createdAt',op:'gt',value:'2026-01-01T00:00:00Z'}]}]},columns).views[0];
