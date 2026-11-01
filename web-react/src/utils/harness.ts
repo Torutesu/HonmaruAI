@@ -7,7 +7,7 @@ export interface AppMessage { id:number; authorId:string; authorName:string; bod
 export interface AppAnnotationMeta { target:string; x:number; y:number; section:'overview'|'data' }
 export interface AppAnnotation extends AppAnnotationMeta { id:string; tableId:string; rowId:string; messageSource:'app'|'channel'; messageId:string; authorId:string; authorName:string; body:string; createdAt:string }
 export interface AppConversation { threadId:string; messages:AppMessage[]; hasMore:boolean; annotations?:AppAnnotation[]; source?:{channel:string;threadId:string;messages:Array<{id:string;body:string;authorName?:string;kind?:string;createdAt:string}>}|null; aiReplies?:Array<{messageId:number;status:string;error?:string}> }
-export interface PersonalViews { activeView?: string; revision: number; views: View[]; computed: View[]; layouts: Record<string, {order:string[];widths:Record<string,number>;hidden?:string[];wrapText?:boolean}> }
+export interface PersonalViews { activeView?: string; appVersion?:number; revision: number; views: View[]; computed: View[]; layouts: Record<string, {order:string[];widths:Record<string,number>;hidden?:string[];wrapText?:boolean}> }
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 // The harness (docs/kylon-gap-plan.md), as the web app talks to it: the

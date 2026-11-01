@@ -56,5 +56,5 @@ export async function personalViews(db, orgId, userId, appId, input) {
     const current=await db.prepare(`SELECT 1 AS allowed WHERE ${personalAuthority('?1','?2','?3')}`).bind(orgId,String(userId),appId).first();
     return current?{error:'アプリが変更されました。再読み込みしてください。',status:409}:{error:'No such app.',status:404};
   }
-  return {...settings, revision:revision+(input?1:0), computed:settings.views.map(v=>computeView(v,rendered.table,rendered.rows))};
+  return {...settings, appVersion:rendered.app.version, revision:revision+(input?1:0), computed:settings.views.map(v=>computeView(v,rendered.table,rendered.rows))};
 }

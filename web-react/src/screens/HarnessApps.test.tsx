@@ -232,7 +232,7 @@ test('a late personal-view read cannot restore a deleted view and focus returns 
   const appData={app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:true}
   const refreshedRow={id:'row_new',values:{title:'Refreshed row'},updatedAt:'2026-11-02T00:00:00Z'}
   state.api={
-    app:vi.fn().mockResolvedValueOnce(appData).mockResolvedValueOnce({...appData,rows:[refreshedRow],views:[{...shared,rows:[refreshedRow]}]}),
+    app:vi.fn().mockResolvedValueOnce(appData).mockResolvedValue({...appData,rows:[refreshedRow],views:[{...shared,rows:[refreshedRow]}]}),
     personalViews:vi.fn().mockResolvedValueOnce(initial).mockReturnValueOnce(delayed).mockResolvedValueOnce(deleted),savePersonalViews:vi.fn().mockResolvedValue(deleted),
     conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
     templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
@@ -256,14 +256,14 @@ test('a stale preferences read is recomputed before showing refreshed rows in a 
   const oldRow={id:'row_1',values:{title:'Old value'},updatedAt:'2026-11-01T00:00:00Z'}
   const newRow={id:'row_1',values:{title:'Updated value'},updatedAt:'2026-11-02T00:00:00Z'}
   const shared={id:'all',type:'table',name:'Shared',rows:[oldRow]},mine={id:'personal_mine',type:'table',name:'Mine',rows:[oldRow]}
-  const initial={revision:1,activeView:mine.id,views:[mine],computed:[mine],layouts:{}}
+  const initial={revision:1,appVersion:1,activeView:mine.id,views:[mine],computed:[mine],layouts:{}}
   const saved={...initial,revision:2}
-  const recomputed={...saved,computed:[{...mine,rows:[newRow]}]}
+  const recomputed={...saved,appVersion:2,computed:[{...mine,rows:[newRow]}]}
   let resolveOld!:(value:typeof initial)=>void
   const delayed=new Promise<typeof initial>(resolve=>{resolveOld=resolve})
   const appData={app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[oldRow],views:[shared],canCustomize:true}
   state.api={
-    app:vi.fn().mockResolvedValueOnce(appData).mockResolvedValueOnce({...appData,rows:[newRow],views:[{...shared,rows:[newRow]}]}),
+    app:vi.fn().mockResolvedValueOnce(appData).mockResolvedValueOnce({...appData,rows:[newRow],views:[{...shared,rows:[newRow]}]}).mockResolvedValue({...appData,app:{...appData.app,version:2},rows:[newRow],views:[{...shared,rows:[newRow]}]}),
     personalViews:vi.fn().mockResolvedValueOnce(initial).mockReturnValueOnce(delayed).mockResolvedValueOnce(recomputed),savePersonalViews:vi.fn().mockResolvedValue(saved),
     conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
     templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
@@ -303,6 +303,39 @@ test('a delayed deletion response cannot overwrite a newer cross-device revision
   expect(tree!.root.findAllByProps({role:'tab'}).some(node=>node.children.includes('Other device'))).toBe(true)
   expect(tree!.root.findAllByProps({role:'tab'}).find(node=>node.props['aria-selected'])?.children).toContain('Other device')
   expect(focus).not.toHaveBeenCalled()
+})
+test('personal computed views are paired with the matching app version',async()=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const shared={id:'all',type:'table',name:'Shared',rows:[]}
+  const appData={app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:true}
+  const preferences={revision:1,appVersion:2,activeView:'all',views:[],computed:[],layouts:{}}
+  state.api={
+    app:vi.fn().mockResolvedValueOnce(appData).mockResolvedValueOnce({...appData,app:{...appData.app,version:2}}),
+    personalViews:vi.fn().mockResolvedValue(preferences),conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(state.api.app).toHaveBeenCalledTimes(2)
+  expect(state.api.personalViews).toHaveBeenCalledTimes(2)
+  expect(tree!.root.findAllByProps({role:'tab'})).toHaveLength(1)
+})
+test('a saved view is not rendered against an older app when the matching reload fails',async()=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const shared={id:'all',type:'table',name:'Shared',rows:[]}
+  const initial={revision:0,appVersion:1,activeView:'all',views:[],computed:[],layouts:{}}
+  const mine={id:'personal_new',type:'table',name:'New personal',rows:[]}
+  state.api={
+    app:vi.fn().mockResolvedValueOnce({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:true}).mockRejectedValueOnce(new Error('Reload failed')),
+    personalViews:vi.fn().mockResolvedValue(initial),savePersonalViews:vi.fn().mockResolvedValue({revision:1,appVersion:2,activeView:mine.id,views:[mine],computed:[mine],layouts:{}}),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  act(()=>tree!.root.findAllByType('button').find(node=>node.children.includes('フィールド'))!.props.onClick())
+  await act(async()=>{tree!.root.findAllByType('button').find(node=>node.children.includes('保存'))!.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(JSON.stringify(tree!.toJSON())).toContain('Reload failed')
+  expect(tree!.root.findAllByProps({role:'tab'})).toHaveLength(0)
+  expect(tree!.root.findAllByType('button').some(node=>node.children.includes('Retry'))).toBe(true)
 })
 test('returning to a visible app reloads another device’s personal view changes',async()=>{
   const windowHandlers=new Map<string,()=>void>(),documentHandlers=new Map<string,()=>void>()
@@ -384,6 +417,29 @@ test('an automatic refresh does not overwrite an inline edit while its save is p
   expect(input().props.value).toBe('User edit')
   await act(async()=>{resolveWrite();await delayedWrite;await new Promise(resolve=>setTimeout(resolve,0))})
   expect(input().props.value).toBe('User edit')
+})
+test('an automatic refresh does not undo a tab selection while its save is pending',async()=>{
+  const windowHandlers=new Map<string,()=>void>(),documentHandlers=new Map<string,()=>void>()
+  vi.stubGlobal('window',{addEventListener:(name:string,fn:()=>void)=>windowHandlers.set(name,fn),removeEventListener:(name:string)=>windowHandlers.delete(name)})
+  vi.stubGlobal('document',{visibilityState:'visible',activeElement:null,querySelector:()=>null,addEventListener:(name:string,fn:()=>void)=>documentHandlers.set(name,fn),removeEventListener:(name:string)=>documentHandlers.delete(name)})
+  const main={toggleAttribute:vi.fn(),querySelector:()=>null,contains:()=>false}
+  const shared={id:'all',type:'table',name:'Shared',rows:[]},mine={id:'personal_mine',type:'table',name:'Mine',rows:[]}
+  const initial={revision:1,activeView:'all',views:[mine],computed:[mine],layouts:{}},saved={...initial,revision:2,activeView:mine.id}
+  let resolveRead!:(value:typeof initial)=>void,resolveSave!:(value:typeof saved)=>void
+  const delayedRead=new Promise<typeof initial>(resolve=>{resolveRead=resolve}),delayedSave=new Promise<typeof saved>(resolve=>{resolveSave=resolve})
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:true}),
+    personalViews:vi.fn().mockResolvedValueOnce(initial).mockReturnValueOnce(delayedRead).mockResolvedValue(saved),savePersonalViews:vi.fn().mockReturnValue(delayedSave),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>,{createNodeMock:element=>element.props.className==='hx-app-main'?main:null});await new Promise(resolve=>setTimeout(resolve,0))})
+  act(()=>windowHandlers.get('focus')!())
+  act(()=>tree!.root.findAllByProps({role:'tab'})[1].props.onClick())
+  await act(async()=>{resolveRead(initial);await delayedRead;await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(tree!.root.findAllByProps({role:'tab'}).find(node=>node.props['aria-selected'])?.children).toContain('Mine')
+  await act(async()=>{resolveSave(saved);await delayedSave;await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(tree!.root.findAllByProps({role:'tab'}).find(node=>node.props['aria-selected'])?.children).toContain('Mine')
 })
 test('read-only app viewers do not get room-link controls in settings', async () => {
   state.api = {

@@ -922,6 +922,26 @@ test('personal view reads do not return computed rows after app access is revoke
  expect(result.computed).toBeUndefined();
 });
 
+test('personal view reads reject an app version change before returning computed rows',async()=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {updateApp}=await import('../src/harness/apps.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ let changed=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{
+   const statement=db.prepare(sql);
+   if(!sql.startsWith('SELECT 1 AS allowed WHERE EXISTS(SELECT 1 FROM hx_apps a'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async first(){
+    if(!changed){changed=true;const result=await updateApp(env.DB,ORG,app.id,{name:'Changed'},'9101');expect(result.error).toBeUndefined()}
+    return bound.first();
+   }}}};
+  };
+ }});
+ const result=await personalViews(racing,ORG,'9102',app.id);
+ expect(result.status).toBe(409);expect(result.computed).toBeUndefined();
+});
+
 test('metadata query columns normalize without becoming editable/group/calendar fields',()=>{
  const columns=[{id:'id',name:'ID',type:'text'}];
  const view=normalizeDefinition({views:[{id:'v',type:'table',groupBy:'$row.id',sort:'-$row.updatedAt',filters:[{column:'$row.id',op:'contains',value:'row_'},{column:'$row.createdAt',op:'gt',value:'2026-01-01T00:00:00Z'}]}]},columns).views[0];

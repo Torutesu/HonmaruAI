@@ -430,24 +430,27 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { busy, error, act } = useAct()
   const pendingCellWrites=useRef(0)
+  const pendingPersonalSaves=useRef(0)
   const deferAutomaticCommit=useRef<()=>boolean>(()=>false)
   const markAutomaticPending=useRef<()=>void>(()=>{})
 
   const load = useCallback((automatic=false) => act('load', async () => {
     const sequence=++loadSequence.current
-    const [next,firstPreferences]=await Promise.all([api.app(appId),api.personalViews(appId)])
-    let preferences=firstPreferences
+    let [next,preferences]=await Promise.all([api.app(appId),api.personalViews(appId)])
     // If a save won while this read was in flight, its settings are newer but
     // its computed rows may be older than this refresh. Re-read the server's
     // computed views; never splice an old computed snapshot into fresh data.
     for(let attempt=0;attempt<3;attempt++){
       if(sequence!==loadSequence.current)return
       const snapshot=personalSnapshot.current
-      if(!snapshot || snapshot.api!==api || snapshot.appId!==appId || snapshot.value.revision<=preferences.revision)break
-      preferences=await api.personalViews(appId)
+      const stale=Boolean(snapshot && snapshot.api===api && snapshot.appId===appId && snapshot.value.revision>preferences.revision)
+      const versionMismatch=preferences.appVersion!==undefined&&preferences.appVersion!==next.app.version
+      if(!stale&&!versionMismatch)break
+      ;[next,preferences]=await Promise.all([api.app(appId),api.personalViews(appId)])
     }
     const latest=personalSnapshot.current
     if(latest?.api===api&&latest.appId===appId&&latest.value.revision>preferences.revision)throw new Error('個人ビューが更新中です。再読み込みしてください。')
+    if(preferences.appVersion!==undefined&&preferences.appVersion!==next.app.version)throw new Error('アプリが更新中です。再読み込みしてください。')
     const targetKeys=new Set(next.table.columns.filter(column=>column.type==='relation'&&column.targetEntity).map(column=>column.targetEntity!))
     const database=targetKeys.size?await api.appDatabase(appId).catch(()=>null):null
     const targets=await Promise.all((database?.entities||[]).filter(entity=>targetKeys.has(entity.key)).map(async entity=>{
@@ -471,7 +474,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
     let pending=false,running=false,live=true
     const deferred=(ignoreOwnLoad=false)=>{
       const state=interaction.current,root=mainRoot.current,active=document.activeElement
-      return Boolean(pendingCellWrites.current || (state.busy && !(ignoreOwnLoad&&state.busy==='load')) || state.creating || state.editingRecord || state.annotationSelection || root?.querySelector('[role="dialog"]') || document.querySelector?.('[role="dialog"][aria-modal="true"], dialog[open]') ||
+      return Boolean(pendingCellWrites.current || pendingPersonalSaves.current || (state.busy && !(ignoreOwnLoad&&state.busy==='load')) || state.creating || state.editingRecord || state.annotationSelection || root?.querySelector('[role="dialog"]') || document.querySelector?.('[role="dialog"][aria-modal="true"], dialog[open]') ||
         (active && root?.contains(active) && (active.matches?.('input,textarea,select,[contenteditable="true"]') || (active as HTMLElement).isContentEditable)))
     }
     const refresh=()=>{
@@ -490,7 +493,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   useEffect(()=>{retryRefresh.current()},[busy,creating,editingRecord,annotationSelection])
 
   const selectSection=(next:AppSection)=>{setSection(next);onSectionChange?.(next);const hash=appSectionHash(location.hash,appId,orgId,next);if(!floating&&hash&&hash!==location.hash)location.hash=hash}
-  if (!data || loadedApi!==api) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
+  if (!data || loadedApi!==api || (personal.appVersion!==undefined&&personal.appVersion!==data.app.version)) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}<button className="pill-btn quiet" onClick={()=>void load()}>{t('Retry')}</button></div> : <div className="empty">{t('Loading…')}</div>}</Shell>
   const { app, table } = data
   const allViews = [...data.views,...personal.computed]
   const sharedIds=new Set(data.views.map(v=>v.id))
@@ -498,7 +501,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const selectedIndex=proposedIndex>=data.views.length && sharedIds.has(allViews[proposedIndex].id)?0:proposedIndex
   const view = allViews[selectedIndex]
   const isPersonalView=selectedIndex>=data.views.length
-  const savePersonal = async (next:PersonalViews) => {const saved=await api.savePersonalViews(appId,next);if(currentApi.current!==api||currentAppId.current!==appId)return;const latest=personalSnapshot.current;if(latest?.api===api&&latest.appId===appId&&latest.value.revision>=saved.revision)return;personalSnapshot.current={api,appId,value:saved};setPersonal(saved);setViewIndex(Math.max(0,[...data.views,...saved.computed].findIndex(v=>v.id===saved.activeView)))}
+  const savePersonal = async (next:PersonalViews) => {pendingPersonalSaves.current++;try{const saved=await api.savePersonalViews(appId,next);if(currentApi.current!==api||currentAppId.current!==appId)return;const latest=personalSnapshot.current;if(latest?.api===api&&latest.appId===appId&&latest.value.revision>=saved.revision)return;personalSnapshot.current={api,appId,value:saved};setPersonal(saved);if(saved.appVersion!==undefined&&saved.appVersion!==data.app.version){await load();return}setViewIndex(Math.max(0,[...data.views,...saved.computed].findIndex(v=>v.id===saved.activeView)))}finally{pendingPersonalSaves.current--;retryRefresh.current()}}
   const canEditView=isPersonalView || data.canCustomize !== false
   const saveView = async (patch:Partial<View>) => { if(isPersonalView) { await savePersonal({...personal,views:personal.views.map(v=>v.id===view.id?{...v,...patch}:v)}); return } await api.updateApp(app.id, { expectedVersion: app.version, definition: { ...app.definition, views: app.definition.views.map(v => v.id === view.id ? {...v,...patch} : v) }, note: 'ビューのフィルター・並べ替え・グループを更新' }); await load() }
   const layout = displayLayout(table.columns,personal.layouts[view.id])
