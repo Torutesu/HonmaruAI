@@ -802,12 +802,12 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
     }
     case "update_row": {
       const tableId = step.tableId || scope.input?.tableId || (workflow.trigger?.type==='app_record_change'?await appEntityTable(db,orgId,workflow.trigger.appId,workflow.trigger.entityId):null);
-      // row.id can be a user field, even in definitions saved before the
-      // canonical event ID was added. Never silently target a different row.
+      // Both aliases expose the same legacy flattened event input, where a
+      // user field can replace the system ID. Never silently target another row.
       if (step.rowId && ['row', 'app_record_change'].includes(runTrigger)) {
-        const references = String(step.rowId).match(/\{\{\s*row\.id\s*\}\}/gi) || [];
+        const references = String(step.rowId).match(/\{\{\s*(?:input\.)?row\.id\s*\}\}/gi) || [];
         if (references.some(reference => !implicitRowId || render(reference, scope) !== implicitRowId)) {
-          return { status: 'failed', error: 'The row.id update target is ambiguous. Use the event record ID or explicitly reference the user column value.' };
+          return { status: 'failed', error: 'The row.id update target is ambiguous. Use the event record ID or an explicit user column value from input.rowFields or input.records.0.data.' };
         }
       }
       const rowId = step.rowId ? render(step.rowId, scope) : implicitRowId;
@@ -1001,9 +1001,12 @@ export async function onRowChange(env, { orgId, table, before, row, by, depth = 
     // event and should not create a run (or make a retried no-op look new).
     if (before && !valuesChanged(before.values, row.values)) continue;
     const rowEventHash = await rowEventFingerprint(table, before, row);
+    // Preserve only column values that can shadow row.id, including a column
+    // renamed to ID. Other event inputs do not grow by a copy of their fields.
+    const rowFields = Object.fromEntries(table.columns.filter(c => (c.id === 'id' || c.name.toLowerCase() === 'id') && Object.hasOwn(row.values, c.id)).map(c => [c.id, row.values[c.id]]));
     const run = await startRun(env, {
       orgId, workflow: wf, trigger: "row", startedBy: by, depth,
-      input: { tableId: table.id, recordId: row.id, row: await rowScope(env.DB, orgId, table.id, row), before: before ? await rowScope(env.DB, orgId, table.id, before) : null },
+      input: { tableId: table.id, recordId: row.id, ...(Object.keys(rowFields).length ? { rowFields } : {}), row: await rowScope(env.DB, orgId, table.id, row), before: before ? await rowScope(env.DB, orgId, table.id, before) : null },
       rowEventHash,
     });
     if (run?.id) started += 1;
