@@ -121,7 +121,7 @@ export async function handleGateways(request, env, url, input) {
         if(name==='query_rows') {
           const limit=Number(args.limit),offset=Number(args.offset);
           args.limit=Number.isInteger(limit)&&limit>0?Math.min(limit,100):100;
-          args.offset=Number.isInteger(offset)&&offset>=0?Math.min(offset,1000):0;
+          args.offset=Number.isInteger(offset)&&offset>=0?Math.min(offset,5000):0;
         }
         result=await callHarnessTool(env,principal,name,args);
         if (!result) return failure('This ACP Workspace tool is unavailable.',404);

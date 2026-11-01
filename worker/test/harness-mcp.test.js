@@ -55,6 +55,31 @@ test("in a harness workspace an agent reads an app's numbers, adds a row, and ne
   expect(found.rows.map((r) => r.company).sort()).toEqual(["Hooli", "Initech"]);
 });
 
+test('MCP rows keep system identity separate from colliding user fields across reads and writes', async () => {
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
+  const { app } = await (await call('/apps', { method: 'POST', headers: headers(toru), body: JSON.stringify({ orgId: ORG, name: 'ID collision', columns: [
+    { name: 'Name', type: 'text' }, { name: 'ID', type: 'text' }, { name: 'values', type: 'text' }, { name: 'recordId', type: 'text' },
+  ] }) })).json();
+  const writer = await mint(['read', 'write']);
+  const other = (await tool(writer, 'add_row', { tableId: app.tableId, values: { Name: 'Other' } })).result.structuredContent;
+  const source = (await tool(writer, 'add_row', { tableId: app.tableId, values: { Name: 'Source', ID: other.row.id, values: 'user value', recordId: 'business ID' } })).result.structuredContent;
+  const id = source.row.id;
+  expect(id).not.toBe(other.row.id);
+  expect(source.row).toMatchObject({ id, recordId: id, name: 'Source', recordid: 'business ID', values: { id: other.row.id, values: 'user value' } });
+  expect(source.rowVersions[id]).toBeTruthy();
+
+  for (const [name, args] of [['query_rows', { tableId: app.tableId }], ['read_app', { appId: app.id }]]) {
+    const result = (await tool(writer, name, args)).result.structuredContent;
+    expect(result.rows.find(row => row.id === id)).toMatchObject({ recordId: id, values: { id: other.row.id, values: 'user value' } });
+    expect(result.rowVersions[id]).toBe(source.rowVersions[id]);
+  }
+  const changed = (await tool(writer, 'update_row', { tableId: app.tableId, rowId: id, expectedUpdatedAt: source.rowVersions[id], values: { Name: 'Changed' } })).result.structuredContent;
+  expect(changed.row).toMatchObject({ id, recordId: id, name: 'Changed', values: { id: other.row.id, values: 'user value' } });
+  const rows = (await tool(writer, 'query_rows', { tableId: app.tableId })).result.structuredContent.rows;
+  expect(rows.find(row => row.id === other.row.id).name).toBe('Other');
+  expect(rows.find(row => row.id === id).name).toBe('Changed');
+});
+
 test('node execution requires execute scope, preserves ownership and leaves Simple unchanged', async () => {
   await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
   const { gateway, token: nodeToken } = await (await call('/gateways', { method: 'POST', headers: headers(toru), body: JSON.stringify({ orgId: ORG, name: 'Mac mini' }) })).json();
