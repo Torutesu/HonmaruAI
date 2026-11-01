@@ -846,3 +846,43 @@ test.each(['before dispatch','before response'])('combined generation rejects sc
   expect(JSON.stringify(await response.json())).not.toContain('Secret result');
  } finally {vi.unstubAllGlobals()}
 });
+
+test.each(['authorized','source revoked at cleanup','source revoked in a later read'])('database generation final combined check reaches the response without another database read: %s',async scenario=>{
+ const root=await privateSource();
+ await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)').bind(org,'b:confidential','Current rule','9201',new Date().toISOString()).run();
+ const made=await createApp(env.DB,{orgId:org,by:'9201',name:'Guided',columns:[{name:'Title',type:'text'}],sourceThreadId:root.id});
+ let modelReturned=false,cleanup=false,combinedChecks=0,revokedInLaterRead=false;
+ const afterModel=[];
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{
+   if(modelReturned)afterModel.push(sql);
+   const stmt=db.prepare(sql);
+   if(cleanup && sql.startsWith('SELECT 1 AS allowed FROM memberships m'))return {bind(...args){const bound=stmt.bind(...args);return {async first(){const result=await bound.first();combinedChecks++;return result;}}}};
+   if(cleanup && combinedChecks>=4 && scenario==='source revoked in a later read' && sql.startsWith('SELECT 1 AS ok WHERE'))return {bind(...args){const bound=stmt.bind(...args);return {async first(){
+    revokedInLaterRead=true;await db.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();return bound.first();
+   }}}};
+   if(sql!=='DELETE FROM ai_reservations WHERE id = ?1')return stmt;
+   return {bind(...args){const bound=stmt.bind(...args);return {async run(){
+    const result=await bound.run();cleanup=true;
+    if(scenario==='source revoked at cleanup')await db.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();
+    return result;
+   }}}};
+  };
+ }});
+ const fetch=vi.fn(async()=>{modelReturned=true;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({operations:[{op:'add_columns',entity:'primary',columns:[{name:'Sensitive proposal',type:'text'}]}]})}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}})});
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://test/apps/${made.app.id}/database`,{method:'POST',headers:{'x-session-token':owner,'content-type':'application/json'},body:JSON.stringify({orgId:org,action:'generate',prompt:'Add a column'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'},testContext);
+  expect(fetch).toHaveBeenCalledTimes(1);expect(cleanup).toBe(true);
+  const body=await response.json();
+  if(scenario==='source revoked at cleanup'){
+   expect([403,404]).toContain(response.status);expect(JSON.stringify(body)).not.toContain('Sensitive proposal');
+  } else {
+   expect(revokedInLaterRead).toBe(false);
+   expect(response.status).toBe(200);expect(JSON.stringify(body)).toContain('Sensitive proposal');
+   expect(afterModel.at(-1)).toMatch(/^SELECT 1 AS allowed FROM memberships m/);
+  }
+  expect(await env.DB.prepare('SELECT COUNT(*) AS count FROM ai_reservations WHERE user_github_id=?').bind('9201').first()).toEqual({count:0});
+ } finally {vi.unstubAllGlobals()}
+});

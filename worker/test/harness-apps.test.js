@@ -1715,6 +1715,32 @@ test('combined generation snapshot matches current agent visibility and fails cl
  expect(await check()).toBe(false);
 });
 
+test('combined schema check enforces database management and every linked app ACL',async()=>{
+ const {mayGenerateFromSchema}=await import('../src/harness/generationAccess.js');
+ const {mayUseDatabase}=await import('../src/harness/databaseAccess.js');
+ const {getTable}=await import('../src/harness/tables.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const {app:linked}=await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+ const entities=[{key:'primary',table:await getTable(env.DB,ORG,app.tableId)}];
+ const check=async(user,expected)=>{
+  expect(await mayUseDatabase(env.DB,ORG,app.id,user,[app.tableId],true)).toBe(expected);
+  expect(await mayGenerateFromSchema(env.DB,ORG,app.id,user,entities)).toBe(expected);
+ };
+ await check('9101',true);await check('9102',false);await check('9103',false);
+ await env.DB.prepare("UPDATE memberships SET role='admin' WHERE org_id=? AND user_github_id='9102'").bind(ORG).run();
+ await check('9102',true);
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?,?,'private',1)").bind(ORG,app.id).run();
+ await check('9102',false);await check('9101',true);
+ await env.DB.prepare("DELETE FROM hx_app_access WHERE org_id=? AND app_id=?").bind(ORG,app.id).run();
+ await env.DB.prepare("INSERT INTO hx_app_entities(org_id,app_id,entity_key,table_id) VALUES(?,?,'shared',?)").bind(ORG,linked.id,app.tableId).run();
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?,?,'private',1)").bind(ORG,linked.id).run();
+ await check('9101',false);await check('9102',true);
+ await env.DB.prepare("DELETE FROM hx_app_entities WHERE org_id=? AND app_id=?").bind(ORG,linked.id).run();
+ await env.DB.prepare("UPDATE hx_tables SET name='Changed' WHERE org_id=? AND id=?").bind(ORG,app.tableId).run();
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9101',[app.tableId],true)).toBe(true);
+ expect(await mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities)).toBe(false);
+});
+
 test('custom generation rejects replacement of its primary table after reading the old schema',async()=>{
  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
  const {app:replacement}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
