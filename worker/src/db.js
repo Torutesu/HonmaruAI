@@ -938,7 +938,7 @@ export async function listBusinesses(db, orgId, { viewer = null } = {}) {
          FROM businesses b LEFT JOIN hx_room_access p ON p.org_id=b.org_id AND p.channel='b:'||b.slug AND p.deleted_at IS NULL
         WHERE b.org_id = ?1 AND b.archived_at IS NULL AND ((b.private = 0 AND (?2 IS NULL OR NOT EXISTS (
           SELECT 1 FROM memberships gm JOIN users gu ON gu.github_id = gm.user_github_id
-           WHERE gm.org_id = ?1 AND gu.login = ?2 AND gm.role = 'guest'))) OR (?2 IS NOT NULL AND EXISTS (
+           WHERE gm.org_id = ?1 AND gu.login = ?2 AND LOWER(COALESCE(gm.role, '')) = 'guest'))) OR (?2 IS NOT NULL AND EXISTS (
           SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = 'b:' || b.slug AND c.login = ?2)))
         ORDER BY b.created_at`
     )

@@ -60,7 +60,7 @@ export async function isGuest(db, orgId, githubId) {
 /// fails answers "yes": the careful path (who exactly may read it) is right
 /// either way, and "no guests" would let a guest read every public channel.
 export async function hasGuests(db, orgId) {
-  return Boolean(await db.prepare("SELECT 1 FROM memberships WHERE org_id = ?1 AND role = 'guest' LIMIT 1").bind(orgId).first().catch(() => ({ failed: true })));
+  return Boolean(await db.prepare("SELECT 1 FROM memberships WHERE org_id = ?1 AND LOWER(COALESCE(role, '')) = 'guest' LIMIT 1").bind(orgId).first().catch(() => ({ failed: true })));
 }
 
 /// Everyone who can read a public channel in a workspace with guests: every
@@ -68,7 +68,7 @@ export async function hasGuests(db, orgId) {
 export async function publicAudience(db, orgId, key) {
   const { results } = await db.prepare(
     `SELECT u.login FROM memberships m JOIN users u ON u.github_id = m.user_github_id
-      WHERE m.org_id = ?1 AND (m.role != 'guest' OR EXISTS (
+      WHERE m.org_id = ?1 AND (LOWER(COALESCE(m.role, '')) != 'guest' OR EXISTS (
         SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = ?2 AND c.login = u.login))
       ORDER BY m.created_at, u.login`
   ).bind(orgId, key).all();
