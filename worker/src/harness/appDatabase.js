@@ -370,7 +370,7 @@ export async function previewMigration(db, orgId, app, input, by) {
   const result = await buildMigrationPreview(db, orgId, app, input);
   if (result.error) return result;
   if (!await mayUseDatabase(db,orgId,app.id,by,result.current.entities.map(entity=>entity.table.id),true)) return err('No such app.',404);
-  return { previewChecksum: result.previewChecksum, canApply: result.blockers.length === 0, changes: result.summaries, blockers: result.blockers.slice(0, 20), blockerCount: result.blockers.length };
+  return { tableIds: result.current.entities.map(entity=>entity.table.id), previewChecksum: result.previewChecksum, canApply: result.blockers.length === 0, changes: result.summaries, blockers: result.blockers.slice(0, 20), blockerCount: result.blockers.length };
 }
 
 export async function applyMigration(db, orgId, app, input, by) {
@@ -499,5 +499,5 @@ export async function mutateFork(db, orgId, appId, by, input) {
   const saved = await db.prepare(`UPDATE hx_app_forks SET data=?1,revision=revision+1 WHERE org_id=?2 AND app_id=?3 AND created_by=?4 AND id=?5 AND revision=?6 AND NOT EXISTS (SELECT 1 FROM hx_app_fork_merges m WHERE m.fork_id=hx_app_forks.id) AND ${authority}`).bind(data, orgId, appId, String(by), fork.id, fork.revision,JSON.stringify(fork.entities.map(entity=>entity.table.id))).run();
   if (!saved.meta?.changes) return err('Preview data or access changed. Reload before editing.', 409);
   if (!await mayUseDatabase(db,orgId,appId,by,fork.entities.map(entity=>entity.table.id),true)) return err('No such app.',404);
-  return { result, revision: fork.revision+1 };
+  return { result, revision: fork.revision+1, tableIds: fork.entities.map(entity=>entity.table.id) };
 }
