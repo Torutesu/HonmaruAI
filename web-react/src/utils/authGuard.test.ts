@@ -31,8 +31,8 @@ describe('authGuard', () => {
       asked.push(d.base)
       d.resolve(true)
     })
-    const policy: Array<string | null> = []
-    window.addEventListener('honmaru:session-policy', (e) => policy.push((e as CustomEvent<{ orgId: string | null }>).detail.orgId))
+    const policy: Array<{orgId:string|null;token:string;base:string}> = []
+    window.addEventListener('honmaru:session-policy', (e) => policy.push((e as CustomEvent<{orgId:string|null;token:string;base:string}>).detail))
 
     const headers = { 'x-session-token': 'tok' }
     const first = await window.fetch('https://api.test/members/role', { method: 'PUT', headers, body: '{}' })
@@ -42,7 +42,7 @@ describe('authGuard', () => {
 
     const second = await window.fetch('https://api.test/members?orgId=team:x', { headers })
     expect(second.status).toBe(401)
-    expect(policy).toEqual(['team:x'])
+    expect(policy).toEqual([{orgId:'team:x',token:'tok',base:'https://api.test'}])
 
     const third = await window.fetch('https://api.test/other', { headers })
     expect(third.status).toBe(401)

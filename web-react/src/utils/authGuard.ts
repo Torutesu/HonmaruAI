@@ -92,7 +92,9 @@ export function installAuthGuard() {
     }
     if (res.status !== 401) return res
     if (said?.code === 'session-policy') {
-      window.dispatchEvent(new CustomEvent('honmaru:session-policy', { detail: { orgId: said.orgId || null } }))
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      const base = new URL(url, window.location.href).origin
+      window.dispatchEvent(new CustomEvent('honmaru:session-policy', { detail: { orgId: said.orgId || null, token, base } }))
       return res
     }
     if (said?.code === 'reauth-required') {

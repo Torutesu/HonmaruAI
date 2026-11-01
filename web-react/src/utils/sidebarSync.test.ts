@@ -340,5 +340,8 @@ describe('versioned sidebar changes', () => {
     expect(currentSidebarSession(storage,'https://server.invalid','new','alice')).toBe(false)
     expect(currentSidebarSession(storage,'https://server.invalid','old','bob')).toBe(false)
     expect(currentSidebarSession({getItem:()=>{throw new Error('denied')}},'https://server.invalid','old','alice')).toBe(false)
+    values.delete('host')
+    expect(currentSidebarSession(storage,'https://server.invalid','old','alice')).toBe(false)
+    expect(currentSidebarSession(storage,`https://${import.meta.env.VITE_API_HOST || 'localhost:8787'}`,'old','alice')).toBe(true)
   })
 })

@@ -77,8 +77,8 @@ export type SidebarWrite<L> = { conflict: boolean; snapshot: SidebarSnapshot<L> 
 export function currentSidebarSession(storage: Pick<Storage, 'getItem'>, server: string, token: string, user: string): boolean {
   try {
     if (!token || !user || storage.getItem('sessionToken') !== token || storage.getItem('userId') !== user) return false
-    const host = storage.getItem('host')
-    return !host || server.replace(/^https?:\/\//, '') === host
+    const host = storage.getItem('host') || import.meta.env.VITE_API_HOST || 'localhost:8787'
+    return server.replace(/^https?:\/\//, '') === host
   } catch { return false }
 }
 

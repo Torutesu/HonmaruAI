@@ -100,7 +100,8 @@ function AccountApp() {
     if (current.server !== scope.server || current.token !== scope.token || current.user !== scope.user) return false
     try {
       const token = localStorage.getItem('sessionToken'), user = localStorage.getItem('userId'), storedHost = localStorage.getItem('host')
-      return (!token || token === scope.token) && (!user || user === scope.user) && (!storedHost || httpBase(storedHost) === scope.server)
+      return Boolean(scope.token && scope.user) && token === scope.token && user === scope.user &&
+        httpBase(storedHost || DEFAULT_HOST) === scope.server
     } catch { return false }
   }
   // Carried from the email screen to the code screen and nowhere else.
@@ -512,7 +513,13 @@ function AccountApp() {
   // A workspace's login rules ended this sign-in (utils/authGuard): out,
   // with the reason, to sign in again.
   useEffect(() => {
-    const on = () => {
+    const on = (event: Event) => {
+      const detail = (event as CustomEvent<{ token?: string; base?: string }>).detail
+      if (detail?.token && detail.token !== sessionToken) return
+      if (detail?.base) {
+        try { if (new URL(detail.base).origin !== new URL(httpBase(host)).origin) return } catch { return }
+      }
+      if (!sameSession({ server: httpBase(host), token: sessionToken, user: userId, org: orgId })) return
       setSignedOutWhy(t("This workspace's login rules ask you to sign in again."))
       logout(true)
     }
