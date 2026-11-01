@@ -242,3 +242,29 @@ test.each(['reinvited','recreated'])('eviction during the initial room lookup ca
   expect(f.ws.deserializeAttachment().jam).toBeFalsy();
   expect(f.entries.size).toBe(0);
 });
+
+test.each(['workspace','canonical-channel','session'])('%s eviction cancels a resolving join even after membership is restored',async kind=>{
+  const f=fixture();
+  let release,started,blocked=false;
+  const waiting=new Promise(resolve=>{started=resolve;});
+  f.relay.db=new Proxy(env.DB,{get(db,key){
+    if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+    return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT private, created_at FROM businesses'))return statement;
+      return {bind(...args){const bound=statement.bind(...args);return {async first(){const row=await bound.first();if(!blocked){blocked=true;started();await new Promise(resolve=>{release=resolve;});}return row;}}}};
+    };
+  }});
+  // Simulate the interval before a socket close takes effect; cancellation is
+  // authoritative even if the account is added again before lookups resume.
+  f.relay.refuse=()=>{};
+  if(kind==='session')f.ws.serializeAttachment({...f.ws.deserializeAttachment(),session:'revoked-session'});
+  const run=handleJamMessage(f.relay,f.ws,f.ws.deserializeAttachment(),'jam_join',{channel});
+  await waiting;
+  if(kind==='workspace')await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,'4101').run();
+  const body=kind==='workspace'?{login:'alice'}:kind==='session'?{sessions:['revoked-session']}:{login:'alice',channel:'dm:alice|bob'};
+  await OrgRelay.prototype.fetch.call(f.relay,new Request(`https://relay.internal/internal/evict?orgId=${org}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}));
+  if(kind==='workspace')await upsertMembership(env.DB,org,'4101','member');
+  release();await run;
+  expect(f.events.some(event=>event.name==='jam_joined')).toBe(false);
+  expect(f.ws.deserializeAttachment().jam).toBeFalsy();
+  expect(f.entries.size).toBe(0);
+});

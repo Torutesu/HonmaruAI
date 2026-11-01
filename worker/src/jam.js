@@ -58,6 +58,12 @@ export function invalidateJamJoins(relay, orgId, channel) {
   if(!epochs){epochs=new Map();joinInvalidations.set(relay,epochs);}
   epochs.set(key,joinEpoch(relay,key)+1);
 }
+// User-scoped evictions also cover channel aliases (DM/agent display names
+// differ from stored keys) and joins still resolving their canonical channel.
+export function invalidateJamUserJoins(relay, orgId, login) {
+  for(const entries of resolvingJoins.get(relay)?.values()||[])
+    for(const joining of entries)if(joining.orgId===orgId && joining.userId===login)joining.cancelled=true;
+}
 async function lockJoin(relay, key) {
   let locks=pendingJoins.get(relay);
   if(!locks){locks=new Map();pendingJoins.set(relay,locks);}
@@ -285,13 +291,14 @@ export async function jamStatesFor(relay, orgId, login, githubId) {
 /// One Jam message from a browser. `att` is the socket's attachment, already
 /// signed in.
 const joiningSockets = new WeakMap();
+export function cancelJamSocketJoin(ws) { const joining=joiningSockets.get(ws);if(joining)joining.cancelled=true; }
 export async function handleJamMessage(relay, ws, att, type, payload) {
   if(type==='jam_join') {
     if(joiningSockets.has(ws)) {
       reply(ws,customEvent('jam_error',{channel:payload.channel??null,message:'A Jam join is already in progress.'}));
       return;
     }
-    const joining={cancelled:false};
+    const joining={cancelled:false,orgId:att.orgId,userId:att.userId};
     joiningSockets.set(ws,joining);
     // Register before the first membership/channel lookup. Eviction must also
     // cancel a lookup which later returns after the person was re-invited.

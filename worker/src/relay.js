@@ -33,7 +33,7 @@ import { settleAgentAccessRequest } from "./harness/agentAccessRequests.js";
 import { agentRoleState } from "./harness/agentRoles.js";
 import { settleProposal } from "./proposals.js";
 import { settleProxyAction } from "./proxy.js";
-import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor, invalidateJamJoins } from "./jam.js";
+import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor, invalidateJamJoins, invalidateJamUserJoins, cancelJamSocketJoin } from "./jam.js";
 import { TYPING_TYPES, TYPING_BUDGET, handleTyping } from "./typing.js";
 import { useSecretKey } from "./secrets.js";
 import { useMirrorEnv } from "./store/mirror.js";
@@ -156,6 +156,7 @@ export class OrgRelay {
         for (const ws of this.state.getWebSockets()) {
           const att = ws.deserializeAttachment();
           if (att?.orgId !== orgId || !att.session || !ended.has(att.session)) continue;
+          cancelJamSocketJoin(ws);
           this.refuse(ws, att.agui, ...OrgRelay.signedOut(here));
           evicted += 1;
         }
@@ -175,6 +176,7 @@ export class OrgRelay {
         }
         await Promise.all(leaves);
       } else if (login && typeof channel === "string") {
+        invalidateJamUserJoins(this,orgId,login);
         invalidateJamJoins(this,orgId,channel);
         // Out of one private channel only: out of its Jam, so the others
         // hang up on them, and told so; the rest of the room is still theirs.
@@ -189,6 +191,7 @@ export class OrgRelay {
         }
         await Promise.all(leaves);
       } else if (login) {
+        invalidateJamUserJoins(this,orgId,login);
         for (const ws of this.state.getWebSockets()) {
           const att = ws.deserializeAttachment();
           if (att?.orgId !== orgId || att?.userId !== login) continue;
