@@ -42,6 +42,7 @@ export function askToConfirm(base: string, fence: SessionFence): Promise<boolean
       answered=true
       controller.abort()
       window.removeEventListener('storage',onStorage)
+      window.removeEventListener('honmaru:workspace-changed',onStorage)
       resolve(permitted)
     }
     const post=(path:string,body:unknown)=>{
@@ -51,6 +52,7 @@ export function askToConfirm(base: string, fence: SessionFence): Promise<boolean
     }
     const detail: ReauthRequest={base,start:()=>post('/auth/reauth/start',{}),confirm:body=>post('/auth/reauth',body),current:()=>!answered&&fence.current(),resolve:answer}
     window.addEventListener('storage',onStorage)
+    window.addEventListener('honmaru:workspace-changed',onStorage)
     const event = new CustomEvent<ReauthRequest>('honmaru:reauth', { detail, cancelable: true })
     if (!fence.current() || window.dispatchEvent(event)) answer(false)
   })
@@ -77,10 +79,12 @@ export function askAboutData(rules: string[], files: string[] = [], fence?: Sess
       answered = true
       asking--
       window.removeEventListener('storage',onStorage)
+      window.removeEventListener('honmaru:workspace-changed',onStorage)
       resolve(permitted)
     }
     asking++
     window.addEventListener('storage',onStorage)
+    window.addEventListener('honmaru:workspace-changed',onStorage)
     const event = new CustomEvent<DlpWarning>('honmaru:dlp-warning', { detail: { rules, files, current, resolve: answer }, cancelable: true })
     if (!current() || window.dispatchEvent(event)) answer(false)
   })
@@ -95,6 +99,11 @@ export function installAuthGuard() {
     if(!token)return original(input,init)
     const url=urlOf(input), base=new URL(url,window.location.href).origin
     const fence=sessionFence(url,token)
+    let retryInput: RequestInfo | URL = input
+    let replayable=true
+    if(input instanceof Request) {
+      try { retryInput=input.clone() } catch { replayable=false }
+    }
     try {
       const res = await original(input, init)
       if (res.status !== 409 && res.status !== 401 && res.status !== 403) return res
@@ -124,8 +133,8 @@ export function installAuthGuard() {
         return res
       }
       if (said?.code === 'reauth-required') {
-        const again = init?.body === undefined || typeof init.body === 'string'
-        if (again && await askToConfirm(base, fence) && fence.current()) return original(input, init)
+        const again = replayable && (init?.body === undefined || typeof init.body === 'string')
+        if (again && await askToConfirm(base, fence) && fence.current()) return original(retryInput, init)
       }
       return res
     } finally { fence.release() }

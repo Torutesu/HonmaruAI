@@ -391,6 +391,7 @@ function AccountApp() {
   const switchOrg = (next: string) => {
     setOrgId(next)
     try { localStorage.setItem('orgId', next) } catch { /* private mode */ }
+    window.dispatchEvent(new Event('honmaru:workspace-changed'))
   }
 
   /// They are out of the workspace that was on screen — they left it, or
