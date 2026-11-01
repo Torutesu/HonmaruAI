@@ -146,3 +146,23 @@ test('merge preview checks access to secondary entities, including unchanged one
   expect((await dbCall({action:'merge_preview',forkId:pending.forkId,revision:pending.revision})).status).toBe(404);
   expect((await dbCall({action:'merge_apply',...pending})).status).toBe(404);
 });
+
+test.each(['purging','tombstone'])('merge is fenced when workspace becomes %s before its transaction',async state=>{
+  const pending=await previewPending();
+  const {mergeFork}=await import('../src/harness/appMerge.js');
+  let injected=false;
+  const racingDb=new Proxy(env.DB,{get(target,prop){
+    if(prop==='batch')return async statements=>{
+      if(!injected){injected=true;
+        if(state==='purging')await target.prepare("INSERT INTO workspace_deletions(org_id,due_at,requested_by,requested_at,purge_started_at) VALUES (?,'2026-01-01','8101','2026-01-01','2026-01-01')").bind(orgId).run();
+        else await target.prepare("INSERT INTO workspace_tombstones(org_id,deleted_at,requested_by) VALUES (?,'2026-01-01','8101')").bind(orgId).run();
+      }
+      return target.batch(statements);
+    };
+    const value=target[prop];return typeof value==='function'?value.bind(target):value;
+  }});
+  expect((await mergeFork(racingDb,orgId,app,'8101',pending)).status).toBe(409);
+  expect(injected).toBe(true);
+  expect(await env.DB.prepare('SELECT id FROM hx_rows WHERE id=?').bind(pending.rowId).first()).toBeNull();
+  expect(await env.DB.prepare('SELECT nonce FROM hx_app_fork_merges WHERE fork_id=?').bind(pending.forkId).first()).toBeNull();
+});
