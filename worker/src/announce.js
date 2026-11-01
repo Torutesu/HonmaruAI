@@ -129,6 +129,23 @@ export async function evictFromJam(env, orgId, login, channel) {
   }
 }
 
+/// A deleted room has no remaining audience; remove every connected Jam
+/// participant, including public-room viewers without a membership row.
+export async function evictRoomJam(env, orgId, channel) {
+  if (!channel?.startsWith('b:') || !env.ORG_RELAY) return { evicted: 0 };
+  try {
+    const stub=env.ORG_RELAY.get(env.ORG_RELAY.idFromName(orgId));
+    const res=await stub.fetch(`https://relay.internal${EVICT_PATH}?orgId=${encodeURIComponent(orgId)}`,{
+      method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({channel,allInChannel:true}),
+    });
+    if(!res.ok)throw new Error(`Relay returned ${res.status}`);
+    return await res.json();
+  } catch(err) {
+    console.error('room jam evict failed',orgId,err?.message||err);
+    return {evicted:0,error:true};
+  }
+}
+
 /// Close the sockets these sessions are holding, once the sessions are
 /// signed out: in `orgId` only, when they were signed out of one workspace,
 /// or everywhere they were used. Keyed by the session's row (its hash), the

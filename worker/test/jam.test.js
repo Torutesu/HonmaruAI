@@ -210,6 +210,32 @@ test("someone taken out of a private channel is out of its Jam too, and cannot c
   await message(toru.messages, custom("jam_state", (v) => !v.active));
 });
 
+test.each(['legacy-private','managed-public'])('deleting a %s room disconnects every Jam participant',async kind=>{
+  const {SELF}=await import('cloudflare:test');
+  const now=new Date().toISOString();
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,created_by,created_at,private) VALUES (?,'deleted-jam','Deleted Jam','2001',?,?)").bind(ORG,now,Number(kind==='legacy-private')).run();
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?,'b:deleted-jam','toru',?)").bind(ORG,now).run();
+  if(kind==='legacy-private')await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?,'b:deleted-jam','mika',?)").bind(ORG,now).run();
+  if(kind==='managed-public') {
+    const {initializeRoomRoles}=await import('../src/harness/roomRoles.js');
+    expect(await initializeRoomRoles(env.DB,ORG,'b:deleted-jam','2001')).toEqual({version:1});
+    expect(await env.DB.prepare("SELECT 1 FROM conversation_members WHERE org_id=? AND channel='b:deleted-jam' AND login='mika'").bind(ORG).first()).toBeNull();
+  }
+  const toru=await joined(ORG,globalThis.__jamT),mika=await joined(ORG,globalThis.__jamM);
+  toru.ws.send(JSON.stringify({type:'jam_join',payload:{channel:'b:deleted-jam'}}));
+  await message(toru.messages,custom('jam_joined'));
+  mika.ws.send(JSON.stringify({type:'jam_join',payload:{channel:'b:deleted-jam'}}));
+  await message(mika.messages,custom('jam_joined'));
+  const external=await SELF.fetch(`https://example.com/internal/evict?${new URLSearchParams({orgId:ORG})}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({channel:'b:deleted-jam',allInChannel:true})});
+  expect(external.status).toBe(404);
+  const removed=await SELF.fetch('https://example.com/businesses',{method:'DELETE',headers:{'content-type':'application/json','x-session-token':globalThis.__jamT},body:JSON.stringify({orgId:ORG,slug:'deleted-jam',...(kind==='managed-public'?{version:1}:{})})});
+  expect(removed.status).toBe(200);
+  expect((await message(toru.messages,custom('jam_error'))).value.message).toBe('You are no longer in this channel.');
+  expect((await message(mika.messages,custom('jam_error'))).value.message).toBe('You are no longer in this channel.');
+  mika.ws.send(JSON.stringify({type:'jam_join',payload:{channel:'b:deleted-jam'}}));
+  expect(await until(()=>mika.messages.filter(custom('jam_error')).length>=2)).toBeTruthy();
+});
+
 test("a transcript message names each speaker and stays inside a message's length", () => {
   const body = transcriptMessage("en", [{ name: "A", text: "hi" }, { name: "B", text: "x".repeat(20000) }]);
   expect(body.startsWith("*Transcript*\nA: hi\nB: ")).toBe(true);

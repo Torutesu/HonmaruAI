@@ -30,7 +30,7 @@ test.each(['removed','recreated'])('Accepted private legacy room deletion (%s) c
   expect(sent.status).toBe(201);const {message}=await sent.json();
   expect((await queued()).map(x=>x.message_id)).toEqual([message.id]);
   const removed=await call('/businesses',token,{orgId:org,slug:'private'},'DELETE',capture);expect(removed.status).toBe(200);
-  expect(capture.events).toEqual(expect.arrayContaining([{login:'alice',channel:'b:private'},{login:'bob',channel:'b:private'}]));
+  expect(capture.events).toEqual(expect.arrayContaining([{allInChannel:true,channel:'b:private'}]));
   expect(await env.DB.prepare("SELECT private,archived_at FROM businesses WHERE org_id=?1 AND slug='private'").bind(org).first()).toMatchObject({private:1,archived_at:expect.any(String)});
   expect((await getMessage(env.DB,org,message.id)).deleted_at).toBeNull();
   if(mutation==='recreated')expect((await call('/businesses',token,{orgId:org,name:'Private'},'POST',capture)).status).toBe(409);
@@ -47,7 +47,7 @@ test('managed private room deletion requests Jam eviction for the removed member
   expect(await initializeRoomRoles(env.DB,org,'b:private','alice')).toEqual({version:1});
   const removed=await call('/businesses',token,{orgId:org,slug:'private',version:1},'DELETE',capture);
   expect(removed.status).toBe(200);
-  expect(capture.events).toEqual(expect.arrayContaining([{login:'alice',channel:'b:private'},{login:'bob',channel:'b:private'}]));
+  expect(capture.events).toEqual(expect.arrayContaining([{allInChannel:true,channel:'b:private'}]));
 });
 
 test.each(['b:general','b:implicit-room'])('Supported implicit public channel %s still delivers without a business row',async channel=>{

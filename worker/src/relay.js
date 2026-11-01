@@ -146,7 +146,8 @@ export class OrgRelay {
       let channel = null;
       let sessions = null;
       let here = false;
-      try { ({ login = null, channel = null, sessions = null, here = false } = await request.json()); } catch { return new Response("bad request", { status: 400 }); }
+      let allInChannel = false;
+      try { ({ login = null, channel = null, sessions = null, here = false, allInChannel = false } = await request.json()); } catch { return new Response("bad request", { status: 400 }); }
       let evicted = 0;
       // Sessions signed out: everywhere, or of this workspace only. Only the
       // sockets those sessions hold go; the same person's other devices stay.
@@ -159,7 +160,17 @@ export class OrgRelay {
           evicted += 1;
         }
       }
-      if (login && typeof channel === "string") {
+      if (allInChannel === true && typeof channel === 'string' && channel.startsWith('b:')) {
+        // The room has been deleted. Public rooms may have Jam participants
+        // without conversation_members entries, so inspect every socket.
+        for (const ws of this.state.getWebSockets()) {
+          const att=ws.deserializeAttachment();
+          if(att?.orgId!==orgId || att.jam?.key!==channel)continue;
+          try { await leaveJam(this,ws,att); } catch(err) { console.error('room jam leave failed',err?.message||err); }
+          OrgRelay.deliver(ws,JSON.stringify(customEvent('jam_error',{channel:null,message:'You are no longer in this channel.'})));
+          evicted+=1;
+        }
+      } else if (login && typeof channel === "string") {
         // Out of one private channel only: out of its Jam, so the others
         // hang up on them, and told so; the rest of the room is still theirs.
         for (const ws of this.state.getWebSockets()) {

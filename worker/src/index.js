@@ -26,7 +26,7 @@ import {
   loadContexts, saveContext, cleanName, checkHandle, setUserName, setUserHandle, MAX_NAME_CHARS,
 } from "./db.js";
 import { enforce } from "./ratelimit.js";
-import { announceCards, evictMember, evictFromJam, announceEvents, announceTo } from "./announce.js";
+import { announceCards, evictMember, evictRoomJam, announceEvents, announceTo } from "./announce.js";
 import { custom as customEvent } from "./agui/events.js";
 import { contextEvents } from "./agui/adapter.js";
 import { verifyMailgunWebhook, parseMailgunWebhook, inboundTokenFromAddress, userForInboundAddress, inboundAddressFor } from "./connectors/email.js";
@@ -1653,11 +1653,9 @@ async function handle(request, env, url, ctx) {
         unfiled=removed.unfiled;
         if(wasPrivate)insiders=removed.formerMembers;
       }
-      if (wasPrivate) {
-        // Close active Jams before any later audit or list refresh can fail.
-        // The helper is best effort; the room is already closed in D1.
-        for(let i=0;i<insiders.length;i+=20)await Promise.all(insiders.slice(i,i+20).map(login=>evictFromJam(env,body.orgId,login,`b:${body.slug}`)));
-      }
+      // A public room's Jam can include people without membership rows.
+      // Close every participant before later audit/list refreshes can fail.
+      await evictRoomJam(env,body.orgId,`b:${body.slug}`);
       if (gone) {
         const session = await getSession(env.DB, request.headers.get("x-session-token"));
         const me = await getUserByGithubId(env.DB, session.github_id);
