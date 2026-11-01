@@ -440,15 +440,22 @@ export async function generateMigration(prompt, current, complete) {
 export async function forkDatabase(db, orgId, app, by) {
   if (!await mayUseDatabase(db, orgId, app.id, by, [], true)) return err('No such app.',404);
   const tableScope = 'SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 UNION SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2';
-  const [tables,rows,links,total] = await db.batch([
+  const [tables,rows,links,total,primary] = await db.batch([
     db.prepare(`SELECT * FROM hx_tables WHERE org_id=?1 AND id IN (${tableScope})`).bind(orgId,app.id),
     db.prepare(`SELECT * FROM hx_rows WHERE org_id=?1 AND table_id IN (${tableScope}) AND (SELECT COALESCE(SUM(length(CAST(data AS BLOB))),0) FROM hx_rows WHERE org_id=?1 AND table_id IN (${tableScope}))<=700000 ORDER BY position,id`).bind(orgId,app.id),
     db.prepare('SELECT entity_key,table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2').bind(orgId,app.id),
     db.prepare(`SELECT COALESCE(SUM(length(CAST(data AS BLOB))),0) AS bytes FROM hx_rows WHERE org_id=?1 AND table_id IN (${tableScope})`).bind(orgId,app.id),
+    db.prepare('SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2').bind(orgId,app.id),
   ]);
+  if(primary.results?.[0]?.table_id!==app.tableId)return err('Database schema changed. Reload before creating a preview.',409);
   if(total.results[0].bytes>700000)return err('This database is too large for a preview snapshot.',413);
-  const entities=(tables.results||[]).map(t=>({key:t.id===app.tableId?'primary':links.results.find(e=>e.table_id===t.id).entity_key,
-    table:{id:t.id,name:t.name,columns:JSON.parse(t.columns)},rows:(rows.results||[]).filter(r=>r.table_id===t.id).map(r=>({id:r.id,values:JSON.parse(r.data),updatedAt:r.updated_at}))}));
+  const scopes=[{entity_key:'primary',table_id:primary.results[0].table_id},...(links.results||[])];
+  const entities=[];
+  for(const scope of scopes) {
+    const t=(tables.results||[]).find(table=>table.id===scope.table_id);
+    if(!t)return err('Database schema changed. Reload before creating a preview.',409);
+    entities.push({key:scope.entity_key,table:{id:t.id,name:t.name,columns:JSON.parse(t.columns)},rows:(rows.results||[]).filter(r=>r.table_id===t.id).map(r=>({id:r.id,values:JSON.parse(r.data),updatedAt:r.updated_at}))});
+  }
   const tableIds = [...new Set(entities.map(entity => entity.table.id))];
   if (!await mayUseDatabase(db, orgId, app.id, by, tableIds, true)) return err('No such app.',404);
   const data = JSON.stringify(entities);
