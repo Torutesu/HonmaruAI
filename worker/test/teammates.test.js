@@ -82,6 +82,35 @@ test("an admin launches Claude: keys stay out of every answer, tools' keys go to
   if (logged) expect(Number(logged.n)).toBeGreaterThan(0);
 });
 
+test('a workspace ACP teammate queues prompts for a node without sending host launch settings',async()=>{
+ const registered=await send('POST','/gateways',toru,{orgId:ORG,name:'Mac mini'});
+ expect(registered.status).toBe(201);const {gateway,token}=await registered.json();
+ const ready=await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:['codex-local']})}),env,ctx);
+ expect((await ready.json()).job).toBeNull();
+ const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local'});
+ expect(configured.status).toBe(200);
+ const teammate=(await configured.json()).teammate;
+ expect(teammate).toMatchObject({provider:'acp',enabled:true,ready:true,hasKey:true,gatewayId:gateway.id,agentKey:'codex-local',unit:'task'});
+ expect(JSON.stringify(teammate)).not.toContain(token);
+ const message=(await (await send('POST','/channels/messages',toru,{orgId:ORG,channel:'b:cafe',body:`@${teammate.handle} review this repository`},{TEAMMATE_WATCH_MS:'0'})).json()).message;
+ const run=await env.DB.prepare("SELECT * FROM ai_teammate_runs WHERE org_id=?1 AND provider='acp'").bind(ORG).first();
+ expect(run.status).toBe('running');
+ const job=await env.DB.prepare('SELECT id,payload FROM hx_gateway_jobs WHERE org_id=?1 AND gateway_id=?2').bind(ORG,gateway.id).first();
+ const payload=JSON.parse(job.payload);
+ expect(payload).toMatchObject({acp:true,agentKey:'codex-local'});
+ expect(payload.prompt).toContain('review this repository');
+ for(const forbidden of ['command','args','cwd','env','mcpServers'])expect(payload).not.toHaveProperty(forbidden);
+ const nodeClaim=await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:['codex-local']})}),env,ctx);
+ const claimed=(await nodeClaim.json()).job;
+ expect(claimed.id).toBe(job.id);
+ const finished=await worker.fetch(new Request(`https://example.com/gateways/jobs/${job.id}/finish`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({lease:claimed.lease,status:'succeeded',stdout:JSON.stringify({text:'Reviewed the local repository.',sessionId:'acp-session-1',stopReason:'end_turn'}),stderr:'',exitCode:0})}),env,ctx);
+ expect(finished.status).toBe(200);
+ await watchTeammateRuns(env,{ids:[run.id],deadline:Date.now()});
+ expect((await thread(toru,message.id)).map(reply=>reply.body).slice(-1)).toEqual(['Reviewed the local repository.']);
+ expect(await env.DB.prepare('SELECT status,remote_turn FROM ai_teammate_runs WHERE id=?').bind(run.id).first()).toEqual({status:'idle',remote_turn:'acp-session-1'});
+ expect(message.body).toContain(teammate.handle);
+});
+
 test("@claude in a thread starts a session with the repo, vault and budget, and its answer comes back into the thread", async () => {
   await launch();
   let session = null;

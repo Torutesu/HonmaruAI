@@ -62,6 +62,36 @@ A restart uses the same credential; revoke it in Honmaru if lost. Registration i
 limited to five active nodes per workspace. Ctrl-C stops the loop and current job.
 The gateway can be installed as a user LaunchAgent with `node gateway/install-service.mjs /absolute/path/to/config.json`. It reconnects after login following a reboot, retries network/runtime outages, and restarts after a crash. FileVault unlock and user login are required; it cannot receive work while the Mac is asleep. The installer snapshots the Node executable and gateway source outside the checkout. Authentication revocation stops the service until an operator intervenes.
 
+## Local ACP agents (opt-in)
+
+ACP agents run as the logged-in Mac user; they do not run in the isolated Apple
+Container used for plain JavaScript jobs. Only configure an agent and project
+directory that the workspace owner trusts. The gateway never accepts an
+executable, arguments, environment or working directory from the Worker: an
+ACP job names a key from the Mac's local allowlist. ACP permission requests are
+rejected by default, and the client does not expose host filesystem or terminal
+capabilities. An ACP agent may still use its own local credentials and tools.
+
+On the Mac with a checkout of HonmaruAI, register a local command and project
+directory. Use the agent vendor's actual ACP v1 stdio invocation and the exact
+working directory the agent should be able to work in:
+
+```sh
+node gateway/acp-config.mjs add codex-local /absolute/path/to/acp-agent /absolute/path/to/project --arg=--stdio
+```
+
+This stores the allowlist in the owner-only gateway service config, snapshots
+the ACP client runtime and restarts the existing LaunchAgent. The node then
+advertises only the configured keys in Harness → Execution nodes. In Studio →
+AI teammates, select that online node and key, then turn on the ACP teammate.
+Remove a key with `node gateway/acp-config.mjs remove codex-local`.
+
+The protocol client negotiates ACP v1, handles agent-managed authentication,
+creates or loads sessions, collects agent message chunks, and sends prompt
+cancellation when the job is cancelled. Headless terminal-login flows are not
+supported; authenticate the local agent on the Mac first. Agents that do not
+support session loading receive recent thread context in the next prompt.
+
 Run `node --test gateway/test/*.test.mjs` for client/argument tests, and
 `node gateway/smoke.mjs` for the actual VM isolation checks. The latter requires the
 runtime and pinned image; CI intentionally runs only portable tests.

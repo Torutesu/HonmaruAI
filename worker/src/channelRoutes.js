@@ -590,7 +590,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       await progress(agent, "agent");
       const t = await teammateForAgent(env.DB, orgId, agent).catch(() => null);
       try {
-        return await runTeammate(env, { orgId, user, resolved, row, members, locale, agent, t, authorize, roomHookSource, replyFence, taskText, signal, deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000) });
+        return await runTeammate(env, { orgId, user, requesterId:session.github_id, resolved, row, members, locale, agent, t, authorize, roomHookSource, replyFence, taskText, signal, deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000) });
       } catch(err) {
         if(replyFence)throw err;
         console.error("teammate failed",safe(err?.message));
@@ -687,7 +687,7 @@ const teammateParent = (resolved, row) => row.parent_id || (resolved.kind === "a
 /// An AI teammate's turn (teammates.js): the thread handed to it, a line
 /// saying it has started, and its answer when it has one — watched here
 /// while this request may still run, and by the minute cron after that.
-async function runTeammate(env, { orgId, user, resolved, row, members, locale, agent, t, deadline, authorize = null, roomHookSource = false, replyFence = null, taskText = row.body, signal = null }) {
+async function runTeammate(env, { orgId, user, requesterId, resolved, row, members, locale, agent, t, deadline, authorize = null, roomHookSource = false, replyFence = null, taskText = row.body, signal = null }) {
   const parentId = teammateParent(resolved, row);
   const say = async (key) => {
     if (authorize && !await authorize()) return;
@@ -705,7 +705,7 @@ async function runTeammate(env, { orgId, user, resolved, row, members, locale, a
     if (authorize && !await authorize()) return;
     started = await startTeammateRun(env, {
       orgId, t, key: resolved.key, threadId: parentId || "-", where, askedBy: user.name || "a teammate",
-      transcript, request: requestFor(taskText, agent), login: user.login, roomHookSource: roomHookSource ? row.id : null, assignment:replyFence?{assignmentId:replyFence.assignmentId,generation:replyFence.generation,agentId:agent.id}:null,
+      transcript, request: requestFor(taskText, agent), login: user.login, requesterId, roomHookSource: roomHookSource ? row.id : null, assignment:replyFence?{assignmentId:replyFence.assignmentId,generation:replyFence.generation,agentId:agent.id}:null,
     });
   } catch (err) {
     console.error("teammate start failed", safe(err?.message));

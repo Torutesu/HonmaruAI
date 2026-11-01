@@ -18,7 +18,7 @@ async function enqueue(gatewayId, requestId = crypto.randomUUID()) {
   const r = await api('POST', '/jobs', member, { gatewayId, requestId, code: 'return input * 2', input: 21 });
   expect(r.status).toBe(201); return (await r.json()).job;
 }
-const claim = async token => (await (await api('POST', '/claim', null, {}, token)).json()).job;
+const claim = async (token, capabilities = [], acpAgents = []) => (await (await api('POST', '/claim', null, { capabilities, acpAgents }, token)).json()).job;
 beforeEach(async () => {
   const { upsertUser, upsertMembership, createSession } = await import('../src/db.js');
   const sessions = [];
@@ -58,6 +58,21 @@ test('claim is exclusive, submissions idempotent, finish rejects replay and wron
   expect((await api('POST', `/jobs/${job.id}/finish`, null, body, token)).status).toBe(200);
   expect((await api('POST', `/jobs/${job.id}/finish`, null, body, token)).status).toBe(409);
   expect(await claim(token)).not.toBeNull();
+});
+test('ACP prompts require a local capability and carry only the configured agent key',async()=>{
+ const {gateway,token}=await node();
+ expect(await claim(token,['acp-v1'],['codex-local'])).toBeNull();
+ const listed=(await (await api('GET','',admin)).json()).gateways.find(entry=>entry.id===gateway.id);
+ expect(listed.acpAgents).toEqual(['codex-local']);
+ const {enqueueAcpExecution}=await import('../src/harness/executions.js');
+ const queued=await enqueueAcpExecution(env.DB,orgId,'9501',{gatewayId:gateway.id,agentKey:'codex-local',prompt:'Review this change',sessionId:'session-1',context:['Previous message']});
+ expect(queued.job).toBeTruthy();
+ const stored=await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?').bind(queued.job.id).first();
+ expect(JSON.parse(stored.payload)).toEqual({acp:true,agentKey:'codex-local',prompt:'Review this change',sessionId:'session-1',context:['Previous message']});
+ expect(await claim(token,[],['codex-local'])).toBeNull();
+ const got=await claim(token,['acp-v1'],['codex-local']);expect(got.id).toBe(queued.job.id);
+ expect(got.timeoutMs).toBe(110000);
+ expect(got.payload).not.toHaveProperty('command');expect(got.payload).not.toHaveProperty('cwd');
 });
 test('a node whose finish reply was lost is told its result is in, and nothing changes', async () => {
   const { gateway, token } = await node();

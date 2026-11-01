@@ -5,6 +5,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { withRoomGuidelinesRequest } from "./harness/guidelines.js";
 import { handleTaken } from "./customAgents.js";
 import { aad, openField, sealField } from "./secrets.js";
+import { enqueueAcpExecution } from "./harness/executions.js";
 
 // AI teammates: coding agents working in the workspace's channels the way
 // Claude Tag works in Slack. An admin sets one up once, with an API key from
@@ -54,6 +55,12 @@ export const PROVIDERS = {
     // may push to the repository Codex is connected to.
     keyless: true, githubToken: true, reposRequired: true,
   },
+  acp: {
+    name: "ACP agent", handle: "acp-agent", emoji: "⌘", company: "Local ACP agent",
+    keyHint: "", keySource: "",
+    models: [], defaultModel: null, unit: "task", minLeft: 100, defaultLimit: 20000,
+    keyless: true, localGateway: true,
+  },
 };
 
 const ENV_NAME = /^[A-Z][A-Z0-9_]{1,63}$/;
@@ -85,7 +92,7 @@ export async function loadTeammate(db, orgId, provider) {
 }
 
 /// Whether it has what it signs in with: its key, or for Codex, GitHub's.
-export const canSignIn = (t) => Boolean(t && (PROVIDERS[t.provider]?.keyless ? t.githubToken : t.apiKey));
+export const canSignIn = (t) => Boolean(t && (PROVIDERS[t.provider]?.localGateway ? t.remote?.gatewayId && t.remote?.agentKey : PROVIDERS[t.provider]?.keyless ? t.githubToken : t.apiKey));
 
 /// What it has used this month (UTC), in hundredths of its unit: every run's.
 export async function spentThisMonth(db, orgId, provider, now = new Date()) {
@@ -101,10 +108,11 @@ export function toClientTeammate(t, provider, spentCents = 0) {
   return {
     provider, name: p.name, handle: p.handle, emoji: p.emoji, company: p.company, keyHint: p.keyHint, keySource: p.keySource,
     models: p.models, freeModel: Boolean(p.freeModel), unit: p.unit,
-    needs: { apiKey: !p.keyless, githubToken: Boolean(p.githubToken), tools: Boolean(p.tools), account: Boolean(p.account), repos: Boolean(p.reposRequired) },
-    hasKey: Boolean(p.keyless ? t?.githubToken : t?.apiKey),
+    needs: { apiKey: !p.keyless, githubToken: Boolean(p.githubToken), tools: Boolean(p.tools), account: Boolean(p.account), repos: Boolean(p.reposRequired), gateway: Boolean(p.localGateway), agent: Boolean(p.localGateway) },
+    hasKey: Boolean(p.localGateway ? t?.remote?.gatewayId && t?.remote?.agentKey : p.keyless ? t?.githubToken : t?.apiKey),
     enabled: Boolean(t?.enabled), hasApiKey: Boolean(t?.apiKey), hasGithubToken: Boolean(t?.githubToken),
     account: t?.remote?.account || "",
+    gatewayId: t?.remote?.gatewayId || "", agentKey: t?.remote?.agentKey || "",
     repos: t?.repos || [], model: t?.model || p.defaultModel || "", instructions: t?.instructions || "",
     channels: t?.channels ?? null,
     autoBuild: t ? t.autoBuild !== false : true,
@@ -120,6 +128,14 @@ export function toClientTeammate(t, provider, spentCents = 0) {
 function cleanInput(input, current, provider) {
   const p = PROVIDERS[provider];
   const out = {};
+  if (p.localGateway) {
+    const gatewayId = String(input.gatewayId ?? current?.remote?.gatewayId ?? "").trim();
+    const agentKey = String(input.agentKey ?? current?.remote?.agentKey ?? "").trim();
+    if (gatewayId && !/^[A-Za-z0-9_-]{8,80}$/.test(gatewayId)) return { error: "Choose a registered execution node." };
+    if (agentKey && !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(agentKey)) return { error: "Write the local ACP agent key configured on the node." };
+    out.gatewayId = gatewayId || null;
+    out.agentKey = agentKey || null;
+  }
   if (!p.keyless && typeof input.apiKey === "string") out.apiKey = input.apiKey.trim() || null;
   if (p.githubToken && typeof input.githubToken === "string") out.githubToken = input.githubToken.trim() || null;
   if (p.account && typeof input.account === "string") {
@@ -555,7 +571,49 @@ const codex = {
   },
 };
 
-const ADAPTERS = { claude, devin, cursor, codex };
+async function queueAcpPrompt(env, t, { orgId, requesterId, task, sessionId = null, context = [] }) {
+  const queued = await enqueueAcpExecution(env.DB, orgId, requesterId, {
+    gatewayId: t.remote?.gatewayId, agentKey: t.remote?.agentKey, prompt: task, sessionId, context,
+  });
+  if (queued.error) throw Object.assign(new Error(queued.error), { status: queued.status || 400 });
+  return queued.job;
+}
+
+const acp = {
+  async start(t, { task, orgId, requesterId, env }) {
+    const job = await queueAcpPrompt(env, t, { orgId, requesterId, task });
+    return { remoteId: job.id, turn: null, tasks: 1 };
+  },
+  async send(t, run, task, { orgId, requesterId, env, context = [] } = {}) {
+    const job = await queueAcpPrompt(env, t, { orgId, requesterId, task, sessionId: run.remote_turn, context });
+    return { remoteId: job.id, turn: run.remote_turn || null, tasks: 1 };
+  },
+  async read(t, run, { env } = {}) {
+    const row = await env.DB.prepare("SELECT status, result FROM hx_gateway_jobs WHERE id=?1 AND org_id=?2 AND gateway_id=?3")
+      .bind(run.remote_id, run.org_id, t.remote?.gatewayId).first().catch(() => null);
+    if (!row) return { texts: [], stop: "terminated", last: null, error: "missing local execution", costCents: null };
+    if (row.status === "queued" || row.status === "running") return { texts: [], stop: null, last: null, costCents: null };
+    let result = null;
+    try { result = row.result ? JSON.parse(row.result) : null; } catch {}
+    if (row.status !== "succeeded" || !result || result.exitCode !== 0) return { texts: [], stop: "terminated", last: null, error: "local ACP run failed", costCents: null };
+    let answer = {};
+    try { answer = JSON.parse(result.stdout || "{}"); } catch {}
+    return {
+      texts: typeof answer.text === "string" && answer.text.trim() ? [answer.text.slice(0, 16000)] : [],
+      stop: answer.stopReason === "cancelled" ? "terminated" : "end_turn",
+      last: null, remoteTurn: typeof answer.sessionId === "string" ? answer.sessionId.slice(0, 200) : null,
+      error: null, costCents: null,
+    };
+  },
+  async cancel(t, run, { env } = {}) {
+    const at = Date.now();
+    const result = await env.DB.prepare("UPDATE hx_gateway_jobs SET status='cancelled', lease_hash=NULL, finished_at=?4 WHERE id=?1 AND org_id=?2 AND gateway_id=?3 AND status IN ('queued','running')")
+      .bind(run.remote_id, run.org_id, t.remote?.gatewayId, at).run();
+    return { status: result.meta?.changes ? "requested" : "already_finished" };
+  },
+};
+
+const ADAPTERS = { claude, devin, cursor, codex, acp };
 
 /// The one custom agent that answers to @claude (or @devin, @cursor) here,
 /// made or hidden.
@@ -595,9 +653,10 @@ export async function saveTeammate(env, orgId, provider, input, { login, workspa
     channels: current ? current.channels : null, monthlyLimitCents: current ? current.monthlyLimitCents : p.defaultLimit,
     tools: current?.tools || [], remote: current?.remote || {}, agentId: current?.agentId || null,
     autoBuild: current ? current.autoBuild !== false : true,
-    ...Object.fromEntries(Object.entries(out).filter(([k]) => k !== "tools" && k !== "account")),
+    ...Object.fromEntries(Object.entries(out).filter(([k]) => !["tools", "account", "gatewayId", "agentKey"].includes(k))),
   };
   if (out.account !== undefined) next.remote = { ...next.remote, account: out.account };
+  if (p.localGateway) next.remote = { ...next.remote, gatewayId: out.gatewayId, agentKey: out.agentKey };
   if (p.githubToken && !p.keyless && next.repos.length && !next.githubToken) return { error: `Add a GitHub token so ${p.name} can reach the repositories.` };
   let toolChanges = { kept: next.tools, written: [], removed: [] };
   if (out.tools) {
@@ -609,17 +668,24 @@ export async function saveTeammate(env, orgId, provider, input, { login, workspa
     };
   }
   if (next.enabled) {
-    if (p.keyless ? !next.githubToken : !next.apiKey) return { error: p.keyless ? `Add a GitHub token that can push to the repository ${p.name} works in.` : `Paste an API key from ${p.keySource} first.` };
-    try {
-      const made = await ADAPTERS[provider].provision(next, { workspaceName, toolChanges });
-      next.remote = { ...next.remote, ...made.remote };
-      next.tools = made.tools;
-    } catch (err) {
-      const status = err?.status || 0;
-      if (status === 401 || status === 403) return { error: `${p.company} did not accept that API key.` };
-      if (err instanceof ServiceError && status === 400) return { error: err.message };
-      if (provider === "devin" && status === 404) return { error: "Devin did not find that organization ID." };
-      return { error: `${p.company} could not set ${p.name} up: ${String(err?.message || "unknown error").slice(0, 200)}` };
+    if (p.localGateway) {
+      if (!next.remote.gatewayId || !next.remote.agentKey) return { error: "Choose an execution node and the local ACP agent key configured on it." };
+      const node = await env.DB.prepare(`SELECT g.id FROM hx_gateways g JOIN hx_gateway_acp_agents a ON a.org_id=g.org_id AND a.gateway_id=g.id AND a.agent_key=?3
+        WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL AND g.last_seen_at>?4`).bind(orgId, next.remote.gatewayId, next.remote.agentKey, Date.now()-90000).first();
+      if (!node) return { error: "That execution node is offline or does not advertise this local ACP agent key." };
+    } else {
+      if (p.keyless ? !next.githubToken : !next.apiKey) return { error: p.keyless ? `Add a GitHub token that can push to the repository ${p.name} works in.` : `Paste an API key from ${p.keySource} first.` };
+      try {
+        const made = await ADAPTERS[provider].provision(next, { workspaceName, toolChanges });
+        next.remote = { ...next.remote, ...made.remote };
+        next.tools = made.tools;
+      } catch (err) {
+        const status = err?.status || 0;
+        if (status === 401 || status === 403) return { error: `${p.company} did not accept that API key.` };
+        if (err instanceof ServiceError && status === 400) return { error: err.message };
+        if (provider === "devin" && status === 404) return { error: "Devin did not find that organization ID." };
+        return { error: `${p.company} could not set ${p.name} up: ${String(err?.message || "unknown error").slice(0, 200)}` };
+      }
     }
   } else if (out.tools) {
     // Off: tool edits wait for the next launch; new keys are not kept.
@@ -653,7 +719,7 @@ export async function teammateForAgent(db, orgId, agent) {
 
 /// @claude (or another) in a thread: new work for a new thread, the same
 /// work handed on for a follow-up. Returns the run to watch, or why not.
-export async function startTeammateRun(env, { orgId, t, key, threadId, where, askedBy, transcript, request, login, onBehalfOf = null, roomHookSource = null, assignment = null, now = new Date() }) {
+export async function startTeammateRun(env, { orgId, t, key, threadId, where, askedBy, transcript, request, login, requesterId = login, onBehalfOf = null, roomHookSource = null, assignment = null, now = new Date() }) {
   const p = PROVIDERS[t.provider];
   const adapter = ADAPTERS[t.provider];
   if(assignment) {
@@ -676,16 +742,16 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
     if (!t.agentId || !await roomHookAgentAllowed(env.DB,orgId,roomHookSource,t.agentId)) return {refused:'notHere'};
   }
   if (existing && existing.status !== "failed" && existing.status !== "budget") {
-    const sent = await adapter.send(t, existing, `${askedBy}: ${turnRequest}`);
+    const sent = await adapter.send(t, existing, `${askedBy}: ${turnRequest}`, { env, orgId, requesterId, context: transcript });
     if (sent.busy) return { refused: "busy" };
     // The next answer is for whoever this turn was asked for.
-    const advanced = await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'running', remote_turn = COALESCE(?3, remote_turn), cost_cents = cost_cents + ?4, on_behalf_of = ?5, room_hook_source = ?6, updated_at = ?2, turn_version=turn_version+1, result_delivery_id=NULL, assignment_id=?7, assignment_generation=?8, assignment_agent_id=?9 WHERE id = ?1 RETURNING turn_version")
-      .bind(existing.id, stamp, sent.turn || null, (sent.tasks || 0) * 100, onBehalfOf, roomHookSource,assignment?.assignmentId || null,assignment?.generation ?? null,assignment?.agentId || null).first();
-    return { run: { ...existing, status: "running", remote_turn: sent.turn || existing.remote_turn, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, turn_version:advanced.turn_version, assignment_id:assignment?.assignmentId || null,assignment_generation:assignment?.generation ?? null,assignment_agent_id:assignment?.agentId || null }, continued: true };
+    const advanced = await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'running', remote_id = COALESCE(?10, remote_id), remote_turn = COALESCE(?3, remote_turn), cost_cents = cost_cents + ?4, on_behalf_of = ?5, room_hook_source = ?6, updated_at = ?2, turn_version=turn_version+1, result_delivery_id=NULL, assignment_id=?7, assignment_generation=?8, assignment_agent_id=?9 WHERE id = ?1 RETURNING turn_version")
+      .bind(existing.id, stamp, sent.turn || null, (sent.tasks || 0) * 100, onBehalfOf, roomHookSource,assignment?.assignmentId || null,assignment?.generation ?? null,assignment?.agentId || null,sent.remoteId || null).first();
+    return { run: { ...existing, status: "running", remote_id: sent.remoteId || existing.remote_id, remote_turn: sent.turn || existing.remote_turn, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, turn_version:advanced.turn_version, assignment_id:assignment?.assignmentId || null,assignment_generation:assignment?.generation ?? null,assignment_agent_id:assignment?.agentId || null }, continued: true };
   }
   const started = await adapter.start(t, {
     task: taskText({ where, askedBy, transcript, request: turnRequest }), title: `${where}: ${request}`.slice(0, 200),
-    remaining, orgId, key, threadId,
+    remaining, orgId, key, threadId, env, requesterId,
   });
   const id = crypto.randomUUID();
   await env.DB.prepare(
@@ -698,7 +764,7 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
 /// What a run has done since it was last looked at: its words since the last
 /// hand-off, and whether it has stopped, and why.
 export async function readRun(env, t, run, options = {}) {
-  return ADAPTERS[t.provider].read(t, run, options);
+  return ADAPTERS[t.provider].read(t, run, { ...options, env });
 }
 
 /// Best-effort provider stop for the exact external run owned by this
@@ -716,7 +782,7 @@ export async function cancelAssignedTeammateRuns(env, {orgId, assignmentId, gene
     const teammate = await loadTeammate(env.DB, orgId, run.provider).catch(() => null);
     if (!teammate || !canSignIn(teammate)) { outcomes.push("unavailable"); continue; }
     try {
-      outcomes.push((await adapter.cancel(teammate, run)).status);
+      outcomes.push((await adapter.cancel(teammate, run,{env})).status);
     } catch (error) {
       // Keep provider details and credentials out of the response and logs.
       console.error("external agent cancellation request failed", run.provider, error?.status || "network");
@@ -757,8 +823,8 @@ export async function settleRun(db, run, read, now = new Date(), {deliveryAgentI
   // Proxy proposals can contain external actions and retain their existing
   // path until their own idempotency contract covers replay.
   const deliveryId=deliveryAgentId && !run.on_behalf_of?crypto.randomUUID():null;
-  const update=db.prepare("UPDATE ai_teammate_runs SET status = ?2, last_event_at = COALESCE(?3, last_event_at), cost_cents = COALESCE(?4, cost_cents), result_delivery_id=?7 WHERE id = ?1 AND status = 'running' AND org_id=?5 AND turn_version=?6")
-    .bind(run.id,status,read.last || null,read.costCents,run.org_id,run.turn_version ?? 0,deliveryId);
+  const update=db.prepare("UPDATE ai_teammate_runs SET status = ?2, last_event_at = COALESCE(?3, last_event_at), cost_cents = COALESCE(?4, cost_cents), result_delivery_id=?7, remote_turn=COALESCE(?8,remote_turn) WHERE id = ?1 AND status = 'running' AND org_id=?5 AND turn_version=?6")
+    .bind(run.id,status,read.last || null,read.costCents,run.org_id,run.turn_version ?? 0,deliveryId,read.remoteTurn || null);
   let out;
   if(deliveryId) {
     const snapshot={id:run.id,org_id:run.org_id,provider:run.provider,channel:run.channel,thread_id:run.thread_id,started_by:run.started_by || null,room_hook_source:run.room_hook_source || null,turn_version:run.turn_version ?? 0,assignment_id:run.assignment_id || null,assignment_generation:run.assignment_generation ?? null,assignment_agent_id:run.assignment_agent_id || null};

@@ -20,6 +20,7 @@ console.log('Honmaru node service started. No inbound port.');
 try {
   await serve(gatewayClient(config.apiUrl, token), { signal: stop.signal, beforeClaim,
     document: config.documentImage ? {image:config.documentImage,call:documentClient(config.apiUrl,token)} : null,
+    acpAgents: config.acpAgents || {},
     onError: status => console.error(`Node temporarily unavailable (${status}); reconnecting.`) });
 } catch (error) {
   if ([401, 403].includes(error.status)) console.error('Node authorization ended. Re-register before restarting this service.');

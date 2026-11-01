@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { containerArgs, validatePayload, IMAGE } from '../runner.mjs';
 import { gatewayClient, processOne } from '../client.mjs';
+import { runAcp } from '../acp.mjs';
 const token = `hgw_${'a'.repeat(72)}`;
 test('remote payload cannot choose host mounts, image, environment or command', () => {
   assert.deepEqual(validatePayload({ code: 'return 42', image: 'evil', mounts: ['/Users'], env: { SECRET: 'x' } }), { code: 'return 42', input: null });
@@ -80,13 +81,40 @@ test('assigned workflow jobs use scoped state transport without placing leases i
   const result=await stateOperation('state.get',{}, {signal});assert.equal(result.revision,0);
   return {status:'succeeded',stdout:'',stderr:'',exitCode:0};
  }});
- assert.deepEqual(calls[0].body,{capabilities:['workflow-program-v1']});
+ assert.deepEqual(calls[0].body,{capabilities:['workflow-program-v1'],acpAgents:[]});
  assert.deepEqual(calls[1].body,{lease:'host-only-lease',operation:'state.get',params:{}});
  assert.equal(calls[1].path,'jobs/workflow-job/state');
  assert.equal(calls[2].path,'jobs/workflow-job/finish');
+});
+
+test('client advertises only the ACP keys configured on the local node',async()=>{
+ const calls=[];const local={codex:{command:'/usr/bin/codex-acp',args:['--stdio'],cwd:'/Users/operator/project'}};
+ await processOne(async(path,body)=>{calls.push({path,body});return path==='claim'?{job:{id:'acp-job',lease:'lease',payload:{acp:true,agentKey:'codex',prompt:'Review'}}}:{ok:true};},{acpAgents:local,runAcpAgent:async(payload,{acpAgents})=>{assert.equal(payload.acp,true);assert.equal(acpAgents,local);return {status:'succeeded',stdout:'{}',stderr:'',exitCode:0};}});
+ assert.deepEqual(calls[0].body,{capabilities:['workflow-program-v1','acp-v1'],acpAgents:['codex']});
 });
 test('API request cancellation propagates into the host fetch',async()=>{
  const abort=new AbortController();let signal;
  const call=gatewayClient('https://example.com',token,async(_url,options)=>{signal=options.signal;return Response.json({ok:true});});
  await call('jobs/job/state',{}, {signal:abort.signal});abort.abort();assert.equal(signal.aborted,true);
+});
+
+test('ACP v1 starts a local allowlisted agent, opens a session and collects streamed text',async()=>{
+ const {execPath}=await import('node:process');
+ const script=`const readline=require('node:readline');
+const input=readline.createInterface({input:process.stdin});
+const send=x=>process.stdout.write(JSON.stringify(x)+'\\n');
+input.on('line',line=>{const m=JSON.parse(line);if(m.method==='initialize')send({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});else if(m.method==='session/new')send({jsonrpc:'2.0',id:m.id,result:{sessionId:'session-1'}});else if(m.method==='session/prompt'){send({jsonrpc:'2.0',method:'session/update',params:{sessionId:'session-1',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'ACP answer'}}}});send({jsonrpc:'2.0',id:m.id,result:{stopReason:'end_turn'}})}});`;
+ const result=await runAcp({acp:true,agentKey:'local-test',prompt:'Do the task',command:'/bin/false',args:['attacker'],cwd:'/tmp'}, {timeoutMs:5000,acpAgents:{'local-test':{command:execPath,args:['-e',script],cwd:process.cwd()}}});
+ assert.equal(result.status,'succeeded');
+ assert.deepEqual(JSON.parse(result.stdout),{text:'ACP answer',sessionId:'session-1',stopReason:'end_turn'});
+});
+
+test('ACP configuration is resolved locally and permission requests default to reject',async()=>{
+ const {execPath}=await import('node:process');
+ const script=`const readline=require('node:readline');const input=readline.createInterface({input:process.stdin});const send=x=>process.stdout.write(JSON.stringify(x)+'\\n');let promptId;input.on('line',line=>{const m=JSON.parse(line);if(m.method==='initialize')send({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});else if(m.method==='session/new')send({jsonrpc:'2.0',id:m.id,result:{sessionId:'s'}});else if(m.method==='session/prompt'){promptId=m.id;send({jsonrpc:'2.0',id:88,method:'session/request_permission',params:{sessionId:'s',toolCall:{toolCallId:'c'},options:[{optionId:'allow',name:'Allow',kind:'allow_once'},{optionId:'reject',name:'Reject',kind:'reject_once'}]}})}else if(m.id===88){send({jsonrpc:'2.0',method:'session/update',params:{sessionId:'s',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:m.result.outcome.optionId}}}});send({jsonrpc:'2.0',id:promptId,result:{stopReason:'end_turn'}})}});`;
+ // This fixture intentionally emits the permission request before its turn result.
+ const result=await runAcp({agentKey:'local-test',prompt:'Do the task'}, {timeoutMs:5000,acpAgents:{'local-test':{command:execPath,args:['-e',script],cwd:process.cwd()}}});
+ assert.equal(result.status,'succeeded');
+ assert.equal(JSON.parse(result.stdout).text,'reject');
+ await assert.rejects(runAcp({agentKey:'../attacker',prompt:'Do the task'}, {acpAgents:{}}),/Unknown local ACP agent/);
 });

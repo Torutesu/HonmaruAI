@@ -7,25 +7,28 @@ import { useT } from '../utils/i18n'
 // and stops it at the month's limit. Nothing secret ever comes back from the
 // Worker: only whether it is set.
 
-type Provider = 'claude' | 'devin' | 'cursor' | 'codex'
-const PROVIDERS: Provider[] = ['claude', 'devin', 'cursor', 'codex']
+type Provider = 'claude' | 'devin' | 'cursor' | 'codex' | 'acp'
+const PROVIDERS: Provider[] = ['claude', 'devin', 'cursor', 'codex', 'acp']
 
 interface Tool { name: string; secretName: string; host: string; secretValue?: string }
 interface Teammate {
   provider: Provider; name: string; handle: string; emoji: string; company: string; keyHint: string; keySource: string
   models: string[]; freeModel: boolean; unit: 'usd' | 'acu' | 'task'
-  needs: { apiKey: boolean; githubToken: boolean; tools: boolean; account: boolean; repos: boolean }
+  needs: { apiKey: boolean; githubToken: boolean; tools: boolean; account: boolean; repos: boolean; gateway?: boolean; agent?: boolean }
   enabled: boolean; hasKey: boolean; hasApiKey: boolean; hasGithubToken: boolean; account: string
   repos: string[]; model: string; instructions: string; channels: string[] | null
   monthlyLimit: number | null; spentThisMonth: number; tools: Tool[]; ready: boolean
   /// Claude: an issue link or a bug report posted in a channel starts it.
   autoBuild?: boolean
+  gatewayId: string; agentKey: string
 }
 interface Channel { slug: string; name: string }
+interface Gateway { id: string; name: string; lastSeenAt?: number | null; acpAgents?: string[]; revokedAt?: number | null }
 
 interface Draft {
   apiKey: string; githubToken: string; account: string; model: string; instructions: string; repos: string
   everywhere: boolean; channels: Set<string>; limit: string; tools: Tool[]; autoBuild: boolean
+  gatewayId: string; agentKey: string
 }
 
 const draftOf = (tm: Teammate): Draft => ({
@@ -33,6 +36,7 @@ const draftOf = (tm: Teammate): Draft => ({
   everywhere: tm.channels === null, channels: new Set((tm.channels || []).filter((c) => c.startsWith('b:')).map((c) => c.slice(2))),
   limit: tm.monthlyLimit === null ? '' : String(tm.monthlyLimit), tools: tm.tools.map((x) => ({ ...x, secretValue: '' })),
   autoBuild: tm.autoBuild !== false,
+  gatewayId: tm.gatewayId || '', agentKey: tm.agentKey || '',
 })
 
 export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionToken: string }> = ({ httpBase, orgId, sessionToken }) => {
@@ -42,11 +46,14 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
   const [canEdit, setCanEdit] = useState(false)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
+  const [gateways, setGateways] = useState<Gateway[]>([])
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
   const tm = all[which] || null
+  const liveGateways = gateways.filter(g => !g.revokedAt && g.lastSeenAt && Date.now() - g.lastSeenAt < 90000)
+  const selectedGateway = liveGateways.find(g => g.id === draft?.gatewayId) || null
 
   const load = useCallback(async () => {
     const got = await Promise.all(PROVIDERS.map(async (p) => {
@@ -68,6 +75,14 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
       .catch(() => {})
     return () => { ignore = true }
   }, [httpBase, orgId, sessionToken])
+  useEffect(() => {
+    let ignore = false
+    fetch(`${httpBase}/gateways?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+      .then((r) => (r.ok ? r.json() : { gateways: [] }))
+      .then((data) => { if (!ignore) setGateways(data.gateways || []) })
+      .catch(() => {})
+    return () => { ignore = true }
+  }, [httpBase, orgId, sessionToken])
 
   const amount = (mate: Teammate, n: number) => (mate.unit === 'usd' ? `$${n.toFixed(2)}` : mate.unit === 'acu' ? t('{n} ACUs', { n: String(Math.round(n * 10) / 10) }) : t('{n} tasks', { n: String(Math.round(n)) }))
 
@@ -83,6 +98,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
     if (tm.provider === 'claude') body.autoBuild = draft.autoBuild
     if (tm.models.length || tm.freeModel) body.model = draft.model
     if (tm.needs.account) body.account = draft.account
+    if (tm.needs.gateway) { body.gatewayId = draft.gatewayId; body.agentKey = draft.agentKey }
     if (tm.needs.tools) body.tools = draft.tools.map((x) => ({ name: x.name, secretName: x.secretName, host: x.host, ...(x.secretValue?.trim() ? { secretValue: x.secretValue.trim() } : {}) }))
     if (draft.apiKey.trim()) body.apiKey = draft.apiKey.trim()
     if (tm.needs.githubToken && draft.githubToken.trim()) body.githubToken = draft.githubToken.trim()
@@ -116,7 +132,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
   return (
     <section className="studio-page sso-page teammates-page" data-studio-page="teammates">
       <h1 className="studio-title">{t('AI teammates')}</h1>
-      <p className="studio-lede">{t('Hand work to a coding agent in a channel, as you would to a colleague: write @claude, @devin or @cursor in a thread and it takes the work on in a sandbox of its own — reads your repositories, runs code, opens pull requests — and answers in the thread. Each runs on your own account with its company, which bills you directly; HonmaruAI counts what it uses and stops it at the month’s limit.')}</p>
+      <p className="studio-lede">{t('Hand work to a coding agent in a channel, as you would to a colleague: mention its handle in a thread and it takes the work on and answers there. Cloud agents use their service account. ACP agents run on an execution node you control.')}</p>
 
       <div className="teammate-picker" role="tablist" aria-label={t('AI teammates')}>
         {PROVIDERS.map((p) => {
@@ -140,7 +156,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
       {error && <p className="form-error" role="alert">{error}</p>}
 
       <form className="teammate-form" data-teammate-form={tm.provider} onSubmit={(e) => { e.preventDefault(); void save() }}>
-        {tm.needs.apiKey ? (
+        {tm.needs.apiKey && (
           <>
           <div className="studio-section-head"><div><h2>{t('{company} account', { company: tm.company })}</h2><p>{t('Make an API key in {source}, ideally for an account made for {name} here, so its use is billed and limited on its own.', { source: tm.provider === 'claude' ? t('the Claude Console') : tm.provider === 'devin' ? t('Devin’s settings, as a service user') : t('the Cursor dashboard'), name: tm.name })}</p></div></div>
           <label className="teammate-field">
@@ -148,8 +164,32 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
             <input className="rules-number wide" type="password" autoComplete="off" disabled={off} value={draft.apiKey} placeholder={tm.hasApiKey ? t('Saved. Paste a new one to replace it.') : tm.keyHint} onChange={(e) => set({ apiKey: e.target.value })} data-teammate-key />
           </label>
           </>
-        ) : (
+        )}
+        {tm.provider === 'codex' && (
           <div className="studio-section-head"><div><h2>{t('How Codex is reached')}</h2><p>{t('Codex has no API to hand work to, so HonmaruAI asks it on GitHub: each request opens a draft pull request in the first repository below and writes @codex there, and Codex’s replies come back to the thread. Connect that repository to Codex in ChatGPT and turn on Codex for it first; Codex runs on your ChatGPT plan.')}</p></div></div>
+        )}
+        {tm.needs.gateway && (
+          <>
+            <div className="studio-section-head"><div><h2>{t('Local ACP agent')}</h2><p>{t('This agent runs as your macOS user on the selected execution node. Configure its command and working directory on that Mac first; only its allowlist key is sent from the workspace.')}</p></div></div>
+            <pre className="form-note">node gateway/acp-config.mjs add codex-local /absolute/path/to/acp-agent /absolute/path/to/project --arg=--stdio</pre>
+            <label className="teammate-field">
+              <span>{t('Execution node')}</span>
+              <select className="rules-number wide" disabled={off} value={draft.gatewayId} onChange={(e) => set({ gatewayId: e.target.value, agentKey: '' })} data-teammate-gateway>
+                <option value="">{t('Choose an execution node')}</option>
+                {liveGateways.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+              {!liveGateways.length && <small>{t('Register and connect an execution node in Harness → Execution nodes first.')}</small>}
+            </label>
+            <label className="teammate-field">
+              <span>{t('Local ACP agent key')}</span>
+              <select className="rules-number wide" disabled={off || !selectedGateway?.acpAgents?.length} value={draft.agentKey} onChange={(e) => set({ agentKey: e.target.value })} data-teammate-agent-key>
+                <option value="">{t('Choose a local ACP agent')}</option>
+                {(selectedGateway?.acpAgents || []).map(key => <option key={key} value={key}>{key}</option>)}
+              </select>
+              {selectedGateway && !selectedGateway.acpAgents?.length && <small>{t('No ACP agent is configured on this node yet. Add one on the Mac, then reload.')}</small>}
+            </label>
+            <p className="form-note">{t('ACP agents execute with the Mac user’s permissions and may access local files, credentials, and network resources. Only connect agents and working directories you trust. Permission requests default to rejected.')}</p>
+          </>
         )}
         {tm.needs.account && (
           <label className="teammate-field">
@@ -177,6 +217,8 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
           <input className="rules-number" type="number" min={1} step={1} disabled={off} value={draft.limit} placeholder={t('None')} onChange={(e) => set({ limit: e.target.value })} data-teammate-limit />
           <small>{tm.provider === 'codex'
             ? t('Codex runs on your ChatGPT plan, so its limit here is a number of tasks: each request and follow-up is one.')
+            : tm.provider === 'acp'
+            ? t('Each ACP prompt is one task. Local agent use and any provider usage are controlled by the service running on your Mac.')
             : tm.unit === 'task'
             ? t('Cursor reports tokens, not cost, so its limit is a number of tasks: each request and follow-up is one.')
             : t('When the month’s use reaches it, {name} says so instead of starting work. Each task is also capped at what is left.', { name: tm.name })}</small>
@@ -186,7 +228,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
           <textarea className="rules-number wide" rows={4} disabled={off} value={draft.instructions} placeholder={t('How your team works: conventions, where things are, what to avoid.')} onChange={(e) => set({ instructions: e.target.value })} data-teammate-instructions />
         </label>
 
-        <div className="studio-section-head"><div><h2>{t('Code')}</h2><p>{tm.needs.githubToken
+        {tm.provider !== 'acp' && <><div className="studio-section-head"><div><h2>{t('Code')}</h2><p>{tm.needs.githubToken
           ? (tm.needs.apiKey
             ? t('The repositories Claude may clone and open pull requests on, and a GitHub token that can reach them. It never pushes to the default branch.')
             : t('The repository Codex works in (the first one listed), and a GitHub token that can push to it and open pull requests.'))
@@ -202,6 +244,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
           <textarea className="rules-number wide" rows={3} disabled={off} value={draft.repos} placeholder={'acme/app\nacme/api'} onChange={(e) => set({ repos: e.target.value })} data-teammate-repos />
           <small>{t('One per line, as owner/name. Up to 10.')}</small>
         </label>
+        </>}
 
         {tm.needs.tools && (
           <>
@@ -249,7 +292,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
               <button type="submit" className="studio-btn" disabled={busy} data-teammate-save>{busy ? t('Saving…') : t('Save')}</button>
               {tm.enabled
                 ? <button type="button" className="studio-btn" disabled={busy} data-teammate-off onClick={() => void save(false)}>{t('Turn off')}</button>
-                : <button type="button" className="studio-btn primary" disabled={busy || (!tm.hasKey && !(tm.needs.apiKey ? draft.apiKey : draft.githubToken).trim())} data-teammate-on onClick={() => void save(true)}>{t('Save and turn on')}</button>}
+                : <button type="button" className="studio-btn primary" disabled={busy || (tm.needs.gateway ? (!draft.gatewayId || !selectedGateway?.acpAgents?.includes(draft.agentKey)) : (!tm.hasKey && !(tm.needs.apiKey ? draft.apiKey : draft.githubToken).trim()))} data-teammate-on onClick={() => void save(true)}>{t('Save and turn on')}</button>}
             </div>
           )
           : <p className="form-note">{t('An admin of this workspace can change these.')}</p>}
