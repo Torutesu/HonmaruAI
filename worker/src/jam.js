@@ -207,8 +207,11 @@ async function sayInChannel(relay, orgId, key, members, body, parentId = null) {
 
 /// An event for everyone who can see a stored channel key, each in their
 /// own terms: `make(view)` builds it for the name they give the channel.
-async function tellAudience(relay, orgId, key, members, make, exclude) {
+async function tellAudience(relay, orgId, key, members, make, exclude, permitted = () => true) {
   const logins = await audienceOf(relay, orgId, key);
+  // Audience resolution yields to other events: do not send an event from a
+  // socket which left or was removed while the lookup was in progress.
+  if (!permitted()) return;
   if (!logins) { relay.broadcast(orgId, make(key), exclude); return; }
   for (const login of logins) {
     const view = viewOf(key, login, members);
@@ -309,6 +312,14 @@ export async function jamStatesFor(relay, orgId, login, githubId) {
 /// signed in.
 const joiningSockets = new WeakMap();
 export function cancelJamSocketJoin(ws) { const joining=joiningSockets.get(ws);if(joining)joining.cancelled=true; }
+function currentJamPeer(ws, att) {
+  if (typeof ws.readyState === 'number' && ws.readyState !== 1) return false;
+  try {
+    const now=ws.deserializeAttachment?.();
+    return Boolean(now && now.orgId===att.orgId && now.userId===att.userId &&
+      now.jam && !now.jam.pending && now.jam.key===att.jam?.key && now.jam.peerId===att.jam?.peerId);
+  } catch { return false; }
+}
 export async function handleJamMessage(relay, ws, att, type, payload) {
   if(type==='jam_join') {
     if(joiningSockets.has(ws)) {
@@ -383,8 +394,9 @@ async function handleJamMessageInner(relay, ws, att, type, payload, joining) {
     const emoji = typeof payload.emoji === "string" ? payload.emoji.trim() : "";
     if (!att.jam || !REACTION.test(emoji)) return;
     const members = await listMembers(relay.db, orgId, att.githubId);
+    if (!currentJamPeer(ws, att)) return;
     const name = members.find((m) => m.login === att.userId)?.name || "";
-    await tellAudience(relay, orgId, att.jam.key, members, (view) => customEvent("jam_reaction", { channel: view, peerId: att.jam.peerId, name, emoji, at: new Date().toISOString() }));
+    await tellAudience(relay, orgId, att.jam.key, members, (view) => customEvent("jam_reaction", { channel: view, peerId: att.jam.peerId, name, emoji, at: new Date().toISOString() }), undefined, () => currentJamPeer(ws, att));
     return;
   }
 
@@ -395,12 +407,14 @@ async function handleJamMessageInner(relay, ws, att, type, payload, joining) {
     const text = typeof payload.text === "string" ? payload.text.replace(/\s+/g, " ").trim().slice(0, 500) : "";
     if (!att.jam || !text) return;
     const members = await listMembers(relay.db, orgId, att.githubId);
+    if (!currentJamPeer(ws, att)) return;
     const me = members.find((m) => m.login === att.userId);
     const at = new Date().toISOString();
     const final = payload.final === true;
     if (final) {
       const storeKey = STORE(orgId, att.jam.key);
       const meta = await relay.state.storage.get(storeKey);
+      if (!currentJamPeer(ws, att)) return;
       if (meta) {
         meta.transcript = [...(meta.transcript || []), { at, name: me?.name || "", ref: me?.ref || null, text }].slice(-MAX_TRANSCRIPT_LINES);
         await relay.state.storage.put(storeKey, meta);
@@ -408,7 +422,7 @@ async function handleJamMessageInner(relay, ws, att, type, payload, joining) {
     }
     await tellAudience(relay, orgId, att.jam.key, members, (view) => customEvent("jam_transcript", {
       channel: view, peerId: att.jam.peerId, ref: me?.ref || null, name: me?.name || "", text, final, at,
-    }));
+    }), undefined, () => currentJamPeer(ws, att));
     return;
   }
 
