@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { SidebarSync } from './sidebarSync'
+import { SidebarSync, SidebarEditQueue, reorderExisting, reorderIncludingNew } from './sidebarSync'
 
 type L = { starred: string[] }
 const star = (v: string) => (base: L): L => ({ starred: [...base.starred.filter((x) => x !== v), v] })
@@ -59,5 +59,98 @@ describe('the sidebar, against answers that come back late', () => {
     const sync = new SidebarSync<L>()
     sync.arrived({ starred: [] })
     expect(sync.unavailable({ starred: [] })).toBeNull()
+  })
+})
+
+describe('versioned sidebar changes', () => {
+  it('replays edits made before the first read, and never overwrites a concurrent device', async () => {
+    let data: L = {starred:['b:kitchen']}, version = 1
+    let release!: () => void
+    const paused = new Promise<void>(resolve => { release = resolve })
+    const displayed: L[] = []
+    const q = new SidebarEditQueue<L>({starred:[]}, async () => { await paused; return {sidebar:data,version:String(version)} },
+      async (sidebar, expected) => {
+        if (expected !== String(version)) return {conflict:true,snapshot:{sidebar:data,version:String(version)}}
+        data=sidebar;version++;return {conflict:false,snapshot:{sidebar:data,version:String(version)}}
+      }, next => displayed.push(next), () => { throw new Error('unexpected failure') })
+    void q.retry()
+    q.change(star('b:front'))
+    release()
+    await new Promise(resolve=>setTimeout(resolve,0))
+    expect(data.starred).toEqual(['b:kitchen','b:front'])
+    expect(displayed.at(-1)?.starred).toEqual(['b:kitchen','b:front'])
+    data=star('b:other')(data);version++
+    q.change(star('b:last'))
+    await new Promise(resolve=>setTimeout(resolve,0))
+    expect(data.starred).toEqual(['b:kitchen','b:front','b:other','b:last'])
+  })
+
+  it('serializes same-device saves and keeps edits made while a write is pending', async () => {
+    let data:L={starred:[]},version=0, active=0,maxActive=0,release!:()=>void
+    const paused=new Promise<void>(resolve=>{release=resolve})
+    const q=new SidebarEditQueue<L>({starred:[]},async()=>({sidebar:data,version:String(version)}),
+      async(sidebar,expected)=>{
+        active++;maxActive=Math.max(maxActive,active)
+        if(version===0)await paused
+        if(expected!==String(version)){active--;return {conflict:true,snapshot:{sidebar:data,version:String(version)}}}
+        data=sidebar;version++;active--;return {conflict:false,snapshot:{sidebar:data,version:String(version)}}
+      },()=>{},()=>{throw new Error('unexpected failure')})
+    await q.retry()
+    q.change(star('b:first'))
+    q.change(star('b:second'))
+    release()
+    await new Promise(resolve=>setTimeout(resolve,0))
+    expect(maxActive).toBe(1)
+    expect(data.starred).toEqual(['b:first','b:second'])
+  })
+
+  it('does not overwrite unseen server data when initial reading fails', async () => {
+    let reads=0,writes=0,failures=0
+    const q=new SidebarEditQueue<L>({starred:[]},async()=>{if(!reads++)throw Error('offline');return {sidebar:{starred:['b:kitchen']},version:'one'}},
+      async(sidebar)=>{writes++;expect(sidebar.starred).toEqual(['b:kitchen','b:front']);return {conflict:false,snapshot:{sidebar,version:'two'}}},()=>{},()=>{failures++})
+    await q.retry()
+    expect(failures).toBe(1)
+    expect(writes).toBe(0)
+    q.change(star('b:front'))
+    await new Promise(resolve=>setTimeout(resolve,0))
+    expect(writes).toBe(1)
+  })
+
+  it('keeps newly added entries and does not resurrect removed stars when reordering', () => {
+    expect(reorderExisting(['a','c','remote'],['b','c','a'])).toEqual(['c','a','remote'])
+    expect(reorderIncludingNew(['remote','a'],['b','a'])).toEqual(['b','a','remote'])
+  })
+
+  it('does not automatically replay a write whose response was lost', async () => {
+    let data:L={starred:[]},version=0,writes=0,uncertain=false
+    const q=new SidebarEditQueue<L>({starred:[]},async()=>({sidebar:data,version:String(version)}),
+      async(sidebar)=>{writes++;data=sidebar;version++;throw new Error('response lost')},()=>{},value=>{uncertain=value})
+    await q.retry()
+    q.change(star('b:first'))
+    await new Promise(resolve=>setTimeout(resolve,0))
+    expect(uncertain).toBe(true)
+    data=star('b:other')(data);version++
+    await q.retry()
+    q.change(star('b:later'))
+    expect(writes).toBe(1)
+    expect(data.starred).toEqual(['b:first','b:other'])
+    expect(q.adopt({sidebar:data,version:String(version)})).toBe(true)
+    // The user expressly chose the server state. No rejected edit is sent.
+    expect(writes).toBe(1)
+  })
+
+  it('finishes already requested writes after its component is detached', async () => {
+    let data:L={starred:[]},release!:()=>void,draws=0
+    const paused=new Promise<void>(resolve=>{release=resolve})
+    const q=new SidebarEditQueue<L>({starred:[]},async()=>{await paused;return {sidebar:data,version:null}},
+      async(sidebar)=>{data=sidebar;return {conflict:false,snapshot:{sidebar,version:'saved'}}},()=>{draws++},()=>{})
+    void q.retry()
+    q.change(star('b:front'))
+    q.dispose()
+    const before=draws
+    release()
+    await new Promise(resolve=>setTimeout(resolve,0))
+    expect(data.starred).toEqual(['b:front'])
+    expect(draws).toBe(before)
   })
 })

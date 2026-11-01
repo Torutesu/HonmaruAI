@@ -13,6 +13,23 @@
 
 export type LayoutChange<L> = (base: L) => L
 
+// Reorder only entries still in the current base; retain anything another
+// device added while the drag was in progress.
+export function reorderExisting(current: string[], wanted: string[]): string[] {
+  const present = new Set(current)
+  const ordered = [...new Set(wanted)].filter(id => present.has(id))
+  const known = new Set(ordered)
+  return [...ordered, ...current.filter(id => !known.has(id))]
+}
+
+// Channel ordering can name new entries that previously had no explicit
+// position; retain any entries added by another device after the drag began.
+export function reorderIncludingNew(current: string[], wanted: string[]): string[] {
+  const ordered = [...new Set(wanted)]
+  const known = new Set(ordered)
+  return [...ordered, ...current.filter(id => !known.has(id))]
+}
+
 export class SidebarSync<L> {
   private loaded = false
   private pending: LayoutChange<L>[] = []
@@ -50,4 +67,82 @@ export class SidebarSync<L> {
   /// A save going out. Its answer is drawn only if no later save went out.
   begin(): number { return ++this.saves }
   latest(save: number): boolean { return save === this.saves }
+}
+
+export type SidebarSnapshot<L> = { sidebar: L; version?: string | null }
+export type SidebarWrite<L> = { conflict: boolean; snapshot: SidebarSnapshot<L> }
+
+// Each local action stays as an operation until the server accepts it. A
+// conflict replaces the base, then replays only this device's pending actions.
+export class SidebarEditQueue<L> {
+  private base: SidebarSnapshot<L> | null = null
+  private pending: LayoutChange<L>[] = []
+  private running = false
+  private detached = false
+  private uncertain = false
+  private shown: L
+
+  constructor(initial: L, private readonly read: () => Promise<SidebarSnapshot<L>>,
+    private readonly write: (sidebar: L, version: string | null | undefined) => Promise<SidebarWrite<L>>,
+    private readonly show: (layout: L, ready: boolean) => void,
+    private readonly failed: (uncertain: boolean) => void) { this.shown = initial }
+
+  change(change: LayoutChange<L>): { before: L; next: L } {
+    const before = this.shown
+    if (this.uncertain) { if (!this.detached) this.failed(true); return {before, next:before} }
+    this.pending.push(change)
+    this.shown = change(before)
+    if (!this.detached) this.show(this.shown, this.base !== null)
+    void this.retry()
+    return { before, next: this.shown }
+  }
+
+  async retry(): Promise<void> {
+    if (this.running || this.uncertain) return
+    this.running = true
+    try {
+      if (!this.base) {
+        const fetched = await this.read()
+        this.base = fetched
+        this.shown = this.pending.reduce((layout, change) => change(layout), fetched.sidebar)
+        if (!this.detached) this.show(this.shown, true)
+      }
+      let conflicts = 0
+      while (this.pending.length) {
+        const batch = this.pending.slice()
+        const next = batch.reduce((layout, change) => change(layout), this.base.sidebar)
+        let result: SidebarWrite<L>
+        try { result = await this.write(next, this.base.version) }
+        catch {
+          // A dropped response may follow a committed write. Do not replay an
+          // operation over a newer change without an idempotency receipt.
+          this.uncertain = true
+          if (!this.detached) this.failed(true)
+          return
+        }
+        this.base = result.snapshot
+        if (!result.conflict) { this.pending.splice(0, batch.length); conflicts = 0 }
+        else if (++conflicts >= 8) throw new Error('Sidebar changed repeatedly.')
+        this.shown = this.pending.reduce((layout, change) => change(layout), this.base.sidebar)
+        if (!this.detached) this.show(this.shown, true)
+      }
+    } catch {
+      if (!this.detached) this.failed(false)
+    } finally { this.running = false }
+  }
+
+  // Only an explicit user decision may discard the uncertain operations.
+  adopt(snapshot: SidebarSnapshot<L>): boolean {
+    if (!this.uncertain || this.running || this.detached) return false
+    this.pending = []
+    this.base = snapshot
+    this.shown = snapshot.sidebar
+    this.uncertain = false
+    this.show(this.shown, true)
+    return true
+  }
+
+  // A workspace switch stops drawing into this component, but a user's
+  // already-requested write may finish using its original account context.
+  dispose(): void { this.detached = true }
 }
