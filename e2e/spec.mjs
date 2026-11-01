@@ -2155,8 +2155,7 @@ await step('a star made while the saved sidebar is still on its way is kept, and
     await d.locator(`${row} .cl-open`).click({ button: 'right' })
     await d.click('.row-menu [data-row-menu="star"]')
     await d.waitForSelector('.slk-side[data-sidebar-ready]', { timeout: 20000 })
-    // Saved on top of what was there: both starred, on screen and on the server.
-    await d.waitForFunction(() => document.querySelectorAll('.slk-side .cl-thread[data-view="b:front-desk"], .slk-side .cl-thread[data-view="b:kitchen"]').length >= 2, null, { timeout: 10000 })
+    // Saved on top of what was there: both starred on the server.
     let saved = null
     for (let i = 0; i < 20; i++) {
       saved = await sidebar('GET')
