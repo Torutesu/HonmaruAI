@@ -1,3 +1,4 @@
+import { databaseAuthority, mayUseDatabase } from './databaseAccess.js';
 import { getTable, normalizeColumns, COLUMN_TYPES, MAX_TABLES_PER_ORG, MAX_ROWS } from './tables.js';
 import { validateValues } from './tableContract.js';
 import { normalizeMemberFields } from './memberFields.js';
@@ -365,10 +366,11 @@ async function buildMigrationPreview(db, orgId, app, input) {
   return { current, planned, snapshots, updates, schema, relationTargets, previewChecksum, summaries, blockers, serialized, nonAdditive: hasDataOperation(input.operations) };
 }
 
-export async function previewMigration(db, orgId, app, input) {
+export async function previewMigration(db, orgId, app, input, by) {
   const result = await buildMigrationPreview(db, orgId, app, input);
   if (result.error) return result;
-  return { previewChecksum: result.previewChecksum, canApply: result.blockers.length === 0, changes: result.summaries, blockers: result.blockers.slice(0, 20), blockerCount: result.blockers.length };
+  if (!await mayUseDatabase(db,orgId,app.id,by,result.current.entities.map(entity=>entity.table.id),true)) return err('No such app.',404);
+  return { tableIds: result.current.entities.map(entity=>entity.table.id), previewChecksum: result.previewChecksum, canApply: result.blockers.length === 0, changes: result.summaries, blockers: result.blockers.slice(0, 20), blockerCount: result.blockers.length };
 }
 
 export async function applyMigration(db, orgId, app, input, by) {
@@ -401,9 +403,9 @@ export async function applyMigration(db, orgId, app, input, by) {
         AND ((json_extract(e.value,'$.key')='primary' AND EXISTS (SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND a.table_id=t.id))
           OR EXISTS (SELECT 1 FROM hx_app_entities l WHERE l.org_id=?1 AND l.app_id=?2 AND l.entity_key=json_extract(e.value,'$.key') AND l.table_id=t.id))))`;
   const stmts = [
-    db.prepare('INSERT OR IGNORE INTO hx_app_database_state (org_id,app_id,version) VALUES (?1,?2,0)').bind(orgId, app.id),
+    db.prepare(`INSERT OR IGNORE INTO hx_app_database_state (org_id,app_id,version) SELECT ?1,?2,0 WHERE ${databaseAuthority('?1','?2','?3',"'[]'",true)}`).bind(orgId, app.id,String(by)),
     // Reject a concurrent legacy schema edit too, not just another migration.
-    db.prepare(`UPDATE hx_app_database_state SET version=version+1 WHERE org_id=?1 AND app_id=?2 AND version=?3 ${schemaGuard} ${rowGuard}`).bind(orgId, app.id, current.version, JSON.stringify(preview.schema), JSON.stringify(preview.snapshots), JSON.stringify(preview.relationTargets)),
+    db.prepare(`UPDATE hx_app_database_state SET version=version+1 WHERE org_id=?1 AND app_id=?2 AND version=?3 ${schemaGuard} ${rowGuard} AND ${databaseAuthority('?1','?2','?7',"(SELECT json_group_array(json_extract(value,'$.tableId')) FROM json_each(?4))",true)}`).bind(orgId, app.id, current.version, JSON.stringify(preview.schema), JSON.stringify(preview.snapshots), JSON.stringify(preview.relationTargets),String(by)),
     db.prepare('INSERT INTO hx_app_migrations (org_id,app_id,migration_id,version,checksum,plan,nonce,created_by,created_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9 WHERE changes()=1').bind(orgId, app.id, input.id, version, checksum, serialized, nonce, String(by), at),
   ];
   for (const c of planned.changes) {
@@ -436,23 +438,39 @@ export async function generateMigration(prompt, current, complete) {
 
 // A private writable snapshot, bounded to 750KB, never merged silently into production.
 export async function forkDatabase(db, orgId, app, by) {
+  if (!await mayUseDatabase(db, orgId, app.id, by, [], true)) return err('No such app.',404);
   const tableScope = 'SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 UNION SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2';
-  const [tables,rows,links,total] = await db.batch([
+  const [tables,rows,links,total,primary] = await db.batch([
     db.prepare(`SELECT * FROM hx_tables WHERE org_id=?1 AND id IN (${tableScope})`).bind(orgId,app.id),
     db.prepare(`SELECT * FROM hx_rows WHERE org_id=?1 AND table_id IN (${tableScope}) AND (SELECT COALESCE(SUM(length(CAST(data AS BLOB))),0) FROM hx_rows WHERE org_id=?1 AND table_id IN (${tableScope}))<=700000 ORDER BY position,id`).bind(orgId,app.id),
     db.prepare('SELECT entity_key,table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2').bind(orgId,app.id),
     db.prepare(`SELECT COALESCE(SUM(length(CAST(data AS BLOB))),0) AS bytes FROM hx_rows WHERE org_id=?1 AND table_id IN (${tableScope})`).bind(orgId,app.id),
+    db.prepare('SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2').bind(orgId,app.id),
   ]);
+  if(primary.results?.[0]?.table_id!==app.tableId)return err('Database schema changed. Reload before creating a preview.',409);
   if(total.results[0].bytes>700000)return err('This database is too large for a preview snapshot.',413);
-  const entities=(tables.results||[]).map(t=>({key:t.id===app.tableId?'primary':links.results.find(e=>e.table_id===t.id).entity_key,
-    table:{id:t.id,name:t.name,columns:JSON.parse(t.columns)},rows:(rows.results||[]).filter(r=>r.table_id===t.id).map(r=>({id:r.id,values:JSON.parse(r.data),updatedAt:r.updated_at}))}));
+  const scopes=[{entity_key:'primary',table_id:primary.results[0].table_id},...(links.results||[])];
+  const entities=[];
+  for(const scope of scopes) {
+    const t=(tables.results||[]).find(table=>table.id===scope.table_id);
+    if(!t)return err('Database schema changed. Reload before creating a preview.',409);
+    entities.push({key:scope.entity_key,table:{id:t.id,name:t.name,columns:JSON.parse(t.columns)},rows:(rows.results||[]).filter(r=>r.table_id===t.id).map(r=>({id:r.id,values:JSON.parse(r.data),updatedAt:r.updated_at}))});
+  }
+  const tableIds = [...new Set(entities.map(entity => entity.table.id))];
+  if (!await mayUseDatabase(db, orgId, app.id, by, tableIds, true)) return err('No such app.',404);
   const data = JSON.stringify(entities);
   if (new TextEncoder().encode(data).length > 750000) return err('This database is too large for a preview snapshot.', 413);
   const id = crypto.randomUUID();
-  await db.batch([db.prepare(`INSERT INTO hx_app_forks (org_id,app_id,created_by,id,revision,data,created_at) VALUES (?1,?2,?3,?4,1,?5,?6)
-    ON CONFLICT(org_id,app_id,created_by) DO UPDATE SET id=excluded.id,revision=hx_app_forks.revision+1,data=excluded.data,created_at=excluded.created_at`).bind(orgId, app.id, String(by), id, data, new Date().toISOString()),
-    db.prepare('DELETE FROM hx_app_fork_bases WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(orgId,app.id,String(by)),
-    db.prepare('INSERT INTO hx_app_fork_bases (org_id,app_id,created_by,fork_id,data) VALUES (?1,?2,?3,?4,?5)').bind(orgId,app.id,String(by),id,data)]);
+  const authority=databaseAuthority('?1','?2','?3','?7',true);
+  const saved=await db.batch([db.prepare(`INSERT INTO hx_app_forks (org_id,app_id,created_by,id,revision,data,created_at)
+    SELECT ?1,?2,?3,?4,1,?5,?6 WHERE ${authority}
+    AND (SELECT COUNT(DISTINCT id) FROM (SELECT table_id AS id FROM hx_apps WHERE org_id=?1 AND id=?2 UNION SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2))=json_array_length(?7)
+    AND NOT EXISTS (SELECT 1 FROM json_each(?7) selected WHERE selected.value NOT IN (SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2 UNION SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2))
+    ON CONFLICT(org_id,app_id,created_by) DO UPDATE SET id=excluded.id,revision=hx_app_forks.revision+1,data=excluded.data,created_at=excluded.created_at`).bind(orgId, app.id, String(by), id, data, new Date().toISOString(), JSON.stringify(tableIds)),
+    db.prepare('DELETE FROM hx_app_fork_bases WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND EXISTS (SELECT 1 FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND id=?4)').bind(orgId,app.id,String(by),id),
+    db.prepare('INSERT INTO hx_app_fork_bases (org_id,app_id,created_by,fork_id,data) SELECT ?1,?2,?3,?4,?5 WHERE EXISTS (SELECT 1 FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND id=?4)').bind(orgId,app.id,String(by),id,data)]);
+  if (!saved[0]?.meta?.changes) return err('Database access or schema changed. Reload before creating a preview.',409);
+  if (!await mayUseDatabase(db, orgId, app.id, by, tableIds, true)) return err('No such app.',404);
   return readFork(db, orgId, app.id, by);
 }
 export async function readFork(db, orgId, appId, by) {
@@ -461,6 +479,7 @@ export async function readFork(db, orgId, appId, by) {
 }
 export async function mutateFork(db, orgId, appId, by, input) {
   const { fork } = await readFork(db, orgId, appId, by);
+  if (fork && !await mayUseDatabase(db, orgId, appId, by, fork.entities.map(entity=>entity.table.id), true)) return err('No such app.',404);
   if (!fork || fork.id !== input.forkId || fork.revision !== input.revision) return err('Preview data changed. Reload before editing.', 409);
   if(fork.mergedAt)return err('This preview was merged. Create a new preview before editing.',409);
   const entity = fork.entities.find(e => e.key === input.entity);
@@ -483,6 +502,9 @@ export async function mutateFork(db, orgId, appId, by, input) {
   if (relationError) return err(relationError, 409);
   const data = JSON.stringify(fork.entities);
   if (new TextEncoder().encode(data).length > 750000) return err('Preview database is too large.', 413);
-  const saved = await db.prepare('UPDATE hx_app_forks SET data=?1,revision=revision+1 WHERE org_id=?2 AND app_id=?3 AND created_by=?4 AND id=?5 AND revision=?6 AND NOT EXISTS (SELECT 1 FROM hx_app_fork_merges m WHERE m.fork_id=hx_app_forks.id)').bind(data, orgId, appId, String(by), fork.id, fork.revision).run();
-  return saved.meta?.changes ? { result, revision: fork.revision+1 } : err('Preview data changed. Reload before editing.', 409);
+  const authority=databaseAuthority('?2','?3','?4','?7',true);
+  const saved = await db.prepare(`UPDATE hx_app_forks SET data=?1,revision=revision+1 WHERE org_id=?2 AND app_id=?3 AND created_by=?4 AND id=?5 AND revision=?6 AND NOT EXISTS (SELECT 1 FROM hx_app_fork_merges m WHERE m.fork_id=hx_app_forks.id) AND ${authority}`).bind(data, orgId, appId, String(by), fork.id, fork.revision,JSON.stringify(fork.entities.map(entity=>entity.table.id))).run();
+  if (!saved.meta?.changes) return err('Preview data or access changed. Reload before editing.', 409);
+  if (!await mayUseDatabase(db,orgId,appId,by,fork.entities.map(entity=>entity.table.id),true)) return err('No such app.',404);
+  return { result, revision: fork.revision+1, tableIds: fork.entities.map(entity=>entity.table.id) };
 }

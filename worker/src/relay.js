@@ -33,7 +33,7 @@ import { settleAgentAccessRequest } from "./harness/agentAccessRequests.js";
 import { agentRoleState } from "./harness/agentRoles.js";
 import { settleProposal } from "./proposals.js";
 import { settleProxyAction } from "./proxy.js";
-import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor } from "./jam.js";
+import { JAM_TYPES, JAM_SIGNAL_BUDGET, handleJamMessage, leaveJam, jamStatesFor, invalidateJamJoins, invalidateJamUserJoins, cancelJamSocketJoin, jamJoinWasNotified } from "./jam.js";
 import { TYPING_TYPES, TYPING_BUDGET, handleTyping } from "./typing.js";
 import { useSecretKey } from "./secrets.js";
 import { useMirrorEnv } from "./store/mirror.js";
@@ -156,31 +156,41 @@ export class OrgRelay {
         for (const ws of this.state.getWebSockets()) {
           const att = ws.deserializeAttachment();
           if (att?.orgId !== orgId || !att.session || !ended.has(att.session)) continue;
+          cancelJamSocketJoin(ws);
           this.refuse(ws, att.agui, ...OrgRelay.signedOut(here));
           evicted += 1;
         }
       }
       if (allInChannel === true && typeof channel === 'string' && channel.startsWith('b:')) {
+        invalidateJamJoins(this,orgId,channel);
         // The room has been deleted. Public rooms may have Jam participants
         // without conversation_members entries, so inspect every socket.
+        const leaves=[];
         for (const ws of this.state.getWebSockets()) {
           const att=ws.deserializeAttachment();
           if(att?.orgId!==orgId || att.jam?.key!==channel)continue;
-          try { await leaveJam(this,ws,att); } catch(err) { console.error('room jam leave failed',err?.message||err); }
-          OrgRelay.deliver(ws,JSON.stringify(customEvent('jam_error',{channel:null,message:'You are no longer in this channel.'})));
+          if(!jamJoinWasNotified(ws))OrgRelay.deliver(ws,JSON.stringify(customEvent('jam_error',{channel:null,message:'You are no longer in this channel.'})));
+          if(att.jam.pending)ws.serializeAttachment({...att,jam:null});
+          else leaves.push(leaveJam(this,ws,att).catch(err=>console.error('room jam leave failed',err?.message||err)));
           evicted+=1;
         }
+        await Promise.all(leaves);
       } else if (login && typeof channel === "string") {
+        invalidateJamUserJoins(this,orgId,login,channel);
         // Out of one private channel only: out of its Jam, so the others
         // hang up on them, and told so; the rest of the room is still theirs.
+        const leaves=[];
         for (const ws of this.state.getWebSockets()) {
           const att = ws.deserializeAttachment();
           if (att?.orgId !== orgId || att?.userId !== login || att.jam?.key !== channel) continue;
-          await leaveJam(this, ws, att);
-          OrgRelay.deliver(ws, JSON.stringify(customEvent("jam_error", { channel: null, message: "You are no longer in this channel." })));
+          if(!jamJoinWasNotified(ws))OrgRelay.deliver(ws, JSON.stringify(customEvent("jam_error", { channel: null, message: "You are no longer in this channel." })));
+          if(att.jam.pending)ws.serializeAttachment({...att,jam:null});
+          else leaves.push(leaveJam(this, ws, att));
           evicted += 1;
         }
+        await Promise.all(leaves);
       } else if (login) {
+        invalidateJamUserJoins(this,orgId,login);
         for (const ws of this.state.getWebSockets()) {
           const att = ws.deserializeAttachment();
           if (att?.orgId !== orgId || att?.userId !== login) continue;
@@ -397,7 +407,7 @@ export class OrgRelay {
   }
 
   async webSocketMessage(ws, raw) {
-    const att = ws.deserializeAttachment() || {};
+    let att = ws.deserializeAttachment() || {};
     const orgId = att.orgId;
     if (!orgId) { ws.close(1008, "no workspace"); return; }
     // Past what the workspace's login rules allow: nothing more on this socket.
@@ -426,8 +436,17 @@ export class OrgRelay {
     // every little while rather than on every message.
     if (type !== "join" && att.session && Date.now() - (att.checkedAt || 0) >= RECHECK_EVERY_MS) {
       const still = await this.stillSignedIn(orgId, att);
+      // The socket may have been evicted, re-authenticated or moved out of a
+      // Jam while the session check was in flight. Never write the stale
+      // attachment back over newer state, and never act on an old identity.
+      const current = ws.deserializeAttachment() || {};
+      if ((typeof ws.readyState === 'number' && ws.readyState !== 1) ||
+          !current.authed || current.orgId !== orgId || current.session !== att.session ||
+          current.userId !== att.userId || current.githubId !== att.githubId) return;
       if (!still.ok) return this.refuse(ws, att.agui, ...OrgRelay.signedOut(still.here));
-      att.checkedAt = Date.now();
+      if (current.deadline && Date.now() >= current.deadline)
+        return this.refuse(ws, current.agui, "This workspace asks you to sign in again.", "session-policy");
+      att = { ...current, checkedAt: Math.max(current.checkedAt || 0, Date.now()) };
       ws.serializeAttachment(att);
     }
     const kind = JAM_TYPES.has(type) ? "jam" : TYPING_TYPES.has(type) ? "typing" : "chat";
@@ -494,9 +513,19 @@ export class OrgRelay {
 
       const userId = access.login;
       const guest = await isGuest(this.db, orgId, session.github_id);
+      // A room eviction, socket refusal, or newer join may have occurred
+      // during the checks above. Preserve the latest attachment rather than
+      // restoring a stale Jam, and let the newest authentication attempt win.
+      const current = ws.deserializeAttachment() || {};
+      if ((typeof ws.readyState === 'number' && ws.readyState !== 1) ||
+          current.orgId !== orgId || current.joins !== joins || (att.authed && !current.authed)) return;
+      // A different user must open a fresh socket: carrying an old user's
+      // Jam through reauthentication would transfer access to their call.
+      if (current.authed && current.githubId !== String(session.github_id))
+        return this.refuse(ws, current.agui, "Reconnect to switch accounts.", "sign-in-required");
       // The session's row (its hash, never the token) names this device, so
       // signing that one session out closes this socket and no other.
-      ws.serializeAttachment({ ...att, joins, userId, githubId: String(session.github_id), agui, authed: true, guest, deadline: deadline || null, session: session.token, checkedAt });
+      ws.serializeAttachment({ ...current, joins, userId, githubId: String(session.github_id), agui, authed: true, guest, deadline: deadline || null, session: session.token, checkedAt });
       const store = await loadStore(this.db, orgId);
       // A guest's feed is the decisions they are on, nobody else's; nobody's
       // feed carries another person's personal cards, or a private channel's
@@ -1205,9 +1234,26 @@ export class OrgRelay {
       if (!att.authed || !att.session) continue;
       if ((att.checkedAt || 0) + RECHECK_EVERY_MS <= now) {
         const still = await this.stillSignedIn(att.orgId, att);
-        if (!still.ok) { this.refuse(ws, att.agui, ...OrgRelay.signedOut(still.here)); continue; }
-        ws.serializeAttachment({ ...att, checkedAt: now });
-        soonest(now + RECHECK_EVERY_MS);
+        // Another event may evict this socket's Jam or reauthenticate it
+        // while the session lookup is pending. Preserve its latest state and
+        // do not apply the old session's result to a new identity.
+        const current = ws.deserializeAttachment() || {};
+        if ((typeof ws.readyState === 'number' && ws.readyState !== 1) || !current.authed) continue;
+        if (current.orgId !== att.orgId || current.session !== att.session ||
+            current.userId !== att.userId || current.githubId !== att.githubId) {
+          if (current.deadline) soonest(current.deadline);
+          if (current.session) soonest(Math.max(Date.now() + 1, (current.checkedAt || 0) + RECHECK_EVERY_MS));
+          continue;
+        }
+        if (!still.ok) { this.refuse(ws, current.agui, ...OrgRelay.signedOut(still.here)); continue; }
+        const checkedAt = Date.now();
+        if (current.deadline && current.deadline <= checkedAt) {
+          this.refuse(ws, current.agui, "This workspace asks you to sign in again.", "session-policy");
+          continue;
+        }
+        ws.serializeAttachment({ ...current, checkedAt: Math.max(current.checkedAt || 0, checkedAt) });
+        if (current.deadline) soonest(current.deadline);
+        soonest(checkedAt + RECHECK_EVERY_MS);
       } else soonest(att.checkedAt + RECHECK_EVERY_MS);
     }
     if (next) await this.state.storage.setAlarm(next).catch(() => {});
@@ -1231,7 +1277,7 @@ export class OrgRelay {
     const att = ws.deserializeAttachment() || {};
     this.announceLeft(ws, att);
     // A closed tab has left its Jam.
-    if (att.jam) {
+    if (att.jam && !att.jam.pending) {
       try { await leaveJam(this, ws, att, { closing: true }); } catch (err) { console.error("jam leave failed", err?.message || err); }
     }
   }

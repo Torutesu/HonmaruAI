@@ -39,6 +39,92 @@ export const JAM_SIGNAL_BUDGET = 1500;
 
 const STORE = (orgId, key) => `jam:${orgId}:${key}`;
 
+// Keep concurrent joins to the same channel ordered while one of them is
+// rechecking access. Other Jam messages and unrelated channels remain free.
+const pendingJoins = new WeakMap();
+// Includes authorization reads before a channel lock has been acquired.
+const resolvingJoins = new WeakMap();
+const joinInvalidations = new WeakMap();
+const joinKey = (orgId, channel) => JSON.stringify([orgId, channel]);
+const joinEpoch = (relay, key) => joinInvalidations.get(relay)?.get(key) || 0;
+
+function cancelJoining(joining, notify = false) {
+  if (joining.cancelled) return;
+  joining.cancelled = true;
+  // A join can be cancelled before it has a Jam attachment, so the regular
+  // eviction path cannot notify it. Tell the client immediately so it can
+  // leave its connecting state and release the microphone.
+  if (notify) {
+    joining.notified = true;
+    reply(joining.ws, customEvent('jam_error', {
+      channel: joining.channel ?? null, message: 'You are no longer in this channel.',
+    }));
+  }
+}
+
+// Record evictions even when the joining socket has not attached yet. An
+// authorization read already in flight may otherwise complete with stale data.
+export function invalidateJamJoins(relay, orgId, channel) {
+  const key=joinKey(orgId,channel);
+  for(const joining of resolvingJoins.get(relay)?.get(key)||[])cancelJoining(joining,true);
+  if(!pendingJoins.get(relay)?.has(key))return;
+  let epochs=joinInvalidations.get(relay);
+  if(!epochs){epochs=new Map();joinInvalidations.set(relay,epochs);}
+  epochs.set(key,joinEpoch(relay,key)+1);
+}
+// User-scoped evictions also cover channel aliases (DM/agent display names
+// differ from stored keys) and joins still resolving their canonical channel.
+export function invalidateJamUserJoins(relay, orgId, login, channel = null) {
+  for(const entries of resolvingJoins.get(relay)?.values()||[])
+    for(const joining of entries) {
+      if(joining.orgId!==orgId || joining.userId!==login)continue;
+      // A named room/group has the same client and stored key. DM and agent
+      // names differ until lookup resolves, so conservatively cancel a join
+      // of the same kind when its canonical key is still unknown.
+      const raw=joining.channel;
+      if(channel && joining.resolvedKey && joining.resolvedKey!==channel)continue;
+      if(channel && !joining.resolvedKey && typeof raw==='string') {
+        const kind=raw.split(':',1)[0], target=channel.split(':',1)[0];
+        if(kind!==target || ((kind==='b'||kind==='g') && raw!==channel))continue;
+      }
+      cancelJoining(joining,true);
+    }
+}
+async function lockJoin(relay, key) {
+  let locks=pendingJoins.get(relay);
+  if(!locks){locks=new Map();pendingJoins.set(relay,locks);}
+  const before=locks.get(key)||Promise.resolve();
+  let unlock;
+  const current=new Promise(resolve=>{unlock=resolve;});
+  locks.set(key,current);
+  await before;
+  return ()=>{if(locks.get(key)===current){locks.delete(key);joinInvalidations.get(relay)?.delete(key);}unlock();};
+}
+
+// A restarted Durable Object can inherit an uncommitted socket attachment.
+// Only the matching provisional marker may be removed; preserve live peers and
+// any newer Jam generation. The caller holds this channel's join lock.
+async function discardPendingJoin(relay,orgId,jam) {
+  const key=STORE(orgId,jam.key);
+  await relay.state.storage.transaction(async tx=>{
+    const saved=await tx.get(key), marker=saved?.pendingJoin;
+    const id=typeof marker==='string'?marker:marker?.peerId;
+    if(!saved||id!==jam.peerId)return;
+    const peers=jamPeers(relay.state.getWebSockets(),orgId,jam.key);
+    if((typeof marker==='string'||marker.starting)&&!peers.length){await tx.delete(key);return;}
+    if(marker.added && !peers.some(peer=>peer.att.userId===marker.login))saved.people=(saved.people||[]).filter(login=>login!==marker.login);
+    delete saved.pendingJoin;
+    await tx.put(key,saved);
+  });
+}
+
+function sameResolvedRoom(before,after) {
+  if(!after || before.key!==after.key || Boolean(before.private)!==Boolean(after.private))return false;
+  const a=before.deliveryBoundary,b=after.deliveryBoundary;
+  if(!a && !b)return true;
+  return Boolean(a && b && a.businessCreatedAt===b.businessCreatedAt && a.allowVirtual===b.allowVirtual);
+}
+
 /// The servers a browser needs to find a way through to the others: STUN
 /// always, and TURN — relayed audio, for networks that allow nothing else —
 /// when the deployment has it, from Cloudflare's service or a fixed one.
@@ -75,8 +161,9 @@ export function jamPeers(sockets, orgId, key, exclude) {
   const out = [];
   for (const ws of sockets) {
     if (ws === exclude) continue;
+    if(typeof ws.readyState==='number' && ws.readyState!==1)continue;
     const att = ws.deserializeAttachment?.();
-    if (att?.orgId === orgId && att.jam?.key === key) out.push({ ws, att });
+    if (att?.orgId === orgId && att.jam?.key === key && !att.jam.pending) out.push({ ws, att });
   }
   return out.sort((a, b) => String(a.att.jam.since).localeCompare(String(b.att.jam.since)));
 }
@@ -110,10 +197,11 @@ export function jamState(peers, members, meta) {
 /// DM's two, a group's people, a private channel's members.
 const audienceOf = (relay, orgId, key) => closedAudience(relay.db, orgId, key);
 
-async function announceState(relay, orgId, key, members, exclude) {
+async function announceState(relay, orgId, key, members, exclude, permitted = () => true) {
   const meta = await relay.state.storage.get(STORE(orgId, key));
   const state = jamState(jamPeers(relay.state.getWebSockets(), orgId, key, exclude), members, meta);
   const logins = await audienceOf(relay, orgId, key);
+  if (!permitted()) return state;
   if (!logins) {
     relay.broadcast(orgId, customEvent("jam_state", { channel: key, ...state }), exclude);
     return state;
@@ -126,12 +214,15 @@ async function announceState(relay, orgId, key, members, exclude) {
 }
 
 /// Say something in the channel as the AI, and tell whoever can see it.
-async function sayInChannel(relay, orgId, key, members, body, parentId = null) {
+async function sayInChannel(relay, orgId, key, members, body, parentId = null, permitted = () => true) {
+  if (!permitted()) return null;
   const out = await postMessage(relay.db, { orgId, key, authorLogin: null, body, kind: "ai", parentId });
-  if (!out.row) return null;
+  if (!out.row || !permitted()) return null;
   const logins = await audienceOf(relay, orgId, key);
+  if (!permitted()) return null;
   if (!logins) {
     const [message] = await present(relay.db, orgId, [out.row], null, key, members);
+    if (!permitted()) return null;
     relay.broadcast(orgId, customEvent("channel_message", { message }));
     return out.row;
   }
@@ -139,6 +230,7 @@ async function sayInChannel(relay, orgId, key, members, body, parentId = null) {
     const view = viewOf(key, login, members);
     if (!view) continue;
     const [message] = await present(relay.db, orgId, [out.row], login, view, members);
+    if (!permitted()) return null;
     relay.sendTo(orgId, login, customEvent("channel_message", { message }));
   }
   return out.row;
@@ -146,8 +238,11 @@ async function sayInChannel(relay, orgId, key, members, body, parentId = null) {
 
 /// An event for everyone who can see a stored channel key, each in their
 /// own terms: `make(view)` builds it for the name they give the channel.
-async function tellAudience(relay, orgId, key, members, make, exclude) {
+async function tellAudience(relay, orgId, key, members, make, exclude, permitted = () => true) {
   const logins = await audienceOf(relay, orgId, key);
+  // Audience resolution yields to other events: do not send an event from a
+  // socket which left or was removed while the lookup was in progress.
+  if (!permitted()) return;
   if (!logins) { relay.broadcast(orgId, make(key), exclude); return; }
   for (const login of logins) {
     const view = viewOf(key, login, members);
@@ -181,19 +276,33 @@ function reply(ws, event) {
 }
 
 /// Out of the Jam this socket is in, if any; the Jam ends with its last.
+const leavingPeers = new WeakMap();
 export async function leaveJam(relay, ws, att, { closing = false } = {}) {
   const jam = att?.jam;
   if (!jam) return;
   const orgId = att.orgId;
+  let current=null;
+  try { current=ws.deserializeAttachment?.(); } catch { /* the socket may already be closed */ }
+  if(current && current.jam?.peerId!==jam.peerId)return;
+  let leaving=leavingPeers.get(ws);
+  if(!leaving){leaving=new Set();leavingPeers.set(ws,leaving);}
+  if(leaving.has(jam.peerId))return;
+  leaving.add(jam.peerId);
+  // Detach immediately, even if another join is awaiting TURN credentials.
+  // A revoked peer must not continue to receive signals while queued.
   if (!closing) {
-    try { ws.serializeAttachment({ ...att, jam: null }); } catch { /* closing anyway */ }
+    try { ws.serializeAttachment({ ...(current||att), jam: null }); } catch { /* closing anyway */ }
   }
+  // A join must finish its authorization and attachment before a last leave
+  // can decide whether to end the Jam or delete its metadata.
+  const unlock=await lockJoin(relay,joinKey(orgId,jam.key));
+  try {
   const members = await listMembers(relay.db, orgId, att.githubId);
   const state = await announceState(relay, orgId, jam.key, members, ws);
   if (state.active) return;
   const meta = await relay.state.storage.get(STORE(orgId, jam.key));
   await relay.state.storage.delete(STORE(orgId, jam.key));
-  if (!meta) return;
+  if (!meta || meta.startedAnnounced===false) return;
   const locale = await localeOf(relay.db, att.githubId);
   const minutes = minutesBetween(meta.startedAt, new Date().toISOString());
   // What was said, kept under the Jam's own message where it can be read
@@ -206,6 +315,7 @@ export async function leaveJam(relay, ws, att, { closing = false } = {}) {
     startedAt: meta.startedAt, endedAt: new Date().toISOString(), minutes,
     participants: (meta.people || []).map((l) => ({ name: members.find((m) => m.login === l)?.name || null })),
   }));
+  } finally { unlock();leaving.delete(jam.peerId); }
 }
 
 /// The Jams a socket that just joined can see, so its channel headers show
@@ -231,8 +341,50 @@ export async function jamStatesFor(relay, orgId, login, githubId) {
 
 /// One Jam message from a browser. `att` is the socket's attachment, already
 /// signed in.
+const joiningSockets = new WeakMap();
+export function cancelJamSocketJoin(ws) { const joining=joiningSockets.get(ws);if(joining)cancelJoining(joining,true); }
+export function jamJoinWasNotified(ws) { return Boolean(joiningSockets.get(ws)?.notified); }
+function currentJamPeer(ws, att) {
+  if (typeof ws.readyState === 'number' && ws.readyState !== 1) return false;
+  try {
+    const now=ws.deserializeAttachment?.();
+    return Boolean(now && now.orgId===att.orgId && now.userId===att.userId &&
+      now.jam && !now.jam.pending && now.jam.key===att.jam?.key && now.jam.peerId===att.jam?.peerId);
+  } catch { return false; }
+}
 export async function handleJamMessage(relay, ws, att, type, payload) {
+  if(type==='jam_join') {
+    if(joiningSockets.has(ws)) {
+      reply(ws,customEvent('jam_error',{channel:payload.channel??null,message:'A Jam join is already in progress.'}));
+      return;
+    }
+    const joining={cancelled:false,orgId:att.orgId,userId:att.userId,ws,channel:payload.channel};
+    joiningSockets.set(ws,joining);
+    // Register before the first membership/channel lookup. Eviction must also
+    // cancel a lookup which later returns after the person was re-invited.
+    const key=typeof payload.channel==='string'?joinKey(att.orgId,payload.channel):null;
+    let registry=resolvingJoins.get(relay),entries;
+    if(key){if(!registry){registry=new Map();resolvingJoins.set(relay,registry);}entries=registry.get(key);if(!entries){entries=new Set();registry.set(key,entries);}entries.add(joining);}
+    try { return await handleJamMessageInner(relay,ws,att,type,payload,joining); }
+    finally {
+      if(joiningSockets.get(ws)===joining)joiningSockets.delete(ws);
+      if(entries){entries.delete(joining);if(!entries.size)registry.delete(key);}
+    }
+  }
+  if(type==='jam_leave') {
+    const joining=joiningSockets.get(ws);
+    if(joining)cancelJoining(joining);
+  }
+  return handleJamMessageInner(relay,ws,att,type,payload,null);
+}
+async function handleJamMessageInner(relay, ws, att, type, payload, joining) {
   const orgId = att.orgId;
+  // A joining socket is not a peer until its current access is rechecked.
+  if(att.jam?.pending && type!=='jam_join') {
+    // A user may cancel while access or TURN credentials are still loading.
+    if(type==='jam_leave')try { ws.serializeAttachment({...att,jam:null}); } catch { /* socket already closed */ }
+    return;
+  }
 
   if (type === "jam_signal") {
     const to = typeof payload.to === "string" ? payload.to : "";
@@ -274,8 +426,9 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
     const emoji = typeof payload.emoji === "string" ? payload.emoji.trim() : "";
     if (!att.jam || !REACTION.test(emoji)) return;
     const members = await listMembers(relay.db, orgId, att.githubId);
+    if (!currentJamPeer(ws, att)) return;
     const name = members.find((m) => m.login === att.userId)?.name || "";
-    await tellAudience(relay, orgId, att.jam.key, members, (view) => customEvent("jam_reaction", { channel: view, peerId: att.jam.peerId, name, emoji, at: new Date().toISOString() }));
+    await tellAudience(relay, orgId, att.jam.key, members, (view) => customEvent("jam_reaction", { channel: view, peerId: att.jam.peerId, name, emoji, at: new Date().toISOString() }), undefined, () => currentJamPeer(ws, att));
     return;
   }
 
@@ -286,12 +439,14 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
     const text = typeof payload.text === "string" ? payload.text.replace(/\s+/g, " ").trim().slice(0, 500) : "";
     if (!att.jam || !text) return;
     const members = await listMembers(relay.db, orgId, att.githubId);
+    if (!currentJamPeer(ws, att)) return;
     const me = members.find((m) => m.login === att.userId);
     const at = new Date().toISOString();
     const final = payload.final === true;
     if (final) {
       const storeKey = STORE(orgId, att.jam.key);
       const meta = await relay.state.storage.get(storeKey);
+      if (!currentJamPeer(ws, att)) return;
       if (meta) {
         meta.transcript = [...(meta.transcript || []), { at, name: me?.name || "", ref: me?.ref || null, text }].slice(-MAX_TRANSCRIPT_LINES);
         await relay.state.storage.put(storeKey, meta);
@@ -299,7 +454,7 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
     }
     await tellAudience(relay, orgId, att.jam.key, members, (view) => customEvent("jam_transcript", {
       channel: view, peerId: att.jam.peerId, ref: me?.ref || null, name: me?.name || "", text, final, at,
-    }));
+    }), undefined, () => currentJamPeer(ws, att));
     return;
   }
 
@@ -308,47 +463,123 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
     const resolved = await resolveChannel(relay.db, orgId, { login: att.userId, github_id: att.githubId }, payload.channel, members);
     const refuse = (message) => reply(ws, customEvent("jam_error", { channel: payload.channel ?? null, message }));
     if (!resolved) return refuse("No such channel.");
-    if (att.jam?.key === resolved.key) return; // already here
-    if (att.jam) {
-      await leaveJam(relay, ws, att);
-      att = ws.deserializeAttachment() || att;
+    joining.resolvedKey=resolved.key;
+    // Leave the previous channel before locking the next one. Holding the next
+    // lock while waiting for the previous one would deadlock cross-room swaps.
+    att=ws.deserializeAttachment()||att;
+    if(joining.cancelled || (typeof ws.readyState==='number' && ws.readyState!==1))return;
+    if(att.jam?.pending) {
+      const abandoned=att.jam;
+      const unlockAbandoned=await lockJoin(relay,joinKey(orgId,abandoned.key));
+      try {
+        const current=ws.deserializeAttachment()||att;
+        if(current.jam?.peerId===abandoned.peerId && current.jam.pending){
+          ws.serializeAttachment({...current,jam:null});
+          await discardPendingJoin(relay,orgId,abandoned);
+        }
+      } finally { unlockAbandoned(); }
+      att=ws.deserializeAttachment()||att;
     }
+    if(joining.cancelled || (typeof ws.readyState==='number' && ws.readyState!==1))return;
+    if(att.jam?.key===resolved.key)return;
+    if(att.jam) {
+      await leaveJam(relay,ws,att);
+      att=ws.deserializeAttachment()||att;
+    }
+    if(joining.cancelled)return;
+    const key=joinKey(orgId,resolved.key);
+    const locked=lockJoin(relay,key);
+    const epoch=joinEpoch(relay,key);
+    const unlock=await locked;
+    try {
+    // A prior join on this same socket can have finished while we waited.
+    att=ws.deserializeAttachment()||att;
+    if(joining.cancelled || (typeof ws.readyState==='number' && ws.readyState!==1))return;
+    if (att.jam) return; // another event changed this socket while waiting
+    if(joining.cancelled)return;
     const peers = jamPeers(relay.state.getWebSockets(), orgId, resolved.key, ws);
     if (peers.length >= MAX_JAM_PEERS) return refuse(`A Jam holds ${MAX_JAM_PEERS} people.`);
     const now = new Date().toISOString();
     const storeKey = STORE(orgId, resolved.key);
     let meta = peers.length ? await relay.state.storage.get(storeKey) : null;
+    // The previous object may have stopped while another socket was pending.
+    // Resolve its marker before recording a new join, preserving any peer that
+    // had already committed and any current Jam/transcript.
+    if(meta?.pendingJoin){
+      const staleId=typeof meta.pendingJoin==='string'?meta.pendingJoin:meta.pendingJoin.peerId;
+      if(staleId){await discardPendingJoin(relay,orgId,{key:resolved.key,peerId:staleId});meta=await relay.state.storage.get(storeKey);}
+    }
     const starting = !meta;
     if (!meta) {
-      meta = { startedAt: now, startedBy: att.userId, mode: JAM_MODES.includes(payload.mode) ? payload.mode : "notes", people: [] };
+      meta = { startedAt: now, startedBy: att.userId, mode: JAM_MODES.includes(payload.mode) ? payload.mode : "notes", people: [], startedAnnounced:false };
     }
-    if (!meta.people.includes(att.userId)) meta.people.push(att.userId);
-    await relay.state.storage.put(storeKey, meta);
+    const hadPerson=meta.people.includes(att.userId);
+    if (!hadPerson) meta.people.push(att.userId);
     const peerId = crypto.randomUUID();
-    ws.serializeAttachment({ ...att, jam: { key: resolved.key, peerId, muted: Boolean(payload.muted), since: now, mode: meta.mode } });
+    meta.pendingJoin={peerId,login:att.userId,added:!hadPerson,starting};
+    let committed=false, servers;
+    try {
+      await relay.state.storage.put(storeKey, meta);
+      if(joining.cancelled){await discardPendingJoin(relay,orgId,{key:resolved.key,peerId});return;}
+      try { ws.serializeAttachment({ ...att, jam: { key: resolved.key, peerId, muted: Boolean(payload.muted), since: now, mode: meta.mode, pending:true } }); }
+      catch { await discardPendingJoin(relay,orgId,{key:resolved.key,peerId}); return; }
+      servers=await iceServers(relay.env);
+      let verified=null;
+      try {
+        const currentMembers=await listMembers(relay.db,orgId,att.githubId);
+        if(currentMembers.some(member=>String(member.userId)===String(att.githubId)))
+          verified=await resolveChannel(relay.db,orgId,{login:att.userId,github_id:att.githubId},payload.channel,currentMembers);
+      } catch { /* A failed authorization read must not authorize a join. */ }
+      const current=ws.deserializeAttachment();
+      const connected=typeof ws.readyState!=='number'||ws.readyState===1;
+      if(joining.cancelled || !connected || !current?.jam || current.jam.peerId!==peerId || joinEpoch(relay,key)!==epoch || !sameResolvedRoom(resolved,verified)) {
+        if(current?.jam?.peerId===peerId)try { ws.serializeAttachment({...current,jam:null}); } catch { /* closed */ }
+        await discardPendingJoin(relay,orgId,{key:resolved.key,peerId});
+        if(connected && current?.jam?.peerId===peerId && !joining.notified)refuse('Your access to this channel changed.');
+        return;
+      }
+      ws.serializeAttachment({...current,jam:{...current.jam,pending:false}});
+      committed=true;
+      // A matching marker left by a crash is harmless once the peer is live.
+      await relay.state.storage.transaction(async tx=>{const saved=await tx.get(storeKey);if(saved?.pendingJoin?.peerId===peerId){delete saved.pendingJoin;await tx.put(storeKey,saved);}}).catch(()=>{});
+    } catch(error) {
+      if(!committed){
+        try { const current=ws.deserializeAttachment();if(current?.jam?.peerId===peerId)ws.serializeAttachment({...current,jam:null}); } catch { /* closed */ }
+        await discardPendingJoin(relay,orgId,{key:resolved.key,peerId}).catch(()=>{});
+      }
+      throw error;
+    }
+    const accepted={...att,jam:{key:resolved.key,peerId}};
+    const stillJoined=()=>!joining.cancelled && currentJamPeer(ws,accepted);
+    if(!stillJoined())return;
+    const currentPeers=jamPeers(relay.state.getWebSockets(),orgId,resolved.key,ws);
     reply(ws, customEvent("jam_joined", {
       channel: payload.channel,
       peerId,
-      peers: peers.map((p) => p.att.jam.peerId),
-      iceServers: await iceServers(relay.env),
+      peers: currentPeers.map((p) => p.att.jam.peerId),
+      iceServers: servers,
       mode: meta.mode,
       startedAt: meta.startedAt,
       messageId: meta.messageId || null,
       // Joined late: what has been said so far.
       transcript: (meta.transcript || []).slice(-200),
     }));
-    await announceState(relay, orgId, resolved.key, members);
+    await announceState(relay, orgId, resolved.key, members, undefined, stillJoined);
+    if(!stillJoined())return;
     if (starting) {
       const name = members.find((m) => m.login === att.userId)?.name || att.userId;
       const locale = await localeOf(relay.db, att.githubId);
-      const row = await sayInChannel(relay, orgId, resolved.key, members, serverText(locale, "jam.started", { name }));
+      if(!stillJoined())return;
+      const row = await sayInChannel(relay, orgId, resolved.key, members, serverText(locale, "jam.started", { name }), null, stillJoined);
+      if(!stillJoined())return;
       if (row) {
         const kept = await relay.state.storage.get(storeKey);
-        if (kept) { kept.messageId = row.id; await relay.state.storage.put(storeKey, kept); }
-        await announceState(relay, orgId, resolved.key, members);
+        if (kept) { kept.messageId = row.id; kept.startedAnnounced=true; await relay.state.storage.put(storeKey, kept); }
+        await announceState(relay, orgId, resolved.key, members, undefined, stillJoined);
       }
-      relay.state.waitUntil(emitCall(relay.env, orgId, resolved.key, "call.started", { startedAt: meta.startedAt, startedBy: { name } }));
+      if(row && stillJoined())relay.state.waitUntil(emitCall(relay.env, orgId, resolved.key, "call.started", { startedAt: meta.startedAt, startedBy: { name } }));
     }
+    } finally { unlock(); }
   }
 }
 

@@ -672,3 +672,217 @@ test('publication preserves direct and private creation and supports DM, group a
   expect((await env.DB.prepare('SELECT visibility FROM hx_app_access WHERE org_id=? AND app_id=?').bind(org,made.app.id).first()).visibility).toBe('private');
  }
 });
+
+test.each(['guidelines','room membership','room rejoin','room replacement','source deletion','app access','workspace deletion'])('app generation fence blocks the model after %s changes',async change=>{
+ const root=await privateSource();
+ await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)').bind(org,'b:confidential','Sensitive room rule','9201',new Date().toISOString()).run();
+ const made=await createApp(env.DB,{orgId:org,by:'9201',name:'Guided',columns:[{name:'Title',type:'text'}],sourceThreadId:root.id});
+ const {prepareAppGuidelines}=await import('../src/harness/appGuidelinesFence.js');
+ const guided=await prepareAppGuidelines(env.DB,org,{github_id:'9201',login:'user9201'},made.app.id,'Do work');
+ expect(guided.request).toContain('Sensitive room rule');
+ if(change==='guidelines')await env.DB.prepare("UPDATE hx_room_guidelines SET body='Changed',version=version+1 WHERE org_id=? AND channel='b:confidential'").bind(org).run();
+ if(change==='room membership')await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();
+ if(change==='room rejoin')await env.DB.prepare("UPDATE conversation_members SET added_at='2000-01-01' WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();
+ if(change==='room replacement')await env.DB.prepare("UPDATE businesses SET created_at='2000-01-01' WHERE org_id=? AND slug='confidential'").bind(org).run();
+ if(change==='source deletion')await env.DB.prepare('UPDATE channel_messages SET deleted_at=? WHERE id=?').bind(new Date().toISOString(),root.id).run();
+ if(change==='app access')await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=? AND user_github_id='9201'").bind(org).run();
+ if(change==='workspace deletion')await env.DB.prepare('INSERT INTO workspace_tombstones(org_id,deleted_at) VALUES (?,?)').bind(org,new Date().toISOString()).run();
+ let dispatched=0;
+ const provider=async(_system,_prompt,options)=>{if(await options.authorize())dispatched++;return '{}';};
+ await guided.wrap(provider)('system',guided.request);
+ expect(dispatched).toBe(0);
+ expect(await guided.authorize()).toBe(false);
+});
+
+test('app generation fence composes model authorization and retains existing no-room behavior',async()=>{
+ const root=await privateSource();
+ await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)').bind(org,'b:confidential','Current rule','9201',new Date().toISOString()).run();
+ const made=await createApp(env.DB,{orgId:org,by:'9201',name:'Guided',columns:[{name:'Title',type:'text'}],sourceThreadId:root.id});
+ const {prepareAppGuidelines}=await import('../src/harness/appGuidelinesFence.js');
+ const guided=await prepareAppGuidelines(env.DB,org,{github_id:'9201',login:'user9201'},made.app.id,'Do work');
+ let calls=0;
+ const provider=async(_system,_prompt,options)=>{if(await options.authorize())calls++;return '{}';};
+ await guided.wrap(provider)('system',guided.request,{authorize:async()=>false});
+ expect(calls).toBe(0);
+ await guided.wrap(provider)('system',guided.request,{authorize:async()=>true});
+ expect(calls).toBe(1);
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();
+ const plain=await prepareAppGuidelines(env.DB,org,{github_id:'9201',login:'user9201'},made.app.id,'Do work');
+ expect(plain.request).toBe('Do work');
+});
+
+test.each(['database','actions','automations','custom'])('app %s generation checks captured room rules immediately before model dispatch',async kind=>{
+ const root=await privateSource();
+ await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)').bind(org,'b:confidential','Sensitive room rule','9201',new Date().toISOString()).run();
+ const made=await createApp(env.DB,{orgId:org,by:'9201',name:'Guided',columns:[{name:'Title',type:'text'}],sourceThreadId:root.id});
+ let checks=0,revoked=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const stmt=db.prepare(sql);if(!sql.startsWith('SELECT m.created_at AS memberSince'))return stmt;
+   return {bind(...args){const bound=stmt.bind(...args);return {async first(){
+    if(++checks===3){revoked=true;await db.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();}
+    return bound.first();
+   }}}};
+  };
+ }});
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://test/apps/${made.app.id}/${kind}`,{method:'POST',headers:{'x-session-token':owner,'content-type':'application/json'},body:JSON.stringify({orgId:org,action:'generate',prompt:'Create a tracker'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'},testContext);
+  expect(revoked).toBe(true);expect(response.status).toBe(403);expect(fetch).not.toHaveBeenCalled();
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('authorized app action generation sends the current room rule to the mocked model',async()=>{
+ const root=await privateSource();
+ await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)').bind(org,'b:confidential','Current approved rule','9201',new Date().toISOString()).run();
+ const made=await createApp(env.DB,{orgId:org,by:'9201',name:'Guided',columns:[{name:'Title',type:'text'}],sourceThreadId:root.id});
+ let sent='';
+ const fetch=vi.fn(async(_url,init)=>{sent=init.body;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({name:'calculate',code:'return input;'})}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}})});
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://test/apps/${made.app.id}/actions`,{method:'POST',headers:{'x-session-token':owner,'content-type':'application/json'},body:JSON.stringify({orgId:org,action:'generate',prompt:'Create a calculation'})}),{...env,OPENAI_API_KEY:'sk-test'},testContext);
+  expect(response.status).toBe(200);expect(fetch).toHaveBeenCalledTimes(1);expect(sent).toContain('Current approved rule');
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('app action generation discards the result when its source access ends during the mocked model request',async()=>{
+ const root=await privateSource();
+ await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)').bind(org,'b:confidential','Current rule','9201',new Date().toISOString()).run();
+ const made=await createApp(env.DB,{orgId:org,by:'9201',name:'Guided',columns:[{name:'Title',type:'text'}],sourceThreadId:root.id});
+ const fetch=vi.fn(async()=>{
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();
+  return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({name:'private_action',code:'return input;'})}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}});
+ });
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://test/apps/${made.app.id}/actions`,{method:'POST',headers:{'x-session-token':owner,'content-type':'application/json'},body:JSON.stringify({orgId:org,action:'generate',prompt:'Create a calculation'})}),{...env,OPENAI_API_KEY:'sk-test'},testContext);
+  expect(fetch).toHaveBeenCalledTimes(1);expect(response.status).toBe(403);expect(JSON.stringify(await response.json())).not.toContain('private_action');
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('combined schema and room checks discard custom output when room access ends during the final schema check',async()=>{
+ const root=await privateSource();
+ await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)').bind(org,'b:confidential','Current rule','9201',new Date().toISOString()).run();
+ const made=await createApp(env.DB,{orgId:org,by:'9201',name:'Guided',columns:[{name:'Title',type:'text'}],sourceThreadId:root.id});
+ let sent=false,afterModelChecks=0,revoked=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const stmt=db.prepare(sql);if(!sql.startsWith('SELECT 1 AS allowed FROM memberships m'))return stmt;
+   return {bind(...args){const bound=stmt.bind(...args);return {async first(){
+    const result=await bound.first();
+    if(sent && ++afterModelChecks===2){revoked=true;await db.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run()}
+    return result;
+   }}}};
+  };
+ }});
+ const fetch=vi.fn(async()=>{sent=true;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({html:'<p>Private result</p>'})}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}})});
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://test/apps/${made.app.id}/custom`,{method:'POST',headers:{'x-session-token':owner,'content-type':'application/json'},body:JSON.stringify({orgId:org,action:'generate',prompt:'Create a tracker'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'},testContext);
+  expect(revoked).toBe(true);expect(response.status).toBe(403);expect(JSON.stringify(await response.json())).not.toContain('Private result');
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('database generation releases the model reservation when the prompt is rejected before dispatch',async()=>{
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://test/apps/${app.id}/database`,{method:'POST',headers:{'x-session-token':owner,'content-type':'application/json'},body:JSON.stringify({orgId:org,action:'generate',prompt:''})}),{...env,OPENAI_API_KEY:'sk-test'},testContext);
+  expect(response.status).toBe(400);expect(fetch).not.toHaveBeenCalled();
+  expect(await env.DB.prepare('SELECT COUNT(*) AS count FROM ai_reservations WHERE user_github_id=?').bind('9201').first()).toEqual({count:0});
+ } finally {vi.unstubAllGlobals()}
+});
+
+test.each(['schema','room'])('database generation rechecks %s access after reservation cleanup',async changed=>{
+ const root=await privateSource();
+ await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)').bind(org,'b:confidential','Current rule','9201',new Date().toISOString()).run();
+ const made=await createApp(env.DB,{orgId:org,by:'9201',name:'Guided',columns:[{name:'Title',type:'text'}],sourceThreadId:root.id});
+ let injected=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const stmt=db.prepare(sql);if(sql!=='DELETE FROM ai_reservations WHERE id = ?1')return stmt;
+   return {bind(...args){const bound=stmt.bind(...args);return {async run(){
+    const result=await bound.run();injected=true;
+    if(changed==='schema')await db.prepare("UPDATE hx_tables SET name='Changed after cleanup' WHERE org_id=? AND id=?").bind(org,made.app.tableId).run();
+    else await db.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();
+    return result;
+   }}}};
+  };
+ }});
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://test/apps/${made.app.id}/database`,{method:'POST',headers:{'x-session-token':owner,'content-type':'application/json'},body:JSON.stringify({orgId:org,action:'generate',prompt:'x'.repeat(4001)})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'},testContext);
+  expect(injected).toBe(true);expect(response.status).toBe(changed==='schema'?404:403);expect(fetch).not.toHaveBeenCalled();
+  expect(await env.DB.prepare('SELECT COUNT(*) AS count FROM ai_reservations WHERE user_github_id=?').bind('9201').first()).toEqual({count:0});
+ } finally {vi.unstubAllGlobals()}
+});
+
+test.each(['before dispatch','before response'])('combined generation rejects schema access revoked during the last room check %s',async phase=>{
+ const root=await privateSource();
+ await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)').bind(org,'b:confidential','Current rule','9201',new Date().toISOString()).run();
+ const made=await createApp(env.DB,{orgId:org,by:'9201',name:'Guided',columns:[{name:'Secret Schema',type:'text'}],sourceThreadId:root.id});
+ const otherApp=await createApp(env.DB,{orgId:org,by:'9202',name:'Private owner app',columns:[{name:'Title',type:'text'}]});
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?,?,'private',1) ON CONFLICT(org_id,app_id) DO UPDATE SET visibility='private'").bind(org,otherApp.app.id).run();
+ let sent=false,checks=0,revoked=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const stmt=db.prepare(sql);
+   if(sql.startsWith('SELECT 1 AS allowed FROM memberships m'))return {bind(...args){const bound=stmt.bind(...args);return {async first(){const result=await bound.first();checks++;return result;}}}};
+   if(!sql.startsWith('SELECT m.created_at AS memberSince'))return stmt;
+   return {bind(...args){const bound=stmt.bind(...args);return {async first(){
+    if(!revoked && ((phase==='before dispatch' && !sent && checks>=2) || (phase==='before response' && sent && checks>=4))){
+     revoked=true;await db.prepare("INSERT INTO hx_app_entities(org_id,app_id,entity_key,table_id) VALUES(?,?,'linked',?)").bind(org,otherApp.app.id,made.app.tableId).run();
+    }
+    return bound.first();
+   }}}};
+  };
+ }});
+ const fetch=vi.fn(async()=>{sent=true;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({html:'<p>Secret result</p>'})}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}})});
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://test/apps/${made.app.id}/custom`,{method:'POST',headers:{'x-session-token':owner,'content-type':'application/json'},body:JSON.stringify({orgId:org,action:'generate',prompt:'Create a tracker'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'},testContext);
+  expect(revoked).toBe(true);
+  if(phase==='before dispatch')expect(fetch).not.toHaveBeenCalled();
+  expect(response.status).toBe(404);
+  expect(JSON.stringify(await response.json())).not.toContain('Secret result');
+ } finally {vi.unstubAllGlobals()}
+});
+
+test.each(['authorized','source revoked at cleanup','source revoked in a later read'])('database generation final combined check reaches the response without another database read: %s',async scenario=>{
+ const root=await privateSource();
+ await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)').bind(org,'b:confidential','Current rule','9201',new Date().toISOString()).run();
+ const made=await createApp(env.DB,{orgId:org,by:'9201',name:'Guided',columns:[{name:'Title',type:'text'}],sourceThreadId:root.id});
+ let modelReturned=false,cleanup=false,combinedChecks=0,revokedInLaterRead=false;
+ const afterModel=[];
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{
+   if(modelReturned)afterModel.push(sql);
+   const stmt=db.prepare(sql);
+   if(cleanup && sql.startsWith('SELECT 1 AS allowed FROM memberships m'))return {bind(...args){const bound=stmt.bind(...args);return {async first(){const result=await bound.first();combinedChecks++;return result;}}}};
+   if(cleanup && combinedChecks>=4 && scenario==='source revoked in a later read' && sql.startsWith('SELECT 1 AS ok WHERE'))return {bind(...args){const bound=stmt.bind(...args);return {async first(){
+    revokedInLaterRead=true;await db.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();return bound.first();
+   }}}};
+   if(sql!=='DELETE FROM ai_reservations WHERE id = ?1')return stmt;
+   return {bind(...args){const bound=stmt.bind(...args);return {async run(){
+    const result=await bound.run();cleanup=true;
+    if(scenario==='source revoked at cleanup')await db.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();
+    return result;
+   }}}};
+  };
+ }});
+ const fetch=vi.fn(async()=>{modelReturned=true;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({operations:[{op:'add_columns',entity:'primary',columns:[{name:'Sensitive proposal',type:'text'}]}]})}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}})});
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://test/apps/${made.app.id}/database`,{method:'POST',headers:{'x-session-token':owner,'content-type':'application/json'},body:JSON.stringify({orgId:org,action:'generate',prompt:'Add a column'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'},testContext);
+  expect(fetch).toHaveBeenCalledTimes(1);expect(cleanup).toBe(true);
+  const body=await response.json();
+  if(scenario==='source revoked at cleanup'){
+   expect([403,404]).toContain(response.status);expect(JSON.stringify(body)).not.toContain('Sensitive proposal');
+  } else {
+   expect(revokedInLaterRead).toBe(false);
+   expect(response.status).toBe(200);expect(JSON.stringify(body)).toContain('Sensitive proposal');
+   expect(afterModel.at(-1)).toMatch(/^SELECT 1 AS allowed FROM memberships m/);
+  }
+  expect(await env.DB.prepare('SELECT COUNT(*) AS count FROM ai_reservations WHERE user_github_id=?').bind('9201').first()).toEqual({count:0});
+ } finally {vi.unstubAllGlobals()}
+});

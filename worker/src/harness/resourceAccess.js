@@ -28,6 +28,31 @@ export async function mayUseTable(db, orgId, tableId, userId) {
   return true;
 }
 
+// Recheck a rendered app and its primary table together after reading rows.
+// Every app linked to the table must remain visible, as with mayUseTable; a
+// single SQL statement prevents an ACL change between individual checks.
+export async function mayReadAppRows(db, orgId, appId, tableId, userId) {
+  if (!userId || !tableId) return false;
+  const row = await db.prepare(`SELECT 1 AS allowed FROM hx_apps target
+    JOIN hx_tables t ON t.org_id=target.org_id AND t.id=target.table_id
+    JOIN memberships m ON m.org_id=target.org_id AND m.user_github_id=?4
+    LEFT JOIN hx_app_access policy ON policy.org_id=target.org_id AND policy.app_id=target.id
+    WHERE target.org_id=?1 AND target.id=?2 AND target.table_id=?3
+      AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=?1)
+      AND (COALESCE(policy.visibility,'workspace')='workspace' OR target.created_by=?4)
+      AND NOT EXISTS(SELECT 1 FROM hx_apps linked
+        LEFT JOIN hx_app_access p ON p.org_id=linked.org_id AND p.app_id=linked.id
+        WHERE linked.org_id=?1 AND (linked.table_id=?3 OR EXISTS(
+          SELECT 1 FROM hx_app_entities e WHERE e.org_id=linked.org_id AND e.app_id=linked.id AND e.table_id=?3))
+        AND COALESCE(p.visibility,'workspace')!='workspace' AND linked.created_by IS NOT ?4)
+      AND NOT EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=?1 AND e.table_id=?3
+        AND NOT EXISTS(SELECT 1 FROM hx_apps linked WHERE linked.org_id=e.org_id AND linked.id=e.app_id))`)
+    .bind(orgId, appId, tableId, String(userId)).first();
+  return Boolean(row);
+}
+
 export async function setAppAccess(db, orgId, appId, userId, input) {
   const current = await appAccess(db, orgId, appId);
   if (!current || !(await mayUseApp(db, orgId, appId, userId))) return { error: 'No such app.', status: 404 };

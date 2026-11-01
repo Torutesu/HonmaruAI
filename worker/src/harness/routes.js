@@ -1,3 +1,6 @@
+import { prepareAppGuidelines } from './appGuidelinesFence.js';
+import { mayUseDatabase } from './databaseAccess.js';
+import { mayGenerateFromSchema, finishSchemaGeneration } from './generationAccess.js';
 import {handleDocuments,isDocumentNodeRoute} from './documentRoutes.js';
 import { createSkillShare, listSkillShares, revokeSkillShare, readSkillShare, downloadSkillShare, importSkillShare } from './skillShares.js';
 import {workflowRevisions,restoreWorkflowRevision} from './workflowRevisions.js';
@@ -27,7 +30,7 @@ import { listSkillFiles, readSkillFile } from './skillFiles.js';
 import { generateApp } from './appGeneration.js';
 import { announceTo } from '../announce.js';
 import { custom as appActivityEvent } from '../agui/events.js';
-import { conversationSource, sourceFor, sourceHistory, withAppRoomGuidelinesRequest, notifyAppMentions, appNotifications, asksAppAI, replyToApp } from './appConversationFeatures.js';
+import { conversationSource, sourceFor, sourceHistory, notifyAppMentions, appNotifications, asksAppAI, replyToApp } from './appConversationFeatures.js';
 import { appConversation } from './appConversations.js';
 import { listAppAnnotations, normalizeAppAnnotation, saveAppAnnotation } from './appAnnotations.js';
 import { personalViews } from './personalViews.js';
@@ -39,7 +42,7 @@ import { generateCustomSource, saveCustomRelease } from "./customApps.js";
 import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
 import { tableContract } from "./tableContract.js";
-import { appAccess, mayUseApp, mayUseTable, setAppAccess, visibleResources, visibleAppLinks } from './resourceAccess.js';
+import { appAccess, mayUseApp, mayUseTable, mayReadAppRows, setAppAccess, visibleResources, visibleAppLinks } from './resourceAccess.js';
 import { mayUseConversation, readableConversation } from './conversationAccess.js';
 import { listMembers as memoryMembers } from '../team.js';
 import { createAgentAccessRequest, requestableAgentOptions, roomAgentAccessPlans } from './agentAccessRequests.js';
@@ -1071,22 +1074,48 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     const app = await getApp(env.DB, orgId, appId);
     if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);
-    const withAppRoomGuidelines=prompt=>withAppRoomGuidelinesRequest(env.DB,orgId,who.user,appId,prompt);
+    const withGuidedGeneration=async(prompt,makeComplete,generate,finalCheck=null)=>{
+      const guidelines=await prepareAppGuidelines(env.DB,orgId,who.user,appId,prompt);
+      if(!guidelines)return {error:'The source or your access changed. Reload and try again.',status:403};
+      const complete=await makeComplete();
+      const combined=()=>finalCheck?finalCheck(guidelines.generationGuard):guidelines.authorize();
+      const result=await finishSchemaGeneration(complete,combined,async()=>{
+        if(!await guidelines.authorize())return {error:'The source or your access changed. Reload and try again.',status:403};
+        return generate(guidelines.request,guidelines.wrap(complete,combined));
+      });
+      if(!await guidelines.authorize())return {error:'The source or your access changed. Reload and try again.',status:403};
+      return await combined()?result:{error:'No such app.',status:404};
+    };
     if (['database','actions','connections'].includes(sub)) {
       const canManage = await mayChange(env, orgId, who, app.createdBy);
-      const respond = async (result, action) => {
+      const respond = async (result, action, extraTableIds = []) => {
         if (!result.error && action) await audit(env, request, { orgId, action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version ?? null, name: typeof input?.name === 'string' ? input.name : null, ...(result.merged?{forkId:result.forkId,checksum:result.checksum,changed:result.changed??null,replay:Boolean(result.replay)}:{}) } });
+        if (sub === 'database' && !result.error && !await mayUseDatabase(env.DB, orgId, appId, me, [...extraTableIds,...[...(result.fork?.entities || []), ...(result.entities || [])].map(entity=>entity.table?.id).filter(Boolean)], request.method !== 'GET')) return json({message:'No such app.'},404);
         return result.error ? fail(result) : json(result);
       };
       if (sub === 'database') {
-        if (request.method === 'GET') return json({ ...(await databaseView(env.DB, orgId, app)), ...(await readFork(env.DB, orgId, appId, me)) });
+        if (!await mayUseDatabase(env.DB, orgId, appId, me)) return json({message:'No such app.'},404);
+        if (request.method === 'GET') return respond({ ...(await databaseView(env.DB, orgId, app)), ...(await readFork(env.DB, orgId, appId, me)) });
         if (request.method !== 'POST') return json({ message: 'Method not allowed.' },405);
         if (!canManage) return json({ message: 'Only its maker or an admin can develop this app.' },403);
-        if (input.action === 'generate') return respond(await generateMigration(await withAppRoomGuidelines(input.prompt), await databaseView(env.DB, orgId, app), await completer(env, orgId, me, 'app_database_generate', { maxTokens: 4000 })));
-        if (input.action === 'preview') return respond(await previewMigration(env.DB, orgId, app, input));
+        if (input.action === 'generate') {
+          const schema=await databaseView(env.DB,orgId,app), ids=schema.entities.map(entity=>entity.table?.id).filter(Boolean);
+          const authorize=async guard=>await mayUseDatabase(env.DB,orgId,appId,me,ids,true) && await mayGenerateFromSchema(env.DB,orgId,appId,me,schema.entities,[],guard);
+          if (!await authorize()) return json({message:'No such app.'},404);
+          const result=await withGuidedGeneration(input.prompt,()=>completer(env,orgId,me,'app_database_generate',{maxTokens:4000}),
+            async(prompt,complete)=>{
+              const guarded=complete?async(system,user,options={})=>complete(system,user,{...options,authorize}):null;
+              return generateMigration(prompt,schema,guarded);
+            },authorize);
+          return result.error?fail(result):json(result);
+        }
+        if (input.action === 'preview') {
+          const {tableIds=[],...result}=await previewMigration(env.DB,orgId,app,input,me);
+          return respond(result,undefined,tableIds);
+        }
         if (input.action === 'migrate') return respond(await applyMigration(env.DB, orgId, app, input, me), 'app.database_migrated');
         if (input.action === 'fork') return respond(await forkDatabase(env.DB, orgId, app, me), 'app.database_forked');
-        if (input.action === 'merge_preview') { const result=await previewMerge(env.DB,orgId,app,me,input); const {snapshots,...review}=result; return respond(review); }
+        if (input.action === 'merge_preview') { const result=await previewMerge(env.DB,orgId,app,me,input); const {snapshots,...review}=result; return respond(review,undefined,(snapshots||[]).map(snapshot=>snapshot.tableId)); }
         if (input.action === 'merge_apply') {
           const result=await mergeFork(env.DB,orgId,app,me,input);
           if(result.error)return respond(result);
@@ -1100,7 +1129,10 @@ export async function handleHarness(request, env, url, context = {}) {
           }
           return respond(publicResult,'app.preview_merged');
         }
-        if (input.action === 'fork_write') return respond(await mutateFork(env.DB, orgId, appId, me, input), 'app.preview_changed');
+        if (input.action === 'fork_write') {
+          const {tableIds=[],...result}=await mutateFork(env.DB,orgId,appId,me,input);
+          return respond(result,'app.preview_changed',tableIds);
+        }
       }
       if (sub === 'actions') {
         if (request.method === 'GET') {
@@ -1117,7 +1149,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if (request.method !== 'POST') return json({message:'Method not allowed.'},405);
         if(input.action==='run')return respond(await runAction(env.DB,orgId,appId,input,me),'app.action_requested');
         if(!canManage)return json({message:'Only its maker or an admin can publish server actions.'},403);
-        if(input.action==='generate')return respond(await generateAction(await withAppRoomGuidelines(input.prompt),await completer(env,orgId,me,'app_action_generate',{maxTokens:6000})));
+        if(input.action==='generate')return respond(await withGuidedGeneration(input.prompt,()=>completer(env,orgId,me,'app_action_generate',{maxTokens:6000}),(prompt,complete)=>generateAction(prompt,complete)));
         return respond(await saveAction(env.DB,orgId,appId,input,me),'app.action_'+input.action);
       }
       if (sub === 'connections') {
@@ -1136,8 +1168,25 @@ export async function handleHarness(request, env, url, context = {}) {
         for(const agent of agents)if(await mayAccessAgent(env.DB,orgId,agent,who.user.login))visibleAgents.push({id:agent.id,name:agent.name});
         const appSchema=await databaseView(env.DB,orgId,app);
         const appRecords=[{id:appId,name:app.name,entities:appSchema.entities.map(entity=>({id:entity.key,name:entity.table?.name,columns:entity.table?.columns||[]}))}];
-        const complete=input.useModel===false?null:await completer(env,orgId,me,'app_automation_generate',{maxTokens:2400});
-        const result=await appAutomationFromPrompt(env.DB,orgId,me,{prompt:await withAppRoomGuidelines(input.prompt),timezone:input.timezone,complete,tables,agents:visibleAgents,appRecords});
+        const authorize=async guard=>{
+          if(!await mayGenerateFromSchema(env.DB,orgId,appId,me,appSchema.entities,tables))return false;
+          if(visibleAgents.length){
+            const current=await listAgents(env.DB,orgId,who.user.login);
+            for(const visible of visibleAgents){
+              const agent=current.find(candidate=>candidate.id===visible.id && candidate.name===visible.name);
+              if(!agent || !await mayAccessAgent(env.DB,orgId,agent,who.user.login))return false;
+            }
+          }
+          // Agent lookups above await other queries, so recheck table schemas
+          // and access immediately after them, before allowing model dispatch.
+          return mayGenerateFromSchema(env.DB,orgId,appId,me,appSchema.entities,tables,guard,visibleAgents);
+        };
+        if(!await authorize())return json({message:'No such app.'},404);
+        const result=await withGuidedGeneration(input.prompt,()=>input.useModel===false?null:completer(env,orgId,me,'app_automation_generate',{maxTokens:2400}),
+          async(prompt,complete)=>{
+            const guarded=complete?async(system,user,options={})=>complete(system,user,{...options,authorize}):null;
+            return appAutomationFromPrompt(env.DB,orgId,me,{prompt,timezone:input.timezone,complete:guarded,tables,agents:visibleAgents,appRecords});
+          },authorize);
         return result.error?fail(result):json(result);
       }
       if (request.method === 'GET') {
@@ -1160,10 +1209,20 @@ export async function handleHarness(request, env, url, context = {}) {
       if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
       if (input.action === 'generate') {
         const table = await getTable(env.DB, orgId, app.tableId);
-        const complete = await completer(env, orgId, me, 'custom_app_generate', { maxTokens: 8000 });
-        const capabilities = { entities: (await databaseView(env.DB,orgId,app)).entities, actions: (await actions(env.DB,orgId,appId)).actions.filter(a=>a.published).map(a=>({name:a.name,code:a.published})), connections:(await connections(env.DB,orgId,appId,me)).connections.map(c=>({name:c.name,endpoint:c.endpoint,method:c.method,enabled:c.enabled})), gateways:(await env.DB.prepare('SELECT id,name FROM hx_gateways WHERE org_id=?1 AND revoked_at IS NULL').bind(orgId).all()).results };
-        const result = await generateCustomSource(await withAppRoomGuidelines(input.prompt), table, complete, capabilities);
-        return result.error ? fail(result) : json(result);
+        const entities=(await databaseView(env.DB,orgId,app)).entities;
+        const actionSnapshot=(await actions(env.DB,orgId,appId)).actions.filter(a=>a.published).map(a=>({name:a.name,code:a.published,version:a.version,publishedVersion:a.publishedVersion,updatedAt:a.updatedAt}));
+        const connectionSnapshot=(await connections(env.DB,orgId,appId,me)).connections.map(c=>({name:c.name,endpoint:c.endpoint,method:c.method,enabled:c.enabled,version:c.version}));
+        const gatewaySnapshot=(await env.DB.prepare('SELECT id,name,created_at AS createdAt FROM hx_gateways WHERE org_id=?1 AND revoked_at IS NULL').bind(orgId).all()).results;
+        const captured={actions:actionSnapshot,connections:connectionSnapshot,gateways:gatewaySnapshot};
+        const capabilities={entities,actions:actionSnapshot.map(({name,code})=>({name,code})),connections:connectionSnapshot.map(({name,endpoint,method,enabled})=>({name,endpoint,method,enabled})),gateways:gatewaySnapshot.map(({id,name})=>({id,name}))};
+        const authorize=guard=>mayGenerateFromSchema(env.DB,orgId,appId,me,entities,[table],guard,[],captured);
+        if(!table || capabilities.entities.find(entity=>entity.key==='primary')?.table?.id!==table.id || !await authorize())return json({message:'No such app.'},404);
+        const result=await withGuidedGeneration(input.prompt,()=>completer(env,orgId,me,'custom_app_generate',{maxTokens:8000}),
+          async(prompt,complete)=>{
+            const guarded=complete?async(system,user,options={})=>complete(system,user,{...options,authorize}):null;
+            return generateCustomSource(prompt,table,guarded,capabilities);
+          },authorize);
+        return result.error?fail(result):json(result);
       }
       const result = await saveCustomRelease(env.DB, orgId, app, input, me);
       if (!result.error) await audit(env, request, { orgId, action: 'app.custom_' + input.action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version } });
@@ -1199,7 +1258,9 @@ export async function handleHarness(request, env, url, context = {}) {
         const r = await renderApp(env.DB, orgId, appId);
         if (r.error) return fail(r);
         const [visibleApp] = await visibleAppLinks(env.DB, orgId, [r.app], who.user);
-        return json({ ...r, app: visibleApp, canCustomize: await mayChange(env, orgId, who, app.createdBy) });
+        const canCustomize = await mayChange(env, orgId, who, app.createdBy);
+        if (!(await mayReadAppRows(env.DB, orgId, appId, r.app.tableId, me))) return json({ message: 'No such app.' }, 404);
+        return json({ ...r, app: visibleApp, canCustomize });
       }
       if (request.method === "PUT") {
         // The shared definition is its maker's or an admin's to change, as
@@ -1305,11 +1366,12 @@ async function homeFor(env, orgId, who, me) {
     listFollowups(db, orgId, { viewerId: me }),
   ]);
   // An app's headline: the first number its summary view works out.
-  const apps = await Promise.all(appRows.slice(0, 12).map(async (a) => {
+  const appSummaries = await Promise.all(appRows.slice(0, 12).map(async (a) => {
     const r = await renderApp(db, orgId, a.id).catch(() => null);
+    if (!r?.app) return null;
     const metrics = r?.views.find((v) => v.type === "metrics");
     const first = metrics?.values?.[0] || null;
-    return { id: a.id, name: a.name, icon: a.icon, description: a.description, channels: a.channels || [], rows: r?.rows.length ?? 0, headline: first ? { label: first.label, value: first.value } : null };
+    return { tableId:r.app.tableId, summary:{ id: a.id, name: a.name, icon: a.icon, description: a.description, channels: a.channels || [], rows: r.rows.length, headline: first ? { label: first.label, value: first.value } : null } };
   }));
   const profiles = await profilesFor(db, orgId, agents.map((a) => a.id));
   // Newest first: the first seen for a workflow is how it last ran.
@@ -1318,6 +1380,7 @@ async function homeFor(env, orgId, who, me) {
     : { results: [] };
   const lastOf = new Map();
   for (const r of runs || []) if (!lastOf.has(r.workflow_id)) lastOf.set(r.workflow_id, { status: r.status, startedAt: r.started_at });
+  const apps = (await Promise.all(appSummaries.map(async item => item && await mayReadAppRows(db, orgId, item.summary.id, item.tableId, me) ? item.summary : null))).filter(Boolean);
   return {
     mode,
     approvals,

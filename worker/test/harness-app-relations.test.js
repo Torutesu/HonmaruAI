@@ -166,3 +166,142 @@ test.each(['purging','tombstone'])('merge is fenced when workspace becomes %s be
   expect(await env.DB.prepare('SELECT id FROM hx_rows WHERE id=?').bind(pending.rowId).first()).toBeNull();
   expect(await env.DB.prepare('SELECT nonce FROM hx_app_fork_merges WHERE fork_id=?').bind(pending.forkId).first()).toBeNull();
 });
+
+async function privateLink(tableId) {
+  await upsertUser(env.DB,{githubId:'8102',login:'other-owner',name:'Other Owner'});
+  await upsertMembership(env.DB,orgId,'8102','member');
+  const other=await createSession(env.DB,'8102','gho_relation_other');
+  const otherApp=(await (await call('/apps',other,{name:'Private app',columns:[{name:'Secret',type:'text'}]})).json()).app;
+  const response=await worker.fetch(new Request(`https://example.com/apps/${otherApp.id}/access`,{method:'PUT',headers:headers(other),body:JSON.stringify({orgId,version:0,visibility:'private'})}),{...env});
+  expect(response.status).toBe(200);
+  await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(tableId,orgId,otherApp.id).run();
+  return otherApp;
+}
+
+test('database and preview reject an inaccessible app sharing the production table',async()=>{
+  await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'confidential'}});
+  const {fork}=await (await dbCall({action:'fork'})).json();
+  await privateLink(app.tableId);
+  expect((await call(`/tables/${app.tableId}`,owner)).status).toBe(404);
+  expect((await call(`/apps/${app.id}/database`,owner)).status).toBe(404);
+  expect((await dbCall({action:'fork'})).status).toBe(404);
+  expect((await dbCall({action:'fork_write',forkId:fork.id,revision:fork.revision,entity:'primary',operation:'create',values:{task:'blocked'}})).status).toBe(404);
+  expect((await dbCall({action:'preview',id:'rename_test',version:0,operations:[{op:'rename_column',entity:'primary',column:'task',name:'New'}]})).status).toBe(404);
+});
+
+test('a retained fork cannot expose a formerly linked table after it becomes private',async()=>{
+  const customer=await installRelations();
+  await call(`/tables/${customer.table.id}/rows`,owner,{values:{name:'retained secret'}});
+  const {fork}=await (await dbCall({action:'fork'})).json();
+  await env.DB.prepare('DELETE FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 AND entity_key=?3').bind(orgId,app.id,'customers').run();
+  await privateLink(customer.table.id);
+  expect((await call(`/apps/${app.id}/database`,owner)).status).toBe(404);
+  expect((await dbCall({action:'fork_write',forkId:fork.id,revision:fork.revision,entity:'primary',operation:'create',values:{task:'blocked'}})).status).toBe(404);
+});
+
+test('fork creation and edits are fenced at the write if sharing changes',async()=>{
+  const {forkDatabase,mutateFork}=await import('../src/harness/appDatabase.js');
+  const original=(await (await dbCall({action:'fork'})).json()).fork;
+  let batches=0;
+  const racingCreate={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+    if(++batches===2)await privateLink(app.tableId);
+    return env.DB.batch(statements);
+  }};
+  expect((await forkDatabase(racingCreate,orgId,app,'8101')).status).toBe(409);
+  let stored=await env.DB.prepare('SELECT id,revision FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(orgId,app.id,'8101').first();
+  expect(stored).toMatchObject({id:original.id,revision:original.revision});
+  await env.DB.prepare('DELETE FROM hx_apps WHERE org_id=?1 AND id!=?2').bind(orgId,app.id).run();
+  let injected=false;
+  const racingWrite={prepare(sql){const statement=env.DB.prepare(sql);if(!sql.startsWith('UPDATE hx_app_forks SET data='))return statement;return {bind(...values){const bound=statement.bind(...values);return {run:async()=>{if(!injected){injected=true;await privateLink(app.tableId)}return bound.run()}}}}}};
+  expect((await mutateFork(racingWrite,orgId,app.id,'8101',{forkId:original.id,revision:original.revision,entity:'primary',operation:'create',values:{task:'blocked'}})).status).toBe(409);
+  stored=await env.DB.prepare('SELECT id,revision FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(orgId,app.id,'8101').first();
+  expect(stored).toMatchObject({id:original.id,revision:original.revision});
+});
+
+test('migration cannot commit after another private app links a production table',async()=>{
+  const {applyMigration}=await import('../src/harness/appDatabase.js');
+  const input={id:'race_migration',version:0,operations:[{op:'rename_column',entity:'primary',column:'task',name:'Changed'}]};
+  let injected=false;
+  const racing={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+    if(!injected){injected=true;await privateLink(app.tableId)}
+    return env.DB.batch(statements);
+  }};
+  expect((await applyMigration(racing,orgId,app,input,'8101')).status).toBe(409);
+  const table=await env.DB.prepare('SELECT columns FROM hx_tables WHERE org_id=?1 AND id=?2').bind(orgId,app.tableId).first();
+  expect(JSON.parse(table.columns)[0].name).toBe('Task');
+  expect(await env.DB.prepare('SELECT version FROM hx_app_database_state WHERE org_id=?1 AND app_id=?2').bind(orgId,app.id).first()).toBeNull();
+});
+
+test('migration preview rechecks its original tables if the app table changes mid-read',async()=>{
+  const {previewMigration}=await import('../src/harness/appDatabase.js');
+  const replacement=(await (await call('/apps',owner,{name:'Replacement',columns:[{name:'Name',type:'text'}]})).json()).app;
+  let injected=false;
+  const racing={prepare(sql){const statement=env.DB.prepare(sql);if(!sql.startsWith('SELECT 1 AS ok WHERE'))return statement;return {bind(...values){const bound=statement.bind(...values);return {first:async()=>{if(!injected){injected=true;await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(replacement.tableId,orgId,app.id).run();await privateLink(app.tableId)}return bound.first()}}}}}};
+  const input={id:'race_preview',version:0,operations:[{op:'rename_column',entity:'primary',column:'task',name:'Changed'}]};
+  expect((await previewMigration(racing,orgId,app,input,'8101')).status).toBe(404);
+});
+
+test('fork response is withheld when table access is revoked during audit',async()=>{
+  await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'do not disclose'}});
+  let injected=false;
+  const racing={batch:statements=>env.DB.batch(statements),prepare(sql){
+    const statement=env.DB.prepare(sql);
+    if(!sql.trimStart().startsWith('INSERT INTO audit_events'))return statement;
+    return {bind(...values){const bound=statement.bind(...values);return {run:async()=>{
+      if(!injected){injected=true;await privateLink(app.tableId)}
+      return bound.run();
+    }}}};
+  }};
+  const req=new Request(`https://example.com/apps/${app.id}/database`,{method:'POST',headers:headers(owner),body:JSON.stringify({orgId,action:'fork'})});
+  const response=await worker.fetch(req,{...env,DB:racing});
+  expect(injected).toBe(true);
+  expect(response.status).toBe(404);
+  expect(JSON.stringify(await response.json())).not.toContain('do not disclose');
+  expect(await env.DB.prepare('SELECT id FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(orgId,app.id,'8101').first()).toBeTruthy();
+});
+
+test.each(['purge','tombstone'])('fork creation refuses workspace %s started before commit',async deletion=>{
+  const {forkDatabase}=await import('../src/harness/appDatabase.js');
+  let batches=0;
+  const racing={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+    if(++batches===2){
+      if(deletion==='purge')await env.DB.prepare('INSERT INTO workspace_deletions (org_id,due_at,requested_by,requested_at,purge_started_at) VALUES (?1,?2,?3,?2,?2)').bind(orgId,'2026-01-01','8101').run();
+      else await env.DB.prepare('INSERT INTO workspace_tombstones (org_id,deleted_at,requested_by) VALUES (?1,?2,?3)').bind(orgId,'2026-01-01','8101').run();
+    }
+    return env.DB.batch(statements);
+  }};
+  expect((await forkDatabase(racing,orgId,app,'8101')).status).toBe(409);
+  expect(await env.DB.prepare('SELECT id FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(orgId,app.id,'8101').first()).toBeNull();
+});
+
+test('fork edit response rechecks its original table after app table changes during audit',async()=>{
+  const row=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'old table secret'}})).json()).row;
+  const {fork}=await (await dbCall({action:'fork'})).json();
+  const replacement=(await (await call('/apps',owner,{name:'Replacement',columns:[{name:'Name',type:'text'}]})).json()).app;
+  let injected=false;
+  const racing={batch:statements=>env.DB.batch(statements),prepare(sql){
+    const statement=env.DB.prepare(sql);
+    if(!sql.trimStart().startsWith('INSERT INTO audit_events'))return statement;
+    return {bind(...values){const bound=statement.bind(...values);return {run:async()=>{
+      if(!injected){injected=true;await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(replacement.tableId,orgId,app.id).run();await privateLink(app.tableId)}
+      return bound.run();
+    }}}};
+  }};
+  const req=new Request(`https://example.com/apps/${app.id}/database`,{method:'POST',headers:headers(owner),body:JSON.stringify({orgId,action:'fork_write',forkId:fork.id,revision:fork.revision,entity:'primary',operation:'update',rowId:row.id,values:{}})});
+  const response=await worker.fetch(req,{...env,DB:racing});
+  expect(injected).toBe(true);
+  expect(response.status).toBe(404);
+  expect(JSON.stringify(await response.json())).not.toContain('old table secret');
+});
+
+test('fork creation safely rejects a primary table changed before snapshot read',async()=>{
+  const {forkDatabase}=await import('../src/harness/appDatabase.js');
+  const replacement=(await (await call('/apps',owner,{name:'Replacement',columns:[{name:'Name',type:'text'}]})).json()).app;
+  let injected=false;
+  const racing={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+    if(!injected){injected=true;await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(replacement.tableId,orgId,app.id).run()}
+    return env.DB.batch(statements);
+  }};
+  expect(await forkDatabase(racing,orgId,app,'8101')).toMatchObject({status:409});
+  expect(await env.DB.prepare('SELECT id FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(orgId,app.id,'8101').first()).toBeNull();
+});

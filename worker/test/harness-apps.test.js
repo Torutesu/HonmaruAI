@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { computeView, normalizeDefinition, specFromPrompt } from "../src/harness/apps.js";
@@ -1521,4 +1521,458 @@ test('personal view denies a newly orphaned table entity reference before writin
  const result=await personalViews(racing,ORG,'9102',app.id,{expectedRevision:0,views:[],layouts:{}});
  expect(result.status).toBe(404);
  expect(await env.DB.prepare('SELECT 1 FROM hx_personal_views WHERE org_id=? AND user_id=? AND app_id=?').bind(ORG,'9102',app.id).first()).toBeNull();
+});
+
+test.each(['primary', 'entity'])('app row reads and home summaries enforce private shared %s table access', async relation => {
+  const { app } = await (await send('POST', '/apps', toru, { orgId: ORG, template: 'crm' })).json();
+  const { app: linked } = await (await send('POST', '/apps', mika, { orgId: ORG, template: 'crm' })).json();
+  const added = await send('POST', `/tables/${app.tableId}/rows`, toru, { orgId: ORG, values: { Company: 'Secret row' } });
+  expect(added.status).toBe(201);
+  if (relation === 'primary') await env.DB.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(app.tableId, ORG, linked.id).run();
+  else await env.DB.prepare("INSERT INTO hx_app_entities (org_id,app_id,entity_key,table_id) VALUES (?,?,'shared',?)").bind(ORG, linked.id, app.tableId).run();
+  expect((await send('PUT', `/apps/${linked.id}/access`, mika, { orgId: ORG, visibility: 'private', version: 0 })).status).toBe(200);
+  const { callHarnessTool } = await import('../src/harness/mcpTools.js');
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, toru)).status).toBe(404);
+  expect((await callHarnessTool(env, {orgId:ORG, githubId:'9101'}, 'read_app', {appId:app.id})).isError).toBe(true);
+  expect((await (await get(`/harness/home?orgId=${ORG}`, toru)).json()).apps.some(a=>a.id===app.id)).toBe(false);
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, mika)).status).toBe(200);
+  expect((await callHarnessTool(env, {orgId:ORG, githubId:'9102'}, 'read_app', {appId:app.id})).isError).not.toBe(true);
+});
+
+test.each(['http', 'mcp', 'home'])('app row read checks linked visibility again at response boundary for %s', async mode => {
+  const { app } = await (await send('POST', '/apps', toru, { orgId: ORG, template: 'crm' })).json();
+  const { app: linked } = await (await send('POST', '/apps', mika, { orgId: ORG, template: 'crm' })).json();
+  await env.DB.prepare("INSERT INTO hx_app_entities (org_id,app_id,entity_key,table_id) VALUES (?,?,'shared',?)").bind(ORG, linked.id, app.tableId).run();
+  let changed = false;
+  const racing = new Proxy(env.DB, {get(db,key) {
+    if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+    return sql => { const statement=db.prepare(sql); if(!sql.startsWith('SELECT 1 AS allowed FROM hx_apps target'))return statement;
+      return {bind(...args) {const bound=statement.bind(...args);return {async first() {
+        if(!changed && args[1]===app.id) {changed=true;await db.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,linked.id).run();}
+        return bound.first();
+      }}}};
+    };
+  }});
+  if(mode==='mcp') {
+    const {callHarnessTool}=await import('../src/harness/mcpTools.js');
+    expect((await callHarnessTool({...env,DB:racing},{orgId:ORG,githubId:'9101'},'read_app',{appId:app.id})).isError).toBe(true);
+  } else {
+    const path = mode==='home'?'/harness/home':`/apps/${app.id}`;
+    const response=await worker.fetch(new Request(`https://example.com${path}?orgId=${ORG}`,{headers:headers(toru)}),{...env,DB:racing});
+    if(mode==='home')expect((await response.json()).apps.some(a=>a.id===app.id)).toBe(false);
+    else expect(response.status).toBe(404);
+  }
+  expect(changed).toBe(true);
+});
+
+test('a changed primary table cannot authorize rows read from the previous table',async()=>{
+  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+  const {app:replacement}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+  let changed=false;
+  const racing=new Proxy(env.DB,{get(db,key){
+    if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+    return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT 1 AS allowed FROM hx_apps target'))return statement;
+      return {bind(...args){const bound=statement.bind(...args);return {async first(){
+        if(!changed){changed=true;await db.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(replacement.tableId,ORG,app.id).run()}
+        return bound.first();
+      }}}};
+    };
+  }});
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}?orgId=${ORG}`,{headers:headers(toru)}),{...env,DB:racing});
+  expect(changed).toBe(true);
+  expect(response.status).toBe(404);
+});
+
+test('app row reads fail closed when a table entity has no app in this workspace',async()=>{
+  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+  const {app:other}=await (await send('POST','/apps',outsider,{orgId:'personal:elsewhere',template:'crm'})).json();
+  // The foreign key is on app_id alone, so this inconsistent org reference is
+  // possible without disabling foreign keys; mayUseTable denies it.
+  await env.DB.prepare("INSERT INTO hx_app_entities (org_id,app_id,entity_key,table_id) VALUES (?,?,'invalid',?)").bind(ORG,other.id,app.tableId).run();
+  expect((await get(`/tables/${app.tableId}?orgId=${ORG}`,toru)).status).toBe(404);
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`,toru)).status).toBe(404);
+  const {callHarnessTool}=await import('../src/harness/mcpTools.js');
+  expect((await callHarnessTool(env,{orgId:ORG,githubId:'9101'},'read_app',{appId:app.id})).isError).toBe(true);
+  expect((await (await get(`/harness/home?orgId=${ORG}`,toru)).json()).apps.some(a=>a.id===app.id)).toBe(false);
+});
+
+test.each(['automations','custom'])('app %s generation does not send a private linked table schema to the model',async kind=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const {app:privateApp}=await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+ await env.DB.prepare("INSERT INTO hx_app_entities (org_id,app_id,entity_key,table_id) VALUES (?,?,'shared',?)").bind(ORG,privateApp.id,app.tableId).run();
+ expect((await send('PUT',`/apps/${privateApp.id}/access`,mika,{orgId:ORG,visibility:'private',version:0})).status).toBe(200);
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/${kind}`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Create a tracker'})}),{...env,OPENAI_API_KEY:'sk-test'});
+  expect(response.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
+ } finally {vi.unstubAllGlobals()}
+});
+
+test.each(['automations','custom'])('app %s generation checks the table ACL again immediately before model dispatch',async kind=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const {app:linked}=await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+ await env.DB.prepare("INSERT INTO hx_app_entities (org_id,app_id,entity_key,table_id) VALUES (?,?,'shared',?)").bind(ORG,linked.id,app.tableId).run();
+ let checks=0,revoked=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT 1 AS allowed FROM memberships m'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async first(){
+    if(++checks===(kind==='automations'?3:2)){revoked=true;await db.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,linked.id).run()}
+    return bound.first();
+   }}}};
+  };
+ }});
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/${kind}`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Create a tracker'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'});
+  expect(revoked).toBe(true);expect(response.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
+ } finally {vi.unstubAllGlobals()}
+});
+
+test.each(['automations','custom'])('app %s generation succeeds with an authorized schema and a mocked model',async kind=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const content=kind==='custom'?{html:'<p>Tracker</p>'}:{name:'Follow up',trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{}}]};
+ const fetch=vi.fn(async()=>new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(content)}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}}));
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/${kind}`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Create a tracker'})}),{...env,OPENAI_API_KEY:'sk-test'});
+  expect(response.status,JSON.stringify(await response.clone().json())).toBe(200);expect(fetch).toHaveBeenCalledTimes(1);
+ } finally {vi.unstubAllGlobals()}
+});
+
+test.each(['automations','custom'])('app %s generation discards the response if access is revoked during the model request',async kind=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const {app:linked}=await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+ await env.DB.prepare("INSERT INTO hx_app_entities (org_id,app_id,entity_key,table_id) VALUES (?,?,'shared',?)").bind(ORG,linked.id,app.tableId).run();
+ const content=kind==='custom'?{html:'<p>Private result</p>'}:{name:'Private result',trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{}}]};
+ const fetch=vi.fn(async()=>{
+  await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,linked.id).run();
+  return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(content)}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}});
+ });
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/${kind}`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Create a tracker'})}),{...env,OPENAI_API_KEY:'sk-test'});
+  expect(fetch).toHaveBeenCalledTimes(1);expect(response.status).toBe(404);expect(JSON.stringify(await response.json())).not.toContain('Private result');
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('model schema authorization rejects table replacement, invalid linked apps and workspace deletion',async()=>{
+ const {mayGenerateFromSchema}=await import('../src/harness/generationAccess.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const {app:replacement}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const {getTable}=await import('../src/harness/tables.js');
+ const entities=[{key:'primary',table:await getTable(env.DB,ORG,app.tableId)}];
+ expect(await mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities)).toBe(true);
+ await env.DB.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(replacement.tableId,ORG,app.id).run();
+ expect(await mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities)).toBe(false);
+ await env.DB.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(app.tableId,ORG,app.id).run();
+ const {app:foreign}=await (await send('POST','/apps',outsider,{orgId:'personal:elsewhere',template:'crm'})).json();
+ await env.DB.prepare("INSERT INTO hx_app_entities(org_id,app_id,entity_key,table_id) VALUES (?,?,'invalid',?)").bind(ORG,foreign.id,app.tableId).run();
+ expect(await mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities)).toBe(false);
+ await env.DB.prepare('DELETE FROM hx_app_entities WHERE org_id=? AND app_id=?').bind(ORG,foreign.id).run();
+ await env.DB.prepare('INSERT INTO workspace_tombstones(org_id,deleted_at) VALUES (?,?)').bind(ORG,'now').run();
+ expect(await mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities)).toBe(false);
+});
+
+test('combined generation snapshot matches current agent visibility and fails closed on revocation',async()=>{
+ const {mayGenerateFromSchema}=await import('../src/harness/generationAccess.js');
+ const {prepareAppGuidelines}=await import('../src/harness/appGuidelinesFence.js');
+ const {getTable}=await import('../src/harness/tables.js');
+ const {mayAccessAgent}=await import('../src/harness/agents.js');
+ const {listAgents}=await import('../src/customAgents.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const entities=[{key:'primary',table:await getTable(env.DB,ORG,app.tableId)}];
+ const guided=await prepareAppGuidelines(env.DB,ORG,{github_id:'9101',login:'toru'},app.id,'Do work');
+ expect(guided.generationGuard.source).toBeNull();
+ const at='2026-01-01T00:00:00Z';
+ await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES(?,'agent1','agent1','Agent One','','team','mika',?,?)").bind(ORG,at,at).run();
+ const captured=[{id:'agent1',name:'Agent One'}];
+ const check=()=>mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities,[],guided.generationGuard,captured);
+ const compare=async(expected)=>{
+  const visible=await listAgents(env.DB,ORG,'toru');
+  const found=visible.find(a=>a.id==='agent1'&&a.name==='Agent One');
+  expect(Boolean(found && await mayAccessAgent(env.DB,ORG,found,'toru'))).toBe(expected);
+  expect(await check()).toBe(expected);
+ };
+ await compare(true); // team default
+ await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES(?,'agent1','private','[]',?)").bind(ORG,at).run();
+ await compare(false);
+ await env.DB.prepare("UPDATE hx_agent_profiles SET access='people',people='[\"toru\"]' WHERE org_id=? AND agent_id='agent1'").bind(ORG).run();
+ await compare(true);
+ await env.DB.prepare("UPDATE hx_agent_profiles SET access='private' WHERE org_id=? AND agent_id='agent1'").bind(ORG).run();
+ await env.DB.prepare("INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,member_since,updated_by,updated_at) SELECT ?,'agent1','9101','member',created_at,'9102',? FROM memberships WHERE org_id=? AND user_github_id='9101'").bind(ORG,at,ORG).run();
+ await compare(true); // explicit team role
+ await env.DB.prepare("UPDATE custom_agents SET scope='personal' WHERE org_id=? AND id='agent1'").bind(ORG).run();
+ await compare(false); // team roles cannot expose another person's personal agent
+ await env.DB.prepare("UPDATE custom_agents SET owner_login='toru' WHERE org_id=? AND id='agent1'").bind(ORG).run();
+ await compare(true); // personal owner
+ await env.DB.prepare("UPDATE custom_agents SET name='Renamed' WHERE org_id=? AND id='agent1'").bind(ORG).run();
+ await compare(false);
+ await env.DB.prepare("UPDATE custom_agents SET name='Agent One',deleted_at=? WHERE org_id=? AND id='agent1'").bind(at,ORG).run();
+ await compare(false);
+ await env.DB.prepare("UPDATE custom_agents SET deleted_at=NULL WHERE org_id=? AND id='agent1'").bind(ORG).run();
+ await env.DB.prepare('INSERT INTO workspace_tombstones(org_id,deleted_at) VALUES (?,?)').bind(ORG,at).run();
+ expect(await check()).toBe(false);
+});
+
+test('combined schema check enforces database management and every linked app ACL',async()=>{
+ const {mayGenerateFromSchema}=await import('../src/harness/generationAccess.js');
+ const {mayUseDatabase}=await import('../src/harness/databaseAccess.js');
+ const {getTable}=await import('../src/harness/tables.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const {app:linked}=await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+ const entities=[{key:'primary',table:await getTable(env.DB,ORG,app.tableId)}];
+ const check=async(user,expected)=>{
+  expect(await mayUseDatabase(env.DB,ORG,app.id,user,[app.tableId],true)).toBe(expected);
+  expect(await mayGenerateFromSchema(env.DB,ORG,app.id,user,entities)).toBe(expected);
+ };
+ await check('9101',true);await check('9102',false);await check('9103',false);
+ await env.DB.prepare("UPDATE memberships SET role='admin' WHERE org_id=? AND user_github_id='9102'").bind(ORG).run();
+ await check('9102',true);
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?,?,'private',1)").bind(ORG,app.id).run();
+ await check('9102',false);await check('9101',true);
+ await env.DB.prepare("DELETE FROM hx_app_access WHERE org_id=? AND app_id=?").bind(ORG,app.id).run();
+ await env.DB.prepare("INSERT INTO hx_app_entities(org_id,app_id,entity_key,table_id) VALUES(?,?,'shared',?)").bind(ORG,linked.id,app.tableId).run();
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?,?,'private',1)").bind(ORG,linked.id).run();
+ await check('9101',false);await check('9102',true);
+ await env.DB.prepare("DELETE FROM hx_app_entities WHERE org_id=? AND app_id=?").bind(ORG,linked.id).run();
+ await env.DB.prepare("UPDATE hx_tables SET name='Changed' WHERE org_id=? AND id=?").bind(ORG,app.tableId).run();
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9101',[app.tableId],true)).toBe(true);
+ expect(await mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities)).toBe(false);
+});
+
+test.each([
+ ['action','before dispatch'],['connection','before dispatch'],['gateway','before dispatch'],
+ ['action','during model'],['connection','during model'],['gateway','during model'],
+ ['action','during cleanup'],['connection','during cleanup'],['gateway','during cleanup'],
+])('custom generation rejects a %s changed %s',async(kind,phase)=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const at='2026-01-01T00:00:00Z';
+ await env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,published_version,updated_at) VALUES(?,?,'calculate',1,'return 1;','return 1;',1,?)").bind(ORG,app.id,at).run();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,enabled) VALUES(?,?,'9101','lookup',1,'https://api.github.com/repos/org/secret/issues','GET',1)").bind(ORG,app.id).run();
+ await env.DB.prepare("INSERT INTO hx_gateways(id,org_id,name,token_hash,created_by,created_at) VALUES('gateway-1',?,'Sensitive node','hash-1','9101',1)").bind(ORG).run();
+ let changed=false;
+ const change=async db=>{
+  if(kind==='action')await db.prepare("UPDATE hx_app_actions SET published=NULL WHERE org_id=? AND app_id=? AND name='calculate'").bind(ORG,app.id).run();
+  if(kind==='connection')await db.prepare("DELETE FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='lookup'").bind(ORG,app.id).run();
+  if(kind==='gateway')await db.prepare("UPDATE hx_gateways SET revoked_at=10 WHERE org_id=? AND id='gateway-1'").bind(ORG).run();
+  changed=true;
+ };
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const stmt=db.prepare(sql);
+   if(phase==='during cleanup' && sql==='DELETE FROM ai_reservations WHERE id = ?1')return {bind(...args){const bound=stmt.bind(...args);return {async run(){const result=await bound.run();if(!changed)await change(db);return result}}}};
+   if(!sql.startsWith('SELECT 1 AS allowed FROM memberships m'))return stmt;
+   return {bind(...args){const bound=stmt.bind(...args);return {async first(){if(phase==='before dispatch'&&!changed)await change(db);return bound.first()}}}};
+  };
+ }});
+ const fetch=vi.fn(async()=>{
+  if(phase==='during model')await change(env.DB);
+  return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({html:'<p>Sensitive generated result</p>'})}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}});
+ });
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/custom`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Create a tracker'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'});
+  expect(changed).toBe(true);
+  if(phase==='before dispatch')expect(fetch).not.toHaveBeenCalled();
+  else expect(fetch).toHaveBeenCalledTimes(1);
+  expect(response.status).toBe(404);
+  expect(JSON.stringify(await response.json())).not.toContain('Sensitive generated result');
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('custom capability snapshot checks exact visible values and ignores unrelated records',async()=>{
+ const {mayGenerateFromSchema}=await import('../src/harness/generationAccess.js');
+ const {getTable}=await import('../src/harness/tables.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const at='2026-01-01T00:00:00Z';
+ await env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,published_version,updated_at) VALUES(?,?,'calc',1,'return 1;','return 1;',1,?)").bind(ORG,app.id,at).run();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','api',1,'https://api.github.com/repos/a/b/issues','GET','do-not-send',1)").bind(ORG,app.id).run();
+ await env.DB.prepare("INSERT INTO hx_gateways(id,org_id,name,token_hash,created_by,created_at) VALUES('g1',?,'Node','hash-g1','9101',1)").bind(ORG).run();
+ const table=await getTable(env.DB,ORG,app.tableId),entities=[{key:'primary',table}];
+ const capabilities={actions:[{name:'calc',code:'return 1;',version:1,publishedVersion:1,updatedAt:at}],connections:[{name:'api',endpoint:'https://api.github.com/repos/a/b/issues',method:'GET',enabled:1,version:1}],gateways:[{id:'g1',name:'Node',createdAt:1}]};
+ const check=()=>mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities,[table],null,[],capabilities);
+ expect(await check()).toBe(true);
+ await env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,updated_at) VALUES(?,?,'draft_only',1,'return 2;',NULL,?)").bind(ORG,app.id,at).run();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,enabled) VALUES(?,?,'9102','other',1,'https://api.github.com/repos/a/b/issues','GET',1)").bind(ORG,app.id).run();
+ await env.DB.prepare("INSERT INTO hx_gateways(id,org_id,name,token_hash,created_by,created_at,revoked_at) VALUES('g2',?,'Old node','hash-g2','9101',1,2)").bind(ORG).run();
+ expect(await check()).toBe(true);
+ const changes=[
+  ["UPDATE hx_app_actions SET published='return 3;' WHERE org_id=? AND app_id=? AND name='calc'","UPDATE hx_app_actions SET published='return 1;' WHERE org_id=? AND app_id=? AND name='calc'"],
+  ["UPDATE hx_app_connections SET endpoint='https://api.github.com/repos/a/changed/issues' WHERE org_id=? AND app_id=? AND name='api'","UPDATE hx_app_connections SET endpoint='https://api.github.com/repos/a/b/issues' WHERE org_id=? AND app_id=? AND name='api'"],
+  ["UPDATE hx_app_connections SET method='POST' WHERE org_id=? AND app_id=? AND name='api'","UPDATE hx_app_connections SET method='GET' WHERE org_id=? AND app_id=? AND name='api'"],
+  ["UPDATE hx_app_connections SET enabled=0 WHERE org_id=? AND app_id=? AND name='api'","UPDATE hx_app_connections SET enabled=1 WHERE org_id=? AND app_id=? AND name='api'"],
+  ["UPDATE hx_app_actions SET version=3,published_version=3 WHERE org_id=? AND app_id=? AND name='calc'","UPDATE hx_app_actions SET version=1,published_version=1 WHERE org_id=? AND app_id=? AND name='calc'"],
+  ["UPDATE hx_app_connections SET version=3 WHERE org_id=? AND app_id=? AND name='api'","UPDATE hx_app_connections SET version=1 WHERE org_id=? AND app_id=? AND name='api'"],
+  ["UPDATE hx_gateways SET name='Changed' WHERE org_id=? AND id=?","UPDATE hx_gateways SET name='Node' WHERE org_id=? AND id=?"],
+ ];
+ for(let i=0;i<changes.length;i++){
+  const id=i===changes.length-1?'g1':app.id;
+  await env.DB.prepare(changes[i][0]).bind(ORG,id).run();expect(await check()).toBe(false);
+  await env.DB.prepare(changes[i][1]).bind(ORG,id).run();expect(await check()).toBe(true);
+ }
+ await env.DB.prepare("UPDATE hx_app_actions SET published='return 2;' WHERE org_id=? AND app_id=? AND name='draft_only'").bind(ORG,app.id).run();
+ expect(await check()).toBe(false);
+});
+
+test('custom generation with authorized capabilities does not send connection tokens to the model',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','api',1,'https://api.github.com/repos/a/b/issues','GET','do-not-send-this-token',1)").bind(ORG,app.id).run();
+ let sent='';const fetch=vi.fn(async(_url,init)=>{sent=init.body;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({html:'<p>Tracker</p>'})}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}})});
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/custom`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Create a tracker'})}),{...env,OPENAI_API_KEY:'sk-test'});
+  expect(response.status).toBe(200);expect(fetch).toHaveBeenCalledTimes(1);expect(sent).toContain('https://api.github.com/repos/a/b/issues');expect(sent).not.toContain('do-not-send-this-token');
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('custom generation rejects replacement of its primary table after reading the old schema',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const {app:replacement}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ let replaced=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT version FROM hx_app_database_state'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async first(){
+    if(!replaced){replaced=true;await db.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(replacement.tableId,ORG,app.id).run()}
+    return bound.first();
+   }}}};
+  };
+ }});
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/custom`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Make a tracker'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'});
+  expect(replaced).toBe(true);expect(response.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
+ } finally {vi.unstubAllGlobals()}
+});
+
+test.each(['automations','custom'])('app %s generation refuses a schema changed before dispatch',async kind=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const {app:candidate}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ let checks=0,changed=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT 1 AS allowed FROM memberships m'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async first(){
+    if(++checks===(kind==='automations'?3:2)){changed=true;const id=kind==='automations'?candidate.tableId:app.tableId;await db.prepare("UPDATE hx_tables SET columns='[{\"id\":\"name\",\"name\":\"Changed\",\"type\":\"text\"}]',updated_at='2030-01-01T00:00:00.000Z' WHERE org_id=? AND id=?").bind(ORG,id).run()}
+    return bound.first();
+   }}}};
+  };
+ }});
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/${kind}`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Make a tracker'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'});
+  expect(changed).toBe(true);expect(response.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('automation generation rechecks table access after awaiting agent lookups',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const {app:linked}=await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+ await env.DB.prepare("INSERT INTO hx_app_entities (org_id,app_id,entity_key,table_id) VALUES (?,?,'shared',?)").bind(ORG,linked.id,app.tableId).run();
+ const made=await send('POST','/channels/agents',toru,{orgId:ORG,name:'Helper',handle:'helper',instructions:'Help',scope:'team'});
+ expect(made.status).toBe(201);
+ const agent=(await made.json()).agent;
+ expect((await send('PUT','/channels/agents',toru,{orgId:ORG,id:agent.id,scope:'team'})).status).toBe(200);
+ let lists=0,revoked=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const statement=db.prepare(sql);if(!sql.includes('SELECT * FROM custom_agents WHERE org_id'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async all(){
+    const value=await bound.all();
+    if(++lists===2){revoked=true;await db.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,linked.id).run()}
+    return value;
+   }}}};
+  };
+ }});
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/automations`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Make a tracker'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'});
+  expect(revoked).toBe(true);expect(response.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('schema generation rechecks authorization after the model reservation is released',async()=>{
+ const {finishSchemaGeneration}=await import('../src/harness/generationAccess.js');
+ let allowed=true,disposed=0;
+ const complete=async()=>{};complete.dispose=async()=>{disposed++;allowed=false};
+ const result=await finishSchemaGeneration(complete,async()=>allowed,async()=>({html:'private generated result'}));
+ expect(disposed).toBe(1);expect(result).toEqual({error:'No such app.',status:404});
+ expect(JSON.stringify(result)).not.toContain('private generated result');
+});
+
+test('database generation refuses captured columns changed before model dispatch',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ let checks=0,changed=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT 1 AS allowed FROM memberships m'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async first(){
+    if(++checks===2){changed=true;await db.prepare("UPDATE hx_tables SET columns='[{\"id\":\"name\",\"name\":\"Changed\",\"type\":\"text\"}]',updated_at='2030-01-01T00:00:00.000Z' WHERE org_id=? AND id=?").bind(ORG,app.tableId).run()}
+    return bound.first();
+   }}}};
+  };
+ }});
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/database`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Add a new column'})}),{...env,DB:racing,OPENAI_API_KEY:'sk-test'});
+  expect(changed).toBe(true);expect(response.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('custom generation sends only published capability fields owned by the caller',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const at='2026-01-01T00:00:00Z';
+ await env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,published_version,updated_at) VALUES(?,?,'calculate',2,'DRAFT_SYNTHETIC_SECRET','return 123;',1,?)").bind(ORG,app.id,at).run();
+ await env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,updated_at) VALUES(?,?,'draft_only',1,'DRAFT_ONLY_SYNTHETIC_SECRET',NULL,?)").bind(ORG,app.id,at).run();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','mine',1,'https://api.github.com/repos/allowed/project/issues','GET','OWN_SYNTHETIC_TOKEN',0)").bind(ORG,app.id).run();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9102','other',1,'https://api.github.com/repos/other/PRIVATE_ENDPOINT/issues','GET','OTHER_SYNTHETIC_TOKEN',1)").bind(ORG,app.id).run();
+ await env.DB.prepare("INSERT INTO hx_gateways(id,org_id,name,token_hash,created_by,created_at) VALUES('test_gateway',?,'Test node','GATEWAY_SYNTHETIC_HASH','9101',1)").bind(ORG).run();
+ let prompt='';const mocked=vi.fn(async(_url,init)=>{prompt=init.body;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({html:'<p>Tracker</p>'})}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}})});
+ vi.stubGlobal('fetch',mocked);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/custom`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Create a tracker'})}),{...env,OPENAI_API_KEY:'sk-test'});
+  expect(response.status).toBe(200);expect(mocked).toHaveBeenCalledTimes(1);
+  expect(prompt).toContain('return 123;');expect(prompt).toContain('repos/allowed/project/issues');expect(prompt).toContain('Test node');
+  for(const secret of ['DRAFT_SYNTHETIC_SECRET','DRAFT_ONLY_SYNTHETIC_SECRET','OWN_SYNTHETIC_TOKEN','OTHER_SYNTHETIC_TOKEN','PRIVATE_ENDPOINT','GATEWAY_SYNTHETIC_HASH'])expect(prompt).not.toContain(secret);
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('a non-admin app owner can generate custom code with their own capabilities',async()=>{
+ const {app}=await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9102','mine',1,'https://api.github.com/repos/mika/allowed/issues','GET','MIKA_SECRET',1)").bind(ORG,app.id).run();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','other',1,'https://api.github.com/repos/toru/PRIVATE_OWNER/issues','GET','TORU_SECRET',1)").bind(ORG,app.id).run();
+ let prompt='';const mocked=vi.fn(async(_url,init)=>{prompt=init.body;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({html:'<p>Tracker</p>'})}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{'content-type':'application/json'}})});
+ vi.stubGlobal('fetch',mocked);
+ try {
+  const response=await worker.fetch(new Request(`https://example.com/apps/${app.id}/custom`,{method:'POST',headers:headers(mika),body:JSON.stringify({orgId:ORG,action:'generate',prompt:'Create a tracker'})}),{...env,OPENAI_API_KEY:'sk-test'});
+  expect(response.status).toBe(200);expect(mocked).toHaveBeenCalledTimes(1);
+  expect(prompt).toContain('repos/mika/allowed/issues');
+  for(const secret of ['MIKA_SECRET','TORU_SECRET','PRIVATE_OWNER'])expect(prompt).not.toContain(secret);
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('capability fence detects changed action and gateway timestamps but not identical recreated values',async()=>{
+ const {mayGenerateFromSchema}=await import('../src/harness/generationAccess.js');
+ const {getTable}=await import('../src/harness/tables.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const at='2026-01-01T00:00:00Z';
+ const insertAction=(updatedAt=at)=>env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,published_version,updated_at) VALUES(?,?,'calc',1,'return 1;','return 1;',1,?)").bind(ORG,app.id,updatedAt).run();
+ const insertConnection=token=>env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','api',1,'https://api.github.com/repos/a/b/issues','GET',?,1)").bind(ORG,app.id,token).run();
+ const insertGateway=at=>env.DB.prepare("INSERT INTO hx_gateways(id,org_id,name,token_hash,created_by,created_at) VALUES('g1',?,'Node',?,'9101',?)").bind(ORG,`hash-${at}`,at).run();
+ await insertAction();await insertConnection('secret-one');await insertGateway(1);
+ const table=await getTable(env.DB,ORG,app.tableId),entities=[{key:'primary',table}];
+ const capabilities={actions:[{name:'calc',code:'return 1;',version:1,publishedVersion:1,updatedAt:at}],connections:[{name:'api',endpoint:'https://api.github.com/repos/a/b/issues',method:'GET',enabled:1,version:1}],gateways:[{id:'g1',name:'Node',createdAt:1}]};
+ const check=()=>mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities,[table],null,[],capabilities);
+ expect(await check()).toBe(true);
+ await env.DB.prepare("DELETE FROM hx_app_actions WHERE org_id=? AND app_id=? AND name='calc'").bind(ORG,app.id).run();await insertAction('2026-02-01T00:00:00Z');
+ expect(await check()).toBe(false);
+ await env.DB.prepare("DELETE FROM hx_app_actions WHERE org_id=? AND app_id=? AND name='calc'").bind(ORG,app.id).run();await insertAction();
+ expect(await check()).toBe(true);
+ await env.DB.prepare("DELETE FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='api'").bind(ORG,app.id).run();await insertConnection('secret-two');
+ expect(await check()).toBe(true);
+ await env.DB.prepare("DELETE FROM hx_gateways WHERE id='g1' AND org_id=?").bind(ORG).run();await insertGateway(2);
+ expect(await check()).toBe(false);
+ await env.DB.prepare("DELETE FROM hx_gateways WHERE id='g1' AND org_id=?").bind(ORG).run();await insertGateway(1);
+ expect(await check()).toBe(true);
 });
