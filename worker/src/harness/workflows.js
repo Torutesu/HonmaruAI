@@ -481,9 +481,9 @@ const renderValues = (values, scope) => Object.fromEntries(Object.entries(values
 
 /// What a row looks like to a template: its values by column id and by
 /// column name, so {{row.company}} and {{row.Company}} both work.
-async function rowScope(db, orgId, tableId, row) {
+async function rowScope(db, orgId, tableId, row, tableSnapshot) {
   if (!row) return null;
-  const table = await getTable(db, orgId, tableId);
+  const table = tableSnapshot === undefined ? await getTable(db, orgId, tableId) : tableSnapshot;
   const out = { id: row.id, ...row.values };
   for (const c of table?.columns || []) out[c.name] = row.values[c.id];
   return out;
@@ -647,10 +647,14 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
   };
   const log = run.log;
   const scope = { input: run.input || {}, steps: {}, workflow: { name: workflow.name } };
+  let sourceScopeTable;
   if (run.input?.row) scope.row = run.input.row;
   else if (run.input?.records?.[0]) {
     const record=run.input.records[0];
-    scope.row=await rowScope(db,orgId,sourceTable,{id:record.recordId,values:record.data||{}});
+    // Use the same schema snapshot to build the flattened scope and its ID
+    // aliases; a concurrent rename must not make the guard use another schema.
+    sourceScopeTable=await getTable(db,orgId,sourceTable);
+    scope.row=await rowScope(db,orgId,sourceTable,{id:record.recordId,values:record.data||{}},sourceScopeTable);
   }
   if (run.input?.before) scope.before = run.input.before;
   // The row scope exposes column IDs and names, including a user column named
@@ -664,7 +668,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
   // schema, so include aliases introduced since the event as well.
   const savedAliases = Array.isArray(run.input?.rowIdentityAliases) ? run.input.rowIdentityAliases : null;
   const identityAliases = savedAliases && run.trigger === 'app_record_change'
-    ? [...new Set([...savedAliases, ...rowIdentityAliases(await getTable(db, orgId, sourceTable))])]
+    ? [...new Set([...savedAliases, ...rowIdentityAliases(sourceScopeTable === undefined ? await getTable(db,orgId,sourceTable) : sourceScopeTable)])]
     : savedAliases;
   log.forEach((entry, i) => { scope.steps[i + 1] = entry; });
   let status = "done";
@@ -1030,7 +1034,7 @@ export async function onRowChange(env, { orgId, table, before, row, by, depth = 
     const rowFields = rowIdentityFields(table, row.values), beforeFields = rowIdentityFields(table, before?.values);
     const run = await startRun(env, {
       orgId, workflow: wf, trigger: "row", startedBy: by, depth,
-      input: { tableId: table.id, recordId: row.id, rowIdentityAliases: rowIdentityAliases(table), ...(Object.keys(rowFields).length ? { rowFields } : {}), ...(Object.keys(beforeFields).length ? { beforeFields } : {}), row: await rowScope(env.DB, orgId, table.id, row), before: before ? await rowScope(env.DB, orgId, table.id, before) : null },
+      input: { tableId: table.id, recordId: row.id, rowIdentityAliases: rowIdentityAliases(table), ...(Object.keys(rowFields).length ? { rowFields } : {}), ...(Object.keys(beforeFields).length ? { beforeFields } : {}), row: await rowScope(env.DB, orgId, table.id, row, table), before: before ? await rowScope(env.DB, orgId, table.id, before, table) : null },
       rowEventHash,
     });
     if (run?.id) started += 1;

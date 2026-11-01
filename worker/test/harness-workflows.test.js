@@ -4,7 +4,7 @@ import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { joined, until } from "./helpers.js";
-import { render, runDueWorkflows, normalizeSteps, normalizeTrigger, onRowChange, onRowDelete, startRun } from "../src/harness/workflows.js";
+import { render, runDueWorkflows, normalizeSteps, normalizeTrigger, onRowChange, onRowDelete, startRun, settleWorkflowApproval } from "../src/harness/workflows.js";
 import { signWorkflowWebhook } from "../src/harness/workflowWebhookSignature.js";
 import { runDueFollowups, followupRequest } from "../src/harness/followups.js";
 
@@ -1969,4 +1969,66 @@ test('a previous user ID can be used intentionally through beforeFields', async 
   await send('PATCH', `${path}/${source.id}`, mika, { orgId: ORG, values: { 'ID#': '', Status: 'Triggered' } });
   const run = (await (await get(`/workflows/${workflow.id}?${q({ orgId: ORG })}`, mika)).json()).runs.find(item => item.input.recordId === source.id);
   expect(run).toMatchObject({ status: 'done', input: { beforeFields: { id: other.id } }, log: [{ rowId: other.id }] });
+});
+
+test.each(['{{row.ID}}', '{{input.before.ID}}'])('row scope and ID aliases use the event schema if a column is renamed before dispatch: %s', async rowId => {
+  const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, name: 'Interleaved rename', columns: [
+    { name: 'Code', type: 'text' }, { name: 'Status', type: 'text' },
+  ] })).json();
+  const path=`/tables/${app.tableId}/rows`;
+  const other=(await (await send('POST',path,mika,{orgId:ORG,values:{Status:'Ready'}})).json()).row;
+  const source=(await (await send('POST',path,mika,{orgId:ORG,values:{Code:other.id,Status:'Ready'}})).json()).row;
+  const {workflow}=(await (await send('POST','/workflows',mika,{orgId:ORG,name:'Update source',trigger:{type:'row',tableId:app.tableId,on:'changed'},steps:[{type:'update_row',rowId,values:{Status:'Done'}}]})).json());
+  const {updateRow}=await import('../src/harness/tables.js');
+  const changed=await updateRow(env.DB,ORG,app.tableId,source.id,{Status:'Triggered'},'9302',source.updatedAt);
+  const columns=changed.table.columns.map(c=>c.id==='code'?{...c,name:'ID'}:c);
+  await env.DB.prepare('UPDATE hx_tables SET columns=?1 WHERE org_id=?2 AND id=?3').bind(JSON.stringify(columns),ORG,app.tableId).run();
+  await onRowChange(env,{orgId:ORG,table:changed.table,before:changed.before,row:changed.row,by:'9302'});
+  const runs=(await (await get(`/workflows/${workflow.id}?${q({orgId:ORG})}`,mika)).json()).runs;
+  const rows=(await (await get(`/tables/${app.tableId}?${q({orgId:ORG})}`,mika)).json()).rows;
+  expect(runs[0]).toMatchObject({status:'done',input:{rowIdentityAliases:['id']},log:[{rowId:source.id}]});
+  expect(rows.find(r=>r.id===other.id).values.status).toBe('Ready');
+  expect(rows.find(r=>r.id===source.id).values.status).toBe('Done');
+});
+
+test('app record scope and alias guard use one schema snapshot when a column changes during approval resume', async () => {
+  const {app}=await (await send('POST','/apps',mika,{orgId:ORG,name:'Resume interleaved rename',columns:[
+    {name:'Code',type:'text'},{name:'Status',type:'text'},
+  ]})).json();
+  const path=`/tables/${app.tableId}/rows`;
+  const other=(await (await send('POST',path,mika,{orgId:ORG,values:{Status:'Ready'}})).json()).row;
+  const source=(await (await send('POST',path,mika,{orgId:ORG,values:{Code:other.id,Status:'Ready'}})).json()).row;
+  const {workflow}=await (await send('POST','/workflows',mika,{orgId:ORG,name:'Resume guard',trigger:{type:'app_record_change',appId:app.id,entityId:'primary',events:['update']},steps:[
+    {type:'approval',to:'toru',title:'Update?'},{type:'update_row',rowId:'{{row.ID}}',values:{Status:'Done'}},
+  ]})).json();
+  await send('PATCH',`${path}/${source.id}`,mika,{orgId:ORG,values:{Status:'Triggered'}});
+  const waiting=(await (await get(`/workflows/${workflow.id}?${q({orgId:ORG})}`,mika)).json()).runs[0];
+  expect(waiting.status).toBe('waiting');
+  const saved=await env.DB.prepare('SELECT columns FROM hx_tables WHERE org_id=?1 AND id=?2').bind(ORG,app.tableId).first();
+  const oldColumns=JSON.parse(saved.columns), renamed=oldColumns.map(c=>c.id==='code'?{...c,name:'ID'}:c);
+  await env.DB.prepare('UPDATE hx_tables SET columns=?1 WHERE org_id=?2 AND id=?3').bind(JSON.stringify(renamed),ORG,app.tableId).run();
+  let schemaReads=0,changed=false;
+  const racingDb={
+    prepare(sql){
+      const statement=env.DB.prepare(sql);
+      if(sql!=='SELECT * FROM hx_tables WHERE id = ?1 AND org_id = ?2')return statement;
+      return {bind(...args){const bound=statement.bind(...args);return {async first(){
+        const row=await bound.first();
+        if(args[0]===app.tableId && ++schemaReads===2) {
+          await env.DB.prepare('UPDATE hx_tables SET columns=?1 WHERE org_id=?2 AND id=?3').bind(JSON.stringify(oldColumns),ORG,app.tableId).run();
+          changed=true;
+        }
+        return row;
+      }}}};
+    },
+    batch(statements){return env.DB.batch(statements)},
+  };
+  const {getCard}=await import('../src/db.js');
+  const card=await getCard(env.DB,ORG,waiting.cardId);
+  const result=await settleWorkflowApproval({...env,DB:racingDb},ORG,{...card,decision:{action:'approve',actorUserID:'toru'}});
+  expect(changed).toBe(true);
+  expect(result).toMatchObject({status:'failed',log:[{status:'ok'},{error:expect.stringContaining('row.id update target is ambiguous')}]});
+  const rows=(await (await get(`/tables/${app.tableId}?${q({orgId:ORG})}`,mika)).json()).rows;
+  expect(rows.find(r=>r.id===other.id).values.status).toBe('Ready');
+  expect(rows.find(r=>r.id===source.id).values.status).toBe('Triggered');
 });
