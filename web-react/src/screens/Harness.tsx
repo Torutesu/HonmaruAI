@@ -358,6 +358,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const floatApp=useFloatingApp()
   const t = useT()
   const [data, setData] = useState<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize?: boolean } | null>(null)
+  const [snapshotPending,setSnapshotPending]=useState(false)
   const [relationEntities,setRelationEntities]=useState<RelationEntity[]>([])
   const [tableAvailableWidth,setTableAvailableWidth]=useState(0)
   const tableResizeCleanup=useRef<(()=>void)|null>(null)
@@ -474,7 +475,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
     if(snapshot?.api===api&&snapshot.appId===appId&&snapshot.value.revision>preferences.revision)throw new Error('個人ビューが更新中です。再読み込みしてください。')
     if(automatic&&deferAutomaticCommit.current()){markAutomaticPending.current();return}
     personalSnapshot.current={api,appId,value:preferences}
-    setLoadedApi(api);setData(next);setRelationEntities(targets);setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(initialSection || (next.app.definition.custom?.published ? 'overview' : 'data')) }
+    setLoadedApi(api);setData(next);setSnapshotPending(false);setRelationEntities(targets);setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(initialSection || (next.app.definition.custom?.published ? 'overview' : 'data')) }
   }), [api, appId, act, initialSection])
   useEffect(() => { setEditingRecord(null);setCreating(false);setChatScope(initialConversation||{});setChatOpen(Boolean(initialConversation)||Boolean(openConversation));load();return()=>{loadSequence.current++;initializedSection.current=false} }, [load,initialConversation,openConversation])
   const interaction=useRef({busy,creating,editingRecord,annotationSelection})
@@ -504,7 +505,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   useEffect(()=>{retryRefresh.current()},[busy,creating,editingRecord,annotationSelection])
 
   const selectSection=(next:AppSection)=>{setSection(next);onSectionChange?.(next);const hash=appSectionHash(location.hash,appId,orgId,next);if(!floating&&hash&&hash!==location.hash)location.hash=hash}
-  if (!data || loadedApi!==api || (personal.appVersion!==undefined&&personal.appVersion!==data.app.version)) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}<button className="pill-btn quiet" onClick={()=>void load()}>{t('Retry')}</button></div> : <div className="empty">{t('Loading…')}</div>}</Shell>
+  if (!data || snapshotPending || loadedApi!==api || (personal.appVersion!==undefined&&personal.appVersion!==data.app.version)) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}<button className="pill-btn quiet" onClick={()=>void load()}>{t('Retry')}</button></div> : <div className="empty">{t('Loading…')}</div>}</Shell>
   const { app, table } = data
   const allViews = [...data.views,...personal.computed]
   const sharedIds=new Set(data.views.map(v=>v.id))
@@ -512,7 +513,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const selectedIndex=proposedIndex>=data.views.length && sharedIds.has(allViews[proposedIndex].id)?0:proposedIndex
   const view = allViews[selectedIndex]
   const isPersonalView=selectedIndex>=data.views.length
-  const savePersonal = async (next:PersonalViews) => {pendingPersonalSaves.current++;try{const saved=await api.savePersonalViews(appId,next);if(currentApi.current!==api||currentAppId.current!==appId)return;const latest=personalSnapshot.current;if(latest?.api===api&&latest.appId===appId&&latest.value.revision>=saved.revision)return;personalSnapshot.current={api,appId,value:saved};if(saved.snapshot){setData(null);await load();return}setPersonal(saved);if(saved.appVersion!==undefined&&saved.appVersion!==data.app.version){await load();return}setViewIndex(Math.max(0,[...data.views,...saved.computed].findIndex(v=>v.id===saved.activeView)))}finally{pendingPersonalSaves.current--;retryRefresh.current()}}
+  const savePersonal = async (next:PersonalViews) => {pendingPersonalSaves.current++;try{const saved=await api.savePersonalViews(appId,next);if(currentApi.current!==api||currentAppId.current!==appId)return;const latest=personalSnapshot.current;if(latest?.api===api&&latest.appId===appId&&latest.value.revision>=saved.revision)return;personalSnapshot.current={api,appId,value:saved};if(saved.snapshot){setSnapshotPending(true);await load();return}setPersonal(saved);if(saved.appVersion!==undefined&&saved.appVersion!==data.app.version){await load();return}setViewIndex(Math.max(0,[...data.views,...saved.computed].findIndex(v=>v.id===saved.activeView)))}finally{pendingPersonalSaves.current--;retryRefresh.current()}}
   const canEditView=isPersonalView || data.canCustomize !== false
   const saveView = async (patch:Partial<View>) => { if(isPersonalView) { await savePersonal({...personal,views:personal.views.map(v=>v.id===view.id?{...v,...patch}:v)}); return } await api.updateApp(app.id, { expectedVersion: app.version, definition: { ...app.definition, views: app.definition.views.map(v => v.id === view.id ? {...v,...patch} : v) }, note: 'ビューのフィルター・並べ替え・グループを更新' }); await load() }
   const layout = displayLayout(table.columns,personal.layouts[view.id])
