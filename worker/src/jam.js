@@ -265,7 +265,25 @@ export async function jamStatesFor(relay, orgId, login, githubId) {
 
 /// One Jam message from a browser. `att` is the socket's attachment, already
 /// signed in.
+const joiningSockets = new WeakMap();
 export async function handleJamMessage(relay, ws, att, type, payload) {
+  if(type==='jam_join') {
+    if(joiningSockets.has(ws)) {
+      reply(ws,customEvent('jam_error',{channel:payload.channel??null,message:'A Jam join is already in progress.'}));
+      return;
+    }
+    const joining={cancelled:false};
+    joiningSockets.set(ws,joining);
+    try { return await handleJamMessageInner(relay,ws,att,type,payload,joining); }
+    finally { if(joiningSockets.get(ws)===joining)joiningSockets.delete(ws); }
+  }
+  if(type==='jam_leave') {
+    const joining=joiningSockets.get(ws);
+    if(joining)joining.cancelled=true;
+  }
+  return handleJamMessageInner(relay,ws,att,type,payload,null);
+}
+async function handleJamMessageInner(relay, ws, att, type, payload, joining) {
   const orgId = att.orgId;
   // A joining socket is not a peer until its current access is rechecked.
   if(att.jam?.pending && type!=='jam_join') {
@@ -355,12 +373,13 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
     try {
     // A prior join on this same socket can have finished while we waited.
     att=ws.deserializeAttachment()||att;
-    if(typeof ws.readyState==='number' && ws.readyState!==1)return;
+    if(joining.cancelled || (typeof ws.readyState==='number' && ws.readyState!==1))return;
     if (att.jam?.key === resolved.key) return; // already here
     if (att.jam) {
       await leaveJam(relay, ws, att);
       att = ws.deserializeAttachment() || att;
     }
+    if(joining.cancelled)return;
     const peers = jamPeers(relay.state.getWebSockets(), orgId, resolved.key, ws);
     if (peers.length >= MAX_JAM_PEERS) return refuse(`A Jam holds ${MAX_JAM_PEERS} people.`);
     const now = new Date().toISOString();
@@ -384,6 +403,7 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
         await tx.put(storeKey,saved);
       }
     });
+    if(joining.cancelled){await cleanup();return;}
     try { ws.serializeAttachment({ ...att, jam: { key: resolved.key, peerId, muted: Boolean(payload.muted), since: now, mode: meta.mode, pending:true } }); }
     catch { await cleanup(); return; }
     const servers=await iceServers(relay.env);
@@ -395,7 +415,7 @@ export async function handleJamMessage(relay, ws, att, type, payload) {
     } catch { /* A failed authorization read must not authorize a join. */ }
     const current=ws.deserializeAttachment();
     const connected=typeof ws.readyState!=='number'||ws.readyState===1;
-    if(!connected || !current?.jam || current.jam.peerId!==peerId || joinEpoch(relay,key)!==epoch || !sameResolvedRoom(resolved,verified)) {
+    if(joining.cancelled || !connected || !current?.jam || current.jam.peerId!==peerId || joinEpoch(relay,key)!==epoch || !sameResolvedRoom(resolved,verified)) {
       if(current?.jam?.peerId===peerId)try { ws.serializeAttachment({...current,jam:null}); } catch { /* closed */ }
       // No channel join can pass this lock during cleanup. Do not emit a
       // fictitious "Jam ended" message or overwrite other live transcripts.
