@@ -1582,3 +1582,16 @@ test('a changed primary table cannot authorize rows read from the previous table
   expect(changed).toBe(true);
   expect(response.status).toBe(404);
 });
+
+test('app row reads fail closed when a table entity has no app in this workspace',async()=>{
+  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+  const {app:other}=await (await send('POST','/apps',outsider,{orgId:'personal:elsewhere',template:'crm'})).json();
+  // The foreign key is on app_id alone, so this inconsistent org reference is
+  // possible without disabling foreign keys; mayUseTable denies it.
+  await env.DB.prepare("INSERT INTO hx_app_entities (org_id,app_id,entity_key,table_id) VALUES (?,?,'invalid',?)").bind(ORG,other.id,app.tableId).run();
+  expect((await get(`/tables/${app.tableId}?orgId=${ORG}`,toru)).status).toBe(404);
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`,toru)).status).toBe(404);
+  const {callHarnessTool}=await import('../src/harness/mcpTools.js');
+  expect((await callHarnessTool(env,{orgId:ORG,githubId:'9101'},'read_app',{appId:app.id})).isError).toBe(true);
+  expect((await (await get(`/harness/home?orgId=${ORG}`,toru)).json()).apps.some(a=>a.id===app.id)).toBe(false);
+});

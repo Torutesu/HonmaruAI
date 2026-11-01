@@ -46,7 +46,9 @@ export async function mayReadAppRows(db, orgId, appId, tableId, userId) {
         LEFT JOIN hx_app_access p ON p.org_id=linked.org_id AND p.app_id=linked.id
         WHERE linked.org_id=?1 AND (linked.table_id=?3 OR EXISTS(
           SELECT 1 FROM hx_app_entities e WHERE e.org_id=linked.org_id AND e.app_id=linked.id AND e.table_id=?3))
-        AND COALESCE(p.visibility,'workspace')!='workspace' AND linked.created_by IS NOT ?4)`)
+        AND COALESCE(p.visibility,'workspace')!='workspace' AND linked.created_by IS NOT ?4)
+      AND NOT EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=?1 AND e.table_id=?3
+        AND NOT EXISTS(SELECT 1 FROM hx_apps linked WHERE linked.org_id=e.org_id AND linked.id=e.app_id))`)
     .bind(orgId, appId, tableId, String(userId)).first();
   return Boolean(row);
 }
