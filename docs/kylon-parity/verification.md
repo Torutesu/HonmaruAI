@@ -3882,7 +3882,7 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - The production comparison showed Kylon's table header uses the record type (`タスク`) while Honmaru repeated the app name (`UI確認用タスク`) even though the primary title field is `タスク名`. The app name remains in the breadcrumb; this is a display-only distinction.
 - The data viewer now derives that header as `タスク` when app and table share a name and the title field supplies a specific noun. Generic fields such as `名前`, `氏名`, `件名`, `タイトル`, and `Name` keep the existing table name. No existing table, record, or app setting is migrated.
-- `HarnessApps.test.tsx` passed all 13 tests, the Web production build passed, and `git diff --check` passed. This follow-up is local; exact-head CI and production verification are pending. Main CI for PR #607 passed its exact-head PR run; its post-merge main run is still finishing the Worker job.
+- `HarnessApps.test.tsx` passed all 13 tests and the Web production build passed. PR #608's first run exposed a timing race in the unrelated ACP heartbeat test: its 18 ms runtime sometimes ended before the 5 ms interval delivered the retry. The test now waits for an observed successful retry or abort instead of a short fixed sleep. `node --test gateway/test/*.test.mjs` then passed all 43 tests and `git diff --check` passed. This follow-up is local; exact-head CI and production verification are pending. Main CI for PR #607 passed its exact-head PR run and post-merge main run.
 
 ### 2026-11-01 — KY-015 channel overview Agent disclosure (local verification)
 
