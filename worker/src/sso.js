@@ -222,8 +222,9 @@ export async function primaryConnectionId(orgId) {
 }
 
 /// A workspace set up with the single `org_sso` row: moved over once.
-async function migrateLegacy(db, orgId) {
-  const legacy = await db.prepare("SELECT * FROM org_sso WHERE org_id = ?1").bind(orgId).first().catch(() => null);
+async function migrateLegacy(db, orgId, { fresh = false } = {}) {
+  const query = db.prepare("SELECT * FROM org_sso WHERE org_id = ?1").bind(orgId).first();
+  const legacy = fresh ? await query : await query.catch(() => null);
   if (!legacy) return;
   const id = await primaryConnectionId(orgId);
   await db.batch([
@@ -238,26 +239,30 @@ async function migrateLegacy(db, orgId) {
   ]);
 }
 
-export async function connectionsOf(db, orgId) {
-  await migrateLegacy(db, orgId);
-  const { results } = await db.prepare("SELECT * FROM sso_connections WHERE org_id = ?1 ORDER BY created_at, id").bind(orgId).all().catch(() => ({ results: [] }));
+export async function connectionsOf(db, orgId, { fresh = false } = {}) {
+  await migrateLegacy(db, orgId, { fresh });
+  const query = db.prepare("SELECT * FROM sso_connections WHERE org_id = ?1 ORDER BY created_at, id").bind(orgId).all();
+  const { results } = fresh ? await query : await query.catch(() => ({ results: [] }));
   return results || [];
 }
-export async function connectionOf(db, orgId, id) {
-  await migrateLegacy(db, orgId);
-  return db.prepare("SELECT * FROM sso_connections WHERE org_id = ?1 AND id = ?2").bind(orgId, String(id || "")).first().catch(() => null);
+export async function connectionOf(db, orgId, id, { fresh = false } = {}) {
+  await migrateLegacy(db, orgId, { fresh });
+  const query = db.prepare("SELECT * FROM sso_connections WHERE org_id = ?1 AND id = ?2").bind(orgId, String(id || "")).first();
+  return fresh ? await query : await query.catch(() => null);
 }
-export async function policyOf(db, orgId) {
-  await migrateLegacy(db, orgId);
-  const row = await db.prepare("SELECT * FROM org_sso_policy WHERE org_id = ?1").bind(orgId).first().catch(() => null);
+export async function policyOf(db, orgId, { fresh = false } = {}) {
+  await migrateLegacy(db, orgId, { fresh });
+  const query = db.prepare("SELECT * FROM org_sso_policy WHERE org_id = ?1").bind(orgId).first();
+  const row = fresh ? await query : await query.catch(() => null);
   return { enforce: Boolean(row?.enforce), enforceSince: row?.enforce_since || null };
 }
 const domainsOf = (conn) => JSON.parse(conn?.allowed_domains || "[]");
 const covers = (conn, email) => { const d = domainOf(email); return Boolean(d) && domainsOf(conn).some((x) => domainMatches(d, x)); };
 
 /// The domains this workspace has proved, as of now.
-async function verifiedDomainsOf(db, orgId) {
-  const { results } = await db.prepare("SELECT domain FROM org_domains WHERE org_id = ?1 AND verified_at IS NOT NULL").bind(orgId).all().catch(() => ({ results: [] }));
+async function verifiedDomainsOf(db, orgId, { fresh = false } = {}) {
+  const query = db.prepare("SELECT domain FROM org_domains WHERE org_id = ?1 AND verified_at IS NOT NULL").bind(orgId).all();
+  const { results } = fresh ? await query : await query.catch(() => ({ results: [] }));
   return new Set((results || []).map((r) => r.domain));
 }
 
@@ -273,14 +278,14 @@ const coversNow = (conn, email, verified) => {
 };
 
 /// The switched-on connection that covers an address, if any.
-export async function connectionFor(db, orgId, email) {
-  const verified = await verifiedDomainsOf(db, orgId);
-  return (await connectionsOf(db, orgId)).find((c) => c.status === "active" && coversNow(c, email, verified)) || null;
+export async function connectionFor(db, orgId, email, { fresh = false } = {}) {
+  const verified = await verifiedDomainsOf(db, orgId, { fresh });
+  return (await connectionsOf(db, orgId, { fresh })).find((c) => c.status === "active" && coversNow(c, email, verified)) || null;
 }
 
 /// The first connection, as `/orgs/sso` has always shown it.
-export async function ssoOf(db, orgId) {
-  return (await connectionsOf(db, orgId))[0] || null;
+export async function ssoOf(db, orgId, { fresh = false } = {}) {
+  return (await connectionsOf(db, orgId, { fresh }))[0] || null;
 }
 
 export function presentConnection(row, base) {
@@ -305,24 +310,24 @@ export function presentSso(row, policy = null) {
 /// Whether this workspace requires SSO of this person: it is required, and
 /// a switched-on connection covers their address. An owner at some other
 /// address — the break-glass owner — never is.
-export async function ssoRequiredFor(db, orgId, githubId) {
-  const policy = await policyOf(db, orgId);
+export async function ssoRequiredFor(db, orgId, githubId, { fresh = false } = {}) {
+  const policy = await policyOf(db, orgId, { fresh });
   if (!policy.enforce) return null;
   const user = await db.prepare("SELECT email FROM users WHERE github_id = ?1").bind(String(githubId)).first();
   if (!domainOf(user?.email)) return null;
-  return connectionFor(db, orgId, user.email);
+  return connectionFor(db, orgId, user.email, { fresh });
 }
 
 /// The refusal for a session this workspace's SSO does not accept, or null.
-export async function ssoDenial(env, session, orgId) {
-  const required = await ssoRequiredFor(env.DB, orgId, session.github_id);
+export async function ssoDenial(env, session, orgId, { fresh = false } = {}) {
+  const required = await ssoRequiredFor(env.DB, orgId, session.github_id, { fresh });
   const start = (conn) => `/sso/start?orgId=${encodeURIComponent(orgId)}${conn ? `&connection=${encodeURIComponent(conn.id)}` : ""}`;
   if (required && (session.auth_method !== "sso" || session.sso_org_id !== orgId)) {
     return { status: 403, body: { message: "Sign in with your company's single sign-on to open this workspace.", code: "sso-required", orgId, start: start(required) } };
   }
   // An SSO sign-in lasts as long as its connection says, used or not.
   if (session.auth_method === "sso" && session.sso_org_id === orgId) {
-    const conn = (session.sso_connection_id && await connectionOf(env.DB, orgId, session.sso_connection_id)) || required || await ssoOf(env.DB, orgId);
+    const conn = (session.sso_connection_id && await connectionOf(env.DB, orgId, session.sso_connection_id, { fresh })) || required || await ssoOf(env.DB, orgId, { fresh });
     const hours = conn?.session_hours || 24;
     if (Date.now() - Date.parse(session.created_at || "") > hours * 3_600_000) {
       return { status: 401, body: { message: "Sign in with your company's single sign-on again.", code: "sso-reauth", orgId, start: start(conn) } };

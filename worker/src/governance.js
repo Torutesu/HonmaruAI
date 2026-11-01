@@ -41,11 +41,12 @@ function json(body, status = 200) {
 const cache = new Map(); // orgId -> { row, at }
 export function forgetGovernance() { cache.clear(); }
 
-export async function governanceOf(db, orgId) {
+export async function governanceOf(db, orgId, { fresh = false } = {}) {
   const hit = cache.get(orgId);
-  if (hit && Date.now() - hit.at < 30_000) return hit.row;
-  const row = await db.prepare("SELECT * FROM org_governance WHERE org_id = ?1").bind(orgId).first().catch(() => null);
-  cache.set(orgId, { row: row || null, at: Date.now() });
+  if (!fresh && hit && Date.now() - hit.at < 30_000) return hit.row;
+  const query = db.prepare("SELECT * FROM org_governance WHERE org_id = ?1").bind(orgId).first();
+  const row = fresh ? await query : await query.catch(() => null);
+  if (!fresh) cache.set(orgId, { row: row || null, at: Date.now() });
   return row || null;
 }
 
@@ -83,9 +84,9 @@ async function saveGovernance(db, orgId, fields, updatedBy) {
 /// The refusal for a request from an address this workspace does not allow,
 /// or null. With no address known (a scheduled job, local dev) there is
 /// nothing to judge.
-export async function ipDenial(env, orgId, ip) {
+export async function ipDenial(env, orgId, ip, { fresh = false } = {}) {
   if (!orgId || !ip) return null;
-  const row = await governanceOf(env.DB, orgId);
+  const row = await governanceOf(env.DB, orgId, { fresh });
   if (!row?.ip_enforce) return null;
   const list = JSON.parse(row.ip_allowlist || "[]");
   if (ipAllowed(ip, list)) return null;

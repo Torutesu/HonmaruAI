@@ -40,12 +40,13 @@ const cache = new Map(); // orgId -> { due, at }
 
 /// When this workspace is to be deleted (ISO), or null. Cached for half a
 /// minute: read on every request into a workspace.
-export async function deletionDue(db, orgId) {
+export async function deletionDue(db, orgId, { fresh = false } = {}) {
   const hit = cache.get(orgId);
-  if (hit && Date.now() - hit.at < 30_000) return hit.due;
-  const row = await db.prepare("SELECT due_at FROM workspace_deletions WHERE org_id = ?1").bind(orgId).first().catch(() => null);
+  if (!fresh && hit && Date.now() - hit.at < 30_000) return hit.due;
+  const query = db.prepare("SELECT due_at FROM workspace_deletions WHERE org_id = ?1").bind(orgId).first();
+  const row = fresh ? await query : await query.catch(() => null);
   const due = row?.due_at || null;
-  cache.set(orgId, { due, at: Date.now() });
+  if (!fresh) cache.set(orgId, { due, at: Date.now() });
   return due;
 }
 

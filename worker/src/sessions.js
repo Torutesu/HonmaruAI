@@ -104,9 +104,10 @@ export async function signedIn(env, request, token, githubId, method) {
 const SEEN_EVERY_MS = 5 * 60 * 1000;
 
 /// Signed out of this workspace, by its admin or its rules.
-export async function endedHere(db, token, orgId) {
+export async function endedHere(db, token, orgId, { fresh = false } = {}) {
   if (!token || !orgId) return false;
-  const row = await db.prepare("SELECT last_seen_at, ended_at FROM session_workspaces WHERE token = ?1 AND org_id = ?2").bind(token, orgId).first().catch(() => null);
+  const query = db.prepare("SELECT last_seen_at, ended_at FROM session_workspaces WHERE token = ?1 AND org_id = ?2").bind(token, orgId).first();
+  const row = fresh ? await query : await query.catch(() => null);
   if (row?.ended_at) return true;
   // Used here: noted, at most every few minutes.
   if (!row || Date.now() - Date.parse(row.last_seen_at) > SEEN_EVERY_MS) {

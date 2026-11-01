@@ -24,8 +24,11 @@ export function prepareSkillFiles(skill, input) {
   if(decoded.error)return decoded;
   return validateSkillPackage([{path:'SKILL.md',bytes:new TextEncoder().encode(skillMarkdown(skill))},...decoded.files]);
 }
-export function skillFileInserts(db,orgId,skillId,files) {
-  return files.map(file=>db.prepare('INSERT INTO hx_skill_files (org_id,skill_id,path,size,content) VALUES (?1,?2,?3,?4,?5)')
+export function skillFileInserts(db,orgId,skillId,files,{onlyIfSkillExists = false} = {}) {
+  const insert = onlyIfSkillExists
+    ? 'INSERT INTO hx_skill_files (org_id,skill_id,path,size,content) SELECT ?1,?2,?3,?4,?5 WHERE EXISTS (SELECT 1 FROM hx_skills WHERE org_id=?1 AND id=?2)'
+    : 'INSERT INTO hx_skill_files (org_id,skill_id,path,size,content) VALUES (?1,?2,?3,?4,?5)';
+  return files.map(file=>db.prepare(insert)
     .bind(orgId,skillId,file.path,file.bytes.byteLength,file.bytes.buffer.slice(file.bytes.byteOffset,file.bytes.byteOffset+file.bytes.byteLength)));
 }
 export async function listSkillFiles(db,orgId,skillId,userId) {

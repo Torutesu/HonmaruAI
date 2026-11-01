@@ -77,10 +77,11 @@ function listResponse(items, startIndex, count) {
 /// out: a fresh sign-in at the domain, an invitation or SSO used to put the
 /// membership straight back while the directory still said inactive.
 /// Another workspace the account is in is not this directory's to close.
-export async function deactivatedHere(db, orgId, githubId) {
+export async function deactivatedHere(db, orgId, githubId, { fresh = false } = {}) {
   if (!orgId || !githubId) return false;
-  const row = await db.prepare("SELECT 1 FROM scim_users WHERE org_id = ?1 AND user_github_id = ?2 AND active = 0")
-    .bind(orgId, String(githubId)).first().catch(() => null);
+  const query = db.prepare("SELECT 1 FROM scim_users WHERE org_id = ?1 AND user_github_id = ?2 AND active = 0")
+    .bind(orgId, String(githubId)).first();
+  const row = fresh ? await query : await query.catch(() => null);
   return Boolean(row);
 }
 

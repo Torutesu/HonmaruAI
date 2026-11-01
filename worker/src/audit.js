@@ -19,6 +19,8 @@ import { auditCryptoReady, encryptBody, decryptBody, principalOf } from "./audit
 /// Every action this deployment records: its category, how much it
 /// matters, and a sentence for the screen ({actor} did it to {entity}).
 export const AUDIT_ACTIONS = {
+  "skill.share_delivery_denied": { category: "security", severity: "warning", text: "A Skill share link could not be delivered to {actor}" },
+  "skill.import_delivery_denied": { category: "security", severity: "warning", text: "An imported Skill could not be delivered to {actor}" },
   "document.conversion_requested": {category:"files",severity:"info",text:"{actor} requested document conversion"},
   "document.cancel_requested": {category:"files",severity:"info",text:"{actor} requested conversion cancellation"},
   "document.artifact_received": {category:"files",severity:"info",text:"{actor} delivered a converted document"},

@@ -1,4 +1,7 @@
 import { mayReadSkillSource, visibleSkillRows } from './skillSourceScope.js';
+import { skillAgentManager } from './skillAgentAuthority.js';
+import { skillSessionAuthority } from './skillSessionAuthority.js';
+import { skillPolicyFingerprint, skillSsoDeadline } from './skillPolicyProof.js';
 import { skillMarkdown, MAX_SKILL_FILE_BYTES } from './skillMarkdown.js';
 import { skillSelect, skillVisible } from './skillAccess.js';
 import { mayAccessAgent } from './agents.js';
@@ -61,7 +64,9 @@ function clean(input) {
   return fields;
 }
 
-export async function createSkill(db, orgId, input, by) {
+export async function createSkill(db, orgId, input, by, { activeShareId, installAgentId, memberSince, sessionToken = null, policyFingerprint = null, ssoDeadline = null } = {}) {
+  if (installAgentId && !activeShareId) return { error: 'This Skill share link is unavailable.', status: 404 };
+  if (activeShareId && (typeof memberSince !== 'string' || !memberSince)) return { error: 'This Skill share link is unavailable.', status: 404 };
   const visibility = input.visibility ?? 'workspace';
   if (!['workspace', 'private'].includes(visibility)) return { error: 'Invalid visibility.' };
   const c = clean(input);
@@ -73,10 +78,43 @@ export async function createSkill(db, orgId, input, by) {
   if (Number(n?.n || 0) >= MAX_SKILLS) return { error: "This workspace has as many skills as it can hold." };
   const id = newId("skill");
   const at = now();
-  const insert = db.prepare("INSERT INTO hx_skills (id, org_id, name, description, body, created_by, created_at, updated_at, metadata) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)")
-    .bind(id, orgId, c.name, c.description, c.body, String(by), at, JSON.stringify(c.metadata));
-  await db.batch([insert, db.prepare("INSERT INTO hx_skill_access (org_id, skill_id, visibility, version) VALUES (?1, ?2, ?3, 1)").bind(orgId, id, visibility), ...skillFileInserts(db,orgId,id,assets.files)]);
-  return { skill: await getSkill(db, orgId, id, by) };
+  const values = [id, orgId, c.name, c.description, c.body, String(by), at, JSON.stringify(c.metadata)];
+  // Import authorization must be checked in the same transaction that creates
+  // the copy: a link can be revoked (or the recipient removed) after the files
+  // have already been read. Keep ordinary Skill creation unchanged.
+  const insert = activeShareId
+    ? db.prepare(`INSERT INTO hx_skills (id, org_id, name, description, body, created_by, created_at, updated_at, metadata)
+        SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8
+        WHERE EXISTS (SELECT 1 FROM hx_skill_shares sh WHERE sh.id=?9 AND sh.revoked_at IS NULL AND sh.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=sh.org_id)
+          AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=sh.org_id))
+          AND EXISTS (SELECT 1 FROM memberships m WHERE m.org_id=?2 AND m.user_github_id=?6 AND m.created_at=?10 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+            AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=m.org_id AND
+              (d.purge_started_at IS NOT NULL OR NOT (LOWER(m.role)='owner' OR (INSTR(m.org_id,'/')>0 AND LOWER(m.role)='admin')))))
+          AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?2 AND d.purge_started_at IS NOT NULL)
+          AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=?2)
+          AND ${skillSessionAuthority('?2', '?6', '?11')}
+          AND (?12 IS NULL OR ${skillPolicyFingerprint('?2', '?6', '?11')}=?12)
+          AND ${skillSsoDeadline('?13')}
+          AND (SELECT COUNT(*) FROM hx_skills WHERE org_id=?2)<${MAX_SKILLS}
+          ${installAgentId ? `AND ${skillAgentManager('?2', '?14', '?6')}` : ''}`).bind(...values, activeShareId, memberSince, sessionToken, policyFingerprint, ssoDeadline, ...(installAgentId ? [installAgentId] : []))
+    : db.prepare("INSERT INTO hx_skills (id, org_id, name, description, body, created_by, created_at, updated_at, metadata) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)").bind(...values);
+  const accessSql = activeShareId
+    ? 'INSERT INTO hx_skill_access (org_id, skill_id, visibility, version) SELECT ?1, ?2, ?3, 1 WHERE EXISTS (SELECT 1 FROM hx_skills WHERE org_id=?1 AND id=?2)'
+    : 'INSERT INTO hx_skill_access (org_id, skill_id, visibility, version) VALUES (?1, ?2, ?3, 1)';
+  const install = installAgentId ? [db.prepare(`INSERT INTO hx_agent_skills (org_id,agent_id,skill_id,added_by,added_at)
+    SELECT ?1,?2,?3,?4,?5 WHERE EXISTS(SELECT 1 FROM hx_skills WHERE org_id=?1 AND id=?3)`)
+    .bind(orgId, installAgentId, id, String(by), at)] : [];
+  const writes = await db.batch([insert, db.prepare(accessSql).bind(orgId, id, visibility), ...skillFileInserts(db,orgId,id,assets.files,{onlyIfSkillExists: Boolean(activeShareId)}), ...install]);
+  if (activeShareId && !writes[0]?.meta?.changes) return { error: 'This Skill share link is unavailable.', status: 404 };
+  let skill;
+  try { skill = await getSkill(db, orgId, id, by); }
+  catch (error) {
+    if (activeShareId) return { error: 'The import was saved but could not be shown. Check with a workspace admin before retrying.', status: 503, committedSkillId: id };
+    throw error;
+  }
+  if (activeShareId && !skill) return { error: 'The import was saved but your access changed. Check with a workspace admin before retrying.', status: 409, committedSkillId: id };
+  return { skill };
 }
 
 export async function updateSkill(db, orgId, id, input, userId = "") {
