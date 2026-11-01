@@ -91,7 +91,7 @@ import { playSound, setOpenView, rememberLevels, rememberLevel, startRing, stopR
 import { closeMessageNotifications, closeThreadNotifications } from '../utils/notifications'
 import { hasOlder, olderThan } from '../utils/historyPage'
 import { foldedRows, sectionBadge, visibleRows, stepRow, readFolds, writeFolds, withSectionFolds, withFold, unplacedAgents } from '../utils/sidebarSections'
-import { SidebarEditQueue, trackSidebarQueue, retainSidebarQueue, takeSidebarQueue, reorderExisting, reorderIncludingNew, type LayoutChange } from '../utils/sidebarSync'
+import { SidebarEditQueue, trackSidebarQueue, retainSidebarQueue, takeSidebarQueue, currentSidebarSession, reorderExisting, reorderIncludingNew, type LayoutChange } from '../utils/sidebarSync'
 import { SidebarSavedState } from './SidebarSavedState'
 import { placesFrom } from '../utils/places'
 import type { Place as Conversation } from '../utils/places'
@@ -460,6 +460,9 @@ export const ClassicList: React.FC<Props> = ({
   const [sidebarUncertain, setSidebarUncertain] = useState(false)
   const [sidebarRemote, setSidebarRemote] = useState<SidebarLayout | null>(null)
   const [sidebarChecking, setSidebarChecking] = useState(false)
+  const sidebarSessionIsCurrent = () => {
+    try { return currentSidebarSession(localStorage, api.httpBase, api.sessionToken, userId) } catch { return false }
+  }
   const [sidebarCheckError, setSidebarCheckError] = useState(false)
   const layoutNow = useRef(layout)
   layoutNow.current = layout
@@ -504,7 +507,8 @@ export const ClassicList: React.FC<Props> = ({
         if ((!response.ok && response.status !== 409) || !data?.sidebar) throw new Error('Sidebar could not be saved.')
         return {conflict: response.status === 409, snapshot: data}
       },
-      show, failed, () => controller.abort(), controller.signal)
+      show, failed, () => controller.abort(), controller.signal,
+      sidebarSessionIsCurrent)
     trackSidebarQueue(sync, queueKey)
     setSidebarReady(false)
     setSidebarPending(false)
@@ -537,14 +541,14 @@ export const ClassicList: React.FC<Props> = ({
   const isStarred = (view: string) => layout.starred.includes(view)
   const checkSavedSidebar = async () => {
     const sync = sidebarSync.current
-    if (!sync || sync.isCancelled()) return
+    if (!sync || sync.isCancelled() || !sidebarSessionIsCurrent()) return
     setSidebarChecking(true); setSidebarCheckError(false)
     try {
       const response = await fetch(`${api.httpBase}/channels/sidebar?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders, signal: sync.requestSignal() })
       if (!response.ok) throw new Error('Sidebar could not be read.')
       const data = await response.json()
       if (!data?.sidebar) throw new Error('Sidebar response is incomplete.')
-      if (sidebarSync.current === sync && !sync.isCancelled()) setSidebarRemote(data.sidebar)
+      if (sidebarSync.current === sync && !sync.isCancelled() && sidebarSessionIsCurrent()) setSidebarRemote(data.sidebar)
     } catch { if (sidebarSync.current === sync && !sync.isCancelled()) setSidebarCheckError(true) }
     finally { if (sidebarSync.current === sync && !sync.isCancelled()) setSidebarChecking(false) }
   }
@@ -554,7 +558,7 @@ export const ClassicList: React.FC<Props> = ({
       : 'Discard the pending sidebar changes and use the state currently saved on the server?'
     if (!window.confirm(prompt)) return
     const sync = sidebarSync.current
-    if (!sync || sync.isCancelled()) return
+    if (!sync || sync.isCancelled() || !sidebarSessionIsCurrent()) return
     setSidebarChecking(true); setSidebarCheckError(false)
     try {
       const response = await fetch(`${api.httpBase}/channels/sidebar?orgId=${encodeURIComponent(api.orgId)}`, { headers: authHeaders, signal: sync.requestSignal() })

@@ -1,5 +1,6 @@
 import { afterEach, describe, it, expect } from 'vitest'
-import { SidebarSync, SidebarEditQueue, bindSidebarSession, trackSidebarQueue, hasPendingSidebarQueues, clearSidebarSessionQueues, clearSidebarWorkspaceQueues, retainSidebarQueue, takeSidebarQueue, reorderExisting, reorderIncludingNew } from './sidebarSync'
+import { SidebarSync, SidebarEditQueue, bindSidebarSession, trackSidebarQueue, hasPendingSidebarQueues, clearSidebarSessionQueues, clearSidebarWorkspaceQueues, currentSidebarSession, retainSidebarQueue, takeSidebarQueue, reorderExisting, reorderIncludingNew } from './sidebarSync'
+import type { SidebarSnapshot, SidebarWrite } from './sidebarSync'
 
 type L = { starred: string[] }
 afterEach(() => { clearSidebarSessionQueues() })
@@ -292,5 +293,52 @@ describe('versioned sidebar changes', () => {
     expect(other.hasPending()).toBe(true)
     expect(takeSidebarQueue('workspace-b')).toBe(other)
     expect(hasPendingSidebarQueues()).toBe(true)
+  })
+
+  it('does not dispatch a pending edit after storage changes but before the storage event', async () => {
+    const values=new Map([['sessionToken','old'],['userId','alice'],['host','server.invalid']])
+    const storage={getItem:(key:string)=>values.get(key)||null}
+    const current=()=>currentSidebarSession(storage,'https://server.invalid','old','alice')
+    let finishRead!: (snapshot:SidebarSnapshot<L>)=>void
+    let writes=0,shown=0
+    const waiting=new Promise<SidebarSnapshot<L>>(resolve=>{finishRead=resolve})
+    const q=new SidebarEditQueue<L>({starred:[]},()=>waiting,async sidebar=>{writes++;return {conflict:false,snapshot:{sidebar,version:'saved'}}},()=>{shown++},()=>{},()=>{},undefined,current)
+    q.change(star('b:front'))
+    values.set('sessionToken','new')
+    const before=shown
+    finishRead({sidebar:{starred:['b:old']},version:'v1'})
+    await new Promise(resolve=>setTimeout(resolve,0))
+    expect(writes).toBe(0)
+    expect(shown).toBe(before)
+    expect(q.hasPending()).toBe(true)
+  })
+
+  it('keeps an already dispatched write uncertain when storage changes before its answer', async () => {
+    const values=new Map([['sessionToken','old'],['userId','alice'],['host','server.invalid']])
+    const storage={getItem:(key:string)=>values.get(key)||null}
+    const current=()=>currentSidebarSession(storage,'https://server.invalid','old','alice')
+    let finish!: (write:SidebarWrite<L>)=>void
+    let warned=false,shown=0
+    const waiting=new Promise<SidebarWrite<L>>(resolve=>{finish=resolve})
+    const q=new SidebarEditQueue<L>({starred:[]},async()=>({sidebar:{starred:[]},version:'v1'}),()=>waiting,()=>{shown++},uncertain=>{warned=uncertain},()=>{},undefined,current)
+    await q.retry()
+    q.change(star('b:front'))
+    values.set('sessionToken','new')
+    const before=shown
+    finish({conflict:false,snapshot:{sidebar:{starred:['b:front']},version:'v2'}})
+    await new Promise(resolve=>setTimeout(resolve,0))
+    expect(shown).toBe(before)
+    expect(warned).toBe(true)
+    expect(q.hasPending()).toBe(true)
+  })
+
+  it('checks server, user and session and fails closed when storage is unavailable', () => {
+    const values=new Map([['sessionToken','old'],['userId','alice'],['host','server.invalid']])
+    const storage={getItem:(key:string)=>values.get(key)||null}
+    expect(currentSidebarSession(storage,'https://server.invalid','old','alice')).toBe(true)
+    expect(currentSidebarSession(storage,'https://other.invalid','old','alice')).toBe(false)
+    expect(currentSidebarSession(storage,'https://server.invalid','new','alice')).toBe(false)
+    expect(currentSidebarSession(storage,'https://server.invalid','old','bob')).toBe(false)
+    expect(currentSidebarSession({getItem:()=>{throw new Error('denied')}},'https://server.invalid','old','alice')).toBe(false)
   })
 })

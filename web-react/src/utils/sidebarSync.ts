@@ -72,6 +72,16 @@ export class SidebarSync<L> {
 export type SidebarSnapshot<L> = { sidebar: L; version?: string | null }
 export type SidebarWrite<L> = { conflict: boolean; snapshot: SidebarSnapshot<L> }
 
+// Storage events are delivered asynchronously. A queue must check the current
+// account immediately before starting a request, not only on that event.
+export function currentSidebarSession(storage: Pick<Storage, 'getItem'>, server: string, token: string, user: string): boolean {
+  try {
+    if (!token || !user || storage.getItem('sessionToken') !== token || storage.getItem('userId') !== user) return false
+    const host = storage.getItem('host')
+    return !host || server.replace(/^https?:\/\//, '') === host
+  } catch { return false }
+}
+
 // Each local action stays as an operation until the server accepts it. A
 // conflict replaces the base, then replays only this device's pending actions.
 export class SidebarEditQueue<L> {
@@ -88,11 +98,16 @@ export class SidebarEditQueue<L> {
     private write: (sidebar: L, version: string | null | undefined) => Promise<SidebarWrite<L>>,
     private show: (layout: L, ready: boolean, pending: boolean) => void,
     private failed: (uncertain: boolean) => void,
-    private abort: () => void = () => {}, private signal: AbortSignal | undefined = undefined) { this.shown = initial }
+    private abort: () => void = () => {}, private signal: AbortSignal | undefined = undefined,
+    private current: () => boolean = () => true) { this.shown = initial }
+
+  private sessionIsCurrent(): boolean { try { return this.current() } catch { return false } }
+  private sessionChanged(): void { if (!this.detached && !this.cancelled) this.failed(false) }
 
   change(change: LayoutChange<L>): { before: L; next: L } {
     const before = this.shown
     if (this.cancelled) return {before, next:before}
+    if (!this.sessionIsCurrent()) { this.sessionChanged(); return {before, next:before} }
     if (this.uncertain) { if (!this.detached) this.failed(true); return {before, next:before} }
     this.pending.push(change)
     this.shown = change(before)
@@ -103,19 +118,23 @@ export class SidebarEditQueue<L> {
 
   async retry(): Promise<void> {
     if (this.running || this.uncertain || this.cancelled) return
+    if (!this.sessionIsCurrent()) { this.sessionChanged(); return }
     this.running = true
     try {
       if (!this.base) {
         const fetched = await this.read()
         if (this.cancelled) return
+        if (!this.sessionIsCurrent()) { this.sessionChanged(); return }
         this.base = fetched
         this.shown = this.pending.reduce((layout, change) => change(layout), fetched.sidebar)
         if (!this.detached) this.show(this.shown, true, this.hasPending())
       }
       let conflicts = 0
       while (this.pending.length && !this.cancelled) {
+        if (!this.sessionIsCurrent()) { this.sessionChanged(); return }
         const batch = this.pending.slice()
         const next = batch.reduce((layout, change) => change(layout), this.base.sidebar)
+        if (!this.sessionIsCurrent()) { this.sessionChanged(); return }
         let result: SidebarWrite<L>
         try { result = await this.write(next, this.base.version) }
         catch {
@@ -127,6 +146,12 @@ export class SidebarEditQueue<L> {
           return
         }
         if (this.cancelled) return
+        if (!this.sessionIsCurrent()) {
+          // The request was already dispatched, so its effect may have landed.
+          this.uncertain = true
+          if (!this.detached) this.failed(true)
+          return
+        }
         this.base = result.snapshot
         if (!result.conflict) { this.pending.splice(0, batch.length); conflicts = 0 }
         else if (++conflicts >= 8) throw new Error('Sidebar changed repeatedly.')
@@ -143,7 +168,7 @@ export class SidebarEditQueue<L> {
 
   // Only an explicit user decision may discard the uncertain operations.
   adopt(snapshot: SidebarSnapshot<L>): boolean {
-    if (!this.uncertain || this.running || this.detached || this.cancelled) return false
+    if (!this.uncertain || this.running || this.detached || this.cancelled || !this.sessionIsCurrent()) return false
     this.pending = []
     this.base = snapshot
     this.shown = snapshot.sidebar
@@ -165,6 +190,7 @@ export class SidebarEditQueue<L> {
     this.show = show
     this.failed = failed
     this.detached = false
+    if (!this.sessionIsCurrent()) { this.sessionChanged(); return }
     this.show(this.shown, this.base !== null, this.hasPending())
     if (this.uncertain) this.failed(true)
   }
@@ -179,6 +205,7 @@ export class SidebarEditQueue<L> {
     this.abort()
     this.abort = () => {}
     this.signal = undefined
+    this.current = () => false
     this.pending = []
     this.base = null
     this.shown = this.initial
