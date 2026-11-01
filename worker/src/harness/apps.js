@@ -381,7 +381,7 @@ export async function renderApp(db, orgId, id) {
 }
 
 /// A generated app starts with the same one-view table Kylon shows; secondary
-/// layouts are opt-in and cannot inherit invented filters from model output.
+/// layouts are opt-in, while explicit filters and sorts remain part of the request.
 function requestedAppViews(prompt, candidates, columns = []) {
   const japanese = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(prompt);
   const tableName = japanese ? "すべて" : "All";
@@ -389,9 +389,10 @@ function requestedAppViews(prompt, candidates, columns = []) {
   const wantsMetrics = /\bdashboard\b|\banalytics\b|\bmetrics\b|\breport(?:ing)?\b|\bcharts?\b|\bkpis?\b|ダッシュボード|分析|集計|レポート|グラフ|KPI/iu.test(prompt);
   const wantsCalendar = /\bcalendar(?: view)?\b|カレンダー(?:ビュー|表示)?/iu.test(prompt);
   const asksForMultipleTableViews = /\b(?:saved|custom|filtered|multiple|separate) views?\b|\bviews? (?:for|by|named|called)\b|複数(?:の)?ビュー|ビューを(?:作成|追加)|ビューごと/iu.test(prompt);
+  const asksForTableConfiguration = /\b(?:filter(?:ed|ing)?|only|excluding|exclude|overdue|past due|unpaid|unassigned|open tasks|completed tasks|sort(?:ed|ing)?|order(?:ed|ing) by)\b|だけ|のみ|以外|絞り込(?:み)?|未割当|未完了|未対応|期限切れ|未払い|並べ替え|ソート|昇順|降順/iu.test(prompt);
   const source = Array.isArray(candidates) ? candidates : [];
   const tableViews = source.filter(view => view?.type === "table");
-  const tables = asksForMultipleTableViews ? tableViews.slice(0, 12) : [];
+  const tables = asksForMultipleTableViews ? tableViews.slice(0, 12) : asksForTableConfiguration && tableViews.length ? [tableViews[0]] : [];
   if (!tables.length) tables.push({ type: "table", name: tableName });
   const extras = [];
   if (wantsBoard) {
@@ -426,7 +427,7 @@ export async function specFromPrompt(prompt, { complete } = {}) {
           "Design a small internal business app as JSON, nothing else.",
           'Shape: {"name": app title string, "tableName": primary table label string, "icon": one emoji, "description": string, "columns": [{"name": string, "type": "text"|"number"|"date"|"select"|"checkbox"|"url"|"person"|"email", "options"?: string[]}],',
           '"views": [{"type": "table"|"board"|"metrics"|"calendar", "dateColumn"?: column name, "name": string, "groupBy"?: column name, "sort"?: column name or "-name", "metrics"?: [{"label": string, "op": "count"|"sum"|"avg", "column"?: column name}]}]}',
-          "Start with one unfiltered table view named すべて (Japanese) or All (English). Add board, metrics, or calendar views only when the request explicitly asks for that view. Do not invent extra views.",
+          "Start with one table view named すべて (Japanese) or All (English). Preserve filters or sorting only when the request asks for them. Add board, metrics, or calendar views only when the request explicitly asks for that view. Do not invent extra views.",
           "At most 10 columns. A board needs a select column to group by. Name things in the language of the request. Keep the app title and primary table label distinct when the request implies they have different names; the table label should be concise and natural for the records users add. Use type person for internal owners, assignees, reviewers, interviewers and approvers so users select workspace members; do not model those as free text unless the request explicitly asks for that field to be free text.",
         ].join("\n"),
         text,

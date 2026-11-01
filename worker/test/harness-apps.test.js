@@ -349,6 +349,11 @@ test("generated apps start with one all-records table unless extra views were re
     name: "Tasks", columns: [{ name: "Status", type: "select", options: ["Open"] }, { name: "Due", type: "date" }], views: [],
   }) });
   expect(missingRequestedViews.spec.definition.views.map(view => view.type)).toEqual(["table", "board", "calendar"]);
+  const filtered = await specFromPrompt("未割当のタスクだけを表示する管理アプリ", { complete: async () => JSON.stringify({
+    name: "Tasks", columns: [{ name: "Task", type: "text" }, { name: "Assignee", type: "select", options: ["未割当", "担当あり"] }],
+    views: [{ type: "table", name: "未割当", where: { Assignee: "未割当" } }, { type: "board", name: "Board", groupBy: "Assignee" }],
+  }) });
+  expect(filtered.spec.definition.views).toEqual([{ type: "table", name: "未割当", where: { Assignee: "未割当" } }]);
 
   const fallback = await specFromPrompt("a team work tracker", { complete: null });
   expect(fallback.spec.definition.views).toEqual([{ type: "table", name: "All" }]);
