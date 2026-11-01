@@ -6,6 +6,7 @@ import { resolveChannel, postMessage, getMessage } from '../channels.js';
 import { broadcastStored } from '../channelRoutes.js';
 import { checkOutgoing } from '../dlp.js';
 import { completer } from './model.js';
+import { withRoomGuidelinesRequest } from './guidelines.js';
 
 const conflict = () => ({error:'This app is still being created. Try again shortly.',status:409});
 const leaseMs = 120000;
@@ -77,7 +78,8 @@ export async function generateApp(env, request, orgId, who, input, {makeComplete
     let made=job?.generated?JSON.parse(job.generated):null;
     if(!made){
       const complete=input.useModel===false?null:await makeCompleter(env,orgId,by,'app_generate',{maxTokens:2400});
-      made=await specFromPrompt(prompt,{complete});
+      const guidedPrompt=channel?await withRoomGuidelinesRequest(env.DB,orgId,channel,prompt):prompt;
+      made=await specFromPrompt(guidedPrompt,{complete});
       if(made.error){await release();return made;}
       if(requestId){
         const saved=await env.DB.prepare(`UPDATE hx_app_generation_jobs SET generated=? WHERE org_id=? AND user_id=? AND request_id=? AND lease_token=? AND status='running' AND lease_until>?`)

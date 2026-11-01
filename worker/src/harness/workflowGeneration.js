@@ -1,4 +1,5 @@
 import { normalizeTrigger, normalizeSteps, mayViewWorkflow } from './workflows.js';
+import { withRoomGuidelinesRequest } from './guidelines.js';
 
 // Model output is a proposal, never executable code. Validate all references as
 // the requesting member and always save paused so generation cannot send posts.
@@ -6,6 +7,7 @@ export async function workflowFromPrompt(db, orgId, by, { prompt, channel, timez
   const text = typeof prompt === 'string' ? prompt.trim() : '';
   if (!text || text.length > 4000) return { error: 'Describe the automation in 1–4000 characters.' };
   if (!complete) return { error: 'AI generation is unavailable within the current allowance. Use the manual builder or try again later.', status: 503 };
+  const requestText=channel?await withRoomGuidelinesRequest(db,orgId,channel,text):text;
   let spec;
   try {
     const raw = await complete([
@@ -18,7 +20,7 @@ export async function workflowFromPrompt(db, orgId, by, { prompt, channel, timez
       'Do not invent integrations or capabilities. If the request cannot be implemented, return {error: a brief explanation in the user language}. No external network, shell, email or code execution steps exist.',
       'Return the exact requested behavior, not a generic notification as a substitute. Do not add sample data or extra steps. Scheduling is reviewed before activation.',
       JSON.stringify({ defaultChannel: channel || null, defaultTimezone: timezone, tables, agents, appRecords }),
-    ].join('\n'), text);
+    ].join('\n'), requestText);
     spec = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
   } catch { return { error: 'The automation could not be generated. Try a more specific description.' }; }
   if (spec?.error) return { error: String(spec.error).slice(0, 500) };

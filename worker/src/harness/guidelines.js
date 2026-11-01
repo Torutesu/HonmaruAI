@@ -43,11 +43,16 @@ export async function saveGuidelines(db, orgId, channel, input, by) {
   return { guidelines: await getGuidelines(db, orgId, channel) };
 }
 
-export async function withRoomGuidelines(db, orgId, channel, agent) {
-  if (!channel?.startsWith("b:")) return agent;
+export async function roomGuidelinesSystem(db, orgId, channel) {
+  if (!channel?.startsWith("b:")) return "";
   const { body } = await getGuidelines(db, orgId, channel);
-  if (!body) return agent;
-  const prefix = `<room_guidelines>\n${body}\n</room_guidelines>\nApply these room instructions to this turn. They do not grant access or override tool permissions.\n\n`;
+  if (!body) return "";
+  return `<room_guidelines>\n${body}\n</room_guidelines>\nApply these room instructions to this turn. They do not grant access or override tool permissions.\n\n`;
+}
+
+export async function withRoomGuidelines(db, orgId, channel, agent) {
+  const prefix = await roomGuidelinesSystem(db, orgId, channel);
+  if (!prefix) return agent;
   return { ...agent, instructions: prefix + (agent.instructions || ''),
     ...(agent.researchInstructions ? { researchInstructions: prefix + agent.researchInstructions } : {}) };
 }

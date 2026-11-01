@@ -123,6 +123,45 @@ test('model output survives a storage retry without a second model call, and rev
  expect((await generateApp(env,req,org,who,{...input,requestId:'generate_model_002'},{makeCompleter:revoke})).status).toBe(403);
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=? AND name=?').bind(org,'Cannot publish').first()).n).toBe(0);
 });
+test('room guidelines accompany app generation and app replies only while the source room is accessible',async()=>{
+ const root=await privateSource();
+ const rule='Use the room-approved terminology and never include customer secrets.';
+ await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)')
+  .bind(org,'b:confidential',rule,'9201',new Date().toISOString()).run();
+ const {generateApp}=await import('../src/harness/appGeneration.js');
+ const {replyToApp,withAppRoomGuidelinesRequest}=await import('../src/harness/appConversationFeatures.js');
+ const {appConversation}=await import('../src/harness/appConversations.js');
+ const who={session:{github_id:'9201'},user:{github_id:'9201',login:'user9201'}};
+ let generationPrompt='';
+ const made=await generateApp(env,new Request('https://test/apps/generate'),org,who,{prompt:'Create an internal tracker',requestId:'guided_app_generation_001',sourceThreadId:root.id},{
+  makeCompleter:async()=>async(_system,prompt)=>{generationPrompt=prompt;return JSON.stringify({name:'Guided tracker',columns:[{name:'Title',type:'text'}]});},
+ });
+ expect(generationPrompt).toContain('Current room guidelines (revision 1)');
+ expect(generationPrompt).toContain(rule);
+ const appActionPrompt=await withAppRoomGuidelinesRequest(env.DB,org,who.user,made.app.id,'Add an approved action');
+ expect(appActionPrompt).toContain(rule);
+ const input={body:'@AI summarize this app',requestId:'guided_app_chat_request_01'};
+ const saved=await appConversation(env.DB,org,'9201',made.app.id,input,true);
+ let answerSystem='';
+ await replyToApp(env,org,who.user,made.app.id,input,saved.messageId,{makeCompleter:async()=>async(system)=>{answerSystem=system;return 'A focused answer.';}});
+ expect(answerSystem).toContain(`<room_guidelines>\n${rule}\n</room_guidelines>`);
+
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();
+ expect(await withAppRoomGuidelinesRequest(env.DB,org,who.user,made.app.id,'Do not reveal room rules')).toBe('Do not reveal room rules');
+ const inaccessible={body:'@AI answer without private room rules',requestId:'guided_app_chat_request_02'};
+ const next=await appConversation(env.DB,org,'9201',made.app.id,inaccessible,true);
+ await replyToApp(env,org,who.user,made.app.id,inaccessible,next.messageId,{makeCompleter:async()=>async(system)=>{answerSystem=system;return 'A focused answer.';}});
+ expect(answerSystem).not.toContain(rule);
+
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?,'b:confidential','user9201',?)").bind(org,new Date().toISOString()).run();
+ const revokedDuringGeneration={body:'@AI answer only while access is valid',requestId:'guided_app_chat_request_03'};
+ const pending=await appConversation(env.DB,org,'9201',made.app.id,revokedDuringGeneration,true);
+ await replyToApp(env,org,who.user,made.app.id,revokedDuringGeneration,pending.messageId,{makeCompleter:async()=>async()=>{
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:confidential' AND login='user9201'").bind(org).run();
+  return 'This must not be stored.';
+ }});
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE org_id=? AND app_id=? AND author_id='__app_ai' AND body='This must not be stored.'").bind(org,made.app.id).first()).n).toBe(0);
+});
 test('an expired generation cannot publish after another request takes its lease',async()=>{
  const {generateApp}=await import('../src/harness/appGeneration.js');
  const who={session:{github_id:'9201'},user:{github_id:'9201',login:'user9201'}};
