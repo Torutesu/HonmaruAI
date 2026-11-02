@@ -37,6 +37,19 @@ test('a missing combined authorization row fails closed',async()=>{
  expect(await policyDenial({...env,DB:db},session,org)).toMatchObject({status:503,body:{code:'workspace-status-unavailable'}});
 });
 
+test('session authorization reads fail closed for both legacy and combined queries',async()=>{
+ await env.DB.exec(schema.replace(/\n/g,' '));const org='personal:session-read-errors',user='8296';
+ await upsertUser(env.DB,{githubId:user,login:'readerrors',name:'Read errors'});await upsertMembership(env.DB,org,user,'member');
+ const key=await sessionKey(await createSession(env.DB,user,'fixture'));const session=await sessionByKey(env.DB,key);
+ for(const [kind,pattern] of [['legacy','SELECT last_seen_at, ended_at FROM session_workspaces'],['combined','AS deletion_due']]){
+  let injected=false;
+  const db={prepare(sql){if(sql.includes(pattern))return {bind(){return {first:async()=>{injected=true;throw Error(`${kind} session read unavailable`)}}}};return env.DB.prepare(sql)},batch:env.DB.batch.bind(env.DB)};
+  if(kind==='legacy')await expect(endedHere(db,key,org,{fresh:true})).rejects.toThrow('legacy session read unavailable');
+  else expect(await policyDenial({...env,DB:db},session,org,{fresh:true})).toMatchObject({status:503,body:{code:'workspace-status-unavailable'}});
+  expect(injected).toBe(true);
+ }
+});
+
 test('a deletion reserved just after the combined read prevents later route authorization from promoting an owner',async()=>{
  await env.DB.exec(schema.replace(/\n/g,' '));const org='personal:combined-reservation-race',user='8294';
  await upsertUser(env.DB,{githubId:user,login:'combinedrace',name:'Race'});await upsertMembership(env.DB,org,user,'admin');
