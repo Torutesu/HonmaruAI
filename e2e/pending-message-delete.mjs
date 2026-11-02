@@ -91,10 +91,14 @@ export async function pendingMessageDelete(browser, web, phone) {
     await page.keyboard.press('Escape')
     await page.waitForSelector('[data-delete-confirm]', { state: 'detached', timeout: 5000 })
     if (!await page.$(`.slk-main [id="msg-${normal.id}"]`)) throw new Error('canceling the question removed the sent message')
+    if (deletes.length !== 0) throw new Error('canceling the question sent a delete request')
 
-    const approvedDelete = page.waitForResponse(response => new URL(response.url()).pathname === '/channels/messages' && response.request().method() === 'DELETE').catch(() => null)
     const approved = await queueDeletion('pending keyboard approve', false)
     await page.waitForSelector('.cl-delete-dialog [data-delete-preview]:has-text("pending keyboard approve")', { timeout: 10000 })
+    if (deletes.length !== 0) throw new Error('the approval question sent a delete before confirmation')
+    // Start observing only after the question is visible and its no-delete
+    // check has passed, so an earlier request cannot satisfy this waiter.
+    const approvedDelete = page.waitForResponse(response => new URL(response.url()).pathname === '/channels/messages' && response.request().method() === 'DELETE').catch(() => null)
     await page.click('[data-delete-confirm]')
     const approvedResponse = await approvedDelete
     if (!approvedResponse?.ok() || approvedResponse.request().postDataJSON()?.messageId !== approved.id) throw new Error('confirmation did not delete the acknowledged pending message')
