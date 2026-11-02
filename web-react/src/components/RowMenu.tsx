@@ -13,7 +13,7 @@ import { composing, enterKey } from '../utils/keys'
 /// ↑ and ↓ take the whole row as one item.
 
 export type MenuEntry =
-  | { kind: 'item'; label: string; onSelect?: () => void; icon?: IconName; checked?: boolean; danger?: boolean; hint?: string; submenu?: MenuEntry[]; data?: string; disabled?: boolean }
+  | { kind: 'item'; label: string; identity?: string; onSelect?: () => void; icon?: IconName; checked?: boolean; danger?: boolean; hint?: string; submenu?: MenuEntry[]; data?: string; disabled?: boolean }
   | { kind: 'sep' }
   | { kind: 'head'; label: string }
   | { kind: 'strip'; label: string; items: StripItem[] }
@@ -72,7 +72,24 @@ const walkStrip = (e: React.KeyboardEvent<HTMLElement>) => {
 
 function List({ entries, onClose, onBack, level, label }: { entries: MenuEntry[]; onClose: () => void; onBack?: () => void; level: number; label?: string }) {
   const ref = useRef<HTMLUListElement>(null)
-  const [open, setOpen] = useState<number | null>(null)
+  // Conditional entries can arrive while the menu is open. Keep the same
+  // action attached to its DOM node and to an open submenu across updates.
+  const [open, setOpen] = useState<string | null>(null)
+  const seen = new Map<string, number>()
+  const identity = (entry: MenuEntry | undefined): string => {
+    if (!entry) return 'end'
+    if (entry.kind === 'sep') return 'separator'
+    if (entry.kind === 'item') return `item:${JSON.stringify([entry.identity ?? entry.data ?? entry.label, entry.label])}`
+    return `${entry.kind}:${entry.label}`
+  }
+  const keys = entries.map((entry, i) => {
+    // A separator is tied to the group following it; it has no action.
+    const name = entry.kind === 'sep' ? `sep:${identity(entries.slice(i + 1).find(next => next.kind !== 'sep'))}` : identity(entry)
+    const occurrence = seen.get(name) ?? 0
+    seen.set(name, occurrence + 1)
+    return `${name}:${occurrence}`
+  })
+  useEffect(() => { if (open !== null && !keys.includes(open)) setOpen(null) })
   const [flip, setFlip] = useState(false)
   const closeSubmenuTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cancelSubmenuClose = () => {
@@ -110,14 +127,15 @@ function List({ entries, onClose, onBack, level, label }: { entries: MenuEntry[]
   return (
     <ul ref={ref} role="menu" aria-label={label} className={`row-menu-list${level ? ' sub' : ''}${flip ? ' flip' : ''}`} onKeyDown={onKeyDown}>
       {entries.map((entry, i) => {
-        if (entry.kind === 'sep') return <li key={i} role="separator" className="row-menu-sep" />
-        if (entry.kind === 'head') return <li key={i} role="presentation" className="row-menu-head">{entry.label}</li>
+        const key = keys[i]
+        if (entry.kind === 'sep') return <li key={key} role="separator" className="row-menu-sep" />
+        if (entry.kind === 'head') return <li key={key} role="presentation" className="row-menu-head">{entry.label}</li>
         if (entry.kind === 'strip') {
           return (
-            <li key={i} role="none" className="row-menu-strip">
+            <li key={key} role="none" className="row-menu-strip">
               <div role="group" aria-label={entry.label} onKeyDown={walkStrip}>
-                {entry.items.map((it, j) => (
-                  <button key={j} type="button" role="menuitem" aria-label={it.label} title={it.label} data-row-menu={it.data}
+                {entry.items.map((it) => (
+                  <button key={it.data ?? it.label} type="button" role="menuitem" aria-label={it.label} title={it.label} data-row-menu={it.data}
                     onClick={() => { onClose(); it.onSelect() }}>
                     {it.icon ? <Icon name={it.icon} size={17} /> : it.text}
                   </button>
@@ -128,22 +146,22 @@ function List({ entries, onClose, onBack, level, label }: { entries: MenuEntry[]
         }
         const sub = entry.submenu && entry.submenu.length > 0
         return (
-          <li key={i} role="none" onMouseEnter={() => { cancelSubmenuClose(); setOpen(sub ? i : null) }} onMouseLeave={() => { if (sub) delaySubmenuClose() }}>
+          <li key={key} role="none" onMouseEnter={() => { cancelSubmenuClose(); setOpen(sub ? key : null) }} onMouseLeave={() => { if (sub) delaySubmenuClose() }}>
             <button
               type="button"
               role={entry.checked !== undefined ? 'menuitemradio' : 'menuitem'}
               aria-checked={entry.checked !== undefined ? entry.checked : undefined}
               aria-haspopup={sub ? 'menu' : undefined}
-              aria-expanded={sub ? open === i : undefined}
+              aria-expanded={sub ? open === key : undefined}
               className={`${entry.danger ? 'danger' : ''}${entry.checked ? ' checked' : ''}`}
               disabled={entry.disabled}
               data-row-menu={entry.data}
               onClick={() => {
-                if (sub) { setOpen(open === i ? null : i); return }
+                if (sub) { setOpen(open === key ? null : key); return }
                 onClose()
                 entry.onSelect?.()
               }}
-              onKeyDown={(e) => { if (sub && (e.key === 'ArrowRight' || enterKey(e) || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); setOpen(i) } }}
+              onKeyDown={(e) => { if (sub && (e.key === 'ArrowRight' || enterKey(e) || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); setOpen(key) } }}
             >
               <span className="row-menu-mark" aria-hidden="true">
                 {entry.checked ? <Icon name="check" size={14} /> : entry.icon ? <Icon name={entry.icon} size={14} /> : null}
@@ -152,7 +170,7 @@ function List({ entries, onClose, onBack, level, label }: { entries: MenuEntry[]
               {entry.hint && <span className="row-menu-hint">{entry.hint}</span>}
               {sub && <span className="row-menu-more" aria-hidden="true"><Icon name="chevron-right" size={13} /></span>}
             </button>
-            {sub && open === i && (
+            {sub && open === key && (
               <List entries={entry.submenu!} onClose={onClose} level={level + 1}
                 onBack={() => { setOpen(null); (ref.current?.children[i]?.querySelector('button') as HTMLButtonElement | null)?.focus() }} />
             )}

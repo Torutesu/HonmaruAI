@@ -1316,7 +1316,7 @@ export const ClassicList: React.FC<Props> = ({
     ] })
     out.push({ kind: 'item', label: isStarred(v) ? (isChannel ? t('Unstar channel') : t('Unstar')) : (isChannel ? t('Star channel') : t('Star')), icon: 'star', onSelect: () => toggleStar(v), data: 'star' })
     out.push({ kind: 'item', label: t('Move to a section'), icon: 'folder', data: 'move', submenu: [
-      ...layout.sections.map((x) => ({ kind: 'item' as const, label: x.name, checked: here?.id === x.id, onSelect: () => moveTo(v, x.id), data: `move-to:${x.name}` })),
+      ...layout.sections.map((x) => ({ kind: 'item' as const, label: x.name, identity: `section:${x.id}`, checked: here?.id === x.id, onSelect: () => moveTo(v, x.id), data: `move-to:${x.name}` })),
       ...(here ? [{ kind: 'item' as const, label: t('Back to where it was'), onSelect: () => moveTo(v, null), data: 'move-back' }] : []),
       ...(layout.sections.length || here ? [{ kind: 'sep' as const }] : []),
       { kind: 'item', label: t('New section…'), icon: 'plus', onSelect: () => { setSectionName(''); setAddingSection({ view: v }) }, data: 'new-section' },

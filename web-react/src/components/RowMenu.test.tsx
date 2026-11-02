@@ -108,3 +108,76 @@ describe('the focus when a menu shuts', () => {
     expect(focusGoesBack(null, body, body, menu)).toBe(false)
   })
 })
+
+// The surrounding conversation can become unread while a menu is open.
+// Its conditional items must not reuse the React node for a different action.
+describe('a live row menu', () => {
+  it('keeps action nodes and open submenus attached to their actions when unread items change', async () => {
+    const { act, create } = await import('react-test-renderer')
+    const { vi } = await import('vitest')
+    const doc = { activeElement: null, body: {}, addEventListener: () => {}, removeEventListener: () => {} }
+    vi.stubGlobal('document', doc)
+    vi.stubGlobal('window', { innerWidth: 1000, innerHeight: 700, addEventListener: () => {}, removeEventListener: () => {} })
+    const picked = vi.fn()
+    const close = () => {}
+    const entries = (unread: boolean, star = true, label = 'Star channel'): React.ComponentProps<typeof RowMenu>['entries'] => [
+      ...(unread ? [{ kind: 'item' as const, label: 'Mark all as read', data: 'mark-all' }, { kind: 'sep' as const }] : []),
+      { kind: 'item', label: 'Channel details', data: 'details' },
+      { kind: 'item', label: 'Copy', data: 'copy', submenu: [{ kind: 'item', label: 'Copy link', data: 'copy-link' }] },
+      ...(star ? [{ kind: 'item' as const, label, data: 'star', onSelect: picked }] : []),
+      { kind: 'item', label: 'Move', data: 'move' },
+    ]
+    const render = (unread: boolean, star = true, label = 'Star channel') => <RowMenu at={{ x: 10, y: 10 }} label="Front desk" onClose={close} entries={entries(unread, star, label)} />
+    let tree!: ReturnType<typeof create>
+    try {
+      act(() => { tree = create(render(false)) })
+      const star = tree.root.findByProps({ 'data-row-menu': 'star' })
+      act(() => { tree.root.findByProps({ 'data-row-menu': 'copy' }).props.onClick() })
+      expect(tree.root.findByProps({ 'data-row-menu': 'copy' }).props['aria-expanded']).toBe(true)
+      act(() => { tree.update(render(true)) })
+      expect(tree.root.findByProps({ 'data-row-menu': 'star' })).toBe(star)
+      expect(tree.root.findByProps({ 'data-row-menu': 'copy' }).props['aria-expanded']).toBe(true)
+      act(() => { tree.update(render(false)) })
+      expect(tree.root.findByProps({ 'data-row-menu': 'star' })).toBe(star)
+      act(() => { star.props.onClick() })
+      expect(picked).toHaveBeenCalledTimes(1)
+      // An action that changes from Star to Unstar must not retain a press.
+      act(() => { tree.update(render(false, true, 'Unstar channel')) })
+      expect(tree.root.findByProps({ 'data-row-menu': 'star' })).not.toBe(star)
+      act(() => { tree.update(render(false, false)) })
+      expect(tree.root.findAllByProps({ 'data-row-menu': 'star' })).toHaveLength(0)
+    } finally {
+      if (tree) act(() => { tree.unmount() })
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('keeps same-named sections distinct and does not reopen a removed submenu', async () => {
+    const { act, create } = await import('react-test-renderer')
+    const { vi } = await import('vitest')
+    vi.stubGlobal('document', { activeElement: null, body: {}, addEventListener: () => {}, removeEventListener: () => {} })
+    vi.stubGlobal('window', { innerWidth: 1000, innerHeight: 700, addEventListener: () => {}, removeEventListener: () => {} })
+    const chosen = vi.fn(), close = () => {}
+    const render = (first: boolean, copy: boolean) => <RowMenu at={{ x: 10, y: 10 }} label="Sections" onClose={close} entries={[
+      ...(first ? [{ kind: 'item' as const, label: 'Team', identity: 'section:a', data: 'move-to:Team', onSelect: () => chosen('a') }] : []),
+      { kind: 'item', label: 'Team', identity: 'section:b', data: 'move-to:Team', onSelect: () => chosen('b') },
+      ...(copy ? [{ kind: 'item' as const, label: 'Copy', data: 'copy', submenu: [{ kind: 'item' as const, label: 'Copy link' }] }] : []),
+    ]} />
+    let tree!: ReturnType<typeof create>
+    try {
+      act(() => { tree = create(render(true, true)) })
+      const second = tree.root.findAllByProps({ 'data-row-menu': 'move-to:Team' })[1]
+      act(() => { tree.root.findByProps({ 'data-row-menu': 'copy' }).props.onClick() })
+      act(() => { tree.update(render(false, false)) })
+      expect(tree.root.findByProps({ 'data-row-menu': 'move-to:Team' })).toBe(second)
+      act(() => { second.props.onClick() })
+      expect(chosen).toHaveBeenCalledWith('b')
+      act(() => { tree.update(render(false, true)) })
+      expect(tree.root.findByProps({ 'data-row-menu': 'copy' }).props['aria-expanded']).toBe(false)
+    } finally {
+      if (tree) act(() => { tree.unmount() })
+      vi.unstubAllGlobals()
+    }
+  })
+
+})
