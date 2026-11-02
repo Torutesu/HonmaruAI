@@ -5,7 +5,7 @@ import {AppAnnotationDialog, AppAnnotationLayer, AppAnnotationList, AppAnnotatio
 import {AppRecordDialog} from '../components/AppRecordDialog'
 import {AppRowDeleteConfirm} from '../components/AppRowDeleteConfirm'
 import {AppDataMenu} from '../components/AppDataMenu'
-import {displayLayout, fitTableColumns, isSystemColumn, systemCellText, nextColumnSort} from '../utils/systemColumns'
+import {displayLayout, fitTableColumns, isSystemColumn, systemCellText, systemDateFormatter, nextColumnSort} from '../utils/systemColumns'
 import { ColumnResize } from '../components/ColumnResize'
 import { PersonalViewControls } from '../components/PersonalViewControls'
 import type { PersonalViews } from '../utils/harness'
@@ -565,7 +565,19 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   // A view's server-side filters are already reflected in its rows/lanes/days.
   // Search those results in every record-based presentation, using the same
   // displayed labels (including relation labels) as the table view.
-  const matchesSearch = (row: Row) => !search || table.columns.some(c => displayCellText(c, row.values[c.id]).toLowerCase().includes(search.toLowerCase()))
+  // Share the formatter within this render rather than constructing one per
+  // record; a later render still picks up a changed system time zone.
+  const searchDateFormatter=search?systemDateFormatter():undefined
+  const matchesSearch = (row: Row) => {
+    if(!search)return true
+    const query=search.toLowerCase()
+    if(table.columns.some(c=>displayCellText(c,row.values[c.id]).toLowerCase().includes(query)))return true
+    if([row.id,row.createdAt,row.updatedAt].some(value=>typeof value==='string'&&value!==''&&value.toLowerCase().includes(query)))return true
+    return ['$row.createdAt','$row.updatedAt'].some(id=>{
+      const text=systemCellText(row,id,searchDateFormatter)
+      return text!=='—'&&text.toLowerCase().includes(query)
+    })
+  }
   const shownRows = (view.rows || []).filter(matchesSearch)
   const shownLanes = (view.lanes || []).map(lane => ({...lane, rows: lane.rows.filter(matchesSearch)}))
   const shownDays = (view.days || []).map(day => ({...day, rows: day.rows.filter(matchesSearch)}))
