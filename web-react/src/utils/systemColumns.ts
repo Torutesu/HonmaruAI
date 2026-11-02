@@ -36,12 +36,15 @@ export function fitTableColumns(columns:Column[],savedWidths:Record<string,numbe
   const width=Math.max(available,contentWidth)
   return {width,widths,actionsWidth:appRowActionsWidth,spacerWidth:width-contentWidth}
 }
-export function systemCellText(row:Row,id:string) {
+export function systemDateFormatter() {
+  return new Intl.DateTimeFormat('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})
+}
+export function systemCellText(row:Row,id:string,formatter?:Intl.DateTimeFormat) {
   if(id==='$row.id') return row.id
   const value=id==='$row.createdAt'?row.createdAt:row.updatedAt
   if(!value) return '—'
   const date=new Date(value)
-  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(date) : '—'
+  return Number.isFinite(date.getTime()) ? (formatter||systemDateFormatter()).format(date) : '—'
 }
 
 export const isSystemTimestamp = (id:string) => id==='$row.createdAt'||id==='$row.updatedAt'

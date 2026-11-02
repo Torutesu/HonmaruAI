@@ -3,6 +3,7 @@ import { act, create } from 'react-test-renderer'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { AppView, HarnessApps, HarnessTemplateImport, appTableDisplayName, newAppRecordLabel } from './Harness'
 import { HarnessApiError, harnessApi } from '../utils/harness'
+import { systemCellText } from '../utils/systemColumns'
 
 const state = vi.hoisted(() => ({ api: null as any }))
 vi.mock('./HarnessShared', async importOriginal => ({
@@ -82,6 +83,38 @@ test.each(['table','board','calendar'] as const)('record search filters the %s v
   expect(visible('a')).toBe(1);expect(visible('b')).toBe(1);expect(visible('c')).toBe(1);expect(visible('d')).toBe(0)
   expect(JSON.stringify(tree!.toJSON())).toContain('3 records')
   expect(state.api.updateRow).toBeUndefined()
+})
+
+test.each(['table','board','calendar'] as const)('record search finds system IDs and timestamps in the %s view', async type => {
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const now=new Date(),today=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+  const alpha={id:'ID-ABC-123',values:{title:'Alpha',due:today},createdAt:'2026-10-09T08:07:06Z',updatedAt:'2026-10-12T11:10:09Z'}
+  const beta={id:'ID-XYZ-999',values:{title:'Beta'},createdAt:'invalid-date',updatedAt:''}
+  const excluded={id:'ID-SECRET-987',values:{title:'Excluded'},createdAt:'2026-10-09T08:07:06Z',updatedAt:''}
+  const view={id:'main',type,name:'Main',dateColumn:'due',rows:[alpha,beta],lanes:[{key:null,rows:[alpha,beta]}],days:[{date:today,rows:[alpha]}],undated:[beta]}
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'},{id:'due',name:'Due',type:'date'}]},rows:[alpha,beta,excluded],views:[view],canCustomize:false}),
+    // Search already includes hidden normal columns; system fields follow the same rule.
+    personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'main',views:[],computed:[],layouts:{main:{order:['title','due','$row.id','$row.createdAt','$row.updatedAt'],hidden:['due','$row.id','$row.createdAt','$row.updatedAt'],widths:{}}}}),
+    conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  const search=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Search records')!
+  const visible=(id:string)=>type==='table'?tree!.root.findAllByProps({'data-row':id}).length:tree!.root.findAllByProps({'aria-label':`${id===alpha.id?'Alpha':'Beta'}の詳細を開く`}).length
+  for(const query of ['abc-123','2026-10-09T08:07',systemCellText(alpha,'$row.createdAt'),'2026-10-12T11:10',systemCellText(alpha,'$row.updatedAt')]){
+    act(()=>search().props.onChange({target:{value:query}}))
+    expect(visible(alpha.id),query).toBe(1);expect(visible(beta.id),query).toBe(0)
+    expect(JSON.stringify(tree!.toJSON()),query).toContain('1 records')
+  }
+  act(()=>search().props.onChange({target:{value:'invalid-date'}}))
+  expect(visible(alpha.id)).toBe(0);expect(visible(beta.id)).toBe(1)
+  act(()=>search().props.onChange({target:{value:'—'}}))
+  expect(visible(alpha.id)).toBe(0);expect(visible(beta.id)).toBe(0)
+  act(()=>search().props.onChange({target:{value:'secret-987'}}))
+  expect(visible(alpha.id)).toBe(0);expect(visible(beta.id)).toBe(0)
+  act(()=>search().props.onChange({target:{value:''}}))
+  expect(visible(alpha.id)).toBe(1);expect(visible(beta.id)).toBe(1)
+  expect(JSON.stringify(tree!.toJSON())).toContain('2 records')
 })
 
 test('calendar titles and search use relation labels with an ID fallback, and date edits still save', async () => {
