@@ -1,9 +1,10 @@
 import { env } from "cloudflare:test";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import worker from "../src/index.js";
 import { forgetProviderDocs } from "../src/sso.js";
 import { sha256Hex } from "../src/auth.js";
 import { sessionKey } from "../src/db.js";
+import { LIMITS } from "../src/ratelimit.js";
 
 // Sign in with Apple (src/apple.js) against a pretend Apple that signs real
 // identity tokens: every check on the token, the keys fetched once and again
@@ -161,9 +162,32 @@ test("a key Apple rotated in is fetched again", async () => {
 });
 
 test("rate limited like the other ways in", async () => {
-  const statuses = [];
-  for (let i = 0; i < 12; i++) statuses.push((await signIn({ identityToken: "x", nonce: "n" })).status);
-  expect(statuses).toContain(429);
+  // Keep all requests inside one fixed window, even on a slow CI runner.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    vi.setSystemTime(new Date("2026-09-24T12:00:05.000Z"));
+    expect(LIMITS["oauth/token"]).toEqual({ max: 10, windowSeconds: 300 });
+    for (let i = 0; i < LIMITS["oauth/token"].max; i++) {
+      expect((await signIn({ identityToken: "x", nonce: "n" })).status).toBe(401);
+    }
+    expect((await signIn({ identityToken: "x", nonce: "n" })).status).toBe(429);
+  } finally { vi.useRealTimers(); }
+});
+
+test("Apple sign-in receives a fresh budget at the fixed-window boundary", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    vi.setSystemTime(new Date("2026-09-24T12:04:59.999Z"));
+    const max = LIMITS["oauth/token"].max;
+    for (let i = 0; i < max; i++) expect((await signIn({ identityToken: "x", nonce: "n" })).status).toBe(401);
+    const blocked = await signIn({ identityToken: "x", nonce: "n" });
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.retryAfter).toBe(1);
+
+    vi.setSystemTime(new Date("2026-09-24T12:05:00.000Z"));
+    for (let i = 0; i < max; i++) expect((await signIn({ identityToken: "x", nonce: "n" })).status).toBe(401);
+    expect((await signIn({ identityToken: "x", nonce: "n" })).status).toBe(429);
+  } finally { vi.useRealTimers(); }
 });
 
 test("deleting the account forgets the Apple link", async () => {

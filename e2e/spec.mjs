@@ -1,4 +1,5 @@
 import { workflowProgram } from './workflow-program.mjs'
+import { rowMenuFocus } from './row-menu-focus.mjs'
 import { gatewayTypeScript } from './gateway-typescript.mjs'
 import { workflowConditions } from './workflow-conditions.mjs'
 // What a person actually does, against the real thing.
@@ -84,6 +85,8 @@ const browser = await chromium.launch({
   // A Jam needs a microphone: a fake one, allowed without asking.
   args: ['--headless=new', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
 })
+
+await step('a live menu safely restores keyboard focus when its actions change', () => rowMenuFocus(browser, WEB))
 
 // One person, signing up from scratch, on a phone.
 const phone = await browser.newContext({ locale: 'en-US', viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 })

@@ -36,5 +36,10 @@ export default defineConfig({
     // The chunk warning is about a single-page app whose whole code is one
     // route; splitting it would add a request and save nothing.
     chunkSizeWarningLimit: 600,
+    // The real-component focus fixture is built only for the local E2E run.
+    ...(process.env.E2E_FIXTURES === '1' ? { rollupOptions: { input: {
+      app: fileURLToPath(new URL('./index.html', import.meta.url)),
+      rowMenuFocus: fileURLToPath(new URL('./e2e/row-menu-focus.html', import.meta.url)),
+    } } } : {}),
   },
 })
