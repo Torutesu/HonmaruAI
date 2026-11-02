@@ -2,6 +2,7 @@
 
 const table: Record<string, string> = {
   'The value for {field} cannot be saved without changing the number. Check the input.': '「{field}」の数値は入力した値のまま保存できません。入力を確認してください。',
+  'Enter a complete number before leaving this field.': '数値の入力を完了してから、この欄を離れてください。',
   'New {name}': '新規{name}',
   '{label} ({n} active)': '{label}（{n}件）',
   'Filter records': 'フィルター',

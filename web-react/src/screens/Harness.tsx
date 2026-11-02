@@ -31,6 +31,7 @@ import {
 import { Shell, useApi, useAct, type HarnessProps, type HarnessScreen } from './HarnessShared'
 import { ModePicker } from './HarnessHome'
 import { composing, enterKey } from '../utils/keys'
+import {numberPreservesDecimal} from '../utils/numericPrecision'
 
 export const newAppRecordLabel = (appName: string, tableName: string, titleColumnName = '') => {
   if (tableName && tableName !== appName) return `新規${tableName}`
@@ -312,8 +313,10 @@ function relationOptionLabel(entity: RelationEntity, row: Row) {
 }
 
 function CellInput({ column, value, onSave, wrap = false, width, members=[], relationEntities=[] }: { column: Column; value: unknown; onSave: (v: unknown) => void; wrap?:boolean; width?:number;members?:Array<{ref:string;name:string}>;relationEntities?:RelationEntity[] }) {
+  const t=useT(),numberErrorId=React.useId()
   const [draft, setDraft] = useState<string>(value == null ? '' : String(value))
-  useEffect(() => { setDraft(value == null ? '' : String(value)) }, [value])
+  const [numberError,setNumberError]=useState<'precision'|'incomplete'|null>(null)
+  useEffect(() => { setDraft(value == null ? '' : String(value));setNumberError(null) }, [value])
   const textArea=useRef<HTMLTextAreaElement>(null)
   useEffect(()=>{if(textArea.current){textArea.current.style.height='auto';textArea.current.style.height=`${textArea.current.scrollHeight}px`}},[draft,wrap,width])
   if(column.type==='relation') {
@@ -343,15 +346,25 @@ function CellInput({ column, value, onSave, wrap = false, width, members=[], rel
   }
   const type = column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : column.type === 'email' ? 'email' : column.type === 'url' ? 'url' : 'text'
   return (
+    <>
     <input
       className="hx-cell-input"
       type={type}
       value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => { if (draft !== (value == null ? '' : String(value))) onSave(draft) }}
+      aria-invalid={numberError?true:undefined}
+      aria-describedby={numberError?numberErrorId:undefined}
+      onChange={(e) => {setDraft(e.target.value);setNumberError(null)}}
+      onBlur={(e) => {
+        if(column.type==='number'&&e?.currentTarget?.validity?.badInput){setNumberError('incomplete');return}
+        if(draft===(value==null?'':String(value)))return
+        if(column.type==='number'&&draft!==''&&!numberPreservesDecimal(draft)){setNumberError('precision');return}
+        setNumberError(null);onSave(draft)
+      }}
       onKeyDown={(e) => { if (enterKey(e)) (e.target as HTMLInputElement).blur() }}
       aria-label={column.name}
     />
+    {numberError&&<div id={numberErrorId} className="form-error" role="alert">{numberError==='incomplete'?t('Enter a complete number before leaving this field.'):t('The value for {field} cannot be saved without changing the number. Check the input.',{field:column.name})}</div>}
+    </>
   )
 }
 
