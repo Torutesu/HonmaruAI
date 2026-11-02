@@ -689,3 +689,13 @@
 .mention.m-ai { color: #7c3aed; background: rgba(124, 58, 237, 0.12); }
 .mention.m-agent { color: #b45309; background: rgba(180, 83, 9, 0.12); }
 .mention.m-group { color: #0f7b6c; background: rgba(15, 123, 108, 0.12); }
+
+/* The type-specific chips override the generic mention colour above. */
+@media (prefers-color-scheme: dark) {
+  :where(:root:not([data-theme="light"])) .mention.m-ai { color: #c4b5fd; }
+  :where(:root:not([data-theme="light"])) .mention.m-agent { color: #ffc083; }
+  :where(:root:not([data-theme="light"])) .mention.m-group { color: #7addc8; }
+}
+:where(:root[data-theme="dark"]) .mention.m-ai { color: #c4b5fd; }
+:where(:root[data-theme="dark"]) .mention.m-agent { color: #ffc083; }
+:where(:root[data-theme="dark"]) .mention.m-group { color: #7addc8; }
