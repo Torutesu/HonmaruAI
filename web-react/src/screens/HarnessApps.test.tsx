@@ -40,11 +40,14 @@ test('view tabs navigate by keyboard without saving until activated', async () =
   expect(tree!.root.findByProps({role:'tablist'}).props['aria-label']).toBe('Views')
   expect(tabs().map(tab=>tab.props.tabIndex)).toEqual([0,-1,-1,-1])
   expect(tabs()[2].props.disabled).toBe(true)
-  const domTabs=Array.from({length:3},()=>({focus:vi.fn()}))
+  const domTabs=Array.from({length:3},()=>({focus:vi.fn(),isConnected:true}))
   const parentElement={querySelectorAll:vi.fn(()=>domTabs)}
   const navigate=(key:string,index:number)=>{const preventDefault=vi.fn();tabs()[index].props.onKeyDown({key,currentTarget:Object.assign(domTabs[index===3?2:index],{parentElement}),preventDefault});return preventDefault}
   expect(navigate('ArrowRight',0)).toHaveBeenCalledOnce()
   expect(domTabs[1].focus).toHaveBeenCalledOnce()
+  act(()=>tabs()[1].props.onFocus({currentTarget:domTabs[1]}))
+  expect(tabs().map(tab=>tab.props.tabIndex)).toEqual([-1,0,-1,-1])
+  expect(tabs()[0].props['aria-selected']).toBe(true)
   expect(navigate('End',1)).toHaveBeenCalledOnce()
   expect(domTabs[2].focus).toHaveBeenCalledOnce()
   expect(navigate('ArrowRight',3)).toHaveBeenCalledOnce()
@@ -60,6 +63,8 @@ test('view tabs navigate by keyboard without saving until activated', async () =
     expect(preventDefault).not.toHaveBeenCalled()
   }
   expect(state.api.savePersonalViews).not.toHaveBeenCalled()
+  act(()=>tabs()[1].props.onBlur({currentTarget:{parentElement:{contains:()=>false}},relatedTarget:null}))
+  expect(tabs().map(tab=>tab.props.tabIndex)).toEqual([0,-1,-1,-1])
   await act(async()=>{tabs()[1].props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
   expect(state.api.savePersonalViews).toHaveBeenCalledOnce()
   expect(tabs().map(tab=>tab.props.tabIndex)).toEqual([-1,0,-1,-1])

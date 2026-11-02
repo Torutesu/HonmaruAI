@@ -386,11 +386,13 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const [focusSelectedView,setFocusSelectedView] = useState(false)
   const selectedViewTab=useRef<HTMLButtonElement|null>(null)
   const focusedViewTab=useRef<{element:HTMLButtonElement;appId:string;api:HarnessApi}|null>(null)
+  const [focusedViewKey,setFocusedViewKey]=useState<string|null>(null)
   useEffect(()=>{if(focusSelectedView){selectedViewTab.current?.focus();setFocusSelectedView(false)}},[focusSelectedView,viewIndex,personal.revision])
   useLayoutEffect(()=>{
     const focused=focusedViewTab.current
     if(!focused||focused.element.isConnected)return
     focusedViewTab.current=null
+    setFocusedViewKey(null)
     if(focused.appId===appId&&focused.api===api&&document.activeElement===document.body)selectedViewTab.current?.focus()
   })
   const [section, setSection] = useState<AppSection>(initialSection || 'overview')
@@ -555,6 +557,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const proposedIndex=Math.max(0,Math.min(viewIndex,allViews.length-1))
   const selectedIndex=proposedIndex>=data.views.length && sharedIds.has(allViews[proposedIndex].id)?0:proposedIndex
   const view = allViews[selectedIndex]
+  const focusableViewKey=focusedViewKey!==null&&allViews.some((v,i)=>`${i}:${v.id}`===focusedViewKey&&!(i>=data.views.length&&sharedIds.has(v.id)))?focusedViewKey:`${selectedIndex}:${view.id}`
   const isPersonalView=selectedIndex>=data.views.length
   const savePersonal = async (next:PersonalViews) => {pendingPersonalSaves.current++;try{const saved=await api.savePersonalViews(appId,next);if(currentApi.current!==api||currentAppId.current!==appId)return;const latest=personalSnapshot.current;if(latest?.api===api&&latest.appId===appId&&latest.value.revision>=saved.revision)return;personalSnapshot.current={api,appId,value:saved};if(saved.snapshot){setSnapshotPending(true);await load();return}setPersonal(saved);if(saved.appVersion!==undefined&&saved.appVersion!==data.app.version){await load();return}setViewIndex(Math.max(0,[...data.views,...saved.computed].findIndex(v=>v.id===saved.activeView)))}finally{pendingPersonalSaves.current--;retryRefresh.current()}}
   const canEditView=isPersonalView || data.canCustomize !== false
@@ -633,7 +636,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       <div className="hx-tabs">
         <div className="hx-view-tabs" role="tablist" aria-label={t('Views')}>
         {allViews.map((v, i) => (
-          <button key={`${i}:${v.id}`} ref={i===selectedIndex?selectedViewTab:undefined} role="tab" aria-selected={i === selectedIndex} tabIndex={i===selectedIndex?0:-1} className={i === selectedIndex ? 'on' : ''} disabled={i>=data.views.length&&sharedIds.has(v.id)} title={i>=data.views.length&&sharedIds.has(v.id)?'共有ビューとIDが重複しているため利用できません。':undefined} onFocus={e=>{focusedViewTab.current={element:e.currentTarget,appId,api}}} onBlur={e=>{if(focusedViewTab.current?.element===e.currentTarget)focusedViewTab.current=null}} onKeyDown={e=>{
+          <button key={`${i}:${v.id}`} ref={i===selectedIndex?selectedViewTab:undefined} role="tab" aria-selected={i === selectedIndex} tabIndex={`${i}:${v.id}`===focusableViewKey?0:-1} className={i === selectedIndex ? 'on' : ''} disabled={i>=data.views.length&&sharedIds.has(v.id)} title={i>=data.views.length&&sharedIds.has(v.id)?'共有ビューとIDが重複しているため利用できません。':undefined} onFocus={e=>{focusedViewTab.current={element:e.currentTarget,appId,api};setFocusedViewKey(`${i}:${v.id}`)}} onBlur={e=>{if(focusedViewTab.current?.element===e.currentTarget)focusedViewTab.current=null;if(!e.currentTarget.parentElement?.contains(e.relatedTarget))setFocusedViewKey(null)}} onKeyDown={e=>{
             if(e.defaultPrevented||e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||composing(e)||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return
             const tabs=Array.from(e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(':scope > [role="tab"]:not(:disabled)')||[])
             const current=tabs.indexOf(e.currentTarget)
