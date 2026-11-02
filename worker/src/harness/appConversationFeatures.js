@@ -4,6 +4,7 @@ import {requestContext} from '../requestContext.js';
 import { announceTo } from '../announce.js';
 import { custom } from '../agui/events.js';
 import { appConversation } from './appConversations.js';
+import { visibleAppNotifications,readAppActivity } from './appActivity.js';
 import { mayUseApp } from './resourceAccess.js';
 import { mayUseConversation } from './conversationAccess.js';
 import { listMembers } from '../team.js';
@@ -65,16 +66,12 @@ export async function notifyAppMentions(db,orgId,user,appId,input,messageId,env=
   if(env&&saved.meta?.changes)await announceTo(env,orgId,[{to:recipient.login,event:custom('app_activity_changed',{appId})}]);
  }
 }
-export async function appNotifications(db,orgId,userId,appId,input,write=false){
+export async function appNotifications(db,orgId,userId,appId,input,write=false,proof){
  if(!await mayUseApp(db,orgId,appId,userId))return error('No such app.',404);
- if(write){
-  if(!Number.isSafeInteger(input.messageId))return error('Invalid message ID.');
-  await db.prepare('UPDATE hx_app_notifications SET read_at=? WHERE org_id=? AND app_id=? AND user_id=? AND message_id=?').bind(new Date().toISOString(),orgId,appId,String(userId),input.messageId).run();
- }
- const {results}=await db.prepare(`SELECT n.message_id AS messageId,n.kind,n.read_at AS readAt,m.body,m.table_id AS tableId,m.row_id AS rowId,m.created_at AS createdAt FROM hx_app_notifications n JOIN hx_app_messages m ON m.sequence=n.message_id AND m.org_id=n.org_id AND m.app_id=n.app_id WHERE n.org_id=? AND n.app_id=? AND n.user_id=? ORDER BY m.sequence DESC LIMIT 100`).bind(orgId,appId,String(userId)).all();
- const items=[];
- for(const item of results)if(!(await appConversation(db,orgId,userId,appId,scopeOf(item))).error)items.push(item);
- return {items};
+ if(write&&!Number.isSafeInteger(input.messageId))return error('Invalid message ID.');
+ const marked=write?(await readAppActivity(db,orgId,userId,[`a:${input.messageId}`],proof,appId)).length>0:false;
+ const rows=await visibleAppNotifications(db,orgId,userId,proof,appId);
+ return {items:rows.map(row=>({messageId:row.message_id,kind:row.kind,readAt:row.read_at,body:row.body,tableId:row.table_id,rowId:row.row_id,createdAt:row.created_at})),marked};
 }
 export const asksAppAI = text => mentionTokens(text).some(t=>t.toLowerCase()==='ai');
 export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompleter=completer,expectedSource=undefined,requestProof=undefined,requireRequestProof=false}={}){

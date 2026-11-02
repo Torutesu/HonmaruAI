@@ -27,7 +27,7 @@ const unpack = value => typeof value === 'string' ? JSON.parse(value) : value;
 // reads which could observe an intermediate policy during an ABA change.
 // Reuse the product's domain and CIDR matching rules, then compare this same
 // fingerprint in the write or delivery SQL.
-function evaluateSnapshot(fingerprint, orgId) {
+export function evaluateSnapshot(fingerprint, orgId) {
   const state = JSON.parse(fingerprint);
   const legacy = unpack(state.legacy);
   const network = unpack(state.network);
@@ -56,7 +56,7 @@ function evaluateSnapshot(fingerprint, orgId) {
   return { allowed: true, ssoDeadline };
 }
 
-export async function currentSkillPolicy(env, orgId, userId, sessionKey) {
+export async function currentSkillPolicy(env, orgId, userId, sessionKey, { deferWorkspaceDeletionToFence = false } = {}) {
   if (!sessionKey) return { allowed: false };
   const read = async () => (await env.DB.prepare(`SELECT ${skillPolicyFingerprint('?1', '?2', '?3')} AS fingerprint`)
     .bind(orgId, String(userId), sessionKey).first())?.fingerprint;
@@ -64,7 +64,7 @@ export async function currentSkillPolicy(env, orgId, userId, sessionKey) {
   if (!fingerprint) return { allowed: false };
   const session = await sessionByKey(env.DB, sessionKey);
   if (!session || String(session.github_id) !== String(userId)) return { allowed: false };
-  const denied = await policyDenial(env, session, orgId, { fresh: true });
+  const denied = await policyDenial(env, session, orgId, { fresh: true, deferWorkspaceDeletionToFence });
   if (denied) return { allowed: false };
   // The existing policy check migrates legacy SSO configuration. Evaluate a
   // new single snapshot after that migration; do not make a valid first use

@@ -95,6 +95,25 @@ export async function allowed(db, orgId, userId, action) {
   return can(await roleIn(db, orgId, userId), action);
 }
 
+// The deletion policy invokes ensureOwner for a local admin. A notification
+// read needs that exact promotion inside its own final SQLite transaction so a
+// reservation arriving concurrently cannot strand the rightful legacy owner.
+// The guarded statement has no effect unless the requester is currently an
+// admin, deletion is pending, no owner exists, and this is the earliest admin.
+// authoritySql is a trusted, internally generated SQL expression.
+export function legacyDeletionOwnerPromotion(db, orgId, userId, authoritySql, authorityArgs) {
+  if (!orgId || !ours(orgId)) return null;
+  return db.prepare(`UPDATE memberships SET role='owner' WHERE org_id=?1 AND role='admin'
+    AND user_github_id=(SELECT user_github_id FROM memberships WHERE org_id=?1 AND role='admin' ORDER BY created_at ASC,user_github_id ASC LIMIT 1)
+    AND user_github_id=?2
+    AND NOT EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND role='owner')
+    AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(COALESCE(role,'member'))='admin')
+    AND EXISTS(SELECT 1 FROM workspace_deletions WHERE org_id=?1 AND COALESCE(due_at,'')!='' AND purge_started_at IS NULL)
+    AND NOT EXISTS(SELECT 1 FROM workspace_tombstones WHERE org_id=?1)
+    AND EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?2 ${authoritySql})`)
+    .bind(orgId,String(userId),...authorityArgs);
+}
+
 /// The owners of a workspace, earliest first.
 export async function ownersOf(db, orgId) {
   const { results } = await db
@@ -120,7 +139,9 @@ export async function ensureOwner(db, orgId) {
   const done = await db
     .prepare(
       `UPDATE memberships SET role = 'owner' WHERE org_id = ?1 AND user_github_id = ?2 AND role = 'admin'
-         AND NOT EXISTS (SELECT 1 FROM memberships WHERE org_id = ?1 AND role = 'owner')`
+         AND NOT EXISTS (SELECT 1 FROM memberships WHERE org_id = ?1 AND role = 'owner')
+         AND NOT EXISTS (SELECT 1 FROM workspace_deletions WHERE org_id = ?1 AND COALESCE(due_at,'') != '')
+         AND NOT EXISTS (SELECT 1 FROM workspace_tombstones WHERE org_id = ?1)`
     )
     .bind(orgId, String(first.userId))
     .run();

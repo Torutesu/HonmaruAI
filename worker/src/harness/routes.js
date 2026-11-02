@@ -1,5 +1,6 @@
 import {currentIp} from '../requestContext.js';
 import {annotationProofRequiresIp} from './appReplyRequestProof.js';
+import {appActivityProof,visibleAppNotifications} from './appActivity.js';
 import { prepareAppGuidelines } from './appGuidelinesFence.js';
 import { mayUseDatabase } from './databaseAccess.js';
 import { mayGenerateFromSchema, finishSchemaGeneration } from './generationAccess.js';
@@ -299,7 +300,7 @@ export async function handleHarness(request, env, url, context = {}) {
   }
 
   const aiConversationRequest=parts[0]==='apps' && parts[2]==='conversation' && parts.length===3 && request.method==='POST' && typeof input?.body==='string' && asksAppAI(input.body);
-  const who = await member(env, request, orgId, { withMembership: aiConversationRequest || (parts[0] === 'skills' && parts[2] === 'shares' && parts.length === 3 && request.method === 'POST') });
+  const who = await member(env, request, orgId, { withMembership: aiConversationRequest || (parts[0] === 'skills' && parts[2] === 'shares' && parts.length === 3 && request.method === 'POST') || (parts[0] === 'apps' && parts[2] === 'conversation-notifications' && parts.length === 3) });
   if (who.denied) return who.denied;
   const me = who.session.github_id;
   if (url.pathname === "/remote-mcp" || url.pathname.startsWith("/remote-mcp/")) {
@@ -1065,11 +1066,27 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     if (['conversation-source','conversation-notifications'].includes(sub) && parts.length === 3) {
       if(!['GET','POST'].includes(request.method))return json({message:'Method not allowed.'},405);
-      const r=sub==='conversation-source'
+      const activityProof=sub==='conversation-notifications'?await appActivityProof(env,orgId,who):null;
+      if(sub==='conversation-notifications'&&!activityProof)return json({message:'Unable to verify notification access.'},503);
+      let r;
+      try{r=sub==='conversation-source'
         ? await conversationSource(env.DB,orgId,who.user,appId,input,request.method==='POST')
-        : await appNotifications(env.DB,orgId,me,appId,input,request.method==='POST');
+        : await appNotifications(env.DB,orgId,me,appId,input,request.method==='POST',activityProof);}
+      catch(err){if(sub==='conversation-notifications')return json({message:'Unable to verify notification access.'},503);throw err}
       if(!r.error&&sub==='conversation-source'&&request.method==='POST')await audit(env,request,{orgId,action:'app.conversation_inherited',actor:person(who.user),entity:{type:'app',id:appId},details:{threadId:input.messageId}});
-      if(!r.error&&sub==='conversation-notifications'&&request.method==='POST')await announceTo(env,orgId,[{to:who.user.login,event:appActivityEvent('reads_changed',{items:[`a:${input.messageId}`],threads:[]})}]);
+      if(!r.error&&sub==='conversation-notifications'&&request.method==='POST'&&r.marked){
+        // Recheck immediately before sending the message identifier to the relay.
+        let visible=[];try{visible=await visibleAppNotifications(env.DB,orgId,me,activityProof,appId,input.messageId)}catch{/* Access changed: suppress the event. */}
+        if(visible.length)await announceTo(env,orgId,[{to:who.user.login,event:appActivityEvent('reads_changed',{items:[`a:${input.messageId}`],threads:[]})}]);
+      }
+      if(sub==='conversation-notifications'&&!r.error){
+        // The relay is asynchronous: reselect after it returns so revocation
+        // during delivery cannot release a stale notification body.
+        let latest=r;
+        if(request.method==='POST'&&r.marked)try{latest=await appNotifications(env.DB,orgId,me,appId,null,false,activityProof)}catch{return json({message:'Unable to verify notification access.'},503)}
+        if(latest.error)return fail(latest);
+        const {marked,...result}=latest;return json(result);
+      }
       return r.error?fail(r):json(r);
     }
     if (sub === 'conversation' && parts.length === 3) {

@@ -22,7 +22,7 @@ import { threadNotificationPreference } from "./threadNotifications.js";
 import { threadReferences } from "./threadReferences.js";
 import { searchThread } from "./threadSearch.js";
 import { previewThreadShare, threadSharePolicy, setThreadSharePolicy, storeThreadShare, readThreadShare, revokeOwnThreadShare } from "./threadShares.js";
-import { appActivity, readAppActivity } from './harness/appActivity.js';
+import { appActivity, readAppActivity, appActivityProof, appActivityDeliveryKeys } from './harness/appActivity.js';
 import { checkOutgoing } from "./dlp.js";
 import { prepareAgent, rememberRequest, addAgentMemory, filterResponders } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
@@ -900,26 +900,41 @@ export async function handleChannels(request, env, url, { route, after }) {
       return json({ lastReadAt, readVersion });
     }
     if (body.channel === "activity") {
-      const who = await caller(env, request, body.orgId);
+      const who = await caller(env, request, body.orgId, {withMembership:true});
       if (who.denied) return who.denied;
+      const appProof = await appActivityProof(env, body.orgId, who);
+      let appActivityUnavailable=!appProof;
+      const readAppItems=async(keys=null)=>{
+        if(!appProof)return [];
+        try{return await readAppActivity(env.DB,body.orgId,who.user.github_id,keys,appProof)}
+        catch{appActivityUnavailable=true;return []}
+      };
       // The ones looked at: gone from every device's Activity.
       if (Array.isArray(body.items)) {
-        const items = [...await markActivitySeen(env.DB, body.orgId, who.user.login, body.items), ...await readAppActivity(env.DB, body.orgId, who.user.github_id, body.items)];
+        const items = [...await markActivitySeen(env.DB, body.orgId, who.user.login, body.items), ...await readAppItems(body.items)];
         // A reply among them is read in its thread too: Threads agrees.
         const threads = items.length ? await readThreadsSeenInActivity(env.DB, body.orgId, who.user.login, items) : [];
-        if (items.length) after(() => readEverywhere(env, body.orgId, who.user.login, { items, threads }));
-        return json({ items, threads });
+        const deliverable=await appActivityDeliveryKeys(env.DB,body.orgId,who.user.github_id,items,appProof);
+        if (deliverable.length) after(async () => {
+          const current=await appActivityDeliveryKeys(env.DB,body.orgId,who.user.github_id,deliverable,appProof);
+          if(current.length)await readEverywhere(env, body.orgId, who.user.login, { items:current, threads });
+        });
+        return json({ items:deliverable, threads, ...(appActivityUnavailable || body.items.some(key=>typeof key==='string'&&key.startsWith('a:')&&!deliverable.includes(key)) ? {appActivityUnavailable:true} : {}) });
       }
       // "Mark all as read": every item new now is looked at, its replies
       // read in their threads too, and the inbox read up to now.
       const members = await listMembers(env.DB, body.orgId, who.session.github_id);
       const { items: all } = await activityFeed(env.DB, body.orgId, who.user.login, members);
       const newKeys = all.filter((i) => i.unread).map((i) => i.key).filter((k) => /^(m|r):/.test(k || ""));
-      const items = [...await markActivitySeen(env.DB, body.orgId, who.user.login, newKeys), ...await readAppActivity(env.DB, body.orgId, who.user.github_id)];
+      const items = [...await markActivitySeen(env.DB, body.orgId, who.user.login, newKeys), ...await readAppItems()];
       const threads = items.length ? await readThreadsSeenInActivity(env.DB, body.orgId, who.user.login, items) : [];
       const {lastReadAt,readVersion} = await markRead(env.DB, body.orgId, who.user.login, "activity", body.at, true);
-      if (items.length) after(() => readEverywhere(env, body.orgId, who.user.login, { items, threads }));
-      return json({ lastReadAt, readVersion, items, threads });
+      const deliverable=await appActivityDeliveryKeys(env.DB,body.orgId,who.user.github_id,items,appProof);
+      if (deliverable.length) after(async () => {
+        const current=await appActivityDeliveryKeys(env.DB,body.orgId,who.user.github_id,deliverable,appProof);
+        if(current.length)await readEverywhere(env, body.orgId, who.user.login, { items:current, threads });
+      });
+      return json({ lastReadAt, readVersion, items:deliverable, threads, ...(appActivityUnavailable || items.some(key=>key.startsWith('a:')&&!deliverable.includes(key)) ? {appActivityUnavailable:true} : {}) });
     }
     // Threads' "Mark all as read": each thread with a new reply read up to
     // its newest; Activity drops those replies as it does for any thread read.
@@ -1142,12 +1157,14 @@ export async function handleChannels(request, env, url, { route, after }) {
   // Activity: what named you, and replies in your threads.
   if (path === "/channels/activity" && request.method === "GET") {
     const orgId = url.searchParams.get("orgId");
-    const who = await caller(env, request, orgId);
+    const who = await caller(env, request, orgId, {withMembership:true});
     if (who.denied) return who.denied;
     const members = await listMembers(env.DB, orgId, who.session.github_id);
     const feed=await activityFeed(env.DB, orgId, who.user.login, members);
-    const apps=await appActivity(env.DB,orgId,who.user.github_id);
-    return json({...feed,items:[...feed.items,...apps].sort((a,b)=>String(b.at).localeCompare(String(a.at))).slice(0,100)});
+    const proof=await appActivityProof(env,orgId,who);
+    let apps=[],appActivityUnavailable=!proof;
+    if(proof)try{apps=await appActivity(env.DB,orgId,who.user.github_id,proof)}catch{appActivityUnavailable=true}
+    return json({...feed,items:[...feed.items,...apps].sort((a,b)=>String(b.at).localeCompare(String(a.at))).slice(0,100),...(appActivityUnavailable?{appActivityUnavailable:true}:{})});
   }
 
   // Search what was said, with Slack's filters.

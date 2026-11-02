@@ -1,6 +1,7 @@
 // The interface in es: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Some app notifications could not be loaded. Try again.': 'No se pudieron cargar algunas notificaciones de aplicaciones. Inténtalo de nuevo.',
   'Previous month': 'Mes anterior',
   'Next month': 'Mes siguiente',
   'Month': 'Mes',

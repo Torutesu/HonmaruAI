@@ -206,7 +206,7 @@ test.each([
  const db={prepare(sql){const stmt=env.DB.prepare(sql);
   if(phase==='before commit'&&sql.startsWith('SELECT json_object('))return {bind(...args){const bound=stmt.bind(...args);return {async first(){if(!armed){armed=true;await invalidate()}return bound.first()}}}};
   if(phase==='before delivery'&&sql.startsWith('INSERT INTO audit_events'))return {bind(...args){const bound=stmt.bind(...args);return {async run(){if(!armed){armed=true;await invalidate()}return bound.run()}}}};
-  const targetRead=kind==='scim'?sql.startsWith('SELECT 1 FROM scim_users WHERE'):sql.startsWith('SELECT last_seen_at, ended_at FROM session_workspaces');
+  const targetRead=kind==='scim'?sql.startsWith('SELECT 1 FROM scim_users WHERE'):(sql.startsWith('SELECT last_seen_at, ended_at FROM session_workspaces')||sql.includes('AS deletion_due')&&sql.includes('JOIN session_workspaces'));
   if(armed&&targetRead)return {bind(){return {first:async()=>{failed=true;throw Error('read unavailable')}}}};
   return stmt;
  },batch:stmts=>env.DB.batch(stmts)};
