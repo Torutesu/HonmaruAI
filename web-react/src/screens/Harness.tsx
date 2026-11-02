@@ -401,7 +401,16 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const [viewIndex, setViewIndex] = useState(0)
   const [focusSelectedView,setFocusSelectedView] = useState(false)
   const selectedViewTab=useRef<HTMLButtonElement|null>(null)
+  const focusedViewTab=useRef<{element:HTMLButtonElement;appId:string;api:HarnessApi}|null>(null)
+  const [focusedViewKey,setFocusedViewKey]=useState<string|null>(null)
   useEffect(()=>{if(focusSelectedView){selectedViewTab.current?.focus();setFocusSelectedView(false)}},[focusSelectedView,viewIndex,personal.revision])
+  useLayoutEffect(()=>{
+    const focused=focusedViewTab.current
+    if(!focused||focused.element.isConnected)return
+    focusedViewTab.current=null
+    setFocusedViewKey(null)
+    if(focused.appId===appId&&focused.api===api&&document.activeElement===document.body)selectedViewTab.current?.focus()
+  })
   const [section, setSection] = useState<AppSection>(initialSection || 'overview')
   const annotationSection = useRef(section)
   annotationSection.current = section
@@ -564,6 +573,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const proposedIndex=Math.max(0,Math.min(viewIndex,allViews.length-1))
   const selectedIndex=proposedIndex>=data.views.length && sharedIds.has(allViews[proposedIndex].id)?0:proposedIndex
   const view = allViews[selectedIndex]
+  const focusableViewKey=focusedViewKey!==null&&allViews.some((v,i)=>`${i}:${v.id}`===focusedViewKey&&!(i>=data.views.length&&sharedIds.has(v.id)))?focusedViewKey:`${selectedIndex}:${view.id}`
   const isPersonalView=selectedIndex>=data.views.length
   const savePersonal = async (next:PersonalViews) => {pendingPersonalSaves.current++;try{const saved=await api.savePersonalViews(appId,next);if(currentApi.current!==api||currentAppId.current!==appId)return;const latest=personalSnapshot.current;if(latest?.api===api&&latest.appId===appId&&latest.value.revision>=saved.revision)return;personalSnapshot.current={api,appId,value:saved};if(saved.snapshot){setSnapshotPending(true);await load();return}setPersonal(saved);if(saved.appVersion!==undefined&&saved.appVersion!==data.app.version){await load();return}setViewIndex(Math.max(0,[...data.views,...saved.computed].findIndex(v=>v.id===saved.activeView)))}finally{pendingPersonalSaves.current--;retryRefresh.current()}}
   const canEditView=isPersonalView || data.canCustomize !== false
@@ -639,12 +649,22 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       {section === 'data' && <>
       <div className="hx-data-toolbar" ref={searchToolbar}><div className="hx-data-heading"><h2>{appTableDisplayName(app.name,table.name,table.columns[0]?.name)}</h2><button className="pill-btn hx-create-record" title={localizedRecordLabel} aria-label={localizedRecordLabel} onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{localizedRecordLabel}</button></div>
       <div className={`hx-data-tools${searchExpanded&&view.type!=='metrics'?' hx-search-expanded':''}`}>{view.type!=='metrics'&&<><button ref={searchToggle} className="hx-floating-search pill-btn quiet" title={searchLabel} aria-label={searchLabel} aria-expanded={searchExpanded} onClick={()=>{if(searchExpanded)setSearchExpanded(false);else openSearch()}}><Icon name="search" size={14}/></button><input ref={searchInput} className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onFocus={()=>setSearchExpanded(true)} onChange={e => setSearch(e.target.value)} />{search&&!searchExpanded&&<button ref={searchQuery} type="button" className="hx-floating-search-query" title={`${t('Search')}: ${search}`} onClick={openSearch}>{t('Search')}: {search}</button>}</>}<PersonalViewControls control="fields" key={`${selectedIndex}:${view.id}:${personal.revision}`} view={view} personal={isPersonalView} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>selectSection('settings')} /><AppViewControls key={`${selectedIndex}:${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} relationEntities={relationEntities} personal={isPersonalView} onAdjust={isPersonalView?undefined:kind=>{location.hash=hashForAppSource(app.id,orgId,'data',`「${app.name}」（${table.name}）のデータビューアーのビュー「${view.name}」の${kind==='filter'?'フィルター':'グループ化'}を調整：`.slice(0,1000))}} canEdit={canEditView} save={saveView} />{view.type==='table'&&<AppDataMenu wrapText={layout.wrapText===true} save={wrapText=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:layout.order,widths:layout.widths,hidden:layout.hidden,wrapText}}})}/>}<span>{t('{n} records', { n: shownCount })}</span></div>
-      <div className="hx-tabs" role="tablist">
+      <div className="hx-tabs">
+        <div className="hx-view-tabs" role="tablist" aria-label={t('Views')}>
         {allViews.map((v, i) => (
-          <button key={`${i}:${v.id}`} ref={i===selectedIndex?selectedViewTab:undefined} role="tab" aria-selected={i === selectedIndex} className={i === selectedIndex ? 'on' : ''} disabled={i>=data.views.length&&sharedIds.has(v.id)} title={i>=data.views.length&&sharedIds.has(v.id)?'共有ビューとIDが重複しているため利用できません。':undefined} onClick={() => {setViewIndex(i);void act('view',()=>savePersonal({...personal,activeView:v.id}))}}>
+          <button key={`${i}:${v.id}`} ref={i===selectedIndex?selectedViewTab:undefined} role="tab" aria-selected={i === selectedIndex} tabIndex={`${i}:${v.id}`===focusableViewKey?0:-1} className={i === selectedIndex ? 'on' : ''} disabled={i>=data.views.length&&sharedIds.has(v.id)} title={i>=data.views.length&&sharedIds.has(v.id)?'共有ビューとIDが重複しているため利用できません。':undefined} onFocus={e=>{focusedViewTab.current={element:e.currentTarget,appId,api};setFocusedViewKey(`${i}:${v.id}`)}} onBlur={e=>{if(focusedViewTab.current?.element===e.currentTarget)focusedViewTab.current=null;if(!e.currentTarget.parentElement?.contains(e.relatedTarget))setFocusedViewKey(null)}} onKeyDown={e=>{
+            if(e.defaultPrevented||e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||composing(e)||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return
+            const tabs=Array.from(e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(':scope > [role="tab"]:not(:disabled)')||[])
+            const current=tabs.indexOf(e.currentTarget)
+            if(current<0||!tabs.length)return
+            e.preventDefault()
+            const next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(current+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length
+            tabs[next]?.focus()
+          }} onClick={() => {setViewIndex(i);void act('view',()=>savePersonal({...personal,activeView:v.id}))}}>
             <Icon name={v.type === 'board' ? 'grid' : v.type === 'metrics' ? 'insights' : v.type === 'calendar' ? 'calendar' : 'list'} size={14} /> {v.name}{i>=data.views.length && <small className="hx-personal-badge">個人</small>}
           </button>
         ))}
+        </div>
         <PersonalViewControls sharedIds={[...sharedIds]} control="view" key={`new:${selectedIndex}:${view.id}:${personal.revision}`} view={view} personal={isPersonalView} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onRemoved={()=>{if(!personalSnapshot.current?.value.views.some(v=>v.id===view.id))setFocusSelectedView(true)}} onSettings={()=>selectSection('settings')} />
       </div>
       </div>

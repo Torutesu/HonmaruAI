@@ -31,6 +31,7 @@
 .hx-app-rooms { font-size: 12px; color: var(--brand-violet); margin-top: auto; }
 
 .hx-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 12px; }
+.hx-view-tabs { display:flex; gap:2px; flex-wrap:wrap; min-width:0; }
 .hx-tabs button { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--bone); background: var(--signal-white); border-radius: var(--radius-pill); padding: 6px 12px; font: 600 13px var(--font-body); cursor: pointer; color: var(--ink-black); }
 .hx-tabs button.on { background: var(--ink-black); color: var(--signal-white); border-color: var(--ink-black); }
 
