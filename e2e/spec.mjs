@@ -2,6 +2,7 @@ import { workflowProgram } from './workflow-program.mjs'
 import { rowMenuFocus } from './row-menu-focus.mjs'
 import { gatewayTypeScript } from './gateway-typescript.mjs'
 import { workflowConditions } from './workflow-conditions.mjs'
+import { pendingMessageDelete } from './pending-message-delete.mjs'
 // What a person actually does, against the real thing.
 //
 // No fake relay, no injected WebSocket, no seeded localStorage: the browser
@@ -1864,13 +1865,23 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     // The letters the ⋯ menu shows: ↑ on the log picks the last message, E
     // edits it and Esc hands focus back to it, ⌫ asks, ⇧⌫ does not.
     await d.fill('.slk-input', 'said with the keys')
+    // This scenario covers an acknowledged message. The separate scenario
+    // below covers deleting while the POST is still in flight.
+    const sentKeyed = d.waitForResponse(response => {
+      const request = response.request()
+      return new URL(response.url()).pathname === '/channels/messages' && request.method() === 'POST' && request.postDataJSON()?.body === 'said with the keys'
+    })
     await d.keyboard.press('Enter')
+    const keyedResponse = await sentKeyed
+    if (!keyedResponse.ok()) throw new Error(`keyed message send failed: HTTP ${keyedResponse.status()}`)
+    const keyedId = (await keyedResponse.json()).message?.id
+    if (typeof keyedId !== 'string' || !keyedId || keyedId.startsWith('tmp-')) throw new Error('keyed message was not acknowledged with a server id')
     const keyed = '.slk-main .slk-msg:has-text("said with the keys")'
-    await d.waitForSelector(keyed, { timeout: 10000 })
-    const onKeyed = () => d.waitForFunction(() => {
+    await d.waitForSelector(`.slk-main [id="msg-${keyedId}"]`, { timeout: 10000 })
+    const onKeyed = () => d.waitForFunction((id) => {
       const el = document.activeElement
-      return Boolean(el && el.matches('article.slk-msg') && /said with the keys/.test(el.textContent || ''))
-    }, null, { timeout: 5000 })
+      return Boolean(el && el.matches('article.slk-msg') && el.id === `msg-${id}` && /said with the keys/.test(el.textContent || ''))
+    }, keyedId, { timeout: 5000 })
     await d.focus('.slk-main .slk-log')
     await d.keyboard.press('ArrowUp')
     await onKeyed().catch(() => { throw new Error('↑ on the log did not pick its last message') })
@@ -2028,6 +2039,8 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     await ctx.close()
   }
 })
+
+await step('keyboard deletion requested during a send waits for that send', () => pendingMessageDelete(browser, WEB, phone))
 
 await step('a long reply with an @mention keeps the caret on its words once the box scrolls', async () => {
   // The box grows to its tallest, then scrolls, and a scrollbar takes width
