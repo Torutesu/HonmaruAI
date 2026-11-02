@@ -196,3 +196,83 @@ test('saving an unrelated draft edit preserves numeric zero and false in a workf
  expect(saveAppAutomations).toHaveBeenCalledWith('app',2,2,expect.objectContaining({items:[expect.objectContaining({name:'確認済み',steps:[expect.objectContaining({values:{quantity:0,approved:false}})]})]}))
  act(()=>tree.unmount())
 })
+
+test('workflow loading failure offers retry without discarding an edited automation draft',async()=>{
+ const workflow={id:'wf-copy',name:'Existing workflow',trigger:{type:'manual'},steps:[{type:'post'}]}
+ const workflows=vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({workflows:[workflow]})
+ const {tree,api,button}=await setup({workflows})
+ const select=()=>tree.root.findByProps({'aria-label':'コピーするワークフロー'})
+ expect(select().props.disabled).toBe(true);expect(JSON.stringify(tree.toJSON())).toContain('ワークフローを読み込めませんでした')
+ const name=tree.root.findAllByType('input').find(i=>i.props.value==='Review')!
+ act(()=>name.props.onChange({target:{value:'Unsaved edit'}}))
+ await act(async()=>{button('ワークフローを再読み込み').props.onClick();await Promise.resolve()})
+ expect(tree.root.findAllByType('input').some(i=>i.props.value==='Unsaved edit')).toBe(true)
+ expect(select().props.disabled).toBe(false);expect(select().findAllByType('option').map(o=>o.props.value)).toContain('wf-copy')
+ expect(api.appAutomations).toHaveBeenCalledTimes(1);expect(api.releaseAppAutomations).not.toHaveBeenCalled();act(()=>tree.unmount())
+})
+
+test('an empty workflow list is distinguished from an error',async()=>{
+ const {tree}=await setup();expect(JSON.stringify(tree.toJSON())).toContain('コピーできるワークフローはまだありません。')
+ expect(tree.root.findAllByType('button').some(b=>b.children.includes('ワークフローを再読み込み'))).toBe(false);act(()=>tree.unmount())
+})
+
+test('late workflow choices from the old API cannot replace the new account choices',async()=>{
+ let resolveOld!:(value:any)=>void;const oldPromise=new Promise<any>(resolve=>{resolveOld=resolve})
+ const oldApi:any={appAutomations:vi.fn().mockResolvedValue(state),workflows:vi.fn(()=>oldPromise)}
+ const newApi:any={appAutomations:vi.fn().mockResolvedValue(state),workflows:vi.fn().mockResolvedValue({workflows:[{id:'new',name:'New account',trigger:{type:'manual'},steps:[]}]})}
+ let tree:ReturnType<typeof create>;await act(async()=>{tree=create(<AppAutomations app={{id:'app',version:2,definition:{}} as any} api={oldApi} reload={()=>{}}/>)});
+ await act(async()=>tree!.update(<AppAutomations app={{id:'app',version:2,definition:{}} as any} api={newApi} reload={()=>{}}/>))
+ await act(async()=>{resolveOld({workflows:[{id:'old',name:'Old account',trigger:{type:'manual'},steps:[]}]});await oldPromise})
+ const options=tree!.root.findByProps({'aria-label':'コピーするワークフロー'}).findAllByType('option').map(o=>o.props.value)
+ expect(options).toContain('new');expect(options).not.toContain('old');act(()=>tree!.unmount())
+})
+
+test('late choices from a previous app cannot replace the current app choices',async()=>{
+ let resolveOld!:(value:any)=>void;const pending=new Promise<any>(resolve=>{resolveOld=resolve})
+ const api:any={appAutomations:vi.fn().mockResolvedValue(state),workflows:vi.fn().mockReturnValueOnce(pending).mockResolvedValueOnce({workflows:[{id:'new',name:'New app',trigger:{type:'manual'},steps:[]}]})}
+ let tree:ReturnType<typeof create>;await act(async()=>{tree=create(<AppAutomations app={{id:'old',version:2,definition:{}} as any} api={api} reload={()=>{}}/>)})
+ await act(async()=>tree!.update(<AppAutomations app={{id:'new',version:2,definition:{}} as any} api={api} reload={()=>{}}/>))
+ await act(async()=>{resolveOld({workflows:[{id:'old',name:'Old app',trigger:{type:'manual'},steps:[]}]});await pending})
+ const options=tree!.root.findByProps({'aria-label':'コピーするワークフロー'}).findAllByType('option').map(o=>o.props.value)
+ expect(options).toContain('new');expect(options).not.toContain('old');act(()=>tree!.unmount())
+})
+
+test('an older retry cannot overwrite a newer automatic refresh',async()=>{
+ let resolveRetry!:(value:any)=>void;const pending=new Promise<any>(resolve=>{resolveRetry=resolve})
+ const workflows=vi.fn().mockRejectedValueOnce(new Error('offline')).mockReturnValueOnce(pending).mockResolvedValueOnce({workflows:[{id:'new',name:'Latest',trigger:{type:'manual'},steps:[]}]})
+ const api:any={appAutomations:vi.fn().mockResolvedValue(state),workflows};let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AppAutomations app={{id:'app',name:'One',version:2,definition:{}} as any} api={api} reload={()=>{}}/>)})
+ act(()=>tree!.root.findAllByType('button').find(b=>b.children.includes('ワークフローを再読み込み'))!.props.onClick())
+ await act(async()=>tree!.update(<AppAutomations app={{id:'app',name:'Two',version:2,definition:{}} as any} api={api} reload={()=>{}}/>))
+ await act(async()=>{resolveRetry({workflows:[{id:'old',name:'Stale',trigger:{type:'manual'},steps:[]}]});await pending})
+ const options=tree!.root.findByProps({'aria-label':'コピーするワークフロー'}).findAllByType('option').map(o=>o.props.value)
+ expect(options).toContain('new');expect(options).not.toContain('old');act(()=>tree!.unmount())
+})
+
+test('a late workflow response after unmount is ignored',async()=>{
+ let resolve!:(value:any)=>void;const pending=new Promise<any>(done=>{resolve=done})
+ const api:any={appAutomations:vi.fn().mockResolvedValue(state),workflows:vi.fn(()=>pending)};let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AppAutomations app={{id:'app',version:2,definition:{}} as any} api={api} reload={()=>{}}/>)})
+ act(()=>tree!.unmount());await act(async()=>{resolve({workflows:[]});await pending});expect(api.workflows).toHaveBeenCalledOnce()
+})
+
+test('rapid repeated retry requests start only one workflow lookup',async()=>{
+ let resolve!:(value:any)=>void;const pending=new Promise<any>(done=>{resolve=done})
+ const workflows=vi.fn().mockRejectedValueOnce(new Error('offline')).mockReturnValue(pending)
+ const {tree,button}=await setup({workflows});const retry=button('ワークフローを再読み込み')
+ act(()=>{retry.props.onClick();retry.props.onClick()});expect(workflows).toHaveBeenCalledTimes(2)
+ expect(button('ワークフローを再読み込み').props['aria-disabled']).toBe(true)
+ await act(async()=>{resolve({workflows:[]});await pending});expect(button('ワークフローを再読み込み').props['aria-disabled']).toBe(false);act(()=>tree.unmount())
+})
+
+test('an older request cannot clear the pending guard for a newer lookup',async()=>{
+ let finishOld!:(value:any)=>void,finishNew!:(value:any)=>void
+ const oldPending=new Promise<any>(done=>{finishOld=done}),newPending=new Promise<any>(done=>{finishNew=done})
+ const workflows=vi.fn().mockRejectedValueOnce(new Error('offline')).mockReturnValueOnce(oldPending).mockReturnValueOnce(newPending)
+ const api:any={appAutomations:vi.fn().mockResolvedValue(state),workflows};let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AppAutomations app={{id:'app',name:'One',version:2,definition:{}} as any} api={api} reload={()=>{}}/>)})
+ const oldClick=tree!.root.findAllByType('button').find(b=>b.children.includes('ワークフローを再読み込み'))!.props.onClick
+ act(()=>oldClick());await act(async()=>tree!.update(<AppAutomations app={{id:'app',name:'Two',version:2,definition:{}} as any} api={api} reload={()=>{}}/>))
+ await act(async()=>{finishOld({workflows:[]});await oldPending});act(()=>oldClick());expect(workflows).toHaveBeenCalledTimes(3)
+ await act(async()=>{finishNew({workflows:[]});await newPending});expect(tree!.root.findAllByType('button').find(b=>b.children.includes('ワークフローを再読み込み'))!.props['aria-disabled']).toBe(false);act(()=>tree!.unmount())
+})

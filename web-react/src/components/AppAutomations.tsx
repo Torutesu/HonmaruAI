@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react'
+import React, {useEffect, useMemo, useRef, useState} from 'react'
 import {Icon} from './Icon'
 import {StepEditor, type AgentFace} from './WorkflowStepEditor'
 import {AutomationTriggerEditor,type TriggerAppOption} from './AutomationTriggerEditor'
@@ -29,7 +29,10 @@ export function AppAutomations({app,api,reload}:{app:App;api:HarnessApi;reload:(
   const [draftGeneration,setDraftGeneration]=useState(0)
   const [tables,setTables]=useState<Table[]>([]),[agents,setAgents]=useState<AgentFace[]>([])
   const [triggerApps,setTriggerApps]=useState<TriggerAppOption[]>([])
-  const [choices,setChoices]=useState<Workflow[]>([]),[selected,setSelected]=useState('')
+  const choiceScope=useMemo(()=>({appId:app.id,api}),[app.id,api]),choiceRequest=useRef(0),choicePending=useRef<{scope:typeof choiceScope}|null>(null)
+  const [choiceState,setChoiceState]=useState<{scope:typeof choiceScope;status:'loading'|'ready'|'error';items:Workflow[]}>({scope:choiceScope,status:'loading',items:[]}),[selected,setSelected]=useState('')
+  const [retryScope,setRetryScope]=useState<typeof choiceScope|null>(null)
+  const choiceCurrent=choiceState.scope===choiceScope,choices=choiceCurrent?choiceState.items:[],choiceStatus=choiceCurrent?choiceState.status:'loading',selectedChoice=choiceCurrent?selected:''
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
   const [checked,setChecked]=useState<string[]>([]),[includeSource,setIncludeSource]=useState(false)
   const pending=useRef<{fingerprint:string;requestId:string}|null>(null)
@@ -42,7 +45,23 @@ export function AppAutomations({app,api,reload}:{app:App;api:HarnessApi;reload:(
     if(current!==generation.current)return
     setState(result);setDraft(result.draft);setChecked([]);setError(warning)
   }
-  useEffect(()=>{if(state && JSON.stringify(draft)!==JSON.stringify(state.draft) && state.version!==app.version){setError('アプリが別の操作で更新されました。未保存の下書きは保持しています。内容を控えてから再読み込みしてください。');return}void refresh().catch(e=>setError(String(e)));void api.tables?.().then(r=>setTables(r.tables)).catch(()=>{});if(api.appDatabase)void api.appDatabase(app.id).then(database=>setTriggerApps([{app:{id:app.id,name:app.name},entities:database.entities}])).catch(()=>setTriggerApps([]));void api.workflowAgents?.().then(r=>setAgents(r.agents)).catch(()=>{});void api.workflows().then(r=>setChoices(r.workflows)).catch(()=>{});return()=>{generation.current++}},[app.id,app.name,app.version,api])
+  useEffect(()=>{if(state && JSON.stringify(draft)!==JSON.stringify(state.draft) && state.version!==app.version){setError('アプリが別の操作で更新されました。未保存の下書きは保持しています。内容を控えてから再読み込みしてください。');return}void refresh().catch(e=>setError(String(e)));void api.tables?.().then(r=>setTables(r.tables)).catch(()=>{});if(api.appDatabase)void api.appDatabase(app.id).then(database=>setTriggerApps([{app:{id:app.id,name:app.name},entities:database.entities}])).catch(()=>setTriggerApps([]));void api.workflowAgents?.().then(r=>setAgents(r.agents)).catch(()=>{});return()=>{generation.current++}},[app.id,app.name,app.version,api])
+  const loadChoices=async(force=false)=>{
+    if(!force&&choicePending.current?.scope===choiceScope)return
+    const operation={scope:choiceScope};choicePending.current=operation
+    const request=++choiceRequest.current
+    if(!choiceCurrent)setSelected('')
+    setChoiceState(previous=>({scope:choiceScope,status:'loading',items:previous.scope===choiceScope?previous.items:[]}))
+    try{
+      const result=await api.workflows()
+      if(choiceRequest.current!==request)return
+      setSelected(current=>result.workflows.some(workflow=>workflow.id===current)?current:'')
+      setChoiceState({scope:choiceScope,status:'ready',items:result.workflows})
+    }catch{
+      if(choiceRequest.current===request){setRetryScope(choiceScope);setChoiceState({scope:choiceScope,status:'error',items:[]})}
+    }finally{if(choicePending.current===operation)choicePending.current=null}
+  }
+  useEffect(()=>{void loadChoices(true);return()=>{choiceRequest.current++;choicePending.current=null}},[choiceScope,app.name,app.version])
   const moveStep=(key:string,index:number,direction:number)=>{
     setDraft(current=>({...current,items:current.items.map(item=>{
       if(item.key!==key || index+direction<0 || index+direction>=item.steps.length)return item
@@ -82,7 +101,11 @@ export function AppAutomations({app,api,reload}:{app:App;api:HarnessApi;reload:(
     {state && state.version!==app.version && <button className="pill-btn quiet" disabled={busy} onClick={()=>void run(refresh)}>{dirty?'未保存の変更を破棄して再読み込み':'最新版を再読み込み'}</button>}
     {!state?<button disabled={busy} onClick={()=>void run(refresh)}>再読み込み</button>:<>
       <form onSubmit={e=>{e.preventDefault();void run(async()=>{const result=await api.generateAppAutomation(app.id,prompt,Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC');setDraft({...draft,items:[...draft.items,result.automation]});setPrompt('');setNotice('生成した下書きを確認して保存してください。まだ実行されません。')})}}><label>作りたい自動化<textarea value={prompt} maxLength={4000} disabled={busy} onChange={e=>setPrompt(e.target.value)} placeholder="例：毎週月曜日の9時に、担当エージェントへ売上データの確認を依頼する"/></label><button className="pill-btn" disabled={busy||!prompt.trim()||draft.items.length>=12}>自動化を生成</button></form>
-      <div className="hx-actions"><select aria-label="コピーするワークフロー" value={selected} onChange={e=>setSelected(e.target.value)}><option value="">ワークフローから下書きを作成</option>{choices.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select><button className="pill-btn quiet" disabled={busy||!selected||draft.items.length>=12} onClick={()=>{const w=choices.find(w=>w.id===selected);if(w)setDraft({...draft,items:[...draft.items,{key:`auto_${crypto.randomUUID().replaceAll('-','').slice(0,16)}`,name:w.name,enabled:false,trigger:w.trigger,steps:w.steps}]});setSelected('')}}>下書きに追加</button></div>
+      <div className="hx-actions"><select aria-label="コピーするワークフロー" value={selectedChoice} disabled={choiceStatus!=='ready'} onChange={e=>setSelected(e.target.value)}><option value="">ワークフローから下書きを作成</option>{choices.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select><button className="pill-btn quiet" disabled={busy||choiceStatus!=='ready'||!selectedChoice||draft.items.length>=12} onClick={()=>{const w=choices.find(w=>w.id===selectedChoice);if(w)setDraft({...draft,items:[...draft.items,{key:`auto_${crypto.randomUUID().replaceAll('-','').slice(0,16)}`,name:w.name,enabled:false,trigger:w.trigger,steps:w.steps}]});setSelected('')}}>下書きに追加</button></div>
+      {choiceStatus==='loading'&&<p role="status">ワークフローを読み込んでいます…</p>}
+      {choiceStatus==='error'&&<p role="alert">ワークフローを読み込めませんでした。下書きはそのまま保持されています。</p>}
+      {(choiceStatus==='error'||retryScope===choiceScope)&&<button type="button" className="pill-btn quiet" aria-disabled={choiceStatus==='loading'} onClick={()=>{if(choiceStatus==='loading')return;setRetryScope(choiceScope);void loadChoices()}}>ワークフローを再読み込み</button>}
+      {choiceStatus==='ready'&&choices.length===0&&<p>コピーできるワークフローはまだありません。</p>}
       <button className="pill-btn quiet" disabled={busy||draft.items.length>=12} onClick={()=>setDraft({...draft,items:[...draft.items,{key:`auto_${crypto.randomUUID().replaceAll('-','').slice(0,16)}`,name:'新しい自動化',enabled:false,trigger:{type:'manual'},steps:[{type:'post'}]}]})}><Icon name="plus" size={14}/> 自動化を作成</button>
       {draft.items.length===0&&<p>自動化はまだありません。新しく作成するか、既存ワークフローから処理をコピーできます。</p>}
       {draft.items.map(item=><div className="hx-step" key={item.key}><label>名前<input value={item.name} maxLength={80} disabled={busy} onChange={e=>setDraft({...draft,items:draft.items.map(v=>v.key===item.key?{...v,name:e.target.value}:v)})}/></label><label><input type="checkbox" checked={item.enabled} disabled={busy} onChange={e=>setDraft({...draft,items:draft.items.map(v=>v.key===item.key?{...v,enabled:e.target.checked}:v)})}/>公開後に有効化</label><p>{item.trigger.type==='schedule'?'スケジュール':item.trigger.type==='row'?'データ変更':item.trigger.type==='app_record_change'?'アプリのレコード変更':item.trigger.type==='webhook'?'Webhook':'手動実行'} · {item.steps.length}ステップ</p><details><summary>実行条件・ステップを編集</summary><fieldset disabled={busy}><AutomationTriggerEditor key={`${item.key}:${draftGeneration}`} trigger={item.trigger} tables={tables} apps={triggerApps} onChange={trigger=>setDraft({...draft,items:draft.items.map(v=>v.key===item.key?{...v,trigger}:v)})}/>{item.steps.map((step,index)=><div key={index}><div className="hx-actions"><button type="button" className="pill-btn quiet" disabled={busy||index===0} aria-label={`${index+1}番目のステップを上へ`} onClick={()=>moveStep(item.key,index,-1)}><Icon name="arrow-up" size={14}/></button><button type="button" className="pill-btn quiet" disabled={busy||index===item.steps.length-1} aria-label={`${index+1}番目のステップを下へ`} onClick={()=>moveStep(item.key,index,1)}><Icon name="arrow-down" size={14}/></button></div><StepEditor api={api} step={step} tables={tables} agents={agents} triggerTable={tables.find(t=>t.id===item.trigger.tableId)||triggerApps.find(option=>option.app.id===item.trigger.appId)?.entities.find(entity=>entity.key===item.trigger.entityId)?.table} onChange={step=>setDraft({...draft,items:draft.items.map(v=>v.key===item.key?{...v,steps:v.steps.map((s,i)=>i===index?step:s)}:v)})} onRemove={()=>setDraft({...draft,items:draft.items.map(v=>v.key===item.key?{...v,steps:v.steps.filter((_,i)=>i!==index)}:v)})}/></div>) }{!item.steps.some(step=>step.type==='code')&&<button className="pill-btn quiet" onClick={()=>setDraft({...draft,items:draft.items.map(v=>v.key===item.key?{...v,steps:[...v.steps,{type:'post'}]}:v)})}>ステップを追加</button>}</fieldset></details><button className="pill-btn quiet" disabled={busy} onClick={()=>setDraft({...draft,items:draft.items.filter(v=>v.key!==item.key)})}>下書きから外す</button></div>)}
