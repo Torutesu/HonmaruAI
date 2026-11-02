@@ -40,6 +40,48 @@ test('conflicting edit keeps the draft and does not close',async()=>{
  act(()=>tree!.root.findByType('textarea').props.onChange({target:{value:'My changes'}}));await act(async()=>{await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})});expect(onClose).not.toHaveBeenCalled();expect(tree!.root.findByType('textarea').props.value).toBe('My changes');expect(tree!.root.findByProps({role:'alert'}).children).toContain('別のユーザーが更新しました');act(()=>tree!.unmount())
 })
 
+test('closing changed record asks before discarding and preserves draft when continuing',()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const onClose=vi.fn();let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={columns} record={{id:'r',values:{title:'Original'},updatedAt:'2026-10-18'}} conversation={<textarea aria-label="chat" defaultValue="unsent"/>} save={vi.fn()} onClose={onClose}/>)});
+ act(()=>tree!.root.findAllByType('textarea')[0].props.onChange({target:{value:'Changed'}}))
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('キャンセル'))!.props.onClick())
+ expect(onClose).not.toHaveBeenCalled();expect(tree!.root.findAllByType('h2').map(x=>x.children.join(''))).toContain('Discard unsaved record changes?')
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('Keep editing'))!.props.onClick())
+ expect(tree!.root.findAllByType('textarea')[0].props.value).toBe('Changed');expect(tree!.root.findByProps({'aria-label':'chat'}).props.defaultValue).toBe('unsent')
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('キャンセル'))!.props.onClick())
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('Discard changes'))!.props.onClick())
+ expect(onClose).toHaveBeenCalledOnce();act(()=>tree!.unmount())
+})
+
+test('restoring equivalent values and unchanged initial new-record values closes without warning',()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const onClose=vi.fn();let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={columns} record={{id:'r',values:{title:'Original',count:12},updatedAt:'2026-10-18'}} save={vi.fn()} onClose={onClose}/>)});
+ act(()=>tree!.root.findByType('textarea').props.onChange({target:{value:'Changed'}}));act(()=>tree!.root.findByType('textarea').props.onChange({target:{value:'Original'}}))
+ act(()=>tree!.root.findByType('input').props.onChange({target:{value:'12'}}))
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('キャンセル'))!.props.onClick());expect(onClose).toHaveBeenCalledOnce();act(()=>tree!.unmount())
+ onClose.mockClear();act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={columns} initial={{title:'Prefilled'}} save={vi.fn()} onClose={onClose}/>)});
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('キャンセル'))!.props.onClick());expect(onClose).toHaveBeenCalledOnce();act(()=>tree!.unmount())
+})
+
+test('incomplete browser input prompts even when no React change event was received',()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const onClose=vi.fn();let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={columns} record={{id:'r',values:{title:'Original'},updatedAt:'2026-10-18'}} save={vi.fn()} onClose={onClose}/>,{createNodeMock:node=>node.type==='form'?{querySelectorAll:()=>[{validity:{badInput:true}}]}:null})});
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('キャンセル'))!.props.onClick())
+ expect(onClose).not.toHaveBeenCalled();expect(tree!.root.findAllByType('h2').map(x=>x.children.join(''))).toContain('Discard unsaved record changes?');act(()=>tree!.unmount())
+})
+
+test('restoring multiple related records in the original order is not a pending change',()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});vi.stubGlobal('window',{innerWidth:1280,innerHeight:800,addEventListener:vi.fn(),removeEventListener:vi.fn()});const onClose=vi.fn();let tree:ReturnType<typeof create>
+ const relation={id:'related',name:'Related',type:'relation' as const,targetEntity:'items',multiple:true}
+ const rows=[{id:'a',values:{name:'A'},updatedAt:'2026-10-18'},{id:'b',values:{name:'B'},updatedAt:'2026-10-18'}]
+ act(()=>{tree=create(<AppRecordDialog appName="Tasks" columns={[relation]} record={{id:'r',values:{related:['a','b']},updatedAt:'2026-10-18'}} relationEntities={[{key:'items',table:{id:'items',name:'Items',columns:[{id:'name',name:'Name',type:'text'}]},rows}]} save={vi.fn()} onClose={onClose}/>)});
+ act(()=>tree!.root.findByProps({'aria-label':'Related'}).props.onClick())
+ const option=()=>tree!.root.findAllByProps({role:'option'}).find(button=>button.findAllByType('span').some(span=>span.children.includes('B')))!
+ act(()=>option().props.onClick());act(()=>option().props.onClick())
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('キャンセル'))!.props.onClick())
+ expect(onClose).toHaveBeenCalledOnce();act(()=>tree!.unmount())
+})
+
 test('relation fields select same-app records and support multiple links',async()=>{
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});
  vi.stubGlobal('window',{innerWidth:1280,innerHeight:800,addEventListener:vi.fn(),removeEventListener:vi.fn()});
@@ -80,4 +122,31 @@ test('relation picker searches by label or id, supports keyboard selection and c
  const clear=tree!.root.findAllByProps({className:'hx-relation-option'}).find(button=>button.findAllByType('span').some(span=>span.children.join('')==='Customerなし'))!;act(()=>clear.props.onClick());
  await act(async()=>{await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})});
  expect(save).toHaveBeenCalledWith({customer:null});act(()=>tree!.unmount())
+})
+
+test.each([
+ {original:9007199254740992, entered:'9007199254740993'},
+ {original:1, entered:'1.0000000000000001'},
+ {original:0, entered:'1e-400'},
+ {original:1, entered:'1.0'},
+ {original:1000, entered:'1e3'},
+ {original:1.25, entered:'1.250'},
+])('numeric text $entered is not silently discarded when closing',({original,entered})=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const onClose=vi.fn();let tree:ReturnType<typeof create>
+ const column={id:'count',name:'Count',type:'number' as const}
+ act(()=>{tree=create(<AppRecordDialog appName="Tasks" columns={[column]} record={{id:'r',values:{count:original},updatedAt:'2026-10-18'}} save={vi.fn()} onClose={onClose}/>)})
+ act(()=>tree!.root.findByType('input').props.onChange({target:{value:entered}}))
+ expect(tree!.root.findByType('input').props.value).toBe(entered)
+ act(()=>tree!.root.findAllByType('button').find(b=>b.children.includes('キャンセル'))!.props.onClick())
+ expect(onClose).not.toHaveBeenCalled();expect(tree!.root.findAllByType('h2').map(x=>x.children.join(''))).toContain('Discard unsaved record changes?');act(()=>tree!.unmount())
+})
+
+test('returning numeric input exactly to its original displayed text closes without confirmation',()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const onClose=vi.fn();let tree:ReturnType<typeof create>
+ const column={id:'count',name:'Count',type:'number' as const}
+ act(()=>{tree=create(<AppRecordDialog appName="Tasks" columns={[column]} record={{id:'r',values:{count:9007199254740992},updatedAt:'2026-10-18'}} save={vi.fn()} onClose={onClose}/>)})
+ act(()=>tree!.root.findByType('input').props.onChange({target:{value:'9007199254740993'}}))
+ act(()=>tree!.root.findByType('input').props.onChange({target:{value:'9007199254740992'}}))
+ act(()=>tree!.root.findAllByType('button').find(b=>b.children.includes('キャンセル'))!.props.onClick())
+ expect(onClose).toHaveBeenCalledOnce();expect(tree!.root.findAllByType('h2').map(x=>x.children.join(''))).not.toContain('Discard unsaved record changes?');act(()=>tree!.unmount())
 })
