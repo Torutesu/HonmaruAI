@@ -23,7 +23,7 @@ export function AppPersonPicker({label,value,members,ready=true,disabled=false,o
   }
   setQuery('');setActive(value);setOpen(true)
  }
- const choose=(ref:string)=>{if(disabled)return;onChange(ref);close();trigger.current?.focus()}
+ const choose=(ref:string)=>{if(disabled)return;if(ref!==value)onChange(ref);close();trigger.current?.focus()}
  const move=(key:string)=>{
   if(!options.length)return
   const index=key==='Home'?0:key==='End'?options.length-1:activeIndex<0?(key==='ArrowDown'?0:options.length-1):(activeIndex+(key==='ArrowDown'?1:options.length-1))%options.length

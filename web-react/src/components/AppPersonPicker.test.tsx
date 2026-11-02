@@ -94,12 +94,24 @@ test('opening an unassigned field keeps unassigned active until a search or navi
  act(()=>tree!.root.findByProps({role:'combobox'}).props.onClick())
  expect(tree!.root.findByProps({role:'option','data-member-ref':''}).props.className).toBe('active')
  act(()=>tree!.root.findByProps({'aria-label':'メンバーを検索'}).props.onKeyDown({key:'Enter',nativeEvent:{},preventDefault:vi.fn()}))
- expect(onChange).toHaveBeenLastCalledWith('')
+ expect(onChange).not.toHaveBeenCalled()
  act(()=>tree!.root.findByProps({role:'combobox'}).props.onClick())
  act(()=>tree!.root.findByProps({'aria-label':'メンバーを検索'}).props.onChange({target:{value:'Bob'}}))
  expect(tree!.root.findByProps({role:'option','data-member-ref':'bob'}).props.className).toBe('active')
  act(()=>tree!.root.findByProps({'aria-label':'メンバーを検索'}).props.onKeyDown({key:'Enter',nativeEvent:{},preventDefault:vi.fn()}))
  expect(onChange).toHaveBeenLastCalledWith('bob');act(()=>tree!.unmount())
+})
+
+test('reselecting unassigned does not change absent, null, or empty stored values',async()=>{
+ stubBrowserGlobals()
+ for(const original of [{},{owner:null},{owner:''}]){
+  const save=vi.fn().mockResolvedValue(undefined);let tree:ReturnType<typeof create>
+  act(()=>{tree=create(<AppRecordDialog appName="Tasks" columns={[{id:'owner',name:'担当者',type:'person'}]} record={{id:'r',values:original,updatedAt:'2026-10-18'}} members={[{ref:'alice',name:'Alice'}]} save={save} onClose={()=>{}}/>)});
+  act(()=>tree!.root.findByProps({role:'combobox'}).props.onClick())
+  act(()=>tree!.root.findByProps({'aria-label':'メンバーを検索'}).props.onKeyDown({key:'Enter',nativeEvent:{},preventDefault:vi.fn()}))
+  await act(async()=>{await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})})
+  expect(save).toHaveBeenCalledWith({});act(()=>tree!.unmount())
+ }
 })
 
 test('Escape during IME leaves the picker open; ordinary Escape closes it',()=>{
