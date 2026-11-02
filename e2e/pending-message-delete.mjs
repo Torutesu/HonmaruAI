@@ -35,6 +35,7 @@ export async function pendingMessageDelete(browser, web, phone) {
     await page.waitForSelector('.slk-head h1:has-text("Pending key deletion")', { timeout: 10000 })
 
     async function queueDeletion(body, shift) {
+      const deletesBefore = deletes.length
       let releaseSend, releaseReply, forwarded, forwardFailed
       const waitToSend = new Promise(resolve => { releaseSend = resolve })
       const waitToReply = new Promise(resolve => { releaseReply = resolve })
@@ -59,7 +60,7 @@ export async function pendingMessageDelete(browser, web, phone) {
       await page.waitForFunction(id => document.activeElement?.id === id, tempId, { timeout: 5000 })
       await page.keyboard.press(shift ? 'Shift+Backspace' : 'Backspace')
       if (await page.$('[data-delete-confirm]')) throw new Error('a pending send was confirmed before it landed')
-      if (deletes.length) throw new Error('a pending send triggered a delete before it landed')
+      if (deletes.length !== deletesBefore) throw new Error('a pending send triggered a delete before it landed')
       const response = page.waitForResponse(r => new URL(r.url()).pathname === '/channels/messages' && r.request().method() === 'POST' && r.request().postDataJSON()?.body === body).catch(() => null)
       // Let the server process the message, but withhold its POST response.
       // An event may already update the row; the queued action must still
@@ -67,13 +68,20 @@ export async function pendingMessageDelete(browser, web, phone) {
       releaseSend()
       const forwardedResponse = await serverResponse
       if (!forwardedResponse?.ok()) throw new Error(`forwarded message send failed: HTTP ${forwardedResponse?.status() ?? 'network error'}`)
+      const forwardedId = (await forwardedResponse.json()).message?.id
+      if (typeof forwardedId !== 'string' || !forwardedId || forwardedId.startsWith('tmp-')) throw new Error('forwarded send did not return a server id')
+      // Wait until the real event has replaced the temporary row while the
+      // original POST response remains held. This checks the out-of-order
+      // state itself, rather than a single snapshot before the event arrives.
+      await page.waitForSelector(`.slk-main [id="msg-${forwardedId}"]`, { timeout: 10000 })
       if (await page.$('[data-delete-confirm]')) throw new Error('the delete question appeared while the send response was withheld')
-      if (deletes.length) throw new Error('a delete was sent while the send response was withheld')
+      if (deletes.length !== deletesBefore) throw new Error('a delete was sent while the send response was withheld')
       releaseReply()
       const sent = await response
       if (!sent?.ok()) throw new Error(`pending message send failed: HTTP ${sent?.status() ?? 'network error'}`)
       const id = (await sent.json()).message?.id
       if (typeof id !== 'string' || !id || id.startsWith('tmp-')) throw new Error('pending send did not receive a server id')
+      if (id !== forwardedId) throw new Error('the send response did not match the forwarded message')
       return { row, id }
     }
 
@@ -84,13 +92,22 @@ export async function pendingMessageDelete(browser, web, phone) {
     await page.waitForSelector('[data-delete-confirm]', { state: 'detached', timeout: 5000 })
     if (!await page.$(`.slk-main [id="msg-${normal.id}"]`)) throw new Error('canceling the question removed the sent message')
 
+    const approvedDelete = page.waitForResponse(response => new URL(response.url()).pathname === '/channels/messages' && response.request().method() === 'DELETE').catch(() => null)
+    const approved = await queueDeletion('pending keyboard approve', false)
+    await page.waitForSelector('.cl-delete-dialog [data-delete-preview]:has-text("pending keyboard approve")', { timeout: 10000 })
+    await page.click('[data-delete-confirm]')
+    const approvedResponse = await approvedDelete
+    if (!approvedResponse?.ok() || approvedResponse.request().postDataJSON()?.messageId !== approved.id) throw new Error('confirmation did not delete the acknowledged pending message')
+    await page.waitForSelector(approved.row, { state: 'detached', timeout: 10000 })
+    if (deletes.length !== 1) throw new Error('confirmation sent an unexpected number of deletes')
+
     const removed = page.waitForResponse(response => new URL(response.url()).pathname === '/channels/messages' && response.request().method() === 'DELETE').catch(() => null)
     const shifted = await queueDeletion('pending keyboard skip', true)
     const deletion = await removed
     if (!deletion?.ok() || deletion.request().postDataJSON()?.messageId !== shifted.id) throw new Error('Shift+Backspace did not delete the acknowledged pending message')
     await page.waitForSelector(shifted.row, { state: 'detached', timeout: 10000 })
     if (await page.$('[data-delete-confirm]')) throw new Error('Shift+Backspace asked after the pending send')
-    if (deletes.length !== 1 || nativeDialogs) throw new Error('unexpected delete request or native dialog')
+    if (deletes.length !== 2 || nativeDialogs) throw new Error('unexpected delete request or native dialog')
   } finally {
     for (const gate of releases.values()) { gate.releaseSend(); gate.releaseReply() }
     await ctx.close()
