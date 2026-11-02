@@ -146,3 +146,18 @@ test('keeps the Kylon-style member search visible in small workspaces',()=>{
  expect(tree!.root.findAllByProps({role:'option'}).map(option=>option.props['data-member-ref'])).toEqual(['','user_1','user_2'])
  act(()=>tree!.unmount())
 })
+
+test.each(['', '   '])('clearing a member search to %j restores the current selection rather than selecting the first match',empty=>{
+ stubBrowserGlobals()
+ for(const value of ['bob','','former']){
+  const onChange=vi.fn();let tree:ReturnType<typeof create>
+  act(()=>{tree=create(<AppPersonPicker label="担当者" value={value} members={[{ref:'alice',name:'Alice'},{ref:'bob',name:'Bob'}]} onChange={onChange}/>)})
+  act(()=>tree!.root.findByProps({role:'combobox'}).props.onClick())
+  act(()=>tree!.root.findByProps({'aria-label':'メンバーを検索'}).props.onChange({target:{value:'Ali'}}))
+  expect(tree!.root.findByProps({role:'option','data-member-ref':'alice'}).props.className).toBe('active')
+  act(()=>tree!.root.findByProps({'aria-label':'メンバーを検索'}).props.onChange({target:{value:empty}}))
+  expect(tree!.root.findByProps({role:'option','data-member-ref':value}).props.className).toBe('active')
+  act(()=>tree!.root.findByProps({'aria-label':'メンバーを検索'}).props.onKeyDown({key:'Enter',nativeEvent:{},preventDefault:vi.fn()}))
+  expect(onChange).not.toHaveBeenCalled();act(()=>tree!.unmount())
+ }
+})
