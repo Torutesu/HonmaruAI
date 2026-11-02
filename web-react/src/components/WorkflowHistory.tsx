@@ -18,8 +18,14 @@ export function WorkflowHistory({api,workflowId,tables=[],agents=[],apps=[],canR
   try{
    const result=await api.workflowRevisions(workflowId,more?cursor??undefined:undefined)
    if(token!==generation.current)return
-   setItems(old=>more?[...old,...result.items]:result.items);setCursor(result.nextCursor);setLoaded(true)
-   if(!more){setTo(result.items[0]?.revision??null);setFrom(result.items[1]?.revision??result.items[0]?.revision??null);setRestoreRevision(result.items[1]?.revision??null);setConfirmRestore(false)}
+   const next=more?[...items,...result.items]:result.items
+   setItems(next);setCursor(result.nextCursor);setLoaded(true)
+   if(!more){setTo(next[0]?.revision??null);setFrom(next[1]?.revision??next[0]?.revision??null);setConfirmRestore(false)}
+   else {setTo(value=>value??next[0]?.revision??null);setFrom(value=>value??next[1]?.revision??next[0]?.revision??null)}
+   // Page contents are permission-filtered; the first page can contain no
+   // older version even when a later page does. Keep a selection only while
+   // that version is still available in the loaded results.
+   setRestoreRevision(value=>next.slice(1).some(item=>item.revision===value)?value:next[1]?.revision??null)
   }catch(e){if(token===generation.current){setItems([]);setLoaded(false);setCursor(null);setError(e instanceof Error?e.message:String(e))}}
   finally{if(token===generation.current){pending.current=false;setBusy(false)}}
  }

@@ -34,6 +34,66 @@ test('a failed refresh removes cached history and permits retry',async()=>{
  act(()=>tree.unmount())
 })
 
+test('a visible older revision loaded after a permission-filtered first page becomes selectable',async()=>{
+ const api:any={workflowRevisions:vi.fn().mockResolvedValueOnce({items:[version(21,'Current')],nextCursor:2}).mockResolvedValueOnce({items:[version(1,'Older')],nextCursor:null})}
+ const onRestore=vi.fn().mockResolvedValue(undefined);let tree:any
+ await act(async()=>{tree=create(<WorkflowHistory api={api} workflowId="wf" canRestore currentUpdatedAt="now" onRestore={onRestore}/>)})
+ await act(async()=>{tree.root.findByType('details').props.onToggle({currentTarget:{open:true}})})
+ expect(tree.root.findAllByProps({'aria-label':'Restore workflow version'})).toHaveLength(0)
+ await act(async()=>{tree.root.findAllByType('button').find((b:any)=>b.children.includes('Load older versions')).props.onClick()})
+ const select=tree.root.findByProps({className:'hx-revision-restore'}).findByType('select')
+ expect(select.props.value).toBe(1)
+ const restore=tree.root.findAllByType('button').find((b:any)=>b.children.includes('Restore this version…'))
+ expect(restore.props.disabled).toBe(false)
+ await act(async()=>restore.props.onClick())
+ await act(async()=>tree.root.findAllByType('button').find((b:any)=>b.children.includes('Restore as new version')).props.onClick())
+ expect(onRestore).toHaveBeenCalledWith(1,false)
+ act(()=>tree.unmount())
+})
+
+test('pagination and refresh retain an available user selection, but never select an unavailable revision',async()=>{
+ const api:any={workflowRevisions:vi.fn().mockResolvedValueOnce({items:[version(5,'Current'),version(4,'First old'),version(3,'Second old')],nextCursor:3}).mockResolvedValueOnce({items:[version(2,'More old')],nextCursor:null}).mockResolvedValueOnce({items:[version(5,'Current'),version(4,'First old'),version(3,'Second old')],nextCursor:null}).mockResolvedValueOnce({items:[version(5,'Current'),version(4,'First old')],nextCursor:null})}
+ let tree:any;await act(async()=>{tree=create(<WorkflowHistory api={api} workflowId="wf" canRestore currentUpdatedAt="now" onRestore={vi.fn()}/>)})
+ await act(async()=>{tree.root.findByType('details').props.onToggle({currentTarget:{open:true}})})
+ const select=()=>tree.root.findByProps({className:'hx-revision-restore'}).findByType('select')
+ act(()=>select().props.onChange({target:{value:'3'}}))
+ await act(async()=>tree.root.findAllByType('button').find((b:any)=>b.children.includes('Load older versions')).props.onClick())
+ expect(select().props.value).toBe(3)
+ const refresh=()=>tree.root.findAllByType('button').find((b:any)=>b.children.includes('Refresh')).props.onClick()
+ await act(async()=>refresh());expect(select().props.value).toBe(3)
+ await act(async()=>refresh());expect(select().props.value).toBe(4)
+ expect(select().findAllByType('option').map((o:any)=>o.props.value)).toEqual([4])
+ act(()=>tree.unmount())
+})
+
+test('choosing a version while an older page is loading keeps that choice',async()=>{
+ let finish!:(value:unknown)=>void
+ const pending=new Promise(resolve=>{finish=resolve})
+ const api:any={workflowRevisions:vi.fn().mockResolvedValueOnce({items:[version(5,'Current'),version(4,'First'),version(3,'Second')],nextCursor:3}).mockReturnValueOnce(pending)}
+ let tree:any;await act(async()=>{tree=create(<WorkflowHistory api={api} workflowId="wf" canRestore currentUpdatedAt="now" onRestore={vi.fn()}/>)})
+ await act(async()=>{tree.root.findByType('details').props.onToggle({currentTarget:{open:true}})})
+ const select=()=>tree.root.findByProps({className:'hx-revision-restore'}).findByType('select')
+ act(()=>tree.root.findAllByType('button').find((b:any)=>b.children.includes('Load older versions')).props.onClick())
+ act(()=>select().props.onChange({target:{value:'3'}}))
+ await act(async()=>{finish({items:[version(2,'Third')],nextCursor:null});await pending})
+ expect(select().props.value).toBe(3)
+ act(()=>tree.unmount())
+})
+
+test('empty pages and a failed older-page read never expose a previously loaded definition',async()=>{
+ const api:any={workflowRevisions:vi.fn().mockResolvedValueOnce({items:[],nextCursor:21}).mockResolvedValueOnce({items:[version(20,'Visible'),version(19,'Secret old definition')],nextCursor:19}).mockRejectedValueOnce(new Error('Access removed'))}
+ let tree:any;await act(async()=>{tree=create(<WorkflowHistory api={api} workflowId="wf" canRestore currentUpdatedAt="now" onRestore={vi.fn()}/>)})
+ await act(async()=>{tree.root.findByType('details').props.onToggle({currentTarget:{open:true}})})
+ const more=()=>tree.root.findAllByType('button').find((b:any)=>b.children.includes('Load older versions')).props.onClick()
+ await act(async()=>more())
+ expect(tree.root.findByProps({className:'hx-revision-restore'}).findByType('select').props.value).toBe(19)
+ await act(async()=>more())
+ expect(tree.root.findAllByType('select')).toHaveLength(0)
+ expect(JSON.stringify(tree.toJSON())).not.toContain('Secret old definition')
+ expect(JSON.stringify(tree.toJSON())).toContain('Access removed')
+ act(()=>tree.unmount())
+})
+
 test('changed steps show readable conditions and resolve current table labels',async()=>{
  const old={...version(1,'Workflow'),definition:{...definition,steps:[{type:'add_row',tableId:'table',values:{amount:'100',active:false,metadata:{source:'form'}},rowId:'record-42',when:{path:['row','amount'],op:'gte',value:100}}]}}
  const latest={...version(2,'Workflow'),definition:{...old.definition,trigger:{type:'schedule',cadence:'daily',hour:9,minute:30,timezone:'UTC'},steps:[{...old.definition.steps[0],values:{amount:'200'}}]}}
