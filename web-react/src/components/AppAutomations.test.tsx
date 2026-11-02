@@ -185,3 +185,14 @@ test('removing one of two aliases on the same field still warns',async()=>{
  expect(JSON.stringify(tree.toJSON())).toContain('下書きで条件が解除されています')
  act(()=>tree.unmount())
 })
+
+test('saving an unrelated draft edit preserves numeric zero and false in a workflow step',async()=>{
+ const source={...state,draft:{version:1,items:[{key:'review',...definition,steps:[{type:'add_row',tableId:'tasks',values:{quantity:0,approved:false}}]}]}}
+ const saveAppAutomations=vi.fn().mockResolvedValue({saved:true})
+ const {tree,button}=await setup({appAutomations:vi.fn().mockResolvedValue(source),saveAppAutomations})
+ const name=tree.root.findAllByType('input').find(i=>i.props.value==='Review')!
+ await act(async()=>name.props.onChange({target:{value:'確認済み'}}))
+ await act(async()=>button('下書きを保存').props.onClick())
+ expect(saveAppAutomations).toHaveBeenCalledWith('app',2,2,expect.objectContaining({items:[expect.objectContaining({name:'確認済み',steps:[expect.objectContaining({values:{quantity:0,approved:false}})]})]}))
+ act(()=>tree.unmount())
+})
