@@ -34,9 +34,8 @@ export async function validateAppRelations(db, orgId, tableId, columns, values) 
     columnsByTarget.set(column.id, { tableId: targetTable, ids });
   }
   for (const [targetTable, ids] of requested) {
-    const { results = [] } = await db.prepare(`SELECT target.id FROM hx_rows target
-      JOIN json_each(?1) requested ON requested.value=target.id
-      WHERE target.org_id=?2 AND target.table_id=?3`).bind(JSON.stringify([...ids]), orgId, targetTable).all();
+    const { results = [] } = await db.prepare(`SELECT requested.value AS id FROM json_each(?1) requested
+      WHERE EXISTS(SELECT 1 FROM hx_rows target WHERE target.id=requested.value AND target.org_id=?2 AND target.table_id=?3)`).bind(JSON.stringify([...ids]), orgId, targetTable).all();
     const found = new Set(results.map(row => row.id));
     for (const column of relations) {
       const check = columnsByTarget.get(column.id);
@@ -53,22 +52,24 @@ export async function appRelationWriteGuard(db, orgId, tableId, columns, values,
   if (!relations.length) return { sql: '1', binds: [] };
   const app = await appForTable(db, orgId, tableId);
   if (!app) return { error: invalid('Relation fields must belong to an app database.') };
-  const entities = await entityTables(db, orgId, app), clauses = [], binds = [];
-  let next = firstParameter;
+  const entities = await entityTables(db, orgId, app), checks = [], seen = new Set();
+  const add = (tableId, id) => {
+    const key = JSON.stringify([tableId, id]);
+    if (!seen.has(key)) { seen.add(key); checks.push([orgId, tableId, id]); }
+  };
   for (const column of relations) {
     const targetTable = entities.get(column.targetEntity), value = values[column.id];
     if (!targetTable) return { error: invalid('A relation field points to an unavailable app entity.', column.id) };
     if (column.multiple) {
       if (!Array.isArray(value)) return { error: invalid('Choose records from the linked app entity.', column.id) };
-      clauses.push(`NOT EXISTS(SELECT 1 FROM json_each(?${next}) linked WHERE NOT EXISTS(SELECT 1 FROM hx_rows target WHERE target.org_id=?${next + 1} AND target.table_id=?${next + 2} AND target.id=linked.value))`);
-      binds.push(JSON.stringify(value), orgId, targetTable); next += 3;
+      for (const id of value) add(targetTable, id);
     } else {
       if (typeof value !== 'string' || !value || value.length > 64) return { error: invalid('A linked record ID is invalid.', column.id) };
-      clauses.push(`EXISTS(SELECT 1 FROM hx_rows target WHERE target.org_id=?${next} AND target.table_id=?${next + 1} AND target.id=?${next + 2})`);
-      binds.push(orgId, targetTable, value); next += 3;
+      add(targetTable, value);
     }
   }
-  return { sql: clauses.join(' AND '), binds };
+  // One parameter and a fixed-depth query regardless of column count.
+  return { sql: `NOT EXISTS(SELECT 1 FROM json_each(?${firstParameter}) linked WHERE NOT EXISTS(SELECT 1 FROM hx_rows target WHERE target.org_id=json_extract(linked.value,'$[0]') AND target.table_id=json_extract(linked.value,'$[1]') AND target.id=json_extract(linked.value,'$[2]')))`, binds:[JSON.stringify(checks)] };
 }
 
 async function incomingRelations(db, orgId, targetTableId) {
