@@ -3603,10 +3603,15 @@ await step('the message box has an emoji button that puts the emoji where the ca
     await desk.waitForSelector('.slk-picker-at .slk-picker-emoji[aria-label="👍"]', { timeout: 10000 })
     await desk.click('.slk-picker-at .slk-picker-emoji[aria-label="👍"]')
     await desk.waitForSelector('.slk-picker-at', { state: 'detached', timeout: 5000 })
-    const after = await desk.$eval(box, (el) => ({ value: el.value, caret: el.selectionStart, focused: document.activeElement === el }))
-    if (after.value !== 'hello👍 world') throw new Error(`the emoji went in as "${after.value}"`)
-    if (!after.focused) throw new Error('the message box did not get the focus back')
-    if (after.caret !== 'hello👍'.length) throw new Error(`the caret is at ${after.caret}, not after the emoji`)
+    const value = await desk.inputValue(box)
+    if (value !== 'hello👍 world') throw new Error(`the emoji went in as "${value}"`)
+    // Back in the box, the caret after the emoji, by the next frame: the
+    // picker hands focus to its button as it shuts, and the box takes it.
+    await desk.waitForFunction((sel) => { const el = document.querySelector(sel); return el && document.activeElement === el && el.selectionStart === 'hello👍'.length }, box, { timeout: 2000 })
+      .catch(async () => {
+        const at = await desk.$eval(box, (el) => ({ focused: document.activeElement === el, active: `${document.activeElement?.tagName}.${document.activeElement?.className}`, caret: el.selectionStart }))
+        throw new Error(`the message box did not get the focus back with the caret after the emoji: ${JSON.stringify(at)}`)
+      })
     // Esc shuts the picker and leaves the draft, from the keyboard alone.
     await desk.focus(button)
     await desk.keyboard.press('Enter')
