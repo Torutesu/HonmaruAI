@@ -493,7 +493,7 @@ test('opening an app from the library starts in its data viewer', async () => {
     definition: { views: [], custom: { published: '<main></main>' } },
   }] })
   await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
-  await act(async () => { tree!.root.findByProps({ 'aria-label': 'Trackerを開く' }).props.onClick() })
+  await act(async () => { tree!.root.findByProps({ 'aria-label': 'Open Tracker' }).props.onClick() })
   expect(location.hash).toBe('#/apps/existing/team%3Aone?section=data')
 })
 test('the app data viewer keeps one record-create action in the table toolbar', async () => {
