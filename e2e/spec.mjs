@@ -3568,6 +3568,156 @@ await step('a workspace adds its own emoji, and uses them in a message and a rea
 // Your status, one click from your avatar — on a laptop the rail's, at its
 // foot. A preset and Save, and a teammate's sidebar wears its emoji; Escape
 // shuts the popover and hands focus back to the avatar that opened it.
+// The composer's own emoji button (#656): in a direct message, the picker a
+// reaction opens, and the emoji goes into the draft where the caret was.
+await step('the message box has an emoji button that puts the emoji where the caret is, and sends nothing', async () => {
+  await closeEverything()
+  const desk = await phone.newPage()
+  await desk.setViewportSize({ width: 1280, height: 820 })
+  try {
+    await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    const dm = '.slk-side .cl-thread[data-view^="dm:"]'
+    await desk.waitForSelector(dm, { timeout: 20000 })
+    await desk.click(`${dm} .cl-open >> nth=0`)
+    const box = '.slk-composer:not(.thread) .slk-input'
+    await desk.waitForSelector(box, { timeout: 10000 })
+    const view = await desk.getAttribute(`${dm} >> nth=0`, 'data-view')
+    const before = await desk.evaluate(async ({ host, view }) => {
+      const org = localStorage.getItem('orgId'), token = localStorage.getItem('sessionToken')
+      const r = await fetch(`${host}/channels/messages?orgId=${encodeURIComponent(org)}&channel=${encodeURIComponent(view)}`, { headers: { 'x-session-token': token } })
+      return ((await r.json()).messages || []).length
+    }, { host: API, view })
+    await desk.fill(box, 'hello world')
+    // The caret after "hello", as a person leaves it to add something there.
+    await desk.$eval(box, (el) => { el.focus(); el.setSelectionRange(5, 5) })
+    const button = '.slk-composer:not(.thread) [data-composer-emoji]'
+    if (await desk.getAttribute(button, 'aria-label') !== 'Insert emoji') throw new Error('the emoji button has no label')
+    await desk.click(button)
+    await desk.waitForSelector('.slk-picker-at [role="dialog"][aria-label="Insert emoji"]', { timeout: 5000 })
+      .catch(() => { throw new Error('the emoji button opened no picker') })
+    // The workspace's own emoji are in it.
+    await desk.waitForSelector('.slk-picker-at [data-custom-emoji]', { timeout: 10000 })
+      .catch(() => { throw new Error("the composer's picker leaves out the workspace's emoji") })
+    // Above the box, not over what is being written.
+    const covers = await desk.evaluate(() => {
+      const picker = document.querySelector('.slk-picker-at').getBoundingClientRect()
+      const box = document.querySelector('.slk-composer:not(.thread)').getBoundingClientRect()
+      return { pickerBottom: Math.round(picker.bottom), boxTop: Math.round(box.top), inside: picker.top >= 0 && picker.bottom <= window.innerHeight }
+    })
+    if (covers.pickerBottom > covers.boxTop + 1 || !covers.inside) throw new Error(`the picker covers the message box or leaves the window: ${JSON.stringify(covers)}`)
+    await desk.screenshot({ path: `${SHOTS}/56c-composer-emoji.png` })
+    await desk.fill('.slk-picker-at [data-emoji-search]', 'thumbs up')
+    await desk.waitForSelector('.slk-picker-at .slk-picker-emoji[aria-label="👍"]', { timeout: 10000 })
+    await desk.click('.slk-picker-at .slk-picker-emoji[aria-label="👍"]')
+    await desk.waitForSelector('.slk-picker-at', { state: 'detached', timeout: 5000 })
+    const value = await desk.inputValue(box)
+    if (value !== 'hello👍 world') throw new Error(`the emoji went in as "${value}"`)
+    // Back in the box, the caret after the emoji, by the next frame: the
+    // picker hands focus to its button as it shuts, and the box takes it.
+    await desk.waitForFunction((sel) => { const el = document.querySelector(sel); return el && document.activeElement === el && el.selectionStart === 'hello👍'.length }, box, { timeout: 2000 })
+      .catch(async () => {
+        const at = await desk.$eval(box, (el) => ({ focused: document.activeElement === el, active: `${document.activeElement?.tagName}.${document.activeElement?.className}`, caret: el.selectionStart }))
+        throw new Error(`the message box did not get the focus back with the caret after the emoji: ${JSON.stringify(at)}`)
+      })
+    // Esc shuts the picker and leaves the draft, from the keyboard alone.
+    await desk.focus(button)
+    await desk.keyboard.press('Enter')
+    await desk.waitForSelector('.slk-picker-at', { timeout: 5000 })
+    await desk.keyboard.press('Escape')
+    await desk.waitForSelector('.slk-picker-at', { state: 'detached', timeout: 5000 })
+      .catch(() => { throw new Error('Escape did not shut the picker') })
+    if (await desk.inputValue(box) !== 'hello👍 world') throw new Error('closing the picker changed the draft')
+    // Nothing was sent.
+    const sent = await desk.evaluate(async ({ host, view }) => {
+      const org = localStorage.getItem('orgId'), token = localStorage.getItem('sessionToken')
+      const r = await fetch(`${host}/channels/messages?orgId=${encodeURIComponent(org)}&channel=${encodeURIComponent(view)}`, { headers: { 'x-session-token': token } })
+      return ((await r.json()).messages || []).length
+    }, { host: API, view })
+    if (sent !== before) throw new Error('picking an emoji sent the message')
+    await desk.fill(box, '')
+  } finally {
+    await desk.close()
+  }
+})
+
+// A message's hover toolbar (#657, #658): a pencil edits your own message,
+// and only yours; its ⋯ menu covers the conversation instead of stretching
+// it, so nothing under it moves, even on the last message.
+await step('a message’s toolbar edits your own with a pencil, and its menu covers the conversation without moving it', async () => {
+  await closeEverything()
+  if (!mate) throw new Error('the teammate this step needs is not here')
+  const kenji = mate.pages()[0] || await mate.newPage()
+  const desk = await phone.newPage()
+  await desk.setViewportSize({ width: 1280, height: 820 })
+  try {
+    await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    const group = '.slk-side .cl-thread[data-view^="g:"]'
+    await desk.waitForSelector(group, { timeout: 20000 })
+    const view = await desk.getAttribute(`${group} >> nth=0`, 'data-view')
+    await desk.click(`${group} .cl-open >> nth=0`)
+    const stamp = Date.now()
+    const theirsText = `from kenji ${stamp}`, mineText = `a typo here ${stamp}`
+    const said = await kenji.evaluate(async ({ host, view, body }) => {
+      const r = await fetch(`${host}/channels/messages`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') }, body: JSON.stringify({ orgId: localStorage.getItem('orgId'), channel: view, body }) })
+      return r.status
+    }, { host: API, view, body: theirsText })
+    if (said >= 300) throw new Error(`Kenji could not post: ${said}`)
+    const box = '.slk-composer:not(.thread) .slk-input'
+    await desk.waitForSelector(`.slk-main .slk-msg .slk-text:has-text("${theirsText}")`, { timeout: 15000 })
+    await desk.fill(box, mineText)
+    await desk.keyboard.press('Enter')
+    // The server's copy, not the one drawn the moment Enter is pressed.
+    await desk.waitForSelector(`.slk-main .slk-msg:not(.pending):not(.failed) .slk-text:has-text("${mineText}")`, { timeout: 15000 })
+    const mine = desk.locator('.slk-main .slk-msg[id^="msg-"]', { hasText: mineText }).last()
+    const theirs = desk.locator('.slk-main .slk-msg[id^="msg-"]', { hasText: theirsText }).last()
+
+    // No pencil on somebody else's message.
+    await theirs.hover()
+    if (await theirs.locator('[data-tool="edit"]').count()) throw new Error("someone else's message offers the pencil")
+
+    // ⋯ on the last message: the conversation stays exactly where it was.
+    await mine.hover()
+    const measure = () => desk.evaluate((text) => {
+      const log = document.querySelector('.slk-main .slk-log')
+      const row = [...document.querySelectorAll('.slk-main .slk-msg[id^="msg-"]')].filter((el) => el.textContent.includes(text)).pop()
+      const composer = document.querySelector('.slk-composer:not(.thread)')
+      return { height: log.scrollHeight, top: Math.round(log.scrollTop), composer: Math.round(composer.getBoundingClientRect().top), row: Math.round(row.getBoundingClientRect().height) }
+    }, mineText)
+    const before = await measure()
+    await mine.locator('.slk-tool[aria-label="More actions"]').click()
+    const menu = mine.locator('.slk-menu-float')
+    await menu.waitFor({ timeout: 5000 })
+    await desk.waitForTimeout(400)
+    const during = await measure()
+    const box2 = await menu.boundingBox()
+    await desk.screenshot({ path: `${SHOTS}/56d-message-menu.png` })
+    for (const k of ['height', 'top', 'composer', 'row']) {
+      if (Math.abs(during[k] - before[k]) > 1) throw new Error(`opening ⋯ moved the conversation: ${k} ${before[k]} → ${during[k]}`)
+    }
+    if (!box2 || box2.y < 0 || box2.y + box2.height > 820 || box2.x < 0 || box2.x + box2.width > 1280) throw new Error(`the ⋯ menu runs off the window: ${JSON.stringify(box2)}`)
+    if (!(await menu.locator('[data-menu="edit"]').isVisible())) throw new Error('the ⋯ menu lost its Edit message')
+    await desk.keyboard.press('Escape')
+    await menu.waitFor({ state: 'detached', timeout: 5000 })
+    const after = await measure()
+    if (Math.abs(after.height - before.height) > 1 || Math.abs(after.composer - before.composer) > 1) throw new Error('closing ⋯ moved the conversation')
+
+    // The pencil: the same editor as ⋯ › Edit message.
+    await mine.hover()
+    const pencil = mine.locator('[data-tool="edit"]')
+    if (await pencil.getAttribute('aria-label') !== 'Edit message') throw new Error('the pencil has no label')
+    await pencil.click()
+    await desk.waitForSelector('.slk-main .slk-edit textarea', { timeout: 5000 }).catch(() => { throw new Error('the pencil opened no editor') })
+    if (await desk.inputValue('.slk-main .slk-edit textarea') !== mineText) throw new Error('the editor did not hold the message')
+    await desk.keyboard.press('Escape')
+    await desk.waitForSelector('.slk-main .slk-edit', { state: 'detached', timeout: 5000 })
+    // From the keyboard: the message focused shows its tools, pencil and all.
+    await mine.evaluate((el) => el.focus())
+    if (!(await pencil.isVisible())) throw new Error('a focused message does not show the pencil')
+  } finally {
+    await desk.close()
+  }
+})
+
 await step('a status set from the avatar on a laptop shows in a teammate’s sidebar', async () => {
   await closeEverything()
   if (!mate) throw new Error('the teammate this step needs is not here')
