@@ -88,6 +88,20 @@ test('matching duplicate names remain distinguishable by reference and arrow sel
  expect(onChange).toHaveBeenCalledWith('second');act(()=>tree!.unmount())
 })
 
+test('opening an unassigned field keeps unassigned active until a search or navigation changes it',()=>{
+ stubBrowserGlobals();const onChange=vi.fn();let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<AppPersonPicker label="担当者" value="" members={[{ref:'alice',name:'Alice'},{ref:'bob',name:'Bob'}]} onChange={onChange}/>)});
+ act(()=>tree!.root.findByProps({role:'combobox'}).props.onClick())
+ expect(tree!.root.findByProps({role:'option','data-member-ref':''}).props.className).toBe('active')
+ act(()=>tree!.root.findByProps({'aria-label':'メンバーを検索'}).props.onKeyDown({key:'Enter',nativeEvent:{},preventDefault:vi.fn()}))
+ expect(onChange).toHaveBeenLastCalledWith('')
+ act(()=>tree!.root.findByProps({role:'combobox'}).props.onClick())
+ act(()=>tree!.root.findByProps({'aria-label':'メンバーを検索'}).props.onChange({target:{value:'Bob'}}))
+ expect(tree!.root.findByProps({role:'option','data-member-ref':'bob'}).props.className).toBe('active')
+ act(()=>tree!.root.findByProps({'aria-label':'メンバーを検索'}).props.onKeyDown({key:'Enter',nativeEvent:{},preventDefault:vi.fn()}))
+ expect(onChange).toHaveBeenLastCalledWith('bob');act(()=>tree!.unmount())
+})
+
 test('Escape during IME leaves the picker open; ordinary Escape closes it',()=>{
  const handlers=new Map<string,EventListener>();const focus=vi.fn()
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()})

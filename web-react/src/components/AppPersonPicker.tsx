@@ -21,7 +21,7 @@ export function AppPersonPicker({label,value,members,ready=true,disabled=false,o
    const available=above?rect.top-20:spaceBelow
    setPosition({position:'fixed',zIndex:260,width,left:Math.max(12,Math.min(rect.left,window.innerWidth-width-12)),top:above?rect.top-4:rect.bottom+4,transform:above?'translateY(-100%)':undefined,maxHeight:Math.max(120,Math.min(280,available))})
   }
-  setQuery('');setActive(value||members[0]?.ref||null);setOpen(true)
+  setQuery('');setActive(value);setOpen(true)
  }
  const choose=(ref:string)=>{if(disabled)return;onChange(ref);close();trigger.current?.focus()}
  const move=(key:string)=>{
