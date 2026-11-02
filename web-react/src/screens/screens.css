@@ -367,6 +367,7 @@
   :where(:root:not([data-theme="light"])) .btn-text { color: #a3a3a3; }
   :where(:root:not([data-theme="light"])) .btn-text:hover { color: #f2f2f2; }
   :where(:root:not([data-theme="light"])) .welcome-points li { border-top-color: #2a2a2a; }
+  :where(:root:not([data-theme="light"])) .welcome-points span { color: #a3a3a3; }
 }
 :where(:root[data-theme="dark"]) .brandmark span { background: #0f0f0f; }
 :where(:root[data-theme="dark"]) .otp-box { background: #1a1a1a; border-color: #2a2a2a; color: #f2f2f2; }
@@ -394,6 +395,7 @@
 :where(:root[data-theme="dark"]) .btn-text { color: #a3a3a3; }
 :where(:root[data-theme="dark"]) .btn-text:hover { color: #f2f2f2; }
 :where(:root[data-theme="dark"]) .welcome-points li { border-top-color: #2a2a2a; }
+:where(:root[data-theme="dark"]) .welcome-points span { color: #a3a3a3; }
 
 /* Inviting someone. The sheet above carries the title, so this is the row,
    the button, and — once it exists — the code itself, which is the only
