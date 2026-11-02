@@ -305,3 +305,27 @@ test('fork creation safely rejects a primary table changed before snapshot read'
   expect(await forkDatabase(racing,orgId,app,'8101')).toMatchObject({status:409});
   expect(await env.DB.prepare('SELECT id FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(orgId,app.id,'8101').first()).toBeNull();
 });
+
+test.each([false,true])('self references do not block deleting that row (multiple=%s)',async multiple=>{
+ const migration=await dbCall({action:'migrate',id:'self_relation',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Self',type:'relation',targetEntity:'primary',multiple}]}]});expect(migration.status).toBe(200);
+ const target=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'Target'}})).json()).row;
+ const patched=await call(`/tables/${app.tableId}/rows/${target.id}`,owner,{values:{self:multiple?[target.id]:target.id},expectedUpdatedAt:target.updatedAt},'PATCH');expect(patched.status).toBe(200);const updated=(await patched.json()).row;
+ expect((await deleteRow(app.tableId,updated)).status).toBe(200);
+});
+
+test.each([false,true])('other rows and cycles still prevent deletion (multiple=%s)',async multiple=>{
+ const migration=await dbCall({action:'migrate',id:'self_relation_cycle',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Self',type:'relation',targetEntity:'primary',multiple}]}]});expect(migration.status).toBe(200);
+ const a=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'A'}})).json()).row;
+ const b=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'B',self:multiple?[a.id]:a.id}})).json()).row;
+ const result=await call(`/tables/${app.tableId}/rows/${a.id}`,owner,{values:{self:multiple?[b.id]:b.id},expectedUpdatedAt:a.updatedAt},'PATCH');expect(result.status).toBe(200);const updated=(await result.json()).row;
+ expect((await deleteRow(app.tableId,updated)).status).toBe(409);expect((await deleteRow(app.tableId,b)).status).toBe(409);
+});
+
+test('another row added after the self-reference precheck still blocks deletion',async()=>{
+ const migration=await dbCall({action:'migrate',id:'self_relation_race',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Self',type:'relation',targetEntity:'primary'}]}]});expect(migration.status).toBe(200);
+ const target=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'Target'}})).json()).row;
+ const patched=await call(`/tables/${app.tableId}/rows/${target.id}`,owner,{values:{self:target.id},expectedUpdatedAt:target.updatedAt},'PATCH');expect(patched.status).toBe(200);const updated=(await patched.json()).row;
+ const {deleteRow:deleteRecord}=await import('../src/harness/tables.js');let injected=false;
+ const race=new Proxy(env.DB,{get(db,prop){if(prop==='prepare')return sql=>{const stmt=db.prepare(sql);if(!sql.startsWith('DELETE FROM hx_rows WHERE id'))return stmt;return {bind(...args){const bound=stmt.bind(...args);return {first:async()=>{injected=true;await env.DB.prepare('INSERT INTO hx_rows(id,table_id,org_id,data,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').bind('other-row',app.tableId,orgId,JSON.stringify({task:'Other',self:target.id}),'8101','2026','2026').run();return bound.first()}}}}};const value=db[prop];return typeof value==='function'?value.bind(db):value}});
+ const result=await deleteRecord(race,orgId,app.tableId,target.id,updated.updatedAt);expect(injected).toBe(true);expect(result.status).toBe(409);expect(await env.DB.prepare('SELECT id FROM hx_rows WHERE id=?').bind(target.id).first()).toBeTruthy();
+});

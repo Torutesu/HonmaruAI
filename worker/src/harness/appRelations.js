@@ -99,7 +99,11 @@ export async function hasAppRelationsToRow(db, orgId, tableId, rowId) {
     clauses.push(`(source.table_id=?${tableParameter} AND ${predicate})`);
     binds.push(source.tableId);
   }
-  return !!(await db.prepare(`SELECT 1 AS found FROM hx_rows source WHERE source.org_id=?1 AND (${clauses.join(' OR ')}) LIMIT 1`).bind(...binds).first());
+  // A row removed in the same operation cannot leave its own reference
+  // dangling. Every other source row remains protected.
+  const targetTableParameter=binds.length+1;
+  binds.push(tableId);
+  return !!(await db.prepare(`SELECT 1 AS found FROM hx_rows source WHERE source.org_id=?1 AND NOT (source.table_id=?${targetTableParameter} AND source.id=?2) AND (${clauses.join(' OR ')}) LIMIT 1`).bind(...binds).first());
 }
 
 export async function appRelationDeleteGuard(db, orgId, tableId, firstParameter) {
@@ -110,7 +114,7 @@ export async function appRelationDeleteGuard(db, orgId, tableId, firstParameter)
     const predicate = source.column.multiple
       ? `EXISTS(SELECT 1 FROM json_each(source.data,'${path}') linked WHERE linked.value=?1)`
       : `json_extract(source.data,'${path}')=?1`;
-    clauses.push(`NOT EXISTS(SELECT 1 FROM hx_rows source WHERE source.org_id=?3 AND source.table_id=?${next} AND ${predicate})`);
+    clauses.push(`NOT EXISTS(SELECT 1 FROM hx_rows source WHERE source.org_id=?3 AND source.table_id=?${next} AND NOT (source.table_id=?2 AND source.id=?1) AND ${predicate})`);
     binds.push(source.tableId); next += 1;
   }
   return { sql: clauses.length ? clauses.join(' AND ') : '1', binds };
