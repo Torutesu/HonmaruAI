@@ -4,6 +4,7 @@ import type {AppEntity, Column, Row} from '../utils/harness'
 import {AppPersonPicker, type AppPerson} from './AppPersonPicker'
 import {AppRelationPicker} from './AppRelationPicker'
 import {useT} from '../utils/i18n'
+import {numberPreservesDecimal} from '../utils/numericPrecision'
 
 type RelationEntity=AppEntity & {rows:Row[]}
 
@@ -28,7 +29,12 @@ export function AppRecordDialog({appName,tableName=appName,columns,initial={},re
   const incomplete=Array.from(form.current?.querySelectorAll<HTMLInputElement>('input')||[]).some(input=>input.validity.badInput)
   if(changed||numericTextChanged||incomplete)setConfirmDiscard(true);else onClose()
  }
- const submit=async(e:React.FormEvent)=>{e.preventDefault();if(pending.current||confirmDiscard)return;pending.current=true;setBusy(true);setError('');try{await save(values());onClose()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{pending.current=false;setBusy(false)}}
+ const submit=async(e:React.FormEvent)=>{
+  e.preventDefault();if(pending.current||confirmDiscard)return
+  const unsafe=columns.find(c=>c.type==='number'&&(record?draft[c.id]!==record.values[c.id]:draft[c.id]!==undefined&&draft[c.id]!=='')&&draft[c.id]!==null&&draft[c.id]!==''&&draft[c.id]!==undefined&&!numberPreservesDecimal(String(draft[c.id])))
+  if(unsafe){setError(t('The value for {field} cannot be saved without changing the number. Check the input.',{field:unsafe.name}));return}
+  pending.current=true;setBusy(true);setError('');try{await save(values());onClose()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{pending.current=false;setBusy(false)}
+ }
  const change=(id:string,value:unknown)=>setDraft(d=>({...d,[id]:value}))
  return <Dialog title={record?"レコード詳細":tableName!==appName?`新規${tableName}`:"新規レコード"} lede={record?appName:`${appName}に新しいレコードを作成します。`} className={`hx-record-dialog${conversation?' hx-record-with-chat':''}`} onClose={close} footer={<><button className="dlg-btn" disabled={busy} onClick={close}>キャンセル</button><button className="dlg-btn primary" form="hx-record-form" type="submit" disabled={busy}>{busy?(record?'保存中…':'作成中…'):(record?'保存':'作成')}</button></>}>
   <div className="hx-record-columns"><form id="hx-record-form" ref={form} onSubmit={e=>void submit(e)} className="hx-record-form">
