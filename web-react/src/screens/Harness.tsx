@@ -187,6 +187,7 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
     const made = await api.createFromTemplate(id)
     openApp(made.app.id)
   })
+  const appLabel = (key:string,name:string) => t(key).replaceAll('{name}',()=>name)
 
   return (
     <Shell className="hx-resource-screen hx-app-library" title={t('Apps')} onClose={props.onClose} actions={<button className="pill-btn" onClick={() => setCreating(v => !v)}>{t(creating ? 'Cancel' : 'Build an app')}</button>}>
@@ -226,23 +227,23 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
 
       <RemoteMcpServers httpBase={props.httpBase} orgId={props.orgId} sessionToken={props.sessionToken} />
 
-      <label className="hx-library-search"><Icon name="search" size={16} /><input type="search" aria-label="アプリを検索" placeholder="アプリを検索" value={query} onChange={e => setQuery(e.target.value)} /></label>
+      <label className="hx-library-search"><Icon name="search" size={16} /><input type="search" aria-label={t('Search apps')} placeholder={t('Search apps')} value={query} onChange={e => setQuery(e.target.value)} /></label>
       {apps === null && <div className="empty">{t('Loading…')}</div>}
       {apps?.length === 0 && !creating && <div className="hx-resource-empty"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('No apps yet')}</h2><p>{t('Apps are small tools your agents build for this room: dashboards, trackers and forms.')}</p><button onClick={() => setCreating(true)}>{t('Build an app')}</button></div>}
       {apps && apps.length > 0 && (
         <div className="hx-app-grid">
           {apps.filter(a => `${a.name} ${a.description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map((a) => (
             <article key={a.id} className="hx-app-tile" data-app={a.id}>
-              <button className="hx-app-card-open" aria-label={`${a.name}を開く`} onClick={() => openApp(a.id)} />
+              <button className="hx-app-card-open" aria-label={appLabel('Open {name}',a.name)} onClick={() => openApp(a.id)} />
               <span className="hx-library-card-heading"><HarnessAppIcon icon={a.icon} /><span><span className="hx-app-name">{a.name}</span><span className="hx-app-rooms">{a.channels?.map(c => c.startsWith('ag:') || c.startsWith('dm:') ? t('Private chat') : c.replace(/^b:/, '')).join(' · ') || t('Apps')}</span></span></span>
-              <button className={`hx-app-card-pin ${pins.includes(a.id) ? 'on' : ''}`} aria-label={pins.includes(a.id) ? `${a.name}の固定を解除` : `${a.name}をナビゲーションに固定`} aria-pressed={pins.includes(a.id)} onClick={() => void act('pin', async () => toggle(a.id))}><Icon name="pin" size={14} /></button>
+              <button className={`hx-app-card-pin ${pins.includes(a.id) ? 'on' : ''}`} aria-label={appLabel(pins.includes(a.id) ? 'Unpin {name} from navigation' : 'Pin {name} to navigation',a.name)} aria-pressed={pins.includes(a.id)} onClick={() => void act('pin', async () => toggle(a.id))}><Icon name="pin" size={14} /></button>
               <HarnessAppPreview app={a} api={api} httpBase={props.httpBase} />
             </article>
           ))}
         </div>
       )}
 
-      {apps && apps.length > 0 && !apps.some(a => `${a.name} ${a.description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())) && <p className="hx-library-no-results" role="status">該当するアプリがありません。</p>}
+      {apps && apps.length > 0 && !apps.some(a => `${a.name} ${a.description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())) && <p className="hx-library-no-results" role="status">{t('No apps match your search.')}</p>}
       {creating && <>
       <div className="rows-title">{t('Templates')}</div>
       <div className="hx-app-grid">
