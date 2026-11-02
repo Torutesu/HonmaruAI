@@ -52,9 +52,20 @@ export function cleanScopes(input) {
   return out.length ? out : ["read"];
 }
 
+function storedScopes(raw) {
+  // Only SQL NULL identifies a key made before scopes were introduced.
+  if (raw === null) return { scopes: LEGACY_SCOPES, invalid: false };
+  try {
+    const value = JSON.parse(raw);
+    if (Array.isArray(value) && value.every(scope => typeof scope === 'string' && SCOPES.includes(scope))) {
+      return { scopes: cleanScopes(value), invalid: false };
+    }
+  } catch { /* A damaged key must never gain permissions. */ }
+  return { scopes: [], invalid: true };
+}
+
 export function parseScopes(raw) {
-  if (!raw) return LEGACY_SCOPES;
-  try { return cleanScopes(JSON.parse(raw)); } catch { return LEGACY_SCOPES; }
+  return storedScopes(raw).scopes;
 }
 
 export function hasScope(scopes, scope) {
@@ -84,6 +95,8 @@ const DAY_MS = 86_400_000;
 /// `ssoBacked`: made from a sign-in through this workspace's SSO, so it is
 /// still let in once the workspace requires SSO.
 export async function createApiToken(db, { orgId, githubId, name, scopes, expiresInDays, ssoBacked = false }) {
+  if (scopes !== undefined && !Array.isArray(scopes)) return { error: 'Scopes must be an array.', status: 400 };
+  if (scopes && Array.from(scopes).some(scope => typeof scope !== 'string' || !SCOPES.includes(scope))) return { error: 'Scopes contain an unsupported value.', status: 400 };
   const clean = String(name || "").replace(/\s+/g, " ").trim().slice(0, 60) || "Agent";
   const days = expiresInDays === undefined || expiresInDays === null ? TOKEN_DAYS : Number(expiresInDays);
   if (!Number.isInteger(days) || days < 1 || days > MAX_TOKEN_DAYS) return { error: `A token lasts from 1 to ${MAX_TOKEN_DAYS} days.` };
@@ -115,7 +128,10 @@ export async function listApiTokens(db, { orgId, githubId }) {
     )
     .bind(String(githubId), orgId)
     .all();
-  return (results || []).map((r) => ({ id: r.id, name: r.name, prefix: r.prefix, createdAt: r.created_at, lastUsedAt: r.last_used_at || null, expiresAt: r.expires_at || null, scopes: parseScopes(r.scopes) }));
+  return (results || []).map((r) => {
+    const parsed = storedScopes(r.scopes);
+    return { id: r.id, name: r.name, prefix: r.prefix, createdAt: r.created_at, lastUsedAt: r.last_used_at || null, expiresAt: r.expires_at || null, scopes: parsed.scopes, ...(parsed.invalid ? { invalidScopes: true } : {}) };
+  });
 }
 
 /// Revoke one of your own. Returns what it was, for the audit log, or null.

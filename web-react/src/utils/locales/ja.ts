@@ -816,6 +816,7 @@ const table: Record<string, string> = {
   'Keep at least one active human agent admin.': '有効な人間のエージェント管理者を最低1人残してください。',
   'People': 'メンバー',
   'Permissions': '権限',
+  'Permissions cannot be read, so this key cannot call tools. Try again later, or revoke it and create a new key.': '権限を読み取れないため、このキーではツールを使えません。しばらくしてから再度お試しいただくか、キーを失効させて新しいキーを作成してください。',
   'Personal key': '個人キー',
   'Playbook: read': 'プレイブック: 閲覧',
   'Production events': '本番イベント',

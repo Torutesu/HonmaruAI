@@ -60,6 +60,12 @@ const SCOPE_WORD: Record<string, string> = {
 }
 const SCOPE_CHIP: Record<string, string> = { read: 'Read', write: 'Ask', execute: 'Execute', 'audit:read': 'Audit log' }
 
+export function AgentTokenScopes({ scopes, invalidScopes, translate }: { scopes?: string[]; invalidScopes?: boolean; translate: (text: string) => string }) {
+  return <span className="studio-chips key-scopes">{invalidScopes
+    ? <span role="status">{translate('Permissions cannot be read, so this key cannot call tools. Try again later, or revoke it and create a new key.')}</span>
+    : (scopes || ['read', 'write']).map(sc => <i key={sc} data-scope={sc}>{translate(SCOPE_CHIP[sc] || sc)}</i>)}</span>
+}
+
 /// One attempt to deliver a webhook, as the Worker keeps it.
 interface Delivery {
   id: string; eventId: string; event: string; status: number | null; ok: boolean; error: string | null
@@ -109,7 +115,7 @@ interface AIStatus {
 /// A personal token an agent uses to reach this workspace over MCP. The
 /// secret itself is shown once, when it is made; after that only its first
 /// characters, so a person can tell two apart.
-interface AgentToken { id: string; name: string; prefix: string; createdAt: string; lastUsedAt: string | null; expiresAt?: string | null; scopes?: string[] }
+interface AgentToken { id: string; name: string; prefix: string; createdAt: string; lastUsedAt: string | null; expiresAt?: string | null; scopes?: string[]; invalidScopes?: boolean }
 
 interface Props {
   httpBase: string
@@ -939,7 +945,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
         {(agents?.tokens || []).map((tok) => (
           <div className="studio-tr agent-token" role="row" key={tok.id} data-token={tok.id}>
             <span className="studio-td-name"><b>{tok.name}</b><code className="agent-prefix">{tok.prefix}…</code></span>
-            <span className="studio-chips key-scopes">{(tok.scopes || ['read', 'write']).map((sc) => <i key={sc} data-scope={sc}>{t(SCOPE_CHIP[sc] || sc)}</i>)}</span>
+            <AgentTokenScopes scopes={tok.scopes} invalidScopes={tok.invalidScopes} translate={t} />
             <span className="studio-td-dim" title={tok.expiresAt ? `${t('Expires')} ${day(tok.expiresAt)}` : undefined}>{day(tok.createdAt)}{tok.expiresAt ? ` → ${day(tok.expiresAt)}` : ''}</span>
             <span className="studio-td-dim">{tok.lastUsedAt ? t('last used {when}', { when: ago(tok.lastUsedAt) }) : t('never used')}</span>
             <span className="studio-td-end studio-menu-wrap">
