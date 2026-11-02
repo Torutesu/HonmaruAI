@@ -341,3 +341,14 @@ test('conversation file links use configured deployments and exclude inherited c
  expect(url.hash).toBe('#/c/ag%3Awriter?org=team%3Afiles&file=file-123');
  for(const address of [undefined,'invalid','javascript:alert(1)','https://user:password@example.test'])expect(conversationFileUrl(address,target)).toBeNull();
 });
+
+test('MCP record writes handle 39 valid relation fields',async()=>{
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'harness'})});
+ const {app}=await(await call('/apps',{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,name:'MCP Relations',columns:[{name:'Task',type:'text'}]})})).json();
+ const relations=Array.from({length:39},(_,i)=>({name:`Link ${i}`,type:'relation',targetEntity:'primary',multiple:i%2===1}));
+ const migration=await call(`/apps/${app.id}/database`,{method:'POST',headers:headers(toru),body:JSON.stringify({orgId:ORG,action:'migrate',id:'mcp_many_relations',version:0,operations:[{op:'add_columns',entity:'primary',columns:relations}]})});expect(migration.status).toBe(200);
+ const token=await mint(['read','write']);const seed=(await tool(token,'add_row',{tableId:app.tableId,values:{task:'Seed'}})).result.structuredContent;
+ const values={task:'MCP'};for(let i=0;i<39;i++)values[`link_${i}`]=i%2?[seed.row.id]:seed.row.id;
+ const inserted=(await tool(token,'add_row',{tableId:app.tableId,values})).result;expect(inserted.isError).not.toBe(true);expect(inserted.structuredContent.row.link_38).toBe(seed.row.id);
+ const updated=(await tool(token,'update_row',{tableId:app.tableId,rowId:inserted.structuredContent.row.id,values})).result;expect(updated.isError).not.toBe(true);expect(updated.structuredContent.row.link_37).toEqual([seed.row.id]);
+});

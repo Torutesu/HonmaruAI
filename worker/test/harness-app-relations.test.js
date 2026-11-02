@@ -306,6 +306,29 @@ test('fork creation safely rejects a primary table changed before snapshot read'
   expect(await env.DB.prepare('SELECT id FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(orgId,app.id,'8101').first()).toBeNull();
 });
 
+test.each(['insert','update'])('forty mixed relations remain valid for %s and use bounded bindings',async action=>{
+ const special='row_日本語_"quoted"_\\slash', now=new Date().toISOString();
+ await env.DB.prepare('INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(special,app.tableId,orgId,'{}',1,'8101','8101',now,now).run();
+ const columns=Array.from({length:40},(_,i)=>({id:`r${i}`,name:`Link ${i}`,type:'relation',targetEntity:'primary',multiple:i%2===1}));
+ await env.DB.prepare('UPDATE hx_tables SET columns=? WHERE org_id=? AND id=?').bind(JSON.stringify(columns),orgId,app.tableId).run();
+ const values=Object.fromEntries(columns.map((column,i)=>[column.id,i%2?(i===1?[]:[special,special]):special]));
+ const {addRow,updateRow}=await import('../src/harness/tables.js');const bindCounts=[];
+ const db=new Proxy(env.DB,{get(t,p){if(p==='prepare')return sql=>{const stmt=t.prepare(sql);if(!sql.startsWith('INSERT INTO hx_rows (id, table_id')&&!sql.startsWith('UPDATE hx_rows SET data = ?1'))return stmt;return {bind(...args){bindCounts.push(args.length);return stmt.bind(...args)}}};const v=t[p];return typeof v==='function'?v.bind(t):v}});
+ const result=action==='insert'?await addRow(db,orgId,app.tableId,values,'8101'):await updateRow(db,orgId,app.tableId,special,values,'8101');
+ expect(result.error).toBeUndefined();const expected=Object.fromEntries(Object.entries(values).map(([key,value])=>[key,Array.isArray(value)?[...new Set(value)]:value]));expect(result.row.values).toEqual(expected);expect(bindCounts).toEqual([11]);
+});
+
+test.each(['insert','update'].flatMap(action=>['single','multiple'].map(kind=>[action,kind])))('relation target deleted after validation blocks %s (%s) without changing the source',async (action,kind)=>{
+ const entity=await installRelations();
+ const target=(await (await call(`/tables/${entity.table.id}/rows`,owner,{values:{name:'Target'}})).json()).row;
+ const source=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'Before'}})).json()).row;
+ const {addRow,updateRow}=await import('../src/harness/tables.js');let injected=false;
+ const db=new Proxy(env.DB,{get(t,p){if(p==='prepare')return sql=>{const stmt=t.prepare(sql);const match=action==='insert'?sql.startsWith('INSERT INTO hx_rows (id, table_id'):sql.startsWith('UPDATE hx_rows SET data = ?1');if(!match)return stmt;return {bind(...args){const bound=stmt.bind(...args);const method=action==='insert'?'run':'first';return {[method]:async()=>{injected=true;await t.prepare('DELETE FROM hx_rows WHERE org_id=? AND id=?').bind(orgId,target.id).run();return bound[method]()}}}}};const v=t[p];return typeof v==='function'?v.bind(t):v}});
+ const values={task:'After',...(kind==='single'?{customer:target.id}:{watchers:[target.id]})};
+ const result=action==='insert'?await addRow(db,orgId,app.tableId,values,'8101'):await updateRow(db,orgId,app.tableId,source.id,values,'8101',source.updatedAt);
+ expect(injected).toBe(true);expect(result.status).toBe(409);const rows=(await env.DB.prepare('SELECT data FROM hx_rows WHERE org_id=? AND table_id=?').bind(orgId,app.tableId).all()).results;expect(rows).toHaveLength(1);expect(JSON.parse(rows[0].data)).toMatchObject({task:'Before'});
+});
+
 test.each([false,true])('self references do not block deleting that row (multiple=%s)',async multiple=>{
  const migration=await dbCall({action:'migrate',id:'self_relation',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Self',type:'relation',targetEntity:'primary',multiple}]}]});expect(migration.status).toBe(200);
  const target=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'Target'}})).json()).row;
@@ -328,4 +351,14 @@ test('another row added after the self-reference precheck still blocks deletion'
  const {deleteRow:deleteRecord}=await import('../src/harness/tables.js');let injected=false;
  const race=new Proxy(env.DB,{get(db,prop){if(prop==='prepare')return sql=>{const stmt=db.prepare(sql);if(!sql.startsWith('DELETE FROM hx_rows WHERE id'))return stmt;return {bind(...args){const bound=stmt.bind(...args);return {first:async()=>{injected=true;await env.DB.prepare('INSERT INTO hx_rows(id,table_id,org_id,data,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').bind('other-row',app.tableId,orgId,JSON.stringify({task:'Other',self:target.id}),'8101','2026','2026').run();return bound.first()}}}}};const value=db[prop];return typeof value==='function'?value.bind(db):value}});
  const result=await deleteRecord(race,orgId,app.tableId,target.id,updated.updatedAt);expect(injected).toBe(true);expect(result.status).toBe(409);expect(await env.DB.prepare('SELECT id FROM hx_rows WHERE id=?').bind(target.id).first()).toBeTruthy();
+});
+
+test('relation writes continue in Simple mode and reject targets in another workspace',async()=>{
+ const entity=await installRelations();const {setMode,getMode}=await import('../src/harness/mode.js');
+ const target=(await (await call(`/tables/${entity.table.id}/rows`,owner,{values:{name:'Target'}})).json()).row;
+ const time=new Date().toISOString(),foreign='row_foreign';await env.DB.prepare('INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(foreign,entity.table.id,'personal:foreign','{}',1,'8101','8101',time,time).run();
+ await setMode(env.DB,orgId,'simple','8101');expect(await getMode(env.DB,orgId)).toBe('simple');
+ expect((await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'Blocked',customer:foreign}})).status).toBe(400);
+ const response=await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'Allowed',customer:target.id,watchers:[target.id]}});expect(response.status).toBe(201);
+ const row=(await response.json()).row;const edit=await call(`/tables/${app.tableId}/rows/${row.id}`,owner,{values:{customer:null,watchers:[]},expectedUpdatedAt:row.updatedAt},'PATCH');expect(edit.status).toBe(200);
 });

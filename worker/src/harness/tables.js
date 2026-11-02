@@ -154,6 +154,13 @@ export async function getTable(db, orgId, id) {
   return publicTable(await db.prepare("SELECT * FROM hx_tables WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first());
 }
 
+// Capture the exact stored schema together with the parsed view used for
+// validation, so the eventual write cannot use stale column types.
+async function tableForWrite(db, orgId, id) {
+  const row = await db.prepare("SELECT * FROM hx_tables WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first();
+  return row ? { table: publicTable(row), columns: row.columns, createdAt: row.created_at, updatedAt: row.updated_at } : null;
+}
+
 export async function listTables(db, orgId) {
   const { results } = await db.prepare("SELECT * FROM hx_tables WHERE org_id = ?1 ORDER BY created_at ASC").bind(orgId).all();
   return (results || []).map(publicTable);
@@ -251,8 +258,9 @@ export async function getRow(db, orgId, tableId, rowId) {
 }
 
 export async function addRow(db, orgId, tableId, values, by, validation) {
-  const table = await getTable(db, orgId, tableId);
-  if (!table) return { error: "No such table.", status: 404 };
+  const observed = await tableForWrite(db, orgId, tableId);
+  if (!observed) return { error: "No such table.", status: 404 };
+  const {table}=observed;
   const invalid = checkValues(table, values, validation);
   if (invalid) return invalid;
   const storedValues = validation === 'strict' ? values : cleanValues(table.columns, values);
@@ -264,20 +272,22 @@ export async function addRow(db, orgId, tableId, values, by, validation) {
   if (Number(count?.n || 0) >= MAX_ROWS) return { error: `A table holds at most ${MAX_ROWS} rows.` };
   const id = newId("row");
   const at = now();
+  const schemaParam = 8 + relationGuard.binds.length;
   const inserted = await db
     .prepare(`INSERT INTO hx_rows (id, table_id, org_id, data, position, created_by, updated_by, created_at, updated_at)
-      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?7 WHERE ${relationGuard.sql}`)
-    .bind(id, tableId, orgId, JSON.stringify(storedValues), Number(count?.p || 0) + 1, String(by), at, ...relationGuard.binds)
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?7 WHERE (${relationGuard.sql}) AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?2 AND org_id=?3 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2})`)
+    .bind(id, tableId, orgId, JSON.stringify(storedValues), Number(count?.p || 0) + 1, String(by), at, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt)
     .run();
-  if (!inserted.meta?.changes) return { error: 'A linked record changed before this record could be saved. Reload and try again.', status: 409 };
+  if (!inserted.meta?.changes) return { error: 'The table schema or a linked record changed before this record could be saved. Reload and try again.', status: 409 };
   return { table, row: await getRow(db, orgId, tableId, id) };
 }
 
 /// Change some values of a row; the others stay. Returns the row before and
 /// after, so a caller can tell what changed (Workflows trigger on it).
 export async function updateRow(db, orgId, tableId, rowId, values, by, expectedUpdatedAt, validation) {
-  const table = await getTable(db, orgId, tableId);
-  if (!table) return { error: "No such table.", status: 404 };
+  const observed = await tableForWrite(db, orgId, tableId);
+  if (!observed) return { error: "No such table.", status: 404 };
+  const {table}=observed;
   const before = await getRow(db, orgId, tableId, rowId);
   if (!before) return { error: "No such row.", status: 404 };
   if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== before.updatedAt) return rowConflict();
@@ -290,9 +300,10 @@ export async function updateRow(db, orgId, tableId, rowId, values, by, expectedU
   if (relationGuard.error) return relationGuard.error;
   // Strictly advance even when two writes happen within the same millisecond.
   const at = new Date(Math.max(Date.now(), Date.parse(before.updatedAt) + 1)).toISOString();
+  const schemaParam = 8 + relationGuard.binds.length;
   const changed = await db
-    .prepare(`UPDATE hx_rows SET data = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4 AND table_id = ?5 AND org_id = ?6 AND updated_at = ?7 AND (${relationGuard.sql}) RETURNING *`)
-    .bind(JSON.stringify(merged), String(by), at, rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds)
+    .prepare(`UPDATE hx_rows SET data = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4 AND table_id = ?5 AND org_id = ?6 AND updated_at = ?7 AND (${relationGuard.sql}) AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?5 AND org_id=?6 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2}) RETURNING *`)
+    .bind(JSON.stringify(merged), String(by), at, rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt)
     .first();
   if (!changed) return rowConflict();
   return { table, before, row: publicRow(changed) };

@@ -2032,3 +2032,13 @@ test('app record scope and alias guard use one schema snapshot when a column cha
   expect(rows.find(r=>r.id===other.id).values.status).toBe('Ready');
   expect(rows.find(r=>r.id===source.id).values.status).toBe('Triggered');
 });
+
+test('workflow row steps handle 39 valid relation fields',async()=>{
+ const app=(await (await send('POST','/apps',mika,{orgId:ORG,name:'Workflow Relations',columns:[{name:'Task',type:'text'}]})).json()).app;
+ const relations=Array.from({length:39},(_,i)=>({name:`Link ${i}`,type:'relation',targetEntity:'primary',multiple:i%2===1}));
+ const migration=await send('POST',`/apps/${app.id}/database`,mika,{orgId:ORG,action:'migrate',id:'workflow_many_relations',version:0,operations:[{op:'add_columns',entity:'primary',columns:relations}]});expect(migration.status).toBe(200);
+ const seed=(await (await send('POST',`/tables/${app.tableId}/rows`,mika,{orgId:ORG,values:{task:'Seed'}})).json()).row;
+ const values={task:'Workflow'};for(let i=0;i<39;i++)values[`link_${i}`]=i%2?[seed.id]:seed.id;
+ const {createWorkflow}=await import('../src/harness/workflows.js');const {workflow}=await createWorkflow(env.DB,ORG,{name:'Many links',trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values},{type:'update_row',tableId:app.tableId,rowId:seed.id,values}]},'9302');
+ const run=await startRun(env,{orgId:ORG,workflow,trigger:'manual',startedBy:'9302'});expect(run.status).toBe('done');expect(run.log).toHaveLength(2);
+});
